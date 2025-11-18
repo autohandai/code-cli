@@ -1,0 +1,15 @@
+{
+    "openrouter": {
+        "apiKey": "your-api-key-here",
+        "model": "anthropic/claude-3.5-sonnet"
+    },
+    "workspace": {
+        "defaultRoot": ".",
+        "allowDangerousOps": false
+    },
+    "ui": {
+        "theme": "dark",
+        "autoConfirm": false,
+        "readFileCharLimit": 300
+    }
+}
