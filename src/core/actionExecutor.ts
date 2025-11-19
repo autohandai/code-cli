@@ -21,6 +21,8 @@ import {
 } from '../actions/git.js';
 import { applyFormatter } from '../actions/formatters.js';
 import { loadCustomCommand, saveCustomCommand } from './customCommands.js';
+import type { ProjectManager } from '../session/ProjectManager.js';
+import type { FailureRecord, SuccessRecord } from '../session/types.js';
 import type { AgentAction, AgentRuntime, ExplorationEvent } from '../types.js';
 import type { FileActionManager } from '../actions/filesystem.js';
 
@@ -29,6 +31,8 @@ export interface ActionExecutorOptions {
   files: FileActionManager;
   resolveWorkspacePath: (relativePath: string) => string;
   confirmDangerousAction: (message: string) => Promise<boolean>;
+  projectManager?: ProjectManager;
+  sessionId?: string;
   onExploration?: (entry: ExplorationEvent) => void;
 }
 
@@ -37,6 +41,8 @@ export class ActionExecutor {
   private readonly files: AgentExecutorDeps['files'];
   private readonly resolveWorkspacePath: AgentExecutorDeps['resolveWorkspacePath'];
   private readonly confirmDangerousAction: AgentExecutorDeps['confirmDangerousAction'];
+  private readonly projectManager?: ProjectManager;
+  private readonly sessionId?: string;
   private readonly logExploration?: (entry: ExplorationEvent) => void;
 
   constructor(private readonly deps: AgentExecutorDeps) {
@@ -44,6 +50,8 @@ export class ActionExecutor {
     this.files = deps.files;
     this.resolveWorkspacePath = deps.resolveWorkspacePath;
     this.confirmDangerousAction = deps.confirmDangerousAction;
+    this.projectManager = deps.projectManager;
+    this.sessionId = deps.sessionId;
     this.logExploration = deps.onExploration;
   }
 
@@ -288,18 +296,31 @@ export class ActionExecutor {
         // Write back
         await this.files.writeFile(todoPath, JSON.stringify(allTodos, null, 2));
 
-        // Display summary
-        console.log(chalk.cyan('\n📋 Task List Updated:'));
-        const pending = allTodos.filter(t => t.status === 'pending').length;
-        const inProgress = allTodos.filter(t => t.status === 'in_progress').length;
-        const completed = allTodos.filter(t => t.status === 'completed').length;
+        // Display summary with progress bar
+        console.log(chalk.cyan('\n📋 Task Progress:'));
 
-        console.log(chalk.gray(`  ⏳ Pending: ${pending}`));
-        console.log(chalk.yellow(`  🔄 In Progress: ${inProgress}`));
-        console.log(chalk.green(`  ✅ Completed: ${completed}`));
+        const total = allTodos.length;
+        const completed = allTodos.filter(t => t.status === 'completed').length;
+        const inProgress = allTodos.filter(t => t.status === 'in_progress');
+        const pending = allTodos.filter(t => t.status === 'pending').length;
+
+        const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+        const barWidth = 20;
+        const filled = Math.round((barWidth * percent) / 100);
+        const bar = '█'.repeat(filled) + '░'.repeat(barWidth - filled);
+
+        console.log(`  ${chalk.green(bar)} ${percent}%`);
+        console.log(chalk.gray(`  ${completed} done · ${inProgress.length} in progress · ${pending} pending`));
+
+        if (inProgress.length > 0) {
+          console.log(chalk.yellow('\n  🔄 Active Tasks:'));
+          for (const task of inProgress) {
+            console.log(`    • ${task.title}`);
+          }
+        }
         console.log();
 
-        return `Updated task list: ${pending} pending, ${inProgress} in progress, ${completed} completed`;
+        return `Updated task list: ${percent}% complete (${completed}/${total})`;
       }
       default:
         throw new Error(`Unsupported action type ${(action as AgentAction).type}`);

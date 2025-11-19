@@ -6,6 +6,7 @@
 import chalk from 'chalk';
 import terminalLink from 'terminal-link';
 import type { SlashCommand } from './slashCommands.js';
+import type { SessionManager } from '../session/SessionManager.js';
 
 export interface SlashCommandContext {
   listWorkspaceFiles: () => Promise<void>;
@@ -15,6 +16,7 @@ export interface SlashCommandContext {
   promptApprovalMode: () => Promise<void>;
   createAgentsFile: () => Promise<void>;
   resetConversation: () => void;
+  sessionManager?: SessionManager;
 }
 
 export class SlashCommandHandler {
@@ -24,7 +26,7 @@ export class SlashCommandHandler {
     commands.forEach((cmd) => this.commandMap.set(cmd.command, cmd));
   }
 
-  async handle(command: string): Promise<string | null> {
+  async handle(command: string, args: string[] = []): Promise<string | null> {
     const meta = this.commandMap.get(command);
     if (meta && !meta.implemented) {
       this.printUnimplemented(meta);
@@ -77,6 +79,22 @@ export class SlashCommandHandler {
         case '/help': {
           const { help } = await import('../commands/help.js');
           return help();
+        }
+        case '/resume': {
+          if (!this.ctx.sessionManager) {
+            console.log(chalk.red('Session manager not available'));
+            return null;
+          }
+          const { resume } = await import('../commands/resume.js');
+          return resume({ sessionManager: this.ctx.sessionManager, args });
+        }
+        case '/sessions': {
+          if (!this.ctx.sessionManager) {
+            console.log(chalk.red('Session manager not available'));
+            return null;
+          }
+          const { sessions } = await import('../commands/sessions.js');
+          return sessions({ sessionManager: this.ctx.sessionManager, args });
         }
         default:
           this.printUnsupported(command);

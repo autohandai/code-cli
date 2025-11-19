@@ -44,6 +44,7 @@ export interface CLIOptions {
   model?: string;
   config?: string;
   temperature?: number;
+  resumeSessionId?: string;
 }
 
 export interface PromptContext {

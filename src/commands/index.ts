@@ -16,6 +16,8 @@ export * as init from './init.js';
 export * as compact from './compact.js';
 export * as quit from './quit.js';
 export * as help from './help.js';
+export * as resume from './resume.js';
+export * as sessions from './sessions.js';
 
 // Command registry type
 export interface CommandModule {
@@ -46,7 +48,9 @@ export function getAllCommands(): Array<{ command: string; description: string; 
         modules.init,
         modules.compact,
         modules.quit,
-        modules.help
+        modules.help,
+        modules.resume,
+        modules.sessions
     ];
 
     for (const mod of commandModules) {

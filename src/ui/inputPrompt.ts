@@ -24,118 +24,179 @@ export async function readInstruction(
 ): Promise<string | null> {
   const stdInput = (io.input ?? process.stdin) as NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void };
   const stdOutput = (io.output ?? process.stdout) as NodeJS.WriteStream;
-  const rl = readline.createInterface({
-    input: stdInput,
-    output: stdOutput,
-    prompt: `${chalk.gray('›')} `,
-    terminal: true,
-    crlfDelay: Infinity,
-    historySize: 100,
-    tabSize: 2
-  });
-  const input = (rl as readline.Interface & { input: NodeJS.ReadStream }).input;
-  const supportsRawMode = typeof input.setRawMode === 'function';
 
-  // Don't use raw mode - it prevents proper line wrapping
-  if (supportsRawMode && input.isTTY) {
-    input.setRawMode(true);
-  }
-
-  input.resume();
-  input.setEncoding('utf8');
-
-  const mentionPreview = new MentionPreview(rl, files, slashCommands, stdOutput, statusLine);
-  const resizeWatcher = new TerminalResizeWatcher(stdOutput, () => {
-    mentionPreview.handleResize();
-    renderPromptLine(rl, statusLine, stdOutput);
-  });
-
-  let ctrlCCount = 0;
-  let aborted = false;
-  let settled = false;
-  let paletteOpen = false;
-  const cleanup = () => {
-    mentionPreview.dispose();
-    resizeWatcher.dispose();
-  };
-  const line = await new Promise<string | null>((resolve) => {
-    const finish = (value: string | null) => {
-      if (settled) {
-        return;
+  while (true) {
+    try {
+      // Ensure stdin is resumed before creating readline interface
+      // (it might have been paused by command palette or other UI)
+      if (stdInput.isPaused && stdInput.isPaused()) {
+        stdInput.resume();
       }
-      settled = true;
-      cleanup();
-      stdOutput.write(RESET_BG);
+
+      const rl = readline.createInterface({
+        input: stdInput,
+        output: stdOutput,
+        prompt: `${chalk.gray('›')} `,
+        terminal: true,
+        crlfDelay: Infinity,
+        historySize: 100,
+        tabSize: 2
+      });
+      const input = (rl as readline.Interface & { input: NodeJS.ReadStream }).input;
+      const supportsRawMode = typeof input.setRawMode === 'function';
+
       if (supportsRawMode && input.isTTY) {
-        input.setRawMode(false);
+        input.setRawMode(true);
       }
-      input.pause();
-      rl.close();
-      resolve(value);
-    };
 
-    const openPalette = async () => {
-      if (paletteOpen) {
-        return;
-      }
-      paletteOpen = true;
-      cleanup();
-      if (supportsRawMode && input.isTTY) {
-        input.setRawMode(false);
-      }
-      input.pause();
-      rl.close();
-      try {
-        const selection = await showCommandPalette(slashCommands, statusLine);
-        finish(selection);
-      } catch (error) {
-        console.error(chalk.red(`Command palette failed: ${(error as Error).message}`));
-        finish(null);
-      }
-    };
+      input.resume();
+      input.setEncoding('utf8');
 
+      let ctrlCCount = 0;
+      let aborted = false;
+      let settled = false;
+      let paletteOpen = false;
+      let keypressHandler: ((str: string, key: readline.Key) => void) | null = null;
+      let mentionPreview: MentionPreview | null = null;
+      let resizeWatcher: TerminalResizeWatcher | null = null;
 
-    rl.setPrompt(`${chalk.gray('›')} `);
-    rl.prompt(true);
-    rl.on('line', (value) => {
-      stdOutput.write('\n');
-      finish(value.trim());
-    });
-    rl.on('SIGINT', () => {
-      if (ctrlCCount === 0) {
-        ctrlCCount = 1;
-        mentionPreview.reset();
-        stdOutput.write(`\n${chalk.gray('Press Ctrl+C again to exit.')}\n`);
-        renderPromptLine(rl, statusLine, stdOutput);
-        return;
-      }
-      aborted = true;
-      finish(null);
-    });
-
-    input.on('keypress', (str, key) => {
-      if (key?.name === 'c' && key.ctrl) {
-        if (ctrlCCount === 0) {
-          ctrlCCount = 1;
-          mentionPreview.reset();
-          stdOutput.write(`\n${chalk.gray('Press Ctrl+C again to exit.')}\n`);
+      const attachInteractiveUi = () => {
+        mentionPreview = new MentionPreview(rl, files, slashCommands, stdOutput, statusLine);
+        resizeWatcher = new TerminalResizeWatcher(stdOutput, () => {
+          mentionPreview?.handleResize();
           renderPromptLine(rl, statusLine, stdOutput);
-          return;
-        }
-        aborted = true;
-        finish(null);
-        return;
-      }
-      if (!paletteOpen && rl.cursor === 1 && rl.line === '/') {
-        void openPalette();
-      }
-    });
-  });
+        });
+      };
 
-  if (aborted) {
-    process.exit(0);
+      const detachInteractiveUi = () => {
+        mentionPreview?.dispose();
+        mentionPreview = null;
+        resizeWatcher?.dispose();
+        resizeWatcher = null;
+      };
+
+      const detachKeypressHandler = () => {
+        if (keypressHandler) {
+          input.off('keypress', keypressHandler);
+          keypressHandler = null;
+        }
+      };
+
+      attachInteractiveUi();
+
+      const result = await new Promise<string | null>((resolve) => {
+        const finish = (value: string | null) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          detachInteractiveUi();
+          detachKeypressHandler();
+          stdOutput.write(RESET_BG);
+          if (supportsRawMode && input.isTTY) {
+            input.setRawMode(false);
+          }
+          input.pause();
+          rl.close();
+          resolve(value);
+        };
+
+        const handleKeypress = (_str: string, key: readline.Key) => {
+          if (key?.name === 'c' && key.ctrl) {
+            if (ctrlCCount === 0) {
+              ctrlCCount = 1;
+              mentionPreview?.reset();
+              stdOutput.write(`\n${chalk.gray('Press Ctrl+C again to exit.')}\n`);
+              renderPromptLine(rl, statusLine, stdOutput);
+              return;
+            }
+            aborted = true;
+            finish(null);
+            return;
+          }
+          if (!paletteOpen && rl.cursor === 1 && rl.line === '/') {
+            void openPalette();
+          }
+        };
+
+        function attachKeypressHandler(): void {
+          detachKeypressHandler();
+          keypressHandler = handleKeypress;
+          input.on('keypress', keypressHandler);
+        }
+
+        function restorePrompt(): void {
+          if (supportsRawMode && input.isTTY) {
+            input.setRawMode(true);
+          }
+          input.resume();
+          attachInteractiveUi();
+          attachKeypressHandler();
+          renderPromptLine(rl, statusLine, stdOutput);
+        }
+
+        const openPalette = async () => {
+          if (paletteOpen) {
+            return;
+          }
+          paletteOpen = true;
+          detachInteractiveUi();
+          detachKeypressHandler();
+          if (supportsRawMode && input.isTTY) {
+            input.setRawMode(false);
+          }
+          input.pause();
+
+          let selection: string | null | undefined;
+          try {
+            selection = await showCommandPalette(slashCommands, statusLine);
+          } catch (error) {
+            console.error(chalk.red(`Command palette failed: ${(error as Error).message}`));
+          } finally {
+            paletteOpen = false;
+          }
+
+          if (typeof selection !== 'string') {
+            restorePrompt();
+            return;
+          }
+
+          finish(selection);
+        };
+
+        rl.setPrompt(`${chalk.gray('›')} `);
+        rl.prompt(true);
+        rl.on('line', (value) => {
+          stdOutput.write('\n');
+          finish(value.trim());
+        });
+        rl.on('SIGINT', () => {
+          if (ctrlCCount === 0) {
+            ctrlCCount = 1;
+            mentionPreview?.reset();
+            stdOutput.write(`\n${chalk.gray('Press Ctrl+C again to exit.')}\n`);
+            renderPromptLine(rl, statusLine, stdOutput);
+            return;
+          }
+          aborted = true;
+          finish(null);
+        });
+
+        attachKeypressHandler();
+      });
+
+      if (aborted) {
+        return null;
+      }
+      return result;
+
+    } catch (error) {
+      console.error(chalk.red(`\nInput error: ${(error as Error).message}`));
+      // Wait a bit before retrying to avoid tight loops if something is permanently broken
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      continue;
+    }
   }
-  return line || null;
 }
 
 class MentionPreview {
@@ -464,17 +525,43 @@ function wrapText(text: string, width: number, indent: number = 0): string[] {
   return lines.length ? lines : [''];
 }
 
+import { drawInputBox } from './box.js';
+
 function renderPromptLine(rl: readline.Interface, statusLine: string | undefined, output: NodeJS.WriteStream): void {
   const width = Math.max(20, output.columns || 80);
-  const status = (statusLine ?? ' ').padEnd(width);
+  // Subtract 2 for borders
+  const contentWidth = width - 2;
+  const status = (statusLine ?? ' ').padEnd(contentWidth).slice(0, contentWidth);
+
+  const box = drawInputBox(status, contentWidth);
 
   readline.cursorTo(output, 0);
-  output.write(`${INPUT_BG}${' '.repeat(width)}${RESET_BG}\n`);
-  output.write(`${chalk.hex(STATUS_COLOR)(status)}\n`);
+  output.write(`${box}\n`);
 
-  readline.moveCursor(output, 0, -2);
-  readline.cursorTo(output, 0);
-  output.write(INPUT_BG);
+  // Move cursor to inside the box for input
+  // The box has 3 lines: top, middle (status), bottom.
+  // We want input to be below the box? Or inside?
+  // The original code had input below status.
+
+  // Let's stick to the original layout but use the box for the status line.
+  // Actually, drawInputBox draws a box around the "prompt" string.
+  // If we want the input to be inside a box, we need a different design.
+  // But let's just use it for the status line for now as a "header".
+
+  readline.moveCursor(output, 0, -2); // Move up to the middle line of the box?
+  // No, the previous code cleared lines and wrote status.
+
+  // Let's look at drawInputBox again.
+  // top, middle (prompt), bottom.
+
+  // If we use it for status:
+  // ┌──────────────┐
+  // │ status text  │
+  // └──────────────┘
+  // › input
+
+  // This seems reasonable.
+
   rl.setPrompt(`${chalk.gray('›')} `);
   rl.prompt(true);
 }

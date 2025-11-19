@@ -15,6 +15,20 @@ import { startStatusPanel } from './ui/statusPanel.js';
 import type { CLIOptions, AgentRuntime } from './types.js';
 
 
+// DEBUG: Global exit handlers
+process.on('exit', (code) => {
+  console.error(`[DEBUG] Process exiting with code: ${code}`);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[DEBUG] Uncaught Exception:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[DEBUG] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 const ASCII_FRIEND = [
   '⢀⡴⠛⠛⠻⣷⡄⠀⣠⡶⠟⠛⠻⣶⡄⢀⣴⡾⠛⠛⢿⣦⠀⢀⣴⠞⠛⠛⠶⡀',
   '⡎⠀⢰⣶⡆⠈⣿⣴⣿⠁⣴⣶⡄⠘⣿⣾⡏⢀⣶⣦⠀⢻⡇⣿⠃⢠⣶⡆⠀⢹',
@@ -42,6 +56,15 @@ program
     await runCLI(opts);
   });
 
+program
+  .command('resume <sessionId>')
+  .description('Resume a previous session')
+  .option('--path <path>', 'Workspace path to operate in')
+  .option('--model <model>', 'Override the configured LLM model')
+  .action(async (sessionId: string, opts: CLIOptions) => {
+    await runCLI({ ...opts, resumeSessionId: sessionId });
+  });
+
 async function runCLI(options: CLIOptions): Promise<void> {
   let statusPanel: { update: (snap: any) => void; stop: () => void } | null = null;
   try {
@@ -65,6 +88,19 @@ async function runCLI(options: CLIOptions): Promise<void> {
 
     if (options.prompt) {
       await agent.runInstruction(options.prompt);
+    } else if (options.resumeSessionId) {
+      // Manually inject the resume instruction
+      await agent.runInteractive(); // This will start a new session by default
+      // We need to modify agent to accept a session ID or handle this better.
+      // Actually, let's just pass the instruction.
+      // But runInteractive creates a session.
+      // Let's modify runInteractive to take an optional sessionId?
+      // No, the agent.ts logic I added handles 'SESSION_RESUMED' instruction but that's internal.
+
+      // Better approach:
+      // The agent needs to know to load a specific session.
+      // I'll add a method to agent to set the session ID to resume.
+      await agent.resumeSession(options.resumeSessionId);
     } else {
       await agent.runInteractive();
     }

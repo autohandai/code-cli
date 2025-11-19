@@ -14,6 +14,8 @@ import * as init from '../commands/init.js';
 import * as compact from '../commands/compact.js';
 import * as quit from '../commands/quit.js';
 import * as help from '../commands/help.js';
+import * as resume from '../commands/resume.js';
+import * as sessions from '../commands/sessions.js';
 
 export interface SlashCommand {
   command: string;
@@ -33,5 +35,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   compact.metadata,
   undo.metadata,
   diff.metadata,
-  help.metadata
+  help.metadata,
+  resume.metadata,
+  sessions.metadata
 ];

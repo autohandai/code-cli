@@ -22,6 +22,9 @@ import { ConversationManager } from './conversationManager.js';
 import { ToolManager } from './toolManager.js';
 import { ActionExecutor } from './actionExecutor.js';
 import { SlashCommandHandler } from './slashCommandHandler.js';
+import { SessionManager } from '../session/SessionManager.js';
+import { ProjectManager } from '../session/ProjectManager.js';
+import type { SessionMessage, WorkspaceState } from '../session/types.js';
 import type {
   AgentRuntime,
   AgentAction,
@@ -42,6 +45,8 @@ export class AutohandAgent {
   private toolManager: ToolManager;
   private actionExecutor: ActionExecutor;
   private slashHandler: SlashCommandHandler;
+  private sessionManager: SessionManager;
+  private projectManager: ProjectManager;
   private workspaceFiles: string[] = [];
   private isInstructionActive = false;
   private hasPrintedExplorationHeader = false;
@@ -67,6 +72,8 @@ export class AutohandAgent {
       executor: (action) => this.actionExecutor.execute(action),
       confirmApproval: (message) => this.confirmDangerousAction(message)
     });
+    this.sessionManager = new SessionManager();
+    this.projectManager = new ProjectManager();
     this.slashHandler = new SlashCommandHandler({
       listWorkspaceFiles: () => this.listWorkspaceFiles(),
       printGitDiff: () => this.printGitDiff(),
@@ -74,24 +81,91 @@ export class AutohandAgent {
       promptModelSelection: () => this.promptModelSelection(),
       promptApprovalMode: () => this.promptApprovalMode(),
       createAgentsFile: () => this.createAgentsFile(),
-      resetConversation: () => this.resetConversationContext()
+      resetConversation: () => this.resetConversationContext(),
+      sessionManager: this.sessionManager
     }, SLASH_COMMANDS);
   }
 
   async runInteractive(): Promise<void> {
-    while (true) {
-      const instruction = await this.promptForInstruction();
-      if (!instruction) {
-        continue;
+    // Initialize session
+    await this.sessionManager.initialize();
+    await this.projectManager.initialize();
+    const model = this.runtime.options.model ?? this.runtime.config.openrouter.model;
+    await this.sessionManager.createSession(this.runtime.workspaceRoot, model);
+
+    await this.runInteractiveLoop();
+  }
+
+  async resumeSession(sessionId: string): Promise<void> {
+    // Initialize session
+    await this.sessionManager.initialize();
+    await this.projectManager.initialize();
+
+    try {
+      const session = await this.sessionManager.loadSession(sessionId);
+
+      // Restore context
+      this.resetConversationContext();
+      const messages = session.getMessages();
+      for (const msg of messages) {
+        if (msg.role === 'system') {
+          if (!msg.content.startsWith('You are Autohand')) {
+            this.conversation.addSystemNote(msg.content);
+          }
+        } else {
+          this.conversation.addMessage({
+            role: msg.role,
+            content: msg.content,
+            name: msg.name
+          });
+        }
       }
 
-      if (instruction === '/exit' || instruction === '/quit') {
-        console.log(chalk.gray('Ending Autohand session.'));
-        return;
-      }
+      await this.injectProjectKnowledge();
+      this.updateContextUsage(this.conversation.history());
 
-      await this.runInstruction(instruction);
-      console.log();
+      console.log(chalk.cyan(`\n📂 Resumed session ${sessionId}`));
+
+      // Start interactive loop
+      await this.runInteractiveLoop();
+    } catch (error) {
+      console.error(chalk.red(`Failed to resume session: ${(error as Error).message}`));
+      // Fallback to new session
+      const model = this.runtime.options.model ?? this.runtime.config.openrouter.model;
+      await this.sessionManager.createSession(this.runtime.workspaceRoot, model);
+      await this.runInteractiveLoop();
+    }
+  }
+
+  private async runInteractiveLoop(): Promise<void> {
+    try {
+      while (true) {
+        const instruction = await this.promptForInstruction();
+        if (!instruction) {
+          continue;
+        }
+
+        if (instruction === '/exit' || instruction === '/quit') {
+          await this.closeSession();
+          return;
+        }
+
+        if (instruction === 'SESSION_RESUMED') {
+          // Already handled in resumeSession or runInteractive logic, but keep for safety
+          continue;
+        }
+
+        await this.runInstruction(instruction);
+        console.log();
+      }
+    } catch (error) {
+      // Save session on error
+      const session = this.sessionManager.getCurrentSession();
+      if (session) {
+        session.metadata.status = 'crashed';
+        await session.save();
+      }
+      throw error;
     }
   }
 
@@ -99,7 +173,12 @@ export class AutohandAgent {
     this.workspaceFiles = await this.collectWorkspaceFiles();
     const statusLine = this.formatStatusLine();
     const input = await readInstruction(this.workspaceFiles, SLASH_COMMANDS, statusLine);
+    // Only exit on explicit ABORT (double Ctrl+C). Palette cancel or dismiss should continue.
+    if (input === 'ABORT') { // double Ctrl+C from prompt
+      return '/exit';
+    }
     if (input === null) {
+      // keep interactive loop running
       return null;
     }
 
@@ -301,6 +380,10 @@ export class AutohandAgent {
       stopPreparation();
       spinner.text = 'Reasoning with the AI (ReAct loop)...';
       this.conversation.addMessage({ role: 'user', content: userMessage });
+
+      // Save user message to session
+      await this.saveUserMessage(instruction);
+
       this.updateContextUsage(this.conversation.history());
       await this.runReactLoop(abortController);
     } catch (error) {
@@ -322,10 +405,67 @@ export class AutohandAgent {
     }
   }
 
+  private async saveUserMessage(content: string): Promise<void> {
+    const session = this.sessionManager.getCurrentSession();
+    if (!session) return;
+
+    const message: SessionMessage = {
+      role: 'user',
+      content,
+      timestamp: new Date().toISOString()
+    };
+    await session.append(message);
+  }
+
+  private async saveAssistantMessage(content: string, toolCalls?: any[]): Promise<void> {
+    const session = this.sessionManager.getCurrentSession();
+    if (!session) return;
+
+    const message: SessionMessage = {
+      role: 'assistant',
+      content,
+      timestamp: new Date().toISOString(),
+      toolCalls
+    };
+    await session.append(message);
+  }
+
+  private async saveToolMessage(name: string, content: string): Promise<void> {
+    const session = this.sessionManager.getCurrentSession();
+    if (!session) return;
+
+    const message: SessionMessage = {
+      role: 'tool',
+      content,
+      name,
+      timestamp: new Date().toISOString()
+    };
+    await session.append(message);
+  }
+
+  private async closeSession(): Promise<void> {
+    const session = this.sessionManager.getCurrentSession();
+    if (!session) {
+      console.log(chalk.gray('Ending Autohand session.'));
+      return;
+    }
+
+    // Generate summary from last few messages
+    const messages = session.getMessages();
+    const lastUserMsg = messages.filter(m => m.role === 'user').slice(-1)[0];
+    const summary = lastUserMsg?.content.slice(0, 60) || 'Session complete';
+
+    await this.sessionManager.closeSession(summary);
+
+    console.log(chalk.gray('\nEnding Autohand session.\n'));
+    console.log(chalk.cyan(`💾 Session saved: ${session.metadata.sessionId}`));
+    console.log(chalk.gray(`   Resume with: autohand resume ${session.metadata.sessionId}\n`));
+  }
+
   private async runReactLoop(abortController: AbortController): Promise<void> {
     const maxIterations = 8;
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
-      this.runtime.spinner?.start('Awaiting assistant response...');
+      this.runtime.spinner?.start('Working ...');
       const completion = await this.llm.complete({
         messages: this.conversation.history(),
         temperature: this.runtime.options.temperature ?? 0.2,
@@ -335,6 +475,7 @@ export class AutohandAgent {
 
       const payload = this.parseAssistantReactPayload(completion.content);
       this.conversation.addMessage({ role: 'assistant', content: completion.content });
+      await this.saveAssistantMessage(completion.content, payload.toolCalls);
       this.updateContextUsage(this.conversation.history());
 
       if (payload.toolCalls && payload.toolCalls.length > 0) {
@@ -350,6 +491,7 @@ export class AutohandAgent {
           for (const call of cropCalls) {
             const content = await this.handleSmartContextCrop(call);
             this.conversation.addMessage({ role: 'tool', name: 'smart_context_cropper', content });
+            await this.saveToolMessage('smart_context_cropper', content);
             this.updateContextUsage(this.conversation.history());
             console.log(`\n${chalk.cyan('✂ smart_context_cropper')}\n${chalk.gray(content)}`);
           }
@@ -363,11 +505,32 @@ export class AutohandAgent {
               ? result.output ?? '(no output)'
               : result.error ?? result.output ?? 'Tool failed without error message';
             this.conversation.addMessage({ role: 'tool', name: result.tool, content });
+            await this.saveToolMessage(result.tool, content);
             this.updateContextUsage(this.conversation.history());
             const icon = result.success ? chalk.green('✔') : chalk.red('✖');
             console.log(`\n${icon} ${chalk.bold(result.tool)}`);
             if (content) {
               console.log(chalk.gray(content));
+            }
+
+            // Record success/failure
+            if (result.success) {
+              await this.projectManager.recordSuccess(this.runtime.workspaceRoot, {
+                timestamp: new Date().toISOString(),
+                sessionId: this.sessionManager.getCurrentSession()?.metadata.sessionId || 'unknown',
+                tool: result.tool,
+                context: 'Tool execution',
+                tags: [result.tool]
+              });
+            } else {
+              await this.projectManager.recordFailure(this.runtime.workspaceRoot, {
+                timestamp: new Date().toISOString(),
+                sessionId: this.sessionManager.getCurrentSession()?.metadata.sessionId || 'unknown',
+                tool: result.tool,
+                error: result.error || 'Unknown error',
+                context: 'Tool execution',
+                tags: [result.tool]
+              });
             }
           }
         }
@@ -696,6 +859,33 @@ export class AutohandAgent {
       gitStatus,
       recentFiles
     };
+  }
+
+  private async injectProjectKnowledge(): Promise<void> {
+    const knowledge = await this.projectManager.getKnowledge(this.runtime.workspaceRoot);
+    if (!knowledge) return;
+
+    const parts: string[] = [];
+
+    if (knowledge.antiPatterns.length > 0) {
+      parts.push('Avoid these past failures:');
+      knowledge.antiPatterns.forEach(p => {
+        parts.push(`- ${p.pattern}: ${p.reason} (confidence: ${p.confidence.toFixed(2)})`);
+      });
+    }
+
+    if (knowledge.bestPractices.length > 0) {
+      parts.push('Follow these successful patterns:');
+      knowledge.bestPractices.forEach(p => {
+        parts.push(`- ${p.pattern}: ${p.reason} (confidence: ${p.confidence.toFixed(2)})`);
+      });
+    }
+
+    if (parts.length > 0) {
+      this.conversation.addSystemNote(
+        `Project Knowledge:\n${parts.join('\n')}`
+      );
+    }
   }
 
   private setupEscListener(controller: AbortController, onCancel: () => void, ctrlCInterrupt = false): () => void {

@@ -146,6 +146,7 @@ export class FileActionManager {
       }
       const stats = fs.statSync(current);
       if (stats.isDirectory()) {
+        // TODO: only considering if dir exists, what if doesn't?
         const entries = fs.readdirSync(current);
         for (const entry of entries) {
           stack.push(path.join(current, entry));
