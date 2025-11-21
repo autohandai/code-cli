@@ -8,6 +8,7 @@ import readline from 'node:readline';
 import { TerminalResizeWatcher } from './terminalResize.js';
 import { showCommandPalette } from './commandPalette.js';
 import type { SlashCommand } from '../core/slashCommands.js';
+import { buildFileMentionSuggestions, MENTION_SUGGESTION_LIMIT } from './mentionFilter.js';
 
 export type SlashCommandHint = SlashCommand;
 
@@ -25,10 +26,14 @@ export async function readInstruction(
   const stdInput = (io.input ?? process.stdin) as NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void };
   const stdOutput = (io.output ?? process.stdout) as NodeJS.WriteStream;
 
-  while (true) {
-    try {
-      // Ensure stdin is resumed before creating readline interface
-      // (it might have been paused by command palette or other UI)
+  // Keep process alive while we are reading instruction to prevent
+  // event loop starvation during UI transitions (e.g. Ink -> Readline)
+  const keepAlive = setInterval(() => { }, 10000);
+
+  try {
+    // State machine loop
+    while (true) {
+      // 1. Create Readline Interface
       if (stdInput.isPaused && stdInput.isPaused()) {
         stdInput.resume();
       }
@@ -42,63 +47,35 @@ export async function readInstruction(
         historySize: 100,
         tabSize: 2
       });
+      disableReadlineTabBehavior(rl);
+
       const input = (rl as readline.Interface & { input: NodeJS.ReadStream }).input;
       const supportsRawMode = typeof input.setRawMode === 'function';
-
       if (supportsRawMode && input.isTTY) {
         input.setRawMode(true);
       }
-
       input.resume();
       input.setEncoding('utf8');
 
-      let ctrlCCount = 0;
-      let aborted = false;
-      let settled = false;
-      let paletteOpen = false;
-      let keypressHandler: ((str: string, key: readline.Key) => void) | null = null;
-      let mentionPreview: MentionPreview | null = null;
-      let resizeWatcher: TerminalResizeWatcher | null = null;
+      // 2. Setup Interactive UI (Mentions, Resize)
+      let mentionPreview: MentionPreview | null = new MentionPreview(rl, files, slashCommands, stdOutput, statusLine);
+      let resizeWatcher: TerminalResizeWatcher | null = new TerminalResizeWatcher(stdOutput, () => {
+        mentionPreview?.handleResize();
+        renderPromptLine(rl, statusLine, stdOutput);
+      });
 
-      const attachInteractiveUi = () => {
-        mentionPreview = new MentionPreview(rl, files, slashCommands, stdOutput, statusLine);
-        resizeWatcher = new TerminalResizeWatcher(stdOutput, () => {
-          mentionPreview?.handleResize();
-          renderPromptLine(rl, statusLine, stdOutput);
-        });
-      };
+      // 3. Wait for Input or Palette Trigger
+      const result = await new Promise<string | null | 'OPEN_PALETTE'>((resolve) => {
+        let ctrlCCount = 0;
 
-      const detachInteractiveUi = () => {
-        mentionPreview?.dispose();
-        mentionPreview = null;
-        resizeWatcher?.dispose();
-        resizeWatcher = null;
-      };
-
-      const detachKeypressHandler = () => {
-        if (keypressHandler) {
-          input.off('keypress', keypressHandler);
-          keypressHandler = null;
-        }
-      };
-
-      attachInteractiveUi();
-
-      const result = await new Promise<string | null>((resolve) => {
-        const finish = (value: string | null) => {
-          if (settled) {
-            return;
-          }
-          settled = true;
-          detachInteractiveUi();
-          detachKeypressHandler();
-          stdOutput.write(RESET_BG);
-          if (supportsRawMode && input.isTTY) {
-            input.setRawMode(false);
-          }
-          input.pause();
+        const cleanup = () => {
+          mentionPreview?.dispose();
+          mentionPreview = null;
+          resizeWatcher?.dispose();
+          resizeWatcher = null;
+          input.off('keypress', handleKeypress);
           rl.close();
-          resolve(value);
+          // IMPORTANT: Do NOT pause input here. Leave it flowing for the next step.
         };
 
         const handleKeypress = (_str: string, key: readline.Key) => {
@@ -110,67 +87,31 @@ export async function readInstruction(
               renderPromptLine(rl, statusLine, stdOutput);
               return;
             }
-            aborted = true;
-            finish(null);
+            cleanup();
+            resolve('ABORT');
             return;
           }
-          if (!paletteOpen && rl.cursor === 1 && rl.line === '/') {
-            void openPalette();
+
+          // Trigger Palette
+          if (rl.cursor === 1 && rl.line === '/') {
+            cleanup();
+            resolve('OPEN_PALETTE');
           }
         };
 
-        function attachKeypressHandler(): void {
-          detachKeypressHandler();
-          keypressHandler = handleKeypress;
-          input.on('keypress', keypressHandler);
-        }
-
-        function restorePrompt(): void {
-          if (supportsRawMode && input.isTTY) {
-            input.setRawMode(true);
-          }
-          input.resume();
-          attachInteractiveUi();
-          attachKeypressHandler();
-          renderPromptLine(rl, statusLine, stdOutput);
-        }
-
-        const openPalette = async () => {
-          if (paletteOpen) {
-            return;
-          }
-          paletteOpen = true;
-          detachInteractiveUi();
-          detachKeypressHandler();
-          if (supportsRawMode && input.isTTY) {
-            input.setRawMode(false);
-          }
-          input.pause();
-
-          let selection: string | null | undefined;
-          try {
-            selection = await showCommandPalette(slashCommands, statusLine);
-          } catch (error) {
-            console.error(chalk.red(`Command palette failed: ${(error as Error).message}`));
-          } finally {
-            paletteOpen = false;
-          }
-
-          if (typeof selection !== 'string') {
-            restorePrompt();
-            return;
-          }
-
-          finish(selection);
-        };
+        input.on('keypress', handleKeypress);
 
         rl.setPrompt(`${chalk.gray('›')} `);
         rl.prompt(true);
+
         rl.on('line', (value) => {
           stdOutput.write('\n');
-          finish(value.trim());
+          cleanup();
+          resolve(value.trim());
         });
+
         rl.on('SIGINT', () => {
+          // duplicate of ctrl+c handler but good for safety
           if (ctrlCCount === 0) {
             ctrlCCount = 1;
             mentionPreview?.reset();
@@ -178,24 +119,52 @@ export async function readInstruction(
             renderPromptLine(rl, statusLine, stdOutput);
             return;
           }
-          aborted = true;
-          finish(null);
+          cleanup();
+          resolve('ABORT');
         });
-
-        attachKeypressHandler();
       });
 
-      if (aborted) {
-        return null;
-      }
-      return result;
+      // 4. Handle Result
+      if (result === 'OPEN_PALETTE') {
+        // Transition to Ink Palette
+        // Ensure raw mode is off for Ink? Ink handles it.
+        // Just ensure input is not paused.
 
-    } catch (error) {
-      console.error(chalk.red(`\nInput error: ${(error as Error).message}`));
-      // Wait a bit before retrying to avoid tight loops if something is permanently broken
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      continue;
+        let selection: string | null = null;
+        try {
+          selection = await showCommandPalette(slashCommands, statusLine);
+        } catch (error) {
+          console.error(chalk.red(`Command palette failed: ${(error as Error).message}`));
+        }
+
+        if (typeof selection === 'string') {
+          return selection;
+        }
+
+        // If null (cancelled), loop back to recreate readline prompt
+        continue;
+      }
+
+      if (result === 'ABORT') {
+        return 'ABORT';
+      }
+
+      return result;
     }
+  } finally {
+    clearInterval(keepAlive);
+  }
+}
+
+/**
+ * Disable readline's built-in tab completion so our custom @ mention handler
+ * can own Tab behavior without the default inserter interfering.
+ */
+function disableReadlineTabBehavior(rl: readline.Interface): void {
+  const anyRl = rl as readline.Interface & { completer?: (line: string) => [string[], string]; _tabComplete?: () => void };
+  anyRl.completer = (line: string) => [[], line];
+  if (typeof anyRl._tabComplete === 'function') {
+    anyRl._tabComplete = () => { };
   }
 }
 
@@ -221,7 +190,7 @@ class MentionPreview {
     readline.emitKeypressEvents(input, rl);
     this.statusLine = statusLine ? chalk.gray(statusLine) : undefined;
     this.keypressHandler = this.handleKeypress.bind(this);
-    input.on('keypress', this.keypressHandler);
+    input.prependListener('keypress', this.keypressHandler);
     this.render([]);
   }
 
@@ -247,7 +216,7 @@ class MentionPreview {
     }
     const beforeCursor = this.rl.line.slice(0, this.rl.cursor);
 
-    if (key?.name === 'tab') {
+    if (this.isTabKey(key)) {
       if (this.mode === 'file' && this.fileSuggestions.length) {
         this.insertFileSuggestion(beforeCursor, this.fileSuggestions[this.activeIndex]);
         return;
@@ -256,10 +225,20 @@ class MentionPreview {
         this.insertSlashSuggestion(beforeCursor, this.slashMatches[this.activeIndex]);
         return;
       }
-      // Prevent default tab behavior when in autocomplete mode
-      if (this.mode) {
-        return;
+
+      // If mode was lost, attempt to autocomplete based on current buffer
+      const match = this.matchMention(beforeCursor);
+      if (match) {
+        const seed = match[1] ?? '';
+        const suggestions = this.filter(seed);
+        if (suggestions.length) {
+          this.mode = 'file';
+          this.fileSuggestions = suggestions;
+          this.activeIndex = 0;
+          this.insertFileSuggestion(beforeCursor, suggestions[0]);
+        }
       }
+      return;
     }
 
     if ((key?.name === 'down' || key?.name === 'up') && this.mode && this.lastSuggestions.length) {
@@ -275,7 +254,7 @@ class MentionPreview {
       const slashSuggestions = this.filterSlash(seed);
       if (slashSuggestions.length) {
         this.mode = 'slash';
-        this.activeIndex = Math.min(this.activeIndex, slashSuggestions.length - 1);
+        this.activeIndex = 0;
       } else {
         this.mode = null;
       }
@@ -284,7 +263,7 @@ class MentionPreview {
     }
     this.slashMatches = [];
 
-    const match = /@([A-Za-z0-9_./\-]*)$/.exec(beforeCursor);
+    const match = this.matchMention(beforeCursor);
     if (!match) {
       this.mode = null;
       this.fileSuggestions = [];
@@ -297,7 +276,7 @@ class MentionPreview {
     if (suggestions.length) {
       this.mode = 'file';
       this.fileSuggestions = suggestions;
-      this.activeIndex = Math.min(this.activeIndex, suggestions.length - 1);
+      this.activeIndex = 0;
     } else {
       this.mode = null;
       this.fileSuggestions = [];
@@ -306,38 +285,15 @@ class MentionPreview {
   }
 
   private filter(seed: string): string[] {
-    if (!seed) {
-      // If no seed, show recent/common files
-      return this.files.slice(0, 8);
-    }
+    return buildFileMentionSuggestions(this.files, seed, MENTION_SUGGESTION_LIMIT);
+  }
 
-    const normalized = seed.toLowerCase();
+  private matchMention(beforeCursor: string): RegExpExecArray | null {
+    return /@([A-Za-z0-9_./\\-]*)$/.exec(beforeCursor);
+  }
 
-    // Separate files into categories
-    const startsWithMatches: string[] = [];
-    const containsMatches: string[] = [];
-    const pathMatches: string[] = [];
-
-    for (const file of this.files) {
-      const fileLower = file.toLowerCase();
-      const filename = file.split('/').pop() || '';
-      const filenameLower = filename.toLowerCase();
-
-      if (filenameLower.startsWith(normalized)) {
-        startsWithMatches.push(file);
-      } else if (filenameLower.includes(normalized)) {
-        containsMatches.push(file);
-      } else if (fileLower.includes(normalized)) {
-        pathMatches.push(file);
-      }
-    }
-
-    // Combine results with priority: starts with > contains in filename > path contains
-    return [
-      ...startsWithMatches,
-      ...containsMatches,
-      ...pathMatches
-    ].slice(0, 8);
+  private isTabKey(key: readline.Key | undefined): boolean {
+    return key?.name === 'tab' || key?.sequence === '\t';
   }
 
   private filterSlash(seed: string): string[] {
@@ -529,38 +485,12 @@ import { drawInputBox } from './box.js';
 
 function renderPromptLine(rl: readline.Interface, statusLine: string | undefined, output: NodeJS.WriteStream): void {
   const width = Math.max(20, output.columns || 80);
-  // Subtract 2 for borders
-  const contentWidth = width - 2;
-  const status = (statusLine ?? ' ').padEnd(contentWidth).slice(0, contentWidth);
+  const status = (statusLine ?? ' ').padEnd(width).slice(0, width);
 
-  const box = drawInputBox(status, contentWidth);
+  const box = drawInputBox(status, width);
 
   readline.cursorTo(output, 0);
   output.write(`${box}\n`);
-
-  // Move cursor to inside the box for input
-  // The box has 3 lines: top, middle (status), bottom.
-  // We want input to be below the box? Or inside?
-  // The original code had input below status.
-
-  // Let's stick to the original layout but use the box for the status line.
-  // Actually, drawInputBox draws a box around the "prompt" string.
-  // If we want the input to be inside a box, we need a different design.
-  // But let's just use it for the status line for now as a "header".
-
-  readline.moveCursor(output, 0, -2); // Move up to the middle line of the box?
-  // No, the previous code cleared lines and wrote status.
-
-  // Let's look at drawInputBox again.
-  // top, middle (prompt), bottom.
-
-  // If we use it for status:
-  // ┌──────────────┐
-  // │ status text  │
-  // └──────────────┘
-  // › input
-
-  // This seems reasonable.
 
   rl.setPrompt(`${chalk.gray('›')} `);
   rl.prompt(true);

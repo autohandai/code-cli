@@ -6,9 +6,6 @@
 import chalk from 'chalk';
 
 export function drawInputBox(prompt: string, width: number): string {
-  const horizontal = chalk.gray('─'.repeat(width));
-  const top = chalk.gray(`┌${horizontal}┐`);
-  const bottom = chalk.gray(`└${horizontal}┘`);
   const padded = prompt.padEnd(width, ' ');
-  return [top, `${chalk.gray('│')}${padded}${chalk.gray('│')}`, bottom].join('\n');
+  return chalk.bgHex('#2b2b2b').hex('#a0a0a0')(padded);
 }
