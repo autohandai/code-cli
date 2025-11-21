@@ -7,6 +7,7 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { applyPatch as applyUnifiedPatch } from 'diff';
+import { GitIgnoreParser } from '../utils/gitIgnore.js';
 
 interface UndoEntry {
   absolutePath: string;
@@ -110,6 +111,55 @@ export class FileActionManager {
     return results.slice(0, limit)
       .map((hit) => this.renderContext(hit, contextLines))
       .join('\n\n');
+  }
+
+  semanticSearch(query: string, opts: { limit?: number; window?: number; relativePath?: string } = {}): Array<{ file: string; snippet: string }> {
+    const limit = opts.limit ?? 5;
+    const window = opts.window ?? 400;
+    const baseDir = this.resolvePath(opts.relativePath ?? '.');
+    const ignoreFilter = new GitIgnoreParser(baseDir);
+    const results: Array<{ file: string; snippet: string }> = [];
+    const stack = [baseDir];
+    const lowerQuery = query.toLowerCase();
+
+    while (stack.length && results.length < limit) {
+      const current = stack.pop();
+      if (!current) continue;
+      const relative = path.relative(this.workspaceRoot, current);
+      const normalizedRel = relative.replace(/\\/g, '/');
+      if (ignoreFilter.isIgnored(normalizedRel)) {
+        continue;
+      }
+      const stats = fs.statSync(current);
+      if (stats.isDirectory()) {
+        const entries = fs.readdirSync(current);
+        for (const entry of entries) {
+          stack.push(path.join(current, entry));
+        }
+        continue;
+      }
+      if (!stats.isFile()) {
+        continue;
+      }
+
+      const contents = fs.readFileSync(current, 'utf8');
+      const haystack = contents.toLowerCase();
+      const idx = haystack.indexOf(lowerQuery);
+      if (idx === -1) continue;
+
+      const start = Math.max(0, idx - window);
+      const end = Math.min(contents.length, idx + query.length + window);
+      const prefixEllipsis = start > 0 ? '…' : '';
+      const suffixEllipsis = end < contents.length ? '…' : '';
+      const snippet = `${prefixEllipsis}${contents.slice(start, end)}${suffixEllipsis}`;
+
+      results.push({
+        file: normalizedRel || path.basename(current),
+        snippet
+      });
+    }
+
+    return results;
   }
 
   private async readFileSafe(target: string): Promise<string> {

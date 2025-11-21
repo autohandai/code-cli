@@ -5,9 +5,6 @@
  */
 
 // Export all command modules
-export * as ls from './ls.js';
-export * as diff from './diff.js';
-export * as undo from './undo.js';
 export * as model from './model.js';
 export * as approvals from './approvals.js';
 export * as review from './review.js';
@@ -18,6 +15,10 @@ export * as quit from './quit.js';
 export * as help from './help.js';
 export * as resume from './resume.js';
 export * as sessions from './sessions.js';
+export * as agents from './agents.js';
+export * as agentsNew from './agents-new.js';
+export * as feedback from './feedback.js';
+export * as session from './session.js';
 
 // Command registry type
 export interface CommandModule {
@@ -38,9 +39,6 @@ export function getAllCommands(): Array<{ command: string; description: string; 
 
     // Manually collect all command metadata
     const commandModules = [
-        modules.ls,
-        modules.diff,
-        modules.undo,
         modules.model,
         modules.approvals,
         modules.review,
@@ -50,7 +48,11 @@ export function getAllCommands(): Array<{ command: string; description: string; 
         modules.quit,
         modules.help,
         modules.resume,
-        modules.sessions
+        modules.sessions,
+        modules.agents,
+        modules.agentsNew,
+        modules.feedback,
+        modules.session
     ];
 
     for (const mod of commandModules) {

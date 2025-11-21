@@ -21,11 +21,13 @@ process.on('exit', (code) => {
 });
 
 process.on('uncaughtException', (err) => {
+  (globalThis as any).__autohandLastError = err;
   console.error('[DEBUG] Uncaught Exception:', err);
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
+  (globalThis as any).__autohandLastError = reason;
   console.error('[DEBUG] Unhandled Rejection at:', promise, 'reason:', reason);
 });
 

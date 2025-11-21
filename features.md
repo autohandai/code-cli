@@ -8,13 +8,13 @@ Autohand is an advanced, autonomous LLM-powered coding agent designed to work di
 - **Context Awareness**: Automatically analyzes your project structure and files to provide relevant context.
 
 ## 💻 Interactive Experience
-- **Command Palette**: Press `/` to open a searchable menu of available commands.
+- **Slash Suggestions**: Type `/` to see inline command suggestions (same UX as @ mentions).
 - **File Mentions**: Type `@` to trigger autocomplete for files in your workspace, allowing you to easily add them to the context.
 - **Rich UI**: Modern terminal UI with a status bar, spinners, and colored output (powered by Ink and Chalk).
 - **Graceful Error Handling**: Robust input handling that prevents crashes on cancellation (ESC) or invalid inputs.
 
 ## 💾 Session Management
-- **Auto-Save**: All sessions are automatically saved to `~/.autohand/sessions`.
+- **Auto-Save**: All sessions are automatically saved to `~/.autohand-cli/sessions`.
 - **Resume Capability**: Pick up exactly where you left off with the `/resume` command or `autohand resume <id>`.
 - **History Tracking**: Keeps a log of all interactions, tool outputs, and agent thoughts.
 
@@ -23,19 +23,21 @@ The CLI supports a variety of slash commands for quick actions:
 
 | Command | Description |
 | :--- | :--- |
-| `/ls` | List files in the current workspace without contacting the LLM. |
-| `/diff` | Show git diff (including untracked files) to review changes. |
-| `/undo` | Ask Autohand to undo the last turn or action. |
-| `/model` | Switch between different LLM models and adjust reasoning effort. |
-| `/approvals` | Configure what actions Autohand can perform without manual approval. |
-| `/review` | Request a review of the current code changes. |
-| `/new` | Start a fresh chat context while keeping the session open. |
-| `/init` | Create an `AGENTS.md` file with instructions for Autohand. |
-| `/compact` | Summarize the conversation history to save context tokens. |
-| `/resume` | Resume a previous session by ID. |
-| `/sessions` | List all available past sessions. |
-| `/help` | Display help information and tips. |
 | `/quit` | Gracefully exit the current session. |
+| `/model` | Switch between different LLM models and adjust reasoning effort. |
+| `/session` | Show the current session details. |
+| `/sessions` | List all available past sessions. |
+| `/resume` | Resume a previous session by ID. |
+| `/init` | Create an `AGENTS.md` file with instructions for Autohand. |
+| `/agents` | List sub-agents from `~/.autohand-cli/agents/` (JSON or Markdown). |
+| `/feedback` | Send feedback with environment details. |
+| `/help` or `/?` | Display help information and tips. |
+
+## 🤖 Sub-Agent Architecture
+- **Registry**: Agents discovered from `~/.autohand-cli/agents/` (JSON or Markdown).
+- **Delegation**: Main agent can delegate tasks (`delegate_task`) or run up to 5 in parallel (`delegate_parallel`).
+- **Execution**: Sub-agents run their own ReAct loop with allowed tools; sequence handled via delegate_task.
+- **Discovery**: `/agents` lists all available sub-agents with their description and path.
 
 ## 📂 Project Management
 - **Workspace Resolution**: Automatically detects the project root.
@@ -350,6 +352,9 @@ Below is a comprehensive checklist of features we are tracking against competito
 
 #### Advanced Features
 - [ ] Multi-agent orchestration (spawning sub-tasks)
+  - [x] **Sub-Agents System**: Ability to define custom agents in `~/.autohand-cli/agents/`.
+  - [x] **Parallel Execution**: Run up to 5 sub-agents concurrently with different toolsets.
+  - [x] **Slash Command**: `/agents` to list and inspect available sub-agents.
 - [ ] Federated learning from user interactions
 - [ ] Offline mode with sync on reconnect
 - [ ] Blockchain-based audit trail (optional)

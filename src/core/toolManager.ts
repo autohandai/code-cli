@@ -25,6 +25,22 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
     requiresApproval: true
   },
   {
+    name: 'add_dependency',
+    description: 'Add a package dependency (supports dev flag)'
+  },
+  {
+    name: 'remove_dependency',
+    description: 'Remove a package dependency (supports dev flag)'
+  },
+  {
+    name: 'semantic_search',
+    description: 'Search workspace text semantically with gitignore awareness'
+  },
+  {
+    name: 'custom_command',
+    description: 'Define and execute a one-off command (saved for reuse)'
+  },
+  {
     name: 'run_command',
     description: 'Execute arbitrary shell commands',
     requiresApproval: true,
@@ -63,6 +79,10 @@ export class ToolManager {
 
   register(definition: ToolDefinition): void {
     this.definitions.set(definition.name, definition);
+  }
+
+  listToolNames(): AgentAction['type'][] {
+    return Array.from(this.definitions.keys());
   }
 
   async execute(toolCalls: ToolCallRequest[]): Promise<ToolExecutionResult[]> {

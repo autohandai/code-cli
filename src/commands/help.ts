@@ -13,21 +13,19 @@ export async function help(): Promise<string | null> {
     console.log(chalk.cyan('\n📚 Available Commands:\n'));
 
     const commands = [
-        { cmd: '/ls', desc: 'List files in workspace' },
-        { cmd: '/diff', desc: 'Show git diff' },
-        { cmd: '/undo', desc: 'Undo last file mutation' },
-        { cmd: '/model', desc: 'Choose AI model' },
-        { cmd: '/approvals', desc: 'Configure auto-approvals' },
-        { cmd: '/review', desc: 'Review current changes' },
-        { cmd: '/new', desc: 'Start new conversation' },
-        { cmd: '/init', desc: 'Create AGENTS.md file' },
-        { cmd: '/compact', desc: 'Compact conversation' },
         { cmd: '/quit', desc: 'Exit Autohand' },
-        { cmd: '/help', desc: 'Show this help' }
+        { cmd: '/model', desc: 'Choose AI model' },
+        { cmd: '/session', desc: 'Show current session info' },
+        { cmd: '/sessions', desc: 'List sessions' },
+        { cmd: '/resume', desc: 'Resume a session by id' },
+        { cmd: '/init', desc: 'Create AGENTS.md file' },
+        { cmd: '/agents', desc: 'List available sub-agents' },
+        { cmd: '/feedback', desc: 'Send feedback with env details' },
+        { cmd: '/help / ?', desc: 'Show this help' }
     ];
 
     commands.forEach(({ cmd, desc }) => {
-        console.log(`  ${chalk.yellow(cmd.padEnd(12))} ${chalk.gray(desc)}`);
+        console.log(`  ${chalk.yellow(cmd.padEnd(14))} ${chalk.gray(desc)}`);
     });
 
     console.log(chalk.cyan('\n💡 Tips:\n'));
@@ -45,5 +43,11 @@ export async function help(): Promise<string | null> {
 export const metadata = {
     command: '/help',
     description: 'describe available slash commands and tips',
+    implemented: true
+};
+
+export const aliasMetadata = {
+    command: '/?',
+    description: 'alias for /help',
     implemented: true
 };

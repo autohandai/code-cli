@@ -9,39 +9,41 @@ import type { SlashCommand } from '../src/core/slashCommands.js';
 
 function createContext() {
   return {
-    listWorkspaceFiles: vi.fn().mockResolvedValue(undefined),
-    printGitDiff: vi.fn(),
-    undoLastMutation: vi.fn().mockResolvedValue(undefined),
     promptModelSelection: vi.fn().mockResolvedValue(undefined),
-    promptApprovalMode: vi.fn().mockResolvedValue(undefined),
     createAgentsFile: vi.fn().mockResolvedValue(undefined),
-    resetConversation: vi.fn()
+    llm: {
+      complete: vi.fn().mockResolvedValue({ id: 'test', created: Date.now(), content: '', raw: {} }),
+      setDefaultModel: vi.fn()
+    }
   };
 }
 
 const DEFAULT_COMMANDS: SlashCommand[] = [
-  { command: '/ls', description: 'list files', implemented: true },
-  { command: '/review', description: 'review changes', implemented: true }
+  { command: '/model', description: 'choose model', implemented: true },
+  { command: '/init', description: 'init agents', implemented: true }
 ];
 
 describe('SlashCommandHandler', () => {
-  it('runs workspace listing for /ls', async () => {
+  it('invokes model selection for /model', async () => {
     const ctx = createContext();
     const handler = new SlashCommandHandler(ctx, DEFAULT_COMMANDS);
 
-    const result = await handler.handle('/ls');
+    const result = await handler.handle('/model');
 
     expect(result).toBeNull();
-    expect(ctx.listWorkspaceFiles).toHaveBeenCalledTimes(1);
+    expect(ctx.promptModelSelection).toHaveBeenCalledTimes(1);
   });
 
-  it('returns canned review prompt for /review', async () => {
+  it('calls init for /init', async () => {
     const ctx = createContext();
     const handler = new SlashCommandHandler(ctx, DEFAULT_COMMANDS);
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    const result = await handler.handle('/review');
+    const result = await handler.handle('/init');
 
-    expect(result).toMatch(/Review my current changes/);
+    expect(result).toBeNull();
+    expect(ctx.createAgentsFile).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
   });
 
   it('falls back to default for unknown commands', async () => {
@@ -51,8 +53,8 @@ describe('SlashCommandHandler', () => {
 
     const result = await handler.handle(dummy);
 
-    expect(result).toBe(dummy);
-    expect(ctx.listWorkspaceFiles).not.toHaveBeenCalled();
+    expect(result).toBeNull();
+    expect(ctx.promptModelSelection).not.toHaveBeenCalled();
   });
 
   it('references PRD for unimplemented commands', async () => {

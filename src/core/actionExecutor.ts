@@ -64,6 +64,9 @@ export class ActionExecutor {
       case 'plan':
         return action.notes ?? 'No plan notes provided';
       case 'read_file': {
+        if (!action.path) {
+          throw new Error('read_file requires a "path" argument.');
+        }
         const contents = await this.files.readFile(action.path);
         this.recordExploration('read', action.path);
 
@@ -87,6 +90,9 @@ export class ActionExecutor {
         return contents.slice(0, charLimit) + `\n\n... (truncated, ${contents.length} total characters)`;
       }
       case 'write_file': {
+        if (!action.path) {
+          throw new Error('write_file requires a "path" argument.');
+        }
         const filePath = this.resolveWorkspacePath(action.path);
         const exists = await this.files.root && (await import('fs-extra')).pathExists(filePath);
         const oldContent = exists ? await this.files.readFile(action.path) : '';
@@ -101,6 +107,9 @@ export class ActionExecutor {
         return exists ? `Updated ${action.path}` : `Created ${action.path}`;
       }
       case 'append_file': {
+        if (!action.path) {
+          throw new Error('append_file requires a "path" argument.');
+        }
         const addition = this.pickText(action.contents, action.content) ?? '';
         const oldContent = await this.files.readFile(action.path).catch(() => '');
         const newContent = oldContent + addition;
@@ -112,6 +121,9 @@ export class ActionExecutor {
         return `Appended to ${action.path}`;
       }
       case 'apply_patch': {
+        if (!action.path) {
+          throw new Error('apply_patch requires a "path" argument.');
+        }
         const oldContent = await this.files.readFile(action.path).catch(() => '');
         const patch = this.pickText(action.patch, action.diff);
         if (!patch) {
@@ -144,11 +156,27 @@ export class ActionExecutor {
           relativePath: action.path
         });
       }
+      case 'semantic_search': {
+        const results = this.files.semanticSearch(action.query, {
+          limit: action.limit,
+          window: action.window,
+          relativePath: action.path
+        });
+        if (!results.length) {
+          return 'No matches found.';
+        }
+        return results
+          .map((hit) => `${chalk.cyan(hit.file)}\n${hit.snippet}`)
+          .join('\n\n');
+      }
       case 'create_directory': {
         await this.files.createDirectory(action.path);
         return `Created directory ${action.path}`;
       }
       case 'delete_path': {
+        if (!action.path) {
+          throw new Error('delete_path requires a "path" argument.');
+        }
         const confirmed = await this.confirmDangerousAction(`Delete ${action.path}?`);
         if (!confirmed) {
           return `Skipped deleting ${action.path}`;
@@ -157,14 +185,23 @@ export class ActionExecutor {
         return `Deleted ${action.path}`;
       }
       case 'rename_path': {
+        if (!action.from || !action.to) {
+          throw new Error('rename_path requires "from" and "to" arguments.');
+        }
         await this.files.renamePath(action.from, action.to);
         return `Renamed ${action.from} -> ${action.to}`;
       }
       case 'copy_path': {
+        if (!action.from || !action.to) {
+          throw new Error('copy_path requires "from" and "to" arguments.');
+        }
         await this.files.copyPath(action.from, action.to);
         return `Copied ${action.from} -> ${action.to}`;
       }
       case 'replace_in_file': {
+        if (!action.path) {
+          throw new Error('replace_in_file requires a "path" argument.');
+        }
         const oldContent = await this.files.readFile(action.path);
         const newContent = oldContent.replace(action.search as any, action.replace);
 
@@ -177,6 +214,9 @@ export class ActionExecutor {
         return `Updated ${action.path}`;
       }
       case 'format_file': {
+        if (!action.path) {
+          throw new Error('format_file requires a "path" argument.');
+        }
         await this.files.formatFile(action.path, (contents, file) => applyFormatter(action.formatter, contents, file));
         return `Formatted ${action.path} (${action.formatter})`;
       }
@@ -199,20 +239,32 @@ export class ActionExecutor {
         return lines.join('\n');
       }
       case 'file_stats': {
+        if (!action.path) {
+          throw new Error('file_stats requires a "path" argument.');
+        }
         this.resolveWorkspacePath(action.path);
         const stats = await getFileStats(this.runtime.workspaceRoot, action.path);
         return stats ? JSON.stringify(stats, null, 2) : `No stats for ${action.path}`;
       }
       case 'checksum': {
+        if (!action.path) {
+          throw new Error('checksum requires a "path" argument.');
+        }
         this.resolveWorkspacePath(action.path);
         const sum = await checksumFile(this.runtime.workspaceRoot, action.path, action.algorithm);
         return `${action.algorithm ?? 'sha256'} ${action.path}: ${sum}`;
       }
       case 'git_diff': {
+        if (!action.path) {
+          throw new Error('git_diff requires a "path" argument.');
+        }
         this.resolveWorkspacePath(action.path);
         return diffFile(this.runtime.workspaceRoot, action.path);
       }
       case 'git_checkout': {
+        if (!action.path) {
+          throw new Error('git_checkout requires a "path" argument.');
+        }
         this.resolveWorkspacePath(action.path);
         checkoutFile(this.runtime.workspaceRoot, action.path);
         return `Restored ${action.path} from git.`;

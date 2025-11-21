@@ -34,4 +34,14 @@ describe('ToolManager', () => {
     expect(executor).not.toHaveBeenCalled();
     expect(results[0]).toMatchObject({ tool: 'delete_path', success: false });
   });
+
+  it('lists registered tool names', () => {
+    const manager = new ToolManager({
+      executor: vi.fn(),
+      confirmApproval: vi.fn(),
+      definitions: noopDefinitions as any
+    });
+
+    expect(manager.listToolNames()).toEqual(['read_file', 'delete_path']);
+  });
 });

@@ -10,7 +10,7 @@ export class ConversationManager {
   private messages: LLMMessage[] = [];
   private initialized = false;
 
-  private constructor() {}
+  public constructor() { }
 
   static getInstance(): ConversationManager {
     if (!ConversationManager.instance) {

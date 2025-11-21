@@ -8,16 +8,7 @@ import terminalLink from 'terminal-link';
 import type { SlashCommand } from './slashCommands.js';
 import type { SessionManager } from '../session/SessionManager.js';
 
-export interface SlashCommandContext {
-  listWorkspaceFiles: () => Promise<void>;
-  printGitDiff: () => void;
-  undoLastMutation: () => Promise<void>;
-  promptModelSelection: () => Promise<void>;
-  promptApprovalMode: () => Promise<void>;
-  createAgentsFile: () => Promise<void>;
-  resetConversation: () => void;
-  sessionManager?: SessionManager;
-}
+import type { SlashCommandContext } from './slashCommandTypes.js';
 
 export class SlashCommandHandler {
   private readonly commandMap = new Map<string, SlashCommand>();
@@ -28,6 +19,10 @@ export class SlashCommandHandler {
 
   async handle(command: string, args: string[] = []): Promise<string | null> {
     const meta = this.commandMap.get(command);
+    if (!meta) {
+      this.printUnsupported(command);
+      return null;
+    }
     if (meta && !meta.implemented) {
       this.printUnimplemented(meta);
       return null;
@@ -36,49 +31,39 @@ export class SlashCommandHandler {
     // Dynamically import and execute the command
     try {
       switch (command) {
-        case '/ls': {
-          const { listFiles } = await import('../commands/ls.js');
-          return listFiles(this.ctx);
-        }
-        case '/diff': {
-          const { diff } = await import('../commands/diff.js');
-          return diff(this.ctx);
-        }
-        case '/undo': {
-          const { undo } = await import('../commands/undo.js');
-          return undo(this.ctx);
-        }
         case '/model': {
           const { model } = await import('../commands/model.js');
           return model(this.ctx);
-        }
-        case '/approvals': {
-          const { approvals } = await import('../commands/approvals.js');
-          return approvals(this.ctx);
-        }
-        case '/review': {
-          const { review } = await import('../commands/review.js');
-          return review();
-        }
-        case '/new': {
-          const { newConversation } = await import('../commands/new.js');
-          return newConversation(this.ctx);
         }
         case '/init': {
           const { init } = await import('../commands/init.js');
           return init(this.ctx);
         }
-        case '/compact': {
-          const { compact } = await import('../commands/compact.js');
-          return compact();
-        }
         case '/quit': {
           const { quit } = await import('../commands/quit.js');
           return quit();
         }
-        case '/help': {
+        case '/help':
+        case '/?': {
           const { help } = await import('../commands/help.js');
           return help();
+        }
+        case '/agents': {
+          const { handler } = await import('../commands/agents.js');
+          const output = await handler();
+          if (output) {
+            console.log(output);
+          }
+          return null;
+        }
+        case '/agents new':
+        case '/agents-new': {
+          const { createAgent } = await import('../commands/agents-new.js');
+          return createAgent(this.ctx);
+        }
+        case '/feedback': {
+          const { feedback } = await import('../commands/feedback.js');
+          return feedback(this.ctx);
         }
         case '/resume': {
           if (!this.ctx.sessionManager) {
@@ -96,9 +81,17 @@ export class SlashCommandHandler {
           const { sessions } = await import('../commands/sessions.js');
           return sessions({ sessionManager: this.ctx.sessionManager, args });
         }
+        case '/session': {
+          if (!this.ctx.sessionManager) {
+            console.log(chalk.red('Session manager not available'));
+            return null;
+          }
+          const { session } = await import('../commands/session.js');
+          return session({ sessionManager: this.ctx.sessionManager });
+        }
         default:
           this.printUnsupported(command);
-          return command;
+          return null;
       }
     } catch (error) {
       console.error(chalk.red(`Error executing command ${command}:`), error);

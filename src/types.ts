@@ -93,6 +93,7 @@ export type AgentAction =
   | { type: 'remove_dependency'; name: string; dev?: boolean }
   | { type: 'format_file'; path: string; formatter: string }
   | { type: 'search_with_context'; query: string; limit?: number; context?: number; path?: string }
+  | { type: 'semantic_search'; query: string; limit?: number; window?: number; path?: string }
   | { type: 'list_tree'; path?: string; depth?: number }
   | { type: 'file_stats'; path: string }
   | { type: 'checksum'; path: string; algorithm?: string }
@@ -115,7 +116,9 @@ export type AgentAction =
     crop_direction: 'top' | 'bottom';
     crop_amount: number;
     deleted_messages_summary?: string;
-  };
+  }
+  | { type: 'delegate_task'; agent_name: string; task: string }
+  | { type: 'delegate_parallel'; tasks: Array<{ agent_name: string; task: string }> };
 
 export type ExplorationEvent = { kind: 'read' | 'list' | 'search'; target: string };
 

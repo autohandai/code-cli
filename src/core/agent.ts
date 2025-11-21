@@ -35,6 +35,9 @@ import type {
   ExplorationEvent
 } from '../types.js';
 
+import { AgentDelegator } from './agents/AgentDelegator.js';
+import { DEFAULT_TOOL_DEFINITIONS } from './toolManager.js';
+
 export class AutohandAgent {
   private mentionContexts: { path: string; contents: string }[] = [];
   private contextWindow: number;
@@ -47,6 +50,7 @@ export class AutohandAgent {
   private slashHandler: SlashCommandHandler;
   private sessionManager: SessionManager;
   private projectManager: ProjectManager;
+  private delegator: AgentDelegator;
   private workspaceFiles: string[] = [];
   private isInstructionActive = false;
   private hasPrintedExplorationHeader = false;
@@ -60,7 +64,6 @@ export class AutohandAgent {
     this.contextWindow = getContextWindow(model);
     this.ignoreFilter = new GitIgnoreParser(runtime.workspaceRoot, []);
     this.conversation = ConversationManager.getInstance();
-    this.resetConversationContext();
     this.actionExecutor = new ActionExecutor({
       runtime,
       files,
@@ -68,22 +71,46 @@ export class AutohandAgent {
       confirmDangerousAction: (message) => this.confirmDangerousAction(message),
       onExploration: (entry) => this.recordExploration(entry)
     });
+
+    this.delegator = new AgentDelegator(llm, this.actionExecutor);
+
+    const delegationTools = [
+      {
+        name: 'delegate_task' as const,
+        description: 'Delegate a task to a specialized sub-agent (synchronous)',
+        requiresApproval: false
+      },
+      {
+        name: 'delegate_parallel' as const,
+        description: 'Run multiple sub-agents in parallel (max 5)',
+        requiresApproval: false
+      }
+    ];
+
     this.toolManager = new ToolManager({
-      executor: (action) => this.actionExecutor.execute(action),
-      confirmApproval: (message) => this.confirmDangerousAction(message)
+      executor: async (action) => {
+        if (action.type === 'delegate_task') {
+          return this.delegator.delegateTask(action.agent_name, action.task);
+        }
+        if (action.type === 'delegate_parallel') {
+          return this.delegator.delegateParallel(action.tasks);
+        }
+        return this.actionExecutor.execute(action);
+      },
+      confirmApproval: (message) => this.confirmDangerousAction(message),
+      definitions: [...DEFAULT_TOOL_DEFINITIONS, ...delegationTools]
     });
+
     this.sessionManager = new SessionManager();
     this.projectManager = new ProjectManager();
     this.slashHandler = new SlashCommandHandler({
-      listWorkspaceFiles: () => this.listWorkspaceFiles(),
-      printGitDiff: () => this.printGitDiff(),
-      undoLastMutation: () => this.undoLastMutation(),
       promptModelSelection: () => this.promptModelSelection(),
-      promptApprovalMode: () => this.promptApprovalMode(),
       createAgentsFile: () => this.createAgentsFile(),
-      resetConversation: () => this.resetConversationContext(),
-      sessionManager: this.sessionManager
+      sessionManager: this.sessionManager,
+      llm: this.llm
     }, SLASH_COMMANDS);
+
+    this.resetConversationContext();
   }
 
   async runInteractive(): Promise<void> {
@@ -649,41 +676,14 @@ export class AutohandAgent {
   }
 
   private buildSystemPrompt(): string {
-    const tools = [
-      'read_file',
-      'write_file',
-      'append_file',
-      'apply_patch',
-      'search',
-      'create_directory',
-      'delete_path',
-      'rename_path',
-      'copy_path',
-      'replace_in_file',
-      'run_command',
-      'add_dependency',
-      'remove_dependency',
-      'format_file',
-      'search_with_context',
-      'list_tree',
-      'file_stats',
-      'checksum',
-      'git_diff',
-      'git_checkout',
-      'git_status',
-      'git_list_untracked',
-      'git_diff_range',
-      'git_apply_patch',
-      'git_worktree_list',
-      'git_worktree_add',
-      'git_worktree_remove',
-      'custom_command'
-    ].join(', ');
+    const toolNames = this.toolManager?.listToolNames() ?? [];
+    const tools = toolNames.join(', ');
 
     return [
       'You are Autohand, a CLI-first coding assistant that must follow the ReAct (Reason + Act) pattern.',
       'Phases: think about the request, decide whether to call tools, execute them, interpret the results, and only then respond.',
       `Available tools: ${tools}. Use them exactly by name with structured args.`,
+      'If you need a capability not listed, define it as a custom_command (with name, command, args, description) before invoking it.',
       'Always reply with JSON: {"thought":"string","toolCalls":[{"tool":"tool_name","args":{...}}],"finalResponse":"string"}.',
       'If no tools are required, set toolCalls to an empty array and provide the finalResponse.',
       'When tools are needed, omit finalResponse until tool outputs (role=tool) arrive, then continue reasoning.',

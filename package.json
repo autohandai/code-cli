@@ -37,7 +37,8 @@
     "ink": "^4.4.1",
     "ora": "^9.0.0",
     "react": "^18.2.0",
-    "terminal-link": "^3.0.0"
+    "terminal-link": "^3.0.0",
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@types/diff": "^8.0.0",
