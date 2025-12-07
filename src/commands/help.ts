@@ -14,7 +14,7 @@ export async function help(): Promise<string | null> {
 
     const commands = [
         { cmd: '/quit', desc: 'Exit Autohand' },
-        { cmd: '/model', desc: 'Choose AI model' },
+        { cmd: '/model', desc: 'Configure providers (OpenRouter, Ollama, OpenAI, llama.cpp)' },
         { cmd: '/session', desc: 'Show current session info' },
         { cmd: '/sessions', desc: 'List sessions' },
         { cmd: '/resume', desc: 'Resume a session by id' },

@@ -5,6 +5,7 @@ Autohand is an advanced, autonomous LLM-powered coding agent designed to work di
 ## 🧠 Core Intelligence
 - **Autonomous Agent**: Uses a ReAct (Reasoning + Acting) loop to solve complex coding tasks.
 - **Multi-Model Support**: Integrated with OpenRouter to support various LLMs (Claude, GPT-4, Grok, etc.).
+- **Local/Hosted Providers**: Supports OpenRouter, Ollama, llama.cpp, and MLX via configurable providers in `~/.autohand-cli/config.json`.
 - **Context Awareness**: Automatically analyzes your project structure and files to provide relevant context.
 
 ## 💻 Interactive Experience

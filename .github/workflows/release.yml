@@ -1,0 +1,327 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+      - alpha
+      - beta
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (leave empty for auto)'
+        required: false
+      channel:
+        description: 'Release channel'
+        required: true
+        default: 'beta'
+        type: choice
+        options:
+          - alpha
+          - beta
+          - release
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      channel: ${{ steps.determine.outputs.channel }}
+      version: ${{ steps.version.outputs.version }}
+      should_release: ${{ steps.check.outputs.should_release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine release channel
+        id: determine
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "channel=${{ github.event.inputs.channel }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "channel=release" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" = "refs/heads/beta" ]; then
+            echo "channel=beta" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" = "refs/heads/alpha" ]; then
+            echo "channel=alpha" >> $GITHUB_OUTPUT
+          else
+            echo "channel=beta" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check if should release
+        id: check
+        run: |
+          # Check if last commit is a version bump (skip if so)
+          if git log -1 --pretty=%B | grep -q "chore(release):"; then
+            echo "should_release=false" >> $GITHUB_OUTPUT
+          else
+            echo "should_release=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Get version
+        id: version
+        run: |
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          CHANNEL="${{ steps.determine.outputs.channel }}"
+          
+          # Parse semantic version
+          MAJOR=$(echo $CURRENT_VERSION | cut -d. -f1)
+          MINOR=$(echo $CURRENT_VERSION | cut -d. -f2)
+          PATCH=$(echo $CURRENT_VERSION | cut -d. -f3 | cut -d- -f1)
+          
+          # Determine version bump based on commit messages
+          if git log --format=%B -n 20 | grep -qi "BREAKING CHANGE\|!:"; then
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
+          elif git log --format=%B -n 10 | grep -qi "^feat"; then
+            MINOR=$((MINOR + 1))
+            PATCH=0
+          else
+            PATCH=$((PATCH + 1))
+          fi
+          
+          # Manual override
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            NEW_VERSION="${{ github.event.inputs.version }}"
+          else
+            NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            
+            # Add prerelease tag for non-release channels
+            if [ "$CHANNEL" = "alpha" ]; then
+              BUILD_NUM=$(date +%Y%m%d%H%M%S)
+              NEW_VERSION="${NEW_VERSION}-alpha.${BUILD_NUM}"
+            elif [ "$CHANNEL" = "beta" ]; then
+              BUILD_NUM=$(date +%Y%m%d%H%M)
+              NEW_VERSION="${NEW_VERSION}-beta.${BUILD_NUM}"
+            fi
+          fi
+          
+          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+          echo "🎯 Version: ${NEW_VERSION} (${CHANNEL})"
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: darwin-arm64
+            artifact: autohand-macos-arm64
+          - os: macos-latest
+            target: darwin-x64
+            artifact: autohand-macos-x64
+          - os: ubuntu-latest
+            target: linux-x64
+            artifact: autohand-linux-x64
+          - os: ubuntu-latest
+            target: linux-arm64
+            artifact: autohand-linux-arm64
+          - os: windows-latest
+            target: windows-x64
+            artifact: autohand-windows-x64.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build TypeScript
+        run: bun run build
+
+      - name: Compile binary
+        run: |
+          mkdir -p binaries
+          bun build ./src/index.ts --compile --target=bun-${{ matrix.target }} --outfile ./binaries/${{ matrix.artifact }}
+
+      - name: Verify binary
+        if: runner.os != 'Windows'
+        run: |
+          chmod +x ./binaries/${{ matrix.artifact }}
+          file ./binaries/${{ matrix.artifact }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ./binaries/${{ matrix.artifact }}
+          retention-days: 1
+
+  release:
+    needs: [prepare, build]
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Update version in package.json
+        run: |
+          bun --version
+          VERSION="${{ needs.prepare.outputs.version }}"
+          echo "Updating to version: $VERSION"
+          npm version $VERSION --no-git-tag-version --allow-same-version
+          git add package.json
+          git commit -m "chore(release): v$VERSION [skip ci]" || echo "No changes to commit"
+          git push origin ${{ github.ref_name }} || echo "No changes to push"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries
+
+      - name: Prepare binaries
+        run: |
+          mkdir -p dist
+          find binaries -type f -exec cp {} dist/ \;
+          ls -lh dist/
+
+      - name: Generate changelog
+        id: changelog
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            
+            // Get commits since last tag
+            let commits;
+            try {
+              const lastTag = execSync('git describe --tags --abbrev=0', { encoding: 'utf8' }).trim();
+              commits = execSync(`git log ${lastTag}..HEAD --pretty=format:"%h %s"`, { encoding: 'utf8' });
+            } catch {
+              commits = execSync('git log --pretty=format:"%h %s" -n 20', { encoding: 'utf8' });
+            }
+            
+            const lines = commits.split('\n').filter(line => line.trim());
+            
+            // Categorize commits
+            const features = [];
+            const fixes = [];
+            const chores = [];
+            const breaking = [];
+            
+            for (const line of lines) {
+              const [hash, ...msgParts] = line.split(' ');
+              const msg = msgParts.join(' ');
+              
+              if (msg.includes('BREAKING CHANGE') || msg.includes('!:')) {
+                breaking.push(`- ${msg} (${hash})`);
+              } else if (msg.startsWith('feat')) {
+                features.push(`- ${msg.replace('feat:', '').replace('feat(', '(').trim()} (${hash})`);
+              } else if (msg.startsWith('fix')) {
+                fixes.push(`- ${msg.replace('fix:', '').replace('fix(', '(').trim()} (${hash})`);
+              } else if (!msg.startsWith('chore(release)')) {
+                chores.push(`- ${msg} (${hash})`);
+              }
+            }
+            
+            // Build changelog
+            let changelog = '## 🚀 What\'s Changed\n\n';
+            
+            if (breaking.length > 0) {
+              changelog += '### ⚠️ BREAKING CHANGES\n' + breaking.join('\n') + '\n\n';
+            }
+            
+            if (features.length > 0) {
+              changelog += '### ✨ Features\n' + features.join('\n') + '\n\n';
+            }
+            
+            if (fixes.length > 0) {
+              changelog += '### 🐛 Bug Fixes\n' + fixes.join('\n') + '\n\n';
+            }
+            
+            if (chores.length > 0 && chores.length < 10) {
+              changelog += '### 🔧 Maintenance\n' + chores.join('\n') + '\n\n';
+            }
+            
+            // Add installation instructions
+            changelog += `
+## 📦 Installation
+
+### Quick Install (Unix-based systems)
+\`\`\`bash
+# macOS (Apple Silicon)
+curl -L -o autohand https://github.com/${{ github.repository }}/releases/download/v${{ needs.prepare.outputs.version }}/autohand-macos-arm64
+chmod +x autohand
+sudo mv autohand /usr/local/bin/
+
+# macOS (Intel)
+curl -L -o autohand https://github.com/${{ github.repository }}/releases/download/v${{ needs.prepare.outputs.version }}/autohand-macos-x64
+chmod +x autohand
+sudo mv autohand /usr/local/bin/
+
+# Linux (x64)
+curl -L -o autohand https://github.com/${{ github.repository }}/releases/download/v${{ needs.prepare.outputs.version }}/autohand-linux-x64
+chmod +x autohand
+sudo mv autohand /usr/local/bin/
+\`\`\`
+
+### Or via npm/bun
+\`\`\`bash
+npm install -g autohand-cli
+# or
+bun install -g autohand-cli
+\`\`\`
+
+## 📋 Available Binaries
+- \`autohand-macos-arm64\` - macOS Apple Silicon (M1/M2/M3)
+- \`autohand-macos-x64\` - macOS Intel
+- \`autohand-linux-x64\` - Linux x64
+- \`autohand-linux-arm64\` - Linux ARM64
+- \`autohand-windows-x64.exe\` - Windows x64
+`;
+            
+            core.setOutput('changelog', changelog);
+            return changelog;
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.prepare.outputs.version }}
+          name: ${{ needs.prepare.outputs.channel == 'release' && format('Release v{0}', needs.prepare.outputs.version) || format('{0} v{1}', needs.prepare.outputs.channel, needs.prepare.outputs.version) }}
+          body: ${{ steps.changelog.outputs.changelog }}
+          files: dist/*
+          draft: false
+          prerelease: ${{ needs.prepare.outputs.channel != 'release' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to npm (release only)
+        if: needs.prepare.outputs.channel == 'release'
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+          npm publish
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        continue-on-error: true

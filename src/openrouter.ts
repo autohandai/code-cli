@@ -13,7 +13,7 @@ export class OpenRouterClient {
   private defaultModel: string;
 
   constructor(settings: OpenRouterSettings) {
-    this.apiKey = settings.apiKey;
+    this.apiKey = settings.apiKey ?? '';
     this.baseUrl = settings.baseUrl ?? DEFAULT_BASE_URL;
     this.defaultModel = settings.model;
   }
@@ -31,16 +31,20 @@ export class OpenRouterClient {
       stream: request.stream ?? false
     };
 
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://github.com/autohand/cli',
+      'X-Title': 'autohand-cli'
+    };
+    if (this.apiKey) {
+      headers.Authorization = `Bearer ${this.apiKey}`;
+    }
+
     let response: Response;
     try {
       response = await fetch(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.apiKey}`,
-          'HTTP-Referer': 'https://github.com/autohand/cli',
-          'X-Title': 'autohand-cli'
-        },
+        headers,
         body: JSON.stringify(payload),
         signal: request.signal
       });

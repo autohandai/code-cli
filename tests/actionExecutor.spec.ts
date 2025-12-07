@@ -8,6 +8,7 @@ import type { AgentRuntime } from '../src/types.js';
 import type { FileActionManager } from '../src/actions/filesystem.js';
 import { ActionExecutor } from '../src/core/actionExecutor.js';
 import * as gitActions from '../src/actions/git.js';
+import type { ToolDefinition } from '../src/core/toolManager.js';
 
 function createRuntime(): AgentRuntime {
   return {
@@ -148,5 +149,24 @@ describe('ActionExecutor', () => {
     await executor.execute({ type: 'read_file', path: 'src/index.ts' });
 
     expect(onExploration).toHaveBeenCalledWith({ kind: 'read', target: 'src/index.ts' });
+  });
+
+  it('returns the tools registry as JSON', async () => {
+    const tools: ToolDefinition[] = [{ name: 'read_file', description: 'Read files' } as ToolDefinition];
+    const registry = { listTools: vi.fn().mockResolvedValue([{ name: 'read_file', description: 'Read files', source: 'builtin' }]) };
+    const executor = new ActionExecutor({
+      runtime: createRuntime(),
+      files: createFiles() as FileActionManager,
+      resolveWorkspacePath: (rel) => `/repo/${rel}`,
+      confirmDangerousAction: vi.fn().mockResolvedValue(true),
+      toolsRegistry: registry as any,
+      getRegisteredTools: () => tools
+    });
+
+    const result = await executor.execute({ type: 'tools_registry' } as any);
+    const parsed = JSON.parse(result ?? '[]');
+
+    expect(registry.listTools).toHaveBeenCalled();
+    expect(parsed[0]).toMatchObject({ name: 'read_file', source: 'builtin' });
   });
 });

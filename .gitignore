@@ -1,2 +1,12 @@
 node_modules/
 dist/
+binaries/
+.tmp/
+CHANGELOG.md 
+install-local.sh
+PATH_SETUP.md
+CLAUDE.md
+INSTALLATION.md
+RELEASE_SETUP.md
+dev-build.sh
+bun.lock

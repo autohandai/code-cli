@@ -9,10 +9,17 @@ type Primitive = string | number | boolean | null;
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
-export interface OpenRouterSettings {
-  apiKey: string;
+export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai';
+
+export interface ProviderSettings {
+  apiKey?: string;
   baseUrl?: string;
+  port?: number;
   model: string;
+}
+
+export interface OpenRouterSettings extends ProviderSettings {
+  apiKey: string;
 }
 
 export interface WorkspaceSettings {
@@ -27,7 +34,11 @@ export interface UISettings {
 }
 
 export interface AutohandConfig {
-  openrouter: OpenRouterSettings;
+  provider?: ProviderName;
+  openrouter?: OpenRouterSettings;
+  ollama?: ProviderSettings;
+  llamacpp?: ProviderSettings;
+  openai?: ProviderSettings;
   workspace?: WorkspaceSettings;
   ui?: UISettings;
 }
@@ -77,11 +88,20 @@ export interface LLMResponse {
   raw: unknown;
 }
 
+export interface ToolRegistryEntry {
+  name: string;
+  description: string;
+  requiresApproval?: boolean;
+  approvalMessage?: string;
+  source: 'builtin' | 'meta';
+}
+
 export type AgentAction =
   | { type: 'read_file'; path: string }
   | { type: 'write_file'; path: string; contents?: string; content?: string }
   | { type: 'append_file'; path: string; contents?: string; content?: string }
   | { type: 'apply_patch'; path: string; patch?: string; diff?: string }
+  | { type: 'tools_registry' }
   | { type: 'search'; query: string; path?: string }
   | { type: 'create_directory'; path: string }
   | { type: 'delete_path'; path: string }

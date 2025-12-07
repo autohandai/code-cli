@@ -7,7 +7,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import packageJson from '../package.json' with { type: 'json' };
-import { loadConfig, resolveWorkspaceRoot } from './config.js';
+import { getProviderConfig, loadConfig, resolveWorkspaceRoot } from './config.js';
 import { FileActionManager } from './actions/filesystem.js';
 import { OpenRouterClient } from './openrouter.js';
 import { AutohandAgent } from './core/agent.js';
@@ -47,6 +47,7 @@ const program = new Command();
 program
   .name('autohand')
   .description('Autonomous LLM-powered coding agent CLI')
+  .version(packageJson.version, '-v, --version', 'output the current version')
   .option('-p, --prompt <text>', 'Run a single instruction in command mode')
   .option('--path <path>', 'Workspace path to operate in')
   .option('--yes', 'Auto-confirm risky actions', false)
@@ -81,9 +82,11 @@ async function runCLI(options: CLIOptions): Promise<void> {
     printBanner();
     printWelcome(runtime);
 
+    const providerSettings = getProviderConfig(config);
     const openRouter = new OpenRouterClient({
-      ...config.openrouter,
-      model: options.model ?? config.openrouter.model
+      apiKey: providerSettings.apiKey ?? '',
+      baseUrl: providerSettings.baseUrl,
+      model: options.model ?? providerSettings.model
     });
     const files = new FileActionManager(workspaceRoot);
     const agent = new AutohandAgent(openRouter, files, runtime);
@@ -133,7 +136,14 @@ function printWelcome(runtime: AgentRuntime): void {
   if (!process.stdout.isTTY) {
     return;
   }
-  const model = runtime.options.model ?? runtime.config.openrouter.model;
+  const model = (() => {
+    try {
+      const settings = getProviderConfig(runtime.config);
+      return runtime.options.model ?? settings.model ?? 'unknown';
+    } catch {
+      return runtime.options.model ?? 'unknown';
+    }
+  })();
   const dir = runtime.workspaceRoot;
   console.log(`${chalk.bold('> Autohand')} v${packageJson.version}`);
   console.log(`${chalk.gray('model:')} ${chalk.cyan(model)}  ${chalk.gray('| directory:')} ${chalk.cyan(dir)}`);

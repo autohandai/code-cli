@@ -25,6 +25,8 @@ import type { ProjectManager } from '../session/ProjectManager.js';
 import type { FailureRecord, SuccessRecord } from '../session/types.js';
 import type { AgentAction, AgentRuntime, ExplorationEvent } from '../types.js';
 import type { FileActionManager } from '../actions/filesystem.js';
+import type { ToolDefinition } from './toolManager.js';
+import { ToolsRegistry } from './toolsRegistry.js';
 
 export interface ActionExecutorOptions {
   runtime: AgentRuntime;
@@ -34,6 +36,8 @@ export interface ActionExecutorOptions {
   projectManager?: ProjectManager;
   sessionId?: string;
   onExploration?: (entry: ExplorationEvent) => void;
+  toolsRegistry?: ToolsRegistry;
+  getRegisteredTools?: () => ToolDefinition[];
 }
 
 export class ActionExecutor {
@@ -44,6 +48,8 @@ export class ActionExecutor {
   private readonly projectManager?: ProjectManager;
   private readonly sessionId?: string;
   private readonly logExploration?: (entry: ExplorationEvent) => void;
+  private readonly toolsRegistry: ToolsRegistry;
+  private readonly getRegisteredTools: () => ToolDefinition[];
 
   constructor(private readonly deps: AgentExecutorDeps) {
     this.runtime = deps.runtime;
@@ -53,6 +59,8 @@ export class ActionExecutor {
     this.projectManager = deps.projectManager;
     this.sessionId = deps.sessionId;
     this.logExploration = deps.onExploration;
+    this.toolsRegistry = deps.toolsRegistry ?? new ToolsRegistry();
+    this.getRegisteredTools = deps.getRegisteredTools ?? (() => []);
   }
 
   async execute(action: AgentAction): Promise<string | undefined> {
@@ -139,6 +147,10 @@ export class ActionExecutor {
         this.showDiff(oldContent, newContent);
 
         return `Patched ${action.path}`;
+      }
+      case 'tools_registry': {
+        const tools = await this.toolsRegistry.listTools(this.getRegisteredTools());
+        return JSON.stringify(tools, null, 2);
       }
       case 'search': {
         const hits = this.files.search(action.query, action.path);

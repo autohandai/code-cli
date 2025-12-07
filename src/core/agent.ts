@@ -11,7 +11,7 @@ import ora from 'ora';
 import enquirer from 'enquirer';
 import readline from 'node:readline';
 import { FileActionManager } from '../actions/filesystem.js';
-import { saveConfig } from '../config.js';
+import { saveConfig, getProviderConfig } from '../config.js';
 import { OpenRouterClient } from '../openrouter.js';
 import { readInstruction } from '../ui/inputPrompt.js';
 import { showFilePalette } from '../ui/filePalette.js';
@@ -24,6 +24,7 @@ import { ActionExecutor } from './actionExecutor.js';
 import { SlashCommandHandler } from './slashCommandHandler.js';
 import { SessionManager } from '../session/SessionManager.js';
 import { ProjectManager } from '../session/ProjectManager.js';
+import { ToolsRegistry } from './toolsRegistry.js';
 import type { SessionMessage, WorkspaceState } from '../session/types.js';
 import type {
   AgentRuntime,
@@ -32,11 +33,13 @@ import type {
   AgentStatusSnapshot,
   AssistantReactPayload,
   ToolCallRequest,
-  ExplorationEvent
+  ExplorationEvent,
+  ProviderName
 } from '../types.js';
 
 import { AgentDelegator } from './agents/AgentDelegator.js';
 import { DEFAULT_TOOL_DEFINITIONS } from './toolManager.js';
+import { ErrorLogger } from './errorLogger.js';
 
 export class AutohandAgent {
   private mentionContexts: { path: string; contents: string }[] = [];
@@ -47,6 +50,7 @@ export class AutohandAgent {
   private conversation: ConversationManager;
   private toolManager: ToolManager;
   private actionExecutor: ActionExecutor;
+  private toolsRegistry: ToolsRegistry;
   private slashHandler: SlashCommandHandler;
   private sessionManager: SessionManager;
   private projectManager: ProjectManager;
@@ -54,25 +58,34 @@ export class AutohandAgent {
   private workspaceFiles: string[] = [];
   private isInstructionActive = false;
   private hasPrintedExplorationHeader = false;
+  private activeProvider: ProviderName;
+  private errorLogger: ErrorLogger;
 
   constructor(
-    private readonly llm: OpenRouterClient,
+    private llm: OpenRouterClient,
     private readonly files: FileActionManager,
     private readonly runtime: AgentRuntime
   ) {
-    const model = runtime.options.model ?? runtime.config.openrouter.model;
+    const initialProvider = runtime.config.provider ?? 'openrouter';
+    const providerSettings = getProviderConfig(runtime.config, initialProvider);
+    const model = runtime.options.model ?? providerSettings.model;
     this.contextWindow = getContextWindow(model);
     this.ignoreFilter = new GitIgnoreParser(runtime.workspaceRoot, []);
     this.conversation = ConversationManager.getInstance();
+    this.toolsRegistry = new ToolsRegistry();
     this.actionExecutor = new ActionExecutor({
       runtime,
       files,
       resolveWorkspacePath: (relativePath) => this.resolveWorkspacePath(relativePath),
       confirmDangerousAction: (message) => this.confirmDangerousAction(message),
-      onExploration: (entry) => this.recordExploration(entry)
+      onExploration: (entry) => this.recordExploration(entry),
+      toolsRegistry: this.toolsRegistry,
+      getRegisteredTools: () => this.toolManager?.listDefinitions() ?? []
     });
 
+    this.activeProvider = runtime.config.provider ?? 'openrouter';
     this.delegator = new AgentDelegator(llm, this.actionExecutor);
+    this.errorLogger = new ErrorLogger('0.1.0'); // TODO: Get from package.json
 
     const delegationTools = [
       {
@@ -109,7 +122,6 @@ export class AutohandAgent {
       sessionManager: this.sessionManager,
       llm: this.llm
     }, SLASH_COMMANDS);
-
     this.resetConversationContext();
   }
 
@@ -117,7 +129,8 @@ export class AutohandAgent {
     // Initialize session
     await this.sessionManager.initialize();
     await this.projectManager.initialize();
-    const model = this.runtime.options.model ?? this.runtime.config.openrouter.model;
+    const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
+    const model = this.runtime.options.model ?? providerSettings.model;
     await this.sessionManager.createSession(this.runtime.workspaceRoot, model);
 
     await this.runInteractiveLoop();
@@ -158,15 +171,16 @@ export class AutohandAgent {
     } catch (error) {
       console.error(chalk.red(`Failed to resume session: ${(error as Error).message}`));
       // Fallback to new session
-      const model = this.runtime.options.model ?? this.runtime.config.openrouter.model;
+      const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
+      const model = this.runtime.options.model ?? providerSettings.model;
       await this.sessionManager.createSession(this.runtime.workspaceRoot, model);
       await this.runInteractiveLoop();
     }
   }
 
   private async runInteractiveLoop(): Promise<void> {
-    try {
-      while (true) {
+    while (true) {
+      try {
         const instruction = await this.promptForInstruction();
         if (!instruction) {
           continue;
@@ -184,15 +198,43 @@ export class AutohandAgent {
 
         await this.runInstruction(instruction);
         console.log();
+      } catch (error) {
+        // Check if it's a user cancellation (ESC or Ctrl+C)
+        const errorObj = error as any;
+        const isCancel = errorObj.name === 'ExitPromptError' ||
+          errorObj.isCanceled ||
+          errorObj.message?.includes('canceled') ||
+          errorObj.message?.includes('User force closed') ||
+          !errorObj.message; // undefined message often means user cancelled
+
+        if (isCancel) {
+          // Graceful cancellation - just continue the loop
+          // Silent continue, no message needed
+          continue;
+        }
+
+        // Log unexpected errors
+        await this.errorLogger.log(error as Error, {
+          context: 'Interactive loop',
+          workspace: this.runtime.workspaceRoot
+        });
+
+        // Save session on unexpected error
+        const session = this.sessionManager.getCurrentSession();
+        if (session) {
+          session.metadata.status = 'crashed';
+          await session.save();
+        }
+
+        // Show error to user but don't crash - continue the loop
+        const errorMessage = (error as Error).message || 'Unknown error occurred';
+        console.error(chalk.red('\n❌ An error occurred:'));
+        console.error(chalk.red(errorMessage));
+        console.error(chalk.gray(`Error logged to: ${this.errorLogger.getLogPath()}\n`));
+
+        // Continue the loop instead of crashing
+        continue;
       }
-    } catch (error) {
-      // Save session on error
-      const session = this.sessionManager.getCurrentSession();
-      if (session) {
-        session.metadata.status = 'crashed';
-        await session.save();
-      }
-      throw error;
     }
   }
 
@@ -327,28 +369,353 @@ export class AutohandAgent {
   }
 
   private async promptModelSelection(): Promise<void> {
-    const current = this.runtime.options.model ?? this.runtime.config.openrouter.model;
-    const answer = await enquirer.prompt<{ model: string }>([
-      {
-        type: 'input',
-        name: 'model',
-        message: 'Enter the OpenRouter model ID to use',
-        initial: current
-      }
-    ]);
+    try {
+      // Show all providers with status indicators
+      const allProviders: ProviderName[] = ['openrouter', 'ollama', 'llamacpp', 'openai'];
+      const providerChoices = allProviders.map(name => {
+        const isConfigured = this.isProviderConfigured(name);
+        const indicator = isConfigured ? chalk.green('●') : chalk.red('○');
+        const current = name === this.activeProvider ? chalk.cyan(' (current)') : '';
+        return {
+          name,
+          message: `${indicator} ${name}${current}`,
+          value: name
+        };
+      });
 
-    if (answer.model && answer.model !== current) {
-      this.runtime.options.model = answer.model;
-      this.runtime.config.openrouter.model = answer.model;
-      this.llm.setDefaultModel(answer.model);
-      await saveConfig(this.runtime.config);
-      this.contextWindow = getContextWindow(answer.model);
-      this.contextPercentLeft = 100;
-      this.emitStatus();
-      console.log(chalk.green(`Using model ${answer.model} (persisted to config).`));
-    } else {
-      console.log(chalk.gray('Model unchanged.'));
+      const providerAnswer = await enquirer.prompt<{ provider: ProviderName }>([
+        {
+          type: 'select',
+          name: 'provider',
+          message: 'Choose an LLM provider',
+          choices: providerChoices
+        }
+      ]);
+
+      const selectedProvider = providerAnswer.provider;
+
+      // Check if provider needs configuration
+      if (!this.isProviderConfigured(selectedProvider)) {
+        console.log(chalk.yellow(`\n${selectedProvider} is not configured yet. Let's set it up!\n`));
+        await this.configureProvider(selectedProvider);
+        return;
+      }
+
+      // Provider is configured, let them change the model
+      await this.changeProviderModel(selectedProvider);
+    } catch (error) {
+      // Handle cancellation gracefully (ESC or Ctrl+C)
+      if ((error as any).name === 'ExitPromptError' || (error as Error).message?.includes('canceled')) {
+        console.log(chalk.gray('\nConfiguration cancelled.'));
+        return;
+      }
+      // Re-throw unexpected errors
+      throw error;
     }
+  }
+
+  private isProviderConfigured(provider: ProviderName): boolean {
+    const config = this.runtime.config[provider];
+    if (!config) return false;
+
+    // For cloud providers, check API key
+    if (provider === 'openrouter' || provider === 'openai') {
+      return !!config.apiKey && config.apiKey !== 'replace-me';
+    }
+
+    // For local providers, just check if model is set
+    return !!config.model;
+  }
+
+  private async configureProvider(provider: ProviderName): Promise<void> {
+    switch (provider) {
+      case 'openrouter':
+        await this.configureOpenRouter();
+        break;
+      case 'ollama':
+        await this.configureOllama();
+        break;
+      case 'llamacpp':
+        await this.configureLlamaCpp();
+        break;
+      case 'openai':
+        await this.configureOpenAI();
+        break;
+    }
+  }
+
+  private async configureOpenRouter(): Promise<void> {
+    try {
+      console.log(chalk.cyan('OpenRouter Configuration'));
+      console.log(chalk.gray('Get your API key at: https://openrouter.ai/keys\n'));
+
+      const answers = await enquirer.prompt<{ apiKey: string; model: string }>([
+        {
+          type: 'password',
+          name: 'apiKey',
+          message: 'Enter your OpenRouter API key'
+        },
+        {
+          type: 'input',
+          name: 'model',
+          message: 'Enter the model ID',
+          initial: 'anthropic/claude-3.5-sonnet'
+        }
+      ]);
+
+      this.runtime.config.openrouter = {
+        apiKey: answers.apiKey,
+        baseUrl: 'https://openrouter.ai/api/v1',
+        model: answers.model
+      };
+
+      this.runtime.config.provider = 'openrouter';
+      this.runtime.options.model = answers.model;
+      await saveConfig(this.runtime.config);
+      this.resetLlmClient('openrouter', answers.model);
+
+      console.log(chalk.green('\n✓ OpenRouter configured successfully!'));
+    } catch (error) {
+      if ((error as any).name === 'ExitPromptError' || (error as Error).message?.includes('canceled')) {
+        console.log(chalk.gray('\nConfiguration cancelled.'));
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private async configureOllama(): Promise<void> {
+    try {
+      console.log(chalk.cyan('Ollama Configuration'));
+      console.log(chalk.gray('Make sure Ollama is running: ollama serve\n'));
+
+      // Try to fetch available models
+      const ollamaUrl = 'http://localhost:11434';
+      let availableModels: string[] = [];
+
+      try {
+        const response = await fetch(`${ollamaUrl}/api/tags`);
+        if (response.ok) {
+          const data = await response.json();
+          availableModels = data.models?.map((m: any) => m.name) || [];
+        }
+      } catch {
+        console.log(chalk.yellow('⚠ Could not connect to Ollama. Make sure it\'s running.\n'));
+      }
+
+      let modelAnswer;
+      if (availableModels.length > 0) {
+        console.log(chalk.green(`Found ${availableModels.length} model(s)\n`));
+        modelAnswer = await enquirer.prompt<{ model: string }>([
+          {
+            type: 'select',
+            name: 'model',
+            message: 'Select a model',
+            choices: availableModels
+          }
+        ]);
+      } else {
+        modelAnswer = await enquirer.prompt<{ model: string }>([
+          {
+            type: 'input',
+            name: 'model',
+            message: 'Enter the model name (e.g., llama3.2:latest)',
+            initial: 'llama3.2:latest'
+          }
+        ]);
+      }
+
+      this.runtime.config.ollama = {
+        baseUrl: ollamaUrl,
+        model: modelAnswer.model
+      };
+
+      this.runtime.config.provider = 'ollama';
+      this.runtime.options.model = modelAnswer.model;
+      await saveConfig(this.runtime.config);
+      this.resetLlmClient('ollama', modelAnswer.model);
+
+      console.log(chalk.green('\n✓ Ollama configured successfully!'));
+    } catch (error) {
+      if ((error as any).name === 'ExitPromptError' || (error as Error).message?.includes('canceled')) {
+        console.log(chalk.gray('\nConfiguration cancelled.'));
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private async configureLlamaCpp(): Promise<void> {
+    try {
+      console.log(chalk.cyan('llama.cpp Configuration'));
+      console.log(chalk.gray('Make sure llama.cpp server is running: ./server -m model.gguf\n'));
+
+      const answers = await enquirer.prompt<{ port: string; model: string }>([
+        {
+          type: 'input',
+          name: 'port',
+          message: 'Server port',
+          initial: '8080'
+        },
+        {
+          type: 'input',
+          name: 'model',
+          message: 'Model name/description',
+          initial: 'llama-model'
+        }
+      ]);
+
+      this.runtime.config.llamacpp = {
+        baseUrl: `http://localhost:${answers.port}`,
+        port: parseInt(answers.port),
+        model: answers.model
+      };
+
+      this.runtime.config.provider = 'llamacpp';
+      this.runtime.options.model = answers.model;
+      await saveConfig(this.runtime.config);
+      this.resetLlmClient('llamacpp', answers.model);
+
+      console.log(chalk.green('\n✓ llama.cpp configured successfully!'));
+    } catch (error) {
+      if ((error as any).name === 'ExitPromptError' || (error as Error).message?.includes('canceled')) {
+        console.log(chalk.gray('\nConfiguration cancelled.'));
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private async configureOpenAI(): Promise<void> {
+    try {
+      console.log(chalk.cyan('OpenAI Configuration'));
+      console.log(chalk.gray('Get your API key at: https://platform.openai.com/api-keys\n'));
+
+      const modelChoices = [
+        'gpt-4o',
+        'gpt-4o-mini',
+        'gpt-4-turbo',
+        'gpt-4',
+        'gpt-3.5-turbo'
+      ];
+
+      const answers = await enquirer.prompt<{ apiKey: string; model: string }>([
+        {
+          type: 'password',
+          name: 'apiKey',
+          message: 'Enter your OpenAI API key'
+        },
+        {
+          type: 'select',
+          name: 'model',
+          message: 'Select a model',
+          choices: modelChoices
+        }
+      ]);
+
+      this.runtime.config.openai = {
+        apiKey: answers.apiKey,
+        baseUrl: 'https://api.openai.com/v1',
+        model: answers.model
+      };
+
+      this.runtime.config.provider = 'openai';
+      this.runtime.options.model = answers.model;
+      await saveConfig(this.runtime.config);
+      this.resetLlmClient('openai', answers.model);
+
+      console.log(chalk.green('\n✓ OpenAI configured successfully!'));
+    } catch (error) {
+      if ((error as any).name === 'ExitPromptError' || (error as Error).message?.includes('canceled')) {
+        console.log(chalk.gray('\nConfiguration cancelled.'));
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private async changeProviderModel(provider: ProviderName): Promise<void> {
+    try {
+      const currentSettings = getProviderConfig(this.runtime.config, provider);
+      const currentModel = this.runtime.options.model ?? currentSettings.model;
+
+      // For Ollama, try to fetch available models
+      if (provider === 'ollama') {
+        try {
+          const response = await fetch(`${currentSettings.baseUrl}/api/tags`);
+          if (response.ok) {
+            const data = await response.json();
+            const models = data.models?.map((m: any) => m.name) || [];
+            if (models.length > 0) {
+              const answer = await enquirer.prompt<{ model: string }>([
+                {
+                  type: 'select',
+                  name: 'model',
+                  message: 'Select a model',
+                  choices: models,
+                  initial: models.indexOf(currentModel)
+                }
+              ]);
+              await this.applyModelChange(provider, answer.model, currentModel);
+              return;
+            }
+          }
+        } catch {
+          // Fall through to manual input
+        }
+      }
+
+      // For OpenAI, show the predefined list
+      if (provider === 'openai') {
+        const models = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'];
+        const answer = await enquirer.prompt<{ model: string }>([
+          {
+            type: 'select',
+            name: 'model',
+            message: 'Select a model',
+            choices: models,
+            initial: Math.max(0, models.indexOf(currentModel))
+          }
+        ]);
+        await this.applyModelChange(provider, answer.model, currentModel);
+        return;
+      }
+
+      // For other providers, manual input
+      const answer = await enquirer.prompt<{ model: string }>([
+        {
+          type: 'input',
+          name: 'model',
+          message: 'Enter the model ID to use',
+          initial: currentModel
+        }
+      ]);
+
+      await this.applyModelChange(provider, answer.model?.trim(), currentModel);
+    } catch (error) {
+      if ((error as any).name === 'ExitPromptError' || (error as Error).message?.includes('canceled')) {
+        console.log(chalk.gray('\nModel change cancelled.'));
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private async applyModelChange(provider: ProviderName, newModel: string, currentModel: string): Promise<void> {
+    if (!newModel || (newModel === currentModel && provider === this.activeProvider)) {
+      console.log(chalk.gray('Model unchanged.'));
+      return;
+    }
+
+    this.runtime.config.provider = provider;
+    this.runtime.options.model = newModel;
+    this.setProviderModel(provider, newModel);
+    this.resetLlmClient(provider, newModel);
+    await saveConfig(this.runtime.config);
+    this.contextWindow = getContextWindow(newModel);
+    this.contextPercentLeft = 100;
+    this.emitStatus();
+    console.log(chalk.green(`✓ Using ${provider} model ${newModel}`));
   }
 
   private async promptApprovalMode(): Promise<void> {
@@ -680,15 +1047,125 @@ export class AutohandAgent {
     const tools = toolNames.join(', ');
 
     return [
-      'You are Autohand, a CLI-first coding assistant that must follow the ReAct (Reason + Act) pattern.',
-      'Phases: think about the request, decide whether to call tools, execute them, interpret the results, and only then respond.',
-      `Available tools: ${tools}. Use them exactly by name with structured args.`,
-      'If you need a capability not listed, define it as a custom_command (with name, command, args, description) before invoking it.',
-      'Always reply with JSON: {"thought":"string","toolCalls":[{"tool":"tool_name","args":{...}}],"finalResponse":"string"}.',
-      'If no tools are required, set toolCalls to an empty array and provide the finalResponse.',
-      'When tools are needed, omit finalResponse until tool outputs (role=tool) arrive, then continue reasoning.',
-      'Respect workspace safety; destructive operations require explicit approval and should be clearly justified in your thought.',
-      'Never include markdown fences around the JSON and never hallucinate tools that do not exist.'
+      // ═══════════════════════════════════════════════════════════════════
+      // 1. IDENTITY & CORE STANDARDS
+      // ═══════════════════════════════════════════════════════════════════
+      'You are Autohand, an expert AI software engineer built for the command line.',
+      'You are the best engineer in the world. You write code that is clean, efficient, maintainable, and easy to understand.',
+      'You are a master of your craft and can solve any problem with precision and elegance.',
+      'Your goal: Gather necessary information, clarify uncertainties, and decisively execute. Never stop until the task is fully complete.',
+      '',
+
+      // ═══════════════════════════════════════════════════════════════════
+      // 2. SINGLE SOURCE OF TRUTH (Critical Rule)
+      // ═══════════════════════════════════════════════════════════════════
+      '## CRITICAL: Single Source of Truth',
+      'Never speculate about code you have not opened. If the user references a specific file (e.g., utils.ts), you MUST read it before explaining or proposing fixes.',
+      'Do not rely on your training data for project-specific logic. Always inspect the actual code first.',
+      'If you need to edit a file, read it first. If you need to fix a bug, read the failing code first. No exceptions.',
+      '',
+
+      // ═══════════════════════════════════════════════════════════════════
+      // 3. WORKFLOW PHASES
+      // ═══════════════════════════════════════════════════════════════════
+      '## Workflow Phases',
+      '',
+      '### Phase 0: Intent Detection',
+      '- If you will make ANY file changes (edit/create/delete), you are in IMPLEMENTATION mode.',
+      '- Otherwise, you are in DIAGNOSTIC mode (analysis only).',
+      '- If unsure, ask one concise clarifying question.',
+      '',
+      '### Phase 1: Environment Hygiene (MANDATORY for implementation)',
+      'Before editing code, ensure the environment is ready:',
+      '1. Run `git_status` to check for uncommitted changes or conflicts.',
+      '2. If implementing, verify dependencies are installed (check for package.json/requirements.txt/etc).',
+      '3. If the repo is dirty or dependencies are missing, inform the user before proceeding.',
+      'Skip this phase for diagnostic-only tasks.',
+      '',
+      '### Phase 2: Discovery & Planning',
+      '1. Read ALL relevant files before planning. Use `read_file`, `search`, or `semantic_search`.',
+      '2. For multi-step tasks, use `todo_write` to create a structured plan. Mark tasks as "in_progress" or "completed" as you go.',
+      '3. Identify outputs, success criteria, edge cases, and potential blockers.',
+      '',
+      '### Phase 3: Implementation',
+      '1. Write code using `write_file`, `replace_in_file`, `apply_patch`, or `multi_file_edit`.',
+      '2. Make small, logical changes with clear reasoning in your "thought" field.',
+      '3. Destructive operations (delete_path, run_command with rm/sudo) require explicit user approval—clearly justify them.',
+      '',
+      '### Phase 4: Verification (MANDATORY for implementation)',
+      'You are NOT done until you have validated your changes:',
+      '1. If a build system exists (package.json scripts, Makefile, etc.), run the build command.',
+      '2. If tests exist, run them. Fix any failures you caused.',
+      '3. Use `git_diff` to review your changes before declaring success.',
+      'Do not ask the user to fix broken code you introduced. Fix it yourself.',
+      '',
+
+      // ═══════════════════════════════════════════════════════════════════
+      // 4. REACT PATTERN & TOOL USAGE
+      // ═══════════════════════════════════════════════════════════════════
+      '## ReAct Pattern (Reason + Act)',
+      'You must follow the ReAct loop: think about the request, decide whether to call tools, execute them, interpret the results, and only then respond.',
+      '',
+      '### Tool Discovery',
+      'When choosing tools, first call `tools_registry` to fetch the full merged list (built-in + meta). Never invent tools beyond what it returns.',
+      tools ? `Known tools: ${tools}. Use them exactly by name with structured args.` : 'Tools are resolved at runtime. Use tools_registry to inspect them.',
+      'If you need a capability not listed, define it as a `custom_command` (with name, command, args, description) before invoking it.',
+      'Do not override existing tool functionality when adding meta tools.',
+      '',
+      '### Response Format',
+      'Always reply with structured JSON:',
+      '{"thought": "your reasoning here", "toolCalls": [{"tool": "tool_name", "args": {...}}], "finalResponse": "optional final message"}',
+      '',
+      '- If no tools are required, set toolCalls to an empty array and provide the finalResponse.',
+      '- When tools are needed, omit finalResponse until tool outputs (role=tool) arrive, then continue reasoning.',
+      '- Never include markdown fences (```json) around the JSON.',
+      '- Never hallucinate tools that do not exist.',
+      '',
+
+      // ═══════════════════════════════════════════════════════════════════
+      // 5. TASK MANAGEMENT
+      // ═══════════════════════════════════════════════════════════════════
+      '## Task Management',
+      'Use the `todo_write` tool for ANY task with more than 2-3 steps. This keeps you organized and makes progress visible to the user.',
+      'Example: If asked to "refactor the auth system," create a todo list with items like:',
+      '- Read existing auth code',
+      '- Identify refactoring opportunities',
+      '- Implement changes',
+      '- Run tests',
+      'Mark each item "in_progress" when you start it and "completed" when done.',
+      '',
+
+      // ═══════════════════════════════════════════════════════════════════
+      // 6. REPOSITORY CONVENTIONS
+      // ═══════════════════════════════════════════════════════════════════
+      '## Repository Conventions',
+      'Match existing code style, patterns, and naming conventions. Review similar modules before adding new ones.',
+      'Respect framework/library choices already present. Avoid superfluous documentation; keep changes consistent with repo standards.',
+      'Implement changes in the simplest way possible. Prefer clarity over cleverness.',
+      '',
+
+      // ═══════════════════════════════════════════════════════════════════
+      // 7. SAFETY & APPROVALS
+      // ═══════════════════════════════════════════════════════════════════
+      '## Safety',
+      'Destructive operations (delete_path, run_command with rm/sudo/dd) require explicit user approval.',
+      'Clearly justify risky actions in your "thought" field before calling them.',
+      'Respect workspace boundaries: never escape the workspace root.',
+      'Do not commit broken code. If you break the build, fix it before declaring success.',
+      '',
+
+      // ═══════════════════════════════════════════════════════════════════
+      // 8. COMPLETION CRITERIA
+      // ═══════════════════════════════════════════════════════════════════
+      '## Definition of Done',
+      'A task is complete only when:',
+      '- All requested functionality is implemented',
+      '- The code follows repository conventions',
+      '- The build passes (if applicable)',
+      '- Tests pass (if applicable)',
+      '- You have verified your changes with git_diff or similar',
+      '',
+      'Do not stop until all criteria are met. Do not ask the user to complete your work.'
     ].join('\n');
   }
 
@@ -991,6 +1468,37 @@ export class AutohandAgent {
     this.updateContextUsage(this.conversation.history());
   }
 
+  private availableProviders(): ProviderName[] {
+    const providers: ProviderName[] = [];
+    if (this.runtime.config.openrouter) providers.push('openrouter');
+    if (this.runtime.config.ollama) providers.push('ollama');
+    if (this.runtime.config.llamacpp) providers.push('llamacpp');
+    if (this.runtime.config.openai) providers.push('openai');
+    return providers.length ? providers : ['openrouter'];
+  }
+
+  private setProviderModel(provider: ProviderName, model: string): void {
+    const cfgMap: Record<ProviderName, any> = {
+      openrouter: this.runtime.config.openrouter ?? (this.runtime.config.openrouter = { apiKey: '', model }),
+      ollama: this.runtime.config.ollama ?? (this.runtime.config.ollama = { model }),
+      llamacpp: this.runtime.config.llamacpp ?? (this.runtime.config.llamacpp = { model }),
+      openai: this.runtime.config.openai ?? (this.runtime.config.openai = { model })
+    };
+    cfgMap[provider].model = model;
+    this.activeProvider = provider;
+  }
+
+  private resetLlmClient(provider: ProviderName, model: string): void {
+    const settings = getProviderConfig(this.runtime.config, provider);
+    this.llm = new OpenRouterClient({
+      apiKey: settings.apiKey ?? '',
+      baseUrl: settings.baseUrl,
+      model
+    });
+    this.llm.setDefaultModel(model);
+    this.delegator = new AgentDelegator(this.llm, this.actionExecutor);
+  }
+
   private async confirmDangerousAction(message: string): Promise<boolean> {
     if (this.runtime.options.yes || this.runtime.config.ui?.autoConfirm) {
       return true;
@@ -1031,8 +1539,9 @@ export class AutohandAgent {
   }
 
   getStatusSnapshot(): AgentStatusSnapshot {
+    const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
     return {
-      model: this.runtime.options.model ?? this.runtime.config.openrouter.model,
+      model: this.runtime.options.model ?? providerSettings.model,
       workspace: this.runtime.workspaceRoot,
       contextPercent: this.contextPercentLeft
     };
