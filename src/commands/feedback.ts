@@ -3,12 +3,11 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import os from 'node:os';
-import path from 'node:path';
 import fs from 'fs-extra';
 import chalk from 'chalk';
 import enquirer from 'enquirer';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
+import { AUTOHAND_FILES } from '../constants.js';
 
 export const metadata = {
     command: '/feedback',
@@ -48,7 +47,7 @@ export async function feedback(_ctx: FeedbackContext): Promise<string | null> {
     };
 
     try {
-        const feedbackPath = path.join(os.homedir(), '.autohand-cli', 'feedback.log');
+        const feedbackPath = AUTOHAND_FILES.feedbackLog;
         await fs.ensureFile(feedbackPath);
         await fs.appendFile(feedbackPath, JSON.stringify(payload) + '\n', 'utf8');
         console.log(chalk.green('Feedback recorded.'));

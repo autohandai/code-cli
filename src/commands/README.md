@@ -12,17 +12,17 @@ Each command is a separate TypeScript file that exports:
 
 | Command | File | Description |
 |---------|------|-------------|
-| `/ls` | `ls.ts` | List files in workspace |
-| `/diff` | `diff.ts` | Show git diff (including untracked) |
 | `/undo` | `undo.ts` | Undo last file mutation |
 | `/model` | `model.ts` | Choose AI model |
-| `/approvals` | `approvals.ts` | Configure auto-approvals |
-| `/review` | `review.ts` | Review current changes |
 | `/new` | `new.ts` | Start new conversation |
 | `/init` | `init.ts` | Create AGENTS.md file |
-| `/compact` | `compact.ts` | Compact conversation |
 | `/quit` | `quit.ts` | Exit Autohand |
 | `/help` | `help.ts` | Show available commands |
+| `/sessions` | `sessions.ts` | List saved sessions |
+| `/resume` | `resume.ts` | Resume a previous session |
+| `/memory` | `memory.ts` | Manage project/user memory |
+| `/feedback` | `feedback.ts` | Submit feedback |
+| `/agents` | `agents.ts` | Manage sub-agents |
 
 ## Adding a New Command
 

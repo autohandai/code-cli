@@ -6,11 +6,8 @@
 
 // Export all command modules
 export * as model from './model.js';
-export * as approvals from './approvals.js';
-export * as review from './review.js';
 export * as newCmd from './new.js';
 export * as init from './init.js';
-export * as compact from './compact.js';
 export * as quit from './quit.js';
 export * as help from './help.js';
 export * as resume from './resume.js';
@@ -19,6 +16,8 @@ export * as agents from './agents.js';
 export * as agentsNew from './agents-new.js';
 export * as feedback from './feedback.js';
 export * as session from './session.js';
+export * as undo from './undo.js';
+export * as memory from './memory.js';
 
 // Command registry type
 export interface CommandModule {
@@ -40,11 +39,8 @@ export function getAllCommands(): Array<{ command: string; description: string; 
     // Manually collect all command metadata
     const commandModules = [
         modules.model,
-        modules.approvals,
-        modules.review,
         modules.newCmd,
         modules.init,
-        modules.compact,
         modules.quit,
         modules.help,
         modules.resume,
@@ -52,7 +48,9 @@ export function getAllCommands(): Array<{ command: string; description: string; 
         modules.agents,
         modules.agentsNew,
         modules.feedback,
-        modules.session
+        modules.session,
+        modules.undo,
+        modules.memory
     ];
 
     for (const mod of commandModules) {

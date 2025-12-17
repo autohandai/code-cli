@@ -12,11 +12,20 @@ import enquirer from 'enquirer';
 import readline from 'node:readline';
 import { FileActionManager } from '../actions/filesystem.js';
 import { saveConfig, getProviderConfig } from '../config.js';
-import { OpenRouterClient } from '../openrouter.js';
+import type { LLMProvider } from '../providers/LLMProvider.js';
+import { ProviderFactory, ProviderNotConfiguredError } from '../providers/ProviderFactory.js';
 import { readInstruction } from '../ui/inputPrompt.js';
 import { showFilePalette } from '../ui/filePalette.js';
-import { getContextWindow, estimateMessagesTokens } from '../utils/context.js';
+import {
+  getContextWindow,
+  estimateMessagesTokens,
+  calculateContextUsage,
+  CONTEXT_WARNING_THRESHOLD,
+  CONTEXT_CRITICAL_THRESHOLD,
+  type ContextUsage
+} from '../utils/context.js';
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
+import { filterToolsByRelevance, detectRelevantCategories } from './toolFilter.js';
 import { SLASH_COMMANDS } from './slashCommands.js';
 import { ConversationManager } from './conversationManager.js';
 import { ToolManager } from './toolManager.js';
@@ -30,16 +39,23 @@ import type {
   AgentRuntime,
   AgentAction,
   LLMMessage,
+  LLMResponse,
   AgentStatusSnapshot,
   AssistantReactPayload,
   ToolCallRequest,
   ExplorationEvent,
-  ProviderName
+  ProviderName,
+  ClientContext
 } from '../types.js';
 
 import { AgentDelegator } from './agents/AgentDelegator.js';
 import { DEFAULT_TOOL_DEFINITIONS } from './toolManager.js';
 import { ErrorLogger } from './errorLogger.js';
+import { MemoryManager } from '../memory/MemoryManager.js';
+import { FeedbackManager } from '../feedback/FeedbackManager.js';
+import { TelemetryManager } from '../telemetry/TelemetryManager.js';
+import { PersistentInput, createPersistentInput } from '../ui/persistentInput.js';
+import packageJson from '../../package.json' with { type: 'json' };
 
 export class AutohandAgent {
   private mentionContexts: { path: string; contents: string }[] = [];
@@ -54,25 +70,43 @@ export class AutohandAgent {
   private slashHandler: SlashCommandHandler;
   private sessionManager: SessionManager;
   private projectManager: ProjectManager;
+  private memoryManager: MemoryManager;
   private delegator: AgentDelegator;
+  private feedbackManager: FeedbackManager;
+  private telemetryManager: TelemetryManager;
   private workspaceFiles: string[] = [];
   private isInstructionActive = false;
   private hasPrintedExplorationHeader = false;
   private activeProvider: ProviderName;
   private errorLogger: ErrorLogger;
 
+  // Task-level tracking for status line
+  private taskStartedAt: number | null = null;
+  private totalTokensUsed = 0;
+  private statusInterval: NodeJS.Timeout | null = null;
+
+  // Persistent input for always-visible input field
+  private persistentInput: PersistentInput;
+
+  // Current queue input (shared between keypress handler and status updates)
+  private queueInput = '';
+
+  // Last rendered state to prevent flickering (only update when changed)
+  private lastRenderedStatus = '';
+
   constructor(
-    private llm: OpenRouterClient,
+    private llm: LLMProvider,
     private readonly files: FileActionManager,
     private readonly runtime: AgentRuntime
   ) {
     const initialProvider = runtime.config.provider ?? 'openrouter';
     const providerSettings = getProviderConfig(runtime.config, initialProvider);
-    const model = runtime.options.model ?? providerSettings.model;
+    const model = runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
     this.contextWindow = getContextWindow(model);
     this.ignoreFilter = new GitIgnoreParser(runtime.workspaceRoot, []);
     this.conversation = ConversationManager.getInstance();
     this.toolsRegistry = new ToolsRegistry();
+    this.memoryManager = new MemoryManager(runtime.workspaceRoot);
     this.actionExecutor = new ActionExecutor({
       runtime,
       files,
@@ -80,12 +114,25 @@ export class AutohandAgent {
       confirmDangerousAction: (message) => this.confirmDangerousAction(message),
       onExploration: (entry) => this.recordExploration(entry),
       toolsRegistry: this.toolsRegistry,
-      getRegisteredTools: () => this.toolManager?.listDefinitions() ?? []
+      getRegisteredTools: () => this.toolManager?.listDefinitions() ?? [],
+      memoryManager: this.memoryManager
     });
 
     this.activeProvider = runtime.config.provider ?? 'openrouter';
-    this.delegator = new AgentDelegator(llm, this.actionExecutor);
-    this.errorLogger = new ErrorLogger('0.1.0'); // TODO: Get from package.json
+    // Determine client context for delegation
+    const delegatorContext = runtime.options.clientContext
+      ?? (runtime.options.restricted ? 'restricted' : 'cli');
+    this.delegator = new AgentDelegator(llm, this.actionExecutor, {
+      clientContext: delegatorContext,
+      maxDepth: 3
+    });
+    this.errorLogger = new ErrorLogger(packageJson.version);
+    this.feedbackManager = new FeedbackManager();
+    this.telemetryManager = new TelemetryManager({
+      enabled: runtime.config.telemetry?.enabled !== false,
+      apiBaseUrl: runtime.config.telemetry?.apiBaseUrl || 'https://api.autohand.ai',
+      enableSessionSync: runtime.config.telemetry?.enableSessionSync !== false
+    });
 
     const delegationTools = [
       {
@@ -100,38 +147,109 @@ export class AutohandAgent {
       }
     ];
 
+    // Determine client context - restricted mode maps to 'restricted' context
+    const clientContext = runtime.options.clientContext
+      ?? (runtime.options.restricted ? 'restricted' : 'cli');
+
     this.toolManager = new ToolManager({
       executor: async (action) => {
-        if (action.type === 'delegate_task') {
-          return this.delegator.delegateTask(action.agent_name, action.task);
+        const startTime = Date.now();
+        try {
+          let result: string | undefined;
+          if (action.type === 'delegate_task') {
+            result = await this.delegator.delegateTask(action.agent_name, action.task);
+          } else if (action.type === 'delegate_parallel') {
+            result = await this.delegator.delegateParallel(action.tasks);
+          } else {
+            result = await this.actionExecutor.execute(action);
+          }
+          // Track successful tool use
+          await this.telemetryManager.trackToolUse({
+            tool: action.type,
+            success: true,
+            duration: Date.now() - startTime
+          });
+          return result ?? '';
+        } catch (error) {
+          // Track failed tool use
+          await this.telemetryManager.trackToolUse({
+            tool: action.type,
+            success: false,
+            duration: Date.now() - startTime,
+            error: (error as Error).message
+          });
+          throw error;
         }
-        if (action.type === 'delegate_parallel') {
-          return this.delegator.delegateParallel(action.tasks);
-        }
-        return this.actionExecutor.execute(action);
       },
       confirmApproval: (message) => this.confirmDangerousAction(message),
-      definitions: [...DEFAULT_TOOL_DEFINITIONS, ...delegationTools]
+      definitions: [...DEFAULT_TOOL_DEFINITIONS, ...delegationTools],
+      clientContext
     });
 
     this.sessionManager = new SessionManager();
     this.projectManager = new ProjectManager();
+
+    // Initialize persistent input for queuing messages while agent works
+    // Using silent mode to avoid conflicts with ora spinner
+    this.persistentInput = createPersistentInput({
+      maxQueueSize: 10,
+      silentMode: true
+    });
+
+    // Listen for queue events to update spinner
+    this.persistentInput.on('queued', (text: string, count: number) => {
+      const preview = text.length > 30 ? text.slice(0, 27) + '...' : text;
+      if (this.runtime.spinner) {
+        // Briefly show queued message, then restore normal status
+        const originalText = this.runtime.spinner.text;
+        this.runtime.spinner.text = chalk.cyan(`✓ Queued: "${preview}" (${count} pending)`);
+        setTimeout(() => {
+          if (this.runtime.spinner) {
+            this.runtime.spinner.text = originalText;
+          }
+        }, 1500);
+      }
+    });
+
     this.slashHandler = new SlashCommandHandler({
       promptModelSelection: () => this.promptModelSelection(),
       createAgentsFile: () => this.createAgentsFile(),
       sessionManager: this.sessionManager,
-      llm: this.llm
+      memoryManager: this.memoryManager,
+      llm: this.llm,
+      workspaceRoot: runtime.workspaceRoot,
+      model: model,
+      resetConversation: async () => this.resetConversationContext(),
+      undoFileMutation: () => this.files.undoLast(),
+      removeLastTurn: () => this.conversation.removeLastTurn(),
+      // Status command context
+      provider: this.activeProvider,
+      config: runtime.config,
+      getContextPercentLeft: () => this.contextPercentLeft,
+      getTotalTokensUsed: () => this.totalTokensUsed
     }, SLASH_COMMANDS);
-    this.resetConversationContext();
   }
 
   async runInteractive(): Promise<void> {
     // Initialize session
     await this.sessionManager.initialize();
     await this.projectManager.initialize();
+    await this.memoryManager.initialize();
+    await this.resetConversationContext();
+    this.feedbackManager.startSession();
     const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
-    const model = this.runtime.options.model ?? providerSettings.model;
+    const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
     await this.sessionManager.createSession(this.runtime.workspaceRoot, model);
+
+    // Start telemetry session
+    const session = this.sessionManager.getCurrentSession();
+    if (session) {
+      await this.telemetryManager.startSession(
+        session.metadata.sessionId,
+        model,
+        this.activeProvider
+      );
+    }
 
     await this.runInteractiveLoop();
   }
@@ -140,12 +258,13 @@ export class AutohandAgent {
     // Initialize session
     await this.sessionManager.initialize();
     await this.projectManager.initialize();
+    await this.memoryManager.initialize();
 
     try {
       const session = await this.sessionManager.loadSession(sessionId);
 
       // Restore context
-      this.resetConversationContext();
+      await this.resetConversationContext();
       const messages = session.getMessages();
       for (const msg of messages) {
         if (msg.role === 'system') {
@@ -156,7 +275,9 @@ export class AutohandAgent {
           this.conversation.addMessage({
             role: msg.role,
             content: msg.content,
-            name: msg.name
+            name: msg.name,
+            tool_calls: (msg as any).toolCalls,
+            tool_call_id: (msg as any).tool_call_id
           });
         }
       }
@@ -166,13 +287,25 @@ export class AutohandAgent {
 
       console.log(chalk.cyan(`\n📂 Resumed session ${sessionId}`));
 
+      // Start telemetry for resumed session
+      await this.telemetryManager.startSession(
+        sessionId,
+        session.metadata.model,
+        this.activeProvider
+      );
+
       // Start interactive loop
       await this.runInteractiveLoop();
     } catch (error) {
       console.error(chalk.red(`Failed to resume session: ${(error as Error).message}`));
+      await this.telemetryManager.trackError({
+        type: 'session_resume_failed',
+        message: (error as Error).message,
+        context: 'resumeSession'
+      });
       // Fallback to new session
       const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
-      const model = this.runtime.options.model ?? providerSettings.model;
+      const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
       await this.sessionManager.createSession(this.runtime.workspaceRoot, model);
       await this.runInteractiveLoop();
     }
@@ -181,12 +314,40 @@ export class AutohandAgent {
   private async runInteractiveLoop(): Promise<void> {
     while (true) {
       try {
-        const instruction = await this.promptForInstruction();
+        // Check for queued requests first
+        let instruction: string | null = null;
+
+        if (this.persistentInput.hasQueued()) {
+          const queued = this.persistentInput.dequeue();
+          if (queued) {
+            instruction = queued.text;
+            console.log(chalk.cyan(`\n▶ Processing queued request: "${instruction.slice(0, 50)}${instruction.length > 50 ? '...' : ''}"`));
+
+            // Show remaining queue status
+            if (this.persistentInput.hasQueued()) {
+              console.log(chalk.gray(`  ${this.persistentInput.getQueueLength()} more request(s) queued`));
+            }
+          }
+        }
+
+        // If no queued request, prompt for new input
+        if (!instruction) {
+          instruction = await this.promptForInstruction();
+        }
+
         if (!instruction) {
           continue;
         }
 
         if (instruction === '/exit' || instruction === '/quit') {
+          // Track command before exiting
+          await this.telemetryManager.trackCommand({ command: instruction });
+          // Check if we should prompt for feedback on exit
+          const trigger = this.feedbackManager.shouldPrompt({ sessionEnding: true });
+          if (trigger) {
+            const session = this.sessionManager.getCurrentSession();
+            await this.feedbackManager.promptForFeedback(trigger, session?.metadata.sessionId);
+          }
           await this.closeSession();
           return;
         }
@@ -196,7 +357,32 @@ export class AutohandAgent {
           continue;
         }
 
+        // Track slash commands
+        const isSlashCommand = instruction.startsWith('/');
+        if (isSlashCommand) {
+          await this.telemetryManager.trackCommand({ command: instruction.split(' ')[0] });
+        }
+
         await this.runInstruction(instruction);
+        this.feedbackManager.recordInteraction();
+        this.telemetryManager.recordInteraction();
+
+        // Check for feedback trigger (gratitude, task completion, etc.)
+        const feedbackTrigger = this.feedbackManager.shouldPrompt({
+          userMessage: instruction,
+          taskCompleted: true
+        });
+
+        if (feedbackTrigger) {
+          const session = this.sessionManager.getCurrentSession();
+          // Use quick rating for mid-session prompts to minimize interruption
+          if (feedbackTrigger === 'gratitude') {
+            await this.feedbackManager.quickRating();
+          } else {
+            await this.feedbackManager.promptForFeedback(feedbackTrigger, session?.metadata.sessionId);
+          }
+        }
+
         console.log();
       } catch (error) {
         // Check if it's a user cancellation (ESC or Ctrl+C)
@@ -217,6 +403,14 @@ export class AutohandAgent {
         await this.errorLogger.log(error as Error, {
           context: 'Interactive loop',
           workspace: this.runtime.workspaceRoot
+        });
+
+        // Track error in telemetry
+        await this.telemetryManager.trackError({
+          type: 'interactive_loop_error',
+          message: (error as Error).message,
+          stack: (error as Error).stack,
+          context: 'Interactive loop'
         });
 
         // Save session on unexpected error
@@ -269,11 +463,70 @@ export class AutohandAgent {
       normalized = handled;
     }
 
+    // Handle # trigger for storing memories
+    if (normalized.startsWith('#')) {
+      await this.handleMemoryStore(normalized.slice(1).trim());
+      return null;
+    }
+
     if (normalized) {
       normalized = await this.resolveMentions(normalized);
       return normalized;
     }
     return null;
+  }
+
+  private async handleMemoryStore(content: string): Promise<void> {
+    if (!content) {
+      console.log(chalk.gray('Usage: # <text to remember>'));
+      console.log(chalk.gray('Example: # Always use TypeScript strict mode'));
+      return;
+    }
+
+    try {
+      const { Select } = enquirer as any;
+      const prompt = new Select({
+        name: 'level',
+        message: 'Where should this memory be stored?',
+        choices: [
+          { name: 'project', message: 'Project level (.autohand/memory/) - specific to this project' },
+          { name: 'user', message: 'User level (~/.autohand/memory/) - available in all projects' }
+        ]
+      });
+
+      const level = await prompt.run() as 'project' | 'user';
+
+      // Check for similar memories first
+      const similar = await this.memoryManager.findSimilar(content, level);
+      if (similar && similar.score >= 0.6) {
+        console.log();
+        console.log(chalk.yellow('Found similar existing memory:'));
+        console.log(chalk.gray(`  "${similar.entry.content}"`));
+
+        const { Confirm } = enquirer as any;
+        const confirmPrompt = new Confirm({
+          name: 'update',
+          message: 'Update the existing memory instead of creating a new one?'
+        });
+
+        const shouldUpdate = await confirmPrompt.run();
+        if (shouldUpdate) {
+          await this.memoryManager.updateMemory(similar.entry.id, content, level);
+          console.log(chalk.green('Memory updated.'));
+          return;
+        }
+      }
+
+      // Store new memory
+      await this.memoryManager.store(content, level);
+      console.log(chalk.green(`Memory saved to ${level} level.`));
+    } catch (error) {
+      // User cancelled
+      if ((error as any).isCanceled) {
+        return;
+      }
+      console.error(chalk.red('Failed to store memory:'), (error as Error).message);
+    }
   }
 
   private async listWorkspaceFiles(): Promise<void> {
@@ -309,18 +562,29 @@ export class AutohandAgent {
   }
 
   private async walkWorkspace(current: string, acc: string[]): Promise<void> {
-    const entries = await fs.readdir(current);
+    let entries: string[];
+    try {
+      entries = await fs.readdir(current);
+    } catch {
+      // Directory doesn't exist or can't be read
+      return;
+    }
     for (const entry of entries) {
       const full = path.join(current, entry);
       const rel = path.relative(this.runtime.workspaceRoot, full);
       if (rel === '' || this.shouldSkipPath(rel) || this.ignoreFilter.isIgnored(rel)) {
         continue;
       }
-      const stats = await fs.stat(full);
-      if (stats.isDirectory()) {
-        await this.walkWorkspace(full, acc);
-      } else if (stats.isFile()) {
-        acc.push(rel);
+      try {
+        const stats = await fs.stat(full);
+        if (stats.isDirectory()) {
+          await this.walkWorkspace(full, acc);
+        } else if (stats.isFile()) {
+          acc.push(rel);
+        }
+      } catch {
+        // File doesn't exist or can't be accessed, skip it
+        continue;
       }
     }
   }
@@ -637,10 +901,10 @@ export class AutohandAgent {
   private async changeProviderModel(provider: ProviderName): Promise<void> {
     try {
       const currentSettings = getProviderConfig(this.runtime.config, provider);
-      const currentModel = this.runtime.options.model ?? currentSettings.model;
+      const currentModel = this.runtime.options.model ?? currentSettings?.model ?? '';
 
       // For Ollama, try to fetch available models
-      if (provider === 'ollama') {
+      if (provider === 'ollama' && currentSettings?.baseUrl) {
         try {
           const response = await fetch(`${currentSettings.baseUrl}/api/tags`);
           if (response.ok) {
@@ -707,6 +971,7 @@ export class AutohandAgent {
       return;
     }
 
+    const previousModel = this.runtime.options.model;
     this.runtime.config.provider = provider;
     this.runtime.options.model = newModel;
     this.setProviderModel(provider, newModel);
@@ -715,6 +980,14 @@ export class AutohandAgent {
     this.contextWindow = getContextWindow(newModel);
     this.contextPercentLeft = 100;
     this.emitStatus();
+
+    // Track model switch
+    await this.telemetryManager.trackModelSwitch({
+      fromModel: previousModel,
+      toModel: newModel,
+      provider
+    });
+
     console.log(chalk.green(`✓ Using ${provider} model ${newModel}`));
   }
 
@@ -751,20 +1024,102 @@ export class AutohandAgent {
     console.log(chalk.green('Created AGENTS.md template. Customize it to guide the agent.'));
   }
 
-  async runInstruction(instruction: string): Promise<void> {
+  /**
+   * Detect if instruction is simple chat that doesn't need tools
+   * Fast path for conversational responses
+   */
+  private isSimpleChat(instruction: string): boolean {
+    // Too long = likely complex request
+    if (instruction.length > 200) return false;
+
+    // File mentions = needs context
+    if (instruction.includes('@')) return false;
+
+    // Slash commands = special handling
+    if (instruction.startsWith('/')) return false;
+
+    // Keywords that suggest tool usage
+    const toolKeywords = /\b(file|create|edit|delete|run|fix|implement|refactor|build|test|install|commit|push|read|write|search|find|list|show me|update|add|remove|change|modify|rename|copy|move|execute|deploy|check|analyze|review|debug|inspect|explore|look at|open|save)\b/i;
+    if (toolKeywords.test(instruction)) return false;
+
+    return true;
+  }
+
+  /**
+   * Handle simple chat without spinner/tools (fast path)
+   */
+  private async handleSimpleChat(instruction: string): Promise<boolean> {
+    this.isInstructionActive = true;
+
+    try {
+      // Add user message to conversation
+      this.conversation.addMessage({ role: 'user', content: instruction });
+      await this.saveUserMessage(instruction);
+
+      // Quick LLM call - no tools, no spinner
+      const completion = await this.llm.complete({
+        messages: this.conversation.history(),
+        tools: [],  // No tools for chat
+        maxTokens: 1000,
+        temperature: 0.7
+      });
+
+      // Parse the response (LLM returns JSON format)
+      const payload = this.parseAssistantResponse(completion);
+      const rawContent = (payload.finalResponse ?? payload.response ?? completion.content).trim();
+      const content = this.cleanupModelResponse(rawContent);
+      console.log(content);
+
+      // Add to conversation and save
+      this.conversation.addMessage({ role: 'assistant', content: completion.content });
+      await this.saveAssistantMessage(completion.content);
+
+      // Track token usage
+      if (completion.usage) {
+        this.totalTokensUsed = completion.usage.totalTokens;
+      }
+
+      this.updateContextUsage(this.conversation.history());
+      return true;
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error(chalk.red(error.message));
+      }
+      return false;
+    } finally {
+      this.isInstructionActive = false;
+    }
+  }
+
+  async runInstruction(instruction: string): Promise<boolean> {
     this.isInstructionActive = true;
     this.clearExplorationLog();
+
+    // Initialize task-level tracking
+    this.taskStartedAt = Date.now();
+    this.totalTokensUsed = 0;
+
     const spinner = ora({
       text: 'Gathering context...',
       spinner: 'dots'
     }).start();
     this.runtime.spinner = spinner;
+
+    // TODO: Queue feature disabled temporarily - causes flickering due to
+    // competing readline handlers. Need to integrate into setupEscListener.
+    // if (this.runtime.config.agent?.enableRequestQueue !== false) {
+    //   this.persistentInput.start();
+    // }
+
     const abortController = new AbortController();
     let canceledByUser = false;
+    let success = true;
     const cleanupEsc = this.setupEscListener(abortController, () => {
       if (!canceledByUser) {
         canceledByUser = true;
+        this.stopStatusUpdates();
         spinner.stop();
+        // this.persistentInput.stop(); // Queue feature disabled
         console.log('\n' + chalk.yellow('Request canceled by user (ESC).'));
       }
     }, true);
@@ -781,9 +1136,20 @@ export class AutohandAgent {
       this.updateContextUsage(this.conversation.history());
       await this.runReactLoop(abortController);
     } catch (error) {
+      success = false;
       if (abortController.signal.aborted) {
-        return;
+        return false;
       }
+
+      // Handle unconfigured provider by prompting for configuration
+      if (error instanceof ProviderNotConfiguredError) {
+        spinner.stop();
+        console.log(chalk.yellow(`\nNo provider is configured yet. Let's set one up!\n`));
+        await this.promptModelSelection();
+        // After configuration, retry the instruction
+        return this.runInstruction(instruction);
+      }
+
       spinner.fail('Session failed');
       if (error instanceof Error) {
         console.error(chalk.red(error.message));
@@ -793,10 +1159,27 @@ export class AutohandAgent {
     } finally {
       cleanupEsc();
       stopPreparation();
+      this.stopStatusUpdates();
       spinner.stop();
+
+      // Stop the queue input (disabled - see TODO above)
+      // this.persistentInput.stop();
+
+      // Show completion summary
+      if (this.taskStartedAt && !canceledByUser) {
+        const elapsed = this.formatElapsedTime(this.taskStartedAt);
+        const tokens = this.formatTokens(this.totalTokensUsed);
+        const queueStatus = this.persistentInput.hasQueued()
+          ? ` · ${this.persistentInput.getQueueLength()} queued`
+          : '';
+        console.log(chalk.gray(`\nCompleted in ${elapsed} · ${tokens} used${queueStatus}`));
+      }
+
+      this.taskStartedAt = null;
       this.isInstructionActive = false;
       this.clearExplorationLog();
     }
+    return success;
   }
 
   private async saveUserMessage(content: string): Promise<void> {
@@ -824,7 +1207,7 @@ export class AutohandAgent {
     await session.append(message);
   }
 
-  private async saveToolMessage(name: string, content: string): Promise<void> {
+  private async saveToolMessage(name: string, content: string, toolCallId?: string): Promise<void> {
     const session = this.sessionManager.getCurrentSession();
     if (!session) return;
 
@@ -832,15 +1215,20 @@ export class AutohandAgent {
       role: 'tool',
       content,
       name,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      tool_call_id: toolCallId
     };
     await session.append(message);
   }
 
   private async closeSession(): Promise<void> {
+    // Clean up persistent input
+    this.persistentInput.dispose();
+
     const session = this.sessionManager.getCurrentSession();
     if (!session) {
       console.log(chalk.gray('Ending Autohand session.'));
+      await this.telemetryManager.shutdown();
       return;
     }
 
@@ -849,31 +1237,117 @@ export class AutohandAgent {
     const lastUserMsg = messages.filter(m => m.role === 'user').slice(-1)[0];
     const summary = lastUserMsg?.content.slice(0, 60) || 'Session complete';
 
+    // Sync session to cloud before closing
+    const syncResult = await this.telemetryManager.syncSession({
+      messages: messages.map(m => ({
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp
+      })),
+      metadata: {
+        workspaceRoot: this.runtime.workspaceRoot
+      }
+    });
+
+    // End telemetry session
+    await this.telemetryManager.endSession('completed');
+    await this.telemetryManager.shutdown();
+
     await this.sessionManager.closeSession(summary);
 
     console.log(chalk.gray('\nEnding Autohand session.\n'));
     console.log(chalk.cyan(`💾 Session saved: ${session.metadata.sessionId}`));
+    if (syncResult.success) {
+      console.log(chalk.gray(`   Synced to cloud: ${syncResult.id}`));
+    }
     console.log(chalk.gray(`   Resume with: autohand resume ${session.metadata.sessionId}\n`));
   }
 
   private async runReactLoop(abortController: AbortController): Promise<void> {
-    const maxIterations = 8;
+    // Configurable iteration limit (default 100) - context management handles memory
+    const maxIterations = this.runtime.config.agent?.maxIterations ?? 100;
+
+    // Get all function definitions for native tool calling
+    const allTools = this.toolManager.toFunctionDefinitions();
+
+    // Start status updates for the main loop
+    this.startStatusUpdates();
+
+    // Check if thinking should be shown
+    const showThinking = this.runtime.config.ui?.showThinking !== false;
+
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
-      this.runtime.spinner?.start('Working ...');
+      // Filter tools by relevance to reduce token overhead
+      const messages = this.conversation.history();
+      const tools = filterToolsByRelevance(allTools, messages);
+
+      // Check context usage and auto-crop if needed
+      const model = this.runtime.options.model ?? getProviderConfig(this.runtime.config, this.activeProvider)?.model ?? 'unconfigured';
+      const contextUsage = calculateContextUsage(
+        messages,
+        tools,
+        model
+      );
+
+      // Auto-crop if at critical threshold (90%+)
+      if (contextUsage.isCritical) {
+        this.runtime.spinner?.stop();
+        console.log(chalk.yellow('\n⚠ Context at critical level, auto-cropping old messages...'));
+
+        // Target 70% usage after cropping
+        const targetTokens = Math.floor(contextUsage.contextWindow * 0.7);
+        const tokensToRemove = contextUsage.totalTokens - targetTokens;
+        const avgMessageTokens = 200; // Rough estimate
+        const messagesToRemove = Math.ceil(tokensToRemove / avgMessageTokens);
+
+        const removed = this.conversation.cropHistory('top', messagesToRemove);
+        if (removed.length > 0) {
+          // Generate a summary of what was removed
+          const summary = this.summarizeRemovedMessages(removed);
+          this.conversation.addSystemNote(
+            `[Context Management] ${removed.length} older messages were summarized to maintain context limits.\n` +
+            `Summary of removed content:\n${summary}`
+          );
+          console.log(chalk.gray(`   Removed ${removed.length} messages to free up context space`));
+          console.log(chalk.gray(`   Summary preserved in context`));
+        }
+        this.updateContextUsage(this.conversation.history(), tools);
+      } else if (contextUsage.isWarning && iteration === 0) {
+        // Only warn once per user turn (iteration 0)
+        console.log(chalk.yellow(`\n⚠ Context at ${Math.round(contextUsage.usagePercent * 100)}% - approaching limit`));
+      }
+
+      // Show iteration progress for long-running tasks (every 10 steps after step 10)
+      if (iteration >= 10 && iteration % 10 === 0) {
+        this.runtime.spinner?.start(`Working... (step ${iteration + 1})`);
+      } else {
+        this.runtime.spinner?.start('Working ...');
+      }
       const completion = await this.llm.complete({
         messages: this.conversation.history(),
         temperature: this.runtime.options.temperature ?? 0.2,
         model: this.runtime.options.model,
-        signal: abortController.signal
+        signal: abortController.signal,
+        tools: tools.length > 0 ? tools : undefined,
+        toolChoice: tools.length > 0 ? 'auto' : undefined
       });
 
-      const payload = this.parseAssistantReactPayload(completion.content);
-      this.conversation.addMessage({ role: 'assistant', content: completion.content });
+      // Track token usage from response
+      if (completion.usage) {
+        this.totalTokensUsed += completion.usage.totalTokens;
+      }
+
+      const payload = this.parseAssistantResponse(completion);
+      const assistantMessage: LLMMessage = { role: 'assistant', content: completion.content };
+      if (completion.toolCalls?.length) {
+        assistantMessage.tool_calls = completion.toolCalls;
+      }
+      this.conversation.addMessage(assistantMessage);
       await this.saveAssistantMessage(completion.content, payload.toolCalls);
-      this.updateContextUsage(this.conversation.history());
+      this.updateContextUsage(this.conversation.history(), tools);
 
       if (payload.toolCalls && payload.toolCalls.length > 0) {
-        if (payload.thought) {
+        if (showThinking && payload.thought) {
           this.runtime.spinner?.stop();
           console.log(chalk.gray(`   ${payload.thought}`));
           console.log();
@@ -884,9 +1358,14 @@ export class AutohandAgent {
         if (cropCalls.length) {
           for (const call of cropCalls) {
             const content = await this.handleSmartContextCrop(call);
-            this.conversation.addMessage({ role: 'tool', name: 'smart_context_cropper', content });
-            await this.saveToolMessage('smart_context_cropper', content);
-            this.updateContextUsage(this.conversation.history());
+            this.conversation.addMessage({
+              role: 'tool',
+              name: 'smart_context_cropper',
+              content,
+              tool_call_id: call.id
+            });
+            await this.saveToolMessage('smart_context_cropper', content, call.id);
+            this.updateContextUsage(this.conversation.history(), tools);
             console.log(`\n${chalk.cyan('✂ smart_context_cropper')}\n${chalk.gray(content)}`);
           }
         }
@@ -894,17 +1373,30 @@ export class AutohandAgent {
         if (otherCalls.length) {
           this.runtime.spinner?.start('Executing tools...');
           const results = await this.toolManager.execute(otherCalls);
-          for (const result of results) {
+          for (let i = 0; i < results.length; i++) {
+            const result = results[i];
             const content = result.success
               ? result.output ?? '(no output)'
               : result.error ?? result.output ?? 'Tool failed without error message';
-            this.conversation.addMessage({ role: 'tool', name: result.tool, content });
-            await this.saveToolMessage(result.tool, content);
-            this.updateContextUsage(this.conversation.history());
+            this.conversation.addMessage({
+              role: 'tool',
+              name: result.tool,
+              content,
+              tool_call_id: otherCalls[i]?.id
+            });
+            await this.saveToolMessage(result.tool, content, otherCalls[i]?.id);
+            this.updateContextUsage(this.conversation.history(), tools);
             const icon = result.success ? chalk.green('✔') : chalk.red('✖');
             console.log(`\n${icon} ${chalk.bold(result.tool)}`);
             if (content) {
-              console.log(chalk.gray(content));
+              if (result.success) {
+                console.log(chalk.gray(content));
+              } else {
+                // Make errors more visible with a red box
+                console.log(chalk.red('┌─ Error ─────────────────────────────────'));
+                console.log(chalk.red('│ ') + chalk.white(content));
+                console.log(chalk.red('└─────────────────────────────────────────'));
+              }
             }
 
             // Record success/failure
@@ -932,18 +1424,57 @@ export class AutohandAgent {
         continue;
       }
 
+      this.stopStatusUpdates();
       this.runtime.spinner?.stop();
 
-      if (payload.thought) {
+      if (showThinking && payload.thought) {
         console.log(chalk.gray(`   ${payload.thought}`));
         console.log();
       }
 
-      const response = (payload.finalResponse ?? payload.response ?? completion.content).trim();
+      const rawResponse = (payload.finalResponse ?? payload.response ?? completion.content).trim();
+      const response = this.cleanupModelResponse(rawResponse);
       console.log(response);
       return;
     }
-    throw new Error('Reached maximum recursion depth while orchestrating tool calls.');
+    this.stopStatusUpdates();
+    this.runtime.spinner?.stop();
+    console.log(chalk.yellow(`\n⚠ Task exceeded ${maxIterations} tool iterations without completing.`));
+    console.log(chalk.gray('This usually means the task is too complex for a single turn.'));
+    console.log(chalk.gray('Try breaking it into smaller steps or use /new to start fresh.'));
+    throw new Error(`Reached maximum iterations (${maxIterations}) while processing. Try a simpler request or break the task into smaller steps.`);
+  }
+
+  /**
+   * Parse LLM response, preferring native tool calls over JSON parsing.
+   * This enables reliable function calling when providers support it,
+   * while falling back to JSON parsing for providers without native support.
+   */
+  private parseAssistantResponse(completion: LLMResponse): AssistantReactPayload {
+    if (completion.toolCalls?.length) {
+      return {
+        thought: completion.content || undefined,
+        toolCalls: completion.toolCalls.map(tc => ({
+          id: tc.id,
+          tool: tc.function.name as AgentAction['type'],
+          args: this.safeParseToolArgs(tc.function.arguments)
+        }))
+      };
+    }
+    return this.parseAssistantReactPayload(completion.content);
+  }
+
+  /**
+   * Safely parse tool arguments from JSON string
+   */
+  private safeParseToolArgs(json: string): ToolCallRequest['args'] {
+    try {
+      const parsed = JSON.parse(json);
+      // Return the parsed object if it's valid, otherwise undefined
+      return parsed && typeof parsed === 'object' ? parsed : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   private parseAssistantReactPayload(raw: string): AssistantReactPayload {
@@ -952,16 +1483,85 @@ export class AutohandAgent {
       return { finalResponse: raw.trim() };
     }
     try {
-      const parsed = JSON.parse(jsonBlock) as AssistantReactPayload & { toolCalls?: unknown };
-      return {
-        thought: parsed.thought,
-        toolCalls: this.normalizeToolCalls(parsed.toolCalls),
-        finalResponse: parsed.finalResponse ?? parsed.response ?? undefined,
-        response: parsed.response
-      };
+      const parsed = JSON.parse(jsonBlock) as Record<string, unknown>;
+
+      // Check if this looks like our expected structured format
+      const hasExpectedFields =
+        'thought' in parsed ||
+        'toolCalls' in parsed ||
+        'finalResponse' in parsed ||
+        'response' in parsed;
+
+      if (hasExpectedFields) {
+        // Standard structured response format
+        return {
+          thought: typeof parsed.thought === 'string' ? parsed.thought : undefined,
+          toolCalls: this.normalizeToolCalls(parsed.toolCalls),
+          finalResponse:
+            (typeof parsed.finalResponse === 'string' ? parsed.finalResponse : undefined) ??
+            (typeof parsed.response === 'string' ? parsed.response : undefined),
+          response: typeof parsed.response === 'string' ? parsed.response : undefined
+        };
+      }
+
+      // Handle non-standard JSON formats from various models
+      // Look for common content fields that models might use
+      const contentValue = this.extractContentFromUnstructuredJson(parsed);
+      if (contentValue) {
+        return { finalResponse: contentValue };
+      }
+
+      // If JSON doesn't match any known format, treat original raw as plain text
+      return { finalResponse: raw.trim() };
     } catch {
       return { finalResponse: raw.trim() };
     }
+  }
+
+  /**
+   * Extracts content from non-standard JSON response formats.
+   * Different models may return content in various fields like:
+   * - { "content": "..." }
+   * - { "text": "..." }
+   * - { "message": "..." }
+   * - { "answer": "..." }
+   * - { "output": "..." }
+   * - { "type": "chat", "content": "..." }
+   */
+  private extractContentFromUnstructuredJson(parsed: Record<string, unknown>): string | undefined {
+    // Priority order for common content field names
+    const contentFields = ['content', 'text', 'message', 'answer', 'output', 'result', 'reply'];
+
+    for (const field of contentFields) {
+      const value = parsed[field];
+      if (typeof value === 'string' && value.trim()) {
+        return value.trim();
+      }
+    }
+
+    // Check for nested message structures like { message: { content: "..." } }
+    if (parsed.message && typeof parsed.message === 'object') {
+      const msg = parsed.message as Record<string, unknown>;
+      if (typeof msg.content === 'string' && msg.content.trim()) {
+        return msg.content.trim();
+      }
+    }
+
+    // Check for choices array format (OpenAI-like responses that slip through)
+    if (Array.isArray(parsed.choices) && parsed.choices.length > 0) {
+      const choice = parsed.choices[0] as Record<string, unknown>;
+      if (choice.message && typeof choice.message === 'object') {
+        const msg = choice.message as Record<string, unknown>;
+        if (typeof msg.content === 'string' && msg.content.trim()) {
+          return msg.content.trim();
+        }
+      }
+      if (typeof choice.text === 'string' && choice.text.trim()) {
+        return choice.text.trim();
+      }
+    }
+
+    return undefined;
   }
 
   private normalizeToolCalls(value: unknown): ToolCallRequest[] {
@@ -1042,11 +1642,33 @@ export class AutohandAgent {
     return userPromptParts.join('\n\n');
   }
 
-  private buildSystemPrompt(): string {
-    const toolNames = this.toolManager?.listToolNames() ?? [];
-    const tools = toolNames.join(', ');
+  private formatToolSignature(def: import('./toolManager.js').ToolDefinition): string {
+    const params = def.parameters;
+    if (!params || !params.properties || Object.keys(params.properties).length === 0) {
+      return `- ${def.name}() - ${def.description}`;
+    }
 
-    return [
+    const required = new Set(params.required ?? []);
+    const args = Object.entries(params.properties)
+      .map(([name, prop]) => {
+        const optional = required.has(name) ? '' : '?';
+        return `${name}${optional}: ${prop.type}`;
+      })
+      .join(', ');
+
+    return `- ${def.name}(${args}) - ${def.description}`;
+  }
+
+  private async buildSystemPrompt(): Promise<string> {
+    const toolDefs = this.toolManager?.listDefinitions() ?? [];
+    const toolSignatures = toolDefs.map(def => this.formatToolSignature(def)).join('\n');
+
+    const memories = await this.memoryManager.getContextMemories();
+    const instructions = await this.loadInstructionFiles();
+
+    const authUser = this.runtime.config.auth?.user;
+
+    const parts: string[] = [
       // ═══════════════════════════════════════════════════════════════════
       // 1. IDENTITY & CORE STANDARDS
       // ═══════════════════════════════════════════════════════════════════
@@ -1055,6 +1677,11 @@ export class AutohandAgent {
       'You are a master of your craft and can solve any problem with precision and elegance.',
       'Your goal: Gather necessary information, clarify uncertainties, and decisively execute. Never stop until the task is fully complete.',
       '',
+      ...(authUser ? [
+        '## Current User',
+        `You are working with ${authUser.name || authUser.email}.`,
+        ''
+      ] : []),
 
       // ═══════════════════════════════════════════════════════════════════
       // 2. SINGLE SOURCE OF TRUTH (Critical Rule)
@@ -1088,7 +1715,7 @@ export class AutohandAgent {
       '3. Identify outputs, success criteria, edge cases, and potential blockers.',
       '',
       '### Phase 3: Implementation',
-      '1. Write code using `write_file`, `replace_in_file`, `apply_patch`, or `multi_file_edit`.',
+      '1. Write code using `write_file`, `search_replace`, `apply_patch`, or `multi_file_edit`.',
       '2. Make small, logical changes with clear reasoning in your "thought" field.',
       '3. Destructive operations (delete_path, run_command with rm/sudo) require explicit user approval—clearly justify them.',
       '',
@@ -1099,6 +1726,23 @@ export class AutohandAgent {
       '3. Use `git_diff` to review your changes before declaring success.',
       'Do not ask the user to fix broken code you introduced. Fix it yourself.',
       '',
+      '### Phase 5: Completion Summary (MANDATORY)',
+      'When a task is complete, provide a clear summary:',
+      '1. **What was done**: List the key changes made (files created/modified/deleted).',
+      '2. **How it works**: Brief explanation of the implementation approach.',
+      '3. **Next steps** (if any): Suggest follow-up actions like testing, deployment, or related improvements.',
+      '',
+      'Keep summaries concise but informative. Use bullet points for clarity.',
+      'Example:',
+      '```',
+      '✓ Added user authentication:',
+      '  - Created src/auth/login.ts with JWT token handling',
+      '  - Updated src/routes/index.ts to include /login and /logout endpoints',
+      '  - Added bcrypt for password hashing',
+      '',
+      'Next: Run `npm test` to verify, then update your .env with JWT_SECRET.',
+      '```',
+      '',
 
       // ═══════════════════════════════════════════════════════════════════
       // 4. REACT PATTERN & TOOL USAGE
@@ -1106,9 +1750,9 @@ export class AutohandAgent {
       '## ReAct Pattern (Reason + Act)',
       'You must follow the ReAct loop: think about the request, decide whether to call tools, execute them, interpret the results, and only then respond.',
       '',
-      '### Tool Discovery',
-      'When choosing tools, first call `tools_registry` to fetch the full merged list (built-in + meta). Never invent tools beyond what it returns.',
-      tools ? `Known tools: ${tools}. Use them exactly by name with structured args.` : 'Tools are resolved at runtime. Use tools_registry to inspect them.',
+      '### Available Tools',
+      'Use these tools with the specified arguments. Required parameters have no "?", optional parameters have "?".',
+      toolSignatures ? `\n${toolSignatures}\n` : 'Tools are resolved at runtime. Use tools_registry to inspect them.',
       'If you need a capability not listed, define it as a `custom_command` (with name, command, args, description) before invoking it.',
       'Do not override existing tool functionality when adding meta tools.',
       '',
@@ -1136,7 +1780,44 @@ export class AutohandAgent {
       '',
 
       // ═══════════════════════════════════════════════════════════════════
-      // 6. REPOSITORY CONVENTIONS
+      // 5.5. DYNAMIC TOOL CREATION
+      // ═══════════════════════════════════════════════════════════════════
+      '## Dynamic Tool Creation (Meta-Tools)',
+      'You can create new reusable tools using `create_meta_tool`. Use this when:',
+      '- A task requires a reusable shell command pattern',
+      '- You need to extend your capabilities for the current project',
+      '- The user asks for a custom automation',
+      '',
+      'Example: Create a tool to count lines in files:',
+      'create_meta_tool(name="count_lines", description="Count lines in a file", parameters={"type": "object", "properties": {"path": {"type": "string"}}}, handler="wc -l {{path}}")',
+      '',
+      'The handler uses {{param}} syntax for parameter substitution.',
+      'Meta-tools are saved to ~/.autohand/tools/ and persist across sessions.',
+      'IMPORTANT: Do not create meta-tools that duplicate built-in functionality.',
+      '',
+
+      // ═══════════════════════════════════════════════════════════════════
+      // 6. MEMORY & PREFERENCES
+      // ═══════════════════════════════════════════════════════════════════
+      '## Memory & User Preferences',
+      'Use the `save_memory` tool to remember important user preferences and project conventions.',
+      'Automatically detect and save preferences when the user expresses them:',
+      '- "I prefer..." / "I like..." / "I want..." / "Always use..." / "Never use..."',
+      '- "Don\'t use..." / "Avoid..." / "I hate..."',
+      '- Coding style preferences (tabs vs spaces, semicolons, naming conventions)',
+      '- Framework/library preferences',
+      '- Any explicit instruction about how to work',
+      '',
+      'When saving, choose the appropriate level:',
+      '- `user`: Global preferences (applies to all projects)',
+      '- `project`: Project-specific conventions (applies only to current workspace)',
+      '',
+      'Example: User says "I prefer functional components over class components"',
+      '→ Call save_memory(fact="User prefers functional React components over class components", level="user")',
+      '',
+
+      // ═══════════════════════════════════════════════════════════════════
+      // 7. REPOSITORY CONVENTIONS
       // ═══════════════════════════════════════════════════════════════════
       '## Repository Conventions',
       'Match existing code style, patterns, and naming conventions. Review similar modules before adding new ones.',
@@ -1145,7 +1826,7 @@ export class AutohandAgent {
       '',
 
       // ═══════════════════════════════════════════════════════════════════
-      // 7. SAFETY & APPROVALS
+      // 8. SAFETY & APPROVALS
       // ═══════════════════════════════════════════════════════════════════
       '## Safety',
       'Destructive operations (delete_path, run_command with rm/sudo/dd) require explicit user approval.',
@@ -1155,7 +1836,7 @@ export class AutohandAgent {
       '',
 
       // ═══════════════════════════════════════════════════════════════════
-      // 8. COMPLETION CRITERIA
+      // 9. COMPLETION CRITERIA
       // ═══════════════════════════════════════════════════════════════════
       '## Definition of Done',
       'A task is complete only when:',
@@ -1165,8 +1846,41 @@ export class AutohandAgent {
       '- Tests pass (if applicable)',
       '- You have verified your changes with git_diff or similar',
       '',
-      'Do not stop until all criteria are met. Do not ask the user to complete your work.'
-    ].join('\n');
+      'Do not stop until all criteria are met. Do not ask the user to complete your work.',
+      '',
+      '## Completion Summary',
+      'When finishing a multi-step task, ALWAYS provide a clear summary that includes:',
+      '1. **What was done**: List the key changes made (files created/modified, features added)',
+      '2. **Files changed**: List paths of files that were created or modified',
+      '3. **How to verify**: Commands to run or steps to test the changes',
+      '4. **Next steps** (if any): Suggest follow-up actions if relevant',
+      '',
+      'Example completion summary:',
+      '```',
+      '## Summary',
+      '- Added user authentication with JWT tokens',
+      '- Created new middleware for protected routes',
+      '',
+      '**Files changed:**',
+      '- src/auth/jwt.ts (new)',
+      '- src/middleware/auth.ts (new)',
+      '- src/routes/api.ts (modified)',
+      '',
+      '**Verify:** Run `npm test` and `npm run build`',
+      '```',
+      '',
+      'This summary helps users understand what was accomplished and how to proceed.'
+    ];
+
+    if (memories) {
+      parts.push('', '## User Preferences & Memory', memories);
+    }
+
+    if (instructions.length) {
+      parts.push('', ...instructions);
+    }
+
+    return parts.join('\n');
   }
 
   private async resolveMentions(instruction: string): Promise<string> {
@@ -1265,6 +1979,65 @@ export class AutohandAgent {
     return content;
   }
 
+  /**
+   * Generate a concise summary of removed messages
+   * This helps the LLM understand what context was lost
+   */
+  private summarizeRemovedMessages(messages: LLMMessage[]): string {
+    const summaryParts: string[] = [];
+    const toolsUsed = new Set<string>();
+    const filesDiscussed = new Set<string>();
+
+    for (const msg of messages) {
+      const content = msg.content ?? '';
+
+      // Track tools used
+      if (msg.tool_calls) {
+        for (const call of msg.tool_calls) {
+          toolsUsed.add(call.function.name);
+        }
+      }
+      if (msg.role === 'tool' && msg.name) {
+        toolsUsed.add(msg.name);
+      }
+
+      // Extract file paths mentioned
+      const pathMatches = content.match(/(?:\/[\w.-]+)+(?:\/[\w.-]+)*\.\w+/g);
+      if (pathMatches) {
+        for (const p of pathMatches.slice(0, 5)) {
+          filesDiscussed.add(p);
+        }
+      }
+
+      // Create brief summary for each message
+      if (msg.role === 'user') {
+        const preview = content.slice(0, 100).replace(/\n/g, ' ');
+        summaryParts.push(`- User: ${preview}${content.length > 100 ? '...' : ''}`);
+      } else if (msg.role === 'assistant' && content) {
+        const preview = content.slice(0, 100).replace(/\n/g, ' ');
+        summaryParts.push(`- Assistant: ${preview}${content.length > 100 ? '...' : ''}`);
+      }
+    }
+
+    // Build final summary
+    const parts: string[] = [];
+
+    if (toolsUsed.size > 0) {
+      parts.push(`Tools used: ${[...toolsUsed].join(', ')}`);
+    }
+    if (filesDiscussed.size > 0) {
+      parts.push(`Files discussed: ${[...filesDiscussed].slice(0, 5).join(', ')}`);
+    }
+    if (summaryParts.length > 0) {
+      parts.push(`Conversation:\n${summaryParts.slice(0, 5).join('\n')}`);
+      if (summaryParts.length > 5) {
+        parts.push(`... and ${summaryParts.length - 5} more messages`);
+      }
+    }
+
+    return parts.join('\n') || 'No significant content to summarize';
+  }
+
   private flushMentionContexts(): { block: string; files: string[] } | null {
     if (!this.mentionContexts.length) {
       return null;
@@ -1290,6 +2063,30 @@ export class AutohandAgent {
       return raw.slice(braceIndex);
     }
     return null;
+  }
+
+  private cleanupModelResponse(content: string): string {
+    let cleaned = content;
+
+    // Remove common artifacts from models
+    cleaned = cleaned.replace(/<end_of.turn>/gi, '');
+    cleaned = cleaned.replace(/<\|.*?\|>/g, ''); // Remove tokens like <|eot_id|>
+
+    // Remove broken JSON fragments at the end
+    cleaned = cleaned.replace(/```json[\s\S]*$/i, '');
+    cleaned = cleaned.replace(/\{"?toolCalls"?\s*:\s*\[\][\s\S]*$/i, '');
+    cleaned = cleaned.replace(/,?\s*"finalResponse"\s*:\s*"[^"]*"\s*\}?\]?\}?$/i, '');
+
+    // Remove **Thought:** prefix pattern
+    cleaned = cleaned.replace(/^\*\*Thought:\*\*\s*/i, '');
+
+    // Remove trailing JSON-like fragments
+    cleaned = cleaned.replace(/\}\s*\]\s*\}?\s*$/g, '');
+
+    // Clean up excessive whitespace
+    cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+
+    return cleaned;
   }
 
   private recordExploration(event: ExplorationEvent): void {
@@ -1328,7 +2125,7 @@ export class AutohandAgent {
     const gitStatus = git.status === 0 ? git.stdout.trim() : undefined;
     const entries = await fs.readdir(this.runtime.workspaceRoot);
     const recentFiles = entries
-      .filter((entry) => !entry.startsWith('.git'))
+      .filter((entry) => !this.ignoreFilter.isIgnored(entry))
       .slice(0, 20);
 
     return {
@@ -1336,6 +2133,33 @@ export class AutohandAgent {
       gitStatus,
       recentFiles
     };
+  }
+
+  private async loadInstructionFiles(): Promise<string[]> {
+    const instructions: string[] = [];
+    const workspace = this.runtime.workspaceRoot;
+
+    const agentsPath = path.join(workspace, 'AGENTS.md');
+    if (await fs.pathExists(agentsPath)) {
+      const content = await fs.readFile(agentsPath, 'utf-8');
+      instructions.push(`## Project Instructions (AGENTS.md)\n${content}`);
+    }
+
+    const providerFile = this.activeProvider.includes('anthropic') || this.activeProvider === 'openrouter'
+      ? 'CLAUDE.md'
+      : this.activeProvider.includes('google')
+        ? 'GEMINI.md'
+        : null;
+
+    if (providerFile) {
+      const providerPath = path.join(workspace, providerFile);
+      if (await fs.pathExists(providerPath)) {
+        const content = await fs.readFile(providerPath, 'utf-8');
+        instructions.push(`## Provider Instructions (${providerFile})\n${content}`);
+      }
+    }
+
+    return instructions;
   }
 
   private async injectProjectKnowledge(): Promise<void> {
@@ -1378,16 +2202,22 @@ export class AutohandAgent {
     }
 
     let ctrlCCount = 0;
+    this.queueInput = ''; // Reset queue input
+    const enableQueue = this.runtime.config.agent?.enableRequestQueue !== false;
 
     const handler = (_str: string, key: readline.Key) => {
       if (controller.signal.aborted) {
         return;
       }
+
+      // ESC to cancel
       if (key?.name === 'escape') {
         controller.abort();
         onCancel();
         return;
       }
+
+      // Ctrl+C handling
       if (ctrlCInterrupt && key?.name === 'c' && key.ctrl) {
         ctrlCCount += 1;
         if (ctrlCCount >= 2) {
@@ -1396,12 +2226,61 @@ export class AutohandAgent {
         } else {
           console.log(chalk.gray('Press Ctrl+C again to exit.'));
         }
+        return;
+      }
+
+      // Queue functionality - capture typed input
+      if (enableQueue) {
+        // Enter - submit to queue
+        if (key?.name === 'return' || key?.name === 'enter') {
+          if (this.queueInput.trim()) {
+            const text = this.queueInput.trim();
+            this.queueInput = '';
+
+            // Add to queue
+            const queue = (this.persistentInput as any).queue as Array<{ text: string; timestamp: number }>;
+            if (queue.length >= 10) {
+              // Queue full - show briefly then restore
+              return;
+            }
+            queue.push({ text, timestamp: Date.now() });
+
+            // Show confirmation briefly
+            const preview = text.length > 30 ? text.slice(0, 27) + '...' : text;
+            if (this.runtime.spinner) {
+              this.runtime.spinner.text = chalk.cyan(`✓ Queued: "${preview}" (${this.persistentInput.getQueueLength()} pending)`);
+            }
+          }
+          return;
+        }
+
+        // Backspace
+        if (key?.name === 'backspace') {
+          this.queueInput = this.queueInput.slice(0, -1);
+          this.updateInputLine(); // Immediate feedback
+          return;
+        }
+
+        // Ignore control keys
+        if (key?.ctrl || key?.meta) {
+          return;
+        }
+
+        // Add printable characters
+        if (_str) {
+          const printable = _str.replace(/[\x00-\x1F\x7F]/g, '');
+          if (printable) {
+            this.queueInput += printable;
+            this.updateInputLine(); // Immediate feedback
+          }
+        }
       }
     };
     input.on('keypress', handler);
 
     return () => {
       input.off('keypress', handler);
+      this.queueInput = ''; // Clear input on cleanup
       if (!wasRaw && supportsRaw) {
         input.setRawMode(false);
       }
@@ -1445,13 +2324,95 @@ export class AutohandAgent {
     return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
   }
 
-  private updateContextUsage(messages: LLMMessage[]): void {
+  private formatTokens(tokens: number): string {
+    if (tokens >= 1000) {
+      return `${(tokens / 1000).toFixed(1)}k tokens`;
+    }
+    return `${tokens} tokens`;
+  }
+
+  /**
+   * Update the spinner display (called on input change)
+   * Triggers immediate re-render with current input
+   */
+  private updateInputLine(): void {
+    // Just trigger a render - the render function will use current queueInput
+    this.forceRenderSpinner();
+  }
+
+  /**
+   * Force an immediate spinner render with current state
+   */
+  private forceRenderSpinner(): void {
+    if (!this.runtime.spinner || !this.taskStartedAt) return;
+
+    const elapsed = this.formatElapsedTime(this.taskStartedAt);
+    const tokens = this.formatTokens(this.totalTokensUsed);
+    const queueCount = this.persistentInput.getQueueLength();
+    const queueHint = queueCount > 0 ? ` [${queueCount} queued]` : '';
+    const statusLine = `Working... (esc to interrupt · ${elapsed} · ${tokens}${queueHint})`;
+
+    const inputPreview = this.queueInput.length > 40
+      ? '...' + this.queueInput.slice(-37)
+      : this.queueInput;
+    const inputLine = `\n${chalk.gray('›')} ${inputPreview}${chalk.gray('▋')}`;
+
+    const fullText = statusLine + inputLine;
+
+    // Only update if something actually changed
+    const cacheKey = `${statusLine}|${inputPreview}`;
+    if (cacheKey === this.lastRenderedStatus) return;
+    this.lastRenderedStatus = cacheKey;
+
+    this.runtime.spinner.text = fullText;
+  }
+
+  private startStatusUpdates(): void {
+    if (this.statusInterval) {
+      clearInterval(this.statusInterval);
+    }
+
+    // Reset tracking state
+    this.lastRenderedStatus = '';
+
+    // Immediate initial render
+    this.forceRenderSpinner();
+
+    // Update every second for elapsed time, but forceRenderSpinner
+    // handles deduplication so frequent calls are fine
+    this.statusInterval = setInterval(() => {
+      this.forceRenderSpinner();
+    }, 1000); // Once per second is enough for time updates
+  }
+
+  private stopStatusUpdates(): void {
+    if (this.statusInterval) {
+      clearInterval(this.statusInterval);
+      this.statusInterval = null;
+    }
+  }
+
+  private updateContextUsage(messages: LLMMessage[], tools?: any[]): void {
     if (!this.contextWindow) {
       return;
     }
-    const usage = estimateMessagesTokens(messages);
-    const percent = Math.max(0, Math.min(1 - usage / this.contextWindow, 1));
-    this.contextPercentLeft = Math.round(percent * 100);
+
+    // Use comprehensive context calculation if tools provided
+    if (tools) {
+      const model = this.runtime.options.model ?? getProviderConfig(this.runtime.config, this.activeProvider)?.model ?? 'unconfigured';
+      const usage = calculateContextUsage(
+        messages,
+        tools,
+        model
+      );
+      this.contextPercentLeft = Math.round((1 - usage.usagePercent) * 100);
+    } else {
+      // Fallback to simple message estimation
+      const usage = estimateMessagesTokens(messages);
+      const percent = Math.max(0, Math.min(1 - usage / this.contextWindow, 1));
+      this.contextPercentLeft = Math.round(percent * 100);
+    }
+
     this.emitStatus();
   }
 
@@ -1459,11 +2420,17 @@ export class AutohandAgent {
     const percent = Number.isFinite(this.contextPercentLeft)
       ? Math.max(0, Math.min(100, this.contextPercentLeft))
       : 100;
-    return `${percent}% context left · / for commands · @ to mention files`;
+
+    const queueStatus = this.persistentInput.hasQueued()
+      ? ` · ${this.persistentInput.getQueueLength()} queued`
+      : '';
+
+    return `${percent}% context left · / for commands · @ to mention files${queueStatus}`;
   }
 
-  private resetConversationContext(): void {
-    this.conversation.reset(this.buildSystemPrompt());
+  private async resetConversationContext(): Promise<void> {
+    const systemPrompt = await this.buildSystemPrompt();
+    this.conversation.reset(systemPrompt);
     this.mentionContexts = [];
     this.updateContextUsage(this.conversation.history());
   }
@@ -1489,29 +2456,48 @@ export class AutohandAgent {
   }
 
   private resetLlmClient(provider: ProviderName, model: string): void {
-    const settings = getProviderConfig(this.runtime.config, provider);
-    this.llm = new OpenRouterClient({
-      apiKey: settings.apiKey ?? '',
-      baseUrl: settings.baseUrl,
-      model
+    // Update config to use the selected provider and model
+    this.runtime.config.provider = provider;
+    const providerConfig = this.runtime.config[provider];
+    if (providerConfig) {
+      providerConfig.model = model;
+    }
+
+    // Create new provider using factory
+    this.llm = ProviderFactory.create(this.runtime.config);
+    this.llm.setModel(model);
+    // Recreate delegator with context inheritance
+    const delegatorContext = this.runtime.options.clientContext
+      ?? (this.runtime.options.restricted ? 'restricted' : 'cli');
+    this.delegator = new AgentDelegator(this.llm, this.actionExecutor, {
+      clientContext: delegatorContext,
+      maxDepth: 3
     });
-    this.llm.setDefaultModel(model);
-    this.delegator = new AgentDelegator(this.llm, this.actionExecutor);
+    this.activeProvider = provider;
   }
 
   private async confirmDangerousAction(message: string): Promise<boolean> {
     if (this.runtime.options.yes || this.runtime.config.ui?.autoConfirm) {
       return true;
     }
-    const answer = await enquirer.prompt<{ confirm: boolean }>([
-      {
-        type: 'confirm',
-        name: 'confirm',
-        message,
-        initial: false
-      }
-    ]);
-    return answer.confirm;
+
+    // Pause persistent input so enquirer can work properly
+    this.persistentInput.pause();
+
+    try {
+      const answer = await enquirer.prompt<{ confirm: boolean }>([
+        {
+          type: 'confirm',
+          name: 'confirm',
+          message,
+          initial: false
+        }
+      ]);
+      return answer.confirm;
+    } finally {
+      // Resume persistent input after confirmation
+      this.persistentInput.resume();
+    }
   }
 
   private resolveWorkspacePath(relativePath: string): string {
@@ -1541,7 +2527,7 @@ export class AutohandAgent {
   getStatusSnapshot(): AgentStatusSnapshot {
     const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
     return {
-      model: this.runtime.options.model ?? providerSettings.model,
+      model: this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured',
       workspace: this.runtime.workspaceRoot,
       contextPercent: this.contextPercentLeft
     };

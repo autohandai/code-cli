@@ -6,14 +6,14 @@
 
 import { OpenRouterClient } from '../openrouter.js';
 import type { LLMProvider } from './LLMProvider.js';
-import type { LLMRequest, LLMResponse, OpenRouterSettings } from '../types.js';
+import type { LLMRequest, LLMResponse, OpenRouterSettings, NetworkSettings } from '../types.js';
 
 export class OpenRouterProvider implements LLMProvider {
     private client: OpenRouterClient;
     private model: string;
 
-    constructor(config: OpenRouterSettings) {
-        this.client = new OpenRouterClient(config);
+    constructor(config: OpenRouterSettings, networkSettings?: NetworkSettings) {
+        this.client = new OpenRouterClient(config, networkSettings);
         this.model = config.model;
     }
 

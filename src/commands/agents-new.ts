@@ -3,12 +3,12 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import os from 'node:os';
 import path from 'node:path';
 import fs from 'fs-extra';
 import chalk from 'chalk';
 import enquirer from 'enquirer';
-import type { OpenRouterClient } from '../openrouter.js';
+import type { LLMProvider } from '../providers/LLMProvider.js';
+import { AUTOHAND_PATHS } from '../constants.js';
 
 export const metadata = {
   command: '/agents new',
@@ -18,7 +18,7 @@ export const metadata = {
 };
 
 interface Context {
-  llm: OpenRouterClient;
+  llm: LLMProvider;
 }
 
 export async function createAgent(ctx: Context): Promise<string | null> {
@@ -27,7 +27,7 @@ export async function createAgent(ctx: Context): Promise<string | null> {
       type: 'input',
       name: 'name',
       message: 'Agent name (e.g., Researcher, QA Tester)',
-      validate: (val: string) => (!!val.trim() ? true : 'Name is required')
+      validate: (val: unknown) => (typeof val === 'string' && val.trim() ? true : 'Name is required')
     },
     {
       type: 'input',
@@ -95,7 +95,7 @@ function buildPrompt(name: string, description: string): string {
 }
 
 function getAgentsDir(): string {
-  return path.join(os.homedir(), '.autohand-cli', 'agents');
+  return AUTOHAND_PATHS.agents;
 }
 
 function slugify(input: string): string {

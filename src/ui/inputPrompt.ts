@@ -100,7 +100,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
   const mentionPreview = new MentionPreview(rl, files, slashCommands, stdOutput, statusLine);
   const resizeWatcher = new TerminalResizeWatcher(stdOutput, () => {
     mentionPreview.handleResize();
-    renderPromptLine(rl, statusLine, stdOutput);
+    renderPromptLine(rl, statusLine, stdOutput, true);  // isResize = true
   });
 
   return new Promise<PromptResult>((resolve) => {
@@ -144,9 +144,14 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     rl.prompt(true);
 
     rl.on('line', (value) => {
+      const trimmed = value.trim();
       stdOutput.write('\n');
+      // Show interrupt hint when user submits a non-empty, non-command instruction
+      if (trimmed && !trimmed.startsWith('/')) {
+        stdOutput.write(`${chalk.gray('press ESC to interrupt')}\n\n`);
+      }
       cleanup();
-      resolve({ kind: 'submit', value: value.trim() });
+      resolve({ kind: 'submit', value: trimmed });
     });
 
     rl.on('SIGINT', () => {
@@ -178,11 +183,18 @@ function disableReadlineTabBehavior(rl: readline.Interface): void {
 
 import { drawInputBox } from './box.js';
 
-function renderPromptLine(rl: readline.Interface, statusLine: string | undefined, output: NodeJS.WriteStream): void {
+function renderPromptLine(rl: readline.Interface, statusLine: string | undefined, output: NodeJS.WriteStream, isResize = false): void {
   const width = Math.max(20, output.columns || 80);
   const status = (statusLine ?? ' ').padEnd(width).slice(0, width);
 
   const box = drawInputBox(status, width);
+
+  if (isResize) {
+    // On resize, clear the previous status line and prompt before redrawing
+    // Move up 2 lines (status + prompt), clear from cursor to end of screen
+    readline.moveCursor(output, 0, -2);
+    readline.clearScreenDown(output);
+  }
 
   readline.cursorTo(output, 0);
   output.write(`${box}\n`);

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://docs.autohand.ai
+    about: Check our documentation for guides and troubleshooting
+  - name: Discord Community
+    url: https://discord.gg/autohand
+    about: Join our Discord for community support and discussions
+  - name: Security Issues
+    url: mailto:security@autohand.ai
+    about: Report security vulnerabilities privately via email

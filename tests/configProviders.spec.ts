@@ -15,9 +15,10 @@ describe('getProviderConfig', () => {
     };
 
     const result = getProviderConfig(cfg);
-    expect(result.baseUrl).toBe('https://example.com');
-    expect(result.model).toBe('foo');
-    expect(result.apiKey).toBe('test');
+    expect(result).not.toBeNull();
+    expect(result!.baseUrl).toBe('https://example.com');
+    expect(result!.model).toBe('foo');
+    expect(result!.apiKey).toBe('test');
   });
 
   it('returns default base url for ollama when missing', () => {
@@ -27,16 +28,18 @@ describe('getProviderConfig', () => {
     };
 
     const result = getProviderConfig(cfg);
-    expect(result.baseUrl).toMatch(/^http:\/\/localhost:/);
-    expect(result.model).toBe('llama2');
+    expect(result).not.toBeNull();
+    expect(result!.baseUrl).toMatch(/^http:\/\/localhost:/);
+    expect(result!.model).toBe('llama2');
   });
 
-  it('throws when provider config is missing', () => {
+  it('returns null when provider config is missing', () => {
     const cfg: AutohandConfig = {
       provider: 'ollama',
       openrouter: { apiKey: 'x', model: 'y' }
     };
 
-    expect(() => getProviderConfig(cfg)).toThrow(/not configured/i);
+    const result = getProviderConfig(cfg);
+    expect(result).toBeNull();
   });
 });

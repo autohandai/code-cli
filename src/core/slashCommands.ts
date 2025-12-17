@@ -13,6 +13,16 @@ import * as session from '../commands/session.js';
 import * as agents from '../commands/agents.js';
 import * as feedback from '../commands/feedback.js';
 import * as agentsNew from '../commands/agents-new.js';
+import * as undo from '../commands/undo.js';
+import * as newCmd from '../commands/new.js';
+import * as memory from '../commands/memory.js';
+import * as formatters from '../commands/formatters.js';
+import * as lint from '../commands/lint.js';
+import * as completion from '../commands/completion.js';
+import * as exportCmd from '../commands/export.js';
+import * as status from '../commands/status.js';
+import * as login from '../commands/login.js';
+import * as logout from '../commands/logout.js';
 
 export interface SlashCommand {
   command: string;
@@ -32,5 +42,15 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   session.metadata,
   agents.metadata,
   agentsNew.metadata,
-  feedback.metadata
+  feedback.metadata,
+  undo.metadata,
+  newCmd.metadata,
+  memory.metadata,
+  formatters.metadata,
+  lint.metadata,
+  completion.metadata,
+  exportCmd.metadata,
+  status.metadata,
+  login.metadata,
+  logout.metadata,
 ];

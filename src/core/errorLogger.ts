@@ -7,6 +7,7 @@
 import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
+import { AUTOHAND_HOME } from '../constants.js';
 
 interface ErrorLogEntry {
     timestamp: string;
@@ -47,7 +48,7 @@ export class ErrorLogger {
 
     constructor(cliVersion: string, logDir?: string) {
         this.cliVersion = cliVersion;
-        const baseDir = logDir || path.join(os.homedir(), '.autohand-cli');
+        const baseDir = logDir || AUTOHAND_HOME;
         this.logPath = path.join(baseDir, 'error.log');
     }
 

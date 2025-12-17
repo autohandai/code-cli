@@ -6,7 +6,6 @@
 import chalk from 'chalk';
 import terminalLink from 'terminal-link';
 import type { SlashCommand } from './slashCommands.js';
-import type { SessionManager } from '../session/SessionManager.js';
 
 import type { SlashCommandContext } from './slashCommandTypes.js';
 
@@ -66,28 +65,73 @@ export class SlashCommandHandler {
           return feedback(this.ctx);
         }
         case '/resume': {
-          if (!this.ctx.sessionManager) {
-            console.log(chalk.red('Session manager not available'));
-            return null;
-          }
           const { resume } = await import('../commands/resume.js');
           return resume({ sessionManager: this.ctx.sessionManager, args });
         }
         case '/sessions': {
-          if (!this.ctx.sessionManager) {
-            console.log(chalk.red('Session manager not available'));
-            return null;
-          }
           const { sessions } = await import('../commands/sessions.js');
           return sessions({ sessionManager: this.ctx.sessionManager, args });
         }
         case '/session': {
-          if (!this.ctx.sessionManager) {
-            console.log(chalk.red('Session manager not available'));
-            return null;
-          }
           const { session } = await import('../commands/session.js');
           return session({ sessionManager: this.ctx.sessionManager });
+        }
+        case '/undo': {
+          const { undo } = await import('../commands/undo.js');
+          return undo({
+            workspaceRoot: this.ctx.workspaceRoot,
+            undoFileMutation: this.ctx.undoFileMutation ?? (async () => {}),
+            removeLastTurn: this.ctx.removeLastTurn ?? (() => {})
+          });
+        }
+        case '/new': {
+          const { newConversation } = await import('../commands/new.js');
+          return newConversation({
+            resetConversation: this.ctx.resetConversation,
+            sessionManager: this.ctx.sessionManager,
+            workspaceRoot: this.ctx.workspaceRoot,
+            model: this.ctx.model
+          });
+        }
+        case '/memory': {
+          const { memory } = await import('../commands/memory.js');
+          return memory({ memoryManager: this.ctx.memoryManager });
+        }
+        case '/formatters': {
+          const { execute } = await import('../commands/formatters.js');
+          await execute();
+          return null;
+        }
+        case '/lint': {
+          const { execute } = await import('../commands/lint.js');
+          await execute();
+          return null;
+        }
+        case '/completion': {
+          const { execute } = await import('../commands/completion.js');
+          await execute(args.join(' '));
+          return null;
+        }
+        case '/export': {
+          const { execute } = await import('../commands/export.js');
+          await execute(args.join(' '), {
+            sessionManager: this.ctx.sessionManager,
+            currentSession: this.ctx.currentSession,
+            workspaceRoot: this.ctx.workspaceRoot,
+          });
+          return null;
+        }
+        case '/status': {
+          const { status } = await import('../commands/status.js');
+          return status(this.ctx);
+        }
+        case '/login': {
+          const { login } = await import('../commands/login.js');
+          return login({ config: this.ctx.config });
+        }
+        case '/logout': {
+          const { logout } = await import('../commands/logout.js');
+          return logout({ config: this.ctx.config });
         }
         default:
           this.printUnsupported(command);

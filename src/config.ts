@@ -4,12 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import fs from 'fs-extra';
-import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
 import type { AutohandConfig, LoadedConfig, ProviderName, ProviderSettings } from './types.js';
+import { AUTOHAND_FILES } from './constants.js';
 
-const DEFAULT_CONFIG_PATH = path.join(os.homedir(), '.autohand-cli', 'config.json');
+const DEFAULT_CONFIG_PATH = AUTOHAND_FILES.configJson;
+const YAML_CONFIG_PATH = AUTOHAND_FILES.configYaml;
+const YML_CONFIG_PATH = AUTOHAND_FILES.configYml;
 const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
 const DEFAULT_LLAMACPP_URL = 'http://localhost:8080';
@@ -29,9 +31,54 @@ export function getDefaultConfigPath(): string {
   return DEFAULT_CONFIG_PATH;
 }
 
-export async function loadConfig(customPath?: string): Promise<LoadedConfig> {
+/**
+ * Detect config file path - checks for YAML first, then JSON
+ */
+async function detectConfigPath(customPath?: string): Promise<string> {
+  if (customPath) {
+    return path.resolve(customPath);
+  }
+
   const envPath = process.env.AUTOHAND_CONFIG;
-  const configPath = path.resolve(customPath ?? envPath ?? DEFAULT_CONFIG_PATH);
+  if (envPath) {
+    return path.resolve(envPath);
+  }
+
+  // Check for YAML configs first (user preference)
+  if (await fs.pathExists(YAML_CONFIG_PATH)) {
+    return YAML_CONFIG_PATH;
+  }
+  if (await fs.pathExists(YML_CONFIG_PATH)) {
+    return YML_CONFIG_PATH;
+  }
+
+  // Default to JSON
+  return DEFAULT_CONFIG_PATH;
+}
+
+/**
+ * Check if path is a YAML file
+ */
+function isYamlFile(filePath: string): boolean {
+  const ext = path.extname(filePath).toLowerCase();
+  return ext === '.yaml' || ext === '.yml';
+}
+
+/**
+ * Parse config file based on extension
+ */
+async function parseConfigFile(configPath: string): Promise<AutohandConfig | LegacyConfigShape> {
+  const content = await fs.readFile(configPath, 'utf8');
+
+  if (isYamlFile(configPath)) {
+    return YAML.parse(content) as AutohandConfig | LegacyConfigShape;
+  }
+
+  return JSON.parse(content) as AutohandConfig | LegacyConfigShape;
+}
+
+export async function loadConfig(customPath?: string): Promise<LoadedConfig> {
+  const configPath = await detectConfigPath(customPath);
   await fs.ensureDir(path.dirname(configPath));
 
   if (!(await fs.pathExists(configPath))) {
@@ -52,6 +99,7 @@ export async function loadConfig(customPath?: string): Promise<LoadedConfig> {
       }
     };
 
+    // Create as JSON by default
     await fs.writeJson(configPath, defaultConfig, { spaces: 2 });
     throw new Error(
       `Created default config at ${configPath}. Please update it with your OpenRouter credentials before rerunning.`
@@ -60,13 +108,31 @@ export async function loadConfig(customPath?: string): Promise<LoadedConfig> {
 
   let parsed: AutohandConfig | LegacyConfigShape;
   try {
-    parsed = (await fs.readJSON(configPath)) as AutohandConfig | LegacyConfigShape;
+    parsed = await parseConfigFile(configPath);
   } catch (error) {
     throw new Error(`Failed to parse config at ${configPath}: ${(error as Error).message}`);
   }
   const normalized = normalizeConfig(parsed);
-  validateConfig(normalized, configPath);
-  return { ...normalized, configPath };
+
+  // Merge environment variables for API settings
+  const withEnv = mergeEnvVariables(normalized);
+
+  validateConfig(withEnv, configPath);
+  return { ...withEnv, configPath };
+}
+
+/**
+ * Merge environment variables into config
+ * Env vars take precedence over config file values
+ */
+function mergeEnvVariables(config: AutohandConfig): AutohandConfig {
+  return {
+    ...config,
+    api: {
+      baseUrl: process.env.AUTOHAND_API_URL || config.api?.baseUrl || 'https://api.autohand.ai',
+      companySecret: process.env.AUTOHAND_SECRET || config.api?.companySecret || ''
+    }
+  };
 }
 
 function normalizeConfig(config: AutohandConfig | LegacyConfigShape): AutohandConfig {
@@ -132,6 +198,23 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
       throw new Error(`ui.autoConfirm must be boolean in ${configPath}`);
     }
   }
+
+  // Validate external agents config
+  if (config.externalAgents) {
+    if (config.externalAgents.enabled !== undefined && typeof config.externalAgents.enabled !== 'boolean') {
+      throw new Error(`externalAgents.enabled must be boolean in ${configPath}`);
+    }
+    if (config.externalAgents.paths !== undefined) {
+      if (!Array.isArray(config.externalAgents.paths)) {
+        throw new Error(`externalAgents.paths must be an array in ${configPath}`);
+      }
+      for (const p of config.externalAgents.paths) {
+        if (typeof p !== 'string') {
+          throw new Error(`externalAgents.paths must contain only strings in ${configPath}`);
+        }
+      }
+    }
+  }
 }
 
 export function resolveWorkspaceRoot(config: LoadedConfig, requestedPath?: string): string {
@@ -140,7 +223,7 @@ export function resolveWorkspaceRoot(config: LoadedConfig, requestedPath?: strin
   return path.resolve(candidate);
 }
 
-export function getProviderConfig(config: AutohandConfig, provider?: ProviderName): ProviderSettings {
+export function getProviderConfig(config: AutohandConfig, provider?: ProviderName): ProviderSettings | null {
   const chosen = provider ?? config.provider ?? 'openrouter';
   const configByProvider: Record<ProviderName, ProviderSettings | undefined> = {
     openrouter: config.openrouter,
@@ -151,23 +234,20 @@ export function getProviderConfig(config: AutohandConfig, provider?: ProviderNam
 
   const entry = configByProvider[chosen];
   if (!entry) {
-    throw new Error(`Provider ${chosen} is not configured. Update ~/.autohand-cli/config.json.`);
+    // Return null instead of throwing - let the caller handle unconfigured state
+    return null;
   }
 
+  // Validate OpenRouter config if it exists
   if (chosen === 'openrouter') {
-    const { apiKey, baseUrl, model } = entry as ProviderSettings;
-    if (typeof apiKey !== 'string' || !apiKey || apiKey === 'replace-me') {
-      throw new Error('Set a valid openrouter.apiKey in ~/.autohand-cli/config.json');
-    }
-    if (typeof model !== 'string' || !model) {
-      throw new Error('Set openrouter.model in ~/.autohand-cli/config.json');
-    }
-    if (baseUrl !== undefined && typeof baseUrl !== 'string') {
-      throw new Error('openrouter.baseUrl must be a string');
+    const { apiKey, model } = entry as ProviderSettings;
+    if (!apiKey || apiKey === 'replace-me' || !model) {
+      return null; // Incomplete config
     }
   } else {
-    if (entry.model === undefined || typeof entry.model !== 'string' || !entry.model) {
-      throw new Error(`Set ${chosen}.model in ~/.autohand-cli/config.json`);
+    // Validate other providers
+    if (!entry.model) {
+      return null; // Incomplete config
     }
   }
 
@@ -194,5 +274,11 @@ function defaultBaseUrlFor(provider: ProviderName, port?: number): string | unde
 
 export async function saveConfig(config: LoadedConfig): Promise<void> {
   const { configPath, ...data } = config;
-  await fs.writeJson(configPath, data, { spaces: 2 });
+
+  if (isYamlFile(configPath)) {
+    const yamlContent = YAML.stringify(data, { indent: 2 });
+    await fs.writeFile(configPath, yamlContent, 'utf8');
+  } else {
+    await fs.writeJson(configPath, data, { spaces: 2 });
+  }
 }

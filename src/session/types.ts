@@ -24,6 +24,7 @@ export interface SessionMessage {
     timestamp: string;
     toolCalls?: any[];
     name?: string;
+    tool_call_id?: string;
 }
 
 export interface WorkspaceState {

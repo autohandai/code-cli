@@ -23,13 +23,19 @@ describe('ToolsRegistry', () => {
 
     await fs.writeJson(path.join(metaDir, 'custom.json'), {
       name: 'custom_helper',
-      description: 'Extra helper tool'
+      description: 'Extra helper tool',
+      handler: 'echo {{message}}',
+      parameters: { type: 'object', properties: { message: { type: 'string' } } },
+      source: 'agent'
     });
 
     // This one should be ignored because it collides with a built-in name
     await fs.writeJson(path.join(metaDir, 'duplicate.json'), {
       name: 'read_file',
-      description: 'Should not override'
+      description: 'Should not override',
+      handler: 'cat {{path}}',
+      parameters: { type: 'object', properties: { path: { type: 'string' } } },
+      source: 'agent'
     });
 
     const builtIns: ToolDefinition[] = [
@@ -38,6 +44,7 @@ describe('ToolsRegistry', () => {
     ];
 
     const registry = new ToolsRegistry(metaDir);
+    await registry.initialize();
     const tools = await registry.listTools(builtIns);
     const names = tools.map((t) => t.name);
 

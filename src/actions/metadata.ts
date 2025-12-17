@@ -6,31 +6,71 @@
 import crypto from 'node:crypto';
 import fs from 'fs-extra';
 import path from 'node:path';
+import { GitIgnoreParser } from '../utils/gitIgnore.js';
 
 export interface TreeOptions {
   depth?: number;
   maxEntries?: number;
+  workspaceRoot?: string;
 }
+
+/** Hardcoded skip patterns for non-git directories */
+const ALWAYS_SKIP = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '__pycache__', '.cache']);
 
 export async function listDirectoryTree(root: string, options: TreeOptions = {}): Promise<string[]> {
   const depth = options.depth ?? 2;
   const maxEntries = options.maxEntries ?? 200;
+  const workspaceRoot = options.workspaceRoot ?? root;
   const result: string[] = [];
+
+  // Validate that root is within workspace
+  const resolvedRoot = path.resolve(root);
+  const resolvedWorkspace = path.resolve(workspaceRoot);
+  if (!resolvedRoot.startsWith(resolvedWorkspace)) {
+    throw new Error(`Path ${root} is outside the workspace root.`);
+  }
+
+  const ignoreFilter = new GitIgnoreParser(workspaceRoot);
 
   async function walk(current: string, prefix: string, currentDepth: number): Promise<void> {
     if (result.length >= maxEntries) {
       return;
     }
-    const entries = await fs.readdir(current);
+
+    let entries: string[];
+    try {
+      entries = await fs.readdir(current);
+    } catch (err) {
+      // Skip directories we can't read (permissions, etc.)
+      return;
+    }
+
     const slice = entries.slice(0, maxEntries - result.length);
     for (const entry of slice) {
-      const full = path.join(current, entry);
-      const rel = path.relative(root, full) || '.';
-      const stats = await fs.stat(full);
-      result.push(`${prefix}${entry}${stats.isDirectory() ? '/' : ''}`);
-      if (stats.isDirectory() && currentDepth < depth) {
-        await walk(full, `${prefix}  `, currentDepth + 1);
+      // Skip hidden files/directories that start with '.'
+      if (entry.startsWith('.')) {
+        continue;
       }
+
+      const full = path.join(current, entry);
+      const rel = path.relative(workspaceRoot, full);
+
+      // Skip hardcoded patterns and gitignored files
+      if (ALWAYS_SKIP.has(entry) || ignoreFilter.isIgnored(rel)) {
+        continue;
+      }
+
+      try {
+        const stats = await fs.stat(full);
+        result.push(`${prefix}${entry}${stats.isDirectory() ? '/' : ''}`);
+        if (stats.isDirectory() && currentDepth < depth) {
+          await walk(full, `${prefix}  `, currentDepth + 1);
+        }
+      } catch {
+        // Skip files/directories we can't stat
+        continue;
+      }
+
       if (result.length >= maxEntries) {
         break;
       }

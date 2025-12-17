@@ -9,10 +9,17 @@ import { SLASH_COMMANDS } from '../src/core/slashCommands.js';
 describe('slash commands registry', () => {
   it('includes the supported commands and omits legacy ones', () => {
     const commands = SLASH_COMMANDS.map((cmd) => cmd.command);
-    const expected = ['/quit', '/model', '/session', '/sessions', '/resume', '/init', '/agents', '/agents new', '/feedback', '/help', '/?'];
+    const expected = [
+      '/quit', '/model', '/session', '/sessions', '/resume', '/init',
+      '/agents', '/agents new', '/feedback', '/help', '/?',
+      '/undo', '/new', '/memory'
+    ];
     expected.forEach((cmd) => expect(commands).toContain(cmd));
+    // These commands were documented but never implemented
     expect(commands).not.toContain('/ls');
     expect(commands).not.toContain('/diff');
-    expect(commands).not.toContain('/undo');
+    expect(commands).not.toContain('/approvals');
+    expect(commands).not.toContain('/review');
+    expect(commands).not.toContain('/compact');
   });
 });

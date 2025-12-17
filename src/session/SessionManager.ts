@@ -5,7 +5,6 @@
  */
 import fs from 'fs-extra';
 import path from 'node:path';
-import os from 'node:os';
 import crypto from 'node:crypto';
 import type {
     SessionMetadata,
@@ -13,6 +12,7 @@ import type {
     WorkspaceState,
     SessionIndex
 } from './types.js';
+import { AUTOHAND_PATHS } from '../constants.js';
 
 export class SessionManager {
     private readonly sessionsDir: string;
@@ -20,7 +20,7 @@ export class SessionManager {
     private index: SessionIndex | null = null;
 
     constructor(baseDir?: string) {
-        this.sessionsDir = baseDir ?? path.join(os.homedir(), '.autohand-cli', 'sessions');
+        this.sessionsDir = baseDir ?? AUTOHAND_PATHS.sessions;
     }
 
     async initialize(): Promise<void> {

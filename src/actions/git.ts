@@ -104,3 +104,357 @@ export function gitRemoveWorktree(cwd: string, pathArg: string, force = false): 
   }
   return result.stdout || `Removed worktree ${pathArg}`;
 }
+
+// ============ Stash Operations ============
+
+export interface GitStashOptions {
+  message?: string;
+  includeUntracked?: boolean;
+  keepIndex?: boolean;
+}
+
+export function gitStash(cwd: string, options: GitStashOptions = {}): string {
+  const args = ['stash', 'push'];
+  if (options.includeUntracked) {
+    args.push('--include-untracked');
+  }
+  if (options.keepIndex) {
+    args.push('--keep-index');
+  }
+  if (options.message) {
+    args.push('-m', options.message);
+  }
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git stash failed');
+  }
+  return result.stdout || result.stderr || 'Stashed changes';
+}
+
+export function gitStashList(cwd: string): string {
+  const result = spawnSync('git', ['stash', 'list'], { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git stash list failed');
+  }
+  return result.stdout || 'No stashes';
+}
+
+export function gitStashPop(cwd: string, stashRef?: string): string {
+  const args = ['stash', 'pop'];
+  if (stashRef) {
+    args.push(stashRef);
+  }
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git stash pop failed');
+  }
+  return result.stdout || 'Applied and dropped stash';
+}
+
+export function gitStashApply(cwd: string, stashRef?: string): string {
+  const args = ['stash', 'apply'];
+  if (stashRef) {
+    args.push(stashRef);
+  }
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git stash apply failed');
+  }
+  return result.stdout || 'Applied stash';
+}
+
+export function gitStashDrop(cwd: string, stashRef?: string): string {
+  const args = ['stash', 'drop'];
+  if (stashRef) {
+    args.push(stashRef);
+  }
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git stash drop failed');
+  }
+  return result.stdout || 'Dropped stash';
+}
+
+// ============ Branch Operations ============
+
+export function gitBranch(cwd: string, branchName?: string, options: { delete?: boolean; force?: boolean } = {}): string {
+  const args = ['branch'];
+  if (options.delete) {
+    args.push(options.force ? '-D' : '-d');
+  }
+  if (branchName) {
+    args.push(branchName);
+  }
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git branch failed');
+  }
+  return result.stdout || 'Branch operation completed';
+}
+
+export function gitSwitch(cwd: string, branchName: string, options: { create?: boolean } = {}): string {
+  const args = ['switch'];
+  if (options.create) {
+    args.push('-c');
+  }
+  args.push(branchName);
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git switch failed');
+  }
+  return result.stdout || `Switched to ${branchName}`;
+}
+
+// ============ Cherry-pick Operations ============
+
+export interface GitCherryPickOptions {
+  noCommit?: boolean;
+  mainline?: number;
+}
+
+export function gitCherryPick(cwd: string, commits: string[], options: GitCherryPickOptions = {}): string {
+  const args = ['cherry-pick'];
+  if (options.noCommit) {
+    args.push('--no-commit');
+  }
+  if (options.mainline !== undefined) {
+    args.push('-m', String(options.mainline));
+  }
+  args.push(...commits);
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git cherry-pick failed');
+  }
+  return result.stdout || `Cherry-picked ${commits.join(', ')}`;
+}
+
+export function gitCherryPickAbort(cwd: string): string {
+  const result = spawnSync('git', ['cherry-pick', '--abort'], { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git cherry-pick --abort failed');
+  }
+  return 'Cherry-pick aborted';
+}
+
+export function gitCherryPickContinue(cwd: string): string {
+  const result = spawnSync('git', ['cherry-pick', '--continue'], { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git cherry-pick --continue failed');
+  }
+  return 'Cherry-pick continued';
+}
+
+// ============ Rebase Operations ============
+
+export interface GitRebaseOptions {
+  onto?: string;
+  interactive?: boolean;
+  autosquash?: boolean;
+}
+
+export function gitRebase(cwd: string, upstream: string, options: GitRebaseOptions = {}): string {
+  const args = ['rebase'];
+  if (options.onto) {
+    args.push('--onto', options.onto);
+  }
+  if (options.autosquash) {
+    args.push('--autosquash');
+  }
+  // Note: --interactive is not supported in non-TTY mode
+  args.push(upstream);
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git rebase failed');
+  }
+  return result.stdout || `Rebased onto ${upstream}`;
+}
+
+export function gitRebaseAbort(cwd: string): string {
+  const result = spawnSync('git', ['rebase', '--abort'], { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git rebase --abort failed');
+  }
+  return 'Rebase aborted';
+}
+
+export function gitRebaseContinue(cwd: string): string {
+  const result = spawnSync('git', ['rebase', '--continue'], { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git rebase --continue failed');
+  }
+  return 'Rebase continued';
+}
+
+export function gitRebaseSkip(cwd: string): string {
+  const result = spawnSync('git', ['rebase', '--skip'], { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git rebase --skip failed');
+  }
+  return 'Skipped commit and continued rebase';
+}
+
+// ============ Merge Operations ============
+
+export interface GitMergeOptions {
+  noCommit?: boolean;
+  noFastForward?: boolean;
+  squash?: boolean;
+  message?: string;
+}
+
+export function gitMerge(cwd: string, branch: string, options: GitMergeOptions = {}): string {
+  const args = ['merge'];
+  if (options.noCommit) {
+    args.push('--no-commit');
+  }
+  if (options.noFastForward) {
+    args.push('--no-ff');
+  }
+  if (options.squash) {
+    args.push('--squash');
+  }
+  if (options.message) {
+    args.push('-m', options.message);
+  }
+  args.push(branch);
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git merge failed');
+  }
+  return result.stdout || `Merged ${branch}`;
+}
+
+export function gitMergeAbort(cwd: string): string {
+  const result = spawnSync('git', ['merge', '--abort'], { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git merge --abort failed');
+  }
+  return 'Merge aborted';
+}
+
+// ============ Commit Operations ============
+
+export interface GitCommitOptions {
+  message: string;
+  amend?: boolean;
+  allowEmpty?: boolean;
+}
+
+export function gitCommit(cwd: string, options: GitCommitOptions): string {
+  const args = ['commit', '-m', options.message];
+  if (options.amend) {
+    args.push('--amend');
+  }
+  if (options.allowEmpty) {
+    args.push('--allow-empty');
+  }
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git commit failed');
+  }
+  return result.stdout || 'Committed';
+}
+
+export function gitAdd(cwd: string, paths: string[]): string {
+  const args = ['add', ...paths];
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git add failed');
+  }
+  return result.stdout || `Staged ${paths.join(', ')}`;
+}
+
+export function gitReset(cwd: string, mode: 'soft' | 'mixed' | 'hard' = 'mixed', ref?: string): string {
+  const args = ['reset', `--${mode}`];
+  if (ref) {
+    args.push(ref);
+  }
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git reset failed');
+  }
+  return result.stdout || `Reset ${mode}${ref ? ` to ${ref}` : ''}`;
+}
+
+// ============ Log Operations ============
+
+export interface GitLogOptions {
+  maxCount?: number;
+  oneline?: boolean;
+  graph?: boolean;
+  all?: boolean;
+}
+
+export function gitLog(cwd: string, options: GitLogOptions = {}): string {
+  const args = ['log'];
+  if (options.maxCount) {
+    args.push(`-n${options.maxCount}`);
+  }
+  if (options.oneline) {
+    args.push('--oneline');
+  }
+  if (options.graph) {
+    args.push('--graph');
+  }
+  if (options.all) {
+    args.push('--all');
+  }
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git log failed');
+  }
+  return result.stdout || 'No commits';
+}
+
+// ============ Remote Operations ============
+
+export function gitFetch(cwd: string, remote?: string, branch?: string): string {
+  const args = ['fetch'];
+  if (remote) {
+    args.push(remote);
+    if (branch) {
+      args.push(branch);
+    }
+  }
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git fetch failed');
+  }
+  return result.stdout || result.stderr || 'Fetched';
+}
+
+export function gitPull(cwd: string, remote?: string, branch?: string): string {
+  const args = ['pull'];
+  if (remote) {
+    args.push(remote);
+    if (branch) {
+      args.push(branch);
+    }
+  }
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git pull failed');
+  }
+  return result.stdout || 'Pulled';
+}
+
+export function gitPush(cwd: string, remote?: string, branch?: string, options: { force?: boolean; setUpstream?: boolean } = {}): string {
+  const args = ['push'];
+  if (options.force) {
+    args.push('--force');
+  }
+  if (options.setUpstream) {
+    args.push('--set-upstream');
+  }
+  if (remote) {
+    args.push(remote);
+    if (branch) {
+      args.push(branch);
+    }
+  }
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git push failed');
+  }
+  return result.stdout || result.stderr || 'Pushed';
+}

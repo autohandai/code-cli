@@ -127,36 +127,47 @@ export class FileActionManager {
       if (!current) continue;
       const relative = path.relative(this.workspaceRoot, current);
       const normalizedRel = relative.replace(/\\/g, '/');
-      if (ignoreFilter.isIgnored(normalizedRel)) {
+
+      // Skip hidden files/directories and ignored paths
+      if (path.basename(current).startsWith('.') || ignoreFilter.isIgnored(normalizedRel)) {
         continue;
       }
-      const stats = fs.statSync(current);
-      if (stats.isDirectory()) {
-        const entries = fs.readdirSync(current);
-        for (const entry of entries) {
-          stack.push(path.join(current, entry));
+
+      try {
+        const stats = fs.statSync(current);
+        if (stats.isDirectory()) {
+          const entries = fs.readdirSync(current);
+          for (const entry of entries) {
+            // Skip hidden entries
+            if (!entry.startsWith('.')) {
+              stack.push(path.join(current, entry));
+            }
+          }
+          continue;
         }
+        if (!stats.isFile()) {
+          continue;
+        }
+
+        const contents = fs.readFileSync(current, 'utf8');
+        const haystack = contents.toLowerCase();
+        const idx = haystack.indexOf(lowerQuery);
+        if (idx === -1) continue;
+
+        const start = Math.max(0, idx - window);
+        const end = Math.min(contents.length, idx + query.length + window);
+        const prefixEllipsis = start > 0 ? '…' : '';
+        const suffixEllipsis = end < contents.length ? '…' : '';
+        const snippet = `${prefixEllipsis}${contents.slice(start, end)}${suffixEllipsis}`;
+
+        results.push({
+          file: normalizedRel || path.basename(current),
+          snippet
+        });
+      } catch {
+        // Skip files/directories we can't access
         continue;
       }
-      if (!stats.isFile()) {
-        continue;
-      }
-
-      const contents = fs.readFileSync(current, 'utf8');
-      const haystack = contents.toLowerCase();
-      const idx = haystack.indexOf(lowerQuery);
-      if (idx === -1) continue;
-
-      const start = Math.max(0, idx - window);
-      const end = Math.min(contents.length, idx + query.length + window);
-      const prefixEllipsis = start > 0 ? '…' : '';
-      const suffixEllipsis = end < contents.length ? '…' : '';
-      const snippet = `${prefixEllipsis}${contents.slice(start, end)}${suffixEllipsis}`;
-
-      results.push({
-        file: normalizedRel || path.basename(current),
-        snippet
-      });
     }
 
     return results;
@@ -190,29 +201,39 @@ export class FileActionManager {
       if (!current) {
         continue;
       }
+      const basename = path.basename(current);
       const relative = path.relative(this.workspaceRoot, current);
-      if (relative.includes('node_modules') || relative.startsWith('.git') || relative.startsWith('dist')) {
+
+      // Skip hidden files/directories and common excludes
+      if (basename.startsWith('.') || relative.includes('node_modules') || relative.startsWith('dist')) {
         continue;
       }
-      const stats = fs.statSync(current);
-      if (stats.isDirectory()) {
-        // TODO: only considering if dir exists, what if doesn't?
-        const entries = fs.readdirSync(current);
-        for (const entry of entries) {
-          stack.push(path.join(current, entry));
-        }
-      } else if (stats.isFile()) {
-        const contents = fs.readFileSync(current, 'utf8');
-        const lines = contents.split(/\r?\n/);
-        lines.forEach((line: string, idx: number) => {
-          if (line.includes(query)) {
-            hits.push({
-              file: path.relative(this.workspaceRoot, current),
-              line: idx + 1,
-              text: line.trim()
-            });
+      try {
+        const stats = fs.statSync(current);
+        if (stats.isDirectory()) {
+          const entries = fs.readdirSync(current);
+          for (const entry of entries) {
+            // Skip hidden entries
+            if (!entry.startsWith('.')) {
+              stack.push(path.join(current, entry));
+            }
           }
-        });
+        } else if (stats.isFile()) {
+          const contents = fs.readFileSync(current, 'utf8');
+          const lines = contents.split(/\r?\n/);
+          lines.forEach((line: string, idx: number) => {
+            if (line.includes(query)) {
+              hits.push({
+                file: path.relative(this.workspaceRoot, current),
+                line: idx + 1,
+                text: line.trim()
+              });
+            }
+          });
+        }
+      } catch {
+        // Skip files/directories that don't exist or can't be accessed
+        continue;
       }
     }
     return hits;

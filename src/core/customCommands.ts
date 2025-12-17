@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import fs from 'fs-extra';
-import os from 'node:os';
 import path from 'node:path';
+import { AUTOHAND_PATHS } from '../constants.js';
 
 export interface CustomCommandDefinition {
   name: string;
@@ -15,7 +15,7 @@ export interface CustomCommandDefinition {
   dangerous?: boolean;
 }
 
-const COMMANDS_DIR = path.join(os.homedir(), '.autohand-cli', 'commands');
+const COMMANDS_DIR = AUTOHAND_PATHS.commands;
 
 export async function loadCustomCommand(name: string): Promise<CustomCommandDefinition | null> {
   const filePath = path.join(COMMANDS_DIR, `${sanitizeName(name)}.json`);

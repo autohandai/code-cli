@@ -2,7 +2,7 @@ node_modules/
 dist/
 binaries/
 .tmp/
-CHANGELOG.md 
+CHANGELOG.md
 install-local.sh
 PATH_SETUP.md
 CLAUDE.md
@@ -10,3 +10,11 @@ INSTALLATION.md
 RELEASE_SETUP.md
 dev-build.sh
 bun.lock
+.agent/
+# Environment variables (API secrets)
+.env
+.env.local
+.env.*.local
+.claude/
+.autohand/
+AGENTS.md

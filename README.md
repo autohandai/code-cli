@@ -38,6 +38,8 @@ bun add -g .
 
 ## Configuration
 
+### LLM Provider Configuration
+
 Create a `.autohandrc.json` file in your project root or home directory:
 
 ```json
@@ -57,6 +59,21 @@ Create a `.autohandrc.json` file in your project root or home directory:
   }
 }
 ```
+
+### API Configuration (Telemetry & Feedback)
+
+For telemetry and feedback submission, create a `.env` file in the project root:
+
+```bash
+# Autohand API Configuration
+AUTOHAND_API_URL=https://api.autohand.ai
+AUTOHAND_SECRET=your-company-secret-here
+```
+
+**Note:** The Autohand feedback and telemetry API backend has been extracted to a separate repository:
+👉 https://github.com/autohandai/api
+
+The CLI includes client libraries with offline queueing, retry mechanisms, and privacy features. API authentication uses a compound identifier: `device_id.company_secret`.
 
 ### UI Settings
 

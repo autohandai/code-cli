@@ -4,17 +4,32 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { SessionManager } from '../session/SessionManager.js';
-import type { OpenRouterClient } from '../openrouter.js';
+import type { SessionManager, Session } from '../session/SessionManager.js';
+import type { LLMProvider } from '../providers/LLMProvider.js';
+import type { MemoryManager } from '../memory/MemoryManager.js';
+import type { AutohandConfig, ProviderName } from '../types.js';
 
 export interface SlashCommandContext {
     listWorkspaceFiles?: () => Promise<void>;
     printGitDiff?: () => void;
-    undoLastMutation?: () => Promise<void>;
+    undoFileMutation?: () => Promise<void>;
+    removeLastTurn?: () => void;
     promptModelSelection: () => Promise<void>;
     promptApprovalMode?: () => Promise<void>;
     createAgentsFile: () => Promise<void>;
-    resetConversation?: () => void;
-    sessionManager?: SessionManager;
-    llm: OpenRouterClient;
+    resetConversation: () => void | Promise<void>;
+    sessionManager: SessionManager;
+    currentSession?: Session;
+    memoryManager: MemoryManager;
+    llm: LLMProvider;
+    workspaceRoot: string;
+    model: string;
+    /** Current provider name (for /status) */
+    provider?: ProviderName;
+    /** Full config object (for /status) */
+    config?: AutohandConfig;
+    /** Get current context percentage remaining (for /status) */
+    getContextPercentLeft?: () => number;
+    /** Get current total tokens used (for /status) */
+    getTotalTokensUsed?: () => number;
 }

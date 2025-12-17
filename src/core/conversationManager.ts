@@ -89,6 +89,24 @@ export class ConversationManager {
     this.messages.push({ role: 'system', content });
   }
 
+  /**
+   * Removes the last user message and all subsequent messages (assistant responses, tool results)
+   * This effectively undoes the last conversation turn.
+   */
+  removeLastTurn(): void {
+    if (!this.initialized || this.messages.length <= 1) {
+      return;
+    }
+
+    const lastUserIndex = this.findLastUserIndex();
+    if (lastUserIndex <= 0) {
+      return;
+    }
+
+    // Remove all messages from the last user message onwards
+    this.messages = this.messages.slice(0, lastUserIndex);
+  }
+
   private findLastUserIndex(): number {
     for (let i = this.messages.length - 1; i >= 0; i -= 1) {
       if (this.messages[i].role === 'user') {

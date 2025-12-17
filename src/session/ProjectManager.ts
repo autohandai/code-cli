@@ -5,7 +5,6 @@
  */
 import fs from 'fs-extra';
 import path from 'node:path';
-import os from 'node:os';
 import crypto from 'node:crypto';
 import type {
     ProjectIndex,
@@ -13,13 +12,14 @@ import type {
     FailureRecord,
     SuccessRecord
 } from './types.js';
+import { AUTOHAND_PATHS } from '../constants.js';
 
 export class ProjectManager {
     private readonly projectsDir: string;
     private projectCache = new Map<string, ProjectIndex>();
 
     constructor(baseDir?: string) {
-        this.projectsDir = baseDir ?? path.join(os.homedir(), '.autohand-cli', 'projects');
+        this.projectsDir = baseDir ?? AUTOHAND_PATHS.projects;
     }
 
     async initialize(): Promise<void> {

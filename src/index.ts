@@ -1,24 +1,89 @@
 #!/usr/bin/env node
-/**
- * @license
- * Copyright 2025 Autohand AI LLC
- * SPDX-License-Identifier: Apache-2.0
- */
+import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
+import { execSync } from 'node:child_process';
 import packageJson from '../package.json' with { type: 'json' };
-import { getProviderConfig, loadConfig, resolveWorkspaceRoot } from './config.js';
+import { getProviderConfig, loadConfig, resolveWorkspaceRoot, saveConfig } from './config.js';
+import { runStartupChecks, printStartupCheckResults } from './startup/checks.js';
+import { getAuthClient } from './auth/index.js';
+import type { AuthUser, LoadedConfig } from './types.js';
+
+/**
+ * Get git commit hash (short)
+ */
+function getGitCommit(): string {
+  try {
+    return execSync('git rev-parse --short HEAD', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
+ * Get full version string with git commit
+ */
+function getVersionString(): string {
+  const commit = getGitCommit();
+  return `${packageJson.version} (${commit})`;
+}
 import { FileActionManager } from './actions/filesystem.js';
-import { OpenRouterClient } from './openrouter.js';
+import { ProviderFactory } from './providers/ProviderFactory.js';
 import { AutohandAgent } from './core/agent.js';
-import { startStatusPanel } from './ui/statusPanel.js';
 import type { CLIOptions, AgentRuntime } from './types.js';
 
+/**
+ * Validate auth token on startup
+ * Returns the authenticated user if valid, undefined otherwise
+ */
+async function validateAuthOnStartup(config: LoadedConfig): Promise<AuthUser | undefined> {
+  if (!config.auth?.token) {
+    return undefined;
+  }
 
-// DEBUG: Global exit handlers
-process.on('exit', (code) => {
-  console.error(`[DEBUG] Process exiting with code: ${code}`);
-});
+  // Check if token is expired locally first
+  if (config.auth.expiresAt) {
+    const expiresAt = new Date(config.auth.expiresAt);
+    if (expiresAt < new Date()) {
+      // Token expired, clear it silently
+      config.auth = undefined;
+      try {
+        await saveConfig(config);
+      } catch {
+        // Ignore save errors during startup
+      }
+      return undefined;
+    }
+  }
+
+  // Validate with server (non-blocking, silent failure)
+  try {
+    const authClient = getAuthClient();
+    const result = await authClient.validateSession(config.auth.token);
+
+    if (!result.authenticated) {
+      // Token invalid, clear it silently
+      config.auth = undefined;
+      try {
+        await saveConfig(config);
+      } catch {
+        // Ignore save errors during startup
+      }
+      return undefined;
+    }
+
+    // Update user info if returned from server
+    if (result.user && config.auth) {
+      config.auth.user = result.user;
+    }
+
+    return config.auth?.user;
+  } catch {
+    // Network error, assume token is still valid locally
+    return config.auth?.user;
+  }
+}
+
 
 process.on('uncaughtException', (err) => {
   (globalThis as any).__autohandLastError = err;
@@ -47,14 +112,16 @@ const program = new Command();
 program
   .name('autohand')
   .description('Autonomous LLM-powered coding agent CLI')
-  .version(packageJson.version, '-v, --version', 'output the current version')
+  .version(getVersionString(), '-v, --version', 'output the current version')
   .option('-p, --prompt <text>', 'Run a single instruction in command mode')
   .option('--path <path>', 'Workspace path to operate in')
   .option('--yes', 'Auto-confirm risky actions', false)
   .option('--dry-run', 'Preview actions without applying mutations', false)
   .option('--model <model>', 'Override the configured LLM model')
-  .option('--config <path>', 'Path to config file (default ~/.autohand-cli/config.json)')
+  .option('--config <path>', 'Path to config file (default ~/.autohand/config.json)')
   .option('--temperature <value>', 'Sampling temperature', parseFloat)
+  .option('--unrestricted', 'Run without any approval prompts (use with caution)', false)
+  .option('--restricted', 'Deny all dangerous operations automatically', false)
   .action(async (opts: CLIOptions) => {
     await runCLI(opts);
   });
@@ -69,7 +136,7 @@ program
   });
 
 async function runCLI(options: CLIOptions): Promise<void> {
-  let statusPanel: { update: (snap: any) => void; stop: () => void } | null = null;
+  const statusPanel: { update: (snap: any) => void; stop: () => void } | null = null;
   try {
     const config = await loadConfig(options.config);
     const workspaceRoot = resolveWorkspaceRoot(config, options.path);
@@ -79,32 +146,36 @@ async function runCLI(options: CLIOptions): Promise<void> {
       options
     };
 
-    printBanner();
-    printWelcome(runtime);
+    // Validate auth on startup (non-blocking)
+    const authUser = await validateAuthOnStartup(config);
 
-    const providerSettings = getProviderConfig(config);
-    const openRouter = new OpenRouterClient({
-      apiKey: providerSettings.apiKey ?? '',
-      baseUrl: providerSettings.baseUrl,
-      model: options.model ?? providerSettings.model
-    });
+    printBanner();
+    printWelcome(runtime, authUser);
+
+    // Run startup checks
+    const checkResults = await runStartupChecks(workspaceRoot);
+    printStartupCheckResults(checkResults);
+
+    // Warn but continue if required tools are missing
+    if (!checkResults.allRequiredMet) {
+      console.log(chalk.yellow('Continuing anyway, but some features may not work correctly.\n'));
+    }
+
+    // Override model from CLI if provided
+    if (options.model) {
+      const providerName = config.provider ?? 'openrouter';
+      if (config[providerName]) {
+        (config as any)[providerName].model = options.model;
+      }
+    }
+
+    const llmProvider = ProviderFactory.create(config);
     const files = new FileActionManager(workspaceRoot);
-    const agent = new AutohandAgent(openRouter, files, runtime);
+    const agent = new AutohandAgent(llmProvider, files, runtime);
 
     if (options.prompt) {
       await agent.runInstruction(options.prompt);
     } else if (options.resumeSessionId) {
-      // Manually inject the resume instruction
-      await agent.runInteractive(); // This will start a new session by default
-      // We need to modify agent to accept a session ID or handle this better.
-      // Actually, let's just pass the instruction.
-      // But runInteractive creates a session.
-      // Let's modify runInteractive to take an optional sessionId?
-      // No, the agent.ts logic I added handles 'SESSION_RESUMED' instruction but that's internal.
-
-      // Better approach:
-      // The agent needs to know to load a specific session.
-      // I'll add a method to agent to set the session ID to resume.
       await agent.resumeSession(options.resumeSessionId);
     } else {
       await agent.runInteractive();
@@ -116,8 +187,6 @@ async function runCLI(options: CLIOptions): Promise<void> {
       console.error(error);
     }
     process.exitCode = 1;
-  } finally {
-    // Cleanup if needed
   }
 }
 
@@ -132,25 +201,37 @@ function printBanner(): void {
   }
 }
 
-function printWelcome(runtime: AgentRuntime): void {
+function printWelcome(runtime: AgentRuntime, authUser?: AuthUser): void {
   if (!process.stdout.isTTY) {
     return;
   }
   const model = (() => {
     try {
       const settings = getProviderConfig(runtime.config);
-      return runtime.options.model ?? settings.model ?? 'unknown';
+      return runtime.options.model ?? settings?.model ?? 'unknown';
     } catch {
       return runtime.options.model ?? 'unknown';
     }
   })();
   const dir = runtime.workspaceRoot;
-  console.log(`${chalk.bold('> Autohand')} v${packageJson.version}`);
+  console.log(`${chalk.bold('> Autohand')} v${getVersionString()}`);
+
+  // Personalized greeting if logged in
+  if (authUser) {
+    console.log(chalk.green(`Welcome back, ${authUser.name || authUser.email}!`));
+  }
+
   console.log(`${chalk.gray('model:')} ${chalk.cyan(model)}  ${chalk.gray('| directory:')} ${chalk.cyan(dir)}`);
   console.log();
   console.log(chalk.gray('To get started, describe a task or try one of these commands:'));
   console.log(chalk.cyan('/init ') + chalk.gray('create an AGENTS.md file with instructions for Autohand'));
   console.log(chalk.cyan('/help ') + chalk.gray('review my current changes and find issues'));
+
+  // Show login hint if not authenticated
+  if (!authUser) {
+    console.log(chalk.cyan('/login ') + chalk.gray('sign in to your Autohand account'));
+  }
+
   console.log();
 }
 

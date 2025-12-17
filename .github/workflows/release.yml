@@ -269,37 +269,34 @@ jobs:
             changelog += `
 ## 📦 Installation
 
-### Quick Install (Unix-based systems)
+### Recommended: Install Script
 \`\`\`bash
-# macOS (Apple Silicon)
-curl -L -o autohand https://github.com/${{ github.repository }}/releases/download/v${{ needs.prepare.outputs.version }}/autohand-macos-arm64
-chmod +x autohand
-sudo mv autohand /usr/local/bin/
-
-# macOS (Intel)
-curl -L -o autohand https://github.com/${{ github.repository }}/releases/download/v${{ needs.prepare.outputs.version }}/autohand-macos-x64
-chmod +x autohand
-sudo mv autohand /usr/local/bin/
-
-# Linux (x64)
-curl -L -o autohand https://github.com/${{ github.repository }}/releases/download/v${{ needs.prepare.outputs.version }}/autohand-linux-x64
-chmod +x autohand
-sudo mv autohand /usr/local/bin/
+curl -fsSL https://autohand.ai/install.sh | sh
 \`\`\`
 
-### Or via npm/bun
+### Or install a specific version
+\`\`\`bash
+AUTOHAND_VERSION=${{ needs.prepare.outputs.version }} curl -fsSL https://autohand.ai/install.sh | sh
+\`\`\`
+
+### Via npm/bun
 \`\`\`bash
 npm install -g autohand-cli
 # or
 bun install -g autohand-cli
 \`\`\`
 
+### Manual Download
+Download the appropriate binary for your system from the assets below.
+
 ## 📋 Available Binaries
-- \`autohand-macos-arm64\` - macOS Apple Silicon (M1/M2/M3)
-- \`autohand-macos-x64\` - macOS Intel
-- \`autohand-linux-x64\` - Linux x64
-- \`autohand-linux-arm64\` - Linux ARM64
-- \`autohand-windows-x64.exe\` - Windows x64
+| Platform | Architecture | Binary |
+|----------|--------------|--------|
+| macOS | Apple Silicon (M1/M2/M3/M4) | \`autohand-macos-arm64\` |
+| macOS | Intel | \`autohand-macos-x64\` |
+| Linux | x64 | \`autohand-linux-x64\` |
+| Linux | ARM64 | \`autohand-linux-arm64\` |
+| Windows | x64 | \`autohand-windows-x64.exe\` |
 `;
             
             core.setOutput('changelog', changelog);
@@ -311,7 +308,9 @@ bun install -g autohand-cli
           tag_name: v${{ needs.prepare.outputs.version }}
           name: ${{ needs.prepare.outputs.channel == 'release' && format('Release v{0}', needs.prepare.outputs.version) || format('{0} v{1}', needs.prepare.outputs.channel, needs.prepare.outputs.version) }}
           body: ${{ steps.changelog.outputs.changelog }}
-          files: dist/*
+          files: |
+            dist/*
+            install.sh
           draft: false
           prerelease: ${{ needs.prepare.outputs.channel != 'release' }}
         env:
