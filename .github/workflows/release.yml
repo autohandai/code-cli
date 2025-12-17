@@ -210,10 +210,13 @@ jobs:
       - name: Generate changelog
         id: changelog
         uses: actions/github-script@v7
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
         with:
           script: |
             const { execSync } = require('child_process');
-            
+            const version = process.env.RELEASE_VERSION;
+
             // Get commits since last tag
             let commits;
             try {
@@ -222,19 +225,19 @@ jobs:
             } catch {
               commits = execSync('git log --pretty=format:"%h %s" -n 20', { encoding: 'utf8' });
             }
-            
+
             const lines = commits.split('\n').filter(line => line.trim());
-            
+
             // Categorize commits
             const features = [];
             const fixes = [];
             const chores = [];
             const breaking = [];
-            
+
             for (const line of lines) {
               const [hash, ...msgParts] = line.split(' ');
               const msg = msgParts.join(' ');
-              
+
               if (msg.includes('BREAKING CHANGE') || msg.includes('!:')) {
                 breaking.push(`- ${msg} (${hash})`);
               } else if (msg.startsWith('feat')) {
@@ -245,26 +248,26 @@ jobs:
                 chores.push(`- ${msg} (${hash})`);
               }
             }
-            
+
             // Build changelog
             let changelog = '## 🚀 What\'s Changed\n\n';
-            
+
             if (breaking.length > 0) {
               changelog += '### ⚠️ BREAKING CHANGES\n' + breaking.join('\n') + '\n\n';
             }
-            
+
             if (features.length > 0) {
               changelog += '### ✨ Features\n' + features.join('\n') + '\n\n';
             }
-            
+
             if (fixes.length > 0) {
               changelog += '### 🐛 Bug Fixes\n' + fixes.join('\n') + '\n\n';
             }
-            
+
             if (chores.length > 0 && chores.length < 10) {
               changelog += '### 🔧 Maintenance\n' + chores.join('\n') + '\n\n';
             }
-            
+
             // Add installation instructions
             changelog += `
 ## 📦 Installation
@@ -276,7 +279,7 @@ curl -fsSL https://autohand.ai/install.sh | sh
 
 ### Or install a specific version
 \`\`\`bash
-AUTOHAND_VERSION=${{ needs.prepare.outputs.version }} curl -fsSL https://autohand.ai/install.sh | sh
+AUTOHAND_VERSION=${version} curl -fsSL https://autohand.ai/install.sh | sh
 \`\`\`
 
 ### Via npm/bun
@@ -298,7 +301,7 @@ Download the appropriate binary for your system from the assets below.
 | Linux | ARM64 | \`autohand-linux-arm64\` |
 | Windows | x64 | \`autohand-windows-x64.exe\` |
 `;
-            
+
             core.setOutput('changelog', changelog);
             return changelog;
 
