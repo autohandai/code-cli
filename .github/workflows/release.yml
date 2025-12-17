@@ -199,13 +199,13 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: binaries
+          path: artifacts
 
-      - name: Prepare binaries
+      - name: Prepare release binaries
         run: |
-          mkdir -p dist
-          find binaries -type f -exec cp {} dist/ \;
-          ls -lh dist/
+          mkdir -p release-binaries
+          find artifacts -type f -exec cp {} release-binaries/ \;
+          ls -lh release-binaries/
 
       - name: Generate changelog
         id: changelog
@@ -298,18 +298,28 @@ jobs:
           name: ${{ needs.prepare.outputs.channel == 'release' && format('Release v{0}', needs.prepare.outputs.version) || format('{0} v{1}', needs.prepare.outputs.channel, needs.prepare.outputs.version) }}
           body: ${{ steps.changelog.outputs.changelog }}
           files: |
-            dist/*
+            release-binaries/*
             install.sh
           draft: false
           prerelease: ${{ needs.prepare.outputs.channel != 'release' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish to npm (release only)
+      - name: Build JS dist for npm
         if: needs.prepare.outputs.channel == 'release'
         run: |
-          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
-          npm publish
+          bun install
+          bun run build
+          ls -lh dist/
+
+      - name: Publish to npm (release only)
+        if: needs.prepare.outputs.channel == 'release'
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        continue-on-error: true
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "⚠️ NPM_TOKEN not set, skipping npm publish"
+            exit 0
+          fi
+          echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > ~/.npmrc
+          npm publish --access public
