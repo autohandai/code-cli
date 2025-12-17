@@ -269,38 +269,24 @@ jobs:
             }
 
             // Add installation instructions
-            changelog += `
-## 📦 Installation
-
-### Recommended: Install Script
-\`\`\`bash
-curl -fsSL https://autohand.ai/install.sh | sh
-\`\`\`
-
-### Or install a specific version
-\`\`\`bash
-AUTOHAND_VERSION=${version} curl -fsSL https://autohand.ai/install.sh | sh
-\`\`\`
-
-### Via npm/bun
-\`\`\`bash
-npm install -g autohand-cli
-# or
-bun install -g autohand-cli
-\`\`\`
-
-### Manual Download
-Download the appropriate binary for your system from the assets below.
-
-## 📋 Available Binaries
-| Platform | Architecture | Binary |
-|----------|--------------|--------|
-| macOS | Apple Silicon (M1/M2/M3/M4) | \`autohand-macos-arm64\` |
-| macOS | Intel | \`autohand-macos-x64\` |
-| Linux | x64 | \`autohand-linux-x64\` |
-| Linux | ARM64 | \`autohand-linux-arm64\` |
-| Windows | x64 | \`autohand-windows-x64.exe\` |
-`;
+            const cb = '`' + '`' + '`';
+            changelog += '\n## 📦 Installation\n\n';
+            changelog += '### Recommended: Install Script\n';
+            changelog += cb + 'bash\ncurl -fsSL https://autohand.ai/install.sh | sh\n' + cb + '\n\n';
+            changelog += '### Or install a specific version\n';
+            changelog += cb + 'bash\nAUTOHAND_VERSION=' + version + ' curl -fsSL https://autohand.ai/install.sh | sh\n' + cb + '\n\n';
+            changelog += '### Via npm/bun\n';
+            changelog += cb + 'bash\nnpm install -g autohand-cli\n# or\nbun install -g autohand-cli\n' + cb + '\n\n';
+            changelog += '### Manual Download\n';
+            changelog += 'Download the appropriate binary for your system from the assets below.\n\n';
+            changelog += '## 📋 Available Binaries\n';
+            changelog += '| Platform | Architecture | Binary |\n';
+            changelog += '|----------|--------------|--------|\n';
+            changelog += '| macOS | Apple Silicon (M1/M2/M3/M4) | `autohand-macos-arm64` |\n';
+            changelog += '| macOS | Intel | `autohand-macos-x64` |\n';
+            changelog += '| Linux | x64 | `autohand-linux-x64` |\n';
+            changelog += '| Linux | ARM64 | `autohand-linux-arm64` |\n';
+            changelog += '| Windows | x64 | `autohand-windows-x64.exe` |\n';
 
             core.setOutput('changelog', changelog);
             return changelog;
