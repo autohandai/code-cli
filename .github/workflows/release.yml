@@ -34,7 +34,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       should_release: ${{ steps.check.outputs.should_release }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -137,7 +137,7 @@ jobs:
             artifact: autohand-windows-x64.exe
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1
@@ -173,7 +173,7 @@ jobs:
     if: needs.prepare.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -303,7 +303,7 @@ Download the appropriate binary for your system from the assets below.
             return changelog;
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.prepare.outputs.version }}
           name: ${{ needs.prepare.outputs.channel == 'release' && format('Release v{0}', needs.prepare.outputs.version) || format('{0} v{1}', needs.prepare.outputs.channel, needs.prepare.outputs.version) }}

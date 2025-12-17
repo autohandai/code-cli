@@ -184,7 +184,7 @@ export class TelemetryClient {
           // Build auth token: {device_id}.{company_secret}
           const authToken = `${this.deviceId}.${this.config.companySecret}`;
 
-          const response = await fetch(`${this.config.apiBaseUrl}/v1/telemetry/batch`, {
+          const response = await fetch(`${this.config.apiBaseUrl}/v1/telemetry`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -290,7 +290,7 @@ export class TelemetryClient {
       // Build auth token: {device_id}.{company_secret}
       const authToken = `${this.deviceId}.${this.config.companySecret}`;
 
-      const response = await fetch(`${this.config.apiBaseUrl}/v1/history/keeping`, {
+      const response = await fetch(`${this.config.apiBaseUrl}/v1/history`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
