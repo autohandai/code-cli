@@ -254,6 +254,38 @@ export class AutohandAgent {
     await this.runInteractiveLoop();
   }
 
+  /**
+   * Run a single instruction in command mode (non-interactive)
+   * This initializes all necessary context before executing the instruction
+   */
+  async runCommandMode(instruction: string): Promise<void> {
+    // Initialize session and context
+    await this.sessionManager.initialize();
+    await this.projectManager.initialize();
+    await this.memoryManager.initialize();
+    await this.resetConversationContext();
+
+    const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
+    const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
+    await this.sessionManager.createSession(this.runtime.workspaceRoot, model);
+
+    // Start telemetry session
+    const session = this.sessionManager.getCurrentSession();
+    if (session) {
+      await this.telemetryManager.startSession(
+        session.metadata.sessionId,
+        model,
+        this.activeProvider
+      );
+    }
+
+    // Run the instruction
+    await this.runInstruction(instruction);
+
+    // End session
+    await this.telemetryManager.endSession('completed');
+  }
+
   async resumeSession(sessionId: string): Promise<void> {
     // Initialize session
     await this.sessionManager.initialize();

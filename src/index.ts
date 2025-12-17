@@ -174,7 +174,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
     const agent = new AutohandAgent(llmProvider, files, runtime);
 
     if (options.prompt) {
-      await agent.runInstruction(options.prompt);
+      await agent.runCommandMode(options.prompt);
     } else if (options.resumeSessionId) {
       await agent.resumeSession(options.resumeSessionId);
     } else {
