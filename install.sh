@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-REPO="autohandai/cli"
+REPO="autohandai/code-cli"
 BINARY_NAME="autohand"
 
 RED='\033[0;31m'

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+process.title = 'autohand';
 import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
