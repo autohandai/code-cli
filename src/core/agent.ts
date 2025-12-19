@@ -2513,6 +2513,15 @@ export class AutohandAgent {
       return true;
     }
 
+    // Stop status updates to prevent terminal conflicts with enquirer
+    this.stopStatusUpdates();
+
+    // Stop the spinner to clear terminal state
+    const spinnerWasSpinning = this.runtime.spinner?.isSpinning;
+    if (spinnerWasSpinning) {
+      this.runtime.spinner?.stop();
+    }
+
     // Pause persistent input so enquirer can work properly
     this.persistentInput.pause();
 
@@ -2529,6 +2538,14 @@ export class AutohandAgent {
     } finally {
       // Resume persistent input after confirmation
       this.persistentInput.resume();
+
+      // Restart spinner if it was spinning
+      if (spinnerWasSpinning && this.runtime.spinner) {
+        this.runtime.spinner.start();
+      }
+
+      // Resume status updates
+      this.startStatusUpdates();
     }
   }
 
