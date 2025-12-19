@@ -118,11 +118,12 @@ program
   .version(getVersionString(), '-v, --version', 'output the current version')
   .option('-p, --prompt <text>', 'Run a single instruction in command mode')
   .option('--path <path>', 'Workspace path to operate in')
-  .option('--yes', 'Auto-confirm risky actions', false)
+  .option('-y, --yes', 'Auto-confirm risky actions', false)
   .option('--dry-run', 'Preview actions without applying mutations', false)
   .option('--model <model>', 'Override the configured LLM model')
   .option('--config <path>', 'Path to config file (default ~/.autohand/config.json)')
   .option('--temperature <value>', 'Sampling temperature', parseFloat)
+  .option('-c, --auto-commit', 'Auto-commit changes after completing tasks', false)
   .option('--unrestricted', 'Run without any approval prompts (use with caution)', false)
   .option('--restricted', 'Deny all dangerous operations automatically', false)
   .action(async (opts: CLIOptions) => {

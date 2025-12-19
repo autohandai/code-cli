@@ -25,6 +25,7 @@ import {
   type ContextUsage
 } from '../utils/context.js';
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
+import { getAutoCommitInfo, executeAutoCommit } from '../actions/git.js';
 import { filterToolsByRelevance, detectRelevantCategories } from './toolFilter.js';
 import { SLASH_COMMANDS } from './slashCommands.js';
 import { ConversationManager } from './conversationManager.js';
@@ -296,8 +297,86 @@ export class AutohandAgent {
     // Run the instruction
     await this.runInstruction(instruction);
 
+    // Auto-commit if enabled
+    if (this.runtime.options.autoCommit) {
+      await this.performAutoCommit();
+    }
+
     // End session
     await this.telemetryManager.endSession('completed');
+  }
+
+  /**
+   * Perform auto-commit after task completion
+   */
+  private async performAutoCommit(): Promise<void> {
+    const info = getAutoCommitInfo(this.runtime.workspaceRoot);
+
+    if (!info.canCommit) {
+      if (info.error !== 'No changes to commit') {
+        console.log(chalk.yellow(`\n⚠ Cannot auto-commit: ${info.error}`));
+      }
+      return;
+    }
+
+    console.log(chalk.cyan('\n📝 Auto-commit: Changes detected'));
+    info.filesChanged.slice(0, 5).forEach(file => {
+      console.log(chalk.gray(`   ${file}`));
+    });
+    if (info.filesChanged.length > 5) {
+      console.log(chalk.gray(`   ... and ${info.filesChanged.length - 5} more files`));
+    }
+
+    const commitMessage = info.suggestedMessage;
+
+    // If --yes is enabled, commit directly
+    if (this.runtime.options.yes) {
+      console.log(chalk.cyan(`Commit message: ${commitMessage}`));
+      const result = executeAutoCommit(this.runtime.workspaceRoot, commitMessage);
+      if (result.success) {
+        console.log(chalk.green(`✓ ${result.message}`));
+      } else {
+        console.log(chalk.red(`✗ ${result.message}`));
+      }
+      return;
+    }
+
+    // Otherwise, ask for confirmation
+    console.log(chalk.cyan(`Suggested message: ${commitMessage}`));
+
+    const { choice } = await enquirer.prompt<{ choice: string }>({
+      type: 'select',
+      name: 'choice',
+      message: 'Commit these changes?',
+      choices: [
+        { name: 'y', message: 'Yes - commit with this message' },
+        { name: 'e', message: 'Edit - modify the message' },
+        { name: 'n', message: 'No - skip commit' }
+      ]
+    });
+
+    if (choice === 'n') {
+      console.log(chalk.gray('Skipped auto-commit.'));
+      return;
+    }
+
+    let finalMessage = commitMessage;
+    if (choice === 'e') {
+      const { editedMessage } = await enquirer.prompt<{ editedMessage: string }>({
+        type: 'input',
+        name: 'editedMessage',
+        message: 'Enter commit message:',
+        initial: commitMessage
+      });
+      finalMessage = editedMessage;
+    }
+
+    const result = executeAutoCommit(this.runtime.workspaceRoot, finalMessage);
+    if (result.success) {
+      console.log(chalk.green(`✓ ${result.message}`));
+    } else {
+      console.log(chalk.red(`✗ ${result.message}`));
+    }
   }
 
   async resumeSession(sessionId: string): Promise<void> {

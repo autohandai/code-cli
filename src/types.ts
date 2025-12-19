@@ -146,6 +146,8 @@ export interface CLIOptions {
   restricted?: boolean;
   /** Client context for tool filtering (default: 'cli') */
   clientContext?: ClientContext;
+  /** Auto-commit changes after completing tasks */
+  autoCommit?: boolean;
 }
 
 export interface PromptContext {
