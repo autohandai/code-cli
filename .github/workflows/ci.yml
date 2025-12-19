@@ -36,6 +36,7 @@ jobs:
         run: bun run test
 
   build-test:
+    needs: test
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
