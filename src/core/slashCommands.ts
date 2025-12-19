@@ -23,6 +23,7 @@ import * as exportCmd from '../commands/export.js';
 import * as status from '../commands/status.js';
 import * as login from '../commands/login.js';
 import * as logout from '../commands/logout.js';
+import * as permissions from '../commands/permissions.js';
 
 export interface SlashCommand {
   command: string;
@@ -53,4 +54,5 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   status.metadata,
   login.metadata,
   logout.metadata,
+  permissions.metadata,
 ];

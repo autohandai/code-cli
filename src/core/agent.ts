@@ -55,6 +55,7 @@ import { MemoryManager } from '../memory/MemoryManager.js';
 import { FeedbackManager } from '../feedback/FeedbackManager.js';
 import { TelemetryManager } from '../telemetry/TelemetryManager.js';
 import { PersistentInput, createPersistentInput } from '../ui/persistentInput.js';
+import { PermissionManager } from '../permissions/PermissionManager.js';
 import packageJson from '../../package.json' with { type: 'json' };
 
 export class AutohandAgent {
@@ -71,6 +72,7 @@ export class AutohandAgent {
   private sessionManager: SessionManager;
   private projectManager: ProjectManager;
   private memoryManager: MemoryManager;
+  private permissionManager: PermissionManager;
   private delegator: AgentDelegator;
   private feedbackManager: FeedbackManager;
   private telemetryManager: TelemetryManager;
@@ -107,6 +109,16 @@ export class AutohandAgent {
     this.conversation = ConversationManager.getInstance();
     this.toolsRegistry = new ToolsRegistry();
     this.memoryManager = new MemoryManager(runtime.workspaceRoot);
+
+    // Create permission manager with persistence callback
+    this.permissionManager = new PermissionManager({
+      settings: runtime.config.permissions,
+      onPersist: async (settings) => {
+        runtime.config.permissions = settings;
+        await saveConfig(runtime.config);
+      }
+    });
+
     this.actionExecutor = new ActionExecutor({
       runtime,
       files,
@@ -115,7 +127,8 @@ export class AutohandAgent {
       onExploration: (entry) => this.recordExploration(entry),
       toolsRegistry: this.toolsRegistry,
       getRegisteredTools: () => this.toolManager?.listDefinitions() ?? [],
-      memoryManager: this.memoryManager
+      memoryManager: this.memoryManager,
+      permissionManager: this.permissionManager
     });
 
     this.activeProvider = runtime.config.provider ?? 'openrouter';
@@ -216,6 +229,7 @@ export class AutohandAgent {
       createAgentsFile: () => this.createAgentsFile(),
       sessionManager: this.sessionManager,
       memoryManager: this.memoryManager,
+      permissionManager: this.permissionManager,
       llm: this.llm,
       workspaceRoot: runtime.workspaceRoot,
       model: model,

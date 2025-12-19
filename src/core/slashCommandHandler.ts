@@ -133,6 +133,10 @@ export class SlashCommandHandler {
           const { logout } = await import('../commands/logout.js');
           return logout({ config: this.ctx.config });
         }
+        case '/permissions': {
+          const { permissions } = await import('../commands/permissions.js');
+          return permissions({ permissionManager: this.ctx.permissionManager });
+        }
         default:
           this.printUnsupported(command);
           return null;

@@ -179,8 +179,8 @@ export class ActionExecutor {
               `Create new file ${action.path}?`
             );
 
-            // Record decision for session (remember the pattern, not exact path)
-            this.permissionManager.recordDecision(permContext, confirmed);
+            // Record decision and persist to config
+            await this.permissionManager.recordDecision(permContext, confirmed);
 
             if (!confirmed) {
               return `Skipped creating ${action.path}`;

@@ -10,12 +10,24 @@ import type {
   PermissionRule
 } from './types.js';
 
+export interface PermissionManagerOptions {
+  settings?: PermissionSettings;
+  /** Callback to persist settings to config.json */
+  onPersist?: (settings: PermissionSettings) => Promise<void>;
+}
+
 export class PermissionManager {
   private settings: PermissionSettings;
   private sessionCache: Map<string, boolean> = new Map();
   private mode: PermissionMode;
+  private onPersist?: (settings: PermissionSettings) => Promise<void>;
 
-  constructor(settings: PermissionSettings = {}) {
+  constructor(options: PermissionManagerOptions | PermissionSettings = {}) {
+    // Support both old (PermissionSettings) and new (PermissionManagerOptions) signatures
+    const isOptions = 'settings' in options || 'onPersist' in options;
+    const settings = isOptions ? (options as PermissionManagerOptions).settings ?? {} : options as PermissionSettings;
+    this.onPersist = isOptions ? (options as PermissionManagerOptions).onPersist : undefined;
+
     this.settings = {
       mode: 'interactive',
       whitelist: [],
@@ -86,13 +98,50 @@ export class PermissionManager {
   }
 
   /**
-   * Record a user's decision for session caching
+   * Record a user's decision - adds to whitelist/blacklist and persists
    */
-  recordDecision(context: PermissionContext, allowed: boolean): void {
+  async recordDecision(context: PermissionContext, allowed: boolean): Promise<void> {
+    // Always cache in session
     if (this.settings.rememberSession) {
       const cacheKey = this.getCacheKey(context);
       this.sessionCache.set(cacheKey, allowed);
     }
+
+    // Build pattern for whitelist/blacklist
+    const pattern = this.contextToPattern(context);
+
+    if (allowed) {
+      this.addToWhitelist(pattern);
+    } else {
+      this.addToBlacklist(pattern);
+    }
+
+    // Persist to config if callback provided
+    if (this.onPersist) {
+      await this.onPersist(this.settings);
+    }
+  }
+
+  /**
+   * Convert context to a pattern string for whitelist/blacklist
+   */
+  private contextToPattern(context: PermissionContext): string {
+    const tool = context.tool;
+    let value: string;
+
+    if (context.command) {
+      // For commands, use exact command (no wildcards for safety)
+      const args = context.args?.join(' ') || '';
+      value = args ? `${context.command} ${args}` : context.command;
+    } else if (context.path) {
+      // For paths, use exact path
+      value = context.path;
+    } else {
+      // Fallback to tool name with wildcard
+      return `${tool}:*`;
+    }
+
+    return `${tool}:${value}`;
   }
 
   /**
@@ -257,5 +306,58 @@ export class PermissionManager {
     if (!this.settings.blacklist.includes(pattern)) {
       this.settings.blacklist.push(pattern);
     }
+  }
+
+  /**
+   * Remove from whitelist
+   */
+  async removeFromWhitelist(pattern: string): Promise<boolean> {
+    if (!this.settings.whitelist) return false;
+    const index = this.settings.whitelist.indexOf(pattern);
+    if (index !== -1) {
+      this.settings.whitelist.splice(index, 1);
+      if (this.onPersist) {
+        await this.onPersist(this.settings);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Remove from blacklist
+   */
+  async removeFromBlacklist(pattern: string): Promise<boolean> {
+    if (!this.settings.blacklist) return false;
+    const index = this.settings.blacklist.indexOf(pattern);
+    if (index !== -1) {
+      this.settings.blacklist.splice(index, 1);
+      if (this.onPersist) {
+        await this.onPersist(this.settings);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Get current whitelist
+   */
+  getWhitelist(): string[] {
+    return [...(this.settings.whitelist || [])];
+  }
+
+  /**
+   * Get current blacklist
+   */
+  getBlacklist(): string[] {
+    return [...(this.settings.blacklist || [])];
+  }
+
+  /**
+   * Get current settings (for display)
+   */
+  getSettings(): PermissionSettings {
+    return { ...this.settings };
   }
 }

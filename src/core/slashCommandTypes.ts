@@ -7,6 +7,7 @@
 import type { SessionManager, Session } from '../session/SessionManager.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import type { MemoryManager } from '../memory/MemoryManager.js';
+import type { PermissionManager } from '../permissions/PermissionManager.js';
 import type { AutohandConfig, ProviderName } from '../types.js';
 
 export interface SlashCommandContext {
@@ -21,6 +22,7 @@ export interface SlashCommandContext {
     sessionManager: SessionManager;
     currentSession?: Session;
     memoryManager: MemoryManager;
+    permissionManager: PermissionManager;
     llm: LLMProvider;
     workspaceRoot: string;
     model: string;
