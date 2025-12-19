@@ -3,10 +3,12 @@ process.title = 'autohand';
 import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
+import enquirer from 'enquirer';
 import { execSync } from 'node:child_process';
 import packageJson from '../package.json' with { type: 'json' };
 import { getProviderConfig, loadConfig, resolveWorkspaceRoot, saveConfig } from './config.js';
 import { runStartupChecks, printStartupCheckResults } from './startup/checks.js';
+import { gitInit } from './actions/git.js';
 import { getAuthClient } from './auth/index.js';
 import type { AuthUser, LoadedConfig } from './types.js';
 
@@ -160,6 +162,29 @@ async function runCLI(options: CLIOptions): Promise<void> {
     // Warn but continue if required tools are missing
     if (!checkResults.allRequiredMet) {
       console.log(chalk.yellow('Continuing anyway, but some features may not work correctly.\n'));
+    }
+
+    // If not a git repository, ask if user wants to initialize one
+    if (!checkResults.workspace.isGitRepo) {
+      console.log(chalk.yellow('This directory is not a git repository.'));
+      const { initGit } = await enquirer.prompt<{ initGit: boolean }>({
+        type: 'confirm',
+        name: 'initGit',
+        message: 'Would you like to initialize git for version control?',
+        initial: true
+      });
+
+      if (initGit) {
+        const result = gitInit(workspaceRoot);
+        if (result.success) {
+          console.log(chalk.green(`✓ ${result.message}`));
+          console.log();
+        } else {
+          console.log(chalk.red(`✗ ${result.message}`));
+        }
+      } else {
+        console.log(chalk.gray('Continuing without git. Some features may be limited.\n'));
+      }
     }
 
     // Override model from CLI if provided

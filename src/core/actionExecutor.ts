@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import enquirer from 'enquirer';
 import { diffLines } from 'diff';
 import { addDependency, removeDependency } from '../actions/dependencies.js';
 import { runCommand } from '../actions/command.js';
@@ -43,7 +44,8 @@ import {
   gitCommit,
   gitAdd,
   gitReset,
-  autoCommit,
+  getAutoCommitInfo,
+  executeAutoCommit,
   // Log operations
   gitLog,
   // Remote operations
@@ -648,15 +650,65 @@ export class ActionExecutor {
       case 'git_reset':
         return gitReset(this.runtime.workspaceRoot, action.mode, action.ref);
       case 'auto_commit': {
-        const result = autoCommit(this.runtime.workspaceRoot, {
-          message: action.message,
-          stageAll: action.stage_all
+        // Get commit info and auto-generate message
+        const info = getAutoCommitInfo(this.runtime.workspaceRoot);
+
+        if (!info.canCommit) {
+          console.log(chalk.yellow(`\n⚠ ${info.error}`));
+          return info.error || 'Cannot commit';
+        }
+
+        // Use provided message or auto-generated one
+        let commitMessage = action.message || info.suggestedMessage;
+
+        // Show changes summary
+        console.log(chalk.cyan('\n📝 Changes to commit:'));
+        info.filesChanged.slice(0, 10).forEach(file => {
+          console.log(chalk.gray(`   ${file}`));
         });
+        if (info.filesChanged.length > 10) {
+          console.log(chalk.gray(`   ... and ${info.filesChanged.length - 10} more files`));
+        }
+        console.log();
+        console.log(chalk.cyan('Suggested commit message:'));
+        console.log(chalk.white(`   ${commitMessage}`));
+        console.log();
+
+        // Ask for confirmation with y/n/e
+        const { choice } = await enquirer.prompt<{ choice: string }>({
+          type: 'select',
+          name: 'choice',
+          message: 'Commit with this message?',
+          choices: [
+            { name: 'y', message: 'Yes - commit with this message' },
+            { name: 'e', message: 'Edit - modify the message' },
+            { name: 'n', message: 'No - cancel commit' }
+          ]
+        });
+
+        if (choice === 'n') {
+          console.log(chalk.yellow('Commit cancelled.'));
+          return 'Commit cancelled by user';
+        }
+
+        if (choice === 'e') {
+          const { editedMessage } = await enquirer.prompt<{ editedMessage: string }>({
+            type: 'input',
+            name: 'editedMessage',
+            message: 'Enter commit message:',
+            initial: commitMessage
+          });
+          commitMessage = editedMessage;
+        }
+
+        // Execute the commit
+        const result = executeAutoCommit(this.runtime.workspaceRoot, commitMessage, action.stage_all !== false);
+
         if (result.success) {
           console.log(chalk.green(`\n✓ ${result.message}`));
           return result.message;
         } else {
-          console.log(chalk.yellow(`\n⚠ ${result.message}`));
+          console.log(chalk.red(`\n✗ ${result.message}`));
           return result.message;
         }
       }

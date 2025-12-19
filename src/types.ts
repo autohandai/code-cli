@@ -319,7 +319,7 @@ export type AgentAction =
   | { type: 'git_add'; paths: string[] }
   | { type: 'git_reset'; mode?: 'soft' | 'mixed' | 'hard'; ref?: string }
   // Auto Commit
-  | { type: 'auto_commit'; message: string; stage_all?: boolean }
+  | { type: 'auto_commit'; message?: string; stage_all?: boolean }
   // Git Log Operations
   | { type: 'git_log'; max_count?: number; oneline?: boolean; graph?: boolean; all?: boolean }
   // Git Remote Operations

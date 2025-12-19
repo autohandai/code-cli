@@ -376,9 +376,12 @@ export function gitReset(cwd: string, mode: 'soft' | 'mixed' | 'hard' = 'mixed',
   return result.stdout || `Reset ${mode}${ref ? ` to ${ref}` : ''}`;
 }
 
-export interface AutoCommitOptions {
-  message: string;
-  stageAll?: boolean;
+export interface AutoCommitInfo {
+  canCommit: boolean;
+  error?: string;
+  filesChanged: string[];
+  suggestedMessage: string;
+  diffSummary: string;
 }
 
 export interface AutoCommitResult {
@@ -389,17 +392,36 @@ export interface AutoCommitResult {
 }
 
 /**
- * Auto-commit: stages changes and creates a commit
- * This is a convenience function for the agent to commit code changes
+ * Check if directory is a git repository
  */
-export function autoCommit(cwd: string, options: AutoCommitOptions): AutoCommitResult {
+export function isGitRepository(cwd: string): boolean {
+  const result = spawnSync('git', ['rev-parse', '--is-inside-work-tree'], { cwd, encoding: 'utf8' });
+  return result.status === 0;
+}
+
+/**
+ * Initialize a new git repository
+ */
+export function gitInit(cwd: string): { success: boolean; message: string } {
+  const result = spawnSync('git', ['init'], { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    return { success: false, message: result.stderr || 'git init failed' };
+  }
+  return { success: true, message: result.stdout?.trim() || 'Initialized git repository' };
+}
+
+/**
+ * Get information about pending changes and generate a suggested commit message
+ */
+export function getAutoCommitInfo(cwd: string): AutoCommitInfo {
   // Check if this is a git repository
-  const checkGit = spawnSync('git', ['rev-parse', '--is-inside-work-tree'], { cwd, encoding: 'utf8' });
-  if (checkGit.status !== 0) {
+  if (!isGitRepository(cwd)) {
     return {
-      success: false,
-      message: 'Not a git repository',
-      filesChanged: 0
+      canCommit: false,
+      error: 'Not a git repository',
+      filesChanged: [],
+      suggestedMessage: '',
+      diffSummary: ''
     };
   }
 
@@ -407,23 +429,129 @@ export function autoCommit(cwd: string, options: AutoCommitOptions): AutoCommitR
   const statusResult = spawnSync('git', ['status', '--porcelain'], { cwd, encoding: 'utf8' });
   if (statusResult.status !== 0) {
     return {
-      success: false,
-      message: 'Failed to get git status',
-      filesChanged: 0
+      canCommit: false,
+      error: 'Failed to get git status',
+      filesChanged: [],
+      suggestedMessage: '',
+      diffSummary: ''
     };
   }
 
   const changes = statusResult.stdout?.trim().split('\n').filter(Boolean) || [];
   if (changes.length === 0) {
     return {
-      success: false,
-      message: 'No changes to commit',
-      filesChanged: 0
+      canCommit: false,
+      error: 'No changes to commit',
+      filesChanged: [],
+      suggestedMessage: '',
+      diffSummary: ''
     };
   }
 
-  // Stage all changes if requested (default)
-  if (options.stageAll !== false) {
+  // Parse changes to categorize them
+  const added: string[] = [];
+  const modified: string[] = [];
+  const deleted: string[] = [];
+  const renamed: string[] = [];
+
+  for (const change of changes) {
+    const status = change.substring(0, 2);
+    const file = change.substring(3).trim();
+
+    if (status.includes('A') || status === '??') {
+      added.push(file);
+    } else if (status.includes('M')) {
+      modified.push(file);
+    } else if (status.includes('D')) {
+      deleted.push(file);
+    } else if (status.includes('R')) {
+      renamed.push(file);
+    }
+  }
+
+  // Get diff summary for context
+  const diffStatResult = spawnSync('git', ['diff', '--stat', 'HEAD'], { cwd, encoding: 'utf8' });
+  const diffSummary = diffStatResult.stdout?.trim() || '';
+
+  // Generate suggested commit message
+  const suggestedMessage = generateCommitMessage(added, modified, deleted, renamed);
+
+  return {
+    canCommit: true,
+    filesChanged: changes.map(c => c.substring(3).trim()),
+    suggestedMessage,
+    diffSummary
+  };
+}
+
+/**
+ * Generate a commit message based on the changes
+ */
+function generateCommitMessage(added: string[], modified: string[], deleted: string[], renamed: string[]): string {
+  const parts: string[] = [];
+
+  // Determine the primary action
+  const totalChanges = added.length + modified.length + deleted.length + renamed.length;
+
+  if (totalChanges === 1) {
+    // Single file change - be specific
+    if (added.length === 1) {
+      return `feat: Add ${added[0]}`;
+    } else if (modified.length === 1) {
+      return `update: Modify ${modified[0]}`;
+    } else if (deleted.length === 1) {
+      return `chore: Remove ${deleted[0]}`;
+    } else if (renamed.length === 1) {
+      return `refactor: Rename ${renamed[0]}`;
+    }
+  }
+
+  // Multiple changes - summarize
+  if (added.length > 0) {
+    parts.push(`add ${added.length} file${added.length > 1 ? 's' : ''}`);
+  }
+  if (modified.length > 0) {
+    parts.push(`update ${modified.length} file${modified.length > 1 ? 's' : ''}`);
+  }
+  if (deleted.length > 0) {
+    parts.push(`remove ${deleted.length} file${deleted.length > 1 ? 's' : ''}`);
+  }
+  if (renamed.length > 0) {
+    parts.push(`rename ${renamed.length} file${renamed.length > 1 ? 's' : ''}`);
+  }
+
+  // Try to detect common patterns
+  const allFiles = [...added, ...modified];
+  const hasTests = allFiles.some(f => f.includes('test') || f.includes('spec'));
+  const hasDocs = allFiles.some(f => f.includes('.md') || f.includes('doc'));
+  const hasConfig = allFiles.some(f => f.includes('config') || f.includes('.json') || f.includes('.yaml'));
+
+  let prefix = 'chore';
+  if (added.length > modified.length && added.length > deleted.length) {
+    prefix = 'feat';
+  } else if (hasTests) {
+    prefix = 'test';
+  } else if (hasDocs) {
+    prefix = 'docs';
+  } else if (hasConfig) {
+    prefix = 'chore';
+  } else if (modified.length > 0) {
+    prefix = 'update';
+  }
+
+  return `${prefix}: ${parts.join(', ')}`;
+}
+
+/**
+ * Execute the actual commit with the given message
+ */
+export function executeAutoCommit(cwd: string, message: string, stageAll = true): AutoCommitResult {
+  // Get current changes count
+  const statusResult = spawnSync('git', ['status', '--porcelain'], { cwd, encoding: 'utf8' });
+  const changes = statusResult.stdout?.trim().split('\n').filter(Boolean) || [];
+
+  // Stage all changes if requested
+  if (stageAll) {
     const addResult = spawnSync('git', ['add', '-A'], { cwd, encoding: 'utf8' });
     if (addResult.status !== 0) {
       return {
@@ -435,7 +563,7 @@ export function autoCommit(cwd: string, options: AutoCommitOptions): AutoCommitR
   }
 
   // Create the commit
-  const commitResult = spawnSync('git', ['commit', '-m', options.message], { cwd, encoding: 'utf8' });
+  const commitResult = spawnSync('git', ['commit', '-m', message], { cwd, encoding: 'utf8' });
   if (commitResult.status !== 0) {
     return {
       success: false,
@@ -454,6 +582,13 @@ export function autoCommit(cwd: string, options: AutoCommitOptions): AutoCommitR
     filesChanged: changes.length,
     commitHash
   };
+}
+
+/**
+ * @deprecated Use getAutoCommitInfo + executeAutoCommit instead
+ */
+export function autoCommit(cwd: string, options: { message: string; stageAll?: boolean }): AutoCommitResult {
+  return executeAutoCommit(cwd, options.message, options.stageAll);
 }
 
 // ============ Log Operations ============
