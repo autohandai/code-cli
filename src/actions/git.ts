@@ -376,6 +376,86 @@ export function gitReset(cwd: string, mode: 'soft' | 'mixed' | 'hard' = 'mixed',
   return result.stdout || `Reset ${mode}${ref ? ` to ${ref}` : ''}`;
 }
 
+export interface AutoCommitOptions {
+  message: string;
+  stageAll?: boolean;
+}
+
+export interface AutoCommitResult {
+  success: boolean;
+  message: string;
+  filesChanged: number;
+  commitHash?: string;
+}
+
+/**
+ * Auto-commit: stages changes and creates a commit
+ * This is a convenience function for the agent to commit code changes
+ */
+export function autoCommit(cwd: string, options: AutoCommitOptions): AutoCommitResult {
+  // Check if this is a git repository
+  const checkGit = spawnSync('git', ['rev-parse', '--is-inside-work-tree'], { cwd, encoding: 'utf8' });
+  if (checkGit.status !== 0) {
+    return {
+      success: false,
+      message: 'Not a git repository',
+      filesChanged: 0
+    };
+  }
+
+  // Get status to check for changes
+  const statusResult = spawnSync('git', ['status', '--porcelain'], { cwd, encoding: 'utf8' });
+  if (statusResult.status !== 0) {
+    return {
+      success: false,
+      message: 'Failed to get git status',
+      filesChanged: 0
+    };
+  }
+
+  const changes = statusResult.stdout?.trim().split('\n').filter(Boolean) || [];
+  if (changes.length === 0) {
+    return {
+      success: false,
+      message: 'No changes to commit',
+      filesChanged: 0
+    };
+  }
+
+  // Stage all changes if requested (default)
+  if (options.stageAll !== false) {
+    const addResult = spawnSync('git', ['add', '-A'], { cwd, encoding: 'utf8' });
+    if (addResult.status !== 0) {
+      return {
+        success: false,
+        message: `Failed to stage changes: ${addResult.stderr}`,
+        filesChanged: 0
+      };
+    }
+  }
+
+  // Create the commit
+  const commitResult = spawnSync('git', ['commit', '-m', options.message], { cwd, encoding: 'utf8' });
+  if (commitResult.status !== 0) {
+    return {
+      success: false,
+      message: `Failed to commit: ${commitResult.stderr}`,
+      filesChanged: changes.length
+    };
+  }
+
+  // Get the commit hash
+  const hashResult = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd, encoding: 'utf8' });
+  const commitHash = hashResult.stdout?.trim();
+
+  return {
+    success: true,
+    message: `Committed ${changes.length} file(s): ${commitHash}`,
+    filesChanged: changes.length,
+    commitHash
+  };
+}
+
 // ============ Log Operations ============
 
 export interface GitLogOptions {

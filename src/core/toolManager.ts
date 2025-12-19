@@ -647,6 +647,19 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
     requiresApproval: true
   },
   {
+    name: 'auto_commit',
+    description: 'Automatically stage all changes and create a commit. Use this after completing code changes.',
+    parameters: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', description: 'Commit message describing the changes' },
+        stage_all: { type: 'boolean', description: 'Stage all changes before committing (default: true)' }
+      },
+      required: ['message']
+    },
+    requiresApproval: true
+  },
+  {
     name: 'git_log',
     description: 'Show commit history',
     parameters: {

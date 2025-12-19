@@ -43,6 +43,7 @@ import {
   gitCommit,
   gitAdd,
   gitReset,
+  autoCommit,
   // Log operations
   gitLog,
   // Remote operations
@@ -646,6 +647,19 @@ export class ActionExecutor {
         return gitAdd(this.runtime.workspaceRoot, action.paths);
       case 'git_reset':
         return gitReset(this.runtime.workspaceRoot, action.mode, action.ref);
+      case 'auto_commit': {
+        const result = autoCommit(this.runtime.workspaceRoot, {
+          message: action.message,
+          stageAll: action.stage_all
+        });
+        if (result.success) {
+          console.log(chalk.green(`\n✓ ${result.message}`));
+          return result.message;
+        } else {
+          console.log(chalk.yellow(`\n⚠ ${result.message}`));
+          return result.message;
+        }
+      }
       // Git Log Operations
       case 'git_log':
         return gitLog(this.runtime.workspaceRoot, {
