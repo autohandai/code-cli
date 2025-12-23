@@ -137,6 +137,8 @@ export interface AutohandConfig {
 
 export interface LoadedConfig extends AutohandConfig {
   configPath: string;
+  /** True if config was just created (first run) */
+  isNewConfig?: boolean;
 }
 
 /** Client context determines which tools are available */

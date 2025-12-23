@@ -8,7 +8,6 @@ import { execSync } from 'node:child_process';
 import packageJson from '../package.json' with { type: 'json' };
 import { getProviderConfig, loadConfig, resolveWorkspaceRoot, saveConfig } from './config.js';
 import { runStartupChecks, printStartupCheckResults } from './startup/checks.js';
-import { gitInit } from './actions/git.js';
 import { getAuthClient } from './auth/index.js';
 import type { AuthUser, LoadedConfig } from './types.js';
 
@@ -144,7 +143,53 @@ program
 async function runCLI(options: CLIOptions): Promise<void> {
   const statusPanel: { update: (snap: any) => void; stop: () => void } | null = null;
   try {
-    const config = await loadConfig(options.config);
+    let config = await loadConfig(options.config);
+
+    // Check if API key is missing and prompt for it
+    const providerName = config.provider ?? 'openrouter';
+    const providerConfig = getProviderConfig(config, providerName);
+
+    if (!providerConfig) {
+      // No valid provider config - need to set up API key
+      if (config.isNewConfig) {
+        console.log(chalk.cyan('\n✨ Welcome to Autohand!\n'));
+        console.log(chalk.gray(`Config created at: ${config.configPath}\n`));
+      }
+
+      console.log(chalk.yellow(`No ${providerName} API key configured.\n`));
+
+      const { apiKey } = await enquirer.prompt<{ apiKey: string }>({
+        type: 'password',
+        name: 'apiKey',
+        message: `Enter your ${providerName === 'openrouter' ? 'OpenRouter' : providerName} API key`,
+        validate: (val: unknown) => {
+          if (typeof val !== 'string' || !val.trim()) {
+            return 'API key is required';
+          }
+          return true;
+        }
+      });
+
+      // Update config with API key
+      if (providerName === 'openrouter') {
+        config.openrouter = {
+          ...config.openrouter,
+          apiKey: apiKey.trim(),
+          baseUrl: config.openrouter?.baseUrl || 'https://openrouter.ai/api/v1',
+          model: config.openrouter?.model || 'anthropic/claude-sonnet-4-20250514'
+        };
+      } else if (providerName === 'openai') {
+        config.openai = {
+          ...config.openai,
+          apiKey: apiKey.trim(),
+          model: config.openai?.model || 'gpt-4o'
+        };
+      }
+
+      await saveConfig(config);
+      console.log(chalk.green('✓ API key saved to config\n'));
+    }
+
     const workspaceRoot = resolveWorkspaceRoot(config, options.path);
     const runtime: AgentRuntime = {
       config,
@@ -167,28 +212,8 @@ async function runCLI(options: CLIOptions): Promise<void> {
       console.log(chalk.yellow('Continuing anyway, but some features may not work correctly.\n'));
     }
 
-    // If not a git repository, ask if user wants to initialize one
-    if (!checkResults.workspace.isGitRepo) {
-      console.log(chalk.yellow('This directory is not a git repository.'));
-      const { initGit } = await enquirer.prompt<{ initGit: boolean }>({
-        type: 'confirm',
-        name: 'initGit',
-        message: 'Would you like to initialize git for version control?',
-        initial: true
-      });
-
-      if (initGit) {
-        const result = gitInit(workspaceRoot);
-        if (result.success) {
-          console.log(chalk.green(`✓ ${result.message}`));
-          console.log();
-        } else {
-          console.log(chalk.red(`✗ ${result.message}`));
-        }
-      } else {
-        console.log(chalk.gray('Continuing without git. Some features may be limited.\n'));
-      }
-    }
+    // Note: Git repo check is passed to the agent via runtime.
+    // The agent/LLM can suggest initializing git if needed for complex tasks.
 
     // Override model from CLI if provided
     if (options.model) {

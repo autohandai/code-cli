@@ -81,13 +81,15 @@ export async function loadConfig(customPath?: string): Promise<LoadedConfig> {
   const configPath = await detectConfigPath(customPath);
   await fs.ensureDir(path.dirname(configPath));
 
+  let isNewConfig = false;
+
   if (!(await fs.pathExists(configPath))) {
     const defaultConfig: AutohandConfig = {
       provider: 'openrouter',
       openrouter: {
-        apiKey: 'replace-me',
+        apiKey: '',
         baseUrl: 'https://openrouter.ai/api/v1',
-        model: 'anthropic/claude-3.5-sonnet'
+        model: 'anthropic/claude-sonnet-4-20250514'
       },
       workspace: {
         defaultRoot: process.cwd(),
@@ -96,14 +98,15 @@ export async function loadConfig(customPath?: string): Promise<LoadedConfig> {
       ui: {
         theme: 'dark',
         autoConfirm: false
+      },
+      telemetry: {
+        enabled: true
       }
     };
 
-    // Create as JSON by default
+    // Create config silently with safe defaults
     await fs.writeJson(configPath, defaultConfig, { spaces: 2 });
-    throw new Error(
-      `Created default config at ${configPath}. Please update it with your OpenRouter credentials before rerunning.`
-    );
+    isNewConfig = true;
   }
 
   let parsed: AutohandConfig | LegacyConfigShape;
@@ -118,7 +121,7 @@ export async function loadConfig(customPath?: string): Promise<LoadedConfig> {
   const withEnv = mergeEnvVariables(normalized);
 
   validateConfig(withEnv, configPath);
-  return { ...withEnv, configPath };
+  return { ...withEnv, configPath, isNewConfig };
 }
 
 /**
