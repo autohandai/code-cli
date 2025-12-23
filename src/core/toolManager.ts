@@ -3,7 +3,13 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type { AgentAction, ToolCallRequest, ToolExecutionResult, FunctionDefinition } from '../types.js';
+import type {
+  AgentAction,
+  ToolCallRequest,
+  ToolExecutionContext,
+  ToolExecutionResult,
+  FunctionDefinition
+} from '../types.js';
 import { ToolFilter, type ClientContext, type ToolPolicy } from './toolFilter.js';
 
 export interface ToolParameter {
@@ -56,7 +62,7 @@ export interface ToolDefinition {
 }
 
 export interface ToolManagerOptions {
-  executor: (action: AgentAction) => Promise<string | undefined>;
+  executor: (action: AgentAction, context?: ToolExecutionContext) => Promise<string | undefined>;
   confirmApproval: (message: string) => Promise<boolean>;
   definitions?: ToolDefinition[];
   /** Client context for tool filtering (default: 'cli') */
@@ -1063,7 +1069,7 @@ export class ToolManager {
 
       try {
         const action = this.toAction(call);
-        const output = await this.executor(action);
+        const output = await this.executor(action, { toolCallId: call.id, tool: call.tool });
         results.push({
           tool: call.tool,
           success: true,

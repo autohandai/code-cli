@@ -60,7 +60,7 @@ import { PermissionManager } from '../permissions/PermissionManager.js';
 import type { PermissionContext } from '../permissions/types.js';
 import type { ProjectManager } from '../session/ProjectManager.js';
 import type { FailureRecord, SuccessRecord } from '../session/types.js';
-import type { AgentAction, AgentRuntime, ExplorationEvent } from '../types.js';
+import type { AgentAction, AgentRuntime, ExplorationEvent, ToolExecutionContext, ToolOutputChunk } from '../types.js';
 import type { FileActionManager } from '../actions/filesystem.js';
 import type { ToolDefinition } from './toolManager.js';
 import { ToolsRegistry } from './toolsRegistry.js';
@@ -78,6 +78,7 @@ export interface ActionExecutorOptions {
   getRegisteredTools?: () => ToolDefinition[];
   permissionManager?: PermissionManager;
   memoryManager?: MemoryManager;
+  onToolOutput?: (chunk: ToolOutputChunk) => void;
 }
 
 type AgentExecutorDeps = ActionExecutorOptions;
@@ -94,6 +95,7 @@ export class ActionExecutor {
   private readonly getRegisteredTools: () => ToolDefinition[];
   private readonly permissionManager: PermissionManager;
   private readonly memoryManager?: MemoryManager;
+  private readonly onToolOutput?: (chunk: ToolOutputChunk) => void;
 
   constructor(private readonly deps: AgentExecutorDeps) {
     this.runtime = deps.runtime;
@@ -107,9 +109,10 @@ export class ActionExecutor {
     this.getRegisteredTools = deps.getRegisteredTools ?? (() => []);
     this.permissionManager = deps.permissionManager ?? new PermissionManager(deps.runtime.config.permissions);
     this.memoryManager = deps.memoryManager;
+    this.onToolOutput = deps.onToolOutput;
   }
 
-  async execute(action: AgentAction): Promise<string | undefined> {
+  async execute(action: AgentAction, context?: ToolExecutionContext): Promise<string | undefined> {
     if (this.runtime.options.dryRun && action.type !== 'search' && action.type !== 'plan') {
       return 'Dry-run mode: skipped mutation';
     }
@@ -312,6 +315,24 @@ export class ActionExecutor {
         return `Formatted ${action.path} (${action.formatter})`;
       }
       case 'run_command': {
+        const shouldStreamOutput = Boolean(
+          this.onToolOutput &&
+          context?.toolCallId &&
+          !action.background &&
+          process.env.AUTOHAND_STREAM_TOOL_OUTPUT === '1'
+        );
+        const emitOutput = (stream: 'stdout' | 'stderr', data: string): void => {
+          if (!shouldStreamOutput) {
+            return;
+          }
+          this.onToolOutput?.({
+            tool: action.type,
+            toolCallId: context?.toolCallId,
+            stream,
+            data
+          });
+        };
+
         const result = await runCommand(
           action.command,
           action.args ?? [],
@@ -319,6 +340,8 @@ export class ActionExecutor {
           {
             directory: action.directory,
             background: action.background,
+            onStdout: (chunk) => emitOutput('stdout', chunk),
+            onStderr: (chunk) => emitOutput('stderr', chunk),
           }
         );
 

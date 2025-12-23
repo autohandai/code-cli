@@ -199,6 +199,11 @@ export class Session {
         await this.save();
     }
 
+    async appendTransient(message: SessionMessage): Promise<void> {
+        const conversationPath = path.join(this.sessionDir, 'conversation.jsonl');
+        await fs.appendFile(conversationPath, JSON.stringify(message) + '\n');
+    }
+
     async updateState(state: WorkspaceState): Promise<void> {
         this.state = state;
         const statePath = path.join(this.sessionDir, 'state.json');

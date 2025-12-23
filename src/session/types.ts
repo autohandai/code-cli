@@ -25,6 +25,7 @@ export interface SessionMessage {
     toolCalls?: any[];
     name?: string;
     tool_call_id?: string;
+    _meta?: Record<string, unknown>;
 }
 
 export interface WorkspaceState {

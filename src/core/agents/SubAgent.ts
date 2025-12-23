@@ -98,7 +98,7 @@ export class SubAgent {
         }
 
         this.toolManager = new ToolManager({
-            executor: async (action) => {
+            executor: async (action, context) => {
                 // Handle delegation actions
                 if (action.type === 'delegate_task' && this.delegator) {
                     return this.delegator.delegateTask(
@@ -109,7 +109,7 @@ export class SubAgent {
                 if (action.type === 'delegate_parallel' && this.delegator) {
                     return this.delegator.delegateParallel((action as any).tasks);
                 }
-                return this.actionExecutor.execute(action);
+                return this.actionExecutor.execute(action, context);
             },
             confirmApproval: async () => true, // Sub-agents auto-approve (inherit from main agent in future)
             definitions,

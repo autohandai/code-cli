@@ -10,6 +10,7 @@ import chalk from 'chalk';
 import { diffLines } from 'diff';
 import enquirer from 'enquirer';
 import { highlight, detectLanguage } from './syntaxHighlight.js';
+import { confirm as unifiedConfirm, select as unifiedSelect, isExternalCallbackEnabled } from './promptCallback.js';
 
 export interface DiffViewerOptions {
   filePath?: string;
@@ -226,7 +227,23 @@ export async function showInteractiveDiff(
   );
   console.log();
 
-  // Interactive prompt
+  // Use unified prompt for external callback mode
+  if (isExternalCallbackEnabled()) {
+    const action = await unifiedSelect<'accept' | 'reject'>(
+      `Apply changes${filePath ? ` to ${filePath}` : ''}?`,
+      [
+        { name: 'accept', message: 'Accept - Apply all changes' },
+        { name: 'reject', message: 'Reject - Keep original' },
+      ]
+    );
+
+    if (action === 'accept') {
+      return { accepted: true, content: newContent, editedByUser: false };
+    }
+    return { accepted: false, content: oldContent, editedByUser: false };
+  }
+
+  // Interactive prompt (local mode with edit support)
   const { Select, Editor } = enquirer as any;
 
   const actionPrompt = new Select({
@@ -298,17 +315,8 @@ export async function confirmDiff(
     chalk.red(`-${stats.deletions}`)
   );
 
-  const { Confirm } = enquirer as any;
-  const prompt = new Confirm({
-    name: 'confirm',
-    message: `Apply changes${filePath ? ` to ${filePath}` : ''}?`,
-  });
-
-  try {
-    return await prompt.run();
-  } catch {
-    return false;
-  }
+  // Use unified prompt (works for both local and external callback modes)
+  return unifiedConfirm(`Apply changes${filePath ? ` to ${filePath}` : ''}?`);
 }
 
 /**

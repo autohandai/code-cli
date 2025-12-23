@@ -28,6 +28,10 @@ export interface RunCommandOptions {
   env?: Record<string, string>;
   /** Timeout in milliseconds (0 = no timeout) */
   timeout?: number;
+  /** Stream stdout output */
+  onStdout?: (chunk: string) => void;
+  /** Stream stderr output */
+  onStderr?: (chunk: string) => void;
 }
 
 /**
@@ -95,11 +99,15 @@ export function runCommand(
     }
 
     child.stdout?.on('data', (chunk: Buffer | string) => {
-      stdout += chunk;
+      const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      stdout += text;
+      options.onStdout?.(text);
     });
 
     child.stderr?.on('data', (chunk: Buffer | string) => {
-      stderr += chunk;
+      const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      stderr += text;
+      options.onStderr?.(text);
     });
 
     child.once('error', (error) => {

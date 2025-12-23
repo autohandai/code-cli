@@ -53,7 +53,7 @@ export interface TelemetrySettings {
   enableSessionSync?: boolean;
 }
 
-export type PermissionMode = 'interactive' | 'unrestricted' | 'restricted';
+export type PermissionMode = 'interactive' | 'unrestricted' | 'restricted' | 'external';
 
 export interface PermissionRule {
   tool: string;
@@ -62,7 +62,7 @@ export interface PermissionRule {
 }
 
 export interface PermissionSettings {
-  /** Permission mode: interactive (default), unrestricted (no prompts), restricted (deny all dangerous) */
+  /** Permission mode: interactive (default), unrestricted (no prompts), restricted (deny all dangerous), external (callback) */
   mode?: PermissionMode;
   /** Commands/tools that never require approval (e.g., "run_command:npm *") */
   whitelist?: string[];
@@ -381,6 +381,18 @@ export interface ToolExecutionResult {
   success: boolean;
   output?: string;
   error?: string;
+}
+
+export interface ToolExecutionContext {
+  toolCallId?: string;
+  tool?: AgentAction['type'];
+}
+
+export interface ToolOutputChunk {
+  tool: AgentAction['type'];
+  toolCallId?: string;
+  stream: 'stdout' | 'stderr';
+  data: string;
 }
 
 export interface AgentRuntime {

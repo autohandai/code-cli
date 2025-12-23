@@ -19,7 +19,10 @@ describe('ToolManager', () => {
 
     const results = await manager.execute([{ tool: 'read_file', args: { path: 'src/index.ts' } }]);
 
-    expect(executor).toHaveBeenCalledWith({ type: 'read_file', path: 'src/index.ts' });
+    expect(executor).toHaveBeenCalledWith(
+      { type: 'read_file', path: 'src/index.ts' },
+      expect.objectContaining({ tool: 'read_file' })
+    );
     expect(results[0]).toMatchObject({ tool: 'read_file', success: true, output: 'file contents' });
   });
 

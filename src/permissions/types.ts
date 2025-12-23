@@ -3,7 +3,7 @@
  * @license Apache-2.0
  */
 
-export type PermissionMode = 'interactive' | 'unrestricted' | 'restricted';
+export type PermissionMode = 'interactive' | 'unrestricted' | 'restricted' | 'external';
 
 export interface PermissionRule {
   /** Tool name (e.g., 'run_command', 'delete_path') */
@@ -15,7 +15,7 @@ export interface PermissionRule {
 }
 
 export interface PermissionSettings {
-  /** Permission mode: interactive (default), unrestricted (no prompts), restricted (deny all dangerous) */
+  /** Permission mode: interactive (default), unrestricted (no prompts), restricted (deny all dangerous), external (use callback) */
   mode?: PermissionMode;
   /** Commands/tools that never require approval */
   whitelist?: string[];
@@ -29,7 +29,10 @@ export interface PermissionSettings {
 
 export interface PermissionDecision {
   allowed: boolean;
-  reason: 'whitelisted' | 'blacklisted' | 'rule_match' | 'user_approved' | 'user_denied' | 'mode_unrestricted' | 'mode_restricted' | 'default';
+  reason:
+    | 'whitelisted' | 'blacklisted' | 'rule_match' | 'user_approved' | 'user_denied'
+    | 'mode_unrestricted' | 'mode_restricted' | 'default'
+    | 'external_approved' | 'external_denied' | 'external_error';
   cached?: boolean;
 }
 
@@ -40,3 +43,38 @@ export interface PermissionContext {
   path?: string;
   description?: string;
 }
+
+/**
+ * External permission callback request
+ */
+export interface ExternalPromptRequest {
+  type: 'confirm' | 'select' | 'input';
+  message: string;
+  /** For 'select' type */
+  choices?: Array<{ name: string; message: string }>;
+  /** For 'input' type */
+  initial?: string;
+  /** Additional context for the prompt */
+  context?: PermissionContext;
+}
+
+/**
+ * External permission callback response
+ */
+export interface ExternalPromptResponse {
+  /** Whether the action was approved */
+  allowed: boolean;
+  /** For 'select' type, the chosen option */
+  choice?: string;
+  /** For 'input' type, the entered value */
+  value?: string;
+  /** Reason code */
+  reason?: 'external_approved' | 'external_denied';
+}
+
+/**
+ * Callback function type for external prompts
+ */
+export type ExternalPromptCallback = (
+  request: ExternalPromptRequest
+) => Promise<ExternalPromptResponse>;

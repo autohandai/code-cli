@@ -6,6 +6,7 @@
 import chalk from 'chalk';
 import fs from 'fs-extra';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import ora from 'ora';
 import enquirer from 'enquirer';
@@ -46,7 +47,8 @@ import type {
   ToolCallRequest,
   ExplorationEvent,
   ProviderName,
-  ClientContext
+  ClientContext,
+  ToolOutputChunk
 } from '../types.js';
 
 import { AgentDelegator } from './agents/AgentDelegator.js';
@@ -62,6 +64,7 @@ import { ProjectAnalyzer } from '../skills/autoSkill.js';
 import { AUTOHAND_PATHS } from '../constants.js';
 import { PersistentInput, createPersistentInput } from '../ui/persistentInput.js';
 import { PermissionManager } from '../permissions/PermissionManager.js';
+import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
 import packageJson from '../../package.json' with { type: 'json' };
 
 export class AutohandAgent {
@@ -77,6 +80,7 @@ export class AutohandAgent {
   private slashHandler: SlashCommandHandler;
   private sessionManager: SessionManager;
   private projectManager: ProjectManager;
+  private toolOutputQueue: Promise<void> = Promise.resolve();
   private memoryManager: MemoryManager;
   private permissionManager: PermissionManager;
   private delegator: AgentDelegator;
@@ -133,6 +137,7 @@ export class AutohandAgent {
       resolveWorkspacePath: (relativePath) => this.resolveWorkspacePath(relativePath),
       confirmDangerousAction: (message) => this.confirmDangerousAction(message),
       onExploration: (entry) => this.recordExploration(entry),
+      onToolOutput: (chunk) => this.handleToolOutput(chunk),
       toolsRegistry: this.toolsRegistry,
       getRegisteredTools: () => this.toolManager?.listDefinitions() ?? [],
       memoryManager: this.memoryManager,
@@ -185,7 +190,7 @@ export class AutohandAgent {
       ?? (runtime.options.restricted ? 'restricted' : 'cli');
 
     this.toolManager = new ToolManager({
-      executor: async (action) => {
+      executor: async (action, context) => {
         const startTime = Date.now();
         try {
           let result: string | undefined;
@@ -194,7 +199,7 @@ export class AutohandAgent {
           } else if (action.type === 'delegate_parallel') {
             result = await this.delegator.delegateParallel(action.tasks);
           } else {
-            result = await this.actionExecutor.execute(action);
+            result = await this.actionExecutor.execute(action, context);
           }
           // Track successful tool use
           await this.telemetryManager.trackToolUse({
@@ -1356,9 +1361,44 @@ export class AutohandAgent {
     await session.append(message);
   }
 
+  private handleToolOutput(chunk: ToolOutputChunk): void {
+    if (process.env.AUTOHAND_STREAM_TOOL_OUTPUT !== '1') {
+      return;
+    }
+    if (!chunk.toolCallId || !chunk.data) {
+      return;
+    }
+    this.queueToolMessageChunk(chunk.tool, chunk.data, chunk.toolCallId, chunk.stream);
+  }
+
+  private queueToolMessageChunk(
+    name: string,
+    content: string,
+    toolCallId: string,
+    stream?: 'stdout' | 'stderr'
+  ): void {
+    const session = this.sessionManager.getCurrentSession();
+    if (!session) return;
+
+    const message: SessionMessage = {
+      role: 'tool',
+      content,
+      name,
+      timestamp: new Date().toISOString(),
+      tool_call_id: toolCallId,
+      _meta: stream ? { stream } : undefined
+    };
+
+    this.toolOutputQueue = this.toolOutputQueue
+      .catch(() => undefined)
+      .then(() => session.appendTransient(message));
+  }
+
   private async saveToolMessage(name: string, content: string, toolCallId?: string): Promise<void> {
     const session = this.sessionManager.getCurrentSession();
     if (!session) return;
+
+    await this.toolOutputQueue.catch(() => undefined);
 
     const message: SessionMessage = {
       role: 'tool',
@@ -1728,6 +1768,7 @@ export class AutohandAgent {
     }
     const args = entry.args && typeof entry.args === 'object' ? entry.args : undefined;
     return {
+      id: typeof entry.id === 'string' ? entry.id : randomUUID(),
       tool: entry.tool as AgentAction['type'],
       args
     };
@@ -2651,6 +2692,11 @@ export class AutohandAgent {
       return true;
     }
 
+    // For external callback mode, skip terminal management and use HTTP callback directly
+    if (isExternalCallbackEnabled()) {
+      return unifiedConfirm(message);
+    }
+
     // Stop status updates to prevent terminal conflicts with enquirer
     this.stopStatusUpdates();
 
@@ -2664,15 +2710,7 @@ export class AutohandAgent {
     this.persistentInput.pause();
 
     try {
-      const answer = await enquirer.prompt<{ confirm: boolean }>([
-        {
-          type: 'confirm',
-          name: 'confirm',
-          message,
-          initial: false
-        }
-      ]);
-      return answer.confirm;
+      return await unifiedConfirm(message);
     } finally {
       // Resume persistent input after confirmation
       this.persistentInput.resume();
