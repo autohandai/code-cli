@@ -2,51 +2,201 @@
 
 [![Bun](https://img.shields.io/badge/Bun-%23c61f33?style=flat&logo=bun&logoColor=white)](https://bun.sh)
 
-Autohand implements a CLI-based AI coding assistant utilizing the ReAct (Reason + Act) reasoning pattern. The system processes requests through sequential phases: reasoning, tool invocation (file system, Git operations, shell commands), result interpretation, and JSON-formatted response generation. Implemented in TypeScript with Bun runtime for optimal performance.
+**An agentic CLI that reads, reasons, and writes code across your entire project. No context switching. No copy-paste.**
 
-## Features
+Autohand is an autonomous LLM-powered coding agent that lives in your terminal. It uses the ReAct (Reason + Act) pattern to understand your codebase, plan changes, and execute them with your approval. Built with TypeScript and Bun for blazing-fast performance.
 
-- **ReAct Execution Model**: reason → tool calls → observation → final response
-- **Toolset**: 20+ operations including `read_file`, `write_file`, `git_status`, `run_command`, `search`, etc.
-- **Response Protocol**: Structured JSON `{"thought":"...","toolCalls":[...],"finalResponse":"..."}`
-- **Workspace Integration**: Operates within the current project directory with Git state awareness
-- **Runtime**: Bun-native with zero external dependencies, native TypeScript execution
-- **Safety Controls**: Destructive operations require explicit justification in reasoning trace
+## Installation
 
-## Local Development
+### Quick Install (Recommended)
 
-### Requirements
-- Bun ≥1.0 (`curl -fsSL https://bun.sh/install | bash`)
-
-### Installation
 ```bash
-bun install
+curl -fsSL https://autohand.ai/install.sh | bash
 ```
 
-### Execution
+### Manual Installation
+
 ```bash
-# Development mode
-bun run dev
+# Clone and build
+git clone https://github.com/autohandai/cli.git
+cd cli
+bun install
+bun run build
 
-# Production build and execution
-bun build
-./dist/cli.js
-
-# Global installation
+# Install globally
 bun add -g .
 ```
 
+### Requirements
+
+- Bun ≥1.0 (`curl -fsSL https://bun.sh/install | bash`)
+- Git (for version control features)
+- ripgrep (optional, for faster search)
+
+## Quick Start
+
+```bash
+# Interactive mode - start a coding session
+autohand
+
+# Command mode - run a single instruction
+autohand -p "add a dark mode toggle to the settings page"
+
+# With auto-confirmation
+autohand -p "fix the TypeScript errors" -y
+
+# Auto-commit changes after task completion
+autohand -p "refactor the auth module" -c
+```
+
+## Usage Modes
+
+### Interactive Mode
+
+Launch without arguments for a full REPL experience:
+
+```bash
+autohand
+```
+
+Features:
+- Type `/` for slash command suggestions
+- Type `@` for file autocomplete (e.g., `@src/index.ts`)
+- Press `ESC` to cancel in-flight requests
+- Press `Ctrl+C` twice to exit
+
+### Command Mode (Non-Interactive)
+
+Run single instructions for CI/CD, scripts, or quick tasks:
+
+```bash
+# Basic usage
+autohand --prompt "add tests for the user service"
+
+# Short form
+autohand -p "fix linting errors"
+
+# With options
+autohand -p "update dependencies" --yes --auto-commit
+
+# Dry run (preview changes without applying)
+autohand -p "refactor database queries" --dry-run
+```
+
+### CLI Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--prompt <text>` | `-p` | Run a single instruction in command mode |
+| `--yes` | `-y` | Auto-confirm risky actions |
+| `--auto-commit` | `-c` | Auto-commit changes after completing tasks |
+| `--dry-run` | | Preview actions without applying mutations |
+| `--model <model>` | | Override the configured LLM model |
+| `--path <path>` | | Workspace path to operate in |
+| `--auto-skill` | | Auto-generate skills based on project analysis |
+| `--unrestricted` | | Run without approval prompts (use with caution) |
+| `--restricted` | | Deny all dangerous operations automatically |
+| `--config <path>` | | Path to config file |
+| `--temperature <value>` | | Sampling temperature for LLM |
+
+## Agent Skills
+
+Skills are modular instruction packages that extend Autohand with specialized workflows. They work like on-demand `AGENTS.md` files for specific tasks.
+
+### Using Skills
+
+```bash
+# List available skills
+/skills
+
+# Activate a skill
+/skills use changelog-generator
+
+# Create a new skill interactively
+/skills new
+
+# Auto-generate project-specific skills
+autohand --auto-skill
+```
+
+### Auto-Skill Generation
+
+Analyze your project and generate tailored skills automatically:
+
+```bash
+$ autohand --auto-skill
+Analyzing project structure...
+Detected: typescript, react, nextjs, testing
+Platform: darwin
+Generating skills...
+  ✓ nextjs-component-creator
+  ✓ typescript-test-generator
+  ✓ changelog-generator
+
+✓ Generated 3 skills in .autohand/skills
+```
+
+Skills are discovered from:
+- `~/.autohand/skills/` - User-level skills
+- `<project>/.autohand/skills/` - Project-level skills
+- Compatible with Codex and Claude skill formats
+
+See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skills.
+
+## Slash Commands
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Display available commands |
+| `/quit` | Exit the session |
+| `/model` | Switch LLM models |
+| `/new` | Start fresh conversation |
+| `/undo` | Revert last changes |
+| `/session` | Show current session details |
+| `/sessions` | List past sessions |
+| `/resume` | Resume a previous session |
+| `/memory` | View/manage stored memories |
+| `/init` | Create `AGENTS.md` file |
+| `/agents` | List sub-agents |
+| `/agents-new` | Create new agent via wizard |
+| `/skills` | List and manage skills |
+| `/skills new` | Create a new skill |
+| `/feedback` | Send feedback |
+| `/formatters` | List code formatters |
+| `/lint` | List code linters |
+| `/completion` | Generate shell completion scripts |
+| `/export` | Export session to markdown/JSON/HTML |
+| `/status` | Show workspace status |
+| `/login` | Authenticate with Autohand API |
+| `/logout` | Sign out |
+| `/permissions` | Manage tool permissions |
+
+## Tool System
+
+Autohand includes 40+ tools for autonomous coding:
+
+### File Operations
+`read_file`, `write_file`, `append_file`, `apply_patch`, `search`, `search_replace`, `semantic_search`, `list_tree`, `create_directory`, `delete_path`, `rename_path`, `copy_path`, `multi_file_edit`
+
+### Git Operations
+`git_status`, `git_diff`, `git_commit`, `git_add`, `git_branch`, `git_switch`, `git_merge`, `git_rebase`, `git_cherry_pick`, `git_stash`, `git_fetch`, `git_pull`, `git_push`, `auto_commit`
+
+### Commands & Dependencies
+`run_command`, `custom_command`, `add_dependency`, `remove_dependency`
+
+### Planning & Memory
+`plan`, `todo_write`, `save_memory`, `recall_memory`
+
 ## Configuration
 
-### LLM Provider Configuration
-
-Create a `.autohandrc.json` file in your project root or home directory:
+Create `~/.autohand/config.json`:
 
 ```json
 {
+  "provider": "openrouter",
   "openrouter": {
-    "apiKey": "your-api-key-here",
-    "model": "anthropic/claude-3.5-sonnet"
+    "apiKey": "sk-or-...",
+    "model": "anthropic/claude-sonnet-4-20250514"
   },
   "workspace": {
     "defaultRoot": ".",
@@ -54,81 +204,120 @@ Create a `.autohandrc.json` file in your project root or home directory:
   },
   "ui": {
     "theme": "dark",
-    "autoConfirm": false,
-    "readFileCharLimit": 300
+    "autoConfirm": false
   }
 }
 ```
 
-### API Configuration (Telemetry & Feedback)
+### Supported Providers
 
-For telemetry and feedback submission, create a `.env` file in the project root:
+| Provider | Config Key | Notes |
+|----------|------------|-------|
+| OpenRouter | `openrouter` | Access to Claude, GPT-4, Grok, etc. |
+| Anthropic | `anthropic` | Direct Claude API access |
+| OpenAI | `openai` | GPT-4 and other models |
+| Ollama | `ollama` | Local models |
+| llama.cpp | `llamacpp` | Local inference |
+| MLX | `mlx` | Apple Silicon optimized |
+
+## Session Management
+
+Sessions are auto-saved to `~/.autohand/sessions/`:
 
 ```bash
-# Autohand API Configuration
-AUTOHAND_API_URL=https://api.autohand.ai
-AUTOHAND_SECRET=your-company-secret-here
+# Resume via command
+autohand resume <session-id>
+
+# Or in interactive mode
+/resume
 ```
 
-**Note:** The Autohand feedback and telemetry API backend has been extracted to a separate repository:
-👉 https://github.com/autohandai/api
+## Security & Permissions
 
-The CLI includes client libraries with offline queueing, retry mechanisms, and privacy features. API authentication uses a compound identifier: `device_id.company_secret`.
+Autohand includes a permission system for sensitive operations:
 
-### UI Settings
+- **Interactive** (default): Prompts for confirmation on risky actions
+- **Unrestricted** (`--unrestricted`): No approval prompts
+- **Restricted** (`--restricted`): Denies all dangerous operations
 
-- **`readFileCharLimit`** (default: `300`): Maximum characters to display when reading files. Larger files will be truncated with a clear indicator.
-- **`theme`**: UI theme (`"dark"` | `"light"`)
-- **`autoConfirm`**: Skip confirmation prompts for destructive operations
+Configure granular permissions in `~/.autohand/config.json`:
 
-See `config.example.json` for a full example.
-
-## Deployment
-
-### Firecracker MicroVM
-
-Create `run-microvm.sh`:
-```bash
-#!/bin/bash
-firecracker --api-sock /tmp/fc.sock &
-
-cat > config.json <<EOF
+```json
 {
-  "boot-source": {
-    "kernel_image_path": "vmlinux.bin",
-    "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
-  },
-  "drives": [{
-    "drive_id": "rootfs",
-    "path_on_host": "rootfs.ext4",
-    "is_root_device": true,
-    "is_read_only": false
-  }],
-  "machine-config": { "vcpu_count": 2, "mem_size_mib": 1024 }
+  "permissions": {
+    "whitelist": ["run_command:npm *", "run_command:bun *"],
+    "blacklist": ["run_command:rm -rf *", "run_command:sudo *"]
+  }
 }
-EOF
-
-curl --unix-socket /tmp/fc.sock -d @config.json http://localhost/actions
-
-# Within MicroVM: bun install && bun run dev
 ```
 
-Execute: `chmod +x run-microvm.sh && ./run-microvm.sh`
+## Platform Support
 
-### Docker
+- macOS
+- Linux
+- Windows
 
-`Dockerfile`:
+## Telemetry & Feedback
+
+Opt-in telemetry helps improve Autohand:
+
+```json
+{
+  "telemetry": {
+    "enabled": true
+  }
+}
+```
+
+The backend API is available at: https://github.com/autohandai/api
+
+## Development
+
+```bash
+# Install dependencies
+bun install
+
+# Development mode
+bun run dev
+
+# Build
+bun run build
+
+# Type check
+bun run typecheck
+
+# Run tests
+bun test
+```
+
+## Docker
+
 ```dockerfile
 FROM oven/bun:1
 WORKDIR /app
 COPY . .
-RUN bun install
-RUN bun build
+RUN bun install && bun run build
 CMD ["./dist/cli.js"]
 ```
 
-Build and run:
 ```bash
 docker build -t autohand .
 docker run -it autohand
 ```
+
+## Documentation
+
+- [Features](docs/features.md) - Complete feature list
+- [Agent Skills](docs/agent-skills.md) - Skills system guide
+- [Configuration Reference](docs/config-reference.md) - All config options
+
+## License
+
+**Startup-Friendly License**: Free for startups with ARR under $1M. See [LICENSE](LICENSE) for details.
+
+## Links
+
+- Website: https://autohand.ai
+- CLI Install: https://autohand.ai/cli/
+- GitHub: https://github.com/autohandai/cli
+- API Backend: https://github.com/autohandai/api

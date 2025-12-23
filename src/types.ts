@@ -103,6 +103,15 @@ export interface AuthSettings {
   expiresAt?: string;
 }
 
+export interface CommunitySkillsSettings {
+  /** Enable community skills features (default: true) */
+  enabled?: boolean;
+  /** Show skill suggestions on startup when no vendor skills exist (default: true) */
+  showSuggestionsOnStartup?: boolean;
+  /** Automatically backup discovered vendor skills to API (default: true) */
+  autoBackup?: boolean;
+}
+
 export interface AutohandConfig {
   provider?: ProviderName;
   openrouter?: OpenRouterSettings;
@@ -122,6 +131,8 @@ export interface AutohandConfig {
   };
   /** Authentication settings */
   auth?: AuthSettings;
+  /** Community skills settings */
+  communitySkills?: CommunitySkillsSettings;
 }
 
 export interface LoadedConfig extends AutohandConfig {
@@ -148,6 +159,8 @@ export interface CLIOptions {
   clientContext?: ClientContext;
   /** Auto-commit changes after completing tasks */
   autoCommit?: boolean;
+  /** Auto-generate skills based on project analysis */
+  autoSkill?: boolean;
 }
 
 export interface PromptContext {

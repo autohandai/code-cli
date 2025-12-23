@@ -21,7 +21,6 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 - [x] Theme support (dark/light in config)
 - [x] Syntax-highlighted code blocks
 - [x] Interactive diff viewer (accept/reject/edit)
-- [ ] Streaming text output with typewriter effect
 - [ ] Redo for file changes
 - [ ] Search history and command palette
 

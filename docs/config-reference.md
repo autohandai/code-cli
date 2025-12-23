@@ -14,6 +14,7 @@ Complete reference for all configuration options in `~/.autohand/config.json` (o
 - [Network Settings](#network-settings)
 - [Telemetry Settings](#telemetry-settings)
 - [External Agents](#external-agents)
+- [Skills System](#skills-system)
 - [API Settings](#api-settings)
 - [Complete Example](#complete-example)
 
@@ -337,6 +338,92 @@ Load custom agent definitions from external directories.
 
 ---
 
+## Skills System
+
+Skills are instruction packages that provide specialized instructions to the AI agent. They work like on-demand `AGENTS.md` files that can be activated for specific tasks.
+
+### Skill Discovery Locations
+
+Skills are discovered from multiple locations, with later sources taking precedence:
+
+| Location | Source ID | Description |
+|----------|-----------|-------------|
+| `~/.codex/skills/**/SKILL.md` | `codex-user` | User-level Codex skills (recursive) |
+| `~/.claude/skills/*/SKILL.md` | `claude-user` | User-level Claude skills (one level) |
+| `~/.autohand/skills/**/SKILL.md` | `autohand-user` | User-level Autohand skills (recursive) |
+| `<project>/.claude/skills/*/SKILL.md` | `claude-project` | Project-level Claude skills (one level) |
+| `<project>/.autohand/skills/**/SKILL.md` | `autohand-project` | Project-level Autohand skills (recursive) |
+
+### Auto-Copy Behavior
+
+Skills discovered from Codex or Claude locations are automatically copied to the corresponding Autohand location:
+
+- `~/.codex/skills/` and `~/.claude/skills/` → `~/.autohand/skills/`
+- `<project>/.claude/skills/` → `<project>/.autohand/skills/`
+
+Existing skills in Autohand locations are never overwritten.
+
+### SKILL.md Format
+
+Skills use YAML frontmatter followed by markdown content:
+
+```markdown
+---
+name: my-skill-name
+description: Brief description of the skill
+license: MIT
+compatibility: Works with Node.js 18+
+allowed-tools: read_file write_file run_command
+metadata:
+  author: your-name
+  version: "1.0.0"
+---
+
+# My Skill
+
+Detailed instructions for the AI agent...
+```
+
+| Field | Required | Max Length | Description |
+|-------|----------|------------|-------------|
+| `name` | Yes | 64 chars | Lowercase alphanumeric with hyphens only |
+| `description` | Yes | 1024 chars | Brief description of the skill |
+| `license` | No | - | License identifier (e.g., MIT, Apache-2.0) |
+| `compatibility` | No | 500 chars | Compatibility notes |
+| `allowed-tools` | No | - | Space-delimited list of allowed tools |
+| `metadata` | No | - | Additional key-value metadata |
+
+### Slash Commands
+
+| Command | Description |
+|---------|-------------|
+| `/skills` | List all available skills |
+| `/skills use <name>` | Activate a skill for the current session |
+| `/skills deactivate <name>` | Deactivate a skill |
+| `/skills info <name>` | Show detailed skill information |
+| `/skills new` | Create a new skill interactively |
+
+### Auto-Skill Generation
+
+The `--auto-skill` flag analyzes your project and generates relevant skills:
+
+```bash
+autohand --auto-skill
+```
+
+This will:
+1. Analyze your project structure (package.json, requirements.txt, etc.)
+2. Detect languages, frameworks, and patterns
+3. Generate 3-5 relevant skills using LLM
+4. Save skills to `<project>/.autohand/skills/`
+
+Detected patterns include:
+- **Languages**: TypeScript, JavaScript, Python, Rust, Go
+- **Frameworks**: React, Next.js, Vue, Express, Flask, Django
+- **Patterns**: CLI tools, testing, monorepo, Docker, CI/CD
+
+---
+
 ## API Settings
 
 Backend API configuration for team features.
@@ -516,3 +603,5 @@ These flags override config file settings:
 | `--dry-run` | Preview without executing |
 | `--unrestricted` | No approval prompts |
 | `--restricted` | Deny dangerous operations |
+| `--auto-skill` | Auto-generate skills based on project analysis |
+| `-c, --auto-commit` | Auto-commit changes after completing tasks |

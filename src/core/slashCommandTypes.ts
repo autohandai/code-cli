@@ -8,6 +8,7 @@ import type { SessionManager, Session } from '../session/SessionManager.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import type { MemoryManager } from '../memory/MemoryManager.js';
 import type { PermissionManager } from '../permissions/PermissionManager.js';
+import type { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import type { AutohandConfig, ProviderName } from '../types.js';
 
 export interface SlashCommandContext {
@@ -34,4 +35,6 @@ export interface SlashCommandContext {
     getContextPercentLeft?: () => number;
     /** Get current total tokens used (for /status) */
     getTotalTokensUsed?: () => number;
+    /** Skills registry for /skills commands */
+    skillsRegistry?: SkillsRegistry;
 }

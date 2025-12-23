@@ -45,6 +45,9 @@ export const AUTOHAND_PATHS = {
 
   /** Custom tools */
   tools: path.join(AUTOHAND_HOME, 'tools'),
+
+  /** Skills (instruction packages) */
+  skills: path.join(AUTOHAND_HOME, 'skills'),
 } as const;
 
 /**
@@ -87,3 +90,25 @@ export const AUTH_CONFIG = {
   authTimeout: 5 * 60 * 1000,
   sessionExpiryDays: 30,
 } as const;
+
+/**
+ * Skill search locations in order of precedence (later wins on collision)
+ * Each entry specifies: path pattern, source type, and whether to search recursively
+ */
+export const SKILL_LOCATIONS = [
+  { basePath: path.join(os.homedir(), '.codex', 'skills'), source: 'codex-user' as const, recursive: true },
+  { basePath: path.join(os.homedir(), '.claude', 'skills'), source: 'claude-user' as const, recursive: false },
+  // Project-level Claude skills are resolved at runtime with workspaceRoot
+  { basePath: AUTOHAND_PATHS.skills, source: 'autohand-user' as const, recursive: true },
+  // Project-level Autohand skills are resolved at runtime with workspaceRoot
+] as const;
+
+/**
+ * Get project-level skill locations for a given workspace root
+ */
+export function getProjectSkillLocations(workspaceRoot: string) {
+  return [
+    { basePath: path.join(workspaceRoot, '.claude', 'skills'), source: 'claude-project' as const, recursive: false },
+    { basePath: path.join(workspaceRoot, PROJECT_DIR_NAME, 'skills'), source: 'autohand-project' as const, recursive: true },
+  ];
+}

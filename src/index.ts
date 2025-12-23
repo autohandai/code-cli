@@ -33,6 +33,7 @@ function getVersionString(): string {
 import { FileActionManager } from './actions/filesystem.js';
 import { ProviderFactory } from './providers/ProviderFactory.js';
 import { AutohandAgent } from './core/agent.js';
+import { runAutoSkillGeneration } from './skills/autoSkill.js';
 import type { CLIOptions, AgentRuntime } from './types.js';
 
 /**
@@ -126,6 +127,7 @@ program
   .option('-c, --auto-commit', 'Auto-commit changes after completing tasks', false)
   .option('--unrestricted', 'Run without any approval prompts (use with caution)', false)
   .option('--restricted', 'Deny all dangerous operations automatically', false)
+  .option('--auto-skill', 'Auto-generate skills based on project analysis', false)
   .action(async (opts: CLIOptions) => {
     await runCLI(opts);
   });
@@ -198,6 +200,17 @@ async function runCLI(options: CLIOptions): Promise<void> {
 
     const llmProvider = ProviderFactory.create(config);
     const files = new FileActionManager(workspaceRoot);
+
+    // Handle --auto-skill flag
+    if (options.autoSkill) {
+      console.log(chalk.cyan('\nAuto-generating skills for this project...\n'));
+      const result = await runAutoSkillGeneration(workspaceRoot, llmProvider);
+      if (!result.success) {
+        console.log(chalk.yellow(result.error || 'Failed to generate skills'));
+      }
+      return;
+    }
+
     const agent = new AutohandAgent(llmProvider, files, runtime);
 
     if (options.prompt) {

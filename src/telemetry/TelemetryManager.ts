@@ -11,7 +11,8 @@ import type {
   ErrorData,
   CommandUseData,
   ModelSwitchData,
-  SessionSyncData
+  SessionSyncData,
+  SkillUseData
 } from './types.js';
 import packageJson from '../../package.json' with { type: 'json' };
 
@@ -149,6 +150,17 @@ export class TelemetryManager {
     await this.trackEvent('command_use', {
       command: data.command,
       args: data.args
+    });
+  }
+
+  /**
+   * Track skill activation/usage
+   */
+  async trackSkillUse(data: SkillUseData): Promise<void> {
+    await this.trackEvent('skill_use', {
+      skillName: data.skillName,
+      source: data.source,
+      activationType: data.activationType
     });
   }
 

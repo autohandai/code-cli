@@ -11,7 +11,8 @@ export type TelemetryEventType =
   | 'model_switch'
   | 'command_use'
   | 'heartbeat'
-  | 'session_sync';
+  | 'session_sync'
+  | 'skill_use';
 
 export interface TelemetryEvent {
   id: string;
@@ -91,4 +92,10 @@ export interface SessionSyncData {
   messageCount: number;
   totalTokens?: number;
   workspaceRoot?: string;
+}
+
+export interface SkillUseData {
+  skillName: string;
+  source: string;
+  activationType: 'auto' | 'explicit';
 }

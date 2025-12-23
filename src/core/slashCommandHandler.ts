@@ -137,6 +137,23 @@ export class SlashCommandHandler {
           const { permissions } = await import('../commands/permissions.js');
           return permissions({ permissionManager: this.ctx.permissionManager });
         }
+        case '/skills': {
+          const { skills } = await import('../commands/skills.js');
+          if (!this.ctx.skillsRegistry) {
+            console.log(chalk.yellow('Skills registry not available.'));
+            return null;
+          }
+          return skills({ skillsRegistry: this.ctx.skillsRegistry }, args);
+        }
+        case '/skills new':
+        case '/skills-new': {
+          const { createSkill } = await import('../commands/skills-new.js');
+          if (!this.ctx.skillsRegistry) {
+            console.log(chalk.yellow('Skills registry not available.'));
+            return null;
+          }
+          return createSkill({ llm: this.ctx.llm, skillsRegistry: this.ctx.skillsRegistry });
+        }
         default:
           this.printUnsupported(command);
           return null;

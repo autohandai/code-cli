@@ -55,6 +55,11 @@ import { ErrorLogger } from './errorLogger.js';
 import { MemoryManager } from '../memory/MemoryManager.js';
 import { FeedbackManager } from '../feedback/FeedbackManager.js';
 import { TelemetryManager } from '../telemetry/TelemetryManager.js';
+import { SkillsRegistry } from '../skills/SkillsRegistry.js';
+import { CommunitySkillsClient } from '../skills/CommunitySkillsClient.js';
+import type { SkillSuggestion } from '../skills/CommunitySkillsClient.js';
+import { ProjectAnalyzer } from '../skills/autoSkill.js';
+import { AUTOHAND_PATHS } from '../constants.js';
 import { PersistentInput, createPersistentInput } from '../ui/persistentInput.js';
 import { PermissionManager } from '../permissions/PermissionManager.js';
 import packageJson from '../../package.json' with { type: 'json' };
@@ -77,6 +82,8 @@ export class AutohandAgent {
   private delegator: AgentDelegator;
   private feedbackManager: FeedbackManager;
   private telemetryManager: TelemetryManager;
+  private skillsRegistry: SkillsRegistry;
+  private communityClient: CommunitySkillsClient;
   private workspaceFiles: string[] = [];
   private isInstructionActive = false;
   private hasPrintedExplorationHeader = false;
@@ -142,11 +149,23 @@ export class AutohandAgent {
     });
     this.errorLogger = new ErrorLogger(packageJson.version);
     this.feedbackManager = new FeedbackManager();
+    this.skillsRegistry = new SkillsRegistry(AUTOHAND_PATHS.skills);
     this.telemetryManager = new TelemetryManager({
       enabled: runtime.config.telemetry?.enabled !== false,
       apiBaseUrl: runtime.config.telemetry?.apiBaseUrl || 'https://api.autohand.ai',
       enableSessionSync: runtime.config.telemetry?.enableSessionSync !== false
     });
+
+    // Initialize community skills client
+    const communitySettings = runtime.config.communitySkills ?? {};
+    this.communityClient = new CommunitySkillsClient({
+      apiBaseUrl: runtime.config.api?.baseUrl || 'https://api.autohand.ai',
+      enabled: communitySettings.enabled !== false,
+    });
+
+    // Wire telemetry and community client to skills registry
+    this.skillsRegistry.setTelemetryManager(this.telemetryManager);
+    this.skillsRegistry.setCommunityClient(this.communityClient);
 
     const delegationTools = [
       {
@@ -231,6 +250,7 @@ export class AutohandAgent {
       sessionManager: this.sessionManager,
       memoryManager: this.memoryManager,
       permissionManager: this.permissionManager,
+      skillsRegistry: this.skillsRegistry,
       llm: this.llm,
       workspaceRoot: runtime.workspaceRoot,
       model: model,
@@ -250,6 +270,8 @@ export class AutohandAgent {
     await this.sessionManager.initialize();
     await this.projectManager.initialize();
     await this.memoryManager.initialize();
+    await this.skillsRegistry.initialize();
+    await this.skillsRegistry.setWorkspace(this.runtime.workspaceRoot);
     await this.resetConversationContext();
     this.feedbackManager.startSession();
     const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
@@ -278,6 +300,8 @@ export class AutohandAgent {
     await this.sessionManager.initialize();
     await this.projectManager.initialize();
     await this.memoryManager.initialize();
+    await this.skillsRegistry.initialize();
+    await this.skillsRegistry.setWorkspace(this.runtime.workspaceRoot);
     await this.resetConversationContext();
 
     const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
@@ -2003,6 +2027,27 @@ export class AutohandAgent {
 
     if (instructions.length) {
       parts.push('', ...instructions);
+    }
+
+    // Add available skills (progressive disclosure - descriptions only)
+    const allSkills = this.skillsRegistry.listSkills();
+    if (allSkills.length > 0) {
+      parts.push('', '## Available Skills');
+      parts.push('Skills are specialized instruction packages. Use /skills use <name> to activate one.');
+      for (const skill of allSkills) {
+        const activeMarker = skill.isActive ? ' [ACTIVE]' : '';
+        parts.push(`- **${skill.name}**${activeMarker}: ${skill.description}`);
+      }
+    }
+
+    // Add active skills (full content loaded)
+    const activeSkills = this.skillsRegistry.getActiveSkills();
+    if (activeSkills.length > 0) {
+      parts.push('', '## Active Skills');
+      parts.push('The following skills are active and provide specialized instructions:');
+      for (const skill of activeSkills) {
+        parts.push('', `### Skill: ${skill.name}`, skill.body);
+      }
     }
 
     return parts.join('\n');

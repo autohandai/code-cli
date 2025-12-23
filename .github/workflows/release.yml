@@ -82,12 +82,12 @@ jobs:
           MINOR=$(echo $CURRENT_VERSION | cut -d. -f2)
           PATCH=$(echo $CURRENT_VERSION | cut -d. -f3 | cut -d- -f1)
           
-          # Determine version bump based on commit messages
+          # Standard semver: bump patch by default, minor for features, major for breaking
           if git log --format=%B -n 20 | grep -qi "BREAKING CHANGE\|!:"; then
             MAJOR=$((MAJOR + 1))
             MINOR=0
             PATCH=0
-          elif git log --format=%B -n 10 | grep -qi "^feat"; then
+          elif git log --format=%B -n 10 | grep -qiE "^feat(\(|:)"; then
             MINOR=$((MINOR + 1))
             PATCH=0
           else
@@ -240,70 +240,116 @@ jobs:
 
             // Get commits since last tag
             let commits;
+            let lastTag = null;
             try {
-              const lastTag = execSync('git describe --tags --abbrev=0', { encoding: 'utf8' }).trim();
-              commits = execSync(`git log ${lastTag}..HEAD --pretty=format:"%h %s"`, { encoding: 'utf8' });
+              lastTag = execSync('git describe --tags --abbrev=0', { encoding: 'utf8' }).trim();
+              commits = execSync(`git log ${lastTag}..HEAD --pretty=format:"%s"`, { encoding: 'utf8' });
             } catch {
-              commits = execSync('git log --pretty=format:"%h %s" -n 20', { encoding: 'utf8' });
+              commits = execSync('git log --pretty=format:"%s" -n 20', { encoding: 'utf8' });
             }
 
-            const lines = commits.split('\n').filter(line => line.trim());
+            const lines = commits.split('\n').filter(line => line.trim() && !line.includes('chore(release)'));
+
+            // Helper to humanize commit messages
+            const humanize = (msg) => {
+              return msg
+                .replace(/^feat(\([^)]+\))?:\s*/i, '')
+                .replace(/^fix(\([^)]+\))?:\s*/i, '')
+                .replace(/^chore(\([^)]+\))?:\s*/i, '')
+                .replace(/^docs(\([^)]+\))?:\s*/i, '')
+                .replace(/^refactor(\([^)]+\))?:\s*/i, '')
+                .replace(/^test(\([^)]+\))?:\s*/i, '')
+                .replace(/^ci(\([^)]+\))?:\s*/i, '')
+                .replace(/^perf(\([^)]+\))?:\s*/i, '')
+                .trim();
+            };
+
+            // Capitalize first letter
+            const capitalize = (str) => str.charAt(0).toUpperCase() + str.slice(1);
 
             // Categorize commits
             const features = [];
             const fixes = [];
-            const chores = [];
+            const improvements = [];
             const breaking = [];
 
-            for (const line of lines) {
-              const [hash, ...msgParts] = line.split(' ');
-              const msg = msgParts.join(' ');
+            for (const msg of lines) {
+              const clean = humanize(msg);
+              if (!clean) continue;
 
               if (msg.includes('BREAKING CHANGE') || msg.includes('!:')) {
-                breaking.push(`- ${msg} (${hash})`);
-              } else if (msg.startsWith('feat')) {
-                features.push(`- ${msg.replace('feat:', '').replace('feat(', '(').trim()} (${hash})`);
-              } else if (msg.startsWith('fix')) {
-                fixes.push(`- ${msg.replace('fix:', '').replace('fix(', '(').trim()} (${hash})`);
-              } else if (!msg.startsWith('chore(release)')) {
-                chores.push(`- ${msg} (${hash})`);
+                breaking.push(capitalize(clean));
+              } else if (msg.match(/^feat(\(|:)/i)) {
+                features.push(capitalize(clean));
+              } else if (msg.match(/^fix(\(|:)/i)) {
+                fixes.push(capitalize(clean));
+              } else if (msg.match(/^(refactor|perf|chore|docs|test|ci)(\(|:)/i)) {
+                improvements.push(capitalize(clean));
               }
             }
 
-            // Build changelog
-            let changelog = '## 🚀 What\'s Changed\n\n';
+            // Build a friendly changelog
+            let changelog = '';
 
+            // Intro
+            if (lastTag) {
+              changelog += `Hey there! We've been busy making Autohand better. Here's what's new since ${lastTag}:\n\n`;
+            } else {
+              changelog += `Hey there! Here's what's new in this release:\n\n`;
+            }
+
+            // Breaking changes (serious tone)
             if (breaking.length > 0) {
-              changelog += '### ⚠️ BREAKING CHANGES\n' + breaking.join('\n') + '\n\n';
+              changelog += '### Heads up! Breaking Changes\n\n';
+              changelog += 'These changes might require updates to your setup:\n\n';
+              breaking.forEach(item => { changelog += `- ${item}\n`; });
+              changelog += '\n';
             }
 
+            // Features (excited tone)
             if (features.length > 0) {
-              changelog += '### ✨ Features\n' + features.join('\n') + '\n\n';
+              changelog += '### New Stuff\n\n';
+              features.forEach(item => { changelog += `- ${item}\n`; });
+              changelog += '\n';
             }
 
+            // Fixes (helpful tone)
             if (fixes.length > 0) {
-              changelog += '### 🐛 Bug Fixes\n' + fixes.join('\n') + '\n\n';
+              changelog += '### Bug Fixes\n\n';
+              if (fixes.length === 1) {
+                changelog += `We squashed a bug:\n\n`;
+              } else {
+                changelog += `We squashed ${fixes.length} bugs:\n\n`;
+              }
+              fixes.forEach(item => { changelog += `- ${item}\n`; });
+              changelog += '\n';
             }
 
-            if (chores.length > 0 && chores.length < 10) {
-              changelog += '### 🔧 Maintenance\n' + chores.join('\n') + '\n\n';
+            // Improvements (casual tone)
+            if (improvements.length > 0 && improvements.length <= 8) {
+              changelog += '### Under the Hood\n\n';
+              changelog += 'Some housekeeping and improvements:\n\n';
+              improvements.forEach(item => { changelog += `- ${item}\n`; });
+              changelog += '\n';
             }
 
-            // Add installation instructions
+            // If nothing categorized, add a generic message
+            if (features.length === 0 && fixes.length === 0 && improvements.length === 0 && breaking.length === 0) {
+              changelog += 'Minor updates and improvements to keep things running smoothly.\n\n';
+            }
+
+            // Installation section
             const cb = '`' + '`' + '`';
-            changelog += '\n## 📦 Installation\n\n';
-            changelog += '### Recommended: Install Script\n';
+            changelog += '---\n\n';
+            changelog += '### Get it\n\n';
+            changelog += '**Quickest way:**\n';
             changelog += cb + 'bash\ncurl -fsSL https://autohand.ai/install.sh | sh\n' + cb + '\n\n';
-            changelog += '### Or install a specific version\n';
-            changelog += cb + 'bash\nAUTOHAND_VERSION=' + version + ' curl -fsSL https://autohand.ai/install.sh | sh\n' + cb + '\n\n';
-            changelog += '### Via npm/bun\n';
-            changelog += cb + 'bash\nnpm install -g autohand-cli\n# or\nbun install -g autohand-cli\n' + cb + '\n\n';
-            changelog += '### Manual Download\n';
-            changelog += 'Download the appropriate binary for your system from the assets below.\n\n';
-            changelog += '## 📋 Available Binaries\n';
+            changelog += '**Via npm or bun:**\n';
+            changelog += cb + 'bash\nnpm install -g autohand-cli\n' + cb + '\n\n';
+            changelog += '**Or grab a binary below** for your platform.\n\n';
             changelog += '| Platform | Architecture | Binary |\n';
             changelog += '|----------|--------------|--------|\n';
-            changelog += '| macOS | Apple Silicon (M1/M2/M3/M4) | `autohand-macos-arm64` |\n';
+            changelog += '| macOS | Apple Silicon | `autohand-macos-arm64` |\n';
             changelog += '| macOS | Intel | `autohand-macos-x64` |\n';
             changelog += '| Linux | x64 | `autohand-linux-x64` |\n';
             changelog += '| Linux | ARM64 | `autohand-linux-arm64` |\n';
