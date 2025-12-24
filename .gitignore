@@ -19,3 +19,4 @@ bun.lock
 .autohand/
 AGENTS.md
 prd/
+package-lock.json
