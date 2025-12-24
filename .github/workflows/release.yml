@@ -56,9 +56,14 @@ jobs:
       - name: Check if should release
         id: check
         run: |
+          # Allow manual trigger to force release
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            echo "📦 Manual trigger - forcing release"
           # Check if last commit is a version bump (skip if so)
-          if git log -1 --pretty=%B | grep -q "chore(release):"; then
+          elif git log -1 --pretty=%B | grep -q "chore(release):"; then
             echo "should_release=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Skipping - last commit is a release commit"
           else
             echo "should_release=true" >> $GITHUB_OUTPUT
           fi
@@ -76,30 +81,35 @@ jobs:
         run: |
           CURRENT_VERSION=$(node -p "require('./package.json').version")
           CHANNEL="${{ steps.determine.outputs.channel }}"
-          
-          # Parse semantic version
-          MAJOR=$(echo $CURRENT_VERSION | cut -d. -f1)
-          MINOR=$(echo $CURRENT_VERSION | cut -d. -f2)
-          PATCH=$(echo $CURRENT_VERSION | cut -d. -f3 | cut -d- -f1)
-          
-          # Standard semver: bump patch by default, minor for features, major for breaking
-          if git log --format=%B -n 20 | grep -qi "BREAKING CHANGE\|!:"; then
-            MAJOR=$((MAJOR + 1))
-            MINOR=0
-            PATCH=0
-          elif git log --format=%B -n 10 | grep -qiE "^feat(\(|:)"; then
-            MINOR=$((MINOR + 1))
-            PATCH=0
-          else
-            PATCH=$((PATCH + 1))
-          fi
-          
-          # Manual override
+
+          # Manual version override takes priority
           if [ -n "${{ github.event.inputs.version }}" ]; then
             NEW_VERSION="${{ github.event.inputs.version }}"
+            echo "🎯 Using manual version override: ${NEW_VERSION}"
+          # For manual trigger without version, use current package.json version
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            NEW_VERSION="${CURRENT_VERSION}"
+            echo "🎯 Using existing package.json version: ${NEW_VERSION}"
           else
+            # Parse semantic version
+            MAJOR=$(echo $CURRENT_VERSION | cut -d. -f1)
+            MINOR=$(echo $CURRENT_VERSION | cut -d. -f2)
+            PATCH=$(echo $CURRENT_VERSION | cut -d. -f3 | cut -d- -f1)
+
+            # Standard semver: bump patch by default, minor for features, major for breaking
+            if git log --format=%B -n 20 | grep -qi "BREAKING CHANGE\|!:"; then
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+            elif git log --format=%B -n 10 | grep -qiE "^feat(\(|:)"; then
+              MINOR=$((MINOR + 1))
+              PATCH=0
+            else
+              PATCH=$((PATCH + 1))
+            fi
+
             NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-            
+
             # Add prerelease tag for non-release channels
             if [ "$CHANNEL" = "alpha" ]; then
               BUILD_NUM=$(date +%Y%m%d%H%M%S)
@@ -109,7 +119,7 @@ jobs:
               NEW_VERSION="${NEW_VERSION}-beta.${BUILD_NUM}"
             fi
           fi
-          
+
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
           echo "🎯 Version: ${NEW_VERSION} (${CHANNEL})"
 
