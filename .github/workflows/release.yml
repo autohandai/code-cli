@@ -175,7 +175,7 @@ jobs:
       - name: Compile binary
         run: |
           mkdir -p binaries
-          bun build ./src/index.ts --compile --target=bun-${{ matrix.target }} --outfile ./binaries/${{ matrix.artifact }}
+          bun build ./src/index.ts --compile --target=bun-${{ matrix.target }} --external react-devtools-core --outfile ./binaries/${{ matrix.artifact }}
 
       - name: Verify binary
         if: runner.os != 'Windows'
