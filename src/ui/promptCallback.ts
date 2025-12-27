@@ -100,17 +100,58 @@ export async function confirm(
     return true;
   }
 
-  // Interactive mode - use enquirer
-  const { Confirm } = enquirer as any;
-  const prompt = new Confirm({
+  // Drain all pending stdin data to prevent buffered keystrokes from affecting the prompt
+  if (process.stdin.readable) {
+    while (process.stdin.read() !== null) {
+      // Keep reading until empty
+    }
+  }
+
+  // Small delay to let any async keystrokes arrive and be discarded
+  await new Promise(resolve => setTimeout(resolve, 50));
+
+  // Drain again after delay
+  if (process.stdin.readable) {
+    while (process.stdin.read() !== null) {
+      // Keep reading until empty
+    }
+  }
+
+  const { Select, Input } = enquirer as any;
+  const prompt = new Select({
     name: 'confirm',
-    message
+    message,
+    choices: [
+      { name: 'yes', message: '1. Yes' },
+      { name: 'no', message: '2. No' },
+      { name: 'alternative', message: '3. Enter alternative...' }
+    ],
+    initial: 0
   });
 
   try {
-    return await prompt.run();
+    const answer = await prompt.run();
+
+    if (answer === 'yes') {
+      return true;
+    }
+
+    if (answer === 'alternative') {
+      const inputPrompt = new Input({
+        name: 'alternative',
+        message: 'Enter alternative action (or empty to cancel)'
+      });
+      const altAnswer = await inputPrompt.run();
+      if (altAnswer?.trim()) {
+        // Return the alternative as a special value that can be handled upstream
+        (confirm as any).lastAlternative = altAnswer.trim();
+        return 'alternative' as any;
+      }
+      return false;
+    }
+
+    return false;
   } catch {
-    // Prompt cancelled (Ctrl+C)
     return false;
   }
 }

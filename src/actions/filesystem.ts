@@ -81,7 +81,24 @@ export class FileActionManager {
 
   search(query: string, relativePath?: string): SearchHit[] {
     const searchDir = this.resolvePath(relativePath ?? '.');
-    const rgResult = spawnSync('rg', ['--line-number', '--color', 'never', query, '.'], {
+    // Exclude binary files and common non-text files to avoid wasting tokens
+    const rgResult = spawnSync('rg', [
+      '--line-number',
+      '--color', 'never',
+      '--no-binary',  // Skip binary files
+      '--glob', '!*.{exe,dll,so,dylib,bin,o,a,lib,pyc,pyo,class,jar,war,ear}',
+      '--glob', '!*.{png,jpg,jpeg,gif,bmp,ico,svg,webp,tiff}',
+      '--glob', '!*.{mp3,mp4,avi,mov,mkv,wav,flac,ogg,webm}',
+      '--glob', '!*.{pdf,doc,docx,xls,xlsx,ppt,pptx}',
+      '--glob', '!*.{zip,tar,gz,bz2,7z,rar,dmg,iso}',
+      '--glob', '!*.{woff,woff2,ttf,eot,otf}',
+      '--glob', '!**/node_modules/**',
+      '--glob', '!**/.git/**',
+      '--glob', '!**/dist/**',
+      '--glob', '!**/build/**',
+      '--glob', '!**/binaries/**',
+      query, '.'
+    ], {
       cwd: searchDir,
       encoding: 'utf8'
     });
@@ -146,6 +163,26 @@ export class FileActionManager {
           continue;
         }
         if (!stats.isFile()) {
+          continue;
+        }
+
+        // Skip binary and non-text files
+        const ext = path.extname(current).toLowerCase();
+        const binaryExtensions = new Set([
+          '.exe', '.dll', '.so', '.dylib', '.bin', '.o', '.a', '.lib', '.pyc', '.pyo', '.class', '.jar', '.war', '.ear',
+          '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.svg', '.webp', '.tiff',
+          '.mp3', '.mp4', '.avi', '.mov', '.mkv', '.wav', '.flac', '.ogg', '.webm',
+          '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+          '.zip', '.tar', '.gz', '.bz2', '.7z', '.rar', '.dmg', '.iso',
+          '.woff', '.woff2', '.ttf', '.eot', '.otf'
+        ]);
+        if (binaryExtensions.has(ext)) {
+          continue;
+        }
+
+        // Skip files in excluded directories
+        if (normalizedRel.includes('node_modules/') || normalizedRel.includes('/dist/') ||
+            normalizedRel.includes('/build/') || normalizedRel.includes('/binaries/')) {
           continue;
         }
 

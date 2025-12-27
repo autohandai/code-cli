@@ -56,6 +56,7 @@ import {
 import { WorktreeManager } from '../actions/worktree.js';
 import { applyFormatter } from '../actions/formatters.js';
 import { loadCustomCommand, saveCustomCommand } from './customCommands.js';
+import { webSearch, fetchUrl, getPackageInfo, formatSearchResults, formatPackageInfo } from '../actions/web.js';
 import { PermissionManager } from '../permissions/PermissionManager.js';
 import type { PermissionContext } from '../permissions/types.js';
 import type { ProjectManager } from '../session/ProjectManager.js';
@@ -127,9 +128,6 @@ export class ActionExecutor {
         const contents = await this.files.readFile(action.path);
         this.recordExploration('read', action.path);
 
-        // Get character limit from config (default 300)
-        const charLimit = this.runtime.config.ui?.readFileCharLimit ?? 300;
-
         // Display file info
         const lines = contents.split('\n');
         const fileSize = Buffer.byteLength(contents, 'utf8');
@@ -138,13 +136,7 @@ export class ActionExecutor {
         console.log(chalk.cyan(`\n📄 ${action.path}`));
         console.log(chalk.gray(`   ${lines.length} lines • ${fileSizeKB} KB`));
 
-        // Truncate if needed
-        if (contents.length <= charLimit) {
-          return contents;
-        }
-
-        console.log(chalk.yellow(`   ⚠️  Showing first ${charLimit} characters`));
-        return contents.slice(0, charLimit) + `\n\n... (truncated, ${contents.length} total characters)`;
+        return contents;
       }
       case 'write_file': {
         if (!action.path) {
@@ -315,6 +307,10 @@ export class ActionExecutor {
         return `Formatted ${action.path} (${action.formatter})`;
       }
       case 'run_command': {
+        if (!action.command || typeof action.command !== 'string') {
+          return 'Error: run_command requires a "command" argument (string)';
+        }
+
         const shouldStreamOutput = Boolean(
           this.onToolOutput &&
           context?.toolCallId &&
@@ -897,6 +893,50 @@ export class ActionExecutor {
 
         return `Created meta-tool "${action.name}" - available in this and future sessions`;
       }
+      // Web Search Operations
+      case 'web_search': {
+        if (!action.query) {
+          throw new Error('web_search requires a "query" argument.');
+        }
+        console.log(chalk.cyan(`\n🔍 Searching web: "${action.query}"...`));
+        const results = await webSearch(action.query, {
+          maxResults: action.max_results,
+          searchType: action.search_type
+        });
+        const formatted = formatSearchResults(results);
+        console.log(chalk.gray(formatted.split('\n').slice(0, 10).join('\n')));
+        if (results.length > 3) {
+          console.log(chalk.gray('   ...'));
+        }
+        return formatted;
+      }
+      case 'fetch_url': {
+        if (!action.url) {
+          throw new Error('fetch_url requires a "url" argument.');
+        }
+        console.log(chalk.cyan(`\n🌐 Fetching: ${action.url}...`));
+        const content = await fetchUrl(action.url, {
+          maxLength: action.max_length
+        });
+        // Show preview
+        const preview = content.slice(0, 500);
+        console.log(chalk.gray(preview + (content.length > 500 ? '\n   ... (truncated)' : '')));
+        return content;
+      }
+      case 'package_info': {
+        if (!action.package_name) {
+          throw new Error('package_info requires a "package_name" argument.');
+        }
+        const registryLabel = action.registry ? ` (${action.registry})` : '';
+        console.log(chalk.cyan(`\n📦 Getting package info: ${action.package_name}${action.version ? `@${action.version}` : ''}${registryLabel}...`));
+        const info = await getPackageInfo(action.package_name, {
+          registry: action.registry,
+          version: action.version
+        });
+        const formatted = formatPackageInfo(info);
+        console.log(chalk.gray(formatted));
+        return formatted;
+      }
       default: {
         // Check if this is a dynamic meta-tool
         const actionType = (action as AgentAction).type;
@@ -936,6 +976,11 @@ export class ActionExecutor {
       description: action.description,
       dangerous: action.dangerous
     };
+
+    // Validate command is present
+    if (!definition.command || typeof definition.command !== 'string') {
+      return `Error: custom_command "${action.name}" requires a "command" argument (string)`;
+    }
 
     if (!existing) {
       console.log(chalk.cyan(`Custom command: ${definition.name}`));

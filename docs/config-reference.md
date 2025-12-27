@@ -162,9 +162,10 @@ OpenAI API configuration.
   "ui": {
     "theme": "dark",
     "autoConfirm": false,
-    "readFileCharLimit": 50000,
+    "readFileCharLimit": 300,
     "showCompletionNotification": true,
-    "showThinking": true
+    "showThinking": true,
+    "useInkRenderer": false
   }
 }
 ```
@@ -173,9 +174,32 @@ OpenAI API configuration.
 |-------|------|---------|-------------|
 | `theme` | `"dark"` \| `"light"` | `"dark"` | Color theme for terminal output |
 | `autoConfirm` | boolean | `false` | Skip confirmation prompts for safe operations |
-| `readFileCharLimit` | number | `50000` | Max characters to read from a single file |
+| `readFileCharLimit` | number | `300` | Max characters to display from read/search tool output (full content is still sent to the model) |
 | `showCompletionNotification` | boolean | `true` | Show system notification when task completes |
 | `showThinking` | boolean | `true` | Display LLM's reasoning/thought process |
+| `useInkRenderer` | boolean | `false` | Use Ink-based renderer for flicker-free UI (experimental) |
+
+Note: `readFileCharLimit` only affects terminal display for `read_file`, `search`, and `search_with_context`. Full content is still sent to the model and stored in tool messages.
+
+### Ink Renderer (Experimental)
+
+When `useInkRenderer` is enabled, Autohand uses React-based terminal rendering (Ink) instead of the traditional ora spinner. This provides:
+
+- **Flicker-free output**: All UI updates are batched through React reconciliation
+- **Working queue feature**: Type instructions while the agent works
+- **Better input handling**: No conflicts between readline handlers
+- **Composable UI**: Foundation for future advanced UI features
+
+To enable:
+```json
+{
+  "ui": {
+    "useInkRenderer": true
+  }
+}
+```
+
+Note: This feature is experimental and may have edge cases. The default ora-based UI remains stable and fully functional.
 
 ---
 

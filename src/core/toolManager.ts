@@ -828,6 +828,45 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
       },
       required: ['name', 'description', 'parameters', 'handler']
     }
+  },
+  // Web Search Operations
+  {
+    name: 'web_search',
+    description: 'Search the web for up-to-date information about packages, libraries, frameworks, documentation, changelogs, and more. Use this when you need current information that may have changed after your training data.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search query (e.g., "react 19 new features", "zod changelog latest")' },
+        max_results: { type: 'number', description: 'Maximum results to return (default: 5)' },
+        search_type: { type: 'string', description: 'Type of search: general, packages, docs, changelog', enum: ['general', 'packages', 'docs', 'changelog'] }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'fetch_url',
+    description: 'Fetch and extract text content from a URL. Useful for reading documentation, changelogs, release notes, or any web page.',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'URL to fetch' },
+        max_length: { type: 'number', description: 'Maximum characters to return (default: 30000)' }
+      },
+      required: ['url']
+    }
+  },
+  {
+    name: 'package_info',
+    description: 'Get detailed information about a package from npm, PyPI (Python), crates.io (Rust), Go modules, or RubyGems. Auto-detects registry or specify explicitly.',
+    parameters: {
+      type: 'object',
+      properties: {
+        package_name: { type: 'string', description: 'Package name (e.g., "react", "requests", "serde", "github.com/gin-gonic/gin")' },
+        registry: { type: 'string', description: 'Package registry: npm, pypi, crates, go, rubygems (auto-detected if not specified)', enum: ['npm', 'pypi', 'crates', 'go', 'rubygems'] },
+        version: { type: 'string', description: 'Specific version to get info for (default: latest)' }
+      },
+      required: ['package_name']
+    }
   }
 ];
 
@@ -1047,13 +1086,13 @@ export class ToolManager {
         if (call.tool === 'run_command' && call.args) {
           const cmd = call.args.command || '';
           const args = Array.isArray(call.args.args) ? call.args.args.join(' ') : '';
+          const fullCommand = args ? `${cmd} ${args}` : cmd;
           const dir = call.args.directory ? ` (in ${call.args.directory})` : '';
-          const desc = call.args.description ? `\n   ${call.args.description}` : '';
-          message = `Run command: ${cmd} ${args}${dir}${desc}`;
+          message = `Run this command${dir}?\n  $ ${fullCommand}`;
         } else if (call.tool === 'delete_path' && call.args?.path) {
-          message = `Delete: ${call.args.path}`;
+          message = `Delete this path?\n  ${call.args.path}`;
         } else if (call.tool === 'write_file' && call.args?.path) {
-          message = `Write file: ${call.args.path}`;
+          message = `Write to this file?\n  ${call.args.path}`;
         }
 
         const confirmed = await this.confirmApproval(message);

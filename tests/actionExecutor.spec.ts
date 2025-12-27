@@ -49,6 +49,31 @@ describe('ActionExecutor', () => {
     expect(result).toContain('console.log');
   });
 
+  it('returns full read_file contents even when display limits are configured', async () => {
+    const content = 'x'.repeat(40);
+    const files = createFiles({
+      readFile: vi.fn().mockResolvedValue(content)
+    });
+    const executor = new ActionExecutor({
+      runtime: {
+        config: {
+          configPath: '',
+          openrouter: { apiKey: 'test', model: 'model' },
+          ui: { readFileCharLimit: 5 }
+        },
+        workspaceRoot: '/repo',
+        options: {}
+      } as AgentRuntime,
+      files: files as FileActionManager,
+      resolveWorkspacePath: (rel) => `/repo/${rel}`,
+      confirmDangerousAction: vi.fn().mockResolvedValue(true)
+    });
+
+    const result = await executor.execute({ type: 'read_file', path: 'src/index.ts' });
+
+    expect(result).toBe(content);
+  });
+
   it('requires confirmation before deleting paths', async () => {
     const files = createFiles();
     const confirm = vi.fn().mockResolvedValue(false);

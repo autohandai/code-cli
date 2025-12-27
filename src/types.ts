@@ -5,6 +5,26 @@
  */
 import type { Ora } from 'ora';
 
+// InkRenderer type defined inline to avoid tsx dev mode issues with .tsx imports
+interface InkRendererInterface {
+  start(): void;
+  stop(): void;
+  setWorking(isWorking: boolean, status?: string): void;
+  setStatus(status: string): void;
+  setElapsed(elapsed: string): void;
+  setTokens(tokens: string): void;
+  addToolOutput(tool: string, success: boolean, output: string): void;
+  addToolOutputs(outputs: Array<{ tool: string; success: boolean; output: string }>): void;
+  clearToolOutputs(): void;
+  setThinking(thought: string | null): void;
+  addQueuedInstruction(instruction: string): void;
+  dequeueInstruction(): string | undefined;
+  hasQueuedInstructions(): boolean;
+  getQueueCount(): number;
+  setFinalResponse(response: string): void;
+  reset(): void;
+}
+
 type Primitive = string | number | boolean | null;
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
@@ -30,11 +50,14 @@ export interface WorkspaceSettings {
 export interface UISettings {
   theme?: 'dark' | 'light';
   autoConfirm?: boolean;
+  /** Max characters to display from read/search tool output (full content still sent to the model) */
   readFileCharLimit?: number;
   /** Show notification when work is completed (default: true) */
   showCompletionNotification?: boolean;
   /** Show LLM thinking/reasoning process (default: true) */
   showThinking?: boolean;
+  /** Use Ink-based renderer for flicker-free UI (experimental, default: false) */
+  useInkRenderer?: boolean;
 }
 
 export interface AgentSettings {
@@ -172,6 +195,25 @@ export interface PromptContext {
   extraNotes?: string;
 }
 
+/** Message priority for context management - higher priority messages are retained longer */
+export type MessagePriority = 'critical' | 'high' | 'medium' | 'low';
+
+/** Metadata for smart context compression */
+export interface MessageMetadata {
+  /** Files mentioned or read in this message */
+  files?: string[];
+  /** Tools used in this message */
+  tools?: string[];
+  /** Whether this contains a user decision or preference */
+  isDecision?: boolean;
+  /** Whether this contains error information */
+  isError?: boolean;
+  /** Original token count before compression */
+  originalTokens?: number;
+  /** Whether this message was compressed */
+  isCompressed?: boolean;
+}
+
 export interface LLMMessage {
   role: MessageRole;
   content: string;
@@ -180,6 +222,10 @@ export interface LLMMessage {
   tool_call_id?: string;
   /** Tool calls made by the assistant (included when role is 'assistant' and model invoked tools) */
   tool_calls?: LLMToolCall[];
+  /** Priority for context management (default: medium) */
+  priority?: MessagePriority;
+  /** Metadata for smart compression */
+  metadata?: MessageMetadata;
 }
 
 /**
@@ -358,7 +404,11 @@ export type AgentAction =
   | { type: 'recall_memory'; query?: string; level?: 'user' | 'project' }
   | { type: 'create_meta_tool'; name: string; description: string; parameters: Record<string, unknown>; handler: string }
   | { type: 'delegate_task'; agent_name: string; task: string }
-  | { type: 'delegate_parallel'; tasks: Array<{ agent_name: string; task: string }> };
+  | { type: 'delegate_parallel'; tasks: Array<{ agent_name: string; task: string }> }
+  // Web Search Operations
+  | { type: 'web_search'; query: string; max_results?: number; search_type?: 'general' | 'packages' | 'docs' | 'changelog' }
+  | { type: 'fetch_url'; url: string; selector?: string; max_length?: number }
+  | { type: 'package_info'; package_name: string; registry?: 'npm' | 'pypi' | 'crates' | 'go' | 'rubygems'; version?: string };
 
 export type ExplorationEvent = { kind: 'read' | 'list' | 'search'; target: string };
 
@@ -400,6 +450,8 @@ export interface AgentRuntime {
   workspaceRoot: string;
   options: CLIOptions;
   spinner?: Ora;
+  /** Ink-based renderer for flicker-free UI (experimental) */
+  inkRenderer?: InkRendererInterface;
 }
 
 export interface AgentStatusSnapshot {

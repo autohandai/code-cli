@@ -63,6 +63,8 @@ import type { SkillSuggestion } from '../skills/CommunitySkillsClient.js';
 import { ProjectAnalyzer } from '../skills/autoSkill.js';
 import { AUTOHAND_PATHS } from '../constants.js';
 import { PersistentInput, createPersistentInput } from '../ui/persistentInput.js';
+import { formatToolOutputForDisplay } from '../ui/toolOutput.js';
+import { createInkRenderer, type InkRenderer } from '../ui/ink/InkRenderer.js';
 import { PermissionManager } from '../permissions/PermissionManager.js';
 import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
 import packageJson from '../../package.json' with { type: 'json' };
@@ -94,18 +96,16 @@ export class AutohandAgent {
   private activeProvider: ProviderName;
   private errorLogger: ErrorLogger;
 
-  // Task-level tracking for status line
   private taskStartedAt: number | null = null;
   private totalTokensUsed = 0;
   private statusInterval: NodeJS.Timeout | null = null;
-
-  // Persistent input for always-visible input field
+  private sessionStartedAt: number = Date.now();
+  private sessionTokensUsed = 0;
+  private inkRenderer: InkRenderer | null = null;
+  private useInkRenderer = false;
+  private pendingInkInstructions: string[] = [];
   private persistentInput: PersistentInput;
-
-  // Current queue input (shared between keypress handler and status updates)
   private queueInput = '';
-
-  // Last rendered state to prevent flickering (only update when changed)
   private lastRenderedStatus = '';
 
   constructor(
@@ -227,6 +227,9 @@ export class AutohandAgent {
     this.sessionManager = new SessionManager();
     this.projectManager = new ProjectManager();
 
+    // Check if Ink renderer is enabled
+    this.useInkRenderer = runtime.config.ui?.useInkRenderer === true;
+
     // Initialize persistent input for queuing messages while agent works
     // Using silent mode to avoid conflicts with ora spinner
     this.persistentInput = createPersistentInput({
@@ -234,11 +237,11 @@ export class AutohandAgent {
       silentMode: true
     });
 
-    // Listen for queue events to update spinner
     this.persistentInput.on('queued', (text: string, count: number) => {
       const preview = text.length > 30 ? text.slice(0, 27) + '...' : text;
-      if (this.runtime.spinner) {
-        // Briefly show queued message, then restore normal status
+      if (this.inkRenderer) {
+        this.inkRenderer.addQueuedInstruction(text);
+      } else if (this.runtime.spinner) {
         const originalText = this.runtime.spinner.text;
         this.runtime.spinner.text = chalk.cyan(`✓ Queued: "${preview}" (${count} pending)`);
         setTimeout(() => {
@@ -296,12 +299,7 @@ export class AutohandAgent {
     await this.runInteractiveLoop();
   }
 
-  /**
-   * Run a single instruction in command mode (non-interactive)
-   * This initializes all necessary context before executing the instruction
-   */
   async runCommandMode(instruction: string): Promise<void> {
-    // Initialize session and context
     await this.sessionManager.initialize();
     await this.projectManager.initialize();
     await this.memoryManager.initialize();
@@ -323,21 +321,15 @@ export class AutohandAgent {
       );
     }
 
-    // Run the instruction
     await this.runInstruction(instruction);
 
-    // Auto-commit if enabled
     if (this.runtime.options.autoCommit) {
       await this.performAutoCommit();
     }
 
-    // End session
     await this.telemetryManager.endSession('completed');
   }
 
-  /**
-   * Perform auto-commit after task completion
-   */
   private async performAutoCommit(): Promise<void> {
     const info = getAutoCommitInfo(this.runtime.workspaceRoot);
 
@@ -358,7 +350,6 @@ export class AutohandAgent {
 
     const commitMessage = info.suggestedMessage;
 
-    // If --yes is enabled, commit directly
     if (this.runtime.options.yes) {
       console.log(chalk.cyan(`Commit message: ${commitMessage}`));
       const result = executeAutoCommit(this.runtime.workspaceRoot, commitMessage);
@@ -370,7 +361,6 @@ export class AutohandAgent {
       return;
     }
 
-    // Otherwise, ask for confirmation
     console.log(chalk.cyan(`Suggested message: ${commitMessage}`));
 
     const { choice } = await enquirer.prompt<{ choice: string }>({
@@ -468,23 +458,40 @@ export class AutohandAgent {
   private async runInteractiveLoop(): Promise<void> {
     while (true) {
       try {
-        // Check for queued requests first
         let instruction: string | null = null;
 
-        if (this.persistentInput.hasQueued()) {
+        if (this.pendingInkInstructions.length > 0) {
+          instruction = this.pendingInkInstructions.shift() ?? null;
+          if (instruction) {
+            console.log(chalk.cyan(`\n▶ Processing queued request: "${instruction.slice(0, 50)}${instruction.length > 50 ? '...' : ''}"`));
+
+            const remaining = this.pendingInkInstructions.length;
+            if (remaining > 0) {
+              console.log(chalk.gray(`  ${remaining} more request(s) queued`));
+            }
+          }
+        } else if (this.inkRenderer?.hasQueuedInstructions()) {
+          instruction = this.inkRenderer.dequeueInstruction() ?? null;
+          if (instruction) {
+            console.log(chalk.cyan(`\n▶ Processing queued request: "${instruction.slice(0, 50)}${instruction.length > 50 ? '...' : ''}"`));
+
+            const remaining = this.inkRenderer.getQueueCount();
+            if (remaining > 0) {
+              console.log(chalk.gray(`  ${remaining} more request(s) queued`));
+            }
+          }
+        } else if (this.persistentInput.hasQueued()) {
           const queued = this.persistentInput.dequeue();
           if (queued) {
             instruction = queued.text;
             console.log(chalk.cyan(`\n▶ Processing queued request: "${instruction.slice(0, 50)}${instruction.length > 50 ? '...' : ''}"`));
 
-            // Show remaining queue status
             if (this.persistentInput.hasQueued()) {
               console.log(chalk.gray(`  ${this.persistentInput.getQueueLength()} more request(s) queued`));
             }
           }
         }
 
-        // If no queued request, prompt for new input
         if (!instruction) {
           instruction = await this.promptForInstruction();
         }
@@ -494,9 +501,7 @@ export class AutohandAgent {
         }
 
         if (instruction === '/exit' || instruction === '/quit') {
-          // Track command before exiting
           await this.telemetryManager.trackCommand({ command: instruction });
-          // Check if we should prompt for feedback on exit
           const trigger = this.feedbackManager.shouldPrompt({ sessionEnding: true });
           if (trigger) {
             const session = this.sessionManager.getCurrentSession();
@@ -507,11 +512,9 @@ export class AutohandAgent {
         }
 
         if (instruction === 'SESSION_RESUMED') {
-          // Already handled in resumeSession or runInteractive logic, but keep for safety
           continue;
         }
 
-        // Track slash commands
         const isSlashCommand = instruction.startsWith('/');
         if (isSlashCommand) {
           await this.telemetryManager.trackCommand({ command: instruction.split(' ')[0] });
@@ -521,7 +524,6 @@ export class AutohandAgent {
         this.feedbackManager.recordInteraction();
         this.telemetryManager.recordInteraction();
 
-        // Check for feedback trigger (gratitude, task completion, etc.)
         const feedbackTrigger = this.feedbackManager.shouldPrompt({
           userMessage: instruction,
           taskCompleted: true
@@ -529,7 +531,6 @@ export class AutohandAgent {
 
         if (feedbackTrigger) {
           const session = this.sessionManager.getCurrentSession();
-          // Use quick rating for mid-session prompts to minimize interruption
           if (feedbackTrigger === 'gratitude') {
             await this.feedbackManager.quickRating();
           } else {
@@ -539,27 +540,22 @@ export class AutohandAgent {
 
         console.log();
       } catch (error) {
-        // Check if it's a user cancellation (ESC or Ctrl+C)
         const errorObj = error as any;
         const isCancel = errorObj.name === 'ExitPromptError' ||
           errorObj.isCanceled ||
           errorObj.message?.includes('canceled') ||
           errorObj.message?.includes('User force closed') ||
-          !errorObj.message; // undefined message often means user cancelled
+          !errorObj.message;
 
         if (isCancel) {
-          // Graceful cancellation - just continue the loop
-          // Silent continue, no message needed
           continue;
         }
 
-        // Log unexpected errors
         await this.errorLogger.log(error as Error, {
           context: 'Interactive loop',
           workspace: this.runtime.workspaceRoot
         });
 
-        // Track error in telemetry
         await this.telemetryManager.trackError({
           type: 'interactive_loop_error',
           message: (error as Error).message,
@@ -567,7 +563,6 @@ export class AutohandAgent {
           context: 'Interactive loop'
         });
 
-        // Save session on unexpected error
         const session = this.sessionManager.getCurrentSession();
         if (session) {
           session.metadata.status = 'crashed';
@@ -1253,35 +1248,37 @@ export class AutohandAgent {
     this.taskStartedAt = Date.now();
     this.totalTokensUsed = 0;
 
-    const spinner = ora({
-      text: 'Gathering context...',
-      spinner: 'dots'
-    }).start();
-    this.runtime.spinner = spinner;
-
-    // TODO: Queue feature disabled temporarily - causes flickering due to
-    // competing readline handlers. Need to integrate into setupEscListener.
-    // if (this.runtime.config.agent?.enableRequestQueue !== false) {
-    //   this.persistentInput.start();
-    // }
-
     const abortController = new AbortController();
     let canceledByUser = false;
     let success = true;
-    const cleanupEsc = this.setupEscListener(abortController, () => {
+
+    // Initialize UI (InkRenderer or ora spinner)
+    // Pass abort controller for InkRenderer to handle ESC/Ctrl+C
+    this.initializeUI(abortController, () => {
       if (!canceledByUser) {
         canceledByUser = true;
         this.stopStatusUpdates();
-        spinner.stop();
-        // this.persistentInput.stop(); // Queue feature disabled
+        this.stopUI();
         console.log('\n' + chalk.yellow('Request canceled by user (ESC).'));
       }
-    }, true);
+    });
+
+    // Only setup ESC listener for non-Ink mode (Ink handles its own input)
+    const cleanupEsc = this.useInkRenderer
+      ? () => {} // No-op, Ink handles input
+      : this.setupEscListener(abortController, () => {
+          if (!canceledByUser) {
+            canceledByUser = true;
+            this.stopStatusUpdates();
+            this.stopUI();
+            console.log('\n' + chalk.yellow('Request canceled by user (ESC).'));
+          }
+        }, true);
     const stopPreparation = this.startPreparationStatus(instruction);
     try {
       const userMessage = await this.buildUserMessage(instruction);
       stopPreparation();
-      spinner.text = 'Reasoning with the AI (ReAct loop)...';
+      this.setUIStatus('Reasoning with the AI (ReAct loop)...');
       this.conversation.addMessage({ role: 'user', content: userMessage });
 
       // Save user message to session
@@ -1297,14 +1294,14 @@ export class AutohandAgent {
 
       // Handle unconfigured provider by prompting for configuration
       if (error instanceof ProviderNotConfiguredError) {
-        spinner.stop();
+        this.cleanupUI();
         console.log(chalk.yellow(`\nNo provider is configured yet. Let's set one up!\n`));
         await this.promptModelSelection();
         // After configuration, retry the instruction
         return this.runInstruction(instruction);
       }
 
-      spinner.fail('Session failed');
+      this.stopUI(true, 'Session failed');
       if (error instanceof Error) {
         console.error(chalk.red(error.message));
       } else {
@@ -1314,20 +1311,22 @@ export class AutohandAgent {
       cleanupEsc();
       stopPreparation();
       this.stopStatusUpdates();
-      spinner.stop();
+      this.cleanupUI();
 
-      // Stop the queue input (disabled - see TODO above)
-      // this.persistentInput.stop();
-
-      // Show completion summary
-      if (this.taskStartedAt && !canceledByUser) {
+      // Show completion summary (skip if using Ink - it handles this via completionStats)
+      if (this.taskStartedAt && !canceledByUser && !this.useInkRenderer) {
         const elapsed = this.formatElapsedTime(this.taskStartedAt);
         const tokens = this.formatTokens(this.totalTokensUsed);
-        const queueStatus = this.persistentInput.hasQueued()
-          ? ` · ${this.persistentInput.getQueueLength()} queued`
-          : '';
+        // Count queued instructions from all sources
+        const queueCount = this.pendingInkInstructions.length +
+          (this.inkRenderer?.getQueueCount() ?? 0) +
+          this.persistentInput.getQueueLength();
+        const queueStatus = queueCount > 0 ? ` · ${queueCount} queued` : '';
         console.log(chalk.gray(`\nCompleted in ${elapsed} · ${tokens} used${queueStatus}`));
       }
+
+      // Accumulate session tokens before resetting task
+      this.sessionTokensUsed += this.totalTokensUsed;
 
       this.taskStartedAt = null;
       this.isInstructionActive = false;
@@ -1521,9 +1520,11 @@ export class AutohandAgent {
         toolChoice: tools.length > 0 ? 'auto' : undefined
       });
 
-      // Track token usage from response
+      // Track token usage from response and immediately update UI
       if (completion.usage) {
         this.totalTokensUsed += completion.usage.totalTokens;
+        // Immediately render updated token count
+        this.forceRenderSpinner();
       }
 
       const payload = this.parseAssistantResponse(completion);
@@ -1535,15 +1536,55 @@ export class AutohandAgent {
       await this.saveAssistantMessage(completion.content, payload.toolCalls);
       this.updateContextUsage(this.conversation.history(), tools);
 
-      if (payload.toolCalls && payload.toolCalls.length > 0) {
-        if (showThinking && payload.thought) {
-          this.runtime.spinner?.stop();
-          console.log(chalk.gray(`   ${payload.thought}`));
-          console.log();
+      // Debug: show what the model returned (helps diagnose response issues)
+      if (process.env.AUTOHAND_DEBUG) {
+        console.log(chalk.yellow(`\n[DEBUG] Iteration ${iteration}:`));
+        console.log(chalk.yellow(`  - toolCalls: ${payload.toolCalls?.length ?? 0}`));
+        console.log(chalk.yellow(`  - thought: ${payload.thought?.slice(0, 100) || '(none)'}`));
+        console.log(chalk.yellow(`  - finalResponse: ${payload.finalResponse?.slice(0, 100) || '(none)'}`));
+        console.log(chalk.yellow(`  - raw content: ${completion.content?.slice(0, 200) || '(empty)'}`));
+      }
+
+      // Show what the LLM is doing for visibility
+      const toolCount = payload.toolCalls?.length ?? 0;
+      // Response could come from finalResponse, response, or thought (when no tool calls)
+      const hasResponse = Boolean(payload.finalResponse || payload.response || (!toolCount && payload.thought));
+      const thoughtPreview = payload.thought?.slice(0, 80) || '';
+
+      if (this.inkRenderer) {
+        if (toolCount > 0) {
+          const toolNames = payload.toolCalls!.map(t => t.tool).join(', ');
+          this.inkRenderer.setStatus(`Calling: ${toolNames}`);
+        } else if (hasResponse) {
+          this.inkRenderer.setStatus('Responding...');
+        } else if (thoughtPreview) {
+          this.inkRenderer.setStatus(`Thinking: ${thoughtPreview}...`);
         }
+      } else {
+        // Console mode: show iteration status
+        if (iteration > 0) {
+          const status = toolCount > 0
+            ? `→ Step ${iteration + 1}: calling ${toolCount} tool(s)`
+            : hasResponse
+              ? `→ Step ${iteration + 1}: preparing response`
+              : `→ Step ${iteration + 1}: thinking...`;
+          console.log(chalk.gray(status));
+        }
+      }
+
+      if (payload.toolCalls && payload.toolCalls.length > 0) {
         const cropCalls = payload.toolCalls.filter((call) => call.tool === 'smart_context_cropper');
         const otherCalls = payload.toolCalls.filter((call) => call.tool !== 'smart_context_cropper');
 
+        // Collect all output lines for a single batch write
+        const outputLines: string[] = [];
+
+        // Extract thought for display (skip raw JSON)
+        const thought = showThinking && payload.thought && !payload.thought.trim().startsWith('{')
+          ? payload.thought
+          : undefined;
+
+        // Handle smart_context_cropper calls (add to conversation + collect output)
         if (cropCalls.length) {
           for (const call of cropCalls) {
             const content = await this.handleSmartContextCrop(call);
@@ -1555,13 +1596,19 @@ export class AutohandAgent {
             });
             await this.saveToolMessage('smart_context_cropper', content, call.id);
             this.updateContextUsage(this.conversation.history(), tools);
-            console.log(`\n${chalk.cyan('✂ smart_context_cropper')}\n${chalk.gray(content)}`);
+            outputLines.push(`${chalk.cyan('✂ smart_context_cropper')}`);
+            outputLines.push(chalk.gray(content));
+            outputLines.push('');
           }
         }
 
+        // Execute other tools
+        let results: Array<{ tool: AgentAction['type']; success: boolean; output?: string; error?: string }> = [];
         if (otherCalls.length) {
-          this.runtime.spinner?.start('Executing tools...');
-          const results = await this.toolManager.execute(otherCalls);
+          // Execute all tools (spinner stays running during execution)
+          results = await this.toolManager.execute(otherCalls);
+
+          // Add tool messages to conversation first (no output yet)
           for (let i = 0; i < results.length; i++) {
             const result = results[i];
             const content = result.success
@@ -1574,25 +1621,55 @@ export class AutohandAgent {
               tool_call_id: otherCalls[i]?.id
             });
             await this.saveToolMessage(result.tool, content, otherCalls[i]?.id);
-            this.updateContextUsage(this.conversation.history(), tools);
-            const icon = result.success ? chalk.green('✔') : chalk.red('✖');
-            console.log(`\n${icon} ${chalk.bold(result.tool)}`);
-            if (content) {
-              if (result.success) {
-                console.log(chalk.gray(content));
-              } else {
-                // Make errors more visible with a red box
-                console.log(chalk.red('┌─ Error ─────────────────────────────────'));
-                console.log(chalk.red('│ ') + chalk.white(content));
-                console.log(chalk.red('└─────────────────────────────────────────'));
-              }
-            }
+          }
+          this.updateContextUsage(this.conversation.history(), tools);
 
-            // Record success/failure
+          // Add batched tool output (with thought shown before tools)
+          const charLimit = this.runtime.config.ui?.readFileCharLimit ?? 300;
+          outputLines.push(this.formatToolResultsBatch(results, charLimit, otherCalls, thought));
+        }
+
+        // Output tool results
+        if (this.inkRenderer) {
+          // InkRenderer: add tool outputs to the UI with thought
+          const thought = showThinking && payload.thought && !payload.thought.trim().startsWith('{')
+            ? payload.thought
+            : undefined;
+
+          if (results.length > 0) {
+            const charLimit = this.runtime.config.ui?.readFileCharLimit ?? 300;
+            this.addUIToolOutputs(results.map((r, i) => {
+              // Extract args from tool call
+              const call = otherCalls[i];
+              const filePath = call?.args?.path as string | undefined;
+              const command = call?.args?.command as string | undefined;
+              const commandArgs = call?.args?.args as string[] | undefined;
+              return {
+                tool: r.tool,
+                success: r.success,
+                output: r.success
+                  ? formatToolOutputForDisplay({ tool: r.tool, content: r.output ?? '', charLimit, filePath, command, commandArgs }).output
+                  : r.error ?? r.output ?? 'Tool failed',
+                thought // Pass thought to be displayed before tool
+              };
+            }));
+          }
+        } else {
+          // Ora mode: stop spinner, batch output, continue
+          this.runtime.spinner?.stop();
+          if (outputLines.length > 0) {
+            console.log('\n' + outputLines.join('\n'));
+          }
+        }
+
+        // Record success/failure for each tool (async, non-blocking display)
+        if (results.length > 0) {
+          const sessionId = this.sessionManager.getCurrentSession()?.metadata.sessionId || 'unknown';
+          for (const result of results) {
             if (result.success) {
               await this.projectManager.recordSuccess(this.runtime.workspaceRoot, {
                 timestamp: new Date().toISOString(),
-                sessionId: this.sessionManager.getCurrentSession()?.metadata.sessionId || 'unknown',
+                sessionId,
                 tool: result.tool,
                 context: 'Tool execution',
                 tags: [result.tool]
@@ -1600,7 +1677,7 @@ export class AutohandAgent {
             } else {
               await this.projectManager.recordFailure(this.runtime.workspaceRoot, {
                 timestamp: new Date().toISOString(),
-                sessionId: this.sessionManager.getCurrentSession()?.metadata.sessionId || 'unknown',
+                sessionId,
                 tool: result.tool,
                 error: result.error || 'Unknown error',
                 context: 'Tool execution',
@@ -1610,20 +1687,118 @@ export class AutohandAgent {
           }
         }
 
+        // After tool execution, add a hint to encourage the model to respond
+        // This helps models that might get stuck in tool-calling loops
+        if (iteration > 0 && results.length > 0 && results.every(r => r.success)) {
+          // Only add hint if we've been calling tools for a while without a response
+          const recentMessages = this.conversation.history().slice(-6);
+          const toolResultCount = recentMessages.filter(m => m.role === 'tool').length;
+          if (toolResultCount >= 2) {
+            this.conversation.addSystemNote(
+              '[Reminder] Tool execution complete. Please analyze the results and provide your response to the user\'s original question. Do not call more tools unless absolutely necessary.'
+            );
+          }
+        }
+
         continue;
       }
 
-      this.stopStatusUpdates();
-      this.runtime.spinner?.stop();
+      // CRITICAL: Detect when model says it will act but didn't include tool calls
+      // This catches the common failure mode: "Let me now update X..." with empty toolCalls
+      const pendingResponse = payload.finalResponse || payload.response || '';
+      if (this.expressesIntentToAct(pendingResponse) && !payload.toolCalls?.length) {
+        // Model said it will do something but didn't call the tool - force it to actually act
+        const intentRetryKey = '__intentRetryCount';
+        const intentRetries = ((this as any)[intentRetryKey] ?? 0) + 1;
+        (this as any)[intentRetryKey] = intentRetries;
 
-      if (showThinking && payload.thought) {
-        console.log(chalk.gray(`   ${payload.thought}`));
-        console.log();
+        if (intentRetries < 3) {
+          this.conversation.addSystemNote(
+            `[System] ERROR: You said "${pendingResponse.slice(0, 100)}..." but did NOT include any tool calls. ` +
+            `You MUST include the actual tool call in toolCalls array. ` +
+            `Do NOT say "let me update X" - actually call write_file/search_replace/apply_patch with the changes. ` +
+            `Try again with the actual tool call.`
+          );
+          continue; // Force another iteration
+        }
+        // After 3 retries, fall through and show the response (better than infinite loop)
+        (this as any)[intentRetryKey] = 0;
+      } else {
+        // Reset counter on successful response
+        (this as any).__intentRetryCount = 0;
       }
 
-      const rawResponse = (payload.finalResponse ?? payload.response ?? completion.content).trim();
-      const response = this.cleanupModelResponse(rawResponse);
-      console.log(response);
+      this.stopStatusUpdates();
+
+      // Extract the response - prioritize explicit response fields, but use thought as fallback
+      // when there are no tool calls (model might provide analysis in thought without finalResponse)
+      let rawResponse: string;
+      if (payload.finalResponse) {
+        rawResponse = payload.finalResponse;
+      } else if (payload.response) {
+        rawResponse = payload.response;
+      } else if (!payload.toolCalls?.length && payload.thought) {
+        // No tool calls and no explicit response, but has thought - use thought as the response
+        rawResponse = payload.thought;
+      } else {
+        // Last resort: try to extract something useful from raw content
+        const cleanedContent = this.cleanupModelResponse(completion.content);
+        // If cleaned content looks like JSON, it's not a real response
+        rawResponse = cleanedContent.startsWith('{') ? '' : cleanedContent;
+      }
+      const response = this.cleanupModelResponse(rawResponse.trim());
+
+      // If response is empty and we've done work (iteration > 0), try to get a proper response
+      // But limit retries to prevent infinite loops
+      if (!response && iteration > 0) {
+        // Track consecutive empty responses to prevent infinite loops
+        const consecutiveEmptyKey = '__consecutiveEmpty';
+        const consecutiveEmpty = ((this as any)[consecutiveEmptyKey] ?? 0) + 1;
+        (this as any)[consecutiveEmptyKey] = consecutiveEmpty;
+
+        if (consecutiveEmpty >= 3) {
+          // After 3 retries, force a fallback and break out
+          console.log(chalk.yellow('\n⚠ Model not providing response after multiple attempts. Showing available context.'));
+          const fallback = payload.thought || 'The model did not provide a clear response. Please try rephrasing your question.';
+          if (this.inkRenderer) {
+            this.inkRenderer.setWorking(false);
+            this.inkRenderer.setFinalResponse(fallback);
+          } else {
+            this.runtime.spinner?.stop();
+            console.log(fallback);
+          }
+          (this as any)[consecutiveEmptyKey] = 0;
+          return;
+        }
+
+        this.conversation.addSystemNote(
+          `[System] IMPORTANT: You must now provide your finalResponse. The user is waiting for your analysis. Do not call any more tools - just provide your answer in the finalResponse field.`
+        );
+        continue;
+      }
+
+      // Reset consecutive empty counter on success
+      (this as any).__consecutiveEmpty = 0;
+
+      if (this.inkRenderer) {
+        // InkRenderer: set final response
+        if (showThinking && payload.thought) {
+          this.inkRenderer.setThinking(payload.thought);
+        }
+        // Update final stats before stopping (session totals for completionStats)
+        this.inkRenderer.setElapsed(this.formatElapsedTime(this.sessionStartedAt));
+        this.inkRenderer.setTokens(this.formatTokens(this.sessionTokensUsed + this.totalTokensUsed));
+        this.inkRenderer.setWorking(false);
+        this.inkRenderer.setFinalResponse(response);
+      } else {
+        // Ora mode: stop spinner and output
+        this.runtime.spinner?.stop();
+        if (showThinking && payload.thought && !payload.thought.trim().startsWith('{')) {
+          console.log(chalk.gray(`Thinking: ${payload.thought}`));
+          console.log();
+        }
+        console.log(response);
+      }
       return;
     }
     this.stopStatusUpdates();
@@ -1641,8 +1816,27 @@ export class AutohandAgent {
    */
   private parseAssistantResponse(completion: LLMResponse): AssistantReactPayload {
     if (completion.toolCalls?.length) {
+      // When using native tool calls, content might be JSON or plain text
+      // Try to extract thought from JSON, otherwise use content as-is
+      let thought: string | undefined;
+      if (completion.content) {
+        const trimmed = completion.content.trim();
+        if (trimmed.startsWith('{')) {
+          // Try to parse JSON and extract thought field
+          try {
+            const parsed = JSON.parse(trimmed);
+            thought = typeof parsed.thought === 'string' ? parsed.thought : undefined;
+          } catch {
+            // Not valid JSON, use as plain text (but clean it)
+            thought = this.cleanupModelResponse(trimmed) || undefined;
+          }
+        } else {
+          // Plain text content
+          thought = trimmed || undefined;
+        }
+      }
       return {
-        thought: completion.content || undefined,
+        thought,
         toolCalls: completion.toolCalls.map(tc => ({
           id: tc.id,
           tool: tc.function.name as AgentAction['type'],
@@ -1703,6 +1897,15 @@ export class AutohandAgent {
       // If JSON doesn't match any known format, treat original raw as plain text
       return { finalResponse: raw.trim() };
     } catch {
+      // JSON parsing failed - try to extract thought from malformed JSON using regex
+      const thoughtMatch = raw.match(/"thought"\s*:\s*"([^"]+)"/);
+      if (thoughtMatch?.[1]) {
+        return { thought: thoughtMatch[1], finalResponse: thoughtMatch[1] };
+      }
+      // If it looks like JSON but we can't parse it, return empty to trigger retry
+      if (raw.trim().startsWith('{')) {
+        return {};
+      }
       return { finalResponse: raw.trim() };
     }
   }
@@ -1879,7 +2082,7 @@ export class AutohandAgent {
       '## CRITICAL: Single Source of Truth',
       'Never speculate about code you have not opened. If the user references a specific file (e.g., utils.ts), you MUST read it before explaining or proposing fixes.',
       'Do not rely on your training data for project-specific logic. Always inspect the actual code first.',
-      'If you need to edit a file, read it first. If you need to fix a bug, read the failing code first. No exceptions.',
+      'If you need to edit a file, read it first using read_file tool. If you need to fix a bug, read the failing code first. No exceptions.',
       '',
 
       // ═══════════════════════════════════════════════════════════════════
@@ -1948,12 +2151,39 @@ export class AutohandAgent {
       '',
       '### Response Format',
       'Always reply with structured JSON:',
-      '{"thought": "your reasoning here", "toolCalls": [{"tool": "tool_name", "args": {...}}], "finalResponse": "optional final message"}',
+      '{"thought": "your reasoning here", "toolCalls": [{"tool": "tool_name", "args": {...}}], "finalResponse": "your answer to the user"}',
       '',
-      '- If no tools are required, set toolCalls to an empty array and provide the finalResponse.',
-      '- When tools are needed, omit finalResponse until tool outputs (role=tool) arrive, then continue reasoning.',
+      'Response Guidelines:',
+      '- If no tools are needed, set toolCalls to [] and provide finalResponse directly.',
+      '- When calling tools, you may omit finalResponse - you will see the tool outputs next.',
+      '- CRITICAL: After receiving tool outputs (role=tool messages), you MUST:',
+      '  1. Analyze the results in context of the user\'s original request',
+      '  2. Provide a finalResponse that directly answers the user\'s question',
+      '  3. Only call more tools if genuinely needed to complete the task',
+      '- If the user asked a question (e.g., "check for typos", "find X", "tell me about Y"),',
+      '  you MUST provide an answer in finalResponse after gathering the necessary information.',
+      '- Do NOT stop after showing tool output - always conclude with analysis/answer.',
+      '- CRITICAL: If you intend to edit/write/create a file, PUT THE TOOL CALL IN toolCalls.',
+      '  Do NOT write "let me update X" in finalResponse without the actual tool call.',
       '- Never include markdown fences (```json) around the JSON.',
       '- Never hallucinate tools that do not exist.',
+      '',
+      '### Tool Call Examples',
+      'Always include ALL required parameters. Here are correct examples:',
+      '',
+      '// run_command - MUST include "command" argument:',
+      '{"tool": "run_command", "args": {"command": "npm", "args": ["test"]}}',
+      '{"tool": "run_command", "args": {"command": "bun", "args": ["run", "build"]}}',
+      '{"tool": "run_command", "args": {"command": "git", "args": ["status"]}}',
+      '',
+      '// read_file - MUST include "path" argument:',
+      '{"tool": "read_file", "args": {"path": "src/index.ts"}}',
+      '',
+      '// write_file - MUST include "path" and "contents" arguments:',
+      '{"tool": "write_file", "args": {"path": "src/utils.ts", "contents": "export const foo = 1;"}}',
+      '',
+      '// custom_command - MUST include "name" and "command" arguments:',
+      '{"tool": "custom_command", "args": {"name": "lint_fix", "command": "eslint", "args": ["--fix", "."]}}',
       '',
 
       // ═══════════════════════════════════════════════════════════════════
@@ -2037,6 +2267,15 @@ export class AutohandAgent {
       '- You have verified your changes with git_diff or similar',
       '',
       'Do not stop until all criteria are met. Do not ask the user to complete your work.',
+      '',
+      '## CRITICAL: Actions vs Words',
+      'NEVER say "let me update X" or "I will now edit Y" in finalResponse without ACTUALLY calling the tool.',
+      'If you intend to make a change, you MUST include the tool call in toolCalls array.',
+      'BAD: finalResponse says "Let me now update README.md" → but no write_file/search_replace in toolCalls',
+      'GOOD: toolCalls contains the actual edit → finalResponse summarizes what was done',
+      '',
+      'If you find yourself writing "let me...", "I will now...", "next I\'ll..." in finalResponse,',
+      'STOP and add the actual tool call instead. Actions speak louder than words.',
       '',
       '## Completion Summary',
       'When finishing a multi-step task, ALWAYS provide a clear summary that includes:',
@@ -2276,6 +2515,32 @@ export class AutohandAgent {
     return null;
   }
 
+  /**
+   * Detect if response text expresses intent to perform an action without having done it.
+   * This catches phrases like "Let me update...", "I will now edit...", "Next I'll create..."
+   */
+  private expressesIntentToAct(text: string): boolean {
+    if (!text) return false;
+    const lower = text.toLowerCase();
+
+    // Patterns that indicate intent to perform a file operation
+    const intentPatterns = [
+      /\b(let me|i('ll| will)|now i('ll| will)|i('m| am) going to|let's|i need to|i should|i can now)\b.{0,30}\b(update|edit|modify|change|create|write|add|remove|delete|fix|refactor|implement|apply|patch)/i,
+      /\b(updating|editing|modifying|creating|writing|adding|removing|fixing|refactoring|implementing)\b.{0,20}\b(the file|readme|config|code|function|component)/i,
+      /\blet me (now )?make (the|these|those) (changes?|updates?|modifications?|edits?)/i,
+      /\bi('ll| will) (proceed|go ahead|start|begin) (to|and|with) (update|edit|modify|change|create|write)/i,
+      /\bnow (let me|i('ll| will)|i can) (update|edit|modify|create|write|add|fix)/i,
+    ];
+
+    for (const pattern of intentPatterns) {
+      if (pattern.test(text)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   private cleanupModelResponse(content: string): string {
     let cleaned = content;
 
@@ -2325,6 +2590,173 @@ export class AutohandAgent {
       default:
         return 'List';
     }
+  }
+
+  /**
+   * Format tool results as a single batched output string.
+   * This reduces flicker by consolidating multiple console.log calls into one.
+   */
+  private formatToolResultsBatch(
+    results: Array<{ tool: AgentAction['type']; success: boolean; output?: string; error?: string }>,
+    charLimit: number,
+    toolCalls?: ToolCallRequest[],
+    thought?: string
+  ): string {
+    const lines: string[] = [];
+
+    // Show thought before first tool if present (skip JSON)
+    if (thought && !thought.trim().startsWith('{')) {
+      lines.push(chalk.white(thought));
+      lines.push('');
+    }
+
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      const content = result.success
+        ? result.output ?? '(no output)'
+        : result.error ?? result.output ?? 'Tool failed without error message';
+
+      // Extract args from tool call
+      const call = toolCalls?.[i];
+      const filePath = call?.args?.path as string | undefined;
+      const command = call?.args?.command as string | undefined;
+      const commandArgs = call?.args?.args as string[] | undefined;
+
+      const display = result.success
+        ? formatToolOutputForDisplay({ tool: result.tool, content, charLimit, filePath, command, commandArgs })
+        : { output: content, truncated: false, totalChars: content.length };
+
+      const icon = result.success ? chalk.green('✔') : chalk.red('✖');
+      lines.push(`${icon} ${chalk.bold(result.tool)}`);
+
+      if (content) {
+        if (result.success) {
+          lines.push(chalk.gray(display.output));
+        } else {
+          // Error box
+          lines.push(chalk.red('┌─ Error ─────────────────────────────────'));
+          lines.push(chalk.red('│ ') + chalk.white(content));
+          lines.push(chalk.red('└─────────────────────────────────────────'));
+        }
+      }
+      lines.push(''); // blank line between tools
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Initialize the UI for a new instruction.
+   * Uses InkRenderer when enabled, otherwise falls back to ora spinner.
+   */
+  private initializeUI(abortController?: AbortController, onCancel?: () => void): void {
+    if (this.useInkRenderer) {
+      // Create and start InkRenderer
+      this.inkRenderer = createInkRenderer({
+        onInstruction: (text) => {
+          // Queue the instruction in InkRenderer (it manages its own queue)
+          this.inkRenderer?.addQueuedInstruction(text);
+        },
+        onEscape: () => {
+          // ESC cancels the current operation
+          if (abortController && !abortController.signal.aborted) {
+            abortController.abort();
+            onCancel?.();
+          }
+        },
+        onCtrlC: () => {
+          // Ctrl+C is handled by InkRenderer (first warns, second exits)
+          // We just need to abort on the second one
+        },
+        enableQueueInput: this.runtime.config.agent?.enableRequestQueue !== false
+      });
+      this.inkRenderer.start();
+      this.inkRenderer.setWorking(true, 'Gathering context...');
+      this.runtime.inkRenderer = this.inkRenderer;
+    } else {
+      // Use ora spinner
+      const spinner = ora({
+        text: 'Gathering context...',
+        spinner: 'dots'
+      }).start();
+      this.runtime.spinner = spinner;
+    }
+  }
+
+  /**
+   * Update the UI status text.
+   */
+  private setUIStatus(status: string): void {
+    if (this.inkRenderer) {
+      this.inkRenderer.setStatus(status);
+    } else if (this.runtime.spinner) {
+      this.runtime.spinner.text = status;
+    }
+  }
+
+  /**
+   * Stop the UI and show completion state.
+   */
+  private stopUI(failed = false, message?: string): void {
+    if (this.inkRenderer) {
+      // Update final stats before stopping (session totals for completionStats)
+      this.inkRenderer.setElapsed(this.formatElapsedTime(this.sessionStartedAt));
+      this.inkRenderer.setTokens(this.formatTokens(this.sessionTokensUsed + this.totalTokensUsed));
+      this.inkRenderer.setWorking(false);
+      if (message) {
+        this.inkRenderer.setFinalResponse(message);
+      }
+      // Don't stop InkRenderer here - let it stay for final response display
+    } else if (this.runtime.spinner) {
+      if (failed && message) {
+        this.runtime.spinner.fail(message);
+      } else {
+        this.runtime.spinner.stop();
+      }
+    }
+  }
+
+  /**
+   * Clean up the UI completely.
+   * Preserves any queued instructions from InkRenderer before stopping.
+   */
+  private cleanupUI(): void {
+    if (this.inkRenderer) {
+      // Preserve queued instructions before stopping
+      while (this.inkRenderer.hasQueuedInstructions()) {
+        const instruction = this.inkRenderer.dequeueInstruction();
+        if (instruction) {
+          this.pendingInkInstructions.push(instruction);
+        }
+      }
+      this.inkRenderer.stop();
+      this.inkRenderer = null;
+      this.runtime.inkRenderer = undefined;
+    }
+    if (this.runtime.spinner) {
+      this.runtime.spinner.stop();
+      this.runtime.spinner = undefined;
+    }
+  }
+
+  /**
+   * Add tool output to the UI.
+   */
+  private addUIToolOutput(tool: string, success: boolean, output: string): void {
+    if (this.inkRenderer) {
+      this.inkRenderer.addToolOutput(tool, success, output);
+    }
+    // For ora mode, we use console.log (handled separately)
+  }
+
+  /**
+   * Add batched tool outputs to the UI.
+   */
+  private addUIToolOutputs(outputs: Array<{ tool: string; success: boolean; output: string; thought?: string }>): void {
+    if (this.inkRenderer) {
+      this.inkRenderer.addToolOutputs(outputs);
+    }
+    // For ora mode, we use console.log (handled separately)
   }
 
   private async collectContextSummary(): Promise<{ workspaceRoot: string; gitStatus?: string; recentFiles: string[] }> {
@@ -2502,11 +2934,14 @@ export class AutohandAgent {
     const label = this.describeInstruction(instruction);
     const startedAt = Date.now();
     const update = () => {
-      if (!this.runtime.spinner) {
-        return;
-      }
       const elapsed = this.formatElapsedTime(startedAt);
-      this.runtime.spinner.text = `Preparing to ${label} (${elapsed} • esc to interrupt)`;
+      const status = `Preparing to ${label} (${elapsed} • esc to interrupt)`;
+      if (this.inkRenderer) {
+        this.inkRenderer.setStatus(status);
+        this.inkRenderer.setElapsed(elapsed);
+      } else if (this.runtime.spinner) {
+        this.runtime.spinner.text = status;
+      }
     };
     update();
     let stopped = false;
@@ -2555,13 +2990,25 @@ export class AutohandAgent {
    * Force an immediate spinner render with current state
    */
   private forceRenderSpinner(): void {
-    if (!this.runtime.spinner || !this.taskStartedAt) return;
+    if (!this.taskStartedAt) return;
 
     const elapsed = this.formatElapsedTime(this.taskStartedAt);
-    const tokens = this.formatTokens(this.totalTokensUsed);
-    const queueCount = this.persistentInput.getQueueLength();
+    // Show session total tokens (includes current task + previous tasks in session)
+    const sessionTotal = this.sessionTokensUsed + this.totalTokensUsed;
+    const tokens = this.formatTokens(sessionTotal);
+    const queueCount = this.inkRenderer?.getQueueCount() ?? this.persistentInput.getQueueLength();
     const queueHint = queueCount > 0 ? ` [${queueCount} queued]` : '';
     const statusLine = `Working... (esc to interrupt · ${elapsed} · ${tokens}${queueHint})`;
+
+    if (this.inkRenderer) {
+      // InkRenderer handles its own state updates
+      this.inkRenderer.setStatus('Working...');
+      this.inkRenderer.setElapsed(elapsed);
+      this.inkRenderer.setTokens(tokens);
+      return;
+    }
+
+    if (!this.runtime.spinner) return;
 
     const inputPreview = this.queueInput.length > 40
       ? '...' + this.queueInput.slice(-37)
@@ -2632,9 +3079,8 @@ export class AutohandAgent {
       ? Math.max(0, Math.min(100, this.contextPercentLeft))
       : 100;
 
-    const queueStatus = this.persistentInput.hasQueued()
-      ? ` · ${this.persistentInput.getQueueLength()} queued`
-      : '';
+    const queueCount = this.inkRenderer?.getQueueCount() ?? this.persistentInput.getQueueLength();
+    const queueStatus = queueCount > 0 ? ` · ${queueCount} queued` : '';
 
     return `${percent}% context left · / for commands · @ to mention files${queueStatus}`;
   }
@@ -2692,35 +3138,42 @@ export class AutohandAgent {
       return true;
     }
 
-    // For external callback mode, skip terminal management and use HTTP callback directly
     if (isExternalCallbackEnabled()) {
       return unifiedConfirm(message);
     }
 
-    // Stop status updates to prevent terminal conflicts with enquirer
     this.stopStatusUpdates();
 
-    // Stop the spinner to clear terminal state
     const spinnerWasSpinning = this.runtime.spinner?.isSpinning;
     if (spinnerWasSpinning) {
       this.runtime.spinner?.stop();
     }
 
-    // Pause persistent input so enquirer can work properly
     this.persistentInput.pause();
+
+    if (this.inkRenderer) {
+      this.inkRenderer.pause();
+    }
+
+    // Reset stdin to cooked mode for enquirer
+    const wasRaw = process.stdin.isTTY && (process.stdin as any).isRaw;
+    if (wasRaw) {
+      process.stdin.setRawMode(false);
+    }
 
     try {
       return await unifiedConfirm(message);
     } finally {
-      // Resume persistent input after confirmation
+      if (this.inkRenderer) {
+        this.inkRenderer.resume();
+      }
+
       this.persistentInput.resume();
 
-      // Restart spinner if it was spinning
       if (spinnerWasSpinning && this.runtime.spinner) {
         this.runtime.spinner.start();
       }
 
-      // Resume status updates
       this.startStatusUpdates();
     }
   }

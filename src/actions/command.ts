@@ -49,8 +49,11 @@ export function runCommand(
   cwd: string,
   options: RunCommandOptions = {}
 ): Promise<CommandResult> {
+  if (!cmd || typeof cmd !== 'string') {
+    return Promise.reject(new Error('Command is required and must be a string'));
+  }
+
   return new Promise((resolve, reject) => {
-    // Resolve working directory
     const workDir = options.directory
       ? join(cwd, options.directory)
       : cwd;

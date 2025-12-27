@@ -161,7 +161,7 @@ Configuração da API OpenAI.
   "ui": {
     "theme": "dark",
     "autoConfirm": false,
-    "readFileCharLimit": 50000,
+    "readFileCharLimit": 300,
     "showCompletionNotification": true,
     "showThinking": true
   }
@@ -172,7 +172,7 @@ Configuração da API OpenAI.
 |-------|------|--------|-----------|
 | `theme` | `"dark"` \| `"light"` | `"dark"` | Tema de cores para saída do terminal |
 | `autoConfirm` | boolean | `false` | Pular prompts de confirmação para operações seguras |
-| `readFileCharLimit` | number | `50000` | Máximo de caracteres para ler de um único arquivo |
+| `readFileCharLimit` | number | `300` | Máximo de caracteres exibidos em tools de leitura/busca (o conteúdo completo ainda é enviado ao modelo) |
 | `showCompletionNotification` | boolean | `true` | Mostrar notificação do sistema quando a tarefa terminar |
 | `showThinking` | boolean | `true` | Exibir o raciocínio/processo de pensamento do LLM |
 
