@@ -329,7 +329,10 @@ export class AutohandAgent {
     await this.runInteractiveLoop();
   }
 
-  async runCommandMode(instruction: string): Promise<void> {
+  /**
+   * Initialize the agent for RPC mode (no interactive loop or command mode)
+   */
+  async initializeForRPC(): Promise<void> {
     await this.sessionManager.initialize();
     await this.projectManager.initialize();
     await this.memoryManager.initialize();
@@ -350,7 +353,10 @@ export class AutohandAgent {
         this.activeProvider
       );
     }
+  }
 
+  async runCommandMode(instruction: string): Promise<void> {
+    await this.initializeForRPC();
     await this.runInstruction(instruction);
 
     if (this.runtime.options.autoCommit) {

@@ -85,6 +85,240 @@ export const darkTheme: ThemeDefinition = {
 };
 
 /**
+ * Dracula theme - popular dark theme with vibrant colors.
+ * Based on the official Dracula color palette.
+ */
+export const draculaTheme: ThemeDefinition = {
+  name: 'dracula',
+  vars: {
+    // Dracula palette
+    background: '#282a36',
+    currentLine: '#44475a',
+    foreground: '#f8f8f2',
+    comment: '#6272a4',
+    cyan: '#8be9fd',
+    green: '#50fa7b',
+    orange: '#ffb86c',
+    pink: '#ff79c6',
+    purple: '#bd93f9',
+    red: '#ff5555',
+    yellow: '#f1fa8c',
+    // Additional grays
+    gray100: '#f8f8f2',
+    gray200: '#e6e6e6',
+    gray300: '#bfbfbf',
+    gray400: '#6272a4',
+    gray500: '#44475a',
+    gray600: '#383a46',
+    gray700: '#282a36',
+    gray800: '#21222c',
+    gray900: '#191a21',
+  },
+  colors: {
+    // Core UI
+    accent: 'purple',
+    border: 'comment',
+    borderAccent: 'purple',
+    borderMuted: 'currentLine',
+    success: 'green',
+    error: 'red',
+    warning: 'orange',
+    muted: 'comment',
+    dim: 'currentLine',
+    text: 'foreground',
+    // Backgrounds & Content
+    userMessageBg: 'currentLine',
+    userMessageText: 'foreground',
+    toolPendingBg: 'gray800',
+    toolSuccessBg: '#1e3a1e',
+    toolErrorBg: '#3a1e1e',
+    toolTitle: 'purple',
+    toolOutput: 'foreground',
+    // Diff Colors
+    diffAdded: 'green',
+    diffRemoved: 'red',
+    diffContext: 'comment',
+    // Syntax Highlighting
+    syntaxComment: 'comment',
+    syntaxKeyword: 'pink',
+    syntaxFunction: 'green',
+    syntaxVariable: 'foreground',
+    syntaxString: 'yellow',
+    syntaxNumber: 'purple',
+    syntaxType: 'cyan',
+    syntaxOperator: 'pink',
+    syntaxPunctuation: 'foreground',
+    // Markdown
+    mdHeading: 'purple',
+    mdLink: 'cyan',
+    mdLinkUrl: 'comment',
+    mdCode: 'green',
+    mdCodeBlock: 'foreground',
+    mdCodeBlockBorder: 'comment',
+    mdQuote: 'yellow',
+    mdQuoteBorder: 'comment',
+    mdHr: 'comment',
+    mdListBullet: 'cyan',
+  },
+};
+
+/**
+ * Sandy theme - warm, earthy tones inspired by desert landscapes.
+ * Perfect for a cozy, muted aesthetic.
+ */
+export const sandyTheme: ThemeDefinition = {
+  name: 'sandy',
+  vars: {
+    // Sandy/desert palette
+    sand: '#e8d5b7',
+    sandDark: '#d4c4a8',
+    sandLight: '#f5ece0',
+    terracotta: '#c45c3e',
+    rust: '#a04030',
+    cactus: '#6b8e23',
+    sage: '#8fbc8f',
+    clay: '#8b6914',
+    dune: '#c4a35a',
+    stone: '#7a6a5a',
+    adobe: '#bc8f8f',
+    // Grays (warm-tinted)
+    gray100: '#f5f0e8',
+    gray200: '#e8e0d5',
+    gray300: '#d5c8b8',
+    gray400: '#a89888',
+    gray500: '#8a7a6a',
+    gray600: '#6a5a4a',
+    gray700: '#4a3a2a',
+    gray800: '#3a2a1a',
+    gray900: '#2a1a0a',
+  },
+  colors: {
+    // Core UI
+    accent: 'terracotta',
+    border: 'stone',
+    borderAccent: 'terracotta',
+    borderMuted: 'gray600',
+    success: 'cactus',
+    error: 'rust',
+    warning: 'dune',
+    muted: 'stone',
+    dim: 'gray600',
+    text: 'gray100',
+    // Backgrounds & Content
+    userMessageBg: 'gray700',
+    userMessageText: 'gray100',
+    toolPendingBg: 'gray800',
+    toolSuccessBg: '#2a3a2a',
+    toolErrorBg: '#3a2a2a',
+    toolTitle: 'terracotta',
+    toolOutput: 'gray300',
+    // Diff Colors
+    diffAdded: 'cactus',
+    diffRemoved: 'rust',
+    diffContext: 'stone',
+    // Syntax Highlighting
+    syntaxComment: 'stone',
+    syntaxKeyword: 'terracotta',
+    syntaxFunction: 'cactus',
+    syntaxVariable: 'dune',
+    syntaxString: 'sage',
+    syntaxNumber: 'clay',
+    syntaxType: 'adobe',
+    syntaxOperator: 'gray300',
+    syntaxPunctuation: 'gray400',
+    // Markdown
+    mdHeading: 'terracotta',
+    mdLink: 'cactus',
+    mdLinkUrl: 'stone',
+    mdCode: 'dune',
+    mdCodeBlock: 'gray200',
+    mdCodeBlockBorder: 'stone',
+    mdQuote: 'sage',
+    mdQuoteBorder: 'stone',
+    mdHr: 'gray600',
+    mdListBullet: 'terracotta',
+  },
+};
+
+/**
+ * TUI theme - New Zealand inspired colors for terminal.
+ * Features silver fern greens, paua shell blues/purples, and Maori-inspired accents.
+ */
+export const tuiTheme: ThemeDefinition = {
+  name: 'tui',
+  vars: {
+    // New Zealand palette
+    silverFern: '#7fb069',      // Silver fern green
+    fernDark: '#4a7c3f',        // Dark fern
+    paua: '#4b0082',            // Paua shell purple
+    pauaBlue: '#1e90ff',        // Paua shell blue
+    pauaTeal: '#20b2aa',        // Paua teal highlights
+    kowhai: '#ffd700',          // Kowhai yellow
+    pohutukawa: '#dc143c',      // Pohutukawa red
+    kiwi: '#8b4513',            // Kiwi brown
+    sky: '#87ceeb',             // NZ sky blue
+    snow: '#f0f8ff',            // Southern Alps snow
+    obsidian: '#1a1a2e',        // Maori obsidian
+    // Grays (cool-tinted)
+    gray100: '#e8f0f0',
+    gray200: '#c0d0d8',
+    gray300: '#90a8b0',
+    gray400: '#607880',
+    gray500: '#405058',
+    gray600: '#303840',
+    gray700: '#202830',
+    gray800: '#151c22',
+    gray900: '#0a1015',
+  },
+  colors: {
+    // Core UI
+    accent: 'pauaBlue',
+    border: 'gray500',
+    borderAccent: 'pauaTeal',
+    borderMuted: 'gray600',
+    success: 'silverFern',
+    error: 'pohutukawa',
+    warning: 'kowhai',
+    muted: 'gray400',
+    dim: 'gray600',
+    text: 'snow',
+    // Backgrounds & Content
+    userMessageBg: 'gray700',
+    userMessageText: 'snow',
+    toolPendingBg: 'gray800',
+    toolSuccessBg: '#1a2a1a',
+    toolErrorBg: '#2a1a1a',
+    toolTitle: 'pauaTeal',
+    toolOutput: 'gray200',
+    // Diff Colors
+    diffAdded: 'silverFern',
+    diffRemoved: 'pohutukawa',
+    diffContext: 'gray400',
+    // Syntax Highlighting
+    syntaxComment: 'gray400',
+    syntaxKeyword: 'paua',
+    syntaxFunction: 'pauaBlue',
+    syntaxVariable: 'pauaTeal',
+    syntaxString: 'silverFern',
+    syntaxNumber: 'kowhai',
+    syntaxType: 'sky',
+    syntaxOperator: 'gray200',
+    syntaxPunctuation: 'gray300',
+    // Markdown
+    mdHeading: 'pauaBlue',
+    mdLink: 'pauaTeal',
+    mdLinkUrl: 'gray400',
+    mdCode: 'silverFern',
+    mdCodeBlock: 'gray200',
+    mdCodeBlockBorder: 'gray500',
+    mdQuote: 'kowhai',
+    mdQuoteBorder: 'gray500',
+    mdHr: 'gray600',
+    mdListBullet: 'pauaTeal',
+  },
+};
+
+/**
  * Light theme - optimized for light terminal backgrounds.
  * Uses darker, more saturated colors for visibility against light backgrounds.
  */
@@ -168,6 +402,9 @@ export const lightTheme: ThemeDefinition = {
 export const builtInThemes: Record<string, ThemeDefinition> = {
   dark: darkTheme,
   light: lightTheme,
+  dracula: draculaTheme,
+  sandy: sandyTheme,
+  tui: tuiTheme,
 };
 
 /**

@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import enquirer from 'enquirer';
 import { diffLines } from 'diff';
 import { highlightLine, detectLanguage } from '../ui/syntaxHighlight.js';
+import { getTheme, isThemeInitialized, hexToRgb } from '../ui/theme/index.js';
 import { addDependency, removeDependency } from '../actions/dependencies.js';
 import { runCommand } from '../actions/command.js';
 import { listDirectoryTree, fileStats as getFileStats, checksumFile } from '../actions/metadata.js';
@@ -1452,8 +1453,11 @@ export class ActionExecutor {
    * Colorize raw git diff output with green for additions and red for removals
    */
   private colorizeGitDiff(diffOutput: string): string {
+    const useTheme = isThemeInitialized();
+    const theme = useTheme ? getTheme() : null;
+
     if (!diffOutput || diffOutput === 'No diff') {
-      return chalk.gray('No changes');
+      return theme ? theme.fg('muted', 'No changes') : chalk.gray('No changes');
     }
 
     const termWidth = process.stdout.columns || 100;
@@ -1464,43 +1468,52 @@ export class ActionExecutor {
     let additions = 0;
     let deletions = 0;
 
+    // Get theme colors if available
+    const addedColor = theme?.getColor('diffAdded') || '#4caf50';
+    const removedColor = theme?.getColor('diffRemoved') || '#f44336';
+    const contextColor = theme?.getColor('diffContext') || '#9e9e9e';
+    const accentColor = theme?.getColor('accent') || '#00bcd4';
+
+    // Calculate dim background colors from theme
+    const addedRgb = hexToRgb(addedColor);
+    const removedRgb = hexToRgb(removedColor);
+    const addBgR = addedRgb ? Math.floor(addedRgb.r * 0.15) : 30;
+    const addBgG = addedRgb ? Math.floor(addedRgb.g * 0.2) : 50;
+    const addBgB = addedRgb ? Math.floor(addedRgb.b * 0.15) : 30;
+    const remBgR = removedRgb ? Math.floor(removedRgb.r * 0.25) : 60;
+    const remBgG = removedRgb ? Math.floor(removedRgb.g * 0.15) : 30;
+    const remBgB = removedRgb ? Math.floor(removedRgb.b * 0.15) : 30;
+
     for (const line of lines) {
       if (line.startsWith('+++') || line.startsWith('---')) {
-        // File headers
         colorizedLines.push(chalk.bold(line));
       } else if (line.startsWith('@@')) {
-        // Hunk headers
-        colorizedLines.push(chalk.cyan(line));
+        colorizedLines.push(chalk.hex(accentColor)(line));
       } else if (line.startsWith('+')) {
-        // Addition line
         additions++;
         const content = line.slice(1);
-        const prefix = chalk.bgGreen.black(' + ');
-        const lineContent = chalk.bgRgb(30, 50, 30)(` ${content} `.padEnd(Math.max(termWidth - 5, content.length + 2)));
+        const prefix = chalk.bgHex(addedColor).black(' + ');
+        const lineContent = chalk.bgRgb(addBgR, addBgG, addBgB)(` ${content} `.padEnd(Math.max(termWidth - 5, content.length + 2)));
         colorizedLines.push(prefix + lineContent);
       } else if (line.startsWith('-')) {
-        // Deletion line
         deletions++;
         const content = line.slice(1);
-        const prefix = chalk.bgRed.white(' - ');
-        const lineContent = chalk.bgRgb(60, 30, 30)(` ${content} `.padEnd(Math.max(termWidth - 5, content.length + 2)));
+        const prefix = chalk.bgHex(removedColor).white(' - ');
+        const lineContent = chalk.bgRgb(remBgR, remBgG, remBgB)(` ${content} `.padEnd(Math.max(termWidth - 5, content.length + 2)));
         colorizedLines.push(prefix + lineContent);
       } else if (line.startsWith('diff --git')) {
-        // Diff header
-        colorizedLines.push(chalk.bold.cyan(line));
+        colorizedLines.push(chalk.bold.hex(accentColor)(line));
       } else if (line.startsWith('index ') || line.startsWith('new file') || line.startsWith('deleted file')) {
-        // Index/mode lines
-        colorizedLines.push(chalk.gray(line));
+        colorizedLines.push(chalk.hex(contextColor)(line));
       } else {
-        // Context lines
-        colorizedLines.push(chalk.gray('   ') + line);
+        colorizedLines.push(chalk.hex(contextColor)('   ') + line);
       }
     }
 
     // Add stats header
     const addText = additions === 1 ? '1 line' : `${additions} lines`;
     const delText = deletions === 1 ? '1 line' : `${deletions} lines`;
-    const statsLine = chalk.gray(`  Added ${chalk.green(addText)}, removed ${chalk.red(delText)}\n`);
+    const statsLine = chalk.hex(contextColor)(`  Added ${chalk.hex(addedColor)(addText)}, removed ${chalk.hex(removedColor)(delText)}\n`);
 
     return statsLine + colorizedLines.join('\n');
   }
@@ -1549,6 +1562,10 @@ export class ActionExecutor {
     const lang = filePath ? detectLanguage(filePath) : 'text';
     const shouldHighlight = lang !== 'text';
 
+    // Check if theme is available
+    const useTheme = isThemeInitialized();
+    const theme = useTheme ? getTheme() : null;
+
     // Calculate stats
     let additions = 0;
     let deletions = 0;
@@ -1560,10 +1577,14 @@ export class ActionExecutor {
 
     const termWidth = process.stdout.columns || 100;
 
-    // Header with stats
+    // Header with stats using theme colors
     const addText = additions === 1 ? '1 line' : `${additions} lines`;
     const delText = deletions === 1 ? '1 line' : `${deletions} lines`;
-    console.log(chalk.gray(`  Added ${chalk.green(addText)}, removed ${chalk.red(delText)}`));
+    if (theme) {
+      console.log(theme.fg('muted', `  Added ${theme.fg('diffAdded', addText)}, removed ${theme.fg('diffRemoved', delText)}`));
+    } else {
+      console.log(chalk.gray(`  Added ${chalk.green(addText)}, removed ${chalk.red(delText)}`));
+    }
 
     interface DiffHunk {
       oldStart: number;
@@ -1657,16 +1678,47 @@ export class ActionExecutor {
         // Apply syntax highlighting to the line content
         const highlighted = shouldHighlight ? highlightLine(change.line, lang) : change.line;
 
-        if (change.type === 'add') {
-          const prefix = chalk.bgGreen.black(` ${lineNumStr} + `);
-          const content = chalk.bgRgb(30, 50, 30)(` ${highlighted} `.padEnd(Math.max(termWidth - 10, change.line.length + 2)));
-          console.log(prefix + content);
-        } else if (change.type === 'remove') {
-          const prefix = chalk.bgRed.white(` ${lineNumStr} - `);
-          const content = chalk.bgRgb(60, 30, 30)(` ${highlighted} `.padEnd(Math.max(termWidth - 10, change.line.length + 2)));
-          console.log(prefix + content);
+        if (theme) {
+          // Use theme colors
+          const addedColor = theme.getColor('diffAdded');
+          const removedColor = theme.getColor('diffRemoved');
+          const contextColor = theme.getColor('diffContext');
+
+          if (change.type === 'add') {
+            // Green prefix + dim green background for content
+            const addedRgb = hexToRgb(addedColor);
+            const bgR = addedRgb ? Math.floor(addedRgb.r * 0.15) : 30;
+            const bgG = addedRgb ? Math.floor(addedRgb.g * 0.2) : 50;
+            const bgB = addedRgb ? Math.floor(addedRgb.b * 0.15) : 30;
+            const prefix = chalk.bgHex(addedColor).black(` ${lineNumStr} + `);
+            const content = chalk.bgRgb(bgR, bgG, bgB)(` ${highlighted} `.padEnd(Math.max(termWidth - 10, change.line.length + 2)));
+            console.log(prefix + content);
+          } else if (change.type === 'remove') {
+            // Red prefix + dim red background for content
+            const removedRgb = hexToRgb(removedColor);
+            const bgR = removedRgb ? Math.floor(removedRgb.r * 0.25) : 60;
+            const bgG = removedRgb ? Math.floor(removedRgb.g * 0.15) : 30;
+            const bgB = removedRgb ? Math.floor(removedRgb.b * 0.15) : 30;
+            const prefix = chalk.bgHex(removedColor).white(` ${lineNumStr} - `);
+            const content = chalk.bgRgb(bgR, bgG, bgB)(` ${highlighted} `.padEnd(Math.max(termWidth - 10, change.line.length + 2)));
+            console.log(prefix + content);
+          } else {
+            // Context lines
+            console.log(chalk.hex(contextColor)(` ${lineNumStr}   `) + ` ${highlighted}`);
+          }
         } else {
-          console.log(chalk.gray(` ${lineNumStr}   `) + ` ${highlighted}`);
+          // Fallback to hardcoded chalk colors
+          if (change.type === 'add') {
+            const prefix = chalk.bgGreen.black(` ${lineNumStr} + `);
+            const content = chalk.bgRgb(30, 50, 30)(` ${highlighted} `.padEnd(Math.max(termWidth - 10, change.line.length + 2)));
+            console.log(prefix + content);
+          } else if (change.type === 'remove') {
+            const prefix = chalk.bgRed.white(` ${lineNumStr} - `);
+            const content = chalk.bgRgb(60, 30, 30)(` ${highlighted} `.padEnd(Math.max(termWidth - 10, change.line.length + 2)));
+            console.log(prefix + content);
+          } else {
+            console.log(chalk.gray(` ${lineNumStr}   `) + ` ${highlighted}`);
+          }
         }
       }
     }

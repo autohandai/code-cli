@@ -103,6 +103,9 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
     // Create agent
     agent = new AutohandAgent(provider, files, runtime);
 
+    // Initialize agent for RPC mode (sets up conversation, sessions, etc.)
+    await agent.initializeForRPC();
+
     // Get conversation manager
     const conversation = ConversationManager.getInstance();
 
