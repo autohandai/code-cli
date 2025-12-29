@@ -122,13 +122,19 @@ export class AutohandAgent {
     this.toolsRegistry = new ToolsRegistry();
     this.memoryManager = new MemoryManager(runtime.workspaceRoot);
 
-    // Create permission manager with persistence callback
+    // Create permission manager with persistence callback and local project support
     this.permissionManager = new PermissionManager({
       settings: runtime.config.permissions,
+      workspaceRoot: runtime.workspaceRoot,
       onPersist: async (settings) => {
         runtime.config.permissions = settings;
         await saveConfig(runtime.config);
       }
+    });
+
+    // Initialize local project settings (async, but non-blocking)
+    this.permissionManager.initLocalSettings().catch(() => {
+      // Ignore errors - local settings are optional
     });
 
     this.actionExecutor = new ActionExecutor({

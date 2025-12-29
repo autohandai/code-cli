@@ -751,7 +751,8 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
         }
       },
       required: ['file_path', 'edits']
-    }
+    },
+    requiresApproval: true
   },
   {
     name: 'todo_write',
@@ -1093,6 +1094,9 @@ export class ToolManager {
           message = `Delete this path?\n  ${call.args.path}`;
         } else if (call.tool === 'write_file' && call.args?.path) {
           message = `Write to this file?\n  ${call.args.path}`;
+        } else if (call.tool === 'multi_file_edit' && call.args?.file_path) {
+          const editCount = Array.isArray(call.args.edits) ? call.args.edits.length : 0;
+          message = `Edit this file (${editCount} change${editCount === 1 ? '' : 's'})?\n  ${call.args.file_path}`;
         }
 
         const confirmed = await this.confirmApproval(message);

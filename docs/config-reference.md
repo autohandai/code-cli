@@ -297,6 +297,35 @@ Fine-grained permission rules.
 |------|---------|-------------|
 | boolean | `true` | Remember approval decisions for the session |
 
+### Local Project Permissions
+
+Each project can have its own permission settings that override the global config. These are stored in `.autohand/settings.local.json` in your project root.
+
+When you approve a file operation (edit, write, delete), it's automatically saved to this file so you won't be asked again for the same operation in this project.
+
+```json
+{
+  "version": 1,
+  "permissions": {
+    "whitelist": [
+      "multi_file_edit:src/components/Button.tsx",
+      "write_file:package.json",
+      "run_command:bun test"
+    ]
+  }
+}
+```
+
+**How it works:**
+- When you approve an operation, it's saved to `.autohand/settings.local.json`
+- Next time, the same operation will be auto-approved
+- Local project settings are merged with global settings (local takes priority)
+- Add `.autohand/settings.local.json` to `.gitignore` to keep personal settings private
+
+**Pattern format:**
+- `tool_name:path` - For file operations (e.g., `multi_file_edit:src/file.ts`)
+- `tool_name:command args` - For commands (e.g., `run_command:npm test`)
+
 ---
 
 ## Network Settings
@@ -609,6 +638,15 @@ Autohand stores data in `~/.autohand/` (or `$AUTOHAND_HOME`):
 └── telemetry/           # Telemetry data
     ├── queue.json
     └── session-sync-queue.json
+```
+
+**Project-level directory** (in your workspace root):
+
+```
+<project>/.autohand/
+├── settings.local.json  # Local project permissions (gitignore this)
+├── memory/              # Project-specific memory
+└── skills/              # Project-specific skills
 ```
 
 ---

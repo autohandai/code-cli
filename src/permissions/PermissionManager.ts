@@ -9,24 +9,35 @@ import type {
   PermissionMode,
   PermissionRule
 } from './types.js';
+import {
+  loadLocalProjectSettings,
+  addToLocalWhitelist,
+  mergePermissions
+} from './localProjectPermissions.js';
 
 export interface PermissionManagerOptions {
   settings?: PermissionSettings;
   /** Callback to persist settings to config.json */
   onPersist?: (settings: PermissionSettings) => Promise<void>;
+  /** Workspace root for local project permissions */
+  workspaceRoot?: string;
 }
 
 export class PermissionManager {
   private settings: PermissionSettings;
+  private localSettings: PermissionSettings | undefined;
   private sessionCache: Map<string, boolean> = new Map();
   private mode: PermissionMode;
   private onPersist?: (settings: PermissionSettings) => Promise<void>;
+  private workspaceRoot?: string;
+  private localSettingsLoaded = false;
 
   constructor(options: PermissionManagerOptions | PermissionSettings = {}) {
     // Support both old (PermissionSettings) and new (PermissionManagerOptions) signatures
-    const isOptions = 'settings' in options || 'onPersist' in options;
+    const isOptions = 'settings' in options || 'onPersist' in options || 'workspaceRoot' in options;
     const settings = isOptions ? (options as PermissionManagerOptions).settings ?? {} : options as PermissionSettings;
     this.onPersist = isOptions ? (options as PermissionManagerOptions).onPersist : undefined;
+    this.workspaceRoot = isOptions ? (options as PermissionManagerOptions).workspaceRoot : undefined;
 
     this.settings = {
       mode: 'interactive',
@@ -37,6 +48,31 @@ export class PermissionManager {
       ...settings
     };
     this.mode = this.settings.mode || 'interactive';
+  }
+
+  /**
+   * Initialize local project settings (async)
+   * Call this after construction to load local .autohand/settings.local.json
+   */
+  async initLocalSettings(): Promise<void> {
+    if (!this.workspaceRoot || this.localSettingsLoaded) return;
+
+    try {
+      const localSettings = await loadLocalProjectSettings(this.workspaceRoot);
+      if (localSettings?.permissions) {
+        this.localSettings = localSettings.permissions;
+      }
+      this.localSettingsLoaded = true;
+    } catch {
+      // Ignore errors - local settings are optional
+    }
+  }
+
+  /**
+   * Get merged settings (global + local)
+   */
+  private getMergedSettings(): PermissionSettings {
+    return mergePermissions(this.settings, this.localSettings);
   }
 
   /**
@@ -98,11 +134,13 @@ export class PermissionManager {
   }
 
   /**
-   * Record a user's decision - adds to whitelist/blacklist and persists
+   * Record a user's decision - adds to local project whitelist/blacklist and persists
+   * Approved permissions are saved to .autohand/settings.local.json for "approve once, don't ask again"
    */
   async recordDecision(context: PermissionContext, allowed: boolean): Promise<void> {
     // Always cache in session
-    if (this.settings.rememberSession) {
+    const merged = this.getMergedSettings();
+    if (merged.rememberSession) {
       const cacheKey = this.getCacheKey(context);
       this.sessionCache.set(cacheKey, allowed);
     }
@@ -110,13 +148,33 @@ export class PermissionManager {
     // Build pattern for whitelist/blacklist
     const pattern = this.contextToPattern(context);
 
-    if (allowed) {
+    // Save to LOCAL project settings (approve once, don't ask again for this project)
+    if (allowed && this.workspaceRoot) {
+      try {
+        await addToLocalWhitelist(this.workspaceRoot, pattern);
+        // Also update local cache
+        if (!this.localSettings) {
+          this.localSettings = { whitelist: [] };
+        }
+        if (!this.localSettings.whitelist) {
+          this.localSettings.whitelist = [];
+        }
+        if (!this.localSettings.whitelist.includes(pattern)) {
+          this.localSettings.whitelist.push(pattern);
+        }
+      } catch {
+        // If local save fails, fall back to global
+        this.addToWhitelist(pattern);
+      }
+    } else if (allowed) {
+      // No workspace root - save to global
       this.addToWhitelist(pattern);
     } else {
+      // Denied - add to global blacklist
       this.addToBlacklist(pattern);
     }
 
-    // Persist to config if callback provided
+    // Persist global settings if callback provided
     if (this.onPersist) {
       await this.onPersist(this.settings);
     }
@@ -145,26 +203,29 @@ export class PermissionManager {
   }
 
   /**
-   * Check if context matches blacklist
+   * Check if context matches blacklist (uses merged global + local settings)
    */
   private isBlacklisted(context: PermissionContext): boolean {
-    const blacklist = this.settings.blacklist || [];
+    const merged = this.getMergedSettings();
+    const blacklist = merged.blacklist || [];
     return blacklist.some(pattern => this.matchesPattern(context, pattern));
   }
 
   /**
-   * Check if context matches whitelist
+   * Check if context matches whitelist (uses merged global + local settings)
    */
   private isWhitelisted(context: PermissionContext): boolean {
-    const whitelist = this.settings.whitelist || [];
+    const merged = this.getMergedSettings();
+    const whitelist = merged.whitelist || [];
     return whitelist.some(pattern => this.matchesPattern(context, pattern));
   }
 
   /**
-   * Check custom rules
+   * Check custom rules (uses merged global + local settings)
    */
   private checkRules(context: PermissionContext): PermissionDecision | null {
-    const rules = this.settings.rules || [];
+    const merged = this.getMergedSettings();
+    const rules = merged.rules || [];
 
     for (const rule of rules) {
       if (this.ruleMatches(context, rule)) {

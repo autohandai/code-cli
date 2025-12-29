@@ -150,6 +150,11 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 - [x] Pattern-based whitelist (e.g., `run_command:npm *`)
 - [x] Pattern-based blacklist (e.g., `run_command:rm -rf *`)
 - [x] CLI flags: `--unrestricted` and `--restricted`
+- [x] **Local project permissions** (`.autohand/settings.local.json`)
+  - Approve once, don't ask again for this project
+  - Per-file and per-command whitelisting
+  - Merged with global settings (local takes priority)
+- [x] File operation approval prompts (edit, write, delete)
 - [ ] Audit log of tool executions
 - [ ] Secret redaction in outputs
 
