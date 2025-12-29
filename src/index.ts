@@ -33,6 +33,7 @@ import { FileActionManager } from './actions/filesystem.js';
 import { ProviderFactory } from './providers/ProviderFactory.js';
 import { AutohandAgent } from './core/agent.js';
 import { runAutoSkillGeneration } from './skills/autoSkill.js';
+import { runRpcMode } from './modes/rpc/index.js';
 import type { CLIOptions, AgentRuntime } from './types.js';
 
 /**
@@ -127,8 +128,13 @@ program
   .option('--unrestricted', 'Run without any approval prompts (use with caution)', false)
   .option('--restricted', 'Deny all dangerous operations automatically', false)
   .option('--auto-skill', 'Auto-generate skills based on project analysis', false)
-  .action(async (opts: CLIOptions) => {
-    await runCLI(opts);
+  .option('--mode <mode>', 'Run mode: interactive (default) or rpc', 'interactive')
+  .action(async (opts: CLIOptions & { mode?: string }) => {
+    if (opts.mode === 'rpc') {
+      await runRpcMode(opts);
+    } else {
+      await runCLI(opts);
+    }
   });
 
 program

@@ -109,21 +109,18 @@ export class TerminalRegions {
     // Save cursor position
     this.output.write(`${CSI}s`);
 
-    // Move to separator line (height - 2)
     this.output.write(`${CSI}${height - 2};1H`);
-    this.output.write(`${CSI}K`); // Clear line
+    this.output.write(`${CSI}K`);
     this.output.write(chalk.gray('─'.repeat(width)));
 
-    // Move to status line (height - 1)
     this.output.write(`${CSI}${height - 1};1H`);
-    this.output.write(`${CSI}K`); // Clear line
+    this.output.write(`${CSI}K`);
     const queueStatus = queueCount > 0 ? chalk.cyan(` [${queueCount} queued]`) : '';
     const statusText = status || 'type to queue · Enter to submit';
     this.output.write(chalk.gray(statusText) + queueStatus);
 
-    // Move to input line (height)
     this.output.write(`${CSI}${height};1H`);
-    this.output.write(`${CSI}K`); // Clear line
+    this.output.write(`${CSI}K`);
     this.output.write(chalk.gray('›') + ' ' + input);
 
     // Restore cursor position to scroll region
@@ -138,15 +135,10 @@ export class TerminalRegions {
 
     const height = this.output.rows || 24;
 
-    // Save cursor
     this.output.write(`${CSI}s`);
-
-    // Move to input line and clear it
     this.output.write(`${CSI}${height};1H`);
     this.output.write(`${CSI}K`);
     this.output.write(chalk.gray('›') + ' ' + input);
-
-    // Restore cursor
     this.output.write(`${CSI}u`);
   }
 
@@ -158,16 +150,11 @@ export class TerminalRegions {
 
     const height = this.output.rows || 24;
 
-    // Save cursor
     this.output.write(`${CSI}s`);
-
-    // Move to status line
     this.output.write(`${CSI}${height - 1};1H`);
     this.output.write(`${CSI}K`);
     const queueStatus = queueCount > 0 ? chalk.cyan(` [${queueCount} queued]`) : '';
     this.output.write(chalk.gray(status) + queueStatus);
-
-    // Restore cursor
     this.output.write(`${CSI}u`);
   }
 
@@ -176,14 +163,10 @@ export class TerminalRegions {
    */
   private clearFixedRegion(): void {
     const height = this.output.rows || 24;
-
-    // Clear each line of the fixed region
     for (let i = 0; i < this.fixedLines; i++) {
       this.output.write(`${CSI}${height - i};1H`);
       this.output.write(`${CSI}K`);
     }
-
-    // Move cursor back to a reasonable position
     this.output.write(`${CSI}${height - this.fixedLines};1H`);
   }
 
@@ -197,18 +180,11 @@ export class TerminalRegions {
       return;
     }
 
-    // Save cursor
     this.output.write(`${CSI}s`);
-
-    // Move to bottom of scroll region
     const height = this.output.rows || 24;
     const scrollEnd = height - this.fixedLines;
     this.output.write(`${CSI}${scrollEnd};1H`);
-
-    // Write message (will scroll if needed)
     this.output.write(message);
-
-    // Restore cursor
     this.output.write(`${CSI}u`);
   }
 

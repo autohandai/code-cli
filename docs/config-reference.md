@@ -16,6 +16,8 @@ Complete reference for all configuration options in `~/.autohand/config.json` (o
 - [External Agents](#external-agents)
 - [Skills System](#skills-system)
 - [API Settings](#api-settings)
+- [Authentication Settings](#authentication-settings)
+- [Community Skills Settings](#community-skills-settings)
 - [Complete Example](#complete-example)
 
 ---
@@ -44,6 +46,13 @@ export AUTOHAND_HOME=/custom/path  # Changes ~/.autohand to /custom/path
 | `AUTOHAND_CONFIG` | Custom config file path | `/path/to/config.json` |
 | `AUTOHAND_API_URL` | API endpoint (overrides config) | `https://api.autohand.ai` |
 | `AUTOHAND_SECRET` | Company/team secret key | `sk-xxx` |
+| `AUTOHAND_PERMISSION_CALLBACK_URL` | URL for permission callback (experimental) | `http://localhost:3000/callback` |
+| `AUTOHAND_PERMISSION_CALLBACK_TIMEOUT` | Timeout for permission callback in ms | `5000` |
+| `AUTOHAND_NON_INTERACTIVE` | Run in non-interactive mode | `1` |
+| `AUTOHAND_YES` | Auto-confirm all prompts | `1` |
+| `AUTOHAND_NO_BANNER` | Disable startup banner | `1` |
+| `AUTOHAND_STREAM_TOOL_OUTPUT` | Stream tool output in real-time | `1` |
+| `AUTOHAND_DEBUG` | Enable debug logging | `1` |
 
 ---
 
@@ -172,7 +181,7 @@ OpenAI API configuration.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `theme` | `"dark"` \| `"light"` | `"dark"` | Color theme for terminal output |
+| `theme` | `"dark"` | `"light"` | `"dark"` | Color theme for terminal output |
 | `autoConfirm` | boolean | `false` | Skip confirmation prompts for safe operations |
 | `readFileCharLimit` | number | `300` | Max characters to display from read/search tool output (full content is still sent to the model) |
 | `showCompletionNotification` | boolean | `true` | Show system notification when task completes |
@@ -290,7 +299,7 @@ Fine-grained permission rules.
 |-------|------|-------------|
 | `tool` | string | Tool name to match |
 | `pattern` | string | Optional pattern to match against arguments |
-| `action` | `"allow"` \| `"deny"` \| `"prompt"` | Action to take |
+| `action` | `"allow"` | `"deny"` | `"prompt"` | Action to take |
 
 ### `rememberSession`
 | Type | Default | Description |
@@ -355,7 +364,12 @@ When you approve a file operation (edit, write, delete), it's automatically save
   "telemetry": {
     "enabled": true,
     "apiBaseUrl": "https://api.autohand.ai",
-    "enableSessionSync": true
+    "batchSize": 20,
+    "flushIntervalMs": 60000,
+    "maxQueueSize": 500,
+    "maxRetries": 3,
+    "enableSessionSync": true,
+    "companySecret": ""
   }
 }
 ```
@@ -364,8 +378,12 @@ When you approve a file operation (edit, write, delete), it's automatically save
 |-------|------|---------|-------------|
 | `enabled` | boolean | `true` | Enable/disable telemetry |
 | `apiBaseUrl` | string | `https://api.autohand.ai` | Telemetry API endpoint |
+| `batchSize` | number | `20` | Number of events to batch before auto-flush |
+| `flushIntervalMs` | number | `60000` | Flush interval in milliseconds (1 minute) |
+| `maxQueueSize` | number | `500` | Maximum queue size before dropping old events |
+| `maxRetries` | number | `3` | Retry attempts for failed telemetry requests |
 | `enableSessionSync` | boolean | `true` | Sync sessions to cloud for team features |
-
+| `companySecret` | string | `""` | Company secret for API authentication |
 ---
 
 ## External Agents
@@ -501,6 +519,59 @@ Can also be set via environment variables:
 
 ---
 
+## Authentication Settings
+
+Authentication and user session configuration.
+
+```json
+{
+  "auth": {
+    "token": "your-auth-token",
+    "user": {
+      "id": "user-id",
+      "email": "user@example.com",
+      "name": "User Name",
+      "avatar": "https://example.com/avatar.png"
+    },
+    "expiresAt": "2025-12-31T23:59:59Z"
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `token` | string | - | Authentication token for API access |
+| `user` | object | - | Authenticated user information |
+| `user.id` | string | - | User ID |
+| `user.email` | string | - | User email address |
+| `user.name` | string | - | User display name |
+| `user.avatar` | string | - | User avatar URL (optional) |
+| `expiresAt` | string | - | Token expiration timestamp (ISO 8601 format) |
+
+---
+
+## Community Skills Settings
+
+Configuration for community skills discovery and management.
+
+```json
+{
+  "communitySkills": {
+    "enabled": true,
+    "showSuggestionsOnStartup": true,
+    "autoBackup": true
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `true` | Enable community skills features |
+| `showSuggestionsOnStartup` | boolean | `true` | Show skill suggestions on startup when no vendor skills exist |
+| `autoBackup` | boolean | `true` | Automatically backup discovered vendor skills to API |
+
+---
+
 ## Complete Example
 
 ### JSON Format (`~/.autohand/config.json`)
@@ -549,6 +620,11 @@ Can also be set via environment variables:
   },
   "telemetry": {
     "enabled": true,
+    "apiBaseUrl": "https://api.autohand.ai",
+    "batchSize": 20,
+    "flushIntervalMs": 60000,
+    "maxQueueSize": 500,
+    "maxRetries": 3,
     "enableSessionSync": true
   },
   "externalAgents": {
@@ -557,6 +633,19 @@ Can also be set via environment variables:
   },
   "api": {
     "baseUrl": "https://api.autohand.ai"
+  },
+  "auth": {
+    "token": "your-auth-token",
+    "user": {
+      "id": "user-id",
+      "email": "user@example.com",
+      "name": "User Name"
+    }
+  },
+  "communitySkills": {
+    "enabled": true,
+    "showSuggestionsOnStartup": true,
+    "autoBackup": true
   }
 }
 ```
@@ -605,6 +694,11 @@ network:
 
 telemetry:
   enabled: true
+  apiBaseUrl: https://api.autohand.ai
+  batchSize: 20
+  flushIntervalMs: 60000
+  maxQueueSize: 500
+  maxRetries: 3
   enableSessionSync: true
 
 externalAgents:
@@ -613,6 +707,18 @@ externalAgents:
 
 api:
   baseUrl: https://api.autohand.ai
+
+auth:
+  token: your-auth-token
+  user:
+    id: user-id
+    email: user@example.com
+    name: User Name
+
+communitySkills:
+  enabled: true
+  showSuggestionsOnStartup: true
+  autoBackup: true
 ```
 
 ---

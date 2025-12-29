@@ -6,6 +6,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
+import { useTheme } from '../theme/ThemeContext.js';
 
 export interface StatusLineProps {
   isWorking: boolean;
@@ -16,23 +17,25 @@ export interface StatusLineProps {
 }
 
 export function StatusLine({ isWorking, status, elapsed, tokens, queueCount = 0 }: StatusLineProps) {
+  const { colors } = useTheme();
+
   if (!isWorking) {
     return null;
   }
 
   return (
     <Box>
-      <Text color="cyan">
+      <Text color={colors.accent}>
         <Spinner type="dots" />
       </Text>
       <Text> {status}</Text>
-      {elapsed && <Text color="gray"> ({elapsed}</Text>}
-      {tokens && <Text color="gray"> · {tokens}</Text>}
-      {elapsed && <Text color="gray">)</Text>}
+      {elapsed && <Text color={colors.muted}> ({elapsed}</Text>}
+      {tokens && <Text color={colors.muted}> · {tokens}</Text>}
+      {elapsed && <Text color={colors.muted}>)</Text>}
       {queueCount > 0 && (
-        <Text color="cyan"> [{queueCount} queued]</Text>
+        <Text color={colors.accent}> [{queueCount} queued]</Text>
       )}
-      <Text color="gray"> · esc to cancel</Text>
+      <Text color={colors.muted}> · esc to cancel</Text>
     </Box>
   );
 }

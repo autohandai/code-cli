@@ -9,6 +9,7 @@ import { StatusLine } from './StatusLine.js';
 import { ToolOutputList, type ToolOutputEntry } from './ToolOutput.js';
 import { InputLine } from './InputLine.js';
 import { ThinkingOutput } from './ThinkingOutput.js';
+import { useTheme } from '../theme/ThemeContext.js';
 
 export interface AgentUIState {
   isWorking: boolean;
@@ -42,6 +43,7 @@ export function AgentUI({
   enableQueueInput = true
 }: AgentUIProps) {
   const { exit } = useApp();
+  const { colors } = useTheme();
   // Initialize input from state.currentInput (preserved across pause/resume)
   const [input, setInput] = useState(state.currentInput || '');
   const [ctrlCCount, setCtrlCCount] = useState(0);
@@ -133,7 +135,7 @@ export function AgentUI({
         <Box flexDirection="column" marginTop={1}>
           {state.queuedInstructions.map((instruction, idx) => (
             <Box key={idx}>
-              <Text color="gray" italic>
+              <Text color={colors.muted} italic>
                 (queued) - {instruction.length > 60 ? instruction.slice(0, 57) + '...' : instruction}
               </Text>
             </Box>
@@ -144,7 +146,7 @@ export function AgentUI({
       {/* Completion stats (shown after work finishes, above input) */}
       {!state.isWorking && state.completionStats && (
         <Box marginTop={1}>
-          <Text color="gray">
+          <Text color={colors.muted}>
             Completed in {state.completionStats.elapsed} · {state.completionStats.tokens}
           </Text>
         </Box>
@@ -161,7 +163,7 @@ export function AgentUI({
       {/* Ctrl+C warning */}
       {ctrlCCount === 1 && (
         <Box marginTop={1}>
-          <Text color="yellow">Press Ctrl+C again to exit</Text>
+          <Text color={colors.warning}>Press Ctrl+C again to exit</Text>
         </Box>
       )}
     </Box>

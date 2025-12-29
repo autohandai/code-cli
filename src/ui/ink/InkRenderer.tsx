@@ -10,6 +10,7 @@ import React from 'react';
 import { render, type Instance } from 'ink';
 import { AgentUI, createInitialUIState, type AgentUIState } from './AgentUI.js';
 import type { ToolOutputEntry } from './ToolOutput.js';
+import { ThemeProvider } from '../theme/ThemeContext.js';
 
 export interface InkRendererOptions {
   onInstruction: (text: string) => void;
@@ -49,14 +50,16 @@ export class InkRenderer {
     }
 
     this.instance = render(
-      <AgentUI
-        state={this.state}
-        onInstruction={this.options.onInstruction}
-        onEscape={this.options.onEscape}
-        onCtrlC={this.options.onCtrlC}
-        onInputChange={this.handleInputChange}
-        enableQueueInput={this.options.enableQueueInput}
-      />,
+      <ThemeProvider>
+        <AgentUI
+          state={this.state}
+          onInstruction={this.options.onInstruction}
+          onEscape={this.options.onEscape}
+          onCtrlC={this.options.onCtrlC}
+          onInputChange={this.handleInputChange}
+          enableQueueInput={this.options.enableQueueInput}
+        />
+      </ThemeProvider>,
       {
         // Ensure Ink handles stdin for input capture
         stdin: process.stdin,
@@ -93,14 +96,16 @@ export class InkRenderer {
     }
 
     this.instance.rerender(
-      <AgentUI
-        state={this.state}
-        onInstruction={this.options.onInstruction}
-        onEscape={this.options.onEscape}
-        onCtrlC={this.options.onCtrlC}
-        onInputChange={this.handleInputChange}
-        enableQueueInput={this.options.enableQueueInput}
-      />
+      <ThemeProvider>
+        <AgentUI
+          state={this.state}
+          onInstruction={this.options.onInstruction}
+          onEscape={this.options.onEscape}
+          onCtrlC={this.options.onCtrlC}
+          onInputChange={this.handleInputChange}
+          enableQueueInput={this.options.enableQueueInput}
+        />
+      </ThemeProvider>
     );
   }
 
@@ -228,14 +233,16 @@ export class InkRenderer {
       process.stdout.write('\n');
 
       this.instance = render(
-        <AgentUI
-          state={this.state}
-          onInstruction={this.options.onInstruction}
-          onEscape={this.options.onEscape}
-          onCtrlC={this.options.onCtrlC}
-          onInputChange={this.handleInputChange}
-          enableQueueInput={this.options.enableQueueInput}
-        />,
+        <ThemeProvider>
+          <AgentUI
+            state={this.state}
+            onInstruction={this.options.onInstruction}
+            onEscape={this.options.onEscape}
+            onCtrlC={this.options.onCtrlC}
+            onInputChange={this.handleInputChange}
+            enableQueueInput={this.options.enableQueueInput}
+          />
+        </ThemeProvider>,
         {
           stdin: process.stdin,
           stdout: process.stdout,

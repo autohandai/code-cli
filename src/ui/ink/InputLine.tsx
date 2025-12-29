@@ -5,6 +5,7 @@
  */
 import React from 'react';
 import { Box, Text } from 'ink';
+import { useTheme } from '../theme/ThemeContext.js';
 
 export interface InputLineProps {
   value: string;
@@ -12,15 +13,17 @@ export interface InputLineProps {
 }
 
 export function InputLine({ value, isActive }: InputLineProps) {
+  const { colors } = useTheme();
+
   if (!isActive) {
     return null;
   }
 
   return (
     <Box marginTop={1}>
-      <Text color="gray">› </Text>
+      <Text color={colors.muted}>› </Text>
       <Text>{value}</Text>
-      <Text color="cyan">▊</Text>
+      <Text color={colors.accent}>▊</Text>
     </Box>
   );
 }

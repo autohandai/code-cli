@@ -154,6 +154,14 @@ export class SlashCommandHandler {
           }
           return createSkill({ llm: this.ctx.llm, skillsRegistry: this.ctx.skillsRegistry });
         }
+        case '/theme': {
+          const { theme } = await import('../commands/theme.js');
+          if (!this.ctx.config) {
+            console.log(chalk.yellow('Config not available for theme selection.'));
+            return null;
+          }
+          return theme({ config: this.ctx.config });
+        }
         default:
           this.printUnsupported(command);
           return null;

@@ -6,6 +6,7 @@
 import chalk from 'chalk';
 import enquirer from 'enquirer';
 import { diffLines } from 'diff';
+import { highlightLine, detectLanguage } from '../ui/syntaxHighlight.js';
 import { addDependency, removeDependency } from '../actions/dependencies.js';
 import { runCommand } from '../actions/command.js';
 import { listDirectoryTree, fileStats as getFileStats, checksumFile } from '../actions/metadata.js';
@@ -66,6 +67,8 @@ import type { FileActionManager } from '../actions/filesystem.js';
 import type { ToolDefinition } from './toolManager.js';
 import { ToolsRegistry } from './toolsRegistry.js';
 import type { MemoryManager } from '../memory/MemoryManager.js';
+import { SecurityScanner } from './SecurityScanner.js';
+import { execSync } from 'node:child_process';
 
 export interface ActionExecutorOptions {
   runtime: AgentRuntime;
@@ -80,6 +83,7 @@ export interface ActionExecutorOptions {
   permissionManager?: PermissionManager;
   memoryManager?: MemoryManager;
   onToolOutput?: (chunk: ToolOutputChunk) => void;
+  onFileModified?: () => void;
 }
 
 type AgentExecutorDeps = ActionExecutorOptions;
@@ -97,6 +101,9 @@ export class ActionExecutor {
   private readonly permissionManager: PermissionManager;
   private readonly memoryManager?: MemoryManager;
   private readonly onToolOutput?: (chunk: ToolOutputChunk) => void;
+  private readonly onFileModified?: () => void;
+  private readonly securityScanner: SecurityScanner;
+  private readonly searchCache: Map<string, string> = new Map();
 
   constructor(private readonly deps: AgentExecutorDeps) {
     this.runtime = deps.runtime;
@@ -111,6 +118,8 @@ export class ActionExecutor {
     this.permissionManager = deps.permissionManager ?? new PermissionManager(deps.runtime.config.permissions);
     this.memoryManager = deps.memoryManager;
     this.onToolOutput = deps.onToolOutput;
+    this.onFileModified = deps.onFileModified;
+    this.securityScanner = new SecurityScanner();
   }
 
   async execute(action: AgentAction, context?: ToolExecutionContext): Promise<string | undefined> {
@@ -125,22 +134,81 @@ export class ActionExecutor {
         if (!action.path) {
           throw new Error('read_file requires a "path" argument.');
         }
-        const contents = await this.files.readFile(action.path);
+
+        const offset = typeof action.offset === 'number' ? action.offset : 0;
+        const limit = typeof action.limit === 'number' ? action.limit : 0;
+
+        const fullContents = await this.files.readFile(action.path);
         this.recordExploration('read', action.path);
 
-        // Display file info
-        const lines = contents.split('\n');
-        const fileSize = Buffer.byteLength(contents, 'utf8');
+        const allLines = fullContents.split('\n');
+        const totalLines = allLines.length;
+        const fileSize = Buffer.byteLength(fullContents, 'utf8');
         const fileSizeKB = (fileSize / 1024).toFixed(2);
 
-        console.log(chalk.cyan(`\n📄 ${action.path}`));
-        console.log(chalk.gray(`   ${lines.length} lines • ${fileSizeKB} KB`));
+        // Large file thresholds
+        const MAX_LINES = 2000;
+        const MAX_SIZE_BYTES = 80 * 1024;
+        const CHUNK_SIZE = 500; // Lines per chunk for smart reading
 
-        return contents;
+        // If offset/limit specified, use chunked reading
+        if (offset > 0 || limit > 0) {
+          const effectiveLimit = limit > 0 ? limit : CHUNK_SIZE;
+          const startLine = Math.min(offset, totalLines);
+          const endLine = Math.min(startLine + effectiveLimit, totalLines);
+          const chunk = allLines.slice(startLine, endLine).join('\n');
+
+          console.log(chalk.cyan(`\n📄 ${action.path}`));
+          console.log(chalk.gray(`   Lines ${startLine + 1}-${endLine} of ${totalLines} (${fileSizeKB} KB total)`));
+
+          if (endLine < totalLines) {
+            console.log(chalk.yellow(`   ${totalLines - endLine} more lines remaining`));
+          }
+
+          return chunk;
+        }
+
+        // Check if file is too large for single read - use smart chunking
+        if (totalLines > MAX_LINES || fileSize > MAX_SIZE_BYTES) {
+          console.log(chalk.cyan(`\n📄 ${action.path}`));
+          console.log(chalk.yellow(`   ⚠ Large file: ${totalLines} lines • ${fileSizeKB} KB`));
+          console.log(chalk.gray(`   Smart chunking: outline + first ${CHUNK_SIZE} lines`));
+
+          // Extract file structure/outline
+          const outline = this.extractFileOutline(allLines, action.path);
+
+          // Get first chunk of actual content
+          const firstChunk = allLines.slice(0, CHUNK_SIZE).join('\n');
+
+          // Build smart response with outline and first chunk
+          const response = [
+            `=== FILE OUTLINE (${action.path}) ===`,
+            `Total: ${totalLines} lines • ${fileSizeKB} KB`,
+            '',
+            outline,
+            '',
+            `=== CONTENT (lines 1-${CHUNK_SIZE}) ===`,
+            firstChunk,
+            '',
+            `=== NAVIGATION ===`,
+            `Showing lines 1-${CHUNK_SIZE} of ${totalLines}`,
+            `To read more sections, use: read_file with offset=<line> limit=${CHUNK_SIZE}`,
+            `Example: read_file path="${action.path}" offset=${CHUNK_SIZE} limit=${CHUNK_SIZE}`
+          ].join('\n');
+
+          return response;
+        }
+
+        console.log(chalk.cyan(`\n📄 ${action.path}`));
+        console.log(chalk.gray(`   ${totalLines} lines • ${fileSizeKB} KB`));
+
+        return fullContents;
       }
       case 'write_file': {
         if (!action.path) {
-          throw new Error('write_file requires a "path" argument.');
+          // Log what we received for debugging
+          const receivedKeys = Object.keys(action).filter(k => k !== 'type').join(', ') || 'none';
+          throw new Error(`write_file requires a "path" argument. Received arguments: [${receivedKeys}]`);
         }
         const filePath = this.resolveWorkspacePath(action.path);
         const fs = await import('fs-extra');
@@ -187,10 +255,11 @@ export class ActionExecutor {
         } else if (oldContent !== newContent) {
           // EXISTING FILE - show diff
           console.log(chalk.cyan(`\n📝 ${action.path}:`));
-          this.showDiff(oldContent, newContent);
+          this.showDiff(oldContent, newContent, action.path);
         }
 
         await this.files.writeFile(action.path, newContent);
+        this.onFileModified?.();
         return exists ? `Updated ${action.path}` : `Created ${action.path}`;
       }
       case 'append_file': {
@@ -202,9 +271,10 @@ export class ActionExecutor {
         const newContent = oldContent + addition;
 
         console.log(chalk.cyan(`\n📝 ${action.path}:`));
-        this.showDiff(oldContent, newContent);
+        this.showDiff(oldContent, newContent, action.path);
 
         await this.files.appendFile(action.path, addition);
+        this.onFileModified?.();
         return `Appended to ${action.path}`;
       }
       case 'apply_patch': {
@@ -223,7 +293,8 @@ export class ActionExecutor {
         await this.files.applyPatch(action.path, patch);
 
         const newContent = await this.files.readFile(action.path);
-        this.showDiff(oldContent, newContent);
+        this.showDiff(oldContent, newContent, action.path);
+        this.onFileModified?.();
 
         return `Patched ${action.path}`;
       }
@@ -232,33 +303,52 @@ export class ActionExecutor {
         return JSON.stringify(tools, null, 2);
       }
       case 'search': {
+        const cacheKey = `search:${action.query}:${action.path || ''}`;
+        if (this.searchCache.has(cacheKey)) {
+          return `[Cached] ${this.searchCache.get(cacheKey)}`;
+        }
         const hits = this.files.search(action.query, action.path);
         this.recordExploration('search', action.query);
-        return hits
+        const result = hits
           .slice(0, 10)
           .map((hit) => `${hit.file}:${hit.line}: ${hit.text}`)
           .join('\n');
+        this.searchCache.set(cacheKey, result);
+        return result;
       }
       case 'search_with_context': {
+        const cacheKey = `search_ctx:${action.query}:${action.path || ''}:${action.limit || ''}:${action.context || ''}`;
+        if (this.searchCache.has(cacheKey)) {
+          return `[Cached] ${this.searchCache.get(cacheKey)}`;
+        }
         this.recordExploration('search', action.query);
-        return this.files.searchWithContext(action.query, {
+        const result = this.files.searchWithContext(action.query, {
           limit: action.limit,
           context: action.context,
           relativePath: action.path
         });
+        this.searchCache.set(cacheKey, result);
+        return result;
       }
       case 'semantic_search': {
+        const cacheKey = `semantic:${action.query}:${action.path || ''}:${action.limit || ''}:${action.window || ''}`;
+        if (this.searchCache.has(cacheKey)) {
+          return `[Cached] ${this.searchCache.get(cacheKey)}`;
+        }
         const results = this.files.semanticSearch(action.query, {
           limit: action.limit,
           window: action.window,
           relativePath: action.path
         });
         if (!results.length) {
+          this.searchCache.set(cacheKey, 'No matches found.');
           return 'No matches found.';
         }
-        return results
+        const result = results
           .map((hit) => `${chalk.cyan(hit.file)}\n${hit.snippet}`)
           .join('\n\n');
+        this.searchCache.set(cacheKey, result);
+        return result;
       }
       case 'create_directory': {
         await this.files.createDirectory(action.path);
@@ -294,8 +384,9 @@ export class ActionExecutor {
         const result = this.applySearchReplaceBlocks(content, action.blocks);
         if (content !== result) {
           console.log(chalk.cyan(`\n🔄 ${action.path}:`));
-          this.showDiff(content, result);
+          this.showDiff(content, result, action.path);
           await this.files.writeFile(action.path, result);
+          this.onFileModified?.();
         }
         return `Updated ${action.path}`;
       }
@@ -402,7 +493,10 @@ export class ActionExecutor {
           throw new Error('git_diff requires a "path" argument.');
         }
         this.resolveWorkspacePath(action.path);
-        return diffFile(this.runtime.workspaceRoot, action.path);
+        const rawDiff = diffFile(this.runtime.workspaceRoot, action.path);
+        // Display colorized diff to terminal
+        console.log(this.colorizeGitDiff(rawDiff));
+        return rawDiff;
       }
       case 'git_checkout': {
         if (!action.path) {
@@ -417,11 +511,14 @@ export class ActionExecutor {
       case 'git_list_untracked':
         return gitListUntracked(this.runtime.workspaceRoot) || 'No untracked files.';
       case 'git_diff_range': {
-        return gitDiffRange(this.runtime.workspaceRoot, {
+        const rawDiff = gitDiffRange(this.runtime.workspaceRoot, {
           range: action.range,
           staged: action.staged,
           paths: action.paths
         });
+        // Display colorized diff to terminal
+        console.log(this.colorizeGitDiff(rawDiff));
+        return rawDiff;
       }
       case 'git_apply_patch': {
         const patch = this.pickText(action.patch, action.diff);
@@ -658,17 +755,29 @@ export class ActionExecutor {
       case 'git_merge_abort':
         return gitMergeAbort(this.runtime.workspaceRoot);
       // Git Commit Operations
-      case 'git_commit':
+      case 'git_commit': {
+        // Security scan before commit
+        const scanResult = await this.scanBeforeCommit();
+        if (scanResult) {
+          return scanResult; // Return error message if blocked
+        }
         return gitCommit(this.runtime.workspaceRoot, {
           message: action.message,
           amend: action.amend,
           allowEmpty: action.allow_empty
         });
+      }
       case 'git_add':
         return gitAdd(this.runtime.workspaceRoot, action.paths);
       case 'git_reset':
         return gitReset(this.runtime.workspaceRoot, action.mode, action.ref);
       case 'auto_commit': {
+        // Security scan before commit
+        const autoCommitScanResult = await this.scanBeforeCommit();
+        if (autoCommitScanResult) {
+          return autoCommitScanResult; // Return error message if blocked
+        }
+
         // Get commit info and auto-generate message
         const info = getAutoCommitInfo(this.runtime.workspaceRoot);
 
@@ -758,21 +867,78 @@ export class ActionExecutor {
         console.log(chalk.cyan(`\n✏️  ${action.file_path}:`));
         console.log(chalk.gray(`Applying ${action.edits.length} edit(s)...`));
 
-        for (const edit of action.edits) {
+        for (let i = 0; i < action.edits.length; i++) {
+          const edit = action.edits[i];
           if (edit.replace_all) {
+            const count = (newContent.match(new RegExp(this.escapeRegex(edit.old_string), 'g')) || []).length;
+            if (count === 0) {
+              console.log(chalk.yellow(`  ⚠ Edit ${i + 1}: No occurrences found to replace`));
+              console.log(chalk.gray(`    Looking for: "${edit.old_string.substring(0, 60)}${edit.old_string.length > 60 ? '...' : ''}"`));
+              const similar = this.findSimilarText(newContent, edit.old_string);
+              if (similar) {
+                console.log(chalk.gray(`    Similar text found: "${similar.substring(0, 60)}${similar.length > 60 ? '...' : ''}"`));
+              }
+              continue; // Skip this edit but continue with others
+            }
             newContent = newContent.replaceAll(edit.old_string, edit.new_string);
+            console.log(chalk.green(`  ✓ Edit ${i + 1}: Replaced ${count} occurrence(s)`));
           } else {
-            const firstIndex = newContent.indexOf(edit.old_string);
+            // Try exact match first
+            let firstIndex = newContent.indexOf(edit.old_string);
+
+            // If not found, try normalizing unicode characters
             if (firstIndex === -1) {
-              throw new Error(`Could not find text to replace: ${edit.old_string.substring(0, 50)}...`);
+              const normalizedOld = this.normalizeText(edit.old_string);
+              const normalizedContent = this.normalizeText(newContent);
+              const normalizedIndex = normalizedContent.indexOf(normalizedOld);
+
+              if (normalizedIndex !== -1) {
+                // Find the actual position by counting characters
+                console.log(chalk.yellow(`  ⚠ Edit ${i + 1}: Found match with normalized text (unicode chars differ)`));
+                // Extract the actual text from the original content
+                const actualOldString = this.extractMatchingText(newContent, normalizedContent, normalizedOld, normalizedIndex);
+                if (actualOldString) {
+                  firstIndex = newContent.indexOf(actualOldString);
+                  if (firstIndex !== -1) {
+                    newContent = newContent.substring(0, firstIndex) + edit.new_string + newContent.substring(firstIndex + actualOldString.length);
+                    console.log(chalk.green(`  ✓ Edit ${i + 1}: Applied with normalized match`));
+                    continue;
+                  }
+                }
+              }
+            }
+
+            if (firstIndex === -1) {
+              console.log(chalk.red(`  ✗ Edit ${i + 1}: Could not find text to replace`));
+              console.log(chalk.gray(`    Looking for (${edit.old_string.length} chars):`));
+              console.log(chalk.gray(`    "${edit.old_string.substring(0, 80)}${edit.old_string.length > 80 ? '...' : ''}"`));
+
+              // Try to find similar text
+              const similar = this.findSimilarText(newContent, edit.old_string);
+              if (similar) {
+                console.log(chalk.yellow(`    Did you mean:`));
+                console.log(chalk.yellow(`    "${similar.substring(0, 80)}${similar.length > 80 ? '...' : ''}"`));
+              }
+
+              // Show hex codes for debugging tricky characters
+              if (edit.old_string.length < 100) {
+                const nonAscii = edit.old_string.match(/[^\x20-\x7E\n\r\t]/g);
+                if (nonAscii && nonAscii.length > 0) {
+                  console.log(chalk.gray(`    Non-ASCII chars: ${nonAscii.map(c => `'${c}' (U+${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')})`).join(', ')}`));
+                }
+              }
+
+              throw new Error(`Could not find text to replace in edit ${i + 1}. See details above.`);
             }
             newContent = newContent.substring(0, firstIndex) + edit.new_string + newContent.substring(firstIndex + edit.old_string.length);
+            console.log(chalk.green(`  ✓ Edit ${i + 1}: Applied successfully`));
           }
         }
 
         if (oldContent !== newContent) {
-          this.showDiff(oldContent, newContent);
+          this.showDiff(oldContent, newContent, action.file_path);
           await this.files.writeFile(action.file_path, newContent);
+          this.onFileModified?.();
         }
 
         return `Applied ${action.edits.length} edit(s) to ${action.file_path}`;
@@ -960,6 +1126,112 @@ export class ActionExecutor {
     return undefined;
   }
 
+  /**
+   * Extract file outline/structure for smart chunking of large files.
+   * Identifies imports, classes, functions, and key sections with line numbers.
+   */
+  private extractFileOutline(lines: string[], filePath: string): string {
+    const ext = filePath.split('.').pop()?.toLowerCase() || '';
+    const outline: string[] = [];
+
+    // Language-specific patterns
+    const patterns: { [key: string]: RegExp[] } = {
+      ts: [
+        /^(import|export)\s+/,
+        /^(export\s+)?(async\s+)?function\s+(\w+)/,
+        /^(export\s+)?(abstract\s+)?class\s+(\w+)/,
+        /^(export\s+)?interface\s+(\w+)/,
+        /^(export\s+)?type\s+(\w+)/,
+        /^(export\s+)?enum\s+(\w+)/,
+        /^(export\s+)?const\s+(\w+)\s*[=:]/,
+      ],
+      js: [
+        /^(import|export)\s+/,
+        /^(export\s+)?(async\s+)?function\s+(\w+)/,
+        /^(export\s+)?class\s+(\w+)/,
+        /^(export\s+)?const\s+(\w+)\s*=/,
+        /^module\.exports/,
+      ],
+      py: [
+        /^(from|import)\s+/,
+        /^(async\s+)?def\s+(\w+)/,
+        /^class\s+(\w+)/,
+        /^(\w+)\s*=\s*(lambda|def)/,
+      ],
+      rs: [
+        /^(use|mod)\s+/,
+        /^(pub\s+)?(async\s+)?fn\s+(\w+)/,
+        /^(pub\s+)?struct\s+(\w+)/,
+        /^(pub\s+)?enum\s+(\w+)/,
+        /^(pub\s+)?trait\s+(\w+)/,
+        /^impl\s+/,
+      ],
+      go: [
+        /^import\s+/,
+        /^func\s+(\w+|\(\w+\s+\*?\w+\)\s+\w+)/,
+        /^type\s+(\w+)\s+(struct|interface)/,
+        /^var\s+(\w+)/,
+        /^const\s+/,
+      ],
+    };
+
+    // Get patterns for file type
+    const langPatterns = patterns[ext] || patterns['ts'] || [];
+    if (['tsx', 'jsx', 'mts', 'cts'].includes(ext)) {
+      langPatterns.push(...(patterns['ts'] || []));
+    }
+
+    let importStart = -1;
+    let importEnd = -1;
+
+    lines.forEach((line, idx) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
+        return;
+      }
+
+      const lineNum = idx + 1;
+
+      // Track import section
+      if (/^(import|from|use|require)\s+/.test(trimmed)) {
+        if (importStart === -1) {
+          importStart = lineNum;
+        }
+        importEnd = lineNum;
+        return;
+      }
+
+      // After imports, check for other patterns
+      for (const pattern of langPatterns) {
+        if (pattern.test(trimmed) && !/^(import|from|use)\s+/.test(trimmed)) {
+          // Extract meaningful identifier
+          let identifier = trimmed.slice(0, 60);
+          if (identifier.length < trimmed.length) identifier += '...';
+          outline.push(`  ${String(lineNum).padStart(4)}: ${identifier}`);
+          break;
+        }
+      }
+    });
+
+    // Build final outline
+    const result: string[] = [];
+
+    if (importStart !== -1) {
+      result.push(`Imports: lines ${importStart}-${importEnd}`);
+    }
+
+    if (outline.length > 0) {
+      result.push('');
+      result.push('Definitions:');
+      result.push(...outline.slice(0, 50)); // Limit to 50 items
+      if (outline.length > 50) {
+        result.push(`  ... and ${outline.length - 50} more`);
+      }
+    }
+
+    return result.length > 0 ? result.join('\n') : 'No structure detected';
+  }
+
   private recordExploration(kind: ExplorationEvent['kind'], target?: string | null): void {
     if (!target) {
       return;
@@ -1071,8 +1343,211 @@ export class ActionExecutor {
     return result;
   }
 
+  /**
+   * Escape special regex characters in a string
+   */
+  private escapeRegex(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  /**
+   * Normalize text by converting common unicode variants to ASCII equivalents
+   */
+  private normalizeText(text: string): string {
+    return text
+      // Em-dash and en-dash to regular dash
+      .replace(/[\u2014\u2013]/g, '-')
+      // Smart quotes to regular quotes
+      .replace(/[\u2018\u2019]/g, "'")
+      .replace(/[\u201C\u201D]/g, '"')
+      // Ellipsis to three dots
+      .replace(/\u2026/g, '...')
+      // Non-breaking space to regular space
+      .replace(/\u00A0/g, ' ')
+      // Zero-width characters
+      .replace(/[\u200B\u200C\u200D\uFEFF]/g, '');
+  }
+
+  /**
+   * Extract the actual text from original content that matches a normalized position
+   */
+  private extractMatchingText(
+    originalContent: string,
+    normalizedContent: string,
+    normalizedSearch: string,
+    normalizedIndex: number
+  ): string | null {
+    // Map normalized index back to original index
+    // This is tricky because normalization can change string lengths
+    // We'll use a character-by-character mapping approach
+
+    let origIdx = 0;
+    let normIdx = 0;
+
+    // Find the original start index
+    while (normIdx < normalizedIndex && origIdx < originalContent.length) {
+      const origChar = originalContent[origIdx];
+      const normChar = this.normalizeText(origChar);
+      origIdx++;
+      normIdx += normChar.length;
+    }
+
+    const startIdx = origIdx;
+
+    // Find the original end index
+    let targetNormEnd = normalizedIndex + normalizedSearch.length;
+    while (normIdx < targetNormEnd && origIdx < originalContent.length) {
+      const origChar = originalContent[origIdx];
+      const normChar = this.normalizeText(origChar);
+      origIdx++;
+      normIdx += normChar.length;
+    }
+
+    return originalContent.substring(startIdx, origIdx);
+  }
+
+  /**
+   * Find text similar to the search string in the content
+   * Uses a simple approach: look for lines that share significant words
+   */
+  private findSimilarText(content: string, search: string): string | null {
+    // Extract significant words from search (3+ chars, not common words)
+    const commonWords = new Set(['the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was', 'one', 'our', 'out']);
+    const searchWords = search
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(w => w.length >= 3 && !commonWords.has(w))
+      .slice(0, 5); // Limit to first 5 significant words
+
+    if (searchWords.length === 0) return null;
+
+    const lines = content.split('\n');
+    let bestMatch: { line: string; score: number } | null = null;
+
+    for (const line of lines) {
+      const lineLower = line.toLowerCase();
+      let score = 0;
+
+      for (const word of searchWords) {
+        if (lineLower.includes(word)) {
+          score++;
+        }
+      }
+
+      // Also check for partial string match
+      const searchStart = search.substring(0, Math.min(20, search.length)).toLowerCase();
+      if (lineLower.includes(searchStart)) {
+        score += 2;
+      }
+
+      if (score > 0 && (!bestMatch || score > bestMatch.score)) {
+        bestMatch = { line: line.trim(), score };
+      }
+    }
+
+    return bestMatch && bestMatch.score >= 2 ? bestMatch.line : null;
+  }
+
+  /**
+   * Colorize raw git diff output with green for additions and red for removals
+   */
+  private colorizeGitDiff(diffOutput: string): string {
+    if (!diffOutput || diffOutput === 'No diff') {
+      return chalk.gray('No changes');
+    }
+
+    const termWidth = process.stdout.columns || 100;
+    const lines = diffOutput.split('\n');
+    const colorizedLines: string[] = [];
+
+    // Stats tracking
+    let additions = 0;
+    let deletions = 0;
+
+    for (const line of lines) {
+      if (line.startsWith('+++') || line.startsWith('---')) {
+        // File headers
+        colorizedLines.push(chalk.bold(line));
+      } else if (line.startsWith('@@')) {
+        // Hunk headers
+        colorizedLines.push(chalk.cyan(line));
+      } else if (line.startsWith('+')) {
+        // Addition line
+        additions++;
+        const content = line.slice(1);
+        const prefix = chalk.bgGreen.black(' + ');
+        const lineContent = chalk.bgRgb(30, 50, 30)(` ${content} `.padEnd(Math.max(termWidth - 5, content.length + 2)));
+        colorizedLines.push(prefix + lineContent);
+      } else if (line.startsWith('-')) {
+        // Deletion line
+        deletions++;
+        const content = line.slice(1);
+        const prefix = chalk.bgRed.white(' - ');
+        const lineContent = chalk.bgRgb(60, 30, 30)(` ${content} `.padEnd(Math.max(termWidth - 5, content.length + 2)));
+        colorizedLines.push(prefix + lineContent);
+      } else if (line.startsWith('diff --git')) {
+        // Diff header
+        colorizedLines.push(chalk.bold.cyan(line));
+      } else if (line.startsWith('index ') || line.startsWith('new file') || line.startsWith('deleted file')) {
+        // Index/mode lines
+        colorizedLines.push(chalk.gray(line));
+      } else {
+        // Context lines
+        colorizedLines.push(chalk.gray('   ') + line);
+      }
+    }
+
+    // Add stats header
+    const addText = additions === 1 ? '1 line' : `${additions} lines`;
+    const delText = deletions === 1 ? '1 line' : `${deletions} lines`;
+    const statsLine = chalk.gray(`  Added ${chalk.green(addText)}, removed ${chalk.red(delText)}\n`);
+
+    return statsLine + colorizedLines.join('\n');
+  }
+
+  /**
+   * Scan staged changes for secrets before commit
+   * @returns Error message if blocked, undefined if safe to proceed
+   */
+  private async scanBeforeCommit(): Promise<string | undefined> {
+    try {
+      // Get staged diff
+      const diff = execSync('git diff --cached', {
+        cwd: this.runtime.workspaceRoot,
+        encoding: 'utf-8',
+        maxBuffer: 10 * 1024 * 1024 // 10MB
+      });
+
+      if (!diff.trim()) {
+        return undefined; // No staged changes
+      }
+
+      // Scan for secrets
+      const result = this.securityScanner.scanDiff(diff);
+
+      // Display results
+      console.log(this.securityScanner.formatDisplay(result));
+
+      // Block if high-severity secrets found
+      if (this.securityScanner.shouldBlockCommit(result)) {
+        return `[BLOCKED] Commit blocked: ${result.blockedCount} high-severity secret(s) detected. Remove secrets before committing.`;
+      }
+
+      return undefined; // Safe to proceed
+    } catch (error) {
+      // If git command fails, proceed without blocking
+      console.log(chalk.yellow('\n[WARN] Could not scan for secrets (git diff failed)'));
+      return undefined;
+    }
+  }
+
   private showDiff(oldContent: string, newContent: string, filePath?: string): void {
     const diff = diffLines(oldContent, newContent);
+    const contextLines = 3;
+
+    // Detect language for syntax highlighting
+    const lang = filePath ? detectLanguage(filePath) : 'text';
+    const shouldHighlight = lang !== 'text';
 
     // Calculate stats
     let additions = 0;
@@ -1083,89 +1558,119 @@ export class ActionExecutor {
       else if (part.removed) deletions += lineCount;
     }
 
-    // Terminal width for box drawing
-    const termWidth = process.stdout.columns || 80;
-    const boxWidth = Math.min(termWidth - 4, 100);
+    const termWidth = process.stdout.columns || 100;
 
-    // Box drawing characters
-    const box = {
-      topLeft: '╭', topRight: '╮', bottomLeft: '╰', bottomRight: '╯',
-      horizontal: '─', vertical: '│',
-      leftT: '├', rightT: '┤'
-    };
+    // Header with stats
+    const addText = additions === 1 ? '1 line' : `${additions} lines`;
+    const delText = deletions === 1 ? '1 line' : `${deletions} lines`;
+    console.log(chalk.gray(`  Added ${chalk.green(addText)}, removed ${chalk.red(delText)}`));
 
-    // Header
-    const statsText = `+${additions} -${deletions}`;
-    const headerPadding = boxWidth - 4 - statsText.length;
-    console.log(chalk.cyan(`${box.topLeft}${box.horizontal.repeat(boxWidth)}${box.topRight}`));
-    console.log(chalk.cyan(box.vertical) +
-      chalk.bold.white(' ') +
-      chalk.green(`+${additions}`) + chalk.gray(' / ') + chalk.red(`-${deletions}`) +
-      ' '.repeat(Math.max(0, headerPadding - 6)) +
-      chalk.cyan(box.vertical));
-    console.log(chalk.cyan(`${box.leftT}${box.horizontal.repeat(boxWidth)}${box.rightT}`));
+    interface DiffHunk {
+      oldStart: number;
+      newStart: number;
+      changes: Array<{ line: string; type: 'add' | 'remove' | 'context'; oldNum?: number; newNum?: number }>;
+    }
 
-    // Diff content with line numbers
+    const hunks: DiffHunk[] = [];
+    let currentHunk: DiffHunk | null = null;
     let oldLineNum = 1;
     let newLineNum = 1;
-    let outputLines: string[] = [];
+    let contextBuffer: Array<{ line: string; oldNum: number; newNum: number }> = [];
 
     for (const part of diff) {
       const lines = part.value.split('\n').filter((line: string, idx: number, arr: string[]) => {
         return idx < arr.length - 1 || line !== '';
       });
 
-      for (const line of lines) {
-        const truncatedLine = line.length > boxWidth - 12
-          ? line.substring(0, boxWidth - 15) + '...'
-          : line;
+      if (!part.added && !part.removed) {
+        if (currentHunk) {
+          const trailing = lines.slice(0, contextLines);
+          for (const line of trailing) {
+            currentHunk.changes.push({ line, type: 'context', oldNum: oldLineNum, newNum: newLineNum });
+            oldLineNum++;
+            newLineNum++;
+          }
+
+          if (lines.length > contextLines * 2) {
+            hunks.push(currentHunk);
+            currentHunk = null;
+            const skipped = lines.length - trailing.length;
+            oldLineNum += skipped - contextLines;
+            newLineNum += skipped - contextLines;
+            contextBuffer = lines.slice(-contextLines).map((line, i) => ({
+              line,
+              oldNum: oldLineNum + i,
+              newNum: newLineNum + i
+            }));
+            oldLineNum += contextLines;
+            newLineNum += contextLines;
+          } else {
+            for (let i = contextLines; i < lines.length; i++) {
+              currentHunk.changes.push({ line: lines[i], type: 'context', oldNum: oldLineNum, newNum: newLineNum });
+              oldLineNum++;
+              newLineNum++;
+            }
+          }
+        } else {
+          contextBuffer = lines.slice(-contextLines).map((line, i) => ({
+            line,
+            oldNum: oldLineNum + lines.length - contextLines + i,
+            newNum: newLineNum + lines.length - contextLines + i
+          }));
+          oldLineNum += lines.length;
+          newLineNum += lines.length;
+        }
+      } else {
+        if (!currentHunk) {
+          currentHunk = {
+            oldStart: contextBuffer.length > 0 ? contextBuffer[0].oldNum : oldLineNum,
+            newStart: contextBuffer.length > 0 ? contextBuffer[0].newNum : newLineNum,
+            changes: contextBuffer.map(c => ({ line: c.line, type: 'context' as const, oldNum: c.oldNum, newNum: c.newNum }))
+          };
+          contextBuffer = [];
+        }
 
         if (part.added) {
-          // Green background for additions
-          const lineNumStr = String(newLineNum).padStart(4);
-          const content = `${chalk.bgGreen.black(` ${lineNumStr} `)} ${chalk.green('▎')} ${chalk.green(truncatedLine)}`;
-          outputLines.push(content);
-          newLineNum++;
-        } else if (part.removed) {
-          // Red background for deletions
-          const lineNumStr = String(oldLineNum).padStart(4);
-          const content = `${chalk.bgRed.white(` ${lineNumStr} `)} ${chalk.red('▎')} ${chalk.red.strikethrough(truncatedLine)}`;
-          outputLines.push(content);
-          oldLineNum++;
-        } else {
-          // Context lines - show limited
-          if (lines.length <= 6 || lines.indexOf(line) < 2 || lines.indexOf(line) >= lines.length - 2) {
-            const lineNumStr = String(oldLineNum).padStart(4);
-            const content = `${chalk.gray(` ${lineNumStr} `)} ${chalk.gray('│')} ${chalk.gray(truncatedLine)}`;
-            outputLines.push(content);
-          } else if (lines.indexOf(line) === 2) {
-            outputLines.push(chalk.gray(`      ┆ ···`));
+          for (const line of lines) {
+            currentHunk.changes.push({ line, type: 'add', newNum: newLineNum });
+            newLineNum++;
           }
-          oldLineNum++;
-          newLineNum++;
+        } else {
+          for (const line of lines) {
+            currentHunk.changes.push({ line, type: 'remove', oldNum: oldLineNum });
+            oldLineNum++;
+          }
         }
       }
     }
 
-    // Print diff lines
-    for (const line of outputLines) {
-      console.log(chalk.cyan(box.vertical) + ' ' + line);
+    if (currentHunk) {
+      hunks.push(currentHunk);
     }
 
-    // Footer with visual stats bar
-    console.log(chalk.cyan(`${box.leftT}${box.horizontal.repeat(boxWidth)}${box.rightT}`));
+    // Render hunks with syntax highlighting and background colors
+    for (const hunk of hunks) {
+      for (const change of hunk.changes) {
+        const lineNum = change.type === 'add' ? change.newNum : change.oldNum;
+        const lineNumStr = String(lineNum || 0).padStart(3);
 
-    // Visual change bar
-    const total = additions + deletions;
-    const barWidth = Math.min(30, boxWidth - 10);
-    if (total > 0) {
-      const addBar = Math.round((additions / total) * barWidth);
-      const delBar = barWidth - addBar;
-      const changeBar = chalk.bgGreen(' '.repeat(addBar)) + chalk.bgRed(' '.repeat(delBar));
-      console.log(chalk.cyan(box.vertical) + ' ' + changeBar + chalk.gray(` ${total} changes`) + chalk.cyan(box.vertical.padStart(boxWidth - barWidth - 12)));
+        // Apply syntax highlighting to the line content
+        const highlighted = shouldHighlight ? highlightLine(change.line, lang) : change.line;
+
+        if (change.type === 'add') {
+          const prefix = chalk.bgGreen.black(` ${lineNumStr} + `);
+          const content = chalk.bgRgb(30, 50, 30)(` ${highlighted} `.padEnd(Math.max(termWidth - 10, change.line.length + 2)));
+          console.log(prefix + content);
+        } else if (change.type === 'remove') {
+          const prefix = chalk.bgRed.white(` ${lineNumStr} - `);
+          const content = chalk.bgRgb(60, 30, 30)(` ${highlighted} `.padEnd(Math.max(termWidth - 10, change.line.length + 2)));
+          console.log(prefix + content);
+        } else {
+          console.log(chalk.gray(` ${lineNumStr}   `) + ` ${highlighted}`);
+        }
+      }
     }
 
-    console.log(chalk.cyan(`${box.bottomLeft}${box.horizontal.repeat(boxWidth)}${box.bottomRight}`));
-    console.log(); // Empty line after diff
+    console.log();
   }
 }

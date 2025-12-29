@@ -307,6 +307,7 @@ docker run -it autohand
 
 ## Documentation
 
+- [Playbook](AUTOHAND_PLAYBOOK.md) - 20 use cases for the software development lifecycle
 - [Features](docs/features.md) - Complete feature list
 - [Agent Skills](docs/agent-skills.md) - Skills system guide
 - [Configuration Reference](docs/config-reference.md) - All config options

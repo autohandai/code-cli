@@ -48,7 +48,8 @@ export interface WorkspaceSettings {
 }
 
 export interface UISettings {
-  theme?: 'dark' | 'light';
+  /** Theme name: 'dark', 'light', or custom theme from ~/.autohand/themes/*.json */
+  theme?: string;
   autoConfirm?: boolean;
   /** Max characters to display from read/search tool output (full content still sent to the model) */
   readFileCharLimit?: number;
@@ -214,6 +215,29 @@ export interface MessageMetadata {
   isCompressed?: boolean;
 }
 
+/**
+ * Text content part for multimodal messages
+ */
+export interface TextContentPart {
+  type: 'text';
+  text: string;
+}
+
+/**
+ * Image content part for multimodal messages (OpenAI/OpenRouter format)
+ */
+export interface ImageContentPart {
+  type: 'image_url';
+  image_url: {
+    url: string; // data:image/...;base64,... format
+  };
+}
+
+/**
+ * Content parts for multimodal messages
+ */
+export type ContentPart = TextContentPart | ImageContentPart;
+
 export interface LLMMessage {
   role: MessageRole;
   content: string;
@@ -226,6 +250,18 @@ export interface LLMMessage {
   priority?: MessagePriority;
   /** Metadata for smart compression */
   metadata?: MessageMetadata;
+}
+
+/**
+ * Message with multimodal content for API requests
+ * Used when converting LLMMessage to API format with images
+ */
+export interface MultimodalMessage {
+  role: MessageRole;
+  content: string | ContentPart[];
+  name?: string;
+  tool_call_id?: string;
+  tool_calls?: LLMToolCall[];
 }
 
 /**
@@ -310,7 +346,7 @@ export interface ToolRegistryEntry {
 }
 
 export type AgentAction =
-  | { type: 'read_file'; path: string }
+  | { type: 'read_file'; path: string; offset?: number; limit?: number }
   | { type: 'write_file'; path: string; contents?: string; content?: string }
   | { type: 'append_file'; path: string; contents?: string; content?: string }
   | { type: 'apply_patch'; path: string; patch?: string; diff?: string }
@@ -458,4 +494,15 @@ export interface AgentStatusSnapshot {
   model: string;
   workspace: string;
   contextPercent: number;
+}
+
+export interface AgentOutputEvent {
+  type: 'message' | 'thinking' | 'tool_start' | 'tool_end';
+  content?: string;
+  thought?: string;
+  toolName?: string;
+  toolId?: string;
+  toolArgs?: Record<string, unknown>;
+  toolOutput?: string;
+  toolSuccess?: boolean;
 }

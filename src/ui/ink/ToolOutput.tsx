@@ -5,6 +5,7 @@
  */
 import React from 'react';
 import { Box, Text } from 'ink';
+import { useTheme } from '../theme/ThemeContext.js';
 
 export interface ToolOutputEntry {
   id: string;
@@ -21,6 +22,7 @@ export interface ToolOutputProps {
 }
 
 export function ToolOutput({ entry }: ToolOutputProps) {
+  const { colors } = useTheme();
   const { tool, success, output, thought } = entry;
 
   // Clean thought - skip if it looks like JSON
@@ -30,20 +32,20 @@ export function ToolOutput({ entry }: ToolOutputProps) {
     <Box flexDirection="column" marginBottom={1}>
       {/* Show thought/reasoning before tool if present */}
       {cleanThought && (
-        <Text color="white">{cleanThought}</Text>
+        <Text color={colors.text}>{cleanThought}</Text>
       )}
       <Box>
-        <Text color={success ? 'green' : 'red'}>{success ? '✔' : '✖'}</Text>
+        <Text color={success ? colors.success : colors.error}>{success ? '✔' : '✖'}</Text>
         <Text bold> {tool}</Text>
       </Box>
       {output && (
         success ? (
-          <Text color="gray">{output}</Text>
+          <Text color={colors.toolOutput}>{output}</Text>
         ) : (
           <Box flexDirection="column">
-            <Text color="red">┌─ Error ─────────────────────────────────</Text>
-            <Text><Text color="red">│ </Text>{output}</Text>
-            <Text color="red">└─────────────────────────────────────────</Text>
+            <Text color={colors.error}>┌─ Error ─────────────────────────────────</Text>
+            <Text><Text color={colors.error}>│ </Text>{output}</Text>
+            <Text color={colors.error}>└─────────────────────────────────────────</Text>
           </Box>
         )
       )}

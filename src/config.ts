@@ -8,6 +8,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import type { AutohandConfig, LoadedConfig, ProviderName, ProviderSettings } from './types.js';
 import { AUTOHAND_FILES } from './constants.js';
+import { autoInitTheme, themeExists } from './ui/theme/index.js';
 
 const DEFAULT_CONFIG_PATH = AUTOHAND_FILES.configJson;
 const YAML_CONFIG_PATH = AUTOHAND_FILES.configYaml;
@@ -121,6 +122,11 @@ export async function loadConfig(customPath?: string): Promise<LoadedConfig> {
   const withEnv = mergeEnvVariables(normalized);
 
   validateConfig(withEnv, configPath);
+
+  // Initialize theme from config
+  const themeName = withEnv.ui?.theme || 'dark';
+  autoInitTheme(themeName);
+
   return { ...withEnv, configPath, isNewConfig };
 }
 
@@ -194,8 +200,11 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
   }
 
   if (config.ui) {
-    if (config.ui.theme && config.ui.theme !== 'dark' && config.ui.theme !== 'light') {
-      throw new Error(`ui.theme must be 'dark' or 'light' in ${configPath}`);
+    if (config.ui.theme && typeof config.ui.theme !== 'string') {
+      throw new Error(`ui.theme must be a string in ${configPath}`);
+    }
+    if (config.ui.theme && !themeExists(config.ui.theme)) {
+      throw new Error(`ui.theme '${config.ui.theme}' not found. Use 'dark', 'light', or a custom theme in ~/.autohand/themes/`);
     }
     if (config.ui.autoConfirm !== undefined && typeof config.ui.autoConfirm !== 'boolean') {
       throw new Error(`ui.autoConfirm must be boolean in ${configPath}`);

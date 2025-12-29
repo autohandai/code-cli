@@ -5,12 +5,15 @@
  */
 import React from 'react';
 import { Box, Text } from 'ink';
+import { useTheme } from '../theme/ThemeContext.js';
 
 export interface ThinkingOutputProps {
   thought: string | null;
 }
 
 export function ThinkingOutput({ thought }: ThinkingOutputProps) {
+  const { colors } = useTheme();
+
   if (!thought) {
     return null;
   }
@@ -23,7 +26,7 @@ export function ThinkingOutput({ thought }: ThinkingOutputProps) {
 
   return (
     <Box marginBottom={1}>
-      <Text color="gray" dimColor>Thinking: {thought}</Text>
+      <Text color={colors.dim} dimColor>Thinking: {thought}</Text>
     </Box>
   );
 }

@@ -62,7 +62,7 @@ export class OpenRouterClient {
       model: request.model ?? this.defaultModel,
       messages: request.messages,
       temperature: request.temperature ?? 0.2,
-      max_tokens: request.maxTokens ?? 1000,
+      max_tokens: request.maxTokens ?? 16000,  // Increased from 1000 to allow large file generation
       stream: request.stream ?? false
     };
 
@@ -191,14 +191,21 @@ export class OpenRouterClient {
     // Parse tool calls if present
     let toolCalls: LLMToolCall[] | undefined;
     if (message?.tool_calls && Array.isArray(message.tool_calls)) {
-      toolCalls = message.tool_calls.map((tc: any) => ({
-        id: tc.id,
-        type: 'function' as const,
-        function: {
-          name: tc.function?.name ?? '',
-          arguments: tc.function?.arguments ?? '{}'
+      toolCalls = message.tool_calls.map((tc: any) => {
+        const rawArgs = tc.function?.arguments;
+        // Debug log to see what the API actually returned
+        if (!rawArgs || rawArgs === '{}' || rawArgs === '') {
+          console.error(`[DEBUG] Tool "${tc.function?.name}" raw arguments from API: "${rawArgs}" (type: ${typeof rawArgs})`);
         }
-      }));
+        return {
+          id: tc.id,
+          type: 'function' as const,
+          function: {
+            name: tc.function?.name ?? '',
+            arguments: rawArgs ?? '{}'
+          }
+        };
+      });
     }
 
     // Parse token usage if present

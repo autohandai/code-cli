@@ -9,7 +9,7 @@ import type { LLMProvider } from '../providers/LLMProvider.js';
 import type { MemoryManager } from '../memory/MemoryManager.js';
 import type { PermissionManager } from '../permissions/PermissionManager.js';
 import type { SkillsRegistry } from '../skills/SkillsRegistry.js';
-import type { AutohandConfig, ProviderName } from '../types.js';
+import type { LoadedConfig, ProviderName } from '../types.js';
 
 export interface SlashCommandContext {
     listWorkspaceFiles?: () => Promise<void>;
@@ -29,8 +29,8 @@ export interface SlashCommandContext {
     model: string;
     /** Current provider name (for /status) */
     provider?: ProviderName;
-    /** Full config object (for /status) */
-    config?: AutohandConfig;
+    /** Full config object (for /status and /theme) */
+    config?: LoadedConfig;
     /** Get current context percentage remaining (for /status) */
     getContextPercentLeft?: () => number;
     /** Get current total tokens used (for /status) */

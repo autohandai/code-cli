@@ -5,11 +5,33 @@
  */
 import chalk from 'chalk';
 import readline from 'node:readline';
+import { existsSync, readFileSync } from 'node:fs';
+import { basename, extname } from 'node:path';
 import { TerminalResizeWatcher } from './terminalResize.js';
 import type { SlashCommand } from '../core/slashCommands.js';
 import { MentionPreview } from './mentionPreview.js';
+import {
+  type ImageMimeType,
+  isImagePath,
+  isBase64Image,
+  parseBase64DataUrl,
+  getMimeTypeFromExtension,
+} from '../core/ImageManager.js';
 
 export type SlashCommandHint = SlashCommand;
+
+/**
+ * Callback for when an image is detected in input
+ * @param data - Image data as Buffer
+ * @param mimeType - Image MIME type
+ * @param filename - Optional original filename
+ * @returns Image ID from ImageManager
+ */
+export type ImageDetectedCallback = (
+  data: Buffer,
+  mimeType: ImageMimeType,
+  filename?: string
+) => number;
 
 export interface PromptIO {
   input?: NodeJS.ReadStream;
@@ -20,11 +42,86 @@ type PromptResult =
   | { kind: 'submit'; value: string }
   | { kind: 'abort' };
 
+// Visual marker for newlines in single-line input (converted to \n on submit)
+export const NEWLINE_MARKER = ' ↵ ';
+const MAX_NEWLINES = 2; // Max 3 lines = 2 newline markers
+
+// Maximum lines to display visually (input can contain more)
+export const MAX_DISPLAY_LINES = 5;
+
+/**
+ * Result from getDisplayContent
+ */
+export interface DisplayResult {
+  /** Content to show in terminal */
+  display: string;
+  /** Total lines if shown untruncated */
+  totalLines: number;
+  /** Whether content was truncated for display */
+  isTruncated: boolean;
+}
+
+/**
+ * Calculate display content with truncation if needed.
+ * When content exceeds MAX_DISPLAY_LINES, shows the END (most recent typing)
+ * with an indicator showing total line count.
+ *
+ * @param fullContent - The complete input content
+ * @param terminalWidth - Current terminal width in columns
+ * @returns Display result with truncated content and metadata
+ */
+export function getDisplayContent(fullContent: string, terminalWidth: number): DisplayResult {
+  if (!fullContent) {
+    return { display: '', totalLines: 0, isTruncated: false };
+  }
+
+  const promptWidth = 2; // "› " prefix
+  const availableWidth = Math.max(1, terminalWidth - promptWidth);
+
+  // Calculate how many lines the content would take
+  const totalLines = Math.ceil(fullContent.length / availableWidth);
+
+  if (totalLines <= MAX_DISPLAY_LINES) {
+    return { display: fullContent, totalLines, isTruncated: false };
+  }
+
+  // Reserve space for indicator like "... (8 lines) "
+  const indicator = `... (${totalLines} lines) `;
+  const indicatorWidth = indicator.length;
+
+  // Calculate max chars for display (MAX_DISPLAY_LINES lines minus indicator)
+  const maxChars = (availableWidth * MAX_DISPLAY_LINES) - indicatorWidth;
+
+  // Show the END of the content (most recent typing)
+  const truncated = fullContent.slice(-Math.max(0, maxChars));
+
+  return {
+    display: indicator + truncated,
+    totalLines,
+    isTruncated: true
+  };
+}
+
+/**
+ * Count the number of newline markers in text
+ */
+export function countNewlineMarkers(text: string): number {
+  return (text.match(new RegExp(NEWLINE_MARKER, 'g')) || []).length;
+}
+
+/**
+ * Convert newline markers back to actual newlines
+ */
+export function convertNewlineMarkersToNewlines(text: string): string {
+  return text.replace(new RegExp(NEWLINE_MARKER, 'g'), '\n');
+}
+
 export async function readInstruction(
   files: string[],
   slashCommands: SlashCommandHint[],
   statusLine?: string,
-  io: PromptIO = {}
+  io: PromptIO = {},
+  onImageDetected?: ImageDetectedCallback
 ): Promise<string | null> {
   const stdInput = (io.input ?? process.stdin) as NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void };
   const stdOutput = (io.output ?? process.stdout) as NodeJS.WriteStream;
@@ -39,7 +136,8 @@ export async function readInstruction(
         slashCommands,
         statusLine,
         stdInput,
-        stdOutput
+        stdOutput,
+        onImageDetected
       });
 
       if (result.kind === 'abort') {
@@ -59,6 +157,7 @@ interface PromptOnceOptions {
   statusLine?: string;
   stdInput: NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void };
   stdOutput: NodeJS.WriteStream;
+  onImageDetected?: ImageDetectedCallback;
 }
 
 function createReadline(
@@ -94,23 +193,74 @@ function createReadline(
 }
 
 async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
-  const { files, slashCommands, statusLine, stdInput, stdOutput } = options;
+  const { files, slashCommands, statusLine, stdInput, stdOutput, onImageDetected } = options;
   const { rl, input, supportsRawMode } = createReadline(stdInput, stdOutput);
 
   const mentionPreview = new MentionPreview(rl, files, slashCommands, stdOutput, statusLine);
+
   const resizeWatcher = new TerminalResizeWatcher(stdOutput, () => {
     mentionPreview.handleResize();
-    renderPromptLine(rl, statusLine, stdOutput, true);  // isResize = true
+    renderPromptLine(rl, statusLine, stdOutput, true);
   });
+
+  /**
+   * Process text and detect embedded images (base64 data URLs or file paths)
+   * @param text - Input text that may contain image references
+   * @returns Text with image references replaced by placeholders
+   */
+  const processImagesInText = (text: string): string => {
+    if (!onImageDetected) {
+      return text;
+    }
+
+    let result = text;
+
+    // Detect base64 image data URLs: data:image/...;base64,...
+    const base64Regex = /data:image\/[a-z]+;base64,[A-Za-z0-9+/=]+/g;
+    const base64Matches = result.match(base64Regex) || [];
+
+    for (const dataUrl of base64Matches) {
+      const parsed = parseBase64DataUrl(dataUrl);
+      if (parsed) {
+        const id = onImageDetected(parsed.data, parsed.mimeType);
+        result = result.replace(dataUrl, `[Image #${id}]`);
+        stdOutput.write(chalk.cyan(`\n📷 Detected base64 image -> [Image #${id}]\n`));
+      }
+    }
+
+    // Detect image file paths (with supported extensions)
+    // Match paths that look like file paths ending with image extensions
+    const pathRegex = /(?:^|[\s"])([^\s"]+\.(?:png|jpg|jpeg|gif|webp))(?:[\s"]|$)/gi;
+    let pathMatch;
+
+    while ((pathMatch = pathRegex.exec(text)) !== null) {
+      const filePath = pathMatch[1];
+      // Only process if it's in the result (might have been processed already)
+      if (result.includes(filePath) && existsSync(filePath)) {
+        try {
+          const data = readFileSync(filePath);
+          const ext = extname(filePath);
+          const mimeType = getMimeTypeFromExtension(ext);
+          if (mimeType) {
+            const id = onImageDetected(data, mimeType, basename(filePath));
+            result = result.replace(filePath, `[Image #${id}] ${basename(filePath)}`);
+            stdOutput.write(chalk.cyan(`\n📷 Loaded image: ${filePath} -> [Image #${id}]\n`));
+          }
+        } catch {
+          // Ignore file read errors
+        }
+      }
+    }
+
+    return result;
+  };
 
   return new Promise<PromptResult>((resolve) => {
     let ctrlCCount = 0;
     let closed = false;
 
     const cleanup = () => {
-      if (closed) {
-        return;
-      }
+      if (closed) return;
       closed = true;
       mentionPreview.dispose();
       resizeWatcher.dispose();
@@ -122,8 +272,53 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       rl.close();
     };
 
+    const insertAtCursor = (text: string) => {
+      const rlAny = rl as readline.Interface & { line: string; cursor: number; _refreshLine?: () => void };
+      const before = rlAny.line.slice(0, rlAny.cursor);
+      const after = rlAny.line.slice(rlAny.cursor);
+      rlAny.line = before + text + after;
+      rlAny.cursor = before.length + text.length;
+
+      // Use atomic refresh to avoid triple rendering
+      // _refreshLine is a stable internal method that handles cursor positioning
+      if (typeof rlAny._refreshLine === 'function') {
+        rlAny._refreshLine();
+      } else {
+        // Fallback for environments where _refreshLine is not available
+        readline.cursorTo(stdOutput, 0);
+        readline.clearLine(stdOutput, 0);
+        rl.prompt(true);
+      }
+    };
+
     const handleKeypress = (_str: string, key: readline.Key) => {
+      // Shift+Enter or Alt+Enter: insert newline marker (max 3 lines)
+      if (key?.name === 'return' && (key.shift || key.meta)) {
+        const currentMarkers = countNewlineMarkers(rl.line || '');
+        if (currentMarkers < MAX_NEWLINES) {
+          insertAtCursor(NEWLINE_MARKER);
+        }
+        return;
+      }
+
+      // Ctrl+C: clear input or exit
       if (key?.name === 'c' && key.ctrl) {
+        const currentInput = rl.line || '';
+        
+        if (currentInput.length > 0) {
+          // Clear the input
+          mentionPreview.reset();
+          const rlAny = rl as readline.Interface & { line: string; cursor: number };
+          rlAny.line = '';
+          rlAny.cursor = 0;
+          readline.cursorTo(stdOutput, 0);
+          readline.clearLine(stdOutput, 0);
+          rl.prompt(true);
+          ctrlCCount = 0;
+          return;
+        }
+        
+        // Input is empty - handle exit flow
         if (ctrlCCount === 0) {
           ctrlCCount = 1;
           mentionPreview.reset();
@@ -136,6 +331,8 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         return;
       }
 
+      // Reset Ctrl+C counter on any other key
+      ctrlCCount = 0;
     };
 
     input.on('keypress', handleKeypress);
@@ -144,17 +341,36 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     rl.prompt(true);
 
     rl.on('line', (value) => {
-      const trimmed = value.trim();
+      // Convert newline markers back to actual newlines
+      let finalValue = convertNewlineMarkersToNewlines(value).trim();
+
+      // Process any embedded images (base64 data URLs or file paths)
+      finalValue = processImagesInText(finalValue);
+
       stdOutput.write('\n');
       // Show interrupt hint when user submits a non-empty, non-command instruction
-      if (trimmed && !trimmed.startsWith('/')) {
+      if (finalValue && !finalValue.startsWith('/')) {
         stdOutput.write(`${chalk.gray('press ESC to interrupt')}\n\n`);
       }
       cleanup();
-      resolve({ kind: 'submit', value: trimmed });
+      resolve({ kind: 'submit', value: finalValue });
     });
 
     rl.on('SIGINT', () => {
+      const currentInput = rl.line || '';
+      
+      if (currentInput.length > 0) {
+        mentionPreview.reset();
+        const rlAny = rl as readline.Interface & { line: string; cursor: number };
+        rlAny.line = '';
+        rlAny.cursor = 0;
+        readline.cursorTo(stdOutput, 0);
+        readline.clearLine(stdOutput, 0);
+        rl.prompt(true);
+        ctrlCCount = 0;
+        return;
+      }
+      
       if (ctrlCCount === 0) {
         ctrlCCount = 1;
         mentionPreview.reset();
@@ -167,7 +383,6 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     });
   });
 }
-
 
 /**
  * Disable readline's built-in tab completion so our custom @ mention handler
@@ -191,7 +406,6 @@ function renderPromptLine(rl: readline.Interface, statusLine: string | undefined
 
   if (isResize) {
     // On resize, clear the previous status line and prompt before redrawing
-    // Move up 2 lines (status + prompt), clear from cursor to end of screen
     readline.moveCursor(output, 0, -2);
     readline.clearScreenDown(output);
   }

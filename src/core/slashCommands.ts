@@ -26,6 +26,7 @@ import * as logout from '../commands/logout.js';
 import * as permissions from '../commands/permissions.js';
 import * as skills from '../commands/skills.js';
 import * as skillsNew from '../commands/skills-new.js';
+import * as theme from '../commands/theme.js';
 
 export interface SlashCommand {
   command: string;
@@ -59,4 +60,5 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   permissions.metadata,
   skills.metadata,
   skillsNew.metadata,
+  theme.metadata,
 ];

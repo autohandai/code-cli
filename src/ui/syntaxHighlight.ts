@@ -8,6 +8,7 @@
  */
 import chalk from 'chalk';
 import path from 'node:path';
+import { getTheme, isThemeInitialized } from './theme/index.js';
 
 // Language detection by file extension
 const EXTENSION_MAP: Record<string, string> = {
@@ -229,9 +230,35 @@ function tokenize(code: string, language: string): Token[] {
 }
 
 /**
- * Apply colors to tokens
+ * Apply colors to tokens using theme colors
  */
 function colorToken(token: Token): string {
+  // Use theme colors if available, otherwise fall back to chalk
+  if (isThemeInitialized()) {
+    const theme = getTheme();
+    switch (token.type) {
+      case 'keyword':
+        return theme.fg('syntaxKeyword', token.value);
+      case 'string':
+        return theme.fg('syntaxString', token.value);
+      case 'number':
+        return theme.fg('syntaxNumber', token.value);
+      case 'comment':
+        return theme.fg('syntaxComment', token.value);
+      case 'type':
+        return theme.fg('syntaxType', token.value);
+      case 'function':
+        return theme.fg('syntaxFunction', token.value);
+      case 'operator':
+        return theme.fg('syntaxOperator', token.value);
+      case 'punctuation':
+        return theme.fg('syntaxPunctuation', token.value);
+      default:
+        return token.value;
+    }
+  }
+
+  // Fallback to chalk when theme not initialized
   switch (token.type) {
     case 'keyword':
       return chalk.magenta(token.value);
@@ -300,6 +327,15 @@ export function highlightWithLineNumbers(
     const highlighted = lang !== 'text' ? highlightLine(line, lang) : line;
     const isHighlighted = highlightLines.includes(lineNum);
 
+    if (isThemeInitialized()) {
+      const theme = getTheme();
+      if (isHighlighted) {
+        return theme.bg('warning', theme.fg('text', ` ${lineNumStr} `)) + ' ' + highlighted;
+      }
+      return theme.fg('muted', ` ${lineNumStr} `) + theme.fg('muted', '│') + ' ' + highlighted;
+    }
+
+    // Fallback to chalk
     if (isHighlighted) {
       return chalk.bgYellow.black(` ${lineNumStr} `) + ' ' + highlighted;
     }
@@ -336,10 +372,18 @@ export function formatCodeBlock(
   // Header
   if (title || filePath) {
     const headerText = title || filePath || '';
-    const langBadge = lang !== 'text' ? chalk.gray(` [${lang}]`) : '';
-    output.push(chalk.cyan('─'.repeat(60)));
-    output.push(chalk.cyan.bold(headerText) + langBadge);
-    output.push(chalk.cyan('─'.repeat(60)));
+    if (isThemeInitialized()) {
+      const theme = getTheme();
+      const langBadge = lang !== 'text' ? theme.fg('muted', ` [${lang}]`) : '';
+      output.push(theme.fg('accent', '─'.repeat(60)));
+      output.push(theme.bold(theme.fg('accent', headerText)) + langBadge);
+      output.push(theme.fg('accent', '─'.repeat(60)));
+    } else {
+      const langBadge = lang !== 'text' ? chalk.gray(` [${lang}]`) : '';
+      output.push(chalk.cyan('─'.repeat(60)));
+      output.push(chalk.cyan.bold(headerText) + langBadge);
+      output.push(chalk.cyan('─'.repeat(60)));
+    }
   }
 
   // Code content
@@ -352,7 +396,12 @@ export function formatCodeBlock(
 
   // Truncation notice
   if (truncated) {
-    output.push(chalk.yellow(`... (${code.split('\n').length - maxLines!} more lines)`));
+    if (isThemeInitialized()) {
+      const theme = getTheme();
+      output.push(theme.fg('warning', `... (${code.split('\n').length - maxLines!} more lines)`));
+    } else {
+      output.push(chalk.yellow(`... (${code.split('\n').length - maxLines!} more lines)`));
+    }
   }
 
   return output.join('\n');

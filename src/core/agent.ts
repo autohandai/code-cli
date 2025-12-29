@@ -42,7 +42,9 @@ import type {
   AgentAction,
   LLMMessage,
   LLMResponse,
+  LLMToolCall,
   AgentStatusSnapshot,
+  AgentOutputEvent,
   AssistantReactPayload,
   ToolCallRequest,
   ExplorationEvent,
@@ -68,6 +70,11 @@ import { createInkRenderer, type InkRenderer } from '../ui/ink/InkRenderer.js';
 import { PermissionManager } from '../permissions/PermissionManager.js';
 import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
 import packageJson from '../../package.json' with { type: 'json' };
+// New feature modules
+import { ImageManager } from './ImageManager.js';
+import { IntentDetector, type Intent, type IntentResult } from './IntentDetector.js';
+import { EnvironmentBootstrap, type BootstrapResult } from './EnvironmentBootstrap.js';
+import { CodeQualityPipeline, type QualityResult } from './CodeQualityPipeline.js';
 
 export class AutohandAgent {
   private mentionContexts: { path: string; contents: string }[] = [];
@@ -75,6 +82,7 @@ export class AutohandAgent {
   private contextPercentLeft = 100;
   private ignoreFilter: GitIgnoreParser;
   private statusListener?: (snapshot: AgentStatusSnapshot) => void;
+  private outputListener?: (event: AgentOutputEvent) => void;
   private conversation: ConversationManager;
   private toolManager: ToolManager;
   private actionExecutor: ActionExecutor;
@@ -108,6 +116,15 @@ export class AutohandAgent {
   private queueInput = '';
   private lastRenderedStatus = '';
 
+  // New feature modules
+  private imageManager: ImageManager;
+  private intentDetector: IntentDetector;
+  private environmentBootstrap: EnvironmentBootstrap;
+  private codeQualityPipeline: CodeQualityPipeline;
+  private lastIntent: Intent = 'diagnostic';
+  private filesModifiedThisSession = false;
+  private searchQueries: string[] = [];
+
   constructor(
     private llm: LLMProvider,
     private readonly files: FileActionManager,
@@ -121,6 +138,12 @@ export class AutohandAgent {
     this.conversation = ConversationManager.getInstance();
     this.toolsRegistry = new ToolsRegistry();
     this.memoryManager = new MemoryManager(runtime.workspaceRoot);
+
+    // Initialize new feature modules
+    this.imageManager = new ImageManager();
+    this.intentDetector = new IntentDetector();
+    this.environmentBootstrap = new EnvironmentBootstrap();
+    this.codeQualityPipeline = new CodeQualityPipeline();
 
     // Create permission manager with persistence callback and local project support
     this.permissionManager = new PermissionManager({
@@ -147,7 +170,8 @@ export class AutohandAgent {
       toolsRegistry: this.toolsRegistry,
       getRegisteredTools: () => this.toolManager?.listDefinitions() ?? [],
       memoryManager: this.memoryManager,
-      permissionManager: this.permissionManager
+      permissionManager: this.permissionManager,
+      onFileModified: () => this.markFilesModified()
     });
 
     this.activeProvider = runtime.config.provider ?? 'openrouter';
@@ -422,11 +446,26 @@ export class AutohandAgent {
             this.conversation.addSystemNote(msg.content);
           }
         } else {
+          // Convert session toolCalls format to LLMToolCall format
+          // Session stores: {id, tool, args} but LLMToolCall expects {id, type, function: {name, arguments}}
+          let convertedToolCalls: LLMToolCall[] | undefined;
+          const sessionToolCalls = (msg as any).toolCalls;
+          if (sessionToolCalls && Array.isArray(sessionToolCalls)) {
+            convertedToolCalls = sessionToolCalls.map((tc: any) => ({
+              id: tc.id,
+              type: 'function' as const,
+              function: {
+                name: tc.tool || tc.function?.name || 'unknown',
+                arguments: typeof tc.args === 'string' ? tc.args : JSON.stringify(tc.args || {})
+              }
+            }));
+          }
+
           this.conversation.addMessage({
             role: msg.role,
             content: msg.content,
             name: msg.name,
-            tool_calls: (msg as any).toolCalls,
+            tool_calls: convertedToolCalls,
             tool_call_id: (msg as any).tool_call_id
           });
         }
@@ -590,7 +629,13 @@ export class AutohandAgent {
   private async promptForInstruction(): Promise<string | null> {
     this.workspaceFiles = await this.collectWorkspaceFiles();
     const statusLine = this.formatStatusLine();
-    const input = await readInstruction(this.workspaceFiles, SLASH_COMMANDS, statusLine);
+    const input = await readInstruction(
+      this.workspaceFiles,
+      SLASH_COMMANDS,
+      statusLine,
+      {}, // default IO
+      (data, mimeType, filename) => this.imageManager.add(data, mimeType, filename)
+    );
     // Only exit on explicit ABORT (double Ctrl+C). Palette cancel or dismiss should continue.
     if (input === 'ABORT') { // double Ctrl+C from prompt
       return '/exit';
@@ -1249,10 +1294,28 @@ export class AutohandAgent {
   async runInstruction(instruction: string): Promise<boolean> {
     this.isInstructionActive = true;
     this.clearExplorationLog();
+    this.filesModifiedThisSession = false;
 
     // Initialize task-level tracking
     this.taskStartedAt = Date.now();
     this.totalTokensUsed = 0;
+
+    // Detect user intent (diagnostic vs implementation)
+    const intentResult = this.intentDetector.detect(instruction);
+    this.lastIntent = intentResult.intent;
+
+    // Display mode indicator
+    this.displayIntentMode(intentResult);
+
+    // Run environment bootstrap for implementation mode
+    if (intentResult.intent === 'implementation') {
+      const bootstrapResult = await this.runEnvironmentBootstrap();
+      if (!bootstrapResult.success) {
+        console.log(chalk.red('\n[BLOCKED] Environment setup failed. Fix issues before proceeding.'));
+        this.isInstructionActive = false;
+        return false;
+      }
+    }
 
     const abortController = new AbortController();
     let canceledByUser = false;
@@ -1292,6 +1355,11 @@ export class AutohandAgent {
 
       this.updateContextUsage(this.conversation.history());
       await this.runReactLoop(abortController);
+
+      // Run quality pipeline after file modifications in implementation mode
+      if (this.lastIntent === 'implementation' && this.filesModifiedThisSession) {
+        await this.runQualityPipeline();
+      }
     } catch (error) {
       success = false;
       if (abortController.signal.aborted) {
@@ -1517,13 +1585,17 @@ export class AutohandAgent {
       } else {
         this.runtime.spinner?.start('Working ...');
       }
+      // Get messages with images included for multimodal support
+      const messagesWithImages = this.getMessagesWithImages();
+
       const completion = await this.llm.complete({
-        messages: this.conversation.history(),
+        messages: messagesWithImages,
         temperature: this.runtime.options.temperature ?? 0.2,
         model: this.runtime.options.model,
         signal: abortController.signal,
         tools: tools.length > 0 ? tools : undefined,
-        toolChoice: tools.length > 0 ? 'auto' : undefined
+        toolChoice: tools.length > 0 ? 'auto' : undefined,
+        maxTokens: 16000  // Allow large outputs for file generation
       });
 
       // Track token usage from response and immediately update UI
@@ -1706,6 +1778,31 @@ export class AutohandAgent {
           }
         }
 
+        // Search-specific throttling to prevent excessive sequential searches
+        const searchTools = ['search', 'search_with_context', 'semantic_search'];
+        const searchCallsThisIteration = otherCalls.filter(call => searchTools.includes(call.tool));
+
+        // Track search queries for this iteration
+        for (const call of searchCallsThisIteration) {
+          const query = String(call.args?.query || call.args?.pattern || 'unknown');
+          this.searchQueries.push(query);
+        }
+
+        // Add search limit warning if too many searches in one iteration
+        if (searchCallsThisIteration.length >= 3) {
+          this.conversation.addSystemNote(
+            '[Search Limit] You have made 3+ searches this iteration. Please analyze the search results before searching again. Consider combining patterns (e.g., `pattern1|pattern2`) if you need more information.'
+          );
+        }
+
+        // Add search history summary if accumulated too many searches
+        if (this.searchQueries.length > 5) {
+          const recentSearches = this.searchQueries.slice(-5).map(q => `"${q}"`).join(', ');
+          this.conversation.addSystemNote(
+            `[Search Summary] Recent searches: ${recentSearches}. Avoid repeating similar searches - analyze existing results first.`
+          );
+        }
+
         continue;
       }
 
@@ -1786,6 +1883,12 @@ export class AutohandAgent {
       // Reset consecutive empty counter on success
       (this as any).__consecutiveEmpty = 0;
 
+      // Emit output event for RPC mode
+      if (payload.thought) {
+        this.emitOutput({ type: 'thinking', thought: payload.thought });
+      }
+      this.emitOutput({ type: 'message', content: response });
+
       if (this.inkRenderer) {
         // InkRenderer: set final response
         if (showThinking && payload.thought) {
@@ -1843,11 +1946,19 @@ export class AutohandAgent {
       }
       return {
         thought,
-        toolCalls: completion.toolCalls.map(tc => ({
-          id: tc.id,
-          tool: tc.function.name as AgentAction['type'],
-          args: this.safeParseToolArgs(tc.function.arguments)
-        }))
+        toolCalls: completion.toolCalls.map(tc => {
+          // Log raw tool call for debugging
+          const rawArgs = tc.function.arguments;
+          if (!rawArgs || rawArgs === '{}' || rawArgs === '') {
+            console.error(chalk.yellow(`⚠ Tool "${tc.function.name}" has empty/missing arguments`));
+            console.error(chalk.gray(`  Raw arguments: "${rawArgs}"`));
+          }
+          return {
+            id: tc.id,
+            tool: tc.function.name as AgentAction['type'],
+            args: this.safeParseToolArgs(rawArgs)
+          };
+        })
       };
     }
     return this.parseAssistantReactPayload(completion.content);
@@ -1857,11 +1968,23 @@ export class AutohandAgent {
    * Safely parse tool arguments from JSON string
    */
   private safeParseToolArgs(json: string): ToolCallRequest['args'] {
+    if (!json || typeof json !== 'string') {
+      console.error(chalk.yellow('⚠ Tool arguments empty or not a string'));
+      return undefined;
+    }
+
     try {
       const parsed = JSON.parse(json);
       // Return the parsed object if it's valid, otherwise undefined
-      return parsed && typeof parsed === 'object' ? parsed : undefined;
-    } catch {
+      if (parsed && typeof parsed === 'object') {
+        return parsed;
+      }
+      console.error(chalk.yellow(`⚠ Tool arguments parsed but not an object: ${typeof parsed}`));
+      return undefined;
+    } catch (err) {
+      // Log the error with the raw JSON for debugging
+      console.error(chalk.yellow(`⚠ Failed to parse tool arguments: ${err instanceof Error ? err.message : String(err)}`));
+      console.error(chalk.gray(`  Raw JSON: ${json.slice(0, 200)}${json.length > 200 ? '...' : ''}`));
       return undefined;
     }
   }
@@ -1975,7 +2098,28 @@ export class AutohandAgent {
     if (!entry || typeof entry.tool !== 'string') {
       return null;
     }
-    const args = entry.args && typeof entry.args === 'object' ? entry.args : undefined;
+
+    // Get args from entry.args if it exists and is an object
+    let args = entry.args && typeof entry.args === 'object' ? entry.args : undefined;
+
+    // Fallback: if args is undefined, check if tool arguments are at the top level
+    // This handles cases where the LLM formats as: {"tool": "write_file", "path": "...", "contents": "..."}
+    // instead of: {"tool": "write_file", "args": {"path": "...", "contents": "..."}}
+    if (!args) {
+      const topLevelArgs: Record<string, unknown> = {};
+      const reservedKeys = ['tool', 'id', 'args'];
+
+      for (const [key, value] of Object.entries(entry)) {
+        if (!reservedKeys.includes(key) && value !== undefined) {
+          topLevelArgs[key] = value;
+        }
+      }
+
+      if (Object.keys(topLevelArgs).length > 0) {
+        args = topLevelArgs;
+      }
+    }
+
     return {
       id: typeof entry.id === 'string' ? entry.id : randomUUID(),
       tool: entry.tool as AgentAction['type'],
@@ -2112,6 +2256,12 @@ export class AutohandAgent {
       '1. Read ALL relevant files before planning. Use `read_file`, `search`, or `semantic_search`.',
       '2. For multi-step tasks, use `todo_write` to create a structured plan. Mark tasks as "in_progress" or "completed" as you go.',
       '3. Identify outputs, success criteria, edge cases, and potential blockers.',
+      '',
+      '#### Search Optimization',
+      '- Combine related searches into a single regex pattern (e.g., `pattern1|pattern2`) instead of separate searches.',
+      '- Use `search_with_context` when you need surrounding code context.',
+      '- Limit searches to 2-3 per task. Analyze results before searching again.',
+      '- If a search returns no results, broaden the pattern rather than trying variations.',
       '',
       '### Phase 3: Implementation',
       '1. Write code using `write_file`, `search_replace`, `apply_patch`, or `multi_file_edit`.',
@@ -2656,8 +2806,8 @@ export class AutohandAgent {
    * Uses InkRenderer when enabled, otherwise falls back to ora spinner.
    */
   private initializeUI(abortController?: AbortController, onCancel?: () => void): void {
-    if (this.useInkRenderer) {
-      // Create and start InkRenderer
+    if (this.useInkRenderer && process.stdout.isTTY && process.stdin.isTTY) {
+      // Create and start InkRenderer (only in TTY mode)
       this.inkRenderer = createInkRenderer({
         onInstruction: (text) => {
           // Queue the instruction in InkRenderer (it manages its own queue)
@@ -2679,14 +2829,15 @@ export class AutohandAgent {
       this.inkRenderer.start();
       this.inkRenderer.setWorking(true, 'Gathering context...');
       this.runtime.inkRenderer = this.inkRenderer;
-    } else {
-      // Use ora spinner
+    } else if (process.stdout.isTTY) {
+      // Use ora spinner (only in TTY mode)
       const spinner = ora({
         text: 'Gathering context...',
         spinner: 'dots'
       }).start();
       this.runtime.spinner = spinner;
     }
+    // In non-TTY mode (RPC), skip spinner entirely
   }
 
   /**
@@ -2851,7 +3002,7 @@ export class AutohandAgent {
     }
 
     let ctrlCCount = 0;
-    this.queueInput = ''; // Reset queue input
+    this.queueInput = '';
     const enableQueue = this.runtime.config.agent?.enableRequestQueue !== false;
 
     const handler = (_str: string, key: readline.Key) => {
@@ -2878,23 +3029,18 @@ export class AutohandAgent {
         return;
       }
 
-      // Queue functionality - capture typed input
       if (enableQueue) {
-        // Enter - submit to queue
         if (key?.name === 'return' || key?.name === 'enter') {
           if (this.queueInput.trim()) {
             const text = this.queueInput.trim();
             this.queueInput = '';
 
-            // Add to queue
             const queue = (this.persistentInput as any).queue as Array<{ text: string; timestamp: number }>;
             if (queue.length >= 10) {
-              // Queue full - show briefly then restore
               return;
             }
             queue.push({ text, timestamp: Date.now() });
 
-            // Show confirmation briefly
             const preview = text.length > 30 ? text.slice(0, 27) + '...' : text;
             if (this.runtime.spinner) {
               this.runtime.spinner.text = chalk.cyan(`✓ Queued: "${preview}" (${this.persistentInput.getQueueLength()} pending)`);
@@ -2903,24 +3049,21 @@ export class AutohandAgent {
           return;
         }
 
-        // Backspace
         if (key?.name === 'backspace') {
           this.queueInput = this.queueInput.slice(0, -1);
-          this.updateInputLine(); // Immediate feedback
+          this.updateInputLine();
           return;
         }
 
-        // Ignore control keys
         if (key?.ctrl || key?.meta) {
           return;
         }
 
-        // Add printable characters
         if (_str) {
           const printable = _str.replace(/[\x00-\x1F\x7F]/g, '');
           if (printable) {
             this.queueInput += printable;
-            this.updateInputLine(); // Immediate feedback
+            this.updateInputLine();
           }
         }
       }
@@ -2981,6 +3124,167 @@ export class AutohandAgent {
       return `${(tokens / 1000).toFixed(1)}k tokens`;
     }
     return `${tokens} tokens`;
+  }
+
+  /**
+   * Display the detected intent mode to the user
+   */
+  private displayIntentMode(result: IntentResult): void {
+    if (result.intent === 'diagnostic') {
+      console.log(chalk.blue('[DIAG] Mode: Diagnostic (read-only analysis)'));
+      if (result.keywords.length > 0) {
+        const kws = result.keywords.slice(0, 3).join('", "');
+        console.log(chalk.gray(`       Detected: "${kws}"`));
+      }
+    } else {
+      console.log(chalk.yellow('[IMPL] Mode: Implementation'));
+      if (result.keywords.length > 0) {
+        const kws = result.keywords.slice(0, 3).join('", "');
+        console.log(chalk.gray(`       Detected: "${kws}"`));
+      }
+    }
+    console.log();
+  }
+
+  /**
+   * Run environment bootstrap before implementation
+   */
+  private async runEnvironmentBootstrap(): Promise<BootstrapResult> {
+    console.log(chalk.cyan('[BOOTSTRAP] Running environment setup...'));
+
+    const result = await this.environmentBootstrap.run(this.runtime.workspaceRoot);
+
+    // Display results
+    for (const step of result.steps) {
+      const status = step.status === 'success' ? chalk.green('[OK]')
+        : step.status === 'failed' ? chalk.red('[FAIL]')
+        : step.status === 'skipped' ? chalk.gray('[SKIP]')
+        : chalk.gray('[...]');
+
+      const duration = step.duration ? chalk.gray(`(${(step.duration / 1000).toFixed(1)}s)`) : '';
+      const detail = step.detail ? chalk.gray(` ${step.detail}`) : '';
+
+      console.log(`  ${status} ${step.name.padEnd(14)} ${duration}${detail}`);
+
+      if (step.error) {
+        console.log(chalk.red(`       Error: ${step.error}`));
+      }
+    }
+
+    if (result.success) {
+      console.log(chalk.green(`\n[READY] Environment ready (${(result.duration / 1000).toFixed(1)}s)\n`));
+    }
+
+    return result;
+  }
+
+  /**
+   * Run code quality pipeline after file modifications
+   */
+  private async runQualityPipeline(): Promise<void> {
+    console.log(chalk.cyan('\n[QUALITY] Running quality checks...'));
+
+    const result = await this.codeQualityPipeline.run(this.runtime.workspaceRoot);
+
+    // Display results
+    for (const check of result.checks) {
+      const status = check.status === 'passed' ? chalk.green('[OK]')
+        : check.status === 'failed' ? chalk.red('[FAIL]')
+        : check.status === 'skipped' ? chalk.gray('[SKIP]')
+        : chalk.gray('[...]');
+
+      const duration = check.duration ? chalk.gray(`(${(check.duration / 1000).toFixed(1)}s)`) : '';
+
+      console.log(`  ${status} ${check.name.padEnd(8)} ${check.command.padEnd(20)} ${duration}`);
+
+      // Show first few lines of error output
+      if (check.status === 'failed' && check.output) {
+        const errorLines = check.output.split('\n').slice(0, 3);
+        for (const line of errorLines) {
+          if (line.trim()) {
+            console.log(chalk.red(`       ${line}`));
+          }
+        }
+      }
+    }
+
+    // Summary
+    if (result.passed) {
+      console.log(chalk.green(`\n[PASS] ${result.summary} (${(result.duration / 1000).toFixed(1)}s)`));
+    } else {
+      console.log(chalk.red(`\n[FAIL] ${result.summary}`));
+    }
+  }
+
+  /**
+   * Mark that files were modified during this session (called by action executor)
+   */
+  markFilesModified(): void {
+    this.filesModifiedThisSession = true;
+  }
+
+  /**
+   * Get the image manager for adding/managing images
+   */
+  getImageManager(): ImageManager {
+    return this.imageManager;
+  }
+
+  /**
+   * Get messages with images included for the LLM API call.
+   * Modifies the last user message to include any images from the session.
+   * The returned messages may have multimodal content (array of text/image parts)
+   * which is supported by OpenAI/OpenRouter APIs but not strictly typed.
+   * @returns Messages formatted for API with multimodal content
+   */
+  private getMessagesWithImages(): LLMMessage[] {
+    const messages = this.conversation.history();
+    const images = this.imageManager.getAll();
+
+    // If no images, return messages as-is
+    if (images.length === 0) {
+      return messages;
+    }
+
+    // Find the last user message to attach images to
+    let lastUserMessageIndex = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        lastUserMessageIndex = i;
+        break;
+      }
+    }
+
+    // Clone messages and modify the last user message to include images
+    const result: LLMMessage[] = messages.map((msg, i) => {
+      if (i === lastUserMessageIndex && images.length > 0) {
+        // Create multimodal content array
+        // Note: content will be an array, which the API accepts but our type says string
+        // This is intentional for multimodal support
+        const contentParts = [
+          { type: 'text', text: msg.content }
+        ];
+
+        // Add images from ImageManager (OpenAI/OpenRouter format)
+        for (const img of images) {
+          contentParts.push({
+            type: 'image_url',
+            image_url: {
+              url: `data:${img.mimeType};base64,${img.data.toString('base64')}`
+            }
+          } as unknown as typeof contentParts[0]);
+        }
+
+        return {
+          ...msg,
+          // Cast to string to satisfy type, API actually accepts array
+          content: contentParts as unknown as string
+        };
+      }
+      return { ...msg };
+    });
+
+    return result;
   }
 
   /**
@@ -3200,6 +3504,16 @@ export class AutohandAgent {
   setStatusListener(listener: (snapshot: AgentStatusSnapshot) => void): void {
     this.statusListener = listener;
     this.emitStatus();
+  }
+
+  setOutputListener(listener: (event: AgentOutputEvent) => void): void {
+    this.outputListener = listener;
+  }
+
+  private emitOutput(event: AgentOutputEvent): void {
+    if (this.outputListener) {
+      this.outputListener(event);
+    }
   }
 
   private emitStatus(): void {

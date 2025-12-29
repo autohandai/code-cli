@@ -11,6 +11,7 @@ import { diffLines } from 'diff';
 import enquirer from 'enquirer';
 import { highlight, detectLanguage } from './syntaxHighlight.js';
 import { confirm as unifiedConfirm, select as unifiedSelect, isExternalCallbackEnabled } from './promptCallback.js';
+import { getTheme, isThemeInitialized } from './theme/index.js';
 
 export interface DiffViewerOptions {
   filePath?: string;
@@ -115,7 +116,9 @@ function parseIntoHunks(changes: SimplifiedChange[], contextLines = 3): DiffHunk
 }
 
 /**
- * Format a diff for terminal display
+ * Format a diff for terminal display with background highlighting
+ * Style: green background for additions, red background for deletions
+ * Preserves syntax highlighting within the diff
  */
 export function formatDiff(
   oldContent: string,
@@ -127,51 +130,77 @@ export function formatDiff(
   const changes = diffLines(oldContent, newContent);
 
   if (changes.length === 1 && !changes[0].added && !changes[0].removed) {
+    if (isThemeInitialized()) {
+      return getTheme().fg('muted', 'No changes');
+    }
     return chalk.gray('No changes');
   }
 
   const hunks = parseIntoHunks(changes, contextLines);
   const output: string[] = [];
+  const stats = getDiffStats(oldContent, newContent);
+  const termWidth = process.stdout.columns || 100;
 
-  // Header
-  if (filePath) {
-    output.push(chalk.cyan('─'.repeat(60)));
-    output.push(chalk.cyan.bold(`  ${filePath}`));
-    output.push(chalk.cyan('─'.repeat(60)));
+  // Header with stats - "Added X lines, removed Y line"
+  const addText = stats.additions === 1 ? '1 line' : `${stats.additions} lines`;
+  const delText = stats.deletions === 1 ? '1 line' : `${stats.deletions} lines`;
+  if (isThemeInitialized()) {
+    const theme = getTheme();
+    output.push(theme.fg('muted', `  Added ${theme.fg('diffAdded', addText)}, removed ${theme.fg('diffRemoved', delText)}`));
+  } else {
+    output.push(chalk.gray(`  Added ${chalk.green(addText)}, removed ${chalk.red(delText)}`));
   }
 
   for (const hunk of hunks) {
-    // Hunk header
-    output.push(chalk.cyan(`@@ -${hunk.oldStart},${hunk.oldLines.length} +${hunk.newStart},${hunk.newLines.length} @@`));
-
     let oldLineNum = hunk.oldStart;
     let newLineNum = hunk.newStart;
 
     for (const change of hunk.changes) {
       const line = change.value.replace(/\n$/, '');
+      // Apply syntax highlighting first
+      const highlighted = lang !== 'text' ? highlight(line, lang) : line;
 
       if (change.added) {
-        const highlighted = lang !== 'text' ? highlight(line, lang) : line;
-        if (showLineNumbers) {
-          output.push(chalk.green(`+${String(newLineNum).padStart(4)} │ `) + chalk.green(highlighted));
+        // Green background for additions with + indicator
+        const lineNum = String(newLineNum).padStart(3);
+        if (isThemeInitialized()) {
+          const theme = getTheme();
+          const prefix = theme.bg('diffAdded', theme.fg('text', ` ${lineNum} + `));
+          // Use dim green background for the content area
+          const content = chalk.bgRgb(30, 50, 30)(` ${highlighted} `.padEnd(termWidth - 10));
+          output.push(prefix + content);
         } else {
-          output.push(chalk.green(`+ ${highlighted}`));
+          const prefix = chalk.bgGreen.black(` ${lineNum} + `);
+          const content = chalk.bgRgb(30, 50, 30)(` ${highlighted} `.padEnd(termWidth - 10));
+          output.push(prefix + content);
         }
         newLineNum++;
       } else if (change.removed) {
-        const highlighted = lang !== 'text' ? highlight(line, lang) : line;
-        if (showLineNumbers) {
-          output.push(chalk.red(`-${String(oldLineNum).padStart(4)} │ `) + chalk.red(highlighted));
+        // Red background for deletions with - indicator
+        const lineNum = String(oldLineNum).padStart(3);
+        if (isThemeInitialized()) {
+          const theme = getTheme();
+          const prefix = theme.bg('diffRemoved', theme.fg('text', ` ${lineNum} - `));
+          // Use dim red background for the content area
+          const content = chalk.bgRgb(60, 30, 30)(` ${highlighted} `.padEnd(termWidth - 10));
+          output.push(prefix + content);
         } else {
-          output.push(chalk.red(`- ${highlighted}`));
+          const prefix = chalk.bgRed.white(` ${lineNum} - `);
+          const content = chalk.bgRgb(60, 30, 30)(` ${highlighted} `.padEnd(termWidth - 10));
+          output.push(prefix + content);
         }
         oldLineNum++;
       } else {
-        const highlighted = lang !== 'text' ? highlight(line, lang) : line;
+        // Context lines - no background
+        const lineNum = String(oldLineNum).padStart(3);
         if (showLineNumbers) {
-          output.push(chalk.gray(` ${String(oldLineNum).padStart(4)} │ `) + chalk.gray(highlighted));
+          if (isThemeInitialized()) {
+            output.push(getTheme().fg('diffContext', ` ${lineNum}   `) + ` ${highlighted}`);
+          } else {
+            output.push(chalk.gray(` ${lineNum}   `) + ` ${highlighted}`);
+          }
         } else {
-          output.push(chalk.gray(`  ${highlighted}`));
+          output.push(`  ${highlighted}`);
         }
         oldLineNum++;
         newLineNum++;
@@ -219,12 +248,22 @@ export async function showInteractiveDiff(
   console.log();
 
   // Show stats
-  console.log(
-    chalk.gray('Changes: ') +
-    chalk.green(`+${stats.additions}`) +
-    chalk.gray(' / ') +
-    chalk.red(`-${stats.deletions}`)
-  );
+  if (isThemeInitialized()) {
+    const theme = getTheme();
+    console.log(
+      theme.fg('muted', 'Changes: ') +
+      theme.fg('diffAdded', `+${stats.additions}`) +
+      theme.fg('muted', ' / ') +
+      theme.fg('diffRemoved', `-${stats.deletions}`)
+    );
+  } else {
+    console.log(
+      chalk.gray('Changes: ') +
+      chalk.green(`+${stats.additions}`) +
+      chalk.gray(' / ') +
+      chalk.red(`-${stats.deletions}`)
+    );
+  }
   console.log();
 
   // Use unified prompt for external callback mode
@@ -246,13 +285,23 @@ export async function showInteractiveDiff(
   // Interactive prompt (local mode with edit support)
   const { Select, Editor } = enquirer as any;
 
+  let acceptLabel = chalk.green('Accept');
+  let rejectLabel = chalk.red('Reject');
+  let editLabel = chalk.yellow('Edit');
+  if (isThemeInitialized()) {
+    const theme = getTheme();
+    acceptLabel = theme.fg('success', 'Accept');
+    rejectLabel = theme.fg('error', 'Reject');
+    editLabel = theme.fg('warning', 'Edit');
+  }
+
   const actionPrompt = new Select({
     name: 'action',
     message: `Apply changes${filePath ? ` to ${filePath}` : ''}?`,
     choices: [
-      { name: 'accept', message: chalk.green('Accept') + ' - Apply all changes' },
-      { name: 'reject', message: chalk.red('Reject') + ' - Keep original' },
-      { name: 'edit', message: chalk.yellow('Edit') + ' - Modify the new content' },
+      { name: 'accept', message: acceptLabel + ' - Apply all changes' },
+      { name: 'reject', message: rejectLabel + ' - Keep original' },
+      { name: 'edit', message: editLabel + ' - Modify the new content' },
     ],
   });
 
@@ -308,12 +357,22 @@ export async function confirmDiff(
   console.log();
 
   // Show stats
-  console.log(
-    chalk.gray('Changes: ') +
-    chalk.green(`+${stats.additions}`) +
-    chalk.gray(' / ') +
-    chalk.red(`-${stats.deletions}`)
-  );
+  if (isThemeInitialized()) {
+    const theme = getTheme();
+    console.log(
+      theme.fg('muted', 'Changes: ') +
+      theme.fg('diffAdded', `+${stats.additions}`) +
+      theme.fg('muted', ' / ') +
+      theme.fg('diffRemoved', `-${stats.deletions}`)
+    );
+  } else {
+    console.log(
+      chalk.gray('Changes: ') +
+      chalk.green(`+${stats.additions}`) +
+      chalk.gray(' / ') +
+      chalk.red(`-${stats.deletions}`)
+    );
+  }
 
   // Use unified prompt (works for both local and external callback modes)
   return unifiedConfirm(`Apply changes${filePath ? ` to ${filePath}` : ''}?`);
@@ -332,10 +391,20 @@ export function displayDiff(
   console.log();
   console.log(formatDiff(oldContent, newContent, options));
   console.log();
-  console.log(
-    chalk.gray('Changes: ') +
-    chalk.green(`+${stats.additions}`) +
-    chalk.gray(' / ') +
-    chalk.red(`-${stats.deletions}`)
-  );
+  if (isThemeInitialized()) {
+    const theme = getTheme();
+    console.log(
+      theme.fg('muted', 'Changes: ') +
+      theme.fg('diffAdded', `+${stats.additions}`) +
+      theme.fg('muted', ' / ') +
+      theme.fg('diffRemoved', `-${stats.deletions}`)
+    );
+  } else {
+    console.log(
+      chalk.gray('Changes: ') +
+      chalk.green(`+${stats.additions}`) +
+      chalk.gray(' / ') +
+      chalk.red(`-${stats.deletions}`)
+    );
+  }
 }

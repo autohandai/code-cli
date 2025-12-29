@@ -88,11 +88,13 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'read_file',
-    description: 'Read file contents',
+    description: 'Read file contents. For large files (>2500 lines), use offset and limit to read in chunks.',
     parameters: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Relative path to the file to read' }
+        path: { type: 'string', description: 'Relative path to the file to read' },
+        offset: { type: 'number', description: 'Line number to start reading from (0-indexed). Use for large files.' },
+        limit: { type: 'number', description: 'Maximum number of lines to read. Use for large files.' }
       },
       required: ['path']
     }
@@ -987,43 +989,6 @@ export class ToolManager {
         required: def.parameters.required
       } : undefined
     };
-  }
-
-  private normalizeItems(items?: ToolParameter | { type: string; description?: string; enum?: string[]; properties?: Record<string, ToolParameter>; required?: string[] }): NormalizedItemSchema {
-    if (!items) return { type: 'string' };
-    if (items.type !== 'object') {
-      return { type: items.type, description: items.description, enum: (items as ToolParameter).enum };
-    }
-    const objItems = items as { type: string; description?: string; properties?: Record<string, ToolParameter>; required?: string[] };
-    return {
-      type: 'object' as const,
-      description: items.description,
-      properties: this.normalizeObjectProperties(objItems.properties),
-      required: objItems.required,
-      additionalProperties: true
-    };
-  }
-
-  private normalizeObjectProperties(props?: Record<string, ToolParameter>): Record<string, NormalizedPropertySchema> {
-    const safeProps = props ?? {};
-    return Object.fromEntries(
-      Object.entries(safeProps).map(([k, v]) => [
-        k,
-        {
-          type: v.type,
-          description: v.description,
-          enum: v.enum,
-          items: v.type === 'array' ? this.normalizeItems(v.items) : undefined,
-          properties: v.type === 'object'
-            ? this.normalizeObjectProperties((v as any).properties as Record<string, ToolParameter> | undefined)
-            : undefined,
-          required: v.type === 'object' && Array.isArray((v as any).required)
-            ? (v as any).required
-            : undefined,
-          additionalProperties: v.type === 'object' ? true : undefined
-        }
-      ])
-    );
   }
 
   private static normalizeItemsStatic(items?: ToolParameter | { type: string; description?: string; enum?: string[]; properties?: Record<string, ToolParameter>; required?: string[] }): NormalizedItemSchema {
