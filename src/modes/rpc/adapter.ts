@@ -1,28 +1,35 @@
 /**
  * RPC Adapter
- * Wraps AutohandAgent and bridges callbacks to RPC events
+ * Wraps AutohandAgent and bridges callbacks to JSON-RPC 2.0 notifications
  */
 
 import type { AutohandAgent } from '../../core/agent.js';
 import type { ConversationManager } from '../../core/conversationManager.js';
-import type { LLMMessage, ToolOutputChunk, AgentStatusSnapshot, AgentOutputEvent, LLMToolCall } from '../../types.js';
 import type {
-  RPCAgentState,
-  RPCMessage,
+  LLMMessage,
+  ToolOutputChunk,
+  AgentStatusSnapshot,
+  AgentOutputEvent,
+  LLMToolCall,
+} from '../../types.js';
+import type {
+  JsonRpcId,
+  RpcMessage,
   PendingPermission,
-  PromptCommand,
+  PromptParams,
+  PromptResult,
+  AbortResult,
+  ResetResult,
+  GetStateResult,
+  GetMessagesResult,
+  PermissionResponseResult,
 } from './types.js';
-import {
-  writeEvent,
-  writeResponse,
-  writeError,
-  createTimestamp,
-  generateId,
-} from './protocol.js';
+import { RPC_NOTIFICATIONS } from './types.js';
+import { writeNotification, createTimestamp, generateId } from './protocol.js';
 
 /**
  * RPC Adapter for AutohandAgent
- * Handles bidirectional communication between CLI and VS Code extension
+ * Handles bidirectional JSON-RPC 2.0 communication between CLI and VS Code extension
  */
 export class RPCAdapter {
   private agent: AutohandAgent | null = null;
@@ -64,22 +71,19 @@ export class RPCAdapter {
       this.handleAgentOutput(event);
     });
 
-    // Emit agent start event
-    writeEvent({
-      type: 'agent_start',
+    // Emit agent start notification
+    writeNotification(RPC_NOTIFICATIONS.AGENT_START, {
+      sessionId: this.sessionId,
+      model: this.model,
+      workspace: this.workspace,
       timestamp: createTimestamp(),
-      data: {
-        sessionId: this.sessionId,
-        model: this.model,
-        workspace: this.workspace,
-      },
     });
   }
 
   /**
    * Get current agent state
    */
-  getState(): RPCAgentState {
+  getState(): GetStateResult {
     return {
       status: this.status,
       sessionId: this.sessionId,
@@ -93,7 +97,7 @@ export class RPCAdapter {
   /**
    * Get message history
    */
-  getMessages(limit?: number): RPCMessage[] {
+  getMessages(limit?: number): RpcMessage[] {
     if (!this.conversation) {
       return [];
     }
@@ -107,17 +111,16 @@ export class RPCAdapter {
   }
 
   /**
-   * Handle a prompt command
+   * Handle a prompt request
+   * Returns result for JSON-RPC response
    */
-  async handlePrompt(command: PromptCommand): Promise<boolean> {
+  async handlePrompt(requestId: JsonRpcId, params: PromptParams): Promise<PromptResult> {
     if (!this.agent) {
-      writeResponse(command.id, 'prompt', false, undefined, 'Agent not initialized');
-      return false;
+      throw new Error('Agent not initialized');
     }
 
     if (this.status === 'processing') {
-      writeResponse(command.id, 'prompt', false, undefined, 'Agent is already processing');
-      return false;
+      throw new Error('Agent is already processing');
     }
 
     this.status = 'processing';
@@ -125,59 +128,56 @@ export class RPCAdapter {
 
     // Start a new turn
     this.currentTurnId = generateId('turn');
-    writeEvent({
-      type: 'turn_start',
+    writeNotification(RPC_NOTIFICATIONS.TURN_START, {
+      turnId: this.currentTurnId,
       timestamp: createTimestamp(),
-      data: { turnId: this.currentTurnId },
     });
 
     try {
       // Build context message if provided
-      let instruction = command.message;
-      if (command.context?.selection) {
-        const sel = command.context.selection;
-        instruction = `${command.message}\n\nContext from ${sel.file} (lines ${sel.startLine}-${sel.endLine}):\n\`\`\`\n${sel.text}\n\`\`\``;
+      let instruction = params.message;
+      if (params.context?.selection) {
+        const sel = params.context.selection;
+        instruction = `${params.message}\n\nContext from ${sel.file} (lines ${sel.startLine}-${sel.endLine}):\n\`\`\`\n${sel.text}\n\`\`\``;
       }
 
-      // Run the instruction through the agent
-      // We need to hook into the agent's message streaming
+      // Start message
       this.currentMessageId = generateId('msg');
       this.currentMessageContent = '';
 
-      writeEvent({
-        type: 'message_start',
+      writeNotification(RPC_NOTIFICATIONS.MESSAGE_START, {
+        messageId: this.currentMessageId,
+        role: 'assistant',
         timestamp: createTimestamp(),
-        data: {
-          messageId: this.currentMessageId,
-          role: 'assistant',
-        },
       });
 
       // Execute instruction
       let success = false;
-      let execError: string | undefined;
       try {
         success = await this.agent.runInstruction(instruction);
       } catch (err) {
-        execError = err instanceof Error ? err.message : String(err);
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        // Emit error notification
+        writeNotification(RPC_NOTIFICATIONS.ERROR, {
+          code: -32000,
+          message: errorMessage,
+          recoverable: true,
+          timestamp: createTimestamp(),
+        });
         success = false;
       }
 
       // End message
-      writeEvent({
-        type: 'message_end',
+      writeNotification(RPC_NOTIFICATIONS.MESSAGE_END, {
+        messageId: this.currentMessageId!,
+        content: this.currentMessageContent,
         timestamp: createTimestamp(),
-        data: {
-          messageId: this.currentMessageId!,
-          content: this.currentMessageContent,
-        },
       });
 
       // End turn
-      writeEvent({
-        type: 'turn_end',
+      writeNotification(RPC_NOTIFICATIONS.TURN_END, {
+        turnId: this.currentTurnId!,
         timestamp: createTimestamp(),
-        data: { turnId: this.currentTurnId! },
       });
 
       this.status = 'idle';
@@ -185,15 +185,12 @@ export class RPCAdapter {
       this.currentMessageId = null;
       this.abortController = null;
 
-      writeResponse(command.id, 'prompt', success, undefined, execError);
-      return success;
+      return { success };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-
-      writeEvent({
-        type: 'turn_end',
+      // End turn on error
+      writeNotification(RPC_NOTIFICATIONS.TURN_END, {
+        turnId: this.currentTurnId!,
         timestamp: createTimestamp(),
-        data: { turnId: this.currentTurnId! },
       });
 
       this.status = 'idle';
@@ -201,38 +198,34 @@ export class RPCAdapter {
       this.currentMessageId = null;
       this.abortController = null;
 
-      writeResponse(command.id, 'prompt', false, undefined, message);
-      writeError('EXECUTION_ERROR', message, true);
-      return false;
+      throw error;
     }
   }
 
   /**
-   * Handle abort command
+   * Handle abort request
    */
-  handleAbort(commandId: string): void {
+  handleAbort(requestId: JsonRpcId): AbortResult {
     if (this.abortController) {
       this.abortController.abort();
       this.status = 'idle';
-      writeResponse(commandId, 'abort', true);
 
-      writeEvent({
-        type: 'agent_end',
+      writeNotification(RPC_NOTIFICATIONS.AGENT_END, {
+        sessionId: this.sessionId!,
+        reason: 'aborted',
         timestamp: createTimestamp(),
-        data: {
-          sessionId: this.sessionId!,
-          reason: 'aborted',
-        },
       });
-    } else {
-      writeResponse(commandId, 'abort', false, undefined, 'No operation to abort');
+
+      return { success: true };
     }
+
+    return { success: false };
   }
 
   /**
-   * Handle reset command
+   * Handle reset request
    */
-  handleReset(commandId: string): void {
+  handleReset(requestId: JsonRpcId): ResetResult {
     if (this.conversation) {
       // Get system prompt if available
       const history = this.conversation.history();
@@ -246,48 +239,50 @@ export class RPCAdapter {
     this.currentMessageId = null;
     this.currentMessageContent = '';
 
-    writeResponse(commandId, 'reset', true, { sessionId: this.sessionId });
-
-    writeEvent({
-      type: 'agent_start',
+    // Emit new agent start notification
+    writeNotification(RPC_NOTIFICATIONS.AGENT_START, {
+      sessionId: this.sessionId,
+      model: this.model,
+      workspace: this.workspace,
       timestamp: createTimestamp(),
-      data: {
-        sessionId: this.sessionId,
-        model: this.model,
-        workspace: this.workspace,
-      },
     });
+
+    return { sessionId: this.sessionId };
   }
 
   /**
-   * Handle get_state command
+   * Handle get_state request
    */
-  handleGetState(commandId: string): void {
-    writeResponse(commandId, 'get_state', true, this.getState());
+  handleGetState(requestId: JsonRpcId): GetStateResult {
+    return this.getState();
   }
 
   /**
-   * Handle get_messages command
+   * Handle get_messages request
    */
-  handleGetMessages(commandId: string, limit?: number): void {
+  handleGetMessages(requestId: JsonRpcId, limit?: number): GetMessagesResult {
     const messages = this.getMessages(limit);
-    writeResponse(commandId, 'get_messages', true, { messages });
+    return { messages };
   }
 
   /**
    * Handle permission response from client
    */
-  handlePermissionResponse(commandId: string, requestId: string, allowed: boolean): void {
-    const pending = this.pendingPermissions.get(requestId);
+  handlePermissionResponse(
+    requestId: JsonRpcId,
+    permRequestId: string,
+    allowed: boolean
+  ): PermissionResponseResult {
+    const pending = this.pendingPermissions.get(permRequestId);
     if (pending) {
       clearTimeout(pending.timeout);
-      this.pendingPermissions.delete(requestId);
+      this.pendingPermissions.delete(permRequestId);
       pending.resolve(allowed);
       this.status = 'processing';
-      writeResponse(commandId, 'permission_response', true);
-    } else {
-      writeResponse(commandId, 'permission_response', false, undefined, 'Permission request not found or expired');
+      return { success: true };
     }
+
+    return { success: false };
   }
 
   /**
@@ -298,29 +293,26 @@ export class RPCAdapter {
     description: string,
     context: { command?: string; path?: string; args?: string[] }
   ): Promise<boolean> {
-    const requestId = generateId('perm');
+    const permRequestId = generateId('perm');
     this.status = 'waiting_permission';
 
-    writeEvent({
-      type: 'permission_request',
+    writeNotification(RPC_NOTIFICATIONS.PERMISSION_REQUEST, {
+      requestId: permRequestId,
+      tool,
+      description,
+      context,
       timestamp: createTimestamp(),
-      data: {
-        requestId,
-        tool,
-        description,
-        context,
-      },
     });
 
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        this.pendingPermissions.delete(requestId);
+        this.pendingPermissions.delete(permRequestId);
         this.status = 'processing';
         resolve(false); // Deny on timeout
       }, 60000); // 60 second timeout
 
-      this.pendingPermissions.set(requestId, {
-        requestId,
+      this.pendingPermissions.set(permRequestId, {
+        requestId: permRequestId,
         resolve,
         reject,
         timeout,
@@ -329,41 +321,35 @@ export class RPCAdapter {
   }
 
   /**
-   * Emit tool execution start event
+   * Emit tool execution start notification
    */
   emitToolStart(toolName: string, args: Record<string, unknown>): string {
     const toolId = generateId('tool');
 
-    writeEvent({
-      type: 'tool_execution_start',
+    writeNotification(RPC_NOTIFICATIONS.TOOL_START, {
+      toolId,
+      toolName,
+      args,
       timestamp: createTimestamp(),
-      data: {
-        toolId,
-        toolName,
-        args,
-      },
     });
 
     return toolId;
   }
 
   /**
-   * Emit tool execution update event (streaming output)
+   * Emit tool execution update notification (streaming output)
    */
   emitToolUpdate(toolId: string, chunk: ToolOutputChunk): void {
-    writeEvent({
-      type: 'tool_execution_update',
+    writeNotification(RPC_NOTIFICATIONS.TOOL_UPDATE, {
+      toolId,
+      output: chunk.data,
+      stream: chunk.stream,
       timestamp: createTimestamp(),
-      data: {
-        toolId,
-        output: chunk.data,
-        stream: chunk.stream,
-      },
     });
   }
 
   /**
-   * Emit tool execution end event
+   * Emit tool execution end notification
    */
   emitToolEnd(
     toolId: string,
@@ -372,33 +358,27 @@ export class RPCAdapter {
     output?: string,
     error?: string
   ): void {
-    writeEvent({
-      type: 'tool_execution_end',
+    writeNotification(RPC_NOTIFICATIONS.TOOL_END, {
+      toolId,
+      toolName,
+      success,
+      output,
+      error,
       timestamp: createTimestamp(),
-      data: {
-        toolId,
-        toolName,
-        success,
-        output,
-        error,
-      },
     });
   }
 
   /**
-   * Emit message update (streaming content)
+   * Emit message update notification (streaming content)
    */
   emitMessageUpdate(delta: string, thought?: string): void {
     this.currentMessageContent += delta;
 
-    writeEvent({
-      type: 'message_update',
+    writeNotification(RPC_NOTIFICATIONS.MESSAGE_UPDATE, {
+      messageId: this.currentMessageId,
+      delta,
+      thought,
       timestamp: createTimestamp(),
-      data: {
-        messageId: this.currentMessageId,
-        delta,
-        thought,
-      },
     });
   }
 
@@ -418,13 +398,10 @@ export class RPCAdapter {
       this.abortController.abort();
     }
 
-    writeEvent({
-      type: 'agent_end',
+    writeNotification(RPC_NOTIFICATIONS.AGENT_END, {
+      sessionId: this.sessionId!,
+      reason,
       timestamp: createTimestamp(),
-      data: {
-        sessionId: this.sessionId!,
-        reason,
-      },
     });
   }
 
@@ -435,14 +412,11 @@ export class RPCAdapter {
     switch (event.type) {
       case 'thinking':
         if (event.thought) {
-          writeEvent({
-            type: 'message_update',
+          writeNotification(RPC_NOTIFICATIONS.MESSAGE_UPDATE, {
+            messageId: this.currentMessageId,
+            delta: '',
+            thought: event.thought,
             timestamp: createTimestamp(),
-            data: {
-              messageId: this.currentMessageId,
-              delta: '',
-              thought: event.thought,
-            },
           });
         }
         break;
@@ -450,42 +424,33 @@ export class RPCAdapter {
       case 'message':
         if (event.content) {
           this.currentMessageContent = event.content;
-          writeEvent({
-            type: 'message_update',
+          writeNotification(RPC_NOTIFICATIONS.MESSAGE_UPDATE, {
+            messageId: this.currentMessageId,
+            delta: event.content,
             timestamp: createTimestamp(),
-            data: {
-              messageId: this.currentMessageId,
-              delta: event.content,
-            },
           });
         }
         break;
 
       case 'tool_start':
         if (event.toolName) {
-          writeEvent({
-            type: 'tool_execution_start',
+          writeNotification(RPC_NOTIFICATIONS.TOOL_START, {
+            toolId: event.toolId ?? generateId('tool'),
+            toolName: event.toolName,
+            args: event.toolArgs ?? {},
             timestamp: createTimestamp(),
-            data: {
-              toolId: event.toolId ?? generateId('tool'),
-              toolName: event.toolName,
-              args: event.toolArgs ?? {},
-            },
           });
         }
         break;
 
       case 'tool_end':
         if (event.toolName) {
-          writeEvent({
-            type: 'tool_execution_end',
+          writeNotification(RPC_NOTIFICATIONS.TOOL_END, {
+            toolId: event.toolId ?? 'unknown',
+            toolName: event.toolName,
+            success: event.toolSuccess ?? true,
+            output: event.toolOutput,
             timestamp: createTimestamp(),
-            data: {
-              toolId: event.toolId ?? 'unknown',
-              toolName: event.toolName,
-              success: event.toolSuccess ?? true,
-              output: event.toolOutput,
-            },
           });
         }
         break;
@@ -493,10 +458,12 @@ export class RPCAdapter {
   }
 
   /**
-   * Convert LLMMessage to RPCMessage
+   * Convert LLMMessage to RpcMessage
    */
-  private convertMessage(msg: LLMMessage, index: number): RPCMessage {
-    let toolCalls: Array<{ id: string; name: string; args: Record<string, unknown> }> | undefined;
+  private convertMessage(msg: LLMMessage, index: number): RpcMessage {
+    let toolCalls:
+      | Array<{ id: string; name: string; args: Record<string, unknown> }>
+      | undefined;
 
     if (msg.tool_calls && msg.tool_calls.length > 0) {
       toolCalls = msg.tool_calls.map((tc: LLMToolCall) => {

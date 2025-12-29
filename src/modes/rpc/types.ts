@@ -1,28 +1,127 @@
 /**
  * RPC Mode Type Definitions
- * JSON-RPC protocol types for VS Code extension communication
+ * JSON-RPC 2.0 protocol types for VS Code extension communication
+ * Spec: https://www.jsonrpc.org/specification
  */
 
 // ============================================================================
-// Command Types (Client -> CLI)
+// JSON-RPC 2.0 Base Types
 // ============================================================================
 
-export type RPCCommandType =
-  | 'prompt'
-  | 'abort'
-  | 'reset'
-  | 'get_state'
-  | 'get_messages'
-  | 'permission_response';
-
-export interface RPCCommand {
-  type: RPCCommandType;
-  id: string;
-  timestamp?: string;
+/**
+ * JSON-RPC 2.0 Request object
+ * A request without an id is a Notification (no response expected)
+ */
+export interface JsonRpcRequest {
+  jsonrpc: '2.0';
+  method: string;
+  params?: JsonRpcParams;
+  id?: JsonRpcId;
 }
 
-export interface PromptCommand extends RPCCommand {
-  type: 'prompt';
+/**
+ * JSON-RPC 2.0 Response object
+ * Must contain either result or error, never both
+ */
+export interface JsonRpcResponse {
+  jsonrpc: '2.0';
+  result?: unknown;
+  error?: JsonRpcError;
+  id: JsonRpcId;
+}
+
+/**
+ * JSON-RPC 2.0 Error object
+ */
+export interface JsonRpcError {
+  code: number;
+  message: string;
+  data?: unknown;
+}
+
+/**
+ * Valid ID types for JSON-RPC 2.0
+ * null is used when the request id cannot be determined (e.g., parse error)
+ */
+export type JsonRpcId = string | number | null;
+
+/**
+ * Valid params types for JSON-RPC 2.0
+ * Can be object (named params) or array (positional params)
+ */
+export type JsonRpcParams = Record<string, unknown> | unknown[];
+
+/**
+ * A batch is an array of requests/responses
+ */
+export type JsonRpcBatch<T> = T[];
+
+// ============================================================================
+// JSON-RPC 2.0 Standard Error Codes
+// ============================================================================
+
+export const JSON_RPC_ERROR_CODES = {
+  // Standard JSON-RPC 2.0 errors
+  PARSE_ERROR: -32700,
+  INVALID_REQUEST: -32600,
+  METHOD_NOT_FOUND: -32601,
+  INVALID_PARAMS: -32602,
+  INTERNAL_ERROR: -32603,
+
+  // Server errors (reserved for implementation-defined errors: -32000 to -32099)
+  EXECUTION_ERROR: -32000,
+  PERMISSION_DENIED: -32001,
+  TIMEOUT: -32002,
+  AGENT_BUSY: -32003,
+  ABORTED: -32004,
+} as const;
+
+export type JsonRpcErrorCode = (typeof JSON_RPC_ERROR_CODES)[keyof typeof JSON_RPC_ERROR_CODES];
+
+// ============================================================================
+// Autohand RPC Methods
+// ============================================================================
+
+/**
+ * Available RPC methods (Client -> Server requests)
+ */
+export const RPC_METHODS = {
+  // Client -> Server requests
+  PROMPT: 'autohand.prompt',
+  ABORT: 'autohand.abort',
+  RESET: 'autohand.reset',
+  GET_STATE: 'autohand.getState',
+  GET_MESSAGES: 'autohand.getMessages',
+  PERMISSION_RESPONSE: 'autohand.permissionResponse',
+} as const;
+
+export type RpcMethod = (typeof RPC_METHODS)[keyof typeof RPC_METHODS];
+
+/**
+ * Available notification methods (Server -> Client notifications)
+ */
+export const RPC_NOTIFICATIONS = {
+  AGENT_START: 'autohand.agentStart',
+  AGENT_END: 'autohand.agentEnd',
+  TURN_START: 'autohand.turnStart',
+  TURN_END: 'autohand.turnEnd',
+  MESSAGE_START: 'autohand.messageStart',
+  MESSAGE_UPDATE: 'autohand.messageUpdate',
+  MESSAGE_END: 'autohand.messageEnd',
+  TOOL_START: 'autohand.toolStart',
+  TOOL_UPDATE: 'autohand.toolUpdate',
+  TOOL_END: 'autohand.toolEnd',
+  PERMISSION_REQUEST: 'autohand.permissionRequest',
+  ERROR: 'autohand.error',
+} as const;
+
+export type RpcNotification = (typeof RPC_NOTIFICATIONS)[keyof typeof RPC_NOTIFICATIONS];
+
+// ============================================================================
+// Request Parameter Types
+// ============================================================================
+
+export interface PromptParams {
   message: string;
   context?: {
     files?: string[];
@@ -35,179 +134,133 @@ export interface PromptCommand extends RPCCommand {
   };
 }
 
-export interface AbortCommand extends RPCCommand {
-  type: 'abort';
+export interface AbortParams {
+  // No params needed
 }
 
-export interface ResetCommand extends RPCCommand {
-  type: 'reset';
+export interface ResetParams {
+  // No params needed
 }
 
-export interface GetStateCommand extends RPCCommand {
-  type: 'get_state';
+export interface GetStateParams {
+  // No params needed
 }
 
-export interface GetMessagesCommand extends RPCCommand {
-  type: 'get_messages';
+export interface GetMessagesParams {
   limit?: number;
 }
 
-export interface PermissionResponseCommand extends RPCCommand {
-  type: 'permission_response';
+export interface PermissionResponseParams {
   requestId: string;
   allowed: boolean;
   remember?: boolean;
 }
 
 // ============================================================================
-// Event Types (CLI -> Client)
+// Notification Parameter Types (Server -> Client)
 // ============================================================================
 
-export type RPCEventType =
-  | 'agent_start'
-  | 'agent_end'
-  | 'turn_start'
-  | 'turn_end'
-  | 'message_start'
-  | 'message_update'
-  | 'message_end'
-  | 'tool_execution_start'
-  | 'tool_execution_update'
-  | 'tool_execution_end'
-  | 'permission_request'
-  | 'error'
-  | 'response';
-
-export interface RPCEvent {
-  type: RPCEventType;
+export interface AgentStartParams {
+  sessionId: string;
+  model: string;
+  workspace: string;
   timestamp: string;
-  data?: unknown;
 }
 
-export interface AgentStartEvent extends RPCEvent {
-  type: 'agent_start';
-  data: {
-    sessionId: string;
-    model: string;
-    workspace: string;
-  };
+export interface AgentEndParams {
+  sessionId: string;
+  reason: 'completed' | 'aborted' | 'error';
+  timestamp: string;
 }
 
-export interface AgentEndEvent extends RPCEvent {
-  type: 'agent_end';
-  data: {
-    sessionId: string;
-    reason: 'completed' | 'aborted' | 'error';
-  };
+export interface TurnStartParams {
+  turnId: string;
+  timestamp: string;
 }
 
-export interface TurnStartEvent extends RPCEvent {
-  type: 'turn_start';
-  data: {
-    turnId: string;
-  };
+export interface TurnEndParams {
+  turnId: string;
+  timestamp: string;
 }
 
-export interface TurnEndEvent extends RPCEvent {
-  type: 'turn_end';
-  data: {
-    turnId: string;
-  };
+export interface MessageStartParams {
+  messageId: string;
+  role: 'assistant';
+  timestamp: string;
 }
 
-export interface MessageStartEvent extends RPCEvent {
-  type: 'message_start';
-  data: {
-    messageId: string;
-    role: 'assistant';
-  };
+export interface MessageUpdateParams {
+  messageId?: string;
+  delta: string;
+  thought?: string;
+  timestamp: string;
 }
 
-export interface MessageUpdateEvent extends RPCEvent {
-  type: 'message_update';
-  data: {
-    messageId?: string;
-    delta: string;
-    thought?: string;
-  };
+export interface MessageEndParams {
+  messageId: string;
+  content: string;
+  timestamp: string;
 }
 
-export interface MessageEndEvent extends RPCEvent {
-  type: 'message_end';
-  data: {
-    messageId: string;
-    content: string;
-  };
+export interface ToolStartParams {
+  toolId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  timestamp: string;
 }
 
-export interface ToolExecutionStartEvent extends RPCEvent {
-  type: 'tool_execution_start';
-  data: {
-    toolId: string;
-    toolName: string;
-    args: Record<string, unknown>;
-  };
+export interface ToolUpdateParams {
+  toolId: string;
+  output: string;
+  stream: 'stdout' | 'stderr';
+  timestamp: string;
 }
 
-export interface ToolExecutionUpdateEvent extends RPCEvent {
-  type: 'tool_execution_update';
-  data: {
-    toolId: string;
-    output: string;
-    stream: 'stdout' | 'stderr';
-  };
+export interface ToolEndParams {
+  toolId: string;
+  toolName: string;
+  success: boolean;
+  output?: string;
+  error?: string;
+  timestamp: string;
 }
 
-export interface ToolExecutionEndEvent extends RPCEvent {
-  type: 'tool_execution_end';
-  data: {
-    toolId: string;
-    toolName: string;
-    success: boolean;
-    output?: string;
-    error?: string;
+export interface PermissionRequestParams {
+  requestId: string;
+  tool: string;
+  description: string;
+  context: {
+    command?: string;
+    path?: string;
+    args?: string[];
   };
+  timestamp: string;
 }
 
-export interface PermissionRequestEvent extends RPCEvent {
-  type: 'permission_request';
-  data: {
-    requestId: string;
-    tool: string;
-    description: string;
-    context: {
-      command?: string;
-      path?: string;
-      args?: string[];
-    };
-  };
-}
-
-export interface ErrorEvent extends RPCEvent {
-  type: 'error';
-  data: {
-    code: string;
-    message: string;
-    recoverable: boolean;
-  };
-}
-
-export interface ResponseEvent extends RPCEvent {
-  type: 'response';
-  data: {
-    id: string;
-    command: RPCCommandType;
-    success: boolean;
-    error?: string;
-    result?: unknown;
-  };
+export interface ErrorNotificationParams {
+  code: number;
+  message: string;
+  recoverable: boolean;
+  timestamp: string;
 }
 
 // ============================================================================
-// State Types
+// Response Result Types
 // ============================================================================
 
-export interface RPCAgentState {
+export interface PromptResult {
+  success: boolean;
+}
+
+export interface AbortResult {
+  success: boolean;
+}
+
+export interface ResetResult {
+  sessionId: string;
+}
+
+export interface GetStateResult {
   status: 'idle' | 'processing' | 'waiting_permission';
   sessionId: string | null;
   model: string;
@@ -216,7 +269,19 @@ export interface RPCAgentState {
   messageCount: number;
 }
 
-export interface RPCMessage {
+export interface GetMessagesResult {
+  messages: RpcMessage[];
+}
+
+export interface PermissionResponseResult {
+  success: boolean;
+}
+
+// ============================================================================
+// State Types
+// ============================================================================
+
+export interface RpcMessage {
   id: string;
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
@@ -237,4 +302,87 @@ export interface PendingPermission {
   resolve: (allowed: boolean) => void;
   reject: (error: Error) => void;
   timeout: NodeJS.Timeout;
+}
+
+// ============================================================================
+// Type Guards
+// ============================================================================
+
+export function isJsonRpcRequest(obj: unknown): obj is JsonRpcRequest {
+  if (typeof obj !== 'object' || obj === null) return false;
+  const req = obj as Record<string, unknown>;
+  return req.jsonrpc === '2.0' && typeof req.method === 'string';
+}
+
+export function isJsonRpcResponse(obj: unknown): obj is JsonRpcResponse {
+  if (typeof obj !== 'object' || obj === null) return false;
+  const res = obj as Record<string, unknown>;
+  return res.jsonrpc === '2.0' && ('result' in res || 'error' in res);
+}
+
+export function isJsonRpcBatch(obj: unknown): obj is JsonRpcBatch<JsonRpcRequest | JsonRpcResponse> {
+  return Array.isArray(obj) && obj.length > 0;
+}
+
+export function isNotification(request: JsonRpcRequest): boolean {
+  return request.id === undefined;
+}
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+export function createRequest(
+  method: string,
+  params?: JsonRpcParams,
+  id?: JsonRpcId
+): JsonRpcRequest {
+  const request: JsonRpcRequest = {
+    jsonrpc: '2.0',
+    method,
+  };
+  if (params !== undefined) {
+    request.params = params;
+  }
+  if (id !== undefined) {
+    request.id = id;
+  }
+  return request;
+}
+
+export function createResponse(id: JsonRpcId, result: unknown): JsonRpcResponse {
+  return {
+    jsonrpc: '2.0',
+    result,
+    id,
+  };
+}
+
+export function createErrorResponse(
+  id: JsonRpcId,
+  code: number,
+  message: string,
+  data?: unknown
+): JsonRpcResponse {
+  const response: JsonRpcResponse = {
+    jsonrpc: '2.0',
+    error: { code, message },
+    id,
+  };
+  if (data !== undefined) {
+    response.error!.data = data;
+  }
+  return response;
+}
+
+export function createNotification(method: string, params?: JsonRpcParams): JsonRpcRequest {
+  const notification: JsonRpcRequest = {
+    jsonrpc: '2.0',
+    method,
+  };
+  if (params !== undefined) {
+    notification.params = params;
+  }
+  // Notifications have no id
+  return notification;
 }
