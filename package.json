@@ -13,7 +13,7 @@
   ],
   "scripts": {
     "go": "bun run build && ./install-local.sh && echo \"COMPLETED\"",
-    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "build": "tsup",
     "dev": "bun src/index.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
