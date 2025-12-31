@@ -495,9 +495,8 @@ export class ActionExecutor {
         }
         this.resolveWorkspacePath(action.path);
         const rawDiff = diffFile(this.runtime.workspaceRoot, action.path);
-        // Display colorized diff to terminal
-        console.log(this.colorizeGitDiff(rawDiff));
-        return rawDiff;
+        // Return colorized diff for display
+        return this.colorizeGitDiff(rawDiff);
       }
       case 'git_checkout': {
         if (!action.path) {
@@ -517,9 +516,8 @@ export class ActionExecutor {
           staged: action.staged,
           paths: action.paths
         });
-        // Display colorized diff to terminal
-        console.log(this.colorizeGitDiff(rawDiff));
-        return rawDiff;
+        // Return colorized diff for display
+        return this.colorizeGitDiff(rawDiff);
       }
       case 'git_apply_patch': {
         const patch = this.pickText(action.patch, action.diff);

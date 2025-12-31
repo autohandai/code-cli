@@ -107,7 +107,7 @@ describe('SecurityScanner', () => {
       it('detects Stripe live key as high severity', () => {
         const diff = `
 +++ b/config.ts
-+const STRIPE_KEY = "sk_live_xxxxxxxxxxxxxxxxxxxxxxxx";
++const STRIPE_KEY = "sk_live_TESTKEY0000000000000000";
 `;
         const result = scanner.scanDiff(diff);
         expect(result.clean).toBe(false);
@@ -117,7 +117,7 @@ describe('SecurityScanner', () => {
       it('detects Stripe test key as low severity', () => {
         const diff = `
 +++ b/config.ts
-+const STRIPE_KEY = "sk_test_xxxxxxxxxxxxxxxxxxxxxxxx";
++const STRIPE_KEY = "sk_test_TESTKEY0000000000000000";
 `;
         const result = scanner.scanDiff(diff);
         expect(result.clean).toBe(true); // Low severity doesn't block
@@ -337,7 +337,7 @@ line 4`;
     it('returns false for only low severity findings', () => {
       const diff = `
 +++ b/config.ts
-+const KEY = "sk_test_xxxxxxxxxxxxxxxxxxxxxxxx";
++const KEY = "sk_test_TESTKEY0000000000000000";
 `;
       const result = scanner.scanDiff(diff);
       expect(scanner.shouldBlockCommit(result)).toBe(false);

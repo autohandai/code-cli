@@ -118,16 +118,44 @@ export async function confirm(
   }
 
   const { Select, Input } = enquirer as any;
+  const choices = [
+    { name: 'yes', message: '1. Yes' },
+    { name: 'no', message: '2. No' },
+    { name: 'alternative', message: '3. Enter alternative...' }
+  ];
+
   const prompt = new Select({
     name: 'confirm',
     message,
-    choices: [
-      { name: 'yes', message: '1. Yes' },
-      { name: 'no', message: '2. No' },
-      { name: 'alternative', message: '3. Enter alternative...' }
-    ],
+    choices,
     initial: 0
   });
+
+  // Add number key shortcuts (1, 2, 3)
+  const originalKeypress = prompt.keypress.bind(prompt);
+  prompt.keypress = function(char: string, key: { name: string }) {
+    // Handle number keys 1-3 as direct selection
+    if (char === '1' || char === '2' || char === '3') {
+      const index = parseInt(char, 10) - 1;
+      if (index >= 0 && index < choices.length) {
+        this.index = index;
+        this.submit();
+        return;
+      }
+    }
+    // Handle 'y' for Yes, 'n' for No
+    if (char === 'y' || char === 'Y') {
+      this.index = 0;
+      this.submit();
+      return;
+    }
+    if (char === 'n' || char === 'N') {
+      this.index = 1;
+      this.submit();
+      return;
+    }
+    return originalKeypress(char, key);
+  };
 
   try {
     const answer = await prompt.run();
