@@ -13,8 +13,14 @@ import type { AuthUser, LoadedConfig } from './types.js';
 
 /**
  * Get git commit hash (short)
+ * Uses build-time embedded commit, falls back to runtime git command for dev
  */
 function getGitCommit(): string {
+  // Use build-time embedded commit if available
+  if (process.env.BUILD_GIT_COMMIT && process.env.BUILD_GIT_COMMIT !== 'undefined') {
+    return process.env.BUILD_GIT_COMMIT;
+  }
+  // Fallback for development (running from source)
   try {
     return execSync('git rev-parse --short HEAD', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
   } catch {
