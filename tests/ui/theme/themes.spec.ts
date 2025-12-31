@@ -133,8 +133,8 @@ describe('builtInThemes', () => {
     expect(builtInThemes.light).toBe(lightTheme);
   });
 
-  it('has exactly 2 built-in themes', () => {
-    expect(Object.keys(builtInThemes)).toHaveLength(2);
+  it('has exactly 5 built-in themes', () => {
+    expect(Object.keys(builtInThemes)).toHaveLength(5);
   });
 
   it('all themes have unique names', () => {

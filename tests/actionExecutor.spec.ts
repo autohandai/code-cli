@@ -326,7 +326,8 @@ describe('ActionExecutor', () => {
       const result = await executor.execute({ type: 'git_diff', path: 'src/index.ts' } as any);
 
       expect(diffSpy).toHaveBeenCalledWith('/repo', 'src/index.ts');
-      expect(result).toBe('diff output');
+      // Result includes colorized stats header + original diff
+      expect(result).toContain('diff output');
       diffSpy.mockRestore();
     });
 
