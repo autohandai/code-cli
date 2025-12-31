@@ -229,14 +229,82 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     }
 
     // Detect image file paths (with supported extensions)
-    // Match paths that look like file paths ending with image extensions
-    const pathRegex = /(?:^|[\s"])([^\s"]+\.(?:png|jpg|jpeg|gif|webp))(?:[\s"]|$)/gi;
-    let pathMatch;
+    // Handles:
+    // 1. Paths with escaped spaces: /path/to/file\ name.png
+    // 2. Quoted paths: "/path/to/file name.png" or '/path/to/file name.png'
+    // 3. Simple paths without spaces: /path/to/file.png
 
-    while ((pathMatch = pathRegex.exec(text)) !== null) {
-      const filePath = pathMatch[1];
-      // Only process if it's in the result (might have been processed already)
-      if (result.includes(filePath) && existsSync(filePath)) {
+    // First, try to find quoted paths
+    const quotedPathRegex = /["']([^"']+\.(?:png|jpg|jpeg|gif|webp))["']/gi;
+    let quotedMatch;
+    while ((quotedMatch = quotedPathRegex.exec(text)) !== null) {
+      const filePath = quotedMatch[1];
+      const fullMatch = quotedMatch[0];
+      if (result.includes(fullMatch) && existsSync(filePath)) {
+        try {
+          const data = readFileSync(filePath);
+          const ext = extname(filePath);
+          const mimeType = getMimeTypeFromExtension(ext);
+          if (mimeType) {
+            const id = onImageDetected(data, mimeType, basename(filePath));
+            result = result.replace(fullMatch, `[Image #${id}] ${basename(filePath)}`);
+            stdOutput.write(chalk.cyan(`\n📷 Loaded image: ${filePath} -> [Image #${id}]\n`));
+          }
+        } catch {
+          // Ignore file read errors
+        }
+      }
+    }
+
+    // Then, find paths with escaped spaces or regular paths
+    // On macOS terminal, dragged files have spaces escaped as "\ "
+    // Pattern matches: (non-space non-backslash) OR (backslash followed by any char)
+    // This handles: /path/to/file\ with\ spaces.png
+    const escapedPathRegex = /(?:^|[\s])((\/|~)(?:[^\s\\]|\\.)+\.(?:png|jpg|jpeg|gif|webp))(?=[\s]|$)/gi;
+    let escapedMatch;
+
+    // Debug: log input for image detection
+    if (process.env.DEBUG_IMAGES) {
+      stdOutput.write(chalk.gray(`\n[DEBUG] processImagesInText called\n`));
+      stdOutput.write(chalk.gray(`[DEBUG] Input text: ${JSON.stringify(text)}\n`));
+      stdOutput.write(chalk.gray(`[DEBUG] Has backslash: ${text.includes('\\')}\n`));
+      stdOutput.write(chalk.gray(`[DEBUG] Char codes: ${text.slice(0, 50).split('').map(c => c.charCodeAt(0)).join(',')}\n`));
+    }
+
+    while ((escapedMatch = escapedPathRegex.exec(text)) !== null) {
+      const rawPath = escapedMatch[1];
+      // Convert escaped spaces to actual spaces for file system lookup
+      const filePath = rawPath.replace(/\\ /g, ' ');
+
+      if (process.env.DEBUG_IMAGES) {
+        stdOutput.write(chalk.gray(`[DEBUG] Regex matched: ${JSON.stringify(rawPath)}\n`));
+        stdOutput.write(chalk.gray(`[DEBUG] Converted path: ${JSON.stringify(filePath)}\n`));
+        stdOutput.write(chalk.gray(`[DEBUG] File exists: ${existsSync(filePath)}\n`));
+      }
+
+      if (result.includes(rawPath) && existsSync(filePath)) {
+        try {
+          const data = readFileSync(filePath);
+          const ext = extname(filePath);
+          const mimeType = getMimeTypeFromExtension(ext);
+          if (mimeType) {
+            const id = onImageDetected(data, mimeType, basename(filePath));
+            result = result.replace(rawPath, `[Image #${id}] ${basename(filePath)}`);
+            stdOutput.write(chalk.cyan(`\n📷 Loaded image: ${filePath} -> [Image #${id}]\n`));
+          }
+        } catch {
+          // Ignore file read errors
+        }
+      }
+    }
+
+    // Finally, simple paths without spaces (fallback)
+    const simplePathRegex = /(?:^|[\s])([^\s"']+\.(?:png|jpg|jpeg|gif|webp))(?=[\s]|$)/gi;
+    let simpleMatch;
+    while ((simpleMatch = simplePathRegex.exec(text)) !== null) {
+      const filePath = simpleMatch[1];
+      // Skip if already processed (check if placeholder exists)
+      if (result.includes(filePath) && !result.includes(`[Image #`) && existsSync(filePath)) {
         try {
           const data = readFileSync(filePath);
           const ext = extname(filePath);

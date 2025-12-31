@@ -93,16 +93,47 @@ export function parseRequest(line: string): ParseResult {
 
 /**
  * Serialize a JSON-RPC response/notification to JSON-line format
+ * Handles serialization errors gracefully to prevent silent crashes
  */
 export function serialize(obj: JsonRpcRequest | JsonRpcResponse): string {
-  return JSON.stringify(obj);
+  try {
+    return JSON.stringify(obj);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown serialization error';
+    // Log to stderr since stdout is reserved for RPC communication
+    process.stderr.write(`[RPC] Serialization error: ${message}\n`);
+    // Return a minimal error response that can still be serialized
+    return JSON.stringify({
+      jsonrpc: '2.0',
+      error: {
+        code: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+        message: `Serialization failed: ${message}`,
+      },
+      id: null,
+    });
+  }
 }
 
 /**
  * Serialize an array of responses (batch response)
+ * Handles serialization errors gracefully to prevent silent crashes
  */
 export function serializeBatch(responses: JsonRpcResponse[]): string {
-  return JSON.stringify(responses);
+  try {
+    return JSON.stringify(responses);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown serialization error';
+    process.stderr.write(`[RPC] Batch serialization error: ${message}\n`);
+    // Return an array with a single error response
+    return JSON.stringify([{
+      jsonrpc: '2.0',
+      error: {
+        code: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+        message: `Batch serialization failed: ${message}`,
+      },
+      id: null,
+    }]);
+  }
 }
 
 // ============================================================================
@@ -220,14 +251,21 @@ export class LineReader {
 
 /**
  * Write a JSON-RPC 2.0 response to stdout
+ * Handles write errors gracefully to prevent silent crashes
  */
 export function writeResponse(id: JsonRpcId, result: unknown): void {
-  const response = createResponse(id, result);
-  process.stdout.write(serialize(response) + '\n');
+  try {
+    const response = createResponse(id, result);
+    process.stdout.write(serialize(response) + '\n');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown write error';
+    process.stderr.write(`[RPC] Failed to write response for id '${id}': ${message}\n`);
+  }
 }
 
 /**
  * Write a JSON-RPC 2.0 error response to stdout
+ * Handles write errors gracefully to prevent silent crashes
  */
 export function writeErrorResponse(
   id: JsonRpcId,
@@ -235,25 +273,43 @@ export function writeErrorResponse(
   message: string,
   data?: unknown
 ): void {
-  const response = createErrorResponse(id, code, message, data);
-  process.stdout.write(serialize(response) + '\n');
+  try {
+    const response = createErrorResponse(id, code, message, data);
+    process.stdout.write(serialize(response) + '\n');
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : 'Unknown write error';
+    process.stderr.write(`[RPC] Failed to write error response: ${errMsg}\n`);
+  }
 }
 
 /**
  * Write a batch of responses to stdout
+ * Handles write errors gracefully to prevent silent crashes
  */
 export function writeBatchResponse(responses: JsonRpcResponse[]): void {
   if (responses.length > 0) {
-    process.stdout.write(serializeBatch(responses) + '\n');
+    try {
+      process.stdout.write(serializeBatch(responses) + '\n');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown write error';
+      process.stderr.write(`[RPC] Failed to write batch response: ${message}\n`);
+    }
   }
 }
 
 /**
  * Write a JSON-RPC 2.0 notification to stdout (no id, no response expected)
+ * Handles write errors gracefully to prevent silent crashes
  */
 export function writeNotification(method: string, params?: JsonRpcParams): void {
-  const notification = createNotification(method, params);
-  process.stdout.write(serialize(notification) + '\n');
+  try {
+    const notification = createNotification(method, params);
+    const serialized = serialize(notification);
+    process.stdout.write(serialized + '\n');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown write error';
+    process.stderr.write(`[RPC] Failed to write notification '${method}': ${message}\n`);
+  }
 }
 
 /**

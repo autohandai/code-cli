@@ -121,6 +121,46 @@ export type RpcNotification = (typeof RPC_NOTIFICATIONS)[keyof typeof RPC_NOTIFI
 // Request Parameter Types
 // ============================================================================
 
+/**
+ * Supported image MIME types for multimodal prompts
+ */
+export type RpcImageMimeType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+
+/**
+ * Image attachment for multimodal RPC prompts
+ * Used to send images via the VS Code extension
+ */
+export interface RpcImageAttachment {
+  /** Base64-encoded image data (without data: URL prefix) */
+  data: string;
+  /** Image MIME type */
+  mimeType: RpcImageMimeType;
+  /** Optional filename for display */
+  filename?: string;
+}
+
+/**
+ * Maximum image size in bytes (10MB)
+ */
+export const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+
+/**
+ * Valid image MIME types
+ */
+export const VALID_IMAGE_MIME_TYPES: RpcImageMimeType[] = [
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+];
+
+/**
+ * Type guard to check if a MIME type is valid
+ */
+export function isValidImageMimeType(mimeType: string): mimeType is RpcImageMimeType {
+  return VALID_IMAGE_MIME_TYPES.includes(mimeType as RpcImageMimeType);
+}
+
 export interface PromptParams {
   message: string;
   context?: {
@@ -132,6 +172,8 @@ export interface PromptParams {
       text: string;
     };
   };
+  /** Image attachments for multimodal prompts */
+  images?: RpcImageAttachment[];
 }
 
 export interface AbortParams {

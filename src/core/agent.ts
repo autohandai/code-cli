@@ -222,6 +222,16 @@ export class AutohandAgent {
     this.toolManager = new ToolManager({
       executor: async (action, context) => {
         const startTime = Date.now();
+        const toolId = `tool_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+        // Emit tool_start event for RPC mode
+        this.emitOutput({
+          type: 'tool_start',
+          toolId,
+          toolName: action.type,
+          toolArgs: action as Record<string, unknown>,
+        });
+
         try {
           let result: string | undefined;
           if (action.type === 'delegate_task') {
@@ -237,6 +247,16 @@ export class AutohandAgent {
             success: true,
             duration: Date.now() - startTime
           });
+
+          // Emit tool_end event for RPC mode
+          this.emitOutput({
+            type: 'tool_end',
+            toolId,
+            toolName: action.type,
+            toolSuccess: true,
+            toolOutput: result,
+          });
+
           return result ?? '';
         } catch (error) {
           // Track failed tool use
@@ -246,6 +266,16 @@ export class AutohandAgent {
             duration: Date.now() - startTime,
             error: (error as Error).message
           });
+
+          // Emit tool_end event with error for RPC mode
+          this.emitOutput({
+            type: 'tool_end',
+            toolId,
+            toolName: action.type,
+            toolSuccess: false,
+            toolOutput: (error as Error).message,
+          });
+
           throw error;
         }
       },
@@ -661,7 +691,20 @@ export class AutohandAgent {
       return null;
     }
 
-    if (normalized.startsWith('/')) {
+    // Check if it looks like a file path rather than a slash command
+    // Slash commands are short: /help, /model, /new
+    // File paths have: multiple /, /Users/, extensions like .png, .ts, etc.
+    const looksLikeFilePath = (text: string): boolean => {
+      // Has multiple path separators (e.g., /Users/foo/bar)
+      if ((text.match(/\//g) || []).length > 1) return true;
+      // Starts with common path prefixes
+      if (/^\/(?:Users|home|tmp|var|opt|etc|usr)\//i.test(text)) return true;
+      // Has a file extension
+      if (/\.[a-z0-9]{1,5}(?:\s|$)/i.test(text)) return true;
+      return false;
+    };
+
+    if (normalized.startsWith('/') && !looksLikeFilePath(normalized)) {
       const handled = await this.slashHandler.handle(normalized);
       if (handled === null) {
         return null;
@@ -1382,6 +1425,9 @@ export class AutohandAgent {
       }
 
       this.stopUI(true, 'Session failed');
+      // Emit error for RPC mode
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.emitOutput({ type: 'error', content: errorMessage });
       if (error instanceof Error) {
         console.error(chalk.red(error.message));
       } else {
@@ -1532,11 +1578,13 @@ export class AutohandAgent {
   }
 
   private async runReactLoop(abortController: AbortController): Promise<void> {
+    process.stderr.write(`[AGENT DEBUG] runReactLoop started\n`);
     // Configurable iteration limit (default 100) - context management handles memory
     const maxIterations = this.runtime.config.agent?.maxIterations ?? 100;
 
     // Get all function definitions for native tool calling
     const allTools = this.toolManager.toFunctionDefinitions();
+    process.stderr.write(`[AGENT DEBUG] Loaded ${allTools.length} tools, maxIterations=${maxIterations}\n`);
 
     // Start status updates for the main loop
     this.startStatusUpdates();
@@ -1594,15 +1642,27 @@ export class AutohandAgent {
       // Get messages with images included for multimodal support
       const messagesWithImages = this.getMessagesWithImages();
 
-      const completion = await this.llm.complete({
-        messages: messagesWithImages,
-        temperature: this.runtime.options.temperature ?? 0.2,
-        model: this.runtime.options.model,
-        signal: abortController.signal,
-        tools: tools.length > 0 ? tools : undefined,
-        toolChoice: tools.length > 0 ? 'auto' : undefined,
-        maxTokens: 16000  // Allow large outputs for file generation
-      });
+      process.stderr.write(`[AGENT DEBUG] Calling LLM with ${messagesWithImages.length} messages, ${tools.length} tools\n`);
+
+      let completion;
+      try {
+        completion = await this.llm.complete({
+          messages: messagesWithImages,
+          temperature: this.runtime.options.temperature ?? 0.2,
+          model: this.runtime.options.model,
+          signal: abortController.signal,
+          tools: tools.length > 0 ? tools : undefined,
+          toolChoice: tools.length > 0 ? 'auto' : undefined,
+          maxTokens: 16000  // Allow large outputs for file generation
+        });
+        process.stderr.write(`[AGENT DEBUG] LLM returned: content length=${completion.content?.length ?? 0}, toolCalls=${completion.toolCalls?.length ?? 0}\n`);
+      } catch (llmError) {
+        const errMsg = llmError instanceof Error ? llmError.message : String(llmError);
+        const errStack = llmError instanceof Error ? llmError.stack : '';
+        process.stderr.write(`[AGENT DEBUG] LLM ERROR: ${errMsg}\n`);
+        process.stderr.write(`[AGENT DEBUG] LLM STACK: ${errStack}\n`);
+        throw llmError;
+      }
 
       // Track token usage from response and immediately update UI
       if (completion.usage) {
@@ -1612,6 +1672,7 @@ export class AutohandAgent {
       }
 
       const payload = this.parseAssistantResponse(completion);
+      process.stderr.write(`[AGENT DEBUG] Parsed payload: finalResponse=${!!payload.finalResponse}, thought=${!!payload.thought}, toolCalls=${payload.toolCalls?.length ?? 0}\n`);
       const assistantMessage: LLMMessage = { role: 'assistant', content: completion.content };
       if (completion.toolCalls?.length) {
         assistantMessage.tool_calls = completion.toolCalls;
@@ -1867,6 +1928,7 @@ export class AutohandAgent {
 
         if (consecutiveEmpty >= 3) {
           // After 3 retries, force a fallback and break out
+          process.stderr.write(`[AGENT DEBUG] Exiting after 3 consecutive empty responses\n`);
           console.log(chalk.yellow('\n⚠ Model not providing response after multiple attempts. Showing available context.'));
           const fallback = payload.thought || 'The model did not provide a clear response. Please try rephrasing your question.';
           if (this.inkRenderer) {
@@ -1877,6 +1939,8 @@ export class AutohandAgent {
             console.log(fallback);
           }
           (this as any)[consecutiveEmptyKey] = 0;
+          // Emit fallback for RPC mode
+          this.emitOutput({ type: 'message', content: fallback });
           return;
         }
 

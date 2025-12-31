@@ -497,7 +497,7 @@ export interface AgentStatusSnapshot {
 }
 
 export interface AgentOutputEvent {
-  type: 'message' | 'thinking' | 'tool_start' | 'tool_end';
+  type: 'message' | 'thinking' | 'tool_start' | 'tool_end' | 'error';
   content?: string;
   thought?: string;
   toolName?: string;

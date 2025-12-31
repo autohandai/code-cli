@@ -23,9 +23,15 @@ import type {
   GetStateResult,
   GetMessagesResult,
   PermissionResponseResult,
+  RpcImageAttachment,
 } from './types.js';
-import { RPC_NOTIFICATIONS } from './types.js';
+import {
+  RPC_NOTIFICATIONS,
+  MAX_IMAGE_SIZE,
+  isValidImageMimeType,
+} from './types.js';
 import { writeNotification, createTimestamp, generateId } from './protocol.js';
+import { ImageManager, type ImageMimeType } from '../../core/ImageManager.js';
 
 /**
  * RPC Adapter for AutohandAgent
@@ -34,6 +40,7 @@ import { writeNotification, createTimestamp, generateId } from './protocol.js';
 export class RPCAdapter {
   private agent: AutohandAgent | null = null;
   private conversation: ConversationManager | null = null;
+  private imageManager: ImageManager | null = null;
   private sessionId: string | null = null;
   private currentTurnId: string | null = null;
   private currentMessageId: string | null = null;
@@ -60,6 +67,9 @@ export class RPCAdapter {
     this.workspace = workspace;
     this.sessionId = generateId('session');
 
+    // Get reference to agent's ImageManager for handling multimodal prompts
+    this.imageManager = agent.getImageManager?.() ?? new ImageManager();
+
     // Setup status listener
     agent.setStatusListener((snapshot: AgentStatusSnapshot) => {
       this.contextPercent = snapshot.contextPercent;
@@ -77,6 +87,7 @@ export class RPCAdapter {
       model: this.model,
       workspace: this.workspace,
       timestamp: createTimestamp(),
+      contextPercent: this.contextPercent,
     });
   }
 
@@ -134,11 +145,63 @@ export class RPCAdapter {
     });
 
     try {
+      // Process any attached images first
+      const imagePlaceholders: string[] = [];
+      if (params.images && params.images.length > 0 && this.imageManager) {
+        for (const img of params.images) {
+          try {
+            // Validate MIME type
+            if (!isValidImageMimeType(img.mimeType)) {
+              writeNotification(RPC_NOTIFICATIONS.ERROR, {
+                code: -32602, // Invalid params
+                message: `Invalid image MIME type: ${img.mimeType}`,
+                recoverable: true,
+                timestamp: createTimestamp(),
+              });
+              continue;
+            }
+
+            // Decode base64 to Buffer
+            const data = Buffer.from(img.data, 'base64');
+
+            // Check size limit
+            if (data.length > MAX_IMAGE_SIZE) {
+              writeNotification(RPC_NOTIFICATIONS.ERROR, {
+                code: -32602,
+                message: `Image too large: ${Math.round(data.length / 1024 / 1024)}MB (max: ${Math.round(MAX_IMAGE_SIZE / 1024 / 1024)}MB)`,
+                recoverable: true,
+                timestamp: createTimestamp(),
+              });
+              continue;
+            }
+
+            // Add to ImageManager and get sequential ID
+            const id = this.imageManager.add(data, img.mimeType as ImageMimeType, img.filename);
+            const placeholder = this.imageManager.formatPlaceholder(id);
+            imagePlaceholders.push(placeholder);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            writeNotification(RPC_NOTIFICATIONS.ERROR, {
+              code: -32000,
+              message: `Failed to process image: ${message}`,
+              recoverable: true,
+              timestamp: createTimestamp(),
+            });
+          }
+        }
+      }
+
       // Build context message if provided
       let instruction = params.message;
+
+      // Prepend image placeholders if any were processed
+      if (imagePlaceholders.length > 0) {
+        instruction = `${imagePlaceholders.join(' ')}\n\n${instruction}`;
+      }
+
       if (params.context?.selection) {
         const sel = params.context.selection;
-        instruction = `${params.message}\n\nContext from ${sel.file} (lines ${sel.startLine}-${sel.endLine}):\n\`\`\`\n${sel.text}\n\`\`\``;
+        instruction = `${instruction}\n\nContext from ${sel.file} (lines ${sel.startLine}-${sel.endLine}):\n\`\`\`\n${sel.text}\n\`\`\``;
       }
 
       // Start message
@@ -154,9 +217,16 @@ export class RPCAdapter {
       // Execute instruction
       let success = false;
       try {
+        // Debug: log instruction being executed
+        process.stderr.write(`[RPC DEBUG] Executing instruction: ${instruction.substring(0, 100)}\n`);
         success = await this.agent.runInstruction(instruction);
+        process.stderr.write(`[RPC DEBUG] Instruction completed, success=${success}, content length=${this.currentMessageContent.length}\n`);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
+        const errorStack = err instanceof Error ? err.stack : '';
+        // Debug: log the error
+        process.stderr.write(`[RPC DEBUG] Error during runInstruction: ${errorMessage}\n`);
+        process.stderr.write(`[RPC DEBUG] Stack: ${errorStack}\n`);
         // Emit error notification
         writeNotification(RPC_NOTIFICATIONS.ERROR, {
           code: -32000,
@@ -174,10 +244,11 @@ export class RPCAdapter {
         timestamp: createTimestamp(),
       });
 
-      // End turn
+      // End turn with context percent
       writeNotification(RPC_NOTIFICATIONS.TURN_END, {
         turnId: this.currentTurnId!,
         timestamp: createTimestamp(),
+        contextPercent: this.contextPercent,
       });
 
       this.status = 'idle';
@@ -187,10 +258,11 @@ export class RPCAdapter {
 
       return { success };
     } catch (error) {
-      // End turn on error
+      // End turn on error with context percent
       writeNotification(RPC_NOTIFICATIONS.TURN_END, {
         turnId: this.currentTurnId!,
         timestamp: createTimestamp(),
+        contextPercent: this.contextPercent,
       });
 
       this.status = 'idle';
@@ -210,11 +282,29 @@ export class RPCAdapter {
       this.abortController.abort();
       this.status = 'idle';
 
-      writeNotification(RPC_NOTIFICATIONS.AGENT_END, {
-        sessionId: this.sessionId!,
-        reason: 'aborted',
-        timestamp: createTimestamp(),
-      });
+      // End current message if one is in progress
+      if (this.currentMessageId) {
+        writeNotification(RPC_NOTIFICATIONS.MESSAGE_END, {
+          messageId: this.currentMessageId,
+          content: this.currentMessageContent + '\n\n*[Aborted by user]*',
+          timestamp: createTimestamp(),
+        });
+      }
+
+      // End turn if one is in progress
+      if (this.currentTurnId) {
+        writeNotification(RPC_NOTIFICATIONS.TURN_END, {
+          turnId: this.currentTurnId,
+          timestamp: createTimestamp(),
+          contextPercent: this.contextPercent,
+        });
+      }
+
+      // Reset state
+      this.currentTurnId = null;
+      this.currentMessageId = null;
+      this.currentMessageContent = '';
+      this.abortController = null;
 
       return { success: true };
     }
@@ -232,6 +322,9 @@ export class RPCAdapter {
       const systemPrompt = history.find((m) => m.role === 'system')?.content ?? '';
       this.conversation.reset(systemPrompt);
     }
+
+    // Clear images from previous session
+    this.imageManager?.clear();
 
     this.sessionId = generateId('session');
     this.status = 'idle';
@@ -409,9 +502,11 @@ export class RPCAdapter {
    * Handle output events from the agent
    */
   private handleAgentOutput(event: AgentOutputEvent): void {
+    process.stderr.write(`[RPC DEBUG] handleAgentOutput: type=${event.type}, content length=${event.content?.length ?? 0}\n`);
     switch (event.type) {
       case 'thinking':
         if (event.thought) {
+          process.stderr.write(`[RPC DEBUG] Emitting thinking: ${event.thought.substring(0, 50)}...\n`);
           writeNotification(RPC_NOTIFICATIONS.MESSAGE_UPDATE, {
             messageId: this.currentMessageId,
             delta: '',
@@ -423,6 +518,7 @@ export class RPCAdapter {
 
       case 'message':
         if (event.content) {
+          process.stderr.write(`[RPC DEBUG] Emitting message content: ${event.content.substring(0, 100)}...\n`);
           this.currentMessageContent = event.content;
           writeNotification(RPC_NOTIFICATIONS.MESSAGE_UPDATE, {
             messageId: this.currentMessageId,
@@ -454,7 +550,118 @@ export class RPCAdapter {
           });
         }
         break;
+
+      case 'error':
+        if (event.content) {
+          process.stderr.write(`[RPC DEBUG] Emitting error: ${event.content.substring(0, 100)}...\n`);
+
+          // Classify the error for appropriate UI treatment
+          const errorType = this.classifyError(event.content);
+
+          // Update message content with error (include icon based on type)
+          const icon = errorType.icon;
+          this.currentMessageContent = `${icon} ${event.content}`;
+          writeNotification(RPC_NOTIFICATIONS.MESSAGE_UPDATE, {
+            messageId: this.currentMessageId,
+            delta: this.currentMessageContent,
+            timestamp: createTimestamp(),
+          });
+          // Also emit error notification with classification
+          writeNotification(RPC_NOTIFICATIONS.ERROR, {
+            code: errorType.code,
+            message: event.content,
+            errorType: errorType.type,
+            recoverable: errorType.recoverable,
+            timestamp: createTimestamp(),
+          });
+        }
+        break;
     }
+  }
+
+  /**
+   * Classify error messages for appropriate UI treatment
+   */
+  private classifyError(message: string): {
+    type: string;
+    code: number;
+    icon: string;
+    recoverable: boolean;
+  } {
+    const lowerMessage = message.toLowerCase();
+
+    // Payment/billing errors
+    if (
+      lowerMessage.includes('payment required') ||
+      lowerMessage.includes('insufficient') ||
+      lowerMessage.includes('balance') ||
+      lowerMessage.includes('billing') ||
+      lowerMessage.includes("can only afford")
+    ) {
+      return { type: 'payment', code: 402, icon: '💳', recoverable: false };
+    }
+
+    // Authentication errors
+    if (
+      lowerMessage.includes('authentication') ||
+      lowerMessage.includes('unauthorized') ||
+      lowerMessage.includes('invalid api key') ||
+      lowerMessage.includes('api key')
+    ) {
+      return { type: 'auth', code: 401, icon: '🔐', recoverable: false };
+    }
+
+    // Rate limiting
+    if (
+      lowerMessage.includes('rate limit') ||
+      lowerMessage.includes('too many requests') ||
+      lowerMessage.includes('quota')
+    ) {
+      return { type: 'rate_limit', code: 429, icon: '⏱️', recoverable: true };
+    }
+
+    // Model/access errors
+    if (
+      lowerMessage.includes('model not found') ||
+      lowerMessage.includes('access denied') ||
+      lowerMessage.includes('permission')
+    ) {
+      return { type: 'model', code: 403, icon: '🤖', recoverable: true };
+    }
+
+    // Context/payload too large
+    if (
+      lowerMessage.includes('too large') ||
+      lowerMessage.includes('context') ||
+      lowerMessage.includes('payload') ||
+      lowerMessage.includes('malformed')
+    ) {
+      return { type: 'context', code: 400, icon: '📦', recoverable: true };
+    }
+
+    // Network/timeout errors
+    if (
+      lowerMessage.includes('timeout') ||
+      lowerMessage.includes('network') ||
+      lowerMessage.includes('connection') ||
+      lowerMessage.includes('econnrefused') ||
+      lowerMessage.includes('enotfound')
+    ) {
+      return { type: 'network', code: 504, icon: '🌐', recoverable: true };
+    }
+
+    // Server errors
+    if (
+      lowerMessage.includes('internal error') ||
+      lowerMessage.includes('server error') ||
+      lowerMessage.includes('unavailable') ||
+      lowerMessage.includes('overloaded')
+    ) {
+      return { type: 'server', code: 500, icon: '🔧', recoverable: true };
+    }
+
+    // Default: generic error
+    return { type: 'unknown', code: -32000, icon: '⚠️', recoverable: true };
   }
 
   /**
