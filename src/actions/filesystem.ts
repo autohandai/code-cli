@@ -9,6 +9,22 @@ import { spawnSync } from 'node:child_process';
 import { applyPatch as applyUnifiedPatch } from 'diff';
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
 
+/**
+ * Resource limits to prevent DoS and resource exhaustion
+ */
+export const FILE_LIMITS = {
+  /** Maximum file size for read operations (10MB) */
+  MAX_READ_SIZE: 10 * 1024 * 1024,
+  /** Maximum file size for write operations (50MB) */
+  MAX_WRITE_SIZE: 50 * 1024 * 1024,
+  /** Maximum number of files in a single directory listing */
+  MAX_DIR_ENTRIES: 10000,
+  /** Maximum search results to return */
+  MAX_SEARCH_RESULTS: 1000,
+  /** Maximum undo stack size */
+  MAX_UNDO_STACK: 100,
+};
+
 interface UndoEntry {
   absolutePath: string;
   previousContents: string;
@@ -44,14 +60,37 @@ export class FileActionManager {
     if (!exists) {
       throw new Error(`File ${target} not found in workspace.`);
     }
+
+    // Check file size before reading to prevent memory exhaustion
+    const stats = await fs.stat(filePath);
+    if (stats.size > FILE_LIMITS.MAX_READ_SIZE) {
+      const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
+      const limitMB = (FILE_LIMITS.MAX_READ_SIZE / 1024 / 1024).toFixed(0);
+      throw new Error(`File ${target} is too large (${sizeMB}MB). Maximum allowed: ${limitMB}MB`);
+    }
+
     return fs.readFile(filePath, 'utf8');
   }
 
   async writeFile(target: string, contents: string): Promise<void> {
+    // Check content size before writing
+    const contentSize = Buffer.byteLength(contents, 'utf8');
+    if (contentSize > FILE_LIMITS.MAX_WRITE_SIZE) {
+      const sizeMB = (contentSize / 1024 / 1024).toFixed(2);
+      const limitMB = (FILE_LIMITS.MAX_WRITE_SIZE / 1024 / 1024).toFixed(0);
+      throw new Error(`Content too large to write (${sizeMB}MB). Maximum allowed: ${limitMB}MB`);
+    }
+
     const filePath = this.resolvePath(target);
     await fs.ensureDir(path.dirname(filePath));
     const previous = (await fs.pathExists(filePath)) ? await fs.readFile(filePath, 'utf8') : '';
+
+    // Limit undo stack size to prevent memory exhaustion
+    if (this.undoStack.length >= FILE_LIMITS.MAX_UNDO_STACK) {
+      this.undoStack.shift(); // Remove oldest entry
+    }
     this.undoStack.push({ absolutePath: filePath, previousContents: previous });
+
     await fs.writeFile(filePath, contents, 'utf8');
   }
 
@@ -221,10 +260,38 @@ export class FileActionManager {
   private resolvePath(target: string): string {
     const normalized = path.isAbsolute(target) ? target : path.join(this.workspaceRoot, target);
     const resolved = path.resolve(normalized);
-    const rootWithSep = this.workspaceRoot.endsWith(path.sep)
-      ? this.workspaceRoot
-      : `${this.workspaceRoot}${path.sep}`;
-    if (resolved !== this.workspaceRoot && !resolved.startsWith(rootWithSep)) {
+
+    // Resolve symlinks to prevent symlink attacks (TOCTOU)
+    // A symlink inside workspace could point outside it
+    let realPath: string;
+    try {
+      realPath = fs.realpathSync(resolved);
+    } catch {
+      // File doesn't exist yet - check parent directory
+      const parentDir = path.dirname(resolved);
+      try {
+        const realParent = fs.realpathSync(parentDir);
+        realPath = path.join(realParent, path.basename(resolved));
+      } catch {
+        // Parent doesn't exist either - use resolved path for new paths
+        realPath = resolved;
+      }
+    }
+
+    // Get real path of workspace root for consistent comparison
+    let realWorkspaceRoot: string;
+    try {
+      realWorkspaceRoot = fs.realpathSync(this.workspaceRoot);
+    } catch {
+      realWorkspaceRoot = this.workspaceRoot;
+    }
+
+    const rootWithSep = realWorkspaceRoot.endsWith(path.sep)
+      ? realWorkspaceRoot
+      : `${realWorkspaceRoot}${path.sep}`;
+
+    // Check the REAL path against the REAL workspace root
+    if (realPath !== realWorkspaceRoot && !realPath.startsWith(rootWithSep)) {
       throw new Error(`Path ${target} escapes the workspace root ${this.workspaceRoot}`);
     }
     return resolved;

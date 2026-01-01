@@ -152,7 +152,11 @@ export class SlashCommandHandler {
             console.log(chalk.yellow('Skills registry not available.'));
             return null;
           }
-          return createSkill({ llm: this.ctx.llm, skillsRegistry: this.ctx.skillsRegistry });
+          return createSkill({
+            llm: this.ctx.llm,
+            skillsRegistry: this.ctx.skillsRegistry,
+            workspaceRoot: this.ctx.workspaceRoot
+          });
         }
         case '/theme': {
           const { theme } = await import('../commands/theme.js');

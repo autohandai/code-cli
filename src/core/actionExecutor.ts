@@ -75,7 +75,7 @@ export interface ActionExecutorOptions {
   runtime: AgentRuntime;
   files: FileActionManager;
   resolveWorkspacePath: (relativePath: string) => string;
-  confirmDangerousAction: (message: string) => Promise<boolean>;
+  confirmDangerousAction: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<boolean>;
   projectManager?: ProjectManager;
   sessionId?: string;
   onExploration?: (entry: ExplorationEvent) => void;
@@ -243,7 +243,8 @@ export class ActionExecutor {
             console.log(chalk.gray(preview));
 
             const confirmed = await this.confirmDangerousAction(
-              `Create new file ${action.path}?`
+              `Create new file ${action.path}?`,
+              { tool: 'write_file', path: action.path }
             );
 
             // Record decision and persist to config
@@ -359,7 +360,10 @@ export class ActionExecutor {
         if (!action.path) {
           throw new Error('delete_path requires a "path" argument.');
         }
-        const confirmed = await this.confirmDangerousAction(`Delete ${action.path}?`);
+        const confirmed = await this.confirmDangerousAction(
+          `Delete ${action.path}?`,
+          { tool: 'delete_path', path: action.path }
+        );
         if (!confirmed) {
           return `Skipped deleting ${action.path}`;
         }
@@ -1035,11 +1039,45 @@ export class ActionExecutor {
           throw new Error(`Cannot create meta-tool "${action.name}": conflicts with built-in tool`);
         }
 
-        // Validate handler (basic security check)
-        const dangerousPatterns = ['rm -rf /', 'dd if=', 'mkfs.', ':(){:|:&};:'];
-        for (const pattern of dangerousPatterns) {
-          if (action.handler.includes(pattern)) {
-            throw new Error(`Handler contains dangerous pattern: ${pattern}`);
+        // Validate handler (comprehensive security check)
+        const dangerousPatterns: Array<{ pattern: RegExp; description: string }> = [
+          // Destructive file operations
+          { pattern: /rm\s+(-[rf]+\s+)*\/(?!\w)/i, description: 'rm with root path' },
+          { pattern: /rm\s+.*--no-preserve-root/i, description: 'rm --no-preserve-root' },
+          { pattern: /dd\s+.*(?:of|if)=\/dev\/[sh]d/i, description: 'dd to disk device' },
+          { pattern: /mkfs\./i, description: 'filesystem format' },
+          { pattern: /wipefs/i, description: 'disk wipe' },
+
+          // Privilege escalation
+          { pattern: /\bsudo\s/i, description: 'sudo command' },
+          { pattern: /\bsu\s+-?\s*\w/i, description: 'su command' },
+          { pattern: /chmod\s+[0-7]*7[0-7]*/i, description: 'world-writable chmod' },
+          { pattern: /chown\s+root/i, description: 'chown to root' },
+
+          // Remote code execution
+          { pattern: /curl\s+.*\|\s*(ba)?sh/i, description: 'curl | bash' },
+          { pattern: /wget\s+.*\|\s*(ba)?sh/i, description: 'wget | sh' },
+          { pattern: /\beval\s+[`$]/i, description: 'eval with expansion' },
+
+          // Fork bomb and resource exhaustion
+          { pattern: /:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;/i, description: 'fork bomb' },
+          { pattern: /while\s+true.*do.*done/i, description: 'infinite loop' },
+
+          // Reverse shell indicators
+          { pattern: /nc\s+.*-e\s*\/bin/i, description: 'netcat reverse shell' },
+          { pattern: /ncat\s+.*-e\s*\/bin/i, description: 'ncat reverse shell' },
+          { pattern: /bash\s+-i\s+>&?\s*\/dev\/tcp/i, description: 'bash reverse shell' },
+
+          // Dangerous network operations
+          { pattern: /iptables\s+-F/i, description: 'flush firewall rules' },
+
+          // Crypto operations that could lock out user
+          { pattern: /gpg\s+.*--encrypt.*-r\s+\S+\s+\//i, description: 'gpg encrypt root' },
+        ];
+
+        for (const { pattern, description } of dangerousPatterns) {
+          if (pattern.test(action.handler)) {
+            throw new Error(`Handler contains dangerous pattern: ${description}`);
           }
         }
 
@@ -1260,7 +1298,10 @@ export class ActionExecutor {
       if (this.isDestructiveCommand(definition.command)) {
         console.log(chalk.red('Warning: command may be destructive.'));
       }
-      const answer = await this.confirmDangerousAction('Add and run this custom command?');
+      const answer = await this.confirmDangerousAction(
+        'Add and run this custom command?',
+        { tool: 'run_command', command: definition.command }
+      );
       if (!answer) {
         return 'Custom command rejected by user.';
       }
@@ -1276,6 +1317,22 @@ export class ActionExecutor {
   private isDestructiveCommand(command: string): boolean {
     const lowered = command.toLowerCase();
     return lowered.includes('rm ') || lowered.includes('sudo ') || lowered.includes('dd ');
+  }
+
+  /**
+   * Shell metacharacters that could enable command injection
+   */
+  private static readonly SHELL_METACHARACTERS = /[|;&$`><(){}[\]!#*?~'"\\]/;
+
+  /**
+   * Safely escape a value for shell interpolation
+   * Uses single quotes which prevent all shell expansion except for single quotes themselves
+   */
+  private shellEscape(value: string): string {
+    // Single-quote the value and escape any embedded single quotes
+    // 'foo' -> 'foo'
+    // foo'bar -> 'foo'"'"'bar'
+    return "'" + value.replace(/'/g, "'\"'\"'") + "'";
   }
 
   /**
@@ -1300,16 +1357,27 @@ export class ActionExecutor {
         throw new Error(`Missing required parameter "${paramName}" for meta-tool "${metaTool.name}"`);
       }
 
-      // Escape shell special characters in value for safety
-      const escapedValue = String(value).replace(/(["`$\\])/g, '\\$1');
-      command = command.replace(new RegExp(`\\{\\{${paramName}\\}\\}`, 'g'), escapedValue);
+      const stringValue = String(value);
+
+      // Security: Check for shell metacharacters and properly escape
+      let safeValue: string;
+      if (ActionExecutor.SHELL_METACHARACTERS.test(stringValue)) {
+        // Use proper shell escaping via single quotes
+        safeValue = this.shellEscape(stringValue);
+        console.log(chalk.yellow(`   ⚠ Parameter "${paramName}" contains shell metacharacters, escaped for safety`));
+      } else {
+        // Simple alphanumeric values don't need escaping
+        safeValue = stringValue;
+      }
+
+      command = command.replace(new RegExp(`\\{\\{${paramName}\\}\\}`, 'g'), safeValue);
     }
 
     console.log(chalk.cyan(`\n🔧 Running meta-tool: ${metaTool.name}`));
     console.log(chalk.gray(`   $ ${command}`));
 
-    // Execute via shell
-    const result = await runCommand(command, [], this.runtime.workspaceRoot);
+    // Execute via shell (meta-tools expect shell syntax for piping, etc.)
+    const result = await runCommand(command, [], this.runtime.workspaceRoot, { shell: true });
     return [`$ ${command}`, result.stdout, result.stderr].filter(Boolean).join('\n');
   }
 

@@ -83,6 +83,7 @@ export class AutohandAgent {
   private ignoreFilter: GitIgnoreParser;
   private statusListener?: (snapshot: AgentStatusSnapshot) => void;
   private outputListener?: (event: AgentOutputEvent) => void;
+  private confirmationCallback?: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<boolean>;
   private conversation: ConversationManager;
   private toolManager: ToolManager;
   private actionExecutor: ActionExecutor;
@@ -124,6 +125,7 @@ export class AutohandAgent {
   private lastIntent: Intent = 'diagnostic';
   private filesModifiedThisSession = false;
   private searchQueries: string[] = [];
+  private sessionRetryCount = 0;
 
   constructor(
     private llm: LLMProvider,
@@ -164,7 +166,7 @@ export class AutohandAgent {
       runtime,
       files,
       resolveWorkspacePath: (relativePath) => this.resolveWorkspacePath(relativePath),
-      confirmDangerousAction: (message) => this.confirmDangerousAction(message),
+      confirmDangerousAction: (message, context) => this.confirmDangerousAction(message, context),
       onExploration: (entry) => this.recordExploration(entry),
       onToolOutput: (chunk) => this.handleToolOutput(chunk),
       toolsRegistry: this.toolsRegistry,
@@ -279,7 +281,7 @@ export class AutohandAgent {
           throw error;
         }
       },
-      confirmApproval: (message) => this.confirmDangerousAction(message),
+      confirmApproval: (message, context) => this.confirmDangerousAction(message, context),
       definitions: [...DEFAULT_TOOL_DEFINITIONS, ...delegationTools],
       clientContext
     });
@@ -705,7 +707,20 @@ export class AutohandAgent {
     };
 
     if (normalized.startsWith('/') && !looksLikeFilePath(normalized)) {
-      const handled = await this.slashHandler.handle(normalized);
+      // Parse command and arguments from input
+      const parts = normalized.split(/\s+/);
+      let command = parts[0];
+      let args = parts.slice(1);
+
+      // Handle multi-word commands like "/skills new", "/agents new"
+      const twoWordCommands = ['/skills new', '/agents new'];
+      const potentialTwoWord = `${parts[0]} ${parts[1] || ''}`.trim();
+      if (twoWordCommands.includes(potentialTwoWord)) {
+        command = potentialTwoWord;
+        args = parts.slice(2);
+      }
+
+      const handled = await this.slashHandler.handle(command, args);
       if (handled === null) {
         return null;
       }
@@ -1423,6 +1438,53 @@ export class AutohandAgent {
         // After configuration, retry the instruction
         return this.runInstruction(instruction);
       }
+
+      // Session failure retry logic
+      const err = error instanceof Error ? error : new Error(String(error));
+      const maxRetries = this.runtime.config.agent?.sessionRetryLimit ?? 3;
+      const baseDelay = this.runtime.config.agent?.sessionRetryDelay ?? 1000;
+
+      if (this.isRetryableSessionError(err) && this.sessionRetryCount < maxRetries) {
+        this.sessionRetryCount++;
+
+        // Submit bug report to telemetry
+        await this.submitSessionFailureBugReport(err, this.sessionRetryCount, maxRetries);
+
+        // Show retry message to user
+        console.log(chalk.yellow(`\n⚠ Session encountered an error: ${err.message}`));
+        console.log(chalk.cyan(`  Attempting recovery (${this.sessionRetryCount}/${maxRetries})...`));
+
+        // Wait with exponential backoff (1.5x multiplier)
+        const delay = baseDelay * Math.pow(1.5, this.sessionRetryCount - 1);
+        await this.sleep(delay);
+
+        // Inject continuation message into conversation
+        this.injectContinuationMessage(err, this.sessionRetryCount);
+
+        // Retry the ReAct loop
+        try {
+          this.setUIStatus('Recovering session...');
+          await this.runReactLoop(abortController);
+
+          // If we get here, retry succeeded - reset counter
+          this.sessionRetryCount = 0;
+          success = true;
+          return success;
+        } catch (retryError) {
+          // Retry failed, will be caught by outer logic on next iteration
+          // or fall through to final failure if max retries exceeded
+          if (this.sessionRetryCount >= maxRetries) {
+            // Max retries exceeded, fall through to failure
+            this.sessionRetryCount = 0;
+          } else {
+            // Re-throw to trigger another retry attempt
+            throw retryError;
+          }
+        }
+      }
+
+      // Reset retry counter on non-retryable errors or max retries exceeded
+      this.sessionRetryCount = 0;
 
       this.stopUI(true, 'Session failed');
       // Emit error for RPC mode
@@ -2210,7 +2272,8 @@ export class AutohandAgent {
     const needApproval = Boolean(args.need_user_approve);
     if (needApproval) {
       const approved = await this.confirmDangerousAction(
-        `Crop ${direction} ${Math.floor(amount)} message(s) from the conversation?`
+        `Crop ${direction} ${Math.floor(amount)} message(s) from the conversation?`,
+        { tool: 'smart_context_cropper' }
       );
       if (!approved) {
         return 'smart_context_cropper canceled by user.';
@@ -3197,9 +3260,182 @@ export class AutohandAgent {
   }
 
   /**
-   * Display the detected intent mode to the user
+   * Sleep helper for retry delays
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Categorize errors to determine retry behavior.
+   * Returns true if the error is retryable.
+   */
+  private isRetryableSessionError(error: Error): boolean {
+    const message = error.message.toLowerCase();
+
+    // NON-RETRYABLE ERRORS (should fail immediately):
+
+    // Authentication/authorization errors
+    if (message.includes('authentication') ||
+        message.includes('api key') ||
+        message.includes('unauthorized') ||
+        message.includes('forbidden') ||
+        message.includes('access denied')) {
+      return false;
+    }
+
+    // Payment/billing errors
+    if (message.includes('payment required') ||
+        message.includes('billing') ||
+        message.includes('quota exceeded')) {
+      return false;
+    }
+
+    // Model not found
+    if (message.includes('model not found') ||
+        message.includes('model does not exist')) {
+      return false;
+    }
+
+    // User cancellation
+    if (message.includes('cancelled') ||
+        message.includes('canceled') ||
+        message.includes('aborted') ||
+        message.includes('user force closed')) {
+      return false;
+    }
+
+    // Context/payload errors (user action needed)
+    if (message.includes('payload too large') ||
+        message.includes('context too long')) {
+      return false;
+    }
+
+    // RETRYABLE ERRORS (transient failures):
+
+    // Network/connection issues
+    if (message.includes('network') ||
+        message.includes('connection') ||
+        message.includes('econnreset') ||
+        message.includes('enotfound') ||
+        message.includes('etimedout')) {
+      return true;
+    }
+
+    // Server-side errors (5xx)
+    if (message.includes('internal error') ||
+        message.includes('service unavailable') ||
+        message.includes('bad gateway') ||
+        message.includes('gateway timeout') ||
+        message.includes('overloaded')) {
+      return true;
+    }
+
+    // Rate limiting (worth retrying after delay)
+    if (message.includes('rate limit') ||
+        message.includes('too many requests')) {
+      return true;
+    }
+
+    // Timeout errors
+    if (message.includes('timed out') ||
+        message.includes('timeout')) {
+      return true;
+    }
+
+    // JSON parsing errors (LLM returned malformed response)
+    if (message.includes('json') ||
+        message.includes('parse') ||
+        message.includes('unexpected token')) {
+      return true;
+    }
+
+    // Generic/unknown errors - default to retry
+    return true;
+  }
+
+  /**
+   * Inject a continuation message into the conversation to help the LLM
+   * recover from a failure and continue the task.
+   */
+  private injectContinuationMessage(error: Error, retryAttempt: number): void {
+    const continuationPrompts = [
+      // First retry: gentle continuation
+      `[System Recovery] An error occurred (${error.message}). Please continue from where you left off. ` +
+      `Review the conversation context and proceed with the next logical step. ` +
+      `If you were in the middle of a tool call, retry it. If you completed tools, provide your response.`,
+
+      // Second retry: more explicit
+      `[System Recovery - Attempt ${retryAttempt + 1}] The previous operation encountered an error. ` +
+      `Please analyze the current state and continue. Focus on completing the user's original request. ` +
+      `If needed, you can re-read files or re-execute commands to verify the current state.`,
+
+      // Third retry: most explicit with safety
+      `[System Recovery - Final Attempt] Multiple errors have occurred. ` +
+      `Please provide a status update to the user. If the task cannot be completed, ` +
+      `explain what was accomplished and what remains. Do not attempt complex operations - ` +
+      `focus on providing a helpful response.`
+    ];
+
+    const promptIndex = Math.min(retryAttempt, continuationPrompts.length - 1);
+    const continuationMessage = continuationPrompts[promptIndex];
+
+    // Add as a system note to preserve conversation flow
+    this.conversation.addSystemNote(continuationMessage);
+  }
+
+  /**
+   * Submit a detailed bug report when a session failure occurs.
+   */
+  private async submitSessionFailureBugReport(
+    error: Error,
+    retryAttempt: number,
+    maxRetries: number
+  ): Promise<void> {
+    try {
+      // Gather context for the bug report
+      const history = this.conversation.history();
+      const recentToolCalls = history
+        .filter(m => m.role === 'assistant' && m.tool_calls)
+        .slice(-3)
+        .flatMap(m => m.tool_calls?.map(tc => tc.function?.name) || [])
+        .filter(Boolean) as string[];
+
+      const model = this.runtime.options.model ??
+        getProviderConfig(this.runtime.config, this.activeProvider)?.model;
+
+      await this.telemetryManager.trackSessionFailureBug({
+        error,
+        retryAttempt,
+        maxRetries,
+        conversationLength: history.length,
+        lastToolCalls: recentToolCalls,
+        iterationCount: (this as any).__currentIteration ?? 0,
+        contextUsage: this.contextPercentLeft,
+        model,
+        provider: this.activeProvider
+      });
+
+      // Also log to local error logger for debugging
+      await this.errorLogger.log(error, {
+        context: `Session failure (retry ${retryAttempt + 1}/${maxRetries})`,
+        workspace: this.runtime.workspaceRoot
+      });
+    } catch (reportError) {
+      // Don't let bug reporting failure prevent the retry
+      console.error(chalk.gray(`[Debug] Failed to submit bug report: ${(reportError as Error).message}`));
+    }
+  }
+
+  /**
+   * Display the detected intent mode to the user (only in debug mode)
    */
   private displayIntentMode(result: IntentResult): void {
+    // Only show mode indicator when AUTOHAND_DEBUG=1
+    if (process.env.AUTOHAND_DEBUG !== '1') {
+      return;
+    }
+
     if (result.intent === 'diagnostic') {
       console.log(chalk.blue('[DIAG] Mode: Diagnostic (read-only analysis)'));
       if (result.keywords.length > 0) {
@@ -3220,11 +3456,15 @@ export class AutohandAgent {
    * Run environment bootstrap before implementation
    */
   private async runEnvironmentBootstrap(): Promise<BootstrapResult> {
-    console.log(chalk.cyan('[BOOTSTRAP] Running environment setup...'));
+    const isDebug = process.env.AUTOHAND_DEBUG === '1';
+
+    if (isDebug) {
+      console.log(chalk.cyan('[BOOTSTRAP] Running environment setup...'));
+    }
 
     const result = await this.environmentBootstrap.run(this.runtime.workspaceRoot);
 
-    // Display results
+    // Display results (only in debug mode, except for failures)
     for (const step of result.steps) {
       const status = step.status === 'success' ? chalk.green('[OK]')
         : step.status === 'failed' ? chalk.red('[FAIL]')
@@ -3234,14 +3474,17 @@ export class AutohandAgent {
       const duration = step.duration ? chalk.gray(`(${(step.duration / 1000).toFixed(1)}s)`) : '';
       const detail = step.detail ? chalk.gray(` ${step.detail}`) : '';
 
-      console.log(`  ${status} ${step.name.padEnd(14)} ${duration}${detail}`);
+      // Always show failures, only show others in debug mode
+      if (step.status === 'failed' || isDebug) {
+        console.log(`  ${status} ${step.name.padEnd(14)} ${duration}${detail}`);
+      }
 
       if (step.error) {
         console.log(chalk.red(`       Error: ${step.error}`));
       }
     }
 
-    if (result.success) {
+    if (result.success && isDebug) {
       console.log(chalk.green(`\n[READY] Environment ready (${(result.duration / 1000).toFixed(1)}s)\n`));
     }
 
@@ -3513,9 +3756,14 @@ export class AutohandAgent {
     this.activeProvider = provider;
   }
 
-  private async confirmDangerousAction(message: string): Promise<boolean> {
+  private async confirmDangerousAction(message: string, context?: { tool?: string; path?: string; command?: string }): Promise<boolean> {
     if (this.runtime.options.yes || this.runtime.config.ui?.autoConfirm) {
       return true;
+    }
+
+    // Use confirmation callback if set (e.g., RPC mode)
+    if (this.confirmationCallback) {
+      return this.confirmationCallback(message, context);
     }
 
     if (isExternalCallbackEnabled()) {
@@ -3578,6 +3826,14 @@ export class AutohandAgent {
 
   setOutputListener(listener: (event: AgentOutputEvent) => void): void {
     this.outputListener = listener;
+  }
+
+  /**
+   * Set a callback for confirmation prompts (used by RPC mode)
+   * When set, this callback is used instead of the default enquirer prompt
+   */
+  setConfirmationCallback(callback: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<boolean>): void {
+    this.confirmationCallback = callback;
   }
 
   private emitOutput(event: AgentOutputEvent): void {

@@ -5,6 +5,38 @@
  */
 import { spawnSync } from 'node:child_process';
 
+/**
+ * Git safety configuration to prevent dangerous operations
+ */
+export const GIT_SAFETY = {
+  /** Branches where force push is blocked */
+  PROTECTED_BRANCHES: ['main', 'master', 'develop', 'production', 'staging'],
+  /** Maximum commits to push at once (to prevent accidental mass pushes) */
+  MAX_COMMITS_PER_PUSH: 50,
+};
+
+/**
+ * Get the current branch name
+ */
+function getCurrentBranch(cwd: string): string {
+  const result = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd, encoding: 'utf8' });
+  return result.stdout?.trim() || '';
+}
+
+/**
+ * Get count of commits ahead of remote
+ */
+function getCommitsAhead(cwd: string, remote: string = 'origin', branch?: string): number {
+  const currentBranch = branch || getCurrentBranch(cwd);
+  if (!currentBranch) return 0;
+
+  const result = spawnSync('git', ['rev-list', '--count', `${remote}/${currentBranch}..HEAD`], {
+    cwd,
+    encoding: 'utf8'
+  });
+  return parseInt(result.stdout?.trim() || '0', 10) || 0;
+}
+
 export function applyGitPatch(cwd: string, patch: string): string {
   const result = spawnSync('git', ['apply', '-'], {
     cwd,
@@ -253,6 +285,17 @@ export interface GitRebaseOptions {
 }
 
 export function gitRebase(cwd: string, upstream: string, options: GitRebaseOptions = {}): string {
+  const currentBranch = getCurrentBranch(cwd);
+
+  // SAFETY: Warn when rebasing a protected branch
+  if (GIT_SAFETY.PROTECTED_BRANCHES.includes(currentBranch)) {
+    throw new Error(
+      `Rebasing protected branch "${currentBranch}" is blocked. ` +
+      `Protected branches should not be rebased as it rewrites history. ` +
+      `Use merge instead, or switch to a feature branch first.`
+    );
+  }
+
   const args = ['rebase'];
   if (options.onto) {
     args.push('--onto', options.onto);
@@ -303,6 +346,25 @@ export interface GitMergeOptions {
 }
 
 export function gitMerge(cwd: string, branch: string, options: GitMergeOptions = {}): string {
+  // SAFETY: Validate branch exists locally or as a known remote branch
+  const localBranches = spawnSync('git', ['branch', '--list'], { cwd, encoding: 'utf8' });
+  const remoteBranches = spawnSync('git', ['branch', '-r', '--list'], { cwd, encoding: 'utf8' });
+  const allBranches = (localBranches.stdout || '') + (remoteBranches.stdout || '');
+
+  // Check if branch exists (locally or remotely)
+  const branchExists = allBranches.split('\n').some(b =>
+    b.trim().replace('* ', '') === branch ||
+    b.trim() === `origin/${branch}` ||
+    b.trim() === branch
+  );
+
+  if (!branchExists) {
+    throw new Error(
+      `Branch "${branch}" not found locally or in remotes. ` +
+      `For security, only existing branches can be merged. Run 'git fetch' first if the branch exists remotely.`
+    );
+  }
+
   const args = ['merge'];
   if (options.noCommit) {
     args.push('--no-commit');
@@ -654,9 +716,30 @@ export function gitPull(cwd: string, remote?: string, branch?: string): string {
 }
 
 export function gitPush(cwd: string, remote?: string, branch?: string, options: { force?: boolean; setUpstream?: boolean } = {}): string {
+  const targetRemote = remote || 'origin';
+  const targetBranch = branch || getCurrentBranch(cwd);
+
+  // SAFETY: Block force push to protected branches
+  if (options.force && GIT_SAFETY.PROTECTED_BRANCHES.includes(targetBranch)) {
+    throw new Error(
+      `Force push to protected branch "${targetBranch}" is blocked. ` +
+      `Protected branches: ${GIT_SAFETY.PROTECTED_BRANCHES.join(', ')}`
+    );
+  }
+
+  // SAFETY: Warn if pushing too many commits at once
+  const commitsAhead = getCommitsAhead(cwd, targetRemote, targetBranch);
+  if (commitsAhead > GIT_SAFETY.MAX_COMMITS_PER_PUSH) {
+    throw new Error(
+      `Too many commits to push (${commitsAhead}). Maximum allowed: ${GIT_SAFETY.MAX_COMMITS_PER_PUSH}. ` +
+      `This limit exists to prevent accidental large pushes. Push manually if intentional.`
+    );
+  }
+
   const args = ['push'];
   if (options.force) {
-    args.push('--force');
+    // Use --force-with-lease for safer force pushing (prevents overwriting others' work)
+    args.push('--force-with-lease');
   }
   if (options.setUpstream) {
     args.push('--set-upstream');

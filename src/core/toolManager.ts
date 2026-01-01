@@ -63,7 +63,7 @@ export interface ToolDefinition {
 
 export interface ToolManagerOptions {
   executor: (action: AgentAction, context?: ToolExecutionContext) => Promise<string | undefined>;
-  confirmApproval: (message: string) => Promise<boolean>;
+  confirmApproval: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<boolean>;
   definitions?: ToolDefinition[];
   /** Client context for tool filtering (default: 'cli') */
   clientContext?: ClientContext;
@@ -1048,23 +1048,29 @@ export class ToolManager {
         // Build detailed approval message with action context
         let message = definition?.approvalMessage ?? `Allow tool ${call.tool}?`;
 
-        // Add details based on tool type
+        // Add details based on tool type and build context for permission tracking
+        let permContext: { tool?: string; path?: string; command?: string } = { tool: call.tool };
+
         if (call.tool === 'run_command' && call.args) {
           const cmd = call.args.command || '';
           const args = Array.isArray(call.args.args) ? call.args.args.join(' ') : '';
           const fullCommand = args ? `${cmd} ${args}` : cmd;
           const dir = call.args.directory ? ` (in ${call.args.directory})` : '';
           message = `Run this command${dir}?\n  $ ${fullCommand}`;
+          permContext.command = fullCommand;
         } else if (call.tool === 'delete_path' && call.args?.path) {
           message = `Delete this path?\n  ${call.args.path}`;
+          permContext.path = String(call.args.path);
         } else if (call.tool === 'write_file' && call.args?.path) {
           message = `Write to this file?\n  ${call.args.path}`;
+          permContext.path = String(call.args.path);
         } else if (call.tool === 'multi_file_edit' && call.args?.file_path) {
           const editCount = Array.isArray(call.args.edits) ? call.args.edits.length : 0;
           message = `Edit this file (${editCount} change${editCount === 1 ? '' : 's'})?\n  ${call.args.file_path}`;
+          permContext.path = String(call.args.file_path);
         }
 
-        const confirmed = await this.confirmApproval(message);
+        const confirmed = await this.confirmApproval(message, permContext);
         if (!confirmed) {
           results.push({
             tool: call.tool,
