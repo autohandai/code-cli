@@ -310,9 +310,22 @@ export class FeedbackManager {
     console.log(chalk.cyan('━'.repeat(50)));
     console.log();
 
+    // Helper to safely prompt with enquirer (handles readline close errors)
+    const safePrompt = async <T>(config: any): Promise<T | null> => {
+      try {
+        return await (Enquirer as any).prompt(config);
+      } catch (error: any) {
+        // Ignore readline close errors during exit
+        if (error?.code === 'ERR_USE_AFTER_CLOSE') {
+          return null;
+        }
+        throw error;
+      }
+    };
+
     try {
       // Step 1: NPS Score (1-5)
-      const npsResult = await (Enquirer as any).prompt({
+      const npsResult = await safePrompt<{ score: string }>({
         type: 'select',
         name: 'score',
         message: 'How would you rate your experience?',
@@ -325,6 +338,13 @@ export class FeedbackManager {
           { name: 'skip', message: `${chalk.gray('Skip')}` }
         ]
       });
+
+      // User cancelled or readline closed
+      if (!npsResult) {
+        this.state.dismissed++;
+        this.saveState();
+        return false;
+      }
 
       if (npsResult.score === 'skip') {
         this.state.dismissed++;
@@ -341,29 +361,31 @@ export class FeedbackManager {
       // Step 2: Follow-up based on score
       if (npsScore >= 4) {
         // Happy user - ask for recommendation reason
-        const followUp = await (Enquirer as any).prompt({
+        const followUp = await safePrompt<{ reason: string }>({
           type: 'input',
           name: 'reason',
           message: 'What do you like most about Autohand? (optional, press Enter to skip)',
         });
-        reason = followUp.reason || undefined;
+        reason = followUp?.reason || undefined;
 
-        // Ask about recommendation
-        const recResult = await (Enquirer as any).prompt({
-          type: 'confirm',
-          name: 'recommend',
-          message: 'Would you recommend Autohand to a colleague?',
-          initial: true
-        });
-        recommend = recResult.recommend;
+        // Ask about recommendation (only if still connected)
+        if (followUp) {
+          const recResult = await safePrompt<{ recommend: boolean }>({
+            type: 'confirm',
+            name: 'recommend',
+            message: 'Would you recommend Autohand to a colleague?',
+            initial: true
+          });
+          recommend = recResult?.recommend;
+        }
       } else {
         // Unhappy user - ask for improvement
-        const followUp = await (Enquirer as any).prompt({
+        const followUp = await safePrompt<{ improvement: string }>({
           type: 'input',
           name: 'improvement',
           message: 'What could we do better? (optional, press Enter to skip)',
         });
-        improvement = followUp.improvement || undefined;
+        improvement = followUp?.improvement || undefined;
       }
 
       // Save response
@@ -398,8 +420,12 @@ export class FeedbackManager {
       console.log();
 
       return true;
-    } catch (error) {
-      // User cancelled (Ctrl+C or ESC)
+    } catch (error: any) {
+      // User cancelled (Ctrl+C or ESC) or readline closed
+      if (error?.code === 'ERR_USE_AFTER_CLOSE') {
+        // Silent exit - readline already closed
+        return false;
+      }
       this.state.dismissed++;
       this.saveState();
       console.log(chalk.gray('\nFeedback skipped.\n'));

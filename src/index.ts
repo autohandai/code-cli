@@ -102,6 +102,10 @@ process.on('uncaughtException', (err) => {
 });
 
 process.on('unhandledRejection', (reason, promise) => {
+  // Ignore readline close errors (happens during exit with enquirer prompts)
+  if (reason && typeof reason === 'object' && (reason as any).code === 'ERR_USE_AFTER_CLOSE') {
+    return;
+  }
   (globalThis as any).__autohandLastError = reason;
   console.error('[DEBUG] Unhandled Rejection at:', promise, 'reason:', reason);
 });
