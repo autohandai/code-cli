@@ -1382,8 +1382,30 @@ export class ActionExecutor {
   }
 
   private applySearchReplaceBlocks(content: string, blocks: string): string {
-    const MARKERS = { search: '<<<<<<< SEARCH', div: '=======', replace: '>>>>>>> REPLACE' };
     let result = content;
+
+    // Try simple format first: SEARCH:...\nREPLACE:...
+    // This is what some LLMs produce
+    if (blocks.includes('SEARCH:') && blocks.includes('REPLACE:') && !blocks.includes('<<<<<<< SEARCH')) {
+      const searchIdx = blocks.indexOf('SEARCH:');
+      const replaceIdx = blocks.indexOf('REPLACE:');
+
+      if (searchIdx !== -1 && replaceIdx !== -1 && replaceIdx > searchIdx) {
+        const searchText = blocks.slice(searchIdx + 7, replaceIdx).trim();
+        const replaceText = blocks.slice(replaceIdx + 8).trim();
+
+        const idx = result.indexOf(searchText);
+        if (idx === -1) {
+          throw new Error(`SEARCH text not found: "${searchText.slice(0, 50)}..."`);
+        }
+
+        result = result.slice(0, idx) + replaceText + result.slice(idx + searchText.length);
+        return result;
+      }
+    }
+
+    // Git-style format: <<<<<<< SEARCH ... ======= ... >>>>>>> REPLACE
+    const MARKERS = { search: '<<<<<<< SEARCH', div: '=======', replace: '>>>>>>> REPLACE' };
     let remaining = blocks;
 
     while (remaining.includes(MARKERS.search)) {

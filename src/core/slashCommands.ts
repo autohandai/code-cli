@@ -59,6 +59,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   logout.metadata,
   permissions.metadata,
   skills.metadata,
+  skills.installMetadata,
   skillsNew.metadata,
   theme.metadata,
 ];

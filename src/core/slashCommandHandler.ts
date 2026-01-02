@@ -16,6 +16,13 @@ export class SlashCommandHandler {
     commands.forEach((cmd) => this.commandMap.set(cmd.command, cmd));
   }
 
+  /**
+   * Check if a command is supported (exists in the command map)
+   */
+  isCommandSupported(command: string): boolean {
+    return this.commandMap.has(command);
+  }
+
   async handle(command: string, args: string[] = []): Promise<string | null> {
     const meta = this.commandMap.get(command);
     if (!meta) {
@@ -140,17 +147,29 @@ export class SlashCommandHandler {
         case '/skills': {
           const { skills } = await import('../commands/skills.js');
           if (!this.ctx.skillsRegistry) {
-            console.log(chalk.yellow('Skills registry not available.'));
-            return null;
+            return 'Skills registry not available.';
           }
-          return skills({ skillsRegistry: this.ctx.skillsRegistry }, args);
+          return skills({
+            skillsRegistry: this.ctx.skillsRegistry,
+            workspaceRoot: this.ctx.workspaceRoot,
+          }, args);
+        }
+        case '/skills install': {
+          const { skillsInstall } = await import('../commands/skills-install.js');
+          if (!this.ctx.skillsRegistry) {
+            return 'Skills registry not available.';
+          }
+          const skillName = args.join(' ').trim() || undefined;
+          return skillsInstall({
+            skillsRegistry: this.ctx.skillsRegistry,
+            workspaceRoot: this.ctx.workspaceRoot,
+          }, skillName);
         }
         case '/skills new':
         case '/skills-new': {
           const { createSkill } = await import('../commands/skills-new.js');
           if (!this.ctx.skillsRegistry) {
-            console.log(chalk.yellow('Skills registry not available.'));
-            return null;
+            return 'Skills registry not available.';
           }
           return createSkill({
             llm: this.ctx.llm,

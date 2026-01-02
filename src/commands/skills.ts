@@ -5,11 +5,11 @@
  *
  * Skills command - List and manage available skills
  */
-import chalk from 'chalk';
 import type { SkillsRegistry } from '../skills/SkillsRegistry.js';
 
 export interface SkillsCommandContext {
   skillsRegistry: SkillsRegistry;
+  workspaceRoot?: string;
 }
 
 /**
@@ -22,14 +22,18 @@ export async function skills(ctx: SkillsCommandContext, args: string[] = []): Pr
   const { skillsRegistry } = ctx;
 
   if (!skillsRegistry) {
-    console.log(chalk.red('Skills registry not available.'));
-    return null;
+    return 'Skills registry not available.';
   }
 
   const subcommand = args[0]?.toLowerCase();
   const skillName = args.slice(1).join(' ').trim() || args[1];
 
   switch (subcommand) {
+    case 'install':
+    case 'get':
+    case 'add':
+      return handleSkillsInstall(ctx, skillName);
+
     case 'use':
     case 'activate':
       return activateSkill(skillsRegistry, skillName);
@@ -48,23 +52,77 @@ export async function skills(ctx: SkillsCommandContext, args: string[] = []): Pr
 }
 
 /**
+ * Generate a smart suggestion prompt based on skill description
+ */
+function generateSkillSuggestion(skillName: string, description: string): string {
+  const desc = description.toLowerCase();
+
+  // Generate contextual suggestions based on skill type
+  if (desc.includes('commit') || desc.includes('git')) {
+    return `Help me write a great commit message for my recent changes`;
+  }
+  if (desc.includes('test') || desc.includes('testing')) {
+    return `Write comprehensive tests for the code I'm working on`;
+  }
+  if (desc.includes('review') || desc.includes('code review')) {
+    return `Review my code and suggest improvements`;
+  }
+  if (desc.includes('document') || desc.includes('docs')) {
+    return `Generate documentation for the current file`;
+  }
+  if (desc.includes('refactor')) {
+    return `Help me refactor this code for better readability`;
+  }
+  if (desc.includes('debug') || desc.includes('fix')) {
+    return `Help me debug the issue I'm seeing`;
+  }
+  if (desc.includes('api') || desc.includes('endpoint')) {
+    return `Help me design a new API endpoint`;
+  }
+  if (desc.includes('database') || desc.includes('sql') || desc.includes('schema')) {
+    return `Help me design the database schema`;
+  }
+  if (desc.includes('ui') || desc.includes('component') || desc.includes('frontend')) {
+    return `Create a new UI component`;
+  }
+  if (desc.includes('deploy') || desc.includes('ci') || desc.includes('pipeline')) {
+    return `Help me set up the deployment pipeline`;
+  }
+  if (desc.includes('security') || desc.includes('auth')) {
+    return `Review security concerns in my code`;
+  }
+  if (desc.includes('performance') || desc.includes('optimize')) {
+    return `Analyze and optimize performance`;
+  }
+
+  // Default suggestion
+  return `Use ${skillName} to help with: ${description.slice(0, 50)}...`;
+}
+
+/**
  * List all available skills
  */
-function listSkills(registry: SkillsRegistry): string | null {
+function listSkills(registry: SkillsRegistry): string {
   const allSkills = registry.listSkills();
   const activeSkills = registry.getActiveSkills();
+  const lines: string[] = [];
 
-  console.log();
-  console.log(chalk.bold.cyan('Available Skills'));
-  console.log(chalk.gray('─'.repeat(50)));
+  lines.push('');
+  lines.push('📚 **Available Skills**');
+  lines.push('');
 
   if (allSkills.length === 0) {
-    console.log(chalk.gray('No skills found.'));
-    console.log();
-    console.log(chalk.gray('Tip: Skills can be added in:'));
-    console.log(chalk.gray('  - ~/.autohand/skills/<skill-name>/SKILL.md'));
-    console.log(chalk.gray('  - <project>/.autohand/skills/<skill-name>/SKILL.md'));
-    return null;
+    lines.push('No skills found yet.');
+    lines.push('');
+    lines.push('**Get started:**');
+    lines.push('');
+    lines.push('{{action:🌐 Browse Community Skills|/skills install}}');
+    lines.push('{{action:✨ Create New Skill|/skills new}}');
+    lines.push('');
+    lines.push('_Skills can be added in:_');
+    lines.push('- `~/.autohand/skills/<skill-name>/SKILL.md`');
+    lines.push('- `<project>/.autohand/skills/<skill-name>/SKILL.md`');
+    return lines.join('\n');
   }
 
   // Group skills by source
@@ -77,165 +135,203 @@ function listSkills(registry: SkillsRegistry): string | null {
 
   // Display by source
   const sourceLabels: Record<string, string> = {
-    'codex-user': 'Codex User Skills (~/.codex/skills/)',
-    'claude-user': 'Claude User Skills (~/.claude/skills/)',
-    'claude-project': 'Claude Project Skills (.claude/skills/)',
-    'autohand-user': 'Autohand User Skills (~/.autohand/skills/)',
-    'autohand-project': 'Autohand Project Skills (.autohand/skills/)',
+    'codex-user': '📁 Codex User Skills',
+    'claude-user': '📁 Claude User Skills',
+    'claude-project': '📁 Project Skills',
+    'autohand-user': '📁 Autohand User Skills',
+    'autohand-project': '📁 Project Skills',
   };
 
   for (const [source, skills] of bySource) {
-    console.log();
-    console.log(chalk.bold.yellow(sourceLabels[source] || source));
-    console.log();
+    lines.push(`**${sourceLabels[source] || source}**`);
+    lines.push('');
 
     for (const skill of skills) {
       const isActive = skill.isActive;
-      const statusIcon = isActive ? chalk.green('●') : chalk.gray('○');
-      const nameColor = isActive ? chalk.green : chalk.white;
+      const statusIcon = isActive ? '🟢' : '⚪';
+      const statusText = isActive ? ' _(active)_' : '';
 
-      console.log(`  ${statusIcon} ${nameColor(skill.name)}`);
-      console.log(chalk.gray(`      ${skill.description}`));
+      lines.push(`${statusIcon} **${skill.name}**${statusText}`);
+      lines.push(`   ${skill.description}`);
+
+      // Add action buttons for each skill
+      if (isActive) {
+        const suggestion = generateSkillSuggestion(skill.name, skill.description);
+        lines.push(`   {{action:💡 Try it|${suggestion}}} {{action:ℹ️ Info|/skills info ${skill.name}}} {{action:⏸️ Deactivate|/skills deactivate ${skill.name}}}`);
+      } else {
+        lines.push(`   {{action:▶️ Activate|/skills use ${skill.name}}} {{action:ℹ️ Info|/skills info ${skill.name}}}`);
+      }
+      lines.push('');
     }
   }
 
-  console.log();
-  console.log(chalk.gray('─'.repeat(50)));
-  console.log(chalk.gray(`Total: ${allSkills.length} skills, ${activeSkills.length} active`));
-  console.log();
-  console.log(chalk.gray('Commands:'));
-  console.log(chalk.gray('  /skills use <name>        Activate a skill'));
-  console.log(chalk.gray('  /skills deactivate <name> Deactivate a skill'));
-  console.log(chalk.gray('  /skills info <name>       Show skill details'));
-  console.log(chalk.gray('  /skills new               Create a new skill'));
+  lines.push('─'.repeat(40));
+  lines.push(`📊 **${allSkills.length}** skills available, **${activeSkills.length}** active`);
+  lines.push('');
+  lines.push('**Quick Actions:**');
+  lines.push('{{action:🌐 Browse Community|/skills install}} {{action:✨ Create New|/skills new}}');
 
-  return null;
+  return lines.join('\n');
 }
 
 /**
  * Activate a skill by name
  */
-function activateSkill(registry: SkillsRegistry, name: string): string | null {
+function activateSkill(registry: SkillsRegistry, name: string): string {
   if (!name) {
-    console.log(chalk.red('Usage: /skills use <skill-name>'));
-    return null;
+    return 'Usage: /skills use <skill-name>';
   }
 
   const skill = registry.getSkill(name);
   if (!skill) {
-    console.log(chalk.red(`Skill not found: ${name}`));
+    const lines = [`Skill not found: ${name}`];
 
     // Suggest similar skills
     const similar = registry.findSimilar(name, 0.2);
     if (similar.length > 0) {
-      console.log(chalk.gray('Did you mean:'));
+      lines.push('Did you mean:');
       for (const match of similar.slice(0, 3)) {
-        console.log(chalk.gray(`  - ${match.skill.name}`));
+        lines.push(`  - ${match.skill.name}`);
       }
     }
-    return null;
+    return lines.join('\n');
   }
 
   if (skill.isActive) {
-    console.log(chalk.yellow(`Skill "${name}" is already active.`));
-    return null;
+    return `Skill "${name}" is already active.`;
   }
 
   const success = registry.activateSkill(name);
   if (success) {
-    console.log(chalk.green(`✓ Activated skill: ${name}`));
-    console.log(chalk.gray(`  ${skill.description}`));
-    return `Skill "${name}" is now active.`;
+    return `✓ Activated skill: ${name}\n  ${skill.description}`;
   } else {
-    console.log(chalk.red(`Failed to activate skill: ${name}`));
-    return null;
+    return `Failed to activate skill: ${name}`;
   }
 }
 
 /**
  * Deactivate a skill by name
  */
-function deactivateSkill(registry: SkillsRegistry, name: string): string | null {
+function deactivateSkill(registry: SkillsRegistry, name: string): string {
   if (!name) {
-    console.log(chalk.red('Usage: /skills deactivate <skill-name>'));
-    return null;
+    return 'Usage: /skills deactivate <skill-name>';
   }
 
   const skill = registry.getSkill(name);
   if (!skill) {
-    console.log(chalk.red(`Skill not found: ${name}`));
-    return null;
+    return `Skill not found: ${name}`;
   }
 
   if (!skill.isActive) {
-    console.log(chalk.yellow(`Skill "${name}" is not active.`));
-    return null;
+    return `Skill "${name}" is not active.`;
   }
 
   const success = registry.deactivateSkill(name);
   if (success) {
-    console.log(chalk.green(`✓ Deactivated skill: ${name}`));
-    return `Skill "${name}" is now inactive.`;
+    return `✓ Deactivated skill: ${name}`;
   } else {
-    console.log(chalk.red(`Failed to deactivate skill: ${name}`));
-    return null;
+    return `Failed to deactivate skill: ${name}`;
   }
 }
 
 /**
  * Show detailed info about a skill
  */
-function showSkillInfo(registry: SkillsRegistry, name: string): string | null {
+function showSkillInfo(registry: SkillsRegistry, name: string): string {
   if (!name) {
-    console.log(chalk.red('Usage: /skills info <skill-name>'));
-    return null;
+    return 'Usage: /skills info <skill-name>';
   }
 
   const skill = registry.getSkill(name);
   if (!skill) {
-    console.log(chalk.red(`Skill not found: ${name}`));
-    return null;
+    return `Skill not found: ${name}`;
   }
 
-  console.log();
-  console.log(chalk.bold.cyan(`Skill: ${skill.name}`));
-  console.log(chalk.gray('─'.repeat(50)));
-  console.log();
-  console.log(chalk.white('Description: ') + skill.description);
-  console.log(chalk.white('Status: ') + (skill.isActive ? chalk.green('Active') : chalk.gray('Inactive')));
-  console.log(chalk.white('Source: ') + skill.source);
-  console.log(chalk.white('Path: ') + chalk.gray(skill.path));
+  const lines: string[] = [];
+  lines.push('');
+  lines.push(`📋 **Skill: ${skill.name}**`);
+  lines.push('');
+
+  // Status with action button
+  if (skill.isActive) {
+    lines.push(`**Status:** 🟢 Active`);
+    const suggestion = generateSkillSuggestion(skill.name, skill.description);
+    lines.push('');
+    lines.push(`{{action:💡 Try it now|${suggestion}}} {{action:⏸️ Deactivate|/skills deactivate ${skill.name}}}`);
+  } else {
+    lines.push(`**Status:** ⚪ Inactive`);
+    lines.push('');
+    lines.push(`{{action:▶️ Activate|/skills use ${skill.name}}}`);
+  }
+
+  lines.push('');
+  lines.push('─'.repeat(40));
+  lines.push('');
+  lines.push(`**Description:** ${skill.description}`);
+  lines.push(`**Source:** ${skill.source}`);
+  lines.push(`**Path:** \`${skill.path}\``);
 
   if (skill.license) {
-    console.log(chalk.white('License: ') + skill.license);
+    lines.push(`**License:** ${skill.license}`);
   }
 
   if (skill.compatibility) {
-    console.log(chalk.white('Compatibility: ') + skill.compatibility);
+    lines.push(`**Compatibility:** ${skill.compatibility}`);
   }
 
   if (skill['allowed-tools']) {
-    console.log(chalk.white('Allowed Tools: ') + skill['allowed-tools']);
+    lines.push(`**Allowed Tools:** ${skill['allowed-tools']}`);
   }
 
   if (skill.metadata && Object.keys(skill.metadata).length > 0) {
-    console.log(chalk.white('Metadata:'));
+    lines.push('');
+    lines.push('**Metadata:**');
     for (const [key, value] of Object.entries(skill.metadata)) {
-      console.log(chalk.gray(`  ${key}: ${value}`));
+      lines.push(`- ${key}: ${value}`);
     }
   }
 
-  console.log();
-  console.log(chalk.bold('Content:'));
-  console.log(chalk.gray('─'.repeat(50)));
-
+  lines.push('');
+  lines.push('**Content Preview:**');
+  lines.push('```');
   // Show first 500 chars of body
   const bodyPreview = skill.body.length > 500
-    ? skill.body.slice(0, 500) + chalk.gray('\n... (truncated)')
+    ? skill.body.slice(0, 500) + '\n... (truncated)'
     : skill.body;
-  console.log(bodyPreview || chalk.gray('(no body content)'));
+  lines.push(bodyPreview || '(no body content)');
+  lines.push('```');
 
-  return null;
+  lines.push('');
+  lines.push('{{action:← Back to Skills|/skills}}');
+
+  return lines.join('\n');
+}
+
+/**
+ * Handle /skills install subcommand
+ */
+async function handleSkillsInstall(
+  ctx: SkillsCommandContext,
+  skillName?: string
+): Promise<string> {
+  const { skillsRegistry, workspaceRoot } = ctx;
+
+  if (!workspaceRoot) {
+    return 'Workspace root not available.';
+  }
+
+  // Dynamic import to avoid circular dependencies
+  const { skillsInstall } = await import('./skills-install.js');
+
+  const result = await skillsInstall(
+    {
+      skillsRegistry,
+      workspaceRoot,
+    },
+    skillName
+  );
+
+  return result ?? 'Skills install completed.';
 }
 
 export const metadata = {
@@ -247,5 +343,11 @@ export const metadata = {
 export const useMetadata = {
   command: '/skills use',
   description: 'activate a skill',
+  implemented: true,
+};
+
+export const installMetadata = {
+  command: '/skills install',
+  description: 'browse and install community skills',
   implemented: true,
 };

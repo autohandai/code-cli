@@ -3544,6 +3544,53 @@ export class AutohandAgent {
   }
 
   /**
+   * Handle a slash command (e.g., /skills, /skills install, /model)
+   * Returns the command output or null if the command doesn't exist
+   */
+  async handleSlashCommand(command: string, args: string[] = []): Promise<string | null> {
+    return this.slashHandler.handle(command, args);
+  }
+
+  /**
+   * Check if a string is a slash command
+   */
+  isSlashCommand(input: string): boolean {
+    return input.trim().startsWith('/');
+  }
+
+  /**
+   * Check if a slash command is supported (exists in the command map)
+   */
+  isSlashCommandSupported(command: string): boolean {
+    return this.slashHandler.isCommandSupported(command);
+  }
+
+  /**
+   * Parse a slash command string into command and args
+   * e.g., "/skills install myskill" -> { command: "/skills install", args: ["myskill"] }
+   */
+  parseSlashCommand(input: string): { command: string; args: string[] } {
+    const trimmed = input.trim();
+    const parts = trimmed.split(/\s+/);
+
+    // Check for two-word commands like "/skills install"
+    const twoWordCommands = ['/skills install', '/skills new', '/agents new'];
+    const potentialTwoWord = parts.slice(0, 2).join(' ');
+
+    if (twoWordCommands.includes(potentialTwoWord)) {
+      return {
+        command: potentialTwoWord,
+        args: parts.slice(2),
+      };
+    }
+
+    return {
+      command: parts[0],
+      args: parts.slice(1),
+    };
+  }
+
+  /**
    * Get messages with images included for the LLM API call.
    * Modifies the last user message to include any images from the session.
    * The returned messages may have multimodal content (array of text/image parts)
@@ -3853,7 +3900,8 @@ export class AutohandAgent {
     return {
       model: this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured',
       workspace: this.runtime.workspaceRoot,
-      contextPercent: this.contextPercentLeft
+      contextPercent: this.contextPercentLeft,
+      tokensUsed: this.totalTokensUsed
     };
   }
 }
