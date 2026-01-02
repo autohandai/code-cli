@@ -43,6 +43,7 @@ export class RPCAdapter {
   private imageManager: ImageManager | null = null;
   private sessionId: string | null = null;
   private currentTurnId: string | null = null;
+  private turnStartTime: number | null = null;
   private currentMessageId: string | null = null;
   private currentMessageContent = '';
   private pendingPermissions = new Map<string, PendingPermission>();
@@ -139,6 +140,7 @@ export class RPCAdapter {
 
     // Start a new turn
     this.currentTurnId = generateId('turn');
+    this.turnStartTime = Date.now();
     writeNotification(RPC_NOTIFICATIONS.TURN_START, {
       turnId: this.currentTurnId,
       timestamp: createTimestamp(),
@@ -243,7 +245,49 @@ export class RPCAdapter {
       try {
         // Debug: log instruction being executed
         process.stderr.write(`[RPC DEBUG] Executing instruction: ${instruction.substring(0, 100)}\n`);
-        success = await this.agent.runInstruction(instruction);
+
+        // Check if it's a slash command and handle it directly
+        if (this.agent.isSlashCommand(instruction)) {
+          const { command, args } = this.agent.parseSlashCommand(instruction);
+          process.stderr.write(`[RPC DEBUG] Handling slash command: ${command}, args: ${JSON.stringify(args)}\n`);
+
+          // First check if the command is supported
+          if (this.agent.isSlashCommandSupported(command)) {
+            const result = await this.agent.handleSlashCommand(command, args);
+            if (result !== null) {
+              // Slash command returned data
+              this.currentMessageContent = result;
+              writeNotification(RPC_NOTIFICATIONS.MESSAGE_UPDATE, {
+                messageId: this.currentMessageId,
+                delta: result,
+                timestamp: createTimestamp(),
+              });
+            } else {
+              // Command was handled but returned null (output went to console)
+              // This is success - the command was executed
+              this.currentMessageContent = `Command ${command} executed.`;
+              writeNotification(RPC_NOTIFICATIONS.MESSAGE_UPDATE, {
+                messageId: this.currentMessageId,
+                delta: this.currentMessageContent,
+                timestamp: createTimestamp(),
+              });
+            }
+            success = true;
+          } else {
+            // Command not found
+            this.currentMessageContent = `Unknown command: ${command}. Type /help for available commands.`;
+            writeNotification(RPC_NOTIFICATIONS.MESSAGE_UPDATE, {
+              messageId: this.currentMessageId,
+              delta: this.currentMessageContent,
+              timestamp: createTimestamp(),
+            });
+            success = false;
+          }
+        } else {
+          // Not a slash command - run as regular instruction via LLM
+          success = await this.agent.runInstruction(instruction);
+        }
+
         process.stderr.write(`[RPC DEBUG] Instruction completed, success=${success}, content length=${this.currentMessageContent.length}\n`);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
@@ -268,29 +312,39 @@ export class RPCAdapter {
         timestamp: createTimestamp(),
       });
 
-      // End turn with context percent
+      // End turn with stats
+      const durationMs = this.turnStartTime ? Date.now() - this.turnStartTime : undefined;
+      const snapshot = this.agent?.getStatusSnapshot();
       writeNotification(RPC_NOTIFICATIONS.TURN_END, {
         turnId: this.currentTurnId!,
         timestamp: createTimestamp(),
         contextPercent: this.contextPercent,
+        tokensUsed: snapshot?.tokensUsed,
+        durationMs,
       });
 
       this.status = 'idle';
       this.currentTurnId = null;
+      this.turnStartTime = null;
       this.currentMessageId = null;
       this.abortController = null;
 
       return { success };
     } catch (error) {
-      // End turn on error with context percent
+      // End turn on error with stats
+      const durationMs = this.turnStartTime ? Date.now() - this.turnStartTime : undefined;
+      const snapshot = this.agent?.getStatusSnapshot();
       writeNotification(RPC_NOTIFICATIONS.TURN_END, {
         turnId: this.currentTurnId!,
         timestamp: createTimestamp(),
         contextPercent: this.contextPercent,
+        tokensUsed: snapshot?.tokensUsed,
+        durationMs,
       });
 
       this.status = 'idle';
       this.currentTurnId = null;
+      this.turnStartTime = null;
       this.currentMessageId = null;
       this.abortController = null;
 
@@ -330,15 +384,20 @@ export class RPCAdapter {
 
       // End turn if one is in progress
       if (this.currentTurnId) {
+        const durationMs = this.turnStartTime ? Date.now() - this.turnStartTime : undefined;
+        const snapshot = this.agent?.getStatusSnapshot();
         writeNotification(RPC_NOTIFICATIONS.TURN_END, {
           turnId: this.currentTurnId,
           timestamp: createTimestamp(),
           contextPercent: this.contextPercent,
+          tokensUsed: snapshot?.tokensUsed,
+          durationMs,
         });
       }
 
       // Reset state
       this.currentTurnId = null;
+      this.turnStartTime = null;
       this.currentMessageId = null;
       this.currentMessageContent = '';
       this.abortController = null;

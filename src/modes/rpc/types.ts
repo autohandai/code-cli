@@ -228,6 +228,9 @@ export interface TurnStartParams {
 export interface TurnEndParams {
   turnId: string;
   timestamp: string;
+  tokensUsed?: number;
+  durationMs?: number;
+  contextPercent?: number;
 }
 
 export interface MessageStartParams {

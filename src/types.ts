@@ -498,6 +498,7 @@ export interface AgentStatusSnapshot {
   model: string;
   workspace: string;
   contextPercent: number;
+  tokensUsed: number;
 }
 
 export interface AgentOutputEvent {
@@ -509,4 +510,93 @@ export interface AgentOutputEvent {
   toolArgs?: Record<string, unknown>;
   toolOutput?: string;
   toolSuccess?: boolean;
+}
+
+// ============ Community Skills Marketplace Types ============
+
+/** Skill category in the community registry */
+export interface SkillCategory {
+  id: string;
+  name: string;
+  count: number;
+  icon?: string;
+}
+
+/** Community skill from GitHub registry with multi-file support */
+export interface GitHubCommunitySkill {
+  id: string;
+  name: string;
+  description: string;
+  /** Category ID (e.g., "languages", "frameworks", "workflows") */
+  category: string;
+  /** Tags for search/filtering */
+  tags?: string[];
+  /** Programming languages this skill is relevant to */
+  languages?: string[];
+  /** Frameworks this skill is relevant to */
+  frameworks?: string[];
+  /** Whether this skill is featured/highlighted */
+  isFeatured?: boolean;
+  /** Whether this skill has been curated/reviewed */
+  isCurated?: boolean;
+  /** Average user rating (0-5) */
+  rating?: number;
+  /** Number of times this skill has been installed */
+  downloadCount?: number;
+  /** Directory name in the GitHub repo */
+  directory: string;
+  /** List of files in the skill directory (relative paths) */
+  files: string[];
+  /** Skill version */
+  version?: string;
+  /** License (e.g., "MIT", "Apache-2.0") */
+  license?: string;
+  /** Author or maintainer */
+  author?: string;
+  /** Allowed tools for this skill */
+  allowedTools?: string;
+}
+
+/** Registry index fetched from GitHub */
+export interface CommunitySkillsRegistry {
+  version: string;
+  updatedAt: string;
+  skills: GitHubCommunitySkill[];
+  categories: SkillCategory[];
+}
+
+/** Cached registry with timestamp */
+export interface CachedRegistry {
+  registry: CommunitySkillsRegistry;
+  fetchedAt: number;
+  etag?: string;
+}
+
+/** Cache configuration */
+export interface SkillsCacheConfig {
+  /** TTL in milliseconds (default: 24 hours) */
+  ttlMs?: number;
+  /** Cache directory path */
+  cacheDir?: string;
+  /** Maximum number of skill bodies to cache */
+  maxSkillsCache?: number;
+}
+
+/** Skill install scope */
+export type SkillInstallScope = 'user' | 'project';
+
+/** Browser tab type */
+export type SkillsBrowserTab = 'featured' | 'categories' | 'search';
+
+/** Browser state for Ink component */
+export interface SkillsBrowserState {
+  activeTab: SkillsBrowserTab;
+  selectedCategory: string | null;
+  searchQuery: string;
+  selectedIndex: number;
+  skills: GitHubCommunitySkill[];
+  filteredSkills: GitHubCommunitySkill[];
+  isLoading: boolean;
+  error: string | null;
+  previewSkill: GitHubCommunitySkill | null;
 }

@@ -131,6 +131,75 @@ export class SkillsRegistry {
   }
 
   /**
+   * Import a community skill directory with multiple files
+   * Used for skills from GitHub that include templates, examples, etc.
+   *
+   * @param skillName - Name of the skill (used as directory name)
+   * @param files - Map of relative file paths to their contents
+   * @param targetDir - Target directory (user or project skills dir)
+   * @param force - Overwrite if skill already exists
+   */
+  async importCommunitySkillDirectory(
+    skillName: string,
+    files: Map<string, string>,
+    targetDir: string,
+    force = false
+  ): Promise<SkillImportResult> {
+    if (!files.has('SKILL.md')) {
+      return { success: false, error: 'Missing required SKILL.md file' };
+    }
+
+    const skillDir = path.join(targetDir, skillName);
+    const skillPath = path.join(skillDir, 'SKILL.md');
+
+    // Check if already exists (unless force is true)
+    if (!force && (await fs.pathExists(skillPath))) {
+      return { success: false, skipped: true, error: 'Skill already exists' };
+    }
+
+    try {
+      // Remove existing skill directory if force is true
+      if (force && (await fs.pathExists(skillDir))) {
+        await fs.remove(skillDir);
+      }
+
+      // Write all files from the Map
+      for (const [relativePath, content] of files) {
+        const fullPath = path.join(skillDir, relativePath);
+        await fs.ensureDir(path.dirname(fullPath));
+        await fs.writeFile(fullPath, content, 'utf-8');
+      }
+
+      // Parse and register the skill from SKILL.md
+      const result = await this.parser.parseFile(skillPath, 'community');
+      if (result.success && result.skill) {
+        this.skills.set(result.skill.name, result.skill);
+        return { success: true, path: skillDir };
+      }
+
+      return { success: false, error: 'Failed to parse imported skill' };
+    } catch (err) {
+      const error = err instanceof Error ? err.message : 'Unknown error';
+      return { success: false, error };
+    }
+  }
+
+  /**
+   * Check if a skill is already installed
+   */
+  isSkillInstalled(skillName: string, targetDir: string): Promise<boolean> {
+    const skillPath = path.join(targetDir, skillName, 'SKILL.md');
+    return fs.pathExists(skillPath);
+  }
+
+  /**
+   * Get the user skills directory path
+   */
+  getUserSkillsDir(): string {
+    return this.userSkillsDir;
+  }
+
+  /**
    * Initialize the registry by loading skills from the user directory
    */
   async initialize(): Promise<void> {

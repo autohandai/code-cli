@@ -138,8 +138,16 @@ program
   .option('--unrestricted', 'Run without any approval prompts (use with caution)', false)
   .option('--restricted', 'Deny all dangerous operations automatically', false)
   .option('--auto-skill', 'Auto-generate skills based on project analysis', false)
+  .option('--skill-install [skill-name]', 'Install a community skill (opens browser if no name)')
+  .option('--project', 'Install skill to project level (with --skill-install)', false)
   .option('--mode <mode>', 'Run mode: interactive (default) or rpc', 'interactive')
-  .action(async (opts: CLIOptions & { mode?: string }) => {
+  .action(async (opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean }) => {
+    // Handle --skill-install flag
+    if (opts.skillInstall !== undefined) {
+      await runSkillInstall(opts);
+      return;
+    }
+
     if (opts.mode === 'rpc') {
       await runRpcMode(opts);
     } else {
@@ -325,6 +333,33 @@ function printWelcome(runtime: AgentRuntime, authUser?: AuthUser): void {
   }
 
   console.log();
+}
+
+/**
+ * Handle --skill-install flag for installing community skills
+ */
+async function runSkillInstall(opts: CLIOptions & { skillInstall?: string | boolean; project?: boolean }): Promise<void> {
+  const config = await loadConfig(opts.config);
+  const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
+
+  // Import skill install dependencies
+  const { SkillsRegistry } = await import('./skills/SkillsRegistry.js');
+  const { AUTOHAND_PATHS } = await import('./constants.js');
+  const { skillsInstall } = await import('./commands/skills-install.js');
+
+  // Initialize skills registry
+  const skillsRegistry = new SkillsRegistry(AUTOHAND_PATHS.skills);
+  await skillsRegistry.initialize();
+  await skillsRegistry.setWorkspace(workspaceRoot);
+
+  // Determine skill name (if provided)
+  const skillName = typeof opts.skillInstall === 'string' ? opts.skillInstall : undefined;
+
+  // Run the install command
+  await skillsInstall({
+    skillsRegistry,
+    workspaceRoot,
+  }, skillName);
 }
 
 program.parseAsync();
