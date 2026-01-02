@@ -1052,7 +1052,7 @@ export class ToolManager {
         let permContext: { tool?: string; path?: string; command?: string } = { tool: call.tool };
 
         if (call.tool === 'run_command' && call.args) {
-          const cmd = call.args.command || '';
+          const cmd = String(call.args.command || '');
           const args = Array.isArray(call.args.args) ? call.args.args.join(' ') : '';
           const fullCommand = args ? `${cmd} ${args}` : cmd;
           const dir = call.args.directory ? ` (in ${call.args.directory})` : '';

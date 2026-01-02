@@ -66,6 +66,10 @@ export interface AgentSettings {
   maxIterations?: number;
   /** Enable request queue - allow typing while agent works (default: true) */
   enableRequestQueue?: boolean;
+  /** Maximum session failure retries before giving up (default: 3) */
+  sessionRetryLimit?: number;
+  /** Delay in milliseconds between retries (default: 1000) */
+  sessionRetryDelay?: number;
 }
 
 export interface TelemetrySettings {

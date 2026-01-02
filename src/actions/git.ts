@@ -427,6 +427,18 @@ export function gitAdd(cwd: string, paths: string[]): string {
 }
 
 export function gitReset(cwd: string, mode: 'soft' | 'mixed' | 'hard' = 'mixed', ref?: string): string {
+  // Safety check: block hard reset on protected branches
+  if (mode === 'hard') {
+    const currentBranch = getCurrentBranch(cwd);
+    if (GIT_SAFETY.PROTECTED_BRANCHES.includes(currentBranch)) {
+      throw new Error(
+        `Hard reset on protected branch "${currentBranch}" is blocked for safety.\n` +
+        `Protected branches: ${GIT_SAFETY.PROTECTED_BRANCHES.join(', ')}\n` +
+        `Use soft or mixed reset instead, or switch to a feature branch.`
+      );
+    }
+  }
+
   const args = ['reset', `--${mode}`];
   if (ref) {
     args.push(ref);

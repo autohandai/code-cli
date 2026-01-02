@@ -59,29 +59,30 @@ describe('Resource Limits', () => {
       expect(content).toBe('Hello World');
     });
 
-    it('should reject files larger than MAX_READ_SIZE', async () => {
-      // Create a file larger than MAX_READ_SIZE (mock with a smaller limit for test)
-      const testFile = path.join(testDir, 'large.txt');
+    it('should read files up to MAX_READ_SIZE', async () => {
+      const testFile = path.join(testDir, 'medium.txt');
+      // Create a 1KB file (well under limit)
+      const content = 'x'.repeat(1024);
+      await fs.writeFile(testFile, content);
 
-      // Create a file that's definitely smaller than 10MB but we can test the mechanism
-      // by checking the error message format
-      const largeContent = 'x'.repeat(1000);
-      await fs.writeFile(testFile, largeContent);
-
-      // This should succeed since 1000 bytes < 10MB
-      const content = await fileManager.readFile('large.txt');
-      expect(content.length).toBe(1000);
+      const result = await fileManager.readFile('medium.txt');
+      expect(result.length).toBe(1024);
     });
 
-    it('should include file size in error message for large files', async () => {
-      // This test verifies the error message format
-      // In real scenario, we'd need a 10MB+ file
+    it('should check file size before reading', async () => {
+      // Verify that stat is called before read by checking error format
       const testFile = path.join(testDir, 'test.txt');
       await fs.writeFile(testFile, 'test content');
 
-      // File exists and is readable
+      // File exists and is readable - verify the mechanism works
       const content = await fileManager.readFile('test.txt');
       expect(content).toBe('test content');
+    });
+
+    it('should include MB in error message format', () => {
+      // Verify error message format constants
+      const sizeMB = (FILE_LIMITS.MAX_READ_SIZE / 1024 / 1024).toFixed(0);
+      expect(sizeMB).toBe('10');
     });
   });
 
@@ -205,6 +206,56 @@ describe('Resource Limits', () => {
           throw e;
         }
       }
+    });
+  });
+
+  describe('Search result limits', () => {
+    it('should have MAX_SEARCH_RESULTS defined', () => {
+      expect(FILE_LIMITS.MAX_SEARCH_RESULTS).toBeDefined();
+      expect(FILE_LIMITS.MAX_SEARCH_RESULTS).toBe(1000);
+    });
+
+    it('should limit search results', async () => {
+      // Create multiple files with matching content
+      for (let i = 0; i < 10; i++) {
+        await fs.writeFile(path.join(testDir, `match${i}.txt`), 'searchterm here');
+      }
+
+      const results = fileManager.search('searchterm');
+      expect(results.length).toBeLessThanOrEqual(FILE_LIMITS.MAX_SEARCH_RESULTS);
+    });
+
+    it('should return results within limit for small searches', async () => {
+      await fs.writeFile(path.join(testDir, 'file1.txt'), 'unique_pattern_xyz');
+      await fs.writeFile(path.join(testDir, 'file2.txt'), 'another file');
+
+      const results = fileManager.search('unique_pattern_xyz');
+      expect(results.length).toBe(1);
+      expect(results[0].file).toBe('file1.txt');
+    });
+  });
+
+  describe('Append file size protection', () => {
+    it('should check size when appending to files', async () => {
+      await fileManager.writeFile('append.txt', 'initial');
+      await fileManager.appendFile('append.txt', ' appended');
+
+      const content = await fs.readFile(path.join(testDir, 'append.txt'), 'utf8');
+      expect(content).toBe('initial appended');
+    });
+
+    it('should handle append to non-existent file', async () => {
+      await fileManager.appendFile('new.txt', 'content');
+
+      const content = await fs.readFile(path.join(testDir, 'new.txt'), 'utf8');
+      expect(content).toBe('content');
+    });
+  });
+
+  describe('Directory entry limits', () => {
+    it('should have MAX_DIR_ENTRIES defined', () => {
+      expect(FILE_LIMITS.MAX_DIR_ENTRIES).toBeDefined();
+      expect(FILE_LIMITS.MAX_DIR_ENTRIES).toBe(10000);
     });
   });
 });

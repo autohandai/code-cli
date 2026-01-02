@@ -125,6 +125,7 @@ export class FileActionManager {
       '--line-number',
       '--color', 'never',
       '--no-binary',  // Skip binary files
+      '--max-count', String(FILE_LIMITS.MAX_SEARCH_RESULTS), // Enforce result limit
       '--glob', '!*.{exe,dll,so,dylib,bin,o,a,lib,pyc,pyo,class,jar,war,ear}',
       '--glob', '!*.{png,jpg,jpeg,gif,bmp,ico,svg,webp,tiff}',
       '--glob', '!*.{mp3,mp4,avi,mov,mkv,wav,flac,ogg,webm}',
@@ -143,10 +144,11 @@ export class FileActionManager {
     });
 
     if (rgResult.status === 0 && rgResult.stdout) {
-      return rgResult.stdout
+      const results = rgResult.stdout
         .trim()
         .split('\n')
         .filter(Boolean)
+        .slice(0, FILE_LIMITS.MAX_SEARCH_RESULTS) // Double-enforce limit
         .map((line: string) => {
           const [file, lineNo, ...rest] = line.split(':');
           return {
@@ -155,6 +157,7 @@ export class FileActionManager {
             text: rest.join(':')
           };
         });
+      return results;
     }
 
     return this.walkFallback(query, searchDir);
@@ -254,6 +257,15 @@ export class FileActionManager {
     if (!(await fs.pathExists(filePath))) {
       return '';
     }
+
+    // Check file size to prevent memory exhaustion (same as readFile)
+    const stats = await fs.stat(filePath);
+    if (stats.size > FILE_LIMITS.MAX_READ_SIZE) {
+      const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
+      const limitMB = (FILE_LIMITS.MAX_READ_SIZE / 1024 / 1024).toFixed(0);
+      throw new Error(`File ${target} is too large (${sizeMB}MB). Maximum allowed: ${limitMB}MB`);
+    }
+
     return fs.readFile(filePath, 'utf8');
   }
 
@@ -300,7 +312,7 @@ export class FileActionManager {
   private walkFallback(query: string, baseDir: string): SearchHit[] {
     const hits: SearchHit[] = [];
     const stack = [baseDir];
-    while (stack.length) {
+    while (stack.length && hits.length < FILE_LIMITS.MAX_SEARCH_RESULTS) {
       const current = stack.pop();
       if (!current) {
         continue;
@@ -325,7 +337,8 @@ export class FileActionManager {
         } else if (stats.isFile()) {
           const contents = fs.readFileSync(current, 'utf8');
           const lines = contents.split(/\r?\n/);
-          lines.forEach((line: string, idx: number) => {
+          for (let idx = 0; idx < lines.length && hits.length < FILE_LIMITS.MAX_SEARCH_RESULTS; idx++) {
+            const line = lines[idx];
             if (line.includes(query)) {
               hits.push({
                 file: path.relative(this.workspaceRoot, current),
@@ -333,7 +346,7 @@ export class FileActionManager {
                 text: line.trim()
               });
             }
-          });
+          }
         }
       } catch {
         // Skip files/directories that don't exist or can't be accessed

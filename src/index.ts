@@ -174,17 +174,28 @@ async function runCLI(options: CLIOptions): Promise<void> {
 
       console.log(chalk.yellow(`No ${providerName} API key configured.\n`));
 
-      const { apiKey } = await enquirer.prompt<{ apiKey: string }>({
-        type: 'password',
-        name: 'apiKey',
-        message: `Enter your ${providerName === 'openrouter' ? 'OpenRouter' : providerName} API key`,
-        validate: (val: unknown) => {
-          if (typeof val !== 'string' || !val.trim()) {
-            return 'API key is required';
+      let apiKey: string;
+      try {
+        const result = await enquirer.prompt<{ apiKey: string }>({
+          type: 'password',
+          name: 'apiKey',
+          message: `Enter your ${providerName === 'openrouter' ? 'OpenRouter' : providerName} API key`,
+          validate: (val: unknown) => {
+            if (typeof val !== 'string' || !val.trim()) {
+              return 'API key is required';
+            }
+            return true;
           }
-          return true;
+        });
+        apiKey = result.apiKey;
+      } catch (error: any) {
+        // Handle user cancellation (Ctrl+C or ESC)
+        if (error?.code === 'ERR_USE_AFTER_CLOSE' || error?.message?.includes('cancelled')) {
+          console.log(chalk.gray('\nSetup cancelled.'));
+          process.exit(0);
         }
-      });
+        throw error;
+      }
 
       // Update config with API key
       if (providerName === 'openrouter') {

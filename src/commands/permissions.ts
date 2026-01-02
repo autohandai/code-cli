@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
-import enquirer from 'enquirer';
+import { safePrompt } from '../utils/prompt.js';
 import type { PermissionManager } from '../permissions/PermissionManager.js';
 
 export interface PermissionsCommandContext {
@@ -56,7 +56,7 @@ export async function permissions(ctx: PermissionsCommandContext): Promise<strin
   console.log();
 
   // Offer management options
-  const { action } = await enquirer.prompt<{ action: string }>({
+  const actionResult = await safePrompt<{ action: string }>({
     type: 'select',
     name: 'action',
     message: 'What would you like to do?',
@@ -68,36 +68,42 @@ export async function permissions(ctx: PermissionsCommandContext): Promise<strin
     ]
   });
 
-  if (action === 'done') {
+  if (!actionResult || actionResult.action === 'done') {
     return null;
   }
 
+  const { action } = actionResult;
+
   if (action === 'remove_approved' && whitelist.length > 0) {
-    const { pattern } = await enquirer.prompt<{ pattern: string }>({
+    const result = await safePrompt<{ pattern: string }>({
       type: 'select',
       name: 'pattern',
       message: 'Select item to remove from approved list:',
       choices: whitelist.map(p => ({ name: p, message: p }))
     });
-    await ctx.permissionManager.removeFromWhitelist(pattern);
-    console.log(chalk.yellow(`Removed "${pattern}" from approved list.`));
+    if (result) {
+      await ctx.permissionManager.removeFromWhitelist(result.pattern);
+      console.log(chalk.yellow(`Removed "${result.pattern}" from approved list.`));
+    }
   } else if (action === 'remove_denied' && blacklist.length > 0) {
-    const { pattern } = await enquirer.prompt<{ pattern: string }>({
+    const result = await safePrompt<{ pattern: string }>({
       type: 'select',
       name: 'pattern',
       message: 'Select item to remove from denied list:',
       choices: blacklist.map(p => ({ name: p, message: p }))
     });
-    await ctx.permissionManager.removeFromBlacklist(pattern);
-    console.log(chalk.yellow(`Removed "${pattern}" from denied list.`));
+    if (result) {
+      await ctx.permissionManager.removeFromBlacklist(result.pattern);
+      console.log(chalk.yellow(`Removed "${result.pattern}" from denied list.`));
+    }
   } else if (action === 'clear_all') {
-    const { confirm } = await enquirer.prompt<{ confirm: boolean }>({
+    const result = await safePrompt<{ confirm: boolean }>({
       type: 'confirm',
       name: 'confirm',
       message: 'Clear all saved permissions? This cannot be undone.',
       initial: false
     });
-    if (confirm) {
+    if (result?.confirm) {
       // Remove all items
       for (const pattern of [...whitelist]) {
         await ctx.permissionManager.removeFromWhitelist(pattern);

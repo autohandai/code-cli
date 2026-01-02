@@ -5,7 +5,7 @@
  */
 import fs from 'fs-extra';
 import chalk from 'chalk';
-import enquirer from 'enquirer';
+import { safePrompt } from '../utils/prompt.js';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import { AUTOHAND_FILES } from '../constants.js';
 
@@ -18,7 +18,7 @@ export const metadata = {
 type FeedbackContext = Pick<SlashCommandContext, 'sessionManager'>;
 
 export async function feedback(_ctx: FeedbackContext): Promise<string | null> {
-    const answer = await enquirer.prompt<{ feedback: string }>([
+    const answer = await safePrompt<{ feedback: string }>([
         {
             type: 'input',
             name: 'feedback',
@@ -26,8 +26,8 @@ export async function feedback(_ctx: FeedbackContext): Promise<string | null> {
         }
     ]);
 
-    if (!answer.feedback?.trim()) {
-        console.log(chalk.gray('Feedback discarded (empty).'));
+    if (!answer || !answer.feedback?.trim()) {
+        console.log(chalk.gray('Feedback discarded.'));
         return null;
     }
 

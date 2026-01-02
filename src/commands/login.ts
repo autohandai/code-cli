@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
-import enquirer from 'enquirer';
+import { safePrompt } from '../utils/prompt.js';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import { getAuthClient } from '../auth/index.js';
 import { saveConfig } from '../config.js';
@@ -67,14 +67,14 @@ export async function login(ctx: LoginContext): Promise<string | null> {
 
   // Check if already logged in
   if (config?.auth?.token && config?.auth?.user) {
-    const { continueLogin } = await enquirer.prompt<{ continueLogin: boolean }>({
+    const result = await safePrompt<{ continueLogin: boolean }>({
       type: 'confirm',
       name: 'continueLogin',
       message: `Already logged in as ${chalk.cyan(config.auth.user.email)}. Log in with a different account?`,
       initial: false,
     });
 
-    if (!continueLogin) {
+    if (!result || !result.continueLogin) {
       console.log(chalk.gray('Login cancelled.'));
       return null;
     }

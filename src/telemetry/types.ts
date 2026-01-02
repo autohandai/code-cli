@@ -12,7 +12,8 @@ export type TelemetryEventType =
   | 'command_use'
   | 'heartbeat'
   | 'session_sync'
-  | 'skill_use';
+  | 'skill_use'
+  | 'session_failure_bug';
 
 export interface TelemetryEvent {
   id: string;
@@ -98,4 +99,20 @@ export interface SkillUseData {
   skillName: string;
   source: string;
   activationType: 'auto' | 'explicit';
+}
+
+export interface SessionFailureBugData {
+  type: string;
+  errorMessage: string;
+  errorName: string;
+  stack?: string;
+  retryAttempt: number;
+  maxRetries: number;
+  conversationLength: number;
+  lastToolCalls?: string[];
+  iterationCount?: number;
+  contextUsage?: number;
+  model?: string;
+  provider?: string;
+  isRetrying: boolean;
 }

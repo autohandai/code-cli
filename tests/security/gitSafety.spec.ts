@@ -6,7 +6,7 @@
  * Git Safety Tests - Verifies protections against dangerous git operations
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { GIT_SAFETY, gitPush, gitRebase, gitMerge } from '../../src/actions/git.js';
+import { GIT_SAFETY, gitPush, gitRebase, gitMerge, gitReset } from '../../src/actions/git.js';
 import fs from 'fs-extra';
 import path from 'node:path';
 import os from 'node:os';
@@ -240,6 +240,84 @@ describe('Git Safety', () => {
       // The implementation should use --force-with-lease for safer force pushing
       // We verify this by checking the GIT_SAFETY documentation/constants exist
       expect(GIT_SAFETY.PROTECTED_BRANCHES).toBeDefined();
+    });
+  });
+
+  describe('gitReset safety checks', () => {
+    let testDir: string;
+
+    beforeEach(async () => {
+      testDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-git-test-'));
+      spawnSync('git', ['init'], { cwd: testDir });
+      spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: testDir });
+      spawnSync('git', ['config', 'user.name', 'Test'], { cwd: testDir });
+      await fs.writeFile(path.join(testDir, 'README.md'), '# Test');
+      spawnSync('git', ['add', '.'], { cwd: testDir });
+      spawnSync('git', ['commit', '-m', 'Initial commit'], { cwd: testDir });
+    });
+
+    afterEach(async () => {
+      await fs.remove(testDir);
+    });
+
+    it('should block hard reset on main branch', () => {
+      spawnSync('git', ['checkout', '-b', 'main'], { cwd: testDir });
+
+      expect(() => {
+        gitReset(testDir, 'hard', 'HEAD~1');
+      }).toThrow(/Hard reset on protected branch "main" is blocked/);
+    });
+
+    it('should block hard reset on master branch', () => {
+      spawnSync('git', ['checkout', '-b', 'master'], { cwd: testDir });
+
+      expect(() => {
+        gitReset(testDir, 'hard');
+      }).toThrow(/Hard reset on protected branch "master" is blocked/);
+    });
+
+    it('should block hard reset on develop branch', () => {
+      spawnSync('git', ['checkout', '-b', 'develop'], { cwd: testDir });
+
+      expect(() => {
+        gitReset(testDir, 'hard', 'HEAD~1');
+      }).toThrow(/Hard reset on protected branch "develop" is blocked/);
+    });
+
+    it('should allow soft reset on protected branches', () => {
+      spawnSync('git', ['checkout', '-b', 'main'], { cwd: testDir });
+
+      // Soft reset should not throw
+      const result = gitReset(testDir, 'soft');
+      expect(result).toContain('Reset soft');
+    });
+
+    it('should allow mixed reset on protected branches', () => {
+      spawnSync('git', ['checkout', '-b', 'main'], { cwd: testDir });
+
+      // Mixed reset should not throw
+      const result = gitReset(testDir, 'mixed');
+      expect(result).toContain('Reset mixed');
+    });
+
+    it('should allow hard reset on feature branches', async () => {
+      spawnSync('git', ['checkout', '-b', 'feature/test'], { cwd: testDir });
+      // Add another commit to reset
+      await fs.writeFile(path.join(testDir, 'file.txt'), 'content');
+      spawnSync('git', ['add', '.'], { cwd: testDir });
+      spawnSync('git', ['commit', '-m', 'Another commit'], { cwd: testDir });
+
+      // Hard reset on feature branch should work (returns git's output or our message)
+      const result = gitReset(testDir, 'hard', 'HEAD~1');
+      expect(result).toMatch(/HEAD is now at|Reset hard/);
+    });
+
+    it('should include suggestion for alternatives in error message', () => {
+      spawnSync('git', ['checkout', '-b', 'main'], { cwd: testDir });
+
+      expect(() => {
+        gitReset(testDir, 'hard');
+      }).toThrow(/Use soft or mixed reset instead/);
     });
   });
 });

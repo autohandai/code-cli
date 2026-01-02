@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
-import enquirer from 'enquirer';
+import { safePrompt } from '../utils/prompt.js';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import { getAuthClient } from '../auth/index.js';
 import { saveConfig } from '../config.js';
@@ -31,14 +31,14 @@ export async function logout(ctx: LogoutContext): Promise<string | null> {
   const userName = config.auth.user?.name || config.auth.user?.email || 'user';
 
   // Confirm logout
-  const { confirm } = await enquirer.prompt<{ confirm: boolean }>({
+  const result = await safePrompt<{ confirm: boolean }>({
     type: 'confirm',
     name: 'confirm',
     message: `Log out from ${chalk.cyan(userName)}?`,
     initial: true,
   });
 
-  if (!confirm) {
+  if (!result || !result.confirm) {
     console.log(chalk.gray('Logout cancelled.'));
     return null;
   }

@@ -93,6 +93,7 @@ export const RPC_METHODS = {
   GET_STATE: 'autohand.getState',
   GET_MESSAGES: 'autohand.getMessages',
   PERMISSION_RESPONSE: 'autohand.permissionResponse',
+  PERMISSION_ACKNOWLEDGED: 'autohand.permissionAcknowledged',
 } as const;
 
 export type RpcMethod = (typeof RPC_METHODS)[keyof typeof RPC_METHODS];
@@ -196,6 +197,10 @@ export interface PermissionResponseParams {
   requestId: string;
   allowed: boolean;
   remember?: boolean;
+}
+
+export interface PermissionAcknowledgedParams {
+  requestId: string;
 }
 
 // ============================================================================
@@ -319,6 +324,10 @@ export interface PermissionResponseResult {
   success: boolean;
 }
 
+export interface PermissionAcknowledgedResult {
+  success: boolean;
+}
+
 // ============================================================================
 // State Types
 // ============================================================================
@@ -343,7 +352,12 @@ export interface PendingPermission {
   requestId: string;
   resolve: (allowed: boolean) => void;
   reject: (error: Error) => void;
-  timeout: NodeJS.Timeout;
+  /** Short timeout for acknowledgment (30s) - cleared when ack received */
+  ackTimeout: NodeJS.Timeout | null;
+  /** Long timeout for user response (1 hour) - set after ack received */
+  responseTimeout: NodeJS.Timeout | null;
+  /** Whether extension has acknowledged receiving the request */
+  acknowledged: boolean;
 }
 
 // ============================================================================

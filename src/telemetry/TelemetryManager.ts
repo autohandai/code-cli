@@ -12,7 +12,8 @@ import type {
   CommandUseData,
   ModelSwitchData,
   SessionSyncData,
-  SkillUseData
+  SkillUseData,
+  SessionFailureBugData
 } from './types.js';
 import packageJson from '../../package.json' with { type: 'json' };
 
@@ -139,6 +140,48 @@ export class TelemetryManager {
       stack: sanitizedStack,
       context: data.context
     });
+  }
+
+  /**
+   * Track a session failure as a bug report with detailed context.
+   * Prefixes the error type with "BUG:" for easy identification.
+   */
+  async trackSessionFailureBug(data: {
+    error: Error;
+    retryAttempt: number;
+    maxRetries: number;
+    conversationLength: number;
+    lastToolCalls?: string[];
+    iterationCount?: number;
+    contextUsage?: number;
+    model?: string;
+    provider?: string;
+  }): Promise<void> {
+    this.errorsCount++;
+
+    // Sanitize stack trace
+    const sanitizedStack = data.error.stack
+      ?.replace(/\/Users\/[^/]+/g, '/Users/***')
+      .replace(/\/home\/[^/]+/g, '/home/***')
+      .replace(/C:\\Users\\[^\\]+/g, 'C:\\Users\\***');
+
+    const bugData: SessionFailureBugData = {
+      type: 'BUG:session_failure',
+      errorMessage: data.error.message,
+      errorName: data.error.name,
+      stack: sanitizedStack,
+      retryAttempt: data.retryAttempt,
+      maxRetries: data.maxRetries,
+      conversationLength: data.conversationLength,
+      lastToolCalls: data.lastToolCalls,
+      iterationCount: data.iterationCount,
+      contextUsage: data.contextUsage,
+      model: data.model || this.currentModel || undefined,
+      provider: data.provider || this.currentProvider || undefined,
+      isRetrying: data.retryAttempt < data.maxRetries
+    };
+
+    await this.trackEvent('session_failure_bug', bugData as unknown as Record<string, unknown>);
   }
 
   /**

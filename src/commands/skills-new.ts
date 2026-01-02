@@ -8,7 +8,7 @@
 import path from 'node:path';
 import fs from 'fs-extra';
 import chalk from 'chalk';
-import enquirer from 'enquirer';
+import { safePrompt } from '../utils/prompt.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import type { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import { AUTOHAND_PATHS } from '../constants.js';
@@ -24,7 +24,10 @@ export const metadata = {
 interface SkillsNewContext {
   llm: LLMProvider;
   skillsRegistry: SkillsRegistry;
+  workspaceRoot: string;
 }
+
+type StorageLevel = 'project' | 'user';
 
 const SIMILARITY_THRESHOLD = 0.9;
 
@@ -37,7 +40,7 @@ export async function createSkill(ctx: SkillsNewContext): Promise<string | null>
   }
 
   // Step 1: Get skill name and description from user
-  const answers = await enquirer.prompt<{ name: string; description: string }>([
+  const answers = await safePrompt<{ name: string; description: string }>([
     {
       type: 'input',
       name: 'name',
@@ -68,6 +71,11 @@ export async function createSkill(ctx: SkillsNewContext): Promise<string | null>
     }
   ]);
 
+  if (!answers) {
+    console.log(chalk.gray('Cancelled.'));
+    return null;
+  }
+
   const name = answers.name.trim().toLowerCase();
   const description = answers.description.trim();
 
@@ -76,17 +84,35 @@ export async function createSkill(ctx: SkillsNewContext): Promise<string | null>
     return null;
   }
 
+  // Step 1b: Ask where to save the skill
+  const storageResult = await safePrompt<{ level: StorageLevel }>({
+    type: 'select',
+    name: 'level',
+    message: 'Where should this skill be saved?',
+    choices: [
+      { name: 'project', message: `Project level (.autohand/skills/) - specific to this project` },
+      { name: 'user', message: `User level (~/.autohand/skills/) - available in all projects` }
+    ]
+  });
+
+  if (!storageResult) {
+    console.log(chalk.gray('Cancelled.'));
+    return null;
+  }
+
+  const storageLevel = storageResult.level;
+
   // Step 2: Check for existing skill with same name
   if (skillsRegistry.hasSkill(name)) {
     console.log(chalk.yellow(`A skill named "${name}" already exists.`));
-    const { overwrite } = await enquirer.prompt<{ overwrite: boolean }>({
+    const result = await safePrompt<{ overwrite: boolean }>({
       type: 'confirm',
       name: 'overwrite',
       message: 'Do you want to overwrite it?',
       initial: false
     });
 
-    if (!overwrite) {
+    if (!result || !result.overwrite) {
       console.log(chalk.gray('Canceled.'));
       return null;
     }
@@ -102,7 +128,7 @@ export async function createSkill(ctx: SkillsNewContext): Promise<string | null>
     }
     console.log();
 
-    const { proceed } = await enquirer.prompt<{ proceed: string }>({
+    const result = await safePrompt<{ proceed: string }>({
       type: 'select',
       name: 'proceed',
       message: 'How would you like to proceed?',
@@ -113,12 +139,12 @@ export async function createSkill(ctx: SkillsNewContext): Promise<string | null>
       ]
     });
 
-    if (proceed === 'cancel') {
+    if (!result || result.proceed === 'cancel') {
       console.log(chalk.gray('Canceled.'));
       return null;
     }
 
-    if (proceed === 'use') {
+    if (result.proceed === 'use') {
       const existingSkill = similar[0].skill;
       skillsRegistry.activateSkill(existingSkill.name);
       console.log(chalk.green(`✓ Activated existing skill: ${existingSkill.name}`));
@@ -161,20 +187,23 @@ Output only the raw markdown content, no code fences.`
   console.log(chalk.gray('─'.repeat(50)));
   console.log();
 
-  const { confirm } = await enquirer.prompt<{ confirm: boolean }>({
+  const confirmResult = await safePrompt<{ confirm: boolean }>({
     type: 'confirm',
     name: 'confirm',
     message: 'Save this skill?',
     initial: true
   });
 
-  if (!confirm) {
+  if (!confirmResult || !confirmResult.confirm) {
     console.log(chalk.gray('Canceled.'));
     return null;
   }
 
   // Step 6: Save the skill
-  const skillDir = path.join(AUTOHAND_PATHS.skills, name);
+  const baseDir = storageLevel === 'project'
+    ? path.join(ctx.workspaceRoot, '.autohand', 'skills')
+    : AUTOHAND_PATHS.skills;
+  const skillDir = path.join(baseDir, name);
   const skillPath = path.join(skillDir, 'SKILL.md');
 
   try {
@@ -186,14 +215,14 @@ Output only the raw markdown content, no code fences.`
     const success = await skillsRegistry.saveSkill(name, content);
     if (success) {
       // Optionally activate the new skill
-      const { activate } = await enquirer.prompt<{ activate: boolean }>({
+      const activateResult = await safePrompt<{ activate: boolean }>({
         type: 'confirm',
         name: 'activate',
         message: 'Activate this skill now?',
         initial: true
       });
 
-      if (activate) {
+      if (activateResult?.activate) {
         skillsRegistry.activateSkill(name);
         console.log(chalk.green(`✓ Skill "${name}" is now active.`));
       }

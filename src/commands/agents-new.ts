@@ -6,7 +6,7 @@
 import path from 'node:path';
 import fs from 'fs-extra';
 import chalk from 'chalk';
-import enquirer from 'enquirer';
+import { safePrompt } from '../utils/prompt.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import { AUTOHAND_PATHS } from '../constants.js';
 
@@ -22,7 +22,7 @@ interface Context {
 }
 
 export async function createAgent(ctx: Context): Promise<string | null> {
-  const answers = await enquirer.prompt<{ name: string; description: string }>([
+  const answers = await safePrompt<{ name: string; description: string }>([
     {
       type: 'input',
       name: 'name',
@@ -35,6 +35,11 @@ export async function createAgent(ctx: Context): Promise<string | null> {
       message: 'Briefly describe what the agent should do'
     }
   ]);
+
+  if (!answers) {
+    console.log(chalk.gray('Cancelled.'));
+    return null;
+  }
 
   const name = answers.name.trim();
   const description = answers.description.trim();

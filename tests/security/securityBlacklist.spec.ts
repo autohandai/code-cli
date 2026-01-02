@@ -330,4 +330,183 @@ describe('Security Blacklist', () => {
       expect(result.allowed).toBe(false);
     });
   });
+
+  describe('Pattern matching edge cases', () => {
+    it('should match wildcards at end of pattern', () => {
+      const manager = new PermissionManager();
+
+      // Pattern: read_file:.env.* should match .env.local
+      const result = manager.checkPermission({
+        tool: 'read_file',
+        path: '.env.local'
+      });
+
+      expect(result.allowed).toBe(false);
+    });
+
+    it('should match wildcards in middle of path', () => {
+      const manager = new PermissionManager();
+
+      // Pattern: read_file:*/.ssh/* should match any SSH path
+      const result = manager.checkPermission({
+        tool: 'read_file',
+        path: '/Users/test/.ssh/id_rsa'
+      });
+
+      expect(result.allowed).toBe(false);
+    });
+
+    it('should handle paths with special characters', () => {
+      const manager = new PermissionManager();
+
+      // Path with brackets shouldn't break pattern matching
+      const result = manager.checkPermission({
+        tool: 'read_file',
+        path: 'src/index.ts'
+      });
+
+      // Should NOT be blacklisted (may still need user approval in interactive mode)
+      expect(result.reason).not.toBe('blacklisted');
+    });
+
+    it('should match partial file names with wildcards', () => {
+      const manager = new PermissionManager();
+
+      // Pattern: read_file:*/id_rsa* should match id_rsa.pub
+      const result = manager.checkPermission({
+        tool: 'read_file',
+        path: '/home/user/id_rsa.pub'
+      });
+
+      expect(result.allowed).toBe(false);
+    });
+
+    it('should match command patterns with arguments', () => {
+      const manager = new PermissionManager();
+
+      // Pattern: run_command:sudo * should match sudo with any args
+      const result = manager.checkPermission({
+        tool: 'run_command',
+        command: 'sudo',
+        args: ['apt', 'install', 'vim']
+      });
+
+      expect(result.allowed).toBe(false);
+    });
+
+    it('should block printenv with arguments', () => {
+      const manager = new PermissionManager();
+
+      const result = manager.checkPermission({
+        tool: 'run_command',
+        command: 'printenv',
+        args: ['SECRET_KEY']
+      });
+
+      expect(result.allowed).toBe(false);
+    });
+  });
+
+  describe('Cloud credentials protection', () => {
+    it('should block AWS config file', () => {
+      const manager = new PermissionManager();
+
+      const result = manager.checkPermission({
+        tool: 'read_file',
+        path: '/home/user/.aws/config'
+      });
+
+      expect(result.allowed).toBe(false);
+    });
+
+    it('should block Azure credentials', () => {
+      const manager = new PermissionManager();
+
+      const result = manager.checkPermission({
+        tool: 'read_file',
+        path: '/home/user/.azure/credentials'
+      });
+
+      expect(result.allowed).toBe(false);
+    });
+
+    it('should block GCloud config', () => {
+      const manager = new PermissionManager();
+
+      const result = manager.checkPermission({
+        tool: 'read_file',
+        path: '/home/user/.gcloud/application_default_credentials.json'
+      });
+
+      expect(result.allowed).toBe(false);
+    });
+
+    it('should block Docker config', () => {
+      const manager = new PermissionManager();
+
+      const result = manager.checkPermission({
+        tool: 'read_file',
+        path: '/home/user/.docker/config.json'
+      });
+
+      expect(result.allowed).toBe(false);
+    });
+
+    it('should block Kubernetes config', () => {
+      const manager = new PermissionManager();
+
+      const result = manager.checkPermission({
+        tool: 'read_file',
+        path: '/home/user/.kube/config'
+      });
+
+      expect(result.allowed).toBe(false);
+    });
+  });
+
+  describe('Certificate and key file protection', () => {
+    it('should block .pem files', () => {
+      const manager = new PermissionManager();
+
+      const result = manager.checkPermission({
+        tool: 'read_file',
+        path: 'certs/server.pem'
+      });
+
+      expect(result.allowed).toBe(false);
+    });
+
+    it('should block .p12 files', () => {
+      const manager = new PermissionManager();
+
+      const result = manager.checkPermission({
+        tool: 'read_file',
+        path: 'client.p12'
+      });
+
+      expect(result.allowed).toBe(false);
+    });
+
+    it('should block .pfx files', () => {
+      const manager = new PermissionManager();
+
+      const result = manager.checkPermission({
+        tool: 'read_file',
+        path: '/path/to/certificate.pfx'
+      });
+
+      expect(result.allowed).toBe(false);
+    });
+
+    it('should block GPG directory', () => {
+      const manager = new PermissionManager();
+
+      const result = manager.checkPermission({
+        tool: 'read_file',
+        path: '/home/user/.gnupg/private-keys-v1.d/key.key'
+      });
+
+      expect(result.allowed).toBe(false);
+    });
+  });
 });

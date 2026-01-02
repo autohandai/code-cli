@@ -17,6 +17,7 @@ import type {
   PromptParams,
   GetMessagesParams,
   PermissionResponseParams,
+  PermissionAcknowledgedParams,
 } from './types.js';
 import {
   RPC_METHODS,
@@ -92,16 +93,13 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
     // Determine workspace
     const workspaceRoot = options.path ?? process.cwd();
 
-    // Create runtime
-    // For MVP, auto-approve actions (like --yes flag)
-    // TODO: Implement proper RPC-based permission handling
+    // Create runtime - permission mode is handled via RPC, not auto-approve
     const runtime: AgentRuntime = {
       config,
       workspaceRoot,
       options: {
         ...options,
-        // Auto-approve for MVP - proper permission handling via RPC coming later
-        yes: true,
+        // Do NOT set yes: true - permissions are handled via RPC
       },
     };
 
@@ -131,6 +129,19 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
       options.model ?? config.openrouter?.model ?? 'unknown',
       workspaceRoot
     );
+
+    // Connect agent confirmation to RPC adapter for permission handling
+    agent.setConfirmationCallback(async (message, context) => {
+      if (!adapter) {
+        throw new Error('RPC adapter not initialized');
+      }
+      const tool = context?.tool ?? 'action';
+      const description = message;
+      const permContext: { command?: string; path?: string; args?: string[] } = {};
+      if (context?.command) permContext.command = context.command;
+      if (context?.path) permContext.path = context.path;
+      return adapter.requestPermission(tool, description, permContext);
+    });
 
     // Setup stdin reader
     const reader = new LineReader(process.stdin);
@@ -218,8 +229,26 @@ async function handleSingleRequest(
           }
           return null;
         }
-        result = await adapter.handlePrompt(id!, promptParams);
-        break;
+        // Run prompt ASYNCHRONOUSLY so abort can be processed during execution
+        // The prompt will write its own response when done
+        adapter.handlePrompt(id!, promptParams)
+          .then((promptResult) => {
+            if (shouldRespond) {
+              process.stdout.write(JSON.stringify(createResponse(id!, promptResult)) + '\n');
+            }
+          })
+          .catch((error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            if (shouldRespond) {
+              process.stdout.write(JSON.stringify(createErrorResponse(
+                id!,
+                JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+                message
+              )) + '\n');
+            }
+          });
+        // Return null - response will be sent when prompt completes
+        return null;
       }
 
       case RPC_METHODS.ABORT: {
@@ -256,6 +285,22 @@ async function handleSingleRequest(
           return null;
         }
         result = adapter.handlePermissionResponse(id!, permParams.requestId, permParams.allowed);
+        break;
+      }
+
+      case RPC_METHODS.PERMISSION_ACKNOWLEDGED: {
+        const ackParams = params as PermissionAcknowledgedParams | undefined;
+        if (!ackParams?.requestId) {
+          if (shouldRespond) {
+            return createErrorResponse(
+              id!,
+              JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+              'Missing required parameter: requestId'
+            );
+          }
+          return null;
+        }
+        result = adapter.handlePermissionAcknowledged(ackParams.requestId);
         break;
       }
 

@@ -31,7 +31,7 @@ import {
   isValidImageMimeType,
 } from './types.js';
 import { writeNotification, createTimestamp, generateId } from './protocol.js';
-import { ImageManager, type ImageMimeType } from '../../core/ImageManager.js';
+import { ImageManager, type ImageMimeType, supportsVision } from '../../core/ImageManager.js';
 
 /**
  * RPC Adapter for AutohandAgent
@@ -147,11 +147,31 @@ export class RPCAdapter {
     try {
       // Process any attached images first
       const imagePlaceholders: string[] = [];
-      if (params.images && params.images.length > 0 && this.imageManager) {
+      process.stderr.write(`[RPC] handlePrompt: images=${params.images?.length || 0}, hasImageManager=${!!this.imageManager}, model=${this.model}\n`);
+
+      // Check if model supports vision when images are provided
+      if (params.images && params.images.length > 0) {
+        if (!supportsVision(this.model)) {
+          process.stderr.write(`[RPC] WARNING: Model '${this.model}' does not support vision. Images will not be processed.\n`);
+          writeNotification(RPC_NOTIFICATIONS.ERROR, {
+            code: -32000,
+            message: `Model '${this.model}' does not support image inputs. Please use a vision-capable model like claude-3.5-sonnet, gpt-4o, or gemini-1.5-pro.`,
+            recoverable: true,
+            timestamp: createTimestamp(),
+          });
+          // Continue without images - still process the text
+        }
+      }
+
+      if (params.images && params.images.length > 0 && this.imageManager && supportsVision(this.model)) {
+        process.stderr.write(`[RPC] Processing ${params.images.length} images\n`);
         for (const img of params.images) {
           try {
+            process.stderr.write(`[RPC] Image: mimeType=${img.mimeType}, dataLength=${img.data?.length || 0}\n`);
+
             // Validate MIME type
             if (!isValidImageMimeType(img.mimeType)) {
+              process.stderr.write(`[RPC] Invalid MIME type: ${img.mimeType}\n`);
               writeNotification(RPC_NOTIFICATIONS.ERROR, {
                 code: -32602, // Invalid params
                 message: `Invalid image MIME type: ${img.mimeType}`,
@@ -163,6 +183,7 @@ export class RPCAdapter {
 
             // Decode base64 to Buffer
             const data = Buffer.from(img.data, 'base64');
+            process.stderr.write(`[RPC] Image decoded: ${data.length} bytes\n`);
 
             // Check size limit
             if (data.length > MAX_IMAGE_SIZE) {
@@ -196,7 +217,10 @@ export class RPCAdapter {
 
       // Prepend image placeholders if any were processed
       if (imagePlaceholders.length > 0) {
+        process.stderr.write(`[RPC] Image placeholders: ${imagePlaceholders.join(', ')}\n`);
         instruction = `${imagePlaceholders.join(' ')}\n\n${instruction}`;
+      } else if (params.images && params.images.length > 0) {
+        process.stderr.write(`[RPC] WARNING: Images provided but no placeholders generated!\n`);
       }
 
       if (params.context?.selection) {
@@ -278,15 +302,28 @@ export class RPCAdapter {
    * Handle abort request
    */
   handleAbort(requestId: JsonRpcId): AbortResult {
+    process.stderr.write(`[RPC] handleAbort called, abortController=${!!this.abortController}\n`);
+
+    // Clear ALL pending permissions - they're no longer relevant after abort
+    for (const [permId, pending] of this.pendingPermissions) {
+      process.stderr.write(`[RPC] Clearing pending permission ${permId} due to abort\n`);
+      if (pending.ackTimeout) clearTimeout(pending.ackTimeout);
+      if (pending.responseTimeout) clearTimeout(pending.responseTimeout);
+      pending.resolve(false); // Deny - operation is being aborted
+    }
+    this.pendingPermissions.clear();
+
     if (this.abortController) {
       this.abortController.abort();
       this.status = 'idle';
 
       // End current message if one is in progress
       if (this.currentMessageId) {
+        // Send clean content with aborted flag - UI will render the abort message
         writeNotification(RPC_NOTIFICATIONS.MESSAGE_END, {
           messageId: this.currentMessageId,
-          content: this.currentMessageContent + '\n\n*[Aborted by user]*',
+          content: this.currentMessageContent, // No marker - UI handles display
+          aborted: true,
           timestamp: createTimestamp(),
         });
       }
@@ -366,20 +403,33 @@ export class RPCAdapter {
     permRequestId: string,
     allowed: boolean
   ): PermissionResponseResult {
+    process.stderr.write(`[RPC] handlePermissionResponse called: permRequestId=${permRequestId}, allowed=${allowed}, pending keys=${Array.from(this.pendingPermissions.keys()).join(',')}\n`);
     const pending = this.pendingPermissions.get(permRequestId);
     if (pending) {
-      clearTimeout(pending.timeout);
+      process.stderr.write(`[RPC] Found pending permission, resolving with allowed=${allowed}\n`);
+      // Clear both timeouts
+      if (pending.ackTimeout) {
+        clearTimeout(pending.ackTimeout);
+      }
+      if (pending.responseTimeout) {
+        clearTimeout(pending.responseTimeout);
+      }
       this.pendingPermissions.delete(permRequestId);
       pending.resolve(allowed);
       this.status = 'processing';
+      process.stderr.write(`[RPC] Permission resolved, status set to processing\n`);
       return { success: true };
     }
 
+    process.stderr.write(`[RPC] Permission response for unknown request ${permRequestId}\n`);
     return { success: false };
   }
 
   /**
    * Request permission from client (called from agent's confirmDangerousAction)
+   * Uses two-phase timeout:
+   * - Phase 1: 30s to receive acknowledgment from extension
+   * - Phase 2: 1 hour for user to respond after ack received
    */
   async requestPermission(
     tool: string,
@@ -388,6 +438,7 @@ export class RPCAdapter {
   ): Promise<boolean> {
     const permRequestId = generateId('perm');
     this.status = 'waiting_permission';
+    process.stderr.write(`[RPC] requestPermission: tool=${tool}, permRequestId=${permRequestId}\n`);
 
     writeNotification(RPC_NOTIFICATIONS.PERMISSION_REQUEST, {
       requestId: permRequestId,
@@ -398,19 +449,59 @@ export class RPCAdapter {
     });
 
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
+      // Phase 1: Wait for acknowledgment (30s)
+      // If extension doesn't acknowledge, something is wrong (extension dead/disconnected)
+      const ackTimeout = setTimeout(() => {
         this.pendingPermissions.delete(permRequestId);
         this.status = 'processing';
-        resolve(false); // Deny on timeout
-      }, 60000); // 60 second timeout
+        process.stderr.write(`[RPC] Permission ack timeout for ${permRequestId}\n`);
+        resolve(false); // Deny - extension not responding
+      }, 30000); // 30 second acknowledgment timeout
 
       this.pendingPermissions.set(permRequestId, {
         requestId: permRequestId,
         resolve,
         reject,
-        timeout,
+        ackTimeout,
+        responseTimeout: null,
+        acknowledged: false,
       });
     });
+  }
+
+  /**
+   * Handle acknowledgment from client that permission UI is shown
+   * Extends timeout since we know extension is alive and user is deciding
+   */
+  handlePermissionAcknowledged(permRequestId: string): { success: boolean } {
+    const pending = this.pendingPermissions.get(permRequestId);
+    if (!pending) {
+      process.stderr.write(`[RPC] Permission ack for unknown request ${permRequestId}\n`);
+      return { success: false };
+    }
+
+    if (pending.acknowledged) {
+      return { success: true }; // Already acknowledged
+    }
+
+    // Got acknowledgment - extension is alive and showing permission UI
+    if (pending.ackTimeout) {
+      clearTimeout(pending.ackTimeout);
+      pending.ackTimeout = null;
+    }
+    pending.acknowledged = true;
+
+    // Set a very long timeout for user response (1 hour)
+    // This is just a safety net - extension controls actual timeout
+    pending.responseTimeout = setTimeout(() => {
+      this.pendingPermissions.delete(permRequestId);
+      this.status = 'processing';
+      process.stderr.write(`[RPC] Permission response timeout for ${permRequestId} (1 hour)\n`);
+      pending.resolve(false);
+    }, 3600000); // 1 hour
+
+    process.stderr.write(`[RPC] Permission acknowledged for ${permRequestId}\n`);
+    return { success: true };
   }
 
   /**
@@ -481,7 +572,12 @@ export class RPCAdapter {
   shutdown(reason: 'completed' | 'aborted' | 'error' = 'completed'): void {
     // Cancel any pending permissions
     for (const [, pending] of this.pendingPermissions) {
-      clearTimeout(pending.timeout);
+      if (pending.ackTimeout) {
+        clearTimeout(pending.ackTimeout);
+      }
+      if (pending.responseTimeout) {
+        clearTimeout(pending.responseTimeout);
+      }
       pending.reject(new Error('Adapter shutdown'));
     }
     this.pendingPermissions.clear();
