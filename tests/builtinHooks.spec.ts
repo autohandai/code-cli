@@ -3,7 +3,7 @@
  * Tests the hook scripts that ship with Autohand
  */
 
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import { spawn, execSync } from 'node:child_process';
 import fs from 'fs-extra';
 import path from 'path';
