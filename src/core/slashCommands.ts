@@ -24,6 +24,7 @@ import * as status from '../commands/status.js';
 import * as login from '../commands/login.js';
 import * as logout from '../commands/logout.js';
 import * as permissions from '../commands/permissions.js';
+import * as hooks from '../commands/hooks.js';
 import * as skills from '../commands/skills.js';
 import * as skillsNew from '../commands/skills-new.js';
 import * as theme from '../commands/theme.js';
@@ -58,6 +59,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   login.metadata,
   logout.metadata,
   permissions.metadata,
+  hooks.metadata,
   skills.metadata,
   skills.installMetadata,
   skillsNew.metadata,

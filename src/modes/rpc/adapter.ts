@@ -24,6 +24,10 @@ import type {
   GetMessagesResult,
   PermissionResponseResult,
   RpcImageAttachment,
+  GetSkillsRegistryParams,
+  GetSkillsRegistryResult,
+  InstallSkillParams,
+  InstallSkillResult,
 } from './types.js';
 import {
   RPC_NOTIFICATIONS,
@@ -52,6 +56,9 @@ export class RPCAdapter {
   private model = '';
   private workspace = '';
   private contextPercent = 0;
+  private currentChangesBatchId: string | null = null;
+  // Enable preview mode for multi-file change batching (future: make configurable)
+  private previewModeEnabled = true;
 
   /**
    * Initialize the adapter with an agent instance
@@ -216,18 +223,22 @@ export class RPCAdapter {
 
       // Build context message if provided
       let instruction = params.message;
+      const isSlashCmd = this.agent.isSlashCommand(instruction);
 
-      // Prepend image placeholders if any were processed
-      if (imagePlaceholders.length > 0) {
-        process.stderr.write(`[RPC] Image placeholders: ${imagePlaceholders.join(', ')}\n`);
-        instruction = `${imagePlaceholders.join(' ')}\n\n${instruction}`;
-      } else if (params.images && params.images.length > 0) {
-        process.stderr.write(`[RPC] WARNING: Images provided but no placeholders generated!\n`);
-      }
+      // Only add context for non-slash commands
+      if (!isSlashCmd) {
+        // Prepend image placeholders if any were processed
+        if (imagePlaceholders.length > 0) {
+          process.stderr.write(`[RPC] Image placeholders: ${imagePlaceholders.join(', ')}\n`);
+          instruction = `${imagePlaceholders.join(' ')}\n\n${instruction}`;
+        } else if (params.images && params.images.length > 0) {
+          process.stderr.write(`[RPC] WARNING: Images provided but no placeholders generated!\n`);
+        }
 
-      if (params.context?.selection) {
-        const sel = params.context.selection;
-        instruction = `${instruction}\n\nContext from ${sel.file} (lines ${sel.startLine}-${sel.endLine}):\n\`\`\`\n${sel.text}\n\`\`\``;
+        if (params.context?.selection) {
+          const sel = params.context.selection;
+          instruction = `${instruction}\n\nContext from ${sel.file} (lines ${sel.startLine}-${sel.endLine}):\n\`\`\`\n${sel.text}\n\`\`\``;
+        }
       }
 
       // Start message
@@ -247,7 +258,7 @@ export class RPCAdapter {
         process.stderr.write(`[RPC DEBUG] Executing instruction: ${instruction.substring(0, 100)}\n`);
 
         // Check if it's a slash command and handle it directly
-        if (this.agent.isSlashCommand(instruction)) {
+        if (isSlashCmd) {
           const { command, args } = this.agent.parseSlashCommand(instruction);
           process.stderr.write(`[RPC DEBUG] Handling slash command: ${command}, args: ${JSON.stringify(args)}\n`);
 
@@ -285,7 +296,46 @@ export class RPCAdapter {
           }
         } else {
           // Not a slash command - run as regular instruction via LLM
-          success = await this.agent.runInstruction(instruction);
+          // Enter preview mode if enabled to batch file changes
+          const fileManager = this.agent.getFileManager();
+          process.stderr.write(`[RPC DEBUG] previewModeEnabled=${this.previewModeEnabled}, hasFileManager=${!!fileManager}\n`);
+          if (this.previewModeEnabled && fileManager) {
+            this.currentChangesBatchId = generateId('changes');
+            process.stderr.write(`[RPC DEBUG] Entering preview mode with batchId=${this.currentChangesBatchId}\n`);
+            this.emitChangesBatchStart(this.currentChangesBatchId);
+            fileManager.enterPreviewMode(this.currentChangesBatchId, (change) => {
+              // Emit each change as it's batched
+              this.emitChangesBatchUpdate(this.currentChangesBatchId!, {
+                id: change.id,
+                filePath: change.filePath,
+                changeType: change.changeType,
+                originalContent: change.originalContent,
+                proposedContent: change.proposedContent,
+                description: change.description,
+                toolId: change.toolId,
+                toolName: change.toolName,
+              });
+            });
+          }
+
+          try {
+            success = await this.agent.runInstruction(instruction);
+          } finally {
+            // Always emit batch end and handle preview mode cleanup
+            if (this.previewModeEnabled && fileManager && this.currentChangesBatchId) {
+              const pendingChanges = fileManager.getPendingChanges();
+              process.stderr.write(`[RPC DEBUG] Turn finished, pendingChanges=${pendingChanges.length}, files=${pendingChanges.map(c => c.filePath).join(', ')}\n`);
+              this.emitChangesBatchEnd(this.currentChangesBatchId, pendingChanges.length);
+
+              if (pendingChanges.length === 0) {
+                // No changes to preview - exit preview mode immediately
+                fileManager.exitPreviewMode();
+              }
+              // If there are changes, keep preview mode active until user decision
+              // fileManager.exitPreviewMode() will be called in handleChangesDecision
+              this.currentChangesBatchId = null;
+            }
+          }
         }
 
         process.stderr.write(`[RPC DEBUG] Instruction completed, success=${success}, content length=${this.currentMessageContent.length}\n`);
@@ -353,9 +403,9 @@ export class RPCAdapter {
   }
 
   /**
-   * Handle abort request
+   * Handle abort request (can be notification with null id for instant abort)
    */
-  handleAbort(requestId: JsonRpcId): AbortResult {
+  handleAbort(requestId: JsonRpcId | null): AbortResult {
     process.stderr.write(`[RPC] handleAbort called, abortController=${!!this.abortController}\n`);
 
     // Clear ALL pending permissions - they're no longer relevant after abort
@@ -623,6 +673,468 @@ export class RPCAdapter {
       thought,
       timestamp: createTimestamp(),
     });
+  }
+
+  // ============================================================================
+  // Multi-File Change Preview Methods
+  // ============================================================================
+
+  /**
+   * Emit changes batch start notification
+   */
+  emitChangesBatchStart(batchId: string): void {
+    process.stderr.write(`[RPC DEBUG] emitChangesBatchStart: batchId=${batchId}\n`);
+    writeNotification(RPC_NOTIFICATIONS.CHANGES_BATCH_START, {
+      batchId,
+      turnId: this.currentTurnId ?? '',
+      timestamp: createTimestamp(),
+    });
+  }
+
+  /**
+   * Emit changes batch update notification (individual file change)
+   */
+  emitChangesBatchUpdate(
+    batchId: string,
+    change: import('./types.js').ProposedFileChange
+  ): void {
+    process.stderr.write(`[RPC DEBUG] emitChangesBatchUpdate: batchId=${batchId}, changeId=${change.id}, file=${change.filePath}\n`);
+    writeNotification(RPC_NOTIFICATIONS.CHANGES_BATCH_UPDATE, {
+      batchId,
+      change,
+      timestamp: createTimestamp(),
+    });
+  }
+
+  /**
+   * Emit changes batch end notification
+   */
+  emitChangesBatchEnd(batchId: string, changeCount: number): void {
+    process.stderr.write(`[RPC DEBUG] emitChangesBatchEnd: batchId=${batchId}, changeCount=${changeCount}\n`);
+    writeNotification(RPC_NOTIFICATIONS.CHANGES_BATCH_END, {
+      batchId,
+      changeCount,
+      timestamp: createTimestamp(),
+    });
+  }
+
+  // ============================================================================
+  // Hook Lifecycle Notification Methods
+  // ============================================================================
+
+  /**
+   * Emit hook pre-tool notification
+   * Called before a tool begins execution
+   */
+  emitHookPreTool(toolId: string, toolName: string, args: Record<string, unknown>): void {
+    writeNotification(RPC_NOTIFICATIONS.HOOK_PRE_TOOL, {
+      toolId,
+      toolName,
+      args,
+      timestamp: createTimestamp(),
+    });
+  }
+
+  /**
+   * Emit hook post-tool notification
+   * Called after a tool completes execution
+   */
+  emitHookPostTool(
+    toolId: string,
+    toolName: string,
+    success: boolean,
+    duration: number,
+    output?: string
+  ): void {
+    writeNotification(RPC_NOTIFICATIONS.HOOK_POST_TOOL, {
+      toolId,
+      toolName,
+      success,
+      duration,
+      output,
+      timestamp: createTimestamp(),
+    });
+  }
+
+  /**
+   * Emit hook file-modified notification
+   * Called when a file is created, modified, or deleted
+   */
+  emitHookFileModified(
+    filePath: string,
+    changeType: 'create' | 'modify' | 'delete',
+    toolId: string
+  ): void {
+    writeNotification(RPC_NOTIFICATIONS.HOOK_FILE_MODIFIED, {
+      filePath,
+      changeType,
+      toolId,
+      timestamp: createTimestamp(),
+    });
+  }
+
+  /**
+   * Emit hook pre-prompt notification
+   * Called before sending a prompt to the LLM
+   */
+  emitHookPrePrompt(instruction: string, mentionedFiles: string[]): void {
+    writeNotification(RPC_NOTIFICATIONS.HOOK_PRE_PROMPT, {
+      instruction,
+      mentionedFiles,
+      timestamp: createTimestamp(),
+    });
+  }
+
+  /**
+   * Emit hook post-response notification
+   * Called after receiving a response from the LLM
+   */
+  emitHookPostResponse(tokensUsed: number, toolCallsCount: number, duration: number): void {
+    writeNotification(RPC_NOTIFICATIONS.HOOK_POST_RESPONSE, {
+      tokensUsed,
+      toolCallsCount,
+      duration,
+      timestamp: createTimestamp(),
+    });
+  }
+
+  /**
+   * Emit hook session-error notification
+   * Called when an error occurs during agent execution
+   */
+  emitHookSessionError(error: string, code?: string, context?: Record<string, unknown>): void {
+    writeNotification(RPC_NOTIFICATIONS.HOOK_SESSION_ERROR, {
+      error,
+      code,
+      context,
+      timestamp: createTimestamp(),
+    });
+  }
+
+  /**
+   * Emit hook stop notification
+   * Called when agent finishes responding to a turn
+   */
+  emitHookStop(tokensUsed: number, toolCallsCount: number, duration: number): void {
+    writeNotification(RPC_NOTIFICATIONS.HOOK_STOP, {
+      tokensUsed,
+      toolCallsCount,
+      duration,
+      timestamp: createTimestamp(),
+    });
+  }
+
+  /**
+   * Emit hook session-start notification
+   * Called when a session begins
+   */
+  emitHookSessionStart(sessionType: 'startup' | 'resume' | 'clear'): void {
+    writeNotification(RPC_NOTIFICATIONS.HOOK_SESSION_START, {
+      sessionType,
+      timestamp: createTimestamp(),
+    });
+  }
+
+  /**
+   * Emit hook session-end notification
+   * Called when a session ends
+   */
+  emitHookSessionEnd(reason: 'quit' | 'clear' | 'exit' | 'error', duration: number): void {
+    writeNotification(RPC_NOTIFICATIONS.HOOK_SESSION_END, {
+      reason,
+      duration,
+      timestamp: createTimestamp(),
+    });
+  }
+
+  /**
+   * Emit hook subagent-stop notification
+   * Called when a subagent finishes execution
+   */
+  emitHookSubagentStop(
+    subagentId: string,
+    subagentName: string,
+    subagentType: string,
+    success: boolean,
+    duration: number,
+    error?: string
+  ): void {
+    writeNotification(RPC_NOTIFICATIONS.HOOK_SUBAGENT_STOP, {
+      subagentId,
+      subagentName,
+      subagentType,
+      success,
+      duration,
+      error,
+      timestamp: createTimestamp(),
+    });
+  }
+
+  /**
+   * Emit hook permission-request notification
+   * Called when a permission dialog is about to be shown
+   */
+  emitHookPermissionRequest(
+    tool: string,
+    path?: string,
+    command?: string,
+    args?: Record<string, unknown>
+  ): void {
+    writeNotification(RPC_NOTIFICATIONS.HOOK_PERMISSION_REQUEST, {
+      tool,
+      path,
+      command,
+      args,
+      timestamp: createTimestamp(),
+    });
+  }
+
+  /**
+   * Emit hook notification
+   * Called when a notification is sent to the user
+   */
+  emitHookNotification(notificationType: string, message: string): void {
+    writeNotification(RPC_NOTIFICATIONS.HOOK_NOTIFICATION, {
+      notificationType,
+      message,
+      timestamp: createTimestamp(),
+    });
+  }
+
+  /**
+   * Handle changes decision from client (accept/reject)
+   */
+  async handleChangesDecision(
+    requestId: JsonRpcId,
+    params: import('./types.js').ChangesDecisionParams
+  ): Promise<import('./types.js').ChangesDecisionResult> {
+    // This will be called when user accepts/rejects in the extension
+    // The agent/FileActionManager needs to apply or discard changes
+    // For now, return a placeholder - actual implementation requires
+    // access to the FileActionManager through the agent
+
+    const fileManager = this.agent?.getFileManager?.();
+    if (!fileManager) {
+      return {
+        success: false,
+        appliedCount: 0,
+        skippedCount: 0,
+        errors: [{ changeId: 'unknown', error: 'FileActionManager not available' }],
+      };
+    }
+
+    const { action, selectedChangeIds, batchId } = params;
+
+    // Verify this is the current batch
+    if (fileManager.getBatchId() !== batchId) {
+      return {
+        success: false,
+        appliedCount: 0,
+        skippedCount: 0,
+        errors: [{ changeId: 'unknown', error: `Batch ${batchId} not found or expired` }],
+      };
+    }
+
+    const pendingChanges = fileManager.getPendingChanges();
+    const totalCount = pendingChanges.length;
+
+    if (action === 'reject_all') {
+      // Discard all changes
+      fileManager.clearPendingChanges();
+      fileManager.exitPreviewMode();
+      return {
+        success: true,
+        appliedCount: 0,
+        skippedCount: totalCount,
+      };
+    }
+
+    // For accept_all or accept_selected, apply changes
+    const changeIds =
+      action === 'accept_selected' ? selectedChangeIds : undefined;
+
+    const result = await fileManager.applyPendingChanges(changeIds);
+    fileManager.exitPreviewMode();
+
+    return {
+      success: result.errors.length === 0,
+      appliedCount: result.applied.length,
+      skippedCount: totalCount - result.applied.length,
+      errors:
+        result.errors.length > 0
+          ? result.errors.map((e) => ({ changeId: e.id, error: e.error }))
+          : undefined,
+    };
+  }
+
+  // ============================================================================
+  // Skills Management Methods (Non-Interactive for RPC Mode)
+  // ============================================================================
+
+  /**
+   * Get community skills registry
+   */
+  async handleGetSkillsRegistry(
+    requestId: JsonRpcId,
+    params?: GetSkillsRegistryParams
+  ): Promise<GetSkillsRegistryResult> {
+    try {
+      // Dynamic import to avoid loading these modules unless needed
+      const { CommunitySkillsCache } = await import('../../skills/CommunitySkillsCache.js');
+      const { GitHubRegistryFetcher } = await import('../../skills/GitHubRegistryFetcher.js');
+
+      const cache = new CommunitySkillsCache();
+      const fetcher = new GitHubRegistryFetcher();
+
+      let registry;
+      if (params?.forceRefresh) {
+        // Force refresh from GitHub
+        process.stderr.write('[RPC] Force refreshing skills registry from GitHub\n');
+        registry = await fetcher.fetchRegistry();
+        await cache.setRegistry(registry);
+      } else {
+        // Try cache first
+        const cached = await cache.getRegistry();
+        if (cached) {
+          registry = cached;
+        } else {
+          process.stderr.write('[RPC] Fetching skills registry from GitHub\n');
+          registry = await fetcher.fetchRegistry();
+          await cache.setRegistry(registry);
+        }
+      }
+
+      // Convert to RPC format
+      const skills = registry.skills.map((skill) => ({
+        id: skill.id,
+        name: skill.name,
+        description: skill.description,
+        category: skill.category,
+        tags: skill.tags,
+        rating: skill.rating,
+        downloadCount: skill.downloadCount,
+        isFeatured: skill.isFeatured,
+        isCurated: skill.isCurated,
+      }));
+
+      return {
+        success: true,
+        skills,
+        categories: registry.categories,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      process.stderr.write(`[RPC] Failed to get skills registry: ${message}\n`);
+      return {
+        success: false,
+        skills: [],
+        categories: [],
+        error: message,
+      };
+    }
+  }
+
+  /**
+   * Install a skill by name (non-interactive)
+   */
+  async handleInstallSkill(
+    requestId: JsonRpcId,
+    params: InstallSkillParams
+  ): Promise<InstallSkillResult> {
+    try {
+      const skillsRegistry = this.agent?.getSkillsRegistry?.();
+      if (!skillsRegistry) {
+        return {
+          success: false,
+          error: 'Skills registry not available',
+        };
+      }
+
+      const workspaceRoot = this.workspace;
+
+      // Dynamic imports
+      const { CommunitySkillsCache } = await import('../../skills/CommunitySkillsCache.js');
+      const { GitHubRegistryFetcher } = await import('../../skills/GitHubRegistryFetcher.js');
+      const { AUTOHAND_PATHS, PROJECT_DIR_NAME } = await import('../../constants.js');
+      const path = await import('node:path');
+
+      const cache = new CommunitySkillsCache();
+      const fetcher = new GitHubRegistryFetcher();
+
+      // Get registry
+      let registry = await cache.getRegistry();
+      if (!registry) {
+        process.stderr.write('[RPC] Fetching skills registry for install\n');
+        registry = await fetcher.fetchRegistry();
+        await cache.setRegistry(registry);
+      }
+
+      // Find the skill
+      const skill = fetcher.findSkill(registry.skills, params.skillName);
+      if (!skill) {
+        // Suggest similar skills
+        const similar = fetcher.findSimilarSkills(registry.skills, params.skillName, 3);
+        const suggestions = similar.map((s) => s.name).join(', ');
+        return {
+          success: false,
+          error: `Skill not found: ${params.skillName}${suggestions ? `. Did you mean: ${suggestions}?` : ''}`,
+        };
+      }
+
+      // Determine target directory
+      const targetDir =
+        params.scope === 'project'
+          ? path.join(workspaceRoot, PROJECT_DIR_NAME, 'skills')
+          : AUTOHAND_PATHS.skills;
+
+      // Check if already installed
+      const isInstalled = await skillsRegistry.isSkillInstalled(skill.name, targetDir);
+      if (isInstalled && !params.force) {
+        return {
+          success: false,
+          error: `Skill "${skill.name}" already exists. Use force=true to overwrite.`,
+        };
+      }
+
+      process.stderr.write(`[RPC] Installing skill ${skill.name} to ${params.scope}\n`);
+
+      // Try to get from cache first
+      let files = await cache.getSkillDirectory(skill.id);
+      if (!files) {
+        process.stderr.write(`[RPC] Fetching skill files from GitHub\n`);
+        files = await fetcher.fetchSkillDirectory(skill);
+        await cache.setSkillDirectory(skill.id, files);
+      }
+
+      // Import using the registry
+      const result = await skillsRegistry.importCommunitySkillDirectory(
+        skill.name,
+        files,
+        targetDir,
+        isInstalled // force if overwriting
+      );
+
+      if (result.success) {
+        process.stderr.write(`[RPC] Successfully installed ${skill.name}\n`);
+        return {
+          success: true,
+          skillName: skill.name,
+          path: result.path,
+        };
+      } else {
+        return {
+          success: false,
+          error: result.error || 'Installation failed',
+        };
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      process.stderr.write(`[RPC] Failed to install skill: ${message}\n`);
+      return {
+        success: false,
+        error: message,
+      };
+    }
   }
 
   /**

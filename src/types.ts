@@ -59,6 +59,8 @@ export interface UISettings {
   showThinking?: boolean;
   /** Use Ink-based renderer for flicker-free UI (experimental, default: false) */
   useInkRenderer?: boolean;
+  /** Ring terminal bell when task completes - shows badge on terminal tab (default: true) */
+  terminalBell?: boolean;
 }
 
 export interface AgentSettings {
@@ -73,11 +75,11 @@ export interface AgentSettings {
 }
 
 export interface TelemetrySettings {
-  /** Enable/disable telemetry (default: true) */
+  /** Enable/disable telemetry (default: false, opt-in) */
   enabled?: boolean;
   /** API endpoint (default: https://api.autohand.ai) */
   apiBaseUrl?: string;
-  /** Enable session sync to cloud (default: true) */
+  /** Enable session sync to cloud (default: false, requires telemetry enabled) */
   enableSessionSync?: boolean;
 }
 
@@ -140,6 +142,75 @@ export interface CommunitySkillsSettings {
   autoBackup?: boolean;
 }
 
+// ============ Hooks System Types ============
+
+/** Hook events that can be subscribed to */
+export type HookEvent =
+  | 'pre-tool'
+  | 'post-tool'
+  | 'file-modified'
+  | 'pre-prompt'
+  | 'stop'              // Agent finished responding (turn complete)
+  | 'post-response'     // Alias for 'stop' (backward compatibility)
+  | 'session-error'
+  | 'subagent-stop'     // Subagent (Task tool) finished
+  | 'session-start'     // Session begins (startup, resume, clear)
+  | 'session-end'       // Session ends (quit, exit)
+  | 'permission-request' // Permission dialog shown
+  | 'notification';      // Notification sent to user
+
+/** Filter to limit when a hook fires */
+export interface HookFilter {
+  /** Only fire for specific tools (e.g., ["run_command", "write_file"]) */
+  tool?: string[];
+  /** Only fire for specific file paths (glob patterns like "src/**.ts") */
+  path?: string[];
+}
+
+/** Hook definition for config-based hooks */
+export interface HookDefinition {
+  /** Event to hook into */
+  event: HookEvent;
+  /** Shell command to execute (receives context via env vars and JSON via stdin) */
+  command: string;
+  /** Description for /hooks display */
+  description?: string;
+  /** Whether hook is enabled (default: true) */
+  enabled?: boolean;
+  /** Timeout in ms (default: 5000) */
+  timeout?: number;
+  /** Run async without blocking (default: false) */
+  async?: boolean;
+  /** Regex pattern to match tool names, notification types, session types, etc. */
+  matcher?: string;
+  /** Filter to specific tools or paths */
+  filter?: HookFilter;
+}
+
+/** Hooks configuration settings */
+export interface HooksSettings {
+  /** Enable/disable hooks globally (default: true) */
+  enabled?: boolean;
+  /** Registered hook definitions */
+  hooks?: HookDefinition[];
+}
+
+/** Hook response for control flow decisions (parsed from stdout JSON) */
+export interface HookResponse {
+  /** Decision for tool/permission hooks: allow, deny, ask, or block */
+  decision?: 'allow' | 'deny' | 'ask' | 'block';
+  /** Reason for decision (shown to agent or user) */
+  reason?: string;
+  /** Whether to continue execution (false stops the agent) */
+  continue?: boolean;
+  /** Message shown when continue is false */
+  stopReason?: string;
+  /** Modified tool input (for pre-tool/permission-request hooks) */
+  updatedInput?: Record<string, unknown>;
+  /** Additional context to add to conversation */
+  additionalContext?: string;
+}
+
 export interface AutohandConfig {
   provider?: ProviderName;
   openrouter?: OpenRouterSettings;
@@ -161,6 +232,8 @@ export interface AutohandConfig {
   auth?: AuthSettings;
   /** Community skills settings */
   communitySkills?: CommunitySkillsSettings;
+  /** Hooks system settings */
+  hooks?: HooksSettings;
 }
 
 export interface LoadedConfig extends AutohandConfig {
@@ -187,10 +260,16 @@ export interface CLIOptions {
   restricted?: boolean;
   /** Client context for tool filtering (default: 'cli') */
   clientContext?: ClientContext;
-  /** Auto-commit changes after completing tasks */
+  /** Auto-commit with LLM-generated message (runs lint & test first) */
   autoCommit?: boolean;
   /** Auto-generate skills based on project analysis */
   autoSkill?: boolean;
+  /** Display current permission settings and exit */
+  permissions?: boolean;
+  /** Generate git patch without applying changes */
+  patch?: boolean;
+  /** Output file for patch (default: stdout) */
+  output?: string;
 }
 
 export interface PromptContext {

@@ -8,6 +8,7 @@ import type { SessionManager, Session } from '../session/SessionManager.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import type { MemoryManager } from '../memory/MemoryManager.js';
 import type { PermissionManager } from '../permissions/PermissionManager.js';
+import type { HookManager } from './HookManager.js';
 import type { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import type { LoadedConfig, ProviderName } from '../types.js';
 
@@ -24,6 +25,8 @@ export interface SlashCommandContext {
     currentSession?: Session;
     memoryManager: MemoryManager;
     permissionManager: PermissionManager;
+    /** Hook manager for /hooks commands */
+    hookManager?: HookManager;
     llm: LLMProvider;
     workspaceRoot: string;
     model: string;

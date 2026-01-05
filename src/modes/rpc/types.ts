@@ -94,6 +94,11 @@ export const RPC_METHODS = {
   GET_MESSAGES: 'autohand.getMessages',
   PERMISSION_RESPONSE: 'autohand.permissionResponse',
   PERMISSION_ACKNOWLEDGED: 'autohand.permissionAcknowledged',
+  // Multi-file change preview
+  CHANGES_DECISION: 'autohand.changesDecision',
+  // Skills management (non-interactive for RPC mode)
+  GET_SKILLS_REGISTRY: 'autohand.getSkillsRegistry',
+  INSTALL_SKILL: 'autohand.installSkill',
 } as const;
 
 export type RpcMethod = (typeof RPC_METHODS)[keyof typeof RPC_METHODS];
@@ -114,6 +119,23 @@ export const RPC_NOTIFICATIONS = {
   TOOL_END: 'autohand.toolEnd',
   PERMISSION_REQUEST: 'autohand.permissionRequest',
   ERROR: 'autohand.error',
+  // Multi-file change preview notifications
+  CHANGES_BATCH_START: 'autohand.changesBatchStart',
+  CHANGES_BATCH_UPDATE: 'autohand.changesBatchUpdate',
+  CHANGES_BATCH_END: 'autohand.changesBatchEnd',
+  // Hook lifecycle notifications
+  HOOK_PRE_TOOL: 'autohand.hook.preTool',
+  HOOK_POST_TOOL: 'autohand.hook.postTool',
+  HOOK_FILE_MODIFIED: 'autohand.hook.fileModified',
+  HOOK_PRE_PROMPT: 'autohand.hook.prePrompt',
+  HOOK_POST_RESPONSE: 'autohand.hook.postResponse',
+  HOOK_SESSION_ERROR: 'autohand.hook.sessionError',
+  HOOK_STOP: 'autohand.hook.stop',
+  HOOK_SESSION_START: 'autohand.hook.sessionStart',
+  HOOK_SESSION_END: 'autohand.hook.sessionEnd',
+  HOOK_SUBAGENT_STOP: 'autohand.hook.subagentStop',
+  HOOK_PERMISSION_REQUEST: 'autohand.hook.permissionRequest',
+  HOOK_NOTIFICATION: 'autohand.hook.notification',
 } as const;
 
 export type RpcNotification = (typeof RPC_NOTIFICATIONS)[keyof typeof RPC_NOTIFICATIONS];
@@ -201,6 +223,65 @@ export interface PermissionResponseParams {
 
 export interface PermissionAcknowledgedParams {
   requestId: string;
+}
+
+// ============================================================================
+// Skills Management Types (RPC Mode)
+// ============================================================================
+
+/**
+ * Community skill info for RPC responses
+ */
+export interface RpcCommunitySkill {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  tags?: string[];
+  rating?: number;
+  downloadCount?: number;
+  isFeatured?: boolean;
+  isCurated?: boolean;
+}
+
+/**
+ * Get skills registry request params (no params needed)
+ */
+export interface GetSkillsRegistryParams {
+  /** Force refresh from GitHub (ignore cache) */
+  forceRefresh?: boolean;
+}
+
+/**
+ * Get skills registry response
+ */
+export interface GetSkillsRegistryResult {
+  success: boolean;
+  skills: RpcCommunitySkill[];
+  categories: Array<{ name: string; count: number }>;
+  error?: string;
+}
+
+/**
+ * Install skill request params
+ */
+export interface InstallSkillParams {
+  /** Skill name or ID to install */
+  skillName: string;
+  /** Install scope: 'user' (~/.autohand/skills) or 'project' (.autohand/skills) */
+  scope: 'user' | 'project';
+  /** Force overwrite if skill already exists */
+  force?: boolean;
+}
+
+/**
+ * Install skill response
+ */
+export interface InstallSkillResult {
+  success: boolean;
+  skillName?: string;
+  path?: string;
+  error?: string;
 }
 
 // ============================================================================
@@ -292,6 +373,126 @@ export interface ErrorNotificationParams {
   message: string;
   recoverable: boolean;
   timestamp: string;
+}
+
+// ============================================================================
+// Hook Lifecycle Notification Types
+// ============================================================================
+
+/**
+ * Notification params for pre-tool hook event
+ * Fired before a tool begins execution
+ */
+export interface HookPreToolNotificationParams {
+  toolId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  timestamp: string;
+}
+
+/**
+ * Notification params for post-tool hook event
+ * Fired after a tool completes execution
+ */
+export interface HookPostToolNotificationParams {
+  toolId: string;
+  toolName: string;
+  success: boolean;
+  duration: number;
+  output?: string;
+  timestamp: string;
+}
+
+/**
+ * Notification params for file-modified hook event
+ * Fired when a file is created, modified, or deleted
+ */
+export interface HookFileModifiedNotificationParams {
+  filePath: string;
+  changeType: 'create' | 'modify' | 'delete';
+  toolId: string;
+  timestamp: string;
+}
+
+/**
+ * Notification params for pre-prompt hook event
+ * Fired before sending a prompt to the LLM
+ */
+export interface HookPrePromptNotificationParams {
+  instruction: string;
+  mentionedFiles: string[];
+  timestamp: string;
+}
+
+/**
+ * Notification params for post-response hook event
+ * Fired after receiving a response from the LLM
+ */
+export interface HookPostResponseNotificationParams {
+  tokensUsed: number;
+  toolCallsCount: number;
+  duration: number;
+  timestamp: string;
+}
+
+/**
+ * Notification params for session-error hook event
+ * Fired when an error occurs during agent execution
+ */
+export interface HookSessionErrorNotificationParams {
+  error: string;
+  code?: string;
+  context?: Record<string, unknown>;
+  timestamp: string;
+}
+
+// ============================================================================
+// Multi-File Change Preview Types
+// ============================================================================
+
+/**
+ * Proposed file change for preview
+ */
+export interface ProposedFileChange {
+  id: string;
+  filePath: string;
+  changeType: 'create' | 'modify' | 'delete';
+  originalContent: string;
+  proposedContent: string;
+  description: string;
+  toolId: string;
+  toolName: string;
+}
+
+export interface ChangesBatchStartParams {
+  batchId: string;
+  turnId: string;
+  timestamp: string;
+}
+
+export interface ChangesBatchUpdateParams {
+  batchId: string;
+  change: ProposedFileChange;
+  timestamp: string;
+}
+
+export interface ChangesBatchEndParams {
+  batchId: string;
+  changeCount: number;
+  timestamp: string;
+}
+
+export interface ChangesDecisionParams {
+  batchId: string;
+  action: 'accept_all' | 'reject_all' | 'accept_selected';
+  selectedChangeIds?: string[];
+}
+
+export interface ChangesDecisionResult {
+  success: boolean;
+  appliedCount: number;
+  skippedCount: number;
+  errors?: Array<{ changeId: string; error: string }>;
 }
 
 // ============================================================================

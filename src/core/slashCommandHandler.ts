@@ -144,6 +144,13 @@ export class SlashCommandHandler {
           const { permissions } = await import('../commands/permissions.js');
           return permissions({ permissionManager: this.ctx.permissionManager });
         }
+        case '/hooks': {
+          const { hooks } = await import('../commands/hooks.js');
+          if (!this.ctx.hookManager) {
+            return 'Hook manager not available.';
+          }
+          return hooks({ hookManager: this.ctx.hookManager });
+        }
         case '/skills': {
           const { skills } = await import('../commands/skills.js');
           if (!this.ctx.skillsRegistry) {
