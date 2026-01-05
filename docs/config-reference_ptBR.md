@@ -163,7 +163,9 @@ Configuração da API OpenAI.
     "autoConfirm": false,
     "readFileCharLimit": 300,
     "showCompletionNotification": true,
-    "showThinking": true
+    "showThinking": true,
+    "useInkRenderer": false,
+    "terminalBell": true
   }
 }
 ```
@@ -175,6 +177,52 @@ Configuração da API OpenAI.
 | `readFileCharLimit` | number | `300` | Máximo de caracteres exibidos em tools de leitura/busca (o conteúdo completo ainda é enviado ao modelo) |
 | `showCompletionNotification` | boolean | `true` | Mostrar notificação do sistema quando a tarefa terminar |
 | `showThinking` | boolean | `true` | Exibir o raciocínio/processo de pensamento do LLM |
+| `useInkRenderer` | boolean | `false` | Usar renderizador baseado em Ink para UI sem flicker (experimental) |
+| `terminalBell` | boolean | `true` | Tocar sineta do terminal quando a tarefa terminar (mostra badge na aba/dock) |
+
+Nota: `readFileCharLimit` afeta apenas a exibição no terminal para `read_file`, `search` e `search_with_context`. O conteúdo completo ainda é enviado ao modelo e armazenado nas mensagens de ferramentas.
+
+### Sineta do Terminal
+
+Quando `terminalBell` está habilitado (padrão), o Autohand toca a sineta do terminal (`\x07`) quando uma tarefa é concluída. Isso aciona:
+
+- **Badge na aba do terminal** - Mostra um indicador visual de que o trabalho foi concluído
+- **Bounce do ícone no Dock** - Chama sua atenção quando o terminal está em segundo plano (macOS)
+- **Som** - Se os sons do terminal estiverem habilitados nas configurações do seu terminal
+
+Configurações específicas por terminal:
+- **macOS Terminal**: Preferências > Perfis > Avançado > Sineta (Visual/Audível)
+- **iTerm2**: Preferências > Perfis > Terminal > Notificações
+- **VS Code Terminal**: Configurações > Terminal > Integrated: Enable Bell
+
+Para desabilitar:
+```json
+{
+  "ui": {
+    "terminalBell": false
+  }
+}
+```
+
+### Renderizador Ink (Experimental)
+
+Quando `useInkRenderer` está habilitado, o Autohand usa renderização de terminal baseada em React (Ink) ao invés do spinner ora tradicional. Isso fornece:
+
+- **Saída sem flicker**: Todas as atualizações de UI são agrupadas através da reconciliação do React
+- **Recurso de fila de trabalho**: Digite instruções enquanto o agente trabalha
+- **Melhor manipulação de entrada**: Sem conflitos entre handlers de readline
+- **UI composável**: Base para recursos avançados de UI futuros
+
+Para habilitar:
+```json
+{
+  "ui": {
+    "useInkRenderer": true
+  }
+}
+```
+
+Nota: Este recurso é experimental e pode ter casos extremos. A UI padrão baseada em ora permanece estável e totalmente funcional.
 
 ---
 
@@ -325,21 +373,23 @@ Quando você aprova uma operação de arquivo (editar, escrever, excluir), ela �
 
 ## Configurações de Telemetria
 
+A telemetria está **desabilitada por padrão** (opt-in). Habilite para ajudar a melhorar o Autohand.
+
 ```json
 {
   "telemetry": {
-    "enabled": true,
+    "enabled": false,
     "apiBaseUrl": "https://api.autohand.ai",
-    "enableSessionSync": true
+    "enableSessionSync": false
   }
 }
 ```
 
 | Campo | Tipo | Padrão | Descrição |
 |-------|------|--------|-----------|
-| `enabled` | boolean | `true` | Habilitar/desabilitar telemetria |
+| `enabled` | boolean | `false` | Habilitar/desabilitar telemetria (opt-in) |
 | `apiBaseUrl` | string | `https://api.autohand.ai` | Endpoint da API de telemetria |
-| `enableSessionSync` | boolean | `true` | Sincronizar sessões para a nuvem para recursos de equipe |
+| `enableSessionSync` | boolean | `false` | Sincronizar sessões para a nuvem para recursos de equipe |
 
 ---
 
@@ -414,7 +464,8 @@ Também pode ser definido via variáveis de ambiente:
     "theme": "dark",
     "autoConfirm": false,
     "showCompletionNotification": true,
-    "showThinking": true
+    "showThinking": true,
+    "terminalBell": true
   },
   "agent": {
     "maxIterations": 100,
@@ -437,8 +488,8 @@ Também pode ser definido via variáveis de ambiente:
     "retryDelay": 1000
   },
   "telemetry": {
-    "enabled": true,
-    "enableSessionSync": true
+    "enabled": false,
+    "enableSessionSync": false
   },
   "externalAgents": {
     "enabled": false,
@@ -473,6 +524,7 @@ ui:
   autoConfirm: false
   showCompletionNotification: true
   showThinking: true
+  terminalBell: true
 
 agent:
   maxIterations: 100
@@ -493,8 +545,8 @@ network:
   retryDelay: 1000
 
 telemetry:
-  enabled: true
-  enableSessionSync: true
+  enabled: false
+  enableSessionSync: false
 
 externalAgents:
   enabled: false

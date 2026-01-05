@@ -68,6 +68,7 @@ import { PersistentInput, createPersistentInput } from '../ui/persistentInput.js
 import { formatToolOutputForDisplay } from '../ui/toolOutput.js';
 import { createInkRenderer, type InkRenderer } from '../ui/ink/InkRenderer.js';
 import { PermissionManager } from '../permissions/PermissionManager.js';
+import { HookManager, type HookContext } from './HookManager.js';
 import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
 import packageJson from '../../package.json' with { type: 'json' };
 // New feature modules
@@ -94,6 +95,7 @@ export class AutohandAgent {
   private toolOutputQueue: Promise<void> = Promise.resolve();
   private memoryManager: MemoryManager;
   private permissionManager: PermissionManager;
+  private hookManager: HookManager;
   private delegator: AgentDelegator;
   private feedbackManager: FeedbackManager;
   private telemetryManager: TelemetryManager;
@@ -162,6 +164,25 @@ export class AutohandAgent {
       // Ignore errors - local settings are optional
     });
 
+    // Create hook manager with persistence callback
+    this.hookManager = new HookManager({
+      settings: runtime.config.hooks,
+      workspaceRoot: runtime.workspaceRoot,
+      onPersist: async () => {
+        runtime.config.hooks = this.hookManager.getSettings();
+        await saveConfig(runtime.config);
+      },
+      onHookOutput: (result) => {
+        // Display hook output to console (only if not a JSON control flow response)
+        if (result.stdout && !result.response) {
+          console.log(chalk.dim(`[hook:${result.hook.event}] ${result.stdout}`));
+        }
+        if (result.stderr && !result.blockingError) {
+          console.error(chalk.yellow(`[hook:${result.hook.event}] ${result.stderr}`));
+        }
+      }
+    });
+
     this.actionExecutor = new ActionExecutor({
       runtime,
       files,
@@ -173,7 +194,27 @@ export class AutohandAgent {
       getRegisteredTools: () => this.toolManager?.listDefinitions() ?? [],
       memoryManager: this.memoryManager,
       permissionManager: this.permissionManager,
-      onFileModified: () => this.markFilesModified()
+      onFileModified: () => this.markFilesModified(),
+      onPermissionRequest: async (context) => {
+        const results = await this.hookManager.executeHooks('permission-request', {
+          tool: context.tool,
+          path: context.path,
+          args: context.args,
+          permissionType: 'tool_approval'
+        });
+
+        // Find the first hook with a decision
+        for (const result of results) {
+          if (result.response?.decision) {
+            return {
+              decision: result.response.decision,
+              reason: result.response.reason,
+              updatedInput: result.response.updatedInput
+            };
+          }
+        }
+        return undefined; // No decision from hooks
+      }
     });
 
     this.activeProvider = runtime.config.provider ?? 'openrouter';
@@ -182,15 +223,25 @@ export class AutohandAgent {
       ?? (runtime.options.restricted ? 'restricted' : 'cli');
     this.delegator = new AgentDelegator(llm, this.actionExecutor, {
       clientContext: delegatorContext,
-      maxDepth: 3
+      maxDepth: 3,
+      onSubagentStop: async (context) => {
+        await this.hookManager.executeHooks('subagent-stop', {
+          subagentId: context.subagentId,
+          subagentName: context.subagentName,
+          subagentType: context.subagentType,
+          subagentSuccess: context.success,
+          subagentError: context.error,
+          subagentDuration: context.duration
+        });
+      }
     });
     this.errorLogger = new ErrorLogger(packageJson.version);
     this.feedbackManager = new FeedbackManager();
     this.skillsRegistry = new SkillsRegistry(AUTOHAND_PATHS.skills);
     this.telemetryManager = new TelemetryManager({
-      enabled: runtime.config.telemetry?.enabled !== false,
+      enabled: runtime.config.telemetry?.enabled === true,
       apiBaseUrl: runtime.config.telemetry?.apiBaseUrl || 'https://api.autohand.ai',
-      enableSessionSync: runtime.config.telemetry?.enableSessionSync !== false
+      enableSessionSync: runtime.config.telemetry?.enableSessionSync === true
     });
 
     // Initialize community skills client
@@ -226,6 +277,13 @@ export class AutohandAgent {
         const startTime = Date.now();
         const toolId = `tool_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
+        // Execute pre-tool hooks
+        await this.hookManager.executeHooks('pre-tool', {
+          tool: action.type,
+          toolCallId: toolId,
+          args: action as Record<string, unknown>,
+        });
+
         // Emit tool_start event for RPC mode
         this.emitOutput({
           type: 'tool_start',
@@ -250,6 +308,16 @@ export class AutohandAgent {
             duration: Date.now() - startTime
           });
 
+          // Execute post-tool hooks (success)
+          await this.hookManager.executeHooks('post-tool', {
+            tool: action.type,
+            toolCallId: toolId,
+            args: action as Record<string, unknown>,
+            success: true,
+            output: result,
+            duration: Date.now() - startTime,
+          });
+
           // Emit tool_end event for RPC mode
           this.emitOutput({
             type: 'tool_end',
@@ -267,6 +335,16 @@ export class AutohandAgent {
             success: false,
             duration: Date.now() - startTime,
             error: (error as Error).message
+          });
+
+          // Execute post-tool hooks (failure)
+          await this.hookManager.executeHooks('post-tool', {
+            tool: action.type,
+            toolCallId: toolId,
+            args: action as Record<string, unknown>,
+            success: false,
+            output: (error as Error).message,
+            duration: Date.now() - startTime,
           });
 
           // Emit tool_end event with error for RPC mode
@@ -320,6 +398,7 @@ export class AutohandAgent {
       sessionManager: this.sessionManager,
       memoryManager: this.memoryManager,
       permissionManager: this.permissionManager,
+      hookManager: this.hookManager,
       skillsRegistry: this.skillsRegistry,
       llm: this.llm,
       workspaceRoot: runtime.workspaceRoot,
@@ -342,6 +421,7 @@ export class AutohandAgent {
     await this.memoryManager.initialize();
     await this.skillsRegistry.initialize();
     await this.skillsRegistry.setWorkspace(this.runtime.workspaceRoot);
+    await this.hookManager.initialize();
     await this.resetConversationContext();
     this.feedbackManager.startSession();
     const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
@@ -358,6 +438,12 @@ export class AutohandAgent {
       );
     }
 
+    // Fire session-start hook
+    await this.hookManager.executeHooks('session-start', {
+      sessionId: session?.metadata.sessionId,
+      sessionType: 'startup',
+    });
+
     await this.runInteractiveLoop();
   }
 
@@ -370,6 +456,7 @@ export class AutohandAgent {
     await this.memoryManager.initialize();
     await this.skillsRegistry.initialize();
     await this.skillsRegistry.setWorkspace(this.runtime.workspaceRoot);
+    await this.hookManager.initialize();
     await this.resetConversationContext();
 
     const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
@@ -385,19 +472,51 @@ export class AutohandAgent {
         this.activeProvider
       );
     }
+
+    // Fire session-start hook
+    await this.hookManager.executeHooks('session-start', {
+      sessionId: session?.metadata.sessionId,
+      sessionType: 'startup',
+    });
   }
 
   async runCommandMode(instruction: string): Promise<void> {
     await this.initializeForRPC();
+
+    const turnStartTime = Date.now();
     await this.runInstruction(instruction);
+
+    // Fire stop hook after turn completes
+    const turnDuration = Date.now() - turnStartTime;
+    const session = this.sessionManager.getCurrentSession();
+    await this.hookManager.executeHooks('stop', {
+      sessionId: session?.metadata.sessionId,
+      turnDuration,
+      tokensUsed: this.sessionTokensUsed,
+    });
+
+    // Ring terminal bell to notify user (shows badge on terminal tab)
+    if (this.runtime.config.ui?.terminalBell !== false) {
+      process.stdout.write('\x07');
+    }
 
     if (this.runtime.options.autoCommit) {
       await this.performAutoCommit();
     }
 
+    // Fire session-end hook for command mode
+    await this.hookManager.executeHooks('session-end', {
+      sessionId: session?.metadata.sessionId,
+      sessionEndReason: 'exit',
+      duration: Date.now() - this.sessionStartedAt,
+    });
+
     await this.telemetryManager.endSession('completed');
   }
 
+  /**
+   * Auto-commit: Run lint, test, then use LLM to generate commit message
+   */
   private async performAutoCommit(): Promise<void> {
     const info = getAutoCommitInfo(this.runtime.workspaceRoot);
 
@@ -408,7 +527,7 @@ export class AutohandAgent {
       return;
     }
 
-    console.log(chalk.cyan('\n📝 Auto-commit: Changes detected'));
+    console.log(chalk.cyan('\n🧠 Auto-commit: Changes detected'));
     info.filesChanged.slice(0, 5).forEach(file => {
       console.log(chalk.gray(`   ${file}`));
     });
@@ -416,53 +535,35 @@ export class AutohandAgent {
       console.log(chalk.gray(`   ... and ${info.filesChanged.length - 5} more files`));
     }
 
-    const commitMessage = info.suggestedMessage;
+    // Build the auto-commit prompt for LLM
+    const autoCommitPrompt = `You have uncommitted changes in the repository. Please perform the following steps:
 
-    if (this.runtime.options.yes) {
-      console.log(chalk.cyan(`Commit message: ${commitMessage}`));
-      const result = executeAutoCommit(this.runtime.workspaceRoot, commitMessage);
-      if (result.success) {
-        console.log(chalk.green(`✓ ${result.message}`));
-      } else {
-        console.log(chalk.red(`✗ ${result.message}`));
-      }
-      return;
-    }
+1. **Lint**: Run the project's linter (try: bun run lint, npm run lint, or pnpm lint). If there are fixable issues, fix them.
 
-    console.log(chalk.cyan(`Suggested message: ${commitMessage}`));
+2. **Test**: Run the project's tests (try: bun run test, npm test, or pnpm test). If tests fail, do NOT proceed with commit.
 
-    const { choice } = await enquirer.prompt<{ choice: string }>({
-      type: 'select',
-      name: 'choice',
-      message: 'Commit these changes?',
-      choices: [
-        { name: 'y', message: 'Yes - commit with this message' },
-        { name: 'e', message: 'Edit - modify the message' },
-        { name: 'n', message: 'No - skip commit' }
-      ]
-    });
+3. **Review Changes**: Use git diff to understand what changed.
 
-    if (choice === 'n') {
-      console.log(chalk.gray('Skipped auto-commit.'));
-      return;
-    }
+4. **Commit**: If lint passes and tests pass (or no test script exists), create a commit with a meaningful message that:
+   - Uses conventional commit format (feat:, fix:, docs:, refactor:, test:, chore:)
+   - Describes WHAT changed and WHY (not just "update files")
+   - Is concise but informative
 
-    let finalMessage = commitMessage;
-    if (choice === 'e') {
-      const { editedMessage } = await enquirer.prompt<{ editedMessage: string }>({
-        type: 'input',
-        name: 'editedMessage',
-        message: 'Enter commit message:',
-        initial: commitMessage
-      });
-      finalMessage = editedMessage;
-    }
+Changed files:
+${info.filesChanged.map(f => `- ${f}`).join('\n')}
 
-    const result = executeAutoCommit(this.runtime.workspaceRoot, finalMessage);
-    if (result.success) {
-      console.log(chalk.green(`✓ ${result.message}`));
-    } else {
-      console.log(chalk.red(`✗ ${result.message}`));
+Diff summary:
+${info.diffSummary || 'Use git diff to see changes'}
+
+If lint or tests fail, report the issues but do NOT commit.`;
+
+    console.log(chalk.cyan('\n🔄 Running lint, test, and generating commit message...\n'));
+
+    // Run the auto-commit through the agent
+    try {
+      await this.runInstruction(autoCommitPrompt);
+    } catch (error) {
+      console.log(chalk.red(`\n✗ Auto-commit failed: ${(error as Error).message}`));
     }
   }
 
@@ -603,7 +704,23 @@ export class AutohandAgent {
           await this.telemetryManager.trackCommand({ command: instruction.split(' ')[0] });
         }
 
+        const turnStartTime = Date.now();
         await this.runInstruction(instruction);
+
+        // Fire stop hook after turn completes
+        const turnDuration = Date.now() - turnStartTime;
+        const session = this.sessionManager.getCurrentSession();
+        await this.hookManager.executeHooks('stop', {
+          sessionId: session?.metadata.sessionId,
+          turnDuration,
+          tokensUsed: this.sessionTokensUsed,
+        });
+
+        // Ring terminal bell to notify user (shows badge on terminal tab)
+        if (this.runtime.config.ui?.terminalBell !== false) {
+          process.stdout.write('\x07');
+        }
+
         this.feedbackManager.recordInteraction();
         this.telemetryManager.recordInteraction();
 
@@ -1602,6 +1719,14 @@ export class AutohandAgent {
     this.persistentInput.dispose();
 
     const session = this.sessionManager.getCurrentSession();
+
+    // Fire session-end hook
+    const sessionDuration = Date.now() - this.sessionStartedAt;
+    await this.hookManager.executeHooks('session-end', {
+      sessionId: session?.metadata.sessionId,
+      sessionEndReason: 'quit',
+      duration: sessionDuration,
+    });
     if (!session) {
       console.log(chalk.gray('Ending Autohand session.'));
       await this.telemetryManager.shutdown();
@@ -1655,6 +1780,12 @@ export class AutohandAgent {
     const showThinking = this.runtime.config.ui?.showThinking !== false;
 
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+      // Check for abort at the start of each iteration
+      if (abortController.signal.aborted) {
+        process.stderr.write('[AGENT DEBUG] Abort detected at loop start, breaking\n');
+        break;
+      }
+
       // Filter tools by relevance to reduce token overhead
       const messages = this.conversation.history();
       const tools = filterToolsByRelevance(allTools, messages);
@@ -1930,6 +2061,12 @@ export class AutohandAgent {
           this.conversation.addSystemNote(
             `[Search Summary] Recent searches: ${recentSearches}. Avoid repeating similar searches - analyze existing results first.`
           );
+        }
+
+        // Check for abort after tool execution before continuing
+        if (abortController.signal.aborted) {
+          process.stderr.write('[AGENT DEBUG] Abort detected after tools, breaking\n');
+          break;
         }
 
         continue;
@@ -3544,6 +3681,27 @@ export class AutohandAgent {
   }
 
   /**
+   * Get the file action manager for preview mode and change batching
+   */
+  getFileManager(): FileActionManager {
+    return this.files;
+  }
+
+  /**
+   * Get the hook manager for lifecycle hooks
+   */
+  getHookManager(): HookManager {
+    return this.hookManager;
+  }
+
+  /**
+   * Get the skills registry for skill management
+   */
+  getSkillsRegistry(): SkillsRegistry {
+    return this.skillsRegistry;
+  }
+
+  /**
    * Handle a slash command (e.g., /skills, /skills install, /model)
    * Returns the command output or null if the command doesn't exist
    */
@@ -3798,7 +3956,17 @@ export class AutohandAgent {
       ?? (this.runtime.options.restricted ? 'restricted' : 'cli');
     this.delegator = new AgentDelegator(this.llm, this.actionExecutor, {
       clientContext: delegatorContext,
-      maxDepth: 3
+      maxDepth: 3,
+      onSubagentStop: async (context) => {
+        await this.hookManager.executeHooks('subagent-stop', {
+          subagentId: context.subagentId,
+          subagentName: context.subagentName,
+          subagentType: context.subagentType,
+          subagentSuccess: context.success,
+          subagentError: context.error,
+          subagentDuration: context.duration
+        });
+      }
     });
     this.activeProvider = provider;
   }

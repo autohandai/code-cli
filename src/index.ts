@@ -134,17 +134,32 @@ program
   .option('--model <model>', 'Override the configured LLM model')
   .option('--config <path>', 'Path to config file (default ~/.autohand/config.json)')
   .option('--temperature <value>', 'Sampling temperature', parseFloat)
-  .option('-c, --auto-commit', 'Auto-commit changes after completing tasks', false)
+  .option('-c, --auto-commit', 'Auto-commit with LLM-generated message (runs lint & test first)', false)
   .option('--unrestricted', 'Run without any approval prompts (use with caution)', false)
   .option('--restricted', 'Deny all dangerous operations automatically', false)
   .option('--auto-skill', 'Auto-generate skills based on project analysis', false)
   .option('--skill-install [skill-name]', 'Install a community skill (opens browser if no name)')
   .option('--project', 'Install skill to project level (with --skill-install)', false)
+  .option('--permissions', 'Display current permission settings and exit', false)
+  .option('--patch', 'Generate git patch without applying changes (requires --prompt)', false)
+  .option('--output <file>', 'Output file for patch (default: stdout, used with --patch)')
   .option('--mode <mode>', 'Run mode: interactive (default) or rpc', 'interactive')
-  .action(async (opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean }) => {
+  .action(async (opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean }) => {
     // Handle --skill-install flag
     if (opts.skillInstall !== undefined) {
       await runSkillInstall(opts);
+      return;
+    }
+
+    // Handle --permissions flag
+    if (opts.permissions) {
+      await displayPermissions(opts);
+      return;
+    }
+
+    // Handle --patch flag
+    if (opts.patch) {
+      await runPatchMode(opts);
       return;
     }
 
@@ -360,6 +375,179 @@ async function runSkillInstall(opts: CLIOptions & { skillInstall?: string | bool
     skillsRegistry,
     workspaceRoot,
   }, skillName);
+}
+
+/**
+ * Handle --permissions flag to display current permission settings
+ */
+async function displayPermissions(opts: CLIOptions): Promise<void> {
+  const config = await loadConfig(opts.config);
+  const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
+
+  // Import permission manager
+  const { PermissionManager } = await import('./permissions/PermissionManager.js');
+  const { loadLocalProjectSettings } = await import('./permissions/localProjectPermissions.js');
+
+  // Load local project permissions
+  const localSettings = await loadLocalProjectSettings(workspaceRoot);
+
+  // Merge global and local settings
+  const mergedSettings = {
+    mode: localSettings?.permissions?.mode ?? config.permissions?.mode ?? 'interactive',
+    whitelist: [
+      ...(config.permissions?.whitelist ?? []),
+      ...(localSettings?.permissions?.whitelist ?? [])
+    ],
+    blacklist: [
+      ...(config.permissions?.blacklist ?? []),
+      ...(localSettings?.permissions?.blacklist ?? [])
+    ],
+    rules: [
+      ...(config.permissions?.rules ?? []),
+      ...(localSettings?.permissions?.rules ?? [])
+    ]
+  };
+
+  const manager = new PermissionManager({ settings: mergedSettings });
+  const whitelist = manager.getWhitelist();
+  const blacklist = manager.getBlacklist();
+  const settings = manager.getSettings();
+
+  console.log();
+  console.log(chalk.bold.cyan('Autohand Permissions'));
+  console.log(chalk.gray('─'.repeat(60)));
+  console.log();
+
+  // Mode
+  console.log(chalk.bold('Mode:'), chalk.cyan(settings.mode || 'interactive'));
+  console.log();
+
+  // Workspace
+  console.log(chalk.bold('Workspace:'), chalk.gray(workspaceRoot));
+  console.log(chalk.bold('Config:'), chalk.gray(config.configPath));
+  console.log();
+
+  // Whitelist (Approved)
+  console.log(chalk.bold.green('Approved (Whitelist)'));
+  if (whitelist.length === 0) {
+    console.log(chalk.gray('  No approved patterns'));
+  } else {
+    whitelist.forEach((pattern, index) => {
+      console.log(chalk.green(`  ${index + 1}. ${pattern}`));
+    });
+  }
+  console.log();
+
+  // Blacklist (Denied)
+  console.log(chalk.bold.red('Denied (Blacklist)'));
+  if (blacklist.length === 0) {
+    console.log(chalk.gray('  No denied patterns'));
+  } else {
+    blacklist.forEach((pattern, index) => {
+      console.log(chalk.red(`  ${index + 1}. ${pattern}`));
+    });
+  }
+  console.log();
+
+  // Summary
+  console.log(chalk.gray('─'.repeat(60)));
+  console.log(chalk.bold('Summary:'), `${whitelist.length} approved, ${blacklist.length} denied`);
+  console.log();
+
+  // Help text
+  console.log(chalk.gray('Use /permissions in interactive mode to manage permissions.'));
+  console.log(chalk.gray('Use --unrestricted to skip all approval prompts.'));
+  console.log(chalk.gray('Use --restricted to deny all dangerous operations.'));
+  console.log();
+}
+
+/**
+ * Handle --patch flag to generate a git-compatible patch without applying changes
+ */
+async function runPatchMode(opts: CLIOptions): Promise<void> {
+  // Validate that --prompt is provided
+  if (!opts.prompt) {
+    console.error(chalk.red('Error: --patch requires --prompt to specify the instruction'));
+    console.error(chalk.gray('Usage: autohand --prompt "your instruction" --patch'));
+    process.exit(1);
+  }
+
+  // Import dependencies
+  const fs = await import('fs-extra');
+  const { generateUnifiedPatch, formatChangeSummary } = await import('./utils/patch.js');
+
+  const config = await loadConfig(opts.config);
+  const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
+
+  // Override model from CLI if provided
+  if (opts.model) {
+    const providerName = config.provider ?? 'openrouter';
+    if (config[providerName]) {
+      (config as any)[providerName].model = opts.model;
+    }
+  }
+
+  const llmProvider = ProviderFactory.create(config);
+  const files = new FileActionManager(workspaceRoot);
+
+  // Enable preview mode - changes will be batched instead of written
+  const batchId = crypto.randomUUID();
+  files.enterPreviewMode(batchId);
+
+  // Set up runtime with auto-confirm and unrestricted mode
+  const patchOptions: CLIOptions = {
+    ...opts,
+    yes: true,           // Auto-confirm all actions
+    unrestricted: true   // Skip approval prompts
+  };
+
+  const runtime: AgentRuntime = {
+    config,
+    workspaceRoot,
+    options: patchOptions
+  };
+
+  // Show status
+  console.error(chalk.cyan('Patch Mode: Changes will be captured without modifying files\n'));
+
+  try {
+    const agent = new AutohandAgent(llmProvider, files, runtime);
+
+    // Run the instruction (changes will be batched in preview mode)
+    await agent.runCommandMode(opts.prompt);
+
+    // Get all pending changes
+    const changes = files.getPendingChanges();
+
+    if (changes.length === 0) {
+      console.error(chalk.yellow('\nNo changes were made.'));
+      process.exit(0);
+    }
+
+    // Generate unified patch
+    const patch = generateUnifiedPatch(changes);
+
+    // Show summary to stderr (so it doesn't pollute stdout when piping)
+    console.error(chalk.green(`\n✓ ${formatChangeSummary(changes)}`));
+
+    // Output patch
+    if (opts.output) {
+      await fs.default.ensureDir((await import('path')).dirname(opts.output));
+      await fs.default.writeFile(opts.output, patch);
+      console.error(chalk.green(`✓ Patch written to ${opts.output}`));
+      console.error(chalk.gray('\nTo apply: git apply ' + opts.output));
+    } else {
+      // Output to stdout
+      process.stdout.write(patch);
+    }
+
+    files.exitPreviewMode();
+    process.exit(0);
+  } catch (error) {
+    files.exitPreviewMode();
+    console.error(chalk.red(`\nError: ${(error as Error).message}`));
+    process.exit(1);
+  }
 }
 
 program.parseAsync();
