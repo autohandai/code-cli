@@ -71,6 +71,16 @@ import type { MemoryManager } from '../memory/MemoryManager.js';
 import { SecurityScanner } from './SecurityScanner.js';
 import { execSync } from 'node:child_process';
 
+/** Response from permission-request hook */
+export interface PermissionHookResponse {
+  /** Decision from hook */
+  decision?: 'allow' | 'deny' | 'ask' | 'block';
+  /** Reason for decision */
+  reason?: string;
+  /** Modified tool input */
+  updatedInput?: Record<string, unknown>;
+}
+
 export interface ActionExecutorOptions {
   runtime: AgentRuntime;
   files: FileActionManager;
@@ -85,6 +95,13 @@ export interface ActionExecutorOptions {
   memoryManager?: MemoryManager;
   onToolOutput?: (chunk: ToolOutputChunk) => void;
   onFileModified?: () => void;
+  /** Callback to check permission hooks before prompting user */
+  onPermissionRequest?: (context: {
+    tool: string;
+    path?: string;
+    command?: string;
+    args?: Record<string, unknown>;
+  }) => Promise<PermissionHookResponse | undefined>;
 }
 
 type AgentExecutorDeps = ActionExecutorOptions;
@@ -103,6 +120,7 @@ export class ActionExecutor {
   private readonly memoryManager?: MemoryManager;
   private readonly onToolOutput?: (chunk: ToolOutputChunk) => void;
   private readonly onFileModified?: () => void;
+  private readonly onPermissionRequest?: AgentExecutorDeps['onPermissionRequest'];
   private readonly securityScanner: SecurityScanner;
   private readonly searchCache: Map<string, string> = new Map();
 
@@ -120,7 +138,40 @@ export class ActionExecutor {
     this.memoryManager = deps.memoryManager;
     this.onToolOutput = deps.onToolOutput;
     this.onFileModified = deps.onFileModified;
+    this.onPermissionRequest = deps.onPermissionRequest;
     this.securityScanner = new SecurityScanner();
+  }
+
+  /**
+   * Check permission hooks before prompting user.
+   * Returns true if allowed, false if denied/blocked, undefined if should ask user.
+   */
+  private async checkPermissionHook(context: {
+    tool: string;
+    path?: string;
+    command?: string;
+    args?: Record<string, unknown>;
+  }): Promise<{ allowed?: boolean; blocked?: boolean; reason?: string; updatedInput?: Record<string, unknown> }> {
+    if (!this.onPermissionRequest) {
+      return {}; // No hook handler, defer to normal flow
+    }
+
+    const hookResponse = await this.onPermissionRequest(context);
+    if (!hookResponse?.decision) {
+      return {}; // No decision from hook
+    }
+
+    switch (hookResponse.decision) {
+      case 'allow':
+        return { allowed: true, updatedInput: hookResponse.updatedInput };
+      case 'deny':
+        return { allowed: false, reason: hookResponse.reason ?? 'Denied by hook' };
+      case 'block':
+        return { blocked: true, reason: hookResponse.reason ?? 'Blocked by hook' };
+      case 'ask':
+      default:
+        return {}; // Continue with normal prompt flow
+    }
   }
 
   async execute(action: AgentAction, context?: ToolExecutionContext): Promise<string | undefined> {
@@ -235,23 +286,45 @@ export class ActionExecutor {
             // Whitelisted or already approved in this session - proceed
             console.log(chalk.cyan(`\n✨ Creating: ${action.path}`));
           } else {
-            // Needs user approval - show preview and ask
-            console.log(chalk.cyan(`\n✨ Creating new file: ${action.path}`));
-            const preview = newContent.length > 500
-              ? newContent.substring(0, 500) + '\n... (truncated)'
-              : newContent;
-            console.log(chalk.gray(preview));
+            // Check permission hooks first
+            const hookResult = await this.checkPermissionHook({
+              tool: 'write_file',
+              path: action.path,
+              args: { content: newContent }
+            });
 
-            const confirmed = await this.confirmDangerousAction(
-              `Create new file ${action.path}?`,
-              { tool: 'write_file', path: action.path }
-            );
+            if (hookResult.blocked) {
+              return `Blocked: ${hookResult.reason}`;
+            }
 
-            // Record decision and persist to config
-            await this.permissionManager.recordDecision(permContext, confirmed);
+            if (hookResult.allowed !== undefined) {
+              // Hook made a decision
+              if (hookResult.allowed) {
+                console.log(chalk.cyan(`\n✨ Creating: ${action.path}`));
+                await this.permissionManager.recordDecision(permContext, true);
+              } else {
+                await this.permissionManager.recordDecision(permContext, false);
+                return `Denied: ${hookResult.reason}`;
+              }
+            } else {
+              // Needs user approval - show preview and ask
+              console.log(chalk.cyan(`\n✨ Creating new file: ${action.path}`));
+              const preview = newContent.length > 500
+                ? newContent.substring(0, 500) + '\n... (truncated)'
+                : newContent;
+              console.log(chalk.gray(preview));
 
-            if (!confirmed) {
-              return `Skipped creating ${action.path}`;
+              const confirmed = await this.confirmDangerousAction(
+                `Create new file ${action.path}?`,
+                { tool: 'write_file', path: action.path }
+              );
+
+              // Record decision and persist to config
+              await this.permissionManager.recordDecision(permContext, confirmed);
+
+              if (!confirmed) {
+                return `Skipped creating ${action.path}`;
+              }
             }
           }
         } else if (oldContent !== newContent) {

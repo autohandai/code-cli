@@ -30,6 +30,25 @@ interface UndoEntry {
   previousContents: string;
 }
 
+/**
+ * Represents a batched change in preview mode
+ */
+export interface BatchedChange {
+  id: string;
+  filePath: string;
+  changeType: 'create' | 'modify' | 'delete';
+  originalContent: string;
+  proposedContent: string;
+  description: string;
+  toolId: string;
+  toolName: string;
+}
+
+/**
+ * Callback for emitting batched changes to RPC
+ */
+export type BatchChangeCallback = (change: BatchedChange) => void;
+
 export interface SearchHit {
   file: string;
   line: number;
@@ -46,8 +65,147 @@ export class FileActionManager {
   private undoStack: UndoEntry[] = [];
   private readonly workspaceRoot: string;
 
+  // Preview mode state
+  private previewMode = false;
+  private pendingChanges: BatchedChange[] = [];
+  private batchId: string | null = null;
+  private changeCounter = 0;
+  private onBatchChange: BatchChangeCallback | null = null;
+  private currentToolId = '';
+  private currentToolName = '';
+
   constructor(workspaceRoot: string) {
     this.workspaceRoot = path.resolve(workspaceRoot);
+  }
+
+  /**
+   * Enter preview mode - changes will be batched instead of written
+   */
+  enterPreviewMode(batchId: string, onBatchChange?: BatchChangeCallback): void {
+    this.previewMode = true;
+    this.batchId = batchId;
+    this.pendingChanges = [];
+    this.changeCounter = 0;
+    this.onBatchChange = onBatchChange ?? null;
+  }
+
+  /**
+   * Exit preview mode
+   */
+  exitPreviewMode(): void {
+    this.previewMode = false;
+    this.batchId = null;
+    this.onBatchChange = null;
+  }
+
+  /**
+   * Check if in preview mode
+   */
+  isInPreviewMode(): boolean {
+    return this.previewMode;
+  }
+
+  /**
+   * Get current batch ID
+   */
+  getBatchId(): string | null {
+    return this.batchId;
+  }
+
+  /**
+   * Set current tool context for batched changes
+   */
+  setCurrentTool(toolId: string, toolName: string): void {
+    this.currentToolId = toolId;
+    this.currentToolName = toolName;
+  }
+
+  /**
+   * Get all pending changes
+   */
+  getPendingChanges(): BatchedChange[] {
+    return [...this.pendingChanges];
+  }
+
+  /**
+   * Clear pending changes without applying
+   */
+  clearPendingChanges(): void {
+    this.pendingChanges = [];
+    this.changeCounter = 0;
+  }
+
+  /**
+   * Apply pending changes (selected or all)
+   */
+  async applyPendingChanges(changeIds?: string[]): Promise<{ applied: string[]; errors: Array<{ id: string; error: string }> }> {
+    const changesToApply = changeIds
+      ? this.pendingChanges.filter((c) => changeIds.includes(c.id))
+      : this.pendingChanges;
+
+    const applied: string[] = [];
+    const errors: Array<{ id: string; error: string }> = [];
+
+    // Temporarily disable preview mode to actually write files
+    const wasPreviewMode = this.previewMode;
+    this.previewMode = false;
+
+    for (const change of changesToApply) {
+      try {
+        const fullPath = this.resolvePath(change.filePath);
+
+        if (change.changeType === 'delete') {
+          await fs.remove(fullPath);
+        } else {
+          await fs.ensureDir(path.dirname(fullPath));
+          await fs.writeFile(fullPath, change.proposedContent, 'utf8');
+        }
+
+        applied.push(change.id);
+      } catch (err) {
+        errors.push({
+          id: change.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    // Restore preview mode state
+    this.previewMode = wasPreviewMode;
+
+    // Remove applied changes from pending
+    const appliedSet = new Set(applied);
+    this.pendingChanges = this.pendingChanges.filter((c) => !appliedSet.has(c.id));
+
+    return { applied, errors };
+  }
+
+  /**
+   * Add a change to the pending batch (internal use)
+   */
+  private addBatchedChange(
+    filePath: string,
+    changeType: 'create' | 'modify' | 'delete',
+    originalContent: string,
+    proposedContent: string,
+    description: string
+  ): void {
+    const change: BatchedChange = {
+      id: `change_${this.batchId}_${++this.changeCounter}`,
+      filePath,
+      changeType,
+      originalContent,
+      proposedContent,
+      description,
+      toolId: this.currentToolId,
+      toolName: this.currentToolName,
+    };
+    this.pendingChanges.push(change);
+
+    // Emit to RPC if callback is set
+    if (this.onBatchChange) {
+      this.onBatchChange(change);
+    }
   }
 
   get root(): string {
@@ -72,7 +230,7 @@ export class FileActionManager {
     return fs.readFile(filePath, 'utf8');
   }
 
-  async writeFile(target: string, contents: string): Promise<void> {
+  async writeFile(target: string, contents: string, description?: string): Promise<void> {
     // Check content size before writing
     const contentSize = Buffer.byteLength(contents, 'utf8');
     if (contentSize > FILE_LIMITS.MAX_WRITE_SIZE) {
@@ -82,8 +240,23 @@ export class FileActionManager {
     }
 
     const filePath = this.resolvePath(target);
+    const exists = await fs.pathExists(filePath);
+    const previous = exists ? await fs.readFile(filePath, 'utf8') : '';
+    const changeType = exists ? 'modify' : 'create';
+
+    // In preview mode, batch the change instead of writing
+    if (this.previewMode) {
+      this.addBatchedChange(
+        target,
+        changeType,
+        previous,
+        contents,
+        description ?? `${changeType === 'create' ? 'Create' : 'Modify'} ${target}`
+      );
+      return;
+    }
+
     await fs.ensureDir(path.dirname(filePath));
-    const previous = (await fs.pathExists(filePath)) ? await fs.readFile(filePath, 'utf8') : '';
 
     // Limit undo stack size to prevent memory exhaustion
     if (this.undoStack.length >= FILE_LIMITS.MAX_UNDO_STACK) {
@@ -99,13 +272,26 @@ export class FileActionManager {
     await this.writeFile(target, `${current}${contents}`);
   }
 
-  async applyPatch(target: string, patch: string): Promise<void> {
+  async applyPatch(target: string, patch: string, description?: string): Promise<void> {
     const filePath = this.resolvePath(target);
     const current = await this.readFileSafe(target);
     const updated = applyUnifiedPatch(current, patch);
     if (updated === false) {
       throw new Error(`Failed to apply patch to ${target}`);
     }
+
+    // In preview mode, batch the change instead of writing
+    if (this.previewMode) {
+      this.addBatchedChange(
+        target,
+        'modify',
+        current,
+        updated,
+        description ?? `Apply patch to ${target}`
+      );
+      return;
+    }
+
     this.undoStack.push({ absolutePath: filePath, previousContents: current });
     await fs.writeFile(filePath, updated, 'utf8');
   }
@@ -361,16 +547,30 @@ export class FileActionManager {
     await fs.ensureDir(dirPath);
   }
 
-  async deletePath(relativePath: string): Promise<void> {
+  async deletePath(relativePath: string, description?: string): Promise<void> {
     const fullPath = this.resolvePath(relativePath);
     const exists = await fs.pathExists(fullPath);
     if (!exists) {
       throw new Error(`${relativePath} does not exist.`);
     }
     const stats = await fs.stat(fullPath);
+    const previousContents = stats.isFile() ? await fs.readFile(fullPath, 'utf8') : '';
+
+    // In preview mode, batch the change instead of deleting
+    if (this.previewMode) {
+      this.addBatchedChange(
+        relativePath,
+        'delete',
+        previousContents,
+        '',
+        description ?? `Delete ${relativePath}`
+      );
+      return;
+    }
+
     this.undoStack.push({
       absolutePath: fullPath,
-      previousContents: stats.isFile() ? await fs.readFile(fullPath, 'utf8') : ''
+      previousContents
     });
     await fs.remove(fullPath);
   }

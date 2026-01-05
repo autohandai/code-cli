@@ -14,6 +14,22 @@ import type { ClientContext } from '../../types.js';
 /** Default maximum delegation depth to prevent infinite loops */
 const DEFAULT_MAX_DEPTH = 3;
 
+/** Context passed to the subagent-stop hook callback */
+export interface SubagentStopContext {
+    /** Unique identifier for the subagent run */
+    subagentId: string;
+    /** Name of the agent that ran */
+    subagentName: string;
+    /** Type of agent (from registry) */
+    subagentType: string;
+    /** Whether the subagent completed successfully */
+    success: boolean;
+    /** Error message if failed */
+    error?: string;
+    /** Duration in milliseconds */
+    duration: number;
+}
+
 export interface DelegatorOptions {
     /** Client context for tool filtering (inherited by sub-agents) */
     clientContext?: ClientContext;
@@ -21,6 +37,8 @@ export interface DelegatorOptions {
     currentDepth?: number;
     /** Maximum delegation depth (default: 3) */
     maxDepth?: number;
+    /** Callback fired when a subagent completes */
+    onSubagentStop?: (context: SubagentStopContext) => Promise<void>;
 }
 
 export class AgentDelegator {
@@ -28,6 +46,8 @@ export class AgentDelegator {
     private readonly clientContext: ClientContext;
     private readonly currentDepth: number;
     private readonly maxDepth: number;
+    private readonly onSubagentStop?: (context: SubagentStopContext) => Promise<void>;
+    private subagentCounter = 0;
 
     constructor(
         private readonly llm: LLMProvider,
@@ -38,6 +58,11 @@ export class AgentDelegator {
         this.clientContext = options.clientContext ?? 'cli';
         this.currentDepth = options.currentDepth ?? 0;
         this.maxDepth = options.maxDepth ?? DEFAULT_MAX_DEPTH;
+        this.onSubagentStop = options.onSubagentStop;
+    }
+
+    private generateSubagentId(): string {
+        return `subagent-${Date.now()}-${++this.subagentCounter}`;
     }
 
     public async delegateTask(agentName: string, task: string): Promise<string> {
@@ -60,11 +85,41 @@ export class AgentDelegator {
             maxDepth: this.maxDepth
         };
 
+        const subagentId = this.generateSubagentId();
+        const startTime = Date.now();
         const agent = new SubAgent(agentConfig, this.llm, this.actionExecutor, subAgentOptions);
+
         try {
-            return await agent.run(task);
+            const result = await agent.run(task);
+
+            // Fire subagent-stop hook on success
+            if (this.onSubagentStop) {
+                await this.onSubagentStop({
+                    subagentId,
+                    subagentName: agentName,
+                    subagentType: agentConfig.source ?? 'user',
+                    success: true,
+                    duration: Date.now() - startTime
+                });
+            }
+
+            return result;
         } catch (error) {
-            return `Error running agent '${agentName}': ${(error as Error).message}`;
+            const errorMessage = (error as Error).message;
+
+            // Fire subagent-stop hook on failure
+            if (this.onSubagentStop) {
+                await this.onSubagentStop({
+                    subagentId,
+                    subagentName: agentName,
+                    subagentType: agentConfig.source ?? 'user',
+                    success: false,
+                    error: errorMessage,
+                    duration: Date.now() - startTime
+                });
+            }
+
+            return `Error running agent '${agentName}': ${errorMessage}`;
         }
     }
 
@@ -93,12 +148,41 @@ export class AgentDelegator {
                 return `[${agent_name}] Error: Agent not found.`;
             }
 
+            const subagentId = this.generateSubagentId();
+            const startTime = Date.now();
             const agent = new SubAgent(agentConfig, this.llm, this.actionExecutor, subAgentOptions);
+
             try {
                 const result = await agent.run(task);
+
+                // Fire subagent-stop hook on success
+                if (this.onSubagentStop) {
+                    await this.onSubagentStop({
+                        subagentId,
+                        subagentName: agent_name,
+                        subagentType: agentConfig.source ?? 'user',
+                        success: true,
+                        duration: Date.now() - startTime
+                    });
+                }
+
                 return `[${agent_name}] Result:\n${result}`;
             } catch (error) {
-                return `[${agent_name}] Failed: ${(error as Error).message}`;
+                const errorMessage = (error as Error).message;
+
+                // Fire subagent-stop hook on failure
+                if (this.onSubagentStop) {
+                    await this.onSubagentStop({
+                        subagentId,
+                        subagentName: agent_name,
+                        subagentType: agentConfig.source ?? 'user',
+                        success: false,
+                        error: errorMessage,
+                        duration: Date.now() - startTime
+                    });
+                }
+
+                return `[${agent_name}] Failed: ${errorMessage}`;
             }
         });
 

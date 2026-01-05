@@ -21,14 +21,16 @@ export class TelemetryClient {
 
   constructor(config: Partial<TelemetryConfig> = {}) {
     this.config = {
-      enabled: true,
+      enabled: false,
       apiBaseUrl: 'https://api.autohand.ai',
       batchSize: 20,
       flushIntervalMs: 60000, // 1 minute
       maxQueueSize: 500,
       maxRetries: 3,
-      enableSessionSync: true,
+      enableSessionSync: false,
       companySecret: '',
+      clientType: 'cli',
+      clientVersion: undefined,
       ...config
     };
 
@@ -132,13 +134,15 @@ export class TelemetryClient {
   /**
    * Queue an event for sending
    */
-  async track(event: Omit<TelemetryEvent, 'id' | 'deviceId' | 'timestamp'>): Promise<void> {
+  async track(event: Omit<TelemetryEvent, 'id' | 'deviceId' | 'timestamp' | 'clientType' | 'clientVersion'>): Promise<void> {
     if (!this.config.enabled) return;
 
     const fullEvent: TelemetryEvent = {
       ...event,
       id: crypto.randomUUID(),
       deviceId: this.deviceId,
+      clientType: this.config.clientType,
+      clientVersion: this.config.clientVersion,
       timestamp: new Date().toISOString()
     };
 

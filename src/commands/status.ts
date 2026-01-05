@@ -236,7 +236,7 @@ function renderConfigTab(data: StatusData): void {
         ['Show thinking', config?.ui?.showThinking !== false ? 'true' : 'false'],
         ['Show completion notification', config?.ui?.showCompletionNotification !== false ? 'true' : 'false'],
         ['Permission mode', config?.permissions?.mode ?? 'interactive'],
-        ['Telemetry', config?.telemetry?.enabled !== false ? 'true' : 'false'],
+        ['Telemetry', config?.telemetry?.enabled === true ? 'true' : 'false'],
         ['Network retries', String(config?.network?.maxRetries ?? 3)],
         ['Network timeout', `${config?.network?.timeout ?? 30000}ms`],
     ];

@@ -101,7 +101,7 @@ export async function loadConfig(customPath?: string): Promise<LoadedConfig> {
         autoConfirm: false
       },
       telemetry: {
-        enabled: true
+        enabled: false
       }
     };
 

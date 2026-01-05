@@ -260,9 +260,9 @@ Session data uploaded for cloud sync feature.
 
 ### Default Behavior
 
-Telemetry is **enabled by default** but can be disabled at any time.
+Telemetry is **disabled by default**. Users must explicitly opt-in to enable telemetry.
 
-### How to Opt-Out
+### How to Opt-In
 
 **Option 1: Config File**
 
@@ -271,7 +271,7 @@ Edit `~/.autohand/config.json`:
 ```json
 {
   "telemetry": {
-    "enabled": false
+    "enabled": true
   }
 }
 ```
@@ -279,31 +279,25 @@ Edit `~/.autohand/config.json`:
 **Option 2: Environment Variable**
 
 ```bash
-AUTOHAND_TELEMETRY=false autohand
+AUTOHAND_TELEMETRY=true autohand
 ```
 
-**Option 3: CLI Flag** (planned)
-
-```bash
-autohand --no-telemetry
-```
-
-### What Happens When Disabled
+### What Happens When Disabled (Default)
 
 - No events are captured or sent
-- Existing queue is preserved but not sent
+- No network requests to telemetry endpoints
 - Session sync is disabled
 - Local session files still created
 
-### Partial Opt-Out
+### Enabling Session Sync
 
-Disable only cloud session sync while keeping analytics:
+Enable both telemetry and cloud session sync:
 
 ```json
 {
   "telemetry": {
     "enabled": true,
-    "enableSessionSync": false
+    "enableSessionSync": true
   }
 }
 ```

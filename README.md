@@ -259,7 +259,7 @@ Configure granular permissions in `~/.autohand/config.json`:
 
 ## Telemetry & Feedback
 
-Opt-in telemetry helps improve Autohand:
+Telemetry is disabled by default. Opt-in to help improve Autohand:
 
 ```json
 {
@@ -268,6 +268,8 @@ Opt-in telemetry helps improve Autohand:
   }
 }
 ```
+
+When enabled, Autohand collects anonymous usage data (no PII, no code content). See [Telemetry Documentation](docs/telemetry.md) for details.
 
 The backend API is available at: https://github.com/autohandai/api
 

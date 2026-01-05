@@ -3,6 +3,9 @@
  * @license Apache-2.0
  */
 
+/** Client type identifier for telemetry events */
+export type ClientType = 'cli' | 'vscode' | 'zed' | 'unknown';
+
 export type TelemetryEventType =
   | 'session_start'
   | 'session_end'
@@ -21,6 +24,8 @@ export interface TelemetryEvent {
   eventData?: Record<string, unknown>;
   deviceId: string;
   sessionId: string;
+  clientType: ClientType;
+  clientVersion?: string;
   cliVersion: string;
   platform: string;
   osVersion?: string;
@@ -53,6 +58,10 @@ export interface TelemetryConfig {
   enableSessionSync: boolean;
   /** Company secret for API authentication */
   companySecret: string;
+  /** Client type (cli, vscode, zed) */
+  clientType: ClientType;
+  /** Client/extension version (for non-CLI clients) */
+  clientVersion?: string;
 }
 
 export interface TelemetryStats {

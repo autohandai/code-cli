@@ -18,6 +18,9 @@ import type {
   GetMessagesParams,
   PermissionResponseParams,
   PermissionAcknowledgedParams,
+  ChangesDecisionParams,
+  GetSkillsRegistryParams,
+  InstallSkillParams,
 } from './types.js';
 import {
   RPC_METHODS,
@@ -172,6 +175,7 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
  * Handle a single line of input (may contain single request or batch)
  */
 async function handleLine(line: string, adapter: RPCAdapter): Promise<void> {
+  process.stderr.write(`[RPC DEBUG] handleLine received: ${line.slice(0, 100)}\n`);
   const parseResult = parseRequest(line);
 
   if (parseResult.type === 'error') {
@@ -252,7 +256,9 @@ async function handleSingleRequest(
       }
 
       case RPC_METHODS.ABORT: {
-        result = adapter.handleAbort(id!);
+        // Abort can be called as notification (no id) for instant response
+        process.stderr.write(`[RPC DEBUG] ABORT received! id=${id}, isNotification=${!shouldRespond}\n`);
+        result = adapter.handleAbort(id ?? null);
         break;
       }
 
@@ -301,6 +307,44 @@ async function handleSingleRequest(
           return null;
         }
         result = adapter.handlePermissionAcknowledged(ackParams.requestId);
+        break;
+      }
+
+      case RPC_METHODS.CHANGES_DECISION: {
+        const decisionParams = params as ChangesDecisionParams | undefined;
+        if (!decisionParams?.batchId || !decisionParams?.action) {
+          if (shouldRespond) {
+            return createErrorResponse(
+              id!,
+              JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+              'Missing required parameters: batchId, action'
+            );
+          }
+          return null;
+        }
+        result = await adapter.handleChangesDecision(id!, decisionParams);
+        break;
+      }
+
+      case RPC_METHODS.GET_SKILLS_REGISTRY: {
+        const registryParams = params as GetSkillsRegistryParams | undefined;
+        result = await adapter.handleGetSkillsRegistry(id!, registryParams);
+        break;
+      }
+
+      case RPC_METHODS.INSTALL_SKILL: {
+        const installParams = params as InstallSkillParams | undefined;
+        if (!installParams?.skillName || !installParams?.scope) {
+          if (shouldRespond) {
+            return createErrorResponse(
+              id!,
+              JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+              'Missing required parameters: skillName, scope'
+            );
+          }
+          return null;
+        }
+        result = await adapter.handleInstallSkill(id!, installParams);
         break;
       }
 
