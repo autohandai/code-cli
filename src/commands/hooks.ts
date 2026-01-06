@@ -24,6 +24,15 @@ const HOOK_EVENTS: HookEvent[] = [
   'permission-request',
   'notification',
   'session-error',
+  // Auto-mode events
+  'automode:start',
+  'automode:iteration',
+  'automode:checkpoint',
+  'automode:pause',
+  'automode:resume',
+  'automode:cancel',
+  'automode:complete',
+  'automode:error',
 ];
 
 // Event descriptions for better UX
@@ -40,6 +49,15 @@ const EVENT_DESCRIPTIONS: Record<HookEvent, string> = {
   'permission-request': 'When permission is requested',
   'notification': 'When notifications are shown',
   'session-error': 'When an error occurs',
+  // Auto-mode events
+  'automode:start': 'When auto-mode loop starts',
+  'automode:iteration': 'Each auto-mode iteration',
+  'automode:checkpoint': 'When auto-mode creates a checkpoint',
+  'automode:pause': 'When auto-mode is paused',
+  'automode:resume': 'When auto-mode is resumed',
+  'automode:cancel': 'When auto-mode is cancelled',
+  'automode:complete': 'When auto-mode completes',
+  'automode:error': 'When auto-mode encounters an error',
 };
 
 // Icons for built-in hooks (matched by script name or description keywords)

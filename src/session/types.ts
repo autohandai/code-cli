@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+export type SessionType = 'interactive' | 'automode';
+
 export interface SessionMetadata {
     sessionId: string;
     createdAt: string;
@@ -16,6 +18,12 @@ export interface SessionMetadata {
     summary?: string;
     status: 'active' | 'completed' | 'crashed';
     exitCode?: number;
+    /** Session type: 'interactive' (default) or 'automode' for autonomous loops */
+    type?: SessionType;
+    /** For automode sessions: the task prompt */
+    automodePrompt?: string;
+    /** For automode sessions: final iteration count */
+    automodeIterations?: number;
 }
 
 export interface SessionMessage {

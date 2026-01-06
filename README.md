@@ -1,10 +1,16 @@
-# Autohand CLI
+# Autohand Code CLI
 
 [![Bun](https://img.shields.io/badge/Bun-%23c61f33?style=flat&logo=bun&logoColor=white)](https://bun.sh)
 
-**An agentic CLI that reads, reasons, and writes code across your entire project. No context switching. No copy-paste.**
+**An coding agentic CLI that reads, reasons, and writes code across your entire project. No context switching. No copy-paste, No you're absolute right!.**
 
-Autohand is an autonomous LLM-powered coding agent that lives in your terminal. It uses the ReAct (Reason + Act) pattern to understand your codebase, plan changes, and execute them with your approval. Built with TypeScript and Bun for blazing-fast performance.
+Autohand Code CLI is an autonomous LLM-powered coding agent that lives in your terminal. It uses the ReAct (Reason + Act) pattern to understand your codebase, plan changes, and execute them with your approval. It's blazing fast, intuitive, and extensible with a modular skill system.
+
+We built with a very minimalistic design philosophy to keep the focus on coding. Just install, run `autohand`, and start giving instructions in natural language. Autohand handles the rest.
+
+Scale Autohand across your team and CI/CD pipelines to automate repetitive coding tasks, enforce code quality, and accelerate development velocity.
+
+![Alt Autohand in the terminal](docs/gif/autohand-intro.gif)
 
 ## Installation
 
@@ -60,6 +66,7 @@ autohand
 ```
 
 Features:
+
 - Type `/` for slash command suggestions
 - Type `@` for file autocomplete (e.g., `@src/index.ts`)
 - Press `ESC` to cancel in-flight requests
@@ -85,19 +92,19 @@ autohand -p "refactor database queries" --dry-run
 
 ### CLI Options
 
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--prompt <text>` | `-p` | Run a single instruction in command mode |
-| `--yes` | `-y` | Auto-confirm risky actions |
-| `--auto-commit` | `-c` | Auto-commit changes after completing tasks |
-| `--dry-run` | | Preview actions without applying mutations |
-| `--model <model>` | | Override the configured LLM model |
-| `--path <path>` | | Workspace path to operate in |
-| `--auto-skill` | | Auto-generate skills based on project analysis |
-| `--unrestricted` | | Run without approval prompts (use with caution) |
-| `--restricted` | | Deny all dangerous operations automatically |
-| `--config <path>` | | Path to config file |
-| `--temperature <value>` | | Sampling temperature for LLM |
+| Option                  | Short | Description                                     |
+| ----------------------- | ----- | ----------------------------------------------- |
+| `--prompt <text>`       | `-p`  | Run a single instruction in command mode        |
+| `--yes`                 | `-y`  | Auto-confirm risky actions                      |
+| `--auto-commit`         | `-c`  | Auto-commit changes after completing tasks      |
+| `--dry-run`             |       | Preview actions without applying mutations      |
+| `--model <model>`       |       | Override the configured LLM model               |
+| `--path <path>`         |       | Workspace path to operate in                    |
+| `--auto-skill`          |       | Auto-generate skills based on project analysis  |
+| `--unrestricted`        |       | Run without approval prompts (use with caution) |
+| `--restricted`          |       | Deny all dangerous operations automatically     |
+| `--config <path>`       |       | Path to config file                             |
+| `--temperature <value>` |       | Sampling temperature for LLM                    |
 
 ## Agent Skills
 
@@ -137,6 +144,7 @@ Generating skills...
 ```
 
 Skills are discovered from:
+
 - `~/.autohand/skills/` - User-level skills
 - `<project>/.autohand/skills/` - Project-level skills
 - Compatible with Codex and Claude skill formats
@@ -145,46 +153,50 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 
 ## Slash Commands
 
-| Command | Description |
-|---------|-------------|
-| `/help` | Display available commands |
-| `/quit` | Exit the session |
-| `/model` | Switch LLM models |
-| `/new` | Start fresh conversation |
-| `/undo` | Revert last changes |
-| `/session` | Show current session details |
-| `/sessions` | List past sessions |
-| `/resume` | Resume a previous session |
-| `/memory` | View/manage stored memories |
-| `/init` | Create `AGENTS.md` file |
-| `/agents` | List sub-agents |
-| `/agents-new` | Create new agent via wizard |
-| `/skills` | List and manage skills |
-| `/skills new` | Create a new skill |
-| `/feedback` | Send feedback |
-| `/formatters` | List code formatters |
-| `/lint` | List code linters |
-| `/completion` | Generate shell completion scripts |
-| `/export` | Export session to markdown/JSON/HTML |
-| `/status` | Show workspace status |
-| `/login` | Authenticate with Autohand API |
-| `/logout` | Sign out |
-| `/permissions` | Manage tool permissions |
+| Command        | Description                          |
+| -------------- | ------------------------------------ |
+| `/help`        | Display available commands           |
+| `/quit`        | Exit the session                     |
+| `/model`       | Switch LLM models                    |
+| `/new`         | Start fresh conversation             |
+| `/undo`        | Revert last changes                  |
+| `/session`     | Show current session details         |
+| `/sessions`    | List past sessions                   |
+| `/resume`      | Resume a previous session            |
+| `/memory`      | View/manage stored memories          |
+| `/init`        | Create `AGENTS.md` file              |
+| `/agents`      | List sub-agents                      |
+| `/agents-new`  | Create new agent via wizard          |
+| `/skills`      | List and manage skills               |
+| `/skills new`  | Create a new skill                   |
+| `/feedback`    | Send feedback                        |
+| `/formatters`  | List code formatters                 |
+| `/lint`        | List code linters                    |
+| `/completion`  | Generate shell completion scripts    |
+| `/export`      | Export session to markdown/JSON/HTML |
+| `/status`      | Show workspace status                |
+| `/login`       | Authenticate with Autohand API       |
+| `/logout`      | Sign out                             |
+| `/permissions` | Manage tool permissions              |
 
 ## Tool System
 
 Autohand includes 40+ tools for autonomous coding:
 
 ### File Operations
+
 `read_file`, `write_file`, `append_file`, `apply_patch`, `search`, `search_replace`, `semantic_search`, `list_tree`, `create_directory`, `delete_path`, `rename_path`, `copy_path`, `multi_file_edit`
 
 ### Git Operations
+
 `git_status`, `git_diff`, `git_commit`, `git_add`, `git_branch`, `git_switch`, `git_merge`, `git_rebase`, `git_cherry_pick`, `git_stash`, `git_fetch`, `git_pull`, `git_push`, `auto_commit`
 
 ### Commands & Dependencies
+
 `run_command`, `custom_command`, `add_dependency`, `remove_dependency`
 
 ### Planning & Memory
+
 `plan`, `todo_write`, `save_memory`, `recall_memory`
 
 ## Configuration
@@ -211,14 +223,14 @@ Create `~/.autohand/config.json`:
 
 ### Supported Providers
 
-| Provider | Config Key | Notes |
-|----------|------------|-------|
+| Provider   | Config Key   | Notes                               |
+| ---------- | ------------ | ----------------------------------- |
 | OpenRouter | `openrouter` | Access to Claude, GPT-4, Grok, etc. |
-| Anthropic | `anthropic` | Direct Claude API access |
-| OpenAI | `openai` | GPT-4 and other models |
-| Ollama | `ollama` | Local models |
-| llama.cpp | `llamacpp` | Local inference |
-| MLX | `mlx` | Apple Silicon optimized |
+| Anthropic  | `anthropic`  | Direct Claude API access            |
+| OpenAI     | `openai`     | GPT-4 and other models              |
+| Ollama     | `ollama`     | Local models                        |
+| llama.cpp  | `llamacpp`   | Local inference                     |
+| MLX        | `mlx`        | Apple Silicon optimized             |
 
 ## Session Management
 

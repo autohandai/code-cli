@@ -28,13 +28,10 @@ import * as hooks from '../commands/hooks.js';
 import * as skills from '../commands/skills.js';
 import * as skillsNew from '../commands/skills-new.js';
 import * as theme from '../commands/theme.js';
+import * as automode from '../commands/automode.js';
 
-export interface SlashCommand {
-  command: string;
-  description: string;
-  implemented: boolean;
-  prd?: string;
-}
+import type { SlashCommand } from './slashCommandTypes.js';
+export type { SlashCommand } from './slashCommandTypes.js';
 
 export const SLASH_COMMANDS: SlashCommand[] = [
   quit.metadata,
@@ -64,4 +61,5 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   skills.installMetadata,
   skillsNew.metadata,
   theme.metadata,
+  automode.metadata,
 ];

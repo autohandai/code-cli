@@ -10,6 +10,7 @@ import type { MemoryManager } from '../memory/MemoryManager.js';
 import type { PermissionManager } from '../permissions/PermissionManager.js';
 import type { HookManager } from './HookManager.js';
 import type { SkillsRegistry } from '../skills/SkillsRegistry.js';
+import type { AutomodeManager } from './AutomodeManager.js';
 import type { LoadedConfig, ProviderName } from '../types.js';
 
 export interface SlashCommandContext {
@@ -40,4 +41,13 @@ export interface SlashCommandContext {
     getTotalTokensUsed?: () => number;
     /** Skills registry for /skills commands */
     skillsRegistry?: SkillsRegistry;
+    /** Auto-mode manager for /automode commands */
+    automodeManager?: AutomodeManager;
+}
+
+export interface SlashCommand {
+  command: string;
+  description: string;
+  implemented: boolean;
+  prd?: string;
 }

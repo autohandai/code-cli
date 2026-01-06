@@ -148,6 +148,108 @@ export interface CommunitySkillsSettings {
   autoBackup?: boolean;
 }
 
+// ============ Auto-Mode Types ============
+
+/** Status of an auto-mode session */
+export type AutomodeStatus = 'running' | 'paused' | 'completed' | 'cancelled' | 'failed';
+
+/** Cancel reason for auto-mode */
+export type AutomodeCancelReason =
+  | 'user_escape'      // ESC key pressed
+  | 'user_cancel'      // /automode cancel command
+  | 'hook_cancel'      // Cancelled via hook
+  | 'rpc_cancel'       // Cancelled via RPC call
+  | 'acp_cancel'       // Cancelled via ACP
+  | 'max_iterations'   // Hit iteration limit
+  | 'max_runtime'      // Hit runtime limit
+  | 'max_cost'         // Hit cost limit
+  | 'circuit_breaker'  // Circuit breaker triggered
+  | 'completion'       // Completion promise detected
+  | 'error';           // Error occurred
+
+/** Auto-mode session state (stored in .autohand/automode.local.md) */
+export interface AutomodeSessionState {
+  /** Session ID */
+  sessionId: string;
+  /** Original prompt */
+  prompt: string;
+  /** Start timestamp */
+  startedAt: string;
+  /** Current iteration */
+  currentIteration: number;
+  /** Maximum iterations */
+  maxIterations: number;
+  /** Current status */
+  status: AutomodeStatus;
+  /** Git branch name */
+  branch?: string;
+  /** Worktree path (if using worktree) */
+  worktreePath?: string;
+  /** Last checkpoint commit */
+  lastCheckpoint?: {
+    commit: string;
+    message: string;
+    timestamp: string;
+  };
+  /** Files created during session */
+  filesCreated: number;
+  /** Files modified during session */
+  filesModified: number;
+  /** Completion promise to detect */
+  completionPromise: string;
+  /** Cancel reason if cancelled */
+  cancelReason?: AutomodeCancelReason;
+  /** Error message if failed */
+  errorMessage?: string;
+}
+
+/** Iteration log entry for changelog */
+export interface AutomodeIterationLog {
+  iteration: number;
+  timestamp: string;
+  actions: string[];
+  checkpoint?: {
+    commit: string;
+    message: string;
+  };
+  tokensUsed?: number;
+  cost?: number;
+}
+
+/** Circuit breaker state */
+export interface AutomodeCircuitBreaker {
+  /** Consecutive iterations with no file changes */
+  noProgressCount: number;
+  /** Consecutive iterations with same error output */
+  sameErrorCount: number;
+  /** Last error hash for comparison */
+  lastErrorHash?: string;
+  /** Consecutive test-only iterations */
+  testOnlyCount: number;
+}
+
+/** Auto-mode settings in config */
+export interface AutomodeSettings {
+  /** Default max iterations (default: 50) */
+  maxIterations?: number;
+  /** Default max runtime in minutes (default: 120) */
+  maxRuntime?: number;
+  /** Default max cost in dollars (default: 10) */
+  maxCost?: number;
+  /** Default checkpoint interval (default: 5) */
+  checkpointInterval?: number;
+  /** Default completion promise text (default: "DONE") */
+  completionPromise?: string;
+  /** Use git worktree by default (default: true) */
+  useWorktree?: boolean;
+  /** Circuit breaker: max no-progress iterations (default: 3) */
+  noProgressThreshold?: number;
+  /** Circuit breaker: max same-error iterations (default: 5) */
+  sameErrorThreshold?: number;
+  /** Circuit breaker: max test-only iterations (default: 3) */
+  testOnlyThreshold?: number;
+}
+
 // ============ Hooks System Types ============
 
 /** Hook events that can be subscribed to */
@@ -163,7 +265,16 @@ export type HookEvent =
   | 'session-start'     // Session begins (startup, resume, clear)
   | 'session-end'       // Session ends (quit, exit)
   | 'permission-request' // Permission dialog shown
-  | 'notification';      // Notification sent to user
+  | 'notification'      // Notification sent to user
+  // Auto-mode events
+  | 'automode:start'    // Auto-mode loop started
+  | 'automode:iteration' // Each iteration of auto-mode loop
+  | 'automode:checkpoint' // Git commit checkpoint made
+  | 'automode:pause'    // Auto-mode loop paused
+  | 'automode:resume'   // Auto-mode loop resumed
+  | 'automode:cancel'   // Auto-mode loop cancelled (trigger to cancel)
+  | 'automode:complete' // Auto-mode loop completed successfully
+  | 'automode:error';   // Auto-mode error occurred
 
 /** Filter to limit when a hook fires */
 export interface HookFilter {
@@ -240,6 +351,8 @@ export interface AutohandConfig {
   communitySkills?: CommunitySkillsSettings;
   /** Hooks system settings */
   hooks?: HooksSettings;
+  /** Auto-mode settings */
+  automode?: AutomodeSettings;
 }
 
 export interface LoadedConfig extends AutohandConfig {
@@ -277,6 +390,21 @@ export interface CLIOptions {
   patch?: boolean;
   /** Output file for patch (default: stdout) */
   output?: string;
+  // Auto-mode options
+  /** Enable auto-mode autonomous loop */
+  autoMode?: string;
+  /** Max iterations for auto-mode (default: 50) */
+  maxIterations?: number;
+  /** Completion promise text to detect (default: "DONE") */
+  completionPromise?: string;
+  /** Disable git worktree isolation */
+  noWorktree?: boolean;
+  /** Checkpoint interval (default: 5) */
+  checkpointInterval?: number;
+  /** Max runtime in minutes (default: 120) */
+  maxRuntime?: number;
+  /** Max API cost in dollars (default: 10) */
+  maxCost?: number;
 }
 
 export interface PromptContext {

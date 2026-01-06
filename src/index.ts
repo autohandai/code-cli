@@ -147,7 +147,15 @@ program
   .option('--patch', 'Generate git patch without applying changes (requires --prompt)', false)
   .option('--output <file>', 'Output file for patch (default: stdout, used with --patch)')
   .option('--mode <mode>', 'Run mode: interactive (default) or rpc', 'interactive')
-  .action(async (opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean }) => {
+  // Auto-mode options
+  .option('--auto-mode <prompt>', 'Start autonomous development loop with the given task')
+  .option('--max-iterations <n>', 'Max auto-mode iterations (default: 50)', parseInt)
+  .option('--completion-promise <text>', 'Completion marker text (default: "DONE")')
+  .option('--no-worktree', 'Disable git worktree isolation in auto-mode')
+  .option('--checkpoint-interval <n>', 'Git commit every N iterations (default: 5)', parseInt)
+  .option('--max-runtime <m>', 'Max runtime in minutes (default: 120)', parseInt)
+  .option('--max-cost <d>', 'Max API cost in dollars (default: 10)', parseFloat)
+  .action(async (opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean }) => {
     // Handle --skill-install flag
     if (opts.skillInstall !== undefined) {
       await runSkillInstall(opts);
@@ -163,6 +171,14 @@ program
     // Handle --patch flag
     if (opts.patch) {
       await runPatchMode(opts);
+      return;
+    }
+
+    // Handle --auto-mode flag
+    if (opts.autoMode) {
+      // Commander's --no-worktree sets opts.worktree to false
+      opts.noWorktree = opts.worktree === false;
+      await runAutoMode(opts);
       return;
     }
 
@@ -608,6 +624,214 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
     console.error(chalk.red(`\nError: ${(error as Error).message}`));
     process.exit(1);
   }
+}
+
+/**
+ * Handle --auto-mode flag to run autonomous development loop
+ */
+async function runAutoMode(opts: CLIOptions): Promise<void> {
+  if (!opts.autoMode) {
+    console.error(chalk.red('Error: --auto-mode requires a task prompt'));
+    process.exit(1);
+  }
+
+  const config = await loadConfig(opts.config);
+  const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
+
+  // Check for dangerous workspace directories
+  const safetyCheck = checkWorkspaceSafety(workspaceRoot);
+  if (!safetyCheck.safe) {
+    printDangerousWorkspaceWarning(workspaceRoot, safetyCheck);
+    process.exit(1);
+  }
+
+  // Override model from CLI if provided
+  if (opts.model) {
+    const providerName = config.provider ?? 'openrouter';
+    if (config[providerName]) {
+      (config as any)[providerName].model = opts.model;
+    }
+  }
+
+  // Override debug mode from CLI if provided
+  if (opts.debug) {
+    config.agent = config.agent ?? {};
+    config.agent.debug = true;
+  }
+
+  // Import auto-mode dependencies
+  const { AutomodeManager, getAutomodeOptions } = await import('./core/AutomodeManager.js');
+  const { HookManager } = await import('./core/HookManager.js');
+  const { SessionManager } = await import('./session/SessionManager.js');
+  const { MemoryManager } = await import('./memory/MemoryManager.js');
+  const readline = await import('readline');
+
+  const llmProvider = ProviderFactory.create(config);
+  const files = new FileActionManager(workspaceRoot);
+
+  // Get model name for session
+  const providerName = config.provider ?? 'openrouter';
+  const modelName = opts.model ?? (config as any)[providerName]?.model ?? 'unknown';
+
+  // Create session manager and session for auto-mode
+  const sessionManager = new SessionManager();
+  await sessionManager.initialize();
+  const session = await sessionManager.createSession(workspaceRoot, modelName);
+  session.metadata.type = 'automode';
+  session.metadata.automodePrompt = opts.autoMode;
+
+  // Create memory manager
+  const memoryManager = new MemoryManager(workspaceRoot);
+
+  // Create hook manager
+  const hookManager = new HookManager({
+    settings: config.hooks ?? { enabled: true, hooks: [] },
+    workspaceRoot,
+  });
+
+  // Create auto-mode manager with session
+  const automodeManager = new AutomodeManager(config, workspaceRoot, hookManager, session, memoryManager);
+
+  // Get auto-mode options
+  const automodeOptions = getAutomodeOptions(opts, config);
+  if (!automodeOptions) {
+    console.error(chalk.red('Error: Failed to parse auto-mode options'));
+    process.exit(1);
+  }
+
+  // Banner
+  printBanner();
+  console.log(chalk.bold.cyan('\n🔄 Auto-Mode: Autonomous Development Loop\n'));
+  console.log(chalk.gray('Task:'), chalk.white(opts.autoMode));
+  console.log(chalk.gray('Max Iterations:'), chalk.cyan(automodeOptions.maxIterations ?? 50));
+  console.log(chalk.gray('Completion Marker:'), chalk.cyan(automodeOptions.completionPromise ?? 'DONE'));
+  console.log(chalk.gray('Worktree Isolation:'), chalk.cyan(automodeOptions.useWorktree !== false ? 'enabled' : 'disabled'));
+  console.log();
+
+  // Set up ESC key handling for cancellation
+  if (process.stdin.isTTY) {
+    readline.emitKeypressEvents(process.stdin);
+    process.stdin.setRawMode(true);
+
+    process.stdin.on('keypress', (_str, key) => {
+      if (key && key.name === 'escape') {
+        console.log(chalk.yellow('\n⚠️  Cancelling auto-mode...'));
+        automodeManager.cancel('user_escape');
+      }
+      // Ctrl+C also cancels
+      if (key && key.ctrl && key.name === 'c') {
+        console.log(chalk.yellow('\n⚠️  Cancelling auto-mode...'));
+        automodeManager.cancel('user_escape');
+        // Restore terminal and exit
+        if (process.stdin.isTTY) {
+          process.stdin.setRawMode(false);
+        }
+        process.exit(0);
+      }
+    });
+  }
+
+  try {
+    // Create agent runtime
+    const runtime: AgentRuntime = {
+      config,
+      workspaceRoot,
+      options: {
+        ...opts,
+        yes: true,  // Auto-confirm in auto-mode
+      }
+    };
+
+    const agent = new AutohandAgent(llmProvider, files, runtime);
+
+    // Define the iteration callback
+    const runIteration = async (
+      iteration: number,
+      prompt: string,
+      abortSignal: AbortSignal
+    ) => {
+      // Build iteration prompt
+      const iterationPrompt = buildIterationPrompt(prompt, iteration);
+
+      // Track results
+      let output = '';
+      let actions: string[] = [];
+      let success = true;
+      let error: string | undefined;
+
+      try {
+        // Run agent for this iteration
+        // Note: We can't easily capture all output, so we track file changes via the files manager
+        await agent.runCommandMode(iterationPrompt);
+
+        // Get pending changes as actions (approximate)
+        actions = ['Executed agent iteration'];
+      } catch (err) {
+        success = false;
+        error = (err as Error).message;
+        console.error(chalk.red(`Iteration error: ${error}`));
+      }
+
+      return {
+        success,
+        actions,
+        output,
+        error,
+      };
+    };
+
+    // Start the auto-mode loop (this runs the main loop internally)
+    await automodeManager.start(automodeOptions, runIteration);
+
+    // Restore terminal
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(false);
+    }
+
+    // Get final state and close session
+    const finalState = automodeManager.getState();
+    if (finalState) {
+      session.metadata.automodeIterations = finalState.currentIteration;
+      const statusText = finalState.status === 'completed' ? 'completed' : `ended (${finalState.status})`;
+      await sessionManager.closeSession(`Auto-mode ${statusText} after ${finalState.currentIteration} iterations: ${opts.autoMode?.slice(0, 50)}...`);
+      console.log(chalk.gray(`\n📁 Session saved: ${session.metadata.sessionId}`));
+    }
+
+    process.exit(finalState?.status === 'completed' ? 0 : 1);
+
+  } catch (error) {
+    // Restore terminal
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(false);
+    }
+
+    // Close session on error
+    await sessionManager.closeSession(`Auto-mode failed: ${(error as Error).message}`);
+
+    console.error(chalk.red(`\nAuto-mode error: ${(error as Error).message}`));
+    process.exit(1);
+  }
+}
+
+/**
+ * Build prompt for each auto-mode iteration
+ */
+function buildIterationPrompt(taskPrompt: string, iteration: number): string {
+  return `# Auto-Mode Task (Iteration ${iteration})
+
+## Original Task
+${taskPrompt}
+
+## Instructions
+You are running in auto-mode, an autonomous development loop. Continue working on the task above.
+
+1. Review your previous work (check git log, file changes, test results)
+2. Identify what remains to be done
+3. Make progress on the task
+4. If the task is complete, output: <promise>DONE</promise>
+
+IMPORTANT: Only output <promise>DONE</promise> when ALL requirements are fully met.
+Do not stop early - keep improving until the task is truly complete.`;
 }
 
 program.parseAsync();

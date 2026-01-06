@@ -192,6 +192,13 @@ export class SlashCommandHandler {
           }
           return theme({ config: this.ctx.config });
         }
+        case '/automode': {
+          const { automode } = await import('../commands/automode.js');
+          return automode({
+            automodeManager: this.ctx.automodeManager,
+            workspaceRoot: this.ctx.workspaceRoot,
+          }, args);
+        }
         default:
           this.printUnsupported(command);
           return null;
