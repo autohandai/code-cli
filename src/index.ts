@@ -10,6 +10,7 @@ import { getProviderConfig, loadConfig, resolveWorkspaceRoot, saveConfig } from 
 import { runStartupChecks, printStartupCheckResults } from './startup/checks.js';
 import { getAuthClient } from './auth/index.js';
 import type { AuthUser, LoadedConfig } from './types.js';
+import { checkForUpdates, type VersionCheckResult } from './utils/versionCheck.js';
 
 /**
  * Get git commit hash (short)
@@ -250,8 +251,15 @@ async function runCLI(options: CLIOptions): Promise<void> {
     // Validate auth on startup (non-blocking)
     const authUser = await validateAuthOnStartup(config);
 
+    // Check for updates (non-blocking, uses cache)
+    const versionCheck = config.ui?.checkForUpdates !== false
+      ? await checkForUpdates(packageJson.version, {
+          checkIntervalHours: config.ui?.updateCheckInterval ?? 24,
+        })
+      : null;
+
     printBanner();
-    printWelcome(runtime, authUser);
+    printWelcome(runtime, authUser, versionCheck);
 
     // Run startup checks
     const checkResults = await runStartupChecks(workspaceRoot);
@@ -316,7 +324,7 @@ function printBanner(): void {
   }
 }
 
-function printWelcome(runtime: AgentRuntime, authUser?: AuthUser): void {
+function printWelcome(runtime: AgentRuntime, authUser?: AuthUser, versionCheck?: VersionCheckResult | null): void {
   if (!process.stdout.isTTY) {
     return;
   }
@@ -329,7 +337,22 @@ function printWelcome(runtime: AgentRuntime, authUser?: AuthUser): void {
     }
   })();
   const dir = runtime.workspaceRoot;
-  console.log(`${chalk.bold('> Autohand')} v${getVersionString()}`);
+
+  // Build version line with update status
+  let versionLine = `${chalk.bold('> Autohand')} v${getVersionString()}`;
+  if (versionCheck) {
+    if (versionCheck.isUpToDate) {
+      versionLine += chalk.green(' ✓ Up to date');
+    } else if (versionCheck.updateAvailable && versionCheck.latestVersion) {
+      versionLine += chalk.yellow(` ⬆ Update available: v${versionCheck.latestVersion}`);
+    }
+  }
+  console.log(versionLine);
+
+  // Show upgrade hint if update available
+  if (versionCheck?.updateAvailable) {
+    console.log(chalk.gray('  ↳ Run: ') + chalk.cyan('curl -fsSL https://autohand.ai/install.sh | sh'));
+  }
 
   // Personalized greeting if logged in
   if (authUser) {

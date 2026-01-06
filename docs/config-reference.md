@@ -176,7 +176,9 @@ OpenAI API configuration.
     "showCompletionNotification": true,
     "showThinking": true,
     "useInkRenderer": false,
-    "terminalBell": true
+    "terminalBell": true,
+    "checkForUpdates": true,
+    "updateCheckInterval": 24
   }
 }
 ```
@@ -190,6 +192,8 @@ OpenAI API configuration.
 | `showThinking` | boolean | `true` | Display LLM's reasoning/thought process |
 | `useInkRenderer` | boolean | `false` | Use Ink-based renderer for flicker-free UI (experimental) |
 | `terminalBell` | boolean | `true` | Ring terminal bell when task completes (shows badge on terminal tab/dock) |
+| `checkForUpdates` | boolean | `true` | Check for CLI updates on startup |
+| `updateCheckInterval` | number | `24` | Hours between update checks (uses cached result within interval) |
 
 Note: `readFileCharLimit` only affects terminal display for `read_file`, `search`, and `search_with_context`. Full content is still sent to the model and stored in tool messages.
 
@@ -234,6 +238,40 @@ To enable:
 ```
 
 Note: This feature is experimental and may have edge cases. The default ora-based UI remains stable and fully functional.
+
+### Update Check
+
+When `checkForUpdates` is enabled (default), Autohand checks for new releases on startup:
+
+```
+> Autohand v0.6.8 (abc1234) ✓ Up to date
+```
+
+If an update is available:
+```
+> Autohand v0.6.7 (abc1234) ⬆ Update available: v0.6.8
+  ↳ Run: curl -fsSL https://autohand.ai/install.sh | sh
+```
+
+How it works:
+- Fetches latest release from GitHub API
+- Caches result in `~/.autohand/version-check.json`
+- Only checks once per `updateCheckInterval` hours (default: 24)
+- Non-blocking: startup continues even if check fails
+
+To disable:
+```json
+{
+  "ui": {
+    "checkForUpdates": false
+  }
+}
+```
+
+Or via environment variable:
+```bash
+export AUTOHAND_SKIP_UPDATE_CHECK=1
+```
 
 ---
 
@@ -844,7 +882,9 @@ When hooks execute, these environment variables are available:
     "autoConfirm": false,
     "showCompletionNotification": true,
     "showThinking": true,
-    "terminalBell": true
+    "terminalBell": true,
+    "checkForUpdates": true,
+    "updateCheckInterval": 24
   },
   "agent": {
     "maxIterations": 100,
@@ -922,6 +962,8 @@ ui:
   showCompletionNotification: true
   showThinking: true
   terminalBell: true
+  checkForUpdates: true
+  updateCheckInterval: 24
 
 agent:
   maxIterations: 100

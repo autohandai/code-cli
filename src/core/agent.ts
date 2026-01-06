@@ -16,7 +16,7 @@ import { saveConfig, getProviderConfig } from '../config.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import { ProviderFactory, ProviderNotConfiguredError } from '../providers/ProviderFactory.js';
 import { readInstruction } from '../ui/inputPrompt.js';
-import { showFilePalette } from '../ui/filePalette.js';
+// showFilePalette is imported dynamically to avoid bundling ink in standalone binary
 import {
   getContextWindow,
   estimateMessagesTokens,
@@ -66,7 +66,8 @@ import { ProjectAnalyzer } from '../skills/autoSkill.js';
 import { AUTOHAND_PATHS } from '../constants.js';
 import { PersistentInput, createPersistentInput } from '../ui/persistentInput.js';
 import { formatToolOutputForDisplay } from '../ui/toolOutput.js';
-import { createInkRenderer, type InkRenderer } from '../ui/ink/InkRenderer.js';
+// Dynamic import for InkRenderer to avoid bundling yoga-wasm in standalone binary
+type InkRenderer = import('../ui/ink/InkRenderer.js').InkRenderer;
 import { PermissionManager } from '../permissions/PermissionManager.js';
 import { HookManager, type HookContext } from './HookManager.js';
 import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
@@ -1504,7 +1505,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
     // Initialize UI (InkRenderer or ora spinner)
     // Pass abort controller for InkRenderer to handle ESC/Ctrl+C
-    this.initializeUI(abortController, () => {
+    await this.initializeUI(abortController, () => {
       if (!canceledByUser) {
         canceledByUser = true;
         this.stopStatusUpdates();
@@ -2808,6 +2809,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
       return normalizedSeed || null;
     }
 
+    // Dynamic import to avoid bundling ink in standalone binary
+    const { showFilePalette } = await import('../ui/filePalette.js');
     const selection = await showFilePalette({
       files: this.workspaceFiles,
       statusLine: this.formatStatusLine(),
@@ -3075,30 +3078,38 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Initialize the UI for a new instruction.
    * Uses InkRenderer when enabled, otherwise falls back to ora spinner.
    */
-  private initializeUI(abortController?: AbortController, onCancel?: () => void): void {
+  private async initializeUI(abortController?: AbortController, onCancel?: () => void): Promise<void> {
     if (this.useInkRenderer && process.stdout.isTTY && process.stdin.isTTY) {
-      // Create and start InkRenderer (only in TTY mode)
-      this.inkRenderer = createInkRenderer({
-        onInstruction: (text) => {
-          // Queue the instruction in InkRenderer (it manages its own queue)
-          this.inkRenderer?.addQueuedInstruction(text);
-        },
-        onEscape: () => {
-          // ESC cancels the current operation
-          if (abortController && !abortController.signal.aborted) {
-            abortController.abort();
-            onCancel?.();
-          }
-        },
-        onCtrlC: () => {
-          // Ctrl+C is handled by InkRenderer (first warns, second exits)
-          // We just need to abort on the second one
-        },
-        enableQueueInput: this.runtime.config.agent?.enableRequestQueue !== false
-      });
-      this.inkRenderer.start();
-      this.inkRenderer.setWorking(true, 'Gathering context...');
-      this.runtime.inkRenderer = this.inkRenderer;
+      // Dynamically import InkRenderer to avoid bundling yoga-wasm in standalone binary
+      try {
+        const { createInkRenderer } = await import('../ui/ink/InkRenderer.js');
+        // Create and start InkRenderer (only in TTY mode)
+        this.inkRenderer = createInkRenderer({
+          onInstruction: (text) => {
+            // Queue the instruction in InkRenderer (it manages its own queue)
+            this.inkRenderer?.addQueuedInstruction(text);
+          },
+          onEscape: () => {
+            // ESC cancels the current operation
+            if (abortController && !abortController.signal.aborted) {
+              abortController.abort();
+              onCancel?.();
+            }
+          },
+          onCtrlC: () => {
+            // Ctrl+C is handled by InkRenderer (first warns, second exits)
+            // We just need to abort on the second one
+          },
+          enableQueueInput: this.runtime.config.agent?.enableRequestQueue !== false
+        });
+        this.inkRenderer.start();
+        this.inkRenderer.setWorking(true, 'Gathering context...');
+        this.runtime.inkRenderer = this.inkRenderer;
+      } catch {
+        // Fall back to ora spinner if ink can't be loaded (e.g., standalone binary)
+        this.useInkRenderer = false;
+        this.initFallbackSpinner();
+      }
     } else if (process.stdout.isTTY) {
       // Use ora spinner (only in TTY mode)
       const spinner = ora({
@@ -3108,6 +3119,19 @@ If lint or tests fail, report the issues but do NOT commit.`;
       this.runtime.spinner = spinner;
     }
     // In non-TTY mode (RPC), skip spinner entirely
+  }
+
+  /**
+   * Initialize fallback ora spinner when InkRenderer can't be loaded.
+   */
+  private initFallbackSpinner(): void {
+    if (process.stdout.isTTY) {
+      const spinner = ora({
+        text: 'Gathering context...',
+        spinner: 'dots'
+      }).start();
+      this.runtime.spinner = spinner;
+    }
   }
 
   /**

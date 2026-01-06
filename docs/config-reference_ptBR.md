@@ -165,7 +165,9 @@ Configuração da API OpenAI.
     "showCompletionNotification": true,
     "showThinking": true,
     "useInkRenderer": false,
-    "terminalBell": true
+    "terminalBell": true,
+    "checkForUpdates": true,
+    "updateCheckInterval": 24
   }
 }
 ```
@@ -179,6 +181,8 @@ Configuração da API OpenAI.
 | `showThinking` | boolean | `true` | Exibir o raciocínio/processo de pensamento do LLM |
 | `useInkRenderer` | boolean | `false` | Usar renderizador baseado em Ink para UI sem flicker (experimental) |
 | `terminalBell` | boolean | `true` | Tocar sineta do terminal quando a tarefa terminar (mostra badge na aba/dock) |
+| `checkForUpdates` | boolean | `true` | Verificar atualizações da CLI na inicialização |
+| `updateCheckInterval` | number | `24` | Horas entre verificações de atualização (usa resultado em cache dentro do intervalo) |
 
 Nota: `readFileCharLimit` afeta apenas a exibição no terminal para `read_file`, `search` e `search_with_context`. O conteúdo completo ainda é enviado ao modelo e armazenado nas mensagens de ferramentas.
 
@@ -223,6 +227,40 @@ Para habilitar:
 ```
 
 Nota: Este recurso é experimental e pode ter casos extremos. A UI padrão baseada em ora permanece estável e totalmente funcional.
+
+### Verificação de Atualização
+
+Quando `checkForUpdates` está habilitado (padrão), o Autohand verifica novas versões na inicialização:
+
+```
+> Autohand v0.6.8 (abc1234) ✓ Up to date
+```
+
+Se uma atualização estiver disponível:
+```
+> Autohand v0.6.7 (abc1234) ⬆ Update available: v0.6.8
+  ↳ Run: curl -fsSL https://autohand.ai/install.sh | sh
+```
+
+Como funciona:
+- Busca a última versão na API do GitHub
+- Armazena resultado em cache em `~/.autohand/version-check.json`
+- Verifica apenas uma vez a cada `updateCheckInterval` horas (padrão: 24)
+- Não-bloqueante: a inicialização continua mesmo se a verificação falhar
+
+Para desabilitar:
+```json
+{
+  "ui": {
+    "checkForUpdates": false
+  }
+}
+```
+
+Ou via variável de ambiente:
+```bash
+export AUTOHAND_SKIP_UPDATE_CHECK=1
+```
 
 ---
 
@@ -465,7 +503,9 @@ Também pode ser definido via variáveis de ambiente:
     "autoConfirm": false,
     "showCompletionNotification": true,
     "showThinking": true,
-    "terminalBell": true
+    "terminalBell": true,
+    "checkForUpdates": true,
+    "updateCheckInterval": 24
   },
   "agent": {
     "maxIterations": 100,
@@ -525,6 +565,8 @@ ui:
   showCompletionNotification: true
   showThinking: true
   terminalBell: true
+  checkForUpdates: true
+  updateCheckInterval: 24
 
 agent:
   maxIterations: 100

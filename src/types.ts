@@ -61,6 +61,10 @@ export interface UISettings {
   useInkRenderer?: boolean;
   /** Ring terminal bell when task completes - shows badge on terminal tab (default: true) */
   terminalBell?: boolean;
+  /** Check for CLI updates on startup (default: true) */
+  checkForUpdates?: boolean;
+  /** Hours between update checks (default: 24) */
+  updateCheckInterval?: number;
 }
 
 export interface AgentSettings {

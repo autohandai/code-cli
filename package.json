@@ -3,6 +3,14 @@
   "version": "0.6.9",
   "licenses": "SEE LICENSE IN LICENSE",
   "description": "Autohand interactive coding agent CLI powered by LLMs.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/autohandai/code-cli.git"
+  },
+  "homepage": "https://github.com/autohandai/code-cli#readme",
+  "bugs": {
+    "url": "https://github.com/autohandai/code-cli/issues"
+  },
   "type": "module",
   "bin": {
     "autohand": "dist/index.js"
@@ -50,6 +58,7 @@
     "open": "^10.1.0",
     "ora": "^9.0.0",
     "react": "^18.2.0",
+    "react-devtools-core": "^7.0.1",
     "terminal-link": "^3.0.0",
     "yaml": "^2.8.2",
     "zod": "^4.1.12"
