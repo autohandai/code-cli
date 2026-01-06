@@ -11,6 +11,7 @@
 Autohand CLI includes an optional telemetry system designed to help improve the product while respecting user privacy. This document outlines what data is collected, how it's handled, and how users can control their data.
 
 **Guiding Principles:**
+
 1. **Privacy First** - No personally identifiable information (PII) is ever collected
 2. **Transparency** - Users know exactly what's collected
 3. **User Control** - Easy opt-out, data deletion on request
@@ -22,13 +23,13 @@ Autohand CLI includes an optional telemetry system designed to help improve the 
 
 ### What We Collect
 
-| Category | Data Points | Purpose |
-|----------|-------------|---------|
-| **Session** | Start/end time, duration, status | Understand usage patterns |
-| **Tools** | Which tools used, success/failure, duration | Improve tool reliability |
-| **Errors** | Error type, sanitized message | Fix bugs faster |
-| **Commands** | Slash commands used | Prioritize feature development |
-| **Environment** | OS, Node version, CLI version | Ensure compatibility |
+| Category        | Data Points                                 | Purpose                        |
+| --------------- | ------------------------------------------- | ------------------------------ |
+| **Session**     | Start/end time, duration, status            | Understand usage patterns      |
+| **Tools**       | Which tools used, success/failure, duration | Improve tool reliability       |
+| **Errors**      | Error type, sanitized message               | Fix bugs faster                |
+| **Commands**    | Slash commands used                         | Prioritize feature development |
+| **Environment** | OS, Node version, CLI version               | Ensure compatibility           |
 
 ### What We Do NOT Collect
 
@@ -120,6 +121,7 @@ Triggered on unexpected errors.
 ```
 
 **Stack Trace Sanitization**:
+
 - `/Users/<username>/` → `/Users/***/`
 - `/home/<username>/` → `/home/***/`
 - `C:\Users\<username>\` → `C:\Users\***\`
@@ -240,13 +242,13 @@ Session data uploaded for cloud sync feature.
 
 ### Event Batching
 
-| Setting | Value | Configurable |
-|---------|-------|--------------|
-| Batch size | 20 events | No |
-| Flush interval | 60 seconds | No |
-| Max queue size | 500 events | No |
-| Retry attempts | 3 | No |
-| Retry backoff | 1s, 2s, 3s | No |
+| Setting        | Value      | Configurable |
+| -------------- | ---------- | ------------ |
+| Batch size     | 20 events  | No           |
+| Flush interval | 60 seconds | No           |
+| Max queue size | 500 events | No           |
+| Retry attempts | 3          | No           |
+| Retry backoff  | 1s, 2s, 3s | No           |
 
 ### Network Behavior
 
@@ -325,19 +327,19 @@ Enable both telemetry and cloud session sync:
 
 ### On-Device
 
-| Data | Location | Retention |
-|------|----------|-----------|
-| Event queue | `~/.autohand/telemetry/queue.json` | Until synced |
+| Data               | Location                                        | Retention             |
+| ------------------ | ----------------------------------------------- | --------------------- |
+| Event queue        | `~/.autohand/telemetry/queue.json`              | Until synced          |
 | Session sync queue | `~/.autohand/telemetry/session-sync-queue.json` | Until synced (max 10) |
-| Device ID | `~/.autohand/device-id` | Permanent |
+| Device ID          | `~/.autohand/device-id`                         | Permanent             |
 
 ### Server-Side
 
-| Data | Storage | Retention |
-|------|---------|-----------|
-| Telemetry events | D1 + R2 | 90 days |
-| Session data | R2 | 90 days |
-| Aggregated metrics | D1 | Indefinite |
+| Data               | Storage | Retention  |
+| ------------------ | ------- | ---------- |
+| Telemetry events   | D1 + R2 | 90 days    |
+| Session data       | R2      | 90 days    |
+| Aggregated metrics | D1      | Indefinite |
 
 ---
 
@@ -352,18 +354,18 @@ Enable both telemetry and cloud session sync:
 
 ### Enterprise (Planned)
 
-| Feature | Description |
-|---------|-------------|
-| **Private Telemetry Endpoint** | Self-hosted API for complete data control |
-| **Data Residency** | Choose region for data storage (EU, US, APAC) |
-| **Extended Retention** | Custom retention periods up to 2 years |
-| **Audit Logs** | Detailed logs of all data access |
-| **SSO Integration** | Link telemetry to enterprise identity |
-| **Team Analytics** | Aggregated usage across team members |
-| **Custom Dashboards** | Build custom analytics views |
-| **Export API** | Programmatic access to raw telemetry |
-| **Compliance Reports** | SOC2, GDPR, HIPAA compliance documentation |
-| **Data Deletion API** | Programmatic GDPR deletion requests |
+| Feature                        | Description                                   |
+| ------------------------------ | --------------------------------------------- |
+| **Private Telemetry Endpoint** | Self-hosted API for complete data control     |
+| **Data Residency**             | Choose region for data storage (EU, US, APAC) |
+| **Extended Retention**         | Custom retention periods up to 2 years        |
+| **Audit Logs**                 | Detailed logs of all data access              |
+| **SSO Integration**            | Link telemetry to enterprise identity         |
+| **Team Analytics**             | Aggregated usage across team members          |
+| **Custom Dashboards**          | Build custom analytics views                  |
+| **Export API**                 | Programmatic access to raw telemetry          |
+| **Compliance Reports**         | SOC2, GDPR, HIPAA compliance documentation    |
+| **Data Deletion API**          | Programmatic GDPR deletion requests           |
 
 ### Enterprise Configuration
 
@@ -396,11 +398,11 @@ Enable both telemetry and cloud session sync:
 
 ### Data Processing
 
-| Role | Entity |
-|------|--------|
-| Data Controller | Autohand AI LLC |
-| Data Processor | Cloudflare (hosting) |
-| Sub-processors | None |
+| Role            | Entity               |
+| --------------- | -------------------- |
+| Data Controller | Autohand AI LLC      |
+| Data Processor  | Cloudflare (hosting) |
+| Sub-processors  | None                 |
 
 ### Security Measures
 
@@ -446,12 +448,12 @@ sudo tcpdump -i any host api.autohand.ai
 
 ## Changelog
 
-| Date | Change |
-|------|--------|
+| Date    | Change                                  |
+| ------- | --------------------------------------- |
 | 2024-12 | Initial telemetry system implementation |
-| 2024-12 | Added offline batching and sync |
-| 2024-12 | Added session cloud sync |
-| 2024-12 | Added enterprise feature planning |
+| 2024-12 | Added offline batching and sync         |
+| 2024-12 | Added session cloud sync                |
+| 2024-12 | Added enterprise feature planning       |
 
 ---
 
@@ -460,8 +462,8 @@ sudo tcpdump -i any host api.autohand.ai
 For telemetry-related questions or data requests:
 
 - **Email**: privacy@autohand.ai
-- **GitHub**: https://github.com/autohand/cli/issues
+- **GitHub**: https://github.com/autohandai/code-cli/issues
 
 ---
 
-*This document is part of the Autohand CLI open-source project and is subject to the Apache-2.0 license.*
+_This document is part of the Autohand CLI open-source project and is subject to the Apache-2.0 license._

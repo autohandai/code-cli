@@ -10,10 +10,10 @@ import type {
   LLMUsage,
   OpenRouterSettings,
   NetworkSettings,
-  FunctionDefinition
-} from './types.js';
+  FunctionDefinition,
+} from "./types.js";
 
-const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
+const DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_MAX_RETRIES = 3;
 const MAX_ALLOWED_RETRIES = 5;
 const DEFAULT_RETRY_DELAY = 1000;
@@ -21,16 +21,16 @@ const DEFAULT_TIMEOUT = 30000;
 
 /** User-friendly error messages that hide raw provider errors */
 const FRIENDLY_ERRORS: Record<number, string> = {
-  400: 'The request was malformed. This often happens when the context is too long. Try /undo to remove recent turns or /new to start fresh.',
-  401: 'Authentication failed. Please verify your API key in ~/.autohand/config.json.',
-  402: 'Payment required. Please check your account balance or billing settings.',
-  403: 'Access denied. Your API key may not have permission for this model.',
-  404: 'The requested model was not found. Use /model to select a different one.',
-  429: 'Rate limit exceeded. Please wait a moment and try again, or choose a different model.',
-  500: 'The AI service encountered an internal error. Please try again later.',
-  502: 'The AI service is temporarily unavailable. Please try again in a few moments.',
-  503: 'The AI service is currently overloaded. Please try again later.',
-  504: 'The request timed out. The AI service may be experiencing high load.',
+  400: "The request was malformed. This often happens when the context is too long. Try /undo to remove recent turns or /new to start fresh.",
+  401: "Authentication failed. Please verify your API key in ~/.autohand/config.json.",
+  402: "Payment required. Please check your account balance or billing settings.",
+  403: "Access denied. Your API key may not have permission for this model.",
+  404: "The requested model was not found. Use /model to select a different one.",
+  429: "Rate limit exceeded. Please wait a moment and try again, or choose a different model.",
+  500: "The AI service encountered an internal error. Please try again later.",
+  502: "The AI service is temporarily unavailable. Please try again in a few moments.",
+  503: "The AI service is currently overloaded. Please try again later.",
+  504: "The request timed out. The AI service may be experiencing high load.",
 };
 
 export class OpenRouterClient {
@@ -42,13 +42,17 @@ export class OpenRouterClient {
   private readonly timeout: number;
 
   constructor(settings: OpenRouterSettings, networkSettings?: NetworkSettings) {
-    this.apiKey = settings.apiKey ?? '';
+    this.apiKey = settings.apiKey ?? "";
     this.baseUrl = settings.baseUrl ?? DEFAULT_BASE_URL;
     this.defaultModel = settings.model;
 
     // Network settings with sensible defaults and max limits
-    const configuredRetries = networkSettings?.maxRetries ?? DEFAULT_MAX_RETRIES;
-    this.maxRetries = Math.min(Math.max(0, configuredRetries), MAX_ALLOWED_RETRIES);
+    const configuredRetries =
+      networkSettings?.maxRetries ?? DEFAULT_MAX_RETRIES;
+    this.maxRetries = Math.min(
+      Math.max(0, configuredRetries),
+      MAX_ALLOWED_RETRIES
+    );
     this.retryDelay = networkSettings?.retryDelay ?? DEFAULT_RETRY_DELAY;
     this.timeout = networkSettings?.timeout ?? DEFAULT_TIMEOUT;
   }
@@ -62,19 +66,19 @@ export class OpenRouterClient {
       model: request.model ?? this.defaultModel,
       messages: request.messages,
       temperature: request.temperature ?? 0.2,
-      max_tokens: request.maxTokens ?? 16000,  // Increased from 1000 to allow large file generation
-      stream: request.stream ?? false
+      max_tokens: request.maxTokens ?? 16000, // Increased from 1000 to allow large file generation
+      stream: request.stream ?? false,
     };
 
     // Add function calling support if tools are provided
     if (request.tools && request.tools.length > 0) {
       payload.tools = request.tools.map((tool: FunctionDefinition) => ({
-        type: 'function',
+        type: "function",
         function: {
           name: tool.name,
           description: tool.description,
-          parameters: tool.parameters ?? { type: 'object', properties: {} }
-        }
+          parameters: tool.parameters ?? { type: "object", properties: {} },
+        },
       }));
 
       // Set tool_choice based on request
@@ -84,9 +88,9 @@ export class OpenRouterClient {
     }
 
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://github.com/autohand/cli',
-      'X-Title': 'autohand-cli'
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://github.com/autohandai/code-cli",
+      "X-Title": "autohand-code-cli",
     };
     if (this.apiKey) {
       headers.Authorization = `Bearer ${this.apiKey}`;
@@ -101,8 +105,8 @@ export class OpenRouterClient {
       const sizeMB = (payloadSizeBytes / (1024 * 1024)).toFixed(2);
       throw new Error(
         `Request payload too large (${sizeMB}MB). ` +
-        `This usually happens when the conversation history grows too long. ` +
-        `Try using /undo to remove recent turns or /new to start fresh.`
+          `This usually happens when the conversation history grows too long. ` +
+          `Try using /undo to remove recent turns or /new to start fresh.`
       );
     }
 
@@ -110,7 +114,12 @@ export class OpenRouterClient {
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       try {
-        const response = await this.makeRequest(payload, headers, request.signal, payloadJson);
+        const response = await this.makeRequest(
+          payload,
+          headers,
+          request.signal,
+          payloadJson
+        );
         return response;
       } catch (error) {
         lastError = error as Error;
@@ -129,7 +138,10 @@ export class OpenRouterClient {
     }
 
     // All retries exhausted
-    throw lastError ?? new Error('Failed to communicate with the AI service. Please try again.');
+    throw (
+      lastError ??
+      new Error("Failed to communicate with the AI service. Please try again.")
+    );
   }
 
   private async makeRequest(
@@ -143,7 +155,10 @@ export class OpenRouterClient {
     try {
       // Create timeout controller
       const timeoutController = new AbortController();
-      const timeoutId = setTimeout(() => timeoutController.abort(), this.timeout);
+      const timeoutId = setTimeout(
+        () => timeoutController.abort(),
+        this.timeout
+      );
 
       // Combine user signal with timeout
       const combinedSignal = signal
@@ -152,10 +167,10 @@ export class OpenRouterClient {
 
       try {
         response = await fetch(`${this.baseUrl}/chat/completions`, {
-          method: 'POST',
+          method: "POST",
           headers,
           body: preSerializedBody ?? JSON.stringify(payload),
-          signal: combinedSignal
+          signal: combinedSignal,
         });
       } finally {
         clearTimeout(timeoutId);
@@ -164,18 +179,20 @@ export class OpenRouterClient {
       const err = error as Error;
 
       // User cancelled
-      if (err.name === 'AbortError' && signal?.aborted) {
-        throw new Error('Request cancelled.');
+      if (err.name === "AbortError" && signal?.aborted) {
+        throw new Error("Request cancelled.");
       }
 
       // Timeout
-      if (err.name === 'AbortError') {
-        throw new Error('Request timed out. The AI service may be experiencing high load.');
+      if (err.name === "AbortError") {
+        throw new Error(
+          "Request timed out. The AI service may be experiencing high load."
+        );
       }
 
       // Network error - friendly message
       throw new Error(
-        'Unable to connect to the AI service. Please check your internet connection.'
+        "Unable to connect to the AI service. Please check your internet connection."
       );
     }
 
@@ -185,7 +202,7 @@ export class OpenRouterClient {
 
     const json = (await response.json()) as any;
     const message = json?.choices?.[0]?.message;
-    const text = message?.content ?? '';
+    const text = message?.content ?? "";
     const finishReason = json?.choices?.[0]?.finish_reason;
 
     // Parse tool calls if present
@@ -194,16 +211,20 @@ export class OpenRouterClient {
       toolCalls = message.tool_calls.map((tc: any) => {
         const rawArgs = tc.function?.arguments;
         // Debug log to see what the API actually returned
-        if (!rawArgs || rawArgs === '{}' || rawArgs === '') {
-          console.error(`[DEBUG] Tool "${tc.function?.name}" raw arguments from API: "${rawArgs}" (type: ${typeof rawArgs})`);
+        if (!rawArgs || rawArgs === "{}" || rawArgs === "") {
+          console.error(
+            `[DEBUG] Tool "${
+              tc.function?.name
+            }" raw arguments from API: "${rawArgs}" (type: ${typeof rawArgs})`
+          );
         }
         return {
           id: tc.id,
-          type: 'function' as const,
+          type: "function" as const,
           function: {
-            name: tc.function?.name ?? '',
-            arguments: rawArgs ?? '{}'
-          }
+            name: tc.function?.name ?? "",
+            arguments: rawArgs ?? "{}",
+          },
         };
       });
     }
@@ -214,18 +235,18 @@ export class OpenRouterClient {
       usage = {
         promptTokens: json.usage.prompt_tokens ?? 0,
         completionTokens: json.usage.completion_tokens ?? 0,
-        totalTokens: json.usage.total_tokens ?? 0
+        totalTokens: json.usage.total_tokens ?? 0,
       };
     }
 
     return {
-      id: json.id ?? 'autohand-local',
+      id: json.id ?? "autohand-local",
       created: json.created ?? Date.now(),
       content: text,
       toolCalls,
-      finishReason: finishReason as LLMResponse['finishReason'],
+      finishReason: finishReason as LLMResponse["finishReason"],
       usage,
-      raw: json
+      raw: json,
     };
   }
 
@@ -233,11 +254,11 @@ export class OpenRouterClient {
     const status = response.status;
 
     // Try to get the actual error message from the response
-    let errorDetail = '';
+    let errorDetail = "";
     try {
-      const body = await response.json() as any;
-      errorDetail = body?.error?.message || body?.error || body?.message || '';
-      if (typeof errorDetail === 'object') {
+      const body = (await response.json()) as any;
+      errorDetail = body?.error?.message || body?.error || body?.message || "";
+      if (typeof errorDetail === "object") {
         errorDetail = JSON.stringify(errorDetail);
       }
     } catch {
@@ -252,17 +273,20 @@ export class OpenRouterClient {
     // Return user-friendly message with details when available
     const friendlyMessage = FRIENDLY_ERRORS[status];
     if (friendlyMessage) {
-      return errorDetail ? `${friendlyMessage}\n${errorDetail}` : friendlyMessage;
+      return errorDetail
+        ? `${friendlyMessage}\n${errorDetail}`
+        : friendlyMessage;
     }
 
     // For unknown errors, include status and details
     if (status >= 500) {
-      const base = 'The AI service is temporarily unavailable. Please try again later.';
+      const base =
+        "The AI service is temporarily unavailable. Please try again later.";
       return errorDetail ? `${base}\n(${status}: ${errorDetail})` : base;
     }
 
     if (status >= 400) {
-      const base = 'The request could not be processed.';
+      const base = "The request could not be processed.";
       return errorDetail
         ? `${base} (${status}: ${errorDetail})`
         : `${base} (HTTP ${status}) Please try again or adjust your prompt.`;
@@ -270,41 +294,44 @@ export class OpenRouterClient {
 
     return errorDetail
       ? `An unexpected error occurred: ${errorDetail}`
-      : 'An unexpected error occurred. Please try again.';
+      : "An unexpected error occurred. Please try again.";
   }
 
   private isNonRetryableError(error: Error): boolean {
     const message = error.message.toLowerCase();
 
     // Don't retry on user cancellation
-    if (message.includes('cancelled') || message.includes('aborted')) {
+    if (message.includes("cancelled") || message.includes("aborted")) {
       return true;
     }
 
     // Don't retry auth errors
-    if (message.includes('authentication') || message.includes('api key')) {
+    if (message.includes("authentication") || message.includes("api key")) {
       return true;
     }
 
     // Don't retry payment/access errors
-    if (message.includes('payment') || message.includes('access denied')) {
+    if (message.includes("payment") || message.includes("access denied")) {
       return true;
     }
 
     // Don't retry model not found
-    if (message.includes('not found')) {
+    if (message.includes("not found")) {
       return true;
     }
 
     return false;
   }
 
-  private combineSignals(signal1: AbortSignal, signal2: AbortSignal): AbortSignal {
+  private combineSignals(
+    signal1: AbortSignal,
+    signal2: AbortSignal
+  ): AbortSignal {
     const controller = new AbortController();
 
     const abort = () => controller.abort();
-    signal1.addEventListener('abort', abort);
-    signal2.addEventListener('abort', abort);
+    signal1.addEventListener("abort", abort);
+    signal2.addEventListener("abort", abort);
 
     if (signal1.aborted || signal2.aborted) {
       controller.abort();
@@ -314,6 +341,6 @@ export class OpenRouterClient {
   }
 
   private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

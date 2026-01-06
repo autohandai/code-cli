@@ -163,6 +163,28 @@ OpenAI API configuration.
 | `defaultRoot` | string | Current directory | Default workspace when none specified |
 | `allowDangerousOps` | boolean | `false` | Allow destructive operations without confirmation |
 
+### Workspace Safety
+
+Autohand automatically blocks operation in dangerous directories to prevent accidental damage:
+
+- **Filesystem roots** (`/`, `C:\`, `D:\`, etc.)
+- **Home directories** (`~`, `/Users/<user>`, `/home/<user>`, `C:\Users\<user>`)
+- **System directories** (`/etc`, `/var`, `/System`, `C:\Windows`, etc.)
+- **WSL Windows mounts** (`/mnt/c`, `/mnt/c/Users/<user>`)
+
+This check cannot be bypassed. If you try to run autohand in a dangerous directory, you'll see an error and must specify a safe project directory.
+
+```bash
+# This will be blocked
+cd ~ && autohand
+# Error: Unsafe Workspace Directory
+
+# This works
+cd ~/projects/my-app && autohand
+```
+
+See [Workspace Safety](./workspace-safety.md) for full details.
+
 ---
 
 ## UI Settings
@@ -283,7 +305,8 @@ Control agent behavior and iteration limits.
 {
   "agent": {
     "maxIterations": 100,
-    "enableRequestQueue": true
+    "enableRequestQueue": true,
+    "debug": false
   }
 }
 ```
@@ -292,6 +315,17 @@ Control agent behavior and iteration limits.
 |-------|------|---------|-------------|
 | `maxIterations` | number | `100` | Maximum tool iterations per user request before stopping |
 | `enableRequestQueue` | boolean | `true` | Allow users to type and queue requests while agent is working |
+| `debug` | boolean | `false` | Enable verbose debug output (logs agent internal state to stderr) |
+
+### Debug Mode
+
+Enable debug mode to see verbose logging of agent internal state (react loop iterations, prompt building, session details). Output goes to stderr to avoid interfering with normal output.
+
+Three ways to enable debug mode (in order of precedence):
+
+1. **CLI flag**: `autohand -d` or `autohand --debug`
+2. **Environment variable**: `AUTOHAND_DEBUG=1`
+3. **Config file**: Set `agent.debug: true`
 
 ### Request Queue
 
@@ -888,7 +922,8 @@ When hooks execute, these environment variables are available:
   },
   "agent": {
     "maxIterations": 100,
-    "enableRequestQueue": true
+    "enableRequestQueue": true,
+    "debug": false
   },
   "permissions": {
     "mode": "interactive",
@@ -968,6 +1003,7 @@ ui:
 agent:
   maxIterations: 100
   enableRequestQueue: true
+  debug: false
 
 permissions:
   mode: interactive
@@ -1060,6 +1096,7 @@ These flags override config file settings:
 | `--temperature <n>` | Set temperature (0-1) |
 | `--yes` | Auto-confirm prompts |
 | `--dry-run` | Preview without executing |
+| `-d, --debug` | Enable verbose debug output |
 | `--unrestricted` | No approval prompts |
 | `--restricted` | Deny dangerous operations |
 | `--permissions` | Display current permission settings and exit |

@@ -76,6 +76,8 @@ export interface AgentSettings {
   sessionRetryLimit?: number;
   /** Delay in milliseconds between retries (default: 1000) */
   sessionRetryDelay?: number;
+  /** Enable debug output (default: false) */
+  debug?: boolean;
 }
 
 export interface TelemetrySettings {
@@ -254,6 +256,7 @@ export interface CLIOptions {
   path?: string;
   yes?: boolean;
   dryRun?: boolean;
+  debug?: boolean;
   model?: string;
   config?: string;
   temperature?: number;

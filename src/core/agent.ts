@@ -1767,13 +1767,14 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async runReactLoop(abortController: AbortController): Promise<void> {
-    process.stderr.write(`[AGENT DEBUG] runReactLoop started\n`);
+    const debugMode = this.runtime.config.agent?.debug === true || process.env.AUTOHAND_DEBUG === '1';
+    if (debugMode) process.stderr.write(`[AGENT DEBUG] runReactLoop started\n`);
     // Configurable iteration limit (default 100) - context management handles memory
     const maxIterations = this.runtime.config.agent?.maxIterations ?? 100;
 
     // Get all function definitions for native tool calling
     const allTools = this.toolManager.toFunctionDefinitions();
-    process.stderr.write(`[AGENT DEBUG] Loaded ${allTools.length} tools, maxIterations=${maxIterations}\n`);
+    if (debugMode) process.stderr.write(`[AGENT DEBUG] Loaded ${allTools.length} tools, maxIterations=${maxIterations}\n`);
 
     // Start status updates for the main loop
     this.startStatusUpdates();
@@ -1784,7 +1785,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
       // Check for abort at the start of each iteration
       if (abortController.signal.aborted) {
-        process.stderr.write('[AGENT DEBUG] Abort detected at loop start, breaking\n');
+        if (debugMode) process.stderr.write('[AGENT DEBUG] Abort detected at loop start, breaking\n');
         break;
       }
 
@@ -1837,7 +1838,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       // Get messages with images included for multimodal support
       const messagesWithImages = this.getMessagesWithImages();
 
-      process.stderr.write(`[AGENT DEBUG] Calling LLM with ${messagesWithImages.length} messages, ${tools.length} tools\n`);
+      if (debugMode) process.stderr.write(`[AGENT DEBUG] Calling LLM with ${messagesWithImages.length} messages, ${tools.length} tools\n`);
 
       let completion;
       try {
@@ -1850,12 +1851,12 @@ If lint or tests fail, report the issues but do NOT commit.`;
           toolChoice: tools.length > 0 ? 'auto' : undefined,
           maxTokens: 16000  // Allow large outputs for file generation
         });
-        process.stderr.write(`[AGENT DEBUG] LLM returned: content length=${completion.content?.length ?? 0}, toolCalls=${completion.toolCalls?.length ?? 0}\n`);
+        if (debugMode) process.stderr.write(`[AGENT DEBUG] LLM returned: content length=${completion.content?.length ?? 0}, toolCalls=${completion.toolCalls?.length ?? 0}\n`);
       } catch (llmError) {
         const errMsg = llmError instanceof Error ? llmError.message : String(llmError);
         const errStack = llmError instanceof Error ? llmError.stack : '';
-        process.stderr.write(`[AGENT DEBUG] LLM ERROR: ${errMsg}\n`);
-        process.stderr.write(`[AGENT DEBUG] LLM STACK: ${errStack}\n`);
+        if (debugMode) process.stderr.write(`[AGENT DEBUG] LLM ERROR: ${errMsg}\n`);
+        if (debugMode) process.stderr.write(`[AGENT DEBUG] LLM STACK: ${errStack}\n`);
         throw llmError;
       }
 
@@ -1867,7 +1868,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       }
 
       const payload = this.parseAssistantResponse(completion);
-      process.stderr.write(`[AGENT DEBUG] Parsed payload: finalResponse=${!!payload.finalResponse}, thought=${!!payload.thought}, toolCalls=${payload.toolCalls?.length ?? 0}\n`);
+      if (debugMode) process.stderr.write(`[AGENT DEBUG] Parsed payload: finalResponse=${!!payload.finalResponse}, thought=${!!payload.thought}, toolCalls=${payload.toolCalls?.length ?? 0}\n`);
       const assistantMessage: LLMMessage = { role: 'assistant', content: completion.content };
       if (completion.toolCalls?.length) {
         assistantMessage.tool_calls = completion.toolCalls;
@@ -1877,7 +1878,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       this.updateContextUsage(this.conversation.history(), tools);
 
       // Debug: show what the model returned (helps diagnose response issues)
-      if (process.env.AUTOHAND_DEBUG) {
+      if (debugMode) {
         console.log(chalk.yellow(`\n[DEBUG] Iteration ${iteration}:`));
         console.log(chalk.yellow(`  - toolCalls: ${payload.toolCalls?.length ?? 0}`));
         console.log(chalk.yellow(`  - thought: ${payload.thought?.slice(0, 100) || '(none)'}`));
@@ -2067,7 +2068,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
         // Check for abort after tool execution before continuing
         if (abortController.signal.aborted) {
-          process.stderr.write('[AGENT DEBUG] Abort detected after tools, breaking\n');
+          if (debugMode) process.stderr.write('[AGENT DEBUG] Abort detected after tools, breaking\n');
           break;
         }
 
@@ -2129,7 +2130,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
         if (consecutiveEmpty >= 3) {
           // After 3 retries, force a fallback and break out
-          process.stderr.write(`[AGENT DEBUG] Exiting after 3 consecutive empty responses\n`);
+          if (debugMode) process.stderr.write(`[AGENT DEBUG] Exiting after 3 consecutive empty responses\n`);
           console.log(chalk.yellow('\n⚠ Model not providing response after multiple attempts. Showing available context.'));
           const fallback = payload.thought || 'The model did not provide a clear response. Please try rephrasing your question.';
           if (this.inkRenderer) {

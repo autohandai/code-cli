@@ -8,6 +8,7 @@ import { execSync } from 'node:child_process';
 import packageJson from '../package.json' with { type: 'json' };
 import { getProviderConfig, loadConfig, resolveWorkspaceRoot, saveConfig } from './config.js';
 import { runStartupChecks, printStartupCheckResults } from './startup/checks.js';
+import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from './startup/workspaceSafety.js';
 import { getAuthClient } from './auth/index.js';
 import type { AuthUser, LoadedConfig } from './types.js';
 import { checkForUpdates, type VersionCheckResult } from './utils/versionCheck.js';
@@ -132,6 +133,7 @@ program
   .option('--path <path>', 'Workspace path to operate in')
   .option('-y, --yes', 'Auto-confirm risky actions', false)
   .option('--dry-run', 'Preview actions without applying mutations', false)
+  .option('-d, --debug', 'Enable debug output (verbose logging)', false)
   .option('--model <model>', 'Override the configured LLM model')
   .option('--config <path>', 'Path to config file (default ~/.autohand/config.json)')
   .option('--temperature <value>', 'Sampling temperature', parseFloat)
@@ -242,6 +244,14 @@ async function runCLI(options: CLIOptions): Promise<void> {
     }
 
     const workspaceRoot = resolveWorkspaceRoot(config, options.path);
+
+    // Check for dangerous workspace directories (home, root, system dirs)
+    const safetyCheck = checkWorkspaceSafety(workspaceRoot);
+    if (!safetyCheck.safe) {
+      printDangerousWorkspaceWarning(workspaceRoot, safetyCheck);
+      process.exit(1);
+    }
+
     const runtime: AgentRuntime = {
       config,
       workspaceRoot,
@@ -279,6 +289,12 @@ async function runCLI(options: CLIOptions): Promise<void> {
       if (config[providerName]) {
         (config as any)[providerName].model = options.model;
       }
+    }
+
+    // Override debug mode from CLI if provided
+    if (options.debug) {
+      config.agent = config.agent ?? {};
+      config.agent.debug = true;
     }
 
     const llmProvider = ProviderFactory.create(config);
@@ -380,6 +396,13 @@ async function runSkillInstall(opts: CLIOptions & { skillInstall?: string | bool
   const config = await loadConfig(opts.config);
   const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
 
+  // Check for dangerous workspace directories
+  const safetyCheck = checkWorkspaceSafety(workspaceRoot);
+  if (!safetyCheck.safe) {
+    printDangerousWorkspaceWarning(workspaceRoot, safetyCheck);
+    process.exit(1);
+  }
+
   // Import skill install dependencies
   const { SkillsRegistry } = await import('./skills/SkillsRegistry.js');
   const { AUTOHAND_PATHS } = await import('./constants.js');
@@ -406,6 +429,13 @@ async function runSkillInstall(opts: CLIOptions & { skillInstall?: string | bool
 async function displayPermissions(opts: CLIOptions): Promise<void> {
   const config = await loadConfig(opts.config);
   const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
+
+  // Check for dangerous workspace directories
+  const safetyCheck = checkWorkspaceSafety(workspaceRoot);
+  if (!safetyCheck.safe) {
+    printDangerousWorkspaceWarning(workspaceRoot, safetyCheck);
+    process.exit(1);
+  }
 
   // Import permission manager
   const { PermissionManager } = await import('./permissions/PermissionManager.js');
@@ -501,6 +531,13 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
 
   const config = await loadConfig(opts.config);
   const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
+
+  // Check for dangerous workspace directories
+  const safetyCheck = checkWorkspaceSafety(workspaceRoot);
+  if (!safetyCheck.safe) {
+    printDangerousWorkspaceWarning(workspaceRoot, safetyCheck);
+    process.exit(1);
+  }
 
   // Override model from CLI if provided
   if (opts.model) {
