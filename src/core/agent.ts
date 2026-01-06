@@ -3090,7 +3090,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         const { createInkRenderer } = await import(/* @vite-ignore */ inkPath);
         // Create and start InkRenderer (only in TTY mode)
         this.inkRenderer = createInkRenderer({
-          onInstruction: (text) => {
+          onInstruction: (text: string) => {
             // Queue the instruction in InkRenderer (it manages its own queue)
             this.inkRenderer?.addQueuedInstruction(text);
           },
