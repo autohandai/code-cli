@@ -66,8 +66,9 @@ import { ProjectAnalyzer } from '../skills/autoSkill.js';
 import { AUTOHAND_PATHS } from '../constants.js';
 import { PersistentInput, createPersistentInput } from '../ui/persistentInput.js';
 import { formatToolOutputForDisplay } from '../ui/toolOutput.js';
-// Dynamic import for InkRenderer to avoid bundling yoga-wasm in standalone binary
-type InkRenderer = import('../ui/ink/InkRenderer.js').InkRenderer;
+// InkRenderer type - using 'any' to avoid bun bundling ink at compile time
+// The actual type comes from dynamic import at runtime
+type InkRenderer = any;
 import { PermissionManager } from '../permissions/PermissionManager.js';
 import { HookManager, type HookContext } from './HookManager.js';
 import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
@@ -2810,7 +2811,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
 
     // Dynamic import to avoid bundling ink in standalone binary
-    const { showFilePalette } = await import('../ui/filePalette.js');
+    // Use computed path to prevent bun from statically analyzing the import
+    const palettePath = ['..', 'ui', 'filePalette.js'].join('/');
+    const { showFilePalette } = await import(/* @vite-ignore */ palettePath);
     const selection = await showFilePalette({
       files: this.workspaceFiles,
       statusLine: this.formatStatusLine(),
@@ -3081,8 +3084,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
   private async initializeUI(abortController?: AbortController, onCancel?: () => void): Promise<void> {
     if (this.useInkRenderer && process.stdout.isTTY && process.stdin.isTTY) {
       // Dynamically import InkRenderer to avoid bundling yoga-wasm in standalone binary
+      // Use computed path to prevent bun from statically analyzing the import
       try {
-        const { createInkRenderer } = await import('../ui/ink/InkRenderer.js');
+        const inkPath = ['..', 'ui', 'ink', 'InkRenderer.js'].join('/');
+        const { createInkRenderer } = await import(/* @vite-ignore */ inkPath);
         // Create and start InkRenderer (only in TTY mode)
         this.inkRenderer = createInkRenderer({
           onInstruction: (text) => {
