@@ -1,6 +1,6 @@
 {
   "name": "autohand-cli",
-  "version": "0.6.11",
+  "version": "0.6.12",
   "licenses": "SEE LICENSE IN LICENSE",
   "description": "Autohand interactive coding agent CLI powered by LLMs.",
   "repository": {
