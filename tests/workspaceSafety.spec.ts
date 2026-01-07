@@ -80,6 +80,12 @@ describe('WorkspaceSafety', () => {
     });
 
     it('blocks parent of home directory (/Users on macOS)', () => {
+      // This test only makes sense on actual macOS where /Users is used
+      // On Linux, os.homedir() returns /home/..., not /Users/...
+      // Skip on non-macOS platforms
+      if (originalPlatform !== 'darwin') {
+        return; // Skip on Linux/Windows
+      }
       mockPlatform('darwin');
       const result = checkWorkspaceSafety('/Users');
       expect(result.safe).toBe(false);
