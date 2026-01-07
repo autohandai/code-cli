@@ -25,8 +25,6 @@ export interface FeedbackApiConfig {
   offlineQueue: boolean;
   /** CLI version for analytics */
   cliVersion: string;
-  /** Company secret for API authentication */
-  companySecret: string;
 }
 
 export interface FeedbackSubmission extends FeedbackResponse {
@@ -62,8 +60,7 @@ const DEFAULT_CONFIG: FeedbackApiConfig = {
   timeout: 5000,
   maxRetries: 3,
   offlineQueue: true,
-  cliVersion: '0.1.0',
-  companySecret: ''
+  cliVersion: '0.1.0'
 };
 
 // ============ FeedbackApiClient ============
@@ -163,21 +160,19 @@ export class FeedbackApiClient {
 
   /**
    * Send feedback to API endpoint
+   * No authentication required - endpoint is rate-limited instead
    */
   private async sendToApi(submission: FeedbackSubmission): Promise<ApiResponse> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
-
-    // Build auth token: {device_id}.{company_secret}
-    const authToken = `${submission.deviceId}.${this.config.companySecret}`;
 
     try {
       const response = await fetch(`${this.config.baseUrl}/v1/feedback`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`,
-          'X-CLI-Version': this.config.cliVersion
+          'X-CLI-Version': this.config.cliVersion,
+          'X-Device-ID': submission.deviceId
         },
         body: JSON.stringify(submission),
         signal: controller.signal

@@ -15,6 +15,7 @@ import { FileActionManager } from '../actions/filesystem.js';
 import { saveConfig, getProviderConfig } from '../config.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import { ProviderFactory, ProviderNotConfiguredError } from '../providers/ProviderFactory.js';
+import { isMLXSupported } from '../utils/platform.js';
 import { readInstruction } from '../ui/inputPrompt.js';
 // showFilePalette is imported dynamically to avoid bundling ink in standalone binary
 import {
@@ -238,7 +239,10 @@ export class AutohandAgent {
       }
     });
     this.errorLogger = new ErrorLogger(packageJson.version);
-    this.feedbackManager = new FeedbackManager();
+    this.feedbackManager = new FeedbackManager({
+      apiBaseUrl: runtime.config.api?.baseUrl || 'https://api.autohand.ai',
+      cliVersion: packageJson.version
+    });
     this.skillsRegistry = new SkillsRegistry(AUTOHAND_PATHS.skills);
     this.telemetryManager = new TelemetryManager({
       enabled: runtime.config.telemetry?.enabled === true,
@@ -1018,14 +1022,17 @@ If lint or tests fail, report the issues but do NOT commit.`;
   private async promptModelSelection(): Promise<void> {
     try {
       // Show all providers with status indicators
-      const allProviders: ProviderName[] = ['openrouter', 'ollama', 'llamacpp', 'openai'];
+      // Use ProviderFactory to get platform-aware list (includes MLX on Apple Silicon)
+      const allProviders = ProviderFactory.getProviderNames();
       const providerChoices = allProviders.map(name => {
         const isConfigured = this.isProviderConfigured(name);
         const indicator = isConfigured ? chalk.green('●') : chalk.red('○');
         const current = name === this.activeProvider ? chalk.cyan(' (current)') : '';
+        // Add Apple Silicon indicator for MLX
+        const siliconNote = name === 'mlx' ? chalk.gray(' (Apple Silicon)') : '';
         return {
           name,
-          message: `${indicator} ${name}${current}`,
+          message: `${indicator} ${name}${current}${siliconNote}`,
           value: name
         };
       });
@@ -1087,6 +1094,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
         break;
       case 'openai':
         await this.configureOpenAI();
+        break;
+      case 'mlx':
+        await this.configureMLX();
         break;
     }
   }
@@ -1272,6 +1282,67 @@ If lint or tests fail, report the issues but do NOT commit.`;
       this.resetLlmClient('openai', answers.model);
 
       console.log(chalk.green('\n✓ OpenAI configured successfully!'));
+    } catch (error) {
+      if ((error as any).name === 'ExitPromptError' || (error as Error).message?.includes('canceled')) {
+        console.log(chalk.gray('\nConfiguration cancelled.'));
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private async configureMLX(): Promise<void> {
+    try {
+      console.log(chalk.cyan('MLX Configuration (Apple Silicon)'));
+      console.log(chalk.gray('MLX provides local LLM inference optimized for Apple Silicon.'));
+      console.log(chalk.gray('Make sure mlx-lm server is running: mlx_lm.server --model <model-name>\n'));
+
+      // Try to fetch available models from MLX server
+      const mlxUrl = 'http://localhost:8080';
+      let availableModels: string[] = [];
+
+      try {
+        const response = await fetch(`${mlxUrl}/v1/models`);
+        if (response.ok) {
+          const data = await response.json();
+          availableModels = data.data?.map((m: any) => m.id) || [];
+        }
+      } catch {
+        console.log(chalk.yellow('⚠ Could not connect to MLX server. Make sure it\'s running.\n'));
+      }
+
+      let modelAnswer;
+      if (availableModels.length > 0) {
+        modelAnswer = await enquirer.prompt<{ model: string }>([
+          {
+            type: 'select',
+            name: 'model',
+            message: 'Select a model',
+            choices: availableModels
+          }
+        ]);
+      } else {
+        modelAnswer = await enquirer.prompt<{ model: string }>([
+          {
+            type: 'input',
+            name: 'model',
+            message: 'Enter model name (e.g., mlx-community/Llama-3.2-3B-Instruct-4bit)',
+            initial: 'mlx-community/Llama-3.2-3B-Instruct-4bit'
+          }
+        ]);
+      }
+
+      this.runtime.config.mlx = {
+        baseUrl: mlxUrl,
+        model: modelAnswer.model
+      };
+
+      this.runtime.config.provider = 'mlx';
+      this.runtime.options.model = modelAnswer.model;
+      await saveConfig(this.runtime.config);
+      this.resetLlmClient('mlx', modelAnswer.model);
+
+      console.log(chalk.green('\n✓ MLX configured successfully!'));
     } catch (error) {
       if ((error as any).name === 'ExitPromptError' || (error as Error).message?.includes('canceled')) {
         console.log(chalk.gray('\nConfiguration cancelled.'));
@@ -3956,6 +4027,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     if (this.runtime.config.ollama) providers.push('ollama');
     if (this.runtime.config.llamacpp) providers.push('llamacpp');
     if (this.runtime.config.openai) providers.push('openai');
+    if (this.runtime.config.mlx) providers.push('mlx');
     return providers.length ? providers : ['openrouter'];
   }
 
@@ -3964,7 +4036,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
       openrouter: this.runtime.config.openrouter ?? (this.runtime.config.openrouter = { apiKey: '', model }),
       ollama: this.runtime.config.ollama ?? (this.runtime.config.ollama = { model }),
       llamacpp: this.runtime.config.llamacpp ?? (this.runtime.config.llamacpp = { model }),
-      openai: this.runtime.config.openai ?? (this.runtime.config.openai = { model })
+      openai: this.runtime.config.openai ?? (this.runtime.config.openai = { model }),
+      mlx: this.runtime.config.mlx ?? (this.runtime.config.mlx = { model })
     };
     cfgMap[provider].model = model;
     this.activeProvider = provider;

@@ -17,6 +17,7 @@ const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
 const DEFAULT_LLAMACPP_URL = 'http://localhost:8080';
 const DEFAULT_OPENAI_URL = 'https://api.openai.com/v1';
+const DEFAULT_MLX_URL = 'http://localhost:8080';
 
 interface LegacyConfigShape {
   api_key?: string;
@@ -176,7 +177,8 @@ function isModernConfig(config: AutohandConfig | LegacyConfigShape): config is A
   return typeof (config as AutohandConfig).openrouter === 'object' ||
     typeof (config as AutohandConfig).ollama === 'object' ||
     typeof (config as AutohandConfig).llamacpp === 'object' ||
-    typeof (config as AutohandConfig).openai === 'object';
+    typeof (config as AutohandConfig).openai === 'object' ||
+    typeof (config as AutohandConfig).mlx === 'object';
 }
 
 function isLegacyConfig(config: AutohandConfig | LegacyConfigShape): config is LegacyConfigShape {
@@ -241,7 +243,8 @@ export function getProviderConfig(config: AutohandConfig, provider?: ProviderNam
     openrouter: config.openrouter,
     ollama: config.ollama,
     llamacpp: config.llamacpp,
-    openai: config.openai
+    openai: config.openai,
+    mlx: config.mlx
   };
 
   const entry = configByProvider[chosen];
@@ -279,6 +282,8 @@ function defaultBaseUrlFor(provider: ProviderName, port?: number): string | unde
       return p ? `http://localhost:${p}` : DEFAULT_LLAMACPP_URL;
     case 'openai':
       return DEFAULT_OPENAI_URL;
+    case 'mlx':
+      return p ? `http://localhost:${p}` : DEFAULT_MLX_URL;
     default:
       return undefined;
   }
