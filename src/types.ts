@@ -29,7 +29,7 @@ type Primitive = string | number | boolean | null;
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
-export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai';
+export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx';
 
 export interface ProviderSettings {
   apiKey?: string;
@@ -334,6 +334,7 @@ export interface AutohandConfig {
   ollama?: ProviderSettings;
   llamacpp?: ProviderSettings;
   openai?: ProviderSettings;
+  mlx?: ProviderSettings;
   workspace?: WorkspaceSettings;
   ui?: UISettings;
   agent?: AgentSettings;
