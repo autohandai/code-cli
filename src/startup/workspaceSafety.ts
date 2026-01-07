@@ -8,6 +8,7 @@
 import os from 'os';
 import path from 'path';
 import fs from 'fs-extra';
+import chalk from 'chalk';
 
 export interface WorkspaceSafetyResult {
   safe: boolean;
@@ -345,8 +346,6 @@ export function printDangerousWorkspaceWarning(
   workspacePath: string,
   result: WorkspaceSafetyResult
 ): void {
-  const chalk = require('chalk');
-
   const boxWidth = 65;
   const horizontalLine = '─'.repeat(boxWidth - 2);
 
