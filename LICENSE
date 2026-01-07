@@ -175,47 +175,6 @@
 
    END OF TERMS AND CONDITIONS
 
-   ============================================================================
-   COMMERCIAL LICENSE EXCEPTION
-   ============================================================================
-
-   The Apache License 2.0 above applies to all users EXCEPT as follows:
-
-   If You are a Legal Entity (as defined above) with Annual Recurring Revenue
-   (ARR) exceeding Five Million United States Dollars (USD $5,000,000), You
-   must obtain a separate commercial license from the Licensor to use, modify,
-   or distribute this Work in any form.
-
-   "Annual Recurring Revenue" (ARR) means the annualized value of all
-   subscription, license, or recurring revenue contracts in effect at the
-   time of measurement, including but not limited to SaaS subscriptions,
-   maintenance agreements, and support contracts.
-
-   For commercial licensing inquiries, please contact:
-
-      Autohand AI LLC
-      Email: licensing@autohand.ai
-
-   This Commercial License Exception does not apply to:
-   - Individual developers using this Work for personal, non-commercial purposes
-   - Non-profit organizations
-   - Educational institutions
-   - Open source projects licensed under an OSI-approved license
-   - Legal Entities with ARR of $5,000,000 or less
-
-   ============================================================================
-
-   APPENDIX: How to apply the Apache License to your work.
-
-      To apply the Apache License to your work, attach the following
-      boilerplate notice, with the fields enclosed by brackets "[]"
-      replaced with your own identifying information. (Don't include
-      the brackets!)  The text should be enclosed in the appropriate
-      comment syntax for the file format. We also recommend that a
-      file or class name and description of purpose be included on the
-      same "printed page" as the copyright notice for easier
-      identification within third-party archives.
-
    Copyright 2025 Autohand AI LLC
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -229,5 +188,3 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
-
-   Subject to the Commercial License Exception above.

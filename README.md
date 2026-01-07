@@ -328,7 +328,7 @@ docker run -it autohand
 
 ## License
 
-**Startup-Friendly License**: Free for startups with ARR under $1M. See [LICENSE](LICENSE) for details.
+Apache License 2.0 - Free for individuals, non-profits, educational institutions, open source projects, and companies with ARR under $5M. See [LICENSE](LICENSE) and [COMMERCIAL.md](COMMERCIAL.md) for details.
 
 ## Links
 
