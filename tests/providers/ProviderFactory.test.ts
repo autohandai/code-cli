@@ -7,8 +7,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { AutohandConfig } from '../../src/types';
 
-// Create a mock function for isMLXSupported
-const mockIsMLXSupported = vi.fn();
+// Use vi.hoisted to ensure the mock is created before vi.mock hoists
+const { mockIsMLXSupported } = vi.hoisted(() => ({
+    mockIsMLXSupported: vi.fn()
+}));
 
 // Mock the platform utility before importing ProviderFactory
 vi.mock('../../src/utils/platform', () => ({
