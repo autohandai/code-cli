@@ -11,6 +11,7 @@ import path from 'node:path';
 import os from 'node:os';
 import type { FeedbackResponse } from './FeedbackManager.js';
 import { AUTOHAND_PATHS } from '../constants.js';
+import packageJson from '../../package.json' with { type: 'json' };
 
 // ============ Types ============
 
@@ -60,7 +61,7 @@ const DEFAULT_CONFIG: FeedbackApiConfig = {
   timeout: 5000,
   maxRetries: 3,
   offlineQueue: true,
-  cliVersion: '0.1.0'
+  cliVersion: packageJson.version
 };
 
 // ============ FeedbackApiClient ============
