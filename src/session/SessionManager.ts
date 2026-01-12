@@ -33,6 +33,10 @@ export class SessionManager {
         const sessionDir = path.join(this.sessionsDir, sessionId);
         await fs.ensureDir(sessionDir);
 
+        // Detect client from environment (set by ACP extensions like Zed)
+        const client = process.env.AUTOHAND_CLIENT_NAME || 'terminal';
+        const clientVersion = process.env.AUTOHAND_CLIENT_VERSION;
+
         const metadata: SessionMetadata = {
             sessionId,
             createdAt: new Date().toISOString(),
@@ -41,7 +45,9 @@ export class SessionManager {
             projectName: path.basename(projectPath),
             model,
             messageCount: 0,
-            status: 'active'
+            status: 'active',
+            client,
+            clientVersion,
         };
 
         const session = new Session(sessionDir, metadata);

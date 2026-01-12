@@ -128,6 +128,19 @@ export class SlashCommandHandler {
           });
           return null;
         }
+        case '/share': {
+          const { execute } = await import('../commands/share.js');
+          await execute(args.join(' '), {
+            sessionManager: this.ctx.sessionManager,
+            currentSession: this.ctx.currentSession,
+            model: this.ctx.model,
+            provider: this.ctx.provider,
+            config: this.ctx.config,
+            getTotalTokensUsed: this.ctx.getTotalTokensUsed,
+            workspaceRoot: this.ctx.workspaceRoot,
+          });
+          return null;
+        }
         case '/status': {
           const { status } = await import('../commands/status.js');
           return status(this.ctx);

@@ -1,6 +1,7 @@
 node_modules/
 dist/
 binaries/
+.DS_Store
 .tmp/
 CHANGELOG.md
 install-local.sh

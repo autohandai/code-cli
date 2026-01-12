@@ -54,6 +54,26 @@ export AUTOHAND_HOME=/custom/path  # Changes ~/.autohand to /custom/path
 | `AUTOHAND_NO_BANNER` | Disable startup banner | `1` |
 | `AUTOHAND_STREAM_TOOL_OUTPUT` | Stream tool output in real-time | `1` |
 | `AUTOHAND_DEBUG` | Enable debug logging | `1` |
+| `AUTOHAND_THINKING_LEVEL` | Set reasoning depth level | `normal` |
+| `AUTOHAND_CLIENT_NAME` | Client/editor identifier (set by ACP extensions) | `zed` |
+| `AUTOHAND_CLIENT_VERSION` | Client version (set by ACP extensions) | `0.169.0` |
+
+### Thinking Level
+
+The `AUTOHAND_THINKING_LEVEL` environment variable controls the depth of reasoning the model uses:
+
+| Value | Description |
+|-------|-------------|
+| `none` | Direct responses without visible reasoning |
+| `normal` | Standard reasoning depth (default) |
+| `extended` | Deep reasoning for complex tasks, shows more detailed thought process |
+
+This is typically set by ACP client extensions (like Zed) through the config dropdown.
+
+```bash
+# Example: Use extended thinking for complex tasks
+AUTOHAND_THINKING_LEVEL=extended autohand --prompt "refactor this module"
+```
 
 ---
 
@@ -1104,3 +1124,5 @@ These flags override config file settings:
 | `--output <file>` | Output file for patch (used with --patch) |
 | `--auto-skill` | Auto-generate skills based on project analysis |
 | `-c, --auto-commit` | Auto-commit changes after completing tasks |
+| `--login` | Sign in to your Autohand account |
+| `--logout` | Sign out of your Autohand account |

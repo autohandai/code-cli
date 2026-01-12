@@ -339,6 +339,25 @@ export class RPCAdapter {
         }
 
         process.stderr.write(`[RPC DEBUG] Instruction completed, success=${success}, content length=${this.currentMessageContent.length}\n`);
+
+        // Fire stop hook after turn completes (matching command mode behavior)
+        const turnDuration = this.turnStartTime ? Date.now() - this.turnStartTime : 0;
+        const hookManager = this.agent?.getHookManager?.();
+        if (hookManager) {
+          const snapshot = this.agent?.getStatusSnapshot();
+          await hookManager.executeHooks('stop', {
+            sessionId: this.sessionId || undefined,
+            turnDuration,
+            tokensUsed: snapshot?.tokensUsed ?? 0,
+          });
+
+          // Emit HOOK_STOP notification so UI can update button state
+          this.emitHookStop(
+            snapshot?.tokensUsed ?? 0,
+            0, // toolCallsCount - not tracked per turn currently
+            turnDuration
+          );
+        }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         const errorStack = err instanceof Error ? err.stack : '';

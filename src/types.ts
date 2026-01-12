@@ -387,6 +387,10 @@ export interface CLIOptions {
   autoSkill?: boolean;
   /** Display current permission settings and exit */
   permissions?: boolean;
+  /** Sign in to Autohand account */
+  login?: boolean;
+  /** Sign out of Autohand account */
+  logout?: boolean;
   /** Generate git patch without applying changes */
   patch?: boolean;
   /** Output file for patch (default: stdout) */
@@ -523,6 +527,9 @@ export type ToolChoice =
   | 'none'      // LLM should not call any function
   | { type: 'function'; function: { name: string } };  // Force specific function
 
+/** Thinking/reasoning depth level for LLM requests */
+export type ThinkingLevel = 'none' | 'normal' | 'extended';
+
 export interface LLMRequest {
   messages: LLMMessage[];
   temperature?: number;
@@ -534,6 +541,8 @@ export interface LLMRequest {
   toolChoice?: ToolChoice;
   model?: string;
   signal?: AbortSignal;
+  /** Thinking/reasoning depth level (default: 'normal') */
+  thinkingLevel?: ThinkingLevel;
 }
 
 /** Token usage statistics from LLM response */

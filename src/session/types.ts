@@ -24,6 +24,10 @@ export interface SessionMetadata {
     automodePrompt?: string;
     /** For automode sessions: final iteration count */
     automodeIterations?: number;
+    /** Client/editor that initiated the session (e.g., "zed", "vscode", "terminal") */
+    client?: string;
+    /** Client version if available */
+    clientVersion?: string;
 }
 
 export interface SessionMessage {

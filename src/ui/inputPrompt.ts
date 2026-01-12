@@ -164,8 +164,12 @@ function createReadline(
   stdInput: NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void },
   stdOutput: NodeJS.WriteStream
 ): { rl: readline.Interface; input: NodeJS.ReadStream; supportsRawMode: boolean } {
-  if (stdInput.isPaused && stdInput.isPaused()) {
+  // Always ensure stdin is in a known state before creating readline
+  // This fixes issues with Bun where isPaused() may not return correct state
+  try {
     stdInput.resume();
+  } catch {
+    // Ignore if already resumed
   }
 
   const rl = readline.createInterface({
