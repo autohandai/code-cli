@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import readline from 'node:readline';
 import type { SlashCommand } from '../core/slashCommands.js';
 import { buildFileMentionSuggestions, MENTION_SUGGESTION_LIMIT } from './mentionFilter.js';
+import { safeEmitKeypressEvents } from './inputPrompt.js';
 
 type Mode = 'file' | 'slash' | null;
 
@@ -29,7 +30,8 @@ export class MentionPreview {
     statusLine?: string
   ) {
     const input = (rl as readline.Interface & { input: NodeJS.ReadStream }).input;
-    readline.emitKeypressEvents(input, rl);
+    // Use safe emit to prevent duplicate listener registration
+    safeEmitKeypressEvents(input);
     this.statusLine = statusLine ? chalk.gray(statusLine) : undefined;
     this.keypressHandler = this.handleKeypress.bind(this);
     input.prependListener('keypress', this.keypressHandler);
