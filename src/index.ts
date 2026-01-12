@@ -5,6 +5,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import enquirer from 'enquirer';
 import { execSync } from 'node:child_process';
+import readline from 'node:readline';
 import packageJson from '../package.json' with { type: 'json' };
 import { getProviderConfig, loadConfig, resolveWorkspaceRoot, saveConfig } from './config.js';
 import { runStartupChecks, printStartupCheckResults } from './startup/checks.js';
@@ -144,6 +145,8 @@ program
   .option('--skill-install [skill-name]', 'Install a community skill (opens browser if no name)')
   .option('--project', 'Install skill to project level (with --skill-install)', false)
   .option('--permissions', 'Display current permission settings and exit', false)
+  .option('--login', 'Sign in to your Autohand account', false)
+  .option('--logout', 'Sign out of your Autohand account', false)
   .option('--patch', 'Generate git patch without applying changes (requires --prompt)', false)
   .option('--output <file>', 'Output file for patch (default: stdout, used with --patch)')
   .option('--mode <mode>', 'Run mode: interactive (default) or rpc', 'interactive')
@@ -166,6 +169,22 @@ program
     if (opts.permissions) {
       await displayPermissions(opts);
       return;
+    }
+
+    // Handle --login flag
+    if (opts.login) {
+      const { login } = await import('./commands/login.js');
+      const config = await loadConfig(opts.config);
+      await login({ config });
+      process.exit(0);
+    }
+
+    // Handle --logout flag
+    if (opts.logout) {
+      const { logout } = await import('./commands/logout.js');
+      const config = await loadConfig(opts.config);
+      await logout({ config });
+      process.exit(0);
     }
 
     // Handle --patch flag
@@ -196,6 +215,26 @@ program
   .option('--model <model>', 'Override the configured LLM model')
   .action(async (sessionId: string, opts: CLIOptions) => {
     await runCLI({ ...opts, resumeSessionId: sessionId });
+  });
+
+program
+  .command('login')
+  .description('Sign in to your Autohand account')
+  .action(async () => {
+    const { login } = await import('./commands/login.js');
+    const config = await loadConfig();
+    await login({ config });
+    process.exit(0);
+  });
+
+program
+  .command('logout')
+  .description('Sign out of your Autohand account')
+  .action(async () => {
+    const { logout } = await import('./commands/logout.js');
+    const config = await loadConfig();
+    await logout({ config });
+    process.exit(0);
   });
 
 async function runCLI(options: CLIOptions): Promise<void> {
@@ -330,6 +369,9 @@ async function runCLI(options: CLIOptions): Promise<void> {
 
     if (options.prompt) {
       await agent.runCommandMode(options.prompt);
+      // Explicitly exit after prompt mode to prevent hanging
+      // Some managers may keep event loop alive
+      process.exit(0);
     } else if (options.resumeSessionId) {
       await agent.resumeSession(options.resumeSessionId);
     } else {
@@ -788,16 +830,63 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
       process.stdin.setRawMode(false);
     }
 
-    // Get final state and close session
+    // Get final state
     const finalState = automodeManager.getState();
     if (finalState) {
       session.metadata.automodeIterations = finalState.currentIteration;
       const statusText = finalState.status === 'completed' ? 'completed' : `ended (${finalState.status})`;
-      await sessionManager.closeSession(`Auto-mode ${statusText} after ${finalState.currentIteration} iterations: ${opts.autoMode?.slice(0, 50)}...`);
-      console.log(chalk.gray(`\n📁 Session saved: ${session.metadata.sessionId}`));
+      console.log(chalk.gray(`\n📊 Auto-mode ${statusText} after ${finalState.currentIteration} iterations`));
     }
 
-    process.exit(finalState?.status === 'completed' ? 0 : 1);
+    // Ask user if they want to continue in interactive mode
+    console.log(chalk.cyan('\n🔄 Auto-mode finished. You can continue working interactively.\n'));
+    console.log(chalk.gray('Press Enter to continue in interactive mode, or Ctrl+C to exit.\n'));
+
+    // Wait for user input
+    const continuePromise = new Promise<boolean>((resolve) => {
+      if (!process.stdin.isTTY) {
+        resolve(false);
+        return;
+      }
+
+      readline.emitKeypressEvents(process.stdin);
+      process.stdin.setRawMode(true);
+      process.stdin.resume();
+
+      const handleKey = (_str: string, key: readline.Key) => {
+        process.stdin.off('keypress', handleKey);
+        if (process.stdin.isTTY) {
+          process.stdin.setRawMode(false);
+        }
+
+        if (key && key.ctrl && key.name === 'c') {
+          resolve(false);
+        } else if (key && key.name === 'return') {
+          resolve(true);
+        } else {
+          // Any other key - continue
+          resolve(true);
+        }
+      };
+
+      process.stdin.on('keypress', handleKey);
+    });
+
+    const shouldContinue = await continuePromise;
+
+    if (!shouldContinue) {
+      // Close session and exit
+      const statusText = finalState?.status === 'completed' ? 'completed' : `ended (${finalState?.status})`;
+      await sessionManager.closeSession(`Auto-mode ${statusText} after ${finalState?.currentIteration ?? 0} iterations: ${opts.autoMode?.slice(0, 50)}...`);
+      console.log(chalk.gray(`\n📁 Session saved: ${session.metadata.sessionId}`));
+      process.exit(finalState?.status === 'completed' ? 0 : 1);
+    }
+
+    // Continue in interactive mode with the same session
+    console.log(chalk.cyan('\n▶️ Continuing in interactive mode...\n'));
+
+    // Transition to interactive mode with the existing agent
+    await agent.runInteractive();
 
   } catch (error) {
     // Restore terminal

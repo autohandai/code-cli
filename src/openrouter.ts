@@ -87,6 +87,31 @@ export class OpenRouterClient {
       }
     }
 
+    // Add thinking/reasoning level support for compatible models
+    const model = (request.model ?? this.defaultModel).toLowerCase();
+    if (request.thinkingLevel && request.thinkingLevel !== 'normal') {
+      // OpenAI o1/o3 models use reasoning_effort
+      if (model.includes('o1') || model.includes('o3')) {
+        if (request.thinkingLevel === 'extended') {
+          payload.reasoning_effort = 'high';
+        } else if (request.thinkingLevel === 'none') {
+          payload.reasoning_effort = 'low';
+        }
+      }
+      // Anthropic Claude models with extended thinking support
+      // OpenRouter passes provider-specific options via the provider field
+      if (model.includes('claude') && request.thinkingLevel === 'extended') {
+        payload.provider = {
+          anthropic: {
+            thinking: {
+              type: 'enabled',
+              budget_tokens: 10000
+            }
+          }
+        };
+      }
+    }
+
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "HTTP-Referer": "https://github.com/autohandai/code-cli",

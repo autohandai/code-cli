@@ -29,6 +29,7 @@ import * as skills from '../commands/skills.js';
 import * as skillsNew from '../commands/skills-new.js';
 import * as theme from '../commands/theme.js';
 import * as automode from '../commands/automode.js';
+import * as share from '../commands/share.js';
 
 import type { SlashCommand } from './slashCommandTypes.js';
 export type { SlashCommand } from './slashCommandTypes.js';
@@ -62,4 +63,5 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   skillsNew.metadata,
   theme.metadata,
   automode.metadata,
+  share.metadata,
 ];
