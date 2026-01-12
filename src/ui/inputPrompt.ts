@@ -49,6 +49,21 @@ const MAX_NEWLINES = 2; // Max 3 lines = 2 newline markers
 // Maximum lines to display visually (input can contain more)
 export const MAX_DISPLAY_LINES = 5;
 
+// Track stdin streams that have been instrumented with emitKeypressEvents
+// to prevent duplicate listener registration
+const instrumentedStreams = new WeakSet<NodeJS.ReadStream>();
+
+/**
+ * Safely instrument a stream with readline.emitKeypressEvents
+ * Only does so once per stream to prevent duplicate listeners
+ */
+export function safeEmitKeypressEvents(stream: NodeJS.ReadStream): void {
+  if (!instrumentedStreams.has(stream)) {
+    readline.emitKeypressEvents(stream);
+    instrumentedStreams.add(stream);
+  }
+}
+
 /**
  * Result from getDisplayContent
  */
@@ -164,6 +179,13 @@ function createReadline(
   stdInput: NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void },
   stdOutput: NodeJS.WriteStream
 ): { rl: readline.Interface; input: NodeJS.ReadStream; supportsRawMode: boolean } {
+  // Reset terminal state before creating new readline
+  // This ensures cursor position and output buffer are clean
+  stdOutput.write('\r'); // Move cursor to column 0
+
+  // Ensure stdin keypress events are set up (only once per stream)
+  safeEmitKeypressEvents(stdInput);
+
   // Always ensure stdin is in a known state before creating readline
   // This fixes issues with Bun where isPaused() may not return correct state
   try {
@@ -411,6 +433,15 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
 
     rl.setPrompt(`${chalk.gray('›')} `);
     rl.prompt(true);
+
+    // Explicit fallback: ensure prompt is visible even if readline buffering fails
+    // Use setImmediate to let rl.prompt(true) flush first, then verify prompt is visible
+    setImmediate(() => {
+      // Force cursor to column 0 and write prompt character explicitly
+      // This handles cases where readline's internal buffer didn't render
+      const promptStr = `${chalk.gray('›')} `;
+      stdOutput.write(`\r${promptStr}`);
+    });
 
     rl.on('line', (value) => {
       // Convert newline markers back to actual newlines
