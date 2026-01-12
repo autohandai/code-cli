@@ -105,6 +105,8 @@ autohand -p "refactor database queries" --dry-run
 | `--restricted`          |       | Deny all dangerous operations automatically     |
 | `--config <path>`       |       | Path to config file                             |
 | `--temperature <value>` |       | Sampling temperature for LLM                    |
+| `--login`               |       | Sign in to your Autohand account                |
+| `--logout`              |       | Sign out of your Autohand account               |
 
 ## Agent Skills
 

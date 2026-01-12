@@ -153,24 +153,94 @@ async function checkWorkspaceWritable(workspaceRoot: string): Promise<{ writable
 }
 
 /**
- * Check if inside a git repository
+ * Check if a directory is empty (no significant files)
+ * Hidden files like .DS_Store are ignored, but .git counts as significant
  */
-function checkGitRepo(workspaceRoot: string): { isGitRepo: boolean; branch?: string } {
+function isEmptyDirectory(dir: string): boolean {
+  try {
+    const entries = fs.readdirSync(dir);
+    const significantEntries = entries.filter(e => !e.startsWith('.') || e === '.git');
+    return significantEntries.length === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Get the current git branch name
+ * Handles repos with no commits (uses symbolic-ref as fallback)
+ */
+function getGitBranch(workspaceRoot: string): string | undefined {
+  // Try rev-parse first (works when there are commits)
   try {
     const result = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
       cwd: workspaceRoot,
       encoding: 'utf8',
       timeout: 5000
     });
-
-    if (result.status === 0) {
-      return {
-        isGitRepo: true,
-        branch: result.stdout.trim()
-      };
+    if (result.status === 0 && result.stdout.trim()) {
+      return result.stdout.trim();
     }
   } catch {
-    // Not a git repo
+    // Fall through to symbolic-ref
+  }
+
+  // Fall back to symbolic-ref (works for repos with no commits)
+  try {
+    const result = spawnSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+      cwd: workspaceRoot,
+      encoding: 'utf8',
+      timeout: 5000
+    });
+    if (result.status === 0 && result.stdout.trim()) {
+      return result.stdout.trim();
+    }
+  } catch {
+    // Ignore
+  }
+
+  return undefined;
+}
+
+/**
+ * Check if inside a git repository
+ * If directory is empty and not a git repo, auto-initialize git
+ */
+function checkGitRepo(workspaceRoot: string): { isGitRepo: boolean; branch?: string; initialized?: boolean } {
+  // First check if .git directory exists (works even with no commits)
+  const gitDirExists = fs.existsSync(`${workspaceRoot}/.git`);
+
+  if (gitDirExists) {
+    // It's a git repo - get the branch name
+    const branch = getGitBranch(workspaceRoot);
+    return {
+      isGitRepo: true,
+      branch
+    };
+  }
+
+  // Not a git repo - check if empty and auto-init
+  if (isEmptyDirectory(workspaceRoot)) {
+    try {
+      const initResult = spawnSync('git', ['init'], {
+        cwd: workspaceRoot,
+        encoding: 'utf8',
+        timeout: 5000
+      });
+
+      if (initResult.status === 0) {
+        // Get the default branch name
+        const branch = getGitBranch(workspaceRoot) || 'main';
+
+        return {
+          isGitRepo: true,
+          branch,
+          initialized: true
+        };
+      }
+    } catch {
+      // Failed to init, return as non-git repo
+    }
   }
 
   return { isGitRepo: false };
@@ -201,6 +271,8 @@ export interface StartupCheckResults {
     writable: boolean;
     isGitRepo: boolean;
     branch?: string;
+    /** True if git was auto-initialized for an empty directory */
+    initialized?: boolean;
     error?: string;
   };
   allRequiredMet: boolean;
@@ -249,6 +321,7 @@ export async function runStartupChecks(workspaceRoot: string): Promise<StartupCh
       writable: workspaceCheck.writable,
       isGitRepo: gitCheck.isGitRepo,
       branch: gitCheck.branch,
+      initialized: gitCheck.initialized,
       error: workspaceCheck.error
     },
     allRequiredMet,
@@ -263,7 +336,13 @@ export function printStartupCheckResults(results: StartupCheckResults, verbose =
   const missingRequired = results.tools.filter(t => t.required && !t.installed);
   const missingOptional = results.tools.filter(t => !t.required && !t.installed);
 
-  // Only print if there are issues or verbose mode
+  // Show git initialization message if it happened
+  if (results.workspace.initialized) {
+    console.log(chalk.green('✓ Initialized git repository'));
+    console.log();
+  }
+
+  // Only print tool issues if there are problems or verbose mode
   if (missingRequired.length === 0 && !verbose) {
     return;
   }

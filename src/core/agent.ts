@@ -1913,6 +1913,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
       let completion;
       try {
+        // Get thinking level from env var (set by ACP extensions like Zed)
+        const thinkingLevel = (process.env.AUTOHAND_THINKING_LEVEL as 'none' | 'normal' | 'extended') || 'normal';
+
         completion = await this.llm.complete({
           messages: messagesWithImages,
           temperature: this.runtime.options.temperature ?? 0.2,
@@ -1920,7 +1923,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
           signal: abortController.signal,
           tools: tools.length > 0 ? tools : undefined,
           toolChoice: tools.length > 0 ? 'auto' : undefined,
-          maxTokens: 16000  // Allow large outputs for file generation
+          maxTokens: 16000,  // Allow large outputs for file generation
+          thinkingLevel,
         });
         if (debugMode) process.stderr.write(`[AGENT DEBUG] LLM returned: content length=${completion.content?.length ?? 0}, toolCalls=${completion.toolCalls?.length ?? 0}\n`);
       } catch (llmError) {
@@ -2176,6 +2180,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
       // Extract the response - prioritize explicit response fields, but use thought as fallback
       // when there are no tool calls (model might provide analysis in thought without finalResponse)
       let rawResponse: string;
+      const usedThoughtAsResponse = Boolean(payload.thought) &&
+        !payload.finalResponse &&
+        !payload.response &&
+        !payload.toolCalls?.length;
       if (payload.finalResponse) {
         rawResponse = payload.finalResponse;
       } else if (payload.response) {
@@ -2189,7 +2197,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
         // If cleaned content looks like JSON, it's not a real response
         rawResponse = cleanedContent.startsWith('{') ? '' : cleanedContent;
       }
-      const response = this.cleanupModelResponse(rawResponse.trim());
+      let response = this.cleanupModelResponse(rawResponse.trim());
+      if (!response && usedThoughtAsResponse && payload.thought) {
+        response = payload.thought.trim();
+      }
 
       // If response is empty and we've done work (iteration > 0), try to get a proper response
       // But limit retries to prevent infinite loops
@@ -2227,14 +2238,15 @@ If lint or tests fail, report the issues but do NOT commit.`;
       (this as any).__consecutiveEmpty = 0;
 
       // Emit output event for RPC mode
-      if (payload.thought) {
+      const suppressThinking = usedThoughtAsResponse && response.length > 0;
+      if (payload.thought && !suppressThinking) {
         this.emitOutput({ type: 'thinking', thought: payload.thought });
       }
       this.emitOutput({ type: 'message', content: response });
 
       if (this.inkRenderer) {
         // InkRenderer: set final response
-        if (showThinking && payload.thought) {
+        if (showThinking && payload.thought && !suppressThinking) {
           this.inkRenderer.setThinking(payload.thought);
         }
         // Update final stats before stopping (session totals for completionStats)
@@ -2245,7 +2257,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       } else {
         // Ora mode: stop spinner and output
         this.runtime.spinner?.stop();
-        if (showThinking && payload.thought && !payload.thought.trim().startsWith('{')) {
+        if (showThinking && payload.thought && !suppressThinking && !payload.thought.trim().startsWith('{')) {
           console.log(chalk.gray(`Thinking: ${payload.thought}`));
           console.log();
         }
