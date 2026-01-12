@@ -146,6 +146,10 @@ export async function readInstruction(
 
   try {
     while (true) {
+      // Wait for event loop to process any pending cleanup operations
+      // This ensures previous readline is fully closed before creating new one
+      await new Promise(resolve => process.nextTick(resolve));
+
       const result = await promptOnce({
         files,
         slashCommands,
@@ -435,12 +439,11 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     rl.prompt(true);
 
     // Explicit fallback: ensure prompt is visible even if readline buffering fails
-    // Use setImmediate to let rl.prompt(true) flush first, then verify prompt is visible
-    setImmediate(() => {
+    // Use process.nextTick for proper event loop synchronization (more reliable than setImmediate)
+    process.nextTick(() => {
       // Force cursor to column 0 and write prompt character explicitly
       // This handles cases where readline's internal buffer didn't render
-      const promptStr = `${chalk.gray('›')} `;
-      stdOutput.write(`\r${promptStr}`);
+      stdOutput.write(`\r${chalk.gray('›')} `);
     });
 
     rl.on('line', (value) => {

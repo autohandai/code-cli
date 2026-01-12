@@ -16,7 +16,7 @@ import { saveConfig, getProviderConfig } from '../config.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import { ProviderFactory, ProviderNotConfiguredError } from '../providers/ProviderFactory.js';
 import { isMLXSupported } from '../utils/platform.js';
-import { readInstruction } from '../ui/inputPrompt.js';
+import { readInstruction, safeEmitKeypressEvents } from '../ui/inputPrompt.js';
 // showFilePalette is imported dynamically to avoid bundling ink in standalone binary
 import {
   getContextWindow,
@@ -105,6 +105,8 @@ export class AutohandAgent {
   private skillsRegistry: SkillsRegistry;
   private communityClient: CommunitySkillsClient;
   private workspaceFiles: string[] = [];
+  private workspaceFilesCachedAt: number = 0;
+  private static readonly WORKSPACE_FILES_CACHE_TTL = 5000; // 5 seconds
   private isInstructionActive = false;
   private hasPrintedExplorationHeader = false;
   private activeProvider: ProviderName;
@@ -398,7 +400,9 @@ export class AutohandAgent {
       }
     });
 
-    this.slashHandler = new SlashCommandHandler({
+    // Create context object with getter for currentSession (dynamic access)
+    const sessionMgr = this.sessionManager;
+    const slashContext = {
       promptModelSelection: () => this.promptModelSelection(),
       createAgentsFile: () => this.createAgentsFile(),
       sessionManager: this.sessionManager,
@@ -416,8 +420,13 @@ export class AutohandAgent {
       provider: this.activeProvider,
       config: runtime.config,
       getContextPercentLeft: () => this.contextPercentLeft,
-      getTotalTokensUsed: () => this.totalTokensUsed
-    }, SLASH_COMMANDS);
+      getTotalTokensUsed: () => this.totalTokensUsed,
+      // Share command needs current session - use getter for dynamic access
+      get currentSession() {
+        return sessionMgr.getCurrentSession() ?? undefined;
+      }
+    };
+    this.slashHandler = new SlashCommandHandler(slashContext, SLASH_COMMANDS);
   }
 
   async runInteractive(): Promise<void> {
@@ -925,6 +934,12 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async collectWorkspaceFiles(): Promise<string[]> {
+    // Use cached files if still fresh (avoid blocking git ls-files on every turn)
+    const now = Date.now();
+    if (this.workspaceFiles.length > 0 && (now - this.workspaceFilesCachedAt) < AutohandAgent.WORKSPACE_FILES_CACHE_TTL) {
+      return this.workspaceFiles;
+    }
+
     const git = spawnSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'], {
       cwd: this.runtime.workspaceRoot,
       encoding: 'utf8'
@@ -941,10 +956,12 @@ If lint or tests fail, report the issues but do NOT commit.`;
             files.push(file);
           }
         });
+      this.workspaceFilesCachedAt = now;
       return files;
     }
 
     await this.walkWorkspace(this.runtime.workspaceRoot, files);
+    this.workspaceFilesCachedAt = now;
     return files;
   }
 
@@ -3377,7 +3394,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
     if (!input.isTTY) {
       return () => { };
     }
-    readline.emitKeypressEvents(input);
+    // Use safe version to prevent duplicate listener registration across turns
+    safeEmitKeypressEvents(input);
     const supportsRaw = typeof input.setRawMode === 'function';
     const wasRaw = (input as any).isRaw;
     if (!wasRaw && supportsRaw) {

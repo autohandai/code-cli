@@ -145,12 +145,16 @@ export class FeedbackManager {
   }
 
   private saveState(): void {
-    try {
-      fs.ensureDirSync(this.stateDir);
-      fs.writeJsonSync(this.statePath, this.state, { spaces: 2 });
-    } catch {
-      // Silent fail - feedback is non-critical
-    }
+    // Non-blocking async write to avoid delaying prompt
+    // Use setImmediate to defer the I/O operation
+    setImmediate(() => {
+      try {
+        fs.ensureDirSync(this.stateDir);
+        fs.writeJsonSync(this.statePath, this.state, { spaces: 2 });
+      } catch {
+        // Silent fail - feedback is non-critical
+      }
+    });
   }
 
   private async saveFeedbackResponse(response: FeedbackResponse): Promise<void> {

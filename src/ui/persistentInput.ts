@@ -10,6 +10,7 @@ import chalk from 'chalk';
 import readline from 'node:readline';
 import EventEmitter from 'node:events';
 import { TerminalRegions, createTerminalRegions } from './terminalRegions.js';
+import { safeEmitKeypressEvents } from './inputPrompt.js';
 
 export interface QueuedMessage {
   text: string;
@@ -64,7 +65,8 @@ export class PersistentInput extends EventEmitter {
     if (this.silentMode) {
       // Silent mode: use readline keypress events (same as ESC listener)
       // This ensures compatibility with other stdin handlers
-      readline.emitKeypressEvents(this.input);
+      // Use safe version to prevent duplicate listener registration
+      safeEmitKeypressEvents(this.input as NodeJS.ReadStream);
       const supportsRaw = typeof this.input.setRawMode === 'function';
       const wasRaw = (this.input as any).isRaw;
       if (!wasRaw && supportsRaw) {
@@ -76,7 +78,8 @@ export class PersistentInput extends EventEmitter {
     } else {
       // Full mode: use terminal regions
       this.regions.enable();
-      readline.emitKeypressEvents(this.input);
+      // Use safe version to prevent duplicate listener registration
+      safeEmitKeypressEvents(this.input as NodeJS.ReadStream);
       const supportsRaw = typeof this.input.setRawMode === 'function';
       if (supportsRaw) {
         this.input.setRawMode(true);
