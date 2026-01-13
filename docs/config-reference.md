@@ -18,6 +18,7 @@ Complete reference for all configuration options in `~/.autohand/config.json` (o
 - [API Settings](#api-settings)
 - [Authentication Settings](#authentication-settings)
 - [Community Skills Settings](#community-skills-settings)
+- [Share Settings](#share-settings)
 - [Hooks Settings](#hooks-settings)
 - [Complete Example](#complete-example)
 
@@ -833,6 +834,49 @@ Configuration for community skills discovery and management.
 
 ---
 
+## Share Settings
+
+Configuration for session sharing via `/share` command. Sessions are hosted at [autohand.link](https://autohand.link).
+
+```json
+{
+  "share": {
+    "enabled": true
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `true` | Enable/disable the `/share` command |
+
+### YAML Format
+
+```yaml
+share:
+  enabled: true
+```
+
+### Disabling Session Sharing
+
+If you want to disable session sharing for security or privacy reasons:
+
+```json
+{
+  "share": {
+    "enabled": false
+  }
+}
+```
+
+When disabled, running `/share` will display:
+```
+Session sharing is disabled.
+To enable, set share.enabled: true in your config file.
+```
+
+---
+
 ## Hooks Settings
 
 Configuration for lifecycle hooks that run shell commands on agent events. See [Hooks Documentation](./hooks.md) for full details.
@@ -989,6 +1033,9 @@ When hooks execute, these environment variables are available:
     "enabled": true,
     "showSuggestionsOnStartup": true,
     "autoBackup": true
+  },
+  "share": {
+    "enabled": true
   }
 }
 ```
@@ -1066,6 +1113,9 @@ communitySkills:
   enabled: true
   showSuggestionsOnStartup: true
   autoBackup: true
+
+share:
+  enabled: true
 ```
 
 ---
@@ -1126,3 +1176,4 @@ These flags override config file settings:
 | `-c, --auto-commit` | Auto-commit changes after completing tasks |
 | `--login` | Sign in to your Autohand account |
 | `--logout` | Sign out of your Autohand account |
+| `--setup` | Run the setup wizard to configure or reconfigure Autohand |

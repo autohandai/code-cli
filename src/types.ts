@@ -228,6 +228,12 @@ export interface AutomodeCircuitBreaker {
   testOnlyCount: number;
 }
 
+/** Share settings in config */
+export interface ShareSettings {
+  /** Enable/disable /share command (default: true) */
+  enabled?: boolean;
+}
+
 /** Auto-mode settings in config */
 export interface AutomodeSettings {
   /** Default max iterations (default: 50) */
@@ -354,6 +360,8 @@ export interface AutohandConfig {
   hooks?: HooksSettings;
   /** Auto-mode settings */
   automode?: AutomodeSettings;
+  /** Share settings */
+  share?: ShareSettings;
 }
 
 export interface LoadedConfig extends AutohandConfig {

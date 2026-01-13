@@ -22,6 +22,19 @@ import {
   type ShareVisibility,
 } from '../share/index.js';
 
+/**
+ * Create a clickable terminal link using OSC 8 escape sequence
+ * Falls back to plain URL if terminal doesn't support it
+ */
+function terminalLink(url: string, text?: string): string {
+  const displayText = text || url;
+  // OSC 8 escape sequence for clickable links
+  // Format: \e]8;;URL\e\\TEXT\e]8;;\e\\
+  const OSC = '\x1b]8;;';
+  const ST = '\x1b\\';
+  return `${OSC}${url}${ST}${chalk.cyan.underline(displayText)}${OSC}${ST}`;
+}
+
 // ============ Metadata ============
 
 export const metadata: SlashCommand = {
@@ -48,6 +61,15 @@ export async function execute(
   _args?: string,
   context?: ShareContext
 ): Promise<void> {
+  // Check if sharing is enabled via config
+  if (context?.config?.share?.enabled === false) {
+    console.log(chalk.yellow('Session sharing is disabled.'));
+    console.log(
+      chalk.gray('To enable, set share.enabled: true in your config file.')
+    );
+    return;
+  }
+
   // Validate context
   if (!context?.currentSession) {
     console.log(chalk.yellow('No active session to share.'));
@@ -148,7 +170,7 @@ export async function execute(
       console.log();
       console.log(chalk.green.bold('Session shared successfully!'));
       console.log();
-      console.log(`${chalk.bold('URL:')} ${chalk.cyan.underline(response.url)}`);
+      console.log(`${chalk.bold('URL:')} ${terminalLink(response.url)}`);
 
       if (visibility === 'private' && response.passcode) {
         console.log();
@@ -159,7 +181,7 @@ export async function execute(
       }
 
       console.log();
-      console.log(chalk.gray('Tip: Copy the URL and share it with others!'));
+      console.log(chalk.gray('Tip: Click the URL or copy it to share with others!'));
       console.log();
     } else {
       console.log();

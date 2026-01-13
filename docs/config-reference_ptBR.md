@@ -648,3 +648,4 @@ Estas flags sobrescrevem as configurações do arquivo:
 | `--dry-run` | Visualizar sem executar |
 | `--unrestricted` | Sem prompts de aprovação |
 | `--restricted` | Negar operações perigosas |
+| `--setup` | Executar o assistente de configuração para configurar ou reconfigurar o Autohand |
