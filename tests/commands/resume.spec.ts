@@ -6,19 +6,17 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Track mock function across hoisted vi.mock calls
-let mockPromptFn: any = null;
+// Use vi.hoisted to define mock function before vi.mock runs (both are hoisted together)
+const { mockPromptFn } = vi.hoisted(() => ({
+  mockPromptFn: vi.fn()
+}));
 
-// Mock enquirer - vi.mock is hoisted, so we must define everything inside the factory
-vi.mock('enquirer', () => {
-  // Create the mock function when the factory runs
-  mockPromptFn = vi.fn();
-  return {
-    default: {
-      prompt: mockPromptFn
-    }
-  };
-});
+// Mock enquirer - vi.mock is hoisted, so we use vi.hoisted variable
+vi.mock('enquirer', () => ({
+  default: {
+    prompt: mockPromptFn
+  }
+}));
 
 // Mock chalk
 vi.mock('chalk', () => ({
