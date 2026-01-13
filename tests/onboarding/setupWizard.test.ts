@@ -8,30 +8,30 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as fsExtra from 'fs-extra';
 import type { LoadedConfig } from '../../src/types';
 
-// Create a mutable object to hold the mock function
-// This allows vi.mock to reference it before it's assigned
-const mocks = {
-  prompt: {
-    mock: ((...args: any[]) => Promise.resolve(args)) as any
+// Use vi.hoisted to define mocks before vi.mock runs (both are hoisted together)
+const { mockPromptFn, fsMocks } = vi.hoisted(() => ({
+  mockPromptFn: vi.fn(),
+  fsMocks: {
+    pathExists: vi.fn(),
+    readJson: vi.fn(),
+    readFile: vi.fn(),
+    writeFile: vi.fn()
   }
-};
-
-// Mock fs-extra
-vi.mock('fs-extra', () => ({
-  pathExists: vi.fn(),
-  readJson: vi.fn(),
-  readFile: vi.fn(),
-  writeFile: vi.fn()
 }));
 
-const mockPathExists = fsExtra.pathExists as ReturnType<typeof vi.fn>;
-const mockReadJson = fsExtra.readJson as ReturnType<typeof vi.fn>;
-const mockReadFile = fsExtra.readFile as ReturnType<typeof vi.fn>;
-const mockWriteFile = fsExtra.writeFile as ReturnType<typeof vi.fn>;
+// Mock fs-extra
+vi.mock('fs-extra', () => fsMocks);
 
-// Mock enquirer - must define mock inside factory since vi.mock is hoisted
+const mockPathExists = fsMocks.pathExists;
+const mockReadJson = fsMocks.readJson;
+const mockReadFile = fsMocks.readFile;
+const mockWriteFile = fsMocks.writeFile;
+
+// Mock enquirer - uses vi.hoisted variable
 vi.mock('enquirer', () => ({
-  default: mocks.prompt
+  default: {
+    prompt: mockPromptFn
+  }
 }));
 
 // Mock chalk (to avoid terminal color issues in tests)
@@ -61,7 +61,7 @@ describe('SetupWizard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Reset the mock function
-    mocks.prompt.mock = vi.fn();
+    mockPromptFn.mockReset();
     mockPathExists.mockResolvedValue(false);
     mockWriteFile.mockResolvedValue(undefined);
   });
@@ -71,7 +71,7 @@ describe('SetupWizard', () => {
       const wizard = new SetupWizard(testWorkspace);
 
       // Mock all prompts to simulate user flow
-      mocks.prompt.mock
+      mockPromptFn
         .mockResolvedValueOnce({ provider: 'openrouter' })
         .mockResolvedValueOnce({ apiKey: 'sk-test-key' })
         .mockResolvedValueOnce({ model: 'anthropic/claude-3.5-sonnet' })
@@ -100,7 +100,7 @@ describe('SetupWizard', () => {
       expect(result.success).toBe(true);
       expect(result.skippedSteps).toContain('welcome');
       expect(result.skippedSteps).toContain('provider');
-      expect(mocks.prompt.mock).not.toHaveBeenCalled();
+      expect(mockPromptFn).not.toHaveBeenCalled();
     });
 
     it('should run wizard when config exists but provider not configured', async () => {
@@ -112,7 +112,7 @@ describe('SetupWizard', () => {
 
       const wizard = new SetupWizard(testWorkspace, incompleteConfig);
 
-      mocks.prompt.mock
+      mockPromptFn
         .mockResolvedValueOnce({ provider: 'openrouter' })
         .mockResolvedValueOnce({ apiKey: 'sk-new-key' })
         .mockResolvedValueOnce({ model: 'anthropic/claude-3.5-sonnet' })
@@ -123,7 +123,7 @@ describe('SetupWizard', () => {
       const result = await wizard.run({ skipWelcome: true });
 
       expect(result.success).toBe(true);
-      expect(mocks.prompt.mock).toHaveBeenCalled();
+      expect(mockPromptFn).toHaveBeenCalled();
     });
   });
 
@@ -131,7 +131,7 @@ describe('SetupWizard', () => {
     it('should set provider in result config', async () => {
       const wizard = new SetupWizard(testWorkspace);
 
-      mocks.prompt.mock
+      mockPromptFn
         .mockResolvedValueOnce({ provider: 'ollama' })
         .mockResolvedValueOnce({ model: 'llama3.2:latest' })
         .mockResolvedValueOnce({ telemetryEnabled: true })
@@ -147,7 +147,7 @@ describe('SetupWizard', () => {
     it('should not prompt for API key for local providers', async () => {
       const wizard = new SetupWizard(testWorkspace);
 
-      mocks.prompt.mock
+      mockPromptFn
         .mockResolvedValueOnce({ provider: 'ollama' })
         .mockResolvedValueOnce({ model: 'llama3.2:latest' })
         .mockResolvedValueOnce({ telemetryEnabled: true })
@@ -158,13 +158,13 @@ describe('SetupWizard', () => {
 
       expect(result.success).toBe(true);
       // Should not have prompted for API key
-      expect(mocks.prompt.mock).toHaveBeenCalledTimes(5); // provider, model, telemetry, prefs, agents
+      expect(mockPromptFn).toHaveBeenCalledTimes(5); // provider, model, telemetry, prefs, agents
     });
 
     it('should prompt for API key for cloud providers', async () => {
       const wizard = new SetupWizard(testWorkspace);
 
-      mocks.prompt.mock
+      mockPromptFn
         .mockResolvedValueOnce({ provider: 'openrouter' })
         .mockResolvedValueOnce({ apiKey: 'sk-test-key' })
         .mockResolvedValueOnce({ model: 'anthropic/claude-3.5-sonnet' })
@@ -176,7 +176,7 @@ describe('SetupWizard', () => {
 
       expect(result.success).toBe(true);
       // Should have prompted for API key
-      expect(mocks.prompt.mock).toHaveBeenCalledTimes(6); // provider, apiKey, model, telemetry, prefs, agents
+      expect(mockPromptFn).toHaveBeenCalledTimes(6); // provider, apiKey, model, telemetry, prefs, agents
     });
   });
 
@@ -184,7 +184,7 @@ describe('SetupWizard', () => {
     it('should save API key for OpenRouter', async () => {
       const wizard = new SetupWizard(testWorkspace);
 
-      mocks.prompt.mock
+      mockPromptFn
         .mockResolvedValueOnce({ provider: 'openrouter' })
         .mockResolvedValueOnce({ apiKey: 'sk-or-test-key' })
         .mockResolvedValueOnce({ model: 'anthropic/claude-3.5-sonnet' })
@@ -200,7 +200,7 @@ describe('SetupWizard', () => {
     it('should save API key for OpenAI', async () => {
       const wizard = new SetupWizard(testWorkspace);
 
-      mocks.prompt.mock
+      mockPromptFn
         .mockResolvedValueOnce({ provider: 'openai' })
         .mockResolvedValueOnce({ apiKey: 'sk-openai-test-key' })
         .mockResolvedValueOnce({ model: 'gpt-4o' })
@@ -225,7 +225,7 @@ describe('SetupWizard', () => {
 
       const wizard = new SetupWizard(testWorkspace, existingConfig);
 
-      mocks.prompt.mock
+      mockPromptFn
         .mockResolvedValueOnce({ provider: 'openrouter' })
         .mockResolvedValueOnce({ useExisting: true }) // Use existing key
         .mockResolvedValueOnce({ model: 'anthropic/claude-3.5-sonnet' })
@@ -243,7 +243,7 @@ describe('SetupWizard', () => {
     it('should save selected model', async () => {
       const wizard = new SetupWizard(testWorkspace);
 
-      mocks.prompt.mock
+      mockPromptFn
         .mockResolvedValueOnce({ provider: 'openrouter' })
         .mockResolvedValueOnce({ apiKey: 'sk-test' })
         .mockResolvedValueOnce({ model: 'anthropic/claude-sonnet-4-20250514' })
@@ -261,7 +261,7 @@ describe('SetupWizard', () => {
     it('should save telemetry enabled preference', async () => {
       const wizard = new SetupWizard(testWorkspace);
 
-      mocks.prompt.mock
+      mockPromptFn
         .mockResolvedValueOnce({ provider: 'ollama' })
         .mockResolvedValueOnce({ model: 'llama3.2:latest' })
         .mockResolvedValueOnce({ telemetryEnabled: true })
@@ -276,7 +276,7 @@ describe('SetupWizard', () => {
     it('should save telemetry disabled preference', async () => {
       const wizard = new SetupWizard(testWorkspace);
 
-      mocks.prompt.mock
+      mockPromptFn
         .mockResolvedValueOnce({ provider: 'ollama' })
         .mockResolvedValueOnce({ model: 'llama3.2:latest' })
         .mockResolvedValueOnce({ telemetryEnabled: false })
@@ -293,7 +293,7 @@ describe('SetupWizard', () => {
     it('should skip preferences when user declines', async () => {
       const wizard = new SetupWizard(testWorkspace);
 
-      mocks.prompt.mock
+      mockPromptFn
         .mockResolvedValueOnce({ provider: 'ollama' })
         .mockResolvedValueOnce({ model: 'llama3.2:latest' })
         .mockResolvedValueOnce({ telemetryEnabled: true })
@@ -309,7 +309,7 @@ describe('SetupWizard', () => {
     it('should save preferences when user configures them', async () => {
       const wizard = new SetupWizard(testWorkspace);
 
-      mocks.prompt.mock
+      mockPromptFn
         .mockResolvedValueOnce({ provider: 'ollama' })
         .mockResolvedValueOnce({ model: 'llama3.2:latest' })
         .mockResolvedValueOnce({ telemetryEnabled: true })
@@ -329,7 +329,7 @@ describe('SetupWizard', () => {
     it('should skip preferences in quick setup mode', async () => {
       const wizard = new SetupWizard(testWorkspace);
 
-      mocks.prompt.mock
+      mockPromptFn
         .mockResolvedValueOnce({ provider: 'ollama' })
         .mockResolvedValueOnce({ model: 'llama3.2:latest' })
         .mockResolvedValueOnce({ telemetryEnabled: true })
@@ -356,7 +356,7 @@ describe('SetupWizard', () => {
 
       const wizard = new SetupWizard(testWorkspace);
 
-      mocks.prompt.mock
+      mockPromptFn
         .mockResolvedValueOnce({ provider: 'ollama' })
         .mockResolvedValueOnce({ model: 'llama3.2:latest' })
         .mockResolvedValueOnce({ telemetryEnabled: true })
@@ -373,7 +373,7 @@ describe('SetupWizard', () => {
     it('should skip AGENTS.md when user declines', async () => {
       const wizard = new SetupWizard(testWorkspace);
 
-      mocks.prompt.mock
+      mockPromptFn
         .mockResolvedValueOnce({ provider: 'ollama' })
         .mockResolvedValueOnce({ model: 'llama3.2:latest' })
         .mockResolvedValueOnce({ telemetryEnabled: true })
@@ -398,7 +398,7 @@ describe('SetupWizard', () => {
 
       const wizard = new SetupWizard(testWorkspace);
 
-      mocks.prompt.mock
+      mockPromptFn
         .mockResolvedValueOnce({ provider: 'ollama' })
         .mockResolvedValueOnce({ model: 'llama3.2:latest' })
         .mockResolvedValueOnce({ telemetryEnabled: true })
@@ -417,7 +417,7 @@ describe('SetupWizard', () => {
       const wizard = new SetupWizard(testWorkspace);
 
       // Simulate user pressing ESC
-      mocks.prompt.mock.mockRejectedValueOnce({ message: 'cancelled' });
+      mockPromptFn.mockRejectedValueOnce({ message: 'cancelled' });
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -430,7 +430,7 @@ describe('SetupWizard', () => {
 
       const closeError = new Error('readline was closed');
       (closeError as any).code = 'ERR_USE_AFTER_CLOSE';
-      mocks.prompt.mock.mockRejectedValueOnce(closeError);
+      mockPromptFn.mockRejectedValueOnce(closeError);
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -452,7 +452,7 @@ describe('SetupWizard', () => {
 
       const wizard = new SetupWizard(testWorkspace, existingConfig);
 
-      mocks.prompt.mock
+      mockPromptFn
         .mockResolvedValueOnce({ provider: 'ollama' })
         .mockResolvedValueOnce({ model: 'llama3.2:latest' })
         .mockResolvedValueOnce({ telemetryEnabled: true })
@@ -463,7 +463,7 @@ describe('SetupWizard', () => {
 
       expect(result.success).toBe(true);
       expect(result.config.provider).toBe('ollama');
-      expect(mocks.prompt.mock).toHaveBeenCalled();
+      expect(mockPromptFn).toHaveBeenCalled();
     });
   });
 
@@ -471,7 +471,7 @@ describe('SetupWizard', () => {
     it('should set correct base URL for OpenRouter', async () => {
       const wizard = new SetupWizard(testWorkspace);
 
-      mocks.prompt.mock
+      mockPromptFn
         .mockResolvedValueOnce({ provider: 'openrouter' })
         .mockResolvedValueOnce({ apiKey: 'sk-test' })
         .mockResolvedValueOnce({ model: 'test' })
@@ -487,7 +487,7 @@ describe('SetupWizard', () => {
     it('should set correct base URL for OpenAI', async () => {
       const wizard = new SetupWizard(testWorkspace);
 
-      mocks.prompt.mock
+      mockPromptFn
         .mockResolvedValueOnce({ provider: 'openai' })
         .mockResolvedValueOnce({ apiKey: 'sk-test' })
         .mockResolvedValueOnce({ model: 'gpt-4o' })
@@ -503,7 +503,7 @@ describe('SetupWizard', () => {
     it('should set correct base URL for Ollama', async () => {
       const wizard = new SetupWizard(testWorkspace);
 
-      mocks.prompt.mock
+      mockPromptFn
         .mockResolvedValueOnce({ provider: 'ollama' })
         .mockResolvedValueOnce({ model: 'llama3.2:latest' })
         .mockResolvedValueOnce({ telemetryEnabled: true })
