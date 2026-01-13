@@ -38,6 +38,7 @@ import { SessionManager } from '../session/SessionManager.js';
 import { ProjectManager } from '../session/ProjectManager.js';
 import { ToolsRegistry } from './toolsRegistry.js';
 import type { SessionMessage, WorkspaceState } from '../session/types.js';
+import { ProjectAnalyzer as OnboardingProjectAnalyzer, AgentsGenerator } from '../onboarding/index.js';
 import type {
   AgentRuntime,
   AgentAction,
@@ -510,6 +511,9 @@ export class AutohandAgent {
       tokensUsed: this.sessionTokensUsed,
     });
 
+    // Restore stdin to known state after hook execution
+    this.ensureStdinReady();
+
     // Ring terminal bell to notify user (shows badge on terminal tab)
     if (this.runtime.config.ui?.terminalBell !== false) {
       process.stdout.write('\x07');
@@ -525,6 +529,9 @@ export class AutohandAgent {
       sessionEndReason: 'exit',
       duration: Date.now() - this.sessionStartedAt,
     });
+
+    // Restore stdin after session-end hook
+    this.ensureStdinReady();
 
     await this.telemetryManager.endSession('completed');
   }
@@ -730,6 +737,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
           turnDuration,
           tokensUsed: this.sessionTokensUsed,
         });
+
+        // Restore stdin to known state after hook execution
+        // Hook commands with shell: true can sometimes leave stdin in unexpected state
+        this.ensureStdinReady();
 
         // Ring terminal bell to notify user (shows badge on terminal tab)
         if (this.runtime.config.ui?.terminalBell !== false) {
@@ -1374,6 +1385,12 @@ If lint or tests fail, report the issues but do NOT commit.`;
       const currentSettings = getProviderConfig(this.runtime.config, provider);
       const currentModel = this.runtime.options.model ?? currentSettings?.model ?? '';
 
+      // For cloud providers (openai, openrouter), offer to change API key as well
+      if (provider === 'openai' || provider === 'openrouter') {
+        await this.changeCloudProviderSettings(provider, currentModel, currentSettings);
+        return;
+      }
+
       // For Ollama, try to fetch available models
       if (provider === 'ollama' && currentSettings?.baseUrl) {
         try {
@@ -1400,22 +1417,6 @@ If lint or tests fail, report the issues but do NOT commit.`;
         }
       }
 
-      // For OpenAI, show the predefined list
-      if (provider === 'openai') {
-        const models = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'];
-        const answer = await enquirer.prompt<{ model: string }>([
-          {
-            type: 'select',
-            name: 'model',
-            message: 'Select a model',
-            choices: models,
-            initial: Math.max(0, models.indexOf(currentModel))
-          }
-        ]);
-        await this.applyModelChange(provider, answer.model, currentModel);
-        return;
-      }
-
       // For other providers, manual input
       const answer = await enquirer.prompt<{ model: string }>([
         {
@@ -1433,6 +1434,205 @@ If lint or tests fail, report the issues but do NOT commit.`;
         return;
       }
       throw error;
+    }
+  }
+
+  private async changeCloudProviderSettings(
+    provider: 'openai' | 'openrouter',
+    currentModel: string,
+    currentSettings: { apiKey?: string; baseUrl?: string; model?: string } | null
+  ): Promise<void> {
+    const providerName = provider === 'openai' ? 'OpenAI' : 'OpenRouter';
+    const maskedKey = currentSettings?.apiKey
+      ? `...${currentSettings.apiKey.slice(-4)}`
+      : 'not set';
+
+    console.log(chalk.cyan(`\n${providerName} Settings`));
+    console.log(chalk.gray(`Current model: ${currentModel || 'not set'}`));
+    console.log(chalk.gray(`Current API key: ${maskedKey}\n`));
+
+    const { action } = await enquirer.prompt<{ action: string }>([
+      {
+        type: 'select',
+        name: 'action',
+        message: 'What would you like to change?',
+        choices: [
+          { name: 'model', message: 'Change model only' },
+          { name: 'apiKey', message: 'Change API key only' },
+          { name: 'both', message: 'Change both model and API key' }
+        ]
+      }
+    ]);
+
+    let newModel = currentModel;
+    let newApiKey = currentSettings?.apiKey || '';
+
+    // Handle API key change
+    if (action === 'apiKey' || action === 'both') {
+      const keyUrl = provider === 'openai'
+        ? 'https://platform.openai.com/api-keys'
+        : 'https://openrouter.ai/keys';
+      console.log(chalk.gray(`\nGet your API key at: ${keyUrl}\n`));
+
+      const { apiKey } = await enquirer.prompt<{ apiKey: string }>([
+        {
+          type: 'password',
+          name: 'apiKey',
+          message: `Enter your ${providerName} API key`,
+          validate: (val: string) => {
+            if (!val?.trim()) return 'API key is required';
+            if (val.length < 10) return 'API key seems too short';
+            return true;
+          }
+        }
+      ]);
+
+      // Validate the API key
+      console.log(chalk.gray('\nValidating API key...'));
+      const validationResult = await this.validateApiKey(provider, apiKey.trim());
+
+      if (!validationResult.valid) {
+        console.log(chalk.red(`\n✗ ${validationResult.error}`));
+        console.log(chalk.gray(validationResult.hint || ''));
+        return;
+      }
+
+      console.log(chalk.green('✓ API key is valid\n'));
+      newApiKey = apiKey.trim();
+    }
+
+    // Handle model change
+    if (action === 'model' || action === 'both') {
+      if (provider === 'openai') {
+        const models = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo', 'o1', 'o1-mini'];
+        const { model } = await enquirer.prompt<{ model: string }>([
+          {
+            type: 'select',
+            name: 'model',
+            message: 'Select a model',
+            choices: models,
+            initial: Math.max(0, models.indexOf(currentModel))
+          }
+        ]);
+        newModel = model;
+      } else {
+        // OpenRouter - allow custom model input
+        const { model } = await enquirer.prompt<{ model: string }>([
+          {
+            type: 'input',
+            name: 'model',
+            message: 'Enter the model ID',
+            initial: currentModel || 'anthropic/claude-sonnet-4-20250514'
+          }
+        ]);
+        newModel = model.trim();
+      }
+    }
+
+    // Save the changes
+    const baseUrl = provider === 'openai'
+      ? 'https://api.openai.com/v1'
+      : 'https://openrouter.ai/api/v1';
+
+    this.runtime.config[provider] = {
+      apiKey: newApiKey,
+      baseUrl,
+      model: newModel
+    };
+
+    this.runtime.config.provider = provider;
+    this.runtime.options.model = newModel;
+    await saveConfig(this.runtime.config);
+    this.resetLlmClient(provider, newModel);
+    this.contextWindow = getContextWindow(newModel);
+    this.contextPercentLeft = 100;
+    this.emitStatus();
+
+    console.log(chalk.green(`\n✓ ${providerName} settings updated successfully!`));
+    console.log(chalk.gray(`  Provider: ${provider}`));
+    console.log(chalk.gray(`  Model: ${newModel}`));
+  }
+
+  private async validateApiKey(
+    provider: 'openai' | 'openrouter',
+    apiKey: string
+  ): Promise<{ valid: boolean; error?: string; hint?: string }> {
+    try {
+      const baseUrl = provider === 'openai'
+        ? 'https://api.openai.com/v1'
+        : 'https://openrouter.ai/api/v1';
+
+      // Make a simple API call to validate the key
+      const response = await fetch(`${baseUrl}/models`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          ...(provider === 'openrouter' && {
+            'HTTP-Referer': 'https://autohand.dev',
+            'X-Title': 'Autohand CLI'
+          })
+        }
+      });
+
+      if (response.ok) {
+        return { valid: true };
+      }
+
+      // Handle specific error codes
+      const status = response.status;
+      let errorData: any = {};
+      try {
+        errorData = await response.json();
+      } catch {
+        // Ignore JSON parse errors
+      }
+
+      if (status === 401) {
+        return {
+          valid: false,
+          error: 'Invalid API key',
+          hint: provider === 'openai'
+            ? 'Check that your API key is correct at https://platform.openai.com/api-keys'
+            : 'Check that your API key is correct at https://openrouter.ai/keys'
+        };
+      }
+
+      if (status === 403) {
+        return {
+          valid: false,
+          error: 'API key does not have permission',
+          hint: 'Your API key may have restricted permissions or your account may need to add a payment method.'
+        };
+      }
+
+      if (status === 429) {
+        return {
+          valid: false,
+          error: 'Rate limited or quota exceeded',
+          hint: 'You may have exceeded your API quota. Check your usage and billing settings.'
+        };
+      }
+
+      return {
+        valid: false,
+        error: errorData?.error?.message || `API returned status ${status}`,
+        hint: 'Please verify your API key and try again.'
+      };
+    } catch (error) {
+      const err = error as Error;
+      if (err.message?.includes('fetch') || err.message?.includes('network')) {
+        return {
+          valid: false,
+          error: 'Network error - could not reach the API',
+          hint: 'Check your internet connection and try again.'
+        };
+      }
+      return {
+        valid: false,
+        error: `Validation failed: ${err.message}`,
+        hint: 'Please try again or check your network connection.'
+      };
     }
   }
 
@@ -1490,9 +1690,36 @@ If lint or tests fail, report the issues but do NOT commit.`;
       console.log(chalk.gray('AGENTS.md already exists in this workspace.'));
       return;
     }
-    const template = `# Project Autopilot\n\nDescribe how Autohand should work in this repo. Include framework commands, testing requirements, and any constraints.\n`;
-    await fs.writeFile(target, template, 'utf8');
-    console.log(chalk.green('Created AGENTS.md template. Customize it to guide the agent.'));
+
+    console.log(chalk.gray('Analyzing project structure...'));
+
+    // Use OnboardingProjectAnalyzer to detect project characteristics
+    const analyzer = new OnboardingProjectAnalyzer(this.runtime.workspaceRoot);
+    const projectInfo = await analyzer.analyze();
+
+    // Show what was detected
+    if (Object.keys(projectInfo).length > 0) {
+      console.log(chalk.gray('Detected:'));
+      if (projectInfo.language) {
+        console.log(chalk.white(`  - Language: ${projectInfo.language}`));
+      }
+      if (projectInfo.framework) {
+        console.log(chalk.white(`  - Framework: ${projectInfo.framework}`));
+      }
+      if (projectInfo.packageManager) {
+        console.log(chalk.white(`  - Package manager: ${projectInfo.packageManager}`));
+      }
+      if (projectInfo.testFramework) {
+        console.log(chalk.white(`  - Test framework: ${projectInfo.testFramework}`));
+      }
+    }
+
+    // Generate AGENTS.md content using the detected info
+    const generator = new AgentsGenerator();
+    const content = generator.generateContent(projectInfo);
+
+    await fs.writeFile(target, content, 'utf8');
+    console.log(chalk.green('Created AGENTS.md based on your project. Customize it to guide the agent.'));
   }
 
   /**
@@ -4031,6 +4258,35 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
 
     this.emitStatus();
+  }
+
+  /**
+   * Ensure stdin is in a known good state for readline input.
+   * This is called after operations that may interfere with stdin state,
+   * such as hook execution with shell: true.
+   */
+  private ensureStdinReady(): void {
+    const stdin = process.stdin as NodeJS.ReadStream;
+    if (!stdin.isTTY) return;
+
+    // Ensure stdin is not paused and is readable
+    // Some operations (like shell spawns) can leave stdin in an unexpected state
+    try {
+      // First, ensure raw mode is off (readline will set it as needed)
+      if (typeof stdin.setRawMode === 'function' && (stdin as any).isRaw) {
+        stdin.setRawMode(false);
+      }
+
+      // Resume stdin if it was paused
+      if (stdin.isPaused()) {
+        stdin.resume();
+      }
+
+      // Re-apply keypress events setup (idempotent operation)
+      safeEmitKeypressEvents(stdin);
+    } catch {
+      // Ignore errors - best effort restoration
+    }
   }
 
   private formatStatusLine(): string {

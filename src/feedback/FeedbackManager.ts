@@ -328,20 +328,63 @@ export class FeedbackManager {
     };
 
     try {
-      // Step 1: NPS Score (1-5)
-      const npsResult = await safePrompt<{ score: string }>({
-        type: 'select',
+      // Step 1: NPS Score (1-5) with number key shortcuts
+      const { Select } = Enquirer as any;
+      const ratingChoices = [
+        { name: '5', message: `${chalk.green('5')} - Excellent` },
+        { name: '4', message: `${chalk.green('4')} - Good` },
+        { name: '3', message: `${chalk.yellow('3')} - Okay` },
+        { name: '2', message: `${chalk.red('2')} - Poor` },
+        { name: '1', message: `${chalk.red('1')} - Very Poor` },
+        { name: 'skip', message: `${chalk.gray('s')} - Skip` }
+      ];
+
+      const ratingPrompt = new Select({
         name: 'score',
-        message: 'How would you rate your experience?',
-        choices: [
-          { name: '5', message: `${chalk.green('5')} - Excellent` },
-          { name: '4', message: `${chalk.green('4')} - Good` },
-          { name: '3', message: `${chalk.yellow('3')} - Okay` },
-          { name: '2', message: `${chalk.red('2')} - Poor` },
-          { name: '1', message: `${chalk.red('1')} - Very Poor` },
-          { name: 'skip', message: `${chalk.gray('Skip')}` }
-        ]
+        message: 'How would you rate your experience? (press 1-5 or s to skip)',
+        choices: ratingChoices
       });
+
+      // Add number key shortcuts (1-5) and 's' for skip
+      const originalKeypress = ratingPrompt.keypress.bind(ratingPrompt);
+      ratingPrompt.keypress = async function(char: string, key: { name: string }) {
+        // Handle number keys 1-5 as direct selection
+        if (char >= '1' && char <= '5') {
+          const targetName = char;
+          const index = ratingChoices.findIndex(c => c.name === targetName);
+          if (index !== -1) {
+            this.index = index;
+            this.selected = this.choices[index];
+            this.value = this.choices[index].name;
+            await this.render();
+            return this.submit();
+          }
+        }
+        // Handle 's' or 'S' for Skip
+        if (char === 's' || char === 'S') {
+          const index = ratingChoices.findIndex(c => c.name === 'skip');
+          if (index !== -1) {
+            this.index = index;
+            this.selected = this.choices[index];
+            this.value = this.choices[index].name;
+            await this.render();
+            return this.submit();
+          }
+        }
+        return originalKeypress(char, key);
+      };
+
+      let npsResult: { score: string } | null = null;
+      try {
+        const score = await ratingPrompt.run();
+        npsResult = { score };
+      } catch (error: any) {
+        if (error?.code === 'ERR_USE_AFTER_CLOSE') {
+          npsResult = null;
+        } else {
+          throw error;
+        }
+      }
 
       // User cancelled or readline closed
       if (!npsResult) {

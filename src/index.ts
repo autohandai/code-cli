@@ -43,6 +43,7 @@ import { ProviderFactory } from './providers/ProviderFactory.js';
 import { AutohandAgent } from './core/agent.js';
 import { runAutoSkillGeneration } from './skills/autoSkill.js';
 import { runRpcMode } from './modes/rpc/index.js';
+import { SetupWizard } from './onboarding/index.js';
 import type { CLIOptions, AgentRuntime } from './types.js';
 
 /**
@@ -158,7 +159,8 @@ program
   .option('--checkpoint-interval <n>', 'Git commit every N iterations (default: 5)', parseInt)
   .option('--max-runtime <m>', 'Max runtime in minutes (default: 120)', parseInt)
   .option('--max-cost <d>', 'Max API cost in dollars (default: 10)', parseFloat)
-  .action(async (opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean }) => {
+  .option('--setup', 'Run the setup wizard to configure or reconfigure Autohand', false)
+  .action(async (opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean; setup?: boolean }) => {
     // Handle --skill-install flag
     if (opts.skillInstall !== undefined) {
       await runSkillInstall(opts);
@@ -184,6 +186,26 @@ program
       const { logout } = await import('./commands/logout.js');
       const config = await loadConfig(opts.config);
       await logout({ config });
+      process.exit(0);
+    }
+
+    // Handle --setup flag
+    if (opts.setup) {
+      const config = await loadConfig(opts.config);
+      const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
+      const wizard = new SetupWizard(workspaceRoot, config);
+      const result = await wizard.run({ skipWelcome: false });
+
+      if (result.cancelled) {
+        console.log(chalk.gray('\nSetup cancelled.'));
+        process.exit(0);
+      }
+
+      if (result.success) {
+        const newConfig = { ...config, ...result.config };
+        await saveConfig(newConfig);
+        console.log(chalk.green('\nSetup complete! Run `autohand` to start.'));
+      }
       process.exit(0);
     }
 
@@ -241,64 +263,29 @@ async function runCLI(options: CLIOptions): Promise<void> {
   const statusPanel: { update: (snap: any) => void; stop: () => void } | null = null;
   try {
     let config = await loadConfig(options.config);
+    const workspaceRoot = resolveWorkspaceRoot(config, options.path);
 
-    // Check if API key is missing and prompt for it
+    // Check if API key is missing and run setup wizard
     const providerName = config.provider ?? 'openrouter';
     const providerConfig = getProviderConfig(config, providerName);
 
     if (!providerConfig) {
-      // No valid provider config - need to set up API key
-      if (config.isNewConfig) {
-        console.log(chalk.cyan('\n✨ Welcome to Autohand!\n'));
-        console.log(chalk.gray(`Config created at: ${config.configPath}\n`));
+      // No valid provider config - run the setup wizard
+      const wizard = new SetupWizard(workspaceRoot, config);
+      const result = await wizard.run({ skipWelcome: !config.isNewConfig });
+
+      if (result.cancelled) {
+        console.log(chalk.gray('\nSetup cancelled.'));
+        process.exit(0);
       }
 
-      console.log(chalk.yellow(`No ${providerName} API key configured.\n`));
-
-      let apiKey: string;
-      try {
-        const result = await enquirer.prompt<{ apiKey: string }>({
-          type: 'password',
-          name: 'apiKey',
-          message: `Enter your ${providerName === 'openrouter' ? 'OpenRouter' : providerName} API key`,
-          validate: (val: unknown) => {
-            if (typeof val !== 'string' || !val.trim()) {
-              return 'API key is required';
-            }
-            return true;
-          }
-        });
-        apiKey = result.apiKey;
-      } catch (error: any) {
-        // Handle user cancellation (Ctrl+C or ESC)
-        if (error?.code === 'ERR_USE_AFTER_CLOSE' || error?.message?.includes('cancelled')) {
-          console.log(chalk.gray('\nSetup cancelled.'));
-          process.exit(0);
-        }
-        throw error;
+      if (result.success) {
+        // Merge wizard config into existing config
+        config = { ...config, ...result.config };
+        await saveConfig(config);
+        console.log(); // Add spacing after wizard
       }
-
-      // Update config with API key
-      if (providerName === 'openrouter') {
-        config.openrouter = {
-          ...config.openrouter,
-          apiKey: apiKey.trim(),
-          baseUrl: config.openrouter?.baseUrl || 'https://openrouter.ai/api/v1',
-          model: config.openrouter?.model || 'anthropic/claude-sonnet-4-20250514'
-        };
-      } else if (providerName === 'openai') {
-        config.openai = {
-          ...config.openai,
-          apiKey: apiKey.trim(),
-          model: config.openai?.model || 'gpt-4o'
-        };
-      }
-
-      await saveConfig(config);
-      console.log(chalk.green('✓ API key saved to config\n'));
     }
-
-    const workspaceRoot = resolveWorkspaceRoot(config, options.path);
 
     // Check for dangerous workspace directories (home, root, system dirs)
     const safetyCheck = checkWorkspaceSafety(workspaceRoot);
