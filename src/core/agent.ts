@@ -1479,9 +1479,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
           type: 'password',
           name: 'apiKey',
           message: `Enter your ${providerName} API key`,
-          validate: (val: string) => {
-            if (!val?.trim()) return 'API key is required';
-            if (val.length < 10) return 'API key seems too short';
+          validate: (val: unknown) => {
+            const v = val as string;
+            if (!v?.trim()) return 'API key is required';
+            if (v.length < 10) return 'API key seems too short';
             return true;
           }
         }

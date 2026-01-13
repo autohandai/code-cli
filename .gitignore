@@ -21,3 +21,4 @@ bun.lock
 AGENTS.md
 prd/
 package-lock.json
+bin/

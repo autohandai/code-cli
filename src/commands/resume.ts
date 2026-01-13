@@ -143,11 +143,7 @@ export async function resume(ctx: {
                 type: 'select',
                 name: 'selected',
                 message: 'Choose a session',
-                choices,
-                result(value: string) {
-                    // Return the session ID (name), not the display message
-                    return value;
-                }
+                choices
             }
         ]);
 
