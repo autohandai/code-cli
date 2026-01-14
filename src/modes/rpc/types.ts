@@ -99,6 +99,13 @@ export const RPC_METHODS = {
   // Skills management (non-interactive for RPC mode)
   GET_SKILLS_REGISTRY: 'autohand.getSkillsRegistry',
   INSTALL_SKILL: 'autohand.installSkill',
+  // Auto-mode control
+  AUTOMODE_START: 'autohand.automode.start',
+  AUTOMODE_STATUS: 'autohand.automode.status',
+  AUTOMODE_PAUSE: 'autohand.automode.pause',
+  AUTOMODE_RESUME: 'autohand.automode.resume',
+  AUTOMODE_CANCEL: 'autohand.automode.cancel',
+  AUTOMODE_GET_LOG: 'autohand.automode.getLog',
 } as const;
 
 export type RpcMethod = (typeof RPC_METHODS)[keyof typeof RPC_METHODS];
@@ -136,6 +143,15 @@ export const RPC_NOTIFICATIONS = {
   HOOK_SUBAGENT_STOP: 'autohand.hook.subagentStop',
   HOOK_PERMISSION_REQUEST: 'autohand.hook.permissionRequest',
   HOOK_NOTIFICATION: 'autohand.hook.notification',
+  // Auto-mode lifecycle notifications
+  AUTOMODE_START: 'autohand.automode.start',
+  AUTOMODE_ITERATION: 'autohand.automode.iteration',
+  AUTOMODE_CHECKPOINT: 'autohand.automode.checkpoint',
+  AUTOMODE_PAUSE: 'autohand.automode.pause',
+  AUTOMODE_RESUME: 'autohand.automode.resume',
+  AUTOMODE_CANCEL: 'autohand.automode.cancel',
+  AUTOMODE_COMPLETE: 'autohand.automode.complete',
+  AUTOMODE_ERROR: 'autohand.automode.error',
 } as const;
 
 export type RpcNotification = (typeof RPC_NOTIFICATIONS)[keyof typeof RPC_NOTIFICATIONS];
@@ -645,4 +661,206 @@ export function createNotification(method: string, params?: JsonRpcParams): Json
   }
   // Notifications have no id
   return notification;
+}
+
+// ============================================================================
+// Auto-Mode RPC Types
+// ============================================================================
+
+/**
+ * Auto-mode start request params
+ */
+export interface AutomodeStartParams {
+  /** Task description/prompt */
+  prompt: string;
+  /** Maximum iterations (default: 50) */
+  maxIterations?: number;
+  /** Completion marker text (default: "DONE") */
+  completionPromise?: string;
+  /** Use git worktree isolation (default: true) */
+  useWorktree?: boolean;
+  /** Checkpoint interval in iterations (default: 5) */
+  checkpointInterval?: number;
+  /** Maximum runtime in minutes (default: 120) */
+  maxRuntime?: number;
+  /** Maximum cost in dollars (default: 10) */
+  maxCost?: number;
+}
+
+/**
+ * Auto-mode start result
+ */
+export interface AutomodeStartResult {
+  success: boolean;
+  sessionId?: string;
+  error?: string;
+}
+
+/**
+ * Auto-mode status result
+ */
+export interface AutomodeStatusResult {
+  active: boolean;
+  paused: boolean;
+  state?: {
+    sessionId: string;
+    status: 'running' | 'paused' | 'completed' | 'cancelled' | 'failed';
+    currentIteration: number;
+    maxIterations: number;
+    filesCreated: number;
+    filesModified: number;
+    branch?: string;
+    lastCheckpoint?: {
+      commit: string;
+      message: string;
+      timestamp: string;
+    };
+  };
+}
+
+/**
+ * Auto-mode pause result
+ */
+export interface AutomodePauseResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Auto-mode resume result
+ */
+export interface AutomodeResumeResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Auto-mode cancel params
+ */
+export interface AutomodeCancelParams {
+  /** Reason for cancellation */
+  reason?: string;
+}
+
+/**
+ * Auto-mode cancel result
+ */
+export interface AutomodeCancelResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Auto-mode get log params
+ */
+export interface AutomodeGetLogParams {
+  /** Limit number of iterations returned */
+  limit?: number;
+}
+
+/**
+ * Auto-mode iteration log entry
+ */
+export interface AutomodeLogEntry {
+  iteration: number;
+  timestamp: string;
+  actions: string[];
+  tokensUsed?: number;
+  cost?: number;
+  checkpoint?: {
+    commit: string;
+    message: string;
+  };
+}
+
+/**
+ * Auto-mode get log result
+ */
+export interface AutomodeGetLogResult {
+  success: boolean;
+  iterations: AutomodeLogEntry[];
+  error?: string;
+}
+
+// ============================================================================
+// Auto-Mode Notification Types
+// ============================================================================
+
+/**
+ * Auto-mode start notification
+ */
+export interface AutomodeStartNotificationParams {
+  sessionId: string;
+  prompt: string;
+  maxIterations: number;
+  timestamp: string;
+}
+
+/**
+ * Auto-mode iteration notification
+ */
+export interface AutomodeIterationNotificationParams {
+  sessionId: string;
+  iteration: number;
+  actions: string[];
+  tokensUsed?: number;
+  timestamp: string;
+}
+
+/**
+ * Auto-mode checkpoint notification
+ */
+export interface AutomodeCheckpointNotificationParams {
+  sessionId: string;
+  iteration: number;
+  commit: string;
+  timestamp: string;
+}
+
+/**
+ * Auto-mode pause notification
+ */
+export interface AutomodePauseNotificationParams {
+  sessionId: string;
+  iteration: number;
+  timestamp: string;
+}
+
+/**
+ * Auto-mode resume notification
+ */
+export interface AutomodeResumeNotificationParams {
+  sessionId: string;
+  iteration: number;
+  timestamp: string;
+}
+
+/**
+ * Auto-mode cancel notification
+ */
+export interface AutomodeCancelNotificationParams {
+  sessionId: string;
+  reason: string;
+  iteration: number;
+  timestamp: string;
+}
+
+/**
+ * Auto-mode complete notification
+ */
+export interface AutomodeCompleteNotificationParams {
+  sessionId: string;
+  iterations: number;
+  filesCreated: number;
+  filesModified: number;
+  timestamp: string;
+}
+
+/**
+ * Auto-mode error notification
+ */
+export interface AutomodeErrorNotificationParams {
+  sessionId: string;
+  error: string;
+  timestamp: string;
 }

@@ -4061,6 +4061,16 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   /**
+   * Get the auto-mode manager (if running in auto-mode)
+   * Returns undefined when not in auto-mode - automode is CLI-driven
+   */
+  getAutomodeManager(): import('./AutomodeManager.js').AutomodeManager | undefined {
+    // Auto-mode manager is created externally when running with --auto-mode flag
+    // This method is primarily for RPC integration
+    return undefined;
+  }
+
+  /**
    * Handle a slash command (e.g., /skills, /skills install, /model)
    * Returns the command output or null if the command doesn't exist
    */

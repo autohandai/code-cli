@@ -229,6 +229,18 @@ function checkGitRepo(workspaceRoot: string): { isGitRepo: boolean; branch?: str
       });
 
       if (initResult.status === 0) {
+        // On macOS, create .gitignore with .DS_Store
+        if (os.platform() === 'darwin') {
+          try {
+            const gitignorePath = `${workspaceRoot}/.gitignore`;
+            if (!fs.existsSync(gitignorePath)) {
+              fs.writeFileSync(gitignorePath, '.DS_Store\n');
+            }
+          } catch {
+            // Ignore errors creating .gitignore
+          }
+        }
+
         // Get the default branch name
         const branch = getGitBranch(workspaceRoot) || 'main';
 

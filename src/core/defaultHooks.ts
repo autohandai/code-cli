@@ -503,7 +503,7 @@ exit 0
 `;
 
 /**
- * Map of script names to their content
+ * Map of script names to their content (bash/shell scripts)
  */
 export const HOOK_SCRIPTS: Record<string, string> = {
   'smart-commit.sh': SMART_COMMIT_HOOK_SCRIPT,
@@ -512,4 +512,344 @@ export const HOOK_SCRIPTS: Record<string, string> = {
   'slack-notify.sh': SLACK_NOTIFY_SCRIPT,
   'git-auto-stage.sh': GIT_AUTO_STAGE_SCRIPT,
   'security-guard.sh': SECURITY_GUARD_SCRIPT,
+};
+
+// ============================================================
+// Windows PowerShell Scripts
+// These are equivalents of the bash scripts for Windows users
+// ============================================================
+
+/**
+ * Sound Alert Hook Script (PowerShell)
+ */
+export const SOUND_ALERT_SCRIPT_PS1 = `# Sound Alert Hook for Autohand (PowerShell)
+# Plays a sound when task completes
+
+param()
+
+try {
+    # Play system notification sound
+    [System.Media.SystemSounds]::Asterisk.Play()
+} catch {
+    # Fallback to console beep
+    [Console]::Beep(1000, 200)
+}
+
+exit 0
+`;
+
+/**
+ * Auto-Format Hook Script (PowerShell)
+ */
+export const AUTO_FORMAT_SCRIPT_PS1 = `# Auto-Format Hook for Autohand (PowerShell)
+# Formats files on modification using prettier or eslint
+
+param()
+
+$FilePath = $env:HOOK_PATH
+$ChangeType = $env:HOOK_CHANGE_TYPE
+
+# Skip if file was deleted
+if ($ChangeType -eq "delete") {
+    exit 0
+}
+
+# Skip if file doesn't exist
+if (-not (Test-Path $FilePath)) {
+    exit 0
+}
+
+# Get file extension
+$Ext = [System.IO.Path]::GetExtension($FilePath).TrimStart('.')
+
+# Try to format the file
+function Format-File {
+    param($File)
+
+    # Try prettier first
+    if (Test-Path "package.json") {
+        try {
+            npx prettier --write $File 2>$null
+            if ($LASTEXITCODE -eq 0) { return $true }
+        } catch {}
+    }
+
+    # Try eslint for JS/TS files
+    if ($Ext -match "^(js|jsx|ts|tsx)$") {
+        if (Test-Path "package.json") {
+            try {
+                npx eslint --fix $File 2>$null
+                if ($LASTEXITCODE -eq 0) { return $true }
+            } catch {}
+        }
+    }
+
+    return $false
+}
+
+# Format the file (silently)
+Format-File $FilePath | Out-Null
+
+# Always exit successfully
+exit 0
+`;
+
+/**
+ * Slack Notification Hook Script (PowerShell)
+ */
+export const SLACK_NOTIFY_SCRIPT_PS1 = `# Slack Notification Hook for Autohand (PowerShell)
+# Sends notification to Slack when task completes
+
+param()
+
+$WebhookUrl = $env:SLACK_WEBHOOK_URL
+
+# Skip if no webhook configured
+if (-not $WebhookUrl) {
+    exit 0
+}
+
+$Tokens = if ($env:HOOK_TOKENS) { $env:HOOK_TOKENS } else { "0" }
+$ToolCalls = if ($env:HOOK_TOOL_CALLS_COUNT) { $env:HOOK_TOOL_CALLS_COUNT } else { "0" }
+$Duration = if ($env:HOOK_DURATION) { [int]$env:HOOK_DURATION } else { 0 }
+$Workspace = if ($env:HOOK_WORKSPACE) { $env:HOOK_WORKSPACE } else { "unknown" }
+
+# Convert duration to human readable
+if ($Duration -gt 60000) {
+    $DurationStr = "{0}m {1}s" -f [math]::Floor($Duration / 60000), [math]::Floor(($Duration % 60000) / 1000)
+} elseif ($Duration -gt 1000) {
+    $DurationStr = "{0}s" -f [math]::Floor($Duration / 1000)
+} else {
+    $DurationStr = "{0}ms" -f $Duration
+}
+
+$ProjectName = Split-Path $Workspace -Leaf
+
+$Payload = @{
+    blocks = @(
+        @{
+            type = "header"
+            text = @{
+                type = "plain_text"
+                text = "Autohand Task Completed"
+                emoji = $true
+            }
+        }
+        @{
+            type = "section"
+            fields = @(
+                @{ type = "mrkdwn"; text = "*Project:*\`n$ProjectName" }
+                @{ type = "mrkdwn"; text = "*Duration:*\`n$DurationStr" }
+                @{ type = "mrkdwn"; text = "*Tokens Used:*\`n$Tokens" }
+                @{ type = "mrkdwn"; text = "*Tool Calls:*\`n$ToolCalls" }
+            )
+        }
+    )
+} | ConvertTo-Json -Depth 10
+
+try {
+    Invoke-RestMethod -Uri $WebhookUrl -Method Post -Body $Payload -ContentType "application/json" | Out-Null
+} catch {}
+
+exit 0
+`;
+
+/**
+ * Git Auto-Stage Hook Script (PowerShell)
+ */
+export const GIT_AUTO_STAGE_SCRIPT_PS1 = `# Git Auto-Stage Hook for Autohand (PowerShell)
+# Automatically stages modified files to git
+
+param()
+
+$FilePath = $env:HOOK_PATH
+$ChangeType = $env:HOOK_CHANGE_TYPE
+
+# Check if we're in a git repository
+try {
+    git rev-parse --is-inside-work-tree 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { exit 0 }
+} catch {
+    exit 0
+}
+
+# Files to skip
+function Should-Skip {
+    param($File)
+
+    $BaseName = Split-Path $File -Leaf
+
+    # Skip log/temp files
+    if ($BaseName -match "\\.(log|tmp|swp|bak)$") { return $true }
+
+    # Skip .env files
+    if ($BaseName -like ".env*") { return $true }
+
+    # Skip certain directories
+    if ($File -match "(node_modules|\.git|dist|build|coverage)[/\\\\]") { return $true }
+
+    return $false
+}
+
+if (Should-Skip $FilePath) {
+    exit 0
+}
+
+# Stage the file based on change type
+switch ($ChangeType) {
+    { $_ -in "create", "modify" } {
+        if (Test-Path $FilePath) {
+            git add $FilePath 2>$null
+        }
+    }
+    "delete" {
+        git rm --cached $FilePath 2>$null
+    }
+}
+
+exit 0
+`;
+
+/**
+ * Security Guard Hook Script (PowerShell)
+ */
+export const SECURITY_GUARD_SCRIPT_PS1 = `# Security Guard Hook for Autohand (PowerShell)
+# Blocks dangerous commands and file operations
+# Exit code 2 = block execution
+
+param()
+
+$ToolName = $env:HOOK_TOOL
+$ToolArgs = $env:HOOK_ARGS
+
+# Read JSON input from stdin
+$Input = [Console]::In.ReadToEnd()
+
+# Try to parse JSON input
+$Command = ""
+$FilePath = ""
+try {
+    $JsonInput = $Input | ConvertFrom-Json
+    $Command = $JsonInput.tool_input.command
+    $FilePath = $JsonInput.tool_input.path
+} catch {}
+
+# Dangerous command patterns
+$DangerousCommands = @(
+    "rm -rf /",
+    "rm -rf /*",
+    "rm -rf ~",
+    "rm -rf ~/*",
+    "rm -rf .",
+    "sudo rm",
+    "chmod 777",
+    "chmod -R 777",
+    "> /dev/sda",
+    "mkfs",
+    "dd if=",
+    "Remove-Item -Recurse -Force C:\\",
+    "Remove-Item -Recurse -Force /",
+    "Format-Volume"
+)
+
+# Sensitive file patterns
+$SensitiveFiles = @(
+    ".env",
+    ".env.local",
+    ".env.production",
+    "*.pem",
+    "*.key",
+    "*_rsa",
+    "id_rsa",
+    "id_ed25519",
+    "*.p12",
+    "credentials.json",
+    "secrets.json",
+    "service-account*.json",
+    ".npmrc",
+    ".pypirc"
+)
+
+function Test-DangerousCommand {
+    param($Cmd)
+
+    foreach ($Pattern in $DangerousCommands) {
+        if ($Cmd -like "*$Pattern*") {
+            Write-Error "BLOCKED: Dangerous command pattern detected: $Pattern"
+            exit 2
+        }
+    }
+}
+
+function Test-SensitiveFile {
+    param($File)
+
+    $BaseName = Split-Path $File -Leaf
+
+    foreach ($Pattern in $SensitiveFiles) {
+        if ($BaseName -like $Pattern -or $File -like "*$Pattern*") {
+            Write-Error "BLOCKED: Operation on sensitive file: $File"
+            exit 2
+        }
+    }
+}
+
+# Main security checks
+switch ($ToolName) {
+    "run_command" {
+        Test-DangerousCommand $Command
+        Test-DangerousCommand $ToolArgs
+    }
+    { $_ -in "write_file", "delete_path" } {
+        Test-SensitiveFile $FilePath
+        if ($ToolArgs) {
+            try {
+                $ArgsJson = $ToolArgs | ConvertFrom-Json
+                if ($ArgsJson.path) {
+                    Test-SensitiveFile $ArgsJson.path
+                }
+            } catch {}
+        }
+    }
+}
+
+# All checks passed
+exit 0
+`;
+
+/**
+ * Smart Commit Hook Script (PowerShell)
+ */
+export const SMART_COMMIT_HOOK_SCRIPT_PS1 = `# Smart Commit Hook for Autohand (PowerShell)
+# Runs lint, test, and creates commit with LLM-generated message
+
+param()
+
+# Prevent infinite recursion
+if ($env:AUTOHAND_SMART_COMMIT_RUNNING) {
+    exit 0
+}
+
+# Check for uncommitted changes
+$Status = git status --porcelain 2>$null
+if (-not $Status) {
+    exit 0
+}
+
+$env:AUTOHAND_SMART_COMMIT_RUNNING = "1"
+
+# Use autohand to handle the smart commit workflow
+autohand --auto-commit -p "Complete the pending changes" -y
+`;
+
+/**
+ * Map of Windows PowerShell script names to their content
+ */
+export const HOOK_SCRIPTS_WINDOWS: Record<string, string> = {
+  'smart-commit.ps1': SMART_COMMIT_HOOK_SCRIPT_PS1,
+  'sound-alert.ps1': SOUND_ALERT_SCRIPT_PS1,
+  'auto-format.ps1': AUTO_FORMAT_SCRIPT_PS1,
+  'slack-notify.ps1': SLACK_NOTIFY_SCRIPT_PS1,
+  'git-auto-stage.ps1': GIT_AUTO_STAGE_SCRIPT_PS1,
+  'security-guard.ps1': SECURITY_GUARD_SCRIPT_PS1,
 };

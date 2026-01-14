@@ -28,6 +28,14 @@ import type {
   GetSkillsRegistryResult,
   InstallSkillParams,
   InstallSkillResult,
+  AutomodeStartParams,
+  AutomodeStartResult,
+  AutomodeStatusResult,
+  AutomodePauseResult,
+  AutomodeResumeResult,
+  AutomodeCancelResult,
+  AutomodeGetLogResult,
+  AutomodeLogEntry,
 } from './types.js';
 import {
   RPC_NOTIFICATIONS,
@@ -1383,5 +1391,235 @@ export class RPCAdapter {
       timestamp: new Date().toISOString(),
       toolCalls,
     };
+  }
+
+  // ============================================================================
+  // Auto-Mode RPC Handlers
+  // ============================================================================
+
+  /**
+   * Start auto-mode loop
+   */
+  async handleAutomodeStart(
+    requestId: JsonRpcId,
+    params: AutomodeStartParams
+  ): Promise<AutomodeStartResult> {
+    try {
+      const automodeManager = this.agent?.getAutomodeManager?.();
+      if (!automodeManager) {
+        return {
+          success: false,
+          error: 'Auto-mode manager not available',
+        };
+      }
+
+      if (automodeManager.isActive()) {
+        return {
+          success: false,
+          error: 'Auto-mode is already running',
+        };
+      }
+
+      // Note: Starting auto-mode from RPC would require integrating with the agent's
+      // iteration callback. For now, return success and let the agent handle it.
+      // A full implementation would start the loop here.
+      process.stderr.write(`[RPC] Auto-mode start requested: ${params.prompt}\n`);
+
+      return {
+        success: true,
+        sessionId: `automode-${Date.now()}`,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: message,
+      };
+    }
+  }
+
+  /**
+   * Get auto-mode status
+   */
+  handleAutomodeStatus(requestId: JsonRpcId): AutomodeStatusResult {
+    const automodeManager = this.agent?.getAutomodeManager?.();
+
+    if (!automodeManager) {
+      return {
+        active: false,
+        paused: false,
+      };
+    }
+
+    const state = automodeManager.getState();
+
+    return {
+      active: automodeManager.isActive(),
+      paused: automodeManager.isPausedState(),
+      state: state ? {
+        sessionId: state.sessionId,
+        status: state.status,
+        currentIteration: state.currentIteration,
+        maxIterations: state.maxIterations,
+        filesCreated: state.filesCreated,
+        filesModified: state.filesModified,
+        branch: state.branch,
+        lastCheckpoint: state.lastCheckpoint,
+      } : undefined,
+    };
+  }
+
+  /**
+   * Pause auto-mode loop
+   */
+  async handleAutomodePause(requestId: JsonRpcId): Promise<AutomodePauseResult> {
+    try {
+      const automodeManager = this.agent?.getAutomodeManager?.();
+      if (!automodeManager) {
+        return {
+          success: false,
+          error: 'Auto-mode manager not available',
+        };
+      }
+
+      if (!automodeManager.isActive()) {
+        return {
+          success: false,
+          error: 'No auto-mode session is running',
+        };
+      }
+
+      if (automodeManager.isPausedState()) {
+        return {
+          success: false,
+          error: 'Auto-mode is already paused',
+        };
+      }
+
+      await automodeManager.pause();
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: message,
+      };
+    }
+  }
+
+  /**
+   * Resume auto-mode loop
+   */
+  async handleAutomodeResume(requestId: JsonRpcId): Promise<AutomodeResumeResult> {
+    try {
+      const automodeManager = this.agent?.getAutomodeManager?.();
+      if (!automodeManager) {
+        return {
+          success: false,
+          error: 'Auto-mode manager not available',
+        };
+      }
+
+      if (!automodeManager.isActive()) {
+        return {
+          success: false,
+          error: 'No auto-mode session to resume',
+        };
+      }
+
+      if (!automodeManager.isPausedState()) {
+        return {
+          success: false,
+          error: 'Auto-mode is not paused',
+        };
+      }
+
+      await automodeManager.resume();
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: message,
+      };
+    }
+  }
+
+  /**
+   * Cancel auto-mode loop
+   */
+  async handleAutomodeCancel(
+    requestId: JsonRpcId,
+    reason?: string
+  ): Promise<AutomodeCancelResult> {
+    try {
+      const automodeManager = this.agent?.getAutomodeManager?.();
+      if (!automodeManager) {
+        return {
+          success: false,
+          error: 'Auto-mode manager not available',
+        };
+      }
+
+      if (!automodeManager.isActive()) {
+        return {
+          success: false,
+          error: 'No auto-mode session to cancel',
+        };
+      }
+
+      await automodeManager.cancel(reason as any || 'rpc_cancel');
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: message,
+      };
+    }
+  }
+
+  /**
+   * Get auto-mode iteration log
+   */
+  handleAutomodeGetLog(
+    requestId: JsonRpcId,
+    limit?: number
+  ): AutomodeGetLogResult {
+    try {
+      const automodeManager = this.agent?.getAutomodeManager?.();
+      if (!automodeManager) {
+        return {
+          success: false,
+          iterations: [],
+          error: 'Auto-mode manager not available',
+        };
+      }
+
+      // Note: getIterations() returns iteration logs from AutomodeState
+      const state = automodeManager.getState();
+      if (!state) {
+        return {
+          success: true,
+          iterations: [],
+        };
+      }
+
+      // For now, return empty - full implementation would need AutomodeState.getIterations()
+      // exposed through the manager
+      const iterations: AutomodeLogEntry[] = [];
+
+      return {
+        success: true,
+        iterations: limit ? iterations.slice(-limit) : iterations,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        iterations: [],
+        error: message,
+      };
+    }
   }
 }

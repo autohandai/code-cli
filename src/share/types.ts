@@ -131,7 +131,7 @@ export interface ShareSessionPayload {
 export interface ShareSessionResponse {
   /** Whether the operation succeeded */
   success: boolean;
-  /** Share ID (used in URL) - format: asid-XXXXXXXX */
+  /** Share ID (used in URL) - format: ah-XXXXXXXXXXXXXXXXXXXX-timestamp */
   shareId?: string;
   /** Full shareable URL */
   url?: string;

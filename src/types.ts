@@ -234,6 +234,20 @@ export interface ShareSettings {
   enabled?: boolean;
 }
 
+/** Settings sync configuration */
+export interface SyncSettings {
+  /** Enable/disable sync (default: true for logged users) */
+  enabled?: boolean;
+  /** Sync interval in milliseconds (default: 300000 = 5 min) */
+  interval?: number;
+  /** Glob patterns to exclude from sync */
+  exclude?: string[];
+  /** Include telemetry data in sync (requires user consent, default: false) */
+  includeTelemetry?: boolean;
+  /** Include feedback data in sync (requires user consent, default: false) */
+  includeFeedback?: boolean;
+}
+
 /** Auto-mode settings in config */
 export interface AutomodeSettings {
   /** Default max iterations (default: 50) */
@@ -362,6 +376,8 @@ export interface AutohandConfig {
   automode?: AutomodeSettings;
   /** Share settings */
   share?: ShareSettings;
+  /** Settings sync configuration (syncs ~/.autohand/ to cloud for logged users) */
+  sync?: SyncSettings;
 }
 
 export interface LoadedConfig extends AutohandConfig {
@@ -399,6 +415,8 @@ export interface CLIOptions {
   login?: boolean;
   /** Sign out of Autohand account */
   logout?: boolean;
+  /** Enable/disable settings sync (default: true for logged users, false otherwise) */
+  syncSettings?: boolean;
   /** Generate git patch without applying changes */
   patch?: boolean;
   /** Output file for patch (default: stdout) */

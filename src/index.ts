@@ -148,6 +148,7 @@ program
   .option('--permissions', 'Display current permission settings and exit', false)
   .option('--login', 'Sign in to your Autohand account', false)
   .option('--logout', 'Sign out of your Autohand account', false)
+  .option('--sync-settings [bool]', 'Enable/disable settings sync (default: true for logged users)')
   .option('--patch', 'Generate git patch without applying changes (requires --prompt)', false)
   .option('--output <file>', 'Output file for patch (default: stdout, used with --patch)')
   .option('--mode <mode>', 'Run mode: interactive (default) or rpc', 'interactive')
@@ -160,7 +161,7 @@ program
   .option('--max-runtime <m>', 'Max runtime in minutes (default: 120)', parseInt)
   .option('--max-cost <d>', 'Max API cost in dollars (default: 10)', parseFloat)
   .option('--setup', 'Run the setup wizard to configure or reconfigure Autohand', false)
-  .action(async (opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean; setup?: boolean }) => {
+  .action(async (opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean; setup?: boolean; syncSettings?: string | boolean }) => {
     // Handle --skill-install flag
     if (opts.skillInstall !== undefined) {
       await runSkillInstall(opts);
@@ -302,6 +303,38 @@ async function runCLI(options: CLIOptions): Promise<void> {
 
     // Validate auth on startup (non-blocking)
     const authUser = await validateAuthOnStartup(config);
+
+    // Start settings sync service for logged-in users
+    let syncService: import('./sync/SyncService.js').SyncService | null = null;
+    if (authUser && config.auth?.token) {
+      // Parse --sync-settings flag (default: true for logged users)
+      const syncEnabled = options.syncSettings !== false &&
+        config.sync?.enabled !== false;
+
+      if (syncEnabled) {
+        try {
+          const { createSyncService, DEFAULT_SYNC_CONFIG } = await import('./sync/index.js');
+          syncService = createSyncService({
+            authToken: config.auth.token,
+            userId: authUser.id,
+            config: {
+              ...DEFAULT_SYNC_CONFIG,
+              ...config.sync,
+              enabled: true,
+            },
+          });
+          syncService.start();
+
+          // Stop sync on process exit
+          const stopSync = () => syncService?.stop();
+          process.on('exit', stopSync);
+          process.on('SIGINT', stopSync);
+          process.on('SIGTERM', stopSync);
+        } catch {
+          // Sync service failed to start, continue without it
+        }
+      }
+    }
 
     // Check for updates (non-blocking, uses cache)
     const versionCheck = config.ui?.checkForUpdates !== false

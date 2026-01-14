@@ -98,6 +98,21 @@ describe('Git Auto-Init for Empty Directories', () => {
       // Branch should be 'main' or 'master' depending on git config
       expect(['main', 'master']).toContain(result.workspace.branch);
     });
+
+    it('creates .gitignore with .DS_Store on macOS', async () => {
+      const result = await runStartupChecks(tempDir);
+
+      expect(result.workspace.initialized).toBe(true);
+
+      // Only check for .gitignore on macOS
+      if (process.platform === 'darwin') {
+        const gitignorePath = path.join(tempDir, '.gitignore');
+        expect(await fs.pathExists(gitignorePath)).toBe(true);
+
+        const content = await fs.readFile(gitignorePath, 'utf8');
+        expect(content).toContain('.DS_Store');
+      }
+    });
   });
 
   describe('existing git repo detection', () => {

@@ -21,6 +21,9 @@ import type {
   ChangesDecisionParams,
   GetSkillsRegistryParams,
   InstallSkillParams,
+  AutomodeStartParams,
+  AutomodeCancelParams,
+  AutomodeGetLogParams,
 } from './types.js';
 import {
   RPC_METHODS,
@@ -345,6 +348,50 @@ async function handleSingleRequest(
           return null;
         }
         result = await adapter.handleInstallSkill(id!, installParams);
+        break;
+      }
+
+      // Auto-mode RPC methods
+      case RPC_METHODS.AUTOMODE_START: {
+        const startParams = params as AutomodeStartParams | undefined;
+        if (!startParams?.prompt) {
+          if (shouldRespond) {
+            return createErrorResponse(
+              id!,
+              JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+              'Missing required parameter: prompt'
+            );
+          }
+          return null;
+        }
+        result = await adapter.handleAutomodeStart(id!, startParams);
+        break;
+      }
+
+      case RPC_METHODS.AUTOMODE_STATUS: {
+        result = adapter.handleAutomodeStatus(id!);
+        break;
+      }
+
+      case RPC_METHODS.AUTOMODE_PAUSE: {
+        result = await adapter.handleAutomodePause(id!);
+        break;
+      }
+
+      case RPC_METHODS.AUTOMODE_RESUME: {
+        result = await adapter.handleAutomodeResume(id!);
+        break;
+      }
+
+      case RPC_METHODS.AUTOMODE_CANCEL: {
+        const cancelParams = params as AutomodeCancelParams | undefined;
+        result = await adapter.handleAutomodeCancel(id!, cancelParams?.reason);
+        break;
+      }
+
+      case RPC_METHODS.AUTOMODE_GET_LOG: {
+        const logParams = params as AutomodeGetLogParams | undefined;
+        result = adapter.handleAutomodeGetLog(id!, logParams?.limit);
         break;
       }
 

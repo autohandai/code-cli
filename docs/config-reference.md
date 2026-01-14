@@ -19,6 +19,7 @@ Complete reference for all configuration options in `~/.autohand/config.json` (o
 - [Authentication Settings](#authentication-settings)
 - [Community Skills Settings](#community-skills-settings)
 - [Share Settings](#share-settings)
+- [Settings Sync](#settings-sync)
 - [Hooks Settings](#hooks-settings)
 - [Complete Example](#complete-example)
 
@@ -877,6 +878,127 @@ To enable, set share.enabled: true in your config file.
 
 ---
 
+## Settings Sync
+
+Autohand can sync your configuration across devices for logged-in users. Settings are stored securely in Cloudflare R2 and encrypted before upload.
+
+```json
+{
+  "sync": {
+    "enabled": true,
+    "interval": 300000,
+    "exclude": [],
+    "includeTelemetry": false,
+    "includeFeedback": false
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `true` (logged) | Enable/disable settings sync |
+| `interval` | number | `300000` | Sync interval in milliseconds (default: 5 minutes) |
+| `exclude` | string[] | `[]` | Glob patterns to exclude from sync |
+| `includeTelemetry` | boolean | `false` | Sync telemetry data (requires user consent) |
+| `includeFeedback` | boolean | `false` | Sync feedback data (requires user consent) |
+
+### CLI Flag
+
+```bash
+# Disable sync for this session
+autohand --sync-settings=false
+
+# Enable sync (default for logged users)
+autohand --sync-settings
+```
+
+### What Gets Synced
+
+By default, these items are synced for logged-in users:
+
+- **Configuration** (`config.json`) - API keys are encrypted before upload
+- **Custom agents** (`agents/`)
+- **Community skills** (`community-skills/`)
+- **User hooks** (`hooks/`)
+- **Memory** (`memory/`)
+- **Project knowledge** (`projects/`)
+- **Session history** (`sessions/`)
+- **Shared content** (`share/`)
+- **Custom skills** (`skills/`)
+
+### What Doesn't Sync (By Default)
+
+- **Device ID** (`device-id`) - Unique per device
+- **Error logs** (`error.log`) - Local only
+- **Version cache** (`version-*.json`) - Local cache files
+
+### Consent-Based Sync
+
+These items require explicit opt-in in your config:
+
+- **Telemetry data** - Set `sync.includeTelemetry: true` to sync
+- **Feedback data** - Set `sync.includeFeedback: true` to sync
+
+```json
+{
+  "sync": {
+    "enabled": true,
+    "includeTelemetry": true,
+    "includeFeedback": true
+  }
+}
+```
+
+### Conflict Resolution
+
+When conflicts occur (same file modified on multiple devices), the **cloud version wins**. This ensures consistency when logging in on new devices.
+
+### Security
+
+API keys and other sensitive data in `config.json` are encrypted using your authentication token before upload. They can only be decrypted with your credentials.
+
+**What's encrypted:**
+- Fields named `apiKey`
+- Fields ending with `Key`, `Token`, `Secret`
+- The `password` field
+
+### How It Works
+
+1. **On startup**: If you're logged in, the sync service starts automatically
+2. **Every 5 minutes**: Settings are compared with cloud storage
+3. **Cloud wins**: Remote changes are downloaded first
+4. **Local uploads**: New local changes are uploaded
+5. **On exit**: Sync service stops gracefully
+
+### Excluding Files
+
+You can exclude specific files or patterns from sync:
+
+```json
+{
+  "sync": {
+    "enabled": true,
+    "exclude": [
+      "custom-local-config.json",
+      "temp/*"
+    ]
+  }
+}
+```
+
+### YAML Format
+
+```yaml
+sync:
+  enabled: true
+  interval: 300000
+  exclude: []
+  includeTelemetry: false
+  includeFeedback: false
+```
+
+---
+
 ## Hooks Settings
 
 Configuration for lifecycle hooks that run shell commands on agent events. See [Hooks Documentation](./hooks.md) for full details.
@@ -1036,6 +1158,12 @@ When hooks execute, these environment variables are available:
   },
   "share": {
     "enabled": true
+  },
+  "sync": {
+    "enabled": true,
+    "interval": 300000,
+    "includeTelemetry": false,
+    "includeFeedback": false
   }
 }
 ```
@@ -1116,6 +1244,12 @@ communitySkills:
 
 share:
   enabled: true
+
+sync:
+  enabled: true
+  interval: 300000
+  includeTelemetry: false
+  includeFeedback: false
 ```
 
 ---
@@ -1176,4 +1310,5 @@ These flags override config file settings:
 | `-c, --auto-commit` | Auto-commit changes after completing tasks |
 | `--login` | Sign in to your Autohand account |
 | `--logout` | Sign out of your Autohand account |
+| `--sync-settings` | Enable/disable settings sync (default: true for logged users) |
 | `--setup` | Run the setup wizard to configure or reconfigure Autohand |
