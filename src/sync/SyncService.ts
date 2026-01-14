@@ -608,6 +608,7 @@ export class SyncService {
     lastSync: string | null;
     syncing: boolean;
     fileCount: number;
+    totalSize: number;
   }> {
     const stateFile = path.join(this.basePath, SYNC_STATE_FILE);
     let lastSync: string | null = null;
@@ -618,12 +619,14 @@ export class SyncService {
     }
 
     const manifest = await this.buildLocalManifest();
+    const totalSize = manifest.files.reduce((sum, f) => sum + f.size, 0);
 
     return {
       enabled: this.config.enabled,
       lastSync,
       syncing: this.syncing,
       fileCount: manifest.files.length,
+      totalSize,
     };
   }
 }

@@ -8,8 +8,9 @@ import { safePrompt } from '../utils/prompt.js';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import { getAuthClient } from '../auth/index.js';
 import { saveConfig } from '../config.js';
-import { AUTH_CONFIG } from '../constants.js';
+import { AUTH_CONFIG, SYNC_CONFIG } from '../constants.js';
 import type { LoadedConfig } from '../types.js';
+import { createSyncService, DEFAULT_SYNC_CONFIG } from '../sync/index.js';
 
 export const metadata = {
   command: '/login',
@@ -156,6 +157,9 @@ export async function login(ctx: LoginContext): Promise<string | null> {
       console.log(chalk.cyan(`Welcome, ${pollResult.user.name || pollResult.user.email}!`));
       console.log();
 
+      // Check for cloud sync data and offer to restore
+      await checkAndRestoreSyncData(pollResult.token, pollResult.user.id, updatedConfig);
+
       return null;
     }
 
@@ -172,4 +176,82 @@ export async function login(ctx: LoginContext): Promise<string | null> {
   process.stdout.write('\r' + ' '.repeat(20) + '\r');
   console.log(chalk.red('Authorization timed out. Please try again.'));
   return null;
+}
+
+/**
+ * Check if there's cloud sync data and offer to restore it
+ */
+async function checkAndRestoreSyncData(
+  token: string,
+  userId: string,
+  config: LoadedConfig
+): Promise<void> {
+  try {
+    // Create sync service to check for cloud data
+    const syncService = createSyncService({
+      authToken: token,
+      userId,
+      config: {
+        ...DEFAULT_SYNC_CONFIG,
+        ...config.sync,
+        enabled: true,
+      },
+    });
+
+    // Check remote status - get remote manifest to see if there's data
+    const { getSyncApiClient } = await import('../sync/SyncApiClient.js');
+    const apiClient = getSyncApiClient();
+    const remoteManifest = await apiClient.getRemoteManifest(token);
+
+    if (!remoteManifest || remoteManifest.files.length === 0) {
+      // No cloud data, nothing to restore
+      return;
+    }
+
+    // Cloud data exists - ask user if they want to restore
+    const fileCount = remoteManifest.files.length;
+    const totalSize = remoteManifest.files.reduce((sum, f) => sum + f.size, 0);
+    const sizeStr = formatSize(totalSize);
+
+    console.log(chalk.cyan(`Found cloud sync data (${fileCount} files, ${sizeStr})`));
+    console.log(chalk.gray('This includes your settings, agents, skills, and memory.'));
+    console.log();
+
+    const result = await safePrompt<{ restore: boolean }>({
+      type: 'confirm',
+      name: 'restore',
+      message: 'Would you like to restore your settings from the cloud?',
+      initial: true,
+    });
+
+    if (!result || !result.restore) {
+      console.log(chalk.gray('Skipped sync restore. You can sync later with /sync.'));
+      return;
+    }
+
+    // Restore from cloud
+    console.log(chalk.gray('Restoring settings from cloud...'));
+
+    const syncResult = await syncService.forceDownload();
+
+    if (syncResult.success) {
+      console.log(chalk.green(`Restored ${syncResult.downloaded} files from cloud.`));
+    } else {
+      console.log(chalk.yellow(`Sync restore failed: ${syncResult.error}`));
+      console.log(chalk.gray('You can try again later with /sync.'));
+    }
+  } catch (error) {
+    // Silently fail - sync is not critical for login
+    console.log(chalk.gray('Could not check cloud sync data.'));
+  }
+}
+
+/**
+ * Format bytes to human readable size
+ */
+function formatSize(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
