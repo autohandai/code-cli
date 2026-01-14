@@ -5,33 +5,30 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import * as fsExtra from 'fs-extra';
 import type { LoadedConfig } from '../../src/types';
 
-// Use vi.hoisted to define mocks before vi.mock runs (both are hoisted together)
-const { mockPromptFn, fsMocks } = vi.hoisted(() => ({
+// Use vi.hoisted() to ensure mock functions are available when vi.mock is hoisted
+const { mockPromptFn, mockPathExists, mockReadJson, mockReadFile, mockWriteFile } = vi.hoisted(() => ({
   mockPromptFn: vi.fn(),
-  fsMocks: {
-    pathExists: vi.fn(),
-    readJson: vi.fn(),
-    readFile: vi.fn(),
-    writeFile: vi.fn()
-  }
+  mockPathExists: vi.fn(),
+  mockReadJson: vi.fn(),
+  mockReadFile: vi.fn(),
+  mockWriteFile: vi.fn()
 }));
 
-// Mock fs-extra
-vi.mock('fs-extra', () => fsMocks);
-
-const mockPathExists = fsMocks.pathExists;
-const mockReadJson = fsMocks.readJson;
-const mockReadFile = fsMocks.readFile;
-const mockWriteFile = fsMocks.writeFile;
-
-// Mock enquirer - uses vi.hoisted variable
+// Mock enquirer
 vi.mock('enquirer', () => ({
   default: {
     prompt: mockPromptFn
   }
+}));
+
+// Mock fs-extra
+vi.mock('fs-extra', () => ({
+  pathExists: mockPathExists,
+  readJson: mockReadJson,
+  readFile: mockReadFile,
+  writeFile: mockWriteFile
 }));
 
 // Mock chalk (to avoid terminal color issues in tests)
@@ -73,7 +70,7 @@ describe('SetupWizard', () => {
       // Mock all prompts to simulate user flow
       mockPromptFn
         .mockResolvedValueOnce({ provider: 'openrouter' })
-        .mockResolvedValueOnce({ apiKey: 'sk-test-key' })
+        .mockResolvedValueOnce({ apiKey: 'sk-test-key-long-enough' })
         .mockResolvedValueOnce({ model: 'anthropic/claude-3.5-sonnet' })
         .mockResolvedValueOnce({ telemetryEnabled: true })
         .mockResolvedValueOnce({ configurePrefs: false })
@@ -89,7 +86,7 @@ describe('SetupWizard', () => {
         configPath: testConfigPath,
         provider: 'openrouter',
         openrouter: {
-          apiKey: 'sk-existing-key',
+          apiKey: 'sk-existing-key-long-enough',
           model: 'anthropic/claude-3.5-sonnet'
         }
       };
@@ -114,7 +111,7 @@ describe('SetupWizard', () => {
 
       mockPromptFn
         .mockResolvedValueOnce({ provider: 'openrouter' })
-        .mockResolvedValueOnce({ apiKey: 'sk-new-key' })
+        .mockResolvedValueOnce({ apiKey: 'sk-new-key-long-enough' })
         .mockResolvedValueOnce({ model: 'anthropic/claude-3.5-sonnet' })
         .mockResolvedValueOnce({ telemetryEnabled: false })
         .mockResolvedValueOnce({ configurePrefs: false })
@@ -124,6 +121,103 @@ describe('SetupWizard', () => {
 
       expect(result.success).toBe(true);
       expect(mockPromptFn).toHaveBeenCalled();
+    });
+
+    it('should run wizard when API key is missing', async () => {
+      const configWithoutApiKey: LoadedConfig = {
+        configPath: testConfigPath,
+        provider: 'openrouter',
+        openrouter: {
+          model: 'anthropic/claude-3.5-sonnet'
+          // Missing apiKey
+        }
+      };
+
+      const wizard = new SetupWizard(testWorkspace, configWithoutApiKey);
+
+      mockPromptFn
+        .mockResolvedValueOnce({ provider: 'openrouter' })
+        .mockResolvedValueOnce({ apiKey: 'sk-new-api-key-long' })
+        .mockResolvedValueOnce({ model: 'anthropic/claude-3.5-sonnet' })
+        .mockResolvedValueOnce({ telemetryEnabled: false })
+        .mockResolvedValueOnce({ configurePrefs: false })
+        .mockResolvedValueOnce({ createAgents: false });
+
+      const result = await wizard.run({ skipWelcome: true });
+
+      expect(result.success).toBe(true);
+      expect(mockPromptFn).toHaveBeenCalled();
+    });
+
+    it('should run wizard when API key is "replace-me"', async () => {
+      const configWithPlaceholder: LoadedConfig = {
+        configPath: testConfigPath,
+        provider: 'openrouter',
+        openrouter: {
+          apiKey: 'replace-me',
+          model: 'anthropic/claude-3.5-sonnet'
+        }
+      };
+
+      const wizard = new SetupWizard(testWorkspace, configWithPlaceholder);
+
+      mockPromptFn
+        .mockResolvedValueOnce({ provider: 'openrouter' })
+        .mockResolvedValueOnce({ apiKey: 'sk-new-api-key-long' })
+        .mockResolvedValueOnce({ model: 'anthropic/claude-3.5-sonnet' })
+        .mockResolvedValueOnce({ telemetryEnabled: false })
+        .mockResolvedValueOnce({ configurePrefs: false })
+        .mockResolvedValueOnce({ createAgents: false });
+
+      const result = await wizard.run({ skipWelcome: true });
+
+      expect(result.success).toBe(true);
+      expect(mockPromptFn).toHaveBeenCalled();
+    });
+
+    it('should run wizard when API key is too short', async () => {
+      const configWithShortKey: LoadedConfig = {
+        configPath: testConfigPath,
+        provider: 'openrouter',
+        openrouter: {
+          apiKey: 'short',
+          model: 'anthropic/claude-3.5-sonnet'
+        }
+      };
+
+      const wizard = new SetupWizard(testWorkspace, configWithShortKey);
+
+      mockPromptFn
+        .mockResolvedValueOnce({ provider: 'openrouter' })
+        .mockResolvedValueOnce({ useExisting: false }) // Don't use existing short key
+        .mockResolvedValueOnce({ apiKey: 'sk-new-valid-api-key' })
+        .mockResolvedValueOnce({ model: 'anthropic/claude-3.5-sonnet' })
+        .mockResolvedValueOnce({ telemetryEnabled: false })
+        .mockResolvedValueOnce({ configurePrefs: false })
+        .mockResolvedValueOnce({ createAgents: false });
+
+      const result = await wizard.run({ skipWelcome: true });
+
+      expect(result.success).toBe(true);
+      expect(mockPromptFn).toHaveBeenCalled();
+    });
+
+    it('should skip wizard for local providers without API key', async () => {
+      const localConfig: LoadedConfig = {
+        configPath: testConfigPath,
+        provider: 'ollama',
+        ollama: {
+          model: 'llama3.2:latest',
+          baseUrl: 'http://localhost:11434'
+        }
+      };
+
+      const wizard = new SetupWizard(testWorkspace, localConfig);
+      const result = await wizard.run();
+
+      expect(result.success).toBe(true);
+      expect(result.skippedSteps).toContain('provider');
+      expect(mockPromptFn).not.toHaveBeenCalled();
     });
   });
 
@@ -166,7 +260,7 @@ describe('SetupWizard', () => {
 
       mockPromptFn
         .mockResolvedValueOnce({ provider: 'openrouter' })
-        .mockResolvedValueOnce({ apiKey: 'sk-test-key' })
+        .mockResolvedValueOnce({ apiKey: 'sk-test-key-long-enough' })
         .mockResolvedValueOnce({ model: 'anthropic/claude-3.5-sonnet' })
         .mockResolvedValueOnce({ telemetryEnabled: true })
         .mockResolvedValueOnce({ configurePrefs: false })
@@ -186,7 +280,7 @@ describe('SetupWizard', () => {
 
       mockPromptFn
         .mockResolvedValueOnce({ provider: 'openrouter' })
-        .mockResolvedValueOnce({ apiKey: 'sk-or-test-key' })
+        .mockResolvedValueOnce({ apiKey: 'sk-or-test-key-long' })
         .mockResolvedValueOnce({ model: 'anthropic/claude-3.5-sonnet' })
         .mockResolvedValueOnce({ telemetryEnabled: true })
         .mockResolvedValueOnce({ configurePrefs: false })
@@ -194,7 +288,7 @@ describe('SetupWizard', () => {
 
       const result = await wizard.run({ skipWelcome: true });
 
-      expect(result.config.openrouter?.apiKey).toBe('sk-or-test-key');
+      expect(result.config.openrouter?.apiKey).toBe('sk-or-test-key-long');
     });
 
     it('should save API key for OpenAI', async () => {
@@ -218,7 +312,7 @@ describe('SetupWizard', () => {
         configPath: testConfigPath,
         provider: 'openrouter',
         openrouter: {
-          apiKey: 'sk-existing-key',
+          apiKey: 'sk-existing-key-long',
           model: '' // Model missing, so wizard should run
         }
       };
@@ -235,7 +329,7 @@ describe('SetupWizard', () => {
 
       const result = await wizard.run({ skipWelcome: true, force: true });
 
-      expect(result.config.openrouter?.apiKey).toBe('sk-existing-key');
+      expect(result.config.openrouter?.apiKey).toBe('sk-existing-key-long');
     });
   });
 
@@ -245,7 +339,7 @@ describe('SetupWizard', () => {
 
       mockPromptFn
         .mockResolvedValueOnce({ provider: 'openrouter' })
-        .mockResolvedValueOnce({ apiKey: 'sk-test' })
+        .mockResolvedValueOnce({ apiKey: 'sk-test-long-key' })
         .mockResolvedValueOnce({ model: 'anthropic/claude-sonnet-4-20250514' })
         .mockResolvedValueOnce({ telemetryEnabled: true })
         .mockResolvedValueOnce({ configurePrefs: false })
@@ -445,7 +539,7 @@ describe('SetupWizard', () => {
         configPath: testConfigPath,
         provider: 'openrouter',
         openrouter: {
-          apiKey: 'sk-existing',
+          apiKey: 'sk-existing-long-key',
           model: 'anthropic/claude-3.5-sonnet'
         }
       };
@@ -473,7 +567,7 @@ describe('SetupWizard', () => {
 
       mockPromptFn
         .mockResolvedValueOnce({ provider: 'openrouter' })
-        .mockResolvedValueOnce({ apiKey: 'sk-test' })
+        .mockResolvedValueOnce({ apiKey: 'sk-test-long-key' })
         .mockResolvedValueOnce({ model: 'test' })
         .mockResolvedValueOnce({ telemetryEnabled: true })
         .mockResolvedValueOnce({ configurePrefs: false })
@@ -489,7 +583,7 @@ describe('SetupWizard', () => {
 
       mockPromptFn
         .mockResolvedValueOnce({ provider: 'openai' })
-        .mockResolvedValueOnce({ apiKey: 'sk-test' })
+        .mockResolvedValueOnce({ apiKey: 'sk-test-long-key' })
         .mockResolvedValueOnce({ model: 'gpt-4o' })
         .mockResolvedValueOnce({ telemetryEnabled: true })
         .mockResolvedValueOnce({ configurePrefs: false })

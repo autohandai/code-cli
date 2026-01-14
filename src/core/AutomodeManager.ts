@@ -224,9 +224,9 @@ export class AutomodeManager extends EventEmitter {
 
     // Emit start event
     await this.emitHookEvent('automode:start', {
-      sessionId,
-      prompt: options.prompt,
-      maxIterations,
+      automodeSessionId: sessionId,
+      automodePrompt: options.prompt,
+      automodeMaxIterations: maxIterations,
     });
 
     try {
@@ -305,9 +305,9 @@ export class AutomodeManager extends EventEmitter {
 
         // Emit iteration event
         await this.emitHookEvent('automode:iteration', {
-          sessionId,
-          iteration,
-          actions: result.actions,
+          automodeSessionId: sessionId,
+          automodeIteration: iteration,
+          automodeActions: result.actions,
           tokensUsed: result.tokensUsed,
         });
 
@@ -363,7 +363,7 @@ export class AutomodeManager extends EventEmitter {
       console.error(chalk.red(`\n❌ Auto-mode error: ${error}`));
       await this.state.setStatus('failed', 'error', String(error));
       await this.emitHookEvent('automode:error', {
-        sessionId,
+        automodeSessionId: sessionId,
         error: String(error),
       });
     } finally {
@@ -401,9 +401,9 @@ export class AutomodeManager extends EventEmitter {
       });
 
       await this.emitHookEvent('automode:cancel', {
-        sessionId: currentState.sessionId,
-        reason,
-        iteration: currentState.currentIteration,
+        automodeSessionId: currentState.sessionId,
+        automodeCancelReason: reason,
+        automodeIteration: currentState.currentIteration,
       });
     }
   }
@@ -421,8 +421,8 @@ export class AutomodeManager extends EventEmitter {
     if (currentState) {
       console.log(chalk.yellow(`\n⏸️ Auto-mode paused at iteration ${currentState.currentIteration}`));
       await this.emitHookEvent('automode:pause', {
-        sessionId: currentState.sessionId,
-        iteration: currentState.currentIteration,
+        automodeSessionId: currentState.sessionId,
+        automodeIteration: currentState.currentIteration,
       });
     }
   }
@@ -440,8 +440,8 @@ export class AutomodeManager extends EventEmitter {
     if (currentState) {
       console.log(chalk.cyan(`\n▶️ Auto-mode resumed at iteration ${currentState.currentIteration}`));
       await this.emitHookEvent('automode:resume', {
-        sessionId: currentState.sessionId,
-        iteration: currentState.currentIteration,
+        automodeSessionId: currentState.sessionId,
+        automodeIteration: currentState.currentIteration,
       });
     }
   }
@@ -484,10 +484,10 @@ export class AutomodeManager extends EventEmitter {
       });
 
       await this.emitHookEvent('automode:complete', {
-        sessionId: currentState.sessionId,
-        iterations: currentState.currentIteration,
-        filesCreated: currentState.filesCreated,
-        filesModified: currentState.filesModified,
+        automodeSessionId: currentState.sessionId,
+        automodeIteration: currentState.currentIteration,
+        automodeFilesCreated: currentState.filesCreated,
+        automodeFilesModified: currentState.filesModified,
       });
 
       // Merge worktree if using one
@@ -643,9 +643,9 @@ export class AutomodeManager extends EventEmitter {
       const currentState = this.state.getState();
       if (currentState) {
         await this.emitHookEvent('automode:checkpoint', {
-          sessionId: currentState.sessionId,
-          iteration,
-          commit: hash,
+          automodeSessionId: currentState.sessionId,
+          automodeIteration: iteration,
+          automodeCheckpointCommit: hash,
         });
       }
     } catch (error) {
