@@ -212,6 +212,10 @@ export class SlashCommandHandler {
             workspaceRoot: this.ctx.workspaceRoot,
           }, args);
         }
+        case '/sync': {
+          const { sync } = await import('../commands/sync.js');
+          return sync(this.ctx);
+        }
         default:
           this.printUnsupported(command);
           return null;

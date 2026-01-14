@@ -436,6 +436,8 @@ export interface CLIOptions {
   maxRuntime?: number;
   /** Max API cost in dollars (default: 10) */
   maxCost?: number;
+  /** Additional directories to include in workspace scope */
+  addDir?: string[];
 }
 
 export interface PromptContext {
@@ -738,6 +740,8 @@ export interface ToolOutputChunk {
 export interface AgentRuntime {
   config: LoadedConfig;
   workspaceRoot: string;
+  /** Additional directories with same access as workspaceRoot */
+  additionalDirs?: string[];
   options: CLIOptions;
   spinner?: Ora;
   /** Ink-based renderer for flicker-free UI (experimental) */
