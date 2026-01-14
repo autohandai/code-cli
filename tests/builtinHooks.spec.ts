@@ -12,6 +12,7 @@ import os from 'os';
 import {
   DEFAULT_HOOKS,
   HOOK_SCRIPTS,
+  HOOK_SCRIPTS_WINDOWS,
   SOUND_ALERT_SCRIPT,
   AUTO_FORMAT_SCRIPT,
   SLACK_NOTIFY_SCRIPT,
@@ -167,6 +168,40 @@ describe('Built-in Hooks', () => {
     test('all scripts should start with shebang', () => {
       for (const [name, content] of Object.entries(HOOK_SCRIPTS)) {
         expect(content.startsWith('#!/bin/bash')).toBe(true);
+      }
+    });
+  });
+
+  describe('HOOK_SCRIPTS_WINDOWS', () => {
+    test('should have all expected PowerShell scripts', () => {
+      expect(HOOK_SCRIPTS_WINDOWS).toBeDefined();
+      expect(typeof HOOK_SCRIPTS_WINDOWS).toBe('object');
+
+      const scriptNames = Object.keys(HOOK_SCRIPTS_WINDOWS);
+      expect(scriptNames.length).toBeGreaterThanOrEqual(6);
+
+      // Check each PowerShell script exists
+      expect('smart-commit.ps1' in HOOK_SCRIPTS_WINDOWS).toBe(true);
+      expect('sound-alert.ps1' in HOOK_SCRIPTS_WINDOWS).toBe(true);
+      expect('auto-format.ps1' in HOOK_SCRIPTS_WINDOWS).toBe(true);
+      expect('slack-notify.ps1' in HOOK_SCRIPTS_WINDOWS).toBe(true);
+      expect('git-auto-stage.ps1' in HOOK_SCRIPTS_WINDOWS).toBe(true);
+      expect('security-guard.ps1' in HOOK_SCRIPTS_WINDOWS).toBe(true);
+    });
+
+    test('all Windows scripts should be PowerShell', () => {
+      for (const [name, content] of Object.entries(HOOK_SCRIPTS_WINDOWS)) {
+        // PowerShell scripts should start with a comment
+        expect(content.startsWith('#')).toBe(true);
+        // And have .ps1 extension
+        expect(name.endsWith('.ps1')).toBe(true);
+      }
+    });
+
+    test('each bash script should have a Windows equivalent', () => {
+      for (const bashScript of Object.keys(HOOK_SCRIPTS)) {
+        const ps1Script = bashScript.replace('.sh', '.ps1');
+        expect(HOOK_SCRIPTS_WINDOWS[ps1Script]).toBeDefined();
       }
     });
   });

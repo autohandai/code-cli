@@ -92,6 +92,22 @@ export const AUTH_CONFIG = {
 } as const;
 
 /**
+ * Settings sync configuration
+ */
+export const SYNC_CONFIG = {
+  /** Default sync interval in ms (5 minutes) */
+  defaultInterval: 5 * 60 * 1000,
+  /** API endpoint for sync operations */
+  get apiBaseUrl() { return `${getAuthBaseUrl()}/api`; },
+  /** Maximum file size to sync (10MB) */
+  maxFileSize: 10 * 1024 * 1024,
+  /** Maximum total sync size (100MB) */
+  maxTotalSize: 100 * 1024 * 1024,
+  /** Request timeout in ms */
+  timeout: 30000,
+} as const;
+
+/**
  * Skill search locations in order of precedence (later wins on collision)
  * Each entry specifies: path pattern, source type, and whether to search recursively
  */

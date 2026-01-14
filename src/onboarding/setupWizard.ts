@@ -157,6 +157,7 @@ export class SetupWizard {
 
   /**
    * Check if configuration is already complete
+   * Requires both a provider and a valid API key (for providers that need one)
    */
   private isAlreadyConfigured(): boolean {
     if (!this.existingConfig) return false;
@@ -165,7 +166,17 @@ export class SetupWizard {
     if (!provider) return false;
 
     const providerConfig = getProviderConfig(this.existingConfig, provider);
-    return providerConfig !== null;
+    if (!providerConfig) return false;
+
+    // For providers that require an API key, check if it's set and valid
+    if (this.requiresApiKey(provider)) {
+      const apiKey = (providerConfig as any).apiKey;
+      if (!apiKey || apiKey === 'replace-me' || apiKey.length < 10) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   /**
@@ -198,18 +209,43 @@ export class SetupWizard {
       hint: this.getProviderHint(p)
     }));
 
-    const result = await enquirer.prompt<{ provider: ProviderName }>({
+    // Only pre-select if there's a valid existing provider with API key
+    const hasValidExistingProvider = this.existingConfig?.provider && this.isProviderConfigured(this.existingConfig.provider);
+
+    const promptOptions: any = {
       type: 'select',
       name: 'provider',
       message: 'Which LLM provider would you like to use?',
-      choices,
-      initial: this.existingConfig?.provider
-        ? providers.indexOf(this.existingConfig.provider)
-        : 0
-    });
+      choices
+    };
+
+    // Only set initial if there's a valid existing config
+    if (hasValidExistingProvider) {
+      promptOptions.initial = providers.indexOf(this.existingConfig!.provider!);
+    }
+
+    const result = await enquirer.prompt<{ provider: ProviderName }>(promptOptions);
 
     this.state.provider = result.provider;
     return result.provider;
+  }
+
+  /**
+   * Check if a specific provider is fully configured (has API key if required)
+   */
+  private isProviderConfigured(provider: ProviderName): boolean {
+    if (!this.existingConfig) return false;
+
+    const providerConfig = getProviderConfig(this.existingConfig, provider);
+    if (!providerConfig) return false;
+
+    // For providers that require an API key, check if it's set and valid
+    if (this.requiresApiKey(provider)) {
+      const apiKey = (providerConfig as any).apiKey;
+      return apiKey && apiKey !== 'replace-me' && apiKey.length >= 10;
+    }
+
+    return true;
   }
 
   /**

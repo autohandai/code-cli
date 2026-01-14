@@ -78,6 +78,28 @@ export interface HookContext {
   notificationType?: string;
   /** Notification message (for notification) */
   notificationMessage?: string;
+
+  // Auto-mode hooks
+  /** Auto-mode session ID */
+  automodeSessionId?: string;
+  /** Auto-mode prompt/task */
+  automodePrompt?: string;
+  /** Auto-mode current iteration */
+  automodeIteration?: number;
+  /** Auto-mode max iterations */
+  automodeMaxIterations?: number;
+  /** Auto-mode actions in current iteration */
+  automodeActions?: string[];
+  /** Auto-mode files created */
+  automodeFilesCreated?: number;
+  /** Auto-mode files modified */
+  automodeFilesModified?: number;
+  /** Auto-mode cancel reason */
+  automodeCancelReason?: string;
+  /** Auto-mode checkpoint commit hash */
+  automodeCheckpointCommit?: string;
+  /** Auto-mode total cost */
+  automodeTotalCost?: number;
 }
 
 /** Result of hook execution */
@@ -204,6 +226,7 @@ export class HookManager {
   /**
    * Ensure all hook scripts exist in ~/.autohand/hooks/
    * Installs bundled scripts for built-in hooks
+   * On Windows, also creates PowerShell (.ps1) versions
    */
   private async ensureHookScripts(): Promise<void> {
     try {
@@ -212,24 +235,40 @@ export class HookManager {
       const os = await import('os');
 
       const hooksDir = path.join(os.homedir(), '.autohand', 'hooks');
+      const isWindows = os.platform() === 'win32';
 
       // Create hooks directory if needed
       await fs.ensureDir(hooksDir);
 
-      // Import all hook scripts
-      const { HOOK_SCRIPTS } = await import('./defaultHooks.js');
+      // Import all hook scripts (bash versions)
+      const { HOOK_SCRIPTS, HOOK_SCRIPTS_WINDOWS } = await import('./defaultHooks.js');
 
-      // Install each script if it doesn't exist
+      // Install bash scripts (for Mac/Linux, and WSL on Windows)
       for (const [scriptName, scriptContent] of Object.entries(HOOK_SCRIPTS)) {
         const scriptPath = path.join(hooksDir, scriptName);
 
         // Only create if doesn't exist (don't overwrite user modifications)
         if (!await fs.pathExists(scriptPath)) {
-          await fs.writeFile(scriptPath, scriptContent, { mode: 0o755 });
+          await fs.writeFile(scriptPath, scriptContent as string, { mode: 0o755 });
         }
       }
-    } catch {
-      // Ignore errors - script creation is optional
+
+      // On Windows, also install PowerShell versions
+      if (isWindows && HOOK_SCRIPTS_WINDOWS) {
+        for (const [scriptName, scriptContent] of Object.entries(HOOK_SCRIPTS_WINDOWS)) {
+          const scriptPath = path.join(hooksDir, scriptName);
+
+          if (!await fs.pathExists(scriptPath)) {
+            await fs.writeFile(scriptPath, scriptContent as string);
+          }
+        }
+      }
+    } catch (error) {
+      // Log error for debugging but don't fail initialization
+      // This is non-critical - hooks will still work with inline commands
+      if (process.env.DEBUG || process.env.AUTOHAND_DEBUG) {
+        console.error('[hooks] Failed to install hook scripts:', error);
+      }
     }
   }
 
@@ -437,6 +476,18 @@ export class HookManager {
     if (context.notificationType) env.HOOK_NOTIFICATION_TYPE = context.notificationType;
     if (context.notificationMessage) env.HOOK_NOTIFICATION_MSG = context.notificationMessage;
 
+    // Auto-mode hooks
+    if (context.automodeSessionId) env.HOOK_AUTOMODE_SESSION_ID = context.automodeSessionId;
+    if (context.automodePrompt) env.HOOK_AUTOMODE_PROMPT = context.automodePrompt;
+    if (context.automodeIteration !== undefined) env.HOOK_AUTOMODE_ITERATION = String(context.automodeIteration);
+    if (context.automodeMaxIterations !== undefined) env.HOOK_AUTOMODE_MAX_ITERATIONS = String(context.automodeMaxIterations);
+    if (context.automodeActions) env.HOOK_AUTOMODE_ACTIONS = JSON.stringify(context.automodeActions);
+    if (context.automodeFilesCreated !== undefined) env.HOOK_AUTOMODE_FILES_CREATED = String(context.automodeFilesCreated);
+    if (context.automodeFilesModified !== undefined) env.HOOK_AUTOMODE_FILES_MODIFIED = String(context.automodeFilesModified);
+    if (context.automodeCancelReason) env.HOOK_AUTOMODE_CANCEL_REASON = context.automodeCancelReason;
+    if (context.automodeCheckpointCommit) env.HOOK_AUTOMODE_CHECKPOINT = context.automodeCheckpointCommit;
+    if (context.automodeTotalCost !== undefined) env.HOOK_AUTOMODE_COST = String(context.automodeTotalCost);
+
     return env as Record<string, string>;
   }
 
@@ -484,6 +535,17 @@ export class HookManager {
       // Notification context
       notification_type: context.notificationType,
       notification_message: context.notificationMessage,
+      // Auto-mode context
+      automode_session_id: context.automodeSessionId,
+      automode_prompt: context.automodePrompt,
+      automode_iteration: context.automodeIteration,
+      automode_max_iterations: context.automodeMaxIterations,
+      automode_actions: context.automodeActions,
+      automode_files_created: context.automodeFilesCreated,
+      automode_files_modified: context.automodeFilesModified,
+      automode_cancel_reason: context.automodeCancelReason,
+      automode_checkpoint_commit: context.automodeCheckpointCommit,
+      automode_total_cost: context.automodeTotalCost,
     });
   }
 
@@ -708,6 +770,15 @@ export class HookManager {
       'session-end',
       'permission-request',
       'notification',
+      // Auto-mode events
+      'automode:start',
+      'automode:iteration',
+      'automode:checkpoint',
+      'automode:pause',
+      'automode:resume',
+      'automode:cancel',
+      'automode:complete',
+      'automode:error',
     ];
     const summary: Record<HookEvent, { total: number; enabled: number }> = {} as Record<HookEvent, { total: number; enabled: number }>;
 
