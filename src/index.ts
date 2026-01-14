@@ -314,6 +314,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
       if (syncEnabled) {
         try {
           const { createSyncService, DEFAULT_SYNC_CONFIG } = await import('./sync/index.js');
+          const { setSyncService } = await import('./commands/sync.js');
           syncService = createSyncService({
             authToken: config.auth.token,
             userId: authUser.id,
@@ -325,8 +326,14 @@ async function runCLI(options: CLIOptions): Promise<void> {
           });
           syncService.start();
 
+          // Set sync service reference for /sync command
+          setSyncService(syncService);
+
           // Stop sync on process exit
-          const stopSync = () => syncService?.stop();
+          const stopSync = () => {
+            syncService?.stop();
+            setSyncService(null);
+          };
           process.on('exit', stopSync);
           process.on('SIGINT', stopSync);
           process.on('SIGTERM', stopSync);
