@@ -182,17 +182,16 @@ function isParentOfHome(workspacePath: string): boolean {
 function isSystemDirectory(workspacePath: string): boolean {
   const normalized = normalizePath(workspacePath);
 
-  // Get platform-specific dangerous paths
-  let dangerousPaths: string[] = [...DANGEROUS_PATHS.roots];
-
-  if (process.platform === 'darwin') {
-    dangerousPaths = [...dangerousPaths, ...DANGEROUS_PATHS.unix, ...DANGEROUS_PATHS.macos];
-  } else if (process.platform === 'win32') {
-    dangerousPaths = [...dangerousPaths, ...DANGEROUS_PATHS.windows];
-  } else {
-    // Linux and other Unix
-    dangerousPaths = [...dangerousPaths, ...DANGEROUS_PATHS.unix, ...DANGEROUS_PATHS.wsl];
-  }
+  // Always check all dangerous paths regardless of platform
+  // This ensures Windows paths are rejected even when testing on Unix
+  // and vice versa, providing consistent security behavior
+  const dangerousPaths: string[] = [
+    ...DANGEROUS_PATHS.roots,
+    ...DANGEROUS_PATHS.unix,
+    ...DANGEROUS_PATHS.macos,
+    ...DANGEROUS_PATHS.windows,
+    ...DANGEROUS_PATHS.wsl,
+  ];
 
   // Check exact matches and path prefixes
   for (const dangerous of dangerousPaths) {
@@ -205,14 +204,27 @@ function isSystemDirectory(workspacePath: string): boolean {
 }
 
 /**
- * Check if path is a WSL Windows mount (like /mnt/c/Users/...)
+ * Check if path is a Windows user home directory (C:\Users\username)
+ * Always check on all platforms for consistent security behavior
+ * Note: We check the RAW input path because on non-Windows platforms,
+ * path.resolve would treat Windows paths as relative paths
  */
-function isWslWindowsHome(workspacePath: string): boolean {
-  // Only relevant on Linux (where WSL runs)
-  if (process.platform !== 'linux') {
-    return false;
+function isWindowsUserHome(workspacePath: string): boolean {
+  // Check the original input for Windows patterns
+  // This works on all platforms because we're just doing string matching
+  const windowsUsersPattern = /^[A-Za-z]:[/\\]Users([/\\][^/\\]+)?$/i;
+  if (windowsUsersPattern.test(workspacePath)) {
+    return true;
   }
 
+  return false;
+}
+
+/**
+ * Check if path is a WSL Windows mount (like /mnt/c/Users/...)
+ * Always check on all platforms for consistent security behavior
+ */
+function isWslWindowsHome(workspacePath: string): boolean {
   const normalized = normalizePath(workspacePath);
 
   // Check for /mnt/c, /mnt/d, etc. (Windows drive roots in WSL)
@@ -226,6 +238,12 @@ function isWslWindowsHome(workspacePath: string): boolean {
   // /mnt/c/Users or /mnt/c/Users/username
   const wslUsersPattern = /^\/mnt\/[a-z]\/users(\/[^/]+)?$/i;
   if (wslUsersPattern.test(normalized)) {
+    return true;
+  }
+
+  // Check for /mnt/c/Windows
+  const wslWindowsPattern = /^\/mnt\/[a-z]\/windows$/i;
+  if (wslWindowsPattern.test(normalized)) {
     return true;
   }
 
@@ -326,6 +344,16 @@ export function checkWorkspaceSafety(workspacePath: string): WorkspaceSafetyResu
       return {
         safe: false,
         reason: getDangerReason(normalized),
+        suggestion: 'Navigate to a specific project folder and try again.',
+      };
+    }
+
+    // Check for Windows user home directories (C:\Users\username)
+    // Use original path because path.resolve on non-Windows treats Windows paths as relative
+    if (isWindowsUserHome(workspacePath)) {
+      return {
+        safe: false,
+        reason: 'This is a Windows user home directory. Running an AI agent here could modify files across the user account.',
         suggestion: 'Navigate to a specific project folder and try again.',
       };
     }

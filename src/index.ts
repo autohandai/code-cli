@@ -4,6 +4,8 @@ import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import enquirer from 'enquirer';
+import fs from 'fs-extra';
+import path from 'node:path';
 import { execSync } from 'node:child_process';
 import readline from 'node:readline';
 import packageJson from '../package.json' with { type: 'json' };
@@ -161,6 +163,7 @@ program
   .option('--max-runtime <m>', 'Max runtime in minutes (default: 120)', parseInt)
   .option('--max-cost <d>', 'Max API cost in dollars (default: 10)', parseFloat)
   .option('--setup', 'Run the setup wizard to configure or reconfigure Autohand', false)
+  .option('--add-dir <path...>', 'Add additional directories to workspace scope (can be used multiple times)')
   .action(async (opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean; setup?: boolean; syncSettings?: string | boolean }) => {
     // Handle --skill-install flag
     if (opts.skillInstall !== undefined) {
@@ -295,10 +298,42 @@ async function runCLI(options: CLIOptions): Promise<void> {
       process.exit(1);
     }
 
+    // Validate and resolve additional directories from --add-dir flag
+    const additionalDirs: string[] = [];
+    if (options.addDir && options.addDir.length > 0) {
+      for (const dir of options.addDir) {
+        const resolvedDir = path.resolve(dir);
+
+        // Check if directory exists
+        if (!await fs.pathExists(resolvedDir)) {
+          console.error(chalk.red(`Error: Additional directory does not exist: ${dir}`));
+          process.exit(1);
+        }
+
+        // Check if it's a directory
+        const stats = await fs.stat(resolvedDir);
+        if (!stats.isDirectory()) {
+          console.error(chalk.red(`Error: Additional path is not a directory: ${dir}`));
+          process.exit(1);
+        }
+
+        // Safety check for the additional directory
+        const addDirSafetyCheck = checkWorkspaceSafety(resolvedDir);
+        if (!addDirSafetyCheck.safe) {
+          console.error(chalk.red(`Error: Unsafe additional directory: ${dir}`));
+          console.error(chalk.yellow(`  ${addDirSafetyCheck.reason}`));
+          process.exit(1);
+        }
+
+        additionalDirs.push(resolvedDir);
+      }
+    }
+
     const runtime: AgentRuntime = {
       config,
       workspaceRoot,
-      options
+      options,
+      additionalDirs: additionalDirs.length > 0 ? additionalDirs : undefined
     };
 
     // Validate auth on startup (non-blocking)
@@ -380,7 +415,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
     }
 
     const llmProvider = ProviderFactory.create(config);
-    const files = new FileActionManager(workspaceRoot);
+    const files = new FileActionManager(workspaceRoot, runtime.additionalDirs);
 
     // Handle --auto-skill flag
     if (options.autoSkill) {
@@ -624,6 +659,30 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
     process.exit(1);
   }
 
+  // Validate and resolve additional directories from --add-dir flag
+  const additionalDirs: string[] = [];
+  if (opts.addDir && opts.addDir.length > 0) {
+    for (const dir of opts.addDir) {
+      const resolvedDir = path.resolve(dir);
+      if (!await fs.pathExists(resolvedDir)) {
+        console.error(chalk.red(`Error: Additional directory does not exist: ${dir}`));
+        process.exit(1);
+      }
+      const stats = await fs.stat(resolvedDir);
+      if (!stats.isDirectory()) {
+        console.error(chalk.red(`Error: Additional path is not a directory: ${dir}`));
+        process.exit(1);
+      }
+      const addDirSafetyCheck = checkWorkspaceSafety(resolvedDir);
+      if (!addDirSafetyCheck.safe) {
+        console.error(chalk.red(`Error: Unsafe additional directory: ${dir}`));
+        console.error(chalk.yellow(`  ${addDirSafetyCheck.reason}`));
+        process.exit(1);
+      }
+      additionalDirs.push(resolvedDir);
+    }
+  }
+
   // Override model from CLI if provided
   if (opts.model) {
     const providerName = config.provider ?? 'openrouter';
@@ -633,7 +692,7 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
   }
 
   const llmProvider = ProviderFactory.create(config);
-  const files = new FileActionManager(workspaceRoot);
+  const files = new FileActionManager(workspaceRoot, additionalDirs);
 
   // Enable preview mode - changes will be batched instead of written
   const batchId = crypto.randomUUID();
@@ -649,7 +708,8 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
   const runtime: AgentRuntime = {
     config,
     workspaceRoot,
-    options: patchOptions
+    options: patchOptions,
+    additionalDirs: additionalDirs.length > 0 ? additionalDirs : undefined
   };
 
   // Show status
@@ -705,13 +765,37 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
   }
 
   const config = await loadConfig(opts.config);
-  const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
+  const originalWorkspaceRoot = resolveWorkspaceRoot(config, opts.path);
 
   // Check for dangerous workspace directories
-  const safetyCheck = checkWorkspaceSafety(workspaceRoot);
+  const safetyCheck = checkWorkspaceSafety(originalWorkspaceRoot);
   if (!safetyCheck.safe) {
-    printDangerousWorkspaceWarning(workspaceRoot, safetyCheck);
+    printDangerousWorkspaceWarning(originalWorkspaceRoot, safetyCheck);
     process.exit(1);
+  }
+
+  // Validate and resolve additional directories from --add-dir flag
+  const additionalDirs: string[] = [];
+  if (opts.addDir && opts.addDir.length > 0) {
+    for (const dir of opts.addDir) {
+      const resolvedDir = path.resolve(dir);
+      if (!await fs.pathExists(resolvedDir)) {
+        console.error(chalk.red(`Error: Additional directory does not exist: ${dir}`));
+        process.exit(1);
+      }
+      const stats = await fs.stat(resolvedDir);
+      if (!stats.isDirectory()) {
+        console.error(chalk.red(`Error: Additional path is not a directory: ${dir}`));
+        process.exit(1);
+      }
+      const addDirSafetyCheck = checkWorkspaceSafety(resolvedDir);
+      if (!addDirSafetyCheck.safe) {
+        console.error(chalk.red(`Error: Unsafe additional directory: ${dir}`));
+        console.error(chalk.yellow(`  ${addDirSafetyCheck.reason}`));
+        process.exit(1);
+      }
+      additionalDirs.push(resolvedDir);
+    }
   }
 
   // Override model from CLI if provided
@@ -735,33 +819,7 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
   const { MemoryManager } = await import('./memory/MemoryManager.js');
   const readline = await import('readline');
 
-  const llmProvider = ProviderFactory.create(config);
-  const files = new FileActionManager(workspaceRoot);
-
-  // Get model name for session
-  const providerName = config.provider ?? 'openrouter';
-  const modelName = opts.model ?? (config as any)[providerName]?.model ?? 'unknown';
-
-  // Create session manager and session for auto-mode
-  const sessionManager = new SessionManager();
-  await sessionManager.initialize();
-  const session = await sessionManager.createSession(workspaceRoot, modelName);
-  session.metadata.type = 'automode';
-  session.metadata.automodePrompt = opts.autoMode;
-
-  // Create memory manager
-  const memoryManager = new MemoryManager(workspaceRoot);
-
-  // Create hook manager
-  const hookManager = new HookManager({
-    settings: config.hooks ?? { enabled: true, hooks: [] },
-    workspaceRoot,
-  });
-
-  // Create auto-mode manager with session
-  const automodeManager = new AutomodeManager(config, workspaceRoot, hookManager, session, memoryManager);
-
-  // Get auto-mode options
+  // Get auto-mode options first to determine worktree preference
   const automodeOptions = getAutomodeOptions(opts, config);
   if (!automodeOptions) {
     console.error(chalk.red('Error: Failed to parse auto-mode options'));
@@ -775,7 +833,54 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
   console.log(chalk.gray('Max Iterations:'), chalk.cyan(automodeOptions.maxIterations ?? 50));
   console.log(chalk.gray('Completion Marker:'), chalk.cyan(automodeOptions.completionPromise ?? 'DONE'));
   console.log(chalk.gray('Worktree Isolation:'), chalk.cyan(automodeOptions.useWorktree !== false ? 'enabled' : 'disabled'));
+
+  // Get model name for session
+  const providerName = config.provider ?? 'openrouter';
+  const modelName = opts.model ?? (config as any)[providerName]?.model ?? 'unknown';
+
+  // Create session manager and session for auto-mode
+  const sessionManager = new SessionManager();
+  await sessionManager.initialize();
+  const session = await sessionManager.createSession(originalWorkspaceRoot, modelName);
+  session.metadata.type = 'automode';
+  session.metadata.automodePrompt = opts.autoMode;
+
+  // Create memory manager (uses original workspace for memory storage)
+  const memoryManager = new MemoryManager(originalWorkspaceRoot);
+
+  // Create hook manager (uses original workspace for hooks)
+  const hookManager = new HookManager({
+    settings: config.hooks ?? { enabled: true, hooks: [] },
+    workspaceRoot: originalWorkspaceRoot,
+  });
+
+  // Create auto-mode manager with session
+  const automodeManager = new AutomodeManager(config, originalWorkspaceRoot, hookManager, session, memoryManager);
+
+  // Prepare worktree BEFORE creating agent (if enabled)
+  // This ensures the agent operates in the isolated worktree
+  const useWorktree = automodeOptions.useWorktree !== false;
+  let effectiveWorkspace = originalWorkspaceRoot;
+
+  if (useWorktree) {
+    console.log(chalk.gray('\nPreparing git worktree for isolation...'));
+    const worktreePath = await automodeManager.prepareWorktree(true);
+    if (worktreePath) {
+      effectiveWorkspace = worktreePath;
+      console.log(chalk.green(`✓ Worktree created: ${worktreePath}`));
+      console.log(chalk.gray(`  Branch: ${automodeManager.getBranchName()}`));
+      console.log(chalk.gray(`  All changes will be isolated to this worktree`));
+    } else {
+      console.log(chalk.yellow('⚠ Continuing without worktree isolation'));
+    }
+  }
   console.log();
+
+  // Create LLM provider
+  const llmProvider = ProviderFactory.create(config);
+
+  // Create file manager with effective workspace (worktree if available)
+  const files = new FileActionManager(effectiveWorkspace, additionalDirs);
 
   // Set up ESC key handling for cancellation
   if (process.stdin.isTTY) {
@@ -801,14 +906,15 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
   }
 
   try {
-    // Create agent runtime
+    // Create agent runtime with effective workspace (worktree if available)
     const runtime: AgentRuntime = {
       config,
-      workspaceRoot,
+      workspaceRoot: effectiveWorkspace,
       options: {
         ...opts,
         yes: true,  // Auto-confirm in auto-mode
-      }
+      },
+      additionalDirs: additionalDirs.length > 0 ? additionalDirs : undefined
     };
 
     const agent = new AutohandAgent(llmProvider, files, runtime);

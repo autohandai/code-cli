@@ -64,6 +64,7 @@ export interface SearchOptions {
 export class FileActionManager {
   private undoStack: UndoEntry[] = [];
   private readonly workspaceRoot: string;
+  private readonly additionalDirs: string[];
 
   // Preview mode state
   private previewMode = false;
@@ -74,8 +75,47 @@ export class FileActionManager {
   private currentToolId = '';
   private currentToolName = '';
 
-  constructor(workspaceRoot: string) {
+  constructor(workspaceRoot: string, additionalDirs: string[] = []) {
     this.workspaceRoot = path.resolve(workspaceRoot);
+
+    // Validate and normalize additional directories
+    this.additionalDirs = [];
+    for (const dir of additionalDirs) {
+      if (!dir || dir.trim() === '') {
+        throw new Error('Empty string is not a valid additional directory');
+      }
+      const resolved = path.resolve(dir);
+      // Remove trailing slashes for consistent comparison
+      const normalized = resolved.endsWith(path.sep) && resolved.length > 1
+        ? resolved.slice(0, -1)
+        : resolved;
+      if (!this.additionalDirs.includes(normalized)) {
+        this.additionalDirs.push(normalized);
+      }
+    }
+  }
+
+  /**
+   * Get all allowed directories (workspace root + additional dirs)
+   */
+  getAllowedDirectories(): string[] {
+    return [this.workspaceRoot, ...this.additionalDirs];
+  }
+
+  /**
+   * Add a new additional directory at runtime (for /add-dir command)
+   */
+  addAdditionalDirectory(dir: string): void {
+    if (!dir || dir.trim() === '') {
+      throw new Error('Empty string is not a valid additional directory');
+    }
+    const resolved = path.resolve(dir);
+    const normalized = resolved.endsWith(path.sep) && resolved.length > 1
+      ? resolved.slice(0, -1)
+      : resolved;
+    if (!this.additionalDirs.includes(normalized) && normalized !== this.workspaceRoot) {
+      this.additionalDirs.push(normalized);
+    }
   }
 
   /**
@@ -476,23 +516,32 @@ export class FileActionManager {
       }
     }
 
-    // Get real path of workspace root for consistent comparison
-    let realWorkspaceRoot: string;
-    try {
-      realWorkspaceRoot = fs.realpathSync(this.workspaceRoot);
-    } catch {
-      realWorkspaceRoot = this.workspaceRoot;
+    // Build list of all allowed roots (workspace + additional directories)
+    const allAllowedRoots = [this.workspaceRoot, ...this.additionalDirs];
+
+    // Check the REAL path against ALL allowed roots
+    for (const allowedRoot of allAllowedRoots) {
+      // Get real path of this root for consistent comparison
+      let realRoot: string;
+      try {
+        realRoot = fs.realpathSync(allowedRoot);
+      } catch {
+        realRoot = allowedRoot;
+      }
+
+      const rootWithSep = realRoot.endsWith(path.sep)
+        ? realRoot
+        : `${realRoot}${path.sep}`;
+
+      // Check if path is within this allowed root
+      if (realPath === realRoot || realPath.startsWith(rootWithSep)) {
+        return resolved;
+      }
     }
 
-    const rootWithSep = realWorkspaceRoot.endsWith(path.sep)
-      ? realWorkspaceRoot
-      : `${realWorkspaceRoot}${path.sep}`;
-
-    // Check the REAL path against the REAL workspace root
-    if (realPath !== realWorkspaceRoot && !realPath.startsWith(rootWithSep)) {
-      throw new Error(`Path ${target} escapes the workspace root ${this.workspaceRoot}`);
-    }
-    return resolved;
+    // Path is not in any allowed directory
+    const allowedDirsList = allAllowedRoots.join(', ');
+    throw new Error(`Path ${target} escapes the allowed directories: ${allowedDirsList}`);
   }
 
   private walkFallback(query: string, baseDir: string): SearchHit[] {
@@ -545,6 +594,21 @@ export class FileActionManager {
   async createDirectory(relativePath: string): Promise<void> {
     const dirPath = this.resolvePath(relativePath);
     await fs.ensureDir(dirPath);
+  }
+
+  async listDirectory(relativePath: string): Promise<Array<{ name: string; isDirectory: boolean }>> {
+    const dirPath = this.resolvePath(relativePath);
+    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+
+    // Enforce entry limit
+    if (entries.length > FILE_LIMITS.MAX_DIR_ENTRIES) {
+      throw new Error(`Directory has too many entries (${entries.length}). Maximum allowed: ${FILE_LIMITS.MAX_DIR_ENTRIES}`);
+    }
+
+    return entries.map((entry) => ({
+      name: entry.name,
+      isDirectory: entry.isDirectory(),
+    }));
   }
 
   async deletePath(relativePath: string, description?: string): Promise<void> {

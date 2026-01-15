@@ -153,13 +153,13 @@ describe('Resource Limits', () => {
     it('should block path traversal attempts', async () => {
       await expect(
         fileManager.readFile('../../../etc/passwd')
-      ).rejects.toThrow(/escapes the workspace root/);
+      ).rejects.toThrow(/escapes the allowed directories/);
     });
 
     it('should block absolute paths outside workspace', async () => {
       await expect(
         fileManager.readFile('/etc/passwd')
-      ).rejects.toThrow(/escapes the workspace root/);
+      ).rejects.toThrow(/escapes the allowed directories/);
     });
 
     it('should allow paths within workspace', async () => {
@@ -180,7 +180,7 @@ describe('Resource Limits', () => {
 
         await expect(
           fileManager.readFile('evil-link')
-        ).rejects.toThrow(/escapes the workspace root/);
+        ).rejects.toThrow(/escapes the allowed directories/);
       } catch (e: any) {
         // Skip if symlink creation fails (permissions)
         if (e.code !== 'EPERM' && !e.message?.includes('escapes')) {

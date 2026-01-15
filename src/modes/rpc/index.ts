@@ -4,11 +4,14 @@
  * Spec: https://www.jsonrpc.org/specification
  */
 
+import fs from 'fs-extra';
+import path from 'node:path';
 import { AutohandAgent } from '../../core/agent.js';
 import { ConversationManager } from '../../core/conversationManager.js';
 import { FileActionManager } from '../../actions/filesystem.js';
 import { ProviderFactory } from '../../providers/ProviderFactory.js';
 import { loadConfig } from '../../config.js';
+import { checkWorkspaceSafety } from '../../startup/workspaceSafety.js';
 import type { CLIOptions, AgentRuntime } from '../../types.js';
 import type {
   JsonRpcRequest,
@@ -99,6 +102,26 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
     // Determine workspace
     const workspaceRoot = options.path ?? process.cwd();
 
+    // Validate and resolve additional directories from --add-dir flag
+    const additionalDirs: string[] = [];
+    if (options.addDir && options.addDir.length > 0) {
+      for (const dir of options.addDir) {
+        const resolvedDir = path.resolve(dir);
+        if (!await fs.pathExists(resolvedDir)) {
+          throw new Error(`Additional directory does not exist: ${dir}`);
+        }
+        const stats = await fs.stat(resolvedDir);
+        if (!stats.isDirectory()) {
+          throw new Error(`Additional path is not a directory: ${dir}`);
+        }
+        const addDirSafetyCheck = checkWorkspaceSafety(resolvedDir);
+        if (!addDirSafetyCheck.safe) {
+          throw new Error(`Unsafe additional directory: ${dir} - ${addDirSafetyCheck.reason}`);
+        }
+        additionalDirs.push(resolvedDir);
+      }
+    }
+
     // Create runtime - permission mode is handled via RPC, not auto-approve
     const runtime: AgentRuntime = {
       config,
@@ -107,6 +130,7 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
         ...options,
         // Do NOT set yes: true - permissions are handled via RPC
       },
+      additionalDirs: additionalDirs.length > 0 ? additionalDirs : undefined,
     };
 
     // Create LLM provider
@@ -116,7 +140,7 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
     }
 
     // Create file action manager
-    const files = new FileActionManager(workspaceRoot);
+    const files = new FileActionManager(workspaceRoot, additionalDirs);
 
     // Create agent
     agent = new AutohandAgent(provider, files, runtime);
