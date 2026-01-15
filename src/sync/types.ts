@@ -112,6 +112,10 @@ export interface SyncApiConfig {
   maxFileSize?: number;
   /** Max total sync size in bytes (default: 100MB) */
   maxTotalSize?: number;
+  /** Max retry attempts for failed requests (default: 3) */
+  maxRetries?: number;
+  /** Base retry delay in ms (default: 1000) */
+  retryDelay?: number;
 }
 
 /**

@@ -156,13 +156,13 @@ describe('Security Integration', () => {
     it('should block path traversal at filesystem layer', async () => {
       await expect(
         fileManager.readFile('../../../etc/passwd')
-      ).rejects.toThrow(/escapes the workspace root/);
+      ).rejects.toThrow(/escapes the allowed directories/);
     });
 
     it('should block absolute paths outside workspace', async () => {
       await expect(
         fileManager.readFile('/etc/shadow')
-      ).rejects.toThrow(/escapes the workspace root/);
+      ).rejects.toThrow(/escapes the allowed directories/);
     });
   });
 
@@ -224,7 +224,7 @@ describe('Security Integration', () => {
         await fileManager.readFile('../outside.txt');
       } catch (e: any) {
         // Error should mention workspace root, not expose full path
-        expect(e.message).toContain('escapes the workspace root');
+        expect(e.message).toContain('escapes the allowed directories');
       }
     });
   });

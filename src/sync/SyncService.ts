@@ -30,6 +30,7 @@ import {
 const MANIFEST_VERSION = 1;
 const SYNC_STATE_FILE = '.sync-state.json';
 const SYNC_LOCK_FILE = '.sync-lock';
+const MAX_TOTAL_SIZE = 100 * 1024 * 1024; // 100MB default
 
 export interface SyncServiceOptions {
   /** Auth token for API calls */
@@ -148,6 +149,18 @@ export class SyncService {
     try {
       // 1. Build local manifest
       const localManifest = await this.buildLocalManifest();
+
+      // 1.5. Check total size limit
+      const totalSize = localManifest.files.reduce((sum, f) => sum + f.size, 0);
+      if (totalSize > MAX_TOTAL_SIZE) {
+        return {
+          success: false,
+          uploaded: 0,
+          downloaded: 0,
+          conflicts: 0,
+          error: `Total sync size (${Math.round(totalSize / 1024 / 1024)}MB) exceeds limit (${Math.round(MAX_TOTAL_SIZE / 1024 / 1024)}MB)`,
+        };
+      }
 
       // 2. Get remote manifest
       const remoteManifest = await this.client.getRemoteManifest(this.authToken);
@@ -354,6 +367,7 @@ export class SyncService {
 
   /**
    * Get all files in a directory recursively
+   * Skips symlinks to prevent security issues and infinite loops
    */
   private async getFilesInDirectory(dirPath: string): Promise<SyncFileEntry[]> {
     const files: SyncFileEntry[] = [];
@@ -375,16 +389,26 @@ export class SyncService {
         continue;
       }
 
-      if (entry.isFile()) {
-        const stat = await fs.stat(fullPath);
-        const content = await fs.readFile(fullPath);
+      // Skip symlinks to prevent security issues and infinite loops
+      if (entry.isSymbolicLink()) {
+        continue;
+      }
 
-        files.push({
-          path: relativePath,
-          hash: computeHash(content),
-          size: stat.size,
-          modifiedAt: stat.mtime.toISOString(),
-        });
+      if (entry.isFile()) {
+        try {
+          const stat = await fs.stat(fullPath);
+          const content = await fs.readFile(fullPath);
+
+          files.push({
+            path: relativePath,
+            hash: computeHash(content),
+            size: stat.size,
+            modifiedAt: stat.mtime.toISOString(),
+          });
+        } catch {
+          // Skip files that can't be read (permissions, etc.)
+          continue;
+        }
       } else if (entry.isDirectory()) {
         // Recurse into subdirectory
         const subFiles = await this.getFilesInDirectory(relativePath);

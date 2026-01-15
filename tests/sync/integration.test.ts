@@ -65,15 +65,78 @@ describe('Sync Integration', () => {
       const client = new SyncApiClient({
         baseUrl: 'https://test-api.example.com',
         timeout: 5000,
+        maxRetries: 1, // Disable retries for this test
       });
 
       mockFetch.mockResolvedValueOnce({
         ok: false,
-        status: 500,
-        text: () => Promise.resolve('Internal server error'),
+        status: 400, // Use 400 (not retried) instead of 500 (retried)
+        text: () => Promise.resolve('Bad request'),
       });
 
       await expect(client.getRemoteManifest('test-token')).rejects.toThrow('API error');
+    });
+
+    it('retries on server errors', async () => {
+      const { SyncApiClient } = await import('../../src/sync/SyncApiClient.js');
+
+      const client = new SyncApiClient({
+        baseUrl: 'https://test-api.example.com',
+        timeout: 5000,
+        maxRetries: 3,
+        retryDelay: 10, // Fast retries for testing
+      });
+
+      // First two calls fail with 500, third succeeds
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 500,
+          text: () => Promise.resolve('Server error'),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 500,
+          text: () => Promise.resolve('Server error'),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ manifest: null }),
+        });
+
+      const result = await client.getRemoteManifest('test-token');
+      expect(result).toBeNull();
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('handles rate limiting with retry', async () => {
+      const { SyncApiClient } = await import('../../src/sync/SyncApiClient.js');
+
+      const client = new SyncApiClient({
+        baseUrl: 'https://test-api.example.com',
+        timeout: 5000,
+        maxRetries: 3,
+        retryDelay: 10, // Fast retries for testing
+      });
+
+      // First call returns 429, second succeeds
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          headers: new Map([['Retry-After', '1']]),
+          text: () => Promise.resolve('Rate limited'),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ manifest: null }),
+        });
+
+      const result = await client.getRemoteManifest('test-token');
+      expect(result).toBeNull();
+      expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
     it('handles network timeouts', async () => {
