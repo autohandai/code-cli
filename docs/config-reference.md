@@ -1296,6 +1296,7 @@ These flags override config file settings:
 |------|-------------|
 | `--model <model>` | Override model |
 | `--path <path>` | Override workspace root |
+| `--add-dir <path>` | Add additional directories to workspace scope (can be used multiple times) |
 | `--config <path>` | Use custom config file |
 | `--temperature <n>` | Set temperature (0-1) |
 | `--yes` | Auto-confirm prompts |
@@ -1312,3 +1313,43 @@ These flags override config file settings:
 | `--logout` | Sign out of your Autohand account |
 | `--sync-settings` | Enable/disable settings sync (default: true for logged users) |
 | `--setup` | Run the setup wizard to configure or reconfigure Autohand |
+
+---
+
+## Multi-Directory Support
+
+Autohand can work with multiple directories beyond the main workspace. This is useful when your project has dependencies, shared libraries, or related projects in different directories.
+
+### CLI Flag
+
+Use `--add-dir` to add additional directories (can be used multiple times):
+
+```bash
+# Add a single additional directory
+autohand --add-dir /path/to/shared-lib
+
+# Add multiple directories
+autohand --add-dir /path/to/lib1 --add-dir /path/to/lib2
+
+# With unrestricted mode (auto-approve writes to all directories)
+autohand --add-dir /path/to/shared-lib --unrestricted
+```
+
+### Interactive Command
+
+Use `/add-dir` during an interactive session:
+
+```
+/add-dir              # Show current directories
+/add-dir /path/to/dir # Add a new directory
+```
+
+### Safety Restrictions
+
+The following directories cannot be added:
+- Home directory (`~` or `$HOME`)
+- Root directory (`/`)
+- System directories (`/etc`, `/var`, `/usr`, `/bin`, `/sbin`)
+- Windows system directories (`C:\Windows`, `C:\Program Files`)
+- Windows user directories (`C:\Users\username`)
+- WSL Windows mounts (`/mnt/c`, `/mnt/c/Windows`)

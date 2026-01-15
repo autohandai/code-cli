@@ -11,6 +11,7 @@ import type { PermissionManager } from '../permissions/PermissionManager.js';
 import type { HookManager } from './HookManager.js';
 import type { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import type { AutomodeManager } from './AutomodeManager.js';
+import type { FileActionManager } from '../actions/filesystem.js';
 import type { LoadedConfig, ProviderName } from '../types.js';
 
 export interface SlashCommandContext {
@@ -43,6 +44,12 @@ export interface SlashCommandContext {
     skillsRegistry?: SkillsRegistry;
     /** Auto-mode manager for /automode commands */
     automodeManager?: AutomodeManager;
+    /** File action manager for /add-dir commands */
+    fileManager?: FileActionManager;
+    /** Additional directories added via --add-dir or /add-dir */
+    additionalDirs?: string[];
+    /** Callback to add an additional directory at runtime */
+    addAdditionalDir?: (dir: string) => void;
 }
 
 export interface SlashCommand {

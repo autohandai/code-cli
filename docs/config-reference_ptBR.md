@@ -642,6 +642,7 @@ Estas flags sobrescrevem as configurações do arquivo:
 |------|-----------|
 | `--model <modelo>` | Sobrescrever modelo |
 | `--path <caminho>` | Sobrescrever raiz do workspace |
+| `--add-dir <caminho>` | Adicionar diretórios adicionais ao escopo do workspace (pode ser usado múltiplas vezes) |
 | `--config <caminho>` | Usar arquivo de configuração personalizado |
 | `--temperature <n>` | Definir temperatura (0-1) |
 | `--yes` | Auto-confirmar prompts |
@@ -649,3 +650,43 @@ Estas flags sobrescrevem as configurações do arquivo:
 | `--unrestricted` | Sem prompts de aprovação |
 | `--restricted` | Negar operações perigosas |
 | `--setup` | Executar o assistente de configuração para configurar ou reconfigurar o Autohand |
+
+---
+
+## Suporte a Múltiplos Diretórios
+
+O Autohand pode trabalhar com múltiplos diretórios além do workspace principal. Isso é útil quando seu projeto tem dependências, bibliotecas compartilhadas ou projetos relacionados em diretórios diferentes.
+
+### Flag da CLI
+
+Use `--add-dir` para adicionar diretórios adicionais (pode ser usado múltiplas vezes):
+
+```bash
+# Adicionar um único diretório adicional
+autohand --add-dir /caminho/para/lib-compartilhada
+
+# Adicionar múltiplos diretórios
+autohand --add-dir /caminho/para/lib1 --add-dir /caminho/para/lib2
+
+# Com modo irrestrito (auto-aprovar gravações em todos os diretórios)
+autohand --add-dir /caminho/para/lib-compartilhada --unrestricted
+```
+
+### Comando Interativo
+
+Use `/add-dir` durante uma sessão interativa:
+
+```
+/add-dir              # Mostrar diretórios atuais
+/add-dir /caminho/dir # Adicionar um novo diretório
+```
+
+### Restrições de Segurança
+
+Os seguintes diretórios não podem ser adicionados:
+- Diretório home (`~` ou `$HOME`)
+- Diretório raiz (`/`)
+- Diretórios do sistema (`/etc`, `/var`, `/usr`, `/bin`, `/sbin`)
+- Diretórios do sistema Windows (`C:\Windows`, `C:\Program Files`)
+- Diretórios de usuário Windows (`C:\Users\username`)
+- Montagens WSL do Windows (`/mnt/c`, `/mnt/c/Windows`)
