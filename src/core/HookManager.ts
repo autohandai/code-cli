@@ -100,6 +100,10 @@ export interface HookContext {
   automodeCheckpointCommit?: string;
   /** Auto-mode total cost */
   automodeTotalCost?: number;
+
+  // Multi-directory support
+  /** Additional workspace directories (from --add-dir or /add-dir) */
+  additionalWorkspaces?: string[];
 }
 
 /** Result of hook execution */
@@ -488,6 +492,11 @@ export class HookManager {
     if (context.automodeCheckpointCommit) env.HOOK_AUTOMODE_CHECKPOINT = context.automodeCheckpointCommit;
     if (context.automodeTotalCost !== undefined) env.HOOK_AUTOMODE_COST = String(context.automodeTotalCost);
 
+    // Multi-directory support
+    if (context.additionalWorkspaces && context.additionalWorkspaces.length > 0) {
+      env.HOOK_ADDITIONAL_WORKSPACES = JSON.stringify(context.additionalWorkspaces);
+    }
+
     return env as Record<string, string>;
   }
 
@@ -546,6 +555,8 @@ export class HookManager {
       automode_cancel_reason: context.automodeCancelReason,
       automode_checkpoint_commit: context.automodeCheckpointCommit,
       automode_total_cost: context.automodeTotalCost,
+      // Multi-directory support
+      additional_workspaces: context.additionalWorkspaces,
     });
   }
 

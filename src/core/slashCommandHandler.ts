@@ -216,6 +216,19 @@ export class SlashCommandHandler {
           const { sync } = await import('../commands/sync.js');
           return sync(this.ctx);
         }
+        case '/add-dir': {
+          const { addDir } = await import('../commands/add-dir.js');
+          if (!this.ctx.fileManager || !this.ctx.addAdditionalDir) {
+            console.log(chalk.yellow('File manager not available for /add-dir command.'));
+            return null;
+          }
+          return addDir({
+            workspaceRoot: this.ctx.workspaceRoot,
+            fileManager: this.ctx.fileManager,
+            additionalDirs: this.ctx.additionalDirs ?? [],
+            addAdditionalDir: this.ctx.addAdditionalDir,
+          }, args);
+        }
         default:
           this.printUnsupported(command);
           return null;

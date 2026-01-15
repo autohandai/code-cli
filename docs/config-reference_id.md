@@ -631,6 +631,7 @@ Flag-flag ini mengganti pengaturan file konfigurasi:
 |------|-----------|
 | `--model <model>` | Ganti model |
 | `--path <path>` | Ganti root workspace |
+| `--add-dir <path>` | Tambahkan direktori tambahan ke lingkup workspace (dapat digunakan beberapa kali) |
 | `--config <path>` | Gunakan file konfigurasi kustom |
 | `--temperature <n>` | Atur temperature (0-1) |
 | `--yes` | Konfirmasi otomatis prompt |
@@ -638,3 +639,43 @@ Flag-flag ini mengganti pengaturan file konfigurasi:
 | `--unrestricted` | Tanpa prompt persetujuan |
 | `--restricted` | Tolak operasi berbahaya |
 | `--setup` | Jalankan wizard setup untuk mengkonfigurasi atau mengkonfigurasi ulang Autohand |
+
+---
+
+## Dukungan Multi-Direktori
+
+Autohand dapat bekerja dengan beberapa direktori di luar workspace utama. Ini berguna ketika proyek Anda memiliki dependensi, library bersama, atau proyek terkait di direktori yang berbeda.
+
+### Flag CLI
+
+Gunakan `--add-dir` untuk menambahkan direktori tambahan (dapat digunakan beberapa kali):
+
+```bash
+# Tambahkan satu direktori tambahan
+autohand --add-dir /path/to/shared-lib
+
+# Tambahkan beberapa direktori
+autohand --add-dir /path/to/lib1 --add-dir /path/to/lib2
+
+# Dengan mode unrestricted (auto-approve penulisan ke semua direktori)
+autohand --add-dir /path/to/shared-lib --unrestricted
+```
+
+### Perintah Interaktif
+
+Gunakan `/add-dir` selama sesi interaktif:
+
+```
+/add-dir              # Tampilkan direktori saat ini
+/add-dir /path/to/dir # Tambahkan direktori baru
+```
+
+### Pembatasan Keamanan
+
+Direktori berikut tidak dapat ditambahkan:
+- Direktori home (`~` atau `$HOME`)
+- Direktori root (`/`)
+- Direktori sistem (`/etc`, `/var`, `/usr`, `/bin`, `/sbin`)
+- Direktori sistem Windows (`C:\Windows`, `C:\Program Files`)
+- Direktori pengguna Windows (`C:\Users\username`)
+- Mount WSL Windows (`/mnt/c`, `/mnt/c/Windows`)

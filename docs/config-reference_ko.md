@@ -631,6 +631,7 @@ Autohand는 `~/.autohand/` (또는 `$AUTOHAND_HOME`)에 데이터를 저장합�
 |--------|------|
 | `--model <model>` | 모델 덮어쓰기 |
 | `--path <path>` | 워크스페이스 루트 덮어쓰기 |
+| `--add-dir <path>` | 워크스페이스 범위에 추가 디렉토리 추가 (여러 번 사용 가능) |
 | `--config <path>` | 사용자 지정 설정 파일 사용 |
 | `--temperature <n>` | 온도 설정 (0-1) |
 | `--yes` | 프롬프트 자동 확인 |
@@ -638,3 +639,43 @@ Autohand는 `~/.autohand/` (또는 `$AUTOHAND_HOME`)에 데이터를 저장합�
 | `--unrestricted` | 승인 프롬프트 없음 |
 | `--restricted` | 위험한 작업 거부 |
 | `--setup` | 설정 마법사를 실행하여 Autohand 설정 또는 재설정 |
+
+---
+
+## 멀티 디렉토리 지원
+
+Autohand는 메인 워크스페이스 외의 여러 디렉토리에서 작업할 수 있습니다. 이는 프로젝트에 의존성, 공유 라이브러리 또는 다른 디렉토리에 있는 관련 프로젝트가 있을 때 유용합니다.
+
+### CLI 플래그
+
+`--add-dir`을 사용하여 추가 디렉토리를 추가합니다 (여러 번 사용 가능):
+
+```bash
+# 단일 추가 디렉토리 추가
+autohand --add-dir /path/to/shared-lib
+
+# 여러 디렉토리 추가
+autohand --add-dir /path/to/lib1 --add-dir /path/to/lib2
+
+# 제한 없는 모드와 함께 (모든 디렉토리에 쓰기 자동 승인)
+autohand --add-dir /path/to/shared-lib --unrestricted
+```
+
+### 대화형 명령
+
+대화형 세션 중에 `/add-dir`을 사용합니다:
+
+```
+/add-dir              # 현재 디렉토리 표시
+/add-dir /path/to/dir # 새 디렉토리 추가
+```
+
+### 안전 제한
+
+다음 디렉토리는 추가할 수 없습니다:
+- 홈 디렉토리 (`~` 또는 `$HOME`)
+- 루트 디렉토리 (`/`)
+- 시스템 디렉토리 (`/etc`, `/var`, `/usr`, `/bin`, `/sbin`)
+- Windows 시스템 디렉토리 (`C:\Windows`, `C:\Program Files`)
+- Windows 사용자 디렉토리 (`C:\Users\username`)
+- WSL Windows 마운트 (`/mnt/c`, `/mnt/c/Windows`)

@@ -403,6 +403,8 @@ export class AutohandAgent {
 
     // Create context object with getter for currentSession (dynamic access)
     const sessionMgr = this.sessionManager;
+    const filesMgr = this.files;
+    const runtimeRef = this.runtime;
     const slashContext = {
       promptModelSelection: () => this.promptModelSelection(),
       createAgentsFile: () => this.createAgentsFile(),
@@ -425,6 +427,20 @@ export class AutohandAgent {
       // Share command needs current session - use getter for dynamic access
       get currentSession() {
         return sessionMgr.getCurrentSession() ?? undefined;
+      },
+      // Add-dir command context
+      fileManager: this.files,
+      get additionalDirs() {
+        return runtimeRef.additionalDirs ?? [];
+      },
+      addAdditionalDir: (dir: string) => {
+        filesMgr.addAdditionalDirectory(dir);
+        if (!runtimeRef.additionalDirs) {
+          runtimeRef.additionalDirs = [];
+        }
+        if (!runtimeRef.additionalDirs.includes(dir)) {
+          runtimeRef.additionalDirs.push(dir);
+        }
       }
     };
     this.slashHandler = new SlashCommandHandler(slashContext, SLASH_COMMANDS);

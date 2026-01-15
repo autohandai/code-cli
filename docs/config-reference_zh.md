@@ -631,6 +631,7 @@ Autohand 将数据存储在 `~/.autohand/`（或 `$AUTOHAND_HOME`）：
 |------|------|
 | `--model <model>` | 覆盖模型 |
 | `--path <path>` | 覆盖工作区根目录 |
+| `--add-dir <path>` | 添加额外目录到工作区范围（可多次使用） |
 | `--config <path>` | 使用自定义配置文件 |
 | `--temperature <n>` | 设置温度（0-1） |
 | `--yes` | 自动确认提示 |
@@ -638,3 +639,43 @@ Autohand 将数据存储在 `~/.autohand/`（或 `$AUTOHAND_HOME`）：
 | `--unrestricted` | 无批准提示 |
 | `--restricted` | 拒绝危险操作 |
 | `--setup` | 运行设置向导以配置或重新配置 Autohand |
+
+---
+
+## 多目录支持
+
+Autohand 可以使用主工作区以外的多个目录。当您的项目在不同目录中有依赖项、共享库或相关项目时，这非常有用。
+
+### CLI 标志
+
+使用 `--add-dir` 添加额外目录（可多次使用）：
+
+```bash
+# 添加单个额外目录
+autohand --add-dir /path/to/shared-lib
+
+# 添加多个目录
+autohand --add-dir /path/to/lib1 --add-dir /path/to/lib2
+
+# 使用无限制模式（自动批准对所有目录的写入）
+autohand --add-dir /path/to/shared-lib --unrestricted
+```
+
+### 交互式命令
+
+在交互式会话中使用 `/add-dir`：
+
+```
+/add-dir              # 显示当前目录
+/add-dir /path/to/dir # 添加新目录
+```
+
+### 安全限制
+
+以下目录无法添加：
+- 主目录（`~` 或 `$HOME`）
+- 根目录（`/`）
+- 系统目录（`/etc`、`/var`、`/usr`、`/bin`、`/sbin`）
+- Windows 系统目录（`C:\Windows`、`C:\Program Files`）
+- Windows 用户目录（`C:\Users\username`）
+- WSL Windows 挂载（`/mnt/c`、`/mnt/c/Windows`）

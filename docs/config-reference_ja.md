@@ -1163,6 +1163,7 @@ Autohandは `~/.autohand/`（または `$AUTOHAND_HOME`）にデータを保存�
 |--------|------|
 | `--model <model>` | モデルをオーバーライド |
 | `--path <path>` | ワークスペースルートをオーバーライド |
+| `--add-dir <path>` | ワークスペーススコープに追加ディレクトリを追加（複数回使用可能） |
 | `--config <path>` | カスタム設定ファイルを使用 |
 | `--temperature <n>` | 温度を設定（0-1） |
 | `--yes` | プロンプトを自動確認 |
@@ -1178,3 +1179,43 @@ Autohandは `~/.autohand/`（または `$AUTOHAND_HOME`）にデータを保存�
 | `--login` | Autohandアカウントにサインイン |
 | `--logout` | Autohandアカウントからサインアウト |
 | `--setup` | セットアップウィザードを実行してAutohandを設定または再設定 |
+
+---
+
+## マルチディレクトリサポート
+
+Autohandはメインワークスペース以外の複数のディレクトリで作業できます。プロジェクトに異なるディレクトリにある依存関係、共有ライブラリ、または関連プロジェクトがある場合に便利です。
+
+### CLIフラグ
+
+`--add-dir`を使用して追加ディレクトリを追加します（複数回使用可能）：
+
+```bash
+# 単一の追加ディレクトリを追加
+autohand --add-dir /path/to/shared-lib
+
+# 複数のディレクトリを追加
+autohand --add-dir /path/to/lib1 --add-dir /path/to/lib2
+
+# 制限なしモードと組み合わせ（すべてのディレクトリへの書き込みを自動承認）
+autohand --add-dir /path/to/shared-lib --unrestricted
+```
+
+### 対話コマンド
+
+対話セッション中に`/add-dir`を使用します：
+
+```
+/add-dir              # 現在のディレクトリを表示
+/add-dir /path/to/dir # 新しいディレクトリを追加
+```
+
+### セキュリティ制限
+
+以下のディレクトリは追加できません：
+- ホームディレクトリ（`~`または`$HOME`）
+- ルートディレクトリ（`/`）
+- システムディレクトリ（`/etc`、`/var`、`/usr`、`/bin`、`/sbin`）
+- Windowsシステムディレクトリ（`C:\Windows`、`C:\Program Files`）
+- Windowsユーザーディレクトリ（`C:\Users\username`）
+- WSL Windowsマウント（`/mnt/c`、`/mnt/c/Windows`）
