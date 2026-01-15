@@ -631,6 +631,7 @@ Estos flags sobrescriben la configuración del archivo:
 |------|-------------|
 | `--model <modelo>` | Sobrescribir modelo |
 | `--path <ruta>` | Sobrescribir raíz del espacio de trabajo |
+| `--add-dir <ruta>` | Agregar directorios adicionales al alcance del espacio de trabajo (se puede usar múltiples veces) |
 | `--config <ruta>` | Usar archivo de configuración personalizado |
 | `--temperature <n>` | Establecer temperatura (0-1) |
 | `--yes` | Auto-confirmar solicitudes |
@@ -638,3 +639,43 @@ Estos flags sobrescriben la configuración del archivo:
 | `--unrestricted` | Sin solicitudes de aprobación |
 | `--restricted` | Denegar operaciones peligrosas |
 | `--setup` | Ejecutar el asistente de configuración para configurar o reconfigurar Autohand |
+
+---
+
+## Soporte Multi-Directorio
+
+Autohand puede trabajar con múltiples directorios más allá del espacio de trabajo principal. Esto es útil cuando tu proyecto tiene dependencias, bibliotecas compartidas o proyectos relacionados en diferentes directorios.
+
+### Flag de CLI
+
+Usa `--add-dir` para agregar directorios adicionales (se puede usar múltiples veces):
+
+```bash
+# Agregar un solo directorio adicional
+autohand --add-dir /ruta/a/lib-compartida
+
+# Agregar múltiples directorios
+autohand --add-dir /ruta/a/lib1 --add-dir /ruta/a/lib2
+
+# Con modo sin restricciones (auto-aprobar escrituras en todos los directorios)
+autohand --add-dir /ruta/a/lib-compartida --unrestricted
+```
+
+### Comando Interactivo
+
+Usa `/add-dir` durante una sesión interactiva:
+
+```
+/add-dir              # Mostrar directorios actuales
+/add-dir /ruta/al/dir # Agregar un nuevo directorio
+```
+
+### Restricciones de Seguridad
+
+Los siguientes directorios no pueden agregarse:
+- Directorio home (`~` o `$HOME`)
+- Directorio raíz (`/`)
+- Directorios del sistema (`/etc`, `/var`, `/usr`, `/bin`, `/sbin`)
+- Directorios del sistema Windows (`C:\Windows`, `C:\Program Files`)
+- Directorios de usuario Windows (`C:\Users\username`)
+- Montajes WSL de Windows (`/mnt/c`, `/mnt/c/Windows`)
