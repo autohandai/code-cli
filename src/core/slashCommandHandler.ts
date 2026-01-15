@@ -229,6 +229,14 @@ export class SlashCommandHandler {
             addAdditionalDir: this.ctx.addAdditionalDir,
           }, args);
         }
+        case '/language': {
+          const { language } = await import('../commands/language.js');
+          if (!this.ctx.config) {
+            console.log(chalk.yellow('Config not available for language selection.'));
+            return null;
+          }
+          return language({ config: this.ctx.config });
+        }
         default:
           this.printUnsupported(command);
           return null;
