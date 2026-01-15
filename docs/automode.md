@@ -170,17 +170,50 @@ Multiple ways to stop an auto-mode loop:
 
 ### Git Worktree Isolation
 
-By default, auto-mode creates an isolated git worktree:
+By default, auto-mode creates an isolated git worktree to protect your main branch:
 
-- **Branch**: `autohand-automode-<timestamp>`
-- **Worktree**: `/tmp/autohand-worktree-<hash>`
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   WORKTREE LIFECYCLE                             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  START                                                           │
+│  ├─ Create branch: autohand-automode-<timestamp>                 │
+│  ├─ Create worktree: /tmp/autohand-worktree-<hash>               │
+│  └─ ALL file operations now happen in the worktree               │
+│                                                                  │
+│  DURING LOOP                                                     │
+│  ├─ Agent reads/writes files in worktree                         │
+│  ├─ Every N iterations: checkpoint commit to automode branch     │
+│  └─ Main branch remains untouched                                │
+│                                                                  │
+│  ON SUCCESS                                                      │
+│  ├─ git checkout <original-branch>                               │
+│  ├─ git merge autohand-automode-xxx                              │
+│  ├─ git worktree remove /tmp/autohand-worktree-xxx               │
+│  └─ git branch -d autohand-automode-xxx                          │
+│                                                                  │
+│  ON CANCEL/ERROR                                                 │
+│  └─ Worktree PRESERVED for manual inspection                     │
+│     You can: cd /tmp/autohand-worktree-xxx                       │
+│              git log, git diff, cherry-pick, etc.                │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-Benefits:
-- Your main branch is protected
+**Key Points:**
+- **One worktree per session** (not per iteration)
+- **All agent operations** (file reads, writes, commands) happen in the worktree
+- **Checkpoints** create commits in the automode branch at regular intervals
+- **Merge happens once** at the end on successful completion
+- **Preserved on failure** so you can inspect, recover, or cherry-pick changes
+
+**Benefits:**
+- Your main branch is protected from experimental changes
 - Changes can be reviewed before merging
 - Easy to discard if something goes wrong
-
-On success, changes are merged back to your original branch.
+- Can rollback to checkpoints within the session
+- Safe experimentation without affecting other team members
 
 ### Circuit Breaker
 

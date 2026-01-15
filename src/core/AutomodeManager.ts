@@ -141,6 +141,47 @@ export class AutomodeManager extends EventEmitter {
   }
 
   /**
+   * Get the effective workspace path (worktree if set up, otherwise original)
+   */
+  getEffectiveWorkspace(): string {
+    return this.worktreePath ?? this.workspaceRoot;
+  }
+
+  /**
+   * Get the worktree path if set up
+   */
+  getWorktreePath(): string | null {
+    return this.worktreePath;
+  }
+
+  /**
+   * Get the branch name if worktree is set up
+   */
+  getBranchName(): string | null {
+    return this.branchName;
+  }
+
+  /**
+   * Prepare worktree for auto-mode (call before start if you need the workspace path)
+   * Returns the worktree path if created, or null if worktree is disabled or failed
+   */
+  async prepareWorktree(useWorktree: boolean = true): Promise<string | null> {
+    if (!useWorktree) {
+      return null;
+    }
+
+    try {
+      const sessionId = `automode-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+      await this.setupWorktree(sessionId);
+      return this.worktreePath;
+    } catch (error) {
+      console.log(chalk.yellow(`⚠ Worktree setup failed: ${error}`));
+      console.log(chalk.gray('  Continuing in current workspace'));
+      return null;
+    }
+  }
+
+  /**
    * Start auto-mode loop
    */
   async start(
@@ -186,8 +227,8 @@ export class AutomodeManager extends EventEmitter {
     console.log(chalk.gray(`   Completion promise: "${completionPromise}"`));
     console.log(chalk.gray(`   Worktree isolation: ${useWorktree ? 'enabled' : 'disabled'}`));
 
-    // Create worktree if enabled
-    if (useWorktree) {
+    // Create worktree if enabled AND not already prepared
+    if (useWorktree && !this.worktreePath) {
       try {
         await this.setupWorktree(sessionId);
         console.log(chalk.gray(`   Branch: ${this.branchName}`));
@@ -195,6 +236,10 @@ export class AutomodeManager extends EventEmitter {
         console.log(chalk.yellow(`   ⚠ Worktree setup failed, continuing in current branch`));
         console.log(chalk.gray(`   ${error}`));
       }
+    } else if (this.worktreePath) {
+      // Worktree was already prepared via prepareWorktree()
+      console.log(chalk.gray(`   Branch: ${this.branchName}`));
+      console.log(chalk.gray(`   Worktree: ${this.worktreePath}`));
     }
 
     // Initialize state
