@@ -169,6 +169,12 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      - name: Update version before build
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          echo "Setting version to: $VERSION"
+          npm version $VERSION --no-git-tag-version --allow-same-version
+
       - name: Build TypeScript
         run: bun run build
 
