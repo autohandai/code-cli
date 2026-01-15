@@ -67,6 +67,7 @@ import type { SkillSuggestion } from '../skills/CommunitySkillsClient.js';
 import { ProjectAnalyzer } from '../skills/autoSkill.js';
 import { AUTOHAND_PATHS } from '../constants.js';
 import { PersistentInput, createPersistentInput } from '../ui/persistentInput.js';
+import { injectLocaleIntoPrompt, getCurrentLocale } from '../i18n/index.js';
 import { formatToolOutputForDisplay } from '../ui/toolOutput.js';
 // InkRenderer type - using 'any' to avoid bun bundling ink at compile time
 // The actual type comes from dynamic import at runtime
@@ -3103,7 +3104,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
       }
     }
 
-    return parts.join('\n');
+    // Inject locale instruction for non-English users
+    const basePrompt = parts.join('\n');
+    return injectLocaleIntoPrompt(basePrompt, getCurrentLocale());
   }
 
   private async resolveMentions(instruction: string): Promise<string> {

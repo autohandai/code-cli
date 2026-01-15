@@ -65,6 +65,8 @@ export interface UISettings {
   checkForUpdates?: boolean;
   /** Hours between update checks (default: 24) */
   updateCheckInterval?: number;
+  /** Display language locale (e.g., 'en', 'zh-cn', 'fr') */
+  locale?: string;
 }
 
 export interface AgentSettings {
@@ -438,6 +440,8 @@ export interface CLIOptions {
   maxCost?: number;
   /** Additional directories to include in workspace scope */
   addDir?: string[];
+  /** Display language override (e.g., 'en', 'zh-cn', 'fr') */
+  displayLanguage?: string;
 }
 
 export interface PromptContext {

@@ -15,6 +15,7 @@ import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from './startup/
 import { getAuthClient } from './auth/index.js';
 import type { AuthUser, LoadedConfig } from './types.js';
 import { checkForUpdates, type VersionCheckResult } from './utils/versionCheck.js';
+import { initI18n, detectLocale, getCurrentLocale } from './i18n/index.js';
 
 /**
  * Get git commit hash (short)
@@ -164,6 +165,7 @@ program
   .option('--max-cost <d>', 'Max API cost in dollars (default: 10)', parseFloat)
   .option('--setup', 'Run the setup wizard to configure or reconfigure Autohand', false)
   .option('--add-dir <path...>', 'Add additional directories to workspace scope (can be used multiple times)')
+  .option('--display-language <locale>', 'Set display language (e.g., en, zh-cn, fr, de, ja)')
   .action(async (opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean; setup?: boolean; syncSettings?: string | boolean }) => {
     // Handle --skill-install flag
     if (opts.skillInstall !== undefined) {
@@ -268,6 +270,13 @@ async function runCLI(options: CLIOptions): Promise<void> {
   try {
     let config = await loadConfig(options.config);
     const workspaceRoot = resolveWorkspaceRoot(config, options.path);
+
+    // Initialize i18n with locale detection
+    const { locale: detectedLocale } = detectLocale({
+      cliOverride: options.displayLanguage,
+      configLocale: config.ui?.locale,
+    });
+    await initI18n(detectedLocale);
 
     // Check if API key is missing and run setup wizard
     const providerName = config.provider ?? 'openrouter';

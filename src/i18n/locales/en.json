@@ -1,0 +1,400 @@
+{
+  "common": {
+    "error": "Error",
+    "warning": "Warning",
+    "success": "Success",
+    "failed": "Failed",
+    "cancelled": "Cancelled",
+    "continue": "Continue",
+    "yes": "Yes",
+    "no": "No",
+    "done": "Done",
+    "loading": "Loading...",
+    "pressEnter": "Press Enter to continue...",
+    "pressEscToCancel": "Press Esc to cancel",
+    "or": "or",
+    "and": "and",
+    "unknown": "Unknown",
+    "none": "None",
+    "default": "Default",
+    "current": "current",
+    "required": "required",
+    "optional": "optional",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "on": "On",
+    "off": "Off"
+  },
+  "cli": {
+    "description": "Autonomous LLM-powered coding agent CLI",
+    "options": {
+      "prompt": "Run a single instruction in command mode",
+      "path": "Workspace path to operate in",
+      "yes": "Auto-confirm risky actions",
+      "dryRun": "Preview actions without applying mutations",
+      "debug": "Enable debug output (verbose logging)",
+      "model": "Override the configured LLM model",
+      "config": "Path to config file (default ~/.autohand/config.json)",
+      "temperature": "Sampling temperature",
+      "displayLanguage": "Set display language (e.g., en, zh-cn, fr, de)",
+      "autoCommit": "Auto-commit with LLM-generated message",
+      "unrestricted": "Run without any approval prompts",
+      "restricted": "Deny all dangerous operations automatically",
+      "autoSkill": "Auto-generate skills based on project analysis",
+      "skillInstall": "Install a community skill",
+      "project": "Install skill to project level",
+      "permissions": "Display current permission settings and exit",
+      "login": "Sign in to your Autohand account",
+      "logout": "Sign out of your Autohand account",
+      "syncSettings": "Enable/disable settings sync",
+      "patch": "Generate git patch without applying changes",
+      "output": "Output file for patch (default: stdout)",
+      "autoMode": "Start autonomous development loop",
+      "maxIterations": "Max auto-mode iterations (default: 50)",
+      "completionPromise": "Completion marker text (default: DONE)",
+      "noWorktree": "Disable git worktree isolation in auto-mode",
+      "checkpointInterval": "Git commit every N iterations (default: 5)",
+      "maxRuntime": "Max runtime in minutes (default: 120)",
+      "maxCost": "Max API cost in dollars (default: 10)",
+      "setup": "Run the setup wizard",
+      "addDir": "Add additional directories to workspace scope"
+    }
+  },
+  "welcome": {
+    "banner": "Welcome to Autohand!",
+    "subtitle": "Your super fast AI coding agent",
+    "version": "v{{version}}",
+    "updateAvailable": "Update available: {{current}} -> {{latest}}. Run 'npm i -g autohand' to update.",
+    "loggedInAs": "Logged in as {{email}}",
+    "notLoggedIn": "Not logged in",
+    "modelLine": "model: {{model}}",
+    "directoryLine": "directory: {{directory}}",
+    "tips": {
+      "title": "To get started, describe a task or try one of these commands:",
+      "init": "/init - create an AGENTS.md file with instructions for Autohand",
+      "help": "/help - show all available commands",
+      "model": "/model - change the AI model",
+      "language": "/language - change display language"
+    },
+    "shortcuts": {
+      "title": "Keyboard shortcuts:",
+      "mention": "@ - mention files for context",
+      "arrows": "Arrow keys - navigate suggestions",
+      "tab": "Tab - autocomplete",
+      "escape": "Esc - cancel current operation",
+      "ctrlC": "Ctrl+C - exit"
+    }
+  },
+  "commands": {
+    "help": {
+      "title": "Available Commands:",
+      "command": "Command",
+      "description": "Description",
+      "tips": {
+        "title": "Tips:",
+        "mention": "Type @ to mention files for the AI",
+        "arrows": "Use arrow keys to navigate file suggestions",
+        "tab": "Press Tab to autocomplete file paths",
+        "escape": "Press Esc to cancel current operation"
+      },
+      "docsLink": "For more information, visit {{link}}"
+    },
+    "model": {
+      "description": "choose what model and reasoning effort to use",
+      "title": "Model Selection",
+      "currentModel": "Current model: {{model}}",
+      "selectPrompt": "Select a model:",
+      "changed": "Model changed to {{model}}",
+      "noChange": "No change made."
+    },
+    "theme": {
+      "description": "change terminal color theme",
+      "title": "Theme Selection",
+      "currentTheme": "Current theme: {{theme}}",
+      "selectPrompt": "Select a theme:",
+      "changed": "Theme changed to '{{theme}}'",
+      "noChange": "No change made."
+    },
+    "language": {
+      "description": "change display language",
+      "title": "Language Selection",
+      "currentLanguage": "Current language: {{language}}",
+      "selectPrompt": "Select a language:",
+      "changed": "Language changed to {{language}}",
+      "noChange": "No change made.",
+      "restartHint": "Some changes may require restarting the CLI to take full effect."
+    },
+    "quit": {
+      "description": "exit Autohand",
+      "goodbye": "Goodbye!"
+    },
+    "init": {
+      "description": "create AGENTS.md file",
+      "created": "Created AGENTS.md in {{path}}",
+      "alreadyExists": "AGENTS.md already exists in {{path}}",
+      "overwritePrompt": "Overwrite existing AGENTS.md?"
+    },
+    "undo": {
+      "description": "revert the last file mutation",
+      "success": "Reverted changes to {{file}}",
+      "noChanges": "No changes to undo.",
+      "failed": "Failed to undo: {{error}}"
+    },
+    "new": {
+      "description": "start a new conversation",
+      "cleared": "Conversation cleared. Starting fresh."
+    },
+    "status": {
+      "description": "show current status",
+      "title": "Autohand Status",
+      "version": "Version",
+      "sessionId": "Session ID",
+      "cwd": "Current directory",
+      "provider": "Provider",
+      "model": "Model",
+      "locale": "Language",
+      "apiStatus": "API Status",
+      "connected": "Connected",
+      "disconnected": "Disconnected",
+      "sessions": "Sessions",
+      "total": "{{count}} total"
+    },
+    "sessions": {
+      "description": "list saved sessions",
+      "title": "Saved Sessions",
+      "noSessions": "No saved sessions found.",
+      "selectPrompt": "Select a session to resume:",
+      "sessionInfo": "{{name}} - {{date}}"
+    },
+    "resume": {
+      "description": "resume a previous session",
+      "resuming": "Resuming session {{id}}...",
+      "notFound": "Session not found: {{id}}",
+      "failed": "Failed to resume session: {{error}}"
+    },
+    "memory": {
+      "description": "manage project and user memory",
+      "title": "Memory Management",
+      "projectMemory": "Project Memory",
+      "userMemory": "User Memory",
+      "noMemory": "No memories stored.",
+      "addPrompt": "Add a new memory:",
+      "added": "Memory added.",
+      "cleared": "Memory cleared."
+    },
+    "permissions": {
+      "description": "display current permission settings",
+      "title": "Permission Settings",
+      "mode": "Mode: {{mode}}",
+      "allowed": "Allowed actions:",
+      "denied": "Denied actions:",
+      "pending": "Pending approval:"
+    },
+    "login": {
+      "description": "sign in to your Autohand account",
+      "prompt": "Enter your login code:",
+      "success": "Successfully logged in as {{email}}",
+      "failed": "Login failed: {{error}}",
+      "cancelled": "Login cancelled."
+    },
+    "logout": {
+      "description": "sign out of your Autohand account",
+      "confirm": "Log out from {{email}}?",
+      "success": "Successfully logged out.",
+      "cancelled": "Logout cancelled."
+    },
+    "sync": {
+      "description": "manage settings sync",
+      "enabled": "Settings sync enabled.",
+      "disabled": "Settings sync disabled.",
+      "status": "Sync status: {{status}}",
+      "lastSync": "Last synced: {{date}}"
+    },
+    "feedback": {
+      "description": "submit feedback about the CLI",
+      "prompt": "Enter your feedback:",
+      "success": "Thank you for your feedback!",
+      "failed": "Failed to submit feedback: {{error}}"
+    },
+    "hooks": {
+      "description": "manage git hooks",
+      "title": "Git Hooks",
+      "installed": "Installed hooks:",
+      "available": "Available hooks:",
+      "noHooks": "No hooks configured."
+    },
+    "skills": {
+      "description": "list and manage skills",
+      "title": "Skills",
+      "installed": "Installed skills:",
+      "available": "Available skills:",
+      "noSkills": "No skills installed."
+    },
+    "export": {
+      "description": "export session data",
+      "success": "Exported to {{path}}",
+      "failed": "Export failed: {{error}}"
+    },
+    "agents": {
+      "description": "manage sub-agents",
+      "title": "Sub-Agents",
+      "noAgents": "No sub-agents configured."
+    },
+    "automode": {
+      "description": "manage autonomous mode",
+      "starting": "Starting auto-mode...",
+      "stopping": "Stopping auto-mode...",
+      "iteration": "Iteration {{current}} of {{max}}",
+      "completed": "Auto-mode completed.",
+      "aborted": "Auto-mode aborted."
+    },
+    "share": {
+      "description": "share session",
+      "generating": "Generating share link...",
+      "success": "Share link: {{url}}",
+      "failed": "Failed to generate share link: {{error}}"
+    },
+    "addDir": {
+      "description": "add directories to workspace scope",
+      "added": "Added directory: {{path}}",
+      "alreadyAdded": "Directory already added: {{path}}",
+      "notFound": "Directory not found: {{path}}"
+    }
+  },
+  "setup": {
+    "welcome": "Welcome to Autohand!",
+    "subtitle": "Your super fast AI coding agent",
+    "letsStart": "Let's get you set up in just a few steps.",
+    "providerSelect": "Which LLM provider would you like to use?",
+    "apiKeyPrompt": "Enter your {{provider}} API key:",
+    "apiKeyHelp": "Get your API key at: {{url}}",
+    "apiKeyHint": "Your API key will be stored locally in ~/.autohand/config.json",
+    "modelPrompt": "Enter model ID (or press Enter for default):",
+    "modelDefault": "Default: {{model}}",
+    "testingConnection": "Testing connection...",
+    "connectionSuccess": "Connection successful!",
+    "connectionFailed": "Connection failed: {{error}}",
+    "telemetry": {
+      "title": "Help us improve Autohand",
+      "description": "We collect anonymous usage data to understand how Autohand is used.",
+      "whatWeCollect": "What we collect:",
+      "collectItem1": "Command usage (which features are popular)",
+      "collectItem2": "Error rates (to fix bugs faster)",
+      "collectItem3": "Performance metrics (to speed things up)",
+      "whatWeNeverCollect": "What we never collect:",
+      "neverItem1": "Your code or file contents",
+      "neverItem2": "API keys or credentials",
+      "neverItem3": "Personal information",
+      "prompt": "Share anonymous usage data to help improve Autohand?",
+      "thanks": "Thanks for helping us improve Autohand!",
+      "declined": "No problem! You can change this anytime in config."
+    },
+    "complete": "Setup complete!",
+    "created": "What was created:",
+    "configFile": "~/.autohand/config.json (your settings)",
+    "agentsFile": "AGENTS.md (project instructions for Autohand)",
+    "nextSteps": "Next steps:",
+    "tryCommand": "Try: autohand"
+  },
+  "errors": {
+    "generic": "An error occurred: {{message}}",
+    "invalidLocale": "Invalid locale: {{locale}}. Supported: {{supported}}",
+    "configParseFailed": "Failed to parse config at {{path}}: {{error}}",
+    "configSaveFailed": "Failed to save config: {{error}}",
+    "apiKeyRequired": "API key is required",
+    "apiKeyTooShort": "API key seems too short",
+    "apiKeyInvalid": "Invalid API key format",
+    "directoryNotExist": "Directory does not exist: {{path}}",
+    "unsafeDirectory": "Unsafe directory: {{path}}. Cannot operate in system directories.",
+    "fileNotFound": "File not found: {{path}}",
+    "permissionDenied": "Permission denied: {{path}}",
+    "patchRequiresPrompt": "--patch requires --prompt to specify the instruction",
+    "autoModeRequiresPrompt": "--auto-mode requires a task prompt",
+    "noProviderConfigured": "No provider is configured yet. Run setup with: autohand --setup",
+    "modelNotFound": "Model not found: {{model}}",
+    "rateLimited": "Rate limited. Please wait a moment and try again.",
+    "networkError": "Network error: {{message}}",
+    "timeout": "Request timed out. Please try again.",
+    "contextTooLong": "Context too long. Try /new to start fresh or /undo to remove recent turns.",
+    "authFailed": "Authentication failed. Check your API key.",
+    "paymentRequired": "Payment required. Check your account balance.",
+    "serverError": "Server error. Please try again later.",
+    "cancelled": "Operation cancelled by user."
+  },
+  "agent": {
+    "thinking": "Thinking...",
+    "executing": "Executing {{tool}}...",
+    "reading": "Reading {{file}}...",
+    "writing": "Writing {{file}}...",
+    "searching": "Searching...",
+    "toolSuccess": "{{tool}} completed successfully",
+    "toolFailed": "{{tool}} failed: {{error}}",
+    "taskComplete": "Task complete",
+    "noChanges": "No changes were made.",
+    "changesApplied": "Changes applied successfully.",
+    "awaitingApproval": "Awaiting approval...",
+    "approved": "Approved",
+    "denied": "Denied",
+    "skipped": "Skipped",
+    "exploring": "Exploring...",
+    "exploredFiles": "Explored {{count}} files"
+  },
+  "providers": {
+    "openrouter": "OpenRouter",
+    "openai": "OpenAI",
+    "ollama": "Ollama",
+    "llamacpp": "llama.cpp",
+    "mlx": "MLX (Apple Silicon)",
+    "hints": {
+      "openrouter": "Cloud - Access to 100+ models (Claude, GPT-4, etc.)",
+      "openai": "Cloud - Official OpenAI models (GPT-4o, o1, etc.)",
+      "ollama": "Local - Run models on your machine (free)",
+      "llamacpp": "Local - Fast inference with GGUF models",
+      "mlx": "Local - Optimized for Apple Silicon Macs"
+    }
+  },
+  "startup": {
+    "checkingTools": "Checking required tools...",
+    "toolFound": "{{tool}} found",
+    "toolMissing": "{{tool}} not found",
+    "installHint": "Install with: {{command}}",
+    "allToolsReady": "All tools ready!",
+    "someToolsMissing": "Some tools are missing. Some features may not work."
+  },
+  "confirmation": {
+    "proceed": "Proceed?",
+    "areYouSure": "Are you sure?",
+    "thisWillDelete": "This will delete {{item}}. This action cannot be undone.",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "yesDelete": "Yes, delete",
+    "noDontDelete": "No, keep it"
+  },
+  "diff": {
+    "title": "Changes to {{file}}",
+    "additions": "{{count}} additions",
+    "deletions": "{{count}} deletions",
+    "noChanges": "No changes",
+    "apply": "Apply changes?",
+    "applied": "Changes applied.",
+    "discarded": "Changes discarded."
+  },
+  "languages": {
+    "en": "English",
+    "zh-cn": "简体中文 (Simplified Chinese)",
+    "zh-tw": "繁體中文 (Traditional Chinese)",
+    "fr": "Français (French)",
+    "de": "Deutsch (German)",
+    "it": "Italiano (Italian)",
+    "es": "Español (Spanish)",
+    "ja": "日本語 (Japanese)",
+    "ko": "한국어 (Korean)",
+    "ru": "Русский (Russian)",
+    "pt-br": "Português (Brazilian Portuguese)",
+    "tr": "Türkçe (Turkish)",
+    "pl": "Polski (Polish)",
+    "cs": "Čeština (Czech)",
+    "hu": "Magyar (Hungarian)",
+    "hi": "हिन्दी (Hindi)"
+  }
+}
