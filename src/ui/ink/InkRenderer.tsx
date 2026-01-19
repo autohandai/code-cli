@@ -5,8 +5,12 @@
  *
  * InkRenderer - Manages the Ink render instance and state updates
  * This provides an imperative API for the agent to control the UI
+ *
+ * Key optimization: Uses React state internally via ref/useImperativeHandle
+ * instead of calling instance.rerender() on every state change. This eliminates
+ * flickering by letting React handle efficient DOM updates.
  */
-import React from 'react';
+import React, { useState, useImperativeHandle, forwardRef, useCallback, useRef } from 'react';
 import { render, type Instance } from 'ink';
 import { AgentUI, createInitialUIState, type AgentUIState } from './AgentUI.js';
 import type { ToolOutputEntry } from './ToolOutput.js';
@@ -20,18 +24,84 @@ export interface InkRendererOptions {
 }
 
 /**
+ * Ref handle exposed by AgentUIWrapper for imperative state updates
+ */
+export interface AgentUIWrapperHandle {
+  updateState: (partial: Partial<AgentUIState>) => void;
+  getState: () => AgentUIState;
+}
+
+interface AgentUIWrapperProps {
+  initialState: AgentUIState;
+  onInstruction: (text: string) => void;
+  onEscape: () => void;
+  onCtrlC: () => void;
+  onInputChange: (input: string) => void;
+  enableQueueInput?: boolean;
+}
+
+/**
+ * Wrapper component that holds state internally and exposes update methods via ref.
+ * This eliminates the need to call instance.rerender() - React handles updates.
+ */
+const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
+  function AgentUIWrapper(props, ref) {
+    const {
+      initialState,
+      onInstruction,
+      onEscape,
+      onCtrlC,
+      onInputChange,
+      enableQueueInput
+    } = props;
+
+    const [state, setState] = useState<AgentUIState>(initialState);
+
+    // Expose imperative methods via ref
+    useImperativeHandle(ref, () => ({
+      updateState: (partial: Partial<AgentUIState>) => {
+        setState(prev => ({ ...prev, ...partial }));
+      },
+      getState: () => state
+    }), [state]);
+
+    // Handle input changes - sync to parent for pause/resume preservation
+    const handleInputChange = useCallback((input: string) => {
+      setState(prev => ({ ...prev, currentInput: input }));
+      onInputChange(input);
+    }, [onInputChange]);
+
+    return (
+      <AgentUI
+        state={state}
+        onInstruction={onInstruction}
+        onEscape={onEscape}
+        onCtrlC={onCtrlC}
+        onInputChange={handleInputChange}
+        enableQueueInput={enableQueueInput}
+      />
+    );
+  }
+);
+
+/**
  * InkRenderer wraps the Ink render instance and provides
  * imperative methods to update the UI state from the agent.
+ *
+ * Optimized to use React state internally - only calls render() once on start,
+ * then uses ref-based state updates for all subsequent changes.
  */
 export class InkRenderer {
   private instance: Instance | null = null;
   private state: AgentUIState;
   private options: InkRendererOptions;
   private toolIdCounter = 0;
+  private wrapperRef: React.RefObject<AgentUIWrapperHandle>;
 
   constructor(options: InkRendererOptions) {
     this.options = options;
     this.state = createInitialUIState();
+    this.wrapperRef = React.createRef<AgentUIWrapperHandle>();
   }
 
   /**
@@ -51,8 +121,9 @@ export class InkRenderer {
 
     this.instance = render(
       <ThemeProvider>
-        <AgentUI
-          state={this.state}
+        <AgentUIWrapper
+          ref={this.wrapperRef}
+          initialState={this.state}
           onInstruction={this.options.onInstruction}
           onEscape={this.options.onEscape}
           onCtrlC={this.options.onCtrlC}
@@ -80,33 +151,16 @@ export class InkRenderer {
   }
 
   /**
-   * Update the UI state and re-render
+   * Update the UI state via React's internal state management
+   * This is much more efficient than calling instance.rerender()
    */
   private updateState(partial: Partial<AgentUIState>): void {
     this.state = { ...this.state, ...partial };
-    this.rerender();
-  }
 
-  /**
-   * Re-render with current state
-   */
-  private rerender(): void {
-    if (!this.instance) {
-      return;
+    // Use React state update if wrapper is mounted
+    if (this.wrapperRef.current) {
+      this.wrapperRef.current.updateState(partial);
     }
-
-    this.instance.rerender(
-      <ThemeProvider>
-        <AgentUI
-          state={this.state}
-          onInstruction={this.options.onInstruction}
-          onEscape={this.options.onEscape}
-          onCtrlC={this.options.onCtrlC}
-          onInputChange={this.handleInputChange}
-          enableQueueInput={this.options.enableQueueInput}
-        />
-      </ThemeProvider>
-    );
   }
 
   /**
@@ -213,6 +267,10 @@ export class InkRenderer {
    */
   pause(): void {
     if (this.instance) {
+      // Sync state from wrapper before unmounting
+      if (this.wrapperRef.current) {
+        this.state = this.wrapperRef.current.getState();
+      }
       this.instance.unmount();
       this.instance = null;
     }
@@ -232,10 +290,14 @@ export class InkRenderer {
       // Clear line and move to new line for clean restart
       process.stdout.write('\n');
 
+      // Create fresh ref for new instance
+      this.wrapperRef = React.createRef<AgentUIWrapperHandle>();
+
       this.instance = render(
         <ThemeProvider>
-          <AgentUI
-            state={this.state}
+          <AgentUIWrapper
+            ref={this.wrapperRef}
+            initialState={this.state}
             onInstruction={this.options.onInstruction}
             onEscape={this.options.onEscape}
             onCtrlC={this.options.onCtrlC}
@@ -297,8 +359,13 @@ export class InkRenderer {
    * Clear all state for a new task
    */
   reset(): void {
-    this.state = createInitialUIState();
-    this.rerender();
+    const newState = createInitialUIState();
+    this.state = newState;
+
+    // Use React state update if wrapper is mounted
+    if (this.wrapperRef.current) {
+      this.wrapperRef.current.updateState(newState);
+    }
   }
 
   /**

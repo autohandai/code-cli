@@ -3,7 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import React from 'react';
+import React, { memo } from 'react';
 import { Box, Text } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
 
@@ -11,7 +11,7 @@ export interface ThinkingOutputProps {
   thought: string | null;
 }
 
-export function ThinkingOutput({ thought }: ThinkingOutputProps) {
+function ThinkingOutputComponent({ thought }: ThinkingOutputProps) {
   const { colors } = useTheme();
 
   if (!thought) {
@@ -30,3 +30,10 @@ export function ThinkingOutput({ thought }: ThinkingOutputProps) {
     </Box>
   );
 }
+
+/**
+ * Memoized ThinkingOutput - only re-renders when thought changes
+ */
+export const ThinkingOutput = memo(ThinkingOutputComponent, (prev, next) => {
+  return prev.thought === next.thought;
+});
