@@ -48,6 +48,9 @@ export const AUTOHAND_PATHS = {
 
   /** Skills (instruction packages) */
   skills: path.join(AUTOHAND_HOME, 'skills'),
+
+  /** Plan files for plan mode */
+  plans: path.join(AUTOHAND_HOME, 'plans'),
 } as const;
 
 /**

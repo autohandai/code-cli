@@ -4,10 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import fs from 'fs-extra';
+import os from 'node:os';
 import chalk from 'chalk';
 import { safePrompt } from '../utils/prompt.js';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
-import { AUTOHAND_FILES } from '../constants.js';
+import { AUTOHAND_FILES, AUTOHAND_PATHS } from '../constants.js';
+import packageJson from '../../package.json' with { type: 'json' };
 
 export const metadata = {
     command: '/feedback',
@@ -17,25 +19,143 @@ export const metadata = {
 
 type FeedbackContext = Pick<SlashCommandContext, 'sessionManager'>;
 
+// API configuration
+const API_BASE_URL = 'https://api.autohand.ai';
+const API_TIMEOUT = 10000;
+
+// Cooldown configuration
+const COOLDOWN_MAX_SUBMISSIONS = 5;
+const COOLDOWN_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const COOLDOWN_STATE_PATH = `${AUTOHAND_PATHS.feedback}/cooldown.json`;
+
+interface CooldownState {
+    submissions: number[]; // timestamps in ms
+}
+
+/**
+ * Check if user has exceeded feedback rate limit (5 per hour)
+ */
+async function checkCooldown(): Promise<{ allowed: boolean; remaining: number; waitMinutes?: number }> {
+    try {
+        if (!await fs.pathExists(COOLDOWN_STATE_PATH)) {
+            return { allowed: true, remaining: COOLDOWN_MAX_SUBMISSIONS };
+        }
+
+        const state: CooldownState = await fs.readJson(COOLDOWN_STATE_PATH);
+        const now = Date.now();
+        const windowStart = now - COOLDOWN_WINDOW_MS;
+
+        // Filter to only submissions within the last hour
+        const recentSubmissions = state.submissions.filter(ts => ts > windowStart);
+
+        if (recentSubmissions.length >= COOLDOWN_MAX_SUBMISSIONS) {
+            // Calculate how long until the oldest submission expires
+            const oldestRecent = Math.min(...recentSubmissions);
+            const waitMs = oldestRecent + COOLDOWN_WINDOW_MS - now;
+            const waitMinutes = Math.ceil(waitMs / 60000);
+
+            return { allowed: false, remaining: 0, waitMinutes };
+        }
+
+        return { allowed: true, remaining: COOLDOWN_MAX_SUBMISSIONS - recentSubmissions.length };
+    } catch {
+        // If state is corrupted, allow submission
+        return { allowed: true, remaining: COOLDOWN_MAX_SUBMISSIONS };
+    }
+}
+
+/**
+ * Record a feedback submission for cooldown tracking
+ */
+async function recordSubmission(): Promise<void> {
+    try {
+        let state: CooldownState = { submissions: [] };
+
+        if (await fs.pathExists(COOLDOWN_STATE_PATH)) {
+            state = await fs.readJson(COOLDOWN_STATE_PATH);
+        }
+
+        const now = Date.now();
+        const windowStart = now - COOLDOWN_WINDOW_MS;
+
+        // Keep only recent submissions + new one
+        state.submissions = state.submissions.filter(ts => ts > windowStart);
+        state.submissions.push(now);
+
+        await fs.ensureDir(AUTOHAND_PATHS.feedback);
+        await fs.writeJson(COOLDOWN_STATE_PATH, state, { spaces: 2 });
+    } catch {
+        // Non-critical, continue
+    }
+}
+
+/**
+ * Feedback command - captures rating and text feedback, sends to API
+ */
 export async function feedback(_ctx: FeedbackContext): Promise<string | null> {
-    const answer = await safePrompt<{ feedback: string }>([
+    // Check cooldown first
+    const cooldown = await checkCooldown();
+    if (!cooldown.allowed) {
+        console.log(chalk.yellow(`Feedback limit reached (${COOLDOWN_MAX_SUBMISSIONS} per hour).`));
+        console.log(chalk.gray(`Please wait ${cooldown.waitMinutes} minute${cooldown.waitMinutes === 1 ? '' : 's'} before submitting again.`));
+        return null;
+    }
+
+    // Step 1: Prompt for rating (1-5 or skip)
+    const ratingAnswer = await safePrompt<{ rating: string }>([
         {
-            type: 'input',
-            name: 'feedback',
-            message: 'What worked? What broke?'
+            type: 'select',
+            name: 'rating',
+            message: 'How would you rate your experience?',
+            choices: [
+                { name: '5', message: '5 - Excellent' },
+                { name: '4', message: '4 - Good' },
+                { name: '3', message: '3 - Okay' },
+                { name: '2', message: '2 - Poor' },
+                { name: '1', message: '1 - Very Poor' },
+                { name: 'skip', message: 's - Skip rating' }
+            ]
         }
     ]);
 
-    if (!answer || !answer.feedback?.trim()) {
+    if (!ratingAnswer) {
         console.log(chalk.gray('Feedback discarded.'));
         return null;
     }
 
+    // Step 2: Prompt for feedback text
+    const textAnswer = await safePrompt<{ feedback: string }>([
+        {
+            type: 'input',
+            name: 'feedback',
+            message: 'What worked? What broke? (optional)'
+        }
+    ]);
+
+    if (!textAnswer) {
+        console.log(chalk.gray('Feedback discarded.'));
+        return null;
+    }
+
+    // Parse rating (0 for skip, 1-5 otherwise)
+    const npsScore = ratingAnswer.rating === 'skip' ? 0 : parseInt(ratingAnswer.rating, 10);
+    const freeformFeedback = textAnswer.feedback?.trim() || undefined;
+
+    // Build payload matching API schema
     const now = new Date().toISOString();
     const runtimeError = getLastRuntimeError();
+    const deviceId = await getDeviceId();
+
     const payload = {
+        npsScore,
+        triggerType: 'manual' as const,
         timestamp: now,
-        feedback: answer.feedback.trim(),
+        deviceId,
+        cliVersion: packageJson.version,
+        platform: process.platform,
+        osVersion: os.release(),
+        nodeVersion: process.version,
+        freeformFeedback,
         env: {
             platform: `${process.platform}-${process.arch}`,
             node: process.version,
@@ -46,36 +166,122 @@ export async function feedback(_ctx: FeedbackContext): Promise<string | null> {
         runtimeError: runtimeError ? formatError(runtimeError) : null
     };
 
+    // Save locally as backup
     try {
         const feedbackPath = AUTOHAND_FILES.feedbackLog;
         await fs.ensureFile(feedbackPath);
         await fs.appendFile(feedbackPath, JSON.stringify(payload) + '\n', 'utf8');
-        console.log(chalk.green('Feedback recorded.'));
-        console.log(chalk.gray(`Saved to ${feedbackPath}`));
-    } catch (error) {
-        console.error(chalk.red(`Failed to save feedback: ${(error as Error).message}`));
+    } catch {
+        // Silent fail for local backup - API is primary
     }
 
+    // Send to API
+    try {
+        const response = await sendFeedbackToApi(payload);
+        if (response.success) {
+            console.log(chalk.green('Feedback submitted successfully. Thank you!'));
+        } else {
+            // Show specific error if available
+            if (response.error?.includes('Rate limit')) {
+                console.log(chalk.yellow('Feedback saved locally (rate limited, will retry later).'));
+            } else {
+                console.log(chalk.yellow(`Feedback saved locally. ${response.error ? `(${response.error})` : ''}`));
+            }
+        }
+    } catch (error) {
+        console.log(chalk.yellow(`Feedback saved locally (${(error as Error).message}).`));
+    }
+
+    // Record submission for cooldown tracking
+    await recordSubmission();
+
     if (runtimeError) {
-        console.log(chalk.yellow('Detected a recent runtime error; included in feedback payload.'));
+        console.log(chalk.gray('Included recent runtime error in feedback.'));
     }
 
     return null;
 }
 
-function getLastRuntimeError(): any | null {
-    const globalAny = globalThis as any;
+/**
+ * Send feedback to api.autohand.ai
+ */
+async function sendFeedbackToApi(payload: Record<string, unknown>): Promise<{ success: boolean; id?: string; error?: string }> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/v1/feedback`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CLI-Version': packageJson.version,
+                'X-Device-ID': payload.deviceId as string
+            },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+            const errorText = await response.text().catch(() => 'Unknown error');
+            return { success: false, error: `API error: ${response.status} ${errorText}` };
+        }
+
+        const data = await response.json() as { success: boolean; id?: string };
+        return data;
+    } catch (error) {
+        clearTimeout(timeoutId);
+
+        if ((error as Error).name === 'AbortError') {
+            return { success: false, error: 'Request timeout' };
+        }
+
+        return { success: false, error: (error as Error).message };
+    }
+}
+
+/**
+ * Get or create anonymous device ID for deduplication
+ */
+async function getDeviceId(): Promise<string> {
+    const deviceIdPath = `${AUTOHAND_PATHS.feedback}/.device-id`;
+
+    try {
+        if (await fs.pathExists(deviceIdPath)) {
+            return (await fs.readFile(deviceIdPath, 'utf8')).trim();
+        }
+    } catch {
+        // Generate new ID
+    }
+
+    // Generate anonymous ID
+    const deviceId = `anon_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+
+    try {
+        await fs.ensureDir(AUTOHAND_PATHS.feedback);
+        await fs.writeFile(deviceIdPath, deviceId);
+    } catch {
+        // Non-critical, continue with in-memory ID
+    }
+
+    return deviceId;
+}
+
+function getLastRuntimeError(): unknown | null {
+    const globalAny = globalThis as Record<string, unknown>;
     return globalAny.__autohandLastError ?? null;
 }
 
-function formatError(err: any): { message?: string; stack?: string } {
+function formatError(err: unknown): { message?: string; stack?: string } {
     if (!err) return {};
     if (err instanceof Error) {
         return { message: err.message, stack: err.stack };
     }
-    if (typeof err === 'object') {
-        const message = 'message' in err ? String((err as any).message) : undefined;
-        const stack = 'stack' in err ? String((err as any).stack) : undefined;
+    if (typeof err === 'object' && err !== null) {
+        const errObj = err as Record<string, unknown>;
+        const message = 'message' in errObj ? String(errObj.message) : undefined;
+        const stack = 'stack' in errObj ? String(errObj.stack) : undefined;
         return { message, stack };
     }
     return { message: String(err) };
