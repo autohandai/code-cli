@@ -3,13 +3,14 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
 import { StatusLine } from './StatusLine.js';
 import { ToolOutputList, type ToolOutputEntry } from './ToolOutput.js';
 import { InputLine } from './InputLine.js';
 import { ThinkingOutput } from './ThinkingOutput.js';
 import { useTheme } from '../theme/ThemeContext.js';
+import { getPlanModeManager } from '../../commands/plan.js';
 
 export interface AgentUIState {
   isWorking: boolean;
@@ -23,6 +24,8 @@ export interface AgentUIState {
   finalResponse: string | null;
   /** Completion stats shown after work finishes */
   completionStats: { elapsed: string; tokens: string } | null;
+  /** Plan mode indicator (e.g., '[PLAN]' or '[EXEC]') */
+  planModeIndicator?: string;
 }
 
 export interface AgentUIProps {
@@ -47,6 +50,28 @@ export function AgentUI({
   // Initialize input from state.currentInput (preserved across pause/resume)
   const [input, setInput] = useState(state.currentInput || '');
   const [ctrlCCount, setCtrlCCount] = useState(0);
+  const [planModeIndicator, setPlanModeIndicator] = useState('');
+
+  // Subscribe to plan mode changes
+  useEffect(() => {
+    const planModeManager = getPlanModeManager();
+    const updateIndicator = () => {
+      setPlanModeIndicator(planModeManager.getPromptIndicator());
+    };
+
+    planModeManager.on('enabled', updateIndicator);
+    planModeManager.on('disabled', updateIndicator);
+    planModeManager.on('execution:started', updateIndicator);
+
+    // Set initial indicator
+    updateIndicator();
+
+    return () => {
+      planModeManager.off('enabled', updateIndicator);
+      planModeManager.off('disabled', updateIndicator);
+      planModeManager.off('execution:started', updateIndicator);
+    };
+  }, []);
 
   // Sync input changes to parent for preservation across pause/resume
   useEffect(() => {
@@ -62,6 +87,13 @@ export function AgentUI({
   }, [ctrlCCount]);
 
   useInput((char, key) => {
+    // Handle Shift+Tab for plan mode toggle
+    if (key.tab && key.shift) {
+      const planModeManager = getPlanModeManager();
+      planModeManager.handleShiftTab();
+      return;
+    }
+
     // Handle escape - cancel current operation
     if (key.escape) {
       onEscape();
@@ -108,6 +140,14 @@ export function AgentUI({
 
   return (
     <Box flexDirection="column">
+      {/* Plan mode indicator */}
+      {planModeIndicator && (
+        <Box>
+          <Text color="cyan" bold>{planModeIndicator}</Text>
+          <Text color={colors.muted}> Plan mode active - tools are read-only</Text>
+        </Box>
+      )}
+
       {/* Tool outputs */}
       <ToolOutputList entries={state.toolOutputs} />
 

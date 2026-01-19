@@ -18,6 +18,7 @@ export * as feedback from './feedback.js';
 export * as session from './session.js';
 export * as undo from './undo.js';
 export * as memory from './memory.js';
+export * as plan from './plan.js';
 
 // Command registry type
 export interface CommandModule {
@@ -50,7 +51,8 @@ export function getAllCommands(): Array<{ command: string; description: string; 
         modules.feedback,
         modules.session,
         modules.undo,
-        modules.memory
+        modules.memory,
+        modules.plan
     ];
 
     for (const mod of commandModules) {

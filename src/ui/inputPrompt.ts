@@ -10,6 +10,7 @@ import { basename, extname } from 'node:path';
 import { TerminalResizeWatcher } from './terminalResize.js';
 import type { SlashCommand } from '../core/slashCommands.js';
 import { MentionPreview } from './mentionPreview.js';
+import { getPlanModeManager } from '../commands/plan.js';
 import {
   type ImageMimeType,
   isImagePath,
@@ -390,6 +391,22 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     };
 
     const handleKeypress = (_str: string, key: readline.Key) => {
+      // Shift+Tab: toggle plan mode on/off
+      if (key?.name === 'tab' && key.shift) {
+        const planModeManager = getPlanModeManager();
+        const wasEnabled = planModeManager.isEnabled();
+        planModeManager.handleShiftTab();
+
+        // Show immediate feedback
+        if (wasEnabled) {
+          stdOutput.write(`\n${chalk.gray('Plan mode')} ${chalk.red('OFF')}\n`);
+        } else {
+          stdOutput.write(`\n${chalk.bgCyan.black.bold(' PLAN ')} ${chalk.cyan('Plan mode ON - read-only tools')}\n`);
+        }
+        renderPromptLine(rl, statusLine, stdOutput);
+        return;
+      }
+
       // Shift+Enter or Alt+Enter: insert newline marker (max 3 lines)
       if (key?.name === 'return' && (key.shift || key.meta)) {
         const currentMarkers = countNewlineMarkers(rl.line || '');

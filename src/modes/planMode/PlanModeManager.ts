@@ -80,9 +80,6 @@ const READ_ONLY_TOOLS = [
  */
 export class PlanModeManager extends EventEmitter {
   private state: PlanModeState;
-  private shiftTabCount = 0;
-  private shiftTabTimeout: NodeJS.Timeout | null = null;
-  private readonly SHIFT_TAB_WINDOW_MS = 300;
 
   constructor() {
     super();
@@ -149,31 +146,10 @@ export class PlanModeManager extends EventEmitter {
   }
 
   /**
-   * Handle Shift+Tab keypress
-   * - Two presses within 300ms: enter plan mode
-   * - One press while in plan mode: exit plan mode
+   * Handle Shift+Tab keypress - simple toggle on/off
    */
   handleShiftTab(): void {
-    this.shiftTabCount++;
-
-    if (this.shiftTabTimeout) {
-      clearTimeout(this.shiftTabTimeout);
-    }
-
-    this.shiftTabTimeout = setTimeout(() => {
-      if (this.state.enabled) {
-        // One Shift+Tab exits plan mode
-        if (this.shiftTabCount === 1) {
-          this.disable();
-        }
-      } else {
-        // Two Shift+Tabs enters plan mode
-        if (this.shiftTabCount >= 2) {
-          this.enable();
-        }
-      }
-      this.shiftTabCount = 0;
-    }, this.SHIFT_TAB_WINDOW_MS);
+    this.toggle();
   }
 
   /**

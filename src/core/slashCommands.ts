@@ -33,6 +33,7 @@ import * as share from '../commands/share.js';
 import * as sync from '../commands/sync.js';
 import * as addDir from '../commands/add-dir.js';
 import * as language from '../commands/language.js';
+import * as plan from '../commands/plan.js';
 
 import type { SlashCommand } from './slashCommandTypes.js';
 export type { SlashCommand } from './slashCommandTypes.js';
@@ -70,4 +71,5 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   sync.metadata,
   addDir.metadata,
   language.metadata,
+  plan.metadata,
 ];
