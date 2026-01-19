@@ -75,6 +75,7 @@ type InkRenderer = any;
 import { PermissionManager } from '../permissions/PermissionManager.js';
 import { HookManager, type HookContext } from './HookManager.js';
 import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
+import { getPlanModeManager } from '../commands/plan.js';
 import packageJson from '../../package.json' with { type: 'json' };
 // New feature modules
 import { ImageManager } from './ImageManager.js';
@@ -4327,7 +4328,13 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const queueCount = this.inkRenderer?.getQueueCount() ?? this.persistentInput.getQueueLength();
     const queueStatus = queueCount > 0 ? ` · ${queueCount} queued` : '';
 
-    return `${percent}% context left · / for commands · @ to mention files${queueStatus}`;
+    // Plan mode indicator
+    const planModeManager = getPlanModeManager();
+    const planIndicator = planModeManager.isEnabled()
+      ? chalk.bgCyan.black.bold(' PLAN ') + ' '
+      : '';
+
+    return `${planIndicator}${percent}% context left · / for commands · @ to mention files${queueStatus}`;
   }
 
   private async resetConversationContext(): Promise<void> {

@@ -115,77 +115,42 @@ describe('PlanModeManager', () => {
   });
 
   describe('Shift+Tab toggle behavior', () => {
-    it('should enter plan mode when Shift+Tab is pressed twice within 300ms', async () => {
+    it('should enable plan mode on Shift+Tab when disabled', async () => {
       const { PlanModeManager } = await import('../../../src/modes/planMode/PlanModeManager.js');
       const manager = new PlanModeManager();
 
       expect(manager.isEnabled()).toBe(false);
 
-      // Simulate first Shift+Tab
       manager.handleShiftTab();
-      expect(manager.isEnabled()).toBe(false); // Still disabled
-
-      // Simulate second Shift+Tab within window
-      manager.handleShiftTab();
-
-      // Wait for the debounce timeout
-      await new Promise(resolve => setTimeout(resolve, 350));
 
       expect(manager.isEnabled()).toBe(true);
     });
 
-    it('should exit plan mode when Shift+Tab is pressed once', async () => {
+    it('should disable plan mode on Shift+Tab when enabled', async () => {
       const { PlanModeManager } = await import('../../../src/modes/planMode/PlanModeManager.js');
       const manager = new PlanModeManager();
 
-      // Enable plan mode first
       manager.enable();
       expect(manager.isEnabled()).toBe(true);
 
-      // Simulate single Shift+Tab
       manager.handleShiftTab();
-
-      // Wait for the debounce timeout
-      await new Promise(resolve => setTimeout(resolve, 350));
 
       expect(manager.isEnabled()).toBe(false);
     });
 
-    it('should NOT enter plan mode if Shift+Tab presses are too far apart', async () => {
+    it('should toggle on each Shift+Tab press', async () => {
       const { PlanModeManager } = await import('../../../src/modes/planMode/PlanModeManager.js');
       const manager = new PlanModeManager();
 
-      // First Shift+Tab
-      manager.handleShiftTab();
-
-      // Wait longer than the window
-      await new Promise(resolve => setTimeout(resolve, 400));
-
-      // Second Shift+Tab (too late)
-      manager.handleShiftTab();
-
-      await new Promise(resolve => setTimeout(resolve, 350));
-
-      // Should NOT be enabled because first press already processed as single
       expect(manager.isEnabled()).toBe(false);
-    });
 
-    it('should reset Shift+Tab counter after timeout', async () => {
-      const { PlanModeManager } = await import('../../../src/modes/planMode/PlanModeManager.js');
-      const manager = new PlanModeManager();
+      manager.handleShiftTab(); // Enable
+      expect(manager.isEnabled()).toBe(true);
 
-      // First Shift+Tab
-      manager.handleShiftTab();
+      manager.handleShiftTab(); // Disable
+      expect(manager.isEnabled()).toBe(false);
 
-      // Wait for debounce to complete
-      await new Promise(resolve => setTimeout(resolve, 350));
-
-      // Counter should be reset, this is a fresh start
-      manager.handleShiftTab();
-      manager.handleShiftTab();
-
-      await new Promise(resolve => setTimeout(resolve, 350));
-
+      manager.handleShiftTab(); // Enable again
       expect(manager.isEnabled()).toBe(true);
     });
   });
