@@ -237,6 +237,10 @@ export class SlashCommandHandler {
           }
           return language({ config: this.ctx.config });
         }
+        case '/plan': {
+          const { plan } = await import('../commands/plan.js');
+          return plan(this.ctx, args.join(' '));
+        }
         default:
           this.printUnsupported(command);
           return null;
