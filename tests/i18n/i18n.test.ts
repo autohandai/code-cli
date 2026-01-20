@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
 import {
   initI18n,
   changeLanguage,
@@ -15,6 +15,11 @@ import {
 } from '../../src/i18n/index';
 
 describe('i18n module', () => {
+  // Reset to English before each test to ensure isolation
+  beforeEach(async () => {
+    await initI18n('en');
+  });
+
   describe('initialization', () => {
     it('should not be initialized before calling initI18n', () => {
       // Note: This test may fail if run after other tests that initialize i18n
@@ -301,6 +306,82 @@ describe('i18n module', () => {
       expect(t('providers.hints.ollama')).toContain('Local');
       expect(t('providers.hints.llamacpp')).toContain('Local');
       expect(t('providers.hints.mlx')).toContain('Apple');
+    });
+  });
+
+  describe('hot-reload language switching', () => {
+    it('should switch translations immediately when changing to Spanish', async () => {
+      await initI18n('en');
+      expect(t('common.yes')).toBe('Yes');
+      expect(t('common.no')).toBe('No');
+      expect(t('welcome.banner')).toBe('Welcome to Autohand!');
+
+      await changeLanguage('es');
+      expect(getCurrentLocale()).toBe('es');
+      expect(t('common.yes')).toBe('Sí');
+      expect(t('common.no')).toBe('No');
+      expect(t('welcome.banner')).toBe('¡Bienvenido a Autohand!');
+    });
+
+    it('should switch translations immediately when changing to Portuguese', async () => {
+      await initI18n('en');
+      expect(t('common.success')).toBe('Success');
+
+      await changeLanguage('pt-br');
+      expect(getCurrentLocale()).toBe('pt-br');
+      expect(t('common.success')).toBe('Sucesso');
+      expect(t('welcome.banner')).toBe('Bem-vindo ao Autohand!');
+    });
+
+    it('should switch translations immediately when changing to French', async () => {
+      await initI18n('en');
+      expect(t('commands.quit.goodbye')).toBe('Goodbye!');
+
+      await changeLanguage('fr');
+      expect(getCurrentLocale()).toBe('fr');
+      expect(t('commands.quit.goodbye')).toBe('Au revoir !');
+      expect(t('welcome.banner')).toBe('Bienvenue sur Autohand !');
+    });
+
+    it('should switch translations immediately when changing to Chinese', async () => {
+      await initI18n('en');
+      expect(t('common.loading')).toBe('Loading...');
+
+      await changeLanguage('zh-cn');
+      expect(getCurrentLocale()).toBe('zh-cn');
+      expect(t('common.loading')).toBe('加载中...');
+      expect(t('welcome.banner')).toBe('欢迎使用 Autohand！');
+    });
+
+    it('should show language change message in the new language', async () => {
+      await initI18n('en');
+      expect(t('commands.language.changed', { language: 'Spanish' })).toBe('Language changed to Spanish');
+
+      await changeLanguage('es');
+      expect(t('commands.language.changed', { language: 'Español' })).toBe('Idioma cambiado a Español');
+    });
+
+    it('should switch back to English from another language', async () => {
+      await initI18n('es');
+      expect(t('common.yes')).toBe('Sí');
+
+      await changeLanguage('en');
+      expect(getCurrentLocale()).toBe('en');
+      expect(t('common.yes')).toBe('Yes');
+    });
+
+    it('should switch between non-English languages', async () => {
+      await initI18n('es');
+      expect(t('common.done')).toBe('Hecho');
+
+      await changeLanguage('fr');
+      expect(t('common.done')).toBe('Terminé');
+
+      await changeLanguage('pt-br');
+      expect(t('common.done')).toBe('Concluído');
+
+      await changeLanguage('zh-cn');
+      expect(t('common.done')).toBe('完成');
     });
   });
 });
