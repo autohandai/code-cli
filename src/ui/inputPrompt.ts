@@ -19,6 +19,13 @@ import {
   getMimeTypeFromExtension,
 } from '../core/ImageManager.js';
 
+// Shared prompt prefix for the main instruction input
+export const PROMPT_PREFIX = `${chalk.gray('›')} `;
+// Visible length of the prompt prefix (ANSI codes not counted)
+export const PROMPT_VISIBLE_LENGTH = 2;
+// Number of fixed status lines we render beneath the prompt
+export const STATUS_LINE_COUNT = 1;
+
 export type SlashCommandHint = SlashCommand;
 
 /**
@@ -202,7 +209,7 @@ function createReadline(
   const rl = readline.createInterface({
     input: stdInput,
     output: stdOutput,
-    prompt: `${chalk.gray('›')} `,
+    prompt: PROMPT_PREFIX,
     terminal: true,
     crlfDelay: Infinity,
     historySize: 100,
@@ -227,12 +234,17 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
   const { files, slashCommands, statusLine, stdInput, stdOutput, onImageDetected } = options;
   const { rl, input, supportsRawMode } = createReadline(stdInput, stdOutput);
 
-  const mentionPreview = new MentionPreview(rl, files, slashCommands, stdOutput, statusLine);
+  // Don't pass statusLine to MentionPreview - renderPromptLine handles the status display
+  // MentionPreview only shows suggestions (@ mentions, / commands)
+  const mentionPreview = new MentionPreview(rl, files, slashCommands, stdOutput);
 
   const resizeWatcher = new TerminalResizeWatcher(stdOutput, () => {
-    mentionPreview.handleResize();
     renderPromptLine(rl, statusLine, stdOutput, true);
+    mentionPreview.handleResize();
   });
+
+  // Render initial prompt with status line (was missing - caused status to only show on typing)
+  renderPromptLine(rl, statusLine, stdOutput);
 
   /**
    * Process text and detect embedded images (base64 data URLs or file paths)
@@ -452,16 +464,8 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
 
     input.on('keypress', handleKeypress);
 
-    rl.setPrompt(`${chalk.gray('›')} `);
-    rl.prompt(true);
-
-    // Explicit fallback: ensure prompt is visible even if readline buffering fails
-    // Use process.nextTick for proper event loop synchronization (more reliable than setImmediate)
-    process.nextTick(() => {
-      // Force cursor to column 0 and write prompt character explicitly
-      // This handles cases where readline's internal buffer didn't render
-      stdOutput.write(`\r${chalk.gray('›')} `);
-    });
+    // Note: renderPromptLine already called rl.setPrompt() and rl.prompt()
+    // No need to call them again here
 
     rl.on('line', (value) => {
       // Convert newline markers back to actual newlines
@@ -524,18 +528,30 @@ import { drawInputBox } from './box.js';
 function renderPromptLine(rl: readline.Interface, statusLine: string | undefined, output: NodeJS.WriteStream, isResize = false): void {
   const width = Math.max(20, output.columns || 80);
   const status = (statusLine ?? ' ').padEnd(width).slice(0, width);
-
+  const rlAny = rl as readline.Interface & { cursor?: number; line?: string };
   const box = drawInputBox(status, width);
+  const currentLine = rlAny.line ?? '';
+  const cursorPos = rlAny.cursor ?? currentLine.length;
 
+  // Keep readline's prompt in sync with the prefix we render
+  rl.setPrompt(PROMPT_PREFIX);
+
+  // Clear prompt + status line region
+  readline.cursorTo(output, 0);
   if (isResize) {
-    // On resize, clear the previous status line and prompt before redrawing
-    readline.moveCursor(output, 0, -2);
     readline.clearScreenDown(output);
+  } else {
+    readline.clearLine(output, 0);
+    readline.moveCursor(output, 0, 1);
+    readline.clearLine(output, 0);
+    readline.moveCursor(output, 0, -1);
   }
 
-  readline.cursorTo(output, 0);
-  output.write(`${box}\n`);
+  // Render prompt/input then status directly below
+  output.write(`${PROMPT_PREFIX}${currentLine}\n`);
+  output.write(box);
 
-  rl.setPrompt(`${chalk.gray('›')} `);
-  rl.prompt(true);
+  // Move cursor back to prompt line at correct column
+  readline.moveCursor(output, 0, -1);
+  readline.cursorTo(output, PROMPT_VISIBLE_LENGTH + cursorPos);
 }

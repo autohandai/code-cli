@@ -15,12 +15,22 @@ export interface InputLineProps {
 function InputLineComponent({ value, isActive }: InputLineProps) {
   const { colors } = useTheme();
 
-  // Always render to maintain stable layout - use visibility styling instead of null
+  // When inactive, render minimal placeholder for layout stability
+  // This prevents layout jumps but doesn't look like an active input
+  if (!isActive) {
+    return (
+      <Box marginTop={1} height={1}>
+        <Text color={colors.dim}> </Text>
+      </Box>
+    );
+  }
+
+  // Active state - show full input with cursor
   return (
     <Box marginTop={1}>
-      <Text color={isActive ? colors.muted : colors.dim}>› </Text>
-      <Text color={isActive ? colors.text : colors.dim}>{isActive ? value : ''}</Text>
-      {isActive && <Text color={colors.accent}>▊</Text>}
+      <Text color={colors.muted}>› </Text>
+      <Text color={colors.text}>{value}</Text>
+      <Text color={colors.accent}>▊</Text>
     </Box>
   );
 }

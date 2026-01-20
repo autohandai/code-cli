@@ -65,9 +65,6 @@ export async function language(ctx: LanguageContext): Promise<string | null> {
     // Show success message in the NEW language
     const newDisplayName = LANGUAGE_DISPLAY_NAMES[selected];
     console.log(chalk.green(`\n✓ ${t('commands.language.changed', { language: newDisplayName })}`));
-
-    // Show restart hint for full effect
-    console.log(chalk.gray(`\n${t('commands.language.restartHint')}`));
     console.log();
 
     return null;

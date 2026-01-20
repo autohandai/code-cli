@@ -10,6 +10,7 @@ import { ToolOutputStatic, type ToolOutputEntry } from './ToolOutput.js';
 import { InputLine } from './InputLine.js';
 import { ThinkingOutput } from './ThinkingOutput.js';
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/index.js';
 import { getPlanModeManager } from '../../commands/plan.js';
 
 export interface AgentUIState {
@@ -26,6 +27,8 @@ export interface AgentUIState {
   completionStats: { elapsed: string; tokens: string } | null;
   /** Plan mode indicator (e.g., '[PLAN]' or '[EXEC]') */
   planModeIndicator?: string;
+  /** Context percentage remaining (0-100) */
+  contextPercent?: number;
 }
 
 export interface AgentUIProps {
@@ -47,6 +50,7 @@ export function AgentUI({
 }: AgentUIProps) {
   const { exit } = useApp();
   const { colors } = useTheme();
+  const { t } = useTranslation();
   // Initialize input from state.currentInput (preserved across pause/resume)
   const [input, setInput] = useState(state.currentInput || '');
   const [ctrlCCount, setCtrlCCount] = useState(0);
@@ -151,7 +155,7 @@ export function AgentUI({
       {planModeIndicator && (
         <Box>
           <Text color="cyan" bold>{planModeIndicator}</Text>
-          <Text color={colors.muted}> Plan mode active - tools are read-only</Text>
+          <Text color={colors.muted}> {t('ui.planModeActive')}</Text>
         </Box>
       )}
 
@@ -180,6 +184,7 @@ export function AgentUI({
         enableQueueInput={enableQueueInput}
         input={input}
         ctrlCCount={ctrlCCount}
+        contextPercent={state.contextPercent}
       />
     </Box>
   );
@@ -231,6 +236,7 @@ interface FixedBottomProps {
   enableQueueInput: boolean;
   input: string;
   ctrlCCount: number;
+  contextPercent?: number;
 }
 
 const FixedBottom = memo(function FixedBottom({
@@ -242,13 +248,24 @@ const FixedBottom = memo(function FixedBottom({
   completionStats,
   enableQueueInput,
   input,
-  ctrlCCount
+  ctrlCCount,
+  contextPercent
 }: FixedBottomProps) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
+
+  // Show queue or completion stats in a stable position
+  const showQueue = queuedInstructions.length > 0 && isWorking;
+  const showCompletionStats = !isWorking && completionStats;
+
+  // Format context percentage
+  const contextDisplay = contextPercent !== undefined
+    ? `${Math.round(contextPercent)}% context left`
+    : '';
 
   return (
     <>
-      {/* Status line with spinner */}
+      {/* Status line with spinner - always renders for stability */}
       <StatusLine
         isWorking={isWorking}
         status={status}
@@ -257,8 +274,8 @@ const FixedBottom = memo(function FixedBottom({
         queueCount={queuedInstructions.length}
       />
 
-      {/* Queue notification - show actual queued messages */}
-      {queuedInstructions.length > 0 && isWorking && (
+      {/* Info section - either queue or completion stats, stable position */}
+      {showQueue && (
         <Box flexDirection="column" marginTop={1}>
           {queuedInstructions.map((instruction, idx) => (
             <Box key={idx}>
@@ -269,9 +286,7 @@ const FixedBottom = memo(function FixedBottom({
           ))}
         </Box>
       )}
-
-      {/* Completion stats (shown after work finishes, above input) */}
-      {!isWorking && completionStats && (
+      {showCompletionStats && (
         <Box marginTop={1}>
           <Text color={colors.muted}>
             Completed in {completionStats.elapsed} · {completionStats.tokens}
@@ -279,7 +294,7 @@ const FixedBottom = memo(function FixedBottom({
         </Box>
       )}
 
-      {/* Input line (visible when working and queue enabled) */}
+      {/* Input line - always rendered for layout stability */}
       {enableQueueInput && (
         <InputLine
           value={input}
@@ -287,10 +302,17 @@ const FixedBottom = memo(function FixedBottom({
         />
       )}
 
-      {/* Ctrl+C warning */}
+      {/* Help line - always visible */}
+      <Box>
+        <Text color={colors.dim}>
+          {contextDisplay}{contextDisplay ? ' · ' : ''}{isWorking ? t('ui.escToCancel') : t('ui.commandHint')}
+        </Text>
+      </Box>
+
+      {/* Ctrl+C warning - renders in stable position */}
       {ctrlCCount === 1 && (
-        <Box marginTop={1}>
-          <Text color={colors.warning}>Press Ctrl+C again to exit</Text>
+        <Box>
+          <Text color={colors.warning}>{t('ui.ctrlCToExit')}</Text>
         </Box>
       )}
     </>
@@ -311,6 +333,7 @@ export function createInitialUIState(): AgentUIState {
     queuedInstructions: [],
     currentInput: '',
     finalResponse: null,
-    completionStats: null
+    completionStats: null,
+    contextPercent: undefined
   };
 }

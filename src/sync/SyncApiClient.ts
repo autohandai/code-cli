@@ -13,6 +13,7 @@ const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const DEFAULT_MAX_TOTAL_SIZE = 100 * 1024 * 1024; // 100MB
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY = 1000; // 1 second base delay
+const MAX_FILES_PER_REQUEST = 100; // API limit for files array
 
 export class SyncApiClient {
   private readonly baseUrl: string;
@@ -132,35 +133,54 @@ export class SyncApiClient {
 
   /**
    * Upload sync manifest and request pre-signed URLs for file uploads
+   * Batches requests to stay within API limits (max 100 files per request)
    */
   async initiateUpload(
     token: string,
     manifest: SyncManifest,
     filePaths: string[]
   ): Promise<{ uploadUrls: Record<string, string> }> {
-    const response = await this.fetchWithRetry(
-      `${this.baseUrl}/v1/sync/upload`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          manifest,
-          files: filePaths,
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const error = await response.text().catch(() => 'Unknown error');
-      throw new Error(`API error: ${response.status} ${error}`);
+    // Batch files into chunks of MAX_FILES_PER_REQUEST
+    const batches: string[][] = [];
+    for (let i = 0; i < filePaths.length; i += MAX_FILES_PER_REQUEST) {
+      batches.push(filePaths.slice(i, i + MAX_FILES_PER_REQUEST));
     }
 
-    const data = (await response.json()) as SyncApiResponse;
+    // Make requests for each batch and merge results
+    const allUploadUrls: Record<string, string> = {};
+
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      const response = await this.fetchWithRetry(
+        `${this.baseUrl}/v1/sync/upload`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            // Only include manifest on first batch
+            ...(batchIndex === 0 ? { manifest } : {}),
+            files: batch,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.text().catch(() => 'Unknown error');
+        throw new Error(`API error: ${response.status} ${error}`);
+      }
+
+      const data = (await response.json()) as SyncApiResponse;
+      const batchUrls = data.uploadUrls || {};
+
+      // Merge batch URLs into result
+      Object.assign(allUploadUrls, batchUrls);
+    }
+
     return {
-      uploadUrls: data.uploadUrls || {},
+      uploadUrls: allUploadUrls,
     };
   }
 
@@ -236,28 +256,45 @@ export class SyncApiClient {
 
   /**
    * Request pre-signed URLs for file downloads
+   * Batches requests to stay within API limits (max 100 files per request)
    */
   async initiateDownload(token: string, filePaths: string[]): Promise<{ downloadUrls: Record<string, string> }> {
-    const response = await this.fetchWithRetry(
-      `${this.baseUrl}/v1/sync/download`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ files: filePaths }),
-      }
-    );
-
-    if (!response.ok) {
-      const error = await response.text().catch(() => 'Unknown error');
-      throw new Error(`API error: ${response.status} ${error}`);
+    // Batch files into chunks of MAX_FILES_PER_REQUEST
+    const batches: string[][] = [];
+    for (let i = 0; i < filePaths.length; i += MAX_FILES_PER_REQUEST) {
+      batches.push(filePaths.slice(i, i + MAX_FILES_PER_REQUEST));
     }
 
-    const data = (await response.json()) as SyncApiResponse;
+    // Make requests for each batch and merge results
+    const allDownloadUrls: Record<string, string> = {};
+
+    for (const batch of batches) {
+      const response = await this.fetchWithRetry(
+        `${this.baseUrl}/v1/sync/download`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ files: batch }),
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.text().catch(() => 'Unknown error');
+        throw new Error(`API error: ${response.status} ${error}`);
+      }
+
+      const data = (await response.json()) as SyncApiResponse;
+      const batchUrls = data.downloadUrls || {};
+
+      // Merge batch URLs into result
+      Object.assign(allDownloadUrls, batchUrls);
+    }
+
     return {
-      downloadUrls: data.downloadUrls || {},
+      downloadUrls: allDownloadUrls,
     };
   }
 

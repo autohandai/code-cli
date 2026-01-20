@@ -5,6 +5,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Box, Text, useInput, render } from 'ink';
+import { I18nProvider, useTranslation } from './i18n/index.js';
 
 export interface FilePaletteOptions {
   files: string[];
@@ -24,19 +25,21 @@ export async function showFilePalette(options: FilePaletteOptions): Promise<stri
   return new Promise((resolve) => {
     let completed = false;
     const instance = render(
-      <FilePalette
-        files={files}
-        statusLine={statusLine}
-        seed={seed}
-        onSubmit={(value) => {
-          if (completed) {
-            return;
-          }
-          completed = true;
-          instance.unmount();
-          resolve(value);
-        }}
-      />,
+      <I18nProvider>
+        <FilePalette
+          files={files}
+          statusLine={statusLine}
+          seed={seed}
+          onSubmit={(value) => {
+            if (completed) {
+              return;
+            }
+            completed = true;
+            instance.unmount();
+            resolve(value);
+          }}
+        />
+      </I18nProvider>,
       { exitOnCtrlC: false }
     );
   });
@@ -50,6 +53,7 @@ interface FilePaletteProps {
 }
 
 function FilePalette({ files, statusLine, seed, onSubmit }: FilePaletteProps) {
+  const { t } = useTranslation();
   const [value, setValue] = useState(seed ?? '');
   const [cursor, setCursor] = useState(0);
 
@@ -100,20 +104,20 @@ function FilePalette({ files, statusLine, seed, onSubmit }: FilePaletteProps) {
   return (
     <Box flexDirection="column" paddingX={1}>
       {statusLine ? <Text color="gray">{statusLine}</Text> : null}
-      <Text color="cyan">Select a file</Text>
+      <Text color="cyan">{t('ui.selectFile')}</Text>
       <Text>
-        <Text color="magenta">Filter: </Text>
+        <Text color="magenta">{t('ui.typeToFilter')}: </Text>
         <Text>{value || ' '}</Text>
       </Text>
       <Box flexDirection="column" marginTop={1}>
-        {filtered.length === 0 && <Text color="gray">No matching files. Keep typing…</Text>}
+        {filtered.length === 0 && <Text color="gray">{t('ui.noMatchingFiles')}</Text>}
         {filtered.slice(0, 20).map((file, index) => (
           <Text key={file} color={index === cursorIndex ? 'cyan' : undefined}>
             {index === cursorIndex ? '▸' : ' '} {file}
           </Text>
         ))}
       </Box>
-      <Text color="gray">Type to filter · ↑/↓ navigate · Enter choose · Esc cancel</Text>
+      <Text color="gray">{t('ui.fileNavigateHint')}</Text>
     </Box>
   );
 }

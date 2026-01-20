@@ -7,35 +7,35 @@ import chalk from 'chalk';
 import readline from 'node:readline';
 import type { SlashCommand } from '../core/slashCommands.js';
 import { buildFileMentionSuggestions, MENTION_SUGGESTION_LIMIT } from './mentionFilter.js';
-import { safeEmitKeypressEvents } from './inputPrompt.js';
+import { PROMPT_PREFIX, PROMPT_VISIBLE_LENGTH, STATUS_LINE_COUNT, safeEmitKeypressEvents } from './inputPrompt.js';
 
 type Mode = 'file' | 'slash' | null;
 
 export class MentionPreview {
-  private mentionLines = 0;
+  private suggestionLines = 0;
   private keypressHandler: ((str: string, key: readline.Key) => void) | null = null;
-  private readonly statusLine?: string;
   private slashMatches: SlashCommand[] = [];
   private fileSuggestions: string[] = [];
   private mode: Mode = null;
   private activeIndex = 0;
   private disposed = false;
   private lastSuggestions: string[] = [];
+  // Suggestions render below the status line (one extra line for spacing)
+  private readonly suggestionOffset = STATUS_LINE_COUNT + 1;
 
   constructor(
     private readonly rl: readline.Interface,
     private readonly files: string[],
     private readonly slashCommands: SlashCommand[],
-    private readonly output: NodeJS.WriteStream,
-    statusLine?: string
+    private readonly output: NodeJS.WriteStream
   ) {
     const input = (rl as readline.Interface & { input: NodeJS.ReadStream }).input;
     // Use safe emit to prevent duplicate listener registration
     safeEmitKeypressEvents(input);
-    this.statusLine = statusLine ? chalk.gray(statusLine) : undefined;
     this.keypressHandler = this.handleKeypress.bind(this);
     input.prependListener('keypress', this.keypressHandler);
-    this.render([]);
+    // Don't render initially - renderPromptLine handles the status display
+    // MentionPreview only renders when there are suggestions to show
   }
 
   dispose(): void {
@@ -49,13 +49,12 @@ export class MentionPreview {
 
   reset(): void {
     this.clear();
-    if (this.statusLine) {
-      this.render([]);
-    }
+    // Don't re-render status line here - let renderPromptLine handle it
+    // This prevents double-rendering of the status line
   }
 
   handleResize(): void {
-    if (this.disposed || !this.mentionLines) {
+    if (this.disposed || !this.suggestionLines) {
       return;
     }
     this.clear(false);
@@ -163,6 +162,16 @@ export class MentionPreview {
     if (this.disposed) {
       return;
     }
+
+    this.lastSuggestions = [...suggestions];
+    this.clear(false);
+
+    // Only render if there are actual suggestions to show
+    // Status line is handled by renderPromptLine when no suggestions
+    if (!suggestions.length) {
+      return;
+    }
+
     const suggestionLines = suggestions.map((entry, idx) => {
       const isSelected = this.mode && idx === this.activeIndex;
       const pointer = isSelected ? chalk.cyan('▸') : ' ';
@@ -185,43 +194,50 @@ export class MentionPreview {
       const text = isSelected ? chalk.cyan(entry) : entry;
       return `${pointer} ${text}`;
     });
-    const lines = [
-      ...suggestionLines,
-      ...(this.statusLine ? [this.statusLine] : [])
-    ];
-    this.lastSuggestions = [...suggestions];
-    this.clear();
-    if (!lines.length) {
-      return;
-    }
 
-    this.output.write('\n');
+    const lines = suggestionLines;
+
+    // Move below the status line before writing suggestions
+    readline.moveCursor(this.output, 0, this.suggestionOffset);
+    readline.cursorTo(this.output, 0);
+
     for (const line of lines) {
+      readline.clearLine(this.output, 0);
       this.output.write(`${line}\n`);
     }
-    this.mentionLines = lines.length + 1;
 
-    readline.moveCursor(this.output, 0, -this.mentionLines);
+    this.suggestionLines = lines.length;
+
+    // Restore cursor to the prompt line at the correct column
+    readline.moveCursor(this.output, 0, -(this.suggestionLines + this.suggestionOffset));
     readline.cursorTo(this.output, 0);
-    this.output.write(`${chalk.gray('›')} ${this.rl.line}`);
-    readline.cursorTo(this.output, this.rl.cursor + 2);
+    const rlAny = this.rl as readline.Interface & { line: string; cursor: number };
+    const cursorPos = rlAny.cursor ?? rlAny.line.length;
+    this.output.write(`${PROMPT_PREFIX}${rlAny.line}`);
+    readline.cursorTo(this.output, PROMPT_VISIBLE_LENGTH + cursorPos);
   }
 
   private clear(reprompt = true): void {
-    if (!this.mentionLines) {
+    if (!this.suggestionLines) {
       return;
     }
-    readline.moveCursor(this.output, 0, 1);
-    for (let i = 0; i < this.mentionLines; i++) {
+    // Move cursor to the first suggestion line (below status)
+    readline.moveCursor(this.output, 0, this.suggestionOffset);
+    for (let i = 0; i < this.suggestionLines; i++) {
       readline.clearLine(this.output, 0);
-      if (i < this.mentionLines - 1) {
+      if (i < this.suggestionLines - 1) {
         readline.moveCursor(this.output, 0, 1);
       }
     }
-    readline.moveCursor(this.output, 0, -this.mentionLines);
-    this.mentionLines = 0;
+    // Move back to the prompt line (account for not advancing after the last line)
+    readline.moveCursor(this.output, 0, -(this.suggestionLines + this.suggestionOffset - 1));
+    this.suggestionLines = 0;
     if (reprompt && !this.disposed) {
-      this.rl.prompt(true);
+      const rlAny = this.rl as readline.Interface & { line: string; cursor: number };
+      readline.cursorTo(this.output, 0);
+      this.output.write(`${PROMPT_PREFIX}${rlAny.line}`);
+      const cursorPos = rlAny.cursor ?? rlAny.line.length;
+      readline.cursorTo(this.output, PROMPT_VISIBLE_LENGTH + cursorPos);
     }
   }
 
@@ -254,8 +270,8 @@ export class MentionPreview {
       this.rl._refreshLine();
     } else {
       readline.cursorTo(this.output, 0);
-      this.output.write(`${chalk.gray('›')} ${newLine}`);
-      readline.cursorTo(this.output, newCursorPos + 2);
+      this.output.write(`${PROMPT_PREFIX}${newLine}`);
+      readline.cursorTo(this.output, PROMPT_VISIBLE_LENGTH + newCursorPos);
     }
   }
 

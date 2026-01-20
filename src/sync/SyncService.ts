@@ -43,6 +43,8 @@ export interface SyncServiceOptions {
   apiClient?: SyncApiClient;
   /** Event handler for logging/telemetry */
   onEvent?: (event: SyncEvent) => void;
+  /** Callback when authentication fails (401 error) */
+  onAuthFailure?: () => void;
 }
 
 interface SyncState {
@@ -56,11 +58,13 @@ export class SyncService {
   private readonly config: SyncConfig;
   private readonly client: SyncApiClient;
   private readonly onEvent: (event: SyncEvent) => void;
+  private readonly onAuthFailure: (() => void) | undefined;
   private readonly basePath: string;
 
   private timer: ReturnType<typeof setInterval> | null = null;
   private syncing = false;
   private started = false;
+  private authFailed = false;
 
   constructor(options: SyncServiceOptions) {
     this.authToken = options.authToken;
@@ -68,6 +72,7 @@ export class SyncService {
     this.config = options.config;
     this.client = options.apiClient || getSyncApiClient();
     this.onEvent = options.onEvent || (() => {});
+    this.onAuthFailure = options.onAuthFailure;
     this.basePath = AUTOHAND_HOME;
   }
 
@@ -78,11 +83,19 @@ export class SyncService {
     if (this.started) return;
     this.started = true;
 
-    // Run initial sync
-    this.sync().catch(() => {});
+    // Run initial sync with proper error handling
+    this.sync().then(result => {
+      if (!result.success && this.isAuthError(result.error)) {
+        // Auth failure already handled in sync()
+      }
+    }).catch(() => {
+      // Unexpected error - already logged
+    });
 
     // Set up periodic sync
     this.timer = setInterval(() => {
+      // Skip if auth has failed
+      if (this.authFailed) return;
       this.sync().catch(() => {});
     }, this.config.interval);
   }
@@ -210,8 +223,13 @@ export class SyncService {
               this.onEvent({ type: 'conflict_resolved', path: file.path, strategy: 'cloud_wins' });
             }
           } catch (error) {
-            // Continue with other files
-            console.error(`Failed to download ${file.path}:`, error);
+            const errorMsg = (error as Error).message;
+            // Auth error - stop trying, will be handled by caller
+            if (this.isAuthError(errorMsg)) {
+              throw error;
+            }
+            // Only emit event for non-auth errors (avoid console spam)
+            this.onEvent({ type: 'download_error', path: file.path, error: errorMsg });
           }
         }
 
@@ -253,8 +271,13 @@ export class SyncService {
             uploaded++;
             this.onEvent({ type: 'file_uploaded', path: file.path, size: content.length });
           } catch (error) {
-            // Continue with other files
-            console.error(`Failed to upload ${file.path}:`, error);
+            const errorMsg = (error as Error).message;
+            // Auth error - stop trying, will be handled by caller
+            if (this.isAuthError(errorMsg)) {
+              throw error;
+            }
+            // Only emit event for non-auth errors (avoid console spam)
+            this.onEvent({ type: 'upload_error', path: file.path, error: errorMsg });
           }
         }
 
@@ -282,6 +305,20 @@ export class SyncService {
       return result;
     } catch (error) {
       const errorMessage = (error as Error).message;
+
+      // Check for authentication errors (401)
+      if (this.isAuthError(errorMessage)) {
+        this.handleAuthFailure(errorMessage);
+        return {
+          success: false,
+          uploaded: 0,
+          downloaded: 0,
+          conflicts: 0,
+          error: 'Authentication expired. Please run /login again.',
+          duration: Date.now() - startTime,
+        };
+      }
+
       this.onEvent({ type: 'sync_failed', error: errorMessage });
 
       return {
@@ -297,6 +334,28 @@ export class SyncService {
       // Remove lock file
       await fs.remove(lockPath).catch(() => {});
     }
+  }
+
+  /**
+   * Check if an error message indicates an authentication failure
+   */
+  private isAuthError(errorMessage?: string): boolean {
+    if (!errorMessage) return false;
+    return errorMessage.includes('401') ||
+           errorMessage.toLowerCase().includes('unauthorized') ||
+           errorMessage.toLowerCase().includes('authentication');
+  }
+
+  /**
+   * Handle authentication failure - stop service and notify
+   */
+  private handleAuthFailure(errorMessage: string): void {
+    if (this.authFailed) return; // Already handled
+
+    this.authFailed = true;
+    this.stop();
+    this.onEvent({ type: 'auth_failure', error: errorMessage });
+    this.onAuthFailure?.();
   }
 
   /**

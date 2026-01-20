@@ -127,104 +127,76 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
       console.log(chalk.gray('\nEsc to exit | Tab to cycle | s: sync now | e: toggle enabled'));
     };
 
-    let buffer = '';
+    const handler = async (_str: string, key: readline.Key) => {
+      const char = (_str || '').toLowerCase();
 
-    const handler = async (chunk: Buffer | string) => {
-      buffer += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-
-      const processNext = async (): Promise<boolean> => {
-        if (!buffer.length) return false;
-
-        const first = buffer[0];
-
-        if (first === '\u001b') {
-          if (buffer.length === 1) return false;
-
-          if (buffer[1] === '[') {
-            if (buffer.length < 3) return false;
-            const seq = buffer.slice(0, 3);
-            buffer = buffer.slice(3);
-            await handleSequence(seq);
-            return true;
-          }
-
-          buffer = buffer.slice(1);
-          await handleSequence('\u001b');
-          return true;
-        }
-
-        buffer = buffer.slice(1);
-        await handleSequence(first);
-        return true;
-      };
-
-      while (await processNext()) {
-        // Keep processing
+      if (key.name === 'escape' || (key.name === 'c' && key.ctrl)) {
+        cleanup();
+        resolve();
+        return;
       }
-    };
 
-    const handleSequence = async (sequence: string) => {
-      switch (sequence) {
-        case '\u001b': // ESC
-        case '\u0003': // Ctrl+C
-          cleanup();
-          resolve();
-          return;
-        case '\t': // Tab
-        case '\u001b[C': // Right arrow
-          currentTab = (currentTab + 1) % tabs.length;
-          render();
-          return;
-        case '\u001b[Z': // Shift+Tab
-        case '\u001b[D': // Left arrow
-          currentTab = (currentTab - 1 + tabs.length) % tabs.length;
-          render();
-          return;
-        case 's':
-        case 'S':
-          // Trigger manual sync
-          if (data.syncService) {
-            console.log(chalk.cyan('\nSyncing...'));
-            try {
-              const result = await data.syncService.sync();
-              if (result.success) {
-                console.log(chalk.green(`Sync complete! Uploaded: ${result.uploaded}, Downloaded: ${result.downloaded}`));
-              } else {
-                console.log(chalk.red(`Sync failed: ${result.error}`));
-              }
-              // Refresh data
-              const config = await loadConfig();
-              Object.assign(data, await gatherSyncData(ctx, config));
-            } catch (err) {
-              console.log(chalk.red(`Sync error: ${err}`));
-            }
-            await sleep(1500);
-            render();
-          }
-          return;
-        case 'e':
-        case 'E':
-          // Toggle sync enabled
+      if (key.name === 'tab' && key.shift) {
+        currentTab = (currentTab - 1 + tabs.length) % tabs.length;
+        render();
+        return;
+      }
+
+      if (key.name === 'tab' || key.name === 'right') {
+        currentTab = (currentTab + 1) % tabs.length;
+        render();
+        return;
+      }
+
+      if (key.name === 'left') {
+        currentTab = (currentTab - 1 + tabs.length) % tabs.length;
+        render();
+        return;
+      }
+
+      if (char === 's') {
+        // Trigger manual sync
+        if (data.syncService) {
+          console.log(chalk.cyan('\nSyncing...'));
           try {
+            const result = await data.syncService.sync();
+            if (result.success) {
+              console.log(chalk.green(`Sync complete! Uploaded: ${result.uploaded}, Downloaded: ${result.downloaded}`));
+            } else {
+              console.log(chalk.red(`Sync failed: ${result.error}`));
+            }
+            // Refresh data
             const config = await loadConfig();
-            const newEnabled = config.sync?.enabled === false;
-            config.sync = { ...config.sync, enabled: newEnabled };
-            await saveConfig(config);
-            data.enabled = newEnabled;
-            console.log(chalk.cyan(`\nSync ${newEnabled ? 'enabled' : 'disabled'}`));
-            await sleep(1000);
-            render();
+            Object.assign(data, await gatherSyncData(ctx, config));
           } catch (err) {
-            console.log(chalk.red(`Error toggling sync: ${err}`));
+            console.log(chalk.red(`Sync error: ${err}`));
           }
-          return;
-        default:
-          return;
+          await sleep(1500);
+          render();
+        }
+        return;
+      }
+
+      if (char === 'e') {
+        // Toggle sync enabled
+        try {
+          const config = await loadConfig();
+          const newEnabled = config.sync?.enabled === false;
+          config.sync = { ...config.sync, enabled: newEnabled };
+          await saveConfig(config);
+          data.enabled = newEnabled;
+          console.log(chalk.cyan(`\nSync ${newEnabled ? 'enabled' : 'disabled'}`));
+          await sleep(1000);
+          render();
+        } catch (err) {
+          console.log(chalk.red(`Error toggling sync: ${err}`));
+        }
+        return;
       }
     };
 
     const cleanup = () => {
-      input.off('data', handler);
+      input.off('keypress', handler as any);
       if (isTTY && !wasRaw && typeof input.setRawMode === 'function') {
         input.setRawMode(false);
       }
@@ -234,7 +206,7 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
       process.stdout.write('\x1B[2J\x1B[H');
     };
 
-    input.on('data', handler);
+    input.on('keypress', handler as any);
     render();
   });
 }

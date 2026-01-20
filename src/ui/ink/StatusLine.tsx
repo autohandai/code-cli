@@ -7,6 +7,7 @@ import React, { memo } from 'react';
 import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/index.js';
 
 export interface StatusLineProps {
   isWorking: boolean;
@@ -18,6 +19,7 @@ export interface StatusLineProps {
 
 function StatusLineComponent({ isWorking, status, elapsed, tokens, queueCount = 0 }: StatusLineProps) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
 
   // Always render to maintain stable layout - show placeholder when not working
   if (!isWorking) {
@@ -40,7 +42,7 @@ function StatusLineComponent({ isWorking, status, elapsed, tokens, queueCount = 
       {queueCount > 0 && (
         <Text color={colors.accent}> [{queueCount} queued]</Text>
       )}
-      <Text color={colors.muted}> · esc to cancel</Text>
+      <Text color={colors.muted}> · {t('ui.escToCancel')}</Text>
     </Box>
   );
 }
