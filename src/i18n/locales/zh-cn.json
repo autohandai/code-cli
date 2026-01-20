@@ -1,0 +1,399 @@
+{
+  "common": {
+    "error": "错误",
+    "warning": "警告",
+    "success": "成功",
+    "failed": "失败",
+    "cancelled": "已取消",
+    "continue": "继续",
+    "yes": "是",
+    "no": "否",
+    "done": "完成",
+    "loading": "加载中...",
+    "pressEnter": "按回车键继续...",
+    "pressEscToCancel": "按 Esc 键取消",
+    "or": "或",
+    "and": "和",
+    "unknown": "未知",
+    "none": "无",
+    "default": "默认",
+    "current": "当前",
+    "required": "必需",
+    "optional": "可选",
+    "enabled": "已启用",
+    "disabled": "已禁用",
+    "on": "开",
+    "off": "关"
+  },
+  "cli": {
+    "description": "由 LLM 驱动的自主编码代理 CLI",
+    "options": {
+      "prompt": "在命令模式下运行单个指令",
+      "path": "工作区路径",
+      "yes": "自动确认风险操作",
+      "dryRun": "预览操作而不应用更改",
+      "debug": "启用调试输出（详细日志）",
+      "model": "覆盖配置的 LLM 模型",
+      "config": "配置文件路径（默认 ~/.autohand/config.json）",
+      "temperature": "采样温度",
+      "displayLanguage": "设置显示语言（例如 en、zh-cn、fr、de）",
+      "autoCommit": "使用 LLM 生成的消息自动提交",
+      "unrestricted": "运行时无需审批提示",
+      "restricted": "自动拒绝危险操作",
+      "autoSkill": "基于项目分析自动生成技能",
+      "skillInstall": "安装社区技能",
+      "project": "在项目级别安装技能",
+      "permissions": "显示当前权限设置并退出",
+      "login": "登录您的 Autohand 账户",
+      "logout": "退出您的 Autohand 账户",
+      "syncSettings": "启用/禁用设置同步",
+      "patch": "生成 git 补丁而不应用更改",
+      "output": "补丁输出文件（默认：stdout）",
+      "autoMode": "启动自主开发循环",
+      "maxIterations": "自动模式最大迭代次数（默认：50）",
+      "completionPromise": "完成标记文本（默认：DONE）",
+      "noWorktree": "在自动模式下禁用 git worktree 隔离",
+      "checkpointInterval": "每 N 次迭代进行 git 提交（默认：5）",
+      "maxRuntime": "最大运行时间（分钟）（默认：120）",
+      "maxCost": "最大 API 费用（美元）（默认：10）",
+      "setup": "运行设置向导",
+      "addDir": "向工作区范围添加额外目录"
+    }
+  },
+  "welcome": {
+    "banner": "欢迎使用 Autohand！",
+    "subtitle": "您的超快 AI 编码代理",
+    "version": "v{{version}}",
+    "updateAvailable": "有可用更新：{{current}} -> {{latest}}。运行 'npm i -g autohand' 进行更新。",
+    "loggedInAs": "已登录为 {{email}}",
+    "notLoggedIn": "未登录",
+    "modelLine": "模型：{{model}}",
+    "directoryLine": "目录：{{directory}}",
+    "tips": {
+      "title": "开始使用，描述一个任务或尝试以下命令：",
+      "init": "/init - 创建包含 Autohand 指令的 AGENTS.md 文件",
+      "help": "/help - 显示所有可用命令",
+      "model": "/model - 更改 AI 模型",
+      "language": "/language - 更改显示语言"
+    },
+    "shortcuts": {
+      "title": "键盘快捷键：",
+      "mention": "@ - 提及文件以获取上下文",
+      "arrows": "方向键 - 导航建议",
+      "tab": "Tab - 自动补全",
+      "escape": "Esc - 取消当前操作",
+      "ctrlC": "Ctrl+C - 退出"
+    }
+  },
+  "commands": {
+    "help": {
+      "title": "可用命令：",
+      "command": "命令",
+      "description": "描述",
+      "tips": {
+        "title": "提示：",
+        "mention": "输入 @ 可提及文件供 AI 使用",
+        "arrows": "使用方向键导航文件建议",
+        "tab": "按 Tab 自动补全文件路径",
+        "escape": "按 Esc 取消当前操作"
+      },
+      "docsLink": "更多信息，请访问 {{link}}"
+    },
+    "model": {
+      "description": "选择使用的模型和推理强度",
+      "title": "模型选择",
+      "currentModel": "当前模型：{{model}}",
+      "selectPrompt": "选择一个模型：",
+      "changed": "模型已更改为 {{model}}",
+      "noChange": "未做更改。"
+    },
+    "theme": {
+      "description": "更改终端颜色主题",
+      "title": "主题选择",
+      "currentTheme": "当前主题：{{theme}}",
+      "selectPrompt": "选择一个主题：",
+      "changed": "主题已更改为 '{{theme}}'",
+      "noChange": "未做更改。"
+    },
+    "language": {
+      "description": "更改显示语言",
+      "title": "语言选择",
+      "currentLanguage": "当前语言：{{language}}",
+      "selectPrompt": "选择一种语言：",
+      "changed": "语言已更改为 {{language}}",
+      "noChange": "未做更改。"
+    },
+    "quit": {
+      "description": "退出 Autohand",
+      "goodbye": "再见！"
+    },
+    "init": {
+      "description": "创建 AGENTS.md 文件",
+      "created": "已在 {{path}} 创建 AGENTS.md",
+      "alreadyExists": "AGENTS.md 已存在于 {{path}}",
+      "overwritePrompt": "覆盖现有的 AGENTS.md？"
+    },
+    "undo": {
+      "description": "撤销上次文件更改",
+      "success": "已撤销 {{file}} 的更改",
+      "noChanges": "没有可撤销的更改。",
+      "failed": "撤销失败：{{error}}"
+    },
+    "new": {
+      "description": "开始新对话",
+      "cleared": "对话已清除。重新开始。"
+    },
+    "status": {
+      "description": "显示当前状态",
+      "title": "Autohand 状态",
+      "version": "版本",
+      "sessionId": "会话 ID",
+      "cwd": "当前目录",
+      "provider": "提供商",
+      "model": "模型",
+      "locale": "语言",
+      "apiStatus": "API 状态",
+      "connected": "已连接",
+      "disconnected": "已断开",
+      "sessions": "会话",
+      "total": "共 {{count}} 个"
+    },
+    "sessions": {
+      "description": "列出已保存的会话",
+      "title": "已保存的会话",
+      "noSessions": "未找到已保存的会话。",
+      "selectPrompt": "选择要恢复的会话：",
+      "sessionInfo": "{{name}} - {{date}}"
+    },
+    "resume": {
+      "description": "恢复之前的会话",
+      "resuming": "正在恢复会话 {{id}}...",
+      "notFound": "未找到会话：{{id}}",
+      "failed": "恢复会话失败：{{error}}"
+    },
+    "memory": {
+      "description": "管理项目和用户记忆",
+      "title": "记忆管理",
+      "projectMemory": "项目记忆",
+      "userMemory": "用户记忆",
+      "noMemory": "没有存储的记忆。",
+      "addPrompt": "添加新记忆：",
+      "added": "记忆已添加。",
+      "cleared": "记忆已清除。"
+    },
+    "permissions": {
+      "description": "显示当前权限设置",
+      "title": "权限设置",
+      "mode": "模式：{{mode}}",
+      "allowed": "允许的操作：",
+      "denied": "拒绝的操作：",
+      "pending": "待审批："
+    },
+    "login": {
+      "description": "登录您的 Autohand 账户",
+      "prompt": "输入您的登录代码：",
+      "success": "成功登录为 {{email}}",
+      "failed": "登录失败：{{error}}",
+      "cancelled": "登录已取消。"
+    },
+    "logout": {
+      "description": "退出您的 Autohand 账户",
+      "confirm": "退出 {{email}}？",
+      "success": "成功退出。",
+      "cancelled": "退出已取消。"
+    },
+    "sync": {
+      "description": "管理设置同步",
+      "enabled": "设置同步已启用。",
+      "disabled": "设置同步已禁用。",
+      "status": "同步状态：{{status}}",
+      "lastSync": "上次同步：{{date}}"
+    },
+    "feedback": {
+      "description": "提交 CLI 反馈",
+      "prompt": "输入您的反馈：",
+      "success": "感谢您的反馈！",
+      "failed": "提交反馈失败：{{error}}"
+    },
+    "hooks": {
+      "description": "管理 git hooks",
+      "title": "Git Hooks",
+      "installed": "已安装的 hooks：",
+      "available": "可用的 hooks：",
+      "noHooks": "未配置 hooks。"
+    },
+    "skills": {
+      "description": "列出和管理技能",
+      "title": "技能",
+      "installed": "已安装的技能：",
+      "available": "可用的技能：",
+      "noSkills": "未安装技能。"
+    },
+    "export": {
+      "description": "导出会话数据",
+      "success": "已导出到 {{path}}",
+      "failed": "导出失败：{{error}}"
+    },
+    "agents": {
+      "description": "管理子代理",
+      "title": "子代理",
+      "noAgents": "未配置子代理。"
+    },
+    "automode": {
+      "description": "管理自主模式",
+      "starting": "正在启动自动模式...",
+      "stopping": "正在停止自动模式...",
+      "iteration": "迭代 {{current}}/{{max}}",
+      "completed": "自动模式已完成。",
+      "aborted": "自动模式已中止。"
+    },
+    "share": {
+      "description": "分享会话",
+      "generating": "正在生成分享链接...",
+      "success": "分享链接：{{url}}",
+      "failed": "生成分享链接失败：{{error}}"
+    },
+    "addDir": {
+      "description": "向工作区范围添加目录",
+      "added": "已添加目录：{{path}}",
+      "alreadyAdded": "目录已添加：{{path}}",
+      "notFound": "未找到目录：{{path}}"
+    }
+  },
+  "setup": {
+    "welcome": "欢迎使用 Autohand！",
+    "subtitle": "您的超快 AI 编码代理",
+    "letsStart": "让我们通过几个简单步骤完成设置。",
+    "providerSelect": "您想使用哪个 LLM 提供商？",
+    "apiKeyPrompt": "输入您的 {{provider}} API 密钥：",
+    "apiKeyHelp": "在此获取 API 密钥：{{url}}",
+    "apiKeyHint": "您的 API 密钥将本地存储在 ~/.autohand/config.json",
+    "modelPrompt": "输入模型 ID（或按回车使用默认值）：",
+    "modelDefault": "默认：{{model}}",
+    "testingConnection": "正在测试连接...",
+    "connectionSuccess": "连接成功！",
+    "connectionFailed": "连接失败：{{error}}",
+    "telemetry": {
+      "title": "帮助我们改进 Autohand",
+      "description": "我们收集匿名使用数据以了解 Autohand 的使用情况。",
+      "whatWeCollect": "我们收集的内容：",
+      "collectItem1": "命令使用情况（哪些功能受欢迎）",
+      "collectItem2": "错误率（以更快修复 bug）",
+      "collectItem3": "性能指标（以加快速度）",
+      "whatWeNeverCollect": "我们从不收集的内容：",
+      "neverItem1": "您的代码或文件内容",
+      "neverItem2": "API 密钥或凭据",
+      "neverItem3": "个人信息",
+      "prompt": "分享匿名使用数据以帮助改进 Autohand？",
+      "thanks": "感谢您帮助我们改进 Autohand！",
+      "declined": "没问题！您可以随时在配置中更改此设置。"
+    },
+    "complete": "设置完成！",
+    "created": "已创建的内容：",
+    "configFile": "~/.autohand/config.json（您的设置）",
+    "agentsFile": "AGENTS.md（Autohand 的项目指令）",
+    "nextSteps": "下一步：",
+    "tryCommand": "尝试：autohand"
+  },
+  "errors": {
+    "generic": "发生错误：{{message}}",
+    "invalidLocale": "无效的区域设置：{{locale}}。支持的：{{supported}}",
+    "configParseFailed": "解析 {{path}} 配置失败：{{error}}",
+    "configSaveFailed": "保存配置失败：{{error}}",
+    "apiKeyRequired": "需要 API 密钥",
+    "apiKeyTooShort": "API 密钥似乎太短",
+    "apiKeyInvalid": "API 密钥格式无效",
+    "directoryNotExist": "目录不存在：{{path}}",
+    "unsafeDirectory": "不安全的目录：{{path}}。无法在系统目录中操作。",
+    "fileNotFound": "未找到文件：{{path}}",
+    "permissionDenied": "权限被拒绝：{{path}}",
+    "patchRequiresPrompt": "--patch 需要 --prompt 指定指令",
+    "autoModeRequiresPrompt": "--auto-mode 需要任务提示",
+    "noProviderConfigured": "尚未配置提供商。运行设置：autohand --setup",
+    "modelNotFound": "未找到模型：{{model}}",
+    "rateLimited": "速率限制。请稍候再试。",
+    "networkError": "网络错误：{{message}}",
+    "timeout": "请求超时。请重试。",
+    "contextTooLong": "上下文太长。尝试 /new 重新开始或 /undo 删除最近的回合。",
+    "authFailed": "认证失败。请检查您的 API 密钥。",
+    "paymentRequired": "需要付款。请检查您的账户余额。",
+    "serverError": "服务器错误。请稍后再试。",
+    "cancelled": "用户取消了操作。"
+  },
+  "agent": {
+    "thinking": "思考中...",
+    "executing": "正在执行 {{tool}}...",
+    "reading": "正在读取 {{file}}...",
+    "writing": "正在写入 {{file}}...",
+    "searching": "搜索中...",
+    "toolSuccess": "{{tool}} 成功完成",
+    "toolFailed": "{{tool}} 失败：{{error}}",
+    "taskComplete": "任务完成",
+    "noChanges": "未做任何更改。",
+    "changesApplied": "更改已成功应用。",
+    "awaitingApproval": "等待审批...",
+    "approved": "已批准",
+    "denied": "已拒绝",
+    "skipped": "已跳过",
+    "exploring": "探索中...",
+    "exploredFiles": "已探索 {{count}} 个文件"
+  },
+  "providers": {
+    "openrouter": "OpenRouter",
+    "openai": "OpenAI",
+    "ollama": "Ollama",
+    "llamacpp": "llama.cpp",
+    "mlx": "MLX (Apple Silicon)",
+    "hints": {
+      "openrouter": "云端 - 访问 100+ 模型（Claude、GPT-4 等）",
+      "openai": "云端 - OpenAI 官方模型（GPT-4o、o1 等）",
+      "ollama": "本地 - 在您的机器上运行模型（免费）",
+      "llamacpp": "本地 - 使用 GGUF 模型快速推理",
+      "mlx": "本地 - 为 Apple Silicon Mac 优化"
+    }
+  },
+  "startup": {
+    "checkingTools": "正在检查所需工具...",
+    "toolFound": "已找到 {{tool}}",
+    "toolMissing": "未找到 {{tool}}",
+    "installHint": "安装命令：{{command}}",
+    "allToolsReady": "所有工具已就绪！",
+    "someToolsMissing": "某些工具缺失。部分功能可能无法使用。"
+  },
+  "confirmation": {
+    "proceed": "继续？",
+    "areYouSure": "您确定吗？",
+    "thisWillDelete": "这将删除 {{item}}。此操作无法撤销。",
+    "confirm": "确认",
+    "cancel": "取消",
+    "yesDelete": "是，删除",
+    "noDontDelete": "否，保留"
+  },
+  "diff": {
+    "title": "{{file}} 的更改",
+    "additions": "{{count}} 处添加",
+    "deletions": "{{count}} 处删除",
+    "noChanges": "无更改",
+    "apply": "应用更改？",
+    "applied": "更改已应用。",
+    "discarded": "更改已丢弃。"
+  },
+  "languages": {
+    "en": "English",
+    "zh-cn": "简体中文 (简体中文)",
+    "zh-tw": "繁體中文 (繁体中文)",
+    "fr": "Français (法语)",
+    "de": "Deutsch (德语)",
+    "it": "Italiano (意大利语)",
+    "es": "Español (西班牙语)",
+    "ja": "日本語 (日语)",
+    "ko": "한국어 (韩语)",
+    "ru": "Русский (俄语)",
+    "pt-br": "Português (巴西葡萄牙语)",
+    "tr": "Türkçe (土耳其语)",
+    "pl": "Polski (波兰语)",
+    "cs": "Čeština (捷克语)",
+    "hu": "Magyar (匈牙利语)",
+    "hi": "हिन्दी (印地语)"
+  }
+}
