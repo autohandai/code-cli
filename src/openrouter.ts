@@ -235,14 +235,6 @@ export class OpenRouterClient {
     if (message?.tool_calls && Array.isArray(message.tool_calls)) {
       toolCalls = message.tool_calls.map((tc: any) => {
         const rawArgs = tc.function?.arguments;
-        // Debug log to see what the API actually returned
-        if (!rawArgs || rawArgs === "{}" || rawArgs === "") {
-          console.error(
-            `[DEBUG] Tool "${
-              tc.function?.name
-            }" raw arguments from API: "${rawArgs}" (type: ${typeof rawArgs})`
-          );
-        }
         return {
           id: tc.id,
           type: "function" as const,

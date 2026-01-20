@@ -6,6 +6,7 @@
 import React, { useMemo, useState } from 'react';
 import { Box, Text, useInput, render } from 'ink';
 import type { SlashCommand } from '../core/slashCommands.js';
+import { I18nProvider, useTranslation } from './i18n/index.js';
 
 export async function showCommandPalette(
   commands: SlashCommand[],
@@ -18,18 +19,20 @@ export async function showCommandPalette(
   return new Promise((resolve) => {
     let unmounted = false;
     const instance = render(
-      <CommandPalette
-        commands={commands}
-        statusLine={statusLine}
-        onSubmit={(value) => {
-          if (unmounted) {
-            return;
-          }
-          unmounted = true;
-          instance.unmount();
-          resolve(value);
-        }}
-      />,
+      <I18nProvider>
+        <CommandPalette
+          commands={commands}
+          statusLine={statusLine}
+          onSubmit={(value) => {
+            if (unmounted) {
+              return;
+            }
+            unmounted = true;
+            instance.unmount();
+            resolve(value);
+          }}
+        />
+      </I18nProvider>,
       { exitOnCtrlC: false }
     );
   });
@@ -42,6 +45,7 @@ interface CommandPaletteProps {
 }
 
 function CommandPalette({ commands, statusLine, onSubmit }: CommandPaletteProps) {
+  const { t } = useTranslation();
   const [filter, setFilter] = useState('/');
   const [cursor, setCursor] = useState(0);
 
@@ -98,13 +102,13 @@ function CommandPalette({ commands, statusLine, onSubmit }: CommandPaletteProps)
   return (
     <Box flexDirection="column" paddingX={1}>
       {statusLine ? <Text color="gray">{statusLine}</Text> : null}
-      <Text color="cyan">Command palette</Text>
+      <Text color="cyan">{t('ui.commandPalette')}</Text>
       <Text>
         <Text color="magenta">Command: </Text>
         <Text>{filter}</Text>
       </Text>
       <Box flexDirection="column" marginTop={1}>
-        {filtered.length === 0 && <Text color="gray">No matching commands.</Text>}
+        {filtered.length === 0 && <Text color="gray">{t('ui.noMatchingCommands')}</Text>}
         {filtered.map((cmd, index) => (
           <Text key={cmd.command} color={index === visibleCursor ? 'cyan' : undefined}>
             {index === visibleCursor ? '▸' : ' '} {cmd.command}{' '}
@@ -112,7 +116,7 @@ function CommandPalette({ commands, statusLine, onSubmit }: CommandPaletteProps)
           </Text>
         ))}
       </Box>
-      <Text color="gray">Type to filter · ↑/↓ navigate · Enter to run · Esc cancel</Text>
+      <Text color="gray">{t('ui.navigateHint')}</Text>
     </Box>
   );
 }

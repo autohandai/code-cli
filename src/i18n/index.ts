@@ -9,6 +9,7 @@ import type { SupportedLocale } from './localeDetector.js';
 
 // Import all locale files statically for bundling
 import en from './locales/en.json' with { type: 'json' };
+import ptBr from './locales/pt-br.json' with { type: 'json' };
 
 // We'll add other locales as they're generated
 // For now, use English as fallback for all
@@ -24,7 +25,7 @@ const resources: Record<string, { translation: typeof en }> = {
   ja: { translation: en },
   ko: { translation: en },
   ru: { translation: en },
-  'pt-br': { translation: en },
+  'pt-br': { translation: ptBr },
   tr: { translation: en },
   pl: { translation: en },
   cs: { translation: en },
@@ -34,6 +35,10 @@ const resources: Record<string, { translation: typeof en }> = {
 
 let currentLocale: SupportedLocale = 'en';
 let initialized = false;
+
+// Language change listeners for reactive updates
+type LanguageChangeListener = (locale: SupportedLocale) => void;
+const languageChangeListeners: Set<LanguageChangeListener> = new Set();
 
 /**
  * Initialize i18next with the specified locale
@@ -65,6 +70,20 @@ export async function initI18n(locale: SupportedLocale): Promise<void> {
 export async function changeLanguage(locale: SupportedLocale): Promise<void> {
   currentLocale = locale;
   await i18next.changeLanguage(locale);
+  // Notify all listeners of the language change
+  languageChangeListeners.forEach((listener) => listener(locale));
+}
+
+/**
+ * Subscribe to language changes
+ * @param callback Function called when language changes
+ * @returns Unsubscribe function
+ */
+export function onLanguageChange(callback: LanguageChangeListener): () => void {
+  languageChangeListeners.add(callback);
+  return () => {
+    languageChangeListeners.delete(callback);
+  };
 }
 
 /**

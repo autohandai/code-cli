@@ -367,6 +367,16 @@ async function runCLI(options: CLIOptions): Promise<void> {
               ...config.sync,
               enabled: true,
             },
+            onAuthFailure: async () => {
+              // Clear invalid auth
+              config.auth = undefined;
+              try {
+                await saveConfig(config);
+              } catch {
+                // Ignore save errors
+              }
+              console.log(chalk.yellow('Session expired. Run /login to sign in again.'));
+            },
           });
           syncService.start();
 

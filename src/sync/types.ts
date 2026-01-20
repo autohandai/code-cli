@@ -176,4 +176,7 @@ export type SyncEvent =
   | { type: 'file_uploaded'; path: string; size: number }
   | { type: 'file_downloaded'; path: string; size: number }
   | { type: 'conflict_resolved'; path: string; strategy: 'cloud_wins' }
-  | { type: 'encryption_error'; path: string; error: string };
+  | { type: 'encryption_error'; path: string; error: string }
+  | { type: 'auth_failure'; error?: string }
+  | { type: 'download_error'; path: string; error: string }
+  | { type: 'upload_error'; path: string; error: string };

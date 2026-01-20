@@ -15,6 +15,7 @@ import { render, type Instance } from 'ink';
 import { AgentUI, createInitialUIState, type AgentUIState } from './AgentUI.js';
 import type { ToolOutputEntry } from './ToolOutput.js';
 import { ThemeProvider } from '../theme/ThemeContext.js';
+import { I18nProvider } from '../i18n/index.js';
 
 export interface InkRendererOptions {
   onInstruction: (text: string) => void;
@@ -57,13 +58,17 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
 
     const [state, setState] = useState<AgentUIState>(initialState);
 
-    // Expose imperative methods via ref
+    // Use ref to always get latest state without recreating the handle
+    const stateRef = useRef<AgentUIState>(state);
+    stateRef.current = state;
+
+    // Expose imperative methods via ref - stable functions that don't change
     useImperativeHandle(ref, () => ({
       updateState: (partial: Partial<AgentUIState>) => {
         setState(prev => ({ ...prev, ...partial }));
       },
-      getState: () => state
-    }), [state]);
+      getState: () => stateRef.current
+    }), []); // Empty deps - functions are stable
 
     // Handle input changes - sync to parent for pause/resume preservation
     const handleInputChange = useCallback((input: string) => {
@@ -121,15 +126,17 @@ export class InkRenderer {
 
     this.instance = render(
       <ThemeProvider>
-        <AgentUIWrapper
-          ref={this.wrapperRef}
-          initialState={this.state}
-          onInstruction={this.options.onInstruction}
-          onEscape={this.options.onEscape}
-          onCtrlC={this.options.onCtrlC}
-          onInputChange={this.handleInputChange}
-          enableQueueInput={this.options.enableQueueInput}
-        />
+        <I18nProvider>
+          <AgentUIWrapper
+            ref={this.wrapperRef}
+            initialState={this.state}
+            onInstruction={this.options.onInstruction}
+            onEscape={this.options.onEscape}
+            onCtrlC={this.options.onCtrlC}
+            onInputChange={this.handleInputChange}
+            enableQueueInput={this.options.enableQueueInput}
+          />
+        </I18nProvider>
       </ThemeProvider>,
       {
         // Ensure Ink handles stdin for input capture
@@ -262,6 +269,13 @@ export class InkRenderer {
   }
 
   /**
+   * Set context percentage (0-100)
+   */
+  setContextPercent(percent: number): void {
+    this.updateState({ contextPercent: percent });
+  }
+
+  /**
    * Pause input handling by stopping the renderer (preserves state)
    * Use this before external prompts that need stdin access
    */
@@ -295,15 +309,17 @@ export class InkRenderer {
 
       this.instance = render(
         <ThemeProvider>
-          <AgentUIWrapper
-            ref={this.wrapperRef}
-            initialState={this.state}
-            onInstruction={this.options.onInstruction}
-            onEscape={this.options.onEscape}
-            onCtrlC={this.options.onCtrlC}
-            onInputChange={this.handleInputChange}
-            enableQueueInput={this.options.enableQueueInput}
-          />
+          <I18nProvider>
+            <AgentUIWrapper
+              ref={this.wrapperRef}
+              initialState={this.state}
+              onInstruction={this.options.onInstruction}
+              onEscape={this.options.onEscape}
+              onCtrlC={this.options.onCtrlC}
+              onInputChange={this.handleInputChange}
+              enableQueueInput={this.options.enableQueueInput}
+            />
+          </I18nProvider>
         </ThemeProvider>,
         {
           stdin: process.stdin,
