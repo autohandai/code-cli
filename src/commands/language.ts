@@ -62,12 +62,9 @@ export async function language(ctx: LanguageContext): Promise<string | null> {
     ctx.config.ui = { ...ctx.config.ui, locale: selected };
     await saveConfig(ctx.config);
 
-    // Show success message in the NEW language
+    // Show success message in the NEW language (hot-reload works immediately)
     const newDisplayName = LANGUAGE_DISPLAY_NAMES[selected];
     console.log(chalk.green(`\n✓ ${t('commands.language.changed', { language: newDisplayName })}`));
-
-    // Show restart hint for full effect
-    console.log(chalk.gray(`\n${t('commands.language.restartHint')}`));
     console.log();
 
     return null;

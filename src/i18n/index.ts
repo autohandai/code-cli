@@ -9,22 +9,26 @@ import type { SupportedLocale } from './localeDetector.js';
 
 // Import all locale files statically for bundling
 import en from './locales/en.json' with { type: 'json' };
+import es from './locales/es.json' with { type: 'json' };
+import fr from './locales/fr.json' with { type: 'json' };
+import ptBr from './locales/pt-br.json' with { type: 'json' };
+import zhCn from './locales/zh-cn.json' with { type: 'json' };
 
-// We'll add other locales as they're generated
-// For now, use English as fallback for all
+// Resources with actual translations where available, English fallback for others
 const resources: Record<string, { translation: typeof en }> = {
   en: { translation: en },
-  // These will use en.json as fallback until translations are generated
-  'zh-cn': { translation: en },
+  es: { translation: es },
+  fr: { translation: fr },
+  'pt-br': { translation: ptBr },
+  'zh-cn': { translation: zhCn },
+  // These still use English as fallback until translations are generated
+  // Run `bun scripts/generate-translations.ts` with OPENROUTER_API_KEY to generate
   'zh-tw': { translation: en },
-  fr: { translation: en },
   de: { translation: en },
   it: { translation: en },
-  es: { translation: en },
   ja: { translation: en },
   ko: { translation: en },
   ru: { translation: en },
-  'pt-br': { translation: en },
   tr: { translation: en },
   pl: { translation: en },
   cs: { translation: en },
@@ -37,9 +41,16 @@ let initialized = false;
 
 /**
  * Initialize i18next with the specified locale
+ * If already initialized, just changes the language
  */
 export async function initI18n(locale: SupportedLocale): Promise<void> {
   currentLocale = locale;
+
+  // If already initialized, just change the language
+  if (initialized) {
+    await i18next.changeLanguage(locale);
+    return;
+  }
 
   await i18next.init({
     lng: locale,
@@ -54,6 +65,9 @@ export async function initI18n(locale: SupportedLocale): Promise<void> {
     // Return key if translation missing (for debugging)
     returnNull: false,
     returnEmptyString: false,
+    // Keep locale codes lowercase (e.g., 'pt-br' not 'pt-BR')
+    // This ensures resource keys match what we define
+    lowerCaseLng: true,
   });
 
   initialized = true;
