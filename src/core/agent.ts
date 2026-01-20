@@ -2565,12 +2565,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       return {
         thought,
         toolCalls: completion.toolCalls.map(tc => {
-          // Log raw tool call for debugging
           const rawArgs = tc.function.arguments;
-          if (!rawArgs || rawArgs === '{}' || rawArgs === '') {
-            console.error(chalk.yellow(`⚠ Tool "${tc.function.name}" has empty/missing arguments`));
-            console.error(chalk.gray(`  Raw arguments: "${rawArgs}"`));
-          }
           return {
             id: tc.id,
             tool: tc.function.name as AgentAction['type'],
@@ -4286,6 +4281,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
       const usage = estimateMessagesTokens(messages);
       const percent = Math.max(0, Math.min(1 - usage / this.contextWindow, 1));
       this.contextPercentLeft = Math.round(percent * 100);
+    }
+
+    // Update InkRenderer with context percentage
+    if (this.inkRenderer) {
+      this.inkRenderer.setContextPercent(this.contextPercentLeft);
     }
 
     this.emitStatus();

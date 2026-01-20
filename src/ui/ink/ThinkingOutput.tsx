@@ -6,6 +6,7 @@
 import React, { memo } from 'react';
 import { Box, Text } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
+import { useTranslation } from '../i18n/index.js';
 
 export interface ThinkingOutputProps {
   thought: string | null;
@@ -13,6 +14,7 @@ export interface ThinkingOutputProps {
 
 function ThinkingOutputComponent({ thought }: ThinkingOutputProps) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
 
   if (!thought) {
     return null;
@@ -26,7 +28,7 @@ function ThinkingOutputComponent({ thought }: ThinkingOutputProps) {
 
   return (
     <Box marginBottom={1}>
-      <Text color={colors.dim} dimColor>Thinking: {thought}</Text>
+      <Text color={colors.dim} dimColor>{t('ui.thinking')}: {thought}</Text>
     </Box>
   );
 }

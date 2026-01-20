@@ -379,6 +379,20 @@
     "applied": "Changes applied.",
     "discarded": "Changes discarded."
   },
+  "ui": {
+    "escToCancel": "esc to cancel",
+    "commandHint": "/ for commands · @ to mention files",
+    "ctrlCToExit": "Press Ctrl+C again to exit",
+    "commandPalette": "Command palette",
+    "noMatchingCommands": "No matching commands.",
+    "selectFile": "Select a file",
+    "noMatchingFiles": "No matching files. Keep typing…",
+    "thinking": "Thinking",
+    "planModeActive": "Plan mode active - tools are read-only",
+    "typeToFilter": "Filter",
+    "navigateHint": "Type to filter · ↑/↓ navigate · Enter to run · Esc cancel",
+    "fileNavigateHint": "Type to filter · ↑/↓ navigate · Enter choose · Esc cancel"
+  },
   "languages": {
     "en": "English",
     "zh-cn": "简体中文 (Simplified Chinese)",
