@@ -22,3 +22,5 @@ AGENTS.md
 prd/
 package-lock.json
 bin/
+scripts/
+autohand
