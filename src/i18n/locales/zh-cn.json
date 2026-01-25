@@ -396,7 +396,10 @@
     "questionOther": "其他（输入您的答案）",
     "questionYourAnswer": "▸ 您的答案",
     "questionCustomHint": "↵ 提交 · ESC 返回",
-    "questionSelectHint": "↑↓ 导航 · ↵ 选择 · 1-9 快捷键 · ESC 取消"
+    "questionSelectHint": "↑↓ 导航 · ↵ 选择 · 1-9 快捷键 · ESC 取消",
+    "noOptionsAvailable": "没有可用选项",
+    "planRevise": "否，修改计划",
+    "planEditHint": "ctrl-g 在 VS Code 中编辑"
   },
   "languages": {
     "en": "English",

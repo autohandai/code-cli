@@ -35,6 +35,7 @@ const READ_ONLY_TOOLS = [
   'web_search',
   'fetch_url',
   'package_info',
+  'web_repo',
   // Memory
   'recall_memory',
   // Meta
