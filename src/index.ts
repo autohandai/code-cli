@@ -417,18 +417,25 @@ async function runCLI(options: CLIOptions): Promise<void> {
       }
     }
 
-    // Check for updates (non-blocking, uses cache)
-    const versionCheck = config.ui?.checkForUpdates !== false
-      ? await checkForUpdates(packageJson.version, {
+    // Print banner FIRST for immediate visual feedback
+    printBanner();
+
+    // Start version check and startup checks in parallel (non-blocking)
+    const versionCheckPromise = config.ui?.checkForUpdates !== false
+      ? checkForUpdates(packageJson.version, {
           checkIntervalHours: config.ui?.updateCheckInterval ?? 24,
         })
-      : null;
+      : Promise.resolve(null);
 
-    printBanner();
+    const startupChecksPromise = runStartupChecks(workspaceRoot);
+
+    // Wait for both to complete in parallel
+    const [versionCheck, checkResults] = await Promise.all([
+      versionCheckPromise,
+      startupChecksPromise,
+    ]);
+
     printWelcome(runtime, authUser, versionCheck);
-
-    // Run startup checks
-    const checkResults = await runStartupChecks(workspaceRoot);
     printStartupCheckResults(checkResults);
 
     // Warn but continue if required tools are missing
