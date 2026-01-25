@@ -466,6 +466,10 @@ export interface CLIOptions {
   contextCompact?: boolean;
   /** Web search provider (brave, duckduckgo, parallel) */
   searchEngine?: SearchProvider;
+  /** Replace entire system prompt (inline string or file path) */
+  sysPrompt?: string;
+  /** Append to system prompt (inline string or file path) */
+  appendSysPrompt?: string;
 }
 
 export interface PromptContext {

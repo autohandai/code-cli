@@ -639,6 +639,69 @@ Flag-flag ini mengganti pengaturan file konfigurasi:
 | `--unrestricted` | Tanpa prompt persetujuan |
 | `--restricted` | Tolak operasi berbahaya |
 | `--setup` | Jalankan wizard setup untuk mengkonfigurasi atau mengkonfigurasi ulang Autohand |
+| `--sys-prompt <nilai>` | Ganti seluruh system prompt (string inline atau path file) |
+| `--append-sys-prompt <nilai>` | Tambahkan ke system prompt (string inline atau path file) |
+
+---
+
+## Kustomisasi System Prompt
+
+Autohand memungkinkan Anda untuk menyesuaikan system prompt yang digunakan oleh agen AI. Ini berguna untuk alur kerja khusus, instruksi kustom, atau integrasi dengan sistem lain.
+
+### Flag CLI
+
+| Flag | Deskripsi |
+|------|-----------|
+| `--sys-prompt <nilai>` | Ganti seluruh system prompt |
+| `--append-sys-prompt <nilai>` | Tambahkan konten ke system prompt default |
+
+Kedua flag menerima:
+- **String inline**: Konten teks langsung
+- **Path file**: Path ke file yang berisi prompt (auto-detected)
+
+### Deteksi Path File
+
+Sebuah nilai diperlakukan sebagai path file jika:
+- Dimulai dengan `./`, `../`, `/`, atau `~/`
+- Dimulai dengan huruf drive Windows (misalnya, `C:\`)
+- Diakhiri dengan `.txt`, `.md`, atau `.prompt`
+- Berisi pemisah path tanpa spasi
+
+Jika tidak, diperlakukan sebagai string inline.
+
+### `--sys-prompt` (Penggantian Lengkap)
+
+Ketika disediakan, ini **sepenuhnya menggantikan** system prompt default. Agen TIDAK akan memuat:
+- Instruksi default Autohand
+- Instruksi proyek AGENTS.md
+- Memori pengguna/proyek
+- Skill aktif
+
+```bash
+# String inline
+autohand --sys-prompt "Anda adalah ahli Python. Singkat dan jelas." --prompt "Tulis hello world"
+
+# Dari file
+autohand --sys-prompt ./custom-prompt.txt --prompt "Jelaskan kode ini"
+```
+
+### `--append-sys-prompt` (Tambahkan ke Default)
+
+Ketika disediakan, ini **menambahkan** konten ke system prompt default lengkap. Agen akan tetap memuat semua instruksi default.
+
+```bash
+# String inline
+autohand --append-sys-prompt "Selalu gunakan TypeScript daripada JavaScript" --prompt "Buat sebuah fungsi"
+
+# Dari file
+autohand --append-sys-prompt ./team-guidelines.md --prompt "Tambahkan penanganan error"
+```
+
+### Prioritas
+
+Ketika kedua flag disediakan:
+1. `--sys-prompt` memiliki prioritas penuh
+2. `--append-sys-prompt` diabaikan
 
 ---
 

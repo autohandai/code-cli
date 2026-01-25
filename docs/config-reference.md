@@ -1362,6 +1362,148 @@ These flags override config file settings:
 | `--logout` | Sign out of your Autohand account |
 | `--sync-settings` | Enable/disable settings sync (default: true for logged users) |
 | `--setup` | Run the setup wizard to configure or reconfigure Autohand |
+| `--sys-prompt <value>` | Replace entire system prompt (inline string or file path) |
+| `--append-sys-prompt <value>` | Append to system prompt (inline string or file path) |
+
+---
+
+## System Prompt Customization
+
+Autohand allows you to customize the system prompt used by the AI agent. This is useful for specialized workflows, custom instructions, or integration with other systems.
+
+### CLI Flags
+
+| Flag | Description |
+|------|-------------|
+| `--sys-prompt <value>` | Replace the entire system prompt |
+| `--append-sys-prompt <value>` | Append content to the default system prompt |
+
+Both flags accept either:
+- **Inline string**: Direct text content
+- **File path**: Path to a file containing the prompt (auto-detected)
+
+### File Path Detection
+
+A value is treated as a file path if it:
+- Starts with `./`, `../`, `/`, or `~/`
+- Starts with a Windows drive letter (e.g., `C:\`)
+- Ends with `.txt`, `.md`, or `.prompt`
+- Contains path separators without spaces
+
+Otherwise, it's treated as an inline string.
+
+### `--sys-prompt` (Complete Replacement)
+
+When provided, this **completely replaces** the default system prompt. The agent will NOT load:
+- Default Autohand instructions
+- AGENTS.md project instructions
+- User/project memories
+- Active skills
+
+```bash
+# Inline string
+autohand --sys-prompt "You are a Python expert. Be concise." --prompt "Write hello world"
+
+# From file
+autohand --sys-prompt ./custom-prompt.txt --prompt "Explain this code"
+
+# Home directory
+autohand --sys-prompt ~/.autohand/prompts/python-expert.md --prompt "Debug this function"
+```
+
+**Example custom prompt file (`custom-prompt.txt`):**
+```
+You are a specialized Python debugging assistant.
+
+Rules:
+- Focus only on Python code
+- Always explain the root cause
+- Suggest fixes with code examples
+- Be concise and direct
+```
+
+### `--append-sys-prompt` (Add to Default)
+
+When provided, this **appends** content to the full default system prompt. The agent will still load:
+- Default Autohand instructions
+- AGENTS.md project instructions
+- User/project memories
+- Active skills
+
+The appended content is added at the very end.
+
+```bash
+# Inline string
+autohand --append-sys-prompt "Always use TypeScript instead of JavaScript" --prompt "Create a function"
+
+# From file
+autohand --append-sys-prompt ./team-guidelines.md --prompt "Add error handling"
+```
+
+**Example append file (`team-guidelines.md`):**
+```
+## Team Guidelines
+
+- Use 2-space indentation
+- Prefer functional patterns
+- Add JSDoc comments to public APIs
+- Run tests before committing
+```
+
+### Precedence
+
+When both flags are provided:
+1. `--sys-prompt` takes full precedence
+2. `--append-sys-prompt` is ignored
+
+```bash
+# --append-sys-prompt is ignored in this case
+autohand --sys-prompt "Custom only" --append-sys-prompt "This is ignored"
+```
+
+### Use Cases
+
+| Use Case | Recommended Flag |
+|----------|------------------|
+| Custom agent persona | `--sys-prompt` |
+| Minimal instructions | `--sys-prompt` |
+| Add team guidelines | `--append-sys-prompt` |
+| Add project conventions | `--append-sys-prompt` |
+| Integration with external systems | `--sys-prompt` |
+| Specialized debugging | `--sys-prompt` |
+
+### Error Handling
+
+| Scenario | Behavior |
+|----------|----------|
+| Empty value | Error |
+| File not found | Treated as inline string |
+| Empty file | Error |
+| File > 1MB | Error |
+| Permission denied | Error |
+| Directory path | Error |
+
+### Examples
+
+```bash
+# Python expert mode
+autohand --sys-prompt "You are a Python expert. Only write Python code." \
+  --prompt "Create a web scraper"
+
+# TypeScript enforcement
+autohand --append-sys-prompt "Always use TypeScript, never JavaScript." \
+  --prompt "Create a REST API"
+
+# CI/CD integration (non-interactive)
+autohand --sys-prompt ./ci-prompt.txt \
+  --prompt "Fix the failing tests" \
+  --unrestricted \
+  --patch
+
+# Custom team workflow
+autohand --append-sys-prompt ~/.company/coding-standards.md \
+  --prompt "Refactor this module"
+```
 
 ---
 
