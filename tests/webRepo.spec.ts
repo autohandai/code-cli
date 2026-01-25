@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, it, expect } from 'vitest';
-import { parseRepoUrl } from '../src/actions/webRepo.js';
+import { parseRepoUrl, fetchRepoInfo, type RepoInfo } from '../src/actions/webRepo.js';
 
 describe('webRepo', () => {
   describe('parseRepoUrl', () => {
@@ -44,6 +44,30 @@ describe('webRepo', () => {
 
     it('throws on unsupported platform', () => {
       expect(() => parseRepoUrl('https://bitbucket.org/owner/repo')).toThrow('Could not parse repo URL');
+    });
+  });
+
+  describe('fetchRepoInfo', () => {
+    it('fetches GitHub repo info', async () => {
+      // This is an integration test - will hit real API
+      const info = await fetchRepoInfo({ platform: 'github', owner: 'octocat', repo: 'Hello-World' });
+      expect(info.platform).toBe('github');
+      expect(info.name).toBe('Hello-World');
+      expect(info.fullName).toBe('octocat/Hello-World');
+      expect(typeof info.stars).toBe('number');
+    });
+
+    it('fetches GitLab repo info', async () => {
+      const info = await fetchRepoInfo({ platform: 'gitlab', owner: 'gitlab-org', repo: 'gitlab' });
+      expect(info.platform).toBe('gitlab');
+      // GitLab API returns 'GitLab' (capitalized) as the display name
+      expect(info.name).toBe('GitLab');
+      expect(typeof info.stars).toBe('number');
+    });
+
+    it('throws on non-existent repo', async () => {
+      await expect(fetchRepoInfo({ platform: 'github', owner: 'nonexistent-user-12345', repo: 'nonexistent-repo-67890' }))
+        .rejects.toThrow('Repository not found');
     });
   });
 });
