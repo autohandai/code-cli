@@ -28,6 +28,7 @@ interface StatusData {
     contextPercentLeft: number;
     totalTokensUsed: number;
     config: AutohandConfig | undefined;
+    contextCompactionEnabled: boolean;
 }
 
 export async function status(ctx: SlashCommandContext): Promise<string | null> {
@@ -62,7 +63,8 @@ async function gatherStatusData(ctx: SlashCommandContext): Promise<StatusData> {
         sessionsCount: allSessions.length,
         contextPercentLeft: ctx.getContextPercentLeft?.() ?? 100,
         totalTokensUsed: ctx.getTotalTokensUsed?.() ?? 0,
-        config: ctx.config
+        config: ctx.config,
+        contextCompactionEnabled: ctx.isContextCompactionEnabled?.() ?? true,
     };
 }
 
@@ -216,6 +218,10 @@ function renderStatusTab(data: StatusData): void {
     console.log(chalk.bold('cwd:'), data.cwd);
     console.log(chalk.bold('Provider:'), data.provider);
     console.log(chalk.bold('Model:'), data.model);
+    console.log(
+        chalk.bold('Context Compaction:'),
+        data.contextCompactionEnabled ? chalk.green('ON') : chalk.yellow('OFF')
+    );
     console.log();
     console.log(
         chalk.bold('API Status:'),

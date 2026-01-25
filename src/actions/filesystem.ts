@@ -76,7 +76,17 @@ export class FileActionManager {
   private currentToolName = '';
 
   constructor(workspaceRoot: string, additionalDirs: string[] = []) {
-    this.workspaceRoot = path.resolve(workspaceRoot);
+    // Resolve and normalize with realpathSync to handle:
+    // 1. Symlinks (security: prevent symlink attacks)
+    // 2. Case normalization on case-insensitive filesystems (macOS)
+    // This ensures consistent comparison when validating paths
+    const resolvedRoot = path.resolve(workspaceRoot);
+    try {
+      this.workspaceRoot = fs.realpathSync(resolvedRoot);
+    } catch {
+      // If directory doesn't exist yet, fall back to resolved path
+      this.workspaceRoot = resolvedRoot;
+    }
 
     // Validate and normalize additional directories
     this.additionalDirs = [];
@@ -85,10 +95,17 @@ export class FileActionManager {
         throw new Error('Empty string is not a valid additional directory');
       }
       const resolved = path.resolve(dir);
+      // Normalize with realpathSync for consistent case handling
+      let normalized: string;
+      try {
+        normalized = fs.realpathSync(resolved);
+      } catch {
+        normalized = resolved;
+      }
       // Remove trailing slashes for consistent comparison
-      const normalized = resolved.endsWith(path.sep) && resolved.length > 1
-        ? resolved.slice(0, -1)
-        : resolved;
+      if (normalized.endsWith(path.sep) && normalized.length > 1) {
+        normalized = normalized.slice(0, -1);
+      }
       if (!this.additionalDirs.includes(normalized)) {
         this.additionalDirs.push(normalized);
       }
@@ -110,9 +127,17 @@ export class FileActionManager {
       throw new Error('Empty string is not a valid additional directory');
     }
     const resolved = path.resolve(dir);
-    const normalized = resolved.endsWith(path.sep) && resolved.length > 1
-      ? resolved.slice(0, -1)
-      : resolved;
+    // Normalize with realpathSync for consistent case handling
+    let normalized: string;
+    try {
+      normalized = fs.realpathSync(resolved);
+    } catch {
+      normalized = resolved;
+    }
+    // Remove trailing slashes for consistent comparison
+    if (normalized.endsWith(path.sep) && normalized.length > 1) {
+      normalized = normalized.slice(0, -1);
+    }
     if (!this.additionalDirs.includes(normalized) && normalized !== this.workspaceRoot) {
       this.additionalDirs.push(normalized);
     }
