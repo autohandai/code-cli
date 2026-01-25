@@ -396,7 +396,10 @@
     "questionOther": "Autre (tapez votre propre réponse)",
     "questionYourAnswer": "▸ Votre réponse",
     "questionCustomHint": "↵ Soumettre · ESC Retour",
-    "questionSelectHint": "↑↓ Naviguer · ↵ Sélectionner · 1-9 Raccourci · ESC Annuler"
+    "questionSelectHint": "↑↓ Naviguer · ↵ Sélectionner · 1-9 Raccourci · ESC Annuler",
+    "noOptionsAvailable": "Aucune option disponible",
+    "planRevise": "Non, réviser le plan",
+    "planEditHint": "ctrl-g pour éditer dans VS Code"
   },
   "languages": {
     "en": "English",

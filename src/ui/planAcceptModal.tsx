@@ -3,8 +3,11 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { useState } from 'react';
-import { Box, Text, useInput, render } from 'ink';
+import os from 'node:os';
+import React from 'react';
+import { Box, Text, render } from 'ink';
+import { Modal, type ModalOption } from './ink/components/Modal.js';
+import { I18nProvider, useTranslation } from './i18n/index.js';
 
 export interface PlanAcceptOption {
   id: string;
@@ -23,149 +26,72 @@ export interface PlanAcceptResult {
   customText?: string;
 }
 
-interface PlanAcceptModalProps {
+/** Internal value used to identify the "No, revise" option */
+const REVISE_VALUE = '__revise__';
+
+interface PlanAcceptModalWrapperProps {
   planFilePath: string;
   options: PlanAcceptOption[];
   onSubmit: (result: PlanAcceptResult) => void;
 }
 
-function PlanAcceptModal({ planFilePath, options, onSubmit }: PlanAcceptModalProps) {
-  const [cursor, setCursor] = useState(0);
-  const [customInput, setCustomInput] = useState('');
-  const [isCustomMode, setIsCustomMode] = useState(false);
+/**
+ * Wrapper component that uses the base Modal and displays
+ * the plan file path footer.
+ */
+function PlanAcceptModalWrapper({
+  planFilePath,
+  options,
+  onSubmit,
+}: PlanAcceptModalWrapperProps) {
+  const { t } = useTranslation();
 
-  // Build choices: options + "No, revise" + "Type custom"
-  const choices: Array<{
-    id: string;
-    label: string;
-    shortcut?: string;
-    type: 'option' | 'revise' | 'custom';
-  }> = [
-    ...options.map(opt => ({
-      id: opt.id,
-      label: opt.label,
-      shortcut: opt.shortcut,
-      type: 'option' as const
+  // Convert PlanAcceptOptions to ModalOptions
+  const modalOptions: ModalOption[] = [
+    ...options.map((opt) => ({
+      label: opt.shortcut ? `${opt.label} (${opt.shortcut})` : opt.label,
+      value: opt.id,
     })),
     {
-      id: 'revise',
-      label: 'No, revise the plan',
-      type: 'revise' as const
+      label: t('ui.planRevise'),
+      value: REVISE_VALUE,
     },
-    {
-      id: 'custom',
-      label: 'Type here to tell Claude what to change',
-      type: 'custom' as const
-    }
   ];
 
-  useInput((char, key) => {
-    // ESC cancels
-    if (key.escape) {
-      if (isCustomMode) {
-        setIsCustomMode(false);
-        setCustomInput('');
-      } else {
-        onSubmit({ type: 'cancel' });
-      }
-      return;
+  const handleSelect = (option: ModalOption) => {
+    if (option.value === REVISE_VALUE) {
+      // "No, revise" maps to cancel
+      onSubmit({ type: 'cancel' });
+    } else if (
+      option.value !== '__other__' &&
+      options.some((o) => o.id === option.value)
+    ) {
+      // User selected one of the original options
+      onSubmit({ type: 'option', optionId: option.value });
+    } else {
+      // Custom text was entered (value is the custom text itself)
+      onSubmit({ type: 'custom', customText: option.value });
     }
+  };
 
-    // Custom input mode
-    if (isCustomMode) {
-      if (key.return) {
-        if (customInput.trim()) {
-          onSubmit({ type: 'custom', customText: customInput.trim() });
-        }
-        return;
-      }
-      if (key.backspace || key.delete) {
-        setCustomInput(prev => prev.slice(0, -1));
-        return;
-      }
-      if (char && !key.ctrl && !key.meta) {
-        setCustomInput(prev => prev + char);
-      }
-      return;
-    }
-
-    // Selection mode
-    if (key.return) {
-      const selected = choices[cursor];
-      if (selected.type === 'custom') {
-        setIsCustomMode(true);
-      } else if (selected.type === 'revise') {
-        onSubmit({ type: 'cancel' });
-      } else {
-        onSubmit({ type: 'option', optionId: selected.id });
-      }
-      return;
-    }
-
-    // Arrow navigation
-    if (key.upArrow) {
-      setCursor(prev => (prev - 1 + choices.length) % choices.length);
-      return;
-    }
-    if (key.downArrow) {
-      setCursor(prev => (prev + 1) % choices.length);
-      return;
-    }
-
-    // Number shortcuts (1-9)
-    if (char && char >= '1' && char <= '9') {
-      const index = parseInt(char, 10) - 1;
-      if (index < choices.length) {
-        const selected = choices[index];
-        if (selected.type === 'custom') {
-          setIsCustomMode(true);
-        } else if (selected.type === 'revise') {
-          onSubmit({ type: 'cancel' });
-        } else {
-          onSubmit({ type: 'option', optionId: selected.id });
-        }
-      }
-      return;
-    }
-  });
+  const handleCancel = () => {
+    onSubmit({ type: 'cancel' });
+  };
 
   // Format the plan file path for display (shorten home dir)
-  const displayPath = planFilePath.replace(process.env.HOME || '', '~');
+  const displayPath = planFilePath.replace(os.homedir(), '~');
 
   return (
-    <Box flexDirection="column" paddingTop={1}>
-      <Text>Would you like to proceed?</Text>
-      <Text> </Text>
-
-      {isCustomMode ? (
-        <Box>
-          <Text color="gray">{') '}</Text>
-          <Text>{customInput}</Text>
-          <Text color="gray">▌</Text>
-        </Box>
-      ) : (
-        choices.map((choice, i) => {
-          const isSelected = i === cursor;
-          const prefix = isSelected ? '❯' : ' ';
-          const number = `${i + 1}.`;
-          const shortcutText = choice.shortcut ? ` (${choice.shortcut})` : '';
-
-          return (
-            <Box key={choice.id}>
-              <Text color={isSelected ? 'cyan' : undefined}>
-                {prefix} {number} {choice.label}
-              </Text>
-              {shortcutText && (
-                <Text color="gray">{shortcutText}</Text>
-              )}
-            </Box>
-          );
-        })
-      )}
-
-      <Text> </Text>
+    <Box flexDirection="column">
+      <Modal
+        title="Would you like to proceed?"
+        options={modalOptions}
+        onSelect={handleSelect}
+        onCancel={handleCancel}
+        allowCustomInput={true}
+      />
       <Text color="gray">
-        ctrl-g to edit in VS Code · {displayPath}
+        {t('ui.planEditHint')} · {displayPath}
       </Text>
     </Box>
   );
@@ -174,7 +100,9 @@ function PlanAcceptModal({ planFilePath, options, onSubmit }: PlanAcceptModalPro
 /**
  * Show the plan acceptance modal and return the user's choice
  */
-export async function showPlanAcceptModal(options: PlanAcceptModalOptions): Promise<PlanAcceptResult> {
+export async function showPlanAcceptModal(
+  options: PlanAcceptModalOptions
+): Promise<PlanAcceptResult> {
   const { planFilePath, options: acceptOptions } = options;
 
   // Non-interactive fallback
@@ -186,16 +114,18 @@ export async function showPlanAcceptModal(options: PlanAcceptModalOptions): Prom
     let completed = false;
 
     const instance = render(
-      <PlanAcceptModal
-        planFilePath={planFilePath}
-        options={acceptOptions}
-        onSubmit={(result) => {
-          if (completed) return;
-          completed = true;
-          instance.unmount();
-          resolve(result);
-        }}
-      />,
+      <I18nProvider>
+        <PlanAcceptModalWrapper
+          planFilePath={planFilePath}
+          options={acceptOptions}
+          onSubmit={(result) => {
+            if (completed) return;
+            completed = true;
+            instance.unmount();
+            resolve(result);
+          }}
+        />
+      </I18nProvider>,
       { exitOnCtrlC: false }
     );
   });
