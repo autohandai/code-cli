@@ -121,7 +121,8 @@
       "currentLanguage": "Idioma actual: {{language}}",
       "selectPrompt": "Selecciona un idioma:",
       "changed": "Idioma cambiado a {{language}}",
-      "noChange": "Sin cambios."
+      "noChange": "Sin cambios.",
+      "restartHint": "Algunos cambios pueden requerir reiniciar la CLI para tener efecto completo."
     },
     "quit": {
       "description": "salir de Autohand",
@@ -377,6 +378,26 @@
     "apply": "¿Aplicar cambios?",
     "applied": "Cambios aplicados.",
     "discarded": "Cambios descartados."
+  },
+  "ui": {
+    "escToCancel": "esc para cancelar",
+    "commandHint": "/ para comandos · @ para mencionar archivos",
+    "ctrlCToExit": "Presione Ctrl+C de nuevo para salir",
+    "commandPalette": "Paleta de comandos",
+    "noMatchingCommands": "No hay comandos coincidentes.",
+    "selectFile": "Seleccione un archivo",
+    "noMatchingFiles": "No hay archivos coincidentes. Siga escribiendo...",
+    "thinking": "Pensando",
+    "planModeActive": "Modo plan activo - herramientas solo lectura",
+    "planModeExecuting": "Ejecutando plan",
+    "typeToFilter": "Filtrar",
+    "navigateHint": "Escriba para filtrar · ↑/↓ navegar · Enter ejecutar · Esc cancelar",
+    "fileNavigateHint": "Escriba para filtrar · ↑/↓ navegar · Enter elegir · Esc cancelar",
+    "questionPrompt": "❓",
+    "questionOther": "Otro (escriba su propia respuesta)",
+    "questionYourAnswer": "▸ Tu respuesta",
+    "questionCustomHint": "↵ Enviar · ESC Volver",
+    "questionSelectHint": "↑↓ Navegar · ↵ Seleccionar · 1-9 Atajo · ESC Cancelar"
   },
   "languages": {
     "en": "English",
