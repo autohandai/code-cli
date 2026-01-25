@@ -138,10 +138,8 @@ export async function confirm(
     if (char === '1' || char === '2' || char === '3') {
       const index = parseInt(char, 10) - 1;
       if (index >= 0 && index < choices.length) {
-        // Set the focused value directly using enquirer's internal state
+        // Set the focused index and value (don't set 'selected' - it's readonly)
         this.index = index;
-        this.selected = this.choices[index];
-        // Use the value property to set the answer
         this.value = this.choices[index].name;
         await this.render();
         return this.submit();
@@ -150,14 +148,12 @@ export async function confirm(
     // Handle 'y' for Yes, 'n' for No
     if (char === 'y' || char === 'Y') {
       this.index = 0;
-      this.selected = this.choices[0];
       this.value = this.choices[0].name;
       await this.render();
       return this.submit();
     }
     if (char === 'n' || char === 'N') {
       this.index = 1;
-      this.selected = this.choices[1];
       this.value = this.choices[1].name;
       await this.render();
       return this.submit();
