@@ -389,9 +389,15 @@
     "noMatchingFiles": "No matching files. Keep typing…",
     "thinking": "Thinking",
     "planModeActive": "Plan mode active - tools are read-only",
+    "planModeExecuting": "Executing plan",
     "typeToFilter": "Filter",
     "navigateHint": "Type to filter · ↑/↓ navigate · Enter to run · Esc cancel",
-    "fileNavigateHint": "Type to filter · ↑/↓ navigate · Enter choose · Esc cancel"
+    "fileNavigateHint": "Type to filter · ↑/↓ navigate · Enter choose · Esc cancel",
+    "questionPrompt": "❓",
+    "questionOther": "Other (type your own answer)",
+    "questionYourAnswer": "▸ Your answer",
+    "questionCustomHint": "↵ Submit · ESC Back",
+    "questionSelectHint": "↑↓ Navigate · ↵ Select · 1-9 Shortcut · ESC Cancel"
   },
   "languages": {
     "en": "English",
