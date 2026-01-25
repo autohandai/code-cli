@@ -83,6 +83,7 @@ import { ImageManager } from './ImageManager.js';
 import { IntentDetector, type Intent, type IntentResult } from './IntentDetector.js';
 import { EnvironmentBootstrap, type BootstrapResult } from './EnvironmentBootstrap.js';
 import { CodeQualityPipeline, type QualityResult } from './CodeQualityPipeline.js';
+import { resolvePromptValue, SysPromptError } from '../utils/sysPrompt.js';
 
 export class AutohandAgent {
   private mentionContexts: { path: string; contents: string }[] = [];
@@ -2932,6 +2933,23 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async buildSystemPrompt(): Promise<string> {
+    // Check for custom system prompt replacement (--sys-prompt)
+    if (this.runtime.options.sysPrompt) {
+      try {
+        const customPrompt = await resolvePromptValue(this.runtime.options.sysPrompt, {
+          cwd: this.runtime.workspaceRoot,
+        });
+        // Custom prompt completely replaces the default - no memories, AGENTS.md, or skills
+        return customPrompt;
+      } catch (error) {
+        if (error instanceof SysPromptError) {
+          console.error(chalk.red(`Error loading custom system prompt: ${error.message}`));
+          throw error;
+        }
+        throw error;
+      }
+    }
+
     const toolDefs = this.toolManager?.listDefinitions() ?? [];
     const toolSignatures = toolDefs.map(def => this.formatToolSignature(def)).join('\n');
 
@@ -3216,8 +3234,26 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
 
     // Inject locale instruction for non-English users
-    const basePrompt = parts.join('\n');
-    return injectLocaleIntoPrompt(basePrompt, getCurrentLocale());
+    let basePrompt = parts.join('\n');
+    basePrompt = injectLocaleIntoPrompt(basePrompt, getCurrentLocale());
+
+    // Check for system prompt append (--append-sys-prompt)
+    if (this.runtime.options.appendSysPrompt) {
+      try {
+        const appendContent = await resolvePromptValue(this.runtime.options.appendSysPrompt, {
+          cwd: this.runtime.workspaceRoot,
+        });
+        basePrompt = basePrompt + '\n\n' + appendContent;
+      } catch (error) {
+        if (error instanceof SysPromptError) {
+          console.error(chalk.red(`Error loading append system prompt: ${error.message}`));
+          throw error;
+        }
+        throw error;
+      }
+    }
+
+    return basePrompt;
   }
 
   private async resolveMentions(instruction: string): Promise<string> {
