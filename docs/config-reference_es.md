@@ -639,6 +639,69 @@ Estos flags sobrescriben la configuración del archivo:
 | `--unrestricted` | Sin solicitudes de aprobación |
 | `--restricted` | Denegar operaciones peligrosas |
 | `--setup` | Ejecutar el asistente de configuración para configurar o reconfigurar Autohand |
+| `--sys-prompt <valor>` | Reemplazar completamente el prompt del sistema (cadena en línea o ruta de archivo) |
+| `--append-sys-prompt <valor>` | Añadir al prompt del sistema (cadena en línea o ruta de archivo) |
+
+---
+
+## Personalización del Prompt del Sistema
+
+Autohand permite personalizar el prompt del sistema utilizado por el agente de IA. Esto es útil para flujos de trabajo especializados, instrucciones personalizadas o integración con otros sistemas.
+
+### Flags de CLI
+
+| Flag | Descripción |
+|------|-------------|
+| `--sys-prompt <valor>` | Reemplazar completamente el prompt del sistema |
+| `--append-sys-prompt <valor>` | Añadir contenido al prompt del sistema predeterminado |
+
+Ambos flags aceptan:
+- **Cadena en línea**: Contenido de texto directo
+- **Ruta de archivo**: Ruta a un archivo que contiene el prompt (auto-detectado)
+
+### Detección de Ruta de Archivo
+
+Un valor se trata como ruta de archivo si:
+- Comienza con `./`, `../`, `/`, o `~/`
+- Comienza con una letra de unidad de Windows (ej., `C:\`)
+- Termina con `.txt`, `.md`, o `.prompt`
+- Contiene separadores de ruta sin espacios
+
+De lo contrario, se trata como cadena en línea.
+
+### `--sys-prompt` (Reemplazo Completo)
+
+Cuando se proporciona, **reemplaza completamente** el prompt del sistema predeterminado. El agente NO cargará:
+- Instrucciones predeterminadas de Autohand
+- Instrucciones del proyecto AGENTS.md
+- Memorias de usuario/proyecto
+- Skills activas
+
+```bash
+# Cadena en línea
+autohand --sys-prompt "Eres un experto en Python. Sé conciso." --prompt "Escribe hello world"
+
+# Desde archivo
+autohand --sys-prompt ./prompt-personalizado.txt --prompt "Explica este código"
+```
+
+### `--append-sys-prompt` (Añadir al Predeterminado)
+
+Cuando se proporciona, **añade** contenido al prompt del sistema predeterminado completo. El agente seguirá cargando todas las instrucciones predeterminadas.
+
+```bash
+# Cadena en línea
+autohand --append-sys-prompt "Siempre usa TypeScript en lugar de JavaScript" --prompt "Crea una función"
+
+# Desde archivo
+autohand --append-sys-prompt ./guias-equipo.md --prompt "Añade manejo de errores"
+```
+
+### Precedencia
+
+Cuando se proporcionan ambos flags:
+1. `--sys-prompt` tiene precedencia total
+2. `--append-sys-prompt` se ignora
 
 ---
 

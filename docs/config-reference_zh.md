@@ -639,6 +639,69 @@ Autohand 将数据存储在 `~/.autohand/`（或 `$AUTOHAND_HOME`）：
 | `--unrestricted` | 无批准提示 |
 | `--restricted` | 拒绝危险操作 |
 | `--setup` | 运行设置向导以配置或重新配置 Autohand |
+| `--sys-prompt <值>` | 完全替换系统提示（内联字符串或文件路径） |
+| `--append-sys-prompt <值>` | 附加到系统提示（内联字符串或文件路径） |
+
+---
+
+## 系统提示自定义
+
+Autohand 允许您自定义 AI 代理使用的系统提示。这对于专业工作流程、自定义指令或与其他系统集成非常有用。
+
+### CLI 标志
+
+| 标志 | 描述 |
+|------|------|
+| `--sys-prompt <值>` | 完全替换系统提示 |
+| `--append-sys-prompt <值>` | 向默认系统提示附加内容 |
+
+两个标志都接受：
+- **内联字符串**：直接文本内容
+- **文件路径**：包含提示的文件路径（自动检测）
+
+### 文件路径检测
+
+如果值满足以下条件，则被视为文件路径：
+- 以 `./`、`../`、`/` 或 `~/` 开头
+- 以 Windows 驱动器号开头（例如 `C:\`）
+- 以 `.txt`、`.md` 或 `.prompt` 结尾
+- 包含路径分隔符且不含空格
+
+否则，被视为内联字符串。
+
+### `--sys-prompt`（完全替换）
+
+提供时，**完全替换**默认系统提示。代理将不会加载：
+- Autohand 默认指令
+- AGENTS.md 项目指令
+- 用户/项目记忆
+- 活动技能
+
+```bash
+# 内联字符串
+autohand --sys-prompt "你是一个 Python 专家。请简洁回答。" --prompt "编写 hello world"
+
+# 从文件
+autohand --sys-prompt ./custom-prompt.txt --prompt "解释这段代码"
+```
+
+### `--append-sys-prompt`（附加到默认）
+
+提供时，向完整的默认系统提示**附加**内容。代理仍将加载所有默认指令。
+
+```bash
+# 内联字符串
+autohand --append-sys-prompt "始终使用 TypeScript 而不是 JavaScript" --prompt "创建一个函数"
+
+# 从文件
+autohand --append-sys-prompt ./team-guidelines.md --prompt "添加错误处理"
+```
+
+### 优先级
+
+当同时提供两个标志时：
+1. `--sys-prompt` 具有完全优先权
+2. `--append-sys-prompt` 被忽略
 
 ---
 

@@ -650,6 +650,69 @@ Estas flags sobrescrevem as configurações do arquivo:
 | `--unrestricted` | Sem prompts de aprovação |
 | `--restricted` | Negar operações perigosas |
 | `--setup` | Executar o assistente de configuração para configurar ou reconfigurar o Autohand |
+| `--sys-prompt <valor>` | Substituir completamente o prompt do sistema (string inline ou caminho de arquivo) |
+| `--append-sys-prompt <valor>` | Anexar ao prompt do sistema (string inline ou caminho de arquivo) |
+
+---
+
+## Personalização do Prompt do Sistema
+
+O Autohand permite personalizar o prompt do sistema usado pelo agente de IA. Isso é útil para fluxos de trabalho especializados, instruções personalizadas ou integração com outros sistemas.
+
+### Flags da CLI
+
+| Flag | Descrição |
+|------|-----------|
+| `--sys-prompt <valor>` | Substituir completamente o prompt do sistema |
+| `--append-sys-prompt <valor>` | Anexar conteúdo ao prompt do sistema padrão |
+
+Ambas as flags aceitam:
+- **String inline**: Conteúdo de texto direto
+- **Caminho de arquivo**: Caminho para um arquivo contendo o prompt (auto-detectado)
+
+### Detecção de Caminho de Arquivo
+
+Um valor é tratado como caminho de arquivo se:
+- Começa com `./`, `../`, `/`, ou `~/`
+- Começa com uma letra de unidade do Windows (ex., `C:\`)
+- Termina com `.txt`, `.md`, ou `.prompt`
+- Contém separadores de caminho sem espaços
+
+Caso contrário, é tratado como string inline.
+
+### `--sys-prompt` (Substituição Completa)
+
+Quando fornecido, **substitui completamente** o prompt do sistema padrão. O agente NÃO carregará:
+- Instruções padrão do Autohand
+- Instruções do projeto AGENTS.md
+- Memórias de usuário/projeto
+- Skills ativas
+
+```bash
+# String inline
+autohand --sys-prompt "Você é um especialista em Python. Seja conciso." --prompt "Escreva hello world"
+
+# De arquivo
+autohand --sys-prompt ./prompt-personalizado.txt --prompt "Explique este código"
+```
+
+### `--append-sys-prompt` (Anexar ao Padrão)
+
+Quando fornecido, **anexa** conteúdo ao prompt do sistema padrão completo. O agente continuará carregando todas as instruções padrão.
+
+```bash
+# String inline
+autohand --append-sys-prompt "Sempre use TypeScript em vez de JavaScript" --prompt "Crie uma função"
+
+# De arquivo
+autohand --append-sys-prompt ./diretrizes-equipe.md --prompt "Adicione tratamento de erros"
+```
+
+### Precedência
+
+Quando ambas as flags são fornecidas:
+1. `--sys-prompt` tem precedência total
+2. `--append-sys-prompt` é ignorado
 
 ---
 
