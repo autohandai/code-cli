@@ -41,6 +41,14 @@ export class SlashCommandHandler {
           const { model } = await import('../commands/model.js');
           return model(this.ctx);
         }
+        case '/cc': {
+          const { cc } = await import('../commands/cc.js');
+          return cc(this.ctx);
+        }
+        case '/search': {
+          const { search } = await import('../commands/search.js');
+          return search(this.ctx);
+        }
         case '/init': {
           const { init } = await import('../commands/init.js');
           return init(this.ctx);
