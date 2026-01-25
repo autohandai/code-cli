@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { OpenRouterClient } from '../openrouter.js';
+import { OpenRouterClient } from './OpenRouterClient.js';
 import type { LLMProvider } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, OpenRouterSettings, NetworkSettings } from '../types.js';
 
