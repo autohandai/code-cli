@@ -55,12 +55,14 @@ export function AgentUI({
   const [input, setInput] = useState(state.currentInput || '');
   const [ctrlCCount, setCtrlCCount] = useState(0);
   const [planModeIndicator, setPlanModeIndicator] = useState('');
+  const [planModeStatusKey, setPlanModeStatusKey] = useState('');
 
   // Subscribe to plan mode changes
   useEffect(() => {
     const planModeManager = getPlanModeManager();
     const updateIndicator = () => {
       setPlanModeIndicator(planModeManager.getPromptIndicator());
+      setPlanModeStatusKey(planModeManager.getStatusDescriptionKey());
     };
 
     planModeManager.on('enabled', updateIndicator);
@@ -152,10 +154,10 @@ export function AgentUI({
   return (
     <Box flexDirection="column">
       {/* Plan mode indicator */}
-      {planModeIndicator && (
+      {planModeIndicator && planModeStatusKey && (
         <Box>
           <Text color="cyan" bold>{planModeIndicator}</Text>
-          <Text color={colors.muted}> {t('ui.planModeActive')}</Text>
+          <Text color={colors.muted}> {t(planModeStatusKey)}</Text>
         </Box>
       )}
 
