@@ -29,7 +29,7 @@ type Primitive = string | number | boolean | null;
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
-export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx';
+export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway';
 
 export interface ProviderSettings {
   apiKey?: string;
@@ -39,6 +39,10 @@ export interface ProviderSettings {
 }
 
 export interface OpenRouterSettings extends ProviderSettings {
+  apiKey: string;
+}
+
+export interface LLMGatewaySettings extends ProviderSettings {
   apiKey: string;
 }
 
@@ -357,6 +361,7 @@ export interface AutohandConfig {
   llamacpp?: ProviderSettings;
   openai?: ProviderSettings;
   mlx?: ProviderSettings;
+  llmgateway?: LLMGatewaySettings;
   workspace?: WorkspaceSettings;
   ui?: UISettings;
   agent?: AgentSettings;
@@ -380,6 +385,21 @@ export interface AutohandConfig {
   share?: ShareSettings;
   /** Settings sync configuration (syncs ~/.autohand/ to cloud for logged users) */
   sync?: SyncSettings;
+  /** Web search provider settings */
+  search?: SearchSettings;
+}
+
+/** Supported web search providers */
+export type SearchProvider = 'brave' | 'duckduckgo' | 'parallel';
+
+/** Web search provider settings */
+export interface SearchSettings {
+  /** Active search provider (default: duckduckgo) */
+  provider?: SearchProvider;
+  /** Brave Search API key */
+  braveApiKey?: string;
+  /** Parallel.ai API key */
+  parallelApiKey?: string;
 }
 
 export interface LoadedConfig extends AutohandConfig {
@@ -442,6 +462,10 @@ export interface CLIOptions {
   addDir?: string[];
   /** Display language override (e.g., 'en', 'zh-cn', 'fr') */
   displayLanguage?: string;
+  /** Enable/disable context compaction (default: true) */
+  contextCompact?: boolean;
+  /** Web search provider (brave, duckduckgo, parallel) */
+  searchEngine?: SearchProvider;
 }
 
 export interface PromptContext {
@@ -688,7 +712,7 @@ export type AgentAction =
   | { type: 'custom_command'; name: string; command: string; args?: string[]; description?: string; dangerous?: boolean }
   | { type: 'plan'; notes: string }
   | { type: 'multi_file_edit'; file_path: string; edits: Array<{ old_string: string; new_string: string; replace_all?: boolean }> }
-  | { type: 'todo_write'; tasks: Array<{ id: string; title: string; status: 'pending' | 'in_progress' | 'completed'; description?: string }> }
+  | { type: 'todo_write'; tasks: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm: string }> }
   | {
     type: 'smart_context_cropper';
     need_user_approve?: boolean;
@@ -704,7 +728,9 @@ export type AgentAction =
   // Web Search Operations
   | { type: 'web_search'; query: string; max_results?: number; search_type?: 'general' | 'packages' | 'docs' | 'changelog' }
   | { type: 'fetch_url'; url: string; selector?: string; max_length?: number }
-  | { type: 'package_info'; package_name: string; registry?: 'npm' | 'pypi' | 'crates' | 'go' | 'rubygems'; version?: string };
+  | { type: 'package_info'; package_name: string; registry?: 'npm' | 'pypi' | 'crates' | 'go' | 'rubygems'; version?: string }
+  // User interaction
+  | { type: 'ask_followup_question'; question: string; suggested_answers?: string[] };
 
 export type ExplorationEvent = { kind: 'read' | 'list' | 'search'; target: string };
 

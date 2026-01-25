@@ -11,36 +11,6 @@ import { EventEmitter } from 'node:events';
 import type { Plan, PlanModeState, PlanPhase, PlanAcceptOption, PlanAcceptConfig } from './types.js';
 
 /**
- * Bash commands allowed in plan mode (read-only operations)
- */
-const BASH_ALLOWLIST: Record<string, string[]> = {
-  fileInspection: ['cat', 'head', 'tail', 'less', 'more', 'wc', 'file', 'stat'],
-  search: ['grep', 'rg', 'ripgrep', 'ag', 'ack', 'find', 'fd'],
-  directory: ['ls', 'pwd', 'tree', 'du', 'df'],
-  gitRead: ['git status', 'git log', 'git diff', 'git show', 'git branch', 'git blame', 'git remote'],
-  packageInfo: ['npm list', 'npm outdated', 'npm view', 'yarn list', 'yarn info', 'pnpm list', 'bun pm ls'],
-  systemInfo: ['uname', 'whoami', 'date', 'uptime', 'env', 'which', 'type'],
-  textProcessing: ['sort', 'uniq', 'diff', 'jq', 'yq'],
-};
-
-/**
- * Bash commands blocked in plan mode (write/dangerous operations)
- */
-const BASH_BLOCKLIST = [
-  'rm', 'rmdir', 'mv', 'cp', 'mkdir', 'touch', 'chmod', 'chown', 'ln',
-  'git add', 'git commit', 'git push', 'git pull', 'git merge', 'git rebase', 'git reset', 'git checkout', 'git stash',
-  'npm install', 'npm i ', 'npm ci', 'npm update', 'npm uninstall', 'npm link', 'npm publish',
-  'yarn add', 'yarn remove', 'yarn install',
-  'pnpm add', 'pnpm remove', 'pnpm install',
-  'bun add', 'bun remove', 'bun install',
-  'pip install', 'pip3 install', 'cargo install',
-  'sudo', 'su', 'kill', 'killall', 'reboot', 'shutdown',
-  'vim', 'vi', 'nano', 'emacs', 'code',
-  'curl -X POST', 'curl -X PUT', 'curl -X DELETE', 'curl -d', 'curl --data',
-  'wget',
-];
-
-/**
  * Tools that are read-only and allowed in plan mode
  */
 const READ_ONLY_TOOLS = [
@@ -71,8 +41,6 @@ const READ_ONLY_TOOLS = [
   'tools_registry',
   'plan',
   'ask_followup_question',
-  // Bash (filtered via allowlist)
-  'run_command',
 ];
 
 /**
@@ -168,6 +136,21 @@ export class PlanModeManager extends EventEmitter {
   }
 
   /**
+   * Get i18n key for status description based on current phase
+   */
+  getStatusDescriptionKey(): string {
+    if (!this.state.enabled) {
+      return '';
+    }
+
+    if (this.state.phase === 'executing') {
+      return 'ui.planModeExecuting';
+    }
+
+    return 'ui.planModeActive';
+  }
+
+  /**
    * Set the current plan
    */
   setPlan(plan: Plan): void {
@@ -194,31 +177,6 @@ export class PlanModeManager extends EventEmitter {
    */
   getReadOnlyTools(): string[] {
     return [...READ_ONLY_TOOLS];
-  }
-
-  /**
-   * Check if a bash command is allowed in plan mode
-   */
-  isBashCommandAllowed(command: string): boolean {
-    const normalized = command.toLowerCase().trim();
-
-    // Check blocklist first (higher priority)
-    for (const blocked of BASH_BLOCKLIST) {
-      if (normalized.startsWith(blocked.toLowerCase())) {
-        return false;
-      }
-    }
-
-    // Check allowlist
-    for (const category of Object.values(BASH_ALLOWLIST)) {
-      for (const allowed of category) {
-        if (normalized.startsWith(allowed.toLowerCase())) {
-          return true;
-        }
-      }
-    }
-
-    return false;
   }
 
   /**
