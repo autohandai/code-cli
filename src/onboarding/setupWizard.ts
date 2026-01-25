@@ -584,7 +584,7 @@ export class SetupWizard {
   // Helper methods
 
   private requiresApiKey(provider: ProviderName): boolean {
-    return provider === 'openrouter' || provider === 'openai';
+    return provider === 'openrouter' || provider === 'openai' || provider === 'llmgateway';
   }
 
   private getProviderDisplayName(provider: ProviderName): string {
@@ -593,7 +593,8 @@ export class SetupWizard {
       openai: 'OpenAI',
       ollama: 'Ollama',
       llamacpp: 'llama.cpp',
-      mlx: 'MLX (Apple Silicon)'
+      mlx: 'MLX (Apple Silicon)',
+      llmgateway: 'LLM Gateway'
     };
     return names[provider] || provider;
   }
@@ -604,7 +605,8 @@ export class SetupWizard {
       openai: 'Cloud - Official OpenAI models (GPT-4o, o1, etc.)',
       ollama: 'Local - Run models on your machine (free)',
       llamacpp: 'Local - Fast inference with GGUF models',
-      mlx: 'Local - Optimized for Apple Silicon Macs'
+      mlx: 'Local - Optimized for Apple Silicon Macs',
+      llmgateway: 'Cloud - Unified API for multiple LLM providers'
     };
     return hints[provider] || '';
   }
@@ -612,7 +614,8 @@ export class SetupWizard {
   private getApiKeyUrl(provider: ProviderName): string {
     const urls: Record<string, string> = {
       openrouter: 'https://openrouter.ai/keys',
-      openai: 'https://platform.openai.com/api-keys'
+      openai: 'https://platform.openai.com/api-keys',
+      llmgateway: 'https://llmgateway.io/dashboard'
     };
     return urls[provider] || '';
   }
@@ -623,7 +626,8 @@ export class SetupWizard {
       openai: 'gpt-4o',
       ollama: 'llama3.2:latest',
       llamacpp: 'default',
-      mlx: 'mlx-community/Llama-3.2-3B-Instruct-4bit'
+      mlx: 'mlx-community/Llama-3.2-3B-Instruct-4bit',
+      llmgateway: 'gpt-4o'
     };
     return defaults[provider] || '';
   }
@@ -634,7 +638,8 @@ export class SetupWizard {
       openai: 'https://api.openai.com/v1',
       ollama: 'http://localhost:11434',
       llamacpp: 'http://localhost:8080',
-      mlx: 'http://localhost:8080'
+      mlx: 'http://localhost:8080',
+      llmgateway: 'https://api.llmgateway.io/v1'
     };
     return urls[provider] || '';
   }
