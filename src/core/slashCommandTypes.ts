@@ -50,6 +50,10 @@ export interface SlashCommandContext {
     additionalDirs?: string[];
     /** Callback to add an additional directory at runtime */
     addAdditionalDir?: (dir: string) => void;
+    /** Toggle context compaction on/off */
+    toggleContextCompaction?: () => void;
+    /** Check if context compaction is enabled */
+    isContextCompactionEnabled?: () => boolean;
 }
 
 export interface SlashCommand {

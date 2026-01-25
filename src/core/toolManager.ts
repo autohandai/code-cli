@@ -11,6 +11,7 @@ import type {
   FunctionDefinition
 } from '../types.js';
 import { ToolFilter, type ClientContext, type ToolPolicy } from './toolFilter.js';
+import { getPlanModeManager } from '../commands/plan.js';
 
 export interface ToolParameter {
   type: string;
@@ -85,6 +86,23 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
         notes: { type: 'string', description: 'Plan notes or description' }
       }
     }
+  },
+  {
+    name: 'ask_followup_question',
+    description: 'Ask the user a follow-up question to gather clarification or preferences. Use when you need specific information to proceed. Include suggested answers when possible to guide the response. Only available in interactive and plan mode.',
+    parameters: {
+      type: 'object',
+      properties: {
+        question: { type: 'string', description: 'The specific question to ask the user' },
+        suggested_answers: {
+          type: 'array',
+          description: 'Optional list of 2-4 suggested answers to guide the user response',
+          items: { type: 'string', description: 'A suggested answer option' }
+        }
+      },
+      required: ['question']
+    },
+    requiresApproval: false // User interaction, not a mutation
   },
   {
     name: 'read_file',
@@ -758,22 +776,21 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'todo_write',
-    description: 'Persist structured todos',
+    description: 'Persist and update the todo list. Send the COMPLETE updated todo list each time (not incremental changes).',
     parameters: {
       type: 'object',
       properties: {
         tasks: {
           type: 'array',
-          description: 'Array of {id, title, status, description?}',
+          description: 'The complete updated todo list with all tasks and their current statuses',
           items: {
             type: 'object',
             properties: {
-              id: { type: 'string', description: 'Task identifier' },
-              title: { type: 'string', description: 'Task title' },
-              status: { type: 'string', description: 'Task status' },
-              description: { type: 'string', description: 'Optional details' }
+              content: { type: 'string', description: 'Task description (what needs to be done)' },
+              status: { type: 'string', enum: ['pending', 'in_progress', 'completed'], description: 'Current task status' },
+              activeForm: { type: 'string', description: 'Present continuous form shown during execution (e.g., "Running tests")' }
             },
-            required: ['id', 'title', 'status']
+            required: ['content', 'status', 'activeForm']
           }
         }
       },
@@ -1030,6 +1047,12 @@ export class ToolManager {
 
   async execute(toolCalls: ToolCallRequest[]): Promise<ToolExecutionResult[]> {
     const results: ToolExecutionResult[] = [];
+
+    // Get plan mode manager to check read-only enforcement
+    const planModeManager = getPlanModeManager();
+    const isInPlanningPhase = planModeManager.isEnabled() && planModeManager.getPhase() === 'planning';
+    const readOnlyTools = isInPlanningPhase ? new Set(planModeManager.getReadOnlyTools()) : null;
+
     for (const call of toolCalls) {
       // Check if tool is allowed in current context
       if (!this.toolFilter.isAllowed(call.tool)) {
@@ -1037,6 +1060,16 @@ export class ToolManager {
           tool: call.tool,
           success: false,
           error: `Tool '${call.tool}' is not available in the current context (${this.toolFilter.getContext()})`
+        });
+        continue;
+      }
+
+      // Check plan mode restrictions - only read-only tools allowed during planning phase
+      if (readOnlyTools && !readOnlyTools.has(call.tool)) {
+        results.push({
+          tool: call.tool,
+          success: false,
+          error: `Tool '${call.tool}' is not available in plan mode. Only read-only tools are allowed during planning. Use 'plan' tool to create a plan, then accept it to execute write operations.`
         });
         continue;
       }

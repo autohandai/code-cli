@@ -70,6 +70,9 @@ import { ToolsRegistry } from './toolsRegistry.js';
 import type { MemoryManager } from '../memory/MemoryManager.js';
 import { SecurityScanner } from './SecurityScanner.js';
 import { execSync } from 'node:child_process';
+import { PlanFileStorage } from '../modes/planMode/PlanFileStorage.js';
+import type { Plan, PlanStep } from '../modes/planMode/types.js';
+import { randomUUID } from 'node:crypto';
 
 /** Response from permission-request hook */
 export interface PermissionHookResponse {
@@ -95,6 +98,10 @@ export interface ActionExecutorOptions {
   memoryManager?: MemoryManager;
   onToolOutput?: (chunk: ToolOutputChunk) => void;
   onFileModified?: () => void;
+  /** Callback to handle ask_followup_question tool - delegates to agent for TUI coordination */
+  onAskFollowup?: (question: string, suggestedAnswers?: string[]) => Promise<string>;
+  /** Callback when a plan is created - allows agent to store plan and ask for acceptance */
+  onPlanCreated?: (plan: Plan, filePath: string) => Promise<string>;
   /** Callback to check permission hooks before prompting user */
   onPermissionRequest?: (context: {
     tool: string;
@@ -120,6 +127,8 @@ export class ActionExecutor {
   private readonly memoryManager?: MemoryManager;
   private readonly onToolOutput?: (chunk: ToolOutputChunk) => void;
   private readonly onFileModified?: () => void;
+  private readonly onAskFollowup?: AgentExecutorDeps['onAskFollowup'];
+  private readonly onPlanCreated?: AgentExecutorDeps['onPlanCreated'];
   private readonly onPermissionRequest?: AgentExecutorDeps['onPermissionRequest'];
   private readonly securityScanner: SecurityScanner;
   private readonly searchCache: Map<string, string> = new Map();
@@ -138,6 +147,8 @@ export class ActionExecutor {
     this.memoryManager = deps.memoryManager;
     this.onToolOutput = deps.onToolOutput;
     this.onFileModified = deps.onFileModified;
+    this.onAskFollowup = deps.onAskFollowup;
+    this.onPlanCreated = deps.onPlanCreated;
     this.onPermissionRequest = deps.onPermissionRequest;
     this.securityScanner = new SecurityScanner();
   }
@@ -180,8 +191,163 @@ export class ActionExecutor {
     }
 
     switch (action.type) {
-      case 'plan':
-        return action.notes ?? 'No plan notes provided';
+      case 'plan': {
+        const notes = action.notes ?? '';
+        if (!notes) {
+          return 'No plan notes provided';
+        }
+
+        const storage = new PlanFileStorage();
+
+        // Clean up plans older than 30 days
+        const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+        const now = Date.now();
+        const existingPlanIds = await storage.listPlans();
+        let cleanedCount = 0;
+
+        for (const planId of existingPlanIds) {
+          const existingPlan = await storage.loadPlan(planId);
+          if (existingPlan && (now - existingPlan.createdAt) > THIRTY_DAYS_MS) {
+            await storage.deletePlan(planId);
+            cleanedCount++;
+          }
+        }
+
+        if (cleanedCount > 0) {
+          console.log(chalk.gray(`\n🧹 Cleaned up ${cleanedCount} plan(s) older than 30 days`));
+        }
+
+        // Check for incomplete plans (pending or in_progress steps)
+        const refreshedPlanIds = await storage.listPlans();
+        const incompletePlans: Array<{ plan: Plan; pendingCount: number; inProgressCount: number }> = [];
+
+        for (const planId of refreshedPlanIds) {
+          const existingPlan = await storage.loadPlan(planId);
+          if (existingPlan) {
+            const pendingCount = existingPlan.steps.filter(s => s.status === 'pending').length;
+            const inProgressCount = existingPlan.steps.filter(s => s.status === 'in_progress').length;
+
+            if (pendingCount > 0 || inProgressCount > 0) {
+              incompletePlans.push({ plan: existingPlan, pendingCount, inProgressCount });
+            }
+          }
+        }
+
+        // If there are incomplete plans, ask user if they want to resume one
+        if (incompletePlans.length > 0 && this.onAskFollowup) {
+          console.log(chalk.yellow(`\n📋 Found ${incompletePlans.length} incomplete plan(s):`));
+
+          for (const { plan, pendingCount, inProgressCount } of incompletePlans) {
+            const age = Math.floor((now - plan.createdAt) / (1000 * 60 * 60 * 24));
+            const ageStr = age === 0 ? 'today' : age === 1 ? '1 day ago' : `${age} days ago`;
+            const statusStr = inProgressCount > 0
+              ? `${inProgressCount} in progress, ${pendingCount} pending`
+              : `${pendingCount} pending`;
+            console.log(chalk.gray(`   • ${plan.id} (${ageStr}) - ${plan.steps.length} steps, ${statusStr}`));
+          }
+          console.log();
+
+          // Build suggested answers
+          const suggestedAnswers = [
+            'Create new plan',
+            ...incompletePlans.slice(0, 3).map(({ plan }) => `Resume: ${plan.id}`)
+          ];
+
+          const answer = await this.onAskFollowup(
+            'Would you like to resume an incomplete plan or create a new one?',
+            suggestedAnswers
+          );
+
+          const answerText = answer.replace(/<\/?answer>/g, '').trim();
+
+          // Check if user wants to resume an existing plan
+          if (answerText.toLowerCase().includes('resume:') || answerText.toLowerCase().startsWith('resume')) {
+            // Extract plan ID from answer
+            const resumeMatch = answerText.match(/resume[:\s]+(\S+)/i);
+            if (resumeMatch) {
+              const planIdToResume = resumeMatch[1];
+              const planToResume = incompletePlans.find(p => p.plan.id === planIdToResume);
+
+              if (planToResume) {
+                const filePath = `${storage.getPlansDirectory()}/${planToResume.plan.id}.md`;
+                console.log(chalk.cyan(`\n📋 Resuming plan: ${planToResume.plan.id}`));
+                console.log(chalk.gray(`   File: ${filePath}\n`));
+
+                if (this.onPlanCreated) {
+                  return this.onPlanCreated(planToResume.plan, filePath);
+                }
+
+                return `Resumed plan ${planToResume.plan.id}\n\nSteps:\n${planToResume.plan.steps.map(s => {
+                  const status = s.status === 'completed' ? '✓' : s.status === 'in_progress' ? '>' : '○';
+                  return `${status} ${s.number}. ${s.description}`;
+                }).join('\n')}`;
+              }
+            }
+          }
+
+          // User chose to create new plan or answer didn't match resume pattern
+          console.log(chalk.cyan('\n📋 Creating new plan...'));
+        }
+
+        // Parse notes into PlanStep[] - look for numbered lines
+        const lines = notes.split('\n');
+        const steps: PlanStep[] = [];
+        let stepNumber = 0;
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          // Match patterns like "1. Do something" or "- Step one" or "* Task"
+          const numberedMatch = trimmed.match(/^(\d+)[.)]\s*(.+)$/);
+          const bulletMatch = trimmed.match(/^[-*]\s+(.+)$/);
+
+          if (numberedMatch) {
+            stepNumber = parseInt(numberedMatch[1], 10);
+            steps.push({
+              number: stepNumber,
+              description: numberedMatch[2].trim(),
+              status: 'pending'
+            });
+          } else if (bulletMatch) {
+            stepNumber++;
+            steps.push({
+              number: stepNumber,
+              description: bulletMatch[1].trim(),
+              status: 'pending'
+            });
+          }
+        }
+
+        // If no steps were parsed, treat the whole text as a single step
+        if (steps.length === 0) {
+          steps.push({
+            number: 1,
+            description: notes.substring(0, 200),
+            status: 'pending'
+          });
+        }
+
+        // Create Plan object
+        const plan: Plan = {
+          id: `plan-${randomUUID().split('-')[0]}`,
+          steps,
+          rawText: notes,
+          createdAt: Date.now()
+        };
+
+        // Save plan to file
+        const filePath = await storage.savePlan(plan);
+
+        console.log(chalk.cyan(`\n📋 Plan created with ${steps.length} step(s)`));
+        console.log(chalk.gray(`   Saved to: ${filePath}\n`));
+
+        // If callback is provided, notify agent for acceptance flow
+        if (this.onPlanCreated) {
+          return this.onPlanCreated(plan, filePath);
+        }
+
+        // Fallback: just return the file path and steps summary
+        return `Plan saved to ${filePath}\n\nSteps:\n${steps.map(s => `${s.number}. ${s.description}`).join('\n')}`;
+      }
       case 'read_file': {
         if (!action.path) {
           throw new Error('read_file requires a "path" argument.');
@@ -1028,24 +1194,28 @@ export class ActionExecutor {
           return 'todo_write skipped: tasks must be an array';
         }
 
-        // Read existing todos or create new
-        let existingTodos: typeof action.tasks = [];
-        try {
-          const content = await this.files.readFile(todoPath);
-          const parsed = JSON.parse(content);
-          existingTodos = Array.isArray(parsed) ? parsed : [];
-        } catch {
-          // File doesn't exist, start fresh
-        }
+        // Normalize tasks: LLM sends {content, status, activeForm} but we store {id, title, status, activeForm}
+        // Generate stable IDs based on content hash for merging
+        const normalizedTasks = action.tasks.map((task: any, index: number) => {
+          // Support both formats: {content, status, activeForm} and {id, title, status}
+          const content = task.content || task.title || '';
+          const title = content;
+          // Create stable ID from content (first 20 chars, sanitized) + index position
+          const id = task.id || `task_${content.slice(0, 20).replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}_${index}`;
 
-        // Merge with new tasks (validate each task has required fields)
-        const todoMap = new Map(existingTodos.map(t => [t.id, t]));
-        for (const task of action.tasks) {
-          if (task && typeof task === 'object' && task.id && task.title) {
-            todoMap.set(task.id, task);
-          }
-        }
-        const allTodos = Array.from(todoMap.values());
+          return {
+            id,
+            title,
+            content, // Keep original content field
+            status: task.status || 'pending',
+            activeForm: task.activeForm || title,
+            description: task.description
+          };
+        });
+
+        // For todo_write, the LLM sends the COMPLETE updated list, not incremental updates
+        // So we replace the entire todo list instead of merging
+        const allTodos = normalizedTasks;
 
         // Write back
         await this.files.writeFile(todoPath, JSON.stringify(allTodos, null, 2));
@@ -1054,9 +1224,9 @@ export class ActionExecutor {
         console.log(chalk.cyan('\n📋 Task Progress:'));
 
         const total = allTodos.length;
-        const completed = allTodos.filter(t => t.status === 'completed').length;
-        const inProgress = allTodos.filter(t => t.status === 'in_progress');
-        const pending = allTodos.filter(t => t.status === 'pending').length;
+        const completed = allTodos.filter((t: any) => t.status === 'completed').length;
+        const inProgress = allTodos.filter((t: any) => t.status === 'in_progress');
+        const pending = allTodos.filter((t: any) => t.status === 'pending').length;
 
         const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
         const barWidth = 20;
@@ -1069,7 +1239,7 @@ export class ActionExecutor {
         if (inProgress.length > 0) {
           console.log(chalk.yellow('\n  🔄 Active Tasks:'));
           for (const task of inProgress) {
-            console.log(`    • ${task.title}`);
+            console.log(`    • ${(task as any).title || (task as any).content}`);
           }
         }
         console.log();
@@ -1212,6 +1382,64 @@ export class ActionExecutor {
         const formatted = formatPackageInfo(info);
         console.log(chalk.gray(formatted));
         return formatted;
+      }
+      // User interaction
+      case 'ask_followup_question': {
+        if (!action.question) {
+          throw new Error('ask_followup_question requires a "question" parameter.');
+        }
+
+        // Delegate to agent via callback for proper TUI coordination
+        if (this.onAskFollowup) {
+          return this.onAskFollowup(action.question, action.suggested_answers);
+        }
+
+        // Fallback to enquirer if no callback provided (legacy mode)
+        console.log(chalk.cyan('\n❓ ' + action.question + '\n'));
+
+        if (Array.isArray(action.suggested_answers) && action.suggested_answers.length > 0) {
+          // Use select prompt with suggested answers
+          const Select = (enquirer as any).Select;
+          const choices = action.suggested_answers.map((answer, i) => ({
+            name: answer,
+            message: `${i + 1}. ${answer}`
+          }));
+
+          // Add "Other" option for custom input
+          choices.push({ name: '__other__', message: `${choices.length + 1}. Other (type your own answer)` });
+
+          const prompt = new Select({
+            name: 'choice',
+            message: 'Select an answer:',
+            choices
+          });
+
+          const selected = await prompt.run();
+
+          if (selected === '__other__') {
+            // Fall through to text input for custom answer
+            const result = await enquirer.prompt<{ answer: string }>({
+              type: 'input',
+              name: 'answer',
+              message: 'Your answer:'
+            });
+            console.log(chalk.green(`\n✓ Answer: ${result.answer}\n`));
+            return `<answer>${result.answer}</answer>`;
+          }
+
+          console.log(chalk.green(`\n✓ Answer: ${selected}\n`));
+          return `<answer>${selected}</answer>`;
+        } else {
+          // Use text input for free-form answer
+          const result = await enquirer.prompt<{ answer: string }>({
+            type: 'input',
+            name: 'answer',
+            message: 'Your answer:'
+          });
+          const answer = result.answer || 'No answer provided';
+          console.log(chalk.green(`\n✓ Answer: ${answer}\n`));
+          return `<answer>${answer}</answer>`;
+        }
       }
       default: {
         // Check if this is a dynamic meta-tool

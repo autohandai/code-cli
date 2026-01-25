@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as model from '../commands/model.js';
+import * as cc from '../commands/cc.js';
+import * as search from '../commands/search.js';
 import * as init from '../commands/init.js';
 import * as quit from '../commands/quit.js';
 import * as help from '../commands/help.js';
@@ -41,6 +43,8 @@ export type { SlashCommand } from './slashCommandTypes.js';
 export const SLASH_COMMANDS: SlashCommand[] = [
   quit.metadata,
   model.metadata,
+  cc.metadata,
+  search.metadata,
   init.metadata,
   help.metadata,
   help.aliasMetadata,

@@ -31,6 +31,7 @@ import { getAutoCommitInfo, executeAutoCommit } from '../actions/git.js';
 import { filterToolsByRelevance, detectRelevantCategories } from './toolFilter.js';
 import { SLASH_COMMANDS } from './slashCommands.js';
 import { ConversationManager } from './conversationManager.js';
+import { ContextManager } from './contextManager.js';
 import { ToolManager } from './toolManager.js';
 import { ActionExecutor } from './actionExecutor.js';
 import { SlashCommandHandler } from './slashCommandHandler.js';
@@ -56,7 +57,7 @@ import type {
 } from '../types.js';
 
 import { AgentDelegator } from './agents/AgentDelegator.js';
-import { DEFAULT_TOOL_DEFINITIONS } from './toolManager.js';
+import { DEFAULT_TOOL_DEFINITIONS, type ToolDefinition } from './toolManager.js';
 import { ErrorLogger } from './errorLogger.js';
 import { MemoryManager } from '../memory/MemoryManager.js';
 import { FeedbackManager } from '../feedback/FeedbackManager.js';
@@ -137,6 +138,10 @@ export class AutohandAgent {
   private searchQueries: string[] = [];
   private sessionRetryCount = 0;
 
+  // Context compaction - auto-compresses context to prevent "context too long" errors
+  private contextManager!: ContextManager;
+  private contextCompactionEnabled = true;
+
   constructor(
     private llm: LLMProvider,
     private readonly files: FileActionManager,
@@ -150,6 +155,22 @@ export class AutohandAgent {
     this.conversation = ConversationManager.getInstance();
     this.toolsRegistry = new ToolsRegistry();
     this.memoryManager = new MemoryManager(runtime.workspaceRoot);
+
+    // Initialize context manager for auto-compaction
+    // Default enabled, can be toggled with --no-cc or /cc command
+    this.contextCompactionEnabled = runtime.options.contextCompact !== false;
+    this.contextManager = new ContextManager({
+      model,
+      conversationManager: this.conversation,
+      onCrop: (count, reason) => {
+        if (this.contextCompactionEnabled) {
+          console.log(chalk.cyan(`ℹ Context optimized: ${reason}`));
+        }
+      },
+      onWarning: (usage) => {
+        console.log(chalk.yellow(`⚠ Context at ${Math.round(usage.usagePercent * 100)}%`));
+      },
+    });
 
     // Initialize new feature modules
     this.imageManager = new ImageManager();
@@ -203,6 +224,8 @@ export class AutohandAgent {
       memoryManager: this.memoryManager,
       permissionManager: this.permissionManager,
       onFileModified: () => this.markFilesModified(),
+      onAskFollowup: (question, suggestedAnswers) => this.executeAskFollowupQuestion(question, suggestedAnswers),
+      onPlanCreated: (plan, filePath) => this.handlePlanCreated(plan, filePath),
       onPermissionRequest: async (context) => {
         const results = await this.hookManager.executeHooks('permission-request', {
           tool: context.tool,
@@ -266,15 +289,41 @@ export class AutohandAgent {
     this.skillsRegistry.setTelemetryManager(this.telemetryManager);
     this.skillsRegistry.setCommunityClient(this.communityClient);
 
-    const delegationTools = [
+    const delegationTools: ToolDefinition[] = [
       {
-        name: 'delegate_task' as const,
-        description: 'Delegate a task to a specialized sub-agent (synchronous)',
+        name: 'delegate_task',
+        description: 'Delegate a task to a specialized sub-agent (synchronous). Use /agents to list available agents.',
+        parameters: {
+          type: 'object',
+          properties: {
+            agent_name: { type: 'string', description: 'Name of the agent to delegate to' },
+            task: { type: 'string', description: 'Task description for the sub-agent' }
+          },
+          required: ['agent_name', 'task']
+        },
         requiresApproval: false
       },
       {
-        name: 'delegate_parallel' as const,
-        description: 'Run multiple sub-agents in parallel (max 5)',
+        name: 'delegate_parallel',
+        description: 'Run multiple sub-agents in parallel (max 5, swarm mode)',
+        parameters: {
+          type: 'object',
+          properties: {
+            tasks: {
+              type: 'array',
+              description: 'Array of delegation tasks',
+              items: {
+                type: 'object',
+                properties: {
+                  agent_name: { type: 'string', description: 'Name of the agent' },
+                  task: { type: 'string', description: 'Task for the agent' }
+                },
+                required: ['agent_name', 'task']
+              }
+            }
+          },
+          required: ['tasks']
+        },
         requiresApproval: false
       }
     ];
@@ -282,6 +331,11 @@ export class AutohandAgent {
     // Determine client context - restricted mode maps to 'restricted' context
     const clientContext = runtime.options.clientContext
       ?? (runtime.options.restricted ? 'restricted' : 'cli');
+
+    // Block ask_followup_question in command mode (--prompt flag) since it requires interactive terminal
+    const customPolicy = runtime.options.prompt ? {
+      blockedTools: ['ask_followup_question']
+    } : undefined;
 
     this.toolManager = new ToolManager({
       executor: async (action, context) => {
@@ -372,7 +426,8 @@ export class AutohandAgent {
       },
       confirmApproval: (message, context) => this.confirmDangerousAction(message, context),
       definitions: [...DEFAULT_TOOL_DEFINITIONS, ...delegationTools],
-      clientContext
+      clientContext,
+      customPolicy
     });
 
     this.sessionManager = new SessionManager();
@@ -443,9 +498,25 @@ export class AutohandAgent {
         if (!runtimeRef.additionalDirs.includes(dir)) {
           runtimeRef.additionalDirs.push(dir);
         }
-      }
+      },
+      // Context compaction toggle for /cc command
+      toggleContextCompaction: () => this.toggleContextCompaction(),
+      isContextCompactionEnabled: () => this.isContextCompactionEnabled(),
     };
     this.slashHandler = new SlashCommandHandler(slashContext, SLASH_COMMANDS);
+  }
+
+  // Context compaction toggle methods for /cc command
+  toggleContextCompaction(): void {
+    this.contextCompactionEnabled = !this.contextCompactionEnabled;
+  }
+
+  isContextCompactionEnabled(): boolean {
+    return this.contextCompactionEnabled;
+  }
+
+  setContextCompaction(enabled: boolean): void {
+    this.contextCompactionEnabled = enabled;
   }
 
   async runInteractive(): Promise<void> {
@@ -2103,8 +2174,16 @@ If lint or tests fail, report the issues but do NOT commit.`;
   private async runReactLoop(abortController: AbortController): Promise<void> {
     const debugMode = this.runtime.config.agent?.debug === true || process.env.AUTOHAND_DEBUG === '1';
     if (debugMode) process.stderr.write(`[AGENT DEBUG] runReactLoop started\n`);
-    // Configurable iteration limit (default 100) - context management handles memory
-    const maxIterations = this.runtime.config.agent?.maxIterations ?? 100;
+
+    // Check if we're executing an accepted plan - bypass iteration limit
+    const planModeManager = getPlanModeManager();
+    const isExecutingPlan = planModeManager.isEnabled() && planModeManager.getPhase() === 'executing';
+
+    // For plan execution, use effectively unlimited iterations (user accepted the plan)
+    // Otherwise use configurable limit (default 100)
+    const maxIterations = isExecutingPlan
+      ? 1000
+      : (this.runtime.config.agent?.maxIterations ?? 100);
 
     // Get all function definitions for native tool calling
     const allTools = this.toolManager.toFunctionDefinitions();
@@ -2125,42 +2204,66 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
       // Filter tools by relevance to reduce token overhead
       const messages = this.conversation.history();
-      const tools = filterToolsByRelevance(allTools, messages);
+      let tools = filterToolsByRelevance(allTools, messages);
 
-      // Check context usage and auto-crop if needed
-      const model = this.runtime.options.model ?? getProviderConfig(this.runtime.config, this.activeProvider)?.model ?? 'unconfigured';
-      const contextUsage = calculateContextUsage(
-        messages,
-        tools,
-        model
-      );
-
-      // Auto-crop if at critical threshold (90%+)
-      if (contextUsage.isCritical) {
-        this.runtime.spinner?.stop();
-        console.log(chalk.yellow('\n⚠ Context at critical level, auto-cropping old messages...'));
-
-        // Target 70% usage after cropping
-        const targetTokens = Math.floor(contextUsage.contextWindow * 0.7);
-        const tokensToRemove = contextUsage.totalTokens - targetTokens;
-        const avgMessageTokens = 200; // Rough estimate
-        const messagesToRemove = Math.ceil(tokensToRemove / avgMessageTokens);
-
-        const removed = this.conversation.cropHistory('top', messagesToRemove);
-        if (removed.length > 0) {
-          // Generate a summary of what was removed
-          const summary = this.summarizeRemovedMessages(removed);
-          this.conversation.addSystemNote(
-            `[Context Management] ${removed.length} older messages were summarized to maintain context limits.\n` +
-            `Summary of removed content:\n${summary}`
-          );
-          console.log(chalk.gray(`   Removed ${removed.length} messages to free up context space`));
-          console.log(chalk.gray(`   Summary preserved in context`));
+      // Filter tools for plan mode (read-only tools only during planning phase)
+      const planModeManager = getPlanModeManager();
+      if (planModeManager.isEnabled() && planModeManager.getPhase() === 'planning') {
+        const readOnlyTools = new Set(planModeManager.getReadOnlyTools());
+        tools = tools.filter(t => readOnlyTools.has(t.name));
+        if (debugMode) {
+          process.stderr.write(`[AGENT DEBUG] Plan mode active: filtered to ${tools.length} read-only tools\n`);
         }
-        this.updateContextUsage(this.conversation.history(), tools);
-      } else if (contextUsage.isWarning && iteration === 0) {
-        // Only warn once per user turn (iteration 0)
-        console.log(chalk.yellow(`\n⚠ Context at ${Math.round(contextUsage.usagePercent * 100)}% - approaching limit`));
+      }
+
+      // Use ContextManager for smart auto-compaction when enabled
+      const model = this.runtime.options.model ?? getProviderConfig(this.runtime.config, this.activeProvider)?.model ?? 'unconfigured';
+
+      if (this.contextCompactionEnabled) {
+        // Use tiered context management (70% compress, 80% summarize, 90%+ crop)
+        this.contextManager.setModel(model);
+        const prepared = this.contextManager.prepareRequest(tools);
+
+        if (prepared.wasCropped) {
+          this.runtime.spinner?.stop();
+          console.log(chalk.cyan(`ℹ Auto-compacted ${prepared.croppedCount} messages`));
+          if (prepared.summary) {
+            console.log(chalk.gray(`   Summary preserved in context`));
+          }
+        }
+
+        this.updateContextUsage(prepared.messages, tools);
+      } else {
+        // Manual context management (legacy behavior when compaction disabled)
+        const contextUsage = calculateContextUsage(messages, tools, model);
+
+        // Auto-crop if at critical threshold (90%+)
+        if (contextUsage.isCritical) {
+          this.runtime.spinner?.stop();
+          console.log(chalk.yellow('\n⚠ Context at critical level, auto-cropping old messages...'));
+
+          // Target 70% usage after cropping
+          const targetTokens = Math.floor(contextUsage.contextWindow * 0.7);
+          const tokensToRemove = contextUsage.totalTokens - targetTokens;
+          const avgMessageTokens = 200; // Rough estimate
+          const messagesToRemove = Math.ceil(tokensToRemove / avgMessageTokens);
+
+          const removed = this.conversation.cropHistory('top', messagesToRemove);
+          if (removed.length > 0) {
+            // Generate a summary of what was removed
+            const summary = this.summarizeRemovedMessages(removed);
+            this.conversation.addSystemNote(
+              `[Context Management] ${removed.length} older messages were summarized to maintain context limits.\n` +
+              `Summary of removed content:\n${summary}`
+            );
+            console.log(chalk.gray(`   Removed ${removed.length} messages to free up context space`));
+            console.log(chalk.gray(`   Summary preserved in context`));
+          }
+          this.updateContextUsage(this.conversation.history(), tools);
+        } else if (contextUsage.isWarning && iteration === 0) {
+          // Only warn once per user turn (iteration 0)
+          console.log(chalk.yellow(`\n⚠ Context at ${Math.round(contextUsage.usagePercent * 100)}% - approaching limit`));
+        }
       }
 
       // Show iteration progress for long-running tasks (every 10 steps after step 10)
@@ -3817,8 +3920,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
 
     // Context/payload errors (user action needed)
+    // Note: Match both "context is too long" and "context too long"
     if (message.includes('payload too large') ||
-        message.includes('context too long')) {
+        (message.includes('context') && message.includes('too long')) ||
+        message.includes('malformed')) {
       return false;
     }
 
@@ -4351,6 +4456,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     if (this.runtime.config.llamacpp) providers.push('llamacpp');
     if (this.runtime.config.openai) providers.push('openai');
     if (this.runtime.config.mlx) providers.push('mlx');
+    if (this.runtime.config.llmgateway) providers.push('llmgateway');
     return providers.length ? providers : ['openrouter'];
   }
 
@@ -4360,7 +4466,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
       ollama: this.runtime.config.ollama ?? (this.runtime.config.ollama = { model }),
       llamacpp: this.runtime.config.llamacpp ?? (this.runtime.config.llamacpp = { model }),
       openai: this.runtime.config.openai ?? (this.runtime.config.openai = { model }),
-      mlx: this.runtime.config.mlx ?? (this.runtime.config.mlx = { model })
+      mlx: this.runtime.config.mlx ?? (this.runtime.config.mlx = { model }),
+      llmgateway: this.runtime.config.llmgateway ?? (this.runtime.config.llmgateway = { apiKey: '', model })
     };
     cfgMap[provider].model = model;
     this.activeProvider = provider;
@@ -4437,6 +4544,177 @@ If lint or tests fail, report the issues but do NOT commit.`;
         this.inkRenderer.resume();
       }
 
+      this.persistentInput.resume();
+
+      if (spinnerWasSpinning && this.runtime.spinner) {
+        this.runtime.spinner.start();
+      }
+
+      this.startStatusUpdates();
+    }
+  }
+
+  /**
+   * Handle ask_followup_question tool with proper TUI coordination.
+   * Uses Ink-based question modal for consistent UX.
+   */
+  private async executeAskFollowupQuestion(
+    question: string,
+    suggestedAnswers?: string[]
+  ): Promise<string> {
+    // Non-interactive mode fallback
+    if (this.runtime.options.yes || process.env.CI === '1' || process.env.AUTOHAND_NON_INTERACTIVE === '1') {
+      console.log(chalk.yellow(`\n❓ ${question}`));
+      console.log(chalk.gray('  (Auto-skipped in non-interactive mode)\n'));
+      return '<answer>Skipped (non-interactive mode)</answer>';
+    }
+
+    this.stopStatusUpdates();
+
+    const spinnerWasSpinning = this.runtime.spinner?.isSpinning;
+    if (spinnerWasSpinning) {
+      this.runtime.spinner?.stop();
+    }
+
+    this.persistentInput.pause();
+
+    if (this.inkRenderer) {
+      this.inkRenderer.pause();
+    }
+
+    // Let Ink manage its own stdin mode - don't manipulate it manually
+
+    try {
+      // Dynamically import the question modal to avoid bundling issues
+      const modalPath = ['..', 'ui', 'questionModal.js'].join('/');
+      const { showQuestionModal } = await import(/* @vite-ignore */ modalPath);
+
+      const answer = await showQuestionModal({
+        question,
+        suggestedAnswers
+      });
+
+      if (answer === null) {
+        console.log(chalk.yellow('\n  (Question cancelled)\n'));
+        return '<answer>User cancelled</answer>';
+      }
+
+      console.log(chalk.green(`\n✓ Answer: ${answer}\n`));
+      return `<answer>${answer}</answer>`;
+    } finally {
+      if (this.inkRenderer) {
+        this.inkRenderer.resume();
+      }
+
+      this.persistentInput.resume();
+
+      if (spinnerWasSpinning && this.runtime.spinner) {
+        this.runtime.spinner.start();
+      }
+
+      this.startStatusUpdates();
+    }
+  }
+
+  /**
+   * Handle plan creation - sets plan on manager and asks for acceptance.
+   * This is called when the LLM uses the `plan` tool.
+   */
+  private async handlePlanCreated(plan: import('../modes/planMode/types.js').Plan, filePath: string): Promise<string> {
+    const planManager = getPlanModeManager();
+
+    // Store the plan in PlanModeManager
+    planManager.setPlan(plan);
+
+    // Display plan summary
+    console.log(chalk.cyan('\n' + '─'.repeat(60)));
+    console.log(chalk.cyan.bold('📋 Plan Summary'));
+    console.log(chalk.cyan('─'.repeat(60)));
+
+    for (const step of plan.steps) {
+      console.log(chalk.white(`  ${step.number}. ${step.description}`));
+    }
+
+    console.log(chalk.cyan('─'.repeat(60)));
+    console.log(chalk.gray(`  Saved to: ${filePath}`));
+    console.log(chalk.cyan('─'.repeat(60) + '\n'));
+
+    // Non-interactive mode: auto-accept with default option
+    if (this.runtime.options.yes || process.env.CI === '1' || process.env.AUTOHAND_NON_INTERACTIVE === '1') {
+      const config = planManager.acceptPlan('auto_accept');
+      console.log(chalk.yellow('  (Auto-accepted in non-interactive mode)\n'));
+      return `Plan accepted with option: ${config.option}. Starting execution...`;
+    }
+
+    // Get acceptance options from PlanModeManager
+    const acceptOptions = planManager.getAcceptOptions();
+
+    // Stop status updates and spinner before showing modal (same pattern as executeAskFollowupQuestion)
+    this.stopStatusUpdates();
+
+    const spinnerWasSpinning = this.runtime.spinner?.isSpinning;
+    if (spinnerWasSpinning) {
+      this.runtime.spinner?.stop();
+    }
+
+    // Pause persistent input to prevent conflicts with modal
+    this.persistentInput.pause();
+    if (this.inkRenderer) {
+      this.inkRenderer.pause();
+    }
+
+    try {
+      // Dynamically import the plan accept modal
+      const modalPath = ['..', 'ui', 'planAcceptModal.js'].join('/');
+      const { showPlanAcceptModal } = await import(/* @vite-ignore */ modalPath);
+
+      const result = await showPlanAcceptModal({
+        planFilePath: filePath,
+        options: acceptOptions.map(opt => ({
+          id: opt.id,
+          label: opt.label,
+          shortcut: opt.shortcut
+        }))
+      });
+
+      // Handle result
+      if (result.type === 'cancel') {
+        console.log(chalk.yellow('\n  Plan not accepted. You can revise and try again.\n'));
+        return 'Plan not accepted. Staying in planning mode for revisions.';
+      }
+
+      if (result.type === 'custom' && result.customText) {
+        console.log(chalk.yellow(`\n  Feedback received: ${result.customText}\n`));
+        return `User feedback on plan: ${result.customText}. Please revise the plan accordingly.`;
+      }
+
+      if (result.type === 'option' && result.optionId) {
+        const selectedOption = acceptOptions.find(opt => opt.id === result.optionId);
+        if (selectedOption) {
+          const config = planManager.acceptPlan(selectedOption.id);
+
+          console.log(chalk.green(`\n✓ Plan accepted: ${selectedOption.label}`));
+          if (config.clearContext) {
+            console.log(chalk.gray('  Context will be cleared for fresh execution.'));
+          }
+          if (config.autoAcceptEdits) {
+            console.log(chalk.gray('  Edits will be auto-accepted.'));
+          }
+          console.log();
+
+          return `Plan accepted with option: ${config.option}. Ready for execution.\n\nSteps:\n${plan.steps.map(s => `${s.number}. ${s.description}`).join('\n')}`;
+        }
+      }
+
+      // Default: accept with manual approve if result wasn't recognized
+      const config = planManager.acceptPlan('manual_approve');
+      console.log(chalk.green('\n✓ Plan accepted with manual approval for edits.\n'));
+
+      return `Plan accepted. Starting execution with manual edit approval.\n\nSteps:\n${plan.steps.map(s => `${s.number}. ${s.description}`).join('\n')}`;
+    } finally {
+      if (this.inkRenderer) {
+        this.inkRenderer.resume();
+      }
       this.persistentInput.resume();
 
       if (spinnerWasSpinning && this.runtime.spinner) {
