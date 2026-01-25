@@ -59,6 +59,7 @@ import { WorktreeManager } from '../actions/worktree.js';
 import { applyFormatter } from '../actions/formatters.js';
 import { loadCustomCommand, saveCustomCommand } from './customCommands.js';
 import { webSearch, fetchUrl, getPackageInfo, formatSearchResults, formatPackageInfo } from '../actions/web.js';
+import { webRepo, formatRepoInfo, formatRepoDir } from '../actions/webRepo.js';
 import { PermissionManager } from '../permissions/PermissionManager.js';
 import type { PermissionContext } from '../permissions/types.js';
 import type { ProjectManager } from '../session/ProjectManager.js';
@@ -1389,6 +1390,40 @@ export class ActionExecutor {
         const formatted = formatPackageInfo(info);
         console.log(chalk.gray(formatted));
         return formatted;
+      }
+      case 'web_repo': {
+        if (!action.repo) {
+          throw new Error('web_repo requires a "repo" argument.');
+        }
+        if (!action.operation) {
+          throw new Error('web_repo requires an "operation" argument (info, list, or fetch).');
+        }
+        console.log(chalk.cyan(`\n🔗 ${action.operation}: ${action.repo}${action.path ? ` → ${action.path}` : ''}...`));
+
+        const result = await webRepo({
+          repo: action.repo,
+          operation: action.operation,
+          path: action.path,
+          branch: action.branch
+        });
+
+        let formattedResult: string;
+        switch (result.type) {
+          case 'info':
+            formattedResult = formatRepoInfo(result.data);
+            break;
+          case 'list':
+            formattedResult = formatRepoDir(result.data, result.path);
+            break;
+          case 'fetch':
+            formattedResult = result.data;
+            break;
+        }
+
+        // Show preview
+        const previewResult = formattedResult.slice(0, 500);
+        console.log(chalk.gray(previewResult + (formattedResult.length > 500 ? '\n   ... (truncated)' : '')));
+        return formattedResult;
       }
       // User interaction
       case 'ask_followup_question': {
