@@ -121,7 +121,8 @@
       "currentLanguage": "当前语言：{{language}}",
       "selectPrompt": "选择一种语言：",
       "changed": "语言已更改为 {{language}}",
-      "noChange": "未做更改。"
+      "noChange": "未做更改。",
+      "restartHint": "某些更改可能需要重启CLI才能完全生效。"
     },
     "quit": {
       "description": "退出 Autohand",
@@ -377,6 +378,26 @@
     "apply": "应用更改？",
     "applied": "更改已应用。",
     "discarded": "更改已丢弃。"
+  },
+  "ui": {
+    "escToCancel": "esc 取消",
+    "commandHint": "/ 命令 · @ 提及文件",
+    "ctrlCToExit": "再次按 Ctrl+C 退出",
+    "commandPalette": "命令面板",
+    "noMatchingCommands": "没有匹配的命令。",
+    "selectFile": "选择文件",
+    "noMatchingFiles": "没有匹配的文件。继续输入...",
+    "thinking": "思考中",
+    "planModeActive": "计划模式激活 - 工具只读",
+    "planModeExecuting": "执行计划中",
+    "typeToFilter": "筛选",
+    "navigateHint": "输入筛选 · ↑/↓ 导航 · Enter 执行 · Esc 取消",
+    "fileNavigateHint": "输入筛选 · ↑/↓ 导航 · Enter 选择 · Esc 取消",
+    "questionPrompt": "❓",
+    "questionOther": "其他（输入您的答案）",
+    "questionYourAnswer": "▸ 您的答案",
+    "questionCustomHint": "↵ 提交 · ESC 返回",
+    "questionSelectHint": "↑↓ 导航 · ↵ 选择 · 1-9 快捷键 · ESC 取消"
   },
   "languages": {
     "en": "English",
