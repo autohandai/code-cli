@@ -1194,17 +1194,24 @@ export class ActionExecutor {
           return 'todo_write skipped: tasks must be an array';
         }
 
+        // Filter out null/undefined tasks and validate required fields
+        const validTasks = action.tasks.filter((task: any) => {
+          if (!task) return false; // Skip null/undefined
+          const hasId = !!task.id;
+          const hasContent = !!(task.content || task.title);
+          return hasId && hasContent; // Require both id and content/title
+        });
+
         // Normalize tasks: LLM sends {content, status, activeForm} but we store {id, title, status, activeForm}
-        // Generate stable IDs based on content hash for merging
-        const normalizedTasks = action.tasks.map((task: any, index: number) => {
+        // Preserve any extra properties the task might have
+        const normalizedTasks = validTasks.map((task: any) => {
           // Support both formats: {content, status, activeForm} and {id, title, status}
           const content = task.content || task.title || '';
           const title = content;
-          // Create stable ID from content (first 20 chars, sanitized) + index position
-          const id = task.id || `task_${content.slice(0, 20).replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}_${index}`;
 
           return {
-            id,
+            ...task, // Preserve extra properties like priority, tags, etc.
+            id: task.id,
             title,
             content, // Keep original content field
             status: task.status || 'pending',

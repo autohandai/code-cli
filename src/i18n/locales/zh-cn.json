@@ -383,7 +383,6 @@
     "escToCancel": "esc 取消",
     "commandHint": "/ 命令 · @ 提及文件",
     "ctrlCToExit": "再次按 Ctrl+C 退出",
-    "commandPalette": "命令面板",
     "noMatchingCommands": "没有匹配的命令。",
     "selectFile": "选择文件",
     "noMatchingFiles": "没有匹配的文件。继续输入...",
