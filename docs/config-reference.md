@@ -90,6 +90,8 @@ Active LLM provider to use.
 | `"ollama"` | Local Ollama instance |
 | `"llamacpp"` | Local llama.cpp server |
 | `"openai"` | OpenAI API directly |
+| `"mlx"` | MLX on Apple Silicon (local) |
+| `"llmgateway"` | LLM Gateway unified API |
 
 ### `openrouter`
 OpenRouter provider configuration.
@@ -166,6 +168,53 @@ OpenAI API configuration.
 | `apiKey` | string | Yes | - | OpenAI API key |
 | `baseUrl` | string | No | `https://api.openai.com/v1` | API endpoint |
 | `model` | string | Yes | - | Model name (e.g., `gpt-4o`, `gpt-4o-mini`) |
+
+### `mlx`
+MLX provider for Apple Silicon Macs (local inference).
+
+```json
+{
+  "mlx": {
+    "baseUrl": "http://localhost:8080",
+    "port": 8080,
+    "model": "mlx-community/Llama-3.2-3B-Instruct-4bit"
+  }
+}
+```
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `baseUrl` | string | No | `http://localhost:8080` | MLX server URL |
+| `port` | number | No | `8080` | Server port |
+| `model` | string | Yes | - | MLX model identifier |
+
+### `llmgateway`
+LLM Gateway unified API configuration. Provides access to multiple LLM providers through a single API.
+
+```json
+{
+  "llmgateway": {
+    "apiKey": "your-llmgateway-api-key",
+    "baseUrl": "https://api.llmgateway.io/v1",
+    "model": "gpt-4o"
+  }
+}
+```
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `apiKey` | string | Yes | - | LLM Gateway API key |
+| `baseUrl` | string | No | `https://api.llmgateway.io/v1` | API endpoint |
+| `model` | string | Yes | - | Model name (e.g., `gpt-4o`, `claude-3-5-sonnet-20241022`) |
+
+**Getting an API Key:**
+Visit [llmgateway.io/dashboard](https://llmgateway.io/dashboard) to create an account and get your API key.
+
+**Supported Models:**
+LLM Gateway supports models from multiple providers including:
+- OpenAI: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`
+- Anthropic: `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`
+- Google: `gemini-1.5-pro`, `gemini-1.5-flash`
 
 ---
 
