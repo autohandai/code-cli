@@ -887,6 +887,31 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
       },
       required: ['package_name']
     }
+  },
+  {
+    name: 'web_repo',
+    description: `Browse GitHub and GitLab repositories. Supports three operations:
+
+- 'info': Get repo metadata (description, stars, language, license, default branch)
+- 'list': List directory contents (files and folders at a path)
+- 'fetch': Get raw file content (defaults to README.md)
+
+Repo formats: Full URL (https://github.com/owner/repo), or shorthand (github:owner/repo, gitlab:group/project).
+
+Examples:
+  { repo: "github:openai/codex", operation: "info" }
+  { repo: "gitlab:inkscape/inkscape", operation: "list", path: "src" }
+  { repo: "github:openai/codex", operation: "fetch", path: "codex-cli/src/utils.ts" }`,
+    parameters: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string', description: 'Repository URL or shorthand (github:owner/repo, gitlab:group/project)' },
+        operation: { type: 'string', description: 'Operation to perform', enum: ['info', 'list', 'fetch'] },
+        path: { type: 'string', description: 'File/directory path (default: root for list, README.md for fetch)' },
+        branch: { type: 'string', description: 'Branch name (default: repo default branch)' }
+      },
+      required: ['repo', 'operation']
+    }
   }
 ];
 
