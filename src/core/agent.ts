@@ -203,11 +203,12 @@ export class AutohandAgent {
       },
       onHookOutput: (result) => {
         // Display hook output to console (only if not a JSON control flow response)
+        // Use synchronous write to prevent race conditions with prompt rendering
         if (result.stdout && !result.response) {
-          console.log(chalk.dim(`[hook:${result.hook.event}] ${result.stdout}`));
+          process.stdout.write(chalk.dim(`[hook:${result.hook.event}] ${result.stdout}\n`));
         }
         if (result.stderr && !result.blockingError) {
-          console.error(chalk.yellow(`[hook:${result.hook.event}] ${result.stderr}`));
+          process.stderr.write(chalk.yellow(`[hook:${result.hook.event}] ${result.stderr}\n`));
         }
       }
     });
@@ -520,13 +521,16 @@ export class AutohandAgent {
   }
 
   async runInteractive(): Promise<void> {
-    // Initialize session
-    await this.sessionManager.initialize();
-    await this.projectManager.initialize();
-    await this.memoryManager.initialize();
-    await this.skillsRegistry.initialize();
+    // Initialize managers in parallel for faster startup
+    await Promise.all([
+      this.sessionManager.initialize(),
+      this.projectManager.initialize(),
+      this.memoryManager.initialize(),
+      this.skillsRegistry.initialize(),
+      this.hookManager.initialize(),
+    ]);
+    // These must run sequentially after the parallel init
     await this.skillsRegistry.setWorkspace(this.runtime.workspaceRoot);
-    await this.hookManager.initialize();
     await this.resetConversationContext();
     this.feedbackManager.startSession();
     const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
@@ -549,6 +553,10 @@ export class AutohandAgent {
       sessionType: 'startup',
     });
 
+    // Ensure hook output is fully flushed before starting interactive loop
+    // This prevents race conditions with prompt rendering
+    process.stdout.write('');
+
     await this.runInteractiveLoop();
   }
 
@@ -556,12 +564,16 @@ export class AutohandAgent {
    * Initialize the agent for RPC mode (no interactive loop or command mode)
    */
   async initializeForRPC(): Promise<void> {
-    await this.sessionManager.initialize();
-    await this.projectManager.initialize();
-    await this.memoryManager.initialize();
-    await this.skillsRegistry.initialize();
+    // Initialize managers in parallel for faster startup
+    await Promise.all([
+      this.sessionManager.initialize(),
+      this.projectManager.initialize(),
+      this.memoryManager.initialize(),
+      this.skillsRegistry.initialize(),
+      this.hookManager.initialize(),
+    ]);
+    // These must run sequentially after the parallel init
     await this.skillsRegistry.setWorkspace(this.runtime.workspaceRoot);
-    await this.hookManager.initialize();
     await this.resetConversationContext();
 
     const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);

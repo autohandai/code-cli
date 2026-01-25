@@ -11,7 +11,43 @@ import type {
   OpenRouterSettings,
   NetworkSettings,
   FunctionDefinition,
+  LLMMessage,
 } from "../types.js";
+
+/**
+ * Sanitize messages for API consumption.
+ * Only includes fields expected by OpenAI-compatible APIs:
+ * - role, content (always)
+ * - tool_call_id (for tool messages)
+ * - tool_calls (for assistant messages)
+ * - name (for function messages, optional)
+ * Excludes internal fields like priority, metadata.
+ */
+function sanitizeMessages(messages: LLMMessage[]): Record<string, unknown>[] {
+  return messages.map((msg) => {
+    const sanitized: Record<string, unknown> = {
+      role: msg.role,
+      content: msg.content,
+    };
+
+    // Add tool_call_id for tool response messages
+    if (msg.role === "tool" && msg.tool_call_id) {
+      sanitized.tool_call_id = msg.tool_call_id;
+    }
+
+    // Add tool_calls for assistant messages that invoked tools
+    if (msg.role === "assistant" && msg.tool_calls?.length) {
+      sanitized.tool_calls = msg.tool_calls;
+    }
+
+    // Add name for function/tool context (optional, some providers use it)
+    if (msg.name) {
+      sanitized.name = msg.name;
+    }
+
+    return sanitized;
+  });
+}
 
 const DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_MAX_RETRIES = 3;
@@ -64,7 +100,7 @@ export class OpenRouterClient {
   async complete(request: LLMRequest): Promise<LLMResponse> {
     const payload: Record<string, unknown> = {
       model: request.model ?? this.defaultModel,
-      messages: request.messages,
+      messages: sanitizeMessages(request.messages),
       temperature: request.temperature ?? 0.2,
       max_tokens: request.maxTokens ?? 16000, // Increased from 1000 to allow large file generation
       stream: request.stream ?? false,
