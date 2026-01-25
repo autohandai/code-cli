@@ -42,6 +42,7 @@ function getVersionString(): string {
   return `${packageJson.version} (${commit})`;
 }
 import { FileActionManager } from './actions/filesystem.js';
+import { configureSearch } from './actions/web.js';
 import { ProviderFactory } from './providers/ProviderFactory.js';
 import { AutohandAgent } from './core/agent.js';
 import { runAutoSkillGeneration } from './skills/autoSkill.js';
@@ -166,7 +167,10 @@ program
   .option('--setup', 'Run the setup wizard to configure or reconfigure Autohand', false)
   .option('--add-dir <path...>', 'Add additional directories to workspace scope (can be used multiple times)')
   .option('--display-language <locale>', 'Set display language (e.g., en, zh-cn, fr, de, ja)')
-  .action(async (opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean; setup?: boolean; syncSettings?: string | boolean }) => {
+  .option('--cc, --context-compact', 'Enable context compaction (default: on)')
+  .option('--no-cc, --no-context-compact', 'Disable context compaction')
+  .option('--search-engine <provider>', 'Set web search provider (brave, duckduckgo, parallel)')
+  .action(async (opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean; setup?: boolean; syncSettings?: string | boolean; cc?: boolean; searchEngine?: string }) => {
     // Handle --skill-install flag
     if (opts.skillInstall !== undefined) {
       await runSkillInstall(opts);
@@ -227,6 +231,23 @@ program
       opts.noWorktree = opts.worktree === false;
       await runAutoMode(opts);
       return;
+    }
+
+    // Map --cc flag to contextCompact option
+    // Commander uses 'cc' for the flag name, we map it to 'contextCompact' for consistency
+    if (opts.cc !== undefined) {
+      opts.contextCompact = opts.cc;
+    }
+
+    // Map --search-engine flag to searchEngine option
+    if ((opts as any).searchEngine) {
+      const provider = (opts as any).searchEngine.toLowerCase();
+      if (['brave', 'duckduckgo', 'parallel'].includes(provider)) {
+        opts.searchEngine = provider as 'brave' | 'duckduckgo' | 'parallel';
+      } else {
+        console.error(chalk.red(`Invalid search engine: ${provider}. Valid options: brave, duckduckgo, parallel`));
+        process.exit(1);
+      }
     }
 
     if (opts.mode === 'rpc') {
@@ -446,6 +467,14 @@ async function runCLI(options: CLIOptions): Promise<void> {
       return;
     }
 
+    // Configure web search provider from CLI flag, config file, or environment
+    const searchConfig = config.search ?? {};
+    configureSearch({
+      provider: options.searchEngine ?? searchConfig.provider ?? 'duckduckgo',
+      braveApiKey: searchConfig.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY,
+      parallelApiKey: searchConfig.parallelApiKey ?? process.env.PARALLEL_API_KEY,
+    });
+
     const agent = new AutohandAgent(llmProvider, files, runtime);
 
     if (options.prompt) {
@@ -514,7 +543,11 @@ function printWelcome(runtime: AgentRuntime, authUser?: AuthUser, versionCheck?:
     console.log(chalk.green(`Welcome back, ${authUser.name || authUser.email}!`));
   }
 
-  console.log(`${chalk.gray('model:')} ${chalk.cyan(model)}  ${chalk.gray('| directory:')} ${chalk.cyan(dir)}`);
+  // Show CC status (default: ON unless --no-cc was passed)
+  const ccEnabled = runtime.options.contextCompact !== false;
+  const ccStatus = ccEnabled ? chalk.green('[CC: ON]') : chalk.yellow('[CC: OFF]');
+
+  console.log(`${chalk.gray('model:')} ${chalk.cyan(model)}  ${ccStatus}  ${chalk.gray('| directory:')} ${chalk.cyan(dir)}`);
   console.log();
   console.log(chalk.gray('To get started, describe a task or try one of these commands:'));
   console.log(chalk.cyan('/init ') + chalk.gray('create an AGENTS.md file with instructions for Autohand'));
@@ -734,6 +767,14 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
   // Show status
   console.error(chalk.cyan('Patch Mode: Changes will be captured without modifying files\n'));
 
+  // Configure web search provider
+  const searchConfig = config.search ?? {};
+  configureSearch({
+    provider: searchConfig.provider ?? 'duckduckgo',
+    braveApiKey: searchConfig.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY,
+    parallelApiKey: searchConfig.parallelApiKey ?? process.env.PARALLEL_API_KEY,
+  });
+
   try {
     const agent = new AutohandAgent(llmProvider, files, runtime);
 
@@ -935,6 +976,14 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
       },
       additionalDirs: additionalDirs.length > 0 ? additionalDirs : undefined
     };
+
+    // Configure web search provider
+    const searchConfig = config.search ?? {};
+    configureSearch({
+      provider: searchConfig.provider ?? 'duckduckgo',
+      braveApiKey: searchConfig.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY,
+      parallelApiKey: searchConfig.parallelApiKey ?? process.env.PARALLEL_API_KEY,
+    });
 
     const agent = new AutohandAgent(llmProvider, files, runtime);
 

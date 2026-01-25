@@ -18,6 +18,7 @@ const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
 const DEFAULT_LLAMACPP_URL = 'http://localhost:8080';
 const DEFAULT_OPENAI_URL = 'https://api.openai.com/v1';
 const DEFAULT_MLX_URL = 'http://localhost:8080';
+const DEFAULT_LLMGATEWAY_URL = 'https://api.llmgateway.io/v1';
 
 interface LegacyConfigShape {
   api_key?: string;
@@ -244,7 +245,8 @@ export function getProviderConfig(config: AutohandConfig, provider?: ProviderNam
     ollama: config.ollama,
     llamacpp: config.llamacpp,
     openai: config.openai,
-    mlx: config.mlx
+    mlx: config.mlx,
+    llmgateway: config.llmgateway
   };
 
   const entry = configByProvider[chosen];
@@ -253,8 +255,8 @@ export function getProviderConfig(config: AutohandConfig, provider?: ProviderNam
     return null;
   }
 
-  // Validate OpenRouter config if it exists
-  if (chosen === 'openrouter') {
+  // Validate providers that require API keys
+  if (chosen === 'openrouter' || chosen === 'llmgateway') {
     const { apiKey, model } = entry as ProviderSettings;
     if (!apiKey || apiKey === 'replace-me' || !model) {
       return null; // Incomplete config
@@ -274,6 +276,7 @@ export function getProviderConfig(config: AutohandConfig, provider?: ProviderNam
 
 function defaultBaseUrlFor(provider: ProviderName, port?: number): string | undefined {
   if (provider === 'openrouter') return DEFAULT_BASE_URL;
+  if (provider === 'llmgateway') return DEFAULT_LLMGATEWAY_URL;
   const p = port ? port.toString() : undefined;
   switch (provider) {
     case 'ollama':

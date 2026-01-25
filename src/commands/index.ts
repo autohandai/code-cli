@@ -6,6 +6,7 @@
 
 // Export all command modules
 export * as model from './model.js';
+export * as cc from './cc.js';
 export * as newCmd from './new.js';
 export * as init from './init.js';
 export * as quit from './quit.js';
@@ -40,6 +41,7 @@ export function getAllCommands(): Array<{ command: string; description: string; 
     // Manually collect all command metadata
     const commandModules = [
         modules.model,
+        modules.cc,
         modules.newCmd,
         modules.init,
         modules.quit,

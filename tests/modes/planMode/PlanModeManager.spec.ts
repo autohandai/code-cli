@@ -305,35 +305,24 @@ describe('PlanModeManager', () => {
     });
   });
 
-  describe('bash command allowlist', () => {
-    it('should allow read-only bash commands', async () => {
+  describe('run_command exclusion', () => {
+    it('should NOT include run_command in read-only tools', async () => {
       const { PlanModeManager } = await import('../../../src/modes/planMode/PlanModeManager.js');
       const manager = new PlanModeManager();
 
-      expect(manager.isBashCommandAllowed('cat file.txt')).toBe(true);
-      expect(manager.isBashCommandAllowed('grep pattern file')).toBe(true);
-      expect(manager.isBashCommandAllowed('ls -la')).toBe(true);
-      expect(manager.isBashCommandAllowed('git status')).toBe(true);
-      expect(manager.isBashCommandAllowed('git log --oneline')).toBe(true);
+      const tools = manager.getReadOnlyTools();
+
+      expect(tools).not.toContain('run_command');
     });
 
-    it('should block write bash commands', async () => {
+    it('should include plan and ask_followup_question in read-only tools', async () => {
       const { PlanModeManager } = await import('../../../src/modes/planMode/PlanModeManager.js');
       const manager = new PlanModeManager();
 
-      expect(manager.isBashCommandAllowed('rm file.txt')).toBe(false);
-      expect(manager.isBashCommandAllowed('git commit -m "test"')).toBe(false);
-      expect(manager.isBashCommandAllowed('npm install express')).toBe(false);
-      expect(manager.isBashCommandAllowed('git push origin main')).toBe(false);
-    });
+      const tools = manager.getReadOnlyTools();
 
-    it('should block dangerous commands', async () => {
-      const { PlanModeManager } = await import('../../../src/modes/planMode/PlanModeManager.js');
-      const manager = new PlanModeManager();
-
-      expect(manager.isBashCommandAllowed('sudo rm -rf /')).toBe(false);
-      expect(manager.isBashCommandAllowed('kill -9 1234')).toBe(false);
-      expect(manager.isBashCommandAllowed('chmod 777 file')).toBe(false);
+      expect(tools).toContain('plan');
+      expect(tools).toContain('ask_followup_question');
     });
   });
 
@@ -458,6 +447,183 @@ describe('PlanModeManager', () => {
       expect(options[0].shortcut).toBe('shift+tab');
       expect(options[1].id).toBe('manual_approve');
       expect(options[2].id).toBe('auto_accept');
+    });
+  });
+
+  describe('edge cases', () => {
+    it('should not emit enabled event if already enabled', async () => {
+      const { PlanModeManager } = await import('../../../src/modes/planMode/PlanModeManager.js');
+      const manager = new PlanModeManager();
+      const callback = vi.fn();
+
+      manager.enable();
+      manager.on('enabled', callback);
+      manager.enable(); // Second enable should be no-op
+
+      expect(callback).not.toHaveBeenCalled();
+    });
+
+    it('should not emit disabled event if already disabled', async () => {
+      const { PlanModeManager } = await import('../../../src/modes/planMode/PlanModeManager.js');
+      const manager = new PlanModeManager();
+      const callback = vi.fn();
+
+      manager.on('disabled', callback);
+      manager.disable(); // Should be no-op since not enabled
+
+      expect(callback).not.toHaveBeenCalled();
+    });
+
+    it('should preserve state across multiple plan sets', async () => {
+      const { PlanModeManager } = await import('../../../src/modes/planMode/PlanModeManager.js');
+      const manager = new PlanModeManager();
+
+      const plan1 = {
+        id: 'plan-1',
+        steps: [{ number: 1, description: 'Step 1', status: 'pending' as const }],
+        rawText: '1. Step 1',
+        createdAt: Date.now(),
+      };
+
+      const plan2 = {
+        id: 'plan-2',
+        steps: [{ number: 1, description: 'Different step', status: 'pending' as const }],
+        rawText: '1. Different step',
+        createdAt: Date.now(),
+      };
+
+      manager.setPlan(plan1);
+      expect(manager.getPlan()?.id).toBe('plan-1');
+
+      manager.setPlan(plan2);
+      expect(manager.getPlan()?.id).toBe('plan-2');
+    });
+
+    it('should track startedAt timestamp when enabled', async () => {
+      const { PlanModeManager } = await import('../../../src/modes/planMode/PlanModeManager.js');
+      const manager = new PlanModeManager();
+      const before = Date.now();
+
+      manager.enable();
+
+      const state = manager.getState();
+      expect(state.startedAt).toBeGreaterThanOrEqual(before);
+      expect(state.startedAt).toBeLessThanOrEqual(Date.now());
+    });
+
+    it('should track executionStartedAt timestamp when execution starts', async () => {
+      const { PlanModeManager } = await import('../../../src/modes/planMode/PlanModeManager.js');
+      const manager = new PlanModeManager();
+
+      manager.enable();
+      manager.setPlan({
+        id: 'test-plan',
+        steps: [{ number: 1, description: 'Test step', status: 'pending' }],
+        rawText: '1. Test step',
+        createdAt: Date.now(),
+      });
+
+      const before = Date.now();
+      manager.startExecution();
+
+      const state = manager.getState();
+      expect(state.executionStartedAt).toBeGreaterThanOrEqual(before);
+      expect(state.executionStartedAt).toBeLessThanOrEqual(Date.now());
+    });
+
+    it('should restore state correctly', async () => {
+      const { PlanModeManager } = await import('../../../src/modes/planMode/PlanModeManager.js');
+      const manager = new PlanModeManager();
+
+      const savedState = {
+        enabled: true,
+        phase: 'executing' as const,
+        plan: {
+          id: 'restored-plan',
+          steps: [{ number: 1, description: 'Restored step', status: 'pending' as const }],
+          rawText: '1. Restored step',
+          createdAt: Date.now() - 10000,
+        },
+        startedAt: Date.now() - 5000,
+        executionStartedAt: Date.now() - 3000,
+      };
+
+      manager.restore(savedState);
+
+      expect(manager.isEnabled()).toBe(true);
+      expect(manager.getPhase()).toBe('executing');
+      expect(manager.getPlan()?.id).toBe('restored-plan');
+    });
+
+    it('should emit restored event when restoring enabled state', async () => {
+      const { PlanModeManager } = await import('../../../src/modes/planMode/PlanModeManager.js');
+      const manager = new PlanModeManager();
+      const callback = vi.fn();
+
+      manager.on('restored', callback);
+      manager.restore({ enabled: true });
+
+      expect(callback).toHaveBeenCalled();
+    });
+
+    it('should not emit restored event when restoring disabled state', async () => {
+      const { PlanModeManager } = await import('../../../src/modes/planMode/PlanModeManager.js');
+      const manager = new PlanModeManager();
+      const callback = vi.fn();
+
+      manager.on('restored', callback);
+      manager.restore({ enabled: false });
+
+      expect(callback).not.toHaveBeenCalled();
+    });
+
+    it('should return copy of read-only tools (not mutable reference)', async () => {
+      const { PlanModeManager } = await import('../../../src/modes/planMode/PlanModeManager.js');
+      const manager = new PlanModeManager();
+
+      const tools1 = manager.getReadOnlyTools();
+      const tools2 = manager.getReadOnlyTools();
+
+      // Should be equal but not the same reference
+      expect(tools1).toEqual(tools2);
+      expect(tools1).not.toBe(tools2);
+
+      // Modifying one should not affect the other
+      tools1.push('fake_tool');
+      expect(tools2).not.toContain('fake_tool');
+    });
+
+    it('should return copy of state (not mutable reference)', async () => {
+      const { PlanModeManager } = await import('../../../src/modes/planMode/PlanModeManager.js');
+      const manager = new PlanModeManager();
+
+      manager.enable();
+      const state1 = manager.getState();
+      const state2 = manager.getState();
+
+      // Should be equal but not the same reference
+      expect(state1).toEqual(state2);
+      expect(state1).not.toBe(state2);
+    });
+
+    it('should handle plan with empty steps array', async () => {
+      const { PlanModeManager } = await import('../../../src/modes/planMode/PlanModeManager.js');
+      const manager = new PlanModeManager();
+
+      const emptyPlan = {
+        id: 'empty-plan',
+        steps: [],
+        rawText: '',
+        createdAt: Date.now(),
+      };
+
+      manager.setPlan(emptyPlan);
+      expect(manager.getPlan()?.steps).toEqual([]);
+
+      // Should still be able to start execution (even if logically nonsensical)
+      manager.enable();
+      manager.startExecution();
+      expect(manager.getPhase()).toBe('executing');
     });
   });
 });
