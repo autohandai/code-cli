@@ -32,7 +32,7 @@ describe('ProviderFactory', () => {
             const providers = ProviderFactory.getProviderNames();
 
             expect(providers).toContain('mlx');
-            expect(providers).toEqual(['openrouter', 'ollama', 'openai', 'llamacpp', 'mlx']);
+            expect(providers).toEqual(['openrouter', 'ollama', 'openai', 'llamacpp', 'llmgateway', 'mlx']);
         });
 
         it('should exclude mlx on non-Apple Silicon', () => {
@@ -41,10 +41,10 @@ describe('ProviderFactory', () => {
             const providers = ProviderFactory.getProviderNames();
 
             expect(providers).not.toContain('mlx');
-            expect(providers).toEqual(['openrouter', 'ollama', 'openai', 'llamacpp']);
+            expect(providers).toEqual(['openrouter', 'ollama', 'openai', 'llamacpp', 'llmgateway']);
         });
 
-        it('should always include openrouter, ollama, openai, llamacpp', () => {
+        it('should always include openrouter, ollama, openai, llamacpp, llmgateway', () => {
             mockIsMLXSupported.mockReturnValue(false);
 
             const providers = ProviderFactory.getProviderNames();
@@ -53,6 +53,7 @@ describe('ProviderFactory', () => {
             expect(providers).toContain('ollama');
             expect(providers).toContain('openai');
             expect(providers).toContain('llamacpp');
+            expect(providers).toContain('llmgateway');
         });
     });
 
@@ -161,6 +162,10 @@ describe('ProviderFactory', () => {
 
         it('should return true for llamacpp', () => {
             expect(ProviderFactory.isValidProvider('llamacpp')).toBe(true);
+        });
+
+        it('should return true for llmgateway', () => {
+            expect(ProviderFactory.isValidProvider('llmgateway')).toBe(true);
         });
 
         it('should return false for invalid provider', () => {

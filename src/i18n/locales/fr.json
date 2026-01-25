@@ -383,7 +383,6 @@
     "escToCancel": "esc pour annuler",
     "commandHint": "/ pour les commandes · @ pour mentionner des fichiers",
     "ctrlCToExit": "Appuyez à nouveau sur Ctrl+C pour quitter",
-    "commandPalette": "Palette de commandes",
     "noMatchingCommands": "Aucune commande correspondante.",
     "selectFile": "Sélectionnez un fichier",
     "noMatchingFiles": "Aucun fichier correspondant. Continuez à taper...",
