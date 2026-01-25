@@ -383,7 +383,6 @@
     "escToCancel": "esc para cancelar",
     "commandHint": "/ para comandos · @ para mencionar archivos",
     "ctrlCToExit": "Presione Ctrl+C de nuevo para salir",
-    "commandPalette": "Paleta de comandos",
     "noMatchingCommands": "No hay comandos coincidentes.",
     "selectFile": "Seleccione un archivo",
     "noMatchingFiles": "No hay archivos coincidentes. Siga escribiendo...",

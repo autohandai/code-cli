@@ -513,7 +513,9 @@ describe('ActionExecutor', () => {
       expect(result).toContain('50%');
     });
 
-    it('merges with existing tasks', async () => {
+    it('replaces entire task list (does not merge)', async () => {
+      // Note: todo_write now replaces the entire list instead of merging
+      // The LLM sends a COMPLETE updated list, not incremental updates
       const existingTasks = JSON.stringify([
         { id: '1', title: 'Existing', status: 'pending' }
       ]);
@@ -529,8 +531,9 @@ describe('ActionExecutor', () => {
       } as any);
 
       const written = JSON.parse(writeFile.mock.calls[0][1]);
-      expect(written).toHaveLength(2);
-      expect(written.find((t: any) => t.id === '1')).toBeDefined();
+      // Should only have the new task, not merge with existing
+      expect(written).toHaveLength(1);
+      expect(written.find((t: any) => t.id === '1')).toBeUndefined();
       expect(written.find((t: any) => t.id === '2')).toBeDefined();
     });
 
@@ -637,7 +640,7 @@ describe('ActionExecutor', () => {
       await executor.execute({
         type: 'todo_write',
         tasks: [
-          { title: 'No ID Task', status: 'pending' }, // Missing id
+          { title: 'No ID Task', status: 'pending' }, // Missing id - should be skipped
           { id: '1', title: 'Valid Task', status: 'pending' }
         ]
       } as any);
@@ -647,7 +650,7 @@ describe('ActionExecutor', () => {
       expect(written[0].id).toBe('1');
     });
 
-    it('skips tasks without title', async () => {
+    it('skips tasks without title or content', async () => {
       const readFile = vi.fn().mockRejectedValue(new Error('not found'));
       const writeFile = vi.fn().mockResolvedValue(undefined);
       const executor = createExecutor({ readFile, writeFile });
@@ -655,7 +658,7 @@ describe('ActionExecutor', () => {
       await executor.execute({
         type: 'todo_write',
         tasks: [
-          { id: '1', status: 'pending' }, // Missing title
+          { id: '1', status: 'pending' }, // Missing title/content - should be skipped
           { id: '2', title: 'Valid Task', status: 'pending' }
         ]
       } as any);
@@ -665,7 +668,7 @@ describe('ActionExecutor', () => {
       expect(written[0].id).toBe('2');
     });
 
-    it('skips null tasks in array', async () => {
+    it('skips null and undefined tasks in array', async () => {
       const readFile = vi.fn().mockRejectedValue(new Error('not found'));
       const writeFile = vi.fn().mockResolvedValue(undefined);
       const executor = createExecutor({ readFile, writeFile });
@@ -681,6 +684,7 @@ describe('ActionExecutor', () => {
 
       const written = JSON.parse(writeFile.mock.calls[0][1]);
       expect(written).toHaveLength(1);
+      expect(written[0].id).toBe('1');
     });
 
     it('handles corrupted existing todos JSON', async () => {
@@ -1615,7 +1619,9 @@ describe('ActionExecutor', () => {
 
       const result = await executor.execute({ type: 'plan', notes: 'Planning' } as any);
 
-      expect(result).toBe('Planning');
+      // Plan action is allowed in dry-run mode and saves plan to file
+      expect(result).toContain('Plan saved to');
+      expect(result).toContain('Planning');
     });
 
     it('skips multi_file_edit in dry-run mode', async () => {

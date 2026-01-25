@@ -287,7 +287,6 @@ program
   });
 
 async function runCLI(options: CLIOptions): Promise<void> {
-  const statusPanel: { update: (snap: any) => void; stop: () => void } | null = null;
   try {
     let config = await loadConfig(options.config);
     const workspaceRoot = resolveWorkspaceRoot(config, options.path);
