@@ -42,4 +42,39 @@ describe('getProviderConfig', () => {
     const result = getProviderConfig(cfg);
     expect(result).toBeNull();
   });
+
+  it('returns llmgateway settings when configured', () => {
+    const cfg: AutohandConfig = {
+      provider: 'llmgateway',
+      llmgateway: { apiKey: 'lg-test-key', model: 'gpt-4o', baseUrl: 'https://api.llmgateway.io/v1' }
+    };
+
+    const result = getProviderConfig(cfg);
+    expect(result).not.toBeNull();
+    expect(result!.baseUrl).toBe('https://api.llmgateway.io/v1');
+    expect(result!.model).toBe('gpt-4o');
+    expect(result!.apiKey).toBe('lg-test-key');
+  });
+
+  it('returns default base url for llmgateway when missing', () => {
+    const cfg: AutohandConfig = {
+      provider: 'llmgateway',
+      llmgateway: { apiKey: 'lg-test-key', model: 'gpt-4o' }
+    };
+
+    const result = getProviderConfig(cfg);
+    expect(result).not.toBeNull();
+    expect(result!.baseUrl).toBe('https://api.llmgateway.io/v1');
+    expect(result!.model).toBe('gpt-4o');
+  });
+
+  it('returns null when llmgateway config has no api key', () => {
+    const cfg: AutohandConfig = {
+      provider: 'llmgateway',
+      llmgateway: { apiKey: '', model: 'gpt-4o' }
+    };
+
+    const result = getProviderConfig(cfg);
+    expect(result).toBeNull();
+  });
 });
