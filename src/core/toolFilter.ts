@@ -56,6 +56,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   create_meta_tool: 'meta',
   delegate_task: 'meta',
   delegate_parallel: 'meta',
+  ask_followup_question: 'meta',
 
   // Read operations
   read_file: 'read',
@@ -152,7 +153,8 @@ export const CONTEXT_POLICIES: Record<ClientContext, ToolPolicy> = {
       'run_command',         // No shell access
       'custom_command',      // No shell access
       'file_stats',          // Don't expose file metadata
-      'checksum'             // Don't expose file checksums
+      'checksum',            // Don't expose file checksums
+      'ask_followup_question' // Requires interactive terminal
     ]
   },
 
@@ -165,7 +167,8 @@ export const CONTEXT_POLICIES: Record<ClientContext, ToolPolicy> = {
       'run_command',         // No shell access
       'custom_command',      // No shell access
       'git_push',            // No pushing via API
-      'git_reset'            // No resets via API
+      'git_reset',           // No resets via API
+      'ask_followup_question' // Requires interactive terminal
     ],
     requireApprovalFor: [
       'git_commit',
@@ -178,7 +181,8 @@ export const CONTEXT_POLICIES: Record<ClientContext, ToolPolicy> = {
   restricted: {
     allowedCategories: ['read', 'git_read', 'meta'],
     blockedTools: [
-      'list_tree'  // Even in read mode, don't expose full structure
+      'list_tree',           // Even in read mode, don't expose full structure
+      'ask_followup_question' // Requires interactive terminal (may be running in restricted non-interactive mode)
     ]
   }
 };
@@ -403,6 +407,7 @@ const RELEVANCE_CATEGORIES: Record<string, RelevanceCategory> = {
   custom_command: 'meta',
   delegate_task: 'meta',
   delegate_parallel: 'meta',
+  ask_followup_question: 'always', // User interaction should always be available when in interactive mode
 };
 
 /**
