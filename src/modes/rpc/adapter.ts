@@ -349,22 +349,33 @@ export class RPCAdapter {
         process.stderr.write(`[RPC DEBUG] Instruction completed, success=${success}, content length=${this.currentMessageContent.length}\n`);
 
         // Fire stop hook after turn completes (matching command mode behavior)
+        // Wrapped in its own try-catch to ensure MESSAGE_END and TURN_END are always emitted
         const turnDuration = this.turnStartTime ? Date.now() - this.turnStartTime : 0;
-        const hookManager = this.agent?.getHookManager?.();
-        if (hookManager) {
-          const snapshot = this.agent?.getStatusSnapshot();
-          await hookManager.executeHooks('stop', {
-            sessionId: this.sessionId || undefined,
-            turnDuration,
-            tokensUsed: snapshot?.tokensUsed ?? 0,
-          });
+        try {
+          const hookManager = this.agent?.getHookManager?.();
+          process.stderr.write(`[RPC DEBUG] Hook execution: hookManager=${!!hookManager}\n`);
+          if (hookManager) {
+            const snapshot = this.agent?.getStatusSnapshot();
+            process.stderr.write(`[RPC DEBUG] Executing stop hooks...\n`);
+            await hookManager.executeHooks('stop', {
+              sessionId: this.sessionId || undefined,
+              turnDuration,
+              tokensUsed: snapshot?.tokensUsed ?? 0,
+            });
+            process.stderr.write(`[RPC DEBUG] Stop hooks completed\n`);
 
-          // Emit HOOK_STOP notification so UI can update button state
-          this.emitHookStop(
-            snapshot?.tokensUsed ?? 0,
-            0, // toolCallsCount - not tracked per turn currently
-            turnDuration
-          );
+            // Emit HOOK_STOP notification so UI can update button state
+            this.emitHookStop(
+              snapshot?.tokensUsed ?? 0,
+              0, // toolCallsCount - not tracked per turn currently
+              turnDuration
+            );
+            process.stderr.write(`[RPC DEBUG] HOOK_STOP emitted\n`);
+          }
+        } catch (hookErr) {
+          // Log but don't let hook errors block MESSAGE_END and TURN_END
+          const hookErrMsg = hookErr instanceof Error ? hookErr.message : String(hookErr);
+          process.stderr.write(`[RPC DEBUG] Hook execution error (non-blocking): ${hookErrMsg}\n`);
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
@@ -383,15 +394,18 @@ export class RPCAdapter {
       }
 
       // End message
+      process.stderr.write(`[RPC DEBUG] Emitting MESSAGE_END, messageId=${this.currentMessageId}\n`);
       writeNotification(RPC_NOTIFICATIONS.MESSAGE_END, {
         messageId: this.currentMessageId!,
         content: this.currentMessageContent,
         timestamp: createTimestamp(),
       });
+      process.stderr.write(`[RPC DEBUG] MESSAGE_END emitted successfully\n`);
 
       // End turn with stats
       const durationMs = this.turnStartTime ? Date.now() - this.turnStartTime : undefined;
       const snapshot = this.agent?.getStatusSnapshot();
+      process.stderr.write(`[RPC DEBUG] Emitting TURN_END, turnId=${this.currentTurnId}\n`);
       writeNotification(RPC_NOTIFICATIONS.TURN_END, {
         turnId: this.currentTurnId!,
         timestamp: createTimestamp(),
@@ -399,6 +413,7 @@ export class RPCAdapter {
         tokensUsed: snapshot?.tokensUsed,
         durationMs,
       });
+      process.stderr.write(`[RPC DEBUG] TURN_END emitted successfully\n`);
 
       this.status = 'idle';
       this.currentTurnId = null;
@@ -408,9 +423,24 @@ export class RPCAdapter {
 
       return { success };
     } catch (error) {
-      // End turn on error with stats
+      // Emit MESSAGE_END and TURN_END even on outer error
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`[RPC DEBUG] Outer catch - error: ${errorMsg}\n`);
+
+      // End message first (if we started one)
+      if (this.currentMessageId) {
+        process.stderr.write(`[RPC DEBUG] Emitting MESSAGE_END from outer catch, messageId=${this.currentMessageId}\n`);
+        writeNotification(RPC_NOTIFICATIONS.MESSAGE_END, {
+          messageId: this.currentMessageId,
+          content: this.currentMessageContent,
+          timestamp: createTimestamp(),
+        });
+      }
+
+      // End turn with stats
       const durationMs = this.turnStartTime ? Date.now() - this.turnStartTime : undefined;
       const snapshot = this.agent?.getStatusSnapshot();
+      process.stderr.write(`[RPC DEBUG] Emitting TURN_END from outer catch, turnId=${this.currentTurnId}\n`);
       writeNotification(RPC_NOTIFICATIONS.TURN_END, {
         turnId: this.currentTurnId!,
         timestamp: createTimestamp(),
