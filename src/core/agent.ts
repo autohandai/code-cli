@@ -7,7 +7,7 @@ import chalk from 'chalk';
 import fs from 'fs-extra';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, spawn } from 'node:child_process';
 import ora from 'ora';
 import enquirer from 'enquirer';
 import readline from 'node:readline';
@@ -111,7 +111,7 @@ export class AutohandAgent {
   private communityClient: CommunitySkillsClient;
   private workspaceFiles: string[] = [];
   private workspaceFilesCachedAt: number = 0;
-  private static readonly WORKSPACE_FILES_CACHE_TTL = 5000; // 5 seconds
+  private static readonly WORKSPACE_FILES_CACHE_TTL = 30000; // 30 seconds
   private isInstructionActive = false;
   private hasPrintedExplorationHeader = false;
   private activeProvider: ProviderName;
@@ -604,13 +604,15 @@ export class AutohandAgent {
     const turnStartTime = Date.now();
     await this.runInstruction(instruction);
 
-    // Fire stop hook after turn completes
+    // Fire stop hook after turn completes (non-blocking)
     const turnDuration = Date.now() - turnStartTime;
     const session = this.sessionManager.getCurrentSession();
-    await this.hookManager.executeHooks('stop', {
+    this.hookManager.executeHooks('stop', {
       sessionId: session?.metadata.sessionId,
       turnDuration,
       tokensUsed: this.sessionTokensUsed,
+    }).catch(() => {
+      // Ignore hook errors - they shouldn't block the user
     });
 
     // Restore stdin to known state after hook execution
@@ -831,13 +833,15 @@ If lint or tests fail, report the issues but do NOT commit.`;
         const turnStartTime = Date.now();
         await this.runInstruction(instruction);
 
-        // Fire stop hook after turn completes
+        // Fire stop hook after turn completes (non-blocking)
         const turnDuration = Date.now() - turnStartTime;
         const session = this.sessionManager.getCurrentSession();
-        await this.hookManager.executeHooks('stop', {
+        this.hookManager.executeHooks('stop', {
           sessionId: session?.metadata.sessionId,
           turnDuration,
           tokensUsed: this.sessionTokensUsed,
+        }).catch(() => {
+          // Ignore hook errors - they shouldn't block the user
         });
 
         // Restore stdin to known state after hook execution
@@ -1053,29 +1057,70 @@ If lint or tests fail, report the issues but do NOT commit.`;
       return this.workspaceFiles;
     }
 
-    const git = spawnSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'], {
-      cwd: this.runtime.workspaceRoot,
-      encoding: 'utf8'
-    });
-    const files: string[] = [];
-    const ignoreFilter = this.ignoreFilter;
-    if (git.status === 0 && git.stdout) {
-      git.stdout
-        .split(/\r?\n/)
-        .map((file) => file.trim())
-        .filter(Boolean)
-        .forEach((file) => {
-          if (!ignoreFilter.isIgnored(file)) {
-            files.push(file);
-          }
-        });
-      this.workspaceFilesCachedAt = now;
-      return files;
-    }
+    // Show spinner only on first load or after cache expires
+    const showSpinner = this.workspaceFiles.length === 0;
+    const spinner = showSpinner ? ora('Loading workspace files...').start() : null;
 
-    await this.walkWorkspace(this.runtime.workspaceRoot, files);
-    this.workspaceFilesCachedAt = now;
-    return files;
+    try {
+      const files = await this.gitLsFiles();
+      if (files.length > 0) {
+        this.workspaceFilesCachedAt = now;
+        spinner?.succeed(`Loaded ${files.length} files`);
+        return files;
+      }
+
+      // Fallback to filesystem walk if git fails
+      const walkedFiles: string[] = [];
+      await this.walkWorkspace(this.runtime.workspaceRoot, walkedFiles);
+      this.workspaceFilesCachedAt = now;
+      spinner?.succeed(`Loaded ${walkedFiles.length} files`);
+      return walkedFiles;
+    } catch (error) {
+      spinner?.fail('Failed to load files');
+      // Return cached files if available, otherwise empty array
+      return this.workspaceFiles.length > 0 ? this.workspaceFiles : [];
+    }
+  }
+
+  private async gitLsFiles(): Promise<string[]> {
+    return new Promise((resolve) => {
+      const files: string[] = [];
+      const ignoreFilter = this.ignoreFilter;
+
+      const proc = spawn('git', ['ls-files', '--cached', '--others', '--exclude-standard'], {
+        cwd: this.runtime.workspaceRoot
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      proc.stdout?.on('data', (chunk) => {
+        stdout += chunk.toString();
+      });
+
+      proc.stderr?.on('data', (chunk) => {
+        stderr += chunk.toString();
+      });
+
+      proc.on('close', (code) => {
+        if (code === 0 && stdout) {
+          stdout
+            .split(/\r?\n/)
+            .map((file) => file.trim())
+            .filter(Boolean)
+            .forEach((file) => {
+              if (!ignoreFilter.isIgnored(file)) {
+                files.push(file);
+              }
+            });
+        }
+        resolve(files);
+      });
+
+      proc.on('error', () => {
+        resolve([]);
+      });
+    });
   }
 
   private async walkWorkspace(current: string, acc: string[]): Promise<void> {
