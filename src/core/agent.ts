@@ -9,7 +9,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawnSync, spawn } from 'node:child_process';
 import ora from 'ora';
-import enquirer from 'enquirer';
+import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import readline from 'node:readline';
 import { FileActionManager } from '../actions/filesystem.js';
 import { saveConfig, getProviderConfig } from '../config.js';
@@ -1102,22 +1102,25 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
 
   private async promptApprovalMode(): Promise<void> {
-    const answer = await enquirer.prompt<{ mode: 'confirm' | 'prompt' }>([
-      {
-        type: 'select',
-        name: 'mode',
-        message: 'Choose confirmation mode',
-        choices: [
-          { name: 'confirm', message: 'Require approval before risky actions' },
-          { name: 'prompt', message: 'Auto-confirm actions (dangerous)' }
-        ],
-        initial: this.runtime.options.yes ? 'prompt' : 'confirm'
-      }
-    ]);
+    const options: ModalOption[] = [
+      { label: 'Require approval before risky actions', value: 'confirm' },
+      { label: 'Auto-confirm actions (dangerous)', value: 'prompt' }
+    ];
 
-    this.runtime.options.yes = answer.mode === 'prompt';
+    const result = await showModal({
+      title: 'Choose confirmation mode',
+      options,
+      initialIndex: this.runtime.options.yes ? 1 : 0
+    });
+
+    if (!result) {
+      // User cancelled, keep current setting
+      return;
+    }
+
+    this.runtime.options.yes = result.value === 'prompt';
     console.log(
-      answer.mode === 'prompt'
+      result.value === 'prompt'
         ? chalk.yellow('Auto-confirm enabled. Use responsibly.')
         : chalk.green('Manual approvals required before risky writes.')
     );
