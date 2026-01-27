@@ -24,4 +24,4 @@ package-lock.json
 bin/
 scripts/
 autohand
-docs/plans/*
+docs/plans/*.worktrees/
