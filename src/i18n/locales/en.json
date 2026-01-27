@@ -399,7 +399,13 @@
     "questionSelectHint": "↑↓ Navigate · ↵ Select · 1-9 Shortcut · ESC Cancel",
     "noOptionsAvailable": "No options available",
     "planRevise": "No, revise the plan",
-    "planEditHint": "ctrl-g to edit in VS Code"
+    "planEditHint": "ctrl-g to edit in VS Code",
+    "confirmYes": "Yes",
+    "confirmNo": "No",
+    "inputHint": "Enter to submit, ESC to cancel",
+    "inputPlaceholder": "Type your answer...",
+    "passwordPlaceholder": "Enter password...",
+    "validationError": "Invalid input"
   },
   "languages": {
     "en": "English",
