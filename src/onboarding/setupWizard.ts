@@ -5,7 +5,7 @@
  */
 
 import chalk from 'chalk';
-import enquirer from 'enquirer';
+import { showModal, showInput, showPassword, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 import { pathExists, writeFile } from 'fs-extra';
 import { join } from 'path';
 
@@ -203,31 +203,32 @@ export class SetupWizard {
 
     const providers = ProviderFactory.getProviderNames();
 
-    const choices = providers.map(p => ({
-      name: p,
-      message: this.getProviderDisplayName(p),
-      hint: this.getProviderHint(p)
+    const options: ModalOption[] = providers.map(p => ({
+      label: this.getProviderDisplayName(p),
+      value: p,
+      description: this.getProviderHint(p)
     }));
 
     // Only pre-select if there's a valid existing provider with API key
     const hasValidExistingProvider = this.existingConfig?.provider && this.isProviderConfigured(this.existingConfig.provider);
 
-    const promptOptions: any = {
-      type: 'select',
-      name: 'provider',
-      message: 'Which LLM provider would you like to use?',
-      choices
-    };
-
-    // Only set initial if there's a valid existing config
+    let initialIndex = 0;
     if (hasValidExistingProvider) {
-      promptOptions.initial = providers.indexOf(this.existingConfig!.provider!);
+      initialIndex = providers.indexOf(this.existingConfig!.provider!);
     }
 
-    const result = await enquirer.prompt<{ provider: ProviderName }>(promptOptions);
+    const result = await showModal({
+      title: 'Which LLM provider would you like to use?',
+      options,
+      initialIndex: initialIndex >= 0 ? initialIndex : 0
+    });
 
-    this.state.provider = result.provider;
-    return result.provider;
+    if (!result) {
+      return null;
+    }
+
+    this.state.provider = result.value as ProviderName;
+    return result.value as ProviderName;
   }
 
   /**
@@ -257,11 +258,9 @@ export class SetupWizard {
     // Check for existing key
     const existingKey = this.getExistingApiKey(provider);
     if (existingKey && existingKey !== 'replace-me') {
-      const { useExisting } = await enquirer.prompt<{ useExisting: boolean }>({
-        type: 'confirm',
-        name: 'useExisting',
-        message: `Use existing ${this.getProviderDisplayName(provider)} API key? (ends with ...${existingKey.slice(-4)})`,
-        initial: true
+      const useExisting = await showConfirm({
+        title: `Use existing ${this.getProviderDisplayName(provider)} API key? (ends with ...${existingKey.slice(-4)})`,
+        defaultValue: true
       });
 
       if (useExisting) {
@@ -273,19 +272,20 @@ export class SetupWizard {
     // Show help link
     console.log(chalk.gray(`\n  Get your API key at: ${this.getApiKeyUrl(provider)}\n`));
 
-    const result = await enquirer.prompt<{ apiKey: string }>({
-      type: 'password',
-      name: 'apiKey',
-      message: `Enter your ${this.getProviderDisplayName(provider)} API key`,
-      validate: (val: unknown) => {
-        const v = val as string;
-        if (!v?.trim()) return 'API key is required';
-        if (v.length < 10) return 'API key seems too short';
+    const apiKey = await showPassword({
+      title: `Enter your ${this.getProviderDisplayName(provider)} API key`,
+      validate: (val: string) => {
+        if (!val?.trim()) return 'API key is required';
+        if (val.length < 10) return 'API key seems too short';
         return true;
       }
     });
 
-    this.state.apiKey = result.apiKey.trim();
+    if (!apiKey) {
+      return null;
+    }
+
+    this.state.apiKey = apiKey.trim();
     return this.state.apiKey;
   }
 
@@ -299,18 +299,19 @@ export class SetupWizard {
 
     // For simplicity, just use input with default
     // In a full implementation, we'd fetch available models
-    const result = await enquirer.prompt<{ model: string }>({
-      type: 'input',
-      name: 'model',
-      message: 'Enter model ID',
-      initial: defaultModel,
-      validate: (val: unknown) => {
-        const v = val as string;
-        return v?.trim() ? true : 'Model is required';
+    const model = await showInput({
+      title: 'Enter model ID',
+      defaultValue: defaultModel,
+      validate: (val: string) => {
+        return val?.trim() ? true : 'Model is required';
       }
     });
 
-    this.state.model = result.model.trim();
+    if (!model) {
+      return null;
+    }
+
+    this.state.model = model.trim();
     return this.state.model;
   }
 
@@ -339,11 +340,9 @@ export class SetupWizard {
     console.log(chalk.gray('  - Personal information'));
     console.log();
 
-    const { telemetryEnabled } = await enquirer.prompt<{ telemetryEnabled: boolean }>({
-      type: 'confirm',
-      name: 'telemetryEnabled',
-      message: 'Share anonymous usage data to help improve Autohand?',
-      initial: true
+    const telemetryEnabled = await showConfirm({
+      title: 'Share anonymous usage data to help improve Autohand?',
+      defaultValue: true
     });
 
     this.state.telemetryEnabled = telemetryEnabled;
@@ -361,11 +360,9 @@ export class SetupWizard {
   private async promptPreferences(): Promise<void> {
     this.state.currentStep = 'preferences';
 
-    const { configurePrefs } = await enquirer.prompt<{ configurePrefs: boolean }>({
-      type: 'confirm',
-      name: 'configurePrefs',
-      message: 'Would you like to configure additional preferences? (theme, auto-confirm)',
-      initial: false
+    const configurePrefs = await showConfirm({
+      title: 'Would you like to configure additional preferences? (theme, auto-confirm)',
+      defaultValue: false
     });
 
     if (!configurePrefs) {
@@ -383,26 +380,27 @@ export class SetupWizard {
       tui: 'New Zealand inspired colors'
     };
 
-    const { theme } = await enquirer.prompt<{ theme: string }>({
-      type: 'select',
-      name: 'theme',
-      message: 'Select a theme',
-      choices: themes.map(t => ({ name: t, message: t, hint: themeDescriptions[t] })),
-      initial: 0
+    const themeOptions: ModalOption[] = themes.map(t => ({
+      label: t,
+      value: t,
+      description: themeDescriptions[t]
+    }));
+
+    const themeResult = await showModal({
+      title: 'Select a theme',
+      options: themeOptions
     });
 
-    const { autoConfirm } = await enquirer.prompt<{ autoConfirm: boolean }>({
-      type: 'confirm',
-      name: 'autoConfirm',
-      message: 'Auto-confirm non-destructive actions?',
-      initial: false
+    const theme = themeResult?.value as string || 'dark';
+
+    const autoConfirm = await showConfirm({
+      title: 'Auto-confirm non-destructive actions?',
+      defaultValue: false
     });
 
-    const { checkForUpdates } = await enquirer.prompt<{ checkForUpdates: boolean }>({
-      type: 'confirm',
-      name: 'checkForUpdates',
-      message: 'Check for updates on startup?',
-      initial: true
+    const checkForUpdates = await showConfirm({
+      title: 'Check for updates on startup?',
+      defaultValue: true
     });
 
     this.state.preferences = { theme, autoConfirm, checkForUpdates };
@@ -419,11 +417,9 @@ export class SetupWizard {
 
     // If exists, ask to overwrite
     if (exists) {
-      const { overwrite } = await enquirer.prompt<{ overwrite: boolean }>({
-        type: 'confirm',
-        name: 'overwrite',
-        message: 'AGENTS.md already exists. Would you like to regenerate it?',
-        initial: false
+      const overwrite = await showConfirm({
+        title: 'AGENTS.md already exists. Would you like to regenerate it?',
+        defaultValue: false
       });
 
       if (!overwrite) {
@@ -442,11 +438,9 @@ export class SetupWizard {
       console.log(chalk.gray('  It contains instructions specific to your codebase.'));
       console.log();
 
-      const { createAgents } = await enquirer.prompt<{ createAgents: boolean }>({
-        type: 'confirm',
-        name: 'createAgents',
-        message: 'Generate AGENTS.md based on your project?',
-        initial: true
+      const createAgents = await showConfirm({
+        title: 'Generate AGENTS.md based on your project?',
+        defaultValue: true
       });
 
       if (!createAgents) {
@@ -664,10 +658,9 @@ export class SetupWizard {
 
   private async pressEnter(): Promise<void> {
     console.log(chalk.gray('  Press Enter to continue...'));
-    await enquirer.prompt({
-      type: 'invisible',
-      name: 'continue',
-      message: ''
+    // Wait for Enter key
+    await new Promise<void>(resolve => {
+      process.stdin.once('data', () => resolve());
     });
   }
 }
