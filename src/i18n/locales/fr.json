@@ -399,7 +399,13 @@
     "questionSelectHint": "↑↓ Naviguer · ↵ Sélectionner · 1-9 Raccourci · ESC Annuler",
     "noOptionsAvailable": "Aucune option disponible",
     "planRevise": "Non, réviser le plan",
-    "planEditHint": "ctrl-g pour éditer dans VS Code"
+    "planEditHint": "ctrl-g pour éditer dans VS Code",
+    "confirmYes": "Oui",
+    "confirmNo": "Non",
+    "inputHint": "Entrée pour soumettre, ESC pour annuler",
+    "inputPlaceholder": "Tapez votre réponse...",
+    "passwordPlaceholder": "Entrez le mot de passe...",
+    "validationError": "Entrée invalide"
   },
   "languages": {
     "en": "English",

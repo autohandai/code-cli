@@ -399,7 +399,13 @@
     "questionSelectHint": "↑↓ 导航 · ↵ 选择 · 1-9 快捷键 · ESC 取消",
     "noOptionsAvailable": "没有可用选项",
     "planRevise": "否，修改计划",
-    "planEditHint": "ctrl-g 在 VS Code 中编辑"
+    "planEditHint": "ctrl-g 在 VS Code 中编辑",
+    "confirmYes": "是",
+    "confirmNo": "否",
+    "inputHint": "Enter 提交，ESC 取消",
+    "inputPlaceholder": "输入您的答案...",
+    "passwordPlaceholder": "输入密码...",
+    "validationError": "输入无效"
   },
   "languages": {
     "en": "English",
