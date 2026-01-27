@@ -84,6 +84,14 @@ import { IntentDetector, type Intent, type IntentResult } from './IntentDetector
 import { EnvironmentBootstrap, type BootstrapResult } from './EnvironmentBootstrap.js';
 import { CodeQualityPipeline, type QualityResult } from './CodeQualityPipeline.js';
 import { resolvePromptValue, SysPromptError } from '../utils/sysPrompt.js';
+import {
+  formatToolSignature,
+  formatExplorationLabel,
+  formatToolResultsBatch,
+  describeInstruction,
+  formatElapsedTime,
+  formatTokens
+} from './agent/AgentFormatter.js';
 
 export class AutohandAgent {
   private mentionContexts: { path: string; contents: string }[] = [];
@@ -2085,8 +2093,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
       // Show completion summary (skip if using Ink - it handles this via completionStats)
       if (this.taskStartedAt && !canceledByUser && !this.useInkRenderer) {
-        const elapsed = this.formatElapsedTime(this.taskStartedAt);
-        const tokens = this.formatTokens(this.totalTokensUsed);
+        const elapsed = formatElapsedTime(this.taskStartedAt);
+        const tokens = formatTokens(this.totalTokensUsed);
         // Count queued instructions from all sources
         const queueCount = this.pendingInkInstructions.length +
           (this.inkRenderer?.getQueueCount() ?? 0) +
@@ -2466,7 +2474,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
           // Add batched tool output (with thought shown before tools)
           const charLimit = this.runtime.config.ui?.readFileCharLimit ?? 300;
-          outputLines.push(this.formatToolResultsBatch(results, charLimit, otherCalls, thought));
+          outputLines.push(formatToolResultsBatch(results, charLimit, otherCalls, thought));
         }
 
         // Output tool results
@@ -2674,8 +2682,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
           this.inkRenderer.setThinking(payload.thought);
         }
         // Update final stats before stopping (session totals for completionStats)
-        this.inkRenderer.setElapsed(this.formatElapsedTime(this.sessionStartedAt));
-        this.inkRenderer.setTokens(this.formatTokens(this.sessionTokensUsed + this.totalTokensUsed));
+        this.inkRenderer.setElapsed(formatElapsedTime(this.sessionStartedAt));
+        this.inkRenderer.setTokens(formatTokens(this.sessionTokensUsed + this.totalTokensUsed));
         this.inkRenderer.setWorking(false);
         this.inkRenderer.setFinalResponse(response);
       } else {
@@ -2960,23 +2968,6 @@ If lint or tests fail, report the issues but do NOT commit.`;
     return userPromptParts.join('\n\n');
   }
 
-  private formatToolSignature(def: import('./toolManager.js').ToolDefinition): string {
-    const params = def.parameters;
-    if (!params || !params.properties || Object.keys(params.properties).length === 0) {
-      return `- ${def.name}() - ${def.description}`;
-    }
-
-    const required = new Set(params.required ?? []);
-    const args = Object.entries(params.properties)
-      .map(([name, prop]) => {
-        const optional = required.has(name) ? '' : '?';
-        return `${name}${optional}: ${prop.type}`;
-      })
-      .join(', ');
-
-    return `- ${def.name}(${args}) - ${def.description}`;
-  }
-
   private async buildSystemPrompt(): Promise<string> {
     // Check for custom system prompt replacement (--sys-prompt)
     if (this.runtime.options.sysPrompt) {
@@ -2996,7 +2987,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
 
     const toolDefs = this.toolManager?.listDefinitions() ?? [];
-    const toolSignatures = toolDefs.map(def => this.formatToolSignature(def)).join('\n');
+    const toolSignatures = toolDefs.map(def => formatToolSignature(def)).join('\n');
 
     const memories = await this.memoryManager.getContextMemories();
     const instructions = await this.loadInstructionFiles();
@@ -3545,76 +3536,12 @@ If lint or tests fail, report the issues but do NOT commit.`;
       console.log('\n' + chalk.bold('* Explored'));
       this.hasPrintedExplorationHeader = true;
     }
-    const label = this.formatExplorationLabel(event.kind);
+    const label = formatExplorationLabel(event.kind);
     console.log(`  ${chalk.cyan(label)} ${event.target}`);
   }
 
   private clearExplorationLog(): void {
     this.hasPrintedExplorationHeader = false;
-  }
-
-  private formatExplorationLabel(kind: ExplorationEvent['kind']): string {
-    switch (kind) {
-      case 'read':
-        return 'Read';
-      case 'search':
-        return 'Search';
-      default:
-        return 'List';
-    }
-  }
-
-  /**
-   * Format tool results as a single batched output string.
-   * This reduces flicker by consolidating multiple console.log calls into one.
-   */
-  private formatToolResultsBatch(
-    results: Array<{ tool: AgentAction['type']; success: boolean; output?: string; error?: string }>,
-    charLimit: number,
-    toolCalls?: ToolCallRequest[],
-    thought?: string
-  ): string {
-    const lines: string[] = [];
-
-    // Show thought before first tool if present (skip JSON)
-    if (thought && !thought.trim().startsWith('{')) {
-      lines.push(chalk.white(thought));
-      lines.push('');
-    }
-
-    for (let i = 0; i < results.length; i++) {
-      const result = results[i];
-      const content = result.success
-        ? result.output ?? '(no output)'
-        : result.error ?? result.output ?? 'Tool failed without error message';
-
-      // Extract args from tool call
-      const call = toolCalls?.[i];
-      const filePath = call?.args?.path as string | undefined;
-      const command = call?.args?.command as string | undefined;
-      const commandArgs = call?.args?.args as string[] | undefined;
-
-      const display = result.success
-        ? formatToolOutputForDisplay({ tool: result.tool, content, charLimit, filePath, command, commandArgs })
-        : { output: content, truncated: false, totalChars: content.length };
-
-      const icon = result.success ? chalk.green('✔') : chalk.red('✖');
-      lines.push(`${icon} ${chalk.bold(result.tool)}`);
-
-      if (content) {
-        if (result.success) {
-          lines.push(chalk.gray(display.output));
-        } else {
-          // Error box
-          lines.push(chalk.red('┌─ Error ─────────────────────────────────'));
-          lines.push(chalk.red('│ ') + chalk.white(content));
-          lines.push(chalk.red('└─────────────────────────────────────────'));
-        }
-      }
-      lines.push(''); // blank line between tools
-    }
-
-    return lines.join('\n');
   }
 
   /**
@@ -3696,8 +3623,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
   private stopUI(failed = false, message?: string): void {
     if (this.inkRenderer) {
       // Update final stats before stopping (session totals for completionStats)
-      this.inkRenderer.setElapsed(this.formatElapsedTime(this.sessionStartedAt));
-      this.inkRenderer.setTokens(this.formatTokens(this.sessionTokensUsed + this.totalTokensUsed));
+      this.inkRenderer.setElapsed(formatElapsedTime(this.sessionStartedAt));
+      this.inkRenderer.setTokens(formatTokens(this.sessionTokensUsed + this.totalTokensUsed));
       this.inkRenderer.setWorking(false);
       if (message) {
         this.inkRenderer.setFinalResponse(message);
@@ -3920,10 +3847,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private startPreparationStatus(instruction: string): () => void {
-    const label = this.describeInstruction(instruction);
+    const label = describeInstruction(instruction);
     const startedAt = Date.now();
     const update = () => {
-      const elapsed = this.formatElapsedTime(startedAt);
+      const elapsed = formatElapsedTime(startedAt);
       const status = `Preparing to ${label} (${elapsed} • esc to interrupt)`;
       if (this.inkRenderer) {
         this.inkRenderer.setStatus(status);
@@ -3942,28 +3869,6 @@ If lint or tests fail, report the issues but do NOT commit.`;
       clearInterval(interval);
       stopped = true;
     };
-  }
-
-  private describeInstruction(instruction: string): string {
-    const normalized = instruction.trim().replace(/\s+/g, ' ');
-    if (!normalized) {
-      return 'work';
-    }
-    return normalized.length > 60 ? `${normalized.slice(0, 57)}…` : normalized;
-  }
-
-  private formatElapsedTime(startedAt: number): string {
-    const diff = Date.now() - startedAt;
-    const minutes = Math.floor(diff / 60000);
-    const seconds = Math.floor((diff % 60000) / 1000);
-    return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
-  }
-
-  private formatTokens(tokens: number): string {
-    if (tokens >= 1000) {
-      return `${(tokens / 1000).toFixed(1)}k tokens`;
-    }
-    return `${tokens} tokens`;
   }
 
   /**
@@ -4402,10 +4307,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
   private forceRenderSpinner(): void {
     if (!this.taskStartedAt) return;
 
-    const elapsed = this.formatElapsedTime(this.taskStartedAt);
+    const elapsed = formatElapsedTime(this.taskStartedAt);
     // Show session total tokens (includes current task + previous tasks in session)
     const sessionTotal = this.sessionTokensUsed + this.totalTokensUsed;
-    const tokens = this.formatTokens(sessionTotal);
+    const tokens = formatTokens(sessionTotal);
     const queueCount = this.inkRenderer?.getQueueCount() ?? this.persistentInput.getQueueLength();
     const queueHint = queueCount > 0 ? ` [${queueCount} queued]` : '';
     const statusLine = `Working... (esc to interrupt · ${elapsed} · ${tokens}${queueHint})`;
