@@ -5,7 +5,7 @@
  */
 
 import chalk from 'chalk';
-import enquirer from 'enquirer';
+import { showModal, showInput, showPassword, type ModalOption } from '../../ui/ink/components/Modal.js';
 import { ProviderFactory } from '../../providers/ProviderFactory.js';
 import { saveConfig, getProviderConfig } from '../../config.js';
 import { getContextWindow } from '../../utils/context.js';
@@ -48,29 +48,29 @@ export class ProviderConfigManager {
       // Show all providers with status indicators
       // Use ProviderFactory to get platform-aware list (includes MLX on Apple Silicon)
       const allProviders = ProviderFactory.getProviderNames();
-      const providerChoices = allProviders.map(name => {
+      const providerChoices: ModalOption[] = allProviders.map(name => {
         const isConfigured = this.isProviderConfigured(name);
         const indicator = isConfigured ? chalk.green('●') : chalk.red('○');
         const current = name === this.getActiveProvider() ? chalk.cyan(' (current)') : '';
         // Add Apple Silicon indicator for MLX
         const siliconNote = name === 'mlx' ? chalk.gray(' (Apple Silicon)') : '';
         return {
-          name,
-          message: `${indicator} ${name}${current}${siliconNote}`,
+          label: `${indicator} ${name}${current}${siliconNote}`,
           value: name
         };
       });
 
-      const providerAnswer = await enquirer.prompt<{ provider: ProviderName }>([
-        {
-          type: 'select',
-          name: 'provider',
-          message: 'Choose an LLM provider',
-          choices: providerChoices
-        }
-      ]);
+      const result = await showModal({
+        title: 'Choose an LLM provider',
+        options: providerChoices
+      });
 
-      const selectedProvider = providerAnswer.provider;
+      if (!result) {
+        console.log(chalk.gray('\nConfiguration cancelled.'));
+        return;
+      }
+
+      const selectedProvider = result.value as ProviderName;
 
       // Check if provider needs configuration
       if (!this.isProviderConfigured(selectedProvider)) {
@@ -82,12 +82,7 @@ export class ProviderConfigManager {
       // Provider is configured, let them change the model
       await this.changeProviderModel(selectedProvider);
     } catch (error) {
-      // Handle cancellation gracefully (ESC or Ctrl+C)
-      if ((error as any).name === 'ExitPromptError' || (error as Error).message?.includes('canceled')) {
-        console.log(chalk.gray('\nConfiguration cancelled.'));
-        return;
-      }
-      // Re-throw unexpected errors
+      // Re-throw unexpected errors (cancellation is now handled inline)
       throw error;
     }
   }
@@ -139,37 +134,39 @@ export class ProviderConfigManager {
       console.log(chalk.cyan('OpenRouter Configuration'));
       console.log(chalk.gray('Get your API key at: https://openrouter.ai/keys\n'));
 
-      const answers = await enquirer.prompt<{ apiKey: string; model: string }>([
-        {
-          type: 'password',
-          name: 'apiKey',
-          message: 'Enter your OpenRouter API key'
-        },
-        {
-          type: 'input',
-          name: 'model',
-          message: 'Enter the model ID',
-          initial: 'anthropic/claude-3.5-sonnet'
-        }
-      ]);
+      const apiKey = await showPassword({
+        title: 'Enter your OpenRouter API key'
+      });
 
-      this.runtime.config.openrouter = {
-        apiKey: answers.apiKey,
-        baseUrl: 'https://openrouter.ai/api/v1',
-        model: answers.model
-      };
-
-      this.runtime.config.provider = 'openrouter';
-      this.runtime.options.model = answers.model;
-      await saveConfig(this.runtime.config);
-      this.resetLlmClient('openrouter', answers.model);
-
-      console.log(chalk.green('\n✓ OpenRouter configured successfully!'));
-    } catch (error) {
-      if ((error as any).name === 'ExitPromptError' || (error as Error).message?.includes('canceled')) {
+      if (!apiKey) {
         console.log(chalk.gray('\nConfiguration cancelled.'));
         return;
       }
+
+      const model = await showInput({
+        title: 'Enter the model ID',
+        defaultValue: 'anthropic/claude-3.5-sonnet'
+      });
+
+      if (!model) {
+        console.log(chalk.gray('\nConfiguration cancelled.'));
+        return;
+      }
+
+      this.runtime.config.openrouter = {
+        apiKey,
+        baseUrl: 'https://openrouter.ai/api/v1',
+        model
+      };
+
+      this.runtime.config.provider = 'openrouter';
+      this.runtime.options.model = model;
+      await saveConfig(this.runtime.config);
+      this.resetLlmClient('openrouter', model);
+
+      console.log(chalk.green('\n✓ OpenRouter configured successfully!'));
+    } catch (error) {
+      // Cancellation is now handled inline
       throw error;
     }
   }
@@ -196,41 +193,43 @@ export class ProviderConfigManager {
         console.log(chalk.yellow('⚠ Could not connect to Ollama. Make sure it\'s running.\n'));
       }
 
-      let modelAnswer;
+      let model: string | null;
       if (availableModels.length > 0) {
         console.log(chalk.green(`Found ${availableModels.length} model(s)\n`));
-        modelAnswer = await enquirer.prompt<{ model: string }>([
-          {
-            type: 'select',
-            name: 'model',
-            message: 'Select a model',
-            choices: availableModels
-          }
-        ]);
+        const options: ModalOption[] = availableModels.map(name => ({
+          label: name,
+          value: name
+        }));
+        const result = await showModal({
+          title: 'Select a model',
+          options
+        });
+        model = result?.value as string | null;
       } else {
-        modelAnswer = await enquirer.prompt<{ model: string }>([
-          {
-            type: 'input',
-            name: 'model',
-            message: 'Enter the model name (e.g., llama3.2:latest)',
-            initial: 'llama3.2:latest'
-          }
-        ]);
+        model = await showInput({
+          title: 'Enter the model name (e.g., llama3.2:latest)',
+          defaultValue: 'llama3.2:latest'
+        });
+      }
+
+      if (!model) {
+        console.log(chalk.gray('\nConfiguration cancelled.'));
+        return;
       }
 
       this.runtime.config.ollama = {
         baseUrl: ollamaUrl,
-        model: modelAnswer.model
+        model
       };
 
       this.runtime.config.provider = 'ollama';
-      this.runtime.options.model = modelAnswer.model;
+      this.runtime.options.model = model;
       await saveConfig(this.runtime.config);
-      this.resetLlmClient('ollama', modelAnswer.model);
+      this.resetLlmClient('ollama', model);
 
       console.log(chalk.green('\n✓ Ollama configured successfully!'));
     } catch (error) {
-      if ((error as any).name === 'ExitPromptError' || (error as Error).message?.includes('canceled')) {
+      if ((error as Error).message?.includes('cancelled')) {
         console.log(chalk.gray('\nConfiguration cancelled.'));
         return;
       }
@@ -246,38 +245,40 @@ export class ProviderConfigManager {
       console.log(chalk.cyan('llama.cpp Configuration'));
       console.log(chalk.gray('Make sure llama.cpp server is running: ./server -m model.gguf\n'));
 
-      const answers = await enquirer.prompt<{ port: string; model: string }>([
-        {
-          type: 'input',
-          name: 'port',
-          message: 'Server port',
-          initial: '8080'
-        },
-        {
-          type: 'input',
-          name: 'model',
-          message: 'Model name/description',
-          initial: 'llama-model'
-        }
-      ]);
+      const port = await showInput({
+        title: 'Server port',
+        defaultValue: '8080'
+      });
 
-      this.runtime.config.llamacpp = {
-        baseUrl: `http://localhost:${answers.port}`,
-        port: parseInt(answers.port),
-        model: answers.model
-      };
-
-      this.runtime.config.provider = 'llamacpp';
-      this.runtime.options.model = answers.model;
-      await saveConfig(this.runtime.config);
-      this.resetLlmClient('llamacpp', answers.model);
-
-      console.log(chalk.green('\n✓ llama.cpp configured successfully!'));
-    } catch (error) {
-      if ((error as any).name === 'ExitPromptError' || (error as Error).message?.includes('canceled')) {
+      if (!port) {
         console.log(chalk.gray('\nConfiguration cancelled.'));
         return;
       }
+
+      const model = await showInput({
+        title: 'Model name/description',
+        defaultValue: 'llama-model'
+      });
+
+      if (!model) {
+        console.log(chalk.gray('\nConfiguration cancelled.'));
+        return;
+      }
+
+      this.runtime.config.llamacpp = {
+        baseUrl: `http://localhost:${port}`,
+        port: parseInt(port),
+        model
+      };
+
+      this.runtime.config.provider = 'llamacpp';
+      this.runtime.options.model = model;
+      await saveConfig(this.runtime.config);
+      this.resetLlmClient('llamacpp', model);
+
+      console.log(chalk.green('\n✓ llama.cpp configured successfully!'));
+    } catch (error) {
+      // Cancellation is now handled inline
       throw error;
     }
   }
@@ -290,45 +291,49 @@ export class ProviderConfigManager {
       console.log(chalk.cyan('OpenAI Configuration'));
       console.log(chalk.gray('Get your API key at: https://platform.openai.com/api-keys\n'));
 
-      const modelChoices = [
-        'gpt-4o',
-        'gpt-4o-mini',
-        'gpt-4-turbo',
-        'gpt-4',
-        'gpt-3.5-turbo'
-      ];
+      const apiKey = await showPassword({
+        title: 'Enter your OpenAI API key'
+      });
 
-      const answers = await enquirer.prompt<{ apiKey: string; model: string }>([
-        {
-          type: 'password',
-          name: 'apiKey',
-          message: 'Enter your OpenAI API key'
-        },
-        {
-          type: 'select',
-          name: 'model',
-          message: 'Select a model',
-          choices: modelChoices
-        }
-      ]);
-
-      this.runtime.config.openai = {
-        apiKey: answers.apiKey,
-        baseUrl: 'https://api.openai.com/v1',
-        model: answers.model
-      };
-
-      this.runtime.config.provider = 'openai';
-      this.runtime.options.model = answers.model;
-      await saveConfig(this.runtime.config);
-      this.resetLlmClient('openai', answers.model);
-
-      console.log(chalk.green('\n✓ OpenAI configured successfully!'));
-    } catch (error) {
-      if ((error as any).name === 'ExitPromptError' || (error as Error).message?.includes('canceled')) {
+      if (!apiKey) {
         console.log(chalk.gray('\nConfiguration cancelled.'));
         return;
       }
+
+      const modelChoices: ModalOption[] = [
+        { label: 'gpt-4o', value: 'gpt-4o' },
+        { label: 'gpt-4o-mini', value: 'gpt-4o-mini' },
+        { label: 'gpt-4-turbo', value: 'gpt-4-turbo' },
+        { label: 'gpt-4', value: 'gpt-4' },
+        { label: 'gpt-3.5-turbo', value: 'gpt-3.5-turbo' }
+      ];
+
+      const result = await showModal({
+        title: 'Select a model',
+        options: modelChoices
+      });
+
+      if (!result) {
+        console.log(chalk.gray('\nConfiguration cancelled.'));
+        return;
+      }
+
+      const model = result.value as string;
+
+      this.runtime.config.openai = {
+        apiKey,
+        baseUrl: 'https://api.openai.com/v1',
+        model
+      };
+
+      this.runtime.config.provider = 'openai';
+      this.runtime.options.model = model;
+      await saveConfig(this.runtime.config);
+      this.resetLlmClient('openai', model);
+
+      console.log(chalk.green('\n✓ OpenAI configured successfully!'));
+    } catch (error) {
+      // Cancellation is now handled inline
       throw error;
     }
   }
@@ -356,43 +361,42 @@ export class ProviderConfigManager {
         console.log(chalk.yellow('⚠ Could not connect to MLX server. Make sure it\'s running.\n'));
       }
 
-      let modelAnswer;
+      let model: string | null;
       if (availableModels.length > 0) {
-        modelAnswer = await enquirer.prompt<{ model: string }>([
-          {
-            type: 'select',
-            name: 'model',
-            message: 'Select a model',
-            choices: availableModels
-          }
-        ]);
+        const options: ModalOption[] = availableModels.map(name => ({
+          label: name,
+          value: name
+        }));
+        const result = await showModal({
+          title: 'Select a model',
+          options
+        });
+        model = result?.value as string | null;
       } else {
-        modelAnswer = await enquirer.prompt<{ model: string }>([
-          {
-            type: 'input',
-            name: 'model',
-            message: 'Enter model name (e.g., mlx-community/Llama-3.2-3B-Instruct-4bit)',
-            initial: 'mlx-community/Llama-3.2-3B-Instruct-4bit'
-          }
-        ]);
+        model = await showInput({
+          title: 'Enter model name (e.g., mlx-community/Llama-3.2-3B-Instruct-4bit)',
+          defaultValue: 'mlx-community/Llama-3.2-3B-Instruct-4bit'
+        });
+      }
+
+      if (!model) {
+        console.log(chalk.gray('\nConfiguration cancelled.'));
+        return;
       }
 
       this.runtime.config.mlx = {
         baseUrl: mlxUrl,
-        model: modelAnswer.model
+        model
       };
 
       this.runtime.config.provider = 'mlx';
-      this.runtime.options.model = modelAnswer.model;
+      this.runtime.options.model = model;
       await saveConfig(this.runtime.config);
-      this.resetLlmClient('mlx', modelAnswer.model);
+      this.resetLlmClient('mlx', model);
 
       console.log(chalk.green('\n✓ MLX configured successfully!'));
     } catch (error) {
-      if ((error as any).name === 'ExitPromptError' || (error as Error).message?.includes('canceled')) {
-        console.log(chalk.gray('\nConfiguration cancelled.'));
-        return;
-      }
+      // Cancellation is now handled inline
       throw error;
     }
   }
@@ -419,16 +423,23 @@ export class ProviderConfigManager {
             const data = await response.json();
             const models = data.models?.map((m: any) => m.name) || [];
             if (models.length > 0) {
-              const answer = await enquirer.prompt<{ model: string }>([
-                {
-                  type: 'select',
-                  name: 'model',
-                  message: 'Select a model',
-                  choices: models,
-                  initial: models.indexOf(currentModel)
-                }
-              ]);
-              await this.applyModelChange(provider, answer.model, currentModel);
+              const options: ModalOption[] = models.map(name => ({
+                label: name,
+                value: name
+              }));
+              const currentIndex = models.indexOf(currentModel);
+              const result = await showModal({
+                title: 'Select a model',
+                options,
+                initialIndex: currentIndex >= 0 ? currentIndex : 0
+              });
+
+              if (!result) {
+                console.log(chalk.gray('\nModel change cancelled.'));
+                return;
+              }
+
+              await this.applyModelChange(provider, result.value as string, currentModel);
               return;
             }
           }
@@ -438,21 +449,19 @@ export class ProviderConfigManager {
       }
 
       // For other providers, manual input
-      const answer = await enquirer.prompt<{ model: string }>([
-        {
-          type: 'input',
-          name: 'model',
-          message: 'Enter the model ID to use',
-          initial: currentModel
-        }
-      ]);
+      const model = await showInput({
+        title: 'Enter the model ID to use',
+        defaultValue: currentModel
+      });
 
-      await this.applyModelChange(provider, answer.model?.trim(), currentModel);
-    } catch (error) {
-      if ((error as any).name === 'ExitPromptError' || (error as Error).message?.includes('canceled')) {
+      if (!model) {
         console.log(chalk.gray('\nModel change cancelled.'));
         return;
       }
+
+      await this.applyModelChange(provider, model.trim(), currentModel);
+    } catch (error) {
+      // Cancellation is now handled inline
       throw error;
     }
   }
@@ -474,18 +483,23 @@ export class ProviderConfigManager {
     console.log(chalk.gray(`Current model: ${currentModel || 'not set'}`));
     console.log(chalk.gray(`Current API key: ${maskedKey}\n`));
 
-    const { action } = await enquirer.prompt<{ action: string }>([
-      {
-        type: 'select',
-        name: 'action',
-        message: 'What would you like to change?',
-        choices: [
-          { name: 'model', message: 'Change model only' },
-          { name: 'apiKey', message: 'Change API key only' },
-          { name: 'both', message: 'Change both model and API key' }
-        ]
-      }
-    ]);
+    const actionOptions: ModalOption[] = [
+      { label: 'Change model only', value: 'model' },
+      { label: 'Change API key only', value: 'apiKey' },
+      { label: 'Change both model and API key', value: 'both' }
+    ];
+
+    const actionResult = await showModal({
+      title: 'What would you like to change?',
+      options: actionOptions
+    });
+
+    if (!actionResult) {
+      console.log(chalk.gray('\nSettings change cancelled.'));
+      return;
+    }
+
+    const action = actionResult.value as string;
 
     let newModel = currentModel;
     let newApiKey = currentSettings?.apiKey || '';
@@ -497,19 +511,19 @@ export class ProviderConfigManager {
         : 'https://openrouter.ai/keys';
       console.log(chalk.gray(`\nGet your API key at: ${keyUrl}\n`));
 
-      const { apiKey } = await enquirer.prompt<{ apiKey: string }>([
-        {
-          type: 'password',
-          name: 'apiKey',
-          message: `Enter your ${providerName} API key`,
-          validate: (val: unknown) => {
-            const v = val as string;
-            if (!v?.trim()) return 'API key is required';
-            if (v.length < 10) return 'API key seems too short';
-            return true;
-          }
+      const apiKey = await showPassword({
+        title: `Enter your ${providerName} API key`,
+        validate: (val: string) => {
+          if (!val?.trim()) return 'API key is required';
+          if (val.length < 10) return 'API key seems too short';
+          return true;
         }
-      ]);
+      });
+
+      if (!apiKey) {
+        console.log(chalk.gray('\nSettings change cancelled.'));
+        return;
+      }
 
       // Validate the API key
       console.log(chalk.gray('\nValidating API key...'));
@@ -529,26 +543,34 @@ export class ProviderConfigManager {
     if (action === 'model' || action === 'both') {
       if (provider === 'openai') {
         const models = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo', 'o1', 'o1-mini'];
-        const { model } = await enquirer.prompt<{ model: string }>([
-          {
-            type: 'select',
-            name: 'model',
-            message: 'Select a model',
-            choices: models,
-            initial: Math.max(0, models.indexOf(currentModel))
-          }
-        ]);
-        newModel = model;
+        const modelOptions: ModalOption[] = models.map(name => ({
+          label: name,
+          value: name
+        }));
+        const currentIndex = Math.max(0, models.indexOf(currentModel));
+        const result = await showModal({
+          title: 'Select a model',
+          options: modelOptions,
+          initialIndex: currentIndex
+        });
+
+        if (!result) {
+          console.log(chalk.gray('\nSettings change cancelled.'));
+          return;
+        }
+
+        newModel = result.value as string;
       } else {
         // OpenRouter - allow custom model input
-        const { model } = await enquirer.prompt<{ model: string }>([
-          {
-            type: 'input',
-            name: 'model',
-            message: 'Enter the model ID',
-            initial: currentModel || 'anthropic/claude-sonnet-4-20250514'
-          }
-        ]);
+        const model = await showInput({
+          title: 'Enter the model ID',
+          defaultValue: currentModel || 'anthropic/claude-sonnet-4-20250514'
+        });
+
+        if (!model) {
+          console.log(chalk.gray('\nSettings change cancelled.'));
+          return;
+        }
         newModel = model.trim();
       }
     }
