@@ -92,6 +92,7 @@ import {
   formatElapsedTime,
   formatTokens
 } from './agent/AgentFormatter.js';
+import { WorkspaceFileCollector } from './agent/WorkspaceFileCollector.js';
 
 export class AutohandAgent {
   private mentionContexts: { path: string; contents: string }[] = [];
@@ -117,9 +118,7 @@ export class AutohandAgent {
   private telemetryManager: TelemetryManager;
   private skillsRegistry: SkillsRegistry;
   private communityClient: CommunitySkillsClient;
-  private workspaceFiles: string[] = [];
-  private workspaceFilesCachedAt: number = 0;
-  private static readonly WORKSPACE_FILES_CACHE_TTL = 30000; // 30 seconds
+  private workspaceFileCollector: WorkspaceFileCollector;
   private isInstructionActive = false;
   private hasPrintedExplorationHeader = false;
   private activeProvider: ProviderName;
@@ -161,6 +160,7 @@ export class AutohandAgent {
     const model = runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
     this.contextWindow = getContextWindow(model);
     this.ignoreFilter = new GitIgnoreParser(runtime.workspaceRoot, []);
+    this.workspaceFileCollector = new WorkspaceFileCollector(runtime.workspaceRoot, this.ignoreFilter);
     this.conversation = ConversationManager.getInstance();
     this.toolsRegistry = new ToolsRegistry();
     this.memoryManager = new MemoryManager(runtime.workspaceRoot);
@@ -922,10 +922,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async promptForInstruction(): Promise<string | null> {
-    this.workspaceFiles = await this.collectWorkspaceFiles();
+    const workspaceFiles = await this.workspaceFileCollector.collectWorkspaceFiles();
     const statusLine = this.formatStatusLine();
     const input = await readInstruction(
-      this.workspaceFiles,
+      workspaceFiles,
       SLASH_COMMANDS,
       statusLine,
       {}, // default IO
@@ -1048,126 +1048,6 @@ If lint or tests fail, report the issues but do NOT commit.`;
       }
       console.error(chalk.red('Failed to store memory:'), (error as Error).message);
     }
-  }
-
-  private async listWorkspaceFiles(): Promise<void> {
-    const entries = await fs.readdir(this.runtime.workspaceRoot);
-    const sorted = entries.sort((a, b) => a.localeCompare(b));
-    console.log('\n' + chalk.cyan('Workspace files:'));
-    console.log(sorted.map((entry) => ` - ${entry}`).join('\n'));
-    console.log();
-  }
-
-  private async collectWorkspaceFiles(): Promise<string[]> {
-    // Use cached files if still fresh (avoid blocking git ls-files on every turn)
-    const now = Date.now();
-    if (this.workspaceFiles.length > 0 && (now - this.workspaceFilesCachedAt) < AutohandAgent.WORKSPACE_FILES_CACHE_TTL) {
-      return this.workspaceFiles;
-    }
-
-    // Show spinner only on first load or after cache expires
-    const showSpinner = this.workspaceFiles.length === 0;
-    const spinner = showSpinner ? ora('Loading workspace files...').start() : null;
-
-    try {
-      const files = await this.gitLsFiles();
-      if (files.length > 0) {
-        this.workspaceFilesCachedAt = now;
-        spinner?.succeed(`Loaded ${files.length} files`);
-        return files;
-      }
-
-      // Fallback to filesystem walk if git fails
-      const walkedFiles: string[] = [];
-      await this.walkWorkspace(this.runtime.workspaceRoot, walkedFiles);
-      this.workspaceFilesCachedAt = now;
-      spinner?.succeed(`Loaded ${walkedFiles.length} files`);
-      return walkedFiles;
-    } catch (error) {
-      spinner?.fail('Failed to load files');
-      // Return cached files if available, otherwise empty array
-      return this.workspaceFiles.length > 0 ? this.workspaceFiles : [];
-    }
-  }
-
-  private async gitLsFiles(): Promise<string[]> {
-    return new Promise((resolve) => {
-      const files: string[] = [];
-      const ignoreFilter = this.ignoreFilter;
-
-      const proc = spawn('git', ['ls-files', '--cached', '--others', '--exclude-standard'], {
-        cwd: this.runtime.workspaceRoot
-      });
-
-      let stdout = '';
-      let stderr = '';
-
-      proc.stdout?.on('data', (chunk) => {
-        stdout += chunk.toString();
-      });
-
-      proc.stderr?.on('data', (chunk) => {
-        stderr += chunk.toString();
-      });
-
-      proc.on('close', (code) => {
-        if (code === 0 && stdout) {
-          stdout
-            .split(/\r?\n/)
-            .map((file) => file.trim())
-            .filter(Boolean)
-            .forEach((file) => {
-              if (!ignoreFilter.isIgnored(file)) {
-                files.push(file);
-              }
-            });
-        }
-        resolve(files);
-      });
-
-      proc.on('error', () => {
-        resolve([]);
-      });
-    });
-  }
-
-  private async walkWorkspace(current: string, acc: string[]): Promise<void> {
-    let entries: string[];
-    try {
-      entries = await fs.readdir(current);
-    } catch {
-      // Directory doesn't exist or can't be read
-      return;
-    }
-    for (const entry of entries) {
-      const full = path.join(current, entry);
-      const rel = path.relative(this.runtime.workspaceRoot, full);
-      if (rel === '' || this.shouldSkipPath(rel) || this.ignoreFilter.isIgnored(rel)) {
-        continue;
-      }
-      try {
-        const stats = await fs.stat(full);
-        if (stats.isDirectory()) {
-          await this.walkWorkspace(full, acc);
-        } else if (stats.isFile()) {
-          acc.push(rel);
-        }
-      } catch {
-        // File doesn't exist or can't be accessed, skip it
-        continue;
-      }
-    }
-  }
-
-  private shouldSkipPath(relativePath: string): boolean {
-    const normalized = relativePath.replace(/\\/g, '/');
-    return (
-      normalized.startsWith('.git') ||
-      normalized.startsWith('node_modules') ||
-      normalized.startsWith('dist') ||
-      normalized.startsWith('build') ||
-      normalized.startsWith('.next')
-    );
   }
 
   private printGitDiff(): void {
@@ -3337,7 +3217,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
       return normalizedSeed;
     }
 
-    if (!this.workspaceFiles.length) {
+    const workspaceFiles = await this.workspaceFileCollector.collectWorkspaceFiles();
+    if (!workspaceFiles.length) {
       return normalizedSeed || null;
     }
 
@@ -3346,7 +3227,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const palettePath = ['..', 'ui', 'filePalette.js'].join('/');
     const { showFilePalette } = await import(/* @vite-ignore */ palettePath);
     const selection = await showFilePalette({
-      files: this.workspaceFiles,
+      files: workspaceFiles,
       statusLine: this.formatStatusLine(),
       seed: normalizedSeed
     });
