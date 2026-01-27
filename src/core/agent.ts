@@ -93,6 +93,7 @@ import {
   formatTokens
 } from './agent/AgentFormatter.js';
 import { WorkspaceFileCollector } from './agent/WorkspaceFileCollector.js';
+import { ProviderConfigManager } from './agent/ProviderConfigManager.js';
 
 export class AutohandAgent {
   private mentionContexts: { path: string; contents: string }[] = [];
@@ -119,6 +120,7 @@ export class AutohandAgent {
   private skillsRegistry: SkillsRegistry;
   private communityClient: CommunitySkillsClient;
   private workspaceFileCollector: WorkspaceFileCollector;
+  private providerConfigManager: ProviderConfigManager;
   private isInstructionActive = false;
   private hasPrintedExplorationHeader = false;
   private activeProvider: ProviderName;
@@ -299,6 +301,22 @@ export class AutohandAgent {
     this.skillsRegistry.setTelemetryManager(this.telemetryManager);
     this.skillsRegistry.setCommunityClient(this.communityClient);
 
+    // Initialize provider config manager for model selection and configuration
+    this.providerConfigManager = new ProviderConfigManager(
+      runtime,
+      () => this.llm,
+      (newLlm) => { this.llm = newLlm; },
+      () => this.activeProvider,
+      (provider) => { this.activeProvider = provider; },
+      () => this.delegator,
+      (newDelegator) => { this.delegator = newDelegator; },
+      this.telemetryManager,
+      this.actionExecutor,
+      (contextWindow) => { this.contextWindow = contextWindow; },
+      () => { this.contextPercentLeft = 100; },
+      () => this.emitStatus()
+    );
+
     const delegationTools: ToolDefinition[] = [
       {
         name: 'delegate_task',
@@ -473,7 +491,7 @@ export class AutohandAgent {
     const filesMgr = this.files;
     const runtimeRef = this.runtime;
     const slashContext = {
-      promptModelSelection: () => this.promptModelSelection(),
+      promptModelSelection: () => this.providerConfigManager.promptModelSelection(),
       createAgentsFile: () => this.createAgentsFile(),
       sessionManager: this.sessionManager,
       memoryManager: this.memoryManager,
@@ -1082,7 +1100,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
   }
 
-  private async promptModelSelection(): Promise<void> {
+  private async promptApprovalMode(): Promise<void> {
     try {
       // Show all providers with status indicators
       // Use ProviderFactory to get platform-aware list (includes MLX on Apple Silicon)
@@ -1904,7 +1922,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       if (error instanceof ProviderNotConfiguredError) {
         this.cleanupUI();
         console.log(chalk.yellow(`\nNo provider is configured yet. Let's set one up!\n`));
-        await this.promptModelSelection();
+        await this.providerConfigManager.promptModelSelection();
         // After configuration, retry the instruction
         return this.runInstruction(instruction);
       }
