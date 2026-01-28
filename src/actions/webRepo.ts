@@ -51,13 +51,32 @@ export function parseRepoUrl(input: string): ParsedRepo {
     const path = shorthandMatch[2];
     const lastSlash = path.lastIndexOf('/');
     if (lastSlash === -1) {
-      throw new Error('Could not parse repo URL. Use format: github:owner/repo, gitlab:group/project, or full URL.');
+      throw new Error('Could not parse repo URL. Use format: owner/repo (GitHub), github:owner/repo, gitlab:group/project, or full URL.');
     }
     return {
       platform,
       owner: path.slice(0, lastSlash),
       repo: path.slice(lastSlash + 1)
     };
+  }
+
+  // Try implicit GitHub format: owner/repo (assumes GitHub as default)
+  // Must contain exactly one slash and no protocol/colon
+  if (!input.includes(':') && input.includes('/')) {
+    const slashIndex = input.indexOf('/');
+    const lastSlashIndex = input.lastIndexOf('/');
+    // Exactly one slash
+    if (slashIndex === lastSlashIndex && slashIndex > 0) {
+      const owner = input.slice(0, slashIndex);
+      const repo = input.slice(slashIndex + 1);
+      if (owner && repo) {
+        return {
+          platform: 'github',
+          owner,
+          repo
+        };
+      }
+    }
   }
 
   // Try full URL format
@@ -69,7 +88,7 @@ export function parseRepoUrl(input: string): ParsedRepo {
     const pathParts = url.pathname.replace(/\/$/, '').split('/').filter(Boolean);
 
     if (pathParts.length < 2) {
-      throw new Error('Could not parse repo URL. Use format: github:owner/repo, gitlab:group/project, or full URL.');
+      throw new Error('Could not parse repo URL. Use format: owner/repo (GitHub), github:owner/repo, gitlab:group/project, or full URL.');
     }
 
     if (hostname === 'github.com') {
