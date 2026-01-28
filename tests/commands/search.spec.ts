@@ -7,13 +7,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { metadata } from '../../src/commands/search.js';
 import { configureSearch, getSearchConfig } from '../../src/actions/web.js';
 
-// Mock enquirer to avoid interactive prompts in tests
-vi.mock('enquirer', () => ({
-  default: {
-    prompt: vi.fn(),
-  },
-}));
-
 describe('/search command', () => {
   beforeEach(() => {
     // Reset to default configuration
