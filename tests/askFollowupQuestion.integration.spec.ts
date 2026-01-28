@@ -115,11 +115,11 @@ describe('ask_followup_question integration', () => {
   });
 
   describe('fallback mode (no callback)', () => {
-    // This tests the legacy enquirer-based fallback when no callback is provided
-    // These tests would require mocking enquirer, which is complex
+    // This tests the Modal-based fallback when no callback is provided
+    // These tests would require mocking Modal components, which is complex
     // For now, we just verify the callback is called when provided
 
-    it('uses callback when provided instead of direct enquirer', async () => {
+    it('uses callback when provided instead of direct Modal prompts', async () => {
       mockOnAskFollowup.mockResolvedValue('<answer>Selected</answer>');
 
       await executor.execute({
@@ -128,7 +128,7 @@ describe('ask_followup_question integration', () => {
         suggested_answers: ['A', 'B', 'C']
       });
 
-      // Callback should be used, not enquirer
+      // Callback should be used, not Modal prompts
       expect(mockOnAskFollowup).toHaveBeenCalled();
     });
   });
