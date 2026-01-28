@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
-import enquirer from 'enquirer';
+import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import {
   generateCompletion,
   detectShell,
@@ -39,43 +39,46 @@ export async function execute(args?: string): Promise<void> {
       console.log(chalk.gray(`Detected shell: ${detected}`));
     }
 
-    const { Select } = enquirer as any;
-    const prompt = new Select({
-      name: 'shell',
-      message: 'Select your shell:',
-      choices: [
-        { name: 'bash', message: 'Bash' },
-        { name: 'zsh', message: 'Zsh' },
-        { name: 'fish', message: 'Fish' },
-      ],
-      initial: detected || 'bash',
+    const shellOptions: ModalOption[] = [
+      { label: 'Bash', value: 'bash' },
+      { label: 'Zsh', value: 'zsh' },
+      { label: 'Fish', value: 'fish' },
+    ];
+
+    const shellResult = await showModal({
+      title: 'Select your shell:',
+      options: shellOptions,
+      initialIndex: shellOptions.findIndex(o => o.value === (detected || 'bash'))
     });
 
-    try {
-      shell = await prompt.run() as ShellType;
-    } catch {
-      // User cancelled
+    if (!shellResult) {
       console.log(chalk.gray('Cancelled.'));
       return;
     }
+
+    shell = shellResult.value as ShellType;
   }
 
   // Ask what to do
-  const { Select } = enquirer as any;
-  const actionPrompt = new Select({
-    name: 'action',
-    message: 'What would you like to do?',
-    choices: [
-      { name: 'print', message: 'Print completion script to terminal' },
-      { name: 'install', message: 'Install completion to default location' },
-      { name: 'instructions', message: 'Show installation instructions' },
-    ],
+  const actionOptions: ModalOption[] = [
+    { label: 'Print completion script to terminal', value: 'print' },
+    { label: 'Install completion to default location', value: 'install' },
+    { label: 'Show installation instructions', value: 'instructions' },
+  ];
+
+  const actionResult = await showModal({
+    title: 'What would you like to do?',
+    options: actionOptions
   });
 
-  try {
-    const action = await actionPrompt.run();
+  if (!actionResult) {
+    console.log(chalk.gray('Cancelled.'));
+    return;
+  }
 
-    switch (action) {
+  const action = actionResult.value;
+
+  switch (action) {
       case 'print':
         console.log();
         console.log(chalk.cyan(`# ${shell} completion script for autohand`));
@@ -96,9 +99,6 @@ export async function execute(args?: string): Promise<void> {
       case 'instructions':
         console.log(getInstallInstructions(shell));
         break;
-    }
-  } catch {
-    console.log(chalk.gray('Cancelled.'));
   }
 }
 

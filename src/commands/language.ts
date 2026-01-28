@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
-import enquirer from 'enquirer';
+import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import type { LoadedConfig } from '../types.js';
 import { saveConfig } from '../config.js';
 import {
@@ -24,8 +24,6 @@ interface LanguageContext {
  * Language command - prompts user to select a display language
  */
 export async function language(ctx: LanguageContext): Promise<string | null> {
-  const { Select } = enquirer as any;
-
   const currentLocale = getCurrentLocale();
   const currentDisplayName = LANGUAGE_DISPLAY_NAMES[currentLocale];
 
@@ -33,46 +31,44 @@ export async function language(ctx: LanguageContext): Promise<string | null> {
   console.log(chalk.gray(`${t('commands.language.currentLanguage', { language: currentDisplayName })}`));
   console.log();
 
-  const choices = SUPPORTED_LOCALES.map((locale) => ({
-    name: locale,
-    message: locale === currentLocale
+  const options: ModalOption[] = SUPPORTED_LOCALES.map((locale) => ({
+    label: locale === currentLocale
       ? `${LANGUAGE_DISPLAY_NAMES[locale]} (${t('common.current')})`
       : LANGUAGE_DISPLAY_NAMES[locale],
+    value: locale,
   }));
 
-  try {
-    const prompt = new Select({
-      name: 'locale',
-      message: t('commands.language.selectPrompt'),
-      choices,
-      initial: SUPPORTED_LOCALES.indexOf(currentLocale),
-    });
+  const result = await showModal({
+    title: t('commands.language.selectPrompt'),
+    options,
+    initialIndex: SUPPORTED_LOCALES.indexOf(currentLocale)
+  });
 
-    const selected = (await prompt.run()) as SupportedLocale;
-
-    if (selected === currentLocale) {
-      console.log(chalk.gray(`\n${t('commands.language.noChange')}`));
-      return null;
-    }
-
-    // Update i18n runtime
-    await changeLanguage(selected);
-
-    // Update config and persist
-    ctx.config.ui = { ...ctx.config.ui, locale: selected };
-    await saveConfig(ctx.config);
-
-    // Show success message in the NEW language (hot-reload works immediately)
-    const newDisplayName = LANGUAGE_DISPLAY_NAMES[selected];
-    console.log(chalk.green(`\n✓ ${t('commands.language.changed', { language: newDisplayName })}`));
-    console.log();
-
-    return null;
-  } catch {
-    // User cancelled
+  if (!result) {
     console.log(chalk.gray('\nLanguage selection cancelled.'));
     return null;
   }
+
+  const selected = result.value as SupportedLocale;
+
+  if (selected === currentLocale) {
+    console.log(chalk.gray(`\n${t('commands.language.noChange')}`));
+    return null;
+  }
+
+  // Update i18n runtime
+  await changeLanguage(selected);
+
+  // Update config and persist
+  ctx.config.ui = { ...ctx.config.ui, locale: selected };
+  await saveConfig(ctx.config);
+
+  // Show success message in the NEW language (hot-reload works immediately)
+  const newDisplayName = LANGUAGE_DISPLAY_NAMES[selected];
+  console.log(chalk.green(`\n✓ ${t('commands.language.changed', { language: newDisplayName })}`));
+  console.log();
+
+  return null;
 }
 
 /**

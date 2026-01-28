@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
-import enquirer from 'enquirer';
+import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import { listAvailableThemes, initTheme, getTheme, isThemeInitialized, CUSTOM_THEMES_DIR } from '../ui/theme/index.js';
 import type { LoadedConfig } from '../types.js';
 import { saveConfig } from '../config.js';
@@ -17,8 +17,6 @@ interface ThemeContext {
  * Theme command - prompts user to select a theme
  */
 export async function theme(ctx: ThemeContext): Promise<string | null> {
-  const { Select } = enquirer as any;
-
   const themes = listAvailableThemes();
   const currentTheme = isThemeInitialized() ? getTheme().name : (ctx.config.ui?.theme || 'dark');
 
@@ -26,49 +24,47 @@ export async function theme(ctx: ThemeContext): Promise<string | null> {
   console.log(chalk.gray(`Current theme: ${chalk.white(currentTheme)}`));
   console.log(chalk.gray(`Custom themes location: ${CUSTOM_THEMES_DIR}\n`));
 
-  const choices = themes.map(name => ({
-    name,
-    message: name === currentTheme ? `${name} (current)` : name,
-    hint: name === 'dark' ? 'Default dark theme' : name === 'light' ? 'Light theme' : 'Custom theme'
+  const options: ModalOption[] = themes.map(name => ({
+    label: name === currentTheme ? `${name} (current)` : name,
+    value: name,
+    description: name === 'dark' ? 'Default dark theme' : name === 'light' ? 'Light theme' : 'Custom theme'
   }));
 
-  try {
-    const prompt = new Select({
-      name: 'theme',
-      message: 'Select a theme:',
-      choices,
-      initial: themes.indexOf(currentTheme)
-    });
+  const result = await showModal({
+    title: 'Select a theme:',
+    options,
+    initialIndex: themes.indexOf(currentTheme)
+  });
 
-    const selected = await prompt.run();
-
-    if (selected === currentTheme) {
-      console.log(chalk.gray('\nNo change made.'));
-      return null;
-    }
-
-    // Initialize the new theme
-    initTheme(selected);
-
-    // Update config
-    ctx.config.ui = { ...ctx.config.ui, theme: selected };
-    await saveConfig(ctx.config);
-
-    console.log(chalk.green(`\n✓ Theme changed to '${selected}'`));
-
-    // Show preview of theme colors
-    const newTheme = getTheme();
-    console.log('\nTheme preview:');
-    console.log(`  ${newTheme.fg('accent', '● accent')}  ${newTheme.fg('success', '● success')}  ${newTheme.fg('error', '● error')}  ${newTheme.fg('warning', '● warning')}`);
-    console.log(`  ${newTheme.fg('muted', '● muted')}  ${newTheme.fg('dim', '● dim')}  ${newTheme.fg('text', '● text')}`);
-    console.log();
-
-    return null;
-  } catch {
-    // User cancelled
+  if (!result) {
     console.log(chalk.gray('\nTheme selection cancelled.'));
     return null;
   }
+
+  const selected = result.value;
+
+  if (selected === currentTheme) {
+    console.log(chalk.gray('\nNo change made.'));
+    return null;
+  }
+
+  // Initialize the new theme
+  initTheme(selected);
+
+  // Update config
+  ctx.config.ui = { ...ctx.config.ui, theme: selected };
+  await saveConfig(ctx.config);
+
+  console.log(chalk.green(`\n✓ Theme changed to '${selected}'`));
+
+  // Show preview of theme colors
+  const newTheme = getTheme();
+  console.log('\nTheme preview:');
+  console.log(`  ${newTheme.fg('accent', '● accent')}  ${newTheme.fg('success', '● success')}  ${newTheme.fg('error', '● error')}  ${newTheme.fg('warning', '● warning')}`);
+  console.log(`  ${newTheme.fg('muted', '● muted')}  ${newTheme.fg('dim', '● dim')}  ${newTheme.fg('text', '● text')}`);
+  console.log();
+
+  return null;
 }
 
 /**
