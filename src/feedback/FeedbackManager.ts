@@ -9,7 +9,7 @@
 import fs from 'fs-extra';
 import path from 'node:path';
 import chalk from 'chalk';
-import Enquirer from 'enquirer';
+import { showModal, showInput, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 import { FeedbackApiClient, getFeedbackApiClient } from './FeedbackApiClient.js';
 import { AUTOHAND_PATHS } from '../constants.js';
 
@@ -314,93 +314,37 @@ export class FeedbackManager {
     console.log(chalk.cyan('━'.repeat(50)));
     console.log();
 
-    // Helper to safely prompt with enquirer (handles readline close errors)
-    const safePrompt = async <T>(config: any): Promise<T | null> => {
-      try {
-        return await (Enquirer as any).prompt(config);
-      } catch (error: any) {
-        // Ignore readline close errors during exit
-        if (error?.code === 'ERR_USE_AFTER_CLOSE') {
-          return null;
-        }
-        throw error;
-      }
-    };
-
     try {
-      // Step 1: NPS Score (1-5) with number key shortcuts
-      const { Select } = Enquirer as any;
-      const ratingChoices = [
-        { name: '5', message: `${chalk.green('5')} - Excellent` },
-        { name: '4', message: `${chalk.green('4')} - Good` },
-        { name: '3', message: `${chalk.yellow('3')} - Okay` },
-        { name: '2', message: `${chalk.red('2')} - Poor` },
-        { name: '1', message: `${chalk.red('1')} - Very Poor` },
-        { name: 'skip', message: `${chalk.gray('s')} - Skip` }
+      // Step 1: NPS Score (1-5) with number key shortcuts (Modal has built-in support)
+      const ratingOptions: ModalOption[] = [
+        { label: `${chalk.green('5')} - Excellent`, value: '5' },
+        { label: `${chalk.green('4')} - Good`, value: '4' },
+        { label: `${chalk.yellow('3')} - Okay`, value: '3' },
+        { label: `${chalk.red('2')} - Poor`, value: '2' },
+        { label: `${chalk.red('1')} - Very Poor`, value: '1' },
+        { label: `${chalk.gray('s')} - Skip`, value: 'skip' }
       ];
 
-      const ratingPrompt = new Select({
-        name: 'score',
-        message: 'How would you rate your experience? (press 1-5 or s to skip)',
-        choices: ratingChoices
+      const ratingResult = await showModal({
+        title: 'How would you rate your experience?',
+        options: ratingOptions
       });
 
-      // Add number key shortcuts (1-5) and 's' for skip
-      const originalKeypress = ratingPrompt.keypress.bind(ratingPrompt);
-      ratingPrompt.keypress = async function(char: string, key: { name: string }) {
-        // Handle number keys 1-5 as direct selection
-        if (char >= '1' && char <= '5') {
-          const targetName = char;
-          const index = ratingChoices.findIndex(c => c.name === targetName);
-          if (index !== -1) {
-            this.index = index;
-            this.selected = this.choices[index];
-            this.value = this.choices[index].name;
-            await this.render();
-            return this.submit();
-          }
-        }
-        // Handle 's' or 'S' for Skip
-        if (char === 's' || char === 'S') {
-          const index = ratingChoices.findIndex(c => c.name === 'skip');
-          if (index !== -1) {
-            this.index = index;
-            this.selected = this.choices[index];
-            this.value = this.choices[index].name;
-            await this.render();
-            return this.submit();
-          }
-        }
-        return originalKeypress(char, key);
-      };
-
-      let npsResult: { score: string } | null = null;
-      try {
-        const score = await ratingPrompt.run();
-        npsResult = { score };
-      } catch (error: any) {
-        if (error?.code === 'ERR_USE_AFTER_CLOSE') {
-          npsResult = null;
-        } else {
-          throw error;
-        }
-      }
-
       // User cancelled or readline closed
-      if (!npsResult) {
+      if (!ratingResult) {
         this.state.dismissed++;
         this.saveState();
         return false;
       }
 
-      if (npsResult.score === 'skip') {
+      if (ratingResult.value === 'skip') {
         this.state.dismissed++;
         this.saveState();
         console.log(chalk.gray('\nNo problem! You can always use /feedback later.\n'));
         return false;
       }
 
-      const npsScore = parseInt(npsResult.score, 10);
+      const npsScore = parseInt(ratingResult.value as string, 10);
       let reason: string | undefined;
       let improvement: string | undefined;
       let recommend: boolean | undefined;
@@ -408,31 +352,24 @@ export class FeedbackManager {
       // Step 2: Follow-up based on score
       if (npsScore >= 4) {
         // Happy user - ask for recommendation reason
-        const followUp = await safePrompt<{ reason: string }>({
-          type: 'input',
-          name: 'reason',
-          message: 'What do you like most about Autohand? (optional, press Enter to skip)',
+        const reasonAnswer = await showInput({
+          title: 'What do you like most about Autohand? (optional, press Enter to skip)'
         });
-        reason = followUp?.reason || undefined;
+        reason = reasonAnswer || undefined;
 
-        // Ask about recommendation (only if still connected)
-        if (followUp) {
-          const recResult = await safePrompt<{ recommend: boolean }>({
-            type: 'confirm',
-            name: 'recommend',
-            message: 'Would you recommend Autohand to a colleague?',
-            initial: true
+        // Ask about recommendation
+        if (reasonAnswer !== null) {
+          recommend = await showConfirm({
+            title: 'Would you recommend Autohand to a colleague?',
+            defaultValue: true
           });
-          recommend = recResult?.recommend;
         }
       } else {
         // Unhappy user - ask for improvement
-        const followUp = await safePrompt<{ improvement: string }>({
-          type: 'input',
-          name: 'improvement',
-          message: 'What could we do better? (optional, press Enter to skip)',
+        const improvementAnswer = await showInput({
+          title: 'What could we do better? (optional, press Enter to skip)'
         });
-        improvement = followUp?.improvement || undefined;
+        improvement = improvementAnswer || undefined;
       }
 
       // Save response

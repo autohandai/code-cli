@@ -9,7 +9,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawnSync, spawn } from 'node:child_process';
 import ora from 'ora';
-import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
+import { showModal, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 import readline from 'node:readline';
 import { FileActionManager } from '../actions/filesystem.js';
 import { saveConfig, getProviderConfig } from '../config.js';
@@ -1023,17 +1023,21 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
 
     try {
-      const { Select } = enquirer as any;
-      const prompt = new Select({
-        name: 'level',
-        message: 'Where should this memory be stored?',
-        choices: [
-          { name: 'project', message: 'Project level (.autohand/memory/) - specific to this project' },
-          { name: 'user', message: 'User level (~/.autohand/memory/) - available in all projects' }
-        ]
+      const levelOptions: ModalOption[] = [
+        { label: 'Project level (.autohand/memory/) - specific to this project', value: 'project' },
+        { label: 'User level (~/.autohand/memory/) - available in all projects', value: 'user' }
+      ];
+
+      const levelResult = await showModal({
+        title: 'Where should this memory be stored?',
+        options: levelOptions
       });
 
-      const level = await prompt.run() as 'project' | 'user';
+      if (!levelResult) {
+        return;
+      }
+
+      const level = levelResult.value as 'project' | 'user';
 
       // Check for similar memories first
       const similar = await this.memoryManager.findSimilar(content, level);
@@ -1042,13 +1046,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
         console.log(chalk.yellow('Found similar existing memory:'));
         console.log(chalk.gray(`  "${similar.entry.content}"`));
 
-        const { Confirm } = enquirer as any;
-        const confirmPrompt = new Confirm({
-          name: 'update',
-          message: 'Update the existing memory instead of creating a new one?'
+        const shouldUpdate = await showConfirm({
+          title: 'Update the existing memory instead of creating a new one?'
         });
 
-        const shouldUpdate = await confirmPrompt.run();
         if (shouldUpdate) {
           await this.memoryManager.updateMemory(similar.entry.id, content, level);
           console.log(chalk.green('Memory updated.'));
@@ -3773,7 +3774,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       this.inkRenderer.pause();
     }
 
-    // Reset stdin to cooked mode for enquirer
+    // Reset stdin to cooked mode for Modal prompts
     const wasRaw = process.stdin.isTTY && (process.stdin as any).isRaw;
     if (wasRaw) {
       process.stdin.setRawMode(false);
@@ -3991,7 +3992,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
   /**
    * Set a callback for confirmation prompts (used by RPC mode)
-   * When set, this callback is used instead of the default enquirer prompt
+   * When set, this callback is used instead of the default Modal prompt
    */
   setConfirmationCallback(callback: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<boolean>): void {
     this.confirmationCallback = callback;
