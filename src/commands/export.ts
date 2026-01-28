@@ -5,7 +5,7 @@
  */
 import chalk from 'chalk';
 import path from 'node:path';
-import enquirer from 'enquirer';
+import { showModal, showInput, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 import {
   exportToMarkdown,
   exportToJson,
@@ -49,23 +49,22 @@ export async function execute(args?: string, context?: ExportContext): Promise<v
       return;
     }
 
-    const { Select } = enquirer as any;
-    const sessionPrompt = new Select({
-      name: 'session',
-      message: 'Select a session to export:',
-      choices: sessions.slice(0, 10).map((s) => ({
-        name: s.sessionId,
-        message: `${s.projectName} - ${new Date(s.createdAt).toLocaleString()} (${s.messageCount} messages)`,
-      })),
+    const sessionOptions: ModalOption[] = sessions.slice(0, 10).map((s) => ({
+      label: `${s.projectName} - ${new Date(s.createdAt).toLocaleString()} (${s.messageCount} messages)`,
+      value: s.sessionId,
+    }));
+
+    const sessionResult = await showModal({
+      title: 'Select a session to export:',
+      options: sessionOptions
     });
 
-    try {
-      const selectedId = await sessionPrompt.run();
-      session = await sessionManager.loadSession(selectedId);
-    } catch {
+    if (!sessionResult) {
       console.log(chalk.gray('Cancelled.'));
       return;
     }
+
+    session = await sessionManager.loadSession(sessionResult.value);
   }
 
   // Get session data
@@ -78,68 +77,48 @@ export async function execute(args?: string, context?: ExportContext): Promise<v
   }
 
   // Choose export format
-  const { Select, Confirm, Input } = enquirer as any;
+  const formatOptions: ModalOption[] = [
+    { label: 'Markdown (.md)', value: 'md' },
+    { label: 'JSON (.json)', value: 'json' },
+    { label: 'HTML (.html)', value: 'html' },
+  ];
 
-  const formatPrompt = new Select({
-    name: 'format',
-    message: 'Export format:',
-    choices: [
-      { name: 'md', message: 'Markdown (.md)' },
-      { name: 'json', message: 'JSON (.json)' },
-      { name: 'html', message: 'HTML (.html)' },
-    ],
+  const formatResult = await showModal({
+    title: 'Export format:',
+    options: formatOptions
   });
 
-  let format: 'md' | 'json' | 'html';
-  try {
-    format = await formatPrompt.run();
-  } catch {
+  if (!formatResult) {
     console.log(chalk.gray('Cancelled.'));
     return;
   }
+
+  const format = formatResult.value as 'md' | 'json' | 'html';
 
   // Export options for markdown/html
   const options: ExportOptions = {};
 
   if (format === 'md' || format === 'html') {
-    const includeToolsPrompt = new Confirm({
-      name: 'includeTools',
-      message: 'Include tool outputs?',
-      initial: true,
+    options.includeToolOutputs = await showConfirm({
+      title: 'Include tool outputs?',
+      defaultValue: true
     });
 
-    try {
-      options.includeToolOutputs = await includeToolsPrompt.run();
-    } catch {
-      options.includeToolOutputs = true;
-    }
-
-    const includeTocPrompt = new Confirm({
-      name: 'includeToc',
-      message: 'Include table of contents?',
-      initial: false,
+    options.includeToc = await showConfirm({
+      title: 'Include table of contents?',
+      defaultValue: false
     });
-
-    try {
-      options.includeToc = await includeTocPrompt.run();
-    } catch {
-      options.includeToc = false;
-    }
   }
 
   // Get filename
   const suggestedFilename = getSuggestedFilename(metadata, format);
 
-  const filenamePrompt = new Input({
-    name: 'filename',
-    message: 'Save as:',
-    initial: suggestedFilename,
+  const filename = await showInput({
+    title: 'Save as:',
+    defaultValue: suggestedFilename
   });
 
-  let filename: string;
-  try {
-    filename = await filenamePrompt.run();
-  } catch {
+  if (!filename) {
     console.log(chalk.gray('Cancelled.'));
     return;
   }
