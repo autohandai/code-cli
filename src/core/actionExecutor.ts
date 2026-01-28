@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
-import enquirer from 'enquirer';
+import { showModal, showInput, type ModalOption } from '../ui/ink/components/Modal.js';
 import { diffLines } from 'diff';
 import { highlightLine, detectLanguage } from '../ui/syntaxHighlight.js';
 import { getTheme, isThemeInitialized, hexToRgb } from '../ui/theme/index.js';
@@ -1046,30 +1046,31 @@ export class ActionExecutor {
         console.log();
 
         // Ask for confirmation with y/n/e
-        const { choice } = await enquirer.prompt<{ choice: string }>({
-          type: 'select',
-          name: 'choice',
-          message: 'Commit with this message?',
-          choices: [
-            { name: 'y', message: 'Yes - commit with this message' },
-            { name: 'e', message: 'Edit - modify the message' },
-            { name: 'n', message: 'No - cancel commit' }
-          ]
+        const options: ModalOption[] = [
+          { label: 'Yes - commit with this message', value: 'y' },
+          { label: 'Edit - modify the message', value: 'e' },
+          { label: 'No - cancel commit', value: 'n' }
+        ];
+
+        const modalResult = await showModal({
+          title: 'Commit with this message?',
+          options
         });
 
-        if (choice === 'n') {
+        if (!modalResult || modalResult.value === 'n') {
           console.log(chalk.yellow('Commit cancelled.'));
           return 'Commit cancelled by user';
         }
 
-        if (choice === 'e') {
-          const { editedMessage } = await enquirer.prompt<{ editedMessage: string }>({
-            type: 'input',
-            name: 'editedMessage',
-            message: 'Enter commit message:',
-            initial: commitMessage
+        if (modalResult.value === 'e') {
+          const editedMessage = await showInput({
+            title: 'Enter commit message:',
+            defaultValue: commitMessage
           });
-          commitMessage = editedMessage;
+
+          if (editedMessage) {
+            commitMessage = editedMessage;
+          }
         }
 
         // Execute the commit
@@ -1436,51 +1437,60 @@ export class ActionExecutor {
           return this.onAskFollowup(action.question, action.suggested_answers);
         }
 
-        // Fallback to enquirer if no callback provided (legacy mode)
+        // Fallback to Modal if no callback provided (legacy mode)
         console.log(chalk.cyan('\n❓ ' + action.question + '\n'));
 
         if (Array.isArray(action.suggested_answers) && action.suggested_answers.length > 0) {
           // Use select prompt with suggested answers
-          const Select = (enquirer as any).Select;
-          const choices = action.suggested_answers.map((answer, i) => ({
-            name: answer,
-            message: `${i + 1}. ${answer}`
+          const options: ModalOption[] = action.suggested_answers.map((answer, i) => ({
+            label: `${i + 1}. ${answer}`,
+            value: answer
           }));
 
           // Add "Other" option for custom input
-          choices.push({ name: '__other__', message: `${choices.length + 1}. Other (type your own answer)` });
-
-          const prompt = new Select({
-            name: 'choice',
-            message: 'Select an answer:',
-            choices
+          options.push({
+            label: `${options.length + 1}. Other (type your own answer)`,
+            value: '__other__'
           });
 
-          const selected = await prompt.run();
+          const result = await showModal({
+            title: 'Select an answer:',
+            options
+          });
+
+          const selected = result?.value;
+
+          if (!selected) {
+            console.log(chalk.yellow('\nAnswer cancelled.\n'));
+            return '<answer>No answer provided</answer>';
+          }
 
           if (selected === '__other__') {
             // Fall through to text input for custom answer
-            const result = await enquirer.prompt<{ answer: string }>({
-              type: 'input',
-              name: 'answer',
-              message: 'Your answer:'
+            const answer = await showInput({
+              title: 'Your answer:'
             });
-            console.log(chalk.green(`\n✓ Answer: ${result.answer}\n`));
-            return `<answer>${result.answer}</answer>`;
+
+            if (!answer) {
+              console.log(chalk.yellow('\nAnswer cancelled.\n'));
+              return '<answer>No answer provided</answer>';
+            }
+
+            console.log(chalk.green(`\n✓ Answer: ${answer}\n`));
+            return `<answer>${answer}</answer>`;
           }
 
           console.log(chalk.green(`\n✓ Answer: ${selected}\n`));
           return `<answer>${selected}</answer>`;
         } else {
           // Use text input for free-form answer
-          const result = await enquirer.prompt<{ answer: string }>({
-            type: 'input',
-            name: 'answer',
-            message: 'Your answer:'
+          const answer = await showInput({
+            title: 'Your answer:'
           });
-          const answer = result.answer || 'No answer provided';
-          console.log(chalk.green(`\n✓ Answer: ${answer}\n`));
-          return `<answer>${answer}</answer>`;
+
+          const finalAnswer = answer || 'No answer provided';
+          console.log(chalk.green(`\n✓ Answer: ${finalAnswer}\n`));
+          return `<answer>${finalAnswer}</answer>`;
         }
       }
       default: {
