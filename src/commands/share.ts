@@ -8,7 +8,7 @@
  */
 
 import chalk from 'chalk';
-import enquirer from 'enquirer';
+import { showModal, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 import ora from 'ora';
 import type { SlashCommand } from '../core/slashCommands.js';
 import type { SessionManager, Session } from '../session/SessionManager.js';
@@ -110,39 +110,28 @@ export async function execute(
   console.log();
 
   // Ask for visibility
-  const { Select, Confirm } = enquirer as any;
+  const visibilityOptions: ModalOption[] = [
+    { label: 'Public  - Anyone with the link can view', value: 'public' },
+    { label: 'Private - Requires one-time passcode', value: 'private' },
+  ];
 
-  const visibilityPrompt = new Select({
-    name: 'visibility',
-    message: 'Share visibility:',
-    choices: [
-      { name: 'public', message: 'Public  - Anyone with the link can view' },
-      { name: 'private', message: 'Private - Requires one-time passcode' },
-    ],
+  const visibilityResult = await showModal({
+    title: 'Share visibility:',
+    options: visibilityOptions
   });
 
-  let visibility: ShareVisibility;
-  try {
-    visibility = await visibilityPrompt.run();
-  } catch {
+  if (!visibilityResult) {
     console.log(chalk.gray('Cancelled.'));
     return;
   }
+
+  const visibility = visibilityResult.value as ShareVisibility;
 
   // Confirm sharing
-  const confirmPrompt = new Confirm({
-    name: 'confirm',
-    message: `Share this session as ${visibility}?`,
-    initial: true,
+  const confirmed = await showConfirm({
+    title: `Share this session as ${visibility}?`,
+    defaultValue: true
   });
-
-  let confirmed: boolean;
-  try {
-    confirmed = await confirmPrompt.run();
-  } catch {
-    console.log(chalk.gray('Cancelled.'));
-    return;
-  }
 
   if (!confirmed) {
     console.log(chalk.gray('Cancelled.'));
