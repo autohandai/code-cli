@@ -7,11 +7,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PermissionManager } from '../src/permissions/PermissionManager.js';
 import { permissions, metadata } from '../src/commands/permissions.js';
 
-// Mock enquirer to avoid interactive prompts in tests
-vi.mock('enquirer', () => ({
-  default: {
-    prompt: vi.fn()
-  }
+// Hoist mocks to avoid initialization errors
+const { mockShowModal, mockShowInput, mockShowConfirm } = vi.hoisted(() => ({
+  mockShowModal: vi.fn(),
+  mockShowInput: vi.fn(),
+  mockShowConfirm: vi.fn()
+}));
+
+// Mock Modal components to avoid interactive prompts in tests
+vi.mock('../src/ui/ink/components/Modal.js', () => ({
+  showModal: mockShowModal,
+  showInput: mockShowInput,
+  showConfirm: mockShowConfirm
 }));
 
 // Mock chalk to capture output
@@ -28,8 +35,6 @@ vi.mock('chalk', () => ({
     yellow: (s: string) => s
   }
 }));
-
-import enquirer from 'enquirer';
 
 describe('/permissions command', () => {
   let consoleOutput: string[];
@@ -60,7 +65,7 @@ describe('/permissions command', () => {
     it('shows message when no permissions exist', async () => {
       const manager = new PermissionManager({ settings: {} });
 
-      (enquirer.prompt as ReturnType<typeof vi.fn>).mockResolvedValue({ action: 'done' });
+      mockShowModal.mockResolvedValue({ value: 'done' });
 
       await permissions({ permissionManager: manager });
 
@@ -75,7 +80,7 @@ describe('/permissions command', () => {
         }
       });
 
-      (enquirer.prompt as ReturnType<typeof vi.fn>).mockResolvedValue({ action: 'done' });
+      mockShowModal.mockResolvedValue({ value: 'done' });
 
       await permissions({ permissionManager: manager });
 
@@ -92,7 +97,7 @@ describe('/permissions command', () => {
         }
       });
 
-      (enquirer.prompt as ReturnType<typeof vi.fn>).mockResolvedValue({ action: 'done' });
+      mockShowModal.mockResolvedValue({ value: 'done' });
 
       await permissions({ permissionManager: manager });
 
@@ -109,7 +114,7 @@ describe('/permissions command', () => {
         }
       });
 
-      (enquirer.prompt as ReturnType<typeof vi.fn>).mockResolvedValue({ action: 'done' });
+      mockShowModal.mockResolvedValue({ value: 'done' });
 
       await permissions({ permissionManager: manager });
 
@@ -126,7 +131,7 @@ describe('/permissions command', () => {
         settings: { mode: 'unrestricted' }
       });
 
-      (enquirer.prompt as ReturnType<typeof vi.fn>).mockResolvedValue({ action: 'done' });
+      mockShowModal.mockResolvedValue({ value: 'done' });
 
       await permissions({ permissionManager: manager });
 
@@ -146,9 +151,9 @@ describe('/permissions command', () => {
       });
 
       // Mock user selecting remove_approved, then selecting the pattern
-      (enquirer.prompt as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ action: 'remove_approved' })
-        .mockResolvedValueOnce({ pattern: 'run_command:npm test' });
+      mockShowModal
+        .mockResolvedValueOnce({ value: 'remove_approved' })
+        .mockResolvedValueOnce({ value: 'run_command:npm test' });
 
       await permissions({ permissionManager: manager });
 
@@ -166,9 +171,9 @@ describe('/permissions command', () => {
         onPersist
       });
 
-      (enquirer.prompt as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ action: 'remove_denied' })
-        .mockResolvedValueOnce({ pattern: 'run_command:rm -rf *' });
+      mockShowModal
+        .mockResolvedValueOnce({ value: 'remove_denied' })
+        .mockResolvedValueOnce({ value: 'run_command:rm -rf *' });
 
       await permissions({ permissionManager: manager });
 
@@ -188,9 +193,8 @@ describe('/permissions command', () => {
         onPersist
       });
 
-      (enquirer.prompt as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ action: 'clear_all' })
-        .mockResolvedValueOnce({ confirm: true });
+      mockShowModal.mockResolvedValueOnce({ value: 'clear_all' });
+      mockShowConfirm.mockResolvedValueOnce(true);
 
       await permissions({ permissionManager: manager });
 
@@ -206,9 +210,8 @@ describe('/permissions command', () => {
         }
       });
 
-      (enquirer.prompt as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ action: 'clear_all' })
-        .mockResolvedValueOnce({ confirm: false });
+      mockShowModal.mockResolvedValueOnce({ value: 'clear_all' });
+      mockShowConfirm.mockResolvedValueOnce(false);
 
       await permissions({ permissionManager: manager });
 
@@ -225,7 +228,7 @@ describe('/permissions command', () => {
         }
       });
 
-      (enquirer.prompt as ReturnType<typeof vi.fn>).mockResolvedValue({ action: 'done' });
+      mockShowModal.mockResolvedValue({ value: 'done' });
 
       const result = await permissions({ permissionManager: manager });
 
