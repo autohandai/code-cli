@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
-import enquirer from 'enquirer';
+import { showModal, showPassword, type ModalOption } from '../ui/ink/components/Modal.js';
 import { configureSearch, getSearchConfig } from '../actions/web.js';
 import { saveConfig } from '../config.js';
 import type { LoadedConfig, SearchProvider } from '../types.js';
@@ -33,29 +33,34 @@ export async function search(ctx: SearchContext): Promise<string | null> {
   console.log();
 
   // Provider selection
-  const providerChoices = [
+  const providerOptions: ModalOption[] = [
     {
-      name: 'duckduckgo',
-      message: `DuckDuckGo ${chalk.gray('(no API key required, may be blocked by CAPTCHA)')}`
+      label: `DuckDuckGo ${chalk.gray('(no API key required, may be blocked by CAPTCHA)')}`,
+      value: 'duckduckgo'
     },
     {
-      name: 'brave',
-      message: `Brave Search ${chalk.gray('(requires API key)')} ${braveKeySet ? chalk.green('✓') : ''}`
+      label: `Brave Search ${chalk.gray('(requires API key)')} ${braveKeySet ? chalk.green('✓') : ''}`,
+      value: 'brave'
     },
     {
-      name: 'parallel',
-      message: `Parallel.ai ${chalk.gray('(requires API key)')} ${parallelKeySet ? chalk.green('✓') : ''}`
+      label: `Parallel.ai ${chalk.gray('(requires API key)')} ${parallelKeySet ? chalk.green('✓') : ''}`,
+      value: 'parallel'
     }
   ];
 
   try {
-    const { provider } = await enquirer.prompt<{ provider: SearchProvider }>({
-      type: 'select',
-      name: 'provider',
-      message: 'Select search provider:',
-      choices: providerChoices,
-      initial: providerChoices.findIndex(c => c.name === currentConfig.provider)
+    const result = await showModal({
+      title: 'Select search provider:',
+      options: providerOptions,
+      initialIndex: providerOptions.findIndex(c => c.value === currentConfig.provider)
     });
+
+    if (!result) {
+      console.log(chalk.gray('Search configuration cancelled.'));
+      return null;
+    }
+
+    const provider = result.value as SearchProvider;
 
     // If selecting a provider that needs an API key, prompt for it
     let braveApiKey = currentConfig.braveApiKey;
@@ -64,13 +69,11 @@ export async function search(ctx: SearchContext): Promise<string | null> {
     if (provider === 'brave' && !braveKeySet) {
       console.log(chalk.gray('\nGet your free Brave Search API key at: https://brave.com/search/api/\n'));
 
-      const { apiKey } = await enquirer.prompt<{ apiKey: string }>({
-        type: 'password',
-        name: 'apiKey',
-        message: 'Enter Brave Search API key:',
+      const apiKey = await showPassword({
+        title: 'Enter Brave Search API key:'
       });
 
-      if (apiKey.trim()) {
+      if (apiKey?.trim()) {
         braveApiKey = apiKey.trim();
       } else {
         console.log(chalk.yellow('No API key entered. Brave Search will not work without an API key.'));
@@ -81,13 +84,11 @@ export async function search(ctx: SearchContext): Promise<string | null> {
     if (provider === 'parallel' && !parallelKeySet) {
       console.log(chalk.gray('\nGet your Parallel.ai API key at: https://platform.parallel.ai\n'));
 
-      const { apiKey } = await enquirer.prompt<{ apiKey: string }>({
-        type: 'password',
-        name: 'apiKey',
-        message: 'Enter Parallel.ai API key:',
+      const apiKey = await showPassword({
+        title: 'Enter Parallel.ai API key:'
       });
 
-      if (apiKey.trim()) {
+      if (apiKey?.trim()) {
         parallelApiKey = apiKey.trim();
       } else {
         console.log(chalk.yellow('No API key entered. Parallel.ai Search will not work without an API key.'));
@@ -130,11 +131,7 @@ export async function search(ctx: SearchContext): Promise<string | null> {
 
     return null;
   } catch (error) {
-    // User cancelled
-    if ((error as any)?.message?.includes('cancelled') || (error as any)?.code === 'ERR_USE_AFTER_CLOSE') {
-      console.log(chalk.gray('Search configuration cancelled.'));
-      return null;
-    }
+    // Unexpected error
     throw error;
   }
 }
