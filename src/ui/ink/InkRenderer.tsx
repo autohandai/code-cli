@@ -295,7 +295,7 @@ export class InkRenderer {
    */
   resume(): void {
     if (!this.instance) {
-      // Ensure stdin is restored to proper state after enquirer
+      // Ensure stdin is restored to proper state after Modal prompts
       if (process.stdin.isTTY) {
         process.stdin.setRawMode(true);
       }
