@@ -129,10 +129,10 @@ export class PersistentInput extends EventEmitter {
 
     this.isPaused = true;
 
-    // Temporarily disable regions so enquirer can work
+    // Temporarily disable regions so Modal prompts can work
     this.regions.disable();
 
-    // Restore terminal for enquirer
+    // Restore terminal for Modal prompts
     const supportsRaw = (this as any)._supportsRaw;
     if (supportsRaw && this.input.isTTY) {
       this.input.setRawMode(false);
