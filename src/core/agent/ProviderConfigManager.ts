@@ -21,7 +21,7 @@ import type { ActionExecutor } from '../actionExecutor.js';
  * Extracted from AutohandAgent for better modularity.
  * Handles all LLM provider configuration, model selection, and API key validation.
  *
- * NOTE: Uses enquirer for prompts - will be migrated to Ink later.
+ * Uses Ink Modal components for interactive prompts.
  */
 
 export class ProviderConfigManager {

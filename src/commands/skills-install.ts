@@ -127,7 +127,7 @@ async function interactiveBrowser(
   fetcher: GitHubRegistryFetcher,
   cache: CommunitySkillsCache
 ): Promise<string | null> {
-  // For now, use a simple enquirer-based list
+  // For now, use a simple Modal-based list
   // TODO: Replace with Ink-based TUI component
 
   console.log();

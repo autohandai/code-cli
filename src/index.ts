@@ -3,7 +3,6 @@ process.title = 'autohand';
 import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
-import enquirer from 'enquirer';
 import fs from 'fs-extra';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
@@ -110,7 +109,7 @@ process.on('uncaughtException', (err) => {
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  // Ignore readline close errors (happens during exit with enquirer prompts)
+  // Ignore readline close errors (happens during exit with Modal prompts)
   if (reason && typeof reason === 'object' && (reason as any).code === 'ERR_USE_AFTER_CLOSE') {
     return;
   }
