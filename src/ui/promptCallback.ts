@@ -1,9 +1,10 @@
 /**
  * Unified Prompt Utility
- * Supports both interactive (enquirer) and external (HTTP callback) modes
+ * Supports both interactive (Ink Modal) and external (HTTP callback) modes
  * @license Apache-2.0
  */
-import enquirer from 'enquirer';
+import { showModal, showInput, type ModalOption } from './ink/components/Modal.js';
+import { safePrompt } from '../utils/prompt.js';
 import type {
   ExternalPromptRequest,
   ExternalPromptResponse,
@@ -71,7 +72,7 @@ async function sendExternalRequest(request: ExternalPromptRequest): Promise<Exte
 
 /**
  * Confirm prompt - returns true/false
- * Falls back to enquirer if no callback URL is set
+ * Falls back to Modal if no callback URL is set
  */
 export async function confirm(
   message: string,
@@ -100,97 +101,46 @@ export async function confirm(
     return true;
   }
 
-  // Drain all pending stdin data to prevent buffered keystrokes from affecting the prompt
-  if (process.stdin.readable) {
-    while (process.stdin.read() !== null) {
-      // Keep reading until empty
-    }
-  }
-
-  // Small delay to let any async keystrokes arrive and be discarded
-  await new Promise(resolve => setTimeout(resolve, 50));
-
-  // Drain again after delay
-  if (process.stdin.readable) {
-    while (process.stdin.read() !== null) {
-      // Keep reading until empty
-    }
-  }
-
-  const { Select, Input } = enquirer as any;
-  const choices = [
-    { name: 'yes', message: '1. Yes' },
-    { name: 'no', message: '2. No' },
-    { name: 'alternative', message: '3. Enter alternative...' }
+  // Interactive mode - use Modal
+  const options: ModalOption[] = [
+    { label: 'Yes', value: 'yes' },
+    { label: 'No', value: 'no' },
+    { label: 'Enter alternative...', value: 'alternative' }
   ];
 
-  const prompt = new Select({
-    name: 'confirm',
-    message,
-    choices,
-    initial: 0
+  const result = await showModal({
+    title: message,
+    options,
+    initialIndex: 0
   });
 
-  // Add number key shortcuts (1, 2, 3) and letter shortcuts (y/n)
-  const originalKeypress = prompt.keypress.bind(prompt);
-  prompt.keypress = async function(char: string, key: { name: string }) {
-    // Handle number keys 1-3 as direct selection
-    if (char === '1' || char === '2' || char === '3') {
-      const index = parseInt(char, 10) - 1;
-      if (index >= 0 && index < choices.length) {
-        // Set the focused index and value (don't set 'selected' - it's readonly)
-        this.index = index;
-        this.value = this.choices[index].name;
-        await this.render();
-        return this.submit();
-      }
-    }
-    // Handle 'y' for Yes, 'n' for No
-    if (char === 'y' || char === 'Y') {
-      this.index = 0;
-      this.value = this.choices[0].name;
-      await this.render();
-      return this.submit();
-    }
-    if (char === 'n' || char === 'N') {
-      this.index = 1;
-      this.value = this.choices[1].name;
-      await this.render();
-      return this.submit();
-    }
-    return originalKeypress(char, key);
-  };
-
-  try {
-    const answer = await prompt.run();
-
-    if (answer === 'yes') {
-      return true;
-    }
-
-    if (answer === 'alternative') {
-      const inputPrompt = new Input({
-        name: 'alternative',
-        message: 'Enter alternative action (or empty to cancel)'
-      });
-      const altAnswer = await inputPrompt.run();
-      if (altAnswer?.trim()) {
-        // Return the alternative as a special value that can be handled upstream
-        (confirm as any).lastAlternative = altAnswer.trim();
-        return 'alternative' as any;
-      }
-      return false;
-    }
-
-    return false;
-  } catch {
+  if (!result) {
     return false;
   }
+
+  if (result.value === 'yes') {
+    return true;
+  }
+
+  if (result.value === 'alternative') {
+    const altAnswer = await showInput({
+      title: 'Enter alternative action (or empty to cancel)'
+    });
+
+    if (altAnswer?.trim()) {
+      // Return the alternative as a special value that can be handled upstream
+      (confirm as any).lastAlternative = altAnswer.trim();
+      return 'alternative' as any;
+    }
+    return false;
+  }
+
+  return false;
 }
 
 /**
  * Select prompt - returns the chosen option name
- * Falls back to enquirer if no callback URL is set
+ * Falls back to Modal if no callback URL is set
  */
 export async function select<T extends string = string>(
   message: string,
@@ -216,24 +166,23 @@ export async function select<T extends string = string>(
     }
   }
 
-  // Interactive mode - use enquirer
-  const { Select } = enquirer as any;
-  const prompt = new Select({
-    name: 'choice',
-    message,
-    choices
+  // Interactive mode - use Modal
+  const options: ModalOption[] = choices.map(choice => ({
+    label: choice.message,
+    value: choice.name
+  }));
+
+  const result = await showModal({
+    title: message,
+    options
   });
 
-  try {
-    return await prompt.run() as T;
-  } catch {
-    return null;
-  }
+  return result ? (result.value as T) : null;
 }
 
 /**
  * Input prompt - returns the entered value
- * Falls back to enquirer if no callback URL is set
+ * Falls back to Modal if no callback URL is set
  */
 export async function input(
   message: string,
@@ -259,27 +208,23 @@ export async function input(
     }
   }
 
-  // Interactive mode - use enquirer
-  const result = await enquirer.prompt<{ value: string }>({
-    type: 'input',
-    name: 'value',
-    message,
-    initial
+  // Interactive mode - use Modal
+  return await showInput({
+    title: message,
+    defaultValue: initial
   });
-
-  return result.value;
 }
 
 /**
  * Prompt for multiple inputs at once
- * Falls back to enquirer if no callback URL is set
+ * Falls back to Modal if no callback URL is set
  */
 export async function prompt<T extends Record<string, unknown>>(
   questions: Array<{
     type: 'input' | 'select' | 'confirm';
     name: keyof T;
     message: string;
-    initial?: string;
+    initial?: string | boolean;
     choices?: Array<{ name: string; message: string }>;
   }>
 ): Promise<T | null> {
@@ -291,7 +236,7 @@ export async function prompt<T extends Record<string, unknown>>(
       const request: ExternalPromptRequest = {
         type: question.type,
         message: question.message,
-        initial: question.initial,
+        initial: question.initial as string,
         choices: question.choices
       };
 
@@ -317,16 +262,12 @@ export async function prompt<T extends Record<string, unknown>>(
     return result as T;
   }
 
-  // Interactive mode - use enquirer
-  try {
-    return await enquirer.prompt<T>(questions as any);
-  } catch {
-    return null;
-  }
+  // Interactive mode - use safePrompt (Modal-based)
+  return await safePrompt<T>(questions as any);
 }
 
 /**
- * Wrap existing enquirer prompt to support external callbacks
+ * Wrap existing Modal prompts to support external callbacks
  * This is useful for migrating existing code gradually
  */
 export function createPromptWrapper() {
