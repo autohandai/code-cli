@@ -3,34 +3,72 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  *
- * Safe prompt utilities for handling enquirer cancellation
+ * Safe prompt utilities using Ink Modal components
  */
-import enquirer from 'enquirer';
+import { showModal, showInput, showPassword, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 
 /**
- * Wraps enquirer.prompt to gracefully handle user cancellation.
- * Returns null if the user cancels (Ctrl+C, ESC, or readline close).
+ * Wraps Modal prompts to gracefully handle user cancellation.
+ * Returns null if the user cancels (ESC or Ctrl+C).
+ *
+ * @deprecated Use showModal, showInput, showPassword, or showConfirm directly instead.
  */
 export async function safePrompt<T>(
-  questions: Parameters<typeof enquirer.prompt>[0]
+  questions: PromptConfig | PromptConfig[]
 ): Promise<T | null> {
-  try {
-    return await enquirer.prompt<T>(questions);
-  } catch (error: any) {
-    // Handle user cancellation (Ctrl+C, ESC, readline close)
-    if (
-      error?.code === 'ERR_USE_AFTER_CLOSE' ||
-      error?.message?.includes('cancelled') ||
-      error?.message?.includes('canceled')
-    ) {
+  const questionArray = Array.isArray(questions) ? questions : [questions];
+  const results: any = {};
+
+  for (const question of questionArray) {
+    let value: any;
+
+    if (question.type === 'select') {
+      const selectConfig = question as SelectPromptConfig;
+      const options: ModalOption[] = selectConfig.choices.map(choice => ({
+        label: choice.message,
+        value: choice.name
+      }));
+
+      const result = await showModal({
+        title: selectConfig.message,
+        options,
+        initialIndex: selectConfig.initial
+      });
+
+      value = result?.value;
+    } else if (question.type === 'confirm') {
+      const confirmConfig = question as ConfirmPromptConfig;
+      value = await showConfirm({
+        title: confirmConfig.message,
+        defaultValue: confirmConfig.initial
+      });
+    } else if (question.type === 'password') {
+      const inputConfig = question as InputPromptConfig;
+      value = await showPassword({
+        title: inputConfig.message,
+        validate: inputConfig.validate as any
+      });
+    } else if (question.type === 'input') {
+      const inputConfig = question as InputPromptConfig;
+      value = await showInput({
+        title: inputConfig.message,
+        defaultValue: inputConfig.initial,
+        validate: inputConfig.validate as any
+      });
+    }
+
+    if (value === null || value === undefined) {
       return null;
     }
-    throw error;
+
+    results[question.name] = value;
   }
+
+  return results as T;
 }
 
 /**
- * Type for enquirer Select prompt
+ * Type for Select prompt
  */
 export interface SelectPromptConfig {
   type: 'select';
@@ -41,7 +79,7 @@ export interface SelectPromptConfig {
 }
 
 /**
- * Type for enquirer Confirm prompt
+ * Type for Confirm prompt
  */
 export interface ConfirmPromptConfig {
   type: 'confirm';
@@ -51,7 +89,7 @@ export interface ConfirmPromptConfig {
 }
 
 /**
- * Type for enquirer Input/Password prompt
+ * Type for Input/Password prompt
  */
 export interface InputPromptConfig {
   type: 'input' | 'password';
@@ -60,3 +98,8 @@ export interface InputPromptConfig {
   initial?: string;
   validate?: (value: unknown) => boolean | string;
 }
+
+/**
+ * Union type for all prompt configurations
+ */
+export type PromptConfig = SelectPromptConfig | ConfirmPromptConfig | InputPromptConfig;
