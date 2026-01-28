@@ -38,6 +38,16 @@ describe('webRepo', () => {
       expect(result).toEqual({ platform: 'gitlab', owner: 'inkscape', repo: 'inkscape' });
     });
 
+    it('parses implicit GitHub format (owner/repo)', () => {
+      const result = parseRepoUrl('autohandai/code-cli');
+      expect(result).toEqual({ platform: 'github', owner: 'autohandai', repo: 'code-cli' });
+    });
+
+    it('parses implicit GitHub format with common names', () => {
+      const result = parseRepoUrl('facebook/react');
+      expect(result).toEqual({ platform: 'github', owner: 'facebook', repo: 'react' });
+    });
+
     it('throws on invalid URL', () => {
       expect(() => parseRepoUrl('invalid')).toThrow('Could not parse repo URL');
     });
