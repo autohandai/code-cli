@@ -7,15 +7,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Use vi.hoisted to define mock function before vi.mock runs (both are hoisted together)
-const { mockPromptFn } = vi.hoisted(() => ({
-  mockPromptFn: vi.fn()
+const { mockShowModal } = vi.hoisted(() => ({
+  mockShowModal: vi.fn()
 }));
 
-// Mock enquirer - vi.mock is hoisted, so we use vi.hoisted variable
-vi.mock('enquirer', () => ({
-  default: {
-    prompt: mockPromptFn
-  }
+// Mock Modal components
+vi.mock('../../src/ui/ink/components/Modal.js', () => ({
+  showModal: mockShowModal
 }));
 
 // Mock chalk
@@ -41,8 +39,8 @@ describe('Resume Command', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Reinitialize the mock function for each test
-    if (mockPromptFn) {
-      mockPromptFn.mockReset();
+    if (mockShowModal) {
+      mockShowModal.mockReset();
     }
   });
 
@@ -155,7 +153,7 @@ describe('Resume Command', () => {
         listSessions: vi.fn().mockResolvedValue(mockSessions)
       };
 
-      mockPromptFn.mockResolvedValueOnce({ selected: 'session-1' });
+      mockShowModal.mockResolvedValueOnce({ value: 'session-1' });
 
       const result = await resume({
         sessionManager: mockSessionManager as any,
@@ -163,7 +161,7 @@ describe('Resume Command', () => {
       });
 
       expect(result).toBe('SESSION_RESUMED');
-      expect(mockPromptFn).toHaveBeenCalled();
+      expect(mockShowModal).toHaveBeenCalled();
     });
 
     it('should handle cancellation gracefully', async () => {
@@ -187,7 +185,7 @@ describe('Resume Command', () => {
         listSessions: vi.fn().mockResolvedValue(mockSessions)
       };
 
-      mockPromptFn.mockRejectedValueOnce({ name: 'ExitPromptError' });
+      mockShowModal.mockResolvedValueOnce(null);
 
       const result = await resume({
         sessionManager: mockSessionManager as any,
@@ -222,17 +220,17 @@ describe('Resume Command', () => {
         listSessions: vi.fn().mockResolvedValue(mockSessions)
       };
 
-      mockPromptFn.mockResolvedValueOnce({ selected: 'session-1' });
+      mockShowModal.mockResolvedValueOnce({ value: 'session-1' });
 
       await resume({
         sessionManager: mockSessionManager as any,
         args: []
       });
 
-      // Verify prompt was called with choices containing summary as message
-      expect(mockPromptFn).toHaveBeenCalled();
-      const promptCall = mockPromptFn.mock.calls[0][0][0];
-      expect(promptCall.choices[0].message).toBe('Building an artifact');
+      // Verify showModal was called with options containing summary as label
+      expect(mockShowModal).toHaveBeenCalled();
+      const promptCall = mockShowModal.mock.calls[0][0];
+      expect(promptCall.options[0].label).toBe('Building an artifact');
     });
 
     it('should use first user message when no summary', async () => {
@@ -258,7 +256,7 @@ describe('Resume Command', () => {
         listSessions: vi.fn().mockResolvedValue(mockSessions)
       };
 
-      mockPromptFn.mockResolvedValueOnce({ selected: 'session-1' });
+      mockShowModal.mockResolvedValueOnce({ value: 'session-1' });
 
       await resume({
         sessionManager: mockSessionManager as any,

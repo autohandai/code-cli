@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
-import enquirer from 'enquirer';
+import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import fs from 'fs-extra';
 import path from 'node:path';
 import type { SessionManager, Session } from '../session/SessionManager.js';
@@ -138,28 +138,31 @@ export async function resume(ctx: {
             });
         }
 
-        const { selected } = await enquirer.prompt<{ selected: string }>([
-            {
-                type: 'select',
-                name: 'selected',
-                message: 'Choose a session',
-                choices
-            }
-        ]);
+        const options: ModalOption[] = choices.map(choice => ({
+            label: choice.message,
+            value: choice.name,
+            description: choice.hint
+        }));
 
-        if (selected === '__more__') {
+        const result = await showModal({
+            title: 'Choose a session',
+            options
+        });
+
+        if (!result) {
+            console.log(chalk.gray('\nResume cancelled.'));
+            return null;
+        }
+
+        if (result.value === '__more__') {
             console.log(chalk.gray('\nUse /sessions to see all sessions, then /resume <id>'));
             return null;
         }
 
-        return resumeSession(ctx.sessionManager, selected);
+        return resumeSession(ctx.sessionManager, result.value);
 
     } catch (error) {
-        // Handle cancellation gracefully
-        if ((error as any).name === 'ExitPromptError' || (error as Error).message?.includes('canceled')) {
-            console.log(chalk.gray('\nResume cancelled.'));
-            return null;
-        }
+        // Handle unexpected errors
         console.error(chalk.red(`Failed to list sessions: ${(error as Error).message}`));
         return null;
     }
