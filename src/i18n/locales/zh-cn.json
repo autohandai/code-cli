@@ -99,6 +99,18 @@
       },
       "docsLink": "更多信息，请访问 {{link}}"
     },
+    "about": {
+      "title": "Autohand",
+      "subtitle": "自主 AI 驱动的编码代理",
+      "website": "网站",
+      "github": "GitHub",
+      "docs": "文档",
+      "contribute": "想要贡献？",
+      "feedback": "发送反馈",
+      "submitPR": "提交 PR",
+      "reportIssues": "报告问题",
+      "pressKey": "按 ESC 或任意键返回..."
+    },
     "model": {
       "description": "选择使用的模型和推理强度",
       "title": "模型选择",

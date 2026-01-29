@@ -639,6 +639,7 @@ Autohand 将数据存储在 `~/.autohand/`（或 `$AUTOHAND_HOME`）：
 | `--unrestricted` | 无批准提示 |
 | `--restricted` | 拒绝危险操作 |
 | `--setup` | 运行设置向导以配置或重新配置 Autohand |
+| `--about` | 显示 Autohand 信息（版本、链接、贡献信息） |
 | `--sys-prompt <值>` | 完全替换系统提示（内联字符串或文件路径） |
 | `--append-sys-prompt <值>` | 附加到系统提示（内联字符串或文件路径） |
 

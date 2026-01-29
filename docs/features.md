@@ -45,6 +45,7 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 | `/agents-new` | Create new agent via wizard |
 | `/feedback` | Send feedback |
 | `/help` | Display help |
+| `/about` | Show information about Autohand |
 | `/formatters` | List available code formatters |
 | `/lint` | List available code linters |
 | `/completion` | Generate shell completion scripts |

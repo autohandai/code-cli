@@ -1,0 +1,109 @@
+/**
+ * @license
+ * Copyright 2025 Autohand AI LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+import { execSync } from 'node:child_process';
+import chalk from 'chalk';
+import terminalLink from 'terminal-link';
+import { t } from '../i18n/index.js';
+import { getTheme, isThemeInitialized } from '../ui/theme/Theme.js';
+import packageJson from '../../package.json' with { type: 'json' };
+
+/**
+ * Get git commit hash (short)
+ */
+function getGitCommit(): string {
+  // Use build-time embedded commit if available
+  if (process.env.BUILD_GIT_COMMIT && process.env.BUILD_GIT_COMMIT !== 'undefined') {
+    return process.env.BUILD_GIT_COMMIT;
+  }
+  // Fallback for development (running from source)
+  try {
+    return execSync('git rev-parse --short HEAD', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
+ * Get full version string with git commit
+ */
+function getVersionString(): string {
+  const commit = getGitCommit();
+  return commit !== 'unknown' ? `${packageJson.version} (${commit})` : packageJson.version;
+}
+
+// ASCII art from welcome banner
+const ASCII_FRIEND = [
+  '⢀⡴⠛⠛⠻⣷⡄⠀⣠⡶⠟⠛⠻⣶⡄⢀⣴⡾⠛⠛⢿⣦⠀⢀⣴⠞⠛⠛⠶⡀',
+  '⡎⠀⢰⣶⡆⠈⣿⣴⣿⠁⣴⣶⡄⠘⣿⣾⡏⢀⣶⣦⠀⢻⡇⣿⠃⢠⣶⡆⠀⢹',
+  '⢧⠀⠘⠛⠃⢠⡿⠙⣿⡀⠙⠛⠃⣰⡿⢻⣧⠈⠛⠛⢀⣾⠇⢻⣆⠈⠛⠋⠀⡼',
+  '⠈⠻⢶⣶⡾⠟⠁⠀⠘⠿⢶⣶⡾⠟⠁⠀⠙⠷⣶⣶⠿⠋⠀⠈⠻⠷⣶⡶⠚⠁',
+  '⢀⣴⠿⠿⠷⣦⡀⠀⣠⣶⠿⠻⢷⣦⡀⠀⣠⡾⠟⠿⣶⣄⠀⢀⣴⡾⠿⠿⣶⣄',
+  '⡾⠃⢠⣤⡄⠘⣿⣠⣿⠁⣠⣤⡄⠹⣷⣼⡏⢀⣤⣤⠈⢿⡆⣾⠏⢀⣤⣄⠈⢿',
+  '⢧⡀⠸⠿⠇⢀⣿⠺⣿⡀⠻⠿⠃⢰⣿⢿⣇⠈⠿⠿⠀⣼⡇⢿⣇⠘⠿⠇⠀⣸',
+  '⠈⢿⣦⣤⣴⡿⠃⠀⠙⢷⣦⣤⣶⡿⠁⠈⠻⣷⣤⣤⡾⠛⠀⠈⢿⣦⣤⣤⠴⠁'
+].join('\n');
+
+/**
+ * About command - shows information about Autohand
+ */
+export async function about(): Promise<string | null> {
+  // Use theme if initialized, otherwise use fallback chalk colors
+  let accent: (text: string) => string;
+  let muted: (text: string) => string;
+  let text: (text: string) => string;
+
+  if (isThemeInitialized()) {
+    const theme = getTheme();
+    accent = (text: string) => chalk.hex(theme.vars[theme.colors.accent] as string)(text);
+    muted = (text: string) => chalk.hex(theme.vars[theme.colors.muted] as string)(text);
+    text = (str: string) => chalk.hex(theme.vars[theme.colors.text] as string)(str);
+  } else {
+    // Fallback colors when theme not initialized
+    accent = (text: string) => chalk.cyan(text);
+    muted = (text: string) => chalk.gray(text);
+    text = (text: string) => chalk.white(text);
+  }
+
+  // Display ASCII art
+  console.log(chalk.gray(ASCII_FRIEND));
+  console.log();
+
+  // Title and version
+  console.log(accent(`${t('commands.about.title')} v${getVersionString()}`));
+  console.log(muted(t('commands.about.subtitle')));
+  console.log();
+
+  // Links section
+  const websiteLink = terminalLink('autohand.ai', 'https://autohand.ai');
+  const githubLink = terminalLink('github.com/anthropics/autohand', 'https://github.com/anthropics/autohand');
+  const docsLink = terminalLink('docs.autohand.ai', 'https://docs.autohand.ai');
+
+  console.log(`${text('🌐')} ${text(t('commands.about.website') + ':')}    ${accent(websiteLink)}`);
+  console.log(`${text('📦')} ${text(t('commands.about.github') + ':')}     ${accent(githubLink)}`);
+  console.log(`${text('📚')} ${text(t('commands.about.docs') + ':')}       ${accent(docsLink)}`);
+  console.log();
+
+  // Contribution section
+  console.log(text(`💡 ${t('commands.about.contribute')}`));
+  console.log(text(`   • ${t('commands.about.feedback')}:     ${accent('/feedback')}`));
+  console.log(text(`   • ${t('commands.about.submitPR')}:         ${accent('gh pr create')}`));
+
+  const issuesLink = terminalLink('github.com/anthropics/autohand/issues', 'https://github.com/anthropics/autohand/issues');
+  console.log(text(`   • ${t('commands.about.reportIssues')}:     ${accent(issuesLink)}`));
+  console.log();
+
+  // Footer
+  console.log(muted(t('commands.about.pressKey')));
+  console.log();
+
+  return null;
+}
+
+export const metadata = {
+  command: '/about',
+  description: 'show information about Autohand',
+  implemented: true
+};

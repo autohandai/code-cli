@@ -650,6 +650,7 @@ Estas flags sobrescrevem as configurações do arquivo:
 | `--unrestricted` | Sem prompts de aprovação |
 | `--restricted` | Negar operações perigosas |
 | `--setup` | Executar o assistente de configuração para configurar ou reconfigurar o Autohand |
+| `--about` | Mostrar informações sobre o Autohand (versão, links, informações de contribuição) |
 | `--sys-prompt <valor>` | Substituir completamente o prompt do sistema (string inline ou caminho de arquivo) |
 | `--append-sys-prompt <valor>` | Anexar ao prompt do sistema (string inline ou caminho de arquivo) |
 

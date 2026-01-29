@@ -1360,6 +1360,7 @@ These flags override config file settings:
 | `-c, --auto-commit` | Auto-commit changes after completing tasks |
 | `--login` | Sign in to your Autohand account |
 | `--logout` | Sign out of your Autohand account |
+| `--about` | Show information about Autohand (version, links, contribution info) |
 | `--sync-settings` | Enable/disable settings sync (default: true for logged users) |
 | `--setup` | Run the setup wizard to configure or reconfigure Autohand |
 | `--sys-prompt <value>` | Replace entire system prompt (inline string or file path) |
