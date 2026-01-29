@@ -8,8 +8,6 @@
  */
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import fs from 'fs-extra';
-import os from 'node:os';
 import chalk from 'chalk';
 
 export interface LintIssue {

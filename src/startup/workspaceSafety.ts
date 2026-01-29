@@ -110,24 +110,7 @@ function pathsEqual(path1: string, path2: string): boolean {
 /**
  * Check if a path starts with a prefix (case-insensitive on Windows/macOS)
  */
-function pathStartsWith(testPath: string, prefix: string): boolean {
-  const normalizedPath = normalizePath(testPath);
-  const normalizedPrefix = normalizePath(prefix);
 
-  // Ensure prefix ends with separator for proper matching
-  const prefixWithSep = normalizedPrefix.endsWith(path.sep)
-    ? normalizedPrefix
-    : normalizedPrefix + path.sep;
-
-  if (process.platform === 'darwin' || process.platform === 'win32') {
-    return (
-      normalizedPath.toLowerCase() === normalizedPrefix.toLowerCase() ||
-      normalizedPath.toLowerCase().startsWith(prefixWithSep.toLowerCase())
-    );
-  }
-
-  return normalizedPath === normalizedPrefix || normalizedPath.startsWith(prefixWithSep);
-}
 
 /**
  * Check if path is a filesystem root

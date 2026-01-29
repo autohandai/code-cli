@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { ThemeColors, ThemeDefinition } from './types.js';
+import type { ThemeDefinition } from './types.js';
 
 /**
  * Dark theme - default theme optimized for dark terminal backgrounds.

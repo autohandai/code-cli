@@ -7,28 +7,24 @@ import chalk from 'chalk';
 import fs from 'fs-extra';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { spawnSync, spawn } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import ora from 'ora';
 import { showModal, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 import readline from 'node:readline';
 import { FileActionManager } from '../actions/filesystem.js';
 import { saveConfig, getProviderConfig } from '../config.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
-import { ProviderFactory, ProviderNotConfiguredError } from '../providers/ProviderFactory.js';
-import { isMLXSupported } from '../utils/platform.js';
+import { ProviderNotConfiguredError } from '../providers/ProviderFactory.js';
 import { readInstruction, safeEmitKeypressEvents } from '../ui/inputPrompt.js';
 // showFilePalette is imported dynamically to avoid bundling ink in standalone binary
 import {
   getContextWindow,
   estimateMessagesTokens,
-  calculateContextUsage,
-  CONTEXT_WARNING_THRESHOLD,
-  CONTEXT_CRITICAL_THRESHOLD,
-  type ContextUsage
+  calculateContextUsage
 } from '../utils/context.js';
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
-import { getAutoCommitInfo, executeAutoCommit } from '../actions/git.js';
-import { filterToolsByRelevance, detectRelevantCategories } from './toolFilter.js';
+import { getAutoCommitInfo } from '../actions/git.js';
+import { filterToolsByRelevance } from './toolFilter.js';
 import { SLASH_COMMANDS } from './slashCommands.js';
 import { ConversationManager } from './conversationManager.js';
 import { ContextManager } from './contextManager.js';
@@ -38,8 +34,7 @@ import { SlashCommandHandler } from './slashCommandHandler.js';
 import { SessionManager } from '../session/SessionManager.js';
 import { ProjectManager } from '../session/ProjectManager.js';
 import { ToolsRegistry } from './toolsRegistry.js';
-import type { SessionMessage, WorkspaceState } from '../session/types.js';
-import { ProjectAnalyzer as OnboardingProjectAnalyzer, AgentsGenerator } from '../onboarding/index.js';
+import type { SessionMessage } from '../session/types.js';
 import type {
   AgentRuntime,
   AgentAction,
@@ -52,7 +47,6 @@ import type {
   ToolCallRequest,
   ExplorationEvent,
   ProviderName,
-  ClientContext,
   ToolOutputChunk
 } from '../types.js';
 
@@ -64,8 +58,6 @@ import { FeedbackManager } from '../feedback/FeedbackManager.js';
 import { TelemetryManager } from '../telemetry/TelemetryManager.js';
 import { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import { CommunitySkillsClient } from '../skills/CommunitySkillsClient.js';
-import type { SkillSuggestion } from '../skills/CommunitySkillsClient.js';
-import { ProjectAnalyzer } from '../skills/autoSkill.js';
 import { AUTOHAND_PATHS } from '../constants.js';
 import { PersistentInput, createPersistentInput } from '../ui/persistentInput.js';
 import { injectLocaleIntoPrompt, getCurrentLocale } from '../i18n/index.js';
@@ -74,7 +66,7 @@ import { formatToolOutputForDisplay } from '../ui/toolOutput.js';
 // The actual type comes from dynamic import at runtime
 type InkRenderer = any;
 import { PermissionManager } from '../permissions/PermissionManager.js';
-import { HookManager, type HookContext } from './HookManager.js';
+import { HookManager } from './HookManager.js';
 import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
 import { getPlanModeManager } from '../commands/plan.js';
 import packageJson from '../../package.json' with { type: 'json' };
@@ -82,7 +74,7 @@ import packageJson from '../../package.json' with { type: 'json' };
 import { ImageManager } from './ImageManager.js';
 import { IntentDetector, type Intent, type IntentResult } from './IntentDetector.js';
 import { EnvironmentBootstrap, type BootstrapResult } from './EnvironmentBootstrap.js';
-import { CodeQualityPipeline, type QualityResult } from './CodeQualityPipeline.js';
+import { CodeQualityPipeline } from './CodeQualityPipeline.js';
 import { resolvePromptValue, SysPromptError } from '../utils/sysPrompt.js';
 import {
   formatToolSignature,
@@ -2772,7 +2764,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
    */
   private expressesIntentToAct(text: string): boolean {
     if (!text) return false;
-    const lower = text.toLowerCase();
+    // const _lower = text.toLowerCase();
 
     // Patterns that indicate intent to perform a file operation
     const intentPatterns = [
@@ -3950,7 +3942,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       }
 
       // Default: accept with manual approve if result wasn't recognized
-      const config = planManager.acceptPlan('manual_approve');
+      planManager.acceptPlan('manual_approve');
       console.log(chalk.green('\n✓ Plan accepted with manual approval for edits.\n'));
 
       return `Plan accepted. Starting execution with manual edit approval.\n\nSteps:\n${plan.steps.map(s => `${s.number}. ${s.description}`).join('\n')}`;

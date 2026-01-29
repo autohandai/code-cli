@@ -246,9 +246,7 @@ export class MentionPreview {
     if (!match) {
       return;
     }
-    const seed = match[1] ?? '';
     const start = match.index;
-    const end = start + match[0].length;
     const afterCursor = this.rl.line.slice(this.rl.cursor);
     const prefix = this.rl.line.slice(0, start);
     const replacement = `@${file} `;

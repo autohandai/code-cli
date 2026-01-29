@@ -7,7 +7,7 @@ import chalk from 'chalk';
 import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import fs from 'fs-extra';
 import path from 'node:path';
-import type { SessionManager, Session } from '../session/SessionManager.js';
+import type { SessionManager } from '../session/SessionManager.js';
 import type { SessionMetadata, SessionMessage } from '../session/types.js';
 import { AUTOHAND_PATHS } from '../constants.js';
 

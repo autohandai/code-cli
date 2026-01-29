@@ -187,9 +187,6 @@ function isLegacyConfig(config: AutohandConfig | LegacyConfigShape): config is L
 }
 
 function validateConfig(config: AutohandConfig, configPath: string): void {
-  const provider = config.provider ?? 'openrouter';
-  const providerConfig = getProviderConfig(config, provider);
-
   if (config.workspace) {
     if (config.workspace.defaultRoot && typeof config.workspace.defaultRoot !== 'string') {
       throw new Error(`workspace.defaultRoot must be a string in ${configPath}`);

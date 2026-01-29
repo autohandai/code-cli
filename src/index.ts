@@ -14,7 +14,7 @@ import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from './startup/
 import { getAuthClient } from './auth/index.js';
 import type { AuthUser, LoadedConfig } from './types.js';
 import { checkForUpdates, type VersionCheckResult } from './utils/versionCheck.js';
-import { initI18n, detectLocale, getCurrentLocale } from './i18n/index.js';
+import { initI18n, detectLocale } from './i18n/index.js';
 
 /**
  * Get git commit hash (short)
@@ -998,7 +998,7 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
     const runIteration = async (
       iteration: number,
       prompt: string,
-      abortSignal: AbortSignal
+      _abortSignal: AbortSignal
     ) => {
       // Build iteration prompt
       const iterationPrompt = buildIterationPrompt(prompt, iteration);

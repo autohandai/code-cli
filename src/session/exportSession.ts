@@ -34,15 +34,7 @@ const DEFAULT_OPTIONS: ExportOptions = {
 /**
  * Escape markdown special characters
  */
-function escapeMarkdown(text: string): string {
-  return text
-    .replace(/\\/g, '\\\\')
-    .replace(/`/g, '\\`')
-    .replace(/\*/g, '\\*')
-    .replace(/_/g, '\\_')
-    .replace(/\[/g, '\\[')
-    .replace(/\]/g, '\\]');
-}
+
 
 /**
  * Format a code block with optional language
@@ -129,7 +121,7 @@ function formatTimestamp(timestamp: string): string {
 function formatMessage(
   message: SessionMessage,
   options: ExportOptions,
-  index: number
+  _index: number
 ): string {
   const parts: string[] = [];
 

@@ -7,7 +7,6 @@
  * Converts session data to ShareSessionPayload format
  */
 
-import os from 'node:os';
 import type { Session } from '../session/SessionManager.js';
 import type { SessionMessage } from '../session/types.js';
 import type {

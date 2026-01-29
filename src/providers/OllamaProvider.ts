@@ -64,7 +64,7 @@ export class OllamaProvider implements LLMProvider {
 
             const data: OllamaTagsResponse = await response.json();
             return data.models.map(m => m.name);
-        } catch (error) {
+        } catch {
             // Ollama not running or network error
             return [];
         }

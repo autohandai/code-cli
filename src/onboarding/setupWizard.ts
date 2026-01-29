@@ -12,7 +12,7 @@ import { join } from 'path';
 import type { AutohandConfig, LoadedConfig, ProviderName } from '../types.js';
 import { getProviderConfig } from '../config.js';
 import { ProviderFactory } from '../providers/ProviderFactory.js';
-import { ProjectAnalyzer, type ProjectInfo } from './projectAnalyzer.js';
+import { ProjectAnalyzer } from './projectAnalyzer.js';
 import { AgentsGenerator } from './agentsGenerator.js';
 
 /**

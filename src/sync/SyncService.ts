@@ -8,7 +8,6 @@
  */
 import fs from 'fs-extra';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
 import { AUTOHAND_HOME } from '../constants.js';
 import { SyncApiClient, getSyncApiClient } from './SyncApiClient.js';
 import { encryptConfig, decryptConfig, computeHash } from './encryption.js';
@@ -19,7 +18,6 @@ import type {
   SyncResult,
   SyncActions,
   SyncEvent,
-  DEFAULT_SYNC_CONFIG,
 } from './types.js';
 import {
   SYNC_EXCLUDE_ALWAYS,

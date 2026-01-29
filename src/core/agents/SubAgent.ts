@@ -11,8 +11,8 @@ import { ConversationManager } from '../conversationManager.js';
 import { ToolManager, DEFAULT_TOOL_DEFINITIONS, type ToolDefinition } from '../toolManager.js';
 import { ToolFilter } from '../toolFilter.js';
 import { ActionExecutor } from '../actionExecutor.js';
-import { AgentDelegator, type DelegatorOptions } from './AgentDelegator.js';
-import type { AssistantReactPayload, ClientContext, FunctionDefinition, LLMResponse } from '../../types.js';
+import { AgentDelegator } from './AgentDelegator.js';
+import type { AssistantReactPayload, ClientContext, LLMResponse } from '../../types.js';
 
 /**
  * Options for creating a SubAgent with context inheritance

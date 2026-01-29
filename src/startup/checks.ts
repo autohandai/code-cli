@@ -5,7 +5,7 @@
  *
  * Startup checks - validates required tools and environment
  */
-import { execSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import chalk from 'chalk';
 import fs from 'fs-extra';

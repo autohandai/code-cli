@@ -16,7 +16,6 @@ import type { CLIOptions, AgentRuntime } from '../../types.js';
 import type {
   JsonRpcRequest,
   JsonRpcResponse,
-  JsonRpcId,
   PromptParams,
   GetMessagesParams,
   PermissionResponseParams,
@@ -39,11 +38,8 @@ import { RPCAdapter } from './adapter.js';
 import {
   LineReader,
   parseRequest,
-  writeResponse,
   writeErrorResponse,
   writeBatchResponse,
-  writeParseError,
-  writeMethodNotFoundError,
   writeInternalError,
 } from './protocol.js';
 

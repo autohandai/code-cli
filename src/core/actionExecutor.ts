@@ -63,7 +63,6 @@ import { webRepo, formatRepoInfo, formatRepoDir } from '../actions/webRepo.js';
 import { PermissionManager } from '../permissions/PermissionManager.js';
 import type { PermissionContext } from '../permissions/types.js';
 import type { ProjectManager } from '../session/ProjectManager.js';
-import type { FailureRecord, SuccessRecord } from '../session/types.js';
 import type { AgentAction, AgentRuntime, ExplorationEvent, ToolExecutionContext, ToolOutputChunk } from '../types.js';
 import type { FileActionManager } from '../actions/filesystem.js';
 import type { ToolDefinition } from './toolManager.js';
@@ -1334,7 +1333,7 @@ export class ActionExecutor {
         }
 
         // Save to registry
-        const saved = await this.toolsRegistry.saveMetaTool({
+        await this.toolsRegistry.saveMetaTool({
           name: action.name,
           description: action.description,
           parameters: action.parameters ?? { type: 'object', properties: {} },
@@ -1988,7 +1987,7 @@ export class ActionExecutor {
       }
 
       return undefined; // Safe to proceed
-    } catch (error) {
+    } catch {
       // If git command fails, proceed without blocking
       console.log(chalk.yellow('\n[WARN] Could not scan for secrets (git diff failed)'));
       return undefined;

@@ -23,7 +23,6 @@ import type {
   GetStateResult,
   GetMessagesResult,
   PermissionResponseResult,
-  RpcImageAttachment,
   GetSkillsRegistryParams,
   GetSkillsRegistryResult,
   InstallSkillParams,
@@ -462,7 +461,7 @@ export class RPCAdapter {
   /**
    * Handle abort request (can be notification with null id for instant abort)
    */
-  handleAbort(requestId: JsonRpcId | null): AbortResult {
+  handleAbort(_requestId: JsonRpcId | null): AbortResult {
     process.stderr.write(`[RPC] handleAbort called, abortController=${!!this.abortController}\n`);
 
     // Clear ALL pending permissions - they're no longer relevant after abort
@@ -518,7 +517,7 @@ export class RPCAdapter {
   /**
    * Handle reset request
    */
-  handleReset(requestId: JsonRpcId): ResetResult {
+  handleReset(_requestId: JsonRpcId): ResetResult {
     if (this.conversation) {
       // Get system prompt if available
       const history = this.conversation.history();
@@ -549,7 +548,7 @@ export class RPCAdapter {
   /**
    * Handle get_state request
    */
-  handleGetState(requestId: JsonRpcId): GetStateResult {
+  handleGetState(_requestId: JsonRpcId): GetStateResult {
     return this.getState();
   }
 
@@ -1471,7 +1470,7 @@ export class RPCAdapter {
   /**
    * Get auto-mode status
    */
-  handleAutomodeStatus(requestId: JsonRpcId): AutomodeStatusResult {
+  handleAutomodeStatus(_requestId: JsonRpcId): AutomodeStatusResult {
     const automodeManager = this.agent?.getAutomodeManager?.();
 
     if (!automodeManager) {
@@ -1502,7 +1501,7 @@ export class RPCAdapter {
   /**
    * Pause auto-mode loop
    */
-  async handleAutomodePause(requestId: JsonRpcId): Promise<AutomodePauseResult> {
+  async handleAutomodePause(_requestId: JsonRpcId): Promise<AutomodePauseResult> {
     try {
       const automodeManager = this.agent?.getAutomodeManager?.();
       if (!automodeManager) {
@@ -1540,7 +1539,7 @@ export class RPCAdapter {
   /**
    * Resume auto-mode loop
    */
-  async handleAutomodeResume(requestId: JsonRpcId): Promise<AutomodeResumeResult> {
+  async handleAutomodeResume(_requestId: JsonRpcId): Promise<AutomodeResumeResult> {
     try {
       const automodeManager = this.agent?.getAutomodeManager?.();
       if (!automodeManager) {
