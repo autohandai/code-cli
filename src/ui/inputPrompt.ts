@@ -209,6 +209,32 @@ interface PromptOnceOptions {
   onImageDetected?: ImageDetectedCallback;
 }
 
+/**
+ * Enable bracketed paste mode in terminal.
+ * Terminal will send escape sequences around pasted content.
+ */
+function enableBracketedPaste(output: NodeJS.WriteStream): void {
+  try {
+    output.write('\x1b[?2004h');
+  } catch (error) {
+    // Terminal doesn't support bracketed paste, continue without it
+    if (process.env.DEBUG_PASTE) {
+      output.write(`[DEBUG] Failed to enable bracketed paste: ${error}\n`);
+    }
+  }
+}
+
+/**
+ * Disable bracketed paste mode in terminal.
+ */
+function disableBracketedPaste(output: NodeJS.WriteStream): void {
+  try {
+    output.write('\x1b[?2004l');
+  } catch {
+    // Ignore errors during cleanup
+  }
+}
+
 function createReadline(
   stdInput: NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void },
   stdOutput: NodeJS.WriteStream
@@ -219,6 +245,9 @@ function createReadline(
 
   // Ensure stdin keypress events are set up (only once per stream)
   safeEmitKeypressEvents(stdInput);
+
+  // Enable bracketed paste mode for paste detection
+  enableBracketedPaste(stdOutput);
 
   // Always ensure stdin is in a known state before creating readline
   // This fixes issues with Bun where isPaused() may not return correct state
@@ -395,6 +424,8 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     const cleanup = () => {
       if (closed) return;
       closed = true;
+      // Disable bracketed paste mode
+      disableBracketedPaste(stdOutput);
       mentionPreview.dispose();
       resizeWatcher.dispose();
       input.off('keypress', handleKeypress);
