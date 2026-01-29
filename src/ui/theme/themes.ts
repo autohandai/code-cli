@@ -46,7 +46,7 @@ export const darkTheme: ThemeDefinition = {
     error: 'red',
     warning: 'yellow',
     muted: 'gray500',
-    dim: 'gray700',
+    dim: 'gray200',
     text: 'gray200',
     // Backgrounds & Content
     userMessageBg: 'bgMedium',
@@ -124,7 +124,7 @@ export const draculaTheme: ThemeDefinition = {
     error: 'red',
     warning: 'orange',
     muted: 'comment',
-    dim: 'currentLine',
+    dim: 'foreground',
     text: 'foreground',
     // Backgrounds & Content
     userMessageBg: 'currentLine',
@@ -202,7 +202,7 @@ export const sandyTheme: ThemeDefinition = {
     error: 'rust',
     warning: 'dune',
     muted: 'stone',
-    dim: 'gray600',
+    dim: 'gray100',
     text: 'gray100',
     // Backgrounds & Content
     userMessageBg: 'gray700',
@@ -280,7 +280,7 @@ export const tuiTheme: ThemeDefinition = {
     error: 'pohutukawa',
     warning: 'kowhai',
     muted: 'gray400',
-    dim: 'gray600',
+    dim: 'snow',
     text: 'snow',
     // Backgrounds & Content
     userMessageBg: 'gray700',
@@ -358,7 +358,7 @@ export const lightTheme: ThemeDefinition = {
     error: 'red',
     warning: 'yellow',
     muted: 'gray400',
-    dim: 'gray500',
+    dim: 'gray100',
     text: 'gray100',
     // Backgrounds & Content
     userMessageBg: 'bgMedium',

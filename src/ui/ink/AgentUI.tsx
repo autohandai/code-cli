@@ -306,7 +306,7 @@ const FixedBottom = memo(function FixedBottom({
 
       {/* Help line - always visible */}
       <Box>
-        <Text color="white">
+        <Text color={colors.dim}>
           {contextDisplay}{contextDisplay ? ' · ' : ''}{isWorking ? t('ui.escToCancel') : t('ui.commandHint')}
         </Text>
       </Box>

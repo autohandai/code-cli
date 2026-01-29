@@ -109,7 +109,7 @@ function StatusLineComponent({ isWorking, status, elapsed, tokens, queueCount = 
         <Text color={colors.accent}> [{queueCount} queued]</Text>
       )}
       {contextBar}
-      <Text color="white"> · {t('ui.escToCancel')}</Text>
+      <Text color={colors.muted}> · {t('ui.escToCancel')}</Text>
     </Box>
   );
 }
