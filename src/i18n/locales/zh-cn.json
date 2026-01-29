@@ -393,7 +393,7 @@
   },
   "ui": {
     "escToCancel": "esc 取消",
-    "commandHint": "/ 命令 · @ 提及文件",
+    "commandHint": "/ 命令 · @ 提及文件 · ! 终端命令",
     "ctrlCToExit": "再次按 Ctrl+C 退出",
     "noMatchingCommands": "没有匹配的命令。",
     "selectFile": "选择文件",

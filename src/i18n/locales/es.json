@@ -393,7 +393,7 @@
   },
   "ui": {
     "escToCancel": "esc para cancelar",
-    "commandHint": "/ para comandos · @ para mencionar archivos",
+    "commandHint": "/ para comandos · @ para mencionar archivos · ! para terminal",
     "ctrlCToExit": "Presione Ctrl+C de nuevo para salir",
     "noMatchingCommands": "No hay comandos coincidentes.",
     "selectFile": "Seleccione un archivo",

@@ -60,7 +60,7 @@ import { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import { CommunitySkillsClient } from '../skills/CommunitySkillsClient.js';
 import { AUTOHAND_PATHS } from '../constants.js';
 import { PersistentInput, createPersistentInput } from '../ui/persistentInput.js';
-import { injectLocaleIntoPrompt, getCurrentLocale } from '../i18n/index.js';
+import { injectLocaleIntoPrompt, getCurrentLocale, t } from '../i18n/index.js';
 import { formatToolOutputForDisplay } from '../ui/toolOutput.js';
 // InkRenderer type - using 'any' to avoid bun bundling ink at compile time
 // The actual type comes from dynamic import at runtime
@@ -3725,7 +3725,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       ? chalk.bgCyan.black.bold(' PLAN ') + ' '
       : '';
 
-    return `${planIndicator}${percent}% context left · / for commands · @ to mention files${queueStatus}`;
+    return `${planIndicator}${percent}% context left · ${t('ui.commandHint')}${queueStatus}`;
   }
 
   private async resetConversationContext(): Promise<void> {

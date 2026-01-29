@@ -13,6 +13,7 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 ## Interactive Experience
 - [x] Slash suggestions (type `/` for commands)
 - [x] File mentions (type `@` for file autocomplete)
+- [x] **Shell Commands**: Type `!` to run terminal commands without LLM (e.g., `! git status`, `! ls -la`)
 - [x] **Smart Paste Detection**: Paste large content (5+ lines) without breaking the prompt
   - Shows compact indicator: `[Text pasted: N lines]`
   - Full content sent to LLM on submit
