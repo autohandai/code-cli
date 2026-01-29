@@ -8,8 +8,6 @@
  */
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import fs from 'fs-extra';
-import os from 'node:os';
 
 export type Formatter = (contents: string, file: string, workspaceRoot?: string) => Promise<string>;
 
