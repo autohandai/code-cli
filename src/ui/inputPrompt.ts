@@ -48,6 +48,30 @@ type PromptResult =
   | { kind: 'submit'; value: string }
   | { kind: 'abort' };
 
+/**
+ * State for tracking bracketed paste operations
+ */
+interface PasteState {
+  /** Currently receiving paste */
+  isInPaste: boolean;
+  /** Accumulated paste content */
+  buffer: string;
+  /** Hidden actual content when indicator shown */
+  hiddenContent?: string;
+  /** Timeout handle for incomplete pastes */
+  timeout?: NodeJS.Timeout;
+}
+
+/**
+ * Create initial paste state
+ */
+function createPasteState(): PasteState {
+  return {
+    isInPaste: false,
+    buffer: ''
+  };
+}
+
 // Visual marker for newlines in single-line input (converted to \n on submit)
 export const NEWLINE_MARKER = ' ↵ ';
 const MAX_NEWLINES = 2; // Max 3 lines = 2 newline markers
