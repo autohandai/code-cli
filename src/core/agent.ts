@@ -547,6 +547,8 @@ export class AutohandAgent {
       this.memoryManager.initialize(),
       this.skillsRegistry.initialize(),
       this.hookManager.initialize(),
+      // Pre-load workspace files in background so prompt appears instantly
+      this.workspaceFileCollector.collectWorkspaceFiles(),
     ]);
     // These must run sequentially after the parallel init
     await this.skillsRegistry.setWorkspace(this.runtime.workspaceRoot);
@@ -590,6 +592,8 @@ export class AutohandAgent {
       this.memoryManager.initialize(),
       this.skillsRegistry.initialize(),
       this.hookManager.initialize(),
+      // Pre-load workspace files in background for file mentions
+      this.workspaceFileCollector.collectWorkspaceFiles(),
     ]);
     // These must run sequentially after the parallel init
     await this.skillsRegistry.setWorkspace(this.runtime.workspaceRoot);
@@ -712,10 +716,14 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   async resumeSession(sessionId: string): Promise<void> {
-    // Initialize session
-    await this.sessionManager.initialize();
-    await this.projectManager.initialize();
-    await this.memoryManager.initialize();
+    // Initialize managers and pre-load files in parallel
+    await Promise.all([
+      this.sessionManager.initialize(),
+      this.projectManager.initialize(),
+      this.memoryManager.initialize(),
+      // Pre-load workspace files in background so prompt appears instantly
+      this.workspaceFileCollector.collectWorkspaceFiles(),
+    ]);
 
     try {
       const session = await this.sessionManager.loadSession(sessionId);
