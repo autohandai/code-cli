@@ -54,8 +54,10 @@ export class ProviderConfigManager {
         const current = name === this.getActiveProvider() ? chalk.cyan(' (current)') : '';
         // Add Apple Silicon indicator for MLX
         const siliconNote = name === 'mlx' ? chalk.gray(' (Apple Silicon)') : '';
+        // Add hosted indicator for cloud providers
+        const hostedNote = name === 'llmgateway' ? chalk.gray(' (hosted)') : '';
         return {
-          label: `${indicator} ${name}${current}${siliconNote}`,
+          label: `${indicator} ${name}${current}${siliconNote}${hostedNote}`,
           value: name
         };
       });
@@ -95,7 +97,7 @@ export class ProviderConfigManager {
     if (!config) return false;
 
     // For cloud providers, check API key
-    if (provider === 'openrouter' || provider === 'openai') {
+    if (provider === 'openrouter' || provider === 'openai' || provider === 'llmgateway') {
       return !!config.apiKey && config.apiKey !== 'replace-me';
     }
 
@@ -122,6 +124,9 @@ export class ProviderConfigManager {
         break;
       case 'mlx':
         await this.configureMLX();
+        break;
+      case 'llmgateway':
+        await this.configureLLMGateway();
         break;
     }
   }
@@ -402,6 +407,62 @@ export class ProviderConfigManager {
   }
 
   /**
+   * Configure LLM Gateway provider (API key + model)
+   */
+  private async configureLLMGateway(): Promise<void> {
+    try {
+      console.log(chalk.cyan('LLM Gateway Configuration'));
+      console.log(chalk.gray('Get your API key at: https://llmgateway.io/dashboard\n'));
+
+      const apiKey = await showPassword({
+        title: 'Enter your LLM Gateway API key'
+      });
+
+      if (!apiKey) {
+        console.log(chalk.gray('\nConfiguration cancelled.'));
+        return;
+      }
+
+      const modelChoices: ModalOption[] = [
+        { label: 'gpt-4o', value: 'gpt-4o' },
+        { label: 'gpt-4o-mini', value: 'gpt-4o-mini' },
+        { label: 'claude-3-5-sonnet-20241022', value: 'claude-3-5-sonnet-20241022' },
+        { label: 'claude-3-5-haiku-20241022', value: 'claude-3-5-haiku-20241022' },
+        { label: 'gemini-1.5-pro', value: 'gemini-1.5-pro' },
+        { label: 'gemini-1.5-flash', value: 'gemini-1.5-flash' }
+      ];
+
+      const result = await showModal({
+        title: 'Select a model',
+        options: modelChoices
+      });
+
+      if (!result) {
+        console.log(chalk.gray('\nConfiguration cancelled.'));
+        return;
+      }
+
+      const model = result.value as string;
+
+      this.runtime.config.llmgateway = {
+        apiKey,
+        baseUrl: 'https://api.llmgateway.io/v1',
+        model
+      };
+
+      this.runtime.config.provider = 'llmgateway';
+      this.runtime.options.model = model;
+      await saveConfig(this.runtime.config);
+      this.resetLlmClient('llmgateway', model);
+
+      console.log(chalk.green('\n✓ LLM Gateway configured successfully!'));
+    } catch (error) {
+      // Cancellation is now handled inline
+      throw error;
+    }
+  }
+
+  /**
    * Change model for an already-configured provider
    */
   async changeProviderModel(provider: ProviderName): Promise<void> {
@@ -409,8 +470,8 @@ export class ProviderConfigManager {
       const currentSettings = getProviderConfig(this.runtime.config, provider);
       const currentModel = this.runtime.options.model ?? currentSettings?.model ?? '';
 
-      // For cloud providers (openai, openrouter), offer to change API key as well
-      if (provider === 'openai' || provider === 'openrouter') {
+      // For cloud providers (openai, openrouter, llmgateway), offer to change API key as well
+      if (provider === 'openai' || provider === 'openrouter' || provider === 'llmgateway') {
         await this.changeCloudProviderSettings(provider, currentModel, currentSettings);
         return;
       }
@@ -467,14 +528,19 @@ export class ProviderConfigManager {
   }
 
   /**
-   * Change settings for cloud providers (OpenAI/OpenRouter) - API key and/or model
+   * Change settings for cloud providers (OpenAI/OpenRouter/LLMGateway) - API key and/or model
    */
   private async changeCloudProviderSettings(
-    provider: 'openai' | 'openrouter',
+    provider: 'openai' | 'openrouter' | 'llmgateway',
     currentModel: string,
     currentSettings: { apiKey?: string; baseUrl?: string; model?: string } | null
   ): Promise<void> {
-    const providerName = provider === 'openai' ? 'OpenAI' : 'OpenRouter';
+    const providerNameMap = {
+      openai: 'OpenAI',
+      openrouter: 'OpenRouter',
+      llmgateway: 'LLM Gateway'
+    };
+    const providerName = providerNameMap[provider];
     const maskedKey = currentSettings?.apiKey
       ? `...${currentSettings.apiKey.slice(-4)}`
       : 'not set';
@@ -506,9 +572,12 @@ export class ProviderConfigManager {
 
     // Handle API key change
     if (action === 'apiKey' || action === 'both') {
-      const keyUrl = provider === 'openai'
-        ? 'https://platform.openai.com/api-keys'
-        : 'https://openrouter.ai/keys';
+      const keyUrlMap = {
+        openai: 'https://platform.openai.com/api-keys',
+        openrouter: 'https://openrouter.ai/keys',
+        llmgateway: 'https://llmgateway.io/dashboard'
+      };
+      const keyUrl = keyUrlMap[provider];
       console.log(chalk.gray(`\nGet your API key at: ${keyUrl}\n`));
 
       const apiKey = await showPassword({
@@ -560,6 +629,26 @@ export class ProviderConfigManager {
         }
 
         newModel = result.value as string;
+      } else if (provider === 'llmgateway') {
+        // LLM Gateway - offer popular models
+        const models = ['gpt-4o', 'gpt-4o-mini', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'gemini-1.5-pro', 'gemini-1.5-flash'];
+        const modelOptions: ModalOption[] = models.map(name => ({
+          label: name,
+          value: name
+        }));
+        const currentIndex = Math.max(0, models.indexOf(currentModel));
+        const result = await showModal({
+          title: 'Select a model',
+          options: modelOptions,
+          initialIndex: currentIndex
+        });
+
+        if (!result) {
+          console.log(chalk.gray('\nSettings change cancelled.'));
+          return;
+        }
+
+        newModel = result.value as string;
       } else {
         // OpenRouter - allow custom model input
         const model = await showInput({
@@ -576,9 +665,12 @@ export class ProviderConfigManager {
     }
 
     // Save the changes
-    const baseUrl = provider === 'openai'
-      ? 'https://api.openai.com/v1'
-      : 'https://openrouter.ai/api/v1';
+    const baseUrlMap = {
+      openai: 'https://api.openai.com/v1',
+      openrouter: 'https://openrouter.ai/api/v1',
+      llmgateway: 'https://api.llmgateway.io/v1'
+    };
+    const baseUrl = baseUrlMap[provider];
 
     this.runtime.config[provider] = {
       apiKey: newApiKey,
@@ -603,13 +695,16 @@ export class ProviderConfigManager {
    * Validate API key by making a test request to the provider
    */
   private async validateApiKey(
-    provider: 'openai' | 'openrouter',
+    provider: 'openai' | 'openrouter' | 'llmgateway',
     apiKey: string
   ): Promise<{ valid: boolean; error?: string; hint?: string }> {
     try {
-      const baseUrl = provider === 'openai'
-        ? 'https://api.openai.com/v1'
-        : 'https://openrouter.ai/api/v1';
+      const baseUrlMap = {
+        openai: 'https://api.openai.com/v1',
+        openrouter: 'https://openrouter.ai/api/v1',
+        llmgateway: 'https://api.llmgateway.io/v1'
+      };
+      const baseUrl = baseUrlMap[provider];
 
       // Make a simple API call to validate the key
       const response = await fetch(`${baseUrl}/models`, {
@@ -638,12 +733,15 @@ export class ProviderConfigManager {
       }
 
       if (status === 401) {
+        const hintMap = {
+          openai: 'Check that your API key is correct at https://platform.openai.com/api-keys',
+          openrouter: 'Check that your API key is correct at https://openrouter.ai/keys',
+          llmgateway: 'Check that your API key is correct at https://llmgateway.io/dashboard'
+        };
         return {
           valid: false,
           error: 'Invalid API key',
-          hint: provider === 'openai'
-            ? 'Check that your API key is correct at https://platform.openai.com/api-keys'
-            : 'Check that your API key is correct at https://openrouter.ai/keys'
+          hint: hintMap[provider]
         };
       }
 
