@@ -303,35 +303,25 @@ async function toggleHooksMulti(manager: HookManager, allHooks: HookDefinition[]
     };
   });
 
-  const result = await safePrompt<{ selected: string[] }>({
-    type: 'multiselect',
+  const result = await safePrompt<{ selected: number }>({
+    type: 'select',
     name: 'selected',
-    message: 'Toggle hooks (space to select, enter to confirm)',
+    message: 'Toggle hooks (select to enable/disable)',
     choices,
-    initial: choices.filter(c => c.enabled).map(c => c.name),
+    initial: 0,
   });
 
   if (!result) return;
 
-  const selectedSet = new Set(result.selected);
-  let changed = 0;
+  const selectedIndex = Number(result.selected);
+  const hook = allHooks[selectedIndex];
 
-  // Update each hook based on selection
-  for (let i = 0; i < allHooks.length; i++) {
-    const hook = allHooks[i];
-    const shouldBeEnabled = selectedSet.has(String(i));
-    const currentlyEnabled = hook.enabled !== false;
-
-    if (shouldBeEnabled !== currentlyEnabled) {
-      const eventHooks = allHooks.filter(h => h.event === hook.event);
-      const eventIndex = eventHooks.indexOf(hook);
-      await manager.toggleHook(hook.event, eventIndex);
-      changed++;
-    }
-  }
-
-  if (changed > 0) {
-    console.log(chalk.green(`  ✓ Updated ${changed} hook(s)`));
+  if (hook) {
+    const eventHooks = allHooks.filter(h => h.event === hook.event);
+    const eventIndex = eventHooks.indexOf(hook);
+    await manager.toggleHook(hook.event, eventIndex);
+    const newState = hook.enabled === false ? 'enabled' : 'disabled';
+    console.log(chalk.green(`  ✓ Hook ${newState}: ${hook.event}`));
   } else {
     console.log(chalk.gray('  No changes made'));
   }

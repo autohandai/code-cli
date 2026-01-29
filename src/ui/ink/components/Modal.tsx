@@ -43,6 +43,8 @@ export interface SelectModalProps extends BaseModalProps {
   onSelect: (option: ModalOption) => void;
   /** When true, adds an "Other" option that allows typing custom text */
   allowCustomInput?: boolean;
+  /** Initial selected index (0-based) */
+  initialIndex?: number;
   /**
    * Multi-select mode (stub for future implementation).
    * @remarks Currently not implemented - accepts prop but has no effect.
@@ -152,16 +154,19 @@ function Modal(props: ModalProps) {
   const [isCustomMode, setIsCustomMode] = useState(false);
 
   // State for input/password modes
-  const [inputValue, setInputValue] = useState(
-    (mode === 'input' && props.defaultValue) || ''
-  );
+  const [inputValue, setInputValue] = useState<string>(() => {
+    if (mode === 'input' && 'defaultValue' in props && typeof props.defaultValue === 'string') {
+      return props.defaultValue;
+    }
+    return '';
+  });
   const [validationError, setValidationError] = useState<string | null>(null);
 
   // Build choices for select/confirm modes
   const choices = useMemo(() => {
-    if (mode === 'select') {
+    if (mode === 'select' && 'options' in props) {
       const items = [...props.options];
-      if (props.allowCustomInput) {
+      if ('allowCustomInput' in props && props.allowCustomInput) {
         items.push({
           label: t('ui.questionOther'),
           value: OTHER_VALUE,
@@ -171,7 +176,7 @@ function Modal(props: ModalProps) {
       return items;
     }
 
-    if (mode === 'confirm') {
+    if (mode === 'confirm' && 'confirmText' in props) {
       const confirmText = props.confirmText ?? t('ui.confirmYes');
       const cancelText = props.cancelText ?? t('ui.confirmNo');
       return [
@@ -185,7 +190,7 @@ function Modal(props: ModalProps) {
 
   // Initialize cursor for confirm mode
   useState(() => {
-    if (mode === 'confirm') {
+    if (mode === 'confirm' && 'defaultValue' in props) {
       const defaultIdx = props.defaultValue === false ? 1 : 0;
       setCursor(defaultIdx);
     }
@@ -226,9 +231,9 @@ function Modal(props: ModalProps) {
 
     // Handle input/password modes
     if (mode === 'input' || mode === 'password') {
-      if (key.return) {
+      if (key.return && 'onSubmit' in props) {
         // Validate before submitting
-        if (props.validate) {
+        if ('validate' in props && props.validate) {
           const result = props.validate(inputValue);
           if (result === true) {
             props.onSubmit(inputValue);
@@ -244,20 +249,20 @@ function Modal(props: ModalProps) {
       }
 
       if (key.backspace || key.delete) {
-        setInputValue((prev) => prev.slice(0, -1));
+        setInputValue((prev: string) => prev.slice(0, -1));
         setValidationError(null);
         return;
       }
 
       if (char && !key.ctrl && !key.meta) {
-        setInputValue((prev) => prev + char);
+        setInputValue((prev: string) => prev + char);
         setValidationError(null);
       }
       return;
     }
 
     // Handle select mode custom input
-    if (mode === 'select' && isCustomMode) {
+    if (mode === 'select' && isCustomMode && 'onSelect' in props) {
       if (key.return) {
         if (customInput.trim()) {
           props.onSelect({
@@ -268,11 +273,11 @@ function Modal(props: ModalProps) {
         return;
       }
       if (key.backspace || key.delete) {
-        setCustomInput((prev) => prev.slice(0, -1));
+        setCustomInput((prev: string) => prev.slice(0, -1));
         return;
       }
       if (char && !key.ctrl && !key.meta) {
-        setCustomInput((prev) => prev + char);
+        setCustomInput((prev: string) => prev + char);
       }
       return;
     }
@@ -284,13 +289,13 @@ function Modal(props: ModalProps) {
         return;
       }
 
-      if (mode === 'select') {
+      if (mode === 'select' && 'onSelect' in props) {
         if (selected?.value === OTHER_VALUE) {
           setIsCustomMode(true);
         } else if (selected) {
           props.onSelect(selected);
         }
-      } else if (mode === 'confirm') {
+      } else if (mode === 'confirm' && 'onConfirm' in props) {
         props.onConfirm(selected?.value === 'yes');
       }
       return;
@@ -315,13 +320,13 @@ function Modal(props: ModalProps) {
           return;
         }
 
-        if (mode === 'select') {
+        if (mode === 'select' && 'onSelect' in props) {
           if (selected?.value === OTHER_VALUE) {
             setIsCustomMode(true);
           } else if (selected) {
             props.onSelect(selected);
           }
-        } else if (mode === 'confirm') {
+        } else if (mode === 'confirm' && 'onConfirm' in props) {
           props.onConfirm(selected?.value === 'yes');
         }
       }
@@ -337,7 +342,7 @@ function Modal(props: ModalProps) {
         ? '•'.repeat(inputValue.length)
         : inputValue;
 
-      const placeholderText = props.placeholder ||
+      const placeholderText = ('placeholder' in props && props.placeholder) ||
         (mode === 'password' ? t('ui.passwordPlaceholder') : t('ui.inputPlaceholder'));
 
       return (
@@ -438,6 +443,8 @@ export interface ShowModalOptions {
   options: ModalOption[];
   /** When true, adds an "Other" option for custom text input */
   allowCustomInput?: boolean;
+  /** Initial selected index (0-based) */
+  initialIndex?: number;
   /**
    * Multi-select mode (stub for future implementation).
    * @remarks Currently not implemented.
