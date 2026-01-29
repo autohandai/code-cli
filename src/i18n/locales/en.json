@@ -99,6 +99,18 @@
       },
       "docsLink": "For more information, visit {{link}}"
     },
+    "about": {
+      "title": "Autohand",
+      "subtitle": "Autonomous AI-powered coding agent",
+      "website": "Website",
+      "github": "GitHub",
+      "docs": "Docs",
+      "contribute": "Want to contribute?",
+      "feedback": "Send feedback",
+      "submitPR": "Submit PR",
+      "reportIssues": "Report issues",
+      "pressKey": "Press ESC or any key to return..."
+    },
     "model": {
       "description": "choose what model and reasoning effort to use",
       "title": "Model Selection",

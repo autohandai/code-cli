@@ -99,6 +99,18 @@
       },
       "docsLink": "Pour plus d'informations, visitez {{link}}"
     },
+    "about": {
+      "title": "Autohand",
+      "subtitle": "Agent de codage autonome propulsé par l'IA",
+      "website": "Site web",
+      "github": "GitHub",
+      "docs": "Documentation",
+      "contribute": "Vous souhaitez contribuer ?",
+      "feedback": "Envoyer des commentaires",
+      "submitPR": "Soumettre une PR",
+      "reportIssues": "Signaler des problèmes",
+      "pressKey": "Appuyez sur Échap ou n'importe quelle touche pour revenir..."
+    },
     "model": {
       "description": "choisir quel modèle et effort de raisonnement utiliser",
       "title": "Sélection du Modèle",

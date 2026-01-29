@@ -164,6 +164,7 @@ program
   .option('--max-runtime <m>', 'Max runtime in minutes (default: 120)', parseInt)
   .option('--max-cost <d>', 'Max API cost in dollars (default: 10)', parseFloat)
   .option('--setup', 'Run the setup wizard to configure or reconfigure Autohand', false)
+  .option('--about', 'Show information about Autohand', false)
   .option('--add-dir <path...>', 'Add additional directories to workspace scope (can be used multiple times)')
   .option('--display-language <locale>', 'Set display language (e.g., en, zh-cn, fr, de, ja)')
   .option('--cc, --context-compact', 'Enable context compaction (default: on)')
@@ -171,7 +172,7 @@ program
   .option('--search-engine <provider>', 'Set web search provider (brave, duckduckgo, parallel)')
   .option('--sys-prompt <value>', 'Replace entire system prompt (inline string or file path)')
   .option('--append-sys-prompt <value>', 'Append to system prompt (inline string or file path)')
-  .action(async (opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean; setup?: boolean; syncSettings?: string | boolean; cc?: boolean; searchEngine?: string }) => {
+  .action(async (opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean; setup?: boolean; about?: boolean; syncSettings?: string | boolean; cc?: boolean; searchEngine?: string }) => {
     // Handle --skill-install flag
     if (opts.skillInstall !== undefined) {
       await runSkillInstall(opts);
@@ -197,6 +198,16 @@ program
       const { logout } = await import('./commands/logout.js');
       const config = await loadConfig(opts.config);
       await logout({ config });
+      process.exit(0);
+    }
+
+    // Handle --about flag
+    if (opts.about) {
+      const { initI18n, detectLocale } = await import('./i18n/index.js');
+      const { about } = await import('./commands/about.js');
+      const { locale } = detectLocale();
+      await initI18n(locale);
+      await about();
       process.exit(0);
     }
 
