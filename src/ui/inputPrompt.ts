@@ -502,27 +502,20 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     };
 
     const handleKeypress = (_str: string, key: readline.Key) => {
-      // Detect bracketed paste start: ESC[200~
-      if (key?.sequence === '\x1b[200~') {
+      // Detect bracketed paste start: ESC[200~ (Node names this 'paste-start')
+      if (key?.name === 'paste-start') {
         pasteState.isInPaste = true;
         pasteState.buffer = '';
 
-        // Safety timeout: if paste doesn't complete in 5s, treat as complete
         if (pasteState.timeout) {
           clearTimeout(pasteState.timeout);
         }
-        pasteState.timeout = setTimeout(() => {
-          if (pasteState.isInPaste) {
-            pasteState.isInPaste = false;
-            handlePasteComplete(pasteState, rl, stdOutput);
-          }
-        }, 5000);
 
         return;
       }
 
-      // Detect bracketed paste end: ESC[201~
-      if (key?.sequence === '\x1b[201~') {
+      // Detect bracketed paste end: ESC[201~ (Node names this 'paste-end')
+      if (key?.name === 'paste-end') {
         if (pasteState.timeout) {
           clearTimeout(pasteState.timeout);
           pasteState.timeout = undefined;
@@ -535,10 +528,28 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         return;
       }
 
-      // During paste, accumulate to buffer
-      if (pasteState.isInPaste && _str) {
-        pasteState.buffer += _str;
-        return;
+      // During paste, accumulate ALL input to buffer (including newlines)
+      if (pasteState.isInPaste) {
+        if (_str) {
+          pasteState.buffer += _str;
+        }
+        // Also buffer newlines from Enter key during paste
+        if (key?.name === 'return' || key?.name === 'enter') {
+          pasteState.buffer += '\n';
+        }
+
+        // Reset idle timeout on each character - complete paste after 50ms of no input
+        if (pasteState.timeout) {
+          clearTimeout(pasteState.timeout);
+        }
+        pasteState.timeout = setTimeout(() => {
+          if (pasteState.isInPaste && pasteState.buffer) {
+            pasteState.isInPaste = false;
+            handlePasteComplete(pasteState, rl, stdOutput);
+          }
+        }, 50);
+
+        return; // Don't process normally during paste
       }
 
       // Shift+Tab: toggle plan mode on/off
@@ -606,6 +617,11 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     // No need to call them again here
 
     rl.on('line', (value) => {
+      // Ignore line events during paste mode - we're buffering
+      if (pasteState.isInPaste) {
+        return;
+      }
+
       // If we have hidden content from a large paste, use that instead of visual
       let finalValue = pasteState.hiddenContent || value;
 
