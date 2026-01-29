@@ -12,7 +12,7 @@ import { getContextWindow } from '../../utils/context.js';
 import type { AgentRuntime, ProviderName } from '../../types.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
 import type { TelemetryManager } from '../../telemetry/TelemetryManager.js';
-import type { AgentDelegator } from '../agents/AgentDelegator.js';
+import { AgentDelegator } from '../agents/AgentDelegator.js';
 import type { ActionExecutor } from '../actionExecutor.js';
 
 /**
@@ -423,7 +423,7 @@ export class ProviderConfigManager {
             const data = await response.json();
             const models = data.models?.map((m: any) => m.name) || [];
             if (models.length > 0) {
-              const options: ModalOption[] = models.map(name => ({
+              const options: ModalOption[] = models.map((name: string) => ({
                 label: name,
                 value: name
               }));
@@ -751,8 +751,7 @@ export class ProviderConfigManager {
       ?? (this.runtime.options.restricted ? 'restricted' : 'cli');
     const newDelegator = new AgentDelegator(newLlm, this.actionExecutor, {
       clientContext: delegatorContext,
-      maxDepth: 3,
-      inherit: true
+      maxDepth: 3
     });
     this.setDelegator(newDelegator);
     this.setActiveProvider(provider);
