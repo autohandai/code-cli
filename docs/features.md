@@ -13,6 +13,11 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 ## Interactive Experience
 - [x] Slash suggestions (type `/` for commands)
 - [x] File mentions (type `@` for file autocomplete)
+- [x] **Smart Paste Detection**: Paste large content (5+ lines) without breaking the prompt
+  - Shows compact indicator: `[Text pasted: N lines]`
+  - Full content sent to LLM on submit
+  - Press Backspace to expand and edit pasted content
+  - Works in modern terminals with bracketed paste mode
 - [x] Rich terminal UI with status bar, spinners, colored output
 - [x] Graceful error handling (ESC cancellation, invalid inputs)
 - [x] Progress indicators (spinners)
