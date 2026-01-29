@@ -59,6 +59,8 @@ interface PasteState {
   buffer: string;
   /** Hidden actual content when indicator shown */
   hiddenContent?: string;
+  /** Content that was in the line before paste started (prefix to preserve) */
+  prefixContent?: string;
   /** Timeout handle for incomplete pastes */
   timeout?: NodeJS.Timeout;
 }
@@ -293,30 +295,41 @@ function handlePasteComplete(
   const display = getContentDisplay(pasteState.buffer);
   const rlAny = rl as readline.Interface & { line: string; cursor: number; _refreshLine?: () => void };
 
+  // Get any prefix content that was typed before the paste
+  const prefix = pasteState.prefixContent || '';
+
+  // Count newlines to know how many extra prompt lines were printed
+  const newlineCount = (pasteState.buffer.match(/\n/g) || []).length;
+
+  // Clear all the extra lines that readline printed during paste
+  // Move cursor up for each newline, clearing as we go
+  for (let i = 0; i < newlineCount; i++) {
+    readline.moveCursor(output, 0, -1); // Move up one line
+    readline.clearLine(output, 0); // Clear that line
+  }
+
+  // Now we're back at the original prompt line - clear it too
+  readline.cursorTo(output, 0);
+  readline.clearLine(output, 0);
+
   if (display.isPasted) {
     // Large paste: show indicator, store actual content
-    pasteState.hiddenContent = display.actual;
-    rlAny.line = display.visual;
-    rlAny.cursor = display.visual.length;
+    // Prepend prefix to hidden content so it's included in submission
+    pasteState.hiddenContent = prefix + display.actual;
+    rlAny.line = prefix + display.visual;
+    rlAny.cursor = rlAny.line.length;
   } else {
-    // Small paste: insert normally
-    const before = rlAny.line.slice(0, rlAny.cursor);
-    const after = rlAny.line.slice(rlAny.cursor);
-    rlAny.line = before + display.actual + after;
-    rlAny.cursor = before.length + display.actual.length;
+    // Small paste: insert normally with prefix
+    rlAny.line = prefix + display.actual;
+    rlAny.cursor = rlAny.line.length;
   }
 
-  // Refresh the display
-  if (typeof rlAny._refreshLine === 'function') {
-    rlAny._refreshLine();
-  } else {
-    readline.cursorTo(output, 0);
-    readline.clearLine(output, 0);
-    rl.prompt(true);
-  }
+  // Refresh the display with clean prompt
+  rl.prompt(true);
 
-  // Clear the buffer
+  // Clear the buffer and prefix
   pasteState.buffer = '';
+  pasteState.prefixContent = undefined;
 }
 
 async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
@@ -510,6 +523,10 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         if (pasteState.timeout) {
           clearTimeout(pasteState.timeout);
         }
+
+        // Save any existing line content (what user typed before pasting)
+        const rlAny = rl as readline.Interface & { line: string; cursor: number };
+        pasteState.prefixContent = rlAny.line || '';
 
         return;
       }
