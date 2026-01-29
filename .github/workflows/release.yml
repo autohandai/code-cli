@@ -234,6 +234,31 @@ jobs:
           find artifacts -type f -exec cp {} release-binaries/ \;
           ls -lh release-binaries/
 
+      - name: Create archives for ACP registry
+        run: |
+          cd release-binaries
+          
+          # Create tar.gz for Unix platforms
+          for binary in autohand-macos-arm64 autohand-macos-x64 autohand-linux-x64 autohand-linux-arm64; do
+            if [ -f "$binary" ]; then
+              chmod +x "$binary"
+              cp "$binary" autohand
+              tar -czvf "${binary}.tar.gz" autohand
+              rm autohand
+              echo "Created ${binary}.tar.gz"
+            fi
+          done
+          
+          # Create zip for Windows
+          if [ -f "autohand-windows-x64.exe" ]; then
+            cp autohand-windows-x64.exe autohand.exe
+            zip autohand-windows-x64.zip autohand.exe
+            rm autohand.exe
+            echo "Created autohand-windows-x64.zip"
+          fi
+          
+          ls -lh *.tar.gz *.zip 2>/dev/null || true
+
       - name: Generate changelog
         id: changelog
         uses: actions/github-script@v7
