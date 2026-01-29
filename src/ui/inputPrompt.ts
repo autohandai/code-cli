@@ -552,6 +552,27 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         return; // Don't process normally during paste
       }
 
+      // Backspace on indicator: expand to full content
+      if (key?.name === 'backspace' && pasteState.hiddenContent) {
+        const rlAny = rl as readline.Interface & { line: string; cursor: number; _refreshLine?: () => void };
+
+        // Replace indicator with actual content (convert newlines to markers for display)
+        const displayContent = pasteState.hiddenContent.split('\n').join(NEWLINE_MARKER);
+        rlAny.line = displayContent;
+        rlAny.cursor = displayContent.length;
+        pasteState.hiddenContent = undefined;
+
+        // Refresh display
+        if (typeof rlAny._refreshLine === 'function') {
+          rlAny._refreshLine();
+        } else {
+          readline.cursorTo(stdOutput, 0);
+          readline.clearLine(stdOutput, 0);
+          rl.prompt(true);
+        }
+        return;
+      }
+
       // Shift+Tab: toggle plan mode on/off
       if (key?.name === 'tab' && key.shift) {
         const planModeManager = getPlanModeManager();
