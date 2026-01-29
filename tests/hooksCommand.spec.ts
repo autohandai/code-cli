@@ -176,19 +176,19 @@ describe('/hooks command', () => {
       expect(manager.getHooks()[0].enabled).toBe(false);
     });
 
-    it('enables multiple hooks via multiselect', async () => {
+    it('enables a hook via select', async () => {
       await manager.addHook({ event: 'pre-tool', command: 'echo test1', enabled: false, description: 'Hook 1' });
       await manager.addHook({ event: 'pre-tool', command: 'echo test2', enabled: false, description: 'Hook 2' });
 
-      // Select both hooks to enable them
+      // Select first hook to toggle it
       mockSafePrompt
         .mockResolvedValueOnce({ action: 'toggle' })
-        .mockResolvedValueOnce({ selected: ['0', '1'] });
+        .mockResolvedValueOnce({ selected: 0 });
 
       await hooks({ hookManager: manager });
 
       expect(manager.getHooks()[0].enabled).toBe(true);
-      expect(manager.getHooks()[1].enabled).toBe(true);
+      expect(manager.getHooks()[1].enabled).toBe(false);
     });
   });
 
