@@ -16,6 +16,7 @@ import {
   parseBase64DataUrl,
   getMimeTypeFromExtension,
 } from '../core/ImageManager.js';
+import { getContentDisplay } from './displayUtils.js';
 
 // Shared prompt prefix for the main instruction input
 export const PROMPT_PREFIX = `${chalk.gray('›')} `;
@@ -281,6 +282,43 @@ function createReadline(
   return { rl, input, supportsRawMode };
 }
 
+/**
+ * Handle paste completion - apply display logic based on line count
+ */
+function handlePasteComplete(
+  pasteState: PasteState,
+  rl: readline.Interface,
+  output: NodeJS.WriteStream
+): void {
+  const display = getContentDisplay(pasteState.buffer);
+  const rlAny = rl as readline.Interface & { line: string; cursor: number; _refreshLine?: () => void };
+
+  if (display.isPasted) {
+    // Large paste: show indicator, store actual content
+    pasteState.hiddenContent = display.actual;
+    rlAny.line = display.visual;
+    rlAny.cursor = display.visual.length;
+  } else {
+    // Small paste: insert normally
+    const before = rlAny.line.slice(0, rlAny.cursor);
+    const after = rlAny.line.slice(rlAny.cursor);
+    rlAny.line = before + display.actual + after;
+    rlAny.cursor = before.length + display.actual.length;
+  }
+
+  // Refresh the display
+  if (typeof rlAny._refreshLine === 'function') {
+    rlAny._refreshLine();
+  } else {
+    readline.cursorTo(output, 0);
+    readline.clearLine(output, 0);
+    rl.prompt(true);
+  }
+
+  // Clear the buffer
+  pasteState.buffer = '';
+}
+
 async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
   const { files, slashCommands, statusLine, stdInput, stdOutput, onImageDetected } = options;
   const { rl, input, supportsRawMode } = createReadline(stdInput, stdOutput);
@@ -288,6 +326,9 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
   // Don't pass statusLine to MentionPreview - renderPromptLine handles the status display
   // MentionPreview only shows suggestions (@ mentions, / commands)
   const mentionPreview = new MentionPreview(rl, files, slashCommands, stdOutput);
+
+  // Initialize paste state for bracketed paste detection
+  const pasteState = createPasteState();
 
   const resizeWatcher = new TerminalResizeWatcher(stdOutput, () => {
     renderPromptLine(rl, statusLine, stdOutput, true);
@@ -424,6 +465,11 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     const cleanup = () => {
       if (closed) return;
       closed = true;
+      // Clear paste timeout if any
+      if (pasteState.timeout) {
+        clearTimeout(pasteState.timeout);
+        pasteState.timeout = undefined;
+      }
       // Disable bracketed paste mode
       disableBracketedPaste(stdOutput);
       mentionPreview.dispose();
@@ -456,6 +502,45 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     };
 
     const handleKeypress = (_str: string, key: readline.Key) => {
+      // Detect bracketed paste start: ESC[200~
+      if (key?.sequence === '\x1b[200~') {
+        pasteState.isInPaste = true;
+        pasteState.buffer = '';
+
+        // Safety timeout: if paste doesn't complete in 5s, treat as complete
+        if (pasteState.timeout) {
+          clearTimeout(pasteState.timeout);
+        }
+        pasteState.timeout = setTimeout(() => {
+          if (pasteState.isInPaste) {
+            pasteState.isInPaste = false;
+            handlePasteComplete(pasteState, rl, stdOutput);
+          }
+        }, 5000);
+
+        return;
+      }
+
+      // Detect bracketed paste end: ESC[201~
+      if (key?.sequence === '\x1b[201~') {
+        if (pasteState.timeout) {
+          clearTimeout(pasteState.timeout);
+          pasteState.timeout = undefined;
+        }
+
+        if (pasteState.isInPaste) {
+          pasteState.isInPaste = false;
+          handlePasteComplete(pasteState, rl, stdOutput);
+        }
+        return;
+      }
+
+      // During paste, accumulate to buffer
+      if (pasteState.isInPaste && _str) {
+        pasteState.buffer += _str;
+        return;
+      }
+
       // Shift+Tab: toggle plan mode on/off
       if (key?.name === 'tab' && key.shift) {
         const planModeManager = getPlanModeManager();
@@ -521,8 +606,14 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     // No need to call them again here
 
     rl.on('line', (value) => {
+      // If we have hidden content from a large paste, use that instead of visual
+      let finalValue = pasteState.hiddenContent || value;
+
+      // Clear hidden content after use
+      pasteState.hiddenContent = undefined;
+
       // Convert newline markers back to actual newlines
-      let finalValue = convertNewlineMarkersToNewlines(value).trim();
+      finalValue = convertNewlineMarkersToNewlines(finalValue).trim();
 
       // Process any embedded images (base64 data URLs or file paths)
       finalValue = processImagesInText(finalValue);
