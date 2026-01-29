@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import readline from 'node:readline';
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
+import { execSync } from 'node:child_process';
 import { TerminalResizeWatcher } from './terminalResize.js';
 import type { SlashCommand } from '../core/slashCommands.js';
 import { MentionPreview } from './mentionPreview.js';
@@ -671,6 +672,39 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
 
       // Process any embedded images (base64 data URLs or file paths)
       finalValue = processImagesInText(finalValue);
+
+      // Handle shell commands (prefix with !)
+      if (finalValue.startsWith('!')) {
+        const shellCmd = finalValue.slice(1).trim();
+        if (shellCmd) {
+          stdOutput.write('\n');
+          try {
+            const result = execSync(shellCmd, {
+              encoding: 'utf-8',
+              stdio: ['pipe', 'pipe', 'pipe'],
+              cwd: process.cwd(),
+              timeout: 30000 // 30 second timeout
+            });
+            if (result) {
+              stdOutput.write(result);
+              if (!result.endsWith('\n')) {
+                stdOutput.write('\n');
+              }
+            }
+          } catch (error: unknown) {
+            const execError = error as { stderr?: string; message?: string };
+            if (execError.stderr) {
+              stdOutput.write(chalk.red(execError.stderr));
+            } else if (execError.message) {
+              stdOutput.write(chalk.red(`Error: ${execError.message}\n`));
+            }
+          }
+        }
+        // Re-prompt without sending to LLM
+        stdOutput.write('\n');
+        renderPromptLine(rl, statusLine, stdOutput);
+        return;
+      }
 
       stdOutput.write('\n');
       // Show interrupt hint when user submits a non-empty, non-command instruction
