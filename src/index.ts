@@ -1004,7 +1004,7 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
       const iterationPrompt = buildIterationPrompt(prompt, iteration);
 
       // Track results
-      let output = '';
+      const output = '';
       let actions: string[] = [];
       let success = true;
       let error: string | undefined;

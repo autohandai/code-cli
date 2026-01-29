@@ -1837,7 +1837,7 @@ export class ActionExecutor {
     const startIdx = origIdx;
 
     // Find the original end index
-    let targetNormEnd = normalizedIndex + normalizedSearch.length;
+    const targetNormEnd = normalizedIndex + normalizedSearch.length;
     while (normIdx < targetNormEnd && origIdx < originalContent.length) {
       const origChar = originalContent[origIdx];
       const normChar = this.normalizeText(origChar);
