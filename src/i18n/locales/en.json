@@ -393,7 +393,7 @@
   },
   "ui": {
     "escToCancel": "esc to cancel",
-    "commandHint": "/ for commands · @ to mention files",
+    "commandHint": "/ for commands · @ to mention files · ! for terminal",
     "ctrlCToExit": "Press Ctrl+C again to exit",
     "noMatchingCommands": "No matching commands.",
     "selectFile": "Select a file",

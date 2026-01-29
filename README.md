@@ -69,6 +69,7 @@ Features:
 
 - Type `/` for slash command suggestions
 - Type `@` for file autocomplete (e.g., `@src/index.ts`)
+- Type `!` to run terminal commands (e.g., `! git status`, `! ls -la`)
 - **Smart Paste**: Paste any amount of code (5+ lines shows compact indicator, full content sent to LLM)
 - Press `ESC` to cancel in-flight requests
 - Press `Ctrl+C` twice to exit

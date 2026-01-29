@@ -776,6 +776,23 @@ Detailed instructions for the AI agent...
 | `allowed-tools` | No | - | Space-delimited list of allowed tools |
 | `metadata` | No | - | Additional key-value metadata |
 
+### Input Prefixes
+
+Autohand supports special prefixes in the input prompt:
+
+| Prefix | Description | Example |
+|--------|-------------|---------|
+| `/` | Slash commands | `/help`, `/model`, `/quit` |
+| `@` | File mentions (autocomplete) | `@src/index.ts` |
+| `!` | Run terminal commands directly | `! git status`, `! ls -la` |
+
+**Shell Commands (`!`):**
+- Commands run in your current working directory
+- Output displays directly in terminal
+- Does not go to the LLM
+- 30 second timeout
+- Returns to prompt after execution
+
 ### Slash Commands
 
 | Command | Description |
