@@ -149,7 +149,7 @@ export class WorktreeManager {
       try {
         const status = await this.getWorktreeStatus(wt);
         statuses.push(status);
-      } catch (error) {
+      } catch {
         // Worktree might be in a bad state
         statuses.push({
           worktree: wt,

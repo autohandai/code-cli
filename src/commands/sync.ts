@@ -6,7 +6,6 @@
 import chalk from 'chalk';
 import readline from 'node:readline';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
-import { AUTOHAND_HOME } from '../constants.js';
 import { loadConfig, saveConfig } from '../config.js';
 import type { SyncService } from '../sync/SyncService.js';
 
@@ -97,7 +96,7 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
   return new Promise((resolve) => {
     const tabs: TabName[] = ['Status', 'Settings', 'Activity'];
     let currentTab = 0;
-    const needsRefresh = false;
+    // const _needsRefresh = false;
 
     const input = process.stdin as NodeJS.ReadStream;
     const isTTY = input.isTTY;

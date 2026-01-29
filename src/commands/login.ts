@@ -8,7 +8,7 @@ import { safePrompt } from '../utils/prompt.js';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import { getAuthClient } from '../auth/index.js';
 import { saveConfig } from '../config.js';
-import { AUTH_CONFIG, SYNC_CONFIG } from '../constants.js';
+import { AUTH_CONFIG } from '../constants.js';
 import type { LoadedConfig } from '../types.js';
 import { createSyncService, DEFAULT_SYNC_CONFIG } from '../sync/index.js';
 
@@ -240,7 +240,7 @@ async function checkAndRestoreSyncData(
       console.log(chalk.yellow(`Sync restore failed: ${syncResult.error}`));
       console.log(chalk.gray('You can try again later with /sync.'));
     }
-  } catch (error) {
+  } catch {
     // Silently fail - sync is not critical for login
     console.log(chalk.gray('Could not check cloud sync data.'));
   }

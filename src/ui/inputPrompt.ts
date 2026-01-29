@@ -13,8 +13,6 @@ import { MentionPreview } from './mentionPreview.js';
 import { getPlanModeManager } from '../commands/plan.js';
 import {
   type ImageMimeType,
-  isImagePath,
-  isBase64Image,
   parseBase64DataUrl,
   getMimeTypeFromExtension,
 } from '../core/ImageManager.js';

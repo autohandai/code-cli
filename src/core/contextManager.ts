@@ -11,9 +11,6 @@ import type { LLMMessage, FunctionDefinition, MessagePriority, MessageMetadata }
 import {
   calculateContextUsage,
   estimateMessageTokens,
-  estimateToolsTokens,
-  CONTEXT_WARNING_THRESHOLD,
-  CONTEXT_CRITICAL_THRESHOLD,
   type ContextUsage
 } from '../utils/context.js';
 import { ConversationManager } from './conversationManager.js';
@@ -178,7 +175,7 @@ export class ContextManager {
    * Keeps recent turns, summarizes older ones
    * Returns number of messages summarized
    */
-  private summarizeOlderTurns(tools: FunctionDefinition[]): number {
+  private summarizeOlderTurns(_tools: FunctionDefinition[]): number {
     const messages = this.conversationManager.history();
 
     // Keep system prompt + last N turns (approximately 10 messages)

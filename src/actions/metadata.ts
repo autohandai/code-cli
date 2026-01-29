@@ -40,7 +40,7 @@ export async function listDirectoryTree(root: string, options: TreeOptions = {})
     let entries: string[];
     try {
       entries = await fs.readdir(current);
-    } catch (err) {
+    } catch {
       // Skip directories we can't read (permissions, etc.)
       return;
     }

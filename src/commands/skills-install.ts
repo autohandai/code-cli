@@ -36,7 +36,7 @@ export async function skillsInstall(
   ctx: SkillsInstallContext,
   skillName?: string
 ): Promise<string | null> {
-  const { skillsRegistry, workspaceRoot } = ctx;
+  const { skillsRegistry } = ctx;
 
   if (!skillsRegistry) {
     console.log(chalk.red('Skills registry not available.'));
@@ -89,8 +89,6 @@ async function directInstall(
   cache: CommunitySkillsCache,
   skillName: string
 ): Promise<string | null> {
-  const { skillsRegistry, workspaceRoot } = ctx;
-
   // Find the skill
   const skill = fetcher.findSkill(registry.skills, skillName);
   if (!skill) {

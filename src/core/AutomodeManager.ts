@@ -8,9 +8,8 @@
  * @license Apache-2.0
  */
 import { EventEmitter } from 'events';
-import { execSync, spawn } from 'child_process';
+import { execSync } from 'child_process';
 import path from 'path';
-import fs from 'fs-extra';
 import chalk from 'chalk';
 import crypto from 'crypto';
 import type {
@@ -614,7 +613,7 @@ export class AutomodeManager extends EventEmitter {
   /**
    * Set up git worktree for isolation
    */
-  private async setupWorktree(sessionId: string): Promise<void> {
+  private async setupWorktree(_sessionId: string): Promise<void> {
     // Save original branch
     try {
       this.originalBranch = execSync('git rev-parse --abbrev-ref HEAD', {

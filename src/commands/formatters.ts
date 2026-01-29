@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
-import { listFormatters, type FormatterInfo } from '../actions/formatters.js';
+import { listFormatters } from '../actions/formatters.js';
 import type { SlashCommand } from '../core/slashCommands.js';
 
 export const metadata: SlashCommand = {

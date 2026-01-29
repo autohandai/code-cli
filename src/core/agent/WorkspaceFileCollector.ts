@@ -71,7 +71,7 @@ export class WorkspaceFileCollector {
       this.workspaceFilesCachedAt = now;
       spinner?.succeed(`Loaded ${walkedFiles.length} files`);
       return walkedFiles;
-    } catch (error) {
+    } catch {
       spinner?.fail('Failed to load files');
       // Return cached files if available, otherwise empty array
       return this.workspaceFiles.length > 0 ? this.workspaceFiles : [];
@@ -91,14 +91,9 @@ export class WorkspaceFileCollector {
       });
 
       let stdout = '';
-      let stderr = '';
 
       proc.stdout?.on('data', (chunk) => {
         stdout += chunk.toString();
-      });
-
-      proc.stderr?.on('data', (chunk) => {
-        stderr += chunk.toString();
       });
 
       proc.on('close', (code) => {
