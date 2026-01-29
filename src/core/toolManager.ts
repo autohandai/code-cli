@@ -1107,7 +1107,7 @@ export class ToolManager {
         let message = definition?.approvalMessage ?? `Allow tool ${call.tool}?`;
 
         // Add details based on tool type and build context for permission tracking
-        let permContext: { tool?: string; path?: string; command?: string } = { tool: call.tool };
+        const permContext: { tool?: string; path?: string; command?: string } = { tool: call.tool };
 
         if (call.tool === 'run_command' && call.args) {
           const cmd = String(call.args.command || '');

@@ -97,7 +97,7 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
   return new Promise((resolve) => {
     const tabs: TabName[] = ['Status', 'Settings', 'Activity'];
     let currentTab = 0;
-    let needsRefresh = false;
+    const needsRefresh = false;
 
     const input = process.stdin as NodeJS.ReadStream;
     const isTTY = input.isTTY;
