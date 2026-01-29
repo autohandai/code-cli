@@ -76,14 +76,18 @@ export async function about(): Promise<string | null> {
   console.log(muted(t('commands.about.subtitle')));
   console.log();
 
-  // Links section
-  const websiteLink = terminalLink('autohand.ai', 'https://autohand.ai');
-  const githubLink = terminalLink('github.com/anthropics/autohand', 'https://github.com/anthropics/autohand');
-  const docsLink = terminalLink('docs.autohand.ai', 'https://docs.autohand.ai');
+  // Links section - make them underlined and cyan to look clickable
+  const websiteUrl = 'https://autohand.ai';
+  const githubUrl = 'https://github.com/autohandai/';
+  const docsUrl = 'https://docs.autohand.ai';
 
-  console.log(`${text('🌐')} ${text(t('commands.about.website') + ':')}    ${accent(websiteLink)}`);
-  console.log(`${text('📦')} ${text(t('commands.about.github') + ':')}     ${accent(githubLink)}`);
-  console.log(`${text('📚')} ${text(t('commands.about.docs') + ':')}       ${accent(docsLink)}`);
+  const websiteLink = terminalLink(chalk.cyan.underline('autohand.ai'), websiteUrl);
+  const githubLink = terminalLink(chalk.cyan.underline('github.com/autohandai/'), githubUrl);
+  const docsLink = terminalLink(chalk.cyan.underline('docs.autohand.ai'), docsUrl);
+
+  console.log(`${text('🌐')} ${text(t('commands.about.website') + ':')}    ${websiteLink}`);
+  console.log(`${text('📦')} ${text(t('commands.about.github') + ':')}     ${githubLink}`);
+  console.log(`${text('📚')} ${text(t('commands.about.docs') + ':')}       ${docsLink}`);
   console.log();
 
   // Contribution section
@@ -91,8 +95,9 @@ export async function about(): Promise<string | null> {
   console.log(text(`   • ${t('commands.about.feedback')}:     ${accent('/feedback')}`));
   console.log(text(`   • ${t('commands.about.submitPR')}:         ${accent('gh pr create')}`));
 
-  const issuesLink = terminalLink('github.com/anthropics/autohand/issues', 'https://github.com/anthropics/autohand/issues');
-  console.log(text(`   • ${t('commands.about.reportIssues')}:     ${accent(issuesLink)}`));
+  const issuesUrl = 'https://github.com/autohandai/code-cli/issues';
+  const issuesLink = terminalLink(chalk.cyan.underline('github.com/autohandai/code-cli/issues'), issuesUrl);
+  console.log(text(`   • ${t('commands.about.reportIssues')}:     ${issuesLink}`));
   console.log();
 
   // Footer

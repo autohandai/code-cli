@@ -51,16 +51,13 @@ export class WorkspaceFileCollector {
       return this.workspaceFiles;
     }
 
-    // Show spinner only on first load or after cache expires
-    const showSpinner = this.workspaceFiles.length === 0;
-    const spinner = showSpinner ? ora('Loading workspace files...').start() : null;
-
+    // Load files silently without spinner to avoid blocking startup
+    // The 30-second cache ensures this is fast on subsequent calls
     try {
       const files = await this.gitLsFiles();
       if (files.length > 0) {
         this.workspaceFiles = files;
         this.workspaceFilesCachedAt = now;
-        spinner?.succeed(`Loaded ${files.length} files`);
         return files;
       }
 
@@ -69,10 +66,8 @@ export class WorkspaceFileCollector {
       await this.walkWorkspace(this.workspaceRoot, walkedFiles);
       this.workspaceFiles = walkedFiles;
       this.workspaceFilesCachedAt = now;
-      spinner?.succeed(`Loaded ${walkedFiles.length} files`);
       return walkedFiles;
     } catch {
-      spinner?.fail('Failed to load files');
       // Return cached files if available, otherwise empty array
       return this.workspaceFiles.length > 0 ? this.workspaceFiles : [];
     }
