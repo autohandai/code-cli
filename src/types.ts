@@ -781,6 +781,8 @@ export interface AgentRuntime {
   spinner?: Ora;
   /** Ink-based renderer for flicker-free UI (experimental) */
   inkRenderer?: InkRendererInterface;
+  /** True when running in RPC mode (stdout must be JSON-RPC only) */
+  isRpcMode?: boolean;
 }
 
 export interface AgentStatusSnapshot {
