@@ -7,8 +7,8 @@ import chalk from 'chalk';
 import readline from 'node:readline';
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
-import { execSync } from 'node:child_process';
 import { TerminalResizeWatcher } from './terminalResize.js';
+import { isShellCommand, parseShellCommand, executeShellCommand } from './shellCommand.js';
 import type { SlashCommand } from '../core/slashCommands.js';
 import { MentionPreview } from './mentionPreview.js';
 import { getPlanModeManager } from '../commands/plan.js';
@@ -674,31 +674,17 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       finalValue = processImagesInText(finalValue);
 
       // Handle shell commands (prefix with !)
-      if (finalValue.startsWith('!')) {
-        const shellCmd = finalValue.slice(1).trim();
-        if (shellCmd) {
-          stdOutput.write('\n');
-          try {
-            const result = execSync(shellCmd, {
-              encoding: 'utf-8',
-              stdio: ['pipe', 'pipe', 'pipe'],
-              cwd: process.cwd(),
-              timeout: 30000 // 30 second timeout
-            });
-            if (result) {
-              stdOutput.write(result);
-              if (!result.endsWith('\n')) {
-                stdOutput.write('\n');
-              }
-            }
-          } catch (error: unknown) {
-            const execError = error as { stderr?: string; message?: string };
-            if (execError.stderr) {
-              stdOutput.write(chalk.red(execError.stderr));
-            } else if (execError.message) {
-              stdOutput.write(chalk.red(`Error: ${execError.message}\n`));
-            }
+      if (isShellCommand(finalValue)) {
+        const shellCmd = parseShellCommand(finalValue);
+        stdOutput.write('\n');
+        const result = executeShellCommand(shellCmd);
+        if (result.success && result.output) {
+          stdOutput.write(result.output);
+          if (!result.output.endsWith('\n')) {
+            stdOutput.write('\n');
           }
+        } else if (!result.success && result.error) {
+          stdOutput.write(chalk.red(`Error: ${result.error}\n`));
         }
         // Re-prompt without sending to LLM
         stdOutput.write('\n');
