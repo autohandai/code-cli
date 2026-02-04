@@ -1,6 +1,7 @@
 # Autohand Code CLI
 
 [![Bun](https://img.shields.io/badge/Bun-%23c61f33?style=flat&logo=bun&logoColor=white)](https://bun.sh)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Us-%235865F2?style=flat&logo=discord&logoColor=white)](https://discord.com/invite/MWTNudaj8E)
 
 **An coding agentic CLI that reads, reasons, and writes code across your entire project. No context switching. No copy-paste, No you're absolute right!.**
 
@@ -54,6 +55,22 @@ autohand -p "fix the TypeScript errors" -y
 # Auto-commit changes after task completion
 autohand -p "refactor the auth module" -c
 ```
+
+## Editor Extensions
+
+Use Autohand directly in your favorite editor:
+
+### VS Code
+
+Install the extension from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=AutohandAI.vscode-autohand) or via command line:
+
+```bash
+code --install-extension AutohandAI.vscode-autohand
+```
+
+### Zed Editor
+
+Install from the [Zed Extensions](https://zed.dev/extensions/autohand-acp) marketplace.
 
 ## Usage Modes
 
