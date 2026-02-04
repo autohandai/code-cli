@@ -26,6 +26,7 @@ import type {
   AutomodeStartParams,
   AutomodeCancelParams,
   AutomodeGetLogParams,
+  PlanModeSetParams,
 } from './types.js';
 import {
   RPC_METHODS,
@@ -42,6 +43,7 @@ import {
   writeBatchResponse,
   writeInternalError,
 } from './protocol.js';
+import { getPlanModeManager } from '../../commands/plan.js';
 
 // Store original console methods
 const originalConsole = {
@@ -127,6 +129,7 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
         // Do NOT set yes: true - permissions are handled via RPC
       },
       additionalDirs: additionalDirs.length > 0 ? additionalDirs : undefined,
+      isRpcMode: true, // Indicates stdout must only contain JSON-RPC messages
     };
 
     // Create LLM provider
@@ -412,6 +415,29 @@ async function handleSingleRequest(
       case RPC_METHODS.AUTOMODE_GET_LOG: {
         const logParams = params as AutomodeGetLogParams | undefined;
         result = adapter.handleAutomodeGetLog(id!, logParams?.limit);
+        break;
+      }
+
+      case RPC_METHODS.PLAN_MODE_SET: {
+        const planParams = params as PlanModeSetParams | undefined;
+        if (planParams?.enabled === undefined) {
+          if (shouldRespond) {
+            return createErrorResponse(
+              id!,
+              JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+              'Missing required parameter: enabled'
+            );
+          }
+          return null;
+        }
+        const planModeManager = getPlanModeManager();
+        if (planParams.enabled) {
+          planModeManager.enable();
+        } else {
+          planModeManager.disable();
+        }
+        process.stderr.write(`[RPC DEBUG] Plan mode set to: ${planParams.enabled}\n`);
+        result = { success: true };
         break;
       }
 

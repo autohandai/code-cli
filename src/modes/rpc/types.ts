@@ -106,6 +106,8 @@ export const RPC_METHODS = {
   AUTOMODE_RESUME: 'autohand.automode.resume',
   AUTOMODE_CANCEL: 'autohand.automode.cancel',
   AUTOMODE_GET_LOG: 'autohand.automode.getLog',
+  // Plan mode control
+  PLAN_MODE_SET: 'autohand.planModeSet',
 } as const;
 
 export type RpcMethod = (typeof RPC_METHODS)[keyof typeof RPC_METHODS];
@@ -239,6 +241,18 @@ export interface PermissionResponseParams {
 
 export interface PermissionAcknowledgedParams {
   requestId: string;
+}
+
+// ============================================================================
+// Plan Mode Types
+// ============================================================================
+
+export interface PlanModeSetParams {
+  enabled: boolean;
+}
+
+export interface PlanModeSetResult {
+  success: boolean;
 }
 
 // ============================================================================
