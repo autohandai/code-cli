@@ -15,6 +15,7 @@ import { getAuthClient } from './auth/index.js';
 import type { AuthUser, LoadedConfig } from './types.js';
 import { checkForUpdates, type VersionCheckResult } from './utils/versionCheck.js';
 import { initI18n, detectLocale } from './i18n/index.js';
+import { initPingService, startPingService, stopPingService } from './telemetry/index.js';
 
 /**
  * Get git commit hash (short)
@@ -237,14 +238,6 @@ program
       return;
     }
 
-    // Handle --auto-mode flag
-    if (opts.autoMode) {
-      // Commander's --no-worktree sets opts.worktree to false
-      opts.noWorktree = opts.worktree === false;
-      await runAutoMode(opts);
-      return;
-    }
-
     // Map --cc flag to contextCompact option
     // Commander uses 'cc' for the flag name, we map it to 'contextCompact' for consistency
     if (opts.cc !== undefined) {
@@ -262,11 +255,21 @@ program
       }
     }
 
+    // RPC mode takes priority - auto-mode is handled via RPC methods when in RPC mode
     if (opts.mode === 'rpc') {
       await runRpcMode(opts);
-    } else {
-      await runCLI(opts);
+      return;
     }
+
+    // Handle --auto-mode flag (standalone CLI mode only, not RPC)
+    if (opts.autoMode) {
+      // Commander's --no-worktree sets opts.worktree to false
+      opts.noWorktree = opts.worktree === false;
+      await runAutoMode(opts);
+      return;
+    }
+
+    await runCLI(opts);
   });
 
 program
@@ -431,6 +434,20 @@ async function runCLI(options: CLIOptions): Promise<void> {
 
     // Print banner FIRST for immediate visual feedback
     printBanner();
+
+    // Initialize and start ping service (45-minute intervals for usage tracking)
+    // This runs independently of telemetry opt-in for basic usage counting
+    initPingService({
+      cliVersion: packageJson.version,
+      clientType: 'cli',
+    });
+    startPingService();
+
+    // Stop ping service on process exit
+    const stopPing = () => stopPingService();
+    process.on('exit', stopPing);
+    process.on('SIGINT', stopPing);
+    process.on('SIGTERM', stopPing);
 
     // Start version check and startup checks in parallel (non-blocking)
     const versionCheckPromise = config.ui?.checkForUpdates !== false

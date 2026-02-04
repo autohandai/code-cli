@@ -205,6 +205,11 @@ export class AutohandAgent {
         await saveConfig(runtime.config);
       },
       onHookOutput: (result) => {
+        // In RPC mode, stdout must only contain JSON-RPC messages
+        // Hook output would break the protocol, so suppress it
+        if (runtime.isRpcMode) {
+          return;
+        }
         // Display hook output to console (only if not a JSON control flow response)
         // Use synchronous write to prevent race conditions with prompt rendering
         if (result.stdout && !result.response) {
@@ -2426,6 +2431,31 @@ If lint or tests fail, report the issues but do NOT commit.`;
       '',
 
       // ═══════════════════════════════════════════════════════════════════
+      // 5.1. PLAN MODE
+      // ═══════════════════════════════════════════════════════════════════
+      '## Plan Mode',
+      'When in plan mode (read-only exploration phase), you can only use read-only tools.',
+      'Use the `plan` tool to create a structured plan before execution.',
+      '',
+      '### Plan Format',
+      'When presenting a plan, always include:',
+      '1. **Overview**: Brief summary of what will be accomplished',
+      '2. **Steps**: Numbered list of implementation steps',
+      '3. **Suggested TODO List**: A checkbox-style task list the user can copy',
+      '',
+      'For the Suggested TODO List, use markdown checkbox format:',
+      '```',
+      '## Suggested TODO List',
+      '- [ ] First task to complete',
+      '- [ ] Second task to complete',
+      '- [ ] Third task to complete',
+      '```',
+      '',
+      'This format renders as interactive checkboxes in the UI.',
+      'IMPORTANT: Always include the actual TODO items after the heading - never leave the list empty.',
+      '',
+
+      // ═══════════════════════════════════════════════════════════════════
       // 5.5. DYNAMIC TOOL CREATION
       // ═══════════════════════════════════════════════════════════════════
       '## Dynamic Tool Creation (Meta-Tools)',
@@ -3829,7 +3859,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
     try {
       // Dynamically import the question modal to avoid bundling issues
-      const modalPath = ['..', 'ui', 'questionModal.js'].join('/');
+      // Path is relative to dist/ directory where index.js is located
+      const modalPath = ['.', 'ui', 'questionModal.js'].join('/');
       const { showQuestionModal } = await import(/* @vite-ignore */ modalPath);
 
       const answer = await showQuestionModal({

@@ -11,7 +11,11 @@ function getGitCommit(): string {
 }
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  entry: [
+    'src/index.ts',
+    // Include questionModal as a separate entry point for dynamic import in agent.ts
+    'src/ui/questionModal.tsx',
+  ],
   format: ['esm', 'cjs'],
   dts: true,
   splitting: true,
