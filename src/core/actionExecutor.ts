@@ -1187,7 +1187,7 @@ export class ActionExecutor {
         return `Applied ${action.edits.length} edit(s) to ${action.file_path}`;
       }
       case 'todo_write': {
-        const todoPath = '.autohand/agent/todos.json';
+        const todoPath = '.autohand/agents/tasks/todos.json';
 
         // Validate tasks is an array
         if (!Array.isArray(action.tasks)) {

@@ -507,7 +507,7 @@ describe('ActionExecutor', () => {
         ]
       } as any);
 
-      expect(writeFile).toHaveBeenCalledWith('.agent/todos.json', expect.any(String));
+      expect(writeFile).toHaveBeenCalledWith('.autohand/agents/tasks/todos.json', expect.any(String));
       const written = JSON.parse(writeFile.mock.calls[0][1]);
       expect(written).toHaveLength(2);
       expect(result).toContain('50%');
