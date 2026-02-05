@@ -75,6 +75,8 @@ import { ImageManager } from './ImageManager.js';
 import { IntentDetector, type Intent, type IntentResult } from './IntentDetector.js';
 import { EnvironmentBootstrap, type BootstrapResult } from './EnvironmentBootstrap.js';
 import { CodeQualityPipeline } from './CodeQualityPipeline.js';
+import { ProjectAnalyzer as OnboardingProjectAnalyzer } from '../onboarding/projectAnalyzer.js';
+import { AgentsGenerator } from '../onboarding/agentsGenerator.js';
 import { resolvePromptValue, SysPromptError } from '../utils/sysPrompt.js';
 import {
   formatToolSignature,
