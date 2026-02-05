@@ -58,10 +58,7 @@ vi.spyOn(process.stdin, 'once').mockImplementation((event: any, callback: any) =
 });
 
 // Import after mocking
-import {
-  SetupWizard,
-  type OnboardingResult
-} from '../../src/onboarding/setupWizard';
+import { SetupWizard } from '../../src/onboarding/setupWizard';
 
 describe('SetupWizard', () => {
   const testWorkspace = '/test/workspace';

@@ -3,7 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AgentRuntime } from '../src/types.js';
 import type { FileActionManager } from '../src/actions/filesystem.js';
 import { ActionExecutor } from '../src/core/actionExecutor.js';
@@ -452,7 +452,7 @@ describe('ActionExecutor', () => {
       const writeFile = vi.fn().mockResolvedValue(undefined);
       const executor = createExecutor({ readFile, writeFile });
 
-      const result = await executor.execute({
+      await executor.execute({
         type: 'multi_file_edit',
         file_path: 'test.ts',
         edits: [
@@ -574,7 +574,7 @@ describe('ActionExecutor', () => {
       const writeFile = vi.fn().mockResolvedValue(undefined);
       const executor = createExecutor({ readFile, writeFile });
 
-      const result = await executor.execute({
+      await executor.execute({
         type: 'todo_write',
         tasks: []
       } as any);

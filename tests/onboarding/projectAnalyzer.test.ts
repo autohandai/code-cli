@@ -6,7 +6,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as fsExtra from 'fs-extra';
-import { ProjectAnalyzer, type ProjectInfo } from '../../src/onboarding/projectAnalyzer';
+import { ProjectAnalyzer } from '../../src/onboarding/projectAnalyzer';
 
 // Mock fs-extra
 vi.mock('fs-extra', () => ({

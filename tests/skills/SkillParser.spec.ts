@@ -8,7 +8,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { SkillParser } from '../../src/skills/SkillParser.js';
-import type { SkillSource } from '../../src/skills/types.js';
 
 describe('SkillParser', () => {
   const tempRoot = path.join(os.tmpdir(), `skill-parser-test-${Date.now()}`);

@@ -3,11 +3,11 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs-extra';
 import path from 'node:path';
 import os from 'node:os';
-import type { AgentRuntime, LoadedConfig, CLIOptions } from '../src/types.js';
+import type { CLIOptions } from '../src/types.js';
 
 // Test workspace setup
 const TEST_BASE = path.join(os.tmpdir(), 'autohand-sysprompt-integration-tests');
@@ -220,7 +220,7 @@ describe('System Prompt Agent Integration', () => {
     });
 
     it('throws error on directory path', async () => {
-      const { resolvePromptValue, SysPromptError } = await import('../src/utils/sysPrompt.js');
+      const { resolvePromptValue } = await import('../src/utils/sysPrompt.js');
 
       // Create a directory
       const dirPath = path.join(tempDir, 'not-a-file');
@@ -244,7 +244,7 @@ describe('System Prompt Agent Integration', () => {
     });
 
     it('handles large file gracefully', async () => {
-      const { resolvePromptValue, SysPromptError } = await import('../src/utils/sysPrompt.js');
+      const { resolvePromptValue } = await import('../src/utils/sysPrompt.js');
 
       // Create a file larger than 1MB
       const largeFile = path.join(tempDir, 'large.txt');

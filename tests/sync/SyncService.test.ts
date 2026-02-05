@@ -9,7 +9,7 @@ import path from 'path';
 import os from 'os';
 import { SyncService, createSyncService } from '../../src/sync/SyncService.js';
 import { SyncApiClient } from '../../src/sync/SyncApiClient.js';
-import type { SyncManifest, SyncResult } from '../../src/sync/types.js';
+import type { SyncManifest } from '../../src/sync/types.js';
 
 // Mock the constants module
 vi.mock('../../src/constants.js', () => ({

@@ -3,7 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import os from 'os';
 import path from 'path';
 import { checkWorkspaceSafety } from '../src/startup/workspaceSafety.js';
@@ -320,7 +320,7 @@ describe('WorkspaceSafety', () => {
 
     it('allows /var/www for web projects', () => {
       mockPlatform('linux');
-      const result = checkWorkspaceSafety('/var/www/my-site');
+      checkWorkspaceSafety('/var/www/my-site');
       // Note: /var itself is blocked, but /var/www/something should be OK
       // This is a policy decision - currently /var blocks its children too
       // If you want to allow /var/www/*, you'd need to adjust the logic
@@ -328,7 +328,7 @@ describe('WorkspaceSafety', () => {
 
     it('allows relative paths that resolve safely', () => {
       // This would need to be tested in context of actual cwd
-      const result = checkWorkspaceSafety('./my-project');
+      checkWorkspaceSafety('./my-project');
       // Safe if cwd is not dangerous
     });
   });

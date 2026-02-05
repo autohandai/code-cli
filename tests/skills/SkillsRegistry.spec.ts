@@ -6,7 +6,7 @@
 import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { SkillsRegistry } from '../../src/skills/SkillsRegistry.js';
 
 describe('SkillsRegistry', () => {

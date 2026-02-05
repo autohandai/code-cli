@@ -3,7 +3,7 @@
  * @license Apache-2.0
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs-extra';
 import path from 'path';
 import os from 'os';
@@ -205,8 +205,6 @@ describe('Multi-Directory Support (--add-dir)', () => {
 
   describe('Windows-specific path handling', () => {
     // Skip these tests on non-Windows platforms but verify the logic
-    const isWindows = process.platform === 'win32';
-
     it('rejects Windows drive roots (C:\\)', async () => {
       const { checkWorkspaceSafety } = await import('../src/startup/workspaceSafety.js');
 

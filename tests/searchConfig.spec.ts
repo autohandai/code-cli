@@ -3,7 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { configureSearch, getSearchConfig, webSearch } from '../src/actions/web.js';
 
 describe('Search Configuration', () => {

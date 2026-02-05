@@ -43,7 +43,7 @@ vi.mock('open', () => ({
   default: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { loadConfig, saveConfig } from '../../src/config.js';
+import { saveConfig } from '../../src/config.js';
 import { getAuthClient } from '../../src/auth/index.js';
 import { safePrompt } from '../../src/utils/prompt.js';
 import type { LoadedConfig } from '../../src/types.js';

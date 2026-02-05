@@ -7,7 +7,6 @@
 import fs from 'fs-extra';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import ora from 'ora';
 import chalk from 'chalk';
 import type { GitIgnoreParser } from '../../utils/gitIgnore.js';
 

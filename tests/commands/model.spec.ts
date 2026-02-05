@@ -140,7 +140,6 @@ describe('API Key Validation', () => {
 
   describe('Error message formatting', () => {
     it('should provide helpful hints for 401 errors', () => {
-      const status = 401;
       const provider = 'openai';
 
       const hint = provider === 'openai'
@@ -151,7 +150,6 @@ describe('API Key Validation', () => {
     });
 
     it('should provide helpful hints for OpenRouter 401 errors', () => {
-      const status = 401;
       const provider = 'openrouter';
 
       const hint = provider === 'openai'

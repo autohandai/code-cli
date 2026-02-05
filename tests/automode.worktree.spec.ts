@@ -6,7 +6,7 @@
  * Auto-Mode Worktree Tests
  * Tests the git worktree isolation functionality in auto-mode
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import type { LoadedConfig } from '../src/types.js';
 
@@ -35,7 +35,7 @@ const execSyncCalls: string[] = [];
 
 // Mock child_process with worktree support
 vi.mock('node:child_process', () => ({
-  execSync: vi.fn((cmd: string, options?: { cwd?: string }) => {
+  execSync: vi.fn((cmd: string, _options?: { cwd?: string }) => {
     execSyncCalls.push(cmd);
 
     if (cmd.includes('git rev-parse --abbrev-ref HEAD')) {
@@ -197,7 +197,7 @@ describe('Auto-Mode Worktree Isolation', () => {
       const manager = new AutomodeManager(mockConfig, '/test/workspace');
 
       // Prepare worktree
-      const worktreePath = await manager.prepareWorktree(true);
+      await manager.prepareWorktree(true);
 
       // Start with checkpoint interval of 1
       let iteration = 0;
@@ -299,7 +299,7 @@ describe('Auto-Mode Worktree Isolation', () => {
       const manager = new AutomodeManager(mockConfig, '/test/workspace');
 
       // Prepare worktree
-      const worktreePath = await manager.prepareWorktree(true);
+      await manager.prepareWorktree(true);
 
       const mockIterationCallback: IterationCallback = vi.fn().mockImplementation(async () => {
         // Cancel during iteration

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, it, expect } from 'vitest';
-import { parseRepoUrl, fetchRepoInfo, listRepoDir, fetchRepoFile, webRepo, formatRepoInfo, formatRepoDir, formatBytes, type RepoInfo, type RepoFile, type WebRepoResult } from '../src/actions/webRepo.js';
+import { parseRepoUrl, fetchRepoInfo, listRepoDir, fetchRepoFile, webRepo, formatRepoInfo, formatRepoDir, formatBytes, type RepoInfo, type RepoFile } from '../src/actions/webRepo.js';
 
 describe('webRepo', () => {
   describe('parseRepoUrl', () => {
