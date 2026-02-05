@@ -57,9 +57,9 @@ export async function about(): Promise<string | null> {
 
   if (isThemeInitialized()) {
     const theme = getTheme();
-    accent = (text: string) => chalk.hex(theme.vars[theme.colors.accent] as string)(text);
-    muted = (text: string) => chalk.hex(theme.vars[theme.colors.muted] as string)(text);
-    text = (str: string) => chalk.hex(theme.vars[theme.colors.text] as string)(str);
+    accent = (text: string) => chalk.hex(theme.colors.accent)(text);
+    muted = (text: string) => chalk.hex(theme.colors.muted)(text);
+    text = (str: string) => chalk.hex(theme.colors.text)(str);
   } else {
     // Fallback colors when theme not initialized
     accent = (text: string) => chalk.cyan(text);
