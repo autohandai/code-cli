@@ -3,9 +3,9 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { HookManager } from '../src/core/HookManager.js';
-import type { HooksSettings, HookDefinition, HookEvent } from '../src/types.js';
+import type { HooksSettings, HookDefinition } from '../src/types.js';
 import { EventEmitter } from 'node:events';
 
 // Mock child_process.spawn

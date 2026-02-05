@@ -20,7 +20,6 @@ import {
   themeExists,
   detectTerminalBackground,
   ThemeLoadError,
-  CUSTOM_THEMES_DIR,
 } from '../../../src/ui/theme/loader.js';
 import { setTheme, isThemeInitialized, getTheme } from '../../../src/ui/theme/Theme.js';
 import { COLOR_TOKENS } from '../../../src/ui/theme/types.js';

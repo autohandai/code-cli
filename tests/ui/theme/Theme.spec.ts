@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   Theme,
   getTheme,
@@ -16,7 +16,7 @@ import {
   rgbTo16,
   index256To16,
 } from '../../../src/ui/theme/Theme.js';
-import type { ResolvedColors, ColorMode } from '../../../src/ui/theme/types.js';
+import type { ResolvedColors } from '../../../src/ui/theme/types.js';
 import { COLOR_TOKENS } from '../../../src/ui/theme/types.js';
 
 // Helper to create a complete ResolvedColors object

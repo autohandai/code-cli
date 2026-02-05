@@ -5,10 +5,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  ToolFilter,
   createToolFilter,
   getToolCategory,
-  CONTEXT_POLICIES
 } from '../src/core/toolFilter.js';
 import type { ToolDefinition } from '../src/core/toolManager.js';
 

@@ -6,9 +6,9 @@
  * Auto-Mode Integration Tests
  * Tests the full auto-mode loop flow including hooks, RPC, and state management
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
-import type { LoadedConfig, HookEvent } from '../src/types.js';
+import type { LoadedConfig } from '../src/types.js';
 
 // Mock fs-extra before imports
 vi.mock('fs-extra', () => ({
@@ -69,7 +69,7 @@ vi.mock('node:child_process', () => ({
 
 // Import after mocks
 import { AutomodeManager, type IterationCallback, type IterationResult } from '../src/core/AutomodeManager.js';
-import { HookManager, type HookContext } from '../src/core/HookManager.js';
+import { HookManager } from '../src/core/HookManager.js';
 
 describe('Auto-Mode Integration', () => {
   const mockConfig: LoadedConfig = {

@@ -40,7 +40,7 @@ async function runHookScript(
   const scriptPath = path.join(HOOKS_DIR, 'test-hook.sh');
   await fs.writeFile(scriptPath, scriptContent, { mode: 0o755 });
 
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const child = spawn(BASH_PATH, [scriptPath], {
       cwd: TEST_DIR,
       env: { ...process.env, ...env },
@@ -64,7 +64,7 @@ async function runHookScript(
     }
     child.stdin.end();
 
-    child.on('error', (err) => {
+    child.on('error', () => {
       resolve({ stdout, stderr, exitCode: 127 }); // Command not found
     });
 
@@ -166,7 +166,7 @@ describe('Built-in Hooks', () => {
     });
 
     test('all scripts should start with shebang', () => {
-      for (const [name, content] of Object.entries(HOOK_SCRIPTS)) {
+      for (const [, content] of Object.entries(HOOK_SCRIPTS)) {
         expect(content.startsWith('#!/bin/bash')).toBe(true);
       }
     });

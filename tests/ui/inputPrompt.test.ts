@@ -68,7 +68,7 @@ describe('safeEmitKeypressEvents', () => {
 
 describe('Display content utilities', () => {
   it('should calculate display content with truncation', async () => {
-    const { getDisplayContent, MAX_DISPLAY_LINES } = await import('../../src/ui/inputPrompt.js');
+    const { getDisplayContent } = await import('../../src/ui/inputPrompt.js');
 
     // Short content should not be truncated
     const shortResult = getDisplayContent('hello', 80);

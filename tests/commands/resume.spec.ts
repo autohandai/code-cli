@@ -270,7 +270,6 @@ describe('Resume Command', () => {
 
   describe('time ago formatting', () => {
     it('should show "just now" for very recent sessions', () => {
-      const now = new Date();
       const diffMs = 30000; // 30 seconds
       const diffMins = Math.floor(diffMs / (1000 * 60));
 

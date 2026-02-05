@@ -14,7 +14,7 @@ import {
   getBuiltInThemeNames,
   getDefaultThemeName,
 } from '../../../src/ui/theme/themes.js';
-import { COLOR_TOKENS, isHexColor, is256ColorIndex } from '../../../src/ui/theme/types.js';
+import { COLOR_TOKENS } from '../../../src/ui/theme/types.js';
 import type { ColorToken } from '../../../src/ui/theme/types.js';
 
 describe('darkTheme', () => {

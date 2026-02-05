@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   normalizeLocale,
   detectLocale,
@@ -12,7 +12,6 @@ import {
   isValidLocale,
   SUPPORTED_LOCALES,
   LANGUAGE_DISPLAY_NAMES,
-  type SupportedLocale,
 } from '../../src/i18n/localeDetector';
 
 describe('localeDetector', () => {

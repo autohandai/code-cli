@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import type { AutohandConfig } from '../../src/types';
 
 // Use vi.hoisted to ensure the mock is created before vi.mock hoists

@@ -3,12 +3,11 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import type {
   AutomodeSessionState,
   AutomodeIterationLog,
-  AutomodeSettings,
   LoadedConfig,
 } from '../src/types.js';
 
@@ -66,7 +65,7 @@ vi.mock('node:child_process', () => ({
 
 // Import after mocks
 import { AutomodeState, hashError } from '../src/core/AutomodeState.js';
-import { generateChangelog, appendToChangelog, getChangelogPath } from '../src/core/AutomodeChangelog.js';
+import { generateChangelog, getChangelogPath } from '../src/core/AutomodeChangelog.js';
 import { AutomodeManager, getAutomodeOptions } from '../src/core/AutomodeManager.js';
 
 describe('AutomodeState', () => {

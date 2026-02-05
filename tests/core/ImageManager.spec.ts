@@ -5,7 +5,6 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ImageManager } from '../../src/core/ImageManager';
-import type { ImageMimeType } from '../../src/core/ImageManager';
 
 describe('ImageManager', () => {
   let manager: ImageManager;

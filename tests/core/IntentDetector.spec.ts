@@ -5,7 +5,6 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { IntentDetector } from '../../src/core/IntentDetector';
-import type { Intent } from '../../src/core/IntentDetector';
 
 describe('IntentDetector', () => {
   let detector: IntentDetector;

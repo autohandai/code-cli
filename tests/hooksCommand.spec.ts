@@ -6,7 +6,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { hooks, metadata } from '../src/commands/hooks.js';
 import { HookManager } from '../src/core/HookManager.js';
-import type { HookDefinition } from '../src/types.js';
 import { EventEmitter } from 'node:events';
 
 // Mock child_process.spawn for HookManager

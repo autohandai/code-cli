@@ -179,7 +179,7 @@ describe('--permissions CLI flag', () => {
   describe('CLIOptions interface', () => {
     it('includes permissions option', async () => {
       // Import the types and verify the interface includes permissions
-      const { CLIOptions } = await import('../src/types.js') as { CLIOptions?: unknown };
+      await import('../src/types.js');
 
       // The type should exist (compile-time check)
       // Runtime check: create an object conforming to CLIOptions

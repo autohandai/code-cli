@@ -6,7 +6,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ActionExecutor } from '../src/core/actionExecutor.js';
 import type { AgentRuntime } from '../src/types.js';
-import type { Plan } from '../src/modes/planMode/types.js';
 
 // Mock fs-extra before importing modules
 vi.mock('fs-extra', () => ({

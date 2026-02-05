@@ -5,7 +5,6 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import path from 'node:path';
 
 // Mock fs-extra before importing modules that use it
 vi.mock('fs-extra', () => ({
