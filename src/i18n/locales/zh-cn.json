@@ -450,6 +450,9 @@
     "passwordPlaceholder": "输入密码...",
     "validationError": "输入无效"
   },
+  "homebrew": {
+    "formulaGenerated": "Homebrew 配方已生成于 {{path}}"
+  },
   "yolo": {
     "enabled": "自动批准已启用：{{pattern}}",
     "expired": "自动批准超时已过期",
