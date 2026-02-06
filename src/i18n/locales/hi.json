@@ -432,8 +432,6 @@
     "passwordPlaceholder": "पासवर्ड दर्ज करें...",
     "validationError": "अमान्य इनपुट"
   },
-<<<<<<< Updated upstream
-=======
   "homebrew": {
     "formulaGenerated": "Homebrew formula generated at {{path}}"
   },
@@ -469,7 +467,6 @@
     "permissionRequested": "अनुमति का अनुरोध: {{action}}",
     "error": "ACP त्रुटि: {{message}}"
   },
->>>>>>> Stashed changes
   "languages": {
     "en": "English",
     "zh-cn": "简体中文 (Simplified Chinese)",

@@ -112,6 +112,7 @@ describe('readPipedStdin', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it('resolves with trimmed data when stdin emits data and end', async () => {
@@ -151,23 +152,38 @@ describe('readPipedStdin', () => {
   });
 
   it('resolves null when timeout expires before end', async () => {
+    vi.useFakeTimers();
+
     const { readPipedStdin } = await import('../src/utils/stdinDetector.js');
 
-    // Use a very short real timeout - no data emitted, so it should timeout
-    const result = await readPipedStdin(10, mockStdin as unknown as NodeJS.ReadableStream);
+    const promise = readPipedStdin(100, mockStdin as unknown as NodeJS.ReadableStream);
+
+    // Advance past the timeout
+    vi.advanceTimersByTime(150);
+
+    const result = await promise;
     expect(result).toBeNull();
+
+    vi.useRealTimers();
   });
 
-  it('resolves with data emitted before timeout', async () => {
+  it('uses default timeout of 300_000ms', async () => {
+    vi.useFakeTimers();
+
     const { readPipedStdin } = await import('../src/utils/stdinDetector.js');
 
-    const promise = readPipedStdin(5_000, mockStdin as unknown as NodeJS.ReadableStream);
+    const promise = readPipedStdin(undefined, mockStdin as unknown as NodeJS.ReadableStream);
 
-    // Emit data and end before timeout expires
+    // Should NOT have timed out yet at 299s
+    vi.advanceTimersByTime(299_000);
+
+    // Emit end before full timeout
     mockStdin.emit('data', 'within default');
     mockStdin.emit('end');
 
     const result = await promise;
     expect(result).toBe('within default');
+
+    vi.useRealTimers();
   });
 });

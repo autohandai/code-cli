@@ -432,8 +432,6 @@
     "passwordPlaceholder": "輸入密碼...",
     "validationError": "輸入無效"
   },
-<<<<<<< Updated upstream
-=======
   "homebrew": {
     "formulaGenerated": "Homebrew formula generated at {{path}}"
   },
@@ -469,7 +467,6 @@
     "permissionRequested": "已請求權限：{{action}}",
     "error": "ACP 錯誤：{{message}}"
   },
->>>>>>> Stashed changes
   "languages": {
     "en": "English",
     "zh-cn": "简体中文 (簡體中文)",
