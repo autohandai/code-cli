@@ -450,6 +450,9 @@
     "passwordPlaceholder": "Enter password...",
     "validationError": "Invalid input"
   },
+  "homebrew": {
+    "formulaGenerated": "Homebrew formula generated at {{path}}"
+  },
   "yolo": {
     "enabled": "Auto-approve enabled: {{pattern}}",
     "expired": "Auto-approve timeout expired",

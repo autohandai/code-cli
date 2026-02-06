@@ -450,6 +450,9 @@
     "passwordPlaceholder": "Ingrese contraseña...",
     "validationError": "Entrada inválida"
   },
+  "homebrew": {
+    "formulaGenerated": "Fórmula Homebrew generada en {{path}}"
+  },
   "yolo": {
     "enabled": "Auto-aprobación habilitada: {{pattern}}",
     "expired": "Tiempo de auto-aprobación expirado",
