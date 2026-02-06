@@ -143,6 +143,7 @@ program
   .option('--model <model>', 'Override the configured LLM model')
   .option('--config <path>', 'Path to config file (default ~/.autohand/config.json)')
   .option('--temperature <value>', 'Sampling temperature', parseFloat)
+  .option('--thinking [level]', 'Set thinking/reasoning depth (none, normal, extended)')
   .option('-c, --auto-commit', 'Auto-commit with LLM-generated message (runs lint & test first)', false)
   .option('--unrestricted', 'Run without any approval prompts (use with caution)', false)
   .option('--restricted', 'Deny all dangerous operations automatically', false)

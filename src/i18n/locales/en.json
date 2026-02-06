@@ -57,7 +57,12 @@
       "maxRuntime": "Max runtime in minutes (default: 120)",
       "maxCost": "Max API cost in dollars (default: 10)",
       "setup": "Run the setup wizard",
-      "addDir": "Add additional directories to workspace scope"
+      "addDir": "Add additional directories to workspace scope",
+      "thinking": "Set thinking/reasoning depth (none, normal, extended)"
+    },
+    "thinking": {
+      "enabled": "Extended thinking enabled",
+      "level": "Thinking level: {{level}}"
     },
     "stdin": {
       "reading": "Reading piped input...",

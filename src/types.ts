@@ -470,6 +470,8 @@ export interface CLIOptions {
   sysPrompt?: string;
   /** Append to system prompt (inline string or file path) */
   appendSysPrompt?: string;
+  /** Thinking/reasoning depth level (none, normal, extended) */
+  thinking?: string | boolean;
 }
 
 export interface PromptContext {

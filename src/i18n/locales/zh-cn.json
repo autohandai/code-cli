@@ -57,7 +57,12 @@
       "maxRuntime": "最大运行时间（分钟）（默认：120）",
       "maxCost": "最大 API 费用（美元）（默认：10）",
       "setup": "运行设置向导",
-      "addDir": "向工作区范围添加额外目录"
+      "addDir": "向工作区范围添加额外目录",
+      "thinking": "设置思考/推理深度（none、normal、extended）"
+    },
+    "thinking": {
+      "enabled": "扩展思考已启用",
+      "level": "思考级别：{{level}}"
     },
     "stdin": {
       "reading": "正在读取管道输入...",
