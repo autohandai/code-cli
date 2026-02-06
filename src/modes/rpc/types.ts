@@ -955,6 +955,7 @@ export interface PipeOutputNotificationParams {
   timestamp: string;
 }
 
+
 // ============================================================================
 // MCP (Model Context Protocol) RPC Types
 // ============================================================================
