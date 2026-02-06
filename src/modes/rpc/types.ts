@@ -110,6 +110,8 @@ export const RPC_METHODS = {
   PLAN_MODE_SET: 'autohand.planModeSet',
   // Session history
   GET_HISTORY: 'autohand.getHistory',
+  // YOLO mode control
+  YOLO_SET: 'autohand.yoloSet',
 } as const;
 
 export type RpcMethod = (typeof RPC_METHODS)[keyof typeof RPC_METHODS];
@@ -261,6 +263,20 @@ export interface PlanModeSetParams {
 
 export interface PlanModeSetResult {
   success: boolean;
+}
+
+// ============================================================================
+// YOLO Mode Types
+// ============================================================================
+
+export interface YoloSetParams {
+  pattern: string;
+  timeoutSeconds?: number;
+}
+
+export interface YoloSetResult {
+  success: boolean;
+  expiresIn?: number;
 }
 
 // ============================================================================

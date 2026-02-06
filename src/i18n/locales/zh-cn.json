@@ -58,7 +58,9 @@
       "maxCost": "最大 API 费用（美元）（默认：10）",
       "setup": "运行设置向导",
       "addDir": "向工作区范围添加额外目录",
-      "thinking": "设置思考/推理深度（none、normal、extended）"
+      "thinking": "设置思考/推理深度（none、normal、extended）",
+      "yolo": "自动批准匹配模式的工具调用（例如 allow:read,write 或 deny:delete）",
+      "timeout": "自动批准模式的超时时间（秒）"
     },
     "thinking": {
       "enabled": "扩展思考已启用",
@@ -447,6 +449,12 @@
     "inputPlaceholder": "输入您的答案...",
     "passwordPlaceholder": "输入密码...",
     "validationError": "输入无效"
+  },
+  "yolo": {
+    "enabled": "自动批准已启用：{{pattern}}",
+    "expired": "自动批准超时已过期",
+    "denied": "工具 {{tool}} 被 yolo 模式拒绝",
+    "remaining": "自动批准：剩余 {{seconds}} 秒"
   },
   "pipe": {
     "reading": "正在读取管道输入...",

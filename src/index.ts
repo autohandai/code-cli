@@ -174,6 +174,8 @@ program
   .option('--search-engine <provider>', 'Set web search provider (brave, duckduckgo, parallel)')
   .option('--sys-prompt <value>', 'Replace entire system prompt (inline string or file path)')
   .option('--append-sys-prompt <value>', 'Append to system prompt (inline string or file path)')
+  .option('--yolo [pattern]', 'Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)')
+  .option('--timeout <seconds>', 'Timeout in seconds for auto-approve mode', parseInt)
   .action(async (opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean; setup?: boolean; about?: boolean; syncSettings?: string | boolean; cc?: boolean; searchEngine?: string }) => {
     // Handle --skill-install flag
     if (opts.skillInstall !== undefined) {
