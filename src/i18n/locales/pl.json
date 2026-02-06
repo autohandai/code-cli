@@ -1,0 +1,453 @@
+{
+  "common": {
+    "error": "B\u0142\u0105d",
+    "warning": "Ostrze\u017cenie",
+    "success": "Sukces",
+    "failed": "Niepowodzenie",
+    "cancelled": "Anulowano",
+    "continue": "Kontynuuj",
+    "yes": "Tak",
+    "no": "Nie",
+    "done": "Gotowe",
+    "loading": "\u0141adowanie...",
+    "pressEnter": "Naci\u015bnij Enter, aby kontynuowa\u0107...",
+    "pressEscToCancel": "Naci\u015bnij Esc, aby anulowa\u0107",
+    "or": "lub",
+    "and": "i",
+    "unknown": "Nieznany",
+    "none": "Brak",
+    "default": "Domy\u015blny",
+    "current": "obecny",
+    "required": "wymagane",
+    "optional": "opcjonalne",
+    "enabled": "W\u0142\u0105czony",
+    "disabled": "Wy\u0142\u0105czony",
+    "on": "W\u0142\u0105czony",
+    "off": "Wy\u0142\u0105czony"
+  },
+  "cli": {
+    "description": "Autonomiczny agent koduj\u0105cy CLI zasilany przez LLM",
+    "options": {
+      "prompt": "Uruchom pojedyncz\u0105 instrukcj\u0119 w trybie polecenia",
+      "path": "\u015acie\u017cka obszaru roboczego",
+      "yes": "Automatycznie potwierdzaj ryzykowne akcje",
+      "dryRun": "Podgl\u0105d akcji bez wprowadzania zmian",
+      "debug": "W\u0142\u0105cz wyj\u015bcie debugowania (szczeg\u00f3\u0142owe logowanie)",
+      "model": "Nadpisz skonfigurowany model LLM",
+      "config": "\u015acie\u017cka do pliku konfiguracyjnego (domy\u015blnie ~/.autohand/config.json)",
+      "temperature": "Temperatura pr\u00f3bkowania",
+      "displayLanguage": "Ustaw j\u0119zyk wy\u015bwietlania (np. en, zh-cn, fr, de)",
+      "autoCommit": "Automatyczny commit z wiadomo\u015bci\u0105 generowan\u0105 przez LLM",
+      "unrestricted": "Uruchom bez \u017cadnych monit\u00f3w o zatwierdzenie",
+      "restricted": "Automatycznie odrzucaj wszystkie niebezpieczne operacje",
+      "autoSkill": "Automatycznie generuj umiej\u0119tno\u015bci na podstawie analizy projektu",
+      "skillInstall": "Zainstaluj umiej\u0119tno\u015b\u0107 spo\u0142eczno\u015bciow\u0105",
+      "project": "Zainstaluj umiej\u0119tno\u015b\u0107 na poziomie projektu",
+      "permissions": "Wy\u015bwietl bie\u017c\u0105ce ustawienia uprawnie\u0144 i zako\u0144cz",
+      "login": "Zaloguj si\u0119 na swoje konto Autohand",
+      "logout": "Wyloguj si\u0119 z konta Autohand",
+      "syncSettings": "W\u0142\u0105cz/wy\u0142\u0105cz synchronizacj\u0119 ustawie\u0144",
+      "patch": "Wygeneruj \u0142atk\u0119 git bez wprowadzania zmian",
+      "output": "Plik wyj\u015bciowy dla \u0142atki (domy\u015blnie: stdout)",
+      "autoMode": "Uruchom autonomiczn\u0105 p\u0119tl\u0119 programistyczn\u0105",
+      "maxIterations": "Maksymalna liczba iteracji trybu auto (domy\u015blnie: 50)",
+      "completionPromise": "Tekst znacznika uko\u0144czenia (domy\u015blnie: DONE)",
+      "noWorktree": "Wy\u0142\u0105cz izolacj\u0119 git worktree w trybie auto",
+      "checkpointInterval": "Commit git co N iteracji (domy\u015blnie: 5)",
+      "maxRuntime": "Maksymalny czas dzia\u0142ania w minutach (domy\u015blnie: 120)",
+      "maxCost": "Maksymalny koszt API w dolarach (domy\u015blnie: 10)",
+      "setup": "Uruchom kreator konfiguracji",
+      "addDir": "Dodaj dodatkowe katalogi do zakresu obszaru roboczego"
+    }
+  },
+  "welcome": {
+    "banner": "Witaj w Autohand!",
+    "subtitle": "Tw\u00f3j superszybki agent koduj\u0105cy AI",
+    "version": "v{{version}}",
+    "updateAvailable": "Dost\u0119pna aktualizacja: {{current}} -> {{latest}}. Uruchom 'npm i -g autohand', aby zaktualizowa\u0107.",
+    "loggedInAs": "Zalogowano jako {{email}}",
+    "notLoggedIn": "Niezalogowany",
+    "modelLine": "model: {{model}}",
+    "directoryLine": "katalog: {{directory}}",
+    "tips": {
+      "title": "Aby zacz\u0105\u0107, opisz zadanie lub wypr\u00f3buj jedno z tych polece\u0144:",
+      "init": "/init - utw\u00f3rz plik AGENTS.md z instrukcjami dla Autohand",
+      "help": "/help - poka\u017c wszystkie dost\u0119pne polecenia",
+      "model": "/model - zmie\u0144 model AI",
+      "language": "/language - zmie\u0144 j\u0119zyk wy\u015bwietlania"
+    },
+    "shortcuts": {
+      "title": "Skr\u00f3ty klawiszowe:",
+      "mention": "@ - wspomnienie plik\u00f3w dla kontekstu",
+      "arrows": "Strza\u0142ki - nawigacja w sugestiach",
+      "tab": "Tab - autouzupe\u0142nianie",
+      "escape": "Esc - anuluj bie\u017c\u0105c\u0105 operacj\u0119",
+      "ctrlC": "Ctrl+C - wyj\u015bcie"
+    }
+  },
+  "commands": {
+    "help": {
+      "title": "Dost\u0119pne polecenia:",
+      "command": "Polecenie",
+      "description": "Opis",
+      "tips": {
+        "title": "Wskaz\u00f3wki:",
+        "mention": "Wpisz @, aby wspomnie\u0107 pliki dla AI",
+        "arrows": "U\u017cyj strza\u0142ek do nawigacji w sugestiach plik\u00f3w",
+        "tab": "Naci\u015bnij Tab, aby autouzupe\u0142ni\u0107 \u015bcie\u017cki plik\u00f3w",
+        "escape": "Naci\u015bnij Esc, aby anulowa\u0107 bie\u017c\u0105c\u0105 operacj\u0119"
+      },
+      "docsLink": "Wi\u0119cej informacji znajdziesz na {{link}}"
+    },
+    "about": {
+      "title": "Autohand",
+      "subtitle": "Autonomiczny agent koduj\u0105cy zasilany przez AI",
+      "website": "Strona internetowa",
+      "github": "GitHub",
+      "docs": "Dokumentacja",
+      "contribute": "Chcesz si\u0119 przyczyni\u0107?",
+      "feedback": "Wy\u015blij opini\u0119",
+      "submitPR": "Z\u0142\u00f3\u017c PR",
+      "reportIssues": "Zg\u0142o\u015b problemy",
+      "pressKey": "Naci\u015bnij ESC lub dowolny klawisz, aby wr\u00f3ci\u0107..."
+    },
+    "model": {
+      "description": "wybierz model i poziom rozumowania",
+      "title": "Wyb\u00f3r modelu",
+      "currentModel": "Obecny model: {{model}}",
+      "selectPrompt": "Wybierz model:",
+      "changed": "Model zmieniony na {{model}}",
+      "noChange": "Nie wprowadzono zmian."
+    },
+    "theme": {
+      "description": "zmie\u0144 motyw kolor\u00f3w terminala",
+      "title": "Wyb\u00f3r motywu",
+      "currentTheme": "Obecny motyw: {{theme}}",
+      "selectPrompt": "Wybierz motyw:",
+      "changed": "Motyw zmieniony na '{{theme}}'",
+      "noChange": "Nie wprowadzono zmian."
+    },
+    "language": {
+      "description": "zmie\u0144 j\u0119zyk wy\u015bwietlania",
+      "title": "Wyb\u00f3r j\u0119zyka",
+      "currentLanguage": "Obecny j\u0119zyk: {{language}}",
+      "selectPrompt": "Wybierz j\u0119zyk:",
+      "changed": "J\u0119zyk zmieniony na {{language}}",
+      "noChange": "Nie wprowadzono zmian.",
+      "restartHint": "Niekt\u00f3re zmiany mog\u0105 wymaga\u0107 ponownego uruchomienia CLI, aby w pe\u0142ni zadzia\u0142a\u0142y."
+    },
+    "quit": {
+      "description": "wyj\u015bcie z Autohand",
+      "goodbye": "Do widzenia!"
+    },
+    "init": {
+      "description": "utw\u00f3rz plik AGENTS.md",
+      "created": "Utworzono AGENTS.md w {{path}}",
+      "alreadyExists": "AGENTS.md ju\u017c istnieje w {{path}}",
+      "overwritePrompt": "Nadpisa\u0107 istniej\u0105cy AGENTS.md?"
+    },
+    "undo": {
+      "description": "cofnij ostatni\u0105 modyfikacj\u0119 pliku",
+      "success": "Cofni\u0119to zmiany w {{file}}",
+      "noChanges": "Brak zmian do cofni\u0119cia.",
+      "failed": "Nie uda\u0142o si\u0119 cofn\u0105\u0107: {{error}}"
+    },
+    "new": {
+      "description": "rozpocznij now\u0105 rozmow\u0119",
+      "cleared": "Rozmowa wyczyszczona. Zaczynamy od nowa."
+    },
+    "status": {
+      "description": "poka\u017c bie\u017c\u0105cy status",
+      "title": "Status Autohand",
+      "version": "Wersja",
+      "sessionId": "ID sesji",
+      "cwd": "Bie\u017c\u0105cy katalog",
+      "provider": "Dostawca",
+      "model": "Model",
+      "locale": "J\u0119zyk",
+      "apiStatus": "Status API",
+      "connected": "Po\u0142\u0105czony",
+      "disconnected": "Roz\u0142\u0105czony",
+      "sessions": "Sesje",
+      "total": "{{count}} \u0142\u0105cznie"
+    },
+    "sessions": {
+      "description": "lista zapisanych sesji",
+      "title": "Zapisane sesje",
+      "noSessions": "Nie znaleziono zapisanych sesji.",
+      "selectPrompt": "Wybierz sesj\u0119 do wznowienia:",
+      "sessionInfo": "{{name}} - {{date}}"
+    },
+    "resume": {
+      "description": "wzn\u00f3w poprzedni\u0105 sesj\u0119",
+      "resuming": "Wznawianie sesji {{id}}...",
+      "notFound": "Nie znaleziono sesji: {{id}}",
+      "failed": "Nie uda\u0142o si\u0119 wznowi\u0107 sesji: {{error}}"
+    },
+    "memory": {
+      "description": "zarz\u0105dzaj pami\u0119ci\u0105 projektu i u\u017cytkownika",
+      "title": "Zarz\u0105dzanie pami\u0119ci\u0105",
+      "projectMemory": "Pami\u0119\u0107 projektu",
+      "userMemory": "Pami\u0119\u0107 u\u017cytkownika",
+      "noMemory": "Brak zapisanych wspomnie\u0144.",
+      "addPrompt": "Dodaj nowe wspomnienie:",
+      "added": "Wspomnienie dodane.",
+      "cleared": "Pami\u0119\u0107 wyczyszczona."
+    },
+    "permissions": {
+      "description": "wy\u015bwietl bie\u017c\u0105ce ustawienia uprawnie\u0144",
+      "title": "Ustawienia uprawnie\u0144",
+      "mode": "Tryb: {{mode}}",
+      "allowed": "Dozwolone akcje:",
+      "denied": "Zabronione akcje:",
+      "pending": "Oczekuj\u0105ce na zatwierdzenie:"
+    },
+    "login": {
+      "description": "zaloguj si\u0119 na swoje konto Autohand",
+      "prompt": "Wprowad\u017a sw\u00f3j kod logowania:",
+      "success": "Pomy\u015blnie zalogowano jako {{email}}",
+      "failed": "Logowanie nie powiod\u0142o si\u0119: {{error}}",
+      "cancelled": "Logowanie anulowane."
+    },
+    "logout": {
+      "description": "wyloguj si\u0119 z konta Autohand",
+      "confirm": "Wylogowa\u0107 si\u0119 z {{email}}?",
+      "success": "Pomy\u015blnie wylogowano.",
+      "cancelled": "Wylogowanie anulowane."
+    },
+    "sync": {
+      "description": "zarz\u0105dzaj synchronizacj\u0105 ustawie\u0144",
+      "enabled": "Synchronizacja ustawie\u0144 w\u0142\u0105czona.",
+      "disabled": "Synchronizacja ustawie\u0144 wy\u0142\u0105czona.",
+      "status": "Status synchronizacji: {{status}}",
+      "lastSync": "Ostatnia synchronizacja: {{date}}"
+    },
+    "feedback": {
+      "description": "wy\u015blij opini\u0119 o CLI",
+      "prompt": "Wprowad\u017a swoj\u0105 opini\u0119:",
+      "success": "Dzi\u0119kujemy za Twoj\u0105 opini\u0119!",
+      "failed": "Nie uda\u0142o si\u0119 wys\u0142a\u0107 opinii: {{error}}"
+    },
+    "hooks": {
+      "description": "zarz\u0105dzaj hookami git",
+      "title": "Hooki Git",
+      "installed": "Zainstalowane hooki:",
+      "available": "Dost\u0119pne hooki:",
+      "noHooks": "Brak skonfigurowanych hook\u00f3w."
+    },
+    "skills": {
+      "description": "lista i zarz\u0105dzanie umiej\u0119tno\u015bciami",
+      "title": "Umiej\u0119tno\u015bci",
+      "installed": "Zainstalowane umiej\u0119tno\u015bci:",
+      "available": "Dost\u0119pne umiej\u0119tno\u015bci:",
+      "noSkills": "Brak zainstalowanych umiej\u0119tno\u015bci."
+    },
+    "export": {
+      "description": "eksportuj dane sesji",
+      "success": "Wyeksportowano do {{path}}",
+      "failed": "Eksport nie powi\u00f3d\u0142 si\u0119: {{error}}"
+    },
+    "agents": {
+      "description": "zarz\u0105dzaj sub-agentami",
+      "title": "Sub-agenty",
+      "noAgents": "Brak skonfigurowanych sub-agent\u00f3w."
+    },
+    "automode": {
+      "description": "zarz\u0105dzaj trybem autonomicznym",
+      "starting": "Uruchamianie trybu auto...",
+      "stopping": "Zatrzymywanie trybu auto...",
+      "iteration": "Iteracja {{current}} z {{max}}",
+      "completed": "Tryb auto zako\u0144czony.",
+      "aborted": "Tryb auto przerwany."
+    },
+    "share": {
+      "description": "udost\u0119pnij sesj\u0119",
+      "generating": "Generowanie linku udost\u0119pniania...",
+      "success": "Link udost\u0119pniania: {{url}}",
+      "failed": "Nie uda\u0142o si\u0119 wygenerowa\u0107 linku udost\u0119pniania: {{error}}"
+    },
+    "addDir": {
+      "description": "dodaj katalogi do zakresu obszaru roboczego",
+      "added": "Dodano katalog: {{path}}",
+      "alreadyAdded": "Katalog ju\u017c dodany: {{path}}",
+      "notFound": "Nie znaleziono katalogu: {{path}}"
+    },
+    "ide": {
+      "description": "po\u0142\u0105cz z dzia\u0142aj\u0105cym IDE",
+      "title": "Wybierz IDE",
+      "connectDescription": "Po\u0142\u0105cz z IDE, aby korzysta\u0107 ze zintegrowanych funkcji programistycznych.",
+      "noIdesDetected": "Nie wykryto dzia\u0142aj\u0105cych IDE. Uruchom jedno z: VS Code, VS Code Insiders, Cursor, Zed lub Antigravity.",
+      "noMatchingIdes": "Nie wykryto dost\u0119pnych IDE. Upewnij si\u0119, \u017ce Twoje IDE ma zainstalowan\u0105 i uruchomion\u0105 wtyczk\u0119 Autohand.",
+      "foundMatching": "Znaleziono {{count}} IDE pasuj\u0105ce do Twojego bie\u017c\u0105cego katalogu:",
+      "otherNotMatching": "Znaleziono {{count}} innych dzia\u0142aj\u0105cych IDE. Jednak ich katalogi robocze nie pasuj\u0105 do bie\u017c\u0105cego katalogu.",
+      "selectPrompt": "Wybierz IDE do po\u0142\u0105czenia:",
+      "connected": "Po\u0142\u0105czono z {{ide}}",
+      "extensionHint": "Zainstaluj rozszerzenia dla g\u0142\u0119bszej integracji:",
+      "startIde": "Uruchom IDE w tym katalogu, aby si\u0119 po\u0142\u0105czy\u0107."
+    }
+  },
+  "setup": {
+    "welcome": "Witaj w Autohand!",
+    "subtitle": "Tw\u00f3j superszybki agent koduj\u0105cy AI",
+    "letsStart": "Skonfigurujmy Ci\u0119 w kilku prostych krokach.",
+    "providerSelect": "Kt\u00f3rego dostawc\u0119 LLM chcesz u\u017cy\u0107?",
+    "apiKeyPrompt": "Wprowad\u017a sw\u00f3j klucz API {{provider}}:",
+    "apiKeyHelp": "Pobierz sw\u00f3j klucz API na: {{url}}",
+    "apiKeyHint": "Tw\u00f3j klucz API zostanie zapisany lokalnie w ~/.autohand/config.json",
+    "modelPrompt": "Wprowad\u017a ID modelu (lub naci\u015bnij Enter dla domy\u015blnego):",
+    "modelDefault": "Domy\u015blny: {{model}}",
+    "testingConnection": "Testowanie po\u0142\u0105czenia...",
+    "connectionSuccess": "Po\u0142\u0105czenie udane!",
+    "connectionFailed": "Po\u0142\u0105czenie nie powiod\u0142o si\u0119: {{error}}",
+    "telemetry": {
+      "title": "Pom\u00f3\u017c nam ulepsza\u0107 Autohand",
+      "description": "Zbieramy anonimowe dane u\u017cytkowania, aby zrozumie\u0107, jak Autohand jest u\u017cywany.",
+      "whatWeCollect": "Co zbieramy:",
+      "collectItem1": "U\u017cycie polece\u0144 (kt\u00f3re funkcje s\u0105 popularne)",
+      "collectItem2": "Wska\u017aniki b\u0142\u0119d\u00f3w (aby szybciej naprawia\u0107 b\u0142\u0119dy)",
+      "collectItem3": "Metryki wydajno\u015bci (aby przyspieszy\u0107 dzia\u0142anie)",
+      "whatWeNeverCollect": "Czego nigdy nie zbieramy:",
+      "neverItem1": "Twojego kodu ani zawarto\u015bci plik\u00f3w",
+      "neverItem2": "Kluczy API ani danych uwierzytelniaj\u0105cych",
+      "neverItem3": "Danych osobowych",
+      "prompt": "Udost\u0119pnia\u0107 anonimowe dane u\u017cytkowania, aby pom\u00f3c ulepsza\u0107 Autohand?",
+      "thanks": "Dzi\u0119kujemy za pomoc w ulepszaniu Autohand!",
+      "declined": "Nie ma problemu! Mo\u017cesz to zmieni\u0107 w dowolnym momencie w konfiguracji."
+    },
+    "complete": "Konfiguracja zako\u0144czona!",
+    "created": "Co zosta\u0142o utworzone:",
+    "configFile": "~/.autohand/config.json (Twoje ustawienia)",
+    "agentsFile": "AGENTS.md (instrukcje projektu dla Autohand)",
+    "nextSteps": "Nast\u0119pne kroki:",
+    "tryCommand": "Spr\u00f3buj: autohand"
+  },
+  "errors": {
+    "generic": "Wyst\u0105pi\u0142 b\u0142\u0105d: {{message}}",
+    "invalidLocale": "Nieprawid\u0142owe ustawienia regionalne: {{locale}}. Obs\u0142ugiwane: {{supported}}",
+    "configParseFailed": "Nie uda\u0142o si\u0119 przetworzy\u0107 konfiguracji w {{path}}: {{error}}",
+    "configSaveFailed": "Nie uda\u0142o si\u0119 zapisa\u0107 konfiguracji: {{error}}",
+    "apiKeyRequired": "Klucz API jest wymagany",
+    "apiKeyTooShort": "Klucz API wydaje si\u0119 zbyt kr\u00f3tki",
+    "apiKeyInvalid": "Nieprawid\u0142owy format klucza API",
+    "directoryNotExist": "Katalog nie istnieje: {{path}}",
+    "unsafeDirectory": "Niebezpieczny katalog: {{path}}. Nie mo\u017cna operowa\u0107 w katalogach systemowych.",
+    "fileNotFound": "Nie znaleziono pliku: {{path}}",
+    "permissionDenied": "Odmowa dost\u0119pu: {{path}}",
+    "patchRequiresPrompt": "--patch wymaga --prompt do okre\u015blenia instrukcji",
+    "autoModeRequiresPrompt": "--auto-mode wymaga podania tre\u015bci zadania",
+    "noProviderConfigured": "\u017baden dostawca nie jest jeszcze skonfigurowany. Uruchom konfiguracj\u0119: autohand --setup",
+    "modelNotFound": "Nie znaleziono modelu: {{model}}",
+    "rateLimited": "Osi\u0105gni\u0119to limit zapyta\u0144. Poczekaj chwil\u0119 i spr\u00f3buj ponownie.",
+    "networkError": "B\u0142\u0105d sieci: {{message}}",
+    "timeout": "Przekroczono limit czasu \u017c\u0105dania. Spr\u00f3buj ponownie.",
+    "contextTooLong": "Zbyt d\u0142ugi kontekst. Spr\u00f3buj /new, aby zacz\u0105\u0107 od nowa, lub /undo, aby usun\u0105\u0107 ostatnie tury.",
+    "authFailed": "Uwierzytelnianie nie powiod\u0142o si\u0119. Sprawd\u017a sw\u00f3j klucz API.",
+    "paymentRequired": "Wymagana p\u0142atno\u015b\u0107. Sprawd\u017a saldo swojego konta.",
+    "serverError": "B\u0142\u0105d serwera. Spr\u00f3buj ponownie p\u00f3\u017aniej.",
+    "cancelled": "Operacja anulowana przez u\u017cytkownika."
+  },
+  "agent": {
+    "thinking": "My\u015bl\u0119...",
+    "executing": "Wykonywanie {{tool}}...",
+    "reading": "Czytanie {{file}}...",
+    "writing": "Zapisywanie {{file}}...",
+    "searching": "Wyszukiwanie...",
+    "toolSuccess": "{{tool}} zako\u0144czone pomy\u015blnie",
+    "toolFailed": "{{tool}} nie powiod\u0142o si\u0119: {{error}}",
+    "taskComplete": "Zadanie uko\u0144czone",
+    "noChanges": "Nie wprowadzono \u017cadnych zmian.",
+    "changesApplied": "Zmiany zastosowane pomy\u015blnie.",
+    "awaitingApproval": "Oczekiwanie na zatwierdzenie...",
+    "approved": "Zatwierdzone",
+    "denied": "Odrzucone",
+    "skipped": "Pomini\u0119te",
+    "exploring": "Eksplorowanie...",
+    "exploredFiles": "Zbadano {{count}} plik\u00f3w"
+  },
+  "providers": {
+    "openrouter": "OpenRouter",
+    "openai": "OpenAI",
+    "ollama": "Ollama",
+    "llamacpp": "llama.cpp",
+    "mlx": "MLX (Apple Silicon)",
+    "hints": {
+      "openrouter": "Chmura - Dost\u0119p do ponad 100 modeli (Claude, GPT-4 itp.)",
+      "openai": "Chmura - Oficjalne modele OpenAI (GPT-4o, o1 itp.)",
+      "ollama": "Lokalne - Uruchamiaj modele na swoim komputerze (za darmo)",
+      "llamacpp": "Lokalne - Szybkie wnioskowanie z modelami GGUF",
+      "mlx": "Lokalne - Zoptymalizowane dla komputer\u00f3w Mac z Apple Silicon"
+    }
+  },
+  "startup": {
+    "checkingTools": "Sprawdzanie wymaganych narz\u0119dzi...",
+    "toolFound": "{{tool}} znalezione",
+    "toolMissing": "{{tool}} nie znalezione",
+    "installHint": "Zainstaluj za pomoc\u0105: {{command}}",
+    "allToolsReady": "Wszystkie narz\u0119dzia gotowe!",
+    "someToolsMissing": "Niekt\u00f3rych narz\u0119dzi brakuje. Niekt\u00f3re funkcje mog\u0105 nie dzia\u0142a\u0107."
+  },
+  "confirmation": {
+    "proceed": "Kontynuowa\u0107?",
+    "areYouSure": "Czy jeste\u015b pewien?",
+    "thisWillDelete": "To usunie {{item}}. Tej akcji nie mo\u017cna cofn\u0105\u0107.",
+    "confirm": "Potwierd\u017a",
+    "cancel": "Anuluj",
+    "yesDelete": "Tak, usu\u0144",
+    "noDontDelete": "Nie, zachowaj"
+  },
+  "diff": {
+    "title": "Zmiany w {{file}}",
+    "additions": "{{count}} dodanych",
+    "deletions": "{{count}} usuni\u0119tych",
+    "noChanges": "Brak zmian",
+    "apply": "Zastosowa\u0107 zmiany?",
+    "applied": "Zmiany zastosowane.",
+    "discarded": "Zmiany odrzucone."
+  },
+  "ui": {
+    "escToCancel": "esc aby anulowa\u0107",
+    "commandHint": "/ polecenia \u00b7 @ wspomnienie plik\u00f3w \u00b7 ! terminal",
+    "ctrlCToExit": "Naci\u015bnij Ctrl+C ponownie, aby wyj\u015b\u0107",
+    "noMatchingCommands": "Brak pasuj\u0105cych polece\u0144.",
+    "selectFile": "Wybierz plik",
+    "noMatchingFiles": "Brak pasuj\u0105cych plik\u00f3w. Pisz dalej\u2026",
+    "thinking": "My\u015bl\u0119",
+    "planModeActive": "Tryb planowania aktywny - narz\u0119dzia tylko do odczytu",
+    "planModeExecuting": "Wykonywanie planu",
+    "typeToFilter": "Filtruj",
+    "navigateHint": "Wpisz, aby filtrowa\u0107 \u00b7 \u2191/\u2193 nawigacja \u00b7 Enter uruchom \u00b7 Esc anuluj",
+    "fileNavigateHint": "Wpisz, aby filtrowa\u0107 \u00b7 \u2191/\u2193 nawigacja \u00b7 Enter wybierz \u00b7 Esc anuluj",
+    "questionPrompt": "\u2753",
+    "questionOther": "Inne (wpisz w\u0142asn\u0105 odpowied\u017a)",
+    "questionYourAnswer": "\u25b8 Twoja odpowied\u017a",
+    "questionCustomHint": "\u21b5 Wy\u015blij \u00b7 ESC Wstecz",
+    "questionSelectHint": "\u2191\u2193 Nawigacja \u00b7 \u21b5 Wybierz \u00b7 1-9 Skr\u00f3t \u00b7 ESC Anuluj",
+    "noOptionsAvailable": "Brak dost\u0119pnych opcji",
+    "planRevise": "Nie, popraw plan",
+    "planEditHint": "ctrl-g aby edytowa\u0107 w VS Code",
+    "confirmYes": "Tak",
+    "confirmNo": "Nie",
+    "inputHint": "Enter aby wys\u0142a\u0107, ESC aby anulowa\u0107",
+    "inputPlaceholder": "Wpisz swoj\u0105 odpowied\u017a...",
+    "passwordPlaceholder": "Wprowad\u017a has\u0142o...",
+    "validationError": "Nieprawid\u0142owe dane wej\u015bciowe"
+  },
+  "languages": {
+    "en": "English",
+    "zh-cn": "\u7b80\u4f53\u4e2d\u6587 (Simplified Chinese)",
+    "zh-tw": "\u7e41\u9ad4\u4e2d\u6587 (Traditional Chinese)",
+    "fr": "Fran\u00e7ais (French)",
+    "de": "Deutsch (German)",
+    "it": "Italiano (Italian)",
+    "es": "Espa\u00f1ol (Spanish)",
+    "ja": "\u65e5\u672c\u8a9e (Japanese)",
+    "ko": "\ud55c\uad6d\uc5b4 (Korean)",
+    "ru": "\u0420\u0443\u0441\u0441\u043a\u0438\u0439 (Russian)",
+    "pt-br": "Portugu\u00eas (Brazilian Portuguese)",
+    "tr": "T\u00fcrk\u00e7e (Turkish)",
+    "pl": "Polski (Polish)",
+    "cs": "\u010ce\u0161tina (Czech)",
+    "hu": "Magyar (Hungarian)",
+    "hi": "\u0939\u093f\u0928\u094d\u0926\u0940 (Hindi)"
+  }
+}

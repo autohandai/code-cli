@@ -271,6 +271,19 @@
       "added": "已添加目录：{{path}}",
       "alreadyAdded": "目录已添加：{{path}}",
       "notFound": "未找到目录：{{path}}"
+    },
+    "ide": {
+      "description": "连接到正在运行的 IDE",
+      "title": "选择 IDE",
+      "connectDescription": "连接到 IDE 以获取集成开发功能。",
+      "noIdesDetected": "未检测到正在运行的 IDE。请启动以下之一：VS Code、VS Code Insiders、Cursor、Zed 或 Antigravity。",
+      "noMatchingIdes": "未检测到可用的 IDE。请确保您的 IDE 已安装 Autohand 扩展或插件并正在运行。",
+      "foundMatching": "找到 {{count}} 个与当前目录匹配的 IDE：",
+      "otherNotMatching": "找到 {{count}} 个其他正在运行的 IDE。但它们的工作区/项目目录与当前目录不匹配。",
+      "selectPrompt": "选择要连接的 IDE：",
+      "connected": "已连接到 {{ide}}",
+      "extensionHint": "安装扩展以获得更深入的集成：",
+      "startIde": "在此目录中启动 IDE 以进行连接。"
     }
   },
   "setup": {

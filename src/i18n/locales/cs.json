@@ -1,0 +1,453 @@
+{
+  "common": {
+    "error": "Chyba",
+    "warning": "Upozornění",
+    "success": "Úspěch",
+    "failed": "Selhalo",
+    "cancelled": "Zrušeno",
+    "continue": "Pokračovat",
+    "yes": "Ano",
+    "no": "Ne",
+    "done": "Hotovo",
+    "loading": "Načítání...",
+    "pressEnter": "Stiskněte Enter pro pokračování...",
+    "pressEscToCancel": "Stiskněte Esc pro zrušení",
+    "or": "nebo",
+    "and": "a",
+    "unknown": "Neznámý",
+    "none": "Žádný",
+    "default": "Výchozí",
+    "current": "aktuální",
+    "required": "povinné",
+    "optional": "volitelné",
+    "enabled": "Zapnuto",
+    "disabled": "Vypnuto",
+    "on": "Zap",
+    "off": "Vyp"
+  },
+  "cli": {
+    "description": "Autonomní CLI kódovací agent poháněný LLM",
+    "options": {
+      "prompt": "Spustit jednu instrukci v příkazovém režimu",
+      "path": "Cesta k pracovnímu adresáři",
+      "yes": "Automaticky potvrdit rizikové akce",
+      "dryRun": "Náhled akcí bez provedení změn",
+      "debug": "Zapnout ladící výstup (podrobné logování)",
+      "model": "Přepsat nakonfigurovaný LLM model",
+      "config": "Cesta ke konfiguračnímu souboru (výchozí ~/.autohand/config.json)",
+      "temperature": "Teplota vzorkování",
+      "displayLanguage": "Nastavit jazyk zobrazení (např. en, zh-cn, fr, de)",
+      "autoCommit": "Automatický commit se zprávou vygenerovanou LLM",
+      "unrestricted": "Spustit bez jakýchkoli schvalovacích výzev",
+      "restricted": "Automaticky odmítnout všechny nebezpečné operace",
+      "autoSkill": "Automaticky generovat dovednosti na základě analýzy projektu",
+      "skillInstall": "Nainstalovat komunitní dovednost",
+      "project": "Nainstalovat dovednost na úrovni projektu",
+      "permissions": "Zobrazit aktuální nastavení oprávnění a ukončit",
+      "login": "Přihlásit se ke svému účtu Autohand",
+      "logout": "Odhlásit se ze svého účtu Autohand",
+      "syncSettings": "Zapnout/vypnout synchronizaci nastavení",
+      "patch": "Vygenerovat git patch bez aplikování změn",
+      "output": "Výstupní soubor pro patch (výchozí: stdout)",
+      "autoMode": "Spustit autonomní vývojovou smyčku",
+      "maxIterations": "Maximální počet iterací auto-režimu (výchozí: 50)",
+      "completionPromise": "Text označení dokončení (výchozí: DONE)",
+      "noWorktree": "Vypnout izolaci git worktree v auto-režimu",
+      "checkpointInterval": "Git commit každých N iterací (výchozí: 5)",
+      "maxRuntime": "Maximální doba běhu v minutách (výchozí: 120)",
+      "maxCost": "Maximální náklady na API v dolarech (výchozí: 10)",
+      "setup": "Spustit průvodce nastavením",
+      "addDir": "Přidat další adresáře do rozsahu pracovního prostoru"
+    }
+  },
+  "welcome": {
+    "banner": "Vítejte v Autohand!",
+    "subtitle": "Váš superrychlý AI kódovací agent",
+    "version": "v{{version}}",
+    "updateAvailable": "K dispozici je aktualizace: {{current}} -> {{latest}}. Spusťte 'npm i -g autohand' pro aktualizaci.",
+    "loggedInAs": "Přihlášen jako {{email}}",
+    "notLoggedIn": "Nepřihlášen",
+    "modelLine": "model: {{model}}",
+    "directoryLine": "adresář: {{directory}}",
+    "tips": {
+      "title": "Pro začátek popište úkol nebo vyzkoušejte jeden z těchto příkazů:",
+      "init": "/init - vytvořit soubor AGENTS.md s instrukcemi pro Autohand",
+      "help": "/help - zobrazit všechny dostupné příkazy",
+      "model": "/model - změnit AI model",
+      "language": "/language - změnit jazyk zobrazení"
+    },
+    "shortcuts": {
+      "title": "Klávesové zkratky:",
+      "mention": "@ - zmínit soubory pro kontext",
+      "arrows": "Šipky - procházet návrhy",
+      "tab": "Tab - automatické doplnění",
+      "escape": "Esc - zrušit aktuální operaci",
+      "ctrlC": "Ctrl+C - ukončit"
+    }
+  },
+  "commands": {
+    "help": {
+      "title": "Dostupné příkazy:",
+      "command": "Příkaz",
+      "description": "Popis",
+      "tips": {
+        "title": "Tipy:",
+        "mention": "Napište @ pro zmínění souborů pro AI",
+        "arrows": "Použijte šipky pro procházení návrhů souborů",
+        "tab": "Stiskněte Tab pro automatické doplnění cest k souborům",
+        "escape": "Stiskněte Esc pro zrušení aktuální operace"
+      },
+      "docsLink": "Pro více informací navštivte {{link}}"
+    },
+    "about": {
+      "title": "Autohand",
+      "subtitle": "Autonomní AI kódovací agent",
+      "website": "Webové stránky",
+      "github": "GitHub",
+      "docs": "Dokumentace",
+      "contribute": "Chcete přispět?",
+      "feedback": "Odeslat zpětnou vazbu",
+      "submitPR": "Odeslat PR",
+      "reportIssues": "Nahlásit problémy",
+      "pressKey": "Stiskněte ESC nebo libovolnou klávesu pro návrat..."
+    },
+    "model": {
+      "description": "vybrat model a úroveň uvažování",
+      "title": "Výběr modelu",
+      "currentModel": "Aktuální model: {{model}}",
+      "selectPrompt": "Vyberte model:",
+      "changed": "Model změněn na {{model}}",
+      "noChange": "Žádná změna provedena."
+    },
+    "theme": {
+      "description": "změnit barevný motiv terminálu",
+      "title": "Výběr motivu",
+      "currentTheme": "Aktuální motiv: {{theme}}",
+      "selectPrompt": "Vyberte motiv:",
+      "changed": "Motiv změněn na '{{theme}}'",
+      "noChange": "Žádná změna provedena."
+    },
+    "language": {
+      "description": "změnit jazyk zobrazení",
+      "title": "Výběr jazyka",
+      "currentLanguage": "Aktuální jazyk: {{language}}",
+      "selectPrompt": "Vyberte jazyk:",
+      "changed": "Jazyk změněn na {{language}}",
+      "noChange": "Žádná změna provedena.",
+      "restartHint": "Některé změny mohou vyžadovat restart CLI pro plný účinek."
+    },
+    "quit": {
+      "description": "ukončit Autohand",
+      "goodbye": "Nashledanou!"
+    },
+    "init": {
+      "description": "vytvořit soubor AGENTS.md",
+      "created": "Vytvořen AGENTS.md v {{path}}",
+      "alreadyExists": "AGENTS.md již existuje v {{path}}",
+      "overwritePrompt": "Přepsat existující AGENTS.md?"
+    },
+    "undo": {
+      "description": "vrátit poslední změnu souboru",
+      "success": "Změny vráceny v {{file}}",
+      "noChanges": "Žádné změny k vrácení.",
+      "failed": "Vrácení selhalo: {{error}}"
+    },
+    "new": {
+      "description": "začít novou konverzaci",
+      "cleared": "Konverzace vymazána. Začínáme znovu."
+    },
+    "status": {
+      "description": "zobrazit aktuální stav",
+      "title": "Stav Autohand",
+      "version": "Verze",
+      "sessionId": "ID relace",
+      "cwd": "Aktuální adresář",
+      "provider": "Poskytovatel",
+      "model": "Model",
+      "locale": "Jazyk",
+      "apiStatus": "Stav API",
+      "connected": "Připojeno",
+      "disconnected": "Odpojeno",
+      "sessions": "Relace",
+      "total": "{{count}} celkem"
+    },
+    "sessions": {
+      "description": "zobrazit uložené relace",
+      "title": "Uložené relace",
+      "noSessions": "Žádné uložené relace nenalezeny.",
+      "selectPrompt": "Vyberte relaci k obnovení:",
+      "sessionInfo": "{{name}} - {{date}}"
+    },
+    "resume": {
+      "description": "obnovit předchozí relaci",
+      "resuming": "Obnovování relace {{id}}...",
+      "notFound": "Relace nenalezena: {{id}}",
+      "failed": "Obnovení relace selhalo: {{error}}"
+    },
+    "memory": {
+      "description": "spravovat paměť projektu a uživatele",
+      "title": "Správa paměti",
+      "projectMemory": "Paměť projektu",
+      "userMemory": "Paměť uživatele",
+      "noMemory": "Žádné vzpomínky neuloženy.",
+      "addPrompt": "Přidat novou vzpomínku:",
+      "added": "Vzpomínka přidána.",
+      "cleared": "Paměť vymazána."
+    },
+    "permissions": {
+      "description": "zobrazit aktuální nastavení oprávnění",
+      "title": "Nastavení oprávnění",
+      "mode": "Režim: {{mode}}",
+      "allowed": "Povolené akce:",
+      "denied": "Zamítnuté akce:",
+      "pending": "Čeká na schválení:"
+    },
+    "login": {
+      "description": "přihlásit se ke svému účtu Autohand",
+      "prompt": "Zadejte svůj přihlašovací kód:",
+      "success": "Úspěšně přihlášen jako {{email}}",
+      "failed": "Přihlášení selhalo: {{error}}",
+      "cancelled": "Přihlášení zrušeno."
+    },
+    "logout": {
+      "description": "odhlásit se ze svého účtu Autohand",
+      "confirm": "Odhlásit se z {{email}}?",
+      "success": "Úspěšně odhlášen.",
+      "cancelled": "Odhlášení zrušeno."
+    },
+    "sync": {
+      "description": "spravovat synchronizaci nastavení",
+      "enabled": "Synchronizace nastavení zapnuta.",
+      "disabled": "Synchronizace nastavení vypnuta.",
+      "status": "Stav synchronizace: {{status}}",
+      "lastSync": "Naposledy synchronizováno: {{date}}"
+    },
+    "feedback": {
+      "description": "odeslat zpětnou vazbu o CLI",
+      "prompt": "Zadejte svou zpětnou vazbu:",
+      "success": "Děkujeme za vaši zpětnou vazbu!",
+      "failed": "Odeslání zpětné vazby selhalo: {{error}}"
+    },
+    "hooks": {
+      "description": "spravovat git hooky",
+      "title": "Git hooky",
+      "installed": "Nainstalované hooky:",
+      "available": "Dostupné hooky:",
+      "noHooks": "Žádné hooky nakonfigurovány."
+    },
+    "skills": {
+      "description": "zobrazit a spravovat dovednosti",
+      "title": "Dovednosti",
+      "installed": "Nainstalované dovednosti:",
+      "available": "Dostupné dovednosti:",
+      "noSkills": "Žádné dovednosti nainstalovány."
+    },
+    "export": {
+      "description": "exportovat data relace",
+      "success": "Exportováno do {{path}}",
+      "failed": "Export selhal: {{error}}"
+    },
+    "agents": {
+      "description": "spravovat sub-agenty",
+      "title": "Sub-agenti",
+      "noAgents": "Žádní sub-agenti nakonfigurováni."
+    },
+    "automode": {
+      "description": "spravovat autonomní režim",
+      "starting": "Spouštění auto-režimu...",
+      "stopping": "Zastavování auto-režimu...",
+      "iteration": "Iterace {{current}} z {{max}}",
+      "completed": "Auto-režim dokončen.",
+      "aborted": "Auto-režim přerušen."
+    },
+    "share": {
+      "description": "sdílet relaci",
+      "generating": "Generování odkazu pro sdílení...",
+      "success": "Odkaz pro sdílení: {{url}}",
+      "failed": "Generování odkazu pro sdílení selhalo: {{error}}"
+    },
+    "addDir": {
+      "description": "přidat adresáře do rozsahu pracovního prostoru",
+      "added": "Adresář přidán: {{path}}",
+      "alreadyAdded": "Adresář již přidán: {{path}}",
+      "notFound": "Adresář nenalezen: {{path}}"
+    },
+    "ide": {
+      "description": "připojit se k běžícímu IDE",
+      "title": "Vybrat IDE",
+      "connectDescription": "Připojte se k IDE pro integrované vývojové funkce.",
+      "noIdesDetected": "Nebyla detekována žádná běžící IDE. Spusťte jedno z: VS Code, VS Code Insiders, Cursor, Zed nebo Antigravity.",
+      "noMatchingIdes": "Nebyla detekována žádná dostupná IDE. Ujistěte se, že vaše IDE má nainstalované rozšíření nebo plugin Autohand a je spuštěno.",
+      "foundMatching": "Nalezeno {{count}} IDE odpovídající vašemu aktuálnímu adresáři:",
+      "otherNotMatching": "Nalezeno {{count}} dalších běžících IDE. Jejich adresáře pracovního prostoru/projektu však neodpovídají aktuálnímu cwd.",
+      "selectPrompt": "Vyberte IDE pro připojení:",
+      "connected": "Připojeno k {{ide}}",
+      "extensionHint": "Nainstalujte rozšíření pro hlubší integraci:",
+      "startIde": "Spusťte IDE v tomto adresáři pro připojení."
+    }
+  },
+  "setup": {
+    "welcome": "Vítejte v Autohand!",
+    "subtitle": "Váš superrychlý AI kódovací agent",
+    "letsStart": "Pojďme vás nastavit v několika jednoduchých krocích.",
+    "providerSelect": "Kterého poskytovatele LLM chcete používat?",
+    "apiKeyPrompt": "Zadejte svůj API klíč pro {{provider}}:",
+    "apiKeyHelp": "Získejte svůj API klíč na: {{url}}",
+    "apiKeyHint": "Váš API klíč bude uložen lokálně v ~/.autohand/config.json",
+    "modelPrompt": "Zadejte ID modelu (nebo stiskněte Enter pro výchozí):",
+    "modelDefault": "Výchozí: {{model}}",
+    "testingConnection": "Testování připojení...",
+    "connectionSuccess": "Připojení úspěšné!",
+    "connectionFailed": "Připojení selhalo: {{error}}",
+    "telemetry": {
+      "title": "Pomozte nám zlepšit Autohand",
+      "description": "Sbíráme anonymní data o používání, abychom porozuměli tomu, jak se Autohand používá.",
+      "whatWeCollect": "Co sbíráme:",
+      "collectItem1": "Používání příkazů (které funkce jsou populární)",
+      "collectItem2": "Míra chyb (pro rychlejší opravy)",
+      "collectItem3": "Metriky výkonu (pro zrychlení)",
+      "whatWeNeverCollect": "Co nikdy nesbíráme:",
+      "neverItem1": "Váš kód nebo obsah souborů",
+      "neverItem2": "API klíče nebo přihlašovací údaje",
+      "neverItem3": "Osobní údaje",
+      "prompt": "Sdílet anonymní data o používání pro zlepšení Autohand?",
+      "thanks": "Děkujeme, že nám pomáháte zlepšit Autohand!",
+      "declined": "Žádný problém! Toto můžete kdykoli změnit v konfiguraci."
+    },
+    "complete": "Nastavení dokončeno!",
+    "created": "Co bylo vytvořeno:",
+    "configFile": "~/.autohand/config.json (vaše nastavení)",
+    "agentsFile": "AGENTS.md (instrukce projektu pro Autohand)",
+    "nextSteps": "Další kroky:",
+    "tryCommand": "Zkuste: autohand"
+  },
+  "errors": {
+    "generic": "Došlo k chybě: {{message}}",
+    "invalidLocale": "Neplatný jazyk: {{locale}}. Podporované: {{supported}}",
+    "configParseFailed": "Nepodařilo se zpracovat konfiguraci v {{path}}: {{error}}",
+    "configSaveFailed": "Nepodařilo se uložit konfiguraci: {{error}}",
+    "apiKeyRequired": "API klíč je povinný",
+    "apiKeyTooShort": "API klíč se zdá příliš krátký",
+    "apiKeyInvalid": "Neplatný formát API klíče",
+    "directoryNotExist": "Adresář neexistuje: {{path}}",
+    "unsafeDirectory": "Nebezpečný adresář: {{path}}. Nelze operovat v systémových adresářích.",
+    "fileNotFound": "Soubor nenalezen: {{path}}",
+    "permissionDenied": "Přístup odepřen: {{path}}",
+    "patchRequiresPrompt": "--patch vyžaduje --prompt pro specifikaci instrukce",
+    "autoModeRequiresPrompt": "--auto-mode vyžaduje prompt s úkolem",
+    "noProviderConfigured": "Žádný poskytovatel není nakonfigurován. Spusťte nastavení pomocí: autohand --setup",
+    "modelNotFound": "Model nenalezen: {{model}}",
+    "rateLimited": "Překročen limit požadavků. Počkejte chvíli a zkuste to znovu.",
+    "networkError": "Chyba sítě: {{message}}",
+    "timeout": "Vypršel časový limit požadavku. Zkuste to prosím znovu.",
+    "contextTooLong": "Příliš dlouhý kontext. Zkuste /new pro nový začátek nebo /undo pro odebrání posledních zpráv.",
+    "authFailed": "Ověření selhalo. Zkontrolujte svůj API klíč.",
+    "paymentRequired": "Vyžadována platba. Zkontrolujte zůstatek na svém účtu.",
+    "serverError": "Chyba serveru. Zkuste to prosím později.",
+    "cancelled": "Operace zrušena uživatelem."
+  },
+  "agent": {
+    "thinking": "Přemýšlení...",
+    "executing": "Provádění {{tool}}...",
+    "reading": "Čtení {{file}}...",
+    "writing": "Zápis {{file}}...",
+    "searching": "Vyhledávání...",
+    "toolSuccess": "{{tool}} úspěšně dokončeno",
+    "toolFailed": "{{tool}} selhalo: {{error}}",
+    "taskComplete": "Úkol dokončen",
+    "noChanges": "Nebyly provedeny žádné změny.",
+    "changesApplied": "Změny úspěšně aplikovány.",
+    "awaitingApproval": "Čeká na schválení...",
+    "approved": "Schváleno",
+    "denied": "Zamítnuto",
+    "skipped": "Přeskočeno",
+    "exploring": "Prozkoumávání...",
+    "exploredFiles": "Prozkoumáno {{count}} souborů"
+  },
+  "providers": {
+    "openrouter": "OpenRouter",
+    "openai": "OpenAI",
+    "ollama": "Ollama",
+    "llamacpp": "llama.cpp",
+    "mlx": "MLX (Apple Silicon)",
+    "hints": {
+      "openrouter": "Cloud - Přístup k 100+ modelům (Claude, GPT-4 atd.)",
+      "openai": "Cloud - Oficiální modely OpenAI (GPT-4o, o1 atd.)",
+      "ollama": "Lokální - Spouštějte modely na svém stroji (zdarma)",
+      "llamacpp": "Lokální - Rychlá inference s modely GGUF",
+      "mlx": "Lokální - Optimalizováno pro Apple Silicon Mac"
+    }
+  },
+  "startup": {
+    "checkingTools": "Kontrola požadovaných nástrojů...",
+    "toolFound": "{{tool}} nalezen",
+    "toolMissing": "{{tool}} nenalezen",
+    "installHint": "Nainstalujte pomocí: {{command}}",
+    "allToolsReady": "Všechny nástroje připraveny!",
+    "someToolsMissing": "Některé nástroje chybí. Některé funkce nemusí fungovat."
+  },
+  "confirmation": {
+    "proceed": "Pokračovat?",
+    "areYouSure": "Jste si jisti?",
+    "thisWillDelete": "Toto smaže {{item}}. Tuto akci nelze vrátit.",
+    "confirm": "Potvrdit",
+    "cancel": "Zrušit",
+    "yesDelete": "Ano, smazat",
+    "noDontDelete": "Ne, ponechat"
+  },
+  "diff": {
+    "title": "Změny v {{file}}",
+    "additions": "{{count}} přidání",
+    "deletions": "{{count}} odebrání",
+    "noChanges": "Žádné změny",
+    "apply": "Aplikovat změny?",
+    "applied": "Změny aplikovány.",
+    "discarded": "Změny zahozeny."
+  },
+  "ui": {
+    "escToCancel": "esc pro zrušení",
+    "commandHint": "/ pro příkazy · @ pro zmínění souborů · ! pro terminál",
+    "ctrlCToExit": "Stiskněte Ctrl+C znovu pro ukončení",
+    "noMatchingCommands": "Žádné odpovídající příkazy.",
+    "selectFile": "Vyberte soubor",
+    "noMatchingFiles": "Žádné odpovídající soubory. Pokračujte v psaní\u2026",
+    "thinking": "Přemýšlení",
+    "planModeActive": "Režim plánu aktivní - nástroje jsou pouze pro čtení",
+    "planModeExecuting": "Provádění plánu",
+    "typeToFilter": "Filtr",
+    "navigateHint": "Pište pro filtrování · \u2191/\u2193 navigace · Enter pro spuštění · Esc zrušit",
+    "fileNavigateHint": "Pište pro filtrování · \u2191/\u2193 navigace · Enter vybrat · Esc zrušit",
+    "questionPrompt": "\u2753",
+    "questionOther": "Jiné (napište vlastní odpověď)",
+    "questionYourAnswer": "\u25b8 Vaše odpověď",
+    "questionCustomHint": "\u21b5 Odeslat · ESC Zpět",
+    "questionSelectHint": "\u2191\u2193 Navigace · \u21b5 Vybrat · 1-9 Zkratka · ESC Zrušit",
+    "noOptionsAvailable": "Žádné dostupné možnosti",
+    "planRevise": "Ne, upravit plán",
+    "planEditHint": "ctrl-g pro úpravu ve VS Code",
+    "confirmYes": "Ano",
+    "confirmNo": "Ne",
+    "inputHint": "Enter pro odeslání, ESC pro zrušení",
+    "inputPlaceholder": "Napište svou odpověď...",
+    "passwordPlaceholder": "Zadejte heslo...",
+    "validationError": "Neplatný vstup"
+  },
+  "languages": {
+    "en": "English",
+    "zh-cn": "简体中文 (Simplified Chinese)",
+    "zh-tw": "繁體中文 (Traditional Chinese)",
+    "fr": "Français (French)",
+    "de": "Deutsch (German)",
+    "it": "Italiano (Italian)",
+    "es": "Español (Spanish)",
+    "ja": "日本語 (Japanese)",
+    "ko": "한국어 (Korean)",
+    "ru": "Русский (Russian)",
+    "pt-br": "Português (Brazilian Portuguese)",
+    "tr": "Türkçe (Turkish)",
+    "pl": "Polski (Polish)",
+    "cs": "Čeština (Czech)",
+    "hu": "Magyar (Hungarian)",
+    "hi": "हिन्दी (Hindi)"
+  }
+}
