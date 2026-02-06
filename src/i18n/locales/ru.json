@@ -432,8 +432,6 @@
     "passwordPlaceholder": "Введите пароль...",
     "validationError": "Некорректный ввод"
   },
-<<<<<<< Updated upstream
-=======
   "homebrew": {
     "formulaGenerated": "Homebrew formula generated at {{path}}"
   },
@@ -469,7 +467,6 @@
     "permissionRequested": "Запрошено разрешение: {{action}}",
     "error": "Ошибка ACP: {{message}}"
   },
->>>>>>> Stashed changes
   "languages": {
     "en": "English",
     "zh-cn": "简体中文 (Simplified Chinese)",

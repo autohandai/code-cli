@@ -432,8 +432,6 @@
     "passwordPlaceholder": "Inserisci la password...",
     "validationError": "Input non valido"
   },
-<<<<<<< Updated upstream
-=======
   "homebrew": {
     "formulaGenerated": "Homebrew formula generated at {{path}}"
   },
@@ -469,7 +467,6 @@
     "permissionRequested": "Autorizzazione richiesta: {{action}}",
     "error": "Errore ACP: {{message}}"
   },
->>>>>>> Stashed changes
   "languages": {
     "en": "English",
     "zh-cn": "\u7b80\u4f53\u4e2d\u6587 (Simplified Chinese)",
