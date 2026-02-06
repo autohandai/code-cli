@@ -253,6 +253,10 @@ export class SlashCommandHandler {
           const { plan } = await import('../commands/plan.js');
           return plan(this.ctx, args.join(' '));
         }
+        case '/ide': {
+          const { ide } = await import('../commands/ide.js');
+          return ide({ workspaceRoot: this.ctx.workspaceRoot });
+        }
         default:
           this.printUnsupported(command);
           return null;
