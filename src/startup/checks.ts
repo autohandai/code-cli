@@ -5,7 +5,7 @@
  *
  * Startup checks - validates required tools and environment
  */
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import os from 'node:os';
 import chalk from 'chalk';
 import fs from 'fs-extra';
@@ -95,44 +95,78 @@ const OPTIONAL_TOOLS: ToolCheck[] = [
 ];
 
 /**
- * Check if a tool is installed and get its version
+ * Check if a tool is installed and get its version (async to avoid blocking event loop)
  */
-function checkTool(tool: ToolCheck): CheckResult {
+function checkTool(tool: ToolCheck): Promise<CheckResult> {
   const platform = os.platform() as 'darwin' | 'linux' | 'win32';
   const installHint = tool.installHints[platform] || tool.installHints.linux;
 
-  try {
-    const result = spawnSync(tool.command, [tool.versionFlag], {
-      encoding: 'utf8',
-      timeout: 5000,
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
+  return new Promise<CheckResult>((resolve) => {
+    try {
+      const proc = spawn(tool.command, [tool.versionFlag], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
 
-    if (result.status === 0) {
-      // Extract version from output
-      const output = (result.stdout || result.stderr || '').trim();
-      const versionMatch = output.match(/(\d+\.\d+(\.\d+)?)/);
-      const version = versionMatch ? versionMatch[1] : 'unknown';
+      let stdout = '';
+      let stderr = '';
+      const timeout = setTimeout(() => {
+        proc.kill();
+        resolve({
+          name: tool.name,
+          installed: false,
+          required: tool.required,
+          description: tool.description,
+          installHint,
+        });
+      }, 5000);
 
-      return {
+      proc.stdout?.on('data', (chunk) => { stdout += chunk.toString(); });
+      proc.stderr?.on('data', (chunk) => { stderr += chunk.toString(); });
+
+      proc.on('close', (code) => {
+        clearTimeout(timeout);
+        if (code === 0) {
+          const output = (stdout || stderr).trim();
+          const versionMatch = output.match(/(\d+\.\d+(\.\d+)?)/);
+          const version = versionMatch ? versionMatch[1] : 'unknown';
+          resolve({
+            name: tool.name,
+            installed: true,
+            version,
+            required: tool.required,
+            description: tool.description,
+          });
+        } else {
+          resolve({
+            name: tool.name,
+            installed: false,
+            required: tool.required,
+            description: tool.description,
+            installHint,
+          });
+        }
+      });
+
+      proc.on('error', () => {
+        clearTimeout(timeout);
+        resolve({
+          name: tool.name,
+          installed: false,
+          required: tool.required,
+          description: tool.description,
+          installHint,
+        });
+      });
+    } catch {
+      resolve({
         name: tool.name,
-        installed: true,
-        version,
+        installed: false,
         required: tool.required,
-        description: tool.description
-      };
+        description: tool.description,
+        installHint,
+      });
     }
-  } catch {
-    // Tool not found or error running it
-  }
-
-  return {
-    name: tool.name,
-    installed: false,
-    required: tool.required,
-    description: tool.description,
-    installHint
-  };
+  });
 }
 
 /**
@@ -167,52 +201,51 @@ function isEmptyDirectory(dir: string): boolean {
 }
 
 /**
+ * Run a git command and return trimmed stdout, or undefined on failure
+ */
+function runGitCommand(args: string[], cwd: string): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    try {
+      const proc = spawn('git', args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+      let stdout = '';
+      const timeout = setTimeout(() => { proc.kill(); resolve(undefined); }, 5000);
+
+      proc.stdout?.on('data', (chunk) => { stdout += chunk.toString(); });
+      proc.on('close', (code) => {
+        clearTimeout(timeout);
+        resolve(code === 0 && stdout.trim() ? stdout.trim() : undefined);
+      });
+      proc.on('error', () => { clearTimeout(timeout); resolve(undefined); });
+    } catch {
+      resolve(undefined);
+    }
+  });
+}
+
+/**
  * Get the current git branch name
  * Handles repos with no commits (uses symbolic-ref as fallback)
  */
-function getGitBranch(workspaceRoot: string): string | undefined {
+async function getGitBranch(workspaceRoot: string): Promise<string | undefined> {
   // Try rev-parse first (works when there are commits)
-  try {
-    const result = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-      cwd: workspaceRoot,
-      encoding: 'utf8',
-      timeout: 5000
-    });
-    if (result.status === 0 && result.stdout.trim()) {
-      return result.stdout.trim();
-    }
-  } catch {
-    // Fall through to symbolic-ref
-  }
+  const branch = await runGitCommand(['rev-parse', '--abbrev-ref', 'HEAD'], workspaceRoot);
+  if (branch) return branch;
 
   // Fall back to symbolic-ref (works for repos with no commits)
-  try {
-    const result = spawnSync('git', ['symbolic-ref', '--short', 'HEAD'], {
-      cwd: workspaceRoot,
-      encoding: 'utf8',
-      timeout: 5000
-    });
-    if (result.status === 0 && result.stdout.trim()) {
-      return result.stdout.trim();
-    }
-  } catch {
-    // Ignore
-  }
-
-  return undefined;
+  return runGitCommand(['symbolic-ref', '--short', 'HEAD'], workspaceRoot);
 }
 
 /**
  * Check if inside a git repository
  * If directory is empty and not a git repo, auto-initialize git
  */
-function checkGitRepo(workspaceRoot: string): { isGitRepo: boolean; branch?: string; initialized?: boolean } {
+async function checkGitRepo(workspaceRoot: string): Promise<{ isGitRepo: boolean; branch?: string; initialized?: boolean }> {
   // First check if .git directory exists (works even with no commits)
   const gitDirExists = fs.existsSync(`${workspaceRoot}/.git`);
 
   if (gitDirExists) {
     // It's a git repo - get the branch name
-    const branch = getGitBranch(workspaceRoot);
+    const branch = await getGitBranch(workspaceRoot);
     return {
       isGitRepo: true,
       branch
@@ -221,37 +254,29 @@ function checkGitRepo(workspaceRoot: string): { isGitRepo: boolean; branch?: str
 
   // Not a git repo - check if empty and auto-init
   if (isEmptyDirectory(workspaceRoot)) {
-    try {
-      const initResult = spawnSync('git', ['init'], {
-        cwd: workspaceRoot,
-        encoding: 'utf8',
-        timeout: 5000
-      });
+    const initResult = await runGitCommand(['init'], workspaceRoot);
 
-      if (initResult.status === 0) {
-        // On macOS, create .gitignore with .DS_Store
-        if (os.platform() === 'darwin') {
-          try {
-            const gitignorePath = `${workspaceRoot}/.gitignore`;
-            if (!fs.existsSync(gitignorePath)) {
-              fs.writeFileSync(gitignorePath, '.DS_Store\n');
-            }
-          } catch {
-            // Ignore errors creating .gitignore
+    if (initResult !== undefined) {
+      // On macOS, create .gitignore with .DS_Store
+      if (os.platform() === 'darwin') {
+        try {
+          const gitignorePath = `${workspaceRoot}/.gitignore`;
+          if (!fs.existsSync(gitignorePath)) {
+            fs.writeFileSync(gitignorePath, '.DS_Store\n');
           }
+        } catch {
+          // Ignore errors creating .gitignore
         }
-
-        // Get the default branch name
-        const branch = getGitBranch(workspaceRoot) || 'main';
-
-        return {
-          isGitRepo: true,
-          branch,
-          initialized: true
-        };
       }
-    } catch {
-      // Failed to init, return as non-git repo
+
+      // Get the default branch name
+      const branch = await getGitBranch(workspaceRoot) || 'main';
+
+      return {
+        isGitRepo: true,
+        branch,
+        initialized: true
+      };
     }
   }
 
@@ -293,30 +318,25 @@ export interface StartupCheckResults {
 
 /**
  * Run all startup checks
+ * All tool checks run in parallel (async spawn) to avoid blocking the event loop
  */
 export async function runStartupChecks(workspaceRoot: string): Promise<StartupCheckResults> {
-  const toolResults: CheckResult[] = [];
   const warnings: string[] = [];
 
-  // Check required tools
-  for (const tool of REQUIRED_TOOLS) {
-    const result = checkTool(tool);
-    toolResults.push(result);
+  // Run ALL tool checks + workspace checks in parallel
+  const allTools = [...REQUIRED_TOOLS, ...OPTIONAL_TOOLS];
+  const [toolResults, workspaceCheck, gitCheck] = await Promise.all([
+    Promise.all(allTools.map(tool => checkTool(tool))),
+    checkWorkspaceWritable(workspaceRoot),
+    checkGitRepo(workspaceRoot),
+  ]);
 
-    if (!result.installed && tool.required) {
-      warnings.push(`Required tool '${tool.name}' is not installed`);
+  // Collect warnings
+  for (const result of toolResults) {
+    if (!result.installed && result.required) {
+      warnings.push(`Required tool '${result.name}' is not installed`);
     }
   }
-
-  // Check optional tools (but don't warn, just inform)
-  for (const tool of OPTIONAL_TOOLS) {
-    const result = checkTool(tool);
-    toolResults.push(result);
-  }
-
-  // Check workspace
-  const workspaceCheck = await checkWorkspaceWritable(workspaceRoot);
-  const gitCheck = checkGitRepo(workspaceRoot);
 
   if (!workspaceCheck.writable) {
     warnings.push(workspaceCheck.error || 'Workspace is not writable');
@@ -414,14 +434,8 @@ export function printStartupCheckResults(results: StartupCheckResults, verbose =
 /**
  * Quick check - returns true if all required tools are available
  */
-export function quickCheck(): boolean {
-  for (const tool of REQUIRED_TOOLS) {
-    if (tool.required) {
-      const result = checkTool(tool);
-      if (!result.installed) {
-        return false;
-      }
-    }
-  }
-  return true;
+export async function quickCheck(): Promise<boolean> {
+  const requiredTools = REQUIRED_TOOLS.filter(t => t.required);
+  const results = await Promise.all(requiredTools.map(t => checkTool(t)));
+  return results.every(r => r.installed);
 }

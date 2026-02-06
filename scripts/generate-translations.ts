@@ -1,4 +1,3 @@
-#!/usr/bin/env tsx
 /**
  * AI Translation Generator for Autohand CLI
  *
@@ -77,21 +76,21 @@ async function translateWithLLM(
 
   const targetLanguage = LANGUAGE_NAMES[targetLocale] || targetLocale;
 
-  const prompt = `You are a professional translator specializing in software localization.
-Translate the following JSON from English to ${targetLanguage}.
+  const prompt = `You are a professional translator specializing in software localization.`
+    + `Translate the following JSON from English to ${targetLanguage}.`
 
-IMPORTANT RULES:
-1. Preserve all JSON structure, keys, and interpolation variables (e.g., {{variable}})
-2. Preserve technical terms, file paths, command names, and code references
-3. Translate only the string values, not the keys
-4. Maintain the same level of formality and tone
-5. For CLI tools, use appropriate technical terminology in ${targetLanguage}
-6. Return ONLY valid JSON, no explanations or markdown fencing
+    + `\n\nIMPORTANT RULES:`
+    + `1. Preserve all JSON structure, keys, and interpolation variables (e.g., {{variable}})`
+    + `2. Preserve technical terms, file paths, command names, and code references`
+    + `3. Translate only the string values, not the keys`
+    + `4. Maintain the same level of formality and tone`
+    + `5. For CLI tools, use appropriate technical terminology in ${targetLanguage}`
+    + `6. Return ONLY valid JSON, no explanations or markdown fencing`
 
-Source JSON:
-${JSON.stringify(sourceStrings, null, 2)}
+    + `\n\nSource JSON:`
+    + `${JSON.stringify(sourceStrings, null, 2)}`
 
-Translated JSON:`;
+    + `\n\nTranslated JSON:`;
 
   const response = await fetch(`${BASE_URL}/chat/completions`, {
     method: 'POST',
@@ -158,16 +157,16 @@ function countKeys(obj: Record<string, unknown>, prefix = ''): number {
 }
 
 async function generateTranslations() {
-  console.log('🌐 Autohand CLI Translation Generator\n');
+  console.log('\ud83c\udf10 Autohand CLI Translation Generator\n');
 
   if (!OPENROUTER_API_KEY) {
-    console.error('❌ Error: OPENROUTER_API_KEY environment variable is required');
+    console.error('\u274c Error: OPENROUTER_API_KEY environment variable is required');
     console.error('   Set it with: export OPENROUTER_API_KEY="sk-or-..."');
     process.exit(1);
   }
 
-  console.log(`📡 Using model: ${MODEL}`);
-  console.log(`📁 Locales directory: ${LOCALES_DIR}\n`);
+  console.log(`\ud83d\udce1 Using model: ${MODEL}`);
+  console.log(`\ud83d\udcc1 Locales directory: ${LOCALES_DIR}\n`);
 
   // Ensure locales directory exists
   await fs.ensureDir(LOCALES_DIR);
@@ -176,16 +175,16 @@ async function generateTranslations() {
   const sourcePath = path.join(LOCALES_DIR, `${SOURCE_LOCALE}.json`);
 
   if (!(await fs.pathExists(sourcePath))) {
-    console.error(`❌ Error: Source locale file not found: ${sourcePath}`);
+    console.error(`\u274c Error: Source locale file not found: ${sourcePath}`);
     process.exit(1);
   }
 
   const sourceStrings = await fs.readJson(sourcePath);
   const keyCount = countKeys(sourceStrings);
 
-  console.log(`📖 Loaded source locale: ${SOURCE_LOCALE}`);
-  console.log(`📊 Total keys to translate: ${keyCount}`);
-  console.log(`🎯 Target locales: ${TARGET_LOCALES.length}\n`);
+  console.log(`\udcd6 Loaded source locale: ${SOURCE_LOCALE}`);
+  console.log(`\ud83d\udcca Total keys to translate: ${keyCount}`);
+  console.log(`\ud83c\udfaf Target locales: ${TARGET_LOCALES.length}\n`);
 
   const results: { locale: string; status: 'success' | 'failed'; error?: string }[] = [];
 
@@ -193,7 +192,7 @@ async function generateTranslations() {
     const targetPath = path.join(LOCALES_DIR, `${targetLocale}.json`);
     const languageName = LANGUAGE_NAMES[targetLocale] || targetLocale;
 
-    console.log(`🔄 Translating to ${languageName} (${targetLocale})...`);
+    console.log(`\ud83d\udd04 Translating to ${languageName} (${targetLocale})...`);
 
     try {
       // Translate
@@ -207,37 +206,37 @@ async function generateTranslations() {
       const translatedKeyCount = countKeys(translated);
       if (translatedKeyCount !== keyCount) {
         console.warn(
-          `   ⚠️  Key count mismatch: expected ${keyCount}, got ${translatedKeyCount}`
+          `   \u26a0\ufe0f  Key count mismatch: expected ${keyCount}, got ${translatedKeyCount}`
         );
       }
 
       // Write to file
       await fs.writeJson(targetPath, translated, { spaces: 2 });
 
-      console.log(`   ✅ Written to ${path.basename(targetPath)}`);
+      console.log(`   \u2705 Written to ${path.basename(targetPath)}`);
       results.push({ locale: targetLocale, status: 'success' });
 
       // Rate limiting - wait between requests to avoid hitting limits
       if (TARGET_LOCALES.indexOf(targetLocale) < TARGET_LOCALES.length - 1) {
-        console.log('   ⏳ Waiting 2 seconds before next translation...');
+        console.log('   \u23f3 Waiting 2 seconds before next translation...');
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
     } catch (error) {
       const errorMessage = (error as Error).message;
-      console.error(`   ❌ Failed: ${errorMessage}`);
+      console.error(`   \u274c Failed: ${errorMessage}`);
       results.push({ locale: targetLocale, status: 'failed', error: errorMessage });
     }
   }
 
   // Summary
-  console.log('\n📊 Translation Summary:');
-  console.log('─'.repeat(50));
+  console.log('\n\ud83d\udcca Translation Summary:');
+  console.log('\u2500'.repeat(50));
 
   const successful = results.filter((r) => r.status === 'success');
   const failed = results.filter((r) => r.status === 'failed');
 
-  console.log(`   ✅ Successful: ${successful.length}`);
-  console.log(`   ❌ Failed: ${failed.length}`);
+  console.log(`   \u2705 Successful: ${successful.length}`);
+  console.log(`   \u274c Failed: ${failed.length}`);
 
   if (failed.length > 0) {
     console.log('\n   Failed locales:');
@@ -246,7 +245,7 @@ async function generateTranslations() {
     }
   }
 
-  console.log('\n✨ Translation generation complete!');
+  console.log('\n\u2728 Translation generation complete!');
 
   if (failed.length > 0) {
     process.exit(1);

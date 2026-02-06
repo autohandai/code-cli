@@ -29,6 +29,14 @@ export class WorkspaceFileCollector {
   ) {}
 
   /**
+   * Return cached workspace files immediately (no I/O).
+   * Used by promptForInstruction to avoid blocking the prompt.
+   */
+  getCachedFiles(): string[] {
+    return this.workspaceFiles;
+  }
+
+  /**
    * List workspace files to console (sorted alphabetically)
    */
   async listWorkspaceFiles(): Promise<void> {

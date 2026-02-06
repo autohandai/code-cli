@@ -380,58 +380,6 @@ async function runCLI(options: CLIOptions): Promise<void> {
       additionalDirs: additionalDirs.length > 0 ? additionalDirs : undefined
     };
 
-    // Validate auth on startup (non-blocking)
-    const authUser = await validateAuthOnStartup(config);
-
-    // Start settings sync service for logged-in users
-    let syncService: import('./sync/SyncService.js').SyncService | null = null;
-    if (authUser && config.auth?.token) {
-      // Parse --sync-settings flag (default: true for logged users)
-      const syncEnabled = options.syncSettings !== false &&
-        config.sync?.enabled !== false;
-
-      if (syncEnabled) {
-        try {
-          const { createSyncService, DEFAULT_SYNC_CONFIG } = await import('./sync/index.js');
-          const { setSyncService } = await import('./commands/sync.js');
-          syncService = createSyncService({
-            authToken: config.auth.token,
-            userId: authUser.id,
-            config: {
-              ...DEFAULT_SYNC_CONFIG,
-              ...config.sync,
-              enabled: true,
-            },
-            onAuthFailure: async () => {
-              // Clear invalid auth
-              config.auth = undefined;
-              try {
-                await saveConfig(config);
-              } catch {
-                // Ignore save errors
-              }
-              console.log(chalk.yellow('Session expired. Run /login to sign in again.'));
-            },
-          });
-          syncService.start();
-
-          // Set sync service reference for /sync command
-          setSyncService(syncService);
-
-          // Stop sync on process exit
-          const stopSync = () => {
-            syncService?.stop();
-            setSyncService(null);
-          };
-          process.on('exit', stopSync);
-          process.on('SIGINT', stopSync);
-          process.on('SIGTERM', stopSync);
-        } catch {
-          // Sync service failed to start, continue without it
-        }
-      }
-    }
-
     // Print banner FIRST for immediate visual feedback
     printBanner();
 
@@ -449,28 +397,76 @@ async function runCLI(options: CLIOptions): Promise<void> {
     process.on('SIGINT', stopPing);
     process.on('SIGTERM', stopPing);
 
-    // Start version check and startup checks in parallel (non-blocking)
-    const versionCheckPromise = config.ui?.checkForUpdates !== false
-      ? checkForUpdates(packageJson.version, {
-          checkIntervalHours: config.ui?.updateCheckInterval ?? 24,
-        })
-      : Promise.resolve(null);
+    // Print welcome immediately with no version/auth info - don't block on network
+    printWelcome(runtime, undefined, null);
 
-    const startupChecksPromise = runStartupChecks(workspaceRoot);
+    // Run auth, version check, startup checks in background (fire-and-forget)
+    // These complete while the user reads the welcome message and types
+    const startupPromise = (async () => {
+      try {
+        const versionCheckPromise = config.ui?.checkForUpdates !== false
+          ? checkForUpdates(packageJson.version, {
+              checkIntervalHours: config.ui?.updateCheckInterval ?? 24,
+            })
+          : Promise.resolve(null);
 
-    // Wait for both to complete in parallel
-    const [versionCheck, checkResults] = await Promise.all([
-      versionCheckPromise,
-      startupChecksPromise,
-    ]);
+        const [authUser, versionCheck, checkResults] = await Promise.all([
+          validateAuthOnStartup(config),
+          versionCheckPromise,
+          runStartupChecks(workspaceRoot),
+        ]);
 
-    printWelcome(runtime, authUser, versionCheck);
-    printStartupCheckResults(checkResults);
+        // Print startup check warnings (missing tools etc.)
+        printStartupCheckResults(checkResults);
 
-    // Warn but continue if required tools are missing
-    if (!checkResults.allRequiredMet) {
-      console.log(chalk.yellow('Continuing anyway, but some features may not work correctly.\n'));
-    }
+        if (!checkResults.allRequiredMet) {
+          console.log(chalk.yellow('Continuing anyway, but some features may not work correctly.\n'));
+        }
+
+        // Start settings sync service for logged-in users
+        if (authUser && config.auth?.token) {
+          const syncEnabled = options.syncSettings !== false &&
+            config.sync?.enabled !== false;
+
+          if (syncEnabled) {
+            try {
+              const { createSyncService, DEFAULT_SYNC_CONFIG } = await import('./sync/index.js');
+              const { setSyncService } = await import('./commands/sync.js');
+              const syncService = createSyncService({
+                authToken: config.auth.token,
+                userId: authUser.id,
+                config: {
+                  ...DEFAULT_SYNC_CONFIG,
+                  ...config.sync,
+                  enabled: true,
+                },
+                onAuthFailure: async () => {
+                  config.auth = undefined;
+                  try { await saveConfig(config); } catch { /* ignore */ }
+                  console.log(chalk.yellow('Session expired. Run /login to sign in again.'));
+                },
+              });
+              syncService.start();
+              setSyncService(syncService);
+
+              const stopSync = () => {
+                syncService?.stop();
+                setSyncService(null);
+              };
+              process.on('exit', stopSync);
+              process.on('SIGINT', stopSync);
+              process.on('SIGTERM', stopSync);
+            } catch {
+              // Sync service failed to start, continue without it
+            }
+          }
+        }
+      } catch {
+        // Non-critical startup tasks - don't crash on failure
+      }
+    })();
+
+    // Don't await startupPromise - let it run while agent initializes
 
     // Note: Git repo check is passed to the agent via runtime.
     // The agent/LLM can suggest initializing git if needed for complex tasks.

@@ -213,12 +213,15 @@ export class AutohandAgent {
           return;
         }
         // Display hook output to console (only if not a JSON control flow response)
-        // Use synchronous write to prevent race conditions with prompt rendering
+        // Write text THEN newline separately to prevent ANSI reset codes
+        // from being written after \n (which corrupts the next line for readline)
         if (result.stdout && !result.response) {
-          process.stdout.write(chalk.dim(`[hook:${result.hook.event}] ${result.stdout}\n`));
+          const msg = chalk.dim(`[hook:${result.hook.event}] ${result.stdout}`);
+          process.stdout.write(msg + '\n');
         }
         if (result.stderr && !result.blockingError) {
-          process.stderr.write(chalk.yellow(`[hook:${result.hook.event}] ${result.stderr}\n`));
+          const msg = chalk.yellow(`[hook:${result.hook.event}] ${result.stderr}`);
+          process.stderr.write(msg + '\n');
         }
       }
     });
@@ -546,46 +549,79 @@ export class AutohandAgent {
     this.contextCompactionEnabled = enabled;
   }
 
+  /** Promise that resolves when background init is complete */
+  private initReady: Promise<void> | null = null;
+  private initDone = false;
+
   async runInteractive(): Promise<void> {
-    // Initialize managers in parallel for faster startup
-    await Promise.all([
-      this.sessionManager.initialize(),
-      this.projectManager.initialize(),
-      this.memoryManager.initialize(),
-      this.skillsRegistry.initialize(),
-      this.hookManager.initialize(),
-      // Pre-load workspace files in background so prompt appears instantly
-      this.workspaceFileCollector.collectWorkspaceFiles(),
-    ]);
-    // These must run sequentially after the parallel init
-    await this.skillsRegistry.setWorkspace(this.runtime.workspaceRoot);
-    await this.resetConversationContext();
-    this.feedbackManager.startSession();
-    const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
-    const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
-    await this.sessionManager.createSession(this.runtime.workspaceRoot, model);
+    // Start ALL initialization in background so prompt appears instantly.
+    // The user can start typing while managers initialize.
+    // When they submit, we await initReady before processing.
+    this.initReady = this.performBackgroundInit();
 
-    // Start telemetry session
-    const session = this.sessionManager.getCurrentSession();
-    if (session) {
-      await this.telemetryManager.startSession(
-        session.metadata.sessionId,
-        model,
-        this.activeProvider
-      );
-    }
-
-    // Fire session-start hook
-    await this.hookManager.executeHooks('session-start', {
-      sessionId: session?.metadata.sessionId,
-      sessionType: 'startup',
-    });
-
-    // Ensure hook output is fully flushed before starting interactive loop
-    // This prevents race conditions with prompt rendering
-    process.stdout.write('');
-
+    // Show prompt immediately - don't wait for init
     await this.runInteractiveLoop();
+  }
+
+  /**
+   * Background initialization - runs while prompt is visible.
+   * Everything here happens concurrently with the user reading/typing.
+   * NOTE: Must NOT write to stdout - the prompt is already rendering.
+   */
+  private async performBackgroundInit(): Promise<void> {
+    try {
+      // Phase 1: Parallel manager initialization
+      await Promise.all([
+        this.sessionManager.initialize(),
+        this.projectManager.initialize(),
+        this.memoryManager.initialize(),
+        this.skillsRegistry.initialize(),
+        this.hookManager.initialize(),
+        this.workspaceFileCollector.collectWorkspaceFiles(),
+      ]);
+
+      // Phase 2: Sequential setup that depends on phase 1
+      await this.skillsRegistry.setWorkspace(this.runtime.workspaceRoot);
+      await this.resetConversationContext();
+      this.feedbackManager.startSession();
+      const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
+      const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
+      await this.sessionManager.createSession(this.runtime.workspaceRoot, model);
+
+      // Phase 3: Telemetry (no stdout output)
+      const session = this.sessionManager.getCurrentSession();
+      if (session) {
+        await this.telemetryManager.startSession(
+          session.metadata.sessionId,
+          model,
+          this.activeProvider
+        );
+      }
+
+      // NOTE: session-start hook is fired in ensureInitComplete() AFTER the
+      // prompt closes, so its output doesn't corrupt the readline display.
+    } finally {
+      this.initDone = true;
+    }
+  }
+
+  /**
+   * Ensure background initialization is complete before processing instructions.
+   * Called once when user submits their first instruction (prompt is closed).
+   * Also fires the session-start hook here so output renders cleanly.
+   */
+  private async ensureInitComplete(): Promise<void> {
+    if (this.initReady) {
+      await this.initReady;
+      this.initReady = null;
+
+      // Fire session-start hook now that the prompt is closed and stdout is clean
+      const session = this.sessionManager.getCurrentSession();
+      await this.hookManager.executeHooks('session-start', {
+        sessionId: session?.metadata.sessionId,
+        sessionType: 'startup',
+      });
+    }
   }
 
   /**
@@ -843,6 +879,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
           continue;
         }
 
+        // Ensure background init is complete before processing any instruction.
+        // This runs while the user was typing, so it's usually already done.
+        await this.ensureInitComplete();
+
         if (instruction === '/exit' || instruction === '/quit') {
           await this.telemetryManager.trackCommand({ command: instruction });
           const trigger = this.feedbackManager.shouldPrompt({ sessionEnding: true });
@@ -947,7 +987,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async promptForInstruction(): Promise<string | null> {
-    const workspaceFiles = await this.workspaceFileCollector.collectWorkspaceFiles();
+    // Use cached workspace files for instant prompt display.
+    // Files are pre-loaded during runInteractive() init and cached for 30s.
+    // Trigger a background refresh without blocking the prompt.
+    const workspaceFiles = this.workspaceFileCollector.getCachedFiles();
+    this.workspaceFileCollector.collectWorkspaceFiles().catch(() => {});
     const statusLine = this.formatStatusLine();
     const input = await readInstruction(
       workspaceFiles,
