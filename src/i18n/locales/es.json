@@ -437,6 +437,14 @@
     "passwordPlaceholder": "Ingrese contraseña...",
     "validationError": "Entrada inválida"
   },
+  "pipe": {
+    "reading": "Leyendo entrada canalizada...",
+    "processing": "Procesando con {{model}}...",
+    "complete": "Tarea completada",
+    "error": "Error en modo pipe: {{message}}",
+    "timeout": "Tiempo agotado en modo pipe después de {{seconds}}s",
+    "noPrompt": "No se proporcionó prompt. Uso: echo 'código' | autohand 'explicar'"
+  },
   "languages": {
     "en": "English",
     "zh-cn": "简体中文 (Chino Simplificado)",

@@ -437,6 +437,14 @@
     "passwordPlaceholder": "Digite a senha...",
     "validationError": "Entrada inválida"
   },
+  "pipe": {
+    "reading": "Lendo entrada canalizada...",
+    "processing": "Processando com {{model}}...",
+    "complete": "Tarefa concluída",
+    "error": "Erro no modo pipe: {{message}}",
+    "timeout": "Tempo esgotado no modo pipe após {{seconds}}s",
+    "noPrompt": "Nenhum prompt fornecido. Uso: echo 'código' | autohand 'explicar'"
+  },
   "languages": {
     "en": "English",
     "zh-cn": "简体中文 (Chinês Simplificado)",
