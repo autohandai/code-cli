@@ -57,7 +57,12 @@
       "maxRuntime": "Tiempo máximo de ejecución en minutos (por defecto: 120)",
       "maxCost": "Costo máximo de API en dólares (por defecto: 10)",
       "setup": "Ejecutar el asistente de configuración",
-      "addDir": "Agregar directorios adicionales al ámbito del espacio de trabajo"
+      "addDir": "Agregar directorios adicionales al ámbito del espacio de trabajo",
+      "thinking": "Establecer profundidad de razonamiento (none, normal, extended)"
+    },
+    "thinking": {
+      "enabled": "Pensamiento extendido habilitado",
+      "level": "Nivel de pensamiento: {{level}}"
     },
     "stdin": {
       "reading": "Leyendo entrada por tubería...",

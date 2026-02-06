@@ -57,7 +57,12 @@
       "maxRuntime": "Durée maximale d'exécution en minutes (par défaut: 120)",
       "maxCost": "Coût API maximum en dollars (par défaut: 10)",
       "setup": "Exécuter l'assistant de configuration",
-      "addDir": "Ajouter des répertoires supplémentaires à la portée du workspace"
+      "addDir": "Ajouter des répertoires supplémentaires à la portée du workspace",
+      "thinking": "Définir la profondeur de raisonnement (none, normal, extended)"
+    },
+    "thinking": {
+      "enabled": "Pensée étendue activée",
+      "level": "Niveau de pensée : {{level}}"
     },
     "stdin": {
       "reading": "Lecture de l'entrée par pipe...",

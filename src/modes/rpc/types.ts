@@ -219,6 +219,8 @@ export interface PromptParams {
   };
   /** Image attachments for multimodal prompts */
   images?: RpcImageAttachment[];
+  /** Thinking/reasoning depth level */
+  thinkingLevel?: 'none' | 'normal' | 'extended';
 }
 
 export interface AbortParams {

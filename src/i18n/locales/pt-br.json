@@ -57,7 +57,12 @@
       "maxRuntime": "Tempo máximo de execução em minutos (padrão: 120)",
       "maxCost": "Custo máximo de API em dólares (padrão: 10)",
       "setup": "Executar o assistente de configuração",
-      "addDir": "Adicionar diretórios adicionais ao escopo do workspace"
+      "addDir": "Adicionar diretórios adicionais ao escopo do workspace",
+      "thinking": "Definir profundidade de raciocínio (none, normal, extended)"
+    },
+    "thinking": {
+      "enabled": "Pensamento estendido habilitado",
+      "level": "Nível de pensamento: {{level}}"
     },
     "stdin": {
       "reading": "Lendo entrada via pipe...",
