@@ -58,6 +58,11 @@
       "maxCost": "Costo máximo de API en dólares (por defecto: 10)",
       "setup": "Ejecutar el asistente de configuración",
       "addDir": "Agregar directorios adicionales al ámbito del espacio de trabajo"
+    },
+    "stdin": {
+      "reading": "Leyendo entrada por tubería...",
+      "timeout": "Tiempo de espera de stdin agotado",
+      "empty": "No se recibió entrada de la tubería"
     }
   },
   "welcome": {
