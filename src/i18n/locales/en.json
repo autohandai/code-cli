@@ -437,6 +437,14 @@
     "passwordPlaceholder": "Enter password...",
     "validationError": "Invalid input"
   },
+  "pipe": {
+    "reading": "Reading piped input...",
+    "processing": "Processing with {{model}}...",
+    "complete": "Task completed",
+    "error": "Pipe mode error: {{message}}",
+    "timeout": "Pipe mode timeout after {{seconds}}s",
+    "noPrompt": "No prompt provided. Usage: echo 'code' | autohand 'explain'"
+  },
   "languages": {
     "en": "English",
     "zh-cn": "简体中文 (Simplified Chinese)",

@@ -154,6 +154,10 @@ export const RPC_NOTIFICATIONS = {
   AUTOMODE_CANCEL: 'autohand.automode.cancel',
   AUTOMODE_COMPLETE: 'autohand.automode.complete',
   AUTOMODE_ERROR: 'autohand.automode.error',
+  // Pipe mode notifications
+  PIPE_OUTPUT: 'autohand.pipe.output',
+  PIPE_COMPLETE: 'autohand.pipe.complete',
+  PIPE_ERROR: 'autohand.pipe.error',
 } as const;
 
 export type RpcNotification = (typeof RPC_NOTIFICATIONS)[keyof typeof RPC_NOTIFICATIONS];
@@ -876,5 +880,19 @@ export interface AutomodeCompleteNotificationParams {
 export interface AutomodeErrorNotificationParams {
   sessionId: string;
   error: string;
+  timestamp: string;
+}
+
+// ============================================================================
+// Pipe Mode Notification Types
+// ============================================================================
+
+/**
+ * Notification params for pipe mode output events.
+ * Sent to RPC clients when pipe mode produces output.
+ */
+export interface PipeOutputNotificationParams {
+  type: 'progress' | 'result' | 'error';
+  content: string;
   timestamp: string;
 }
