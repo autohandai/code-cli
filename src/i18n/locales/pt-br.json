@@ -58,6 +58,11 @@
       "maxCost": "Custo máximo de API em dólares (padrão: 10)",
       "setup": "Executar o assistente de configuração",
       "addDir": "Adicionar diretórios adicionais ao escopo do workspace"
+    },
+    "stdin": {
+      "reading": "Lendo entrada via pipe...",
+      "timeout": "Tempo limite de leitura do stdin",
+      "empty": "Nenhuma entrada recebida do pipe"
     }
   },
   "welcome": {

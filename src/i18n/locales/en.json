@@ -58,6 +58,11 @@
       "maxCost": "Max API cost in dollars (default: 10)",
       "setup": "Run the setup wizard",
       "addDir": "Add additional directories to workspace scope"
+    },
+    "stdin": {
+      "reading": "Reading piped input...",
+      "timeout": "Stdin read timeout",
+      "empty": "No input received from pipe"
     }
   },
   "welcome": {
