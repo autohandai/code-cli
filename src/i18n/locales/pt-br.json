@@ -58,7 +58,9 @@
       "maxCost": "Custo máximo de API em dólares (padrão: 10)",
       "setup": "Executar o assistente de configuração",
       "addDir": "Adicionar diretórios adicionais ao escopo do workspace",
-      "thinking": "Definir profundidade de raciocínio (none, normal, extended)"
+      "thinking": "Definir profundidade de raciocínio (none, normal, extended)",
+      "yolo": "Auto-aprovar chamadas de ferramentas que correspondam ao padrão (ex., allow:read,write ou deny:delete)",
+      "timeout": "Tempo limite em segundos para o modo de auto-aprovação"
     },
     "thinking": {
       "enabled": "Pensamento estendido habilitado",
@@ -447,6 +449,12 @@
     "inputPlaceholder": "Digite sua resposta...",
     "passwordPlaceholder": "Digite a senha...",
     "validationError": "Entrada inválida"
+  },
+  "yolo": {
+    "enabled": "Auto-aprovação habilitada: {{pattern}}",
+    "expired": "Tempo de auto-aprovação expirado",
+    "denied": "Ferramenta {{tool}} negada pelo padrão yolo",
+    "remaining": "Auto-aprovação: {{seconds}}s restantes"
   },
   "pipe": {
     "reading": "Lendo entrada canalizada...",

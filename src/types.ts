@@ -472,6 +472,10 @@ export interface CLIOptions {
   appendSysPrompt?: string;
   /** Thinking/reasoning depth level (none, normal, extended) */
   thinking?: string | boolean;
+  /** Granular auto-approve pattern (e.g., 'allow:read,write') */
+  yolo?: string;
+  /** Timeout in seconds for auto-approve mode */
+  timeout?: number;
 }
 
 export interface PromptContext {

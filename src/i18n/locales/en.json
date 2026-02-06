@@ -58,7 +58,9 @@
       "maxCost": "Max API cost in dollars (default: 10)",
       "setup": "Run the setup wizard",
       "addDir": "Add additional directories to workspace scope",
-      "thinking": "Set thinking/reasoning depth (none, normal, extended)"
+      "thinking": "Set thinking/reasoning depth (none, normal, extended)",
+      "yolo": "Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)",
+      "timeout": "Timeout in seconds for auto-approve mode"
     },
     "thinking": {
       "enabled": "Extended thinking enabled",
@@ -447,6 +449,12 @@
     "inputPlaceholder": "Type your answer...",
     "passwordPlaceholder": "Enter password...",
     "validationError": "Invalid input"
+  },
+  "yolo": {
+    "enabled": "Auto-approve enabled: {{pattern}}",
+    "expired": "Auto-approve timeout expired",
+    "denied": "Tool {{tool}} denied by yolo pattern",
+    "remaining": "Auto-approve: {{seconds}}s remaining"
   },
   "pipe": {
     "reading": "Reading piped input...",

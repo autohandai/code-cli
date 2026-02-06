@@ -58,7 +58,9 @@
       "maxCost": "Coût API maximum en dollars (par défaut: 10)",
       "setup": "Exécuter l'assistant de configuration",
       "addDir": "Ajouter des répertoires supplémentaires à la portée du workspace",
-      "thinking": "Définir la profondeur de raisonnement (none, normal, extended)"
+      "thinking": "Définir la profondeur de raisonnement (none, normal, extended)",
+      "yolo": "Auto-approuver les appels d'outils correspondant au motif (ex., allow:read,write ou deny:delete)",
+      "timeout": "Délai en secondes pour le mode auto-approbation"
     },
     "thinking": {
       "enabled": "Pensée étendue activée",
@@ -447,6 +449,12 @@
     "inputPlaceholder": "Tapez votre réponse...",
     "passwordPlaceholder": "Entrez le mot de passe...",
     "validationError": "Entrée invalide"
+  },
+  "yolo": {
+    "enabled": "Auto-approbation activée : {{pattern}}",
+    "expired": "Délai d'auto-approbation expiré",
+    "denied": "Outil {{tool}} refusé par le motif yolo",
+    "remaining": "Auto-approbation : {{seconds}}s restantes"
   },
   "pipe": {
     "reading": "Lecture de l'entrée canalisée...",
