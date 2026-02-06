@@ -464,6 +464,14 @@
     "timeout": "管道模式超时，已等待 {{seconds}} 秒",
     "noPrompt": "未提供提示。用法：echo '代码' | autohand '解释'"
   },
+  "mcp": {
+    "connecting": "正在连接 MCP 服务器：{{name}}...",
+    "connected": "已连接到 MCP 服务器：{{name}}（{{toolCount}} 个工具）",
+    "disconnected": "已断开 MCP 服务器：{{name}}",
+    "error": "MCP 服务器错误（{{name}}）：{{message}}",
+    "toolRegistered": "已注册 MCP 工具：{{tool}}",
+    "noServers": "未配置 MCP 服务器"
+  },
   "languages": {
     "en": "English",
     "zh-cn": "简体中文 (简体中文)",

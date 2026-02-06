@@ -464,6 +464,14 @@
     "timeout": "Délai expiré en mode pipe après {{seconds}}s",
     "noPrompt": "Aucun prompt fourni. Usage : echo 'code' | autohand 'expliquer'"
   },
+  "mcp": {
+    "connecting": "Connexion au serveur MCP : {{name}}...",
+    "connected": "Connecté au serveur MCP : {{name}} ({{toolCount}} outils)",
+    "disconnected": "Déconnecté du serveur MCP : {{name}}",
+    "error": "Erreur du serveur MCP ({{name}}) : {{message}}",
+    "toolRegistered": "Outil MCP enregistré : {{tool}}",
+    "noServers": "Aucun serveur MCP configuré"
+  },
   "languages": {
     "en": "English",
     "zh-cn": "简体中文 (Chinois Simplifié)",
