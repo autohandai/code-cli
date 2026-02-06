@@ -464,6 +464,14 @@
     "timeout": "Pipe mode timeout after {{seconds}}s",
     "noPrompt": "No prompt provided. Usage: echo 'code' | autohand 'explain'"
   },
+  "mcp": {
+    "connecting": "Connecting to MCP server: {{name}}...",
+    "connected": "Connected to MCP server: {{name}} ({{toolCount}} tools)",
+    "disconnected": "Disconnected from MCP server: {{name}}",
+    "error": "MCP server error ({{name}}): {{message}}",
+    "toolRegistered": "Registered MCP tool: {{tool}}",
+    "noServers": "No MCP servers configured"
+  },
   "languages": {
     "en": "English",
     "zh-cn": "简体中文 (Simplified Chinese)",

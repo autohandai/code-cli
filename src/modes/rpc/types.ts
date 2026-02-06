@@ -112,6 +112,9 @@ export const RPC_METHODS = {
   GET_HISTORY: 'autohand.getHistory',
   // YOLO mode control
   YOLO_SET: 'autohand.yoloSet',
+  // MCP (Model Context Protocol) management
+  MCP_LIST_SERVERS: 'autohand.mcp.listServers',
+  MCP_LIST_TOOLS: 'autohand.mcp.listTools',
 } as const;
 
 export type RpcMethod = (typeof RPC_METHODS)[keyof typeof RPC_METHODS];
@@ -950,4 +953,32 @@ export interface PipeOutputNotificationParams {
   type: 'progress' | 'result' | 'error';
   content: string;
   timestamp: string;
+}
+
+// ============================================================================
+// MCP (Model Context Protocol) RPC Types
+// ============================================================================
+
+/**
+ * Result for autohand.mcp.listServers
+ * Returns a list of all known MCP servers and their connection status.
+ */
+export interface McpListServersResult {
+  servers: Array<{ name: string; status: string; toolCount: number }>;
+}
+
+/**
+ * Params for autohand.mcp.listTools
+ * Optionally filter tools by server name.
+ */
+export interface McpListToolsParams {
+  serverName?: string;
+}
+
+/**
+ * Result for autohand.mcp.listTools
+ * Returns a list of all available MCP tools, optionally filtered by server.
+ */
+export interface McpListToolsResult {
+  tools: Array<{ name: string; description: string; serverName: string }>;
 }
