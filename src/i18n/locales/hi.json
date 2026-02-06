@@ -1,0 +1,453 @@
+{
+  "common": {
+    "error": "त्रुटि",
+    "warning": "चेतावनी",
+    "success": "सफल",
+    "failed": "विफल",
+    "cancelled": "रद्द किया गया",
+    "continue": "जारी रखें",
+    "yes": "हाँ",
+    "no": "नहीं",
+    "done": "पूर्ण",
+    "loading": "लोड हो रहा है...",
+    "pressEnter": "जारी रखने के लिए Enter दबाएँ...",
+    "pressEscToCancel": "रद्द करने के लिए Esc दबाएँ",
+    "or": "या",
+    "and": "और",
+    "unknown": "अज्ञात",
+    "none": "कोई नहीं",
+    "default": "डिफ़ॉल्ट",
+    "current": "वर्तमान",
+    "required": "आवश्यक",
+    "optional": "वैकल्पिक",
+    "enabled": "सक्षम",
+    "disabled": "अक्षम",
+    "on": "चालू",
+    "off": "बंद"
+  },
+  "cli": {
+    "description": "स्वायत्त LLM-संचालित कोडिंग एजेंट CLI",
+    "options": {
+      "prompt": "कमांड मोड में एकल निर्देश चलाएँ",
+      "path": "कार्यस्थान पथ जिसमें कार्य करना है",
+      "yes": "जोखिमपूर्ण क्रियाओं को स्वतः स्वीकृत करें",
+      "dryRun": "परिवर्तन लागू किए बिना क्रियाओं का पूर्वावलोकन करें",
+      "debug": "डिबग आउटपुट सक्षम करें (विस्तृत लॉगिंग)",
+      "model": "कॉन्फ़िगर किए गए LLM मॉडल को ओवरराइड करें",
+      "config": "कॉन्फ़िग फ़ाइल का पथ (डिफ़ॉल्ट ~/.autohand/config.json)",
+      "temperature": "सैंपलिंग तापमान",
+      "displayLanguage": "प्रदर्शन भाषा सेट करें (जैसे, en, zh-cn, fr, de)",
+      "autoCommit": "LLM-जनित संदेश के साथ स्वतः कमिट करें",
+      "unrestricted": "बिना किसी स्वीकृति संकेत के चलाएँ",
+      "restricted": "सभी खतरनाक संक्रियाओं को स्वचालित रूप से अस्वीकार करें",
+      "autoSkill": "परियोजना विश्लेषण के आधार पर स्वतः कौशल उत्पन्न करें",
+      "skillInstall": "एक सामुदायिक कौशल स्थापित करें",
+      "project": "परियोजना स्तर पर कौशल स्थापित करें",
+      "permissions": "वर्तमान अनुमति सेटिंग्स प्रदर्शित करें और बाहर निकलें",
+      "login": "अपने Autohand खाते में साइन इन करें",
+      "logout": "अपने Autohand खाते से साइन आउट करें",
+      "syncSettings": "सेटिंग्स सिंक सक्षम/अक्षम करें",
+      "patch": "परिवर्तन लागू किए बिना git पैच उत्पन्न करें",
+      "output": "पैच के लिए आउटपुट फ़ाइल (डिफ़ॉल्ट: stdout)",
+      "autoMode": "स्वायत्त विकास लूप शुरू करें",
+      "maxIterations": "अधिकतम स्वत:-मोड पुनरावृत्तियाँ (डिफ़ॉल्ट: 50)",
+      "completionPromise": "पूर्णता चिह्नक पाठ (डिफ़ॉल्ट: DONE)",
+      "noWorktree": "स्वत:-मोड में git worktree पृथक्करण अक्षम करें",
+      "checkpointInterval": "प्रत्येक N पुनरावृत्तियों पर git कमिट (डिफ़ॉल्ट: 5)",
+      "maxRuntime": "अधिकतम रनटाइम मिनटों में (डिफ़ॉल्ट: 120)",
+      "maxCost": "अधिकतम API लागत डॉलर में (डिफ़ॉल्ट: 10)",
+      "setup": "सेटअप विज़ार्ड चलाएँ",
+      "addDir": "कार्यस्थान दायरे में अतिरिक्त डायरेक्ट्रियाँ जोड़ें"
+    }
+  },
+  "welcome": {
+    "banner": "Autohand में आपका स्वागत है!",
+    "subtitle": "आपका अति तेज़ AI कोडिंग एजेंट",
+    "version": "v{{version}}",
+    "updateAvailable": "अपडेट उपलब्ध: {{current}} -> {{latest}}। अपडेट के लिए 'npm i -g autohand' चलाएँ।",
+    "loggedInAs": "{{email}} के रूप में लॉग इन",
+    "notLoggedIn": "लॉग इन नहीं है",
+    "modelLine": "मॉडल: {{model}}",
+    "directoryLine": "डायरेक्ट्री: {{directory}}",
+    "tips": {
+      "title": "शुरू करने के लिए, कोई कार्य बताएँ या इनमें से कोई कमांड आज़माएँ:",
+      "init": "/init - Autohand के लिए निर्देशों के साथ AGENTS.md फ़ाइल बनाएँ",
+      "help": "/help - सभी उपलब्ध कमांड दिखाएँ",
+      "model": "/model - AI मॉडल बदलें",
+      "language": "/language - प्रदर्शन भाषा बदलें"
+    },
+    "shortcuts": {
+      "title": "कीबोर्ड शॉर्टकट:",
+      "mention": "@ - संदर्भ के लिए फ़ाइलों का उल्लेख करें",
+      "arrows": "तीर कुंजियाँ - सुझावों में नेविगेट करें",
+      "tab": "Tab - स्वतः पूर्ण करें",
+      "escape": "Esc - वर्तमान संक्रिया रद्द करें",
+      "ctrlC": "Ctrl+C - बाहर निकलें"
+    }
+  },
+  "commands": {
+    "help": {
+      "title": "उपलब्ध कमांड:",
+      "command": "कमांड",
+      "description": "विवरण",
+      "tips": {
+        "title": "सुझाव:",
+        "mention": "AI के लिए फ़ाइलों का उल्लेख करने हेतु @ टाइप करें",
+        "arrows": "फ़ाइल सुझावों में नेविगेट करने के लिए तीर कुंजियों का उपयोग करें",
+        "tab": "फ़ाइल पथ स्वतः पूर्ण करने के लिए Tab दबाएँ",
+        "escape": "वर्तमान संक्रिया रद्द करने के लिए Esc दबाएँ"
+      },
+      "docsLink": "अधिक जानकारी के लिए, {{link}} पर जाएँ"
+    },
+    "about": {
+      "title": "Autohand",
+      "subtitle": "स्वायत्त AI-संचालित कोडिंग एजेंट",
+      "website": "वेबसाइट",
+      "github": "GitHub",
+      "docs": "दस्तावेज़",
+      "contribute": "योगदान करना चाहते हैं?",
+      "feedback": "प्रतिक्रिया भेजें",
+      "submitPR": "PR सबमिट करें",
+      "reportIssues": "समस्याओं की रिपोर्ट करें",
+      "pressKey": "वापस जाने के लिए ESC या कोई भी कुंजी दबाएँ..."
+    },
+    "model": {
+      "description": "मॉडल और रीज़निंग प्रयास चुनें",
+      "title": "मॉडल चयन",
+      "currentModel": "वर्तमान मॉडल: {{model}}",
+      "selectPrompt": "एक मॉडल चुनें:",
+      "changed": "मॉडल {{model}} में बदल दिया गया",
+      "noChange": "कोई परिवर्तन नहीं किया गया।"
+    },
+    "theme": {
+      "description": "टर्मिनल रंग थीम बदलें",
+      "title": "थीम चयन",
+      "currentTheme": "वर्तमान थीम: {{theme}}",
+      "selectPrompt": "एक थीम चुनें:",
+      "changed": "थीम '{{theme}}' में बदल दी गई",
+      "noChange": "कोई परिवर्तन नहीं किया गया।"
+    },
+    "language": {
+      "description": "प्रदर्शन भाषा बदलें",
+      "title": "भाषा चयन",
+      "currentLanguage": "वर्तमान भाषा: {{language}}",
+      "selectPrompt": "एक भाषा चुनें:",
+      "changed": "भाषा {{language}} में बदल दी गई",
+      "noChange": "कोई परिवर्तन नहीं किया गया।",
+      "restartHint": "कुछ परिवर्तनों को पूर्ण प्रभाव के लिए CLI को पुनः आरंभ करने की आवश्यकता हो सकती है।"
+    },
+    "quit": {
+      "description": "Autohand से बाहर निकलें",
+      "goodbye": "अलविदा!"
+    },
+    "init": {
+      "description": "AGENTS.md फ़ाइल बनाएँ",
+      "created": "{{path}} में AGENTS.md बनाई गई",
+      "alreadyExists": "{{path}} में AGENTS.md पहले से मौजूद है",
+      "overwritePrompt": "मौजूदा AGENTS.md को अधिलेखित करें?"
+    },
+    "undo": {
+      "description": "अंतिम फ़ाइल परिवर्तन पूर्ववत करें",
+      "success": "{{file}} में परिवर्तन पूर्ववत किए गए",
+      "noChanges": "पूर्ववत करने के लिए कोई परिवर्तन नहीं।",
+      "failed": "पूर्ववत करने में विफल: {{error}}"
+    },
+    "new": {
+      "description": "नई बातचीत शुरू करें",
+      "cleared": "बातचीत साफ़ कर दी गई। नए सिरे से शुरू कर रहे हैं।"
+    },
+    "status": {
+      "description": "वर्तमान स्थिति दिखाएँ",
+      "title": "Autohand स्थिति",
+      "version": "संस्करण",
+      "sessionId": "सत्र ID",
+      "cwd": "वर्तमान डायरेक्ट्री",
+      "provider": "प्रदाता",
+      "model": "मॉडल",
+      "locale": "भाषा",
+      "apiStatus": "API स्थिति",
+      "connected": "कनेक्ट है",
+      "disconnected": "डिस्कनेक्ट है",
+      "sessions": "सत्र",
+      "total": "{{count}} कुल"
+    },
+    "sessions": {
+      "description": "सहेजे गए सत्र सूचीबद्ध करें",
+      "title": "सहेजे गए सत्र",
+      "noSessions": "कोई सहेजा गया सत्र नहीं मिला।",
+      "selectPrompt": "पुनः आरंभ करने के लिए एक सत्र चुनें:",
+      "sessionInfo": "{{name}} - {{date}}"
+    },
+    "resume": {
+      "description": "पिछला सत्र पुनः आरंभ करें",
+      "resuming": "सत्र {{id}} पुनः आरंभ हो रहा है...",
+      "notFound": "सत्र नहीं मिला: {{id}}",
+      "failed": "सत्र पुनः आरंभ करने में विफल: {{error}}"
+    },
+    "memory": {
+      "description": "परियोजना और उपयोगकर्ता स्मृति प्रबंधित करें",
+      "title": "स्मृति प्रबंधन",
+      "projectMemory": "परियोजना स्मृति",
+      "userMemory": "उपयोगकर्ता स्मृति",
+      "noMemory": "कोई स्मृति संग्रहीत नहीं है।",
+      "addPrompt": "नई स्मृति जोड़ें:",
+      "added": "स्मृति जोड़ दी गई।",
+      "cleared": "स्मृति साफ़ कर दी गई।"
+    },
+    "permissions": {
+      "description": "वर्तमान अनुमति सेटिंग्स प्रदर्शित करें",
+      "title": "अनुमति सेटिंग्स",
+      "mode": "मोड: {{mode}}",
+      "allowed": "अनुमत क्रियाएँ:",
+      "denied": "अस्वीकृत क्रियाएँ:",
+      "pending": "स्वीकृति प्रतीक्षित:"
+    },
+    "login": {
+      "description": "अपने Autohand खाते में साइन इन करें",
+      "prompt": "अपना लॉगिन कोड दर्ज करें:",
+      "success": "{{email}} के रूप में सफलतापूर्वक लॉग इन हुआ",
+      "failed": "लॉगिन विफल: {{error}}",
+      "cancelled": "लॉगिन रद्द किया गया।"
+    },
+    "logout": {
+      "description": "अपने Autohand खाते से साइन आउट करें",
+      "confirm": "{{email}} से लॉग आउट करें?",
+      "success": "सफलतापूर्वक लॉग आउट हो गया।",
+      "cancelled": "लॉगआउट रद्द किया गया।"
+    },
+    "sync": {
+      "description": "सेटिंग्स सिंक प्रबंधित करें",
+      "enabled": "सेटिंग्स सिंक सक्षम किया गया।",
+      "disabled": "सेटिंग्स सिंक अक्षम किया गया।",
+      "status": "सिंक स्थिति: {{status}}",
+      "lastSync": "अंतिम सिंक: {{date}}"
+    },
+    "feedback": {
+      "description": "CLI के बारे में प्रतिक्रिया भेजें",
+      "prompt": "अपनी प्रतिक्रिया दर्ज करें:",
+      "success": "आपकी प्रतिक्रिया के लिए धन्यवाद!",
+      "failed": "प्रतिक्रिया भेजने में विफल: {{error}}"
+    },
+    "hooks": {
+      "description": "git हुक्स प्रबंधित करें",
+      "title": "Git हुक्स",
+      "installed": "स्थापित हुक्स:",
+      "available": "उपलब्ध हुक्स:",
+      "noHooks": "कोई हुक्स कॉन्फ़िगर नहीं हैं।"
+    },
+    "skills": {
+      "description": "कौशल सूचीबद्ध और प्रबंधित करें",
+      "title": "कौशल",
+      "installed": "स्थापित कौशल:",
+      "available": "उपलब्ध कौशल:",
+      "noSkills": "कोई कौशल स्थापित नहीं है।"
+    },
+    "export": {
+      "description": "सत्र डेटा निर्यात करें",
+      "success": "{{path}} में निर्यात किया गया",
+      "failed": "निर्यात विफल: {{error}}"
+    },
+    "agents": {
+      "description": "उप-एजेंट प्रबंधित करें",
+      "title": "उप-एजेंट",
+      "noAgents": "कोई उप-एजेंट कॉन्फ़िगर नहीं हैं।"
+    },
+    "automode": {
+      "description": "स्वायत्त मोड प्रबंधित करें",
+      "starting": "स्वत:-मोड शुरू हो रहा है...",
+      "stopping": "स्वत:-मोड रुक रहा है...",
+      "iteration": "पुनरावृत्ति {{current}} / {{max}}",
+      "completed": "स्वत:-मोड पूर्ण हुआ।",
+      "aborted": "स्वत:-मोड निरस्त किया गया।"
+    },
+    "share": {
+      "description": "सत्र साझा करें",
+      "generating": "साझा लिंक उत्पन्न हो रहा है...",
+      "success": "साझा लिंक: {{url}}",
+      "failed": "साझा लिंक उत्पन्न करने में विफल: {{error}}"
+    },
+    "addDir": {
+      "description": "कार्यस्थान दायरे में डायरेक्ट्रियाँ जोड़ें",
+      "added": "डायरेक्ट्री जोड़ी गई: {{path}}",
+      "alreadyAdded": "डायरेक्ट्री पहले से जोड़ी गई है: {{path}}",
+      "notFound": "डायरेक्ट्री नहीं मिली: {{path}}"
+    },
+    "ide": {
+      "description": "चल रहे IDE से कनेक्ट करें",
+      "title": "IDE चुनें",
+      "connectDescription": "एकीकृत विकास सुविधाओं के लिए किसी IDE से कनेक्ट करें।",
+      "noIdesDetected": "कोई चल रहा IDE नहीं मिला। इनमें से कोई एक शुरू करें: VS Code, VS Code Insiders, Cursor, Zed, या Antigravity।",
+      "noMatchingIdes": "कोई उपलब्ध IDE नहीं मिला। सुनिश्चित करें कि आपके IDE में Autohand एक्सटेंशन या प्लगइन स्थापित है और चल रहा है।",
+      "foundMatching": "आपकी वर्तमान डायरेक्ट्री से मेल खाते {{count}} IDE मिले:",
+      "otherNotMatching": "{{count}} अन्य चल रहे IDE मिले। हालाँकि, उनकी कार्यस्थान/परियोजना डायरेक्ट्रियाँ वर्तमान cwd से मेल नहीं खातीं।",
+      "selectPrompt": "कनेक्ट करने के लिए एक IDE चुनें:",
+      "connected": "{{ide}} से कनेक्ट हो गया",
+      "extensionHint": "गहन एकीकरण के लिए एक्सटेंशन स्थापित करें:",
+      "startIde": "कनेक्ट करने के लिए इस डायरेक्ट्री में एक IDE शुरू करें।"
+    }
+  },
+  "setup": {
+    "welcome": "Autohand में आपका स्वागत है!",
+    "subtitle": "आपका अति तेज़ AI कोडिंग एजेंट",
+    "letsStart": "आइए कुछ ही चरणों में सेटअप करें।",
+    "providerSelect": "आप कौन सा LLM प्रदाता उपयोग करना चाहेंगे?",
+    "apiKeyPrompt": "अपनी {{provider}} API कुंजी दर्ज करें:",
+    "apiKeyHelp": "अपनी API कुंजी यहाँ प्राप्त करें: {{url}}",
+    "apiKeyHint": "आपकी API कुंजी ~/.autohand/config.json में स्थानीय रूप से संग्रहीत होगी",
+    "modelPrompt": "मॉडल ID दर्ज करें (या डिफ़ॉल्ट के लिए Enter दबाएँ):",
+    "modelDefault": "डिफ़ॉल्ट: {{model}}",
+    "testingConnection": "कनेक्शन परीक्षण हो रहा है...",
+    "connectionSuccess": "कनेक्शन सफल!",
+    "connectionFailed": "कनेक्शन विफल: {{error}}",
+    "telemetry": {
+      "title": "Autohand को बेहतर बनाने में मदद करें",
+      "description": "हम Autohand के उपयोग को समझने के लिए गुमनाम उपयोग डेटा एकत्र करते हैं।",
+      "whatWeCollect": "हम क्या एकत्र करते हैं:",
+      "collectItem1": "कमांड उपयोग (कौन सी सुविधाएँ लोकप्रिय हैं)",
+      "collectItem2": "त्रुटि दरें (बग्स को तेज़ी से ठीक करने के लिए)",
+      "collectItem3": "प्रदर्शन मेट्रिक्स (गति बढ़ाने के लिए)",
+      "whatWeNeverCollect": "हम कभी एकत्र नहीं करते:",
+      "neverItem1": "आपका कोड या फ़ाइल सामग्री",
+      "neverItem2": "API कुंजियाँ या क्रेडेंशियल्स",
+      "neverItem3": "व्यक्तिगत जानकारी",
+      "prompt": "Autohand को बेहतर बनाने में मदद के लिए गुमनाम उपयोग डेटा साझा करें?",
+      "thanks": "Autohand को बेहतर बनाने में मदद के लिए धन्यवाद!",
+      "declined": "कोई बात नहीं! आप इसे कभी भी कॉन्फ़िग में बदल सकते हैं।"
+    },
+    "complete": "सेटअप पूर्ण!",
+    "created": "क्या बनाया गया:",
+    "configFile": "~/.autohand/config.json (आपकी सेटिंग्स)",
+    "agentsFile": "AGENTS.md (Autohand के लिए परियोजना निर्देश)",
+    "nextSteps": "अगले कदम:",
+    "tryCommand": "आज़माएँ: autohand"
+  },
+  "errors": {
+    "generic": "एक त्रुटि हुई: {{message}}",
+    "invalidLocale": "अमान्य लोकेल: {{locale}}। समर्थित: {{supported}}",
+    "configParseFailed": "{{path}} पर कॉन्फ़िग पार्स करने में विफल: {{error}}",
+    "configSaveFailed": "कॉन्फ़िग सहेजने में विफल: {{error}}",
+    "apiKeyRequired": "API कुंजी आवश्यक है",
+    "apiKeyTooShort": "API कुंजी बहुत छोटी लगती है",
+    "apiKeyInvalid": "अमान्य API कुंजी प्रारूप",
+    "directoryNotExist": "डायरेक्ट्री मौजूद नहीं है: {{path}}",
+    "unsafeDirectory": "असुरक्षित डायरेक्ट्री: {{path}}। सिस्टम डायरेक्ट्रियों में संचालन नहीं कर सकते।",
+    "fileNotFound": "फ़ाइल नहीं मिली: {{path}}",
+    "permissionDenied": "अनुमति अस्वीकृत: {{path}}",
+    "patchRequiresPrompt": "--patch के लिए निर्देश निर्दिष्ट करने हेतु --prompt आवश्यक है",
+    "autoModeRequiresPrompt": "--auto-mode के लिए एक कार्य प्रॉम्प्ट आवश्यक है",
+    "noProviderConfigured": "अभी तक कोई प्रदाता कॉन्फ़िगर नहीं है। सेटअप चलाएँ: autohand --setup",
+    "modelNotFound": "मॉडल नहीं मिला: {{model}}",
+    "rateLimited": "दर सीमित। कृपया एक क्षण प्रतीक्षा करें और पुनः प्रयास करें।",
+    "networkError": "नेटवर्क त्रुटि: {{message}}",
+    "timeout": "अनुरोध का समय समाप्त हो गया। कृपया पुनः प्रयास करें।",
+    "contextTooLong": "संदर्भ बहुत लंबा है। नए सिरे से शुरू करने के लिए /new आज़माएँ या हाल के संवाद हटाने के लिए /undo।",
+    "authFailed": "प्रमाणीकरण विफल। अपनी API कुंजी जाँचें।",
+    "paymentRequired": "भुगतान आवश्यक। अपने खाते की शेष राशि जाँचें।",
+    "serverError": "सर्वर त्रुटि। कृपया बाद में पुनः प्रयास करें।",
+    "cancelled": "उपयोगकर्ता द्वारा संक्रिया रद्द की गई।"
+  },
+  "agent": {
+    "thinking": "सोच रहा है...",
+    "executing": "{{tool}} निष्पादित हो रहा है...",
+    "reading": "{{file}} पढ़ रहा है...",
+    "writing": "{{file}} लिख रहा है...",
+    "searching": "खोज रहा है...",
+    "toolSuccess": "{{tool}} सफलतापूर्वक पूर्ण हुआ",
+    "toolFailed": "{{tool}} विफल: {{error}}",
+    "taskComplete": "कार्य पूर्ण",
+    "noChanges": "कोई परिवर्तन नहीं किए गए।",
+    "changesApplied": "परिवर्तन सफलतापूर्वक लागू किए गए।",
+    "awaitingApproval": "स्वीकृति की प्रतीक्षा में...",
+    "approved": "स्वीकृत",
+    "denied": "अस्वीकृत",
+    "skipped": "छोड़ दिया गया",
+    "exploring": "अन्वेषण हो रहा है...",
+    "exploredFiles": "{{count}} फ़ाइलों का अन्वेषण किया गया"
+  },
+  "providers": {
+    "openrouter": "OpenRouter",
+    "openai": "OpenAI",
+    "ollama": "Ollama",
+    "llamacpp": "llama.cpp",
+    "mlx": "MLX (Apple Silicon)",
+    "hints": {
+      "openrouter": "क्लाउड - 100+ मॉडल तक पहुँच (Claude, GPT-4, आदि)",
+      "openai": "क्लाउड - आधिकारिक OpenAI मॉडल (GPT-4o, o1, आदि)",
+      "ollama": "स्थानीय - अपनी मशीन पर मॉडल चलाएँ (मुफ़्त)",
+      "llamacpp": "स्थानीय - GGUF मॉडल के साथ तेज़ इन्फ़रेंस",
+      "mlx": "स्थानीय - Apple Silicon Mac के लिए अनुकूलित"
+    }
+  },
+  "startup": {
+    "checkingTools": "आवश्यक उपकरणों की जाँच हो रही है...",
+    "toolFound": "{{tool}} मिला",
+    "toolMissing": "{{tool}} नहीं मिला",
+    "installHint": "इससे स्थापित करें: {{command}}",
+    "allToolsReady": "सभी उपकरण तैयार हैं!",
+    "someToolsMissing": "कुछ उपकरण गायब हैं। कुछ सुविधाएँ कार्य नहीं कर सकतीं।"
+  },
+  "confirmation": {
+    "proceed": "आगे बढ़ें?",
+    "areYouSure": "क्या आप सुनिश्चित हैं?",
+    "thisWillDelete": "यह {{item}} को हटा देगा। यह क्रिया पूर्ववत नहीं की जा सकती।",
+    "confirm": "पुष्टि करें",
+    "cancel": "रद्द करें",
+    "yesDelete": "हाँ, हटाएँ",
+    "noDontDelete": "नहीं, रखें"
+  },
+  "diff": {
+    "title": "{{file}} में परिवर्तन",
+    "additions": "{{count}} जोड़",
+    "deletions": "{{count}} हटाव",
+    "noChanges": "कोई परिवर्तन नहीं",
+    "apply": "परिवर्तन लागू करें?",
+    "applied": "परिवर्तन लागू किए गए।",
+    "discarded": "परिवर्तन त्यागे गए।"
+  },
+  "ui": {
+    "escToCancel": "रद्द करने के लिए esc",
+    "commandHint": "/ कमांड के लिए · @ फ़ाइलों के उल्लेख हेतु · ! टर्मिनल के लिए",
+    "ctrlCToExit": "बाहर निकलने के लिए Ctrl+C फिर से दबाएँ",
+    "noMatchingCommands": "कोई मेल खाता कमांड नहीं।",
+    "selectFile": "एक फ़ाइल चुनें",
+    "noMatchingFiles": "कोई मेल खाती फ़ाइल नहीं। टाइप करते रहें\u2026",
+    "thinking": "सोच रहा है",
+    "planModeActive": "योजना मोड सक्रिय - उपकरण केवल पठन हैं",
+    "planModeExecuting": "योजना निष्पादित हो रही है",
+    "typeToFilter": "फ़िल्टर",
+    "navigateHint": "फ़िल्टर करने के लिए टाइप करें · ऊपर/नीचे नेविगेट करें · Enter चलाएँ · Esc रद्द",
+    "fileNavigateHint": "फ़िल्टर करने के लिए टाइप करें · ऊपर/नीचे नेविगेट करें · Enter चुनें · Esc रद्द",
+    "questionPrompt": "\u2753",
+    "questionOther": "अन्य (अपना उत्तर टाइप करें)",
+    "questionYourAnswer": "\u25b8 आपका उत्तर",
+    "questionCustomHint": "\u21b5 सबमिट करें · ESC वापस",
+    "questionSelectHint": "\u2191\u2193 नेविगेट करें · \u21b5 चुनें · 1-9 शॉर्टकट · ESC रद्द",
+    "noOptionsAvailable": "कोई विकल्प उपलब्ध नहीं",
+    "planRevise": "नहीं, योजना संशोधित करें",
+    "planEditHint": "VS Code में संपादित करने के लिए ctrl-g",
+    "confirmYes": "हाँ",
+    "confirmNo": "नहीं",
+    "inputHint": "सबमिट करने के लिए Enter, रद्द करने के लिए ESC",
+    "inputPlaceholder": "अपना उत्तर टाइप करें...",
+    "passwordPlaceholder": "पासवर्ड दर्ज करें...",
+    "validationError": "अमान्य इनपुट"
+  },
+  "languages": {
+    "en": "English",
+    "zh-cn": "简体中文 (Simplified Chinese)",
+    "zh-tw": "繁體中文 (Traditional Chinese)",
+    "fr": "Français (French)",
+    "de": "Deutsch (German)",
+    "it": "Italiano (Italian)",
+    "es": "Español (Spanish)",
+    "ja": "日本語 (Japanese)",
+    "ko": "한국어 (Korean)",
+    "ru": "Русский (Russian)",
+    "pt-br": "Português (Brazilian Portuguese)",
+    "tr": "Türkçe (Turkish)",
+    "pl": "Polski (Polish)",
+    "cs": "Čeština (Czech)",
+    "hu": "Magyar (Hungarian)",
+    "hi": "हिन्दी (Hindi)"
+  }
+}

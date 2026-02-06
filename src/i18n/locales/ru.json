@@ -1,0 +1,453 @@
+{
+  "common": {
+    "error": "Ошибка",
+    "warning": "Предупреждение",
+    "success": "Успешно",
+    "failed": "Не удалось",
+    "cancelled": "Отменено",
+    "continue": "Продолжить",
+    "yes": "Да",
+    "no": "Нет",
+    "done": "Готово",
+    "loading": "Загрузка...",
+    "pressEnter": "Нажмите Enter для продолжения...",
+    "pressEscToCancel": "Нажмите Esc для отмены",
+    "or": "или",
+    "and": "и",
+    "unknown": "Неизвестно",
+    "none": "Нет",
+    "default": "По умолчанию",
+    "current": "текущий",
+    "required": "обязательно",
+    "optional": "необязательно",
+    "enabled": "Включено",
+    "disabled": "Отключено",
+    "on": "Вкл",
+    "off": "Выкл"
+  },
+  "cli": {
+    "description": "Автономный CLI-агент для написания кода на основе LLM",
+    "options": {
+      "prompt": "Выполнить одну инструкцию в командном режиме",
+      "path": "Путь к рабочему каталогу",
+      "yes": "Автоматически подтверждать рискованные действия",
+      "dryRun": "Предварительный просмотр действий без применения изменений",
+      "debug": "Включить отладочный вывод (подробное логирование)",
+      "model": "Переопределить настроенную модель LLM",
+      "config": "Путь к файлу конфигурации (по умолчанию ~/.autohand/config.json)",
+      "temperature": "Температура сэмплирования",
+      "displayLanguage": "Установить язык интерфейса (например, en, zh-cn, fr, de)",
+      "autoCommit": "Автоматический коммит с сообщением, сгенерированным LLM",
+      "unrestricted": "Запуск без запросов на подтверждение",
+      "restricted": "Автоматически отклонять все опасные операции",
+      "autoSkill": "Автоматически генерировать навыки на основе анализа проекта",
+      "skillInstall": "Установить навык из сообщества",
+      "project": "Установить навык на уровне проекта",
+      "permissions": "Показать текущие настройки разрешений и выйти",
+      "login": "Войти в аккаунт Autohand",
+      "logout": "Выйти из аккаунта Autohand",
+      "syncSettings": "Включить/отключить синхронизацию настроек",
+      "patch": "Сгенерировать git-патч без применения изменений",
+      "output": "Выходной файл для патча (по умолчанию: stdout)",
+      "autoMode": "Запустить автономный цикл разработки",
+      "maxIterations": "Максимум итераций автономного режима (по умолчанию: 50)",
+      "completionPromise": "Текст-маркер завершения (по умолчанию: DONE)",
+      "noWorktree": "Отключить изоляцию git worktree в автономном режиме",
+      "checkpointInterval": "Коммит в git каждые N итераций (по умолчанию: 5)",
+      "maxRuntime": "Максимальное время выполнения в минутах (по умолчанию: 120)",
+      "maxCost": "Максимальная стоимость API в долларах (по умолчанию: 10)",
+      "setup": "Запустить мастер настройки",
+      "addDir": "Добавить дополнительные каталоги в область рабочего пространства"
+    }
+  },
+  "welcome": {
+    "banner": "Добро пожаловать в Autohand!",
+    "subtitle": "Ваш сверхбыстрый ИИ-агент для написания кода",
+    "version": "v{{version}}",
+    "updateAvailable": "Доступно обновление: {{current}} -> {{latest}}. Выполните 'npm i -g autohand' для обновления.",
+    "loggedInAs": "Вы вошли как {{email}}",
+    "notLoggedIn": "Вы не вошли в систему",
+    "modelLine": "модель: {{model}}",
+    "directoryLine": "каталог: {{directory}}",
+    "tips": {
+      "title": "Для начала опишите задачу или попробуйте одну из этих команд:",
+      "init": "/init - создать файл AGENTS.md с инструкциями для Autohand",
+      "help": "/help - показать все доступные команды",
+      "model": "/model - сменить модель ИИ",
+      "language": "/language - сменить язык интерфейса"
+    },
+    "shortcuts": {
+      "title": "Горячие клавиши:",
+      "mention": "@ - упомянуть файлы для контекста",
+      "arrows": "Стрелки - навигация по подсказкам",
+      "tab": "Tab - автодополнение",
+      "escape": "Esc - отменить текущую операцию",
+      "ctrlC": "Ctrl+C - выход"
+    }
+  },
+  "commands": {
+    "help": {
+      "title": "Доступные команды:",
+      "command": "Команда",
+      "description": "Описание",
+      "tips": {
+        "title": "Советы:",
+        "mention": "Введите @ для упоминания файлов в контексте ИИ",
+        "arrows": "Используйте стрелки для навигации по подсказкам файлов",
+        "tab": "Нажмите Tab для автодополнения путей к файлам",
+        "escape": "Нажмите Esc для отмены текущей операции"
+      },
+      "docsLink": "Подробнее: {{link}}"
+    },
+    "about": {
+      "title": "Autohand",
+      "subtitle": "Автономный ИИ-агент для написания кода",
+      "website": "Сайт",
+      "github": "GitHub",
+      "docs": "Документация",
+      "contribute": "Хотите внести вклад?",
+      "feedback": "Отправить отзыв",
+      "submitPR": "Создать PR",
+      "reportIssues": "Сообщить о проблемах",
+      "pressKey": "Нажмите ESC или любую клавишу для возврата..."
+    },
+    "model": {
+      "description": "выбрать модель и уровень рассуждений",
+      "title": "Выбор модели",
+      "currentModel": "Текущая модель: {{model}}",
+      "selectPrompt": "Выберите модель:",
+      "changed": "Модель изменена на {{model}}",
+      "noChange": "Изменения не внесены."
+    },
+    "theme": {
+      "description": "сменить цветовую тему терминала",
+      "title": "Выбор темы",
+      "currentTheme": "Текущая тема: {{theme}}",
+      "selectPrompt": "Выберите тему:",
+      "changed": "Тема изменена на '{{theme}}'",
+      "noChange": "Изменения не внесены."
+    },
+    "language": {
+      "description": "сменить язык интерфейса",
+      "title": "Выбор языка",
+      "currentLanguage": "Текущий язык: {{language}}",
+      "selectPrompt": "Выберите язык:",
+      "changed": "Язык изменён на {{language}}",
+      "noChange": "Изменения не внесены.",
+      "restartHint": "Некоторые изменения могут потребовать перезапуска CLI для полного применения."
+    },
+    "quit": {
+      "description": "выйти из Autohand",
+      "goodbye": "До свидания!"
+    },
+    "init": {
+      "description": "создать файл AGENTS.md",
+      "created": "Создан AGENTS.md в {{path}}",
+      "alreadyExists": "AGENTS.md уже существует в {{path}}",
+      "overwritePrompt": "Перезаписать существующий AGENTS.md?"
+    },
+    "undo": {
+      "description": "отменить последнее изменение файла",
+      "success": "Изменения в {{file}} отменены",
+      "noChanges": "Нет изменений для отмены.",
+      "failed": "Не удалось отменить: {{error}}"
+    },
+    "new": {
+      "description": "начать новый разговор",
+      "cleared": "Разговор очищен. Начинаем заново."
+    },
+    "status": {
+      "description": "показать текущий статус",
+      "title": "Статус Autohand",
+      "version": "Версия",
+      "sessionId": "ID сессии",
+      "cwd": "Текущий каталог",
+      "provider": "Провайдер",
+      "model": "Модель",
+      "locale": "Язык",
+      "apiStatus": "Статус API",
+      "connected": "Подключено",
+      "disconnected": "Отключено",
+      "sessions": "Сессии",
+      "total": "{{count}} всего"
+    },
+    "sessions": {
+      "description": "список сохранённых сессий",
+      "title": "Сохранённые сессии",
+      "noSessions": "Сохранённых сессий не найдено.",
+      "selectPrompt": "Выберите сессию для продолжения:",
+      "sessionInfo": "{{name}} - {{date}}"
+    },
+    "resume": {
+      "description": "продолжить предыдущую сессию",
+      "resuming": "Возобновление сессии {{id}}...",
+      "notFound": "Сессия не найдена: {{id}}",
+      "failed": "Не удалось возобновить сессию: {{error}}"
+    },
+    "memory": {
+      "description": "управление памятью проекта и пользователя",
+      "title": "Управление памятью",
+      "projectMemory": "Память проекта",
+      "userMemory": "Память пользователя",
+      "noMemory": "Нет сохранённых записей.",
+      "addPrompt": "Добавить новую запись:",
+      "added": "Запись добавлена.",
+      "cleared": "Память очищена."
+    },
+    "permissions": {
+      "description": "показать текущие настройки разрешений",
+      "title": "Настройки разрешений",
+      "mode": "Режим: {{mode}}",
+      "allowed": "Разрешённые действия:",
+      "denied": "Запрещённые действия:",
+      "pending": "Ожидают подтверждения:"
+    },
+    "login": {
+      "description": "войти в аккаунт Autohand",
+      "prompt": "Введите код для входа:",
+      "success": "Вы успешно вошли как {{email}}",
+      "failed": "Ошибка входа: {{error}}",
+      "cancelled": "Вход отменён."
+    },
+    "logout": {
+      "description": "выйти из аккаунта Autohand",
+      "confirm": "Выйти из аккаунта {{email}}?",
+      "success": "Вы успешно вышли из системы.",
+      "cancelled": "Выход отменён."
+    },
+    "sync": {
+      "description": "управление синхронизацией настроек",
+      "enabled": "Синхронизация настроек включена.",
+      "disabled": "Синхронизация настроек отключена.",
+      "status": "Статус синхронизации: {{status}}",
+      "lastSync": "Последняя синхронизация: {{date}}"
+    },
+    "feedback": {
+      "description": "отправить отзыв о CLI",
+      "prompt": "Введите ваш отзыв:",
+      "success": "Спасибо за ваш отзыв!",
+      "failed": "Не удалось отправить отзыв: {{error}}"
+    },
+    "hooks": {
+      "description": "управление git-хуками",
+      "title": "Git-хуки",
+      "installed": "Установленные хуки:",
+      "available": "Доступные хуки:",
+      "noHooks": "Хуки не настроены."
+    },
+    "skills": {
+      "description": "список и управление навыками",
+      "title": "Навыки",
+      "installed": "Установленные навыки:",
+      "available": "Доступные навыки:",
+      "noSkills": "Навыки не установлены."
+    },
+    "export": {
+      "description": "экспорт данных сессии",
+      "success": "Экспортировано в {{path}}",
+      "failed": "Ошибка экспорта: {{error}}"
+    },
+    "agents": {
+      "description": "управление суб-агентами",
+      "title": "Суб-агенты",
+      "noAgents": "Суб-агенты не настроены."
+    },
+    "automode": {
+      "description": "управление автономным режимом",
+      "starting": "Запуск автономного режима...",
+      "stopping": "Остановка автономного режима...",
+      "iteration": "Итерация {{current}} из {{max}}",
+      "completed": "Автономный режим завершён.",
+      "aborted": "Автономный режим прерван."
+    },
+    "share": {
+      "description": "поделиться сессией",
+      "generating": "Генерация ссылки для обмена...",
+      "success": "Ссылка для обмена: {{url}}",
+      "failed": "Не удалось сгенерировать ссылку: {{error}}"
+    },
+    "addDir": {
+      "description": "добавить каталоги в область рабочего пространства",
+      "added": "Каталог добавлен: {{path}}",
+      "alreadyAdded": "Каталог уже добавлен: {{path}}",
+      "notFound": "Каталог не найден: {{path}}"
+    },
+    "ide": {
+      "description": "подключиться к запущенной IDE",
+      "title": "Выбор IDE",
+      "connectDescription": "Подключитесь к IDE для интегрированной разработки.",
+      "noIdesDetected": "Запущенные IDE не обнаружены. Запустите одну из: VS Code, VS Code Insiders, Cursor, Zed или Antigravity.",
+      "noMatchingIdes": "Доступные IDE не обнаружены. Убедитесь, что в вашей IDE установлено и запущено расширение или плагин Autohand.",
+      "foundMatching": "Найдено {{count}} IDE, соответствующих вашему текущему каталогу:",
+      "otherNotMatching": "Найдено {{count}} других запущенных IDE. Однако их рабочие каталоги не совпадают с текущим.",
+      "selectPrompt": "Выберите IDE для подключения:",
+      "connected": "Подключено к {{ide}}",
+      "extensionHint": "Установите расширения для более глубокой интеграции:",
+      "startIde": "Запустите IDE в этом каталоге для подключения."
+    }
+  },
+  "setup": {
+    "welcome": "Добро пожаловать в Autohand!",
+    "subtitle": "Ваш сверхбыстрый ИИ-агент для написания кода",
+    "letsStart": "Давайте настроим всё за несколько шагов.",
+    "providerSelect": "Какого провайдера LLM вы хотите использовать?",
+    "apiKeyPrompt": "Введите ваш API-ключ {{provider}}:",
+    "apiKeyHelp": "Получите API-ключ здесь: {{url}}",
+    "apiKeyHint": "Ваш API-ключ будет сохранён локально в ~/.autohand/config.json",
+    "modelPrompt": "Введите ID модели (или нажмите Enter для значения по умолчанию):",
+    "modelDefault": "По умолчанию: {{model}}",
+    "testingConnection": "Проверка соединения...",
+    "connectionSuccess": "Соединение успешно!",
+    "connectionFailed": "Ошибка соединения: {{error}}",
+    "telemetry": {
+      "title": "Помогите нам улучшить Autohand",
+      "description": "Мы собираем анонимные данные об использовании, чтобы понять, как используется Autohand.",
+      "whatWeCollect": "Что мы собираем:",
+      "collectItem1": "Использование команд (какие функции популярны)",
+      "collectItem2": "Частота ошибок (для более быстрого исправления багов)",
+      "collectItem3": "Метрики производительности (для ускорения работы)",
+      "whatWeNeverCollect": "Что мы никогда не собираем:",
+      "neverItem1": "Ваш код или содержимое файлов",
+      "neverItem2": "API-ключи или учётные данные",
+      "neverItem3": "Личную информацию",
+      "prompt": "Делиться анонимными данными для улучшения Autohand?",
+      "thanks": "Спасибо, что помогаете нам улучшить Autohand!",
+      "declined": "Без проблем! Вы можете изменить это в любое время в настройках."
+    },
+    "complete": "Настройка завершена!",
+    "created": "Что было создано:",
+    "configFile": "~/.autohand/config.json (ваши настройки)",
+    "agentsFile": "AGENTS.md (инструкции проекта для Autohand)",
+    "nextSteps": "Следующие шаги:",
+    "tryCommand": "Попробуйте: autohand"
+  },
+  "errors": {
+    "generic": "Произошла ошибка: {{message}}",
+    "invalidLocale": "Недопустимая локаль: {{locale}}. Поддерживаемые: {{supported}}",
+    "configParseFailed": "Не удалось разобрать конфигурацию в {{path}}: {{error}}",
+    "configSaveFailed": "Не удалось сохранить конфигурацию: {{error}}",
+    "apiKeyRequired": "Требуется API-ключ",
+    "apiKeyTooShort": "API-ключ слишком короткий",
+    "apiKeyInvalid": "Неверный формат API-ключа",
+    "directoryNotExist": "Каталог не существует: {{path}}",
+    "unsafeDirectory": "Небезопасный каталог: {{path}}. Невозможно работать в системных каталогах.",
+    "fileNotFound": "Файл не найден: {{path}}",
+    "permissionDenied": "Доступ запрещён: {{path}}",
+    "patchRequiresPrompt": "--patch требует --prompt для указания инструкции",
+    "autoModeRequiresPrompt": "--auto-mode требует указания задачи",
+    "noProviderConfigured": "Провайдер ещё не настроен. Запустите настройку: autohand --setup",
+    "modelNotFound": "Модель не найдена: {{model}}",
+    "rateLimited": "Превышен лимит запросов. Подождите немного и попробуйте снова.",
+    "networkError": "Ошибка сети: {{message}}",
+    "timeout": "Время ожидания истекло. Попробуйте снова.",
+    "contextTooLong": "Контекст слишком длинный. Попробуйте /new для нового начала или /undo для удаления последних шагов.",
+    "authFailed": "Ошибка аутентификации. Проверьте ваш API-ключ.",
+    "paymentRequired": "Требуется оплата. Проверьте баланс вашего аккаунта.",
+    "serverError": "Ошибка сервера. Попробуйте позже.",
+    "cancelled": "Операция отменена пользователем."
+  },
+  "agent": {
+    "thinking": "Думаю...",
+    "executing": "Выполняю {{tool}}...",
+    "reading": "Читаю {{file}}...",
+    "writing": "Записываю {{file}}...",
+    "searching": "Ищу...",
+    "toolSuccess": "{{tool}} выполнен успешно",
+    "toolFailed": "{{tool}} завершился с ошибкой: {{error}}",
+    "taskComplete": "Задача выполнена",
+    "noChanges": "Изменения не были внесены.",
+    "changesApplied": "Изменения успешно применены.",
+    "awaitingApproval": "Ожидание подтверждения...",
+    "approved": "Одобрено",
+    "denied": "Отклонено",
+    "skipped": "Пропущено",
+    "exploring": "Исследую...",
+    "exploredFiles": "Исследовано {{count}} файлов"
+  },
+  "providers": {
+    "openrouter": "OpenRouter",
+    "openai": "OpenAI",
+    "ollama": "Ollama",
+    "llamacpp": "llama.cpp",
+    "mlx": "MLX (Apple Silicon)",
+    "hints": {
+      "openrouter": "Облако - Доступ к 100+ моделям (Claude, GPT-4 и др.)",
+      "openai": "Облако - Официальные модели OpenAI (GPT-4o, o1 и др.)",
+      "ollama": "Локально - Запуск моделей на вашем компьютере (бесплатно)",
+      "llamacpp": "Локально - Быстрый вывод с моделями GGUF",
+      "mlx": "Локально - Оптимизировано для Mac на Apple Silicon"
+    }
+  },
+  "startup": {
+    "checkingTools": "Проверка необходимых инструментов...",
+    "toolFound": "{{tool}} найден",
+    "toolMissing": "{{tool}} не найден",
+    "installHint": "Установите с помощью: {{command}}",
+    "allToolsReady": "Все инструменты готовы!",
+    "someToolsMissing": "Некоторые инструменты отсутствуют. Часть функций может не работать."
+  },
+  "confirmation": {
+    "proceed": "Продолжить?",
+    "areYouSure": "Вы уверены?",
+    "thisWillDelete": "Это удалит {{item}}. Это действие нельзя отменить.",
+    "confirm": "Подтвердить",
+    "cancel": "Отмена",
+    "yesDelete": "Да, удалить",
+    "noDontDelete": "Нет, оставить"
+  },
+  "diff": {
+    "title": "Изменения в {{file}}",
+    "additions": "{{count}} добавлений",
+    "deletions": "{{count}} удалений",
+    "noChanges": "Нет изменений",
+    "apply": "Применить изменения?",
+    "applied": "Изменения применены.",
+    "discarded": "Изменения отклонены."
+  },
+  "ui": {
+    "escToCancel": "esc для отмены",
+    "commandHint": "/ для команд \u00b7 @ для упоминания файлов \u00b7 ! для терминала",
+    "ctrlCToExit": "Нажмите Ctrl+C ещё раз для выхода",
+    "noMatchingCommands": "Подходящих команд не найдено.",
+    "selectFile": "Выберите файл",
+    "noMatchingFiles": "Подходящих файлов не найдено. Продолжайте ввод\u2026",
+    "thinking": "Думаю",
+    "planModeActive": "Режим планирования активен - инструменты только для чтения",
+    "planModeExecuting": "Выполнение плана",
+    "typeToFilter": "Фильтр",
+    "navigateHint": "Введите для фильтрации \u00b7 \u2191/\u2193 навигация \u00b7 Enter выполнить \u00b7 Esc отмена",
+    "fileNavigateHint": "Введите для фильтрации \u00b7 \u2191/\u2193 навигация \u00b7 Enter выбрать \u00b7 Esc отмена",
+    "questionPrompt": "\u2753",
+    "questionOther": "Другое (введите свой ответ)",
+    "questionYourAnswer": "\u25b8 Ваш ответ",
+    "questionCustomHint": "\u21b5 Отправить \u00b7 ESC Назад",
+    "questionSelectHint": "\u2191\u2193 Навигация \u00b7 \u21b5 Выбрать \u00b7 1-9 Быстрый выбор \u00b7 ESC Отмена",
+    "noOptionsAvailable": "Нет доступных вариантов",
+    "planRevise": "Нет, пересмотреть план",
+    "planEditHint": "ctrl-g для редактирования в VS Code",
+    "confirmYes": "Да",
+    "confirmNo": "Нет",
+    "inputHint": "Enter для отправки, ESC для отмены",
+    "inputPlaceholder": "Введите ваш ответ...",
+    "passwordPlaceholder": "Введите пароль...",
+    "validationError": "Некорректный ввод"
+  },
+  "languages": {
+    "en": "English",
+    "zh-cn": "简体中文 (Simplified Chinese)",
+    "zh-tw": "繁體中文 (Traditional Chinese)",
+    "fr": "Français (French)",
+    "de": "Deutsch (German)",
+    "it": "Italiano (Italian)",
+    "es": "Español (Spanish)",
+    "ja": "日本語 (Japanese)",
+    "ko": "한국어 (Korean)",
+    "ru": "Русский (Russian)",
+    "pt-br": "Português (Brazilian Portuguese)",
+    "tr": "Türkçe (Turkish)",
+    "pl": "Polski (Polish)",
+    "cs": "Čeština (Czech)",
+    "hu": "Magyar (Hungarian)",
+    "hi": "हिन्दी (Hindi)"
+  }
+}

@@ -1,0 +1,453 @@
+{
+  "common": {
+    "error": "錯誤",
+    "warning": "警告",
+    "success": "成功",
+    "failed": "失敗",
+    "cancelled": "已取消",
+    "continue": "繼續",
+    "yes": "是",
+    "no": "否",
+    "done": "完成",
+    "loading": "載入中...",
+    "pressEnter": "按 Enter 鍵繼續...",
+    "pressEscToCancel": "按 Esc 鍵取消",
+    "or": "或",
+    "and": "和",
+    "unknown": "未知",
+    "none": "無",
+    "default": "預設",
+    "current": "目前",
+    "required": "必填",
+    "optional": "選填",
+    "enabled": "已啟用",
+    "disabled": "已停用",
+    "on": "開",
+    "off": "關"
+  },
+  "cli": {
+    "description": "由 LLM 驅動的自主編碼代理 CLI",
+    "options": {
+      "prompt": "在命令模式下執行單一指令",
+      "path": "工作區路徑",
+      "yes": "自動確認風險操作",
+      "dryRun": "預覽操作而不套用變更",
+      "debug": "啟用除錯輸出（詳細記錄）",
+      "model": "覆寫已設定的 LLM 模型",
+      "config": "設定檔路徑（預設 ~/.autohand/config.json）",
+      "temperature": "取樣溫度",
+      "displayLanguage": "設定顯示語言（例如 en、zh-cn、fr、de）",
+      "autoCommit": "使用 LLM 產生的訊息自動提交",
+      "unrestricted": "執行時無需核准提示",
+      "restricted": "自動拒絕危險操作",
+      "autoSkill": "根據專案分析自動產生技能",
+      "skillInstall": "安裝社群技能",
+      "project": "在專案層級安裝技能",
+      "permissions": "顯示目前權限設定並退出",
+      "login": "登入您的 Autohand 帳號",
+      "logout": "登出您的 Autohand 帳號",
+      "syncSettings": "啟用/停用設定同步",
+      "patch": "產生 git 修補檔而不套用變更",
+      "output": "修補檔輸出檔案（預設：stdout）",
+      "autoMode": "啟動自主開發迴圈",
+      "maxIterations": "自動模式最大迭代次數（預設：50）",
+      "completionPromise": "完成標記文字（預設：DONE）",
+      "noWorktree": "在自動模式下停用 git worktree 隔離",
+      "checkpointInterval": "每 N 次迭代進行 git 提交（預設：5）",
+      "maxRuntime": "最大執行時間（分鐘）（預設：120）",
+      "maxCost": "最大 API 費用（美元）（預設：10）",
+      "setup": "執行設定精靈",
+      "addDir": "將額外目錄加入工作區範圍"
+    }
+  },
+  "welcome": {
+    "banner": "歡迎使用 Autohand！",
+    "subtitle": "您的超快 AI 編碼代理",
+    "version": "v{{version}}",
+    "updateAvailable": "有可用更新：{{current}} -> {{latest}}。執行 'npm i -g autohand' 進行更新。",
+    "loggedInAs": "已登入為 {{email}}",
+    "notLoggedIn": "尚未登入",
+    "modelLine": "模型：{{model}}",
+    "directoryLine": "目錄：{{directory}}",
+    "tips": {
+      "title": "開始使用，請描述一個任務或嘗試以下指令：",
+      "init": "/init - 建立包含 Autohand 指示的 AGENTS.md 檔案",
+      "help": "/help - 顯示所有可用指令",
+      "model": "/model - 變更 AI 模型",
+      "language": "/language - 變更顯示語言"
+    },
+    "shortcuts": {
+      "title": "鍵盤快捷鍵：",
+      "mention": "@ - 提及檔案以取得上下文",
+      "arrows": "方向鍵 - 瀏覽建議",
+      "tab": "Tab - 自動完成",
+      "escape": "Esc - 取消目前操作",
+      "ctrlC": "Ctrl+C - 退出"
+    }
+  },
+  "commands": {
+    "help": {
+      "title": "可用指令：",
+      "command": "指令",
+      "description": "說明",
+      "tips": {
+        "title": "提示：",
+        "mention": "輸入 @ 可提及檔案供 AI 使用",
+        "arrows": "使用方向鍵瀏覽檔案建議",
+        "tab": "按 Tab 自動完成檔案路徑",
+        "escape": "按 Esc 取消目前操作"
+      },
+      "docsLink": "更多資訊，請造訪 {{link}}"
+    },
+    "about": {
+      "title": "Autohand",
+      "subtitle": "自主 AI 驅動的編碼代理",
+      "website": "網站",
+      "github": "GitHub",
+      "docs": "文件",
+      "contribute": "想要貢獻？",
+      "feedback": "傳送回饋",
+      "submitPR": "提交 PR",
+      "reportIssues": "回報問題",
+      "pressKey": "按 ESC 或任意鍵返回..."
+    },
+    "model": {
+      "description": "選擇使用的模型和推理強度",
+      "title": "模型選擇",
+      "currentModel": "目前模型：{{model}}",
+      "selectPrompt": "選擇一個模型：",
+      "changed": "模型已變更為 {{model}}",
+      "noChange": "未做變更。"
+    },
+    "theme": {
+      "description": "變更終端機色彩主題",
+      "title": "主題選擇",
+      "currentTheme": "目前主題：{{theme}}",
+      "selectPrompt": "選擇一個主題：",
+      "changed": "主題已變更為 '{{theme}}'",
+      "noChange": "未做變更。"
+    },
+    "language": {
+      "description": "變更顯示語言",
+      "title": "語言選擇",
+      "currentLanguage": "目前語言：{{language}}",
+      "selectPrompt": "選擇一種語言：",
+      "changed": "語言已變更為 {{language}}",
+      "noChange": "未做變更。",
+      "restartHint": "部分變更可能需要重新啟動 CLI 才能完全生效。"
+    },
+    "quit": {
+      "description": "退出 Autohand",
+      "goodbye": "再見！"
+    },
+    "init": {
+      "description": "建立 AGENTS.md 檔案",
+      "created": "已在 {{path}} 建立 AGENTS.md",
+      "alreadyExists": "AGENTS.md 已存在於 {{path}}",
+      "overwritePrompt": "覆寫現有的 AGENTS.md？"
+    },
+    "undo": {
+      "description": "復原上次檔案變更",
+      "success": "已復原 {{file}} 的變更",
+      "noChanges": "沒有可復原的變更。",
+      "failed": "復原失敗：{{error}}"
+    },
+    "new": {
+      "description": "開始新對話",
+      "cleared": "對話已清除。重新開始。"
+    },
+    "status": {
+      "description": "顯示目前狀態",
+      "title": "Autohand 狀態",
+      "version": "版本",
+      "sessionId": "工作階段 ID",
+      "cwd": "目前目錄",
+      "provider": "提供者",
+      "model": "模型",
+      "locale": "語言",
+      "apiStatus": "API 狀態",
+      "connected": "已連線",
+      "disconnected": "已斷線",
+      "sessions": "工作階段",
+      "total": "共 {{count}} 個"
+    },
+    "sessions": {
+      "description": "列出已儲存的工作階段",
+      "title": "已儲存的工作階段",
+      "noSessions": "找不到已儲存的工作階段。",
+      "selectPrompt": "選擇要恢復的工作階段：",
+      "sessionInfo": "{{name}} - {{date}}"
+    },
+    "resume": {
+      "description": "恢復先前的工作階段",
+      "resuming": "正在恢復工作階段 {{id}}...",
+      "notFound": "找不到工作階段：{{id}}",
+      "failed": "恢復工作階段失敗：{{error}}"
+    },
+    "memory": {
+      "description": "管理專案和使用者記憶",
+      "title": "記憶管理",
+      "projectMemory": "專案記憶",
+      "userMemory": "使用者記憶",
+      "noMemory": "沒有已儲存的記憶。",
+      "addPrompt": "新增記憶：",
+      "added": "記憶已新增。",
+      "cleared": "記憶已清除。"
+    },
+    "permissions": {
+      "description": "顯示目前權限設定",
+      "title": "權限設定",
+      "mode": "模式：{{mode}}",
+      "allowed": "允許的操作：",
+      "denied": "拒絕的操作：",
+      "pending": "待核准："
+    },
+    "login": {
+      "description": "登入您的 Autohand 帳號",
+      "prompt": "輸入您的登入代碼：",
+      "success": "成功登入為 {{email}}",
+      "failed": "登入失敗：{{error}}",
+      "cancelled": "登入已取消。"
+    },
+    "logout": {
+      "description": "登出您的 Autohand 帳號",
+      "confirm": "登出 {{email}}？",
+      "success": "成功登出。",
+      "cancelled": "登出已取消。"
+    },
+    "sync": {
+      "description": "管理設定同步",
+      "enabled": "設定同步已啟用。",
+      "disabled": "設定同步已停用。",
+      "status": "同步狀態：{{status}}",
+      "lastSync": "上次同步：{{date}}"
+    },
+    "feedback": {
+      "description": "提交 CLI 回饋",
+      "prompt": "輸入您的回饋：",
+      "success": "感謝您的回饋！",
+      "failed": "提交回饋失敗：{{error}}"
+    },
+    "hooks": {
+      "description": "管理 git hooks",
+      "title": "Git Hooks",
+      "installed": "已安裝的 hooks：",
+      "available": "可用的 hooks：",
+      "noHooks": "未設定 hooks。"
+    },
+    "skills": {
+      "description": "列出和管理技能",
+      "title": "技能",
+      "installed": "已安裝的技能：",
+      "available": "可用的技能：",
+      "noSkills": "未安裝技能。"
+    },
+    "export": {
+      "description": "匯出工作階段資料",
+      "success": "已匯出至 {{path}}",
+      "failed": "匯出失敗：{{error}}"
+    },
+    "agents": {
+      "description": "管理子代理",
+      "title": "子代理",
+      "noAgents": "未設定子代理。"
+    },
+    "automode": {
+      "description": "管理自主模式",
+      "starting": "正在啟動自動模式...",
+      "stopping": "正在停止自動模式...",
+      "iteration": "迭代 {{current}}/{{max}}",
+      "completed": "自動模式已完成。",
+      "aborted": "自動模式已中止。"
+    },
+    "share": {
+      "description": "分享工作階段",
+      "generating": "正在產生分享連結...",
+      "success": "分享連結：{{url}}",
+      "failed": "產生分享連結失敗：{{error}}"
+    },
+    "addDir": {
+      "description": "將目錄加入工作區範圍",
+      "added": "已新增目錄：{{path}}",
+      "alreadyAdded": "目錄已新增：{{path}}",
+      "notFound": "找不到目錄：{{path}}"
+    },
+    "ide": {
+      "description": "連線至正在執行的 IDE",
+      "title": "選擇 IDE",
+      "connectDescription": "連線至 IDE 以取得整合開發功能。",
+      "noIdesDetected": "未偵測到正在執行的 IDE。請啟動以下之一：VS Code、VS Code Insiders、Cursor、Zed 或 Antigravity。",
+      "noMatchingIdes": "未偵測到可用的 IDE。請確認您的 IDE 已安裝 Autohand 擴充功能或外掛程式並正在執行。",
+      "foundMatching": "找到 {{count}} 個與目前目錄相符的 IDE：",
+      "otherNotMatching": "找到 {{count}} 個其他正在執行的 IDE。但它們的工作區/專案目錄與目前目錄不相符。",
+      "selectPrompt": "選擇要連線的 IDE：",
+      "connected": "已連線至 {{ide}}",
+      "extensionHint": "安裝擴充功能以取得更深入的整合：",
+      "startIde": "在此目錄中啟動 IDE 以進行連線。"
+    }
+  },
+  "setup": {
+    "welcome": "歡迎使用 Autohand！",
+    "subtitle": "您的超快 AI 編碼代理",
+    "letsStart": "讓我們透過幾個簡單步驟完成設定。",
+    "providerSelect": "您想使用哪個 LLM 提供者？",
+    "apiKeyPrompt": "輸入您的 {{provider}} API 金鑰：",
+    "apiKeyHelp": "在此取得 API 金鑰：{{url}}",
+    "apiKeyHint": "您的 API 金鑰將儲存在本機的 ~/.autohand/config.json",
+    "modelPrompt": "輸入模型 ID（或按 Enter 使用預設值）：",
+    "modelDefault": "預設：{{model}}",
+    "testingConnection": "正在測試連線...",
+    "connectionSuccess": "連線成功！",
+    "connectionFailed": "連線失敗：{{error}}",
+    "telemetry": {
+      "title": "協助我們改善 Autohand",
+      "description": "我們收集匿名使用資料以瞭解 Autohand 的使用情況。",
+      "whatWeCollect": "我們收集的內容：",
+      "collectItem1": "指令使用情況（哪些功能受歡迎）",
+      "collectItem2": "錯誤率（以更快修正錯誤）",
+      "collectItem3": "效能指標（以加快速度）",
+      "whatWeNeverCollect": "我們絕不收集的內容：",
+      "neverItem1": "您的程式碼或檔案內容",
+      "neverItem2": "API 金鑰或憑證",
+      "neverItem3": "個人資訊",
+      "prompt": "分享匿名使用資料以協助改善 Autohand？",
+      "thanks": "感謝您協助我們改善 Autohand！",
+      "declined": "沒問題！您可以隨時在設定中變更此選項。"
+    },
+    "complete": "設定完成！",
+    "created": "已建立的內容：",
+    "configFile": "~/.autohand/config.json（您的設定）",
+    "agentsFile": "AGENTS.md（Autohand 的專案指示）",
+    "nextSteps": "下一步：",
+    "tryCommand": "嘗試：autohand"
+  },
+  "errors": {
+    "generic": "發生錯誤：{{message}}",
+    "invalidLocale": "無效的語言區域：{{locale}}。支援的語言：{{supported}}",
+    "configParseFailed": "解析 {{path}} 設定檔失敗：{{error}}",
+    "configSaveFailed": "儲存設定失敗：{{error}}",
+    "apiKeyRequired": "需要 API 金鑰",
+    "apiKeyTooShort": "API 金鑰似乎太短",
+    "apiKeyInvalid": "API 金鑰格式無效",
+    "directoryNotExist": "目錄不存在：{{path}}",
+    "unsafeDirectory": "不安全的目錄：{{path}}。無法在系統目錄中操作。",
+    "fileNotFound": "找不到檔案：{{path}}",
+    "permissionDenied": "權限被拒絕：{{path}}",
+    "patchRequiresPrompt": "--patch 需要 --prompt 指定指令",
+    "autoModeRequiresPrompt": "--auto-mode 需要任務提示",
+    "noProviderConfigured": "尚未設定提供者。請執行設定：autohand --setup",
+    "modelNotFound": "找不到模型：{{model}}",
+    "rateLimited": "速率限制。請稍候再試。",
+    "networkError": "網路錯誤：{{message}}",
+    "timeout": "請求逾時。請重試。",
+    "contextTooLong": "上下文過長。請嘗試 /new 重新開始或 /undo 移除最近的回合。",
+    "authFailed": "驗證失敗。請檢查您的 API 金鑰。",
+    "paymentRequired": "需要付款。請檢查您的帳戶餘額。",
+    "serverError": "伺服器錯誤。請稍後再試。",
+    "cancelled": "使用者已取消操作。"
+  },
+  "agent": {
+    "thinking": "思考中...",
+    "executing": "正在執行 {{tool}}...",
+    "reading": "正在讀取 {{file}}...",
+    "writing": "正在寫入 {{file}}...",
+    "searching": "搜尋中...",
+    "toolSuccess": "{{tool}} 已成功完成",
+    "toolFailed": "{{tool}} 失敗：{{error}}",
+    "taskComplete": "任務完成",
+    "noChanges": "未做任何變更。",
+    "changesApplied": "變更已成功套用。",
+    "awaitingApproval": "等待核准...",
+    "approved": "已核准",
+    "denied": "已拒絕",
+    "skipped": "已略過",
+    "exploring": "探索中...",
+    "exploredFiles": "已探索 {{count}} 個檔案"
+  },
+  "providers": {
+    "openrouter": "OpenRouter",
+    "openai": "OpenAI",
+    "ollama": "Ollama",
+    "llamacpp": "llama.cpp",
+    "mlx": "MLX (Apple Silicon)",
+    "hints": {
+      "openrouter": "雲端 - 存取 100+ 模型（Claude、GPT-4 等）",
+      "openai": "雲端 - OpenAI 官方模型（GPT-4o、o1 等）",
+      "ollama": "本機 - 在您的電腦上執行模型（免費）",
+      "llamacpp": "本機 - 使用 GGUF 模型快速推論",
+      "mlx": "本機 - 為 Apple Silicon Mac 最佳化"
+    }
+  },
+  "startup": {
+    "checkingTools": "正在檢查所需工具...",
+    "toolFound": "已找到 {{tool}}",
+    "toolMissing": "找不到 {{tool}}",
+    "installHint": "安裝指令：{{command}}",
+    "allToolsReady": "所有工具已就緒！",
+    "someToolsMissing": "部分工具遺失。某些功能可能無法使用。"
+  },
+  "confirmation": {
+    "proceed": "繼續？",
+    "areYouSure": "您確定嗎？",
+    "thisWillDelete": "這將刪除 {{item}}。此操作無法復原。",
+    "confirm": "確認",
+    "cancel": "取消",
+    "yesDelete": "是，刪除",
+    "noDontDelete": "否，保留"
+  },
+  "diff": {
+    "title": "{{file}} 的變更",
+    "additions": "{{count}} 處新增",
+    "deletions": "{{count}} 處刪除",
+    "noChanges": "無變更",
+    "apply": "套用變更？",
+    "applied": "變更已套用。",
+    "discarded": "變更已捨棄。"
+  },
+  "ui": {
+    "escToCancel": "esc 取消",
+    "commandHint": "/ 指令 · @ 提及檔案 · ! 終端機",
+    "ctrlCToExit": "再次按 Ctrl+C 退出",
+    "noMatchingCommands": "沒有符合的指令。",
+    "selectFile": "選擇檔案",
+    "noMatchingFiles": "沒有符合的檔案。繼續輸入...",
+    "thinking": "思考中",
+    "planModeActive": "計畫模式啟用中 - 工具為唯讀",
+    "planModeExecuting": "正在執行計畫",
+    "typeToFilter": "篩選",
+    "navigateHint": "輸入篩選 · ↑/↓ 瀏覽 · Enter 執行 · Esc 取消",
+    "fileNavigateHint": "輸入篩選 · ↑/↓ 瀏覽 · Enter 選擇 · Esc 取消",
+    "questionPrompt": "❓",
+    "questionOther": "其他（輸入您的答案）",
+    "questionYourAnswer": "▸ 您的答案",
+    "questionCustomHint": "↵ 送出 · ESC 返回",
+    "questionSelectHint": "↑↓ 瀏覽 · ↵ 選擇 · 1-9 快捷鍵 · ESC 取消",
+    "noOptionsAvailable": "沒有可用選項",
+    "planRevise": "否，修改計畫",
+    "planEditHint": "ctrl-g 在 VS Code 中編輯",
+    "confirmYes": "是",
+    "confirmNo": "否",
+    "inputHint": "Enter 送出，ESC 取消",
+    "inputPlaceholder": "輸入您的答案...",
+    "passwordPlaceholder": "輸入密碼...",
+    "validationError": "輸入無效"
+  },
+  "languages": {
+    "en": "English",
+    "zh-cn": "简体中文 (簡體中文)",
+    "zh-tw": "繁體中文 (繁體中文)",
+    "fr": "Français (法語)",
+    "de": "Deutsch (德語)",
+    "it": "Italiano (義大利語)",
+    "es": "Español (西班牙語)",
+    "ja": "日本語 (日語)",
+    "ko": "한국어 (韓語)",
+    "ru": "Русский (俄語)",
+    "pt-br": "Português (巴西葡萄牙語)",
+    "tr": "Türkçe (土耳其語)",
+    "pl": "Polski (波蘭語)",
+    "cs": "Čeština (捷克語)",
+    "hu": "Magyar (匈牙利語)",
+    "hi": "हिन्दी (印地語)"
+  }
+}

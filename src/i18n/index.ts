@@ -11,29 +11,37 @@ import type { SupportedLocale } from './localeDetector.js';
 import en from './locales/en.json' with { type: 'json' };
 import es from './locales/es.json' with { type: 'json' };
 import fr from './locales/fr.json' with { type: 'json' };
+import it from './locales/it.json' with { type: 'json' };
 import ptBr from './locales/pt-br.json' with { type: 'json' };
 import zhCn from './locales/zh-cn.json' with { type: 'json' };
+import zhTw from './locales/zh-tw.json' with { type: 'json' };
+import de from './locales/de.json' with { type: 'json' };
+import ja from './locales/ja.json' with { type: 'json' };
+import ko from './locales/ko.json' with { type: 'json' };
+import ru from './locales/ru.json' with { type: 'json' };
+import tr from './locales/tr.json' with { type: 'json' };
+import pl from './locales/pl.json' with { type: 'json' };
+import cs from './locales/cs.json' with { type: 'json' };
+import hu from './locales/hu.json' with { type: 'json' };
+import hi from './locales/hi.json' with { type: 'json' };
 
-// Resources with actual translations where available, English fallback for others
 const resources: Record<string, { translation: typeof en }> = {
   en: { translation: en },
   es: { translation: es },
   fr: { translation: fr },
+  it: { translation: it },
   'pt-br': { translation: ptBr },
   'zh-cn': { translation: zhCn },
-  // These still use English as fallback until translations are generated
-  // Run `bun scripts/generate-translations.ts` with OPENROUTER_API_KEY to generate
-  'zh-tw': { translation: en },
-  de: { translation: en },
-  it: { translation: en },
-  ja: { translation: en },
-  ko: { translation: en },
-  ru: { translation: en },
-  tr: { translation: en },
-  pl: { translation: en },
-  cs: { translation: en },
-  hu: { translation: en },
-  hi: { translation: en },
+  'zh-tw': { translation: zhTw },
+  de: { translation: de },
+  ja: { translation: ja },
+  ko: { translation: ko },
+  ru: { translation: ru },
+  tr: { translation: tr },
+  pl: { translation: pl },
+  cs: { translation: cs },
+  hu: { translation: hu },
+  hi: { translation: hi },
 };
 
 let currentLocale: SupportedLocale = 'en';

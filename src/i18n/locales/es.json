@@ -271,6 +271,19 @@
       "added": "Directorio agregado: {{path}}",
       "alreadyAdded": "Directorio ya agregado: {{path}}",
       "notFound": "Directorio no encontrado: {{path}}"
+    },
+    "ide": {
+      "description": "conectar a un IDE en ejecución",
+      "title": "Seleccionar IDE",
+      "connectDescription": "Conéctate a un IDE para funciones de desarrollo integradas.",
+      "noIdesDetected": "No se detectaron IDEs en ejecución. Inicia uno de: VS Code, VS Code Insiders, Cursor, Zed o Antigravity.",
+      "noMatchingIdes": "No se detectaron IDEs disponibles. Asegúrate de que tu IDE tenga la extensión o plugin de Autohand instalado y esté en ejecución.",
+      "foundMatching": "Se encontraron {{count}} IDE(s) que coinciden con tu directorio actual:",
+      "otherNotMatching": "Se encontraron {{count}} otros IDE(s) en ejecución. Sin embargo, sus directorios de workspace/proyecto no coinciden con el cwd actual.",
+      "selectPrompt": "Selecciona un IDE para conectar:",
+      "connected": "Conectado a {{ide}}",
+      "extensionHint": "Instala extensiones para una integración más profunda:",
+      "startIde": "Inicia un IDE en este directorio para conectarte."
     }
   },
   "setup": {
