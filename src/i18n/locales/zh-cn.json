@@ -294,6 +294,12 @@
       "connected": "已连接到 {{ide}}",
       "extensionHint": "安装扩展以获得更深入的集成：",
       "startIde": "在此目录中启动 IDE 以进行连接。"
+    },
+    "history": {
+      "title": "会话历史",
+      "empty": "未找到会话",
+      "showing": "第 {{page}} 页，共 {{total}} 页（{{count}} 个会话）",
+      "resumeHint": "使用 /resume <session-id> 恢复会话"
     }
   },
   "setup": {

@@ -108,6 +108,8 @@ export const RPC_METHODS = {
   AUTOMODE_GET_LOG: 'autohand.automode.getLog',
   // Plan mode control
   PLAN_MODE_SET: 'autohand.planModeSet',
+  // Session history
+  GET_HISTORY: 'autohand.getHistory',
 } as const;
 
 export type RpcMethod = (typeof RPC_METHODS)[keyof typeof RPC_METHODS];
@@ -259,6 +261,41 @@ export interface PlanModeSetParams {
 
 export interface PlanModeSetResult {
   success: boolean;
+}
+
+// ============================================================================
+// Session History Types (RPC Mode)
+// ============================================================================
+
+/**
+ * Request params for getting paginated session history
+ */
+export interface GetHistoryParams {
+  page?: number;
+  pageSize?: number;
+}
+
+/**
+ * A history entry returned via RPC
+ */
+export interface RpcHistoryEntry {
+  sessionId: string;
+  createdAt: string;
+  lastActiveAt: string;
+  projectName: string;
+  model: string;
+  messageCount: number;
+  status: 'active' | 'completed' | 'crashed';
+}
+
+/**
+ * Response for paginated session history
+ */
+export interface GetHistoryResult {
+  sessions: RpcHistoryEntry[];
+  currentPage: number;
+  totalPages: number;
+  totalItems: number;
 }
 
 // ============================================================================

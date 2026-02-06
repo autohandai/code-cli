@@ -294,6 +294,12 @@
       "connected": "Conectado a {{ide}}",
       "extensionHint": "Instala extensiones para una integración más profunda:",
       "startIde": "Inicia un IDE en este directorio para conectarte."
+    },
+    "history": {
+      "title": "Historial de Sesiones",
+      "empty": "No se encontraron sesiones",
+      "showing": "Página {{page}} de {{total}} ({{count}} sesiones)",
+      "resumeHint": "Usa /resume <session-id> para reanudar una sesión"
     }
   },
   "setup": {
