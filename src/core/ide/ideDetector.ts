@@ -4,58 +4,65 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { execSync } from 'node:child_process';
+import { exec } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
-import type { DetectedIDE } from './ideTypes.js';
+import type { DetectedIDE, SupportedPlatform } from './ideTypes.js';
 import type { IDERegistryEntry } from './ideTypes.js';
 import { IDE_REGISTRY } from './ideTypes.js';
 
 /**
  * Detect running IDEs on the system and check if any match the given cwd.
  *
- * Uses `ps aux` to find running processes, then resolves workspace paths
- * from the IDE's state storage on disk (SQLite databases in Application Support).
+ * Uses platform-specific process listing to find running processes, then
+ * resolves workspace paths from process arguments or the IDE's state
+ * storage on disk.
+ *
+ * Storage lookups only check whether cwd appears in the IDE's recent
+ * workspaces — they never dump all historical entries.
  */
 export async function detectRunningIDEs(cwd: string): Promise<DetectedIDE[]> {
+  const platform = getCurrentPlatform();
   const normalizedCwd = path.resolve(cwd);
-  const processLines = getProcessList();
+  const processLines = await getProcessList(platform);
   const detected: DetectedIDE[] = [];
 
   for (const entry of IDE_REGISTRY) {
-    const matchingLines = findProcessLines(processLines, entry.processPatterns);
+    const patterns = entry.processPatterns[platform] ?? [];
+    if (patterns.length === 0) continue;
 
+    const matchingLines = findProcessLines(processLines, patterns);
     if (matchingLines.length === 0) continue;
 
     // Try extracting workspace paths from process arguments first
-    let workspacePaths = extractWorkspacePaths(matchingLines, entry.kind);
+    const argPaths = extractWorkspacePaths(matchingLines, entry.kind, platform);
 
-    // Fall back to reading the IDE's state storage for workspace info
-    if (workspacePaths.length === 0) {
-      workspacePaths = readWorkspacesFromStorage(entry);
-    }
-
-    if (workspacePaths.length === 0) {
-      // IDE is running but we couldn't determine its workspace
-      detected.push({
-        kind: entry.kind,
-        displayName: entry.displayName,
-        workspacePath: null,
-        matchesCwd: false,
-        extensionUrl: entry.extensionUrl,
-      });
-    } else {
-      // Create an entry for each unique workspace path
-      for (const wsPath of workspacePaths) {
+    if (argPaths.length > 0) {
+      const seen = new Set<string>();
+      for (const wsPath of argPaths) {
         const resolvedWs = path.resolve(wsPath);
+        if (seen.has(resolvedWs)) continue;
+        seen.add(resolvedWs);
+
         detected.push({
           kind: entry.kind,
           displayName: entry.displayName,
           workspacePath: resolvedWs,
-          matchesCwd: normalizedCwd === resolvedWs,
+          matchesCwd: pathMatchesCwd(normalizedCwd, resolvedWs, platform),
           extensionUrl: entry.extensionUrl,
         });
       }
+    } else {
+      // No paths from args — check storage to see if cwd is a known workspace
+      const cwdFoundInStorage = await checkCwdInStorage(entry, normalizedCwd, platform);
+
+      detected.push({
+        kind: entry.kind,
+        displayName: entry.displayName,
+        workspacePath: cwdFoundInStorage ? normalizedCwd : null,
+        matchesCwd: cwdFoundInStorage,
+        extensionUrl: entry.extensionUrl,
+      });
     }
   }
 
@@ -69,31 +76,92 @@ export async function detectRunningIDEs(cwd: string): Promise<DetectedIDE[]> {
   return detected;
 }
 
+// ────────────────────────────────────────────────────────
+//  Platform helpers
+// ────────────────────────────────────────────────────────
+
+/** @internal Exported for testing */
+export function getCurrentPlatform(): SupportedPlatform {
+  return process.platform as SupportedPlatform;
+}
+
 /**
- * Get the list of running processes via `ps aux`.
- * Returns an empty array on failure (non-Unix systems, permission issues, etc.)
+ * Compare a cwd path against a workspace path.
+ * Case-insensitive on darwin and win32 (case-insensitive filesystems).
+ * @internal Exported for testing
  */
-function getProcessList(): string[] {
-  try {
-    const output = execSync('ps aux', {
-      encoding: 'utf-8',
-      timeout: 5000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return output.split('\n');
-  } catch {
-    return [];
+export function pathMatchesCwd(
+  normalizedCwd: string,
+  workspacePath: string,
+  platform: SupportedPlatform,
+): boolean {
+  if (platform === 'linux') {
+    return normalizedCwd === workspacePath;
   }
+  return normalizedCwd.toLowerCase() === workspacePath.toLowerCase();
+}
+
+// ────────────────────────────────────────────────────────
+//  Process listing
+// ────────────────────────────────────────────────────────
+
+/**
+ * Get the list of running processes via platform-specific commands.
+ * Returns an empty array on failure (unsupported platform, permission issues, etc.)
+ */
+async function getProcessList(platform: SupportedPlatform): Promise<string[]> {
+  if (platform === 'win32') {
+    return getWindowsProcessList();
+  }
+  return getUnixProcessList();
+}
+
+async function getUnixProcessList(): Promise<string[]> {
+  return new Promise((resolve) => {
+    exec('ps aux', { encoding: 'utf-8', timeout: 5000 }, (error, stdout) => {
+      if (error) {
+        resolve([]);
+        return;
+      }
+      resolve(stdout.split('\n'));
+    });
+  });
+}
+
+async function getWindowsProcessList(): Promise<string[]> {
+  return new Promise((resolve) => {
+    const cmd = 'powershell -NoProfile -Command "Get-CimInstance Win32_Process | Select-Object Name,CommandLine | ConvertTo-Json"';
+    exec(cmd, { encoding: 'utf-8', timeout: 8000 }, (error, stdout) => {
+      if (error) {
+        resolve([]);
+        return;
+      }
+      try {
+        const processes = JSON.parse(stdout) as Array<{ Name?: string; CommandLine?: string }>;
+        const lines = (Array.isArray(processes) ? processes : [processes]).map(
+          (p) => `${p.Name ?? ''} ${p.CommandLine ?? ''}`,
+        );
+        resolve(lines);
+      } catch {
+        resolve([]);
+      }
+    });
+  });
 }
 
 /**
  * Find process lines that match any of the given patterns.
+ * @internal Exported for testing
  */
-function findProcessLines(lines: string[], patterns: string[]): string[] {
+export function findProcessLines(lines: string[], patterns: string[]): string[] {
   return lines.filter((line) =>
-    patterns.some((pattern) => line.includes(pattern))
+    patterns.some((pattern) => line.includes(pattern)),
   );
 }
+
+// ────────────────────────────────────────────────────────
+//  Workspace path extraction from process args
+// ────────────────────────────────────────────────────────
 
 /**
  * Extract workspace paths from process command-line arguments.
@@ -101,7 +169,11 @@ function findProcessLines(lines: string[], patterns: string[]): string[] {
  * VS Code family: looks for `--folder-uri file:///path` or bare directory paths
  * Zed: looks for directory paths passed as arguments
  */
-function extractWorkspacePaths(lines: string[], kind: string): string[] {
+function extractWorkspacePaths(
+  lines: string[],
+  kind: string,
+  platform: SupportedPlatform,
+): string[] {
   const paths = new Set<string>();
 
   for (const line of lines) {
@@ -110,7 +182,9 @@ function extractWorkspacePaths(lines: string[], kind: string): string[] {
     if (folderUriMatch?.[1]) {
       try {
         const decoded = decodeURIComponent(folderUriMatch[1]);
-        paths.add(decoded);
+        if (!isRuntimePath(decoded, platform)) {
+          paths.add(decoded);
+        }
         continue;
       } catch {
         // skip malformed URIs
@@ -118,7 +192,7 @@ function extractWorkspacePaths(lines: string[], kind: string): string[] {
     }
 
     // Try extracting paths from process arguments
-    const extractedPaths = extractPathsFromArgs(line, kind);
+    const extractedPaths = extractPathsFromArgs(line, kind, platform);
     for (const p of extractedPaths) {
       paths.add(p);
     }
@@ -129,25 +203,34 @@ function extractWorkspacePaths(lines: string[], kind: string): string[] {
 
 /**
  * Extract directory paths from a process command line.
- *
- * Heuristic: look for absolute paths (starting with /) that are likely
- * workspace directories, filtering out framework/runtime paths.
+ * Uses platform-specific regexes to find absolute paths.
+ * @internal Exported for testing
  */
-function extractPathsFromArgs(line: string, _kind: string): string[] {
+export function extractPathsFromArgs(
+  line: string,
+  _kind: string,
+  platform: SupportedPlatform,
+): string[] {
   const results: string[] = [];
 
-  // Match absolute paths in the command line
-  const pathMatches = line.match(/\s(\/(?:Users|home|root)[^\s]+)/g);
+  let pathMatches: RegExpMatchArray | null;
+
+  if (platform === 'win32') {
+    // Windows: match drive-letter paths like C:\Users\foo\project
+    pathMatches = line.match(/\s([A-Za-z]:\\[^\s"]+)/g);
+  } else {
+    // Unix: match absolute paths under home directories
+    pathMatches = line.match(/\s(\/(?:Users|home|root)[^\s]+)/g);
+  }
+
   if (!pathMatches) return results;
 
   for (const match of pathMatches) {
     const candidate = match.trim();
 
-    // Skip paths that are clearly not workspace directories
-    if (isRuntimePath(candidate)) continue;
+    if (isRuntimePath(candidate, platform)) continue;
 
-    // Only include paths that look like project directories
-    if (looksLikeWorkspace(candidate)) {
+    if (looksLikeWorkspace(candidate, platform)) {
       results.push(candidate);
     }
   }
@@ -157,24 +240,16 @@ function extractPathsFromArgs(line: string, _kind: string): string[] {
 
 /**
  * Check if a path looks like a runtime/framework path rather than a user workspace.
+ * @internal Exported for testing
  */
-function isRuntimePath(p: string): boolean {
-  const runtimePatterns = [
-    '/Applications/',
-    '/Library/',
-    '/System/',
-    '/usr/',
-    '/opt/',
-    '/tmp/',
-    '/var/',
-    '/private/',
+export function isRuntimePath(p: string, platform?: SupportedPlatform): boolean {
+  const plat = platform ?? getCurrentPlatform();
+
+  const commonPatterns = [
     'node_modules',
     '.vscode',
     '.cursor',
     'Frameworks/',
-    '.app/',
-    'MacOS/',
-    'Resources/',
     'Helper',
     'Crashpad',
     'chrome-sandbox',
@@ -183,153 +258,203 @@ function isRuntimePath(p: string): boolean {
     '.pid',
   ];
 
-  return runtimePatterns.some((pattern) => p.includes(pattern));
+  const unixPatterns = [
+    '/Applications/',
+    '/Library/',
+    '/System/',
+    '/usr/',
+    '/opt/',
+    '/tmp/',
+    '/var/',
+    '/private/',
+    '/.local/share/',
+    '/.config/',
+    '/.cache/',
+    '.app/',
+    'MacOS/',
+    'Resources/',
+  ];
+
+  const windowsPatterns = [
+    'Program Files',
+    'Program Files (x86)',
+    '\\Windows\\',
+    '\\AppData\\',
+    '\\ProgramData\\',
+  ];
+
+  const patterns = [
+    ...commonPatterns,
+    ...(plat === 'win32' ? windowsPatterns : unixPatterns),
+  ];
+
+  return patterns.some((pattern) => p.includes(pattern));
 }
 
 /**
  * Check if a path looks like a user workspace/project directory.
+ * @internal Exported for testing
  */
-function looksLikeWorkspace(p: string): boolean {
-  // Must start with a common home directory prefix
-  return /^\/(Users|home|root)\/[^/]+\/.+/.test(p);
+export function looksLikeWorkspace(p: string, platform?: SupportedPlatform): boolean {
+  const plat = platform ?? getCurrentPlatform();
+
+  if (plat === 'win32') {
+    return /^[A-Za-z]:\\Users\\[^\\]+\\.+/.test(p);
+  }
+  // /root is itself the home dir, so /root/<anything> is a workspace.
+  // /Users/<user>/<path> and /home/<user>/<path> need two segments after the prefix.
+  return /^\/(Users|home)\/[^/]+\/.+/.test(p) || /^\/root\/.+/.test(p);
 }
 
 // ────────────────────────────────────────────────────────
-//  Storage-based workspace resolution (macOS)
+//  Storage-based workspace resolution (cross-platform)
 // ────────────────────────────────────────────────────────
 
-/** Max recently-opened entries to return per IDE */
-const MAX_RECENT_WORKSPACES = 10;
-
 /**
- * Read workspace paths from the IDE's on-disk state storage.
- *
- * VS Code family stores recently opened folders in a SQLite database at
- * `~/Library/Application Support/<name>/User/globalStorage/state.vscdb`.
- *
- * Zed stores workspaces in a SQLite database at
- * `~/Library/Application Support/Zed/db/0-stable/db.sqlite`.
+ * Resolve the base path for an IDE's storage directory on the current platform.
+ * @internal Exported for testing
  */
-function readWorkspacesFromStorage(entry: IDERegistryEntry): string[] {
-  if (process.platform !== 'darwin' || !entry.macStorageName) return [];
+export function getStorageBasePath(
+  type: 'vscode-family' | 'zed',
+  platform: SupportedPlatform,
+): string {
+  const home = os.homedir();
 
-  try {
-    if (entry.kind === 'zed') {
-      return readZedWorkspaces(entry.macStorageName);
-    }
-    return readVSCodeFamilyWorkspaces(entry.macStorageName);
-  } catch {
-    return [];
+  switch (platform) {
+    case 'darwin':
+      return path.join(home, 'Library', 'Application Support');
+
+    case 'linux':
+      if (type === 'zed') {
+        return process.env['XDG_DATA_HOME'] ?? path.join(home, '.local', 'share');
+      }
+      return process.env['XDG_CONFIG_HOME'] ?? path.join(home, '.config');
+
+    case 'win32':
+      if (type === 'zed') {
+        return process.env['LOCALAPPDATA'] ?? path.join(home, 'AppData', 'Local');
+      }
+      return process.env['APPDATA'] ?? path.join(home, 'AppData', 'Roaming');
+
+    default:
+      return path.join(home, '.config');
   }
 }
 
 /**
- * Read recently opened workspaces from a VS Code-family IDE's state database.
- *
- * Queries `history.recentlyOpenedPathsList` from the `ItemTable` in
- * `state.vscdb`, which contains `folderUri` entries like `file:///path/to/project`.
+ * Check whether the given cwd appears in the IDE's on-disk state storage.
  */
-function readVSCodeFamilyWorkspaces(storageName: string): string[] {
-  const dbPath = path.join(
-    os.homedir(),
-    'Library',
-    'Application Support',
-    storageName,
-    'User',
-    'globalStorage',
-    'state.vscdb',
-  );
+async function checkCwdInStorage(
+  entry: IDERegistryEntry,
+  normalizedCwd: string,
+  platform: SupportedPlatform,
+): Promise<boolean> {
+  const storageName = entry.storage?.[platform];
+  if (!storageName || !entry.storage) return false;
 
-  const raw = querySqlite(
+  try {
+    if (entry.storage.type === 'zed') {
+      return await checkZedStorage(storageName, normalizedCwd, platform);
+    }
+    return await checkVSCodeFamilyStorage(storageName, normalizedCwd, platform);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check if cwd exists in a VS Code-family IDE's recently opened paths.
+ */
+async function checkVSCodeFamilyStorage(
+  storageName: string,
+  normalizedCwd: string,
+  platform: SupportedPlatform,
+): Promise<boolean> {
+  const basePath = getStorageBasePath('vscode-family', platform);
+  const dbPath = path.join(basePath, storageName, 'User', 'globalStorage', 'state.vscdb');
+
+  const raw = await querySqlite(
     dbPath,
     "SELECT value FROM ItemTable WHERE key = 'history.recentlyOpenedPathsList'",
   );
-  if (!raw) return [];
+  if (!raw) return false;
 
   try {
     const data = JSON.parse(raw) as { entries?: Array<{ folderUri?: string }> };
-    const folders: string[] = [];
 
     for (const entry of data.entries ?? []) {
       if (!entry.folderUri) continue;
       try {
         const url = new URL(entry.folderUri);
         if (url.protocol === 'file:') {
-          folders.push(decodeURIComponent(url.pathname));
+          const folder = path.resolve(decodeURIComponent(url.pathname));
+          if (pathMatchesCwd(normalizedCwd, folder, platform)) return true;
         }
       } catch {
         // skip malformed URIs
       }
-      if (folders.length >= MAX_RECENT_WORKSPACES) break;
     }
 
-    return folders;
+    return false;
   } catch {
-    return [];
+    return false;
   }
 }
 
 /**
- * Read workspaces from Zed's state database.
- *
- * Queries the `workspaces` table for the `paths` column,
- * ordered by most recently used first.
+ * Check if cwd exists in Zed's workspace history.
  */
-function readZedWorkspaces(storageName: string): string[] {
-  const dbPath = path.join(
-    os.homedir(),
-    'Library',
-    'Application Support',
-    storageName,
-    'db',
-    '0-stable',
-    'db.sqlite',
-  );
+async function checkZedStorage(
+  storageName: string,
+  normalizedCwd: string,
+  platform: SupportedPlatform,
+): Promise<boolean> {
+  const basePath = getStorageBasePath('zed', platform);
+  const dbPath = path.join(basePath, storageName, 'db', '0-stable', 'db.sqlite');
 
-  const raw = querySqlite(
+  // Escape single quotes in the path for the SQL query
+  const escaped = normalizedCwd.replace(/'/g, "''");
+  const raw = await querySqlite(
     dbPath,
-    `SELECT paths FROM workspaces WHERE paths IS NOT NULL ORDER BY timestamp DESC LIMIT ${MAX_RECENT_WORKSPACES}`,
+    `SELECT COUNT(*) FROM workspaces WHERE paths IS NOT NULL AND paths = '${escaped}'`,
   );
-  if (!raw) return [];
 
-  // sqlite3 returns one path per line
-  return raw
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && line.startsWith('/'));
+  return raw !== null && raw.trim() !== '0';
 }
 
 /**
  * Run a SQLite query using the `sqlite3` CLI and return the first column's value.
  * Returns null if the query fails or produces no results.
  */
-function querySqlite(dbPath: string, query: string): string | null {
-  try {
-    const output = execSync(
+async function querySqlite(dbPath: string, query: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    exec(
       `sqlite3 -readonly "${dbPath}" "${query}"`,
-      {
-        encoding: 'utf-8',
-        timeout: 3000,
-        stdio: ['pipe', 'pipe', 'pipe'],
+      { encoding: 'utf-8', timeout: 3000 },
+      (error, stdout) => {
+        if (error) {
+          resolve(null);
+          return;
+        }
+        const trimmed = stdout.trim();
+        resolve(trimmed.length > 0 ? trimmed : null);
       },
     );
-    const trimmed = output.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  } catch {
-    return null;
-  }
+  });
 }
 
 /**
- * Get unique extension URLs for detected IDEs that have extensions available.
+ * Get extension URLs for the set of detected IDE kinds.
+ * Only suggests extensions for IDEs that were actually detected running.
  */
 export function getExtensionSuggestions(detected: DetectedIDE[]): Array<{ displayName: string; url: string }> {
+  const detectedKinds = new Set(detected.map((d) => d.kind));
   const seen = new Set<string>();
   const suggestions: Array<{ displayName: string; url: string }> = [];
 
-  // Also suggest extensions for IDEs in the registry that aren't running
   for (const entry of IDE_REGISTRY) {
     if (!entry.extensionUrl) continue;
+    if (!detectedKinds.has(entry.kind)) continue;
     if (seen.has(entry.extensionUrl)) continue;
 
     seen.add(entry.extensionUrl);
