@@ -73,7 +73,7 @@ describe('webRepo', () => {
       // GitLab API returns 'GitLab' (capitalized) as the display name
       expect(info.name).toBe('GitLab');
       expect(typeof info.stars).toBe('number');
-    });
+    }, 15_000);
 
     it('throws on non-existent repo', async () => {
       await expect(fetchRepoInfo({ platform: 'github', owner: 'nonexistent-user-12345', repo: 'nonexistent-repo-67890' }))
@@ -95,14 +95,14 @@ describe('webRepo', () => {
       const files = await listRepoDir({ platform: 'gitlab', owner: 'gitlab-org', repo: 'gitlab' }, '');
       expect(Array.isArray(files)).toBe(true);
       expect(files.length).toBeGreaterThan(0);
-    });
+    }, 15_000);
 
     it('lists subdirectory', async () => {
       // gitlab-org/gitlab has an 'app' directory
       const files = await listRepoDir({ platform: 'gitlab', owner: 'gitlab-org', repo: 'gitlab' }, 'app');
       expect(Array.isArray(files)).toBe(true);
       expect(files.length).toBeGreaterThan(0);
-    });
+    }, 15_000);
 
     it('throws on non-existent path', async () => {
       await expect(listRepoDir({ platform: 'github', owner: 'octocat', repo: 'Hello-World' }, 'nonexistent-path-12345'))
@@ -120,7 +120,7 @@ describe('webRepo', () => {
       const content = await fetchRepoFile({ platform: 'gitlab', owner: 'gitlab-org', repo: 'gitlab' }, 'README.md');
       expect(content.length).toBeGreaterThan(0);
       expect(content).toContain('GitLab');
-    });
+    }, 15_000);
 
     it('throws on non-existent file', async () => {
       await expect(fetchRepoFile({ platform: 'github', owner: 'octocat', repo: 'Hello-World' }, 'nonexistent-file.txt'))
@@ -154,7 +154,7 @@ describe('webRepo', () => {
         expect(result.path).toBe('app');
         expect(result.data.length).toBeGreaterThan(0);
       }
-    });
+    }, 15_000);
 
     it('routes to fetch operation with default path', async () => {
       // Use gitlab-org/gitlab which has a README.md file
@@ -164,7 +164,7 @@ describe('webRepo', () => {
         expect(result.path).toBe('README.md');
         expect(result.data.length).toBeGreaterThan(0);
       }
-    });
+    }, 15_000);
 
     it('routes to fetch operation with custom path', async () => {
       const result = await webRepo({ repo: 'github:octocat/Hello-World', operation: 'fetch', path: 'README' });
