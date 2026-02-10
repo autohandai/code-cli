@@ -21,10 +21,7 @@ export default defineConfig({
   splitting: true,
   clean: true,
   target: 'node18',
-  // Keep these external to avoid bundling issues
-  external: [
-    'react-devtools-core',
-  ],
+  external: [],
   // Ensure ink-spinner uses the same React as ink
   noExternal: [
     'ink-spinner',
