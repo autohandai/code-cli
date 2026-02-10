@@ -115,6 +115,80 @@ describe('PipeOutputHandler', () => {
   });
 });
 
+// ---------- Pipe stdin composition (wiring test) ----------
+
+describe('pipe stdin → buildPipePrompt composition', () => {
+  let mockStdin: import('node:events').EventEmitter & { setEncoding: ReturnType<typeof vi.fn> };
+
+  beforeEach(async () => {
+    const { EventEmitter } = await import('node:events');
+    mockStdin = Object.assign(new EventEmitter(), {
+      setEncoding: vi.fn(),
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('combines piped stdin with user prompt into a single instruction', async () => {
+    const { readPipedStdin } = await import('../src/utils/stdinDetector.js');
+    const { buildPipePrompt } = await import('../src/modes/pipeMode.js');
+
+    // Simulate: git diff HEAD~1 | autohand -p "summarize these changes"
+    const userPrompt = 'summarize these changes';
+    const diffContent = 'diff --git a/file.ts\n-old line\n+new line';
+
+    const readPromise = readPipedStdin(5_000, mockStdin as unknown as NodeJS.ReadableStream);
+    mockStdin.emit('data', diffContent);
+    mockStdin.emit('end');
+    const pipedInput = await readPromise;
+
+    const instruction = buildPipePrompt(userPrompt, pipedInput);
+
+    expect(instruction).toContain('summarize these changes');
+    expect(instruction).toContain('diff --git a/file.ts');
+    expect(instruction).toContain('-old line');
+    expect(instruction).toContain('+new line');
+    expect(instruction).toContain('```');
+  });
+
+  it('passes prompt through unchanged when stdin read returns null', async () => {
+    const { readPipedStdin } = await import('../src/utils/stdinDetector.js');
+    const { buildPipePrompt } = await import('../src/modes/pipeMode.js');
+
+    const userPrompt = 'explain this code';
+
+    // Simulate stdin error → null
+    const readPromise = readPipedStdin(5_000, mockStdin as unknown as NodeJS.ReadableStream);
+    mockStdin.emit('error', new Error('broken pipe'));
+    const pipedInput = await readPromise;
+
+    const instruction = buildPipePrompt(userPrompt, pipedInput);
+
+    expect(instruction).toBe('explain this code');
+  });
+
+  it('handles large piped input without truncation', async () => {
+    const { readPipedStdin } = await import('../src/utils/stdinDetector.js');
+    const { buildPipePrompt } = await import('../src/modes/pipeMode.js');
+
+    const userPrompt = 'summarize';
+    const largeDiff = Array.from({ length: 500 }, (_, i) => `+line ${i}`).join('\n');
+
+    const readPromise = readPipedStdin(5_000, mockStdin as unknown as NodeJS.ReadableStream);
+    mockStdin.emit('data', largeDiff);
+    mockStdin.emit('end');
+    const pipedInput = await readPromise;
+
+    const instruction = buildPipePrompt(userPrompt, pipedInput);
+
+    expect(instruction).toContain('+line 0');
+    expect(instruction).toContain('+line 499');
+    expect(instruction).toContain('summarize');
+  });
+});
+
 // ---------- buildPipePrompt ----------
 
 describe('buildPipePrompt', () => {
