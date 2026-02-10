@@ -247,9 +247,12 @@ MCP is an industry standard protocol for connecting AI agents to external tools.
 
 - **stdio transport** -- spawns a child process and communicates via JSON-RPC 2.0 over stdin/stdout
 - **SSE transport** -- connects to an HTTP server using Server-Sent Events
+- **Streamable HTTP transport** -- connects via MCP's Streamable HTTP protocol with session tracking and dual-format response handling
+- **Custom headers** -- pass authentication tokens and custom headers for HTTP/SSE servers
 - **Automatic tool discovery** -- queries `tools/list` and registers tools dynamically
 - **Namespaced tools** -- tools are prefixed as `mcp__<server>__<tool>` to avoid collisions
 - **Server lifecycle management** -- start, stop, and reconnect servers
+- **Non-interactive CLI management** -- add, list, and remove servers from the command line without entering the REPL
 
 ### Configuration
 
@@ -274,6 +277,15 @@ Add MCP servers to your `~/.autohand/config.json`:
         "transport": "sse",
         "url": "http://localhost:3001/mcp",
         "autoConnect": true
+      },
+      {
+        "name": "context7",
+        "transport": "http",
+        "url": "https://mcp.context7.com/mcp",
+        "headers": {
+          "CONTEXT7_API_KEY": "ctx7sk-your-api-key"
+        },
+        "autoConnect": true
       }
     ]
   }
@@ -285,10 +297,11 @@ Add MCP servers to your `~/.autohand/config.json`:
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `name` | string | Yes | - | Unique server name |
-| `transport` | `"stdio"` or `"sse"` | Yes | - | Connection type |
+| `transport` | `"stdio"`, `"sse"`, or `"http"` | Yes | - | Connection type |
 | `command` | string | stdio only | - | Command to start the server |
 | `args` | string[] | No | `[]` | Command arguments |
-| `url` | string | sse only | - | SSE endpoint URL |
+| `url` | string | sse/http only | - | Server endpoint URL |
+| `headers` | object | No | `{}` | Custom HTTP headers (for http/sse transport, e.g. auth tokens) |
 | `env` | object | No | `{}` | Environment variables for the server process |
 | `autoConnect` | boolean | No | `true` | Connect automatically on startup |
 
@@ -319,13 +332,16 @@ Manage MCP servers directly from the REPL:
 | Command | Description |
 |---------|-------------|
 | `/mcp` | Interactive server toggle list (enable/disable with arrow keys) |
-| `/mcp install` | Browse and install from community MCP registry |
-| `/mcp install <name>` | Install a specific server directly |
+| `/mcp add` | Browse and install from community MCP registry |
+| `/mcp add <name>` | Search community registry for a server by name |
+| `/mcp add <name> <cmd> [args]` | Add a custom stdio server to config and connect |
+| `/mcp add --transport http <name> <url> --header "Key: value"` | Add a custom HTTP server with headers |
 | `/mcp connect <name>` | Connect to a configured server |
 | `/mcp disconnect <name>` | Disconnect from a server |
 | `/mcp list` | List all tools from connected servers |
-| `/mcp add <name> <cmd> [args]` | Add a server to config and connect |
 | `/mcp remove <name>` | Remove a server from config |
+
+> `/mcp install` still works as a backward-compatible alias for `/mcp add`.
 
 ### Interactive Server Manager
 
@@ -343,7 +359,52 @@ MCP Servers
 
 ### Community MCP Registry
 
-`/mcp install` provides access to a curated registry of 12 MCP servers across 5 categories (Developer Tools, Data & Databases, Web & APIs, Productivity, AI & Reasoning). The registry is fetched from GitHub and cached locally for 24 hours.
+`/mcp add` (formerly `/mcp install`) provides access to a curated registry of 12 MCP servers across 5 categories (Developer Tools, Data & Databases, Web & APIs, Productivity, AI & Reasoning). The registry is fetched from GitHub and cached locally for 24 hours.
+
+The unified `/mcp add` command auto-detects intent:
+
+- **No arguments** (`/mcp add`) -- opens the interactive community registry browser
+- **Name only** (`/mcp add context7`) -- searches the community registry for that server
+- **Name + command/URL** (`/mcp add mydb npx -y @mcp/postgres`) -- adds a custom server directly
+- **With `--transport`** (`/mcp add --transport http ctx7 https://...`) -- adds a custom HTTP/SSE server
+
+### Non-Interactive CLI Commands
+
+Manage MCP servers from the command line without entering the REPL:
+
+```bash
+# Add an stdio server
+autohand mcp add mydb npx -y @modelcontextprotocol/server-postgres
+
+# Add an HTTP server with custom headers
+autohand mcp add --transport http context7 https://mcp.context7.com/mcp \
+  --header "CONTEXT7_API_KEY: ctx7sk-your-key"
+
+# Add an SSE server with environment variables
+autohand mcp add -t sse my-api http://localhost:3001/mcp -e "API_KEY=secret"
+
+# List all configured servers
+autohand mcp list
+
+# Remove a server
+autohand mcp remove context7
+```
+
+| CLI Command | Description |
+|-------------|-------------|
+| `autohand mcp add <name> <cmd/url> [args]` | Add a server to config |
+| `autohand mcp add -t http <name> <url> --header "K: V"` | Add an HTTP server with headers |
+| `autohand mcp list` | List all configured MCP servers |
+| `autohand mcp remove <name>` | Remove a server from config |
+
+### Streamable HTTP Transport
+
+The new `http` transport implements MCP's Streamable HTTP protocol:
+
+- Sends `Accept: application/json, text/event-stream` to support both response formats
+- Tracks `Mcp-Session-Id` across requests for session continuity
+- Parses both JSON and SSE-wrapped responses transparently
+- Supports custom headers for authentication (API keys, bearer tokens, etc.)
 
 ### Non-Blocking Startup
 
@@ -354,8 +415,8 @@ MCP servers connect asynchronously in the background during startup. The prompt 
 Server configurations are validated before connection. The client checks for:
 
 - Non-empty `name` field
-- Valid `transport` type (`stdio` or `sse`)
-- Required fields based on transport (`command` for stdio, `url` for sse)
+- Valid `transport` type (`stdio`, `sse`, or `http`)
+- Required fields based on transport (`command` for stdio, `url` for sse/http)
 
 > For full MCP documentation, see [docs/mcp.md](mcp.md).
 
@@ -561,6 +622,11 @@ A value is treated as a file path if it starts with `./`, `../`, `/`, or `~/`, s
 | `--add-dir <path>` | Add additional directories to workspace scope |
 | `--skill-install [name]` | Install a community skill |
 | `--project` | Install skill to project level (with `--skill-install`) |
+| `mcp add <name> <cmd/url>` | Add an MCP server to config (non-interactive) |
+| `mcp add -t http <name> <url>` | Add an HTTP MCP server |
+| `mcp add --header "K: V"` | Pass custom headers for HTTP/SSE servers |
+| `mcp list` | List configured MCP servers |
+| `mcp remove <name>` | Remove an MCP server from config |
 
 ---
 
@@ -585,7 +651,8 @@ A value is treated as a file path if it starts with `./`, `../`, `/`, or `~/`, s
 | `/share` | Share a session via autohand.link |
 | `/skills` | List, activate, deactivate, or create skills |
 | `/mcp` | Interactive MCP server manager (toggle enable/disable) |
-| `/mcp install` | Browse and install community MCP servers |
+| `/mcp add` | Unified command: add custom servers or browse community registry |
+| `/mcp add --transport http <name> <url>` | Add HTTP/SSE servers with headers |
 
 ---
 
@@ -642,6 +709,7 @@ New configuration sections (like `mcp.servers`) are optional and only required i
 ## Related Documentation
 
 - [Configuration Reference](./config-reference.md) -- all configuration options
+- [MCP Client Guide](./mcp.md) -- MCP server setup and transport details
 - [Hooks System](./hooks.md) -- lifecycle hooks
 - [Providers Guide](./providers.md) -- LLM provider setup
 - [Auto-Mode](./automode.md) -- autonomous development loops

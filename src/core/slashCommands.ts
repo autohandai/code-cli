@@ -44,7 +44,7 @@ import * as mcpCmd from '../commands/mcp.js';
 import type { SlashCommand } from './slashCommandTypes.js';
 export type { SlashCommand } from './slashCommandTypes.js';
 
-export const SLASH_COMMANDS: SlashCommand[] = [
+export const SLASH_COMMANDS: SlashCommand[] = ([
   quit.metadata,
   model.metadata,
   cc.metadata,
@@ -86,4 +86,4 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   history.metadata,
   mcpCmd.metadata,
   mcpCmd.installMetadata,
-];
+] as (SlashCommand | undefined)[]).filter((cmd): cmd is SlashCommand => cmd != null && typeof cmd.command === 'string');

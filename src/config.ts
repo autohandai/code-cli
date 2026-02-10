@@ -224,14 +224,14 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
         if (!server.name || typeof server.name !== 'string') {
           throw new Error(`mcp.servers[].name must be a non-empty string in ${configPath}`);
         }
-        if (!['stdio', 'sse'].includes(server.transport)) {
-          throw new Error(`mcp.servers[].transport must be 'stdio' or 'sse' in ${configPath}`);
+        if (!['stdio', 'sse', 'http'].includes(server.transport)) {
+          throw new Error(`mcp.servers[].transport must be 'stdio', 'sse', or 'http' in ${configPath}`);
         }
         if (server.transport === 'stdio' && (!server.command || typeof server.command !== 'string')) {
           throw new Error(`mcp.servers[].command is required for stdio transport in ${configPath}`);
         }
-        if (server.transport === 'sse' && (!server.url || typeof server.url !== 'string')) {
-          throw new Error(`mcp.servers[].url is required for sse transport in ${configPath}`);
+        if ((server.transport === 'sse' || server.transport === 'http') && (!server.url || typeof server.url !== 'string')) {
+          throw new Error(`mcp.servers[].url is required for ${server.transport} transport in ${configPath}`);
         }
       }
     }
