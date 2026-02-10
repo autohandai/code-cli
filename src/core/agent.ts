@@ -1702,6 +1702,28 @@ If lint or tests fail, report the issues but do NOT commit.`;
         const errStack = llmError instanceof Error ? llmError.stack : '';
         if (debugMode) process.stderr.write(`[AGENT DEBUG] LLM ERROR: ${errMsg}\n`);
         if (debugMode) process.stderr.write(`[AGENT DEBUG] LLM STACK: ${errStack}\n`);
+
+        // Detect context overflow (400 from API) and auto-compact before retrying
+        if (this.isContextOverflowError(errMsg)) {
+          this.runtime.spinner?.stop();
+          console.log(chalk.yellow('\n⚠ Context too long for model, auto-compacting...'));
+
+          // Force aggressive crop to ~50% usage
+          const currentMessages = this.conversation.history();
+          const targetRemove = Math.ceil(currentMessages.length * 0.4);
+          const removed = this.conversation.cropHistory('top', targetRemove);
+
+          if (removed.length > 0) {
+            const summary = this.summarizeRemovedMessages(removed);
+            this.conversation.addSystemNote(
+              `[Auto-Recovery] ${removed.length} messages compacted after context overflow.\n` +
+              `Summary: ${summary}`
+            );
+            console.log(chalk.gray(`   Compacted ${removed.length} messages, retrying...`));
+            continue; // Retry the current iteration with compacted context
+          }
+        }
+
         throw llmError;
       }
 
@@ -3243,6 +3265,20 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   /**
+   * Detect context-overflow errors from API 400 responses.
+   * These are recoverable via auto-compaction and retry.
+   */
+  private isContextOverflowError(message: string): boolean {
+    const lower = message.toLowerCase();
+    return (
+      (lower.includes('context') && lower.includes('too long')) ||
+      lower.includes('maximum context length') ||
+      lower.includes('prompt is too long') ||
+      lower.includes('reduce the length')
+    );
+  }
+
+  /**
    * Categorize errors to determine retry behavior.
    * Returns true if the error is retryable.
    */
@@ -3281,11 +3317,16 @@ If lint or tests fail, report the issues but do NOT commit.`;
       return false;
     }
 
-    // Context/payload errors (user action needed)
-    // Note: Match both "context is too long" and "context too long"
+    // Context/payload overflow - retryable (auto-compaction handles recovery)
     if (message.includes('payload too large') ||
         (message.includes('context') && message.includes('too long')) ||
-        message.includes('malformed')) {
+        message.includes('maximum context length') ||
+        message.includes('prompt is too long')) {
+      return true;
+    }
+
+    // Other malformed errors remain non-retryable
+    if (message.includes('malformed')) {
       return false;
     }
 

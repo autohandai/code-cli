@@ -432,6 +432,16 @@
     "passwordPlaceholder": "\ube44\ubc00\ubc88\ud638\ub97c \uc785\ub825\ud558\uc138\uc694...",
     "validationError": "\uc798\ubabb\ub41c \uc785\ub825"
   },
+  "acp": {
+    "description": "에디터 통합을 위한 네이티브 Agent Client Protocol 모드",
+    "connected": "ACP 연결이 설정되었습니다",
+    "sessionStarted": "ACP 세션이 시작되었습니다: {{sessionId}}",
+    "modeChanged": "ACP 세션 모드가 변경되었습니다: {{mode}}",
+    "modelChanged": "ACP 세션 모델이 변경되었습니다: {{model}}",
+    "sessionClosed": "ACP 세션이 종료되었습니다",
+    "permissionRequested": "권한이 요청되었습니다: {{action}}",
+    "error": "ACP 오류: {{message}}"
+  },
   "languages": {
     "en": "English",
     "zh-cn": "\u7b80\u4f53\u4e2d\u6587 (Simplified Chinese)",

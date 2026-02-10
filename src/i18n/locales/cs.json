@@ -432,6 +432,44 @@
     "passwordPlaceholder": "Zadejte heslo...",
     "validationError": "Neplatný vstup"
   },
+<<<<<<< Updated upstream
+=======
+  "homebrew": {
+    "formulaGenerated": "Homebrew formula generated at {{path}}"
+  },
+  "yolo": {
+    "enabled": "Auto-approve enabled: {{pattern}}",
+    "expired": "Auto-approve timeout expired",
+    "denied": "Tool {{tool}} denied by yolo pattern",
+    "remaining": "Auto-approve: {{seconds}}s remaining"
+  },
+  "pipe": {
+    "reading": "Reading piped input...",
+    "processing": "Processing with {{model}}...",
+    "complete": "Task completed",
+    "error": "Pipe mode error: {{message}}",
+    "timeout": "Pipe mode timeout after {{seconds}}s",
+    "noPrompt": "No prompt provided. Usage: echo 'code' | autohand 'explain'"
+  },
+  "mcp": {
+    "connecting": "Connecting to MCP server: {{name}}...",
+    "connected": "Connected to MCP server: {{name}} ({{toolCount}} tools)",
+    "disconnected": "Disconnected from MCP server: {{name}}",
+    "error": "MCP server error ({{name}}): {{message}}",
+    "toolRegistered": "Registered MCP tool: {{tool}}",
+    "noServers": "No MCP servers configured"
+  },
+  "acp": {
+    "description": "Nativní režim Agent Client Protocol pro integraci s editory",
+    "connected": "ACP připojení navázáno",
+    "sessionStarted": "ACP relace zahájena: {{sessionId}}",
+    "modeChanged": "Režim ACP relace změněn na: {{mode}}",
+    "modelChanged": "Model ACP relace změněn na: {{model}}",
+    "sessionClosed": "ACP relace ukončena",
+    "permissionRequested": "Požadováno oprávnění: {{action}}",
+    "error": "Chyba ACP: {{message}}"
+  },
+>>>>>>> Stashed changes
   "languages": {
     "en": "English",
     "zh-cn": "简体中文 (Simplified Chinese)",

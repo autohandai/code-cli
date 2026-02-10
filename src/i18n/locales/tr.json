@@ -432,6 +432,16 @@
     "passwordPlaceholder": "Parola girin...",
     "validationError": "Ge\u00e7ersiz giri\u015f"
   },
+  "acp": {
+    "description": "Editör entegrasyonu için yerel Agent Client Protocol modu",
+    "connected": "ACP bağlantısı kuruldu",
+    "sessionStarted": "ACP oturumu başlatıldı: {{sessionId}}",
+    "modeChanged": "ACP oturum modu değiştirildi: {{mode}}",
+    "modelChanged": "ACP oturum modeli değiştirildi: {{model}}",
+    "sessionClosed": "ACP oturumu kapatıldı",
+    "permissionRequested": "İzin istendi: {{action}}",
+    "error": "ACP hatası: {{message}}"
+  },
   "languages": {
     "en": "English",
     "zh-cn": "\u7b80\u4f53\u4e2d\u6587 (Simplified Chinese)",

@@ -432,6 +432,16 @@
     "passwordPlaceholder": "Wprowad\u017a has\u0142o...",
     "validationError": "Nieprawid\u0142owe dane wej\u015bciowe"
   },
+  "acp": {
+    "description": "Natywny tryb Agent Client Protocol do integracji z edytorami",
+    "connected": "Połączenie ACP nawiązane",
+    "sessionStarted": "Sesja ACP rozpoczęta: {{sessionId}}",
+    "modeChanged": "Tryb sesji ACP zmieniony na: {{mode}}",
+    "modelChanged": "Model sesji ACP zmieniony na: {{model}}",
+    "sessionClosed": "Sesja ACP zamknięta",
+    "permissionRequested": "Żądanie uprawnień: {{action}}",
+    "error": "Błąd ACP: {{message}}"
+  },
   "languages": {
     "en": "English",
     "zh-cn": "\u7b80\u4f53\u4e2d\u6587 (Simplified Chinese)",

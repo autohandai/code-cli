@@ -432,6 +432,16 @@
     "passwordPlaceholder": "\u30d1\u30b9\u30ef\u30fc\u30c9\u3092\u5165\u529b...",
     "validationError": "\u7121\u52b9\u306a\u5165\u529b\u3067\u3059"
   },
+  "acp": {
+    "description": "エディター統合用のネイティブ Agent Client Protocol モード",
+    "connected": "ACP 接続が確立されました",
+    "sessionStarted": "ACP セッションが開始されました: {{sessionId}}",
+    "modeChanged": "ACP セッションモードが変更されました: {{mode}}",
+    "modelChanged": "ACP セッションモデルが変更されました: {{model}}",
+    "sessionClosed": "ACP セッションが終了しました",
+    "permissionRequested": "権限がリクエストされました: {{action}}",
+    "error": "ACP エラー: {{message}}"
+  },
   "languages": {
     "en": "English",
     "zh-cn": "\u7c21\u4f53\u4e2d\u6587 (Simplified Chinese)",

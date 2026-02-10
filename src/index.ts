@@ -47,6 +47,7 @@ import { ProviderFactory } from './providers/ProviderFactory.js';
 import { AutohandAgent } from './core/agent.js';
 import { runAutoSkillGeneration } from './skills/autoSkill.js';
 import { runRpcMode } from './modes/rpc/index.js';
+import { runAcpMode } from './modes/acp/index.js';
 import { SetupWizard } from './onboarding/index.js';
 import type { CLIOptions, AgentRuntime } from './types.js';
 
@@ -156,7 +157,7 @@ program
   .option('--sync-settings [bool]', 'Enable/disable settings sync (default: true for logged users)')
   .option('--patch', 'Generate git patch without applying changes (requires --prompt)', false)
   .option('--output <file>', 'Output file for patch (default: stdout, used with --patch)')
-  .option('--mode <mode>', 'Run mode: interactive (default) or rpc', 'interactive')
+  .option('--mode <mode>', 'Run mode: interactive (default), rpc, or acp', 'interactive')
   // Auto-mode options
   .option('--auto-mode <prompt>', 'Start autonomous development loop with the given task')
   .option('--max-iterations <n>', 'Max auto-mode iterations (default: 50)', parseInt)
@@ -261,6 +262,12 @@ program
     // RPC mode takes priority - auto-mode is handled via RPC methods when in RPC mode
     if (opts.mode === 'rpc') {
       await runRpcMode(opts);
+      return;
+    }
+
+    // Native ACP mode — in-process Agent Client Protocol over stdio
+    if (opts.mode === 'acp') {
+      await runAcpMode(opts);
       return;
     }
 

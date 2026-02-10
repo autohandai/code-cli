@@ -432,6 +432,44 @@
     "passwordPlaceholder": "Введите пароль...",
     "validationError": "Некорректный ввод"
   },
+<<<<<<< Updated upstream
+=======
+  "homebrew": {
+    "formulaGenerated": "Homebrew formula generated at {{path}}"
+  },
+  "yolo": {
+    "enabled": "Auto-approve enabled: {{pattern}}",
+    "expired": "Auto-approve timeout expired",
+    "denied": "Tool {{tool}} denied by yolo pattern",
+    "remaining": "Auto-approve: {{seconds}}s remaining"
+  },
+  "pipe": {
+    "reading": "Reading piped input...",
+    "processing": "Processing with {{model}}...",
+    "complete": "Task completed",
+    "error": "Pipe mode error: {{message}}",
+    "timeout": "Pipe mode timeout after {{seconds}}s",
+    "noPrompt": "No prompt provided. Usage: echo 'code' | autohand 'explain'"
+  },
+  "mcp": {
+    "connecting": "Connecting to MCP server: {{name}}...",
+    "connected": "Connected to MCP server: {{name}} ({{toolCount}} tools)",
+    "disconnected": "Disconnected from MCP server: {{name}}",
+    "error": "MCP server error ({{name}}): {{message}}",
+    "toolRegistered": "Registered MCP tool: {{tool}}",
+    "noServers": "No MCP servers configured"
+  },
+  "acp": {
+    "description": "Нативный режим Agent Client Protocol для интеграции с редакторами",
+    "connected": "ACP-соединение установлено",
+    "sessionStarted": "ACP-сессия запущена: {{sessionId}}",
+    "modeChanged": "Режим ACP-сессии изменён на: {{mode}}",
+    "modelChanged": "Модель ACP-сессии изменена на: {{model}}",
+    "sessionClosed": "ACP-сессия закрыта",
+    "permissionRequested": "Запрошено разрешение: {{action}}",
+    "error": "Ошибка ACP: {{message}}"
+  },
+>>>>>>> Stashed changes
   "languages": {
     "en": "English",
     "zh-cn": "简体中文 (Simplified Chinese)",

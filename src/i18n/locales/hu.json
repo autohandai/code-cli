@@ -432,6 +432,16 @@
     "passwordPlaceholder": "Add meg a jelsz\u00f3t...",
     "validationError": "\u00c9rv\u00e9nytelen bevitel"
   },
+  "acp": {
+    "description": "Natív Agent Client Protocol mód szerkesztő-integrációhoz",
+    "connected": "ACP kapcsolat létrehozva",
+    "sessionStarted": "ACP munkamenet elindítva: {{sessionId}}",
+    "modeChanged": "ACP munkamenet mód megváltoztatva: {{mode}}",
+    "modelChanged": "ACP munkamenet modell megváltoztatva: {{model}}",
+    "sessionClosed": "ACP munkamenet lezárva",
+    "permissionRequested": "Engedély kérelmezve: {{action}}",
+    "error": "ACP hiba: {{message}}"
+  },
   "languages": {
     "en": "English",
     "zh-cn": "\u7b80\u4f53\u4e2d\u6587 (Simplified Chinese)",
