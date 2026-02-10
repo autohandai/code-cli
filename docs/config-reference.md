@@ -1082,6 +1082,15 @@ Configure MCP (Model Context Protocol) servers to extend Autohand with external 
         "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
         "env": {},
         "autoConnect": true
+      },
+      {
+        "name": "context7",
+        "transport": "http",
+        "url": "https://mcp.context7.com/mcp",
+        "headers": {
+          "CONTEXT7_API_KEY": "ctx7sk-your-api-key"
+        },
+        "autoConnect": true
       }
     ]
   }
@@ -1103,14 +1112,15 @@ Configure MCP (Model Context Protocol) servers to extend Autohand with external 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `name` | `string` | Yes | - | Unique server identifier |
-| `transport` | `"stdio"` \| `"sse"` | Yes | - | Transport type |
+| `transport` | `"stdio"` \| `"sse"` \| `"http"` | Yes | - | Transport type |
 | `command` | `string` | Yes (stdio) | - | Command to start the server process |
 | `args` | `string[]` | No | `[]` | Arguments for the command |
-| `url` | `string` | Yes (sse) | - | SSE endpoint URL |
+| `url` | `string` | Yes (sse/http) | - | Server endpoint URL |
+| `headers` | `Record<string, string>` | No | `{}` | Custom HTTP headers for http/sse transport (e.g. auth tokens) |
 | `env` | `Record<string, string>` | No | `{}` | Environment variables passed to the server |
 | `autoConnect` | `boolean` | No | `true` | Whether to auto-connect on startup |
 
-> Servers connect asynchronously in the background during startup without blocking the prompt. Use `/mcp` to manage servers interactively, or `/mcp install` to browse the community registry.
+> Servers connect asynchronously in the background during startup without blocking the prompt. Use `/mcp` to manage servers interactively, or `/mcp add` to browse the community registry or add custom servers.
 
 > For full MCP documentation, see [docs/mcp.md](mcp.md).
 

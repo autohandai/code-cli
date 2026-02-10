@@ -261,6 +261,179 @@ class McpStdioConnection extends EventEmitter {
 }
 
 // ============================================================================
+// MCP HTTP Connection (Streamable HTTP Transport)
+// ============================================================================
+
+/** Manages HTTP-based JSON-RPC communication with an MCP server */
+class McpHttpConnection extends EventEmitter {
+  private nextId = 1;
+  private sessionId: string | null = null;
+
+  /** Default timeout for HTTP requests in milliseconds */
+  private static readonly REQUEST_TIMEOUT_MS = 30_000;
+
+  constructor(private readonly config: McpServerConfig) {
+    super();
+  }
+
+  /**
+   * No-op for HTTP transport (no persistent process to start).
+   */
+  async start(): Promise<void> {
+    // HTTP transport doesn't need a persistent connection
+  }
+
+  /**
+   * Sends a JSON-RPC 2.0 request via HTTP POST and returns the response.
+   */
+  async request(method: string, params?: Record<string, unknown>): Promise<unknown> {
+    if (!this.config.url) {
+      throw new Error(`MCP HTTP server "${this.config.name}" has no URL configured`);
+    }
+
+    const id = this.nextId++;
+    const body: JsonRpcRequest = {
+      jsonrpc: '2.0',
+      id,
+      method,
+      ...(params !== undefined ? { params } : {}),
+    };
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json, text/event-stream',
+      ...(this.config.headers ?? {}),
+    };
+
+    // Include session ID if we have one from a previous response
+    if (this.sessionId) {
+      headers['Mcp-Session-Id'] = this.sessionId;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), McpHttpConnection.REQUEST_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(this.config.url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(
+          `MCP HTTP request "${method}" failed: ${response.status} ${response.statusText}${text ? ` - ${text}` : ''}`
+        );
+      }
+
+      // Capture session ID from response headers
+      const newSessionId = response.headers.get('mcp-session-id');
+      if (newSessionId) {
+        this.sessionId = newSessionId;
+      }
+
+      const contentType = response.headers.get('content-type') ?? '';
+
+      // Handle SSE response (text/event-stream) - extract the last JSON-RPC result
+      if (contentType.includes('text/event-stream')) {
+        const text = await response.text();
+        return this.parseSSEResponse(text, id);
+      }
+
+      // Handle standard JSON response
+      const result = (await response.json()) as JsonRpcResponse;
+
+      if (result.error) {
+        throw new Error(
+          `MCP error (${result.error.code}): ${result.error.message}`
+        );
+      }
+
+      return result.result;
+    } catch (error) {
+      clearTimeout(timeout);
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error(`MCP HTTP request "${method}" timed out after ${McpHttpConnection.REQUEST_TIMEOUT_MS}ms`);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Sends a JSON-RPC 2.0 notification via HTTP POST (fire-and-forget).
+   */
+  notify(method: string, params?: Record<string, unknown>): void {
+    if (!this.config.url) return;
+
+    const body: JsonRpcNotification = {
+      jsonrpc: '2.0',
+      method,
+      ...(params !== undefined ? { params } : {}),
+    };
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(this.config.headers ?? {}),
+    };
+
+    if (this.sessionId) {
+      headers['Mcp-Session-Id'] = this.sessionId;
+    }
+
+    // Fire and forget
+    fetch(this.config.url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    }).catch(() => {
+      // Notifications are best-effort
+    });
+  }
+
+  /**
+   * No persistent process to stop for HTTP transport.
+   */
+  async stop(): Promise<void> {
+    this.sessionId = null;
+  }
+
+  /**
+   * Parses an SSE (text/event-stream) response to extract the JSON-RPC result.
+   */
+  private parseSSEResponse(text: string, expectedId: number): unknown {
+    const lines = text.split('\n');
+    let lastData = '';
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        lastData = line.slice(6);
+      }
+    }
+
+    if (!lastData) {
+      throw new Error('No data found in SSE response');
+    }
+
+    try {
+      const parsed = JSON.parse(lastData) as JsonRpcResponse;
+      if (parsed.error) {
+        throw new Error(`MCP error (${parsed.error.code}): ${parsed.error.message}`);
+      }
+      return parsed.result;
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        throw new Error(`Invalid JSON in SSE response: ${lastData.slice(0, 100)}`);
+      }
+      throw error;
+    }
+  }
+}
+
+// ============================================================================
 // MCP Client Manager
 // ============================================================================
 
@@ -287,7 +460,7 @@ class McpStdioConnection extends EventEmitter {
  */
 export class McpClientManager {
   private servers = new Map<string, McpServerState>();
-  private connections = new Map<string, McpStdioConnection>();
+  private connections = new Map<string, McpStdioConnection | McpHttpConnection>();
 
   // ============================================================================
   // Static Helper Methods
@@ -374,6 +547,8 @@ export class McpClientManager {
 
     if (config.transport === 'stdio') {
       await this.connectStdio(config);
+    } else if (config.transport === 'http') {
+      await this.connectHttp(config);
     } else if (config.transport === 'sse') {
       await this.connectSse(config);
     }
@@ -577,6 +752,54 @@ export class McpClientManager {
       this.connections.set(config.name, connection);
     } catch (error) {
       // Clean up on failure
+      await connection.stop().catch(() => {});
+      throw error;
+    }
+  }
+
+  /**
+   * Connects to an MCP server via HTTP (Streamable HTTP) transport.
+   * Sends JSON-RPC requests as HTTP POST to the configured URL.
+   */
+  private async connectHttp(config: McpServerConfig): Promise<void> {
+    const connection = new McpHttpConnection(config);
+
+    try {
+      await connection.start();
+
+      // MCP Initialize handshake
+      await connection.request('initialize', {
+        protocolVersion: '2024-11-05',
+        capabilities: {
+          tools: {},
+        },
+        clientInfo: {
+          name: 'autohand',
+          version: '1.0.0',
+        },
+      });
+
+      // Send initialized notification to complete handshake
+      connection.notify('notifications/initialized');
+
+      // Discover available tools
+      const toolsResult = (await connection.request('tools/list', {})) as {
+        tools?: McpRawTool[];
+      };
+
+      const tools: McpToolDefinition[] = (toolsResult?.tools ?? []).map((rawTool) =>
+        convertMcpToolToAutohand(rawTool, config.name)
+      );
+
+      // Store server state
+      this.servers.set(config.name, {
+        config,
+        status: 'connected',
+        tools,
+      });
+
+      this.connections.set(config.name, connection);
+    } catch (error) {
       await connection.stop().catch(() => {});
       throw error;
     }

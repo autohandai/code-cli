@@ -12,21 +12,23 @@
 
 /**
  * Configuration for connecting to an MCP server.
- * Supports both stdio (spawned process) and SSE (HTTP) transports.
+ * Supports stdio (spawned process), SSE, and HTTP (Streamable HTTP) transports.
  */
 export interface McpServerConfig {
   /** Unique name for this server */
   name: string;
-  /** Transport type: 'stdio' spawns a process, 'sse' connects via HTTP */
-  transport: 'stdio' | 'sse';
+  /** Transport type: 'stdio' spawns a process, 'sse'/'http' connects via HTTP */
+  transport: 'stdio' | 'sse' | 'http';
   /** Command to start the server (stdio transport) */
   command?: string;
   /** Arguments for the command */
   args?: string[];
-  /** SSE endpoint URL (sse transport) */
+  /** Endpoint URL (sse/http transport) */
   url?: string;
   /** Environment variables to pass to the server */
   env?: Record<string, string>;
+  /** Custom HTTP headers (http/sse transport) */
+  headers?: Record<string, string>;
   /** Whether to auto-connect on startup (default: true) */
   autoConnect?: boolean;
 }
@@ -91,7 +93,7 @@ export interface McpServerState {
 // Validation
 // ============================================================================
 
-const VALID_TRANSPORTS = ['stdio', 'sse'] as const;
+const VALID_TRANSPORTS = ['stdio', 'sse', 'http'] as const;
 
 /**
  * Validates an MCP server configuration object.
@@ -119,10 +121,10 @@ export function validateMcpServerConfig(config: McpServerConfig): void {
     }
   }
 
-  if (config.transport === 'sse') {
+  if (config.transport === 'sse' || config.transport === 'http') {
     if (!config.url || typeof config.url !== 'string') {
       throw new Error(
-        `MCP SSE server "${config.name}" requires a "url" field`
+        `MCP ${config.transport} server "${config.name}" requires a "url" field`
       );
     }
   }

@@ -167,16 +167,18 @@ export interface McpSettings {
 export interface McpServerConfigEntry {
   /** Unique name for this server */
   name: string;
-  /** Transport type: 'stdio' spawns a process, 'sse' connects via HTTP */
-  transport: 'stdio' | 'sse';
+  /** Transport type: 'stdio' spawns a process, 'sse'/'http' connects via HTTP */
+  transport: 'stdio' | 'sse' | 'http';
   /** Command to start the server (stdio transport) */
   command?: string;
   /** Arguments for the command */
   args?: string[];
-  /** SSE endpoint URL (sse transport) */
+  /** Endpoint URL (sse/http transport) */
   url?: string;
   /** Environment variables to pass to the server */
   env?: Record<string, string>;
+  /** Custom HTTP headers (http/sse transport) */
+  headers?: Record<string, string>;
   /** Whether to auto-connect on startup (default: true) */
   autoConnect?: boolean;
 }
@@ -197,7 +199,7 @@ export interface GitHubCommunityMcp {
   description: string;
   category: string;
   tags?: string[];
-  transport: 'stdio' | 'sse';
+  transport: 'stdio' | 'sse' | 'http';
   command?: string;
   args?: string[];
   envVars?: string[];
