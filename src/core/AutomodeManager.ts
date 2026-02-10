@@ -39,6 +39,7 @@ const DEFAULTS: Required<AutomodeSettings> = {
   noProgressThreshold: 3,
   sameErrorThreshold: 5,
   testOnlyThreshold: 3,
+  sameFileThreshold: 3,
 };
 
 /** Auto-mode options from CLI */
@@ -60,6 +61,8 @@ export interface IterationResult {
   output?: string;
   filesCreated?: number;
   filesModified?: number;
+  /** Paths of files modified in this iteration (for same-file repetition detection) */
+  modifiedFiles?: string[];
   tokensUsed?: number;
   cost?: number;
   error?: string;
@@ -370,7 +373,9 @@ export class AutomodeManager extends EventEmitter {
             noProgress: this.settings.noProgressThreshold,
             sameError: this.settings.sameErrorThreshold,
             testOnly: this.settings.testOnlyThreshold,
-          }
+            sameFile: this.settings.sameFileThreshold,
+          },
+          result.modifiedFiles
         );
 
         if (circuitResult.triggered) {

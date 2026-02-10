@@ -21,6 +21,20 @@ vi.mock('node:child_process', async () => {
   };
 });
 
+// Mock fs-extra for pathExists control in write_file tests
+const mockPathExists = vi.fn().mockResolvedValue(false);
+vi.mock('fs-extra', async () => {
+  const actual = await vi.importActual('fs-extra');
+  return {
+    ...actual,
+    default: {
+      ...(actual as Record<string, unknown>).default,
+      pathExists: (...args: unknown[]) => mockPathExists(...args),
+    },
+    pathExists: (...args: unknown[]) => mockPathExists(...args),
+  };
+});
+
 function createRuntime(overrides: Partial<AgentRuntime> = {}): AgentRuntime {
   return {
     config: {
@@ -115,6 +129,52 @@ describe('ActionExecutor', () => {
       await executor.execute({ type: 'write_file', path: 'README.md', content: '# hello' } as any);
 
       expect(writeFile).toHaveBeenCalledWith('README.md', '# hello');
+    });
+
+    it('skips write when existing file content is identical', async () => {
+      mockPathExists.mockResolvedValueOnce(true);
+      const writeFile = vi.fn().mockResolvedValue(undefined);
+      const onFileModified = vi.fn();
+      const executor = createExecutor(
+        { readFile: vi.fn().mockResolvedValue('same content'), writeFile },
+        { onFileModified }
+      );
+
+      const result = await executor.execute({ type: 'write_file', path: 'README.md', content: 'same content' } as any);
+
+      expect(writeFile).not.toHaveBeenCalled();
+      expect(onFileModified).not.toHaveBeenCalled();
+      expect(result).toContain('No changes needed');
+      expect(result).toContain('content identical');
+    });
+
+    it('writes file when content differs from existing', async () => {
+      mockPathExists.mockResolvedValueOnce(true);
+      const writeFile = vi.fn().mockResolvedValue(undefined);
+      const onFileModified = vi.fn();
+      const executor = createExecutor(
+        { readFile: vi.fn().mockResolvedValue('old content'), writeFile },
+        { onFileModified }
+      );
+
+      const result = await executor.execute({ type: 'write_file', path: 'README.md', content: 'new content' } as any);
+
+      expect(writeFile).toHaveBeenCalledWith('README.md', 'new content');
+      expect(onFileModified).toHaveBeenCalledWith('README.md');
+      expect(result).toContain('Updated');
+    });
+
+    it('passes file path to onFileModified callback for new files', async () => {
+      mockPathExists.mockResolvedValueOnce(false);
+      const onFileModified = vi.fn();
+      const executor = createExecutor(
+        { readFile: vi.fn().mockRejectedValue(new Error('not found')), writeFile: vi.fn() },
+        { onFileModified }
+      );
+
+      await executor.execute({ type: 'write_file', path: 'src/new.ts', content: 'code' } as any);
+
+      expect(onFileModified).toHaveBeenCalledWith('src/new.ts');
     });
 
     it('throws error when write_file path is missing', async () => {

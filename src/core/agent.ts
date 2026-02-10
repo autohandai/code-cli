@@ -143,6 +143,9 @@ export class AutohandAgent {
   private codeQualityPipeline: CodeQualityPipeline;
   private lastIntent: Intent = 'diagnostic';
   private filesModifiedThisSession = false;
+  private fileModCount = 0;
+  private modifiedFilePaths = new Set<string>();
+  private executedActionNames: string[] = [];
   private searchQueries: string[] = [];
   private sessionRetryCount = 0;
 
@@ -241,7 +244,7 @@ export class AutohandAgent {
       getRegisteredTools: () => this.toolManager?.listDefinitions() ?? [],
       memoryManager: this.memoryManager,
       permissionManager: this.permissionManager,
-      onFileModified: () => this.markFilesModified(),
+      onFileModified: (filePath?: string) => this.markFilesModified(filePath),
       onAskFollowup: (question, suggestedAnswers) => this.executeAskFollowupQuestion(question, suggestedAnswers),
       onPlanCreated: (plan, filePath) => this.handlePlanCreated(plan, filePath),
       onPermissionRequest: async (context) => {
@@ -415,6 +418,9 @@ export class AutohandAgent {
           } else {
             result = await this.actionExecutor.execute(action, context);
           }
+          // Record action name for auto-mode tracking
+          this.recordExecutedAction(action.type);
+
           // Track successful tool use
           await this.telemetryManager.trackToolUse({
             tool: action.type,
@@ -3669,8 +3675,42 @@ If lint or tests fail, report the issues but do NOT commit.`;
   /**
    * Mark that files were modified during this session (called by action executor)
    */
-  markFilesModified(): void {
+  markFilesModified(filePath?: string): void {
     this.filesModifiedThisSession = true;
+    this.fileModCount++;
+    if (filePath) {
+      this.modifiedFilePaths.add(filePath);
+    }
+  }
+
+  /**
+   * Get file modification count and modified paths since last reset, then reset counters.
+   * Used by auto-mode to track per-iteration file changes.
+   */
+  getAndResetFileModCount(): { count: number; paths: string[] } {
+    const result = {
+      count: this.fileModCount,
+      paths: [...this.modifiedFilePaths],
+    };
+    this.fileModCount = 0;
+    this.modifiedFilePaths.clear();
+    return result;
+  }
+
+  /**
+   * Record an executed action name (tool call) for tracking.
+   */
+  recordExecutedAction(actionType: string): void {
+    this.executedActionNames.push(actionType);
+  }
+
+  /**
+   * Get and reset executed action names since last call.
+   */
+  getAndResetExecutedActions(): string[] {
+    const actions = [...this.executedActionNames];
+    this.executedActionNames = [];
+    return actions;
   }
 
   /**

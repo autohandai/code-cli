@@ -331,6 +331,52 @@ describe('AutomodeState', () => {
       // Third of new error shouldn't trigger if we reset
       expect(state.checkCircuitBreaker(true, 'error2', false, thresholds).triggered).toBe(true);
     });
+
+    it('triggers after same-file repetition threshold', () => {
+      const thresholds = { noProgress: 5, sameError: 5, testOnly: 5, sameFile: 3 };
+
+      // Same file modified 3 times in a row
+      expect(state.checkCircuitBreaker(true, null, false, thresholds, ['README.md']).triggered).toBe(false);
+      expect(state.checkCircuitBreaker(true, null, false, thresholds, ['README.md']).triggered).toBe(false);
+      const result = state.checkCircuitBreaker(true, null, false, thresholds, ['README.md']);
+      expect(result.triggered).toBe(true);
+      expect(result.reason).toContain('Same file(s) modified');
+      expect(result.reason).toContain('README.md');
+    });
+
+    it('resets same-file counter when different files modified', () => {
+      const thresholds = { noProgress: 5, sameError: 5, testOnly: 5, sameFile: 3 };
+
+      // Two iterations touching README.md
+      state.checkCircuitBreaker(true, null, false, thresholds, ['README.md']);
+      state.checkCircuitBreaker(true, null, false, thresholds, ['README.md']);
+
+      // Different file resets
+      state.checkCircuitBreaker(true, null, false, thresholds, ['index.ts']);
+
+      // Two more of the new file shouldn't trigger
+      expect(state.checkCircuitBreaker(true, null, false, thresholds, ['index.ts']).triggered).toBe(false);
+    });
+
+    it('detects same set of multiple files', () => {
+      const thresholds = { noProgress: 5, sameError: 5, testOnly: 5, sameFile: 3 };
+
+      // Same pair of files modified
+      state.checkCircuitBreaker(true, null, false, thresholds, ['a.ts', 'b.ts']);
+      state.checkCircuitBreaker(true, null, false, thresholds, ['b.ts', 'a.ts']); // order shouldn't matter
+      const result = state.checkCircuitBreaker(true, null, false, thresholds, ['a.ts', 'b.ts']);
+      expect(result.triggered).toBe(true);
+      expect(result.reason).toContain('2 files');
+    });
+
+    it('does not trigger same-file when modifiedFiles is empty', () => {
+      const thresholds = { noProgress: 5, sameError: 5, testOnly: 5, sameFile: 2 };
+
+      // No modifiedFiles param - should not trigger sameFile
+      state.checkCircuitBreaker(true, null, false, thresholds, []);
+      state.checkCircuitBreaker(true, null, false, thresholds, []);
+      expect(state.checkCircuitBreaker(true, null, false, thresholds, []).triggered).toBe(false);
+    });
   });
 
   describe('hashError', () => {
