@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { t } from '../i18n/index.js';
+
 /**
  * Init command - creates AGENTS.md file
  */
@@ -14,6 +16,6 @@ export async function init(ctx: { createAgentsFile: () => Promise<void> }): Prom
 
 export const metadata = {
     command: '/init',
-    description: 'create an AGENTS.md file with instructions for Autohand',
+    description: t('commands.init.description'),
     implemented: true
 };

@@ -6,6 +6,7 @@
  * Auto-Mode command - Start and control autonomous development loops
  */
 import chalk from 'chalk';
+import { t } from '../i18n/index.js';
 import type { AutomodeManager } from '../core/AutomodeManager.js';
 import type { SlashCommand } from '../core/slashCommandTypes.js';
 
@@ -19,7 +20,7 @@ export interface AutomodeCommandContext {
  */
 export const metadata: SlashCommand = {
   command: '/automode',
-  description: 'Start or control autonomous development loops',
+  description: t('commands.automode.description'),
   implemented: true,
 };
 
@@ -155,7 +156,7 @@ function handleStatus(manager: AutomodeManager): string {
     '',
     `  Session: ${state.sessionId}`,
     `  Status: ${state.status}`,
-    `  Iteration: ${state.currentIteration}/${state.maxIterations}`,
+    `  ${t('commands.automode.iteration', { current: String(state.currentIteration), max: String(state.maxIterations) })}`,
     `  Files created: ${state.filesCreated}`,
     `  Files modified: ${state.filesModified}`,
   ];

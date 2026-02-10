@@ -27,6 +27,9 @@ import type {
   AutomodeCancelParams,
   AutomodeGetLogParams,
   PlanModeSetParams,
+  GetHistoryParams,
+  YoloSetParams,
+  McpListToolsParams,
 } from './types.js';
 import {
   RPC_METHODS,
@@ -438,6 +441,39 @@ async function handleSingleRequest(
         }
         process.stderr.write(`[RPC DEBUG] Plan mode set to: ${planParams.enabled}\n`);
         result = { success: true };
+        break;
+      }
+
+      case RPC_METHODS.GET_HISTORY: {
+        const historyParams = params as GetHistoryParams | undefined;
+        result = await adapter.handleGetHistory(id!, historyParams);
+        break;
+      }
+
+      case RPC_METHODS.YOLO_SET: {
+        const yoloParams = params as YoloSetParams | undefined;
+        if (!yoloParams?.pattern) {
+          if (shouldRespond) {
+            return createErrorResponse(
+              id!,
+              JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+              'Missing required parameter: pattern'
+            );
+          }
+          return null;
+        }
+        result = adapter.handleYoloSet(id!, yoloParams);
+        break;
+      }
+
+      case RPC_METHODS.MCP_LIST_SERVERS: {
+        result = adapter.handleMcpListServers(id!);
+        break;
+      }
+
+      case RPC_METHODS.MCP_LIST_TOOLS: {
+        const mcpToolsParams = params as McpListToolsParams | undefined;
+        result = adapter.handleMcpListTools(id!, mcpToolsParams);
         break;
       }
 

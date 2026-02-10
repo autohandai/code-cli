@@ -5,6 +5,7 @@
  */
 import chalk from 'chalk';
 import { spawnSync } from 'node:child_process';
+import { t } from '../i18n/index.js';
 
 export interface UndoCommandContext {
     workspaceRoot: string;
@@ -49,15 +50,16 @@ export async function undo(ctx: UndoCommandContext): Promise<string | null> {
             console.log(chalk.green('  Removed untracked files'));
         }
     } else {
-        console.log(chalk.gray('  No git changes to revert'));
+        console.log(chalk.gray('  ' + t('commands.undo.noChanges')));
     }
 
     // 3. Try to undo file mutations from the undo stack
     try {
         await ctx.undoFileMutation();
-        console.log(chalk.green('  Reverted last file mutation from undo stack'));
+        console.log(chalk.green('  ' + t('commands.undo.success', { file: 'last mutation' })));
     } catch {
         // No file mutations to undo, that's okay
+        console.log(chalk.gray('  ' + t('commands.undo.noChanges')));
     }
 
     // 4. Remove the last user turn from conversation

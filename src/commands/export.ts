@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { t } from '../i18n/index.js';
 import path from 'node:path';
 import { showModal, showInput, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 import {
@@ -19,7 +20,7 @@ import type { SlashCommand } from '../core/slashCommands.js';
 
 export const metadata: SlashCommand = {
   command: '/export',
-  description: 'Export current session to markdown',
+  description: t('commands.export.description'),
   implemented: true,
 };
 
@@ -143,11 +144,10 @@ export async function execute(args?: string, context?: ExportContext): Promise<v
   try {
     await saveExport(content, filePath);
     console.log();
-    console.log(chalk.green('Session exported successfully!'));
-    console.log(chalk.cyan(`  ${filePath}`));
+    console.log(chalk.green(t('commands.export.success', { path: filePath })));
     console.log(chalk.gray(`  ${messages.length} messages, ${(Buffer.byteLength(content, 'utf8') / 1024).toFixed(1)} KB`));
     console.log();
   } catch (error) {
-    console.log(chalk.red(`Failed to save export: ${(error as Error).message}`));
+    console.log(chalk.red(t('commands.export.failed', { error: (error as Error).message })));
   }
 }

@@ -56,7 +56,7 @@ describe('/permissions command', () => {
   describe('metadata', () => {
     it('exports correct command metadata', () => {
       expect(metadata.command).toBe('/permissions');
-      expect(metadata.description).toContain('tool/command approvals');
+      expect(metadata.description).toContain('permission settings');
       expect(metadata.implemented).toBe(true);
     });
   });
@@ -85,7 +85,7 @@ describe('/permissions command', () => {
       await permissions({ permissionManager: manager });
 
       const output = consoleOutput.join('\n');
-      expect(output).toContain('Approved (Whitelist)');
+      expect(output).toContain('Allowed actions');
       expect(output).toContain('npm test');
       expect(output).toContain('npm build');
     });
@@ -102,7 +102,7 @@ describe('/permissions command', () => {
       await permissions({ permissionManager: manager });
 
       const output = consoleOutput.join('\n');
-      expect(output).toContain('Denied (Blacklist)');
+      expect(output).toContain('Denied actions');
       expect(output).toContain('rm -rf');
     });
 
@@ -119,9 +119,9 @@ describe('/permissions command', () => {
       await permissions({ permissionManager: manager });
 
       const output = consoleOutput.join('\n');
-      expect(output).toContain('Approved (Whitelist)');
+      expect(output).toContain('Allowed actions');
       expect(output).toContain('npm install');
-      expect(output).toContain('Denied (Blacklist)');
+      expect(output).toContain('Denied actions');
       expect(output).toContain('important.txt');
       expect(output).toContain('Total: 1 approved, 1 denied');
     });

@@ -275,11 +275,11 @@ export class AutohandAcpAdapter implements Agent {
     // Check if it's a slash command
     const trimmed = instruction.trim();
     if (trimmed.startsWith('/')) {
-      const parts = trimmed.slice(1).split(/\s+/);
-      const command = parts[0]?.toLowerCase() ?? '';
-      const args = parts.slice(1);
+      // Use parseSlashCommand to handle two-word commands ("/mcp install", "/skills new")
+      // and preserve the "/" prefix required by the handler.
+      const { command, args } = agent.parseSlashCommand(trimmed);
 
-      if (agent.isSlashCommand(`/${command}`)) {
+      if (agent.isSlashCommand(trimmed)) {
         try {
           if (agent.isSlashCommandSupported(command)) {
             const result = await agent.handleSlashCommand(command, args);
@@ -296,7 +296,7 @@ export class AutohandAcpAdapter implements Agent {
                 sessionId: params.sessionId,
                 update: {
                   sessionUpdate: 'agent_message_chunk',
-                  content: { type: 'text', text: `Command /${command} executed.` },
+                  content: { type: 'text', text: `Command ${command} executed.` },
                 },
               });
             }
@@ -305,7 +305,7 @@ export class AutohandAcpAdapter implements Agent {
               sessionId: params.sessionId,
               update: {
                 sessionUpdate: 'agent_message_chunk',
-                content: { type: 'text', text: `Unknown command: /${command}. Type /help for available commands.` },
+                content: { type: 'text', text: `Unknown command: ${command}. Type /help for available commands.` },
               },
             });
           }

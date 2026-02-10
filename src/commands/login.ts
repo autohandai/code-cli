@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { t } from '../i18n/index.js';
 import { safePrompt } from '../utils/prompt.js';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import { getAuthClient } from '../auth/index.js';
@@ -14,7 +15,7 @@ import { createSyncService, DEFAULT_SYNC_CONFIG } from '../sync/index.js';
 
 export const metadata = {
   command: '/login',
-  description: 'sign in to your Autohand account',
+  description: t('commands.login.description'),
   implemented: true,
 };
 
@@ -76,7 +77,7 @@ export async function login(ctx: LoginContext): Promise<string | null> {
     });
 
     if (!result || !result.continueLogin) {
-      console.log(chalk.gray('Login cancelled.'));
+      console.log(chalk.gray(t('commands.login.cancelled')));
       return null;
     }
   }
@@ -88,7 +89,7 @@ export async function login(ctx: LoginContext): Promise<string | null> {
   const initResult = await authClient.initiateDeviceAuth();
 
   if (!initResult.success || !initResult.deviceCode || !initResult.userCode) {
-    console.log(chalk.red(`Failed to start login: ${initResult.error || 'Unknown error'}`));
+    console.log(chalk.red(t('commands.login.failed', { error: initResult.error || 'Unknown error' })));
     return null;
   }
 
@@ -153,8 +154,7 @@ export async function login(ctx: LoginContext): Promise<string | null> {
       await saveConfig(updatedConfig);
 
       console.log();
-      console.log(chalk.green('Login successful!'));
-      console.log(chalk.cyan(`Welcome, ${pollResult.user.name || pollResult.user.email}!`));
+      console.log(chalk.green(t('commands.login.success', { email: pollResult.user.name || pollResult.user.email })));
       console.log();
 
       // Check for cloud sync data and offer to restore
@@ -229,12 +229,18 @@ async function checkAndRestoreSyncData(
       return;
     }
 
-    // Restore from cloud
+    // Restore from cloud with ESC/Ctrl+C cancellation support
     console.log(chalk.gray('Restoring settings from cloud...'));
+    console.log(chalk.gray('(Press ESC or Ctrl+C to cancel)'));
 
-    const syncResult = await syncService.forceDownload();
+    const syncResult = await cancellableOperation(
+      () => syncService.forceDownload(),
+    );
 
-    if (syncResult.success) {
+    if (!syncResult) {
+      console.log(chalk.yellow('\nSync restore cancelled.'));
+      console.log(chalk.gray('You can sync later with /sync.'));
+    } else if (syncResult.success) {
       console.log(chalk.green(`Restored ${syncResult.downloaded} files from cloud.`));
     } else {
       console.log(chalk.yellow(`Sync restore failed: ${syncResult.error}`));
@@ -244,6 +250,55 @@ async function checkAndRestoreSyncData(
     // Silently fail - sync is not critical for login
     console.log(chalk.gray('Could not check cloud sync data.'));
   }
+}
+
+/**
+ * Wrap an async operation so ESC or Ctrl+C cancels it.
+ * Returns null if the user cancels.
+ */
+async function cancellableOperation<T>(fn: () => Promise<T>): Promise<T | null> {
+  const stdin = process.stdin;
+  const wasRaw = stdin.isRaw;
+
+  return new Promise((resolve) => {
+    let settled = false;
+
+    const cleanup = () => {
+      stdin.removeListener('data', onData);
+      if (stdin.isTTY && stdin.setRawMode) {
+        try { stdin.setRawMode(wasRaw ?? false); } catch { /* ignore */ }
+      }
+    };
+
+    const onData = (data: Buffer) => {
+      const s = data.toString();
+      // ESC (\x1b) or Ctrl+C (\x03)
+      if (s === '\x1b' || s === '\x03') {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(null);
+      }
+    };
+
+    // Enable raw mode so escape sequences aren't echoed
+    if (stdin.isTTY && stdin.setRawMode) {
+      try { stdin.setRawMode(true); } catch { /* ignore */ }
+    }
+    stdin.on('data', onData);
+
+    fn().then((result) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    }).catch(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(null);
+    });
+  });
 }
 
 /**

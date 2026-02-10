@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { t } from '../i18n/index.js';
 import { safePrompt } from '../utils/prompt.js';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import { getAuthClient } from '../auth/index.js';
@@ -12,7 +13,7 @@ import type { LoadedConfig } from '../types.js';
 
 export const metadata = {
   command: '/logout',
-  description: 'sign out of your Autohand account',
+  description: t('commands.logout.description'),
   implemented: true,
 };
 
@@ -39,7 +40,7 @@ export async function logout(ctx: LogoutContext): Promise<string | null> {
   });
 
   if (!result || !result.confirm) {
-    console.log(chalk.gray('Logout cancelled.'));
+    console.log(chalk.gray(t('commands.logout.cancelled')));
     return null;
   }
 
@@ -60,7 +61,7 @@ export async function logout(ctx: LogoutContext): Promise<string | null> {
   await saveConfig(updatedConfig);
 
   console.log();
-  console.log(chalk.green('Successfully logged out.'));
+  console.log(chalk.green(t('commands.logout.success')));
   console.log(chalk.gray('Your local session has been cleared.'));
   console.log();
 

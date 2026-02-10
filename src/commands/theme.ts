@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { t } from '../i18n/index.js';
 import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import { listAvailableThemes, initTheme, getTheme, isThemeInitialized, CUSTOM_THEMES_DIR } from '../ui/theme/index.js';
 import type { LoadedConfig } from '../types.js';
@@ -20,8 +21,8 @@ export async function theme(ctx: ThemeContext): Promise<string | null> {
   const themes = listAvailableThemes();
   const currentTheme = isThemeInitialized() ? getTheme().name : (ctx.config.ui?.theme || 'dark');
 
-  console.log(chalk.cyan('\n🎨 Theme Selection\n'));
-  console.log(chalk.gray(`Current theme: ${chalk.white(currentTheme)}`));
+  console.log(chalk.cyan(`\n🎨 ${t('commands.theme.title')}\n`));
+  console.log(chalk.gray(t('commands.theme.currentTheme', { theme: chalk.white(currentTheme) })));
   console.log(chalk.gray(`Custom themes location: ${CUSTOM_THEMES_DIR}\n`));
 
   const options: ModalOption[] = themes.map(name => ({
@@ -31,7 +32,7 @@ export async function theme(ctx: ThemeContext): Promise<string | null> {
   }));
 
   const result = await showModal({
-    title: 'Select a theme:',
+    title: t('commands.theme.selectPrompt'),
     options,
     initialIndex: themes.indexOf(currentTheme)
   });
@@ -44,7 +45,7 @@ export async function theme(ctx: ThemeContext): Promise<string | null> {
   const selected = result.value;
 
   if (selected === currentTheme) {
-    console.log(chalk.gray('\nNo change made.'));
+    console.log(chalk.gray(`\n${t('commands.theme.noChange')}`));
     return null;
   }
 
@@ -55,7 +56,7 @@ export async function theme(ctx: ThemeContext): Promise<string | null> {
   ctx.config.ui = { ...ctx.config.ui, theme: selected };
   await saveConfig(ctx.config);
 
-  console.log(chalk.green(`\n✓ Theme changed to '${selected}'`));
+  console.log(chalk.green(`\n✓ ${t('commands.theme.changed', { theme: selected })}`));
 
   // Show preview of theme colors
   const newTheme = getTheme();
@@ -101,6 +102,6 @@ export async function themeInfo(): Promise<string | null> {
 
 export const metadata = {
   command: '/theme',
-  description: 'change the color theme',
+  description: t('commands.theme.description'),
   implemented: true
 };

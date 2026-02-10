@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { t } from '../i18n/index.js';
 import { safePrompt } from '../utils/prompt.js';
 import type { PermissionManager } from '../permissions/PermissionManager.js';
 
@@ -20,9 +21,9 @@ export async function permissions(ctx: PermissionsCommandContext): Promise<strin
   const settings = ctx.permissionManager.getSettings();
 
   console.log();
-  console.log(chalk.bold.cyan('Permissions'));
+  console.log(chalk.bold.cyan(t('commands.permissions.title')));
   console.log(chalk.gray('─'.repeat(50)));
-  console.log(chalk.gray(`Mode: ${settings.mode || 'interactive'}`));
+  console.log(chalk.gray(t('commands.permissions.mode', { mode: settings.mode || 'interactive' })));
   console.log();
 
   if (whitelist.length === 0 && blacklist.length === 0) {
@@ -34,7 +35,7 @@ export async function permissions(ctx: PermissionsCommandContext): Promise<strin
   }
 
   if (whitelist.length > 0) {
-    console.log(chalk.bold.green('Approved (Whitelist)'));
+    console.log(chalk.bold.green(t('commands.permissions.allowed')));
     console.log();
     whitelist.forEach((pattern, index) => {
       console.log(chalk.green(`  ${index + 1}. ${pattern}`));
@@ -43,7 +44,7 @@ export async function permissions(ctx: PermissionsCommandContext): Promise<strin
   }
 
   if (blacklist.length > 0) {
-    console.log(chalk.bold.red('Denied (Blacklist)'));
+    console.log(chalk.bold.red(t('commands.permissions.denied')));
     console.log();
     blacklist.forEach((pattern, index) => {
       console.log(chalk.red(`  ${index + 1}. ${pattern}`));
@@ -120,6 +121,6 @@ export async function permissions(ctx: PermissionsCommandContext): Promise<strin
 
 export const metadata = {
   command: '/permissions',
-  description: 'view and manage tool/command approvals',
+  description: t('commands.permissions.description'),
   implemented: true
 };

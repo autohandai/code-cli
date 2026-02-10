@@ -87,7 +87,7 @@ describe('Resume Command', () => {
         args: ['test-session-id']
       });
 
-      expect(result).toBe('SESSION_RESUMED');
+      expect(result).toBeNull();
       expect(mockSessionManager.loadSession).toHaveBeenCalledWith('test-session-id');
       expect(mockSessionManager.listSessions).not.toHaveBeenCalled();
     });
@@ -160,7 +160,7 @@ describe('Resume Command', () => {
         args: []
       });
 
-      expect(result).toBe('SESSION_RESUMED');
+      expect(result).toBeNull();
       expect(mockShowModal).toHaveBeenCalled();
     });
 

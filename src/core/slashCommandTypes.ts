@@ -57,6 +57,8 @@ export interface SlashCommandContext {
     toggleContextCompaction?: () => void;
     /** Check if context compaction is enabled */
     isContextCompactionEnabled?: () => boolean;
+    /** Whether running in non-interactive mode (RPC/ACP) where stdin is not a TTY */
+    isNonInteractive?: boolean;
 }
 
 export interface SlashCommand {

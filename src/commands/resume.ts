@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { t } from '../i18n/index.js';
 import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import fs from 'fs-extra';
 import path from 'node:path';
@@ -13,7 +14,7 @@ import { AUTOHAND_PATHS } from '../constants.js';
 
 export const metadata = {
     command: '/resume',
-    description: 'resume a previous session',
+    description: t('commands.resume.description'),
     implemented: true
 };
 
@@ -112,12 +113,12 @@ export async function resume(ctx: {
         const allSessions = await ctx.sessionManager.listSessions();
 
         if (allSessions.length === 0) {
-            console.log(chalk.gray('\nNo sessions found.'));
+            console.log(chalk.gray(`\n${t('commands.sessions.noSessions')}`));
             console.log(chalk.gray('Start a new conversation to create a session.\n'));
             return null;
         }
 
-        console.log(chalk.cyan('\nSelect a session to resume:\n'));
+        console.log(chalk.cyan(`\n${t('commands.sessions.selectPrompt')}\n`));
 
         // Build choices with titles
         const choices: Array<{ name: string; message: string; hint: string }> = [];
@@ -163,7 +164,7 @@ export async function resume(ctx: {
 
     } catch (error) {
         // Handle unexpected errors
-        console.error(chalk.red(`Failed to list sessions: ${(error as Error).message}`));
+        console.error(chalk.red(t('commands.resume.failed', { error: (error as Error).message })));
         return null;
     }
 }
@@ -185,7 +186,7 @@ async function resumeSession(
             firstUserMessage?.content.slice(0, 50) ||
             'Untitled session';
 
-        console.log(chalk.cyan(`\nResuming: ${title}`));
+        console.log(chalk.cyan(`\n${t('commands.resume.resuming', { id: title })}`));
         console.log(chalk.gray(`   Project: ${session.metadata.projectPath}`));
         console.log(chalk.gray(`   Started: ${new Date(session.metadata.createdAt).toLocaleString()}`));
         console.log(chalk.gray(`   Messages: ${messages.length}`));
@@ -221,9 +222,9 @@ async function resumeSession(
 
         console.log(chalk.green('Session resumed. Continue typing to chat.\n'));
 
-        return 'SESSION_RESUMED';
+        return null;
     } catch (error) {
-        console.error(chalk.red(`Failed to resume session: ${(error as Error).message}`));
+        console.error(chalk.red(t('commands.resume.failed', { error: (error as Error).message })));
         return null;
     }
 }

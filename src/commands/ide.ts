@@ -161,6 +161,6 @@ function printExtensionSuggestions(detected: DetectedIDE[]): void {
 
 export const metadata = {
   command: '/ide',
-  description: 'connect to a running IDE',
+  description: t('commands.ide.description'),
   implemented: true,
 };

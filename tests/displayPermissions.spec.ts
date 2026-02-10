@@ -24,7 +24,10 @@ vi.mock('chalk', () => ({
 // Mock config loading
 vi.mock('../src/config.js', () => ({
   loadConfig: vi.fn(),
-  resolveWorkspaceRoot: vi.fn()
+  resolveWorkspaceRoot: vi.fn(),
+  getProviderConfig: vi.fn(),
+  saveConfig: vi.fn(),
+  getDefaultConfigPath: vi.fn()
 }));
 
 // Mock permission manager

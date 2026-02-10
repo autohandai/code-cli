@@ -5,11 +5,12 @@
  */
 
 import chalk from 'chalk';
+import { t } from '../i18n/index.js';
 import { AgentRegistry } from '../core/agents/AgentRegistry.js';
 
 export const metadata = {
     command: '/agents',
-    description: 'list available sub-agents (markdown or json)',
+    description: t('commands.agents.description'),
     implemented: true,
     prd: 'prd/sub_agents_architecture.md'
 };
@@ -20,10 +21,10 @@ export async function handler(): Promise<string> {
     const agents = registry.getAllAgents();
 
     if (agents.length === 0) {
-        return `No agents found in ${chalk.cyan(registry.getAgentsDirectory())}.\nCreate a markdown file (e.g., helper.md) there to define a new sub-agent.`;
+        return `${t('commands.agents.noAgents')}\n${chalk.gray(`Path: ${chalk.cyan(registry.getAgentsDirectory())}`)}`;
     }
 
-    let output = chalk.bold('Available Agents:\n\n');
+    let output = chalk.bold(`${t('commands.agents.title')}:\n\n`);
 
     for (const agent of agents) {
         output += `${chalk.green('🤖 ' + agent.name)}\n`;

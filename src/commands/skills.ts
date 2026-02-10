@@ -5,6 +5,7 @@
  *
  * Skills command - List and manage available skills
  */
+import { t } from '../i18n/index.js';
 import type { SkillsRegistry } from '../skills/SkillsRegistry.js';
 
 export interface SkillsCommandContext {
@@ -108,11 +109,11 @@ function listSkills(registry: SkillsRegistry): string {
   const lines: string[] = [];
 
   lines.push('');
-  lines.push('📚 **Available Skills**');
+  lines.push(`📚 **${t('commands.skills.title')}**`);
   lines.push('');
 
   if (allSkills.length === 0) {
-    lines.push('No skills found yet.');
+    lines.push(t('commands.skills.noSkills'));
     lines.push('');
     lines.push('**Get started:**');
     lines.push('');
@@ -336,7 +337,7 @@ async function handleSkillsInstall(
 
 export const metadata = {
   command: '/skills',
-  description: 'list and manage available skills',
+  description: t('commands.skills.description'),
   implemented: true,
 };
 

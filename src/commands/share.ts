@@ -8,6 +8,7 @@
  */
 
 import chalk from 'chalk';
+import { t } from '../i18n/index.js';
 import { showModal, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 import ora from 'ora';
 import type { SlashCommand } from '../core/slashCommands.js';
@@ -39,7 +40,7 @@ function terminalLink(url: string, text?: string): string {
 
 export const metadata: SlashCommand = {
   command: '/share',
-  description: 'Share current session via public URL',
+  description: t('commands.share.description'),
   implemented: true,
 };
 
@@ -140,7 +141,7 @@ export async function execute(
 
   // Serialize and upload
   console.log();
-  const spinner = ora('Uploading session...').start();
+  const spinner = ora(t('commands.share.generating')).start();
 
   try {
     const payload = serializeSession(session, {
@@ -157,9 +158,7 @@ export async function execute(
 
     if (response.success && response.url) {
       console.log();
-      console.log(chalk.green.bold('Session shared successfully!'));
-      console.log();
-      console.log(`${chalk.bold('URL:')} ${terminalLink(response.url)}`);
+      console.log(chalk.green.bold(t('commands.share.success', { url: terminalLink(response.url) })));
 
       if (visibility === 'private' && response.passcode) {
         console.log();
@@ -175,14 +174,14 @@ export async function execute(
     } else {
       console.log();
       console.log(
-        chalk.red(`Failed to share: ${response.error || 'Unknown error'}`)
+        chalk.red(t('commands.share.failed', { error: response.error || 'Unknown error' }))
       );
       console.log();
     }
   } catch (error) {
     spinner.stop();
     console.log();
-    console.log(chalk.red(`Failed to share: ${(error as Error).message}`));
+    console.log(chalk.red(t('commands.share.failed', { error: (error as Error).message })));
     console.log();
   }
 }

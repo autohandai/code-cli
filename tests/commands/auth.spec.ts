@@ -142,7 +142,7 @@ describe('login command', () => {
     const result = await login({ config: mockConfig });
 
     expect(result).toBeNull();
-    expect(consoleOutput.some((line) => line.includes('Failed'))).toBe(true);
+    expect(consoleOutput.some((line) => line.toLowerCase().includes('failed'))).toBe(true);
   });
 });
 

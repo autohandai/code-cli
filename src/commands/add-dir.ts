@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { t } from '../i18n/index.js';
 import fs from 'fs-extra';
 import path from 'node:path';
 import { checkWorkspaceSafety } from '../startup/workspaceSafety.js';
@@ -51,7 +52,7 @@ export async function addDir(ctx: AddDirCommandContext, args: string[]): Promise
 
   // Check if directory exists
   if (!await fs.pathExists(resolvedPath)) {
-    console.log(chalk.red(`Error: Directory does not exist: ${dirPath}`));
+    console.log(chalk.red(t('commands.addDir.notFound', { path: dirPath })));
     return null;
   }
 
@@ -77,20 +78,20 @@ export async function addDir(ctx: AddDirCommandContext, args: string[]): Promise
   }
 
   if (ctx.additionalDirs.includes(resolvedPath)) {
-    console.log(chalk.yellow(`Directory already added: ${resolvedPath}`));
+    console.log(chalk.yellow(t('commands.addDir.alreadyAdded', { path: resolvedPath })));
     return null;
   }
 
   // Add the directory
   ctx.addAdditionalDir(resolvedPath);
 
-  console.log(chalk.green(`Added directory: ${resolvedPath}`));
+  console.log(chalk.green(t('commands.addDir.added', { path: resolvedPath })));
   console.log(chalk.gray('You can now read, write, and modify files in this directory.'));
   return null;
 }
 
 export const metadata = {
   command: '/add-dir',
-  description: 'add additional directories to workspace scope',
+  description: t('commands.addDir.description'),
   implemented: true
 };

@@ -34,6 +34,14 @@ export class SlashCommandHandler {
       return null;
     }
 
+    // Guard: interactive-only commands are not available in RPC/ACP mode
+    const INTERACTIVE_ONLY = new Set([
+      '/model', '/cc', '/search', '/theme', '/language', '/feedback', '/skills new', '/skills-new',
+    ]);
+    if (this.ctx.isNonInteractive && INTERACTIVE_ONLY.has(command)) {
+      return `Command ${command} requires an interactive terminal. Use the dedicated RPC method or API instead.`;
+    }
+
     // Dynamically import and execute the command
     try {
       switch (command) {

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { t } from '../i18n/index.js';
 import { safePrompt } from '../utils/prompt.js';
 import type { HookManager } from '../core/HookManager.js';
 import type { HookEvent, HookDefinition } from '../types.js';
@@ -152,12 +153,12 @@ function getShortCommand(command: string): string {
  */
 function displayHooksList(allHooks: HookDefinition[]): void {
   console.log();
-  console.log(chalk.bold.cyan('⚡ Hooks'));
+  console.log(chalk.bold.cyan(t('commands.hooks.title')));
   console.log(chalk.gray('  Lifecycle hooks run shell commands on events'));
   console.log();
 
   if (allHooks.length === 0) {
-    console.log(chalk.gray('  No hooks configured.'));
+    console.log(chalk.gray(`  ${t('commands.hooks.noHooks')}`));
     console.log();
     return;
   }
@@ -474,6 +475,6 @@ async function testHook(manager: HookManager, allHooks: HookDefinition[]): Promi
 
 export const metadata = {
   command: '/hooks',
-  description: 'view and manage lifecycle hooks',
+  description: t('commands.hooks.description'),
   implemented: true
 };

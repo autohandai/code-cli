@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { t } from '../i18n/index.js';
 import type { SessionManager } from '../session/SessionManager.js';
 
 export interface NewCommandContext {
@@ -30,8 +31,7 @@ export async function newConversation(ctx: NewCommandContext): Promise<string | 
     await ctx.sessionManager.createSession(ctx.workspaceRoot, ctx.model);
 
     console.log();
-    console.log(chalk.cyan('New conversation started.'));
-    console.log(chalk.gray('Previous session saved. Ready for new instructions.'));
+    console.log(chalk.cyan(t('commands.new.cleared')));
     console.log();
 
     return null;
