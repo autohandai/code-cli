@@ -412,7 +412,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
 
     // Run auth, version check, startup checks in background (fire-and-forget)
     // These complete while the user reads the welcome message and types
-    const startupPromise = (async () => {
+    (async () => {
       try {
         const versionCheckPromise = config.ui?.checkForUpdates !== false
           ? checkForUpdates(packageJson.version, {
@@ -420,7 +420,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
             })
           : Promise.resolve(null);
 
-        const [authUser, versionCheck, checkResults] = await Promise.all([
+        const [authUser, , checkResults] = await Promise.all([
           validateAuthOnStartup(config),
           versionCheckPromise,
           runStartupChecks(workspaceRoot),

@@ -254,6 +254,18 @@
       "available": "Available skills:",
       "noSkills": "No skills installed."
     },
+    "mcp": {
+      "title": "MCP Servers",
+      "description": "manage MCP (Model Context Protocol) servers",
+      "installDescription": "browse and install community MCP servers",
+      "noServers": "No MCP servers configured",
+      "connected": "Connected",
+      "disconnected": "Disconnected",
+      "error": "Error",
+      "tools": "tools",
+      "connecting": "Connecting to MCP server...",
+      "installed": "MCP server installed successfully"
+    },
     "export": {
       "description": "export session data",
       "success": "Exported to {{path}}",

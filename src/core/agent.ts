@@ -58,6 +58,7 @@ import { FeedbackManager } from '../feedback/FeedbackManager.js';
 import { TelemetryManager } from '../telemetry/TelemetryManager.js';
 import { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import { CommunitySkillsClient } from '../skills/CommunitySkillsClient.js';
+import { McpClientManager } from '../mcp/McpClientManager.js';
 import { AUTOHAND_PATHS } from '../constants.js';
 import { PersistentInput, createPersistentInput } from '../ui/persistentInput.js';
 import { injectLocaleIntoPrompt, getCurrentLocale, t } from '../i18n/index.js';
@@ -113,6 +114,9 @@ export class AutohandAgent {
   private telemetryManager: TelemetryManager;
   private skillsRegistry: SkillsRegistry;
   private communityClient: CommunitySkillsClient;
+  private mcpManager: McpClientManager;
+  /** Background MCP connection promise - resolves when all servers finish connecting */
+  private mcpReady: Promise<void> | null = null;
   private workspaceFileCollector: WorkspaceFileCollector;
   private providerConfigManager: ProviderConfigManager;
   private isInstructionActive = false;
@@ -299,6 +303,9 @@ export class AutohandAgent {
       enabled: communitySettings.enabled !== false,
     });
 
+    // Initialize MCP client manager
+    this.mcpManager = new McpClientManager();
+
     // Wire telemetry and community client to skills registry
     this.skillsRegistry.setTelemetryManager(this.telemetryManager);
     this.skillsRegistry.setCommunityClient(this.communityClient);
@@ -393,6 +400,18 @@ export class AutohandAgent {
             result = await this.delegator.delegateTask(action.agent_name, action.task);
           } else if (action.type === 'delegate_parallel') {
             result = await this.delegator.delegateParallel(action.tasks);
+          } else if (McpClientManager.isMcpTool(action.type)) {
+            // Ensure MCP servers have finished connecting before dispatching
+            if (this.mcpReady) await this.mcpReady;
+            // Route MCP tool calls to the MCP client manager
+            const parsed = McpClientManager.parseMcpToolName(action.type);
+            if (parsed) {
+              const { ...mcpArgs } = action as Record<string, unknown>;
+              const mcpResult = await this.mcpManager.callTool(parsed.serverName, parsed.toolName, mcpArgs);
+              result = typeof mcpResult === 'string' ? mcpResult : JSON.stringify(mcpResult);
+            } else {
+              result = `Invalid MCP tool name: ${action.type}`;
+            }
           } else {
             result = await this.actionExecutor.execute(action, context);
           }
@@ -500,6 +519,7 @@ export class AutohandAgent {
       permissionManager: this.permissionManager,
       hookManager: this.hookManager,
       skillsRegistry: this.skillsRegistry,
+      mcpManager: this.mcpManager,
       llm: this.llm,
       workspaceRoot: runtime.workspaceRoot,
       model: model,
@@ -534,6 +554,35 @@ export class AutohandAgent {
       isContextCompactionEnabled: () => this.isContextCompactionEnabled(),
     };
     this.slashHandler = new SlashCommandHandler(slashContext, SLASH_COMMANDS);
+  }
+
+  /**
+   * Register discovered MCP tools with the tool manager so the LLM can use them.
+   */
+  private registerMcpTools(): void {
+    const mcpTools = this.mcpManager.getAllTools();
+    if (mcpTools.length === 0) return;
+
+    const toolDefs: ToolDefinition[] = mcpTools.map((tool) => ({
+      name: tool.name as AgentAction['type'],
+      description: `[MCP:${tool.serverName}] ${tool.description}`,
+      parameters: {
+        type: 'object' as const,
+        properties: Object.fromEntries(
+          Object.entries(tool.parameters.properties).map(([key, schema]) => {
+            const s = schema as Record<string, unknown>;
+            return [key, {
+              type: (s.type as string) || 'string',
+              description: (s.description as string) || key,
+            }];
+          })
+        ),
+        required: tool.parameters.required,
+      },
+      requiresApproval: false,
+    }));
+
+    this.toolManager.registerMetaTools(toolDefs);
   }
 
   // Context compaction toggle methods for /cc command
@@ -580,7 +629,18 @@ export class AutohandAgent {
         this.workspaceFileCollector.collectWorkspaceFiles(),
       ]);
 
+      // Fire MCP connections in background (non-blocking, like Claude Code).
+      // Servers connect asynchronously; tools become available once ready.
+      // Does NOT block the main init pipeline or user prompt.
+      if (this.runtime.config.mcp?.enabled !== false) {
+        this.mcpReady = this.mcpManager
+          .connectAll(this.runtime.config.mcp?.servers ?? [])
+          .then(() => { this.registerMcpTools(); })
+          .catch(() => { /* individual server errors already captured by connectAll */ });
+      }
+
       // Phase 2: Sequential setup that depends on phase 1
+
       await this.skillsRegistry.setWorkspace(this.runtime.workspaceRoot);
       await this.resetConversationContext();
       this.feedbackManager.startSession();
@@ -638,6 +698,13 @@ export class AutohandAgent {
       // Pre-load workspace files in background for file mentions
       this.workspaceFileCollector.collectWorkspaceFiles(),
     ]);
+    // Fire MCP connections in background (non-blocking)
+    if (this.runtime.config.mcp?.enabled !== false) {
+      this.mcpReady = this.mcpManager
+        .connectAll(this.runtime.config.mcp?.servers ?? [])
+        .then(() => { this.registerMcpTools(); })
+        .catch(() => {});
+    }
     // These must run sequentially after the parallel init
     await this.skillsRegistry.setWorkspace(this.runtime.workspaceRoot);
     await this.resetConversationContext();
@@ -1038,8 +1105,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
       let command = parts[0];
       let args = parts.slice(1);
 
-      // Handle multi-word commands like "/skills new", "/agents new"
-      const twoWordCommands = ['/skills new', '/agents new'];
+      // Handle multi-word commands like "/skills install", "/mcp install"
+      const twoWordCommands = ['/skills install', '/skills new', '/skills use', '/agents new', '/mcp install'];
       const potentialTwoWord = `${parts[0]} ${parts[1] || ''}`.trim();
       if (twoWordCommands.includes(potentialTwoWord)) {
         command = potentialTwoWord;
@@ -1528,6 +1595,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
   private async closeSession(): Promise<void> {
     // Clean up persistent input
     this.persistentInput.dispose();
+
+    // Disconnect all MCP servers
+    await this.mcpManager.disconnectAll().catch(() => {});
 
     const session = this.sessionManager.getCurrentSession();
 
@@ -3623,8 +3693,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const trimmed = input.trim();
     const parts = trimmed.split(/\s+/);
 
-    // Check for two-word commands like "/skills install"
-    const twoWordCommands = ['/skills install', '/skills new', '/agents new'];
+    // Check for two-word commands like "/skills install", "/mcp install"
+    const twoWordCommands = ['/skills install', '/skills new', '/skills use', '/agents new', '/mcp install'];
     const potentialTwoWord = parts.slice(0, 2).join(' ');
 
     if (twoWordCommands.includes(potentialTwoWord)) {

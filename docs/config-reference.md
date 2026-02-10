@@ -21,6 +21,7 @@ Complete reference for all configuration options in `~/.autohand/config.json` (o
 - [Share Settings](#share-settings)
 - [Settings Sync](#settings-sync)
 - [Hooks Settings](#hooks-settings)
+- [MCP Settings](#mcp-settings)
 - [Complete Example](#complete-example)
 
 ---
@@ -1062,6 +1063,56 @@ sync:
   includeTelemetry: false
   includeFeedback: false
 ```
+
+---
+
+## MCP Settings
+
+Configure MCP (Model Context Protocol) servers to extend Autohand with external tools.
+
+```json
+{
+  "mcp": {
+    "enabled": true,
+    "servers": [
+      {
+        "name": "filesystem",
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+        "env": {},
+        "autoConnect": true
+      }
+    ]
+  }
+}
+```
+
+### `mcp.enabled`
+- **Type**: `boolean`
+- **Default**: `true`
+- **Description**: Enable or disable all MCP support. When `false`, no servers are connected at startup and MCP tools are unavailable.
+
+### `mcp.servers`
+- **Type**: `McpServerConfigEntry[]`
+- **Default**: `[]`
+- **Description**: Array of MCP server configurations.
+
+### Server Entry Fields
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `name` | `string` | Yes | - | Unique server identifier |
+| `transport` | `"stdio"` \| `"sse"` | Yes | - | Transport type |
+| `command` | `string` | Yes (stdio) | - | Command to start the server process |
+| `args` | `string[]` | No | `[]` | Arguments for the command |
+| `url` | `string` | Yes (sse) | - | SSE endpoint URL |
+| `env` | `Record<string, string>` | No | `{}` | Environment variables passed to the server |
+| `autoConnect` | `boolean` | No | `true` | Whether to auto-connect on startup |
+
+> Servers connect asynchronously in the background during startup without blocking the prompt. Use `/mcp` to manage servers interactively, or `/mcp install` to browse the community registry.
+
+> For full MCP documentation, see [docs/mcp.md](mcp.md).
 
 ---
 

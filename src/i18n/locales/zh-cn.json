@@ -254,6 +254,18 @@
       "available": "可用的技能：",
       "noSkills": "未安装技能。"
     },
+    "mcp": {
+      "title": "MCP 服务器",
+      "description": "管理 MCP (Model Context Protocol) 服务器",
+      "installDescription": "浏览并安装社区 MCP 服务器",
+      "noServers": "未配置 MCP 服务器",
+      "connected": "已连接",
+      "disconnected": "已断开",
+      "error": "错误",
+      "tools": "工具",
+      "connecting": "正在连接 MCP 服务器...",
+      "installed": "MCP 服务器安装成功"
+    },
     "export": {
       "description": "导出会话数据",
       "success": "已导出到 {{path}}",

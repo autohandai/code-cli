@@ -6,7 +6,7 @@
     "failed": "Non riuscito",
     "cancelled": "Annullato",
     "continue": "Continua",
-    "yes": "S\u00ec",
+    "yes": "Sì",
     "no": "No",
     "done": "Fatto",
     "loading": "Caricamento...",
@@ -28,7 +28,7 @@
   "cli": {
     "description": "Agente di programmazione CLI autonomo basato su LLM",
     "options": {
-      "prompt": "Esegui una singola istruzione in modalit\u00e0 comando",
+      "prompt": "Esegui una singola istruzione in modalità comando",
       "path": "Percorso dell'area di lavoro in cui operare",
       "yes": "Conferma automaticamente le azioni rischiose",
       "dryRun": "Anteprima delle azioni senza applicare modifiche",
@@ -50,14 +50,26 @@
       "patch": "Genera una patch git senza applicare le modifiche",
       "output": "File di output per la patch (predefinito: stdout)",
       "autoMode": "Avvia il ciclo di sviluppo autonomo",
-      "maxIterations": "Iterazioni massime in modalit\u00e0 automatica (predefinito: 50)",
+      "maxIterations": "Iterazioni massime in modalità automatica (predefinito: 50)",
       "completionPromise": "Testo marcatore di completamento (predefinito: DONE)",
-      "noWorktree": "Disabilita l'isolamento git worktree in modalit\u00e0 automatica",
+      "noWorktree": "Disabilita l'isolamento git worktree in modalità automatica",
       "checkpointInterval": "Commit git ogni N iterazioni (predefinito: 5)",
       "maxRuntime": "Tempo massimo di esecuzione in minuti (predefinito: 120)",
       "maxCost": "Costo massimo API in dollari (predefinito: 10)",
       "setup": "Esegui la procedura guidata di configurazione",
-      "addDir": "Aggiungi directory aggiuntive all'ambito dell'area di lavoro"
+      "addDir": "Aggiungi directory aggiuntive all'ambito dell'area di lavoro",
+      "thinking": "Set thinking/reasoning depth (none, normal, extended)",
+      "yolo": "Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)",
+      "timeout": "Timeout in seconds for auto-approve mode"
+    },
+    "thinking": {
+      "enabled": "Extended thinking enabled",
+      "level": "Thinking level: {{level}}"
+    },
+    "stdin": {
+      "reading": "Reading piped input...",
+      "timeout": "Stdin read timeout",
+      "empty": "No input received from pipe"
     }
   },
   "welcome": {
@@ -70,7 +82,7 @@
     "modelLine": "modello: {{model}}",
     "directoryLine": "directory: {{directory}}",
     "tips": {
-      "title": "Per iniziare, descrivi un'attivit\u00e0 o prova uno di questi comandi:",
+      "title": "Per iniziare, descrivi un'attività o prova uno di questi comandi:",
       "init": "/init - crea un file AGENTS.md con istruzioni per Autohand",
       "help": "/help - mostra tutti i comandi disponibili",
       "model": "/model - cambia il modello AI",
@@ -143,7 +155,7 @@
     "init": {
       "description": "crea il file AGENTS.md",
       "created": "AGENTS.md creato in {{path}}",
-      "alreadyExists": "AGENTS.md esiste gi\u00e0 in {{path}}",
+      "alreadyExists": "AGENTS.md esiste già in {{path}}",
       "overwritePrompt": "Sovrascrivere il file AGENTS.md esistente?"
     },
     "undo": {
@@ -197,7 +209,7 @@
     "permissions": {
       "description": "mostra le impostazioni dei permessi attuali",
       "title": "Impostazioni permessi",
-      "mode": "Modalit\u00e0: {{mode}}",
+      "mode": "Modalità: {{mode}}",
       "allowed": "Azioni consentite:",
       "denied": "Azioni negate:",
       "pending": "In attesa di approvazione:"
@@ -242,6 +254,18 @@
       "available": "Skill disponibili:",
       "noSkills": "Nessuna skill installata."
     },
+    "mcp": {
+      "title": "Server MCP",
+      "description": "gestisci i server MCP (Model Context Protocol)",
+      "installDescription": "esplora e installa server MCP della community",
+      "noServers": "Nessun server MCP configurato",
+      "connected": "Connesso",
+      "disconnected": "Disconnesso",
+      "error": "Errore",
+      "tools": "strumenti",
+      "connecting": "Connessione al server MCP...",
+      "installed": "Server MCP installato con successo"
+    },
     "export": {
       "description": "esporta i dati della sessione",
       "success": "Esportato in {{path}}",
@@ -253,12 +277,12 @@
       "noAgents": "Nessun sub-agent configurato."
     },
     "automode": {
-      "description": "gestisci la modalit\u00e0 autonoma",
-      "starting": "Avvio modalit\u00e0 automatica...",
-      "stopping": "Arresto modalit\u00e0 automatica...",
+      "description": "gestisci la modalità autonoma",
+      "starting": "Avvio modalità automatica...",
+      "stopping": "Arresto modalità automatica...",
       "iteration": "Iterazione {{current}} di {{max}}",
-      "completed": "Modalit\u00e0 automatica completata.",
-      "aborted": "Modalit\u00e0 automatica interrotta."
+      "completed": "Modalità automatica completata.",
+      "aborted": "Modalità automatica interrotta."
     },
     "share": {
       "description": "condividi la sessione",
@@ -269,21 +293,27 @@
     "addDir": {
       "description": "aggiungi directory all'ambito dell'area di lavoro",
       "added": "Directory aggiunta: {{path}}",
-      "alreadyAdded": "Directory gi\u00e0 aggiunta: {{path}}",
+      "alreadyAdded": "Directory già aggiunta: {{path}}",
       "notFound": "Directory non trovata: {{path}}"
     },
     "ide": {
       "description": "connettiti a un IDE in esecuzione",
       "title": "Seleziona IDE",
-      "connectDescription": "Connettiti a un IDE per funzionalit\u00e0 di sviluppo integrate.",
+      "connectDescription": "Connettiti a un IDE per funzionalità di sviluppo integrate.",
       "noIdesDetected": "Nessun IDE in esecuzione rilevato. Avvia uno tra: VS Code, VS Code Insiders, Cursor, Zed o Antigravity.",
       "noMatchingIdes": "Nessun IDE disponibile rilevato. Assicurati che il tuo IDE abbia l'estensione o il plugin Autohand installato e sia in esecuzione.",
       "foundMatching": "Trovati {{count}} IDE corrispondenti alla tua directory corrente:",
       "otherNotMatching": "Trovati {{count}} altri IDE in esecuzione. Tuttavia, le loro directory di workspace/progetto non corrispondono alla cwd attuale.",
       "selectPrompt": "Seleziona un IDE a cui connetterti:",
       "connected": "Connesso a {{ide}}",
-      "extensionHint": "Installa le estensioni per un'integrazione pi\u00f9 profonda:",
+      "extensionHint": "Installa le estensioni per un'integrazione più profonda:",
       "startIde": "Avvia un IDE in questa directory per connetterti."
+    },
+    "history": {
+      "title": "Session History",
+      "empty": "No sessions found",
+      "showing": "Page {{page}} of {{total}} ({{count}} sessions)",
+      "resumeHint": "Use /resume <session-id> to resume a session"
     }
   },
   "setup": {
@@ -293,7 +323,7 @@
     "providerSelect": "Quale provider LLM vorresti usare?",
     "apiKeyPrompt": "Inserisci la tua chiave API {{provider}}:",
     "apiKeyHelp": "Ottieni la tua chiave API su: {{url}}",
-    "apiKeyHint": "La tua chiave API verr\u00e0 salvata localmente in ~/.autohand/config.json",
+    "apiKeyHint": "La tua chiave API verrà salvata localmente in ~/.autohand/config.json",
     "modelPrompt": "Inserisci l'ID del modello (o premi Invio per il predefinito):",
     "modelDefault": "Predefinito: {{model}}",
     "testingConnection": "Test della connessione...",
@@ -303,8 +333,8 @@
       "title": "Aiutaci a migliorare Autohand",
       "description": "Raccogliamo dati di utilizzo anonimi per capire come viene usato Autohand.",
       "whatWeCollect": "Cosa raccogliamo:",
-      "collectItem1": "Utilizzo dei comandi (quali funzionalit\u00e0 sono pi\u00f9 usate)",
-      "collectItem2": "Tassi di errore (per correggere i bug pi\u00f9 velocemente)",
+      "collectItem1": "Utilizzo dei comandi (quali funzionalità sono più usate)",
+      "collectItem2": "Tassi di errore (per correggere i bug più velocemente)",
       "collectItem3": "Metriche di prestazione (per velocizzare le operazioni)",
       "whatWeNeverCollect": "Cosa non raccogliamo mai:",
       "neverItem1": "Il tuo codice o il contenuto dei file",
@@ -315,18 +345,18 @@
       "declined": "Nessun problema! Puoi cambiare questa impostazione in qualsiasi momento nella configurazione."
     },
     "complete": "Configurazione completata!",
-    "created": "Cosa \u00e8 stato creato:",
+    "created": "Cosa è stato creato:",
     "configFile": "~/.autohand/config.json (le tue impostazioni)",
     "agentsFile": "AGENTS.md (istruzioni del progetto per Autohand)",
     "nextSteps": "Prossimi passi:",
     "tryCommand": "Prova: autohand"
   },
   "errors": {
-    "generic": "Si \u00e8 verificato un errore: {{message}}",
+    "generic": "Si è verificato un errore: {{message}}",
     "invalidLocale": "Lingua non valida: {{locale}}. Supportate: {{supported}}",
     "configParseFailed": "Analisi della configurazione non riuscita in {{path}}: {{error}}",
     "configSaveFailed": "Salvataggio della configurazione non riuscito: {{error}}",
-    "apiKeyRequired": "La chiave API \u00e8 obbligatoria",
+    "apiKeyRequired": "La chiave API è obbligatoria",
     "apiKeyTooShort": "La chiave API sembra troppo corta",
     "apiKeyInvalid": "Formato della chiave API non valido",
     "directoryNotExist": "La directory non esiste: {{path}}",
@@ -334,7 +364,7 @@
     "fileNotFound": "File non trovato: {{path}}",
     "permissionDenied": "Permesso negato: {{path}}",
     "patchRequiresPrompt": "--patch richiede --prompt per specificare l'istruzione",
-    "autoModeRequiresPrompt": "--auto-mode richiede un prompt per l'attivit\u00e0",
+    "autoModeRequiresPrompt": "--auto-mode richiede un prompt per l'attività",
     "noProviderConfigured": "Nessun provider configurato. Esegui la configurazione con: autohand --setup",
     "modelNotFound": "Modello non trovato: {{model}}",
     "rateLimited": "Limite di richieste raggiunto. Attendi un momento e riprova.",
@@ -343,7 +373,7 @@
     "contextTooLong": "Contesto troppo lungo. Prova /new per ricominciare o /undo per rimuovere i turni recenti.",
     "authFailed": "Autenticazione non riuscita. Controlla la tua chiave API.",
     "paymentRequired": "Pagamento richiesto. Controlla il saldo del tuo account.",
-    "serverError": "Errore del server. Riprova pi\u00f9 tardi.",
+    "serverError": "Errore del server. Riprova più tardi.",
     "cancelled": "Operazione annullata dall'utente."
   },
   "agent": {
@@ -354,7 +384,7 @@
     "searching": "Ricerca in corso...",
     "toolSuccess": "{{tool}} completato con successo",
     "toolFailed": "{{tool}} non riuscito: {{error}}",
-    "taskComplete": "Attivit\u00e0 completata",
+    "taskComplete": "Attività completata",
     "noChanges": "Nessuna modifica effettuata.",
     "changesApplied": "Modifiche applicate con successo.",
     "awaitingApproval": "In attesa di approvazione...",
@@ -371,7 +401,7 @@
     "llamacpp": "llama.cpp",
     "mlx": "MLX (Apple Silicon)",
     "hints": {
-      "openrouter": "Cloud - Accesso a pi\u00f9 di 100 modelli (Claude, GPT-4, ecc.)",
+      "openrouter": "Cloud - Accesso a più di 100 modelli (Claude, GPT-4, ecc.)",
       "openai": "Cloud - Modelli OpenAI ufficiali (GPT-4o, o1, ecc.)",
       "ollama": "Locale - Esegui modelli sulla tua macchina (gratuito)",
       "llamacpp": "Locale - Inferenza veloce con modelli GGUF",
@@ -384,15 +414,15 @@
     "toolMissing": "{{tool}} non trovato",
     "installHint": "Installa con: {{command}}",
     "allToolsReady": "Tutti gli strumenti sono pronti!",
-    "someToolsMissing": "Alcuni strumenti mancano. Alcune funzionalit\u00e0 potrebbero non funzionare."
+    "someToolsMissing": "Alcuni strumenti mancano. Alcune funzionalità potrebbero non funzionare."
   },
   "confirmation": {
     "proceed": "Procedere?",
     "areYouSure": "Sei sicuro?",
-    "thisWillDelete": "Questo eliminer\u00e0 {{item}}. Questa azione non pu\u00f2 essere annullata.",
+    "thisWillDelete": "Questo eliminerà {{item}}. Questa azione non può essere annullata.",
     "confirm": "Conferma",
     "cancel": "Annulla",
-    "yesDelete": "S\u00ec, elimina",
+    "yesDelete": "Sì, elimina",
     "noDontDelete": "No, mantieni"
   },
   "diff": {
@@ -406,26 +436,26 @@
   },
   "ui": {
     "escToCancel": "esc per annullare",
-    "commandHint": "/ per i comandi \u00b7 @ per menzionare file \u00b7 ! per il terminale",
+    "commandHint": "/ per i comandi · @ per menzionare file · ! per il terminale",
     "ctrlCToExit": "Premi Ctrl+C di nuovo per uscire",
     "noMatchingCommands": "Nessun comando corrispondente.",
     "selectFile": "Seleziona un file",
-    "noMatchingFiles": "Nessun file corrispondente. Continua a digitare\u2026",
+    "noMatchingFiles": "Nessun file corrispondente. Continua a digitare…",
     "thinking": "Sto pensando",
-    "planModeActive": "Modalit\u00e0 piano attiva - gli strumenti sono in sola lettura",
+    "planModeActive": "Modalità piano attiva - gli strumenti sono in sola lettura",
     "planModeExecuting": "Esecuzione del piano",
     "typeToFilter": "Filtra",
-    "navigateHint": "Digita per filtrare \u00b7 \u2191/\u2193 naviga \u00b7 Invio per eseguire \u00b7 Esc annulla",
-    "fileNavigateHint": "Digita per filtrare \u00b7 \u2191/\u2193 naviga \u00b7 Invio per scegliere \u00b7 Esc annulla",
-    "questionPrompt": "\u2753",
+    "navigateHint": "Digita per filtrare · ↑/↓ naviga · Invio per eseguire · Esc annulla",
+    "fileNavigateHint": "Digita per filtrare · ↑/↓ naviga · Invio per scegliere · Esc annulla",
+    "questionPrompt": "❓",
     "questionOther": "Altro (digita la tua risposta)",
-    "questionYourAnswer": "\u25b8 La tua risposta",
-    "questionCustomHint": "\u21b5 Invia \u00b7 ESC Indietro",
-    "questionSelectHint": "\u2191\u2193 Naviga \u00b7 \u21b5 Seleziona \u00b7 1-9 Scorciatoia \u00b7 ESC Annulla",
+    "questionYourAnswer": "▸ La tua risposta",
+    "questionCustomHint": "↵ Invia · ESC Indietro",
+    "questionSelectHint": "↑↓ Naviga · ↵ Seleziona · 1-9 Scorciatoia · ESC Annulla",
     "noOptionsAvailable": "Nessuna opzione disponibile",
     "planRevise": "No, rivedi il piano",
     "planEditHint": "ctrl-g per modificare in VS Code",
-    "confirmYes": "S\u00ec",
+    "confirmYes": "Sì",
     "confirmNo": "No",
     "inputHint": "Invio per inviare, ESC per annullare",
     "inputPlaceholder": "Digita la tua risposta...",
@@ -469,20 +499,20 @@
   },
   "languages": {
     "en": "English",
-    "zh-cn": "\u7b80\u4f53\u4e2d\u6587 (Simplified Chinese)",
-    "zh-tw": "\u7e41\u9ad4\u4e2d\u6587 (Traditional Chinese)",
-    "fr": "Fran\u00e7ais (French)",
+    "zh-cn": "简体中文 (Simplified Chinese)",
+    "zh-tw": "繁體中文 (Traditional Chinese)",
+    "fr": "Français (French)",
     "de": "Deutsch (German)",
     "it": "Italiano (Italian)",
-    "es": "Espa\u00f1ol (Spanish)",
-    "ja": "\u65e5\u672c\u8a9e (Japanese)",
-    "ko": "\ud55c\uad6d\uc5b4 (Korean)",
-    "ru": "\u0420\u0443\u0441\u0441\u043a\u0438\u0439 (Russian)",
-    "pt-br": "Portugu\u00eas (Brazilian Portuguese)",
-    "tr": "T\u00fcrk\u00e7e (Turkish)",
+    "es": "Español (Spanish)",
+    "ja": "日本語 (Japanese)",
+    "ko": "한국어 (Korean)",
+    "ru": "Русский (Russian)",
+    "pt-br": "Português (Brazilian Portuguese)",
+    "tr": "Türkçe (Turkish)",
     "pl": "Polski (Polish)",
-    "cs": "\u010ce\u0161tina (Czech)",
+    "cs": "Čeština (Czech)",
     "hu": "Magyar (Hungarian)",
-    "hi": "\u0939\u093f\u0928\u094d\u0926\u0940 (Hindi)"
+    "hi": "हिन्दी (Hindi)"
   }
 }

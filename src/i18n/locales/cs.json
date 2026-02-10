@@ -57,7 +57,19 @@
       "maxRuntime": "Maximální doba běhu v minutách (výchozí: 120)",
       "maxCost": "Maximální náklady na API v dolarech (výchozí: 10)",
       "setup": "Spustit průvodce nastavením",
-      "addDir": "Přidat další adresáře do rozsahu pracovního prostoru"
+      "addDir": "Přidat další adresáře do rozsahu pracovního prostoru",
+      "thinking": "Set thinking/reasoning depth (none, normal, extended)",
+      "yolo": "Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)",
+      "timeout": "Timeout in seconds for auto-approve mode"
+    },
+    "thinking": {
+      "enabled": "Extended thinking enabled",
+      "level": "Thinking level: {{level}}"
+    },
+    "stdin": {
+      "reading": "Reading piped input...",
+      "timeout": "Stdin read timeout",
+      "empty": "No input received from pipe"
     }
   },
   "welcome": {
@@ -242,6 +254,18 @@
       "available": "Dostupné dovednosti:",
       "noSkills": "Žádné dovednosti nainstalovány."
     },
+    "mcp": {
+      "title": "MCP servery",
+      "description": "spravovat MCP (Model Context Protocol) servery",
+      "installDescription": "procházet a instalovat komunitní MCP servery",
+      "noServers": "Žádné MCP servery nejsou nakonfigurovány",
+      "connected": "Připojeno",
+      "disconnected": "Odpojeno",
+      "error": "Chyba",
+      "tools": "nástroje",
+      "connecting": "Připojování k MCP serveru...",
+      "installed": "MCP server úspěšně nainstalován"
+    },
     "export": {
       "description": "exportovat data relace",
       "success": "Exportováno do {{path}}",
@@ -284,6 +308,12 @@
       "connected": "Připojeno k {{ide}}",
       "extensionHint": "Nainstalujte rozšíření pro hlubší integraci:",
       "startIde": "Spusťte IDE v tomto adresáři pro připojení."
+    },
+    "history": {
+      "title": "Session History",
+      "empty": "No sessions found",
+      "showing": "Page {{page}} of {{total}} ({{count}} sessions)",
+      "resumeHint": "Use /resume <session-id> to resume a session"
     }
   },
   "setup": {
@@ -410,18 +440,18 @@
     "ctrlCToExit": "Stiskněte Ctrl+C znovu pro ukončení",
     "noMatchingCommands": "Žádné odpovídající příkazy.",
     "selectFile": "Vyberte soubor",
-    "noMatchingFiles": "Žádné odpovídající soubory. Pokračujte v psaní\u2026",
+    "noMatchingFiles": "Žádné odpovídající soubory. Pokračujte v psaní…",
     "thinking": "Přemýšlení",
     "planModeActive": "Režim plánu aktivní - nástroje jsou pouze pro čtení",
     "planModeExecuting": "Provádění plánu",
     "typeToFilter": "Filtr",
-    "navigateHint": "Pište pro filtrování · \u2191/\u2193 navigace · Enter pro spuštění · Esc zrušit",
-    "fileNavigateHint": "Pište pro filtrování · \u2191/\u2193 navigace · Enter vybrat · Esc zrušit",
-    "questionPrompt": "\u2753",
+    "navigateHint": "Pište pro filtrování · ↑/↓ navigace · Enter pro spuštění · Esc zrušit",
+    "fileNavigateHint": "Pište pro filtrování · ↑/↓ navigace · Enter vybrat · Esc zrušit",
+    "questionPrompt": "❓",
     "questionOther": "Jiné (napište vlastní odpověď)",
-    "questionYourAnswer": "\u25b8 Vaše odpověď",
-    "questionCustomHint": "\u21b5 Odeslat · ESC Zpět",
-    "questionSelectHint": "\u2191\u2193 Navigace · \u21b5 Vybrat · 1-9 Zkratka · ESC Zrušit",
+    "questionYourAnswer": "▸ Vaše odpověď",
+    "questionCustomHint": "↵ Odeslat · ESC Zpět",
+    "questionSelectHint": "↑↓ Navigace · ↵ Vybrat · 1-9 Zkratka · ESC Zrušit",
     "noOptionsAvailable": "Žádné dostupné možnosti",
     "planRevise": "Ne, upravit plán",
     "planEditHint": "ctrl-g pro úpravu ve VS Code",

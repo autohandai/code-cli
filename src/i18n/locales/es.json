@@ -254,6 +254,18 @@
       "available": "Habilidades disponibles:",
       "noSkills": "No hay habilidades instaladas."
     },
+    "mcp": {
+      "title": "Servidores MCP",
+      "description": "gestionar servidores MCP (Model Context Protocol)",
+      "installDescription": "explorar e instalar servidores MCP de la comunidad",
+      "noServers": "No hay servidores MCP configurados",
+      "connected": "Conectado",
+      "disconnected": "Desconectado",
+      "error": "Error",
+      "tools": "herramientas",
+      "connecting": "Conectando al servidor MCP...",
+      "installed": "Servidor MCP instalado exitosamente"
+    },
     "export": {
       "description": "exportar datos de sesión",
       "success": "Exportado a {{path}}",

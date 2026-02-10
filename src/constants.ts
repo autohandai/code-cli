@@ -51,6 +51,9 @@ export const AUTOHAND_PATHS = {
 
   /** Plan files for plan mode */
   plans: path.join(AUTOHAND_HOME, 'plans'),
+
+  /** MCP community registry cache */
+  mcpCache: path.join(AUTOHAND_HOME, 'community-mcp', 'cache'),
 } as const;
 
 /**

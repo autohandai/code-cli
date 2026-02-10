@@ -57,7 +57,19 @@
       "maxRuntime": "अधिकतम रनटाइम मिनटों में (डिफ़ॉल्ट: 120)",
       "maxCost": "अधिकतम API लागत डॉलर में (डिफ़ॉल्ट: 10)",
       "setup": "सेटअप विज़ार्ड चलाएँ",
-      "addDir": "कार्यस्थान दायरे में अतिरिक्त डायरेक्ट्रियाँ जोड़ें"
+      "addDir": "कार्यस्थान दायरे में अतिरिक्त डायरेक्ट्रियाँ जोड़ें",
+      "thinking": "Set thinking/reasoning depth (none, normal, extended)",
+      "yolo": "Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)",
+      "timeout": "Timeout in seconds for auto-approve mode"
+    },
+    "thinking": {
+      "enabled": "Extended thinking enabled",
+      "level": "Thinking level: {{level}}"
+    },
+    "stdin": {
+      "reading": "Reading piped input...",
+      "timeout": "Stdin read timeout",
+      "empty": "No input received from pipe"
     }
   },
   "welcome": {
@@ -242,6 +254,18 @@
       "available": "उपलब्ध कौशल:",
       "noSkills": "कोई कौशल स्थापित नहीं है।"
     },
+    "mcp": {
+      "title": "MCP सर्वर",
+      "description": "MCP (Model Context Protocol) सर्वर प्रबंधित करें",
+      "installDescription": "समुदाय MCP सर्वर ब्राउज़ और इंस्टॉल करें",
+      "noServers": "कोई MCP सर्वर कॉन्फ़िगर नहीं है",
+      "connected": "कनेक्टेड",
+      "disconnected": "डिस्कनेक्टेड",
+      "error": "त्रुटि",
+      "tools": "उपकरण",
+      "connecting": "MCP सर्वर से कनेक्ट हो रहा है...",
+      "installed": "MCP सर्वर सफलतापूर्वक इंस्टॉल हुआ"
+    },
     "export": {
       "description": "सत्र डेटा निर्यात करें",
       "success": "{{path}} में निर्यात किया गया",
@@ -284,6 +308,12 @@
       "connected": "{{ide}} से कनेक्ट हो गया",
       "extensionHint": "गहन एकीकरण के लिए एक्सटेंशन स्थापित करें:",
       "startIde": "कनेक्ट करने के लिए इस डायरेक्ट्री में एक IDE शुरू करें।"
+    },
+    "history": {
+      "title": "Session History",
+      "empty": "No sessions found",
+      "showing": "Page {{page}} of {{total}} ({{count}} sessions)",
+      "resumeHint": "Use /resume <session-id> to resume a session"
     }
   },
   "setup": {
@@ -410,18 +440,18 @@
     "ctrlCToExit": "बाहर निकलने के लिए Ctrl+C फिर से दबाएँ",
     "noMatchingCommands": "कोई मेल खाता कमांड नहीं।",
     "selectFile": "एक फ़ाइल चुनें",
-    "noMatchingFiles": "कोई मेल खाती फ़ाइल नहीं। टाइप करते रहें\u2026",
+    "noMatchingFiles": "कोई मेल खाती फ़ाइल नहीं। टाइप करते रहें…",
     "thinking": "सोच रहा है",
     "planModeActive": "योजना मोड सक्रिय - उपकरण केवल पठन हैं",
     "planModeExecuting": "योजना निष्पादित हो रही है",
     "typeToFilter": "फ़िल्टर",
     "navigateHint": "फ़िल्टर करने के लिए टाइप करें · ऊपर/नीचे नेविगेट करें · Enter चलाएँ · Esc रद्द",
     "fileNavigateHint": "फ़िल्टर करने के लिए टाइप करें · ऊपर/नीचे नेविगेट करें · Enter चुनें · Esc रद्द",
-    "questionPrompt": "\u2753",
+    "questionPrompt": "❓",
     "questionOther": "अन्य (अपना उत्तर टाइप करें)",
-    "questionYourAnswer": "\u25b8 आपका उत्तर",
-    "questionCustomHint": "\u21b5 सबमिट करें · ESC वापस",
-    "questionSelectHint": "\u2191\u2193 नेविगेट करें · \u21b5 चुनें · 1-9 शॉर्टकट · ESC रद्द",
+    "questionYourAnswer": "▸ आपका उत्तर",
+    "questionCustomHint": "↵ सबमिट करें · ESC वापस",
+    "questionSelectHint": "↑↓ नेविगेट करें · ↵ चुनें · 1-9 शॉर्टकट · ESC रद्द",
     "noOptionsAvailable": "कोई विकल्प उपलब्ध नहीं",
     "planRevise": "नहीं, योजना संशोधित करें",
     "planEditHint": "VS Code में संपादित करने के लिए ctrl-g",
