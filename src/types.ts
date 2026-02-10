@@ -308,6 +308,10 @@ export interface AutomodeCircuitBreaker {
   lastErrorHash?: string;
   /** Consecutive test-only iterations */
   testOnlyCount: number;
+  /** Consecutive iterations modifying only the same file(s) */
+  sameFileRepeatCount: number;
+  /** Serialized set of files modified in the last iteration */
+  lastModifiedFiles?: string;
 }
 
 /** Share settings in config */
@@ -350,6 +354,8 @@ export interface AutomodeSettings {
   sameErrorThreshold?: number;
   /** Circuit breaker: max test-only iterations (default: 3) */
   testOnlyThreshold?: number;
+  /** Circuit breaker: max same-file-only iterations (default: 3) */
+  sameFileThreshold?: number;
 }
 
 // ============ Hooks System Types ============

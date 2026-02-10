@@ -24,6 +24,7 @@ const DEFAULT_THRESHOLDS = {
   noProgress: 3,
   sameError: 5,
   testOnly: 3,
+  sameFile: 3,
 };
 
 /**
@@ -37,6 +38,7 @@ export class AutomodeState {
     noProgressCount: 0,
     sameErrorCount: 0,
     testOnlyCount: 0,
+    sameFileRepeatCount: 0,
   };
 
   constructor(workspaceRoot: string) {
@@ -95,6 +97,7 @@ export class AutomodeState {
       noProgressCount: 0,
       sameErrorCount: 0,
       testOnlyCount: 0,
+      sameFileRepeatCount: 0,
     };
 
     await this.save();
@@ -227,7 +230,8 @@ export class AutomodeState {
     hasFileChanges: boolean,
     errorHash: string | null,
     isTestOnly: boolean,
-    thresholds = DEFAULT_THRESHOLDS
+    thresholds = DEFAULT_THRESHOLDS,
+    modifiedFiles?: string[]
   ): { triggered: boolean; reason?: string } {
     // Check no progress
     if (!hasFileChanges) {
@@ -272,6 +276,32 @@ export class AutomodeState {
       }
     } else {
       this.circuitBreaker.testOnlyCount = 0;
+    }
+
+    // Check same-file repetition: if the same file(s) are the only ones modified for N iterations
+    if (modifiedFiles && modifiedFiles.length > 0) {
+      const filesKey = [...modifiedFiles].sort().join('\n');
+      if (this.circuitBreaker.lastModifiedFiles === filesKey) {
+        this.circuitBreaker.sameFileRepeatCount += 1;
+        const sameFileThreshold = thresholds.sameFile ?? DEFAULT_THRESHOLDS.sameFile;
+        if (this.circuitBreaker.sameFileRepeatCount >= sameFileThreshold) {
+          const fileList = modifiedFiles.length === 1
+            ? modifiedFiles[0]
+            : `${modifiedFiles.length} files`;
+          return {
+            triggered: true,
+            reason: `Same file(s) modified for ${this.circuitBreaker.sameFileRepeatCount} consecutive iterations (${fileList})`,
+          };
+        }
+      } else {
+        this.circuitBreaker.sameFileRepeatCount = 1;
+        this.circuitBreaker.lastModifiedFiles = filesKey;
+      }
+    } else if (!hasFileChanges) {
+      // No files modified at all - don't reset same-file counter (handled by noProgress)
+    } else {
+      this.circuitBreaker.sameFileRepeatCount = 0;
+      this.circuitBreaker.lastModifiedFiles = undefined;
     }
 
     return { triggered: false };

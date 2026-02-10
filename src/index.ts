@@ -1037,30 +1037,34 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
       // Build iteration prompt
       const iterationPrompt = buildIterationPrompt(prompt, iteration);
 
-      // Track results
-      const output = '';
-      let actions: string[] = [];
+      // Reset per-iteration counters before running
+      agent.getAndResetFileModCount();
+      agent.getAndResetExecutedActions();
+
       let success = true;
       let error: string | undefined;
 
       try {
-        // Run agent for this iteration
-        // Note: We can't easily capture all output, so we track file changes via the files manager
         await agent.runCommandMode(iterationPrompt);
-
-        // Get pending changes as actions (approximate)
-        actions = ['Executed agent iteration'];
       } catch (err) {
         success = false;
         error = (err as Error).message;
         console.error(chalk.red(`Iteration error: ${error}`));
       }
 
+      // Collect actual file change data and action names from this iteration
+      const fileChanges = agent.getAndResetFileModCount();
+      const actions = agent.getAndResetExecutedActions();
+      if (actions.length === 0) {
+        actions.push('Executed agent iteration');
+      }
+
       return {
         success,
         actions,
-        output,
         error,
+        filesModified: fileChanges.count,
+        modifiedFiles: fileChanges.paths,
       };
     };
 
