@@ -170,7 +170,8 @@ export async function readInstruction(
   slashCommands: SlashCommandHint[],
   statusLine?: string,
   io: PromptIO = {},
-  onImageDetected?: ImageDetectedCallback
+  onImageDetected?: ImageDetectedCallback,
+  workspaceRoot?: string
 ): Promise<string | null> {
   const stdInput = (io.input ?? process.stdin) as NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void };
   const stdOutput = (io.output ?? process.stdout) as NodeJS.WriteStream;
@@ -190,7 +191,8 @@ export async function readInstruction(
         statusLine,
         stdInput,
         stdOutput,
-        onImageDetected
+        onImageDetected,
+        workspaceRoot
       });
 
       if (result.kind === 'abort') {
@@ -211,6 +213,7 @@ interface PromptOnceOptions {
   stdInput: NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void };
   stdOutput: NodeJS.WriteStream;
   onImageDetected?: ImageDetectedCallback;
+  workspaceRoot?: string;
 }
 
 /**
@@ -334,7 +337,7 @@ function handlePasteComplete(
 }
 
 async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
-  const { files, slashCommands, statusLine, stdInput, stdOutput, onImageDetected } = options;
+  const { files, slashCommands, statusLine, stdInput, stdOutput, onImageDetected, workspaceRoot } = options;
   const { rl, input, supportsRawMode } = createReadline(stdInput, stdOutput);
 
   // Don't pass statusLine to MentionPreview - renderPromptLine handles the status display
@@ -677,7 +680,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       if (isShellCommand(finalValue)) {
         const shellCmd = parseShellCommand(finalValue);
         stdOutput.write('\n');
-        const result = executeShellCommand(shellCmd);
+        const result = executeShellCommand(shellCmd, workspaceRoot);
         if (result.success && result.output) {
           stdOutput.write(result.output);
           if (!result.output.endsWith('\n')) {

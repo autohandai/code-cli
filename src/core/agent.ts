@@ -603,6 +603,13 @@ export class AutohandAgent {
   private initDone = false;
 
   async runInteractive(): Promise<void> {
+    // Bail out early if stdin is not a TTY - interactive mode requires a terminal
+    if (!process.stdin.isTTY) {
+      console.error(chalk.red('Interactive mode requires a terminal (TTY). Use --prompt for non-interactive usage.'));
+      process.exitCode = 1;
+      return;
+    }
+
     // Start ALL initialization in background so prompt appears instantly.
     // The user can start typing while managers initialize.
     // When they submit, we await initReady before processing.
@@ -901,6 +908,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
   }
 
+  private lastErrorMessage: string | null = null;
+  private consecutiveErrorCount = 0;
+
   private async runInteractiveLoop(): Promise<void> {
     while (true) {
       try {
@@ -951,7 +961,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
         await this.ensureInitComplete();
 
         if (instruction === '/exit' || instruction === '/quit') {
-          await this.telemetryManager.trackCommand({ command: instruction });
+          // Fire-and-forget: don't block quit on telemetry
+          this.telemetryManager.trackCommand({ command: instruction }).catch(() => {});
           const trigger = this.feedbackManager.shouldPrompt({ sessionEnding: true });
           if (trigger) {
             const session = this.sessionManager.getCurrentSession();
@@ -969,6 +980,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
         if (isSlashCommand) {
           await this.telemetryManager.trackCommand({ command: instruction.split(' ')[0] });
         }
+
+        // Reset error tracking on successful prompt
+        this.lastErrorMessage = null;
+        this.consecutiveErrorCount = 0;
 
         const turnStartTime = Date.now();
         await this.runInstruction(instruction);
@@ -1020,20 +1035,48 @@ If lint or tests fail, report the issues but do NOT commit.`;
           !errorObj.message;
 
         if (isCancel) {
+          this.lastErrorMessage = null;
+          this.consecutiveErrorCount = 0;
           continue;
         }
 
-        await this.errorLogger.log(error as Error, {
-          context: 'Interactive loop',
-          workspace: this.runtime.workspaceRoot
-        });
+        const errorMessage = (error as Error).message || 'Unknown error occurred';
 
-        await this.telemetryManager.trackError({
-          type: 'interactive_loop_error',
-          message: (error as Error).message,
-          stack: (error as Error).stack,
-          context: 'Interactive loop'
-        });
+        // Track consecutive identical errors to prevent infinite telemetry spam
+        if (errorMessage === this.lastErrorMessage) {
+          this.consecutiveErrorCount++;
+        } else {
+          this.lastErrorMessage = errorMessage;
+          this.consecutiveErrorCount = 1;
+        }
+
+        // Only send telemetry for the first occurrence of a repeated error
+        if (this.consecutiveErrorCount <= 1) {
+          await this.errorLogger.log(error as Error, {
+            context: 'Interactive loop',
+            workspace: this.runtime.workspaceRoot
+          });
+
+          await this.telemetryManager.trackError({
+            type: 'interactive_loop_error',
+            message: errorMessage,
+            stack: (error as Error).stack,
+            context: 'Interactive loop'
+          });
+        }
+
+        // Exit if the same error repeats 3 times - it won't fix itself
+        if (this.consecutiveErrorCount >= 3) {
+          console.error(chalk.red(`\nFatal: "${errorMessage}" repeated ${this.consecutiveErrorCount} times. Exiting.`));
+          const session = this.sessionManager.getCurrentSession();
+          if (session) {
+            session.metadata.status = 'crashed';
+            await session.save();
+          }
+          await this.telemetryManager.endSession('crashed');
+          process.exitCode = 1;
+          return;
+        }
 
         const session = this.sessionManager.getCurrentSession();
         if (session) {
@@ -1041,13 +1084,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
           await session.save();
         }
 
-        // Show error to user but don't crash - continue the loop
-        const errorMessage = (error as Error).message || 'Unknown error occurred';
-        console.error(chalk.red('\n❌ An error occurred:'));
+        console.error(chalk.red('\nAn error occurred:'));
         console.error(chalk.red(errorMessage));
         console.error(chalk.gray(`Error logged to: ${this.errorLogger.getLogPath()}\n`));
 
-        // Continue the loop instead of crashing
         continue;
       }
     }
@@ -1065,7 +1105,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
       SLASH_COMMANDS,
       statusLine,
       {}, // default IO
-      (data, mimeType, filename) => this.imageManager.add(data, mimeType, filename)
+      (data, mimeType, filename) => this.imageManager.add(data, mimeType, filename),
+      this.runtime.workspaceRoot
     );
     // Only exit on explicit ABORT (double Ctrl+C). Palette cancel or dismiss should continue.
     if (input === 'ABORT') { // double Ctrl+C from prompt
@@ -1593,56 +1634,57 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async closeSession(): Promise<void> {
-    // Clean up persistent input
+    // Clean up persistent input immediately
     this.persistentInput.dispose();
-
-    // Disconnect all MCP servers
-    await this.mcpManager.disconnectAll().catch(() => {});
 
     const session = this.sessionManager.getCurrentSession();
 
-    // Fire session-end hook
-    const sessionDuration = Date.now() - this.sessionStartedAt;
-    await this.hookManager.executeHooks('session-end', {
-      sessionId: session?.metadata.sessionId,
-      sessionEndReason: 'quit',
-      duration: sessionDuration,
-    });
     if (!session) {
       console.log(chalk.gray('Ending Autohand session.'));
-      await this.telemetryManager.shutdown();
+      // Fire-and-forget cleanup
+      this.mcpManager.disconnectAll().catch(() => {});
+      this.telemetryManager.shutdown().catch(() => {});
       return;
     }
 
-    // Generate summary from last few messages
+    // Save session locally first (fast, essential)
     const messages = session.getMessages();
     const lastUserMsg = messages.filter(m => m.role === 'user').slice(-1)[0];
     const summary = lastUserMsg?.content.slice(0, 60) || 'Session complete';
-
-    // Sync session to cloud before closing
-    const syncResult = await this.telemetryManager.syncSession({
-      messages: messages.map(m => ({
-        role: m.role,
-        content: m.content,
-        timestamp: m.timestamp
-      })),
-      metadata: {
-        workspaceRoot: this.runtime.workspaceRoot
-      }
-    });
-
-    // End telemetry session
-    await this.telemetryManager.endSession('completed');
-    await this.telemetryManager.shutdown();
-
     await this.sessionManager.closeSession(summary);
 
+    // Print exit message immediately — user sees instant feedback
     console.log(chalk.gray('\nEnding Autohand session.\n'));
     console.log(chalk.cyan(`💾 Session saved: ${session.metadata.sessionId}`));
-    if (syncResult.success) {
-      console.log(chalk.gray(`   Synced to cloud: ${syncResult.id}`));
-    }
     console.log(chalk.gray(`   Resume with: autohand resume ${session.metadata.sessionId}\n`));
+
+    // Run all network/cleanup ops in parallel with a 2s timeout
+    const sessionDuration = Date.now() - this.sessionStartedAt;
+    const cleanup = Promise.all([
+      this.mcpManager.disconnectAll().catch(() => {}),
+      this.hookManager.executeHooks('session-end', {
+        sessionId: session.metadata.sessionId,
+        sessionEndReason: 'quit',
+        duration: sessionDuration,
+      }).catch(() => {}),
+      this.telemetryManager.syncSession({
+        messages: messages.map(m => ({
+          role: m.role,
+          content: m.content,
+          timestamp: m.timestamp
+        })),
+        metadata: { workspaceRoot: this.runtime.workspaceRoot }
+      }).catch(() => {}),
+      this.telemetryManager.endSession('completed').catch(() => {}),
+    ]);
+
+    // Wait at most 2s for cleanup, then exit regardless
+    await Promise.race([
+      cleanup,
+      new Promise(resolve => setTimeout(resolve, 2000)),
+    ]);
+
+    this.telemetryManager.shutdown().catch(() => {});
   }
 
   private async runReactLoop(abortController: AbortController): Promise<void> {
