@@ -197,7 +197,7 @@ describe('slash command dispatch – output vs instruction', () => {
     expect(typeof result).toBe('string');
 
     // Simulate the FIXED agent logic
-    let sentToLLM = false;
+    const sentToLLM = false;
     if (result === null) {
       // command handled, no output
     } else {

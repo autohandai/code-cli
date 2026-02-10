@@ -16,6 +16,8 @@ import type { AuthUser, LoadedConfig } from './types.js';
 import { checkForUpdates, type VersionCheckResult } from './utils/versionCheck.js';
 import { initI18n, detectLocale } from './i18n/index.js';
 import { initPingService, startPingService, stopPingService } from './telemetry/index.js';
+import { detectStdinType, readPipedStdin } from './utils/stdinDetector.js';
+import { buildPipePrompt } from './modes/pipeMode.js';
 
 /**
  * Get git commit hash (short)
@@ -519,7 +521,15 @@ async function runCLI(options: CLIOptions): Promise<void> {
     const agent = new AutohandAgent(llmProvider, files, runtime);
 
     if (options.prompt) {
-      await agent.runCommandMode(options.prompt);
+      // Read piped stdin if available (e.g. git diff | autohand -p "explain")
+      let instruction = options.prompt;
+      const stdinType = detectStdinType();
+      if (stdinType === 'pipe') {
+        const pipedInput = await readPipedStdin();
+        instruction = buildPipePrompt(instruction, pipedInput);
+      }
+
+      await agent.runCommandMode(instruction);
       // Explicitly exit after prompt mode to prevent hanging
       // Some managers may keep event loop alive
       process.exit(0);

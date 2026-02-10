@@ -52,13 +52,39 @@ type LanguageChangeListener = (locale: SupportedLocale) => void;
 const languageChangeListeners: Set<LanguageChangeListener> = new Set();
 
 /**
- * Initialize i18next with the specified locale
- * If already initialized, just changes the language
+ * Eagerly initialize i18next with English as default.
+ * This runs synchronously at module load time so that t() calls
+ * in command metadata exports work before initI18n() is called.
+ */
+function initEager(): void {
+  if (initialized) return;
+  i18next.init({
+    lng: 'en',
+    fallbackLng: 'en',
+    resources,
+    interpolation: {
+      escapeValue: false,
+    },
+    keySeparator: '.',
+    nsSeparator: ':',
+    returnNull: false,
+    returnEmptyString: false,
+    lowerCaseLng: true,
+    initImmediate: false, // synchronous init
+  });
+  initialized = true;
+}
+
+// Run eagerly so t() works at import time (before initI18n is called)
+initEager();
+
+/**
+ * Initialize i18next with the specified locale.
+ * If already initialized (via eager init), just changes the language.
  */
 export async function initI18n(locale: SupportedLocale): Promise<void> {
   currentLocale = locale;
 
-  // If already initialized, just change the language
   if (initialized) {
     await i18next.changeLanguage(locale);
     return;
@@ -131,9 +157,8 @@ export function isInitialized(): boolean {
  */
 export function t(key: string, options?: Record<string, string | number>): string {
   if (!initialized) {
-    // If not initialized, return the key for debugging
-    console.warn(`[i18n] Not initialized, returning key: ${key}`);
-    return key;
+    // Shouldn't happen after eager init, but fallback gracefully
+    initEager();
   }
 
   return i18next.t(key, options);
