@@ -69,7 +69,7 @@ vi.mock('../../../src/modes/rpc/protocol.js', () => ({
 
 // Import after mocks
 import { RPCAdapter } from '../../../src/modes/rpc/adapter.js';
-import { McpClientManager } from '../../../src/mcp/McpClientManager.js';
+
 
 // ---------------------------------------------------------------------------
 // Tests

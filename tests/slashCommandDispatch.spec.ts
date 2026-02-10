@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SlashCommandHandler } from '../src/core/slashCommandHandler.js';
 import { SLASH_COMMANDS } from '../src/core/slashCommands.js';
-import type { SlashCommand } from '../src/core/slashCommandTypes.js';
+
 
 function createMinimalContext() {
   return {
