@@ -20,7 +20,7 @@
     "dist"
   ],
   "scripts": {
-    "postinstall": "node scripts/fix-ansi-styles.js || true",
+    "postinstall": "node scripts/fix-ansi-styles.js || true && node scripts/fix-ink-devtools.js || true",
     "go": "bun run build && ./install-local.sh && echo \"COMPLETED\"",
     "build": "tsup",
     "dev": "bun src/index.ts",
@@ -28,11 +28,11 @@
     "lint": "eslint .",
     "test": "vitest run",
     "start": "node dist/index.js",
-    "compile:macos-arm64": "bun build ./src/index.ts --compile --target=bun-darwin-arm64 --external react-devtools-core --outfile ./binaries/autohand-macos-arm64",
-    "compile:macos-x64": "bun build ./src/index.ts --compile --target=bun-darwin-x64 --external react-devtools-core --outfile ./binaries/autohand-macos-x64",
-    "compile:linux-x64": "bun build ./src/index.ts --compile --target=bun-linux-x64 --external react-devtools-core --outfile ./binaries/autohand-linux-x64",
-    "compile:linux-arm64": "bun build ./src/index.ts --compile --target=bun-linux-arm64 --external react-devtools-core --outfile ./binaries/autohand-linux-arm64",
-    "compile:windows-x64": "bun build ./src/index.ts --compile --target=bun-windows-x64 --external react-devtools-core --outfile ./binaries/autohand-windows-x64.exe",
+    "compile:macos-arm64": "bun build ./src/index.ts --compile --target=bun-darwin-arm64 --outfile ./binaries/autohand-macos-arm64",
+    "compile:macos-x64": "bun build ./src/index.ts --compile --target=bun-darwin-x64 --outfile ./binaries/autohand-macos-x64",
+    "compile:linux-x64": "bun build ./src/index.ts --compile --target=bun-linux-x64 --outfile ./binaries/autohand-linux-x64",
+    "compile:linux-arm64": "bun build ./src/index.ts --compile --target=bun-linux-arm64 --outfile ./binaries/autohand-linux-arm64",
+    "compile:windows-x64": "bun build ./src/index.ts --compile --target=bun-windows-x64 --outfile ./binaries/autohand-windows-x64.exe",
     "compile:all": "bun run compile:macos-arm64 && bun run compile:macos-x64 && bun run compile:linux-x64 && bun run compile:linux-arm64 && bun run compile:windows-x64",
     "link": "bun link",
     "translate": "tsx scripts/generate-translations.ts"
@@ -61,13 +61,13 @@
     "open": "^10.1.0",
     "ora": "^9.0.0",
     "react": "^18.2.0",
-    "react-devtools-core": "^7.0.1",
     "terminal-link": "^3.0.0",
     "yaml": "^2.8.2",
     "zod": "^4.1.12"
   },
   "devDependencies": {
     "@types/diff": "^8.0.0",
+    "react-devtools-core": "^7.0.1",
     "@types/fs-extra": "^11.0.4",
     "@types/minimatch": "^6.0.0",
     "@types/node": "^24.10.1",
