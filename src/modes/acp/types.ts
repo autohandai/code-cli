@@ -75,6 +75,9 @@ export const TOOL_KIND_MAP: Record<string, ToolKind> = {
   tools_registry: 'other',
   project_info: 'read',
   workspace_info: 'read',
+
+  // MCP tools (prefixed with mcp__)
+  // These are dynamically matched via resolveToolKind()
 };
 
 /**
@@ -300,41 +303,41 @@ export function buildConfigOptions(config: LoadedConfig): SessionConfigOption[] 
   // Thinking level
   options.push({
     type: 'select',
-    id: 'thinking_level',
-    name: 'Thinking Level',
+    configId: 'thinking_level',
+    label: 'Thinking Level',
     description: 'Control the depth of LLM reasoning',
     options: [
-      { value: 'none', name: 'None' },
-      { value: 'normal', name: 'Normal' },
-      { value: 'extended', name: 'Extended' },
+      { id: 'none', label: 'None' },
+      { id: 'normal', label: 'Normal' },
+      { id: 'extended', label: 'Extended' },
     ],
-    currentValue: 'normal',
+    selectedOptionId: 'normal',
   });
 
   // Auto-commit
   options.push({
     type: 'select',
-    id: 'auto_commit',
-    name: 'Auto Commit',
+    configId: 'auto_commit',
+    label: 'Auto Commit',
     description: 'Automatically commit changes with LLM-generated messages',
     options: [
-      { value: 'off', name: 'Off' },
-      { value: 'on', name: 'On' },
+      { id: 'off', label: 'Off' },
+      { id: 'on', label: 'On' },
     ],
-    currentValue: 'off',
+    selectedOptionId: 'off',
   });
 
   // Context compaction
   options.push({
     type: 'select',
-    id: 'context_compact',
-    name: 'Context Compaction',
+    configId: 'context_compact',
+    label: 'Context Compaction',
     description: 'Automatically compact context when sessions grow long',
     options: [
-      { value: 'on', name: 'On' },
-      { value: 'off', name: 'Off' },
+      { id: 'on', label: 'On' },
+      { id: 'off', label: 'Off' },
     ],
-    currentValue: 'on',
+    selectedOptionId: 'on',
   });
 
   return options;
