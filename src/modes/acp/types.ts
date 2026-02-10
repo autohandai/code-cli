@@ -303,41 +303,41 @@ export function buildConfigOptions(config: LoadedConfig): SessionConfigOption[] 
   // Thinking level
   options.push({
     type: 'select',
-    configId: 'thinking_level',
-    label: 'Thinking Level',
+    id: 'thinking_level',
+    name: 'Thinking Level',
     description: 'Control the depth of LLM reasoning',
     options: [
-      { id: 'none', label: 'None' },
-      { id: 'normal', label: 'Normal' },
-      { id: 'extended', label: 'Extended' },
+      { value: 'none', name: 'None' },
+      { value: 'normal', name: 'Normal' },
+      { value: 'extended', name: 'Extended' },
     ],
-    selectedOptionId: 'normal',
+    currentValue: 'normal',
   });
 
   // Auto-commit
   options.push({
     type: 'select',
-    configId: 'auto_commit',
-    label: 'Auto Commit',
+    id: 'auto_commit',
+    name: 'Auto Commit',
     description: 'Automatically commit changes with LLM-generated messages',
     options: [
-      { id: 'off', label: 'Off' },
-      { id: 'on', label: 'On' },
+      { value: 'off', name: 'Off' },
+      { value: 'on', name: 'On' },
     ],
-    selectedOptionId: 'off',
+    currentValue: 'off',
   });
 
   // Context compaction
   options.push({
     type: 'select',
-    configId: 'context_compact',
-    label: 'Context Compaction',
+    id: 'context_compact',
+    name: 'Context Compaction',
     description: 'Automatically compact context when sessions grow long',
     options: [
-      { id: 'on', label: 'On' },
-      { id: 'off', label: 'Off' },
+      { value: 'on', name: 'On' },
+      { value: 'off', name: 'Off' },
     ],
-    selectedOptionId: 'on',
+    currentValue: 'on',
   });
 
   return options;
