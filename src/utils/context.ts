@@ -58,12 +58,14 @@ export function getSafeContextWindow(model: string): number {
 
 /**
  * Estimate tokens for a text string
- * Uses character count / 4 as a rough approximation
- * This is conservative for English text (actual is ~3.5-4 chars/token)
+ * Uses character count / 3 as a rough approximation.
+ * The chars/4 ratio is only accurate for pure English prose; code, JSON
+ * schemas, and non-English text average closer to 3 chars/token.
+ * A more conservative estimate prevents context overflow 400 errors.
  */
 export function estimateTokens(text: string): number {
   if (!text) return 0;
-  return Math.ceil(text.length / 4);
+  return Math.ceil(text.length / 3);
 }
 
 /**
@@ -148,20 +150,24 @@ export interface ContextUsage {
 }
 
 /**
- * Calculate comprehensive context usage
+ * Calculate comprehensive context usage.
+ * @param outputBudget Tokens reserved for model output (subtracted from effective window).
+ *   Default 16000 matches the maxTokens used in runReactLoop.
  */
 export function calculateContextUsage(
   messages: LLMMessage[],
   tools: FunctionDefinition[],
-  model: string
+  model: string,
+  outputBudget = 16000
 ): ContextUsage {
   const messagesTokens = estimateMessagesTokens(messages);
   const toolsTokens = estimateToolsTokens(tools);
   const totalTokens = messagesTokens + toolsTokens;
 
   const contextWindow = getContextWindow(model);
-  const safeWindow = getSafeContextWindow(model);
-  const usagePercent = totalTokens / contextWindow;
+  const effectiveWindow = contextWindow - outputBudget; // Reserve for output
+  const safeWindow = Math.floor(effectiveWindow * SAFETY_MARGIN);
+  const usagePercent = totalTokens / effectiveWindow;
 
   return {
     totalTokens,

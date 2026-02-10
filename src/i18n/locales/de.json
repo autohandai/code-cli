@@ -432,6 +432,16 @@
     "passwordPlaceholder": "Passwort eingeben...",
     "validationError": "Ung\u00fcltige Eingabe"
   },
+  "acp": {
+    "description": "Nativer Agent Client Protocol Modus für Editor-Integration",
+    "connected": "ACP-Verbindung hergestellt",
+    "sessionStarted": "ACP-Sitzung gestartet: {{sessionId}}",
+    "modeChanged": "ACP-Sitzungsmodus geändert zu: {{mode}}",
+    "modelChanged": "ACP-Sitzungsmodell geändert zu: {{model}}",
+    "sessionClosed": "ACP-Sitzung geschlossen",
+    "permissionRequested": "Berechtigung angefordert: {{action}}",
+    "error": "ACP-Fehler: {{message}}"
+  },
   "languages": {
     "en": "English",
     "zh-cn": "\u7b80\u4f53\u4e2d\u6587 (Simplified Chinese)",

@@ -475,6 +475,16 @@
     "toolRegistered": "Outil MCP enregistré : {{tool}}",
     "noServers": "Aucun serveur MCP configuré"
   },
+  "acp": {
+    "description": "Mode natif Agent Client Protocol pour l'intégration avec les éditeurs",
+    "connected": "Connexion ACP établie",
+    "sessionStarted": "Session ACP démarrée : {{sessionId}}",
+    "modeChanged": "Mode de session ACP changé en : {{mode}}",
+    "modelChanged": "Modèle de session ACP changé en : {{model}}",
+    "sessionClosed": "Session ACP fermée",
+    "permissionRequested": "Permission demandée : {{action}}",
+    "error": "Erreur ACP : {{message}}"
+  },
   "languages": {
     "en": "English",
     "zh-cn": "简体中文 (Chinois Simplifié)",
