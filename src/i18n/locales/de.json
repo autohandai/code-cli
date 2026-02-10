@@ -10,8 +10,8 @@
     "no": "Nein",
     "done": "Fertig",
     "loading": "Laden...",
-    "pressEnter": "Eingabetaste dr\u00fccken, um fortzufahren...",
-    "pressEscToCancel": "Esc dr\u00fccken zum Abbrechen",
+    "pressEnter": "Eingabetaste drücken, um fortzufahren...",
+    "pressEscToCancel": "Esc drücken zum Abbrechen",
     "or": "oder",
     "and": "und",
     "unknown": "Unbekannt",
@@ -28,18 +28,18 @@
   "cli": {
     "description": "Autonomer LLM-gesteuerter Coding-Agent CLI",
     "options": {
-      "prompt": "Einzelne Anweisung im Befehlsmodus ausf\u00fchren",
+      "prompt": "Einzelne Anweisung im Befehlsmodus ausführen",
       "path": "Arbeitsbereich-Pfad",
-      "yes": "Riskante Aktionen automatisch best\u00e4tigen",
-      "dryRun": "Aktionen vorschauen, ohne \u00c4nderungen anzuwenden",
-      "debug": "Debug-Ausgabe aktivieren (ausf\u00fchrliche Protokollierung)",
-      "model": "Das konfigurierte LLM-Modell \u00fcberschreiben",
+      "yes": "Riskante Aktionen automatisch bestätigen",
+      "dryRun": "Aktionen vorschauen, ohne Änderungen anzuwenden",
+      "debug": "Debug-Ausgabe aktivieren (ausführliche Protokollierung)",
+      "model": "Das konfigurierte LLM-Modell überschreiben",
       "config": "Pfad zur Konfigurationsdatei (Standard ~/.autohand/config.json)",
       "temperature": "Sampling-Temperatur",
       "displayLanguage": "Anzeigesprache festlegen (z.B. en, zh-cn, fr, de)",
       "autoCommit": "Automatisch committen mit LLM-generierter Nachricht",
-      "unrestricted": "Ohne Best\u00e4tigungsaufforderungen ausf\u00fchren",
-      "restricted": "Alle gef\u00e4hrlichen Operationen automatisch ablehnen",
+      "unrestricted": "Ohne Bestätigungsaufforderungen ausführen",
+      "restricted": "Alle gefährlichen Operationen automatisch ablehnen",
       "autoSkill": "Skills automatisch basierend auf Projektanalyse generieren",
       "skillInstall": "Einen Community-Skill installieren",
       "project": "Skill auf Projektebene installieren",
@@ -47,8 +47,8 @@
       "login": "Bei Ihrem Autohand-Konto anmelden",
       "logout": "Von Ihrem Autohand-Konto abmelden",
       "syncSettings": "Einstellungssynchronisierung aktivieren/deaktivieren",
-      "patch": "Git-Patch generieren, ohne \u00c4nderungen anzuwenden",
-      "output": "Ausgabedatei f\u00fcr Patch (Standard: stdout)",
+      "patch": "Git-Patch generieren, ohne Änderungen anzuwenden",
+      "output": "Ausgabedatei für Patch (Standard: stdout)",
       "autoMode": "Autonome Entwicklungsschleife starten",
       "maxIterations": "Maximale Auto-Modus-Iterationen (Standard: 50)",
       "completionPromise": "Abschlussmarkierungstext (Standard: DONE)",
@@ -57,45 +57,57 @@
       "maxRuntime": "Maximale Laufzeit in Minuten (Standard: 120)",
       "maxCost": "Maximale API-Kosten in Dollar (Standard: 10)",
       "setup": "Den Einrichtungsassistenten starten",
-      "addDir": "Zus\u00e4tzliche Verzeichnisse zum Arbeitsbereich hinzuf\u00fcgen"
+      "addDir": "Zusätzliche Verzeichnisse zum Arbeitsbereich hinzufügen",
+      "thinking": "Set thinking/reasoning depth (none, normal, extended)",
+      "yolo": "Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)",
+      "timeout": "Timeout in seconds for auto-approve mode"
+    },
+    "thinking": {
+      "enabled": "Extended thinking enabled",
+      "level": "Thinking level: {{level}}"
+    },
+    "stdin": {
+      "reading": "Reading piped input...",
+      "timeout": "Stdin read timeout",
+      "empty": "No input received from pipe"
     }
   },
   "welcome": {
     "banner": "Willkommen bei Autohand!",
     "subtitle": "Ihr superschneller KI-Coding-Agent",
     "version": "v{{version}}",
-    "updateAvailable": "Update verf\u00fcgbar: {{current}} -> {{latest}}. F\u00fchren Sie 'npm i -g autohand' aus, um zu aktualisieren.",
+    "updateAvailable": "Update verfügbar: {{current}} -> {{latest}}. Führen Sie 'npm i -g autohand' aus, um zu aktualisieren.",
     "loggedInAs": "Angemeldet als {{email}}",
     "notLoggedIn": "Nicht angemeldet",
     "modelLine": "Modell: {{model}}",
     "directoryLine": "Verzeichnis: {{directory}}",
     "tips": {
       "title": "Beschreiben Sie eine Aufgabe oder probieren Sie einen dieser Befehle:",
-      "init": "/init - eine AGENTS.md-Datei mit Anweisungen f\u00fcr Autohand erstellen",
-      "help": "/help - alle verf\u00fcgbaren Befehle anzeigen",
+      "init": "/init - eine AGENTS.md-Datei mit Anweisungen für Autohand erstellen",
+      "help": "/help - alle verfügbaren Befehle anzeigen",
       "model": "/model - das KI-Modell wechseln",
-      "language": "/language - Anzeigesprache \u00e4ndern"
+      "language": "/language - Anzeigesprache ändern"
     },
     "shortcuts": {
-      "title": "Tastaturk\u00fcrzel:",
-      "mention": "@ - Dateien f\u00fcr Kontext erw\u00e4hnen",
-      "arrows": "Pfeiltasten - Vorschl\u00e4ge navigieren",
-      "tab": "Tab - Autovervollst\u00e4ndigung",
+      "title": "Tastaturkürzel:",
+      "mention": "@ - Dateien für Kontext erwähnen",
+      "arrows": "Pfeiltasten - Vorschläge navigieren",
+      "tab": "Tab - Autovervollständigung",
       "escape": "Esc - aktuelle Operation abbrechen",
       "ctrlC": "Strg+C - beenden"
     }
   },
   "commands": {
     "help": {
-      "title": "Verf\u00fcgbare Befehle:",
+      "title": "Verfügbare Befehle:",
       "command": "Befehl",
       "description": "Beschreibung",
       "tips": {
         "title": "Tipps:",
-        "mention": "Tippen Sie @, um Dateien f\u00fcr die KI zu erw\u00e4hnen",
-        "arrows": "Verwenden Sie Pfeiltasten, um Dateivorschl\u00e4ge zu navigieren",
-        "tab": "Dr\u00fccken Sie Tab, um Dateipfade zu vervollst\u00e4ndigen",
-        "escape": "Dr\u00fccken Sie Esc, um die aktuelle Operation abzubrechen"
+        "mention": "Tippen Sie @, um Dateien für die KI zu erwähnen",
+        "arrows": "Verwenden Sie Pfeiltasten, um Dateivorschläge zu navigieren",
+        "tab": "Drücken Sie Tab, um Dateipfade zu vervollständigen",
+        "escape": "Drücken Sie Esc, um die aktuelle Operation abzubrechen"
       },
       "docsLink": "Weitere Informationen finden Sie unter {{link}}"
     },
@@ -105,36 +117,36 @@
       "website": "Webseite",
       "github": "GitHub",
       "docs": "Dokumentation",
-      "contribute": "M\u00f6chten Sie mitwirken?",
+      "contribute": "Möchten Sie mitwirken?",
       "feedback": "Feedback senden",
       "submitPR": "PR einreichen",
       "reportIssues": "Probleme melden",
-      "pressKey": "Dr\u00fccken Sie ESC oder eine beliebige Taste, um zur\u00fcckzukehren..."
+      "pressKey": "Drücken Sie ESC oder eine beliebige Taste, um zurückzukehren..."
     },
     "model": {
-      "description": "Modell und Reasoning-Aufwand ausw\u00e4hlen",
+      "description": "Modell und Reasoning-Aufwand auswählen",
       "title": "Modellauswahl",
       "currentModel": "Aktuelles Modell: {{model}}",
-      "selectPrompt": "W\u00e4hlen Sie ein Modell:",
-      "changed": "Modell ge\u00e4ndert zu {{model}}",
-      "noChange": "Keine \u00c4nderung vorgenommen."
+      "selectPrompt": "Wählen Sie ein Modell:",
+      "changed": "Modell geändert zu {{model}}",
+      "noChange": "Keine Änderung vorgenommen."
     },
     "theme": {
-      "description": "Terminal-Farbthema \u00e4ndern",
+      "description": "Terminal-Farbthema ändern",
       "title": "Themaauswahl",
       "currentTheme": "Aktuelles Thema: {{theme}}",
-      "selectPrompt": "W\u00e4hlen Sie ein Thema:",
-      "changed": "Thema ge\u00e4ndert zu '{{theme}}'",
-      "noChange": "Keine \u00c4nderung vorgenommen."
+      "selectPrompt": "Wählen Sie ein Thema:",
+      "changed": "Thema geändert zu '{{theme}}'",
+      "noChange": "Keine Änderung vorgenommen."
     },
     "language": {
-      "description": "Anzeigesprache \u00e4ndern",
+      "description": "Anzeigesprache ändern",
       "title": "Sprachauswahl",
       "currentLanguage": "Aktuelle Sprache: {{language}}",
-      "selectPrompt": "W\u00e4hlen Sie eine Sprache:",
-      "changed": "Sprache ge\u00e4ndert zu {{language}}",
-      "noChange": "Keine \u00c4nderung vorgenommen.",
-      "restartHint": "Einige \u00c4nderungen erfordern m\u00f6glicherweise einen Neustart der CLI, um vollst\u00e4ndig wirksam zu werden."
+      "selectPrompt": "Wählen Sie eine Sprache:",
+      "changed": "Sprache geändert zu {{language}}",
+      "noChange": "Keine Änderung vorgenommen.",
+      "restartHint": "Einige Änderungen erfordern möglicherweise einen Neustart der CLI, um vollständig wirksam zu werden."
     },
     "quit": {
       "description": "Autohand beenden",
@@ -144,17 +156,17 @@
       "description": "AGENTS.md-Datei erstellen",
       "created": "AGENTS.md erstellt in {{path}}",
       "alreadyExists": "AGENTS.md existiert bereits in {{path}}",
-      "overwritePrompt": "Bestehende AGENTS.md \u00fcberschreiben?"
+      "overwritePrompt": "Bestehende AGENTS.md überschreiben?"
     },
     "undo": {
-      "description": "Letzte Datei\u00e4nderung r\u00fcckg\u00e4ngig machen",
-      "success": "\u00c4nderungen an {{file}} r\u00fcckg\u00e4ngig gemacht",
-      "noChanges": "Keine \u00c4nderungen zum R\u00fcckg\u00e4ngigmachen.",
-      "failed": "R\u00fcckg\u00e4ngigmachen fehlgeschlagen: {{error}}"
+      "description": "Letzte Dateiänderung rückgängig machen",
+      "success": "Änderungen an {{file}} rückgängig gemacht",
+      "noChanges": "Keine Änderungen zum Rückgängigmachen.",
+      "failed": "Rückgängigmachen fehlgeschlagen: {{error}}"
     },
     "new": {
       "description": "Neue Konversation starten",
-      "cleared": "Konversation gel\u00f6scht. Neuer Start."
+      "cleared": "Konversation gelöscht. Neuer Start."
     },
     "status": {
       "description": "Aktuellen Status anzeigen",
@@ -175,7 +187,7 @@
       "description": "Gespeicherte Sitzungen auflisten",
       "title": "Gespeicherte Sitzungen",
       "noSessions": "Keine gespeicherten Sitzungen gefunden.",
-      "selectPrompt": "W\u00e4hlen Sie eine Sitzung zum Fortsetzen:",
+      "selectPrompt": "Wählen Sie eine Sitzung zum Fortsetzen:",
       "sessionInfo": "{{name}} - {{date}}"
     },
     "resume": {
@@ -190,9 +202,9 @@
       "projectMemory": "Projektspeicher",
       "userMemory": "Benutzerspeicher",
       "noMemory": "Keine Erinnerungen gespeichert.",
-      "addPrompt": "Neue Erinnerung hinzuf\u00fcgen:",
-      "added": "Erinnerung hinzugef\u00fcgt.",
-      "cleared": "Speicher gel\u00f6scht."
+      "addPrompt": "Neue Erinnerung hinzufügen:",
+      "added": "Erinnerung hinzugefügt.",
+      "cleared": "Speicher gelöscht."
     },
     "permissions": {
       "description": "Aktuelle Berechtigungseinstellungen anzeigen",
@@ -225,22 +237,34 @@
     "feedback": {
       "description": "Feedback zur CLI senden",
       "prompt": "Geben Sie Ihr Feedback ein:",
-      "success": "Vielen Dank f\u00fcr Ihr Feedback!",
+      "success": "Vielen Dank für Ihr Feedback!",
       "failed": "Feedback konnte nicht gesendet werden: {{error}}"
     },
     "hooks": {
       "description": "Git-Hooks verwalten",
       "title": "Git-Hooks",
       "installed": "Installierte Hooks:",
-      "available": "Verf\u00fcgbare Hooks:",
+      "available": "Verfügbare Hooks:",
       "noHooks": "Keine Hooks konfiguriert."
     },
     "skills": {
       "description": "Skills auflisten und verwalten",
       "title": "Skills",
       "installed": "Installierte Skills:",
-      "available": "Verf\u00fcgbare Skills:",
+      "available": "Verfügbare Skills:",
       "noSkills": "Keine Skills installiert."
+    },
+    "mcp": {
+      "title": "MCP-Server",
+      "description": "MCP (Model Context Protocol) Server verwalten",
+      "installDescription": "Community-MCP-Server durchsuchen und installieren",
+      "noServers": "Keine MCP-Server konfiguriert",
+      "connected": "Verbunden",
+      "disconnected": "Getrennt",
+      "error": "Fehler",
+      "tools": "Werkzeuge",
+      "connecting": "Verbindung zum MCP-Server wird hergestellt...",
+      "installed": "MCP-Server erfolgreich installiert"
     },
     "export": {
       "description": "Sitzungsdaten exportieren",
@@ -267,34 +291,40 @@
       "failed": "Freigabelink konnte nicht generiert werden: {{error}}"
     },
     "addDir": {
-      "description": "Verzeichnisse zum Arbeitsbereich hinzuf\u00fcgen",
-      "added": "Verzeichnis hinzugef\u00fcgt: {{path}}",
-      "alreadyAdded": "Verzeichnis bereits hinzugef\u00fcgt: {{path}}",
+      "description": "Verzeichnisse zum Arbeitsbereich hinzufügen",
+      "added": "Verzeichnis hinzugefügt: {{path}}",
+      "alreadyAdded": "Verzeichnis bereits hinzugefügt: {{path}}",
       "notFound": "Verzeichnis nicht gefunden: {{path}}"
     },
     "ide": {
       "description": "Mit einer laufenden IDE verbinden",
-      "title": "IDE ausw\u00e4hlen",
-      "connectDescription": "Verbinden Sie sich mit einer IDE f\u00fcr integrierte Entwicklungsfunktionen.",
+      "title": "IDE auswählen",
+      "connectDescription": "Verbinden Sie sich mit einer IDE für integrierte Entwicklungsfunktionen.",
       "noIdesDetected": "Keine laufenden IDEs erkannt. Starten Sie eine der folgenden: VS Code, VS Code Insiders, Cursor, Zed oder Antigravity.",
-      "noMatchingIdes": "Keine verf\u00fcgbaren IDEs erkannt. Stellen Sie sicher, dass Ihre IDE die Autohand-Erweiterung oder das Plugin installiert hat und l\u00e4uft.",
+      "noMatchingIdes": "Keine verfügbaren IDEs erkannt. Stellen Sie sicher, dass Ihre IDE die Autohand-Erweiterung oder das Plugin installiert hat und läuft.",
       "foundMatching": "{{count}} IDE(s) gefunden, die Ihrem aktuellen Verzeichnis entsprechen:",
-      "otherNotMatching": "{{count}} weitere laufende IDE(s) gefunden. Deren Arbeitsbereich-/Projektverzeichnisse stimmen jedoch nicht mit dem aktuellen Verzeichnis \u00fcberein.",
-      "selectPrompt": "W\u00e4hlen Sie eine IDE zum Verbinden:",
+      "otherNotMatching": "{{count}} weitere laufende IDE(s) gefunden. Deren Arbeitsbereich-/Projektverzeichnisse stimmen jedoch nicht mit dem aktuellen Verzeichnis überein.",
+      "selectPrompt": "Wählen Sie eine IDE zum Verbinden:",
       "connected": "Verbunden mit {{ide}}",
-      "extensionHint": "Installieren Sie Erweiterungen f\u00fcr eine tiefere Integration:",
+      "extensionHint": "Installieren Sie Erweiterungen für eine tiefere Integration:",
       "startIde": "Starten Sie eine IDE in diesem Verzeichnis, um sich zu verbinden."
+    },
+    "history": {
+      "title": "Session History",
+      "empty": "No sessions found",
+      "showing": "Page {{page}} of {{total}} ({{count}} sessions)",
+      "resumeHint": "Use /resume <session-id> to resume a session"
     }
   },
   "setup": {
     "welcome": "Willkommen bei Autohand!",
     "subtitle": "Ihr superschneller KI-Coding-Agent",
-    "letsStart": "Lassen Sie uns die Einrichtung in wenigen Schritten durchf\u00fchren.",
-    "providerSelect": "Welchen LLM-Anbieter m\u00f6chten Sie verwenden?",
-    "apiKeyPrompt": "Geben Sie Ihren {{provider}} API-Schl\u00fcssel ein:",
-    "apiKeyHelp": "Holen Sie sich Ihren API-Schl\u00fcssel unter: {{url}}",
-    "apiKeyHint": "Ihr API-Schl\u00fcssel wird lokal in ~/.autohand/config.json gespeichert",
-    "modelPrompt": "Modell-ID eingeben (oder Eingabetaste f\u00fcr Standard dr\u00fccken):",
+    "letsStart": "Lassen Sie uns die Einrichtung in wenigen Schritten durchführen.",
+    "providerSelect": "Welchen LLM-Anbieter möchten Sie verwenden?",
+    "apiKeyPrompt": "Geben Sie Ihren {{provider}} API-Schlüssel ein:",
+    "apiKeyHelp": "Holen Sie sich Ihren API-Schlüssel unter: {{url}}",
+    "apiKeyHint": "Ihr API-Schlüssel wird lokal in ~/.autohand/config.json gespeichert",
+    "modelPrompt": "Modell-ID eingeben (oder Eingabetaste für Standard drücken):",
     "modelDefault": "Standard: {{model}}",
     "testingConnection": "Verbindung wird getestet...",
     "connectionSuccess": "Verbindung erfolgreich!",
@@ -308,59 +338,59 @@
       "collectItem3": "Leistungskennzahlen (um die Geschwindigkeit zu verbessern)",
       "whatWeNeverCollect": "Was wir niemals erheben:",
       "neverItem1": "Ihren Code oder Dateiinhalte",
-      "neverItem2": "API-Schl\u00fcssel oder Anmeldedaten",
-      "neverItem3": "Pers\u00f6nliche Informationen",
+      "neverItem2": "API-Schlüssel oder Anmeldedaten",
+      "neverItem3": "Persönliche Informationen",
       "prompt": "Anonyme Nutzungsdaten teilen, um Autohand zu verbessern?",
       "thanks": "Vielen Dank, dass Sie uns helfen, Autohand zu verbessern!",
-      "declined": "Kein Problem! Sie k\u00f6nnen dies jederzeit in der Konfiguration \u00e4ndern."
+      "declined": "Kein Problem! Sie können dies jederzeit in der Konfiguration ändern."
     },
     "complete": "Einrichtung abgeschlossen!",
     "created": "Was erstellt wurde:",
     "configFile": "~/.autohand/config.json (Ihre Einstellungen)",
-    "agentsFile": "AGENTS.md (Projektanweisungen f\u00fcr Autohand)",
-    "nextSteps": "N\u00e4chste Schritte:",
+    "agentsFile": "AGENTS.md (Projektanweisungen für Autohand)",
+    "nextSteps": "Nächste Schritte:",
     "tryCommand": "Versuchen Sie: autohand"
   },
   "errors": {
     "generic": "Ein Fehler ist aufgetreten: {{message}}",
-    "invalidLocale": "Ung\u00fcltige Sprache: {{locale}}. Unterst\u00fctzt: {{supported}}",
+    "invalidLocale": "Ungültige Sprache: {{locale}}. Unterstützt: {{supported}}",
     "configParseFailed": "Konfiguration konnte nicht gelesen werden unter {{path}}: {{error}}",
     "configSaveFailed": "Konfiguration konnte nicht gespeichert werden: {{error}}",
-    "apiKeyRequired": "API-Schl\u00fcssel ist erforderlich",
-    "apiKeyTooShort": "API-Schl\u00fcssel scheint zu kurz zu sein",
-    "apiKeyInvalid": "Ung\u00fcltiges API-Schl\u00fcssel-Format",
+    "apiKeyRequired": "API-Schlüssel ist erforderlich",
+    "apiKeyTooShort": "API-Schlüssel scheint zu kurz zu sein",
+    "apiKeyInvalid": "Ungültiges API-Schlüssel-Format",
     "directoryNotExist": "Verzeichnis existiert nicht: {{path}}",
     "unsafeDirectory": "Unsicheres Verzeichnis: {{path}}. Kann nicht in Systemverzeichnissen arbeiten.",
     "fileNotFound": "Datei nicht gefunden: {{path}}",
     "permissionDenied": "Zugriff verweigert: {{path}}",
     "patchRequiresPrompt": "--patch erfordert --prompt, um die Anweisung anzugeben",
     "autoModeRequiresPrompt": "--auto-mode erfordert einen Aufgaben-Prompt",
-    "noProviderConfigured": "Es ist noch kein Anbieter konfiguriert. F\u00fchren Sie die Einrichtung aus mit: autohand --setup",
+    "noProviderConfigured": "Es ist noch kein Anbieter konfiguriert. Führen Sie die Einrichtung aus mit: autohand --setup",
     "modelNotFound": "Modell nicht gefunden: {{model}}",
     "rateLimited": "Rate-Limit erreicht. Bitte warten Sie einen Moment und versuchen Sie es erneut.",
     "networkError": "Netzwerkfehler: {{message}}",
-    "timeout": "Anfrage-Zeitlimit \u00fcberschritten. Bitte versuchen Sie es erneut.",
-    "contextTooLong": "Kontext zu lang. Versuchen Sie /new f\u00fcr einen Neustart oder /undo, um letzte Nachrichten zu entfernen.",
-    "authFailed": "Authentifizierung fehlgeschlagen. \u00dcberpr\u00fcfen Sie Ihren API-Schl\u00fcssel.",
-    "paymentRequired": "Zahlung erforderlich. \u00dcberpr\u00fcfen Sie Ihren Kontostand.",
-    "serverError": "Serverfehler. Bitte versuchen Sie es sp\u00e4ter erneut.",
+    "timeout": "Anfrage-Zeitlimit überschritten. Bitte versuchen Sie es erneut.",
+    "contextTooLong": "Kontext zu lang. Versuchen Sie /new für einen Neustart oder /undo, um letzte Nachrichten zu entfernen.",
+    "authFailed": "Authentifizierung fehlgeschlagen. Überprüfen Sie Ihren API-Schlüssel.",
+    "paymentRequired": "Zahlung erforderlich. Überprüfen Sie Ihren Kontostand.",
+    "serverError": "Serverfehler. Bitte versuchen Sie es später erneut.",
     "cancelled": "Vorgang vom Benutzer abgebrochen."
   },
   "agent": {
     "thinking": "Denke nach...",
-    "executing": "F\u00fchre {{tool}} aus...",
+    "executing": "Führe {{tool}} aus...",
     "reading": "Lese {{file}}...",
     "writing": "Schreibe {{file}}...",
     "searching": "Suche...",
     "toolSuccess": "{{tool}} erfolgreich abgeschlossen",
     "toolFailed": "{{tool}} fehlgeschlagen: {{error}}",
     "taskComplete": "Aufgabe abgeschlossen",
-    "noChanges": "Es wurden keine \u00c4nderungen vorgenommen.",
-    "changesApplied": "\u00c4nderungen erfolgreich angewendet.",
+    "noChanges": "Es wurden keine Änderungen vorgenommen.",
+    "changesApplied": "Änderungen erfolgreich angewendet.",
     "awaitingApproval": "Warte auf Genehmigung...",
     "approved": "Genehmigt",
     "denied": "Abgelehnt",
-    "skipped": "\u00dcbersprungen",
+    "skipped": "Übersprungen",
     "exploring": "Erkunde...",
     "exploredFiles": "{{count}} Dateien erkundet"
   },
@@ -371,66 +401,91 @@
     "llamacpp": "llama.cpp",
     "mlx": "MLX (Apple Silicon)",
     "hints": {
-      "openrouter": "Cloud - Zugang zu \u00fcber 100 Modellen (Claude, GPT-4 usw.)",
+      "openrouter": "Cloud - Zugang zu über 100 Modellen (Claude, GPT-4 usw.)",
       "openai": "Cloud - Offizielle OpenAI-Modelle (GPT-4o, o1 usw.)",
-      "ollama": "Lokal - Modelle auf Ihrem Rechner ausf\u00fchren (kostenlos)",
+      "ollama": "Lokal - Modelle auf Ihrem Rechner ausführen (kostenlos)",
       "llamacpp": "Lokal - Schnelle Inferenz mit GGUF-Modellen",
-      "mlx": "Lokal - Optimiert f\u00fcr Apple-Silicon-Macs"
+      "mlx": "Lokal - Optimiert für Apple-Silicon-Macs"
     }
   },
   "startup": {
-    "checkingTools": "Erforderliche Werkzeuge werden \u00fcberpr\u00fcft...",
+    "checkingTools": "Erforderliche Werkzeuge werden überprüft...",
     "toolFound": "{{tool}} gefunden",
     "toolMissing": "{{tool}} nicht gefunden",
     "installHint": "Installieren mit: {{command}}",
     "allToolsReady": "Alle Werkzeuge bereit!",
-    "someToolsMissing": "Einige Werkzeuge fehlen. Manche Funktionen funktionieren m\u00f6glicherweise nicht."
+    "someToolsMissing": "Einige Werkzeuge fehlen. Manche Funktionen funktionieren möglicherweise nicht."
   },
   "confirmation": {
     "proceed": "Fortfahren?",
     "areYouSure": "Sind Sie sicher?",
-    "thisWillDelete": "Dies wird {{item}} l\u00f6schen. Diese Aktion kann nicht r\u00fcckg\u00e4ngig gemacht werden.",
-    "confirm": "Best\u00e4tigen",
+    "thisWillDelete": "Dies wird {{item}} löschen. Diese Aktion kann nicht rückgängig gemacht werden.",
+    "confirm": "Bestätigen",
     "cancel": "Abbrechen",
-    "yesDelete": "Ja, l\u00f6schen",
+    "yesDelete": "Ja, löschen",
     "noDontDelete": "Nein, behalten"
   },
   "diff": {
-    "title": "\u00c4nderungen an {{file}}",
-    "additions": "{{count}} Hinzuf\u00fcgungen",
-    "deletions": "{{count}} L\u00f6schungen",
-    "noChanges": "Keine \u00c4nderungen",
-    "apply": "\u00c4nderungen anwenden?",
-    "applied": "\u00c4nderungen angewendet.",
-    "discarded": "\u00c4nderungen verworfen."
+    "title": "Änderungen an {{file}}",
+    "additions": "{{count}} Hinzufügungen",
+    "deletions": "{{count}} Löschungen",
+    "noChanges": "Keine Änderungen",
+    "apply": "Änderungen anwenden?",
+    "applied": "Änderungen angewendet.",
+    "discarded": "Änderungen verworfen."
   },
   "ui": {
     "escToCancel": "Esc zum Abbrechen",
-    "commandHint": "/ f\u00fcr Befehle \u00b7 @ um Dateien zu erw\u00e4hnen \u00b7 ! f\u00fcr Terminal",
-    "ctrlCToExit": "Dr\u00fccken Sie erneut Strg+C zum Beenden",
+    "commandHint": "/ für Befehle · @ um Dateien zu erwähnen · ! für Terminal",
+    "ctrlCToExit": "Drücken Sie erneut Strg+C zum Beenden",
     "noMatchingCommands": "Keine passenden Befehle.",
-    "selectFile": "Datei ausw\u00e4hlen",
-    "noMatchingFiles": "Keine passenden Dateien. Tippen Sie weiter\u2026",
+    "selectFile": "Datei auswählen",
+    "noMatchingFiles": "Keine passenden Dateien. Tippen Sie weiter…",
     "thinking": "Denke nach",
-    "planModeActive": "Planmodus aktiv - Werkzeuge sind schreibgesch\u00fctzt",
-    "planModeExecuting": "Plan wird ausgef\u00fchrt",
+    "planModeActive": "Planmodus aktiv - Werkzeuge sind schreibgeschützt",
+    "planModeExecuting": "Plan wird ausgeführt",
     "typeToFilter": "Filtern",
-    "navigateHint": "Tippen zum Filtern \u00b7 \u2191/\u2193 navigieren \u00b7 Eingabe ausf\u00fchren \u00b7 Esc abbrechen",
-    "fileNavigateHint": "Tippen zum Filtern \u00b7 \u2191/\u2193 navigieren \u00b7 Eingabe ausw\u00e4hlen \u00b7 Esc abbrechen",
-    "questionPrompt": "\u2753",
+    "navigateHint": "Tippen zum Filtern · ↑/↓ navigieren · Eingabe ausführen · Esc abbrechen",
+    "fileNavigateHint": "Tippen zum Filtern · ↑/↓ navigieren · Eingabe auswählen · Esc abbrechen",
+    "questionPrompt": "❓",
     "questionOther": "Andere (eigene Antwort eingeben)",
-    "questionYourAnswer": "\u25b8 Ihre Antwort",
-    "questionCustomHint": "\u21b5 Absenden \u00b7 ESC Zur\u00fcck",
-    "questionSelectHint": "\u2191\u2193 Navigieren \u00b7 \u21b5 Ausw\u00e4hlen \u00b7 1-9 Schnellwahl \u00b7 ESC Abbrechen",
-    "noOptionsAvailable": "Keine Optionen verf\u00fcgbar",
-    "planRevise": "Nein, den Plan \u00fcberarbeiten",
+    "questionYourAnswer": "▸ Ihre Antwort",
+    "questionCustomHint": "↵ Absenden · ESC Zurück",
+    "questionSelectHint": "↑↓ Navigieren · ↵ Auswählen · 1-9 Schnellwahl · ESC Abbrechen",
+    "noOptionsAvailable": "Keine Optionen verfügbar",
+    "planRevise": "Nein, den Plan überarbeiten",
     "planEditHint": "Strg-G zum Bearbeiten in VS Code",
     "confirmYes": "Ja",
     "confirmNo": "Nein",
     "inputHint": "Eingabe zum Absenden, ESC zum Abbrechen",
     "inputPlaceholder": "Geben Sie Ihre Antwort ein...",
     "passwordPlaceholder": "Passwort eingeben...",
-    "validationError": "Ung\u00fcltige Eingabe"
+    "validationError": "Ungültige Eingabe"
+  },
+  "homebrew": {
+    "formulaGenerated": "Homebrew formula generated at {{path}}"
+  },
+  "yolo": {
+    "enabled": "Auto-approve enabled: {{pattern}}",
+    "expired": "Auto-approve timeout expired",
+    "denied": "Tool {{tool}} denied by yolo pattern",
+    "remaining": "Auto-approve: {{seconds}}s remaining"
+  },
+  "pipe": {
+    "reading": "Reading piped input...",
+    "processing": "Processing with {{model}}...",
+    "complete": "Task completed",
+    "error": "Pipe mode error: {{message}}",
+    "timeout": "Pipe mode timeout after {{seconds}}s",
+    "noPrompt": "No prompt provided. Usage: echo 'code' | autohand 'explain'"
+  },
+  "mcp": {
+    "connecting": "Connecting to MCP server: {{name}}...",
+    "connected": "Connected to MCP server: {{name}} ({{toolCount}} tools)",
+    "disconnected": "Disconnected from MCP server: {{name}}",
+    "error": "MCP server error ({{name}}): {{message}}",
+    "toolRegistered": "Registered MCP tool: {{tool}}",
+    "noServers": "No MCP servers configured"
   },
   "acp": {
     "description": "Nativer Agent Client Protocol Modus für Editor-Integration",
@@ -444,20 +499,20 @@
   },
   "languages": {
     "en": "English",
-    "zh-cn": "\u7b80\u4f53\u4e2d\u6587 (Simplified Chinese)",
-    "zh-tw": "\u7e41\u9ad4\u4e2d\u6587 (Traditional Chinese)",
-    "fr": "Fran\u00e7ais (French)",
+    "zh-cn": "简体中文 (Simplified Chinese)",
+    "zh-tw": "繁體中文 (Traditional Chinese)",
+    "fr": "Français (French)",
     "de": "Deutsch (German)",
     "it": "Italiano (Italian)",
-    "es": "Espa\u00f1ol (Spanish)",
-    "ja": "\u65e5\u672c\u8a9e (Japanese)",
-    "ko": "\ud55c\uad6d\uc5b4 (Korean)",
-    "ru": "\u0420\u0443\u0441\u0441\u043a\u0438\u0439 (Russian)",
-    "pt-br": "Portugu\u00eas (Brazilian Portuguese)",
-    "tr": "T\u00fcrk\u00e7e (Turkish)",
+    "es": "Español (Spanish)",
+    "ja": "日本語 (Japanese)",
+    "ko": "한국어 (Korean)",
+    "ru": "Русский (Russian)",
+    "pt-br": "Português (Brazilian Portuguese)",
+    "tr": "Türkçe (Turkish)",
     "pl": "Polski (Polish)",
-    "cs": "\u010ce\u0161tina (Czech)",
+    "cs": "Čeština (Czech)",
     "hu": "Magyar (Hungarian)",
-    "hi": "\u0939\u093f\u0928\u094d\u0926\u0940 (Hindi)"
+    "hi": "हिन्दी (Hindi)"
   }
 }

@@ -528,7 +528,7 @@ export class McpClientManager {
       }
 
       // MCP Initialize handshake
-      const initResult = await connection.request('initialize', {
+      await connection.request('initialize', {
         protocolVersion: '2024-11-05',
         capabilities: {
           tools: {},

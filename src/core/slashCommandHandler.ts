@@ -257,6 +257,34 @@ export class SlashCommandHandler {
           const { ide } = await import('../commands/ide.js');
           return ide({ workspaceRoot: this.ctx.workspaceRoot });
         }
+        case '/history': {
+          const { history } = await import('../commands/history.js');
+          return history({ ...this.ctx, args });
+        }
+        case '/mcp': {
+          const { mcp } = await import('../commands/mcp.js');
+          return mcp({
+            mcpManager: this.ctx.mcpManager,
+            config: this.ctx.config,
+          }, args);
+        }
+        case '/mcp install': {
+          const { mcpInstall } = await import('../commands/mcp-install.js');
+          return mcpInstall({
+            mcpManager: this.ctx.mcpManager,
+            config: this.ctx.config,
+          }, args.join(' ').trim() || undefined);
+        }
+        case '/skills use': {
+          const { skills } = await import('../commands/skills.js');
+          if (!this.ctx.skillsRegistry) {
+            return 'Skills registry not available.';
+          }
+          return skills({
+            skillsRegistry: this.ctx.skillsRegistry,
+            workspaceRoot: this.ctx.workspaceRoot,
+          }, ['use', ...args]);
+        }
         default:
           this.printUnsupported(command);
           return null;

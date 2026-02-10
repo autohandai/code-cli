@@ -57,7 +57,19 @@
       "maxRuntime": "最大執行時間（分鐘）（預設：120）",
       "maxCost": "最大 API 費用（美元）（預設：10）",
       "setup": "執行設定精靈",
-      "addDir": "將額外目錄加入工作區範圍"
+      "addDir": "將額外目錄加入工作區範圍",
+      "thinking": "Set thinking/reasoning depth (none, normal, extended)",
+      "yolo": "Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)",
+      "timeout": "Timeout in seconds for auto-approve mode"
+    },
+    "thinking": {
+      "enabled": "Extended thinking enabled",
+      "level": "Thinking level: {{level}}"
+    },
+    "stdin": {
+      "reading": "Reading piped input...",
+      "timeout": "Stdin read timeout",
+      "empty": "No input received from pipe"
     }
   },
   "welcome": {
@@ -242,6 +254,18 @@
       "available": "可用的技能：",
       "noSkills": "未安裝技能。"
     },
+    "mcp": {
+      "title": "MCP 伺服器",
+      "description": "管理 MCP (Model Context Protocol) 伺服器",
+      "installDescription": "瀏覽並安裝社群 MCP 伺服器",
+      "noServers": "未設定 MCP 伺服器",
+      "connected": "已連線",
+      "disconnected": "已斷線",
+      "error": "錯誤",
+      "tools": "工具",
+      "connecting": "正在連線至 MCP 伺服器...",
+      "installed": "MCP 伺服器安裝成功"
+    },
     "export": {
       "description": "匯出工作階段資料",
       "success": "已匯出至 {{path}}",
@@ -284,6 +308,12 @@
       "connected": "已連線至 {{ide}}",
       "extensionHint": "安裝擴充功能以取得更深入的整合：",
       "startIde": "在此目錄中啟動 IDE 以進行連線。"
+    },
+    "history": {
+      "title": "Session History",
+      "empty": "No sessions found",
+      "showing": "Page {{page}} of {{total}} ({{count}} sessions)",
+      "resumeHint": "Use /resume <session-id> to resume a session"
     }
   },
   "setup": {

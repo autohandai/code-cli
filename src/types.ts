@@ -154,6 +154,82 @@ export interface CommunitySkillsSettings {
   autoBackup?: boolean;
 }
 
+// ============ MCP (Model Context Protocol) Config Types ============
+
+export interface McpSettings {
+  /** Enable MCP support (default: true) */
+  enabled?: boolean;
+  /** Manually configured MCP servers */
+  servers?: McpServerConfigEntry[];
+}
+
+/** MCP server entry in config.json (mirrors McpServerConfig from mcp/types.ts) */
+export interface McpServerConfigEntry {
+  /** Unique name for this server */
+  name: string;
+  /** Transport type: 'stdio' spawns a process, 'sse' connects via HTTP */
+  transport: 'stdio' | 'sse';
+  /** Command to start the server (stdio transport) */
+  command?: string;
+  /** Arguments for the command */
+  args?: string[];
+  /** SSE endpoint URL (sse transport) */
+  url?: string;
+  /** Environment variables to pass to the server */
+  env?: Record<string, string>;
+  /** Whether to auto-connect on startup (default: true) */
+  autoConnect?: boolean;
+}
+
+// ============ Community MCP Registry Types ============
+
+/** MCP server category in the community registry */
+export interface McpRegistryCategory {
+  id: string;
+  name: string;
+  description: string;
+}
+
+/** Community MCP server from GitHub registry */
+export interface GitHubCommunityMcp {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  tags?: string[];
+  transport: 'stdio' | 'sse';
+  command?: string;
+  args?: string[];
+  envVars?: string[];
+  requiredArgs?: string[];
+  isFeatured?: boolean;
+  isCurated?: boolean;
+  rating?: number;
+  installCount?: number;
+  directory: string;
+  files: string[];
+  version?: string;
+  license?: string;
+  author?: string;
+  npmPackage?: string;
+  sourceUrl?: string;
+}
+
+/** Community MCP registry index fetched from GitHub */
+export interface CommunityMcpRegistry {
+  version: string;
+  updatedAt: string;
+  servers: GitHubCommunityMcp[];
+  categories: McpRegistryCategory[];
+}
+
+/** Cached MCP registry with timestamp */
+export interface CachedMcpRegistry {
+  registry: CommunityMcpRegistry;
+  fetchedAt: number;
+  etag?: string;
+}
+
 // ============ Auto-Mode Types ============
 
 /** Status of an auto-mode session */
@@ -387,6 +463,8 @@ export interface AutohandConfig {
   sync?: SyncSettings;
   /** Web search provider settings */
   search?: SearchSettings;
+  /** MCP (Model Context Protocol) settings */
+  mcp?: McpSettings;
 }
 
 /** Supported web search providers */

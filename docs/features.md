@@ -4,6 +4,11 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 
 ---
 
+## Installation
+- [x] npm: `npm install -g autohand-cli`
+- [x] Homebrew: `brew install autohand`
+- [x] Standalone binaries (macOS, Linux, Windows)
+
 ## Core Intelligence
 - [x] **Autonomous Agent**: ReAct (Reasoning + Acting) loop for complex coding tasks
 - [x] **Multi-Model Support**: OpenRouter integration (Claude, GPT-4, Grok, etc.)
@@ -27,6 +32,8 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 - [x] Theme support (dark/light in config)
 - [x] Syntax-highlighted code blocks
 - [x] Interactive diff viewer (accept/reject/edit)
+- [x] **Plan Mode**: Toggle with Shift+Tab, colorful status indicator, edit tool limiting
+- [x] **IDE Integration**: `/ide` command to connect to VS Code, Cursor, Zed, Antigravity
 - [ ] Redo for file changes
 - [ ] Search history and command palette
 
@@ -34,6 +41,8 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 - [x] Auto-save to `~/.autohand/sessions`
 - [x] Resume with `/resume` or `autohand resume <id>`
 - [x] History tracking (interactions, tool outputs, agent thoughts)
+- [x] `/history` for paginated session browsing
+- [x] Session sharing and export
 
 ## Slash Commands
 | Command | Description |
@@ -56,6 +65,28 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 | `/lint` | List available code linters |
 | `/completion` | Generate shell completion scripts |
 | `/export` | Export session to markdown/JSON/HTML |
+| `/history` | Browse session history with pagination |
+| `/ide` | Detect and connect to running IDEs |
+| `/plan` | Toggle plan mode |
+| `/theme` | Change color theme |
+| `/language` | Change display language |
+| `/login` | Authenticate with Autohand API |
+| `/logout` | Log out |
+| `/status` | Show session status |
+| `/permissions` | Manage tool permissions |
+| `/hooks` | Manage lifecycle hooks |
+| `/skills` | List and manage skills |
+| `/skills use` | Activate a skill |
+| `/skills install` | Install community skills |
+| `/skills new` | Create new skill |
+| `/mcp` | Interactive MCP server manager (toggle enable/disable) |
+| `/mcp install` | Browse and install community MCP servers |
+| `/share` | Share current session |
+| `/sync` | Sync settings |
+| `/add-dir` | Add directories to workspace |
+| `/automode` | Start autonomous coding mode |
+| `/cc` | Context compaction |
+| `/search` | Search codebase |
 
 ## Memory System
 - [x] Project memory in `.autohand/memory/`
@@ -113,6 +144,28 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 - [x] Multi-step plan generation
 - [x] Dry-run mode
 
+## Composable Workflows
+- [x] **Pipe Mode**: `echo 'code' | autohand 'explain'`
+- [x] **JSON Output**: `--json` flag for ndjson
+- [x] **Smart Stdin Detection**: Auto-detects piped input vs TTY
+- [x] Verbose mode with `--verbose` (progress to stderr)
+
+## Advanced Controls
+- [x] **Extended Thinking**: `--thinking [level]` (extended/normal/none)
+- [x] **Yolo Mode**: `--yolo [pattern]` for granular auto-approve
+- [x] **Auto-Approve Timeout**: `--timeout <seconds>`
+- [x] **Custom System Prompt**: Override or append system prompt
+
+## MCP Support
+- [x] Connect to external MCP servers (stdio and SSE transports)
+- [x] Automatic tool discovery and namespaced registration
+- [x] Server lifecycle management
+- [x] **Non-blocking startup**: servers connect in background without delaying the prompt
+- [x] **Interactive `/mcp` manager**: toggle servers on/off with arrow keys + space
+- [x] **`/mcp install`**: browse and install from community MCP registry (12 curated servers)
+- [x] **`/mcp add/remove`**: manage servers from the command line
+- [x] **`/mcp list`**: view all tools from connected servers
+
 ---
 
 ## Developer Tools
@@ -139,7 +192,7 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 - [ ] LSP integration (go-to-definition, find-references)
 - [ ] Database tools (query execution, schema inspection)
 - [ ] Docker tools (build, run, inspect, logs)
-- [ ] VS Code extension
+- [x] ~~VS Code extension~~ (implemented as IDE integration via `/ide`)
 - [ ] CI/CD integration examples
 - [ ] Team workspaces with shared context
 

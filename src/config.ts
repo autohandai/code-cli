@@ -211,6 +211,32 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
     }
   }
 
+  // Validate MCP config
+  if (config.mcp) {
+    if (config.mcp.enabled !== undefined && typeof config.mcp.enabled !== 'boolean') {
+      throw new Error(`mcp.enabled must be boolean in ${configPath}`);
+    }
+    if (config.mcp.servers !== undefined) {
+      if (!Array.isArray(config.mcp.servers)) {
+        throw new Error(`mcp.servers must be an array in ${configPath}`);
+      }
+      for (const server of config.mcp.servers) {
+        if (!server.name || typeof server.name !== 'string') {
+          throw new Error(`mcp.servers[].name must be a non-empty string in ${configPath}`);
+        }
+        if (!['stdio', 'sse'].includes(server.transport)) {
+          throw new Error(`mcp.servers[].transport must be 'stdio' or 'sse' in ${configPath}`);
+        }
+        if (server.transport === 'stdio' && (!server.command || typeof server.command !== 'string')) {
+          throw new Error(`mcp.servers[].command is required for stdio transport in ${configPath}`);
+        }
+        if (server.transport === 'sse' && (!server.url || typeof server.url !== 'string')) {
+          throw new Error(`mcp.servers[].url is required for sse transport in ${configPath}`);
+        }
+      }
+    }
+  }
+
   // Validate external agents config
   if (config.externalAgents) {
     if (config.externalAgents.enabled !== undefined && typeof config.externalAgents.enabled !== 'boolean') {

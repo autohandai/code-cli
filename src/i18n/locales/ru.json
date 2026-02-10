@@ -57,7 +57,19 @@
       "maxRuntime": "Максимальное время выполнения в минутах (по умолчанию: 120)",
       "maxCost": "Максимальная стоимость API в долларах (по умолчанию: 10)",
       "setup": "Запустить мастер настройки",
-      "addDir": "Добавить дополнительные каталоги в область рабочего пространства"
+      "addDir": "Добавить дополнительные каталоги в область рабочего пространства",
+      "thinking": "Set thinking/reasoning depth (none, normal, extended)",
+      "yolo": "Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)",
+      "timeout": "Timeout in seconds for auto-approve mode"
+    },
+    "thinking": {
+      "enabled": "Extended thinking enabled",
+      "level": "Thinking level: {{level}}"
+    },
+    "stdin": {
+      "reading": "Reading piped input...",
+      "timeout": "Stdin read timeout",
+      "empty": "No input received from pipe"
     }
   },
   "welcome": {
@@ -242,6 +254,18 @@
       "available": "Доступные навыки:",
       "noSkills": "Навыки не установлены."
     },
+    "mcp": {
+      "title": "Серверы MCP",
+      "description": "управление серверами MCP (Model Context Protocol)",
+      "installDescription": "просмотр и установка серверов MCP из сообщества",
+      "noServers": "Серверы MCP не настроены",
+      "connected": "Подключён",
+      "disconnected": "Отключён",
+      "error": "Ошибка",
+      "tools": "инструменты",
+      "connecting": "Подключение к серверу MCP...",
+      "installed": "Сервер MCP успешно установлен"
+    },
     "export": {
       "description": "экспорт данных сессии",
       "success": "Экспортировано в {{path}}",
@@ -284,6 +308,12 @@
       "connected": "Подключено к {{ide}}",
       "extensionHint": "Установите расширения для более глубокой интеграции:",
       "startIde": "Запустите IDE в этом каталоге для подключения."
+    },
+    "history": {
+      "title": "Session History",
+      "empty": "No sessions found",
+      "showing": "Page {{page}} of {{total}} ({{count}} sessions)",
+      "resumeHint": "Use /resume <session-id> to resume a session"
     }
   },
   "setup": {
@@ -406,22 +436,22 @@
   },
   "ui": {
     "escToCancel": "esc для отмены",
-    "commandHint": "/ для команд \u00b7 @ для упоминания файлов \u00b7 ! для терминала",
+    "commandHint": "/ для команд · @ для упоминания файлов · ! для терминала",
     "ctrlCToExit": "Нажмите Ctrl+C ещё раз для выхода",
     "noMatchingCommands": "Подходящих команд не найдено.",
     "selectFile": "Выберите файл",
-    "noMatchingFiles": "Подходящих файлов не найдено. Продолжайте ввод\u2026",
+    "noMatchingFiles": "Подходящих файлов не найдено. Продолжайте ввод…",
     "thinking": "Думаю",
     "planModeActive": "Режим планирования активен - инструменты только для чтения",
     "planModeExecuting": "Выполнение плана",
     "typeToFilter": "Фильтр",
-    "navigateHint": "Введите для фильтрации \u00b7 \u2191/\u2193 навигация \u00b7 Enter выполнить \u00b7 Esc отмена",
-    "fileNavigateHint": "Введите для фильтрации \u00b7 \u2191/\u2193 навигация \u00b7 Enter выбрать \u00b7 Esc отмена",
-    "questionPrompt": "\u2753",
+    "navigateHint": "Введите для фильтрации · ↑/↓ навигация · Enter выполнить · Esc отмена",
+    "fileNavigateHint": "Введите для фильтрации · ↑/↓ навигация · Enter выбрать · Esc отмена",
+    "questionPrompt": "❓",
     "questionOther": "Другое (введите свой ответ)",
-    "questionYourAnswer": "\u25b8 Ваш ответ",
-    "questionCustomHint": "\u21b5 Отправить \u00b7 ESC Назад",
-    "questionSelectHint": "\u2191\u2193 Навигация \u00b7 \u21b5 Выбрать \u00b7 1-9 Быстрый выбор \u00b7 ESC Отмена",
+    "questionYourAnswer": "▸ Ваш ответ",
+    "questionCustomHint": "↵ Отправить · ESC Назад",
+    "questionSelectHint": "↑↓ Навигация · ↵ Выбрать · 1-9 Быстрый выбор · ESC Отмена",
     "noOptionsAvailable": "Нет доступных вариантов",
     "planRevise": "Нет, пересмотреть план",
     "planEditHint": "ctrl-g для редактирования в VS Code",

@@ -39,6 +39,7 @@ import * as plan from '../commands/plan.js';
 import * as about from '../commands/about.js';
 import * as ide from '../commands/ide.js';
 import * as history from '../commands/history.js';
+import * as mcpCmd from '../commands/mcp.js';
 
 import type { SlashCommand } from './slashCommandTypes.js';
 export type { SlashCommand } from './slashCommandTypes.js';
@@ -83,4 +84,6 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   about.metadata,
   ide.metadata,
   history.metadata,
+  mcpCmd.metadata,
+  mcpCmd.installMetadata,
 ];

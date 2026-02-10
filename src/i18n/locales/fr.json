@@ -254,6 +254,18 @@
       "available": "Compétences disponibles :",
       "noSkills": "Aucune compétence installée."
     },
+    "mcp": {
+      "title": "Serveurs MCP",
+      "description": "gérer les serveurs MCP (Model Context Protocol)",
+      "installDescription": "parcourir et installer des serveurs MCP communautaires",
+      "noServers": "Aucun serveur MCP configuré",
+      "connected": "Connecté",
+      "disconnected": "Déconnecté",
+      "error": "Erreur",
+      "tools": "outils",
+      "connecting": "Connexion au serveur MCP...",
+      "installed": "Serveur MCP installé avec succès"
+    },
     "export": {
       "description": "exporter les données de session",
       "success": "Exporté vers {{path}}",
