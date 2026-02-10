@@ -4,11 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { t } from '../i18n/index.js';
 import type { SessionManager } from '../session/SessionManager.js';
 
 export const metadata = {
     command: '/sessions',
-    description: 'list all sessions',
+    description: t('commands.sessions.description'),
     implemented: true
 };
 
@@ -26,7 +27,7 @@ export async function sessions(ctx: {
         );
 
         if (allSessions.length === 0) {
-            console.log(chalk.gray('No sessions found.'));
+            console.log(chalk.gray(t('commands.sessions.noSessions')));
             return null;
         }
 

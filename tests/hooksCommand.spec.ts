@@ -64,7 +64,7 @@ describe('/hooks command', () => {
   describe('metadata', () => {
     it('has correct command metadata', () => {
       expect(metadata.command).toBe('/hooks');
-      expect(metadata.description).toBe('view and manage lifecycle hooks');
+      expect(metadata.description).toBe('manage git hooks');
       expect(metadata.implemented).toBe(true);
     });
   });

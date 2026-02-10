@@ -125,8 +125,8 @@ describe('TOOL_DISPLAY_NAMES', () => {
 // ===========================================================================
 
 describe('DEFAULT_ACP_COMMANDS', () => {
-  it('has exactly 24 commands', () => {
-    expect(DEFAULT_ACP_COMMANDS).toHaveLength(24);
+  it('has exactly 31 commands', () => {
+    expect(DEFAULT_ACP_COMMANDS).toHaveLength(31);
   });
 
   it('each command has name and description strings', () => {
@@ -143,7 +143,6 @@ describe('DEFAULT_ACP_COMMANDS', () => {
     expect(names).toContain('help');
     expect(names).toContain('new');
     expect(names).toContain('model');
-    expect(names).toContain('mode');
     expect(names).toContain('undo');
     expect(names).toContain('resume');
     expect(names).toContain('sessions');
@@ -152,6 +151,12 @@ describe('DEFAULT_ACP_COMMANDS', () => {
     expect(names).toContain('agents');
     expect(names).toContain('automode');
     expect(names).toContain('lint');
+    expect(names).toContain('mcp');
+    expect(names).toContain('mcp install');
+    expect(names).toContain('sync');
+    expect(names).toContain('history');
+    expect(names).toContain('login');
+    expect(names).toContain('logout');
   });
 });
 

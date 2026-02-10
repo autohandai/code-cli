@@ -6,6 +6,7 @@
  * MCP command - List and manage MCP (Model Context Protocol) servers
  */
 import chalk from 'chalk';
+import { t } from '../i18n/index.js';
 import type { McpClientManager } from '../mcp/McpClientManager.js';
 import type { LoadedConfig } from '../types.js';
 import { saveConfig } from '../config.js';
@@ -103,10 +104,10 @@ async function showInteractiveList(
   if (items.length === 0) {
     const lines: string[] = [];
     lines.push('');
-    lines.push(chalk.bold.cyan('MCP Servers'));
+    lines.push(chalk.bold.cyan(t('commands.mcp.title')));
     lines.push(chalk.gray('─'.repeat(50)));
     lines.push('');
-    lines.push('No MCP servers configured.');
+    lines.push(t('commands.mcp.noServers'));
     lines.push('');
     lines.push(chalk.gray('Add a server:'));
     lines.push(chalk.gray('  /mcp add <name> <command> [args...]'));
@@ -176,7 +177,7 @@ async function handleConnect(
   }
 
   try {
-    console.log(chalk.cyan(`Connecting to ${serverName}...`));
+    console.log(chalk.cyan(t('commands.mcp.connecting')));
     await manager.connect(serverConfig);
     const tools = manager.getToolsForServer(serverName);
     return `Connected to ${serverName} (${tools.length} tools available)`;
@@ -344,12 +345,12 @@ async function handleRemove(
 
 export const metadata = {
   command: '/mcp',
-  description: 'manage MCP (Model Context Protocol) servers',
+  description: t('commands.mcp.description'),
   implemented: true,
 };
 
 export const installMetadata = {
   command: '/mcp install',
-  description: 'browse and install community MCP servers',
+  description: t('commands.mcp.installDescription'),
   implemented: true,
 };

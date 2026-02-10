@@ -552,6 +552,8 @@ export class AutohandAgent {
       // Context compaction toggle for /cc command
       toggleContextCompaction: () => this.toggleContextCompaction(),
       isContextCompactionEnabled: () => this.isContextCompactionEnabled(),
+      // Non-interactive mode (RPC/ACP) — guards interactive commands
+      isNonInteractive: runtime.isRpcMode === true,
     };
     this.slashHandler = new SlashCommandHandler(slashContext, SLASH_COMMANDS);
   }
@@ -972,10 +974,6 @@ If lint or tests fail, report the issues but do NOT commit.`;
           return;
         }
 
-        if (instruction === 'SESSION_RESUMED') {
-          continue;
-        }
-
         const isSlashCommand = instruction.startsWith('/');
         if (isSlashCommand) {
           await this.telemetryManager.trackCommand({ command: instruction.split(' ')[0] });
@@ -1154,11 +1152,19 @@ If lint or tests fail, report the issues but do NOT commit.`;
         args = parts.slice(2);
       }
 
-      const handled = await this.slashHandler.handle(command, args);
-      if (handled === null) {
-        return null;
+      // /quit and /exit return themselves as pass-through instructions
+      // so the interactive loop's special exit handler (line 963) can catch them.
+      // Skip the slash handler for these — they're control-flow, not commands.
+      if (command === '/quit' || command === '/exit') {
+        return command;
       }
-      normalized = handled;
+
+      const handled = await this.slashHandler.handle(command, args);
+      if (handled !== null) {
+        // Slash command returned display output — print it, don't send to LLM
+        console.log(handled);
+      }
+      return null;
     }
 
     // Handle # trigger for storing memories
@@ -3703,6 +3709,27 @@ If lint or tests fail, report the issues but do NOT commit.`;
     // Auto-mode manager is created externally when running with --auto-mode flag
     // This method is primarily for RPC integration
     return undefined;
+  }
+
+  /**
+   * Get the session manager for session history access
+   */
+  getSessionManager(): SessionManager {
+    return this.sessionManager;
+  }
+
+  /**
+   * Get the MCP client manager for server/tool listing
+   */
+  getMcpManager(): McpClientManager {
+    return this.mcpManager;
+  }
+
+  /**
+   * Get the permission manager for mode control
+   */
+  getPermissionManager(): PermissionManager {
+    return this.permissionManager;
   }
 
   /**

@@ -27,6 +27,10 @@ const {
     isSlashCommand: vi.fn().mockReturnValue(false),
     isSlashCommandSupported: vi.fn().mockReturnValue(false),
     handleSlashCommand: vi.fn().mockResolvedValue(null),
+    parseSlashCommand: vi.fn().mockImplementation((input: string) => {
+      const parts = input.trim().split(/\s+/);
+      return { command: parts[0], args: parts.slice(1) };
+    }),
   };
 
   // The constructor mock must return the shared mockAgent object
@@ -136,6 +140,10 @@ describe('AutohandAcpAdapter', () => {
     mockAgent.isSlashCommand.mockReturnValue(false);
     mockAgent.isSlashCommandSupported.mockReturnValue(false);
     mockAgent.handleSlashCommand.mockResolvedValue(null);
+    mockAgent.parseSlashCommand.mockImplementation((input: string) => {
+      const parts = input.trim().split(/\s+/);
+      return { command: parts[0], args: parts.slice(1) };
+    });
 
     connection = makeConnection();
     config = makeConfig();
@@ -316,12 +324,15 @@ describe('AutohandAcpAdapter', () => {
       expect(result._meta).toBeDefined();
       expect(result._meta!.commands).toBeDefined();
       const commands = result._meta!.commands as Array<{ name: string; description: string }>;
-      expect(commands).toHaveLength(24);
+      expect(commands).toHaveLength(31);
 
       const cmdNames = commands.map((c) => c.name);
       expect(cmdNames).toContain('help');
       expect(cmdNames).toContain('model');
       expect(cmdNames).toContain('undo');
+      expect(cmdNames).toContain('mcp');
+      expect(cmdNames).toContain('login');
+      expect(cmdNames).toContain('logout');
     });
 
     it('initializes agent for RPC mode', async () => {
@@ -390,7 +401,7 @@ describe('AutohandAcpAdapter', () => {
 
       expect(result.stopReason).toBe('end_turn');
       expect(mockAgent.isSlashCommand).toHaveBeenCalledWith('/help');
-      expect(mockAgent.handleSlashCommand).toHaveBeenCalledWith('help', []);
+      expect(mockAgent.handleSlashCommand).toHaveBeenCalledWith('/help', []);
       expect(connection.sessionUpdate).toHaveBeenCalled();
     });
 

@@ -5,6 +5,7 @@
  */
 import chalk from 'chalk';
 import readline from 'node:readline';
+import { t } from '../i18n/index.js';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import type { AutohandConfig } from '../types.js';
 import packageJson from '../../package.json' with { type: 'json' };
@@ -213,21 +214,21 @@ function renderTabContent(tab: TabName, data: StatusData): void {
 }
 
 function renderStatusTab(data: StatusData): void {
-    console.log(chalk.bold('Version:'), data.version);
-    console.log(chalk.bold('Session ID:'), data.sessionId ?? chalk.gray('none'));
-    console.log(chalk.bold('cwd:'), data.cwd);
-    console.log(chalk.bold('Provider:'), data.provider);
-    console.log(chalk.bold('Model:'), data.model);
+    console.log(chalk.bold(`${t('commands.status.version')}:`), data.version);
+    console.log(chalk.bold(`${t('commands.status.sessionId')}:`), data.sessionId ?? chalk.gray('none'));
+    console.log(chalk.bold(`${t('commands.status.cwd')}:`), data.cwd);
+    console.log(chalk.bold(`${t('commands.status.provider')}:`), data.provider);
+    console.log(chalk.bold(`${t('commands.status.model')}:`), data.model);
     console.log(
         chalk.bold('Context Compaction:'),
         data.contextCompactionEnabled ? chalk.green('ON') : chalk.yellow('OFF')
     );
     console.log();
     console.log(
-        chalk.bold('API Status:'),
-        data.apiConnected ? chalk.green('Connected') : chalk.red('Disconnected')
+        chalk.bold(`${t('commands.status.apiStatus')}:`),
+        data.apiConnected ? chalk.green(t('commands.status.connected')) : chalk.red(t('commands.status.disconnected'))
     );
-    console.log(chalk.bold('Sessions:'), `${data.sessionsCount} total`);
+    console.log(chalk.bold(`${t('commands.status.sessions')}:`), t('commands.status.total', { count: String(data.sessionsCount) }));
     console.log(chalk.bold('Memory:'), 'user (~/.autohand/memory/), project (.autohand/memory/)');
 }
 

@@ -6,6 +6,7 @@
 import fs from 'fs-extra';
 import os from 'node:os';
 import chalk from 'chalk';
+import { t } from '../i18n/index.js';
 import { safePrompt } from '../utils/prompt.js';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import { AUTOHAND_FILES, AUTOHAND_PATHS } from '../constants.js';
@@ -13,7 +14,7 @@ import packageJson from '../../package.json' with { type: 'json' };
 
 export const metadata = {
     command: '/feedback',
-    description: 'share feedback with environment details',
+    description: t('commands.feedback.description'),
     implemented: true
 };
 
@@ -179,7 +180,7 @@ export async function feedback(_ctx: FeedbackContext): Promise<string | null> {
     try {
         const response = await sendFeedbackToApi(payload);
         if (response.success) {
-            console.log(chalk.green('Feedback submitted successfully. Thank you!'));
+            console.log(chalk.green(t('commands.feedback.success')));
         } else {
             // Show specific error if available
             if (response.error?.includes('Rate limit')) {

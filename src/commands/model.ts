@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { t } from '../i18n/index.js';
+
 /**
  * Model selection command - prompts user to select model
  */
@@ -14,6 +16,6 @@ export async function model(ctx: { promptModelSelection: () => Promise<void> }):
 
 export const metadata = {
     command: '/model',
-    description: 'choose what model and reasoning effort to use',
+    description: t('commands.model.description'),
     implemented: true
 };

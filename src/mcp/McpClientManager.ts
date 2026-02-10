@@ -416,6 +416,22 @@ export class McpClientManager {
   // ============================================================================
 
   /**
+   * Returns all known servers with their status and tool count.
+   * @returns Array of server summaries
+   */
+  getServers(): Array<{ name: string; status: string; toolCount: number }> {
+    const result: Array<{ name: string; status: string; toolCount: number }> = [];
+    for (const [name, state] of this.servers) {
+      result.push({
+        name,
+        status: state.status,
+        toolCount: state.tools.length,
+      });
+    }
+    return result;
+  }
+
+  /**
    * Returns all available tools from all connected servers.
    * @returns Array of tool definitions
    */

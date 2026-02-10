@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { t } from '../i18n/index.js';
 import readline from 'node:readline';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import { loadConfig, saveConfig } from '../config.js';
@@ -11,7 +12,7 @@ import type { SyncService } from '../sync/SyncService.js';
 
 export const metadata = {
   command: '/sync',
-  description: 'Manage settings sync (view status, enable/disable, trigger sync)',
+  description: t('commands.sync.description'),
   implemented: true,
 };
 
@@ -184,7 +185,7 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
           config.sync = { ...config.sync, enabled: newEnabled };
           await saveConfig(config);
           data.enabled = newEnabled;
-          console.log(chalk.cyan(`\nSync ${newEnabled ? 'enabled' : 'disabled'}`));
+          console.log(chalk.cyan(`\n${newEnabled ? t('commands.sync.enabled') : t('commands.sync.disabled')}`));
           await sleep(1000);
           render();
         } catch (err) {

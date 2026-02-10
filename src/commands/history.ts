@@ -4,12 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { t } from '../i18n/index.js';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import type { SessionMetadata } from '../session/types.js';
 
 export const metadata = {
     command: '/history',
-    description: 'Show session history with pagination',
+    description: t('commands.history.title'),
     implemented: true,
 };
 
@@ -144,7 +145,7 @@ export async function history(ctx: SlashCommandContext & { args?: string[] }): P
         const allSessions = await ctx.sessionManager.listSessions();
 
         if (allSessions.length === 0) {
-            console.log(chalk.gray('\nNo sessions found.\n'));
+            console.log(chalk.gray(`\n${t('commands.history.empty')}\n`));
             return null;
         }
 
@@ -152,7 +153,7 @@ export async function history(ctx: SlashCommandContext & { args?: string[] }): P
         const entries = allSessions.map(toHistoryEntry);
         const paginated = paginateHistory(entries, page, pageSize);
 
-        console.log(chalk.cyan('\nSession History\n'));
+        console.log(chalk.cyan(`\n${t('commands.history.title')}\n`));
 
         // Header
         console.log(
@@ -177,7 +178,7 @@ export async function history(ctx: SlashCommandContext & { args?: string[] }): P
         if (paginated.totalPages > 0) {
             console.log(
                 chalk.gray(
-                    `\nPage ${paginated.currentPage} of ${paginated.totalPages} (${paginated.totalItems} sessions)`
+                    `\n${t('commands.history.showing', { page: paginated.currentPage, total: paginated.totalPages, count: paginated.totalItems })}`
                 )
             );
         }
@@ -186,7 +187,7 @@ export async function history(ctx: SlashCommandContext & { args?: string[] }): P
             console.log(chalk.gray(`Use /history ${paginated.currentPage + 1} for next page`));
         }
 
-        console.log(chalk.gray(`Use /resume <session-id> to resume a session\n`));
+        console.log(chalk.gray(`${t('commands.history.resumeHint')}\n`));
 
         return null;
     } catch (error) {

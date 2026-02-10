@@ -4,6 +4,7 @@
  */
 
 import type { AutohandAgent } from '../../core/agent.js';
+import { McpClientManager } from '../../mcp/McpClientManager.js';
 import type { ConversationManager } from '../../core/conversationManager.js';
 import type {
   LLMMessage,
@@ -35,6 +36,13 @@ import type {
   AutomodeCancelResult,
   AutomodeGetLogResult,
   AutomodeLogEntry,
+  GetHistoryParams,
+  GetHistoryResult,
+  YoloSetParams,
+  YoloSetResult,
+  McpListServersResult,
+  McpListToolsParams,
+  McpListToolsResult,
 } from './types.js';
 import {
   RPC_NOTIFICATIONS,
@@ -1191,6 +1199,125 @@ export class RPCAdapter {
         error: message,
       };
     }
+  }
+
+  // ============================================================================
+  // Session History, YOLO, and MCP Handlers
+  // ============================================================================
+
+  /**
+   * Get paginated session history
+   */
+  async handleGetHistory(
+    _requestId: JsonRpcId,
+    params?: GetHistoryParams
+  ): Promise<GetHistoryResult> {
+    const sessionManager = this.agent?.getSessionManager?.();
+    if (!sessionManager) {
+      return { sessions: [], currentPage: 1, totalPages: 0, totalItems: 0 };
+    }
+
+    try {
+      const allSessions = await sessionManager.listSessions();
+      const page = params?.page ?? 1;
+      const pageSize = params?.pageSize ?? 20;
+      const totalItems = allSessions.length;
+      const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+      const startIndex = (page - 1) * pageSize;
+      const pageSessions = allSessions.slice(startIndex, startIndex + pageSize);
+
+      return {
+        sessions: pageSessions.map((s) => ({
+          sessionId: s.sessionId,
+          createdAt: s.createdAt,
+          lastActiveAt: s.lastActiveAt ?? s.createdAt,
+          projectName: s.projectName ?? '',
+          model: s.model ?? '',
+          messageCount: s.messageCount ?? 0,
+          status: (s.status as 'active' | 'completed' | 'crashed') ?? 'completed',
+        })),
+        currentPage: page,
+        totalPages,
+        totalItems,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`[RPC] Failed to get history: ${message}\n`);
+      return { sessions: [], currentPage: 1, totalPages: 0, totalItems: 0 };
+    }
+  }
+
+  /**
+   * Set YOLO (unrestricted) mode with pattern and optional timeout
+   */
+  handleYoloSet(_requestId: JsonRpcId, params: YoloSetParams): YoloSetResult {
+    const permissionManager = this.agent?.getPermissionManager?.();
+    if (!permissionManager) {
+      return { success: false };
+    }
+
+    try {
+      // Set unrestricted mode
+      permissionManager.setMode('unrestricted');
+      process.stderr.write(`[RPC] YOLO mode enabled with pattern: ${params.pattern}\n`);
+
+      let expiresIn: number | undefined;
+      if (params.timeoutSeconds && params.timeoutSeconds > 0) {
+        expiresIn = params.timeoutSeconds;
+        // Auto-revert to interactive mode after timeout
+        setTimeout(() => {
+          permissionManager.setMode('interactive');
+          process.stderr.write(`[RPC] YOLO mode expired, reverted to interactive\n`);
+        }, params.timeoutSeconds * 1000);
+      }
+
+      return { success: true, expiresIn };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`[RPC] Failed to set YOLO mode: ${message}\n`);
+      return { success: false };
+    }
+  }
+
+  /**
+   * List all MCP servers and their connection status
+   */
+  handleMcpListServers(_requestId: JsonRpcId): McpListServersResult {
+    const mcpManager = this.agent?.getMcpManager?.();
+    if (!mcpManager) {
+      return { servers: [] };
+    }
+
+    return { servers: mcpManager.getServers() };
+  }
+
+  /**
+   * List all MCP tools, optionally filtered by server name
+   */
+  handleMcpListTools(
+    _requestId: JsonRpcId,
+    params?: McpListToolsParams
+  ): McpListToolsResult {
+    const mcpManager = this.agent?.getMcpManager?.();
+    if (!mcpManager) {
+      return { tools: [] };
+    }
+
+    const allTools = params?.serverName
+      ? mcpManager.getToolsForServer(params.serverName)
+      : mcpManager.getAllTools();
+
+    return {
+      tools: allTools.map((t) => {
+        // Extract server name from prefixed tool name: mcp__<server>__<tool>
+        const parsed = McpClientManager.parseMcpToolName(t.name);
+        return {
+          name: t.name,
+          description: t.description,
+          serverName: parsed?.serverName ?? 'unknown',
+        };
+      }),
+    };
   }
 
   /**
