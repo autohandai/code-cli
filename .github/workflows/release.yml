@@ -219,7 +219,7 @@ jobs:
           VERSION="${{ needs.prepare.outputs.version }}"
           echo "Updating to version: $VERSION"
           npm version $VERSION --no-git-tag-version --allow-same-version
-          node scripts/sync-homebrew-version.js
+          node scripts/sync-homebrew-version.cjs
           git add package.json homebrew/autohand.rb
           git commit -m "chore(release): v$VERSION [skip ci]" || echo "No changes to commit"
           git push origin ${{ github.ref_name }} || echo "No changes to push"

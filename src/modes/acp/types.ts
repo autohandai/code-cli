@@ -304,7 +304,7 @@ export interface AcpSessionState {
 /**
  * Build ACP config options from the loaded config.
  */
-export function buildConfigOptions(config: LoadedConfig): SessionConfigOption[] {
+export function buildConfigOptions(_config: LoadedConfig): SessionConfigOption[] {
   const options: SessionConfigOption[] = [];
 
   // Thinking level

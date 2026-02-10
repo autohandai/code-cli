@@ -422,7 +422,7 @@ export class AutohandAcpAdapter implements Agent {
   // ACP Agent Interface: unstable_resumeSession (optional)
   // ==========================================================================
 
-  async unstable_resumeSession(params: ResumeSessionRequest): Promise<ResumeSessionResponse> {
+  async unstable_resumeSession(_params: ResumeSessionRequest): Promise<ResumeSessionResponse> {
     // For resume, we create a new agent and load the session
     if (!this.config) {
       this.config = await loadConfig();

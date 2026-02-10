@@ -404,7 +404,7 @@ class McpHttpConnection extends EventEmitter {
   /**
    * Parses an SSE (text/event-stream) response to extract the JSON-RPC result.
    */
-  private parseSSEResponse(text: string, expectedId: number): unknown {
+  private parseSSEResponse(text: string, _expectedId: number): unknown {
     const lines = text.split('\n');
     let lastData = '';
 
