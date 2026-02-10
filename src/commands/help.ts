@@ -5,38 +5,35 @@
  */
 import chalk from 'chalk';
 import terminalLink from 'terminal-link';
+import { t } from '../i18n/index.js';
+import { SLASH_COMMANDS } from '../core/slashCommands.js';
 
 /**
  * Help command - shows available commands and tips
+ * Dynamically reads from the SLASH_COMMANDS registry so new commands
+ * are automatically included.
  */
 export async function help(): Promise<string | null> {
-    console.log(chalk.cyan('\n📚 Available Commands:\n'));
+    console.log(chalk.cyan(`\n  ${t('commands.help.title')}\n`));
 
-    const commands = [
-        { cmd: '/quit', desc: 'Exit Autohand' },
-        { cmd: '/model', desc: 'Configure providers (OpenRouter, Ollama, OpenAI, llama.cpp)' },
-        { cmd: '/theme', desc: 'Change the color theme' },
-        { cmd: '/session', desc: 'Show current session info' },
-        { cmd: '/sessions', desc: 'List sessions' },
-        { cmd: '/resume', desc: 'Resume a session by id' },
-        { cmd: '/init', desc: 'Create AGENTS.md file' },
-        { cmd: '/agents', desc: 'List available sub-agents' },
-        { cmd: '/feedback', desc: 'Send feedback with env details' },
-        { cmd: '/help / ?', desc: 'Show this help' }
-    ];
+    const commands = SLASH_COMMANDS
+        .filter(cmd => cmd.implemented && cmd.command !== '/?')
+        .sort((a, b) => a.command.localeCompare(b.command));
 
-    commands.forEach(({ cmd, desc }) => {
-        console.log(`  ${chalk.yellow(cmd.padEnd(14))} ${chalk.gray(desc)}`);
-    });
+    const maxLen = Math.max(...commands.map(c => c.command.length)) + 2;
 
-    console.log(chalk.cyan('\n💡 Tips:\n'));
-    console.log(chalk.gray('  • Type @ to mention files for the AI'));
-    console.log(chalk.gray('  • Use arrow keys to navigate file suggestions'));
-    console.log(chalk.gray('  • Press Tab to autocomplete file paths'));
-    console.log(chalk.gray('  • Press Esc to cancel current operation\n'));
+    for (const { command, description } of commands) {
+        console.log(`  ${chalk.yellow(command.padEnd(maxLen))} ${chalk.gray(description)}`);
+    }
+
+    console.log(chalk.cyan(`\n  ${t('commands.help.tips.title')}\n`));
+    console.log(chalk.gray(`  • ${t('commands.help.tips.mention')}`));
+    console.log(chalk.gray(`  • ${t('commands.help.tips.arrows')}`));
+    console.log(chalk.gray(`  • ${t('commands.help.tips.tab')}`));
+    console.log(chalk.gray(`  • ${t('commands.help.tips.escape')}\n`));
 
     const docLink = terminalLink('docs.autohand.ai', 'https://docs.autohand.ai');
-    console.log(chalk.gray(`For more information, visit ${docLink}\n`));
+    console.log(chalk.gray(`  ${t('commands.help.docsLink', { link: docLink })}\n`));
 
     return null;
 }
