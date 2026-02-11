@@ -12,17 +12,20 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Fix yoga-wasm-web/auto node.js entry BEFORE any Ink import.
-// The asm.js default export is a factory function that must be called,
-// not re-exported directly. Without this, Yoga.Node.create() throws:
-// "undefined is not an object (evaluating 'asm.Node.create')"
+// The original npm entry uses WASM (readFile("./yoga.wasm")) which fails in
+// Bun compiled binaries. An older patch re-exported asm.js without calling it.
+// Both patterns need to be replaced with: import asm; export default asm();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const yogaNodeJs = path.join(__dirname, 'node_modules', 'yoga-wasm-web', 'dist', 'node.js');
 if (fs.existsSync(yogaNodeJs)) {
   const content = fs.readFileSync(yogaNodeJs, 'utf8');
-  if (content.includes('export { default } from "./asm.js"')) {
+  const needsPatch =
+    !content.includes('export default asm()') &&
+    (content.includes('yoga.wasm') || content.includes('export { default } from "./asm.js"'));
+  if (needsPatch) {
     fs.writeFileSync(yogaNodeJs, [
       '// Patched: use asm.js fallback instead of WASM for Bun binary compatibility.',
-      '// asm.js default export is a function that must be called to get the yoga module.',
+      '// The asm.js default export is a factory function that must be called to get the yoga module.',
       'import asm from "./asm.js";',
       'export default asm();',
       'export * from "./wrapAsm-f766f97f.js";',
