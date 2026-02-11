@@ -52,11 +52,12 @@ EOF
         # Alpha: fetch the latest prerelease tag from GitHub API
         printf "${YELLOW}Fetching latest alpha release...${NC}\n"
         local _alpha_tag
-        _alpha_tag=$(get_latest_alpha_tag) || {
+        _alpha_tag=$(get_latest_alpha_tag)
+        if [ -z "$_alpha_tag" ]; then
             printf "${RED}Error: Failed to find an alpha release${NC}\n"
             printf "${YELLOW}Hint: Check available releases at https://github.com/${REPO}/releases${NC}\n"
             exit 1
-        }
+        fi
         _version=$(echo "$_alpha_tag" | sed 's/^v//')
         _url="https://github.com/${REPO}/releases/download/${_alpha_tag}/autohand-${_arch}"
     elif [ "$_version" = "latest" ]; then
@@ -166,24 +167,35 @@ get_latest_alpha_tag() {
     _releases_json=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases?per_page=10" 2>/dev/null) || return 1
 
     # Parse JSON to find first prerelease tag
-    # Uses a simple approach compatible with sh (no jq dependency)
-    echo "$_releases_json" | tr ',' '\n' | while IFS= read -r line; do
-        case "$line" in
+    # Uses a here-doc (not a pipeline) so the while loop runs in the current
+    # shell — avoids the POSIX subshell bug where `return` inside
+    # `echo | while` only exits the subshell, not the function.
+    local _current_tag=""
+    local _found_tag=""
+    local _line
+    while IFS= read -r _line; do
+        case "$_line" in
             *'"tag_name"'*)
-                _current_tag=$(echo "$line" | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+                _current_tag=$(printf '%s' "$_line" | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
                 ;;
             *'"prerelease"'*true*)
                 if [ -n "$_current_tag" ]; then
-                    echo "$_current_tag"
-                    return 0
+                    _found_tag="$_current_tag"
+                    break
                 fi
                 ;;
             *'"prerelease"'*false*)
                 _current_tag=""
                 ;;
         esac
-    done
+    done <<EOF
+$(printf '%s' "$_releases_json" | tr ',' '\n')
+EOF
 
+    if [ -n "$_found_tag" ]; then
+        printf '%s\n' "$_found_tag"
+        return 0
+    fi
     return 1
 }
 
