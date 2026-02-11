@@ -180,12 +180,27 @@ jobs:
 
       - name: Smoke test binary
         if: runner.os != 'Windows' && !contains(matrix.target, 'arm64') || matrix.os == 'macos-latest' && contains(matrix.target, 'arm64')
+        shell: bash
         run: |
+          # Helper: run a command with a timeout (works on both Linux and macOS)
+          run_with_timeout() {
+            local secs="$1"; shift
+            "$@" &
+            local pid=$!
+            ( sleep "$secs" && kill "$pid" 2>/dev/null ) &
+            local watchdog=$!
+            wait "$pid" 2>/dev/null
+            local rc=$?
+            kill "$watchdog" 2>/dev/null
+            wait "$watchdog" 2>/dev/null || true
+            return $rc
+          }
+
           echo "Testing --version..."
-          timeout 10 ./binaries/${{ matrix.artifact }} --version < /dev/null
+          run_with_timeout 10 ./binaries/${{ matrix.artifact }} --version < /dev/null
           echo ""
           echo "Testing --help..."
-          timeout 10 ./binaries/${{ matrix.artifact }} --help < /dev/null > /dev/null
+          run_with_timeout 10 ./binaries/${{ matrix.artifact }} --help < /dev/null > /dev/null
           echo "Smoke test passed!"
 
       - name: Upload artifact
