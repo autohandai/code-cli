@@ -27,13 +27,39 @@ EOF
     need_cmd uname
     need_cmd chmod
 
+    # Determine channel from flags or environment
+    local _channel="stable"
+    for arg in "$@"; do
+        case "$arg" in
+            --alpha)
+                _channel="alpha"
+                ;;
+        esac
+    done
+
+    # Environment variable override
+    if [ -n "${AUTOHAND_CHANNEL:-}" ]; then
+        _channel="$AUTOHAND_CHANNEL"
+    fi
+
     get_architecture || return 1
     local _arch="$RETVAL"
 
     local _version="${AUTOHAND_VERSION:-latest}"
     local _url
 
-    if [ "$_version" = "latest" ]; then
+    if [ "$_channel" = "alpha" ]; then
+        # Alpha: fetch the latest prerelease tag from GitHub API
+        printf "${YELLOW}Fetching latest alpha release...${NC}\n"
+        local _alpha_tag
+        _alpha_tag=$(get_latest_alpha_tag) || {
+            printf "${RED}Error: Failed to find an alpha release${NC}\n"
+            printf "${YELLOW}Hint: Check available releases at https://github.com/${REPO}/releases${NC}\n"
+            exit 1
+        }
+        _version=$(echo "$_alpha_tag" | sed 's/^v//')
+        _url="https://github.com/${REPO}/releases/download/${_alpha_tag}/autohand-${_arch}"
+    elif [ "$_version" = "latest" ]; then
         _url="https://github.com/${REPO}/releases/latest/download/autohand-${_arch}"
     else
         _url="https://github.com/${REPO}/releases/download/v${_version}/autohand-${_arch}"
@@ -57,6 +83,7 @@ EOF
     fi
 
     printf "${YELLOW}Downloading Autohand CLI...${NC}\n"
+    echo "  Channel:  $_channel"
     echo "  Platform: $_arch"
     echo "  Version:  $_version"
     echo "  Target:   $_dir/$BINARY_NAME"
@@ -104,7 +131,25 @@ EOF
     echo ""
 
     if command -v "$_dir/$BINARY_NAME" > /dev/null 2>&1; then
-        echo "Version: $("$_dir/$BINARY_NAME" --version < /dev/null 2>/dev/null || echo 'unknown')"
+        # Use timeout to guard against binary hangs (e.g., circular dependency deadlock)
+        _ver=""
+        if command -v timeout > /dev/null 2>&1; then
+            _ver=$(timeout 5 "$_dir/$BINARY_NAME" --version < /dev/null 2>/dev/null) || true
+        else
+            # macOS doesn't have timeout by default; use a background job
+            "$_dir/$BINARY_NAME" --version < /dev/null > /tmp/.autohand_ver 2>/dev/null &
+            _pid=$!
+            sleep 3
+            if kill -0 "$_pid" 2>/dev/null; then
+                kill "$_pid" 2>/dev/null
+                wait "$_pid" 2>/dev/null || true
+            else
+                wait "$_pid" 2>/dev/null || true
+                _ver=$(cat /tmp/.autohand_ver 2>/dev/null) || true
+            fi
+            rm -f /tmp/.autohand_ver
+        fi
+        echo "Version: ${_ver:-unknown}"
         echo ""
         echo "Get started:"
         echo "  autohand              # Start interactive mode"
@@ -113,6 +158,33 @@ EOF
     fi
 
     echo ""
+}
+
+get_latest_alpha_tag() {
+    # Fetch recent releases and find the first prerelease
+    local _releases_json
+    _releases_json=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases?per_page=10" 2>/dev/null) || return 1
+
+    # Parse JSON to find first prerelease tag
+    # Uses a simple approach compatible with sh (no jq dependency)
+    echo "$_releases_json" | tr ',' '\n' | while IFS= read -r line; do
+        case "$line" in
+            *'"tag_name"'*)
+                _current_tag=$(echo "$line" | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+                ;;
+            *'"prerelease"'*true*)
+                if [ -n "$_current_tag" ]; then
+                    echo "$_current_tag"
+                    return 0
+                fi
+                ;;
+            *'"prerelease"'*false*)
+                _current_tag=""
+                ;;
+        esac
+    done
+
+    return 1
 }
 
 get_architecture() {

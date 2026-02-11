@@ -13,7 +13,7 @@ import { runStartupChecks, printStartupCheckResults } from './startup/checks.js'
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from './startup/workspaceSafety.js';
 import { getAuthClient } from './auth/index.js';
 import type { AuthUser, LoadedConfig } from './types.js';
-import { checkForUpdates, type VersionCheckResult } from './utils/versionCheck.js';
+import { checkForUpdates, getInstallHint, type VersionCheckResult } from './utils/versionCheck.js';
 import { initI18n, detectLocale } from './i18n/index.js';
 import { initPingService, startPingService, stopPingService } from './telemetry/index.js';
 import { detectStdinType, readPipedStdin } from './utils/stdinDetector.js';
@@ -586,7 +586,7 @@ function printWelcome(runtime: AgentRuntime, authUser?: AuthUser, versionCheck?:
 
   // Show upgrade hint if update available
   if (versionCheck?.updateAvailable) {
-    console.log(chalk.gray('  ↳ Run: ') + chalk.cyan('curl -fsSL https://autohand.ai/install.sh | sh'));
+    console.log(chalk.gray('  ↳ Run: ') + chalk.cyan(getInstallHint(versionCheck.channel)));
   }
 
   // Personalized greeting if logged in

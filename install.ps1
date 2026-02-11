@@ -4,6 +4,8 @@
     Autohand CLI Installer for Windows
 .DESCRIPTION
     Downloads and installs the Autohand CLI for Windows.
+.PARAMETER Alpha
+    Install the latest alpha (pre-release) build
 .PARAMETER Clean
     Remove existing installation before installing
 .PARAMETER NoCache
@@ -15,12 +17,15 @@
 .EXAMPLE
     iwr -useb https://autohand.ai/install.ps1 | iex
 .EXAMPLE
+    iwr -useb https://autohand.ai/install.ps1 -OutFile install.ps1; .\install.ps1 -Alpha
+.EXAMPLE
     iwr -useb https://autohand.ai/install.ps1 -OutFile install.ps1; .\install.ps1 -Clean
 .EXAMPLE
     $env:AUTOHAND_VERSION = "0.7.3"; iwr -useb https://autohand.ai/install.ps1 | iex
 #>
 
 param(
+    [switch]$Alpha,
     [switch]$Clean,
     [switch]$NoCache,
     [string]$Version,
@@ -74,6 +79,7 @@ Or download and run with options:
   .\install.ps1 [OPTIONS]
 
 Options:
+  -Alpha        Install the latest alpha (pre-release) build
   -Clean        Remove existing installation before installing
   -NoCache      Bypass CDN cache and fetch fresh release from GitHub
   -Version      Install specific version (e.g., 0.7.3)
@@ -83,12 +89,14 @@ Options:
 Environment variables:
   AUTOHAND_VERSION      Install specific version (e.g., 0.7.3)
   AUTOHAND_INSTALL_DIR  Custom installation directory
+  AUTOHAND_CHANNEL      Set to "alpha" for pre-release builds
 
 Examples:
   iwr -useb https://autohand.ai/install.ps1 | iex
+  .\install.ps1 -Alpha
   .\install.ps1 -Clean
   .\install.ps1 -Version 0.7.3
-  `$env:AUTOHAND_VERSION = "0.7.3"; iwr -useb https://autohand.ai/install.ps1 | iex
+  `$env:AUTOHAND_CHANNEL = "alpha"; iwr -useb https://autohand.ai/install.ps1 | iex
 "@
 }
 
@@ -128,6 +136,34 @@ function Get-LatestVersion {
     }
 }
 
+function Get-LatestAlphaVersion {
+    $apiUrl = "https://api.github.com/repos/$REPO/releases?per_page=10"
+
+    try {
+        $headers = @{
+            "Accept" = "application/vnd.github.v3+json"
+            "Cache-Control" = "no-cache"
+        }
+
+        $releases = Invoke-RestMethod -Uri $apiUrl -Headers $headers -UseBasicParsing
+
+        foreach ($release in $releases) {
+            if ($release.prerelease -eq $true) {
+                $tagName = $release.tag_name
+                if ($tagName.StartsWith("v")) {
+                    $tagName = $tagName.Substring(1)
+                }
+                return $tagName
+            }
+        }
+
+        throw "No alpha (pre-release) builds found"
+    }
+    catch {
+        throw "Failed to fetch latest alpha version from GitHub API: $_"
+    }
+}
+
 function Remove-ExistingInstallation {
     Write-Step "Cleaning up existing installation..."
 
@@ -148,6 +184,15 @@ function Remove-ExistingInstallation {
 
     # Remove autohand cache
     $cacheDir = "$env:LOCALAPPDATA\autohand"
+    if (Test-Path "$cacheDir\version-check-stable.json") {
+        Write-Host "  Removing: $cacheDir\version-check-stable.json"
+        Remove-Item -Path "$cacheDir\version-check-stable.json" -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path "$cacheDir\version-check-alpha.json") {
+        Write-Host "  Removing: $cacheDir\version-check-alpha.json"
+        Remove-Item -Path "$cacheDir\version-check-alpha.json" -Force -ErrorAction SilentlyContinue
+    }
+    # Clean up legacy cache file
     if (Test-Path "$cacheDir\version-check.json") {
         Write-Host "  Removing: $cacheDir\version-check.json"
         Remove-Item -Path "$cacheDir\version-check.json" -Force -ErrorAction SilentlyContinue
@@ -174,6 +219,15 @@ function Install-Autohand {
         Remove-ExistingInstallation
     }
 
+    # Determine channel
+    $channel = "stable"
+    if ($Alpha) {
+        $channel = "alpha"
+    }
+    if ($env:AUTOHAND_CHANNEL) {
+        $channel = $env:AUTOHAND_CHANNEL
+    }
+
     # Detect architecture
     Write-Step "Detecting system architecture..."
     $arch = Get-Architecture
@@ -186,9 +240,15 @@ function Install-Autohand {
         $targetVersion = $env:AUTOHAND_VERSION
     }
     if ([string]::IsNullOrEmpty($targetVersion)) {
-        Write-Step "Fetching latest version..."
-        $targetVersion = Get-LatestVersion
-        Write-Success "Latest version: v$targetVersion"
+        if ($channel -eq "alpha") {
+            Write-Step "Fetching latest alpha version..."
+            $targetVersion = Get-LatestAlphaVersion
+            Write-Success "Latest alpha version: v$targetVersion"
+        } else {
+            Write-Step "Fetching latest version..."
+            $targetVersion = Get-LatestVersion
+            Write-Success "Latest version: v$targetVersion"
+        }
         Write-Host ""
     }
 
@@ -212,6 +272,7 @@ function Install-Autohand {
     $binaryPath = Join-Path $installPath $BINARY_NAME
 
     Write-Step "Downloading Autohand CLI..."
+    Write-Host "  Channel:  $channel"
     Write-Host "  Platform: $arch"
     Write-Host "  Version:  $targetVersion"
     Write-Host "  Target:   $binaryPath"
@@ -267,10 +328,18 @@ function Install-Autohand {
     Write-Success "Autohand CLI installed successfully!"
     Write-Host ""
 
-    # Try to get version
+    # Try to get version (with timeout to guard against binary hangs)
     try {
-        $versionOutput = & $binaryPath --version 2>$null
-        Write-Host "Version: $versionOutput"
+        $job = Start-Job -ScriptBlock { param($p) & $p --version 2>$null } -ArgumentList $binaryPath
+        $completed = $job | Wait-Job -Timeout 5
+        if ($completed) {
+            $versionOutput = Receive-Job -Job $job
+            Write-Host "Version: $versionOutput"
+        } else {
+            Stop-Job -Job $job
+            Write-Host "Version: $targetVersion"
+        }
+        Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
     }
     catch {
         Write-Host "Version: $targetVersion"
