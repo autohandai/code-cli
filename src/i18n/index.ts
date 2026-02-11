@@ -71,7 +71,9 @@ function initEager(): void {
     returnEmptyString: false,
     lowerCaseLng: true,
     initImmediate: false, // synchronous init
-  });
+    // Suppress locize sponsorship console message (added in i18next v25.8.0+)
+    showSupportNotice: false,
+  } as Record<string, unknown>);
   initialized = true;
 }
 
@@ -106,7 +108,9 @@ export async function initI18n(locale: SupportedLocale): Promise<void> {
     // Keep locale codes lowercase (e.g., 'pt-br' not 'pt-BR')
     // This ensures resource keys match what we define
     lowerCaseLng: true,
-  });
+    // Suppress locize sponsorship console message (added in i18next v25.8.0+)
+    showSupportNotice: false,
+  } as Record<string, unknown>);
 
   initialized = true;
 }
