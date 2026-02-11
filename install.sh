@@ -104,7 +104,7 @@ EOF
     echo ""
 
     if command -v "$_dir/$BINARY_NAME" > /dev/null 2>&1; then
-        echo "Version: $("$_dir/$BINARY_NAME" --version 2>/dev/null || echo 'unknown')"
+        echo "Version: $("$_dir/$BINARY_NAME" --version < /dev/null 2>/dev/null || echo 'unknown')"
         echo ""
         echo "Get started:"
         echo "  autohand              # Start interactive mode"

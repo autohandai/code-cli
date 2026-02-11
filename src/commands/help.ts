@@ -6,14 +6,19 @@
 import chalk from 'chalk';
 import terminalLink from 'terminal-link';
 import { t } from '../i18n/index.js';
-import { SLASH_COMMANDS } from '../core/slashCommands.js';
 
 /**
  * Help command - shows available commands and tips
  * Dynamically reads from the SLASH_COMMANDS registry so new commands
  * are automatically included.
+ *
+ * Uses dynamic import() for SLASH_COMMANDS to break the circular dependency:
+ *   index.ts → agent.ts → slashCommands.ts → help.ts → slashCommands.ts
+ * This prevents a deadlock during module evaluation in compiled binaries.
  */
 export async function help(): Promise<string | null> {
+    const { SLASH_COMMANDS } = await import('../core/slashCommands.js');
+
     console.log(chalk.cyan(`\n  ${t('commands.help.title')}\n`));
 
     const commands = SLASH_COMMANDS
