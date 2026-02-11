@@ -8,10 +8,14 @@ import fs from 'fs-extra';
 import path from 'path';
 import os from 'os';
 
-const GITHUB_API_URL = 'https://api.github.com/repos/autohandai/code-cli/releases/latest';
-const CACHE_FILE = path.join(os.homedir(), '.autohand', 'version-check.json');
+const GITHUB_REPO = 'autohandai/code-cli';
+const GITHUB_API_LATEST_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
+const GITHUB_API_RELEASES_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=10`;
+const CACHE_DIR = path.join(os.homedir(), '.autohand');
 const DEFAULT_CHECK_INTERVAL_HOURS = 24;
 const REQUEST_TIMEOUT_MS = 3000;
+
+export type ReleaseChannel = 'stable' | 'alpha';
 
 export interface VersionCheckResult {
   currentVersion: string;
@@ -19,6 +23,7 @@ export interface VersionCheckResult {
   isUpToDate: boolean;
   updateAvailable: boolean;
   releaseUrl?: string;
+  channel: ReleaseChannel;
   error?: string;
 }
 
@@ -26,6 +31,21 @@ interface VersionCache {
   lastCheck: string;
   latestVersion: string;
   releaseUrl: string;
+}
+
+/**
+ * Detect release channel from version string.
+ * Versions containing "-alpha." are on the alpha channel.
+ */
+export function detectChannel(version: string): ReleaseChannel {
+  return version.includes('-alpha.') ? 'alpha' : 'stable';
+}
+
+/**
+ * Get the cache file path for a given channel.
+ */
+function getCacheFile(channel: ReleaseChannel): string {
+  return path.join(CACHE_DIR, `version-check-${channel}.json`);
 }
 
 /**
@@ -66,10 +86,11 @@ function compareVersions(a: string, b: string): number {
 /**
  * Read cached version check result
  */
-async function readCache(): Promise<VersionCache | null> {
+async function readCache(channel: ReleaseChannel): Promise<VersionCache | null> {
   try {
-    if (await fs.pathExists(CACHE_FILE)) {
-      const data = await fs.readJson(CACHE_FILE);
+    const cacheFile = getCacheFile(channel);
+    if (await fs.pathExists(cacheFile)) {
+      const data = await fs.readJson(cacheFile);
       return data as VersionCache;
     }
   } catch {
@@ -81,10 +102,11 @@ async function readCache(): Promise<VersionCache | null> {
 /**
  * Write version check result to cache
  */
-async function writeCache(cache: VersionCache): Promise<void> {
+async function writeCache(channel: ReleaseChannel, cache: VersionCache): Promise<void> {
   try {
-    await fs.ensureDir(path.dirname(CACHE_FILE));
-    await fs.writeJson(CACHE_FILE, cache, { spaces: 2 });
+    const cacheFile = getCacheFile(channel);
+    await fs.ensureDir(path.dirname(cacheFile));
+    await fs.writeJson(cacheFile, cache, { spaces: 2 });
   } catch {
     // Ignore cache write errors
   }
@@ -105,14 +127,14 @@ function isCacheValid(cache: VersionCache, intervalHours: number): boolean {
 }
 
 /**
- * Fetch latest release from GitHub API
+ * Fetch latest stable release from GitHub API (uses /releases/latest)
  */
-async function fetchLatestRelease(): Promise<{ version: string; url: string } | null> {
+async function fetchLatestStableRelease(): Promise<{ version: string; url: string } | null> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-    const response = await fetch(GITHUB_API_URL, {
+    const response = await fetch(GITHUB_API_LATEST_URL, {
       headers: {
         'Accept': 'application/vnd.github.v3+json',
         'User-Agent': 'autohand-cli',
@@ -131,13 +153,65 @@ async function fetchLatestRelease(): Promise<{ version: string; url: string } | 
     if (data.tag_name) {
       return {
         version: data.tag_name.replace(/^v/, ''),
-        url: data.html_url || `https://github.com/autohandai/code-cli/releases/tag/${data.tag_name}`,
+        url: data.html_url || `https://github.com/${GITHUB_REPO}/releases/tag/${data.tag_name}`,
       };
     }
   } catch {
     // Network error, timeout, or abort - silently fail
   }
   return null;
+}
+
+/**
+ * Fetch latest alpha (prerelease) from GitHub API
+ */
+async function fetchLatestAlphaRelease(): Promise<{ version: string; url: string } | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    const response = await fetch(GITHUB_API_RELEASES_URL, {
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'autohand-cli',
+      },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const releases = await response.json() as Array<{
+      tag_name?: string;
+      html_url?: string;
+      prerelease?: boolean;
+    }>;
+
+    for (const release of releases) {
+      if (release.prerelease && release.tag_name) {
+        return {
+          version: release.tag_name.replace(/^v/, ''),
+          url: release.html_url || `https://github.com/${GITHUB_REPO}/releases/tag/${release.tag_name}`,
+        };
+      }
+    }
+  } catch {
+    // Network error, timeout, or abort - silently fail
+  }
+  return null;
+}
+
+/**
+ * Get the install command hint for a given channel
+ */
+export function getInstallHint(channel: ReleaseChannel): string {
+  if (channel === 'alpha') {
+    return 'curl -fsSL https://autohand.ai/install.sh | sh -s -- --alpha';
+  }
+  return 'curl -fsSL https://autohand.ai/install.sh | sh';
 }
 
 /**
@@ -159,11 +233,14 @@ export async function checkForUpdates(
     forceCheck = false,
   } = options;
 
+  const channel = detectChannel(currentVersion);
+
   const result: VersionCheckResult = {
     currentVersion,
     latestVersion: null,
     isUpToDate: true,
     updateAvailable: false,
+    channel,
   };
 
   // Skip if disabled via environment variable
@@ -174,7 +251,7 @@ export async function checkForUpdates(
   try {
     // Check cache first (unless forcing)
     if (!forceCheck) {
-      const cache = await readCache();
+      const cache = await readCache(channel);
       if (cache && isCacheValid(cache, checkIntervalHours)) {
         result.latestVersion = cache.latestVersion;
         result.releaseUrl = cache.releaseUrl;
@@ -185,8 +262,10 @@ export async function checkForUpdates(
       }
     }
 
-    // Fetch from GitHub
-    const latest = await fetchLatestRelease();
+    // Fetch from GitHub based on channel
+    const latest = channel === 'alpha'
+      ? await fetchLatestAlphaRelease()
+      : await fetchLatestStableRelease();
 
     if (latest) {
       result.latestVersion = latest.version;
@@ -197,7 +276,7 @@ export async function checkForUpdates(
       result.updateAvailable = comparison < 0;
 
       // Update cache
-      await writeCache({
+      await writeCache(channel, {
         lastCheck: new Date().toISOString(),
         latestVersion: latest.version,
         releaseUrl: latest.url,
@@ -212,12 +291,20 @@ export async function checkForUpdates(
 }
 
 /**
- * Clear the version check cache
+ * Clear the version check cache for all channels
  */
 export async function clearVersionCache(): Promise<void> {
   try {
-    if (await fs.pathExists(CACHE_FILE)) {
-      await fs.remove(CACHE_FILE);
+    for (const channel of ['stable', 'alpha'] as ReleaseChannel[]) {
+      const cacheFile = getCacheFile(channel);
+      if (await fs.pathExists(cacheFile)) {
+        await fs.remove(cacheFile);
+      }
+    }
+    // Also clean up legacy cache file
+    const legacyCacheFile = path.join(CACHE_DIR, 'version-check.json');
+    if (await fs.pathExists(legacyCacheFile)) {
+      await fs.remove(legacyCacheFile);
     }
   } catch {
     // Ignore errors

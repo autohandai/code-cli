@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-      - alpha
-      - beta
   workflow_dispatch:
     inputs:
       version:
@@ -14,11 +12,10 @@ on:
       channel:
         description: 'Release channel'
         required: true
-        default: 'beta'
+        default: 'release'
         type: choice
         options:
           - alpha
-          - beta
           - release
 
 permissions:
@@ -44,13 +41,9 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "channel=${{ github.event.inputs.channel }}" >> $GITHUB_OUTPUT
           elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            echo "channel=release" >> $GITHUB_OUTPUT
-          elif [ "${{ github.ref }}" = "refs/heads/beta" ]; then
-            echo "channel=beta" >> $GITHUB_OUTPUT
-          elif [ "${{ github.ref }}" = "refs/heads/alpha" ]; then
             echo "channel=alpha" >> $GITHUB_OUTPUT
           else
-            echo "channel=beta" >> $GITHUB_OUTPUT
+            echo "channel=alpha" >> $GITHUB_OUTPUT
           fi
 
       - name: Check if should release
@@ -81,34 +74,31 @@ jobs:
         run: |
           CURRENT_VERSION=$(node -p "require('./package.json').version")
           CHANNEL="${{ steps.determine.outputs.channel }}"
+          SHORT_SHA="${GITHUB_SHA::7}"
 
           # Manual version override takes priority
           if [ -n "${{ github.event.inputs.version }}" ]; then
             NEW_VERSION="${{ github.event.inputs.version }}"
             echo "🎯 Using manual version override: ${NEW_VERSION}"
           # For manual trigger without version, use current package.json version
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "$CHANNEL" = "release" ]; then
             NEW_VERSION="${CURRENT_VERSION}"
             echo "🎯 Using existing package.json version: ${NEW_VERSION}"
-          else
-            # Parse semantic version
+          elif [ "$CHANNEL" = "alpha" ]; then
+            # Alpha: bump patch from current version and append -alpha.<sha>
             MAJOR=$(echo $CURRENT_VERSION | cut -d. -f1)
             MINOR=$(echo $CURRENT_VERSION | cut -d. -f2)
             PATCH=$(echo $CURRENT_VERSION | cut -d. -f3 | cut -d- -f1)
-
-            # Always bump patch (use manual version override for minor/major bumps)
             PATCH=$((PATCH + 1))
-
+            NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}-alpha.${SHORT_SHA}"
+            echo "🎯 Alpha version: ${NEW_VERSION}"
+          else
+            # Fallback: bump patch
+            MAJOR=$(echo $CURRENT_VERSION | cut -d. -f1)
+            MINOR=$(echo $CURRENT_VERSION | cut -d. -f2)
+            PATCH=$(echo $CURRENT_VERSION | cut -d. -f3 | cut -d- -f1)
+            PATCH=$((PATCH + 1))
             NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-
-            # Add prerelease tag for non-release channels
-            if [ "$CHANNEL" = "alpha" ]; then
-              BUILD_NUM=$(date +%Y%m%d%H%M%S)
-              NEW_VERSION="${NEW_VERSION}-alpha.${BUILD_NUM}"
-            elif [ "$CHANNEL" = "beta" ]; then
-              BUILD_NUM=$(date +%Y%m%d%H%M)
-              NEW_VERSION="${NEW_VERSION}-beta.${BUILD_NUM}"
-            fi
           fi
 
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
@@ -183,10 +173,20 @@ jobs:
           bun build ./src/index.ts --compile --target=bun-${{ matrix.target }} --outfile ./binaries/${{ matrix.artifact }}
 
       - name: Verify binary
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && !contains(matrix.target, 'arm64') || matrix.os == 'macos-latest' && contains(matrix.target, 'arm64')
         run: |
           chmod +x ./binaries/${{ matrix.artifact }}
           file ./binaries/${{ matrix.artifact }}
+
+      - name: Smoke test binary
+        if: runner.os != 'Windows' && !contains(matrix.target, 'arm64') || matrix.os == 'macos-latest' && contains(matrix.target, 'arm64')
+        run: |
+          echo "Testing --version..."
+          timeout 10 ./binaries/${{ matrix.artifact }} --version < /dev/null
+          echo ""
+          echo "Testing --help..."
+          timeout 10 ./binaries/${{ matrix.artifact }} --help < /dev/null > /dev/null
+          echo "Smoke test passed!"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -213,7 +213,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Update version in package.json
+      - name: Update version in package.json (stable only)
+        if: needs.prepare.outputs.channel == 'release'
         run: |
           bun --version
           VERSION="${{ needs.prepare.outputs.version }}"
@@ -238,7 +239,7 @@ jobs:
       - name: Create archives for ACP registry
         run: |
           cd release-binaries
-          
+
           # Create tar.gz for Unix platforms
           for binary in autohand-macos-arm64 autohand-macos-x64 autohand-linux-x64 autohand-linux-arm64; do
             if [ -f "$binary" ]; then
@@ -249,7 +250,7 @@ jobs:
               echo "Created ${binary}.tar.gz"
             fi
           done
-          
+
           # Create zip for Windows
           if [ -f "autohand-windows-x64.exe" ]; then
             cp autohand-windows-x64.exe autohand.exe
@@ -257,7 +258,7 @@ jobs:
             rm autohand.exe
             echo "Created autohand-windows-x64.zip"
           fi
-          
+
           ls -lh *.tar.gz *.zip 2>/dev/null || true
 
       - name: Generate changelog
@@ -265,10 +266,12 @@ jobs:
         uses: actions/github-script@v7
         env:
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASE_CHANNEL: ${{ needs.prepare.outputs.channel }}
         with:
           script: |
             const { execSync } = require('child_process');
             const version = process.env.RELEASE_VERSION;
+            const channel = process.env.RELEASE_CHANNEL;
 
             // Get commits since last tag
             let commits;
@@ -323,6 +326,11 @@ jobs:
             // Build a friendly changelog
             let changelog = '';
 
+            // Channel badge for alpha
+            if (channel === 'alpha') {
+              changelog += '> **Alpha Release** — This is a pre-release build from the latest `main` branch. It may contain bugs or incomplete features.\n\n';
+            }
+
             // Intro
             if (lastTag) {
               changelog += `Hey there! We've been busy making Autohand better. Here's what's new since ${lastTag}:\n\n`;
@@ -374,10 +382,19 @@ jobs:
             const cb = '`' + '`' + '`';
             changelog += '---\n\n';
             changelog += '### Get it\n\n';
-            changelog += '**Quickest way:**\n';
-            changelog += cb + 'bash\ncurl -fsSL https://autohand.ai/install.sh | sh\n' + cb + '\n\n';
-            changelog += '**Via npm or bun:**\n';
-            changelog += cb + 'bash\nnpm install -g autohand-cli\n' + cb + '\n\n';
+
+            if (channel === 'alpha') {
+              changelog += '**Install this alpha build:**\n';
+              changelog += cb + 'bash\ncurl -fsSL https://autohand.ai/install.sh | sh -s -- --alpha\n' + cb + '\n\n';
+              changelog += '**Or install the latest stable release:**\n';
+              changelog += cb + 'bash\ncurl -fsSL https://autohand.ai/install.sh | sh\n' + cb + '\n\n';
+            } else {
+              changelog += '**Quickest way:**\n';
+              changelog += cb + 'bash\ncurl -fsSL https://autohand.ai/install.sh | sh\n' + cb + '\n\n';
+              changelog += '**Via npm or bun:**\n';
+              changelog += cb + 'bash\nnpm install -g autohand-cli\n' + cb + '\n\n';
+            }
+
             changelog += '**Or grab a binary below** for your platform.\n\n';
             changelog += '| Platform | Architecture | Binary |\n';
             changelog += '|----------|--------------|--------|\n';
@@ -394,7 +411,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.prepare.outputs.version }}
-          name: ${{ needs.prepare.outputs.channel == 'release' && format('Release v{0}', needs.prepare.outputs.version) || format('{0} v{1}', needs.prepare.outputs.channel, needs.prepare.outputs.version) }}
+          name: ${{ needs.prepare.outputs.channel == 'release' && format('Release v{0}', needs.prepare.outputs.version) || format('Alpha v{0}', needs.prepare.outputs.version) }}
           body: ${{ steps.changelog.outputs.changelog }}
           files: |
             release-binaries/*

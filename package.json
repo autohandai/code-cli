@@ -20,7 +20,7 @@
     "dist"
   ],
   "scripts": {
-    "postinstall": "node scripts/fix-ansi-styles.js || true && node scripts/fix-ink-devtools.js || true",
+    "postinstall": "node scripts/fix-ansi-styles.js || true && node scripts/fix-ink-devtools.js || true && node scripts/fix-yoga-wasm.js || true",
     "go": "bun run build && ./install-local.sh && echo \"COMPLETED\"",
     "build": "tsup",
     "dev": "bun src/index.ts",
