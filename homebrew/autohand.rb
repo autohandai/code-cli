@@ -4,7 +4,7 @@
 class Autohand < Formula
   desc "Autonomous LLM-powered coding agent CLI"
   homepage "https://autohand.ai"
-  url "https://registry.npmjs.org/autohand-cli/-/autohand-cli-0.7.13.tgz"
+  url "https://registry.npmjs.org/autohand-cli/-/autohand-cli-0.7.14.tgz"
   sha256 "PLACEHOLDER"
   license "Apache-2.0"
 
