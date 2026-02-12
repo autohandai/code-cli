@@ -31,8 +31,14 @@ Autohand now works seamlessly as part of Unix pipelines. When stdin is not a TTY
 Pipe mode sends piped content together with your instruction to the LLM. The final result is written to stdout, while errors and progress go to stderr. This keeps the output stream clean for downstream consumers.
 
 ```bash
-# Explain a diff
+# Explain a diff (positional argument)
 git diff | autohand 'explain these changes'
+
+# Same thing with -p flag
+git diff | autohand -p 'explain these changes'
+
+# Positional argument without pipe
+autohand 'refactor this file' --path src/foo.ts
 
 # Review code from a file
 cat src/auth.ts | autohand 'review this code for security issues'
