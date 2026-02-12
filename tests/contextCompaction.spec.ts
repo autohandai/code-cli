@@ -44,40 +44,40 @@ describe('Context Compaction', () => {
       });
     });
 
-    it('should return messages without cropping when usage is low', () => {
+    it('should return messages without cropping when usage is low', async () => {
       // Add a few short messages
       conversationManager.addMessage({ role: 'user', content: 'Hello' });
       conversationManager.addMessage({ role: 'assistant', content: 'Hi there!' });
 
-      const result = contextManager.prepareRequest(mockTools);
+      const result = await contextManager.prepareRequest(mockTools);
 
       expect(result.wasCropped).toBe(false);
       expect(result.croppedCount).toBe(0);
       expect(result.messages.length).toBeGreaterThan(0);
     });
 
-    it('should preserve system prompts during cropping', () => {
+    it('should preserve system prompts during cropping', async () => {
       // Add system message and many other messages
       for (let i = 0; i < 50; i++) {
         conversationManager.addMessage(createMessage('user', 100));
         conversationManager.addMessage(createMessage('assistant', 100));
       }
 
-      const result = contextManager.prepareRequest(mockTools);
+      const result = await contextManager.prepareRequest(mockTools);
 
       // System message should always be present
       const hasSystem = result.messages.some((m) => m.role === 'system');
       expect(hasSystem).toBe(true);
     });
 
-    it('should preserve recent messages during cropping', () => {
+    it('should preserve recent messages during cropping', async () => {
       // Add many messages to trigger cropping
       for (let i = 0; i < 50; i++) {
         conversationManager.addMessage({ role: 'user', content: `Message ${i}` });
         conversationManager.addMessage({ role: 'assistant', content: `Response ${i}` });
       }
 
-      const result = contextManager.prepareRequest(mockTools);
+      const result = await contextManager.prepareRequest(mockTools);
 
       // The most recent user message should be preserved
       const lastUserMessage = result.messages
@@ -86,7 +86,7 @@ describe('Context Compaction', () => {
       expect(lastUserMessage?.content).toContain('Message 49');
     });
 
-    it('should call onCrop callback when cropping occurs', () => {
+    it('should call onCrop callback when cropping occurs', async () => {
       const onCrop = vi.fn();
       const onWarning = vi.fn();
 
@@ -104,7 +104,7 @@ describe('Context Compaction', () => {
         conversationManager.addMessage(createMessage('tool', 1000));
       }
 
-      manager.prepareRequest(mockTools);
+      await manager.prepareRequest(mockTools);
 
       // Callbacks should be called during tiered compression
       // (may or may not be called depending on actual token counts)

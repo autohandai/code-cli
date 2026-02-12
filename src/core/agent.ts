@@ -16,6 +16,7 @@ import { saveConfig, getProviderConfig } from '../config.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import { ProviderNotConfiguredError } from '../providers/ProviderFactory.js';
 import { readInstruction, safeEmitKeypressEvents } from '../ui/inputPrompt.js';
+import { isShellCommand, parseShellCommand, executeShellCommand } from '../ui/shellCommand.js';
 import { showFilePalette } from '../ui/filePalette.js';
 import { createInkRenderer } from '../ui/ink/InkRenderer.js';
 import { showQuestionModal } from '../ui/questionModal.js';
@@ -177,6 +178,8 @@ export class AutohandAgent {
     this.contextManager = new ContextManager({
       model,
       conversationManager: this.conversation,
+      llm: this.llm,
+      memoryManager: this.memoryManager,
       onCrop: (count, reason) => {
         if (this.contextCompactionEnabled) {
           console.log(chalk.cyan(`ℹ Context optimized: ${reason}`));
@@ -967,6 +970,19 @@ If lint or tests fail, report the issues but do NOT commit.`;
           continue;
         }
 
+        // Handle ! shell commands locally (never send to LLM)
+        if (isShellCommand(instruction)) {
+          const shellCmd = parseShellCommand(instruction);
+          console.log(chalk.gray(`\n$ ${shellCmd}`));
+          const result = executeShellCommand(shellCmd, this.runtime.workspaceRoot);
+          if (result.success) {
+            if (result.output) console.log(result.output);
+          } else {
+            console.log(chalk.red(result.error || 'Command failed'));
+          }
+          continue;
+        }
+
         // Ensure background init is complete before processing any instruction.
         // This runs while the user was typing, so it's usually already done.
         await this.ensureInitComplete();
@@ -1753,7 +1769,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       if (this.contextCompactionEnabled) {
         // Use tiered context management (70% compress, 80% summarize, 90%+ crop)
         this.contextManager.setModel(model);
-        const prepared = this.contextManager.prepareRequest(tools);
+        const prepared = await this.contextManager.prepareRequest(tools);
 
         if (prepared.wasCropped) {
           this.runtime.spinner?.stop();
@@ -1782,7 +1798,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
           const removed = this.conversation.cropHistory('top', messagesToRemove);
           if (removed.length > 0) {
             // Generate a summary of what was removed
-            const summary = this.summarizeRemovedMessages(removed);
+            const summary = await this.summarizeRemovedMessages(removed);
             this.conversation.addSystemNote(
               `[Context Management] ${removed.length} older messages were summarized to maintain context limits.\n` +
               `Summary of removed content:\n${summary}`
@@ -1841,7 +1857,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
           const removed = this.conversation.cropHistory('top', targetRemove);
 
           if (removed.length > 0) {
-            const summary = this.summarizeRemovedMessages(removed);
+            const summary = await this.summarizeRemovedMessages(removed);
             this.conversation.addSystemNote(
               `[Auto-Recovery] ${removed.length} messages compacted after context overflow.\n` +
               `Summary: ${summary}`
@@ -1878,6 +1894,17 @@ If lint or tests fail, report the issues but do NOT commit.`;
         console.log(chalk.yellow(`  - thought: ${payload.thought?.slice(0, 100) || '(none)'}`));
         console.log(chalk.yellow(`  - finalResponse: ${payload.finalResponse?.slice(0, 100) || '(none)'}`));
         console.log(chalk.yellow(`  - raw content: ${completion.content?.slice(0, 200) || '(empty)'}`));
+        console.log(chalk.yellow(`  - finishReason: ${completion.finishReason ?? '(none)'}`));
+      }
+
+      // Detect truncated responses — some models silently cut off at max_tokens
+      if (completion.finishReason === 'length' && !payload.finalResponse) {
+        if (debugMode) process.stderr.write(`[AGENT DEBUG] Response truncated (finishReason=length), asking model to continue\n`);
+        this.conversation.addSystemNote(
+          '[System] Your previous response was truncated due to output length limits. ' +
+          'Please continue from where you left off. If you were making a tool call, retry it.'
+        );
+        continue;
       }
 
       // Show what the LLM is doing for visibility
@@ -1962,6 +1989,20 @@ If lint or tests fail, report the issues but do NOT commit.`;
           // Add batched tool output (with thought shown before tools)
           const charLimit = this.runtime.config.ui?.readFileCharLimit ?? 300;
           outputLines.push(formatToolResultsBatch(results, charLimit, otherCalls, thought));
+
+          // Detect when ALL tool calls were denied by the user
+          const allDenied = results.length > 0 && results.every(r =>
+            !r.success && (r.output === 'Tool execution skipped by user.' || r.error === 'Tool execution skipped by user.')
+          );
+          if (allDenied) {
+            const deniedTools = results.map(r => r.tool).join(', ');
+            this.conversation.addSystemNote(
+              `[IMPORTANT] The user has explicitly declined the following tool call(s): ${deniedTools}. ` +
+              `Do NOT retry the same tool(s) with the same arguments. The user said "No". ` +
+              `Instead, ask the user how they would like to proceed, or suggest an alternative approach. ` +
+              `If there is nothing else to do, provide your final response.`
+            );
+          }
         }
 
         // Output tool results
@@ -2121,9 +2162,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
         response = payload.thought.trim();
       }
 
-      // If response is empty and we've done work (iteration > 0), try to get a proper response
-      // But limit retries to prevent infinite loops
-      if (!response && iteration > 0) {
+      // If response is empty, try to get a proper response
+      // This applies on any iteration (including 0) to prevent silent exit on parse failure
+      if (!response) {
         // Track consecutive empty responses to prevent infinite loops
         const consecutiveEmptyKey = '__consecutiveEmpty';
         const consecutiveEmpty = ((this as any)[consecutiveEmptyKey] ?? 0) + 1;
@@ -2187,9 +2228,47 @@ If lint or tests fail, report the issues but do NOT commit.`;
     this.stopStatusUpdates();
     this.runtime.spinner?.stop();
     console.log(chalk.yellow(`\n⚠ Task exceeded ${maxIterations} tool iterations without completing.`));
-    console.log(chalk.gray('This usually means the task is too complex for a single turn.'));
-    console.log(chalk.gray('Try breaking it into smaller steps or use /new to start fresh.'));
-    throw new Error(`Reached maximum iterations (${maxIterations}) while processing. Try a simpler request or break the task into smaller steps.`);
+
+    // Try to get a final summary from the LLM instead of hard-throwing
+    try {
+      this.conversation.addSystemNote(
+        '[System] You have used all available iterations. Provide a final summary of what was accomplished and what remains to be done. Do not call any more tools.'
+      );
+
+      const summaryCompletion = await this.llm.complete({
+        messages: this.conversation.history(),
+        temperature: 0.2,
+        model: this.runtime.options.model,
+        maxTokens: 2000,
+      });
+
+      const summaryResponse = summaryCompletion.content?.trim();
+      if (summaryResponse) {
+        if (this.inkRenderer) {
+          this.inkRenderer.setWorking(false);
+          this.inkRenderer.setFinalResponse(summaryResponse);
+        } else {
+          console.log(summaryResponse);
+        }
+        this.emitOutput({ type: 'message', content: summaryResponse });
+        return;
+      }
+    } catch {
+      // Summary call failed — fall through to static summary
+    }
+
+    // Last resort: show a static summary of what was accomplished
+    const staticSummary = await this.contextManager.summarizeWithLLM(
+      this.conversation.history().slice(1) // skip system prompt
+    );
+    const fallbackMsg = `Task did not complete within ${maxIterations} iterations.\n\nProgress summary:\n${staticSummary}`;
+    if (this.inkRenderer) {
+      this.inkRenderer.setWorking(false);
+      this.inkRenderer.setFinalResponse(fallbackMsg);
+    } else {
+      console.log(chalk.gray(fallbackMsg));
+    }
+    this.emitOutput({ type: 'message', content: fallbackMsg });
   }
 
   /**
@@ -2252,49 +2331,86 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Extract tool calls from <tool_call> XML tags in text content.
    * Some models output tool calls as:
    *   <tool_call>{"name": "write_file", "arguments": {"path": "...", "contents": "..."}}</tool_call>
+   *
+   * Handles edge cases:
+   * - Multiple tool calls in one response
+   * - Truncated/retried tool calls (LLM outputs a partial <tool_call> then restarts)
+   * - Unclosed <tool_call> tags (no </tool_call>)
    */
   private extractXmlToolCalls(content: string): ToolCallRequest[] {
     if (!content?.includes('<tool_call>')) return [];
 
     const calls: ToolCallRequest[] = [];
-    const regex = /<tool_call>([\s\S]*?)<\/tool_call>/g;
+
+    // Phase 1: Match closed <tool_call>...</tool_call> pairs
+    const closedRegex = /<tool_call>([\s\S]*?)<\/tool_call>/g;
     let match;
 
-    while ((match = regex.exec(content)) !== null) {
-      try {
-        const parsed = JSON.parse(match[1].trim());
-        const name = parsed.name || parsed.tool;
-        if (!name) continue;
+    while ((match = closedRegex.exec(content)) !== null) {
+      let inner = match[1].trim();
 
-        // Arguments can be in "arguments" or "args" field, or at top level
-        let args = parsed.arguments || parsed.args;
-        if (!args || typeof args !== 'object') {
-          // Try top-level keys (excluding name/tool/id)
-          const topLevel: Record<string, unknown> = {};
-          for (const [key, value] of Object.entries(parsed)) {
-            if (!['name', 'tool', 'id', 'arguments', 'args'].includes(key)) {
-              topLevel[key] = value;
-            }
-          }
-          if (Object.keys(topLevel).length > 0) args = topLevel;
+      // Handle retried output: if inner contains another <tool_call>,
+      // the LLM retried mid-stream. Take content after the last tag.
+      const lastTagIdx = inner.lastIndexOf('<tool_call>');
+      if (lastTagIdx !== -1) {
+        inner = inner.substring(lastTagIdx + '<tool_call>'.length).trim();
+      }
+
+      const parsed = this.tryParseXmlToolCall(inner);
+      if (parsed) calls.push(parsed);
+    }
+
+    // Phase 2: Handle unclosed <tool_call> at end of content (no </tool_call>)
+    if (calls.length === 0) {
+      const lastOpen = content.lastIndexOf('<tool_call>');
+      if (lastOpen !== -1) {
+        const remaining = content.substring(lastOpen + '<tool_call>'.length).trim();
+        // Only attempt if there's JSON-like content
+        if (remaining.startsWith('{')) {
+          const parsed = this.tryParseXmlToolCall(remaining);
+          if (parsed) calls.push(parsed);
         }
-
-        // If arguments is a string (double-encoded JSON), parse it
-        if (typeof args === 'string') {
-          try { args = JSON.parse(args); } catch { /* keep as-is */ }
-        }
-
-        calls.push({
-          id: parsed.id || randomUUID(),
-          tool: name as AgentAction['type'],
-          args
-        });
-      } catch {
-        // Skip malformed tool call blocks
       }
     }
 
     return calls;
+  }
+
+  /**
+   * Try to parse a single tool call from JSON content extracted from a <tool_call> block.
+   */
+  private tryParseXmlToolCall(json: string): ToolCallRequest | null {
+    try {
+      const parsed = JSON.parse(json);
+      const name = parsed.name || parsed.tool;
+      if (!name) return null;
+
+      // Arguments can be in "arguments" or "args" field, or at top level
+      let args = parsed.arguments || parsed.args;
+      if (!args || typeof args !== 'object') {
+        // Try top-level keys (excluding name/tool/id)
+        const topLevel: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(parsed)) {
+          if (!['name', 'tool', 'id', 'arguments', 'args'].includes(key)) {
+            topLevel[key] = value;
+          }
+        }
+        if (Object.keys(topLevel).length > 0) args = topLevel;
+      }
+
+      // If arguments is a string (double-encoded JSON), parse it
+      if (typeof args === 'string') {
+        try { args = JSON.parse(args); } catch { /* keep as-is */ }
+      }
+
+      return {
+        id: parsed.id || randomUUID(),
+        tool: name as AgentAction['type'],
+        args
+      };
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -2967,62 +3083,12 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   /**
-   * Generate a concise summary of removed messages
-   * This helps the LLM understand what context was lost
+   * Generate a concise summary of removed messages using LLM-powered summarization.
+   * Delegates to ContextManager.summarizeWithLLM for rich summaries,
+   * falling back to static extraction if LLM is unavailable.
    */
-  private summarizeRemovedMessages(messages: LLMMessage[]): string {
-    const summaryParts: string[] = [];
-    const toolsUsed = new Set<string>();
-    const filesDiscussed = new Set<string>();
-
-    for (const msg of messages) {
-      const content = msg.content ?? '';
-
-      // Track tools used
-      if (msg.tool_calls) {
-        for (const call of msg.tool_calls) {
-          toolsUsed.add(call.function.name);
-        }
-      }
-      if (msg.role === 'tool' && msg.name) {
-        toolsUsed.add(msg.name);
-      }
-
-      // Extract file paths mentioned
-      const pathMatches = content.match(/(?:\/[\w.-]+)+(?:\/[\w.-]+)*\.\w+/g);
-      if (pathMatches) {
-        for (const p of pathMatches.slice(0, 5)) {
-          filesDiscussed.add(p);
-        }
-      }
-
-      // Create brief summary for each message
-      if (msg.role === 'user') {
-        const preview = content.slice(0, 100).replace(/\n/g, ' ');
-        summaryParts.push(`- User: ${preview}${content.length > 100 ? '...' : ''}`);
-      } else if (msg.role === 'assistant' && content) {
-        const preview = content.slice(0, 100).replace(/\n/g, ' ');
-        summaryParts.push(`- Assistant: ${preview}${content.length > 100 ? '...' : ''}`);
-      }
-    }
-
-    // Build final summary
-    const parts: string[] = [];
-
-    if (toolsUsed.size > 0) {
-      parts.push(`Tools used: ${[...toolsUsed].join(', ')}`);
-    }
-    if (filesDiscussed.size > 0) {
-      parts.push(`Files discussed: ${[...filesDiscussed].slice(0, 5).join(', ')}`);
-    }
-    if (summaryParts.length > 0) {
-      parts.push(`Conversation:\n${summaryParts.slice(0, 5).join('\n')}`);
-      if (summaryParts.length > 5) {
-        parts.push(`... and ${summaryParts.length - 5} more messages`);
-      }
-    }
-
-    return parts.join('\n') || 'No significant content to summarize';
+  private async summarizeRemovedMessages(messages: LLMMessage[]): Promise<string> {
+    return this.contextManager.summarizeWithLLM(messages);
   }
 
   private flushMentionContexts(): { block: string; files: string[] } | null {
