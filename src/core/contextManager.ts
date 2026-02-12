@@ -8,6 +8,8 @@
  * Inspired by Claude Code's "unlimited context through automatic summarization".
  */
 import type { LLMMessage, FunctionDefinition, MessagePriority, MessageMetadata } from '../types.js';
+import type { LLMProvider } from '../providers/LLMProvider.js';
+import type { MemoryManager } from '../memory/MemoryManager.js';
 import {
   calculateContextUsage,
   estimateMessageTokens,
@@ -25,6 +27,10 @@ export interface ContextManagerOptions {
   model: string;
   /** Conversation manager instance */
   conversationManager: ConversationManager;
+  /** LLM provider for intelligent summarization */
+  llm?: LLMProvider;
+  /** Memory manager for persisting key facts during summarization */
+  memoryManager?: MemoryManager;
   /** Callback when context is cropped */
   onCrop?: (croppedCount: number, reason: string) => void;
   /** Callback when approaching warning threshold */
@@ -53,6 +59,8 @@ export interface PrepareRequestResult {
 export class ContextManager {
   private model: string;
   private conversationManager: ConversationManager;
+  private llm?: LLMProvider;
+  private memoryManager?: MemoryManager;
   private onCrop?: (croppedCount: number, reason: string) => void;
   private onWarning?: (usage: ContextUsage) => void;
   private lastWarningUsage = 0;
@@ -60,6 +68,8 @@ export class ContextManager {
   constructor(options: ContextManagerOptions) {
     this.model = options.model;
     this.conversationManager = options.conversationManager;
+    this.llm = options.llm;
+    this.memoryManager = options.memoryManager;
     this.onCrop = options.onCrop;
     this.onWarning = options.onWarning;
   }
@@ -91,7 +101,7 @@ export class ContextManager {
    * - 80%: Summarize older conversation turns
    * - 90%: Aggressive cropping with priority-based selection
    */
-  prepareRequest(tools: FunctionDefinition[]): PrepareRequestResult {
+  async prepareRequest(tools: FunctionDefinition[]): Promise<PrepareRequestResult> {
     let messages = this.conversationManager.history();
     let usage = calculateContextUsage(messages, tools, this.model);
     let wasCropped = false;
@@ -107,9 +117,9 @@ export class ContextManager {
       }
     }
 
-    // Tier 2: At 80%+, summarize older turns
+    // Tier 2: At 80%+, summarize older turns with LLM-powered summarization
     if (usage.usagePercent >= SUMMARIZATION_THRESHOLD && !usage.isCritical) {
-      const summarized = this.summarizeOlderTurns(tools);
+      const summarized = await this.summarizeOlderTurns(tools);
       if (summarized > 0) {
         messages = this.conversationManager.history();
         usage = calculateContextUsage(messages, tools, this.model);
@@ -126,7 +136,7 @@ export class ContextManager {
 
     // Tier 3: At 90%+ (critical), aggressive priority-based cropping
     if (usage.isCritical || usage.isExceeded) {
-      const result = this.autoCrop(tools, usage);
+      const result = await this.autoCrop(tools, usage);
       messages = result.messages;
       usage = result.usage;
       wasCropped = result.croppedCount > 0;
@@ -172,10 +182,10 @@ export class ContextManager {
 
   /**
    * Summarize older conversation turns (Tier 2: 80%+)
-   * Keeps recent turns, summarizes older ones
+   * Keeps recent turns, summarizes older ones using LLM when available
    * Returns number of messages summarized
    */
-  private summarizeOlderTurns(_tools: FunctionDefinition[]): number {
+  private async summarizeOlderTurns(_tools: FunctionDefinition[]): Promise<number> {
     const messages = this.conversationManager.history();
 
     // Keep system prompt + last N turns (approximately 10 messages)
@@ -190,8 +200,8 @@ export class ContextManager {
       return 0;  // Not worth summarizing
     }
 
-    // Create summary of older messages
-    const summary = summarizeMessages(toSummarize);
+    // Use LLM-powered summarization when available, fall back to static
+    const summary = await this.summarizeWithLLM(toSummarize);
 
     // Remove the old messages and add summary
     const removed = this.conversationManager.cropHistory('top', toSummarize.length);
@@ -209,10 +219,10 @@ export class ContextManager {
    * Automatically crop conversation to fit within limits (Tier 3: 90%+)
    * Uses priority-based selection to remove low-priority messages first
    */
-  private autoCrop(
+  private async autoCrop(
     tools: FunctionDefinition[],
     currentUsage: ContextUsage
-  ): { messages: LLMMessage[]; usage: ContextUsage; croppedCount: number; summary?: string } {
+  ): Promise<{ messages: LLMMessage[]; usage: ContextUsage; croppedCount: number; summary?: string }> {
     // Target 65% usage after aggressive cropping (more headroom than normal)
     const targetUsage = 0.65;
     const targetTokens = Math.floor(currentUsage.contextWindow * targetUsage);
@@ -272,8 +282,8 @@ export class ContextManager {
     // Collect messages before removal for summary
     const removedMessages = toRemoveIndices.map(i => messages[i]);
 
-    // Create intelligent summary
-    const summary = summarizeMessages(removedMessages);
+    // Create intelligent summary using LLM when available
+    const summary = await this.summarizeWithLLM(removedMessages);
 
     // Sort indices descending to remove from end first (preserves indices)
     toRemoveIndices.sort((a, b) => b - a);
@@ -299,6 +309,93 @@ export class ContextManager {
       croppedCount: removeCount,
       summary
     };
+  }
+
+  /**
+   * Summarize messages using the LLM for rich, context-preserving summaries.
+   * Falls back to static summarization if LLM is unavailable or fails.
+   */
+  async summarizeWithLLM(messages: LLMMessage[]): Promise<string> {
+    if (!this.llm || messages.length === 0) {
+      return summarizeMessagesStatic(messages);
+    }
+
+    try {
+      // Build a compact representation of the messages for the summarization prompt
+      const messageSnippets = messages.map(msg => {
+        const role = msg.role;
+        const content = (msg.content ?? '').slice(0, 300);
+        const toolInfo = msg.tool_calls?.map(tc => tc.function.name).join(', ') ?? '';
+        const toolName = msg.name ? ` (${msg.name})` : '';
+        return `[${role}${toolName}]${toolInfo ? ` tools: ${toolInfo}` : ''} ${content}${(msg.content?.length ?? 0) > 300 ? '...' : ''}`;
+      }).join('\n');
+
+      const summarizationPrompt = [
+        'Summarize the following conversation for context preservation. Include:',
+        '1. The user\'s original request and intent',
+        '2. What has been accomplished so far (files created/modified, commands run)',
+        '3. What remains to be done',
+        '4. Any key decisions or constraints discovered',
+        '5. Any user preferences or project-relevant points worth remembering',
+        '',
+        'Keep it concise (under 500 words). This summary replaces the removed messages.',
+        '',
+        '--- Conversation ---',
+        messageSnippets,
+      ].join('\n');
+
+      const response = await this.llm.complete({
+        messages: [
+          { role: 'system', content: 'You are a context summarization assistant. Produce concise, factual summaries that preserve task continuity.' },
+          { role: 'user', content: summarizationPrompt },
+        ],
+        temperature: 0.1,
+        maxTokens: 1000,
+      });
+
+      const summaryText = response.content?.trim();
+      if (!summaryText) {
+        return summarizeMessagesStatic(messages);
+      }
+
+      // Persist key facts to memory if MemoryManager is available
+      if (this.memoryManager) {
+        await this.persistKeyFacts(summaryText).catch(() => {
+          // Silently ignore memory persistence failures
+        });
+      }
+
+      return `[LLM Context Summary - ${messages.length} messages condensed]\n${summaryText}`;
+    } catch {
+      // LLM call failed — fall back to static summarization
+      return summarizeMessagesStatic(messages);
+    }
+  }
+
+  /**
+   * Extract and persist key facts from a summary to project memory.
+   */
+  private async persistKeyFacts(summary: string): Promise<void> {
+    if (!this.memoryManager) return;
+
+    // Extract lines that look like key facts/decisions/preferences
+    const factPatterns = [
+      /(?:chose|decided|selected|using|preference|prefer)\s+.{10,100}/gi,
+      /(?:constraint|requirement|must|should)\s+.{10,100}/gi,
+    ];
+
+    const facts = new Set<string>();
+    for (const pattern of factPatterns) {
+      let match;
+      while ((match = pattern.exec(summary)) !== null) {
+        facts.add(match[0].trim());
+      }
+    }
+
+    // Store each unique fact as project-level memory
+    for (const fact of [...facts].slice(0, 5)) {
+      await this.memoryManager.store(fact, 'project', ['context-summary'], 'context-summarization');
+    }
   }
 
   /**
@@ -528,9 +625,10 @@ export function compressToolOutput(message: LLMMessage, maxLength = 500): LLMMes
 }
 
 /**
- * Create a summary of multiple messages for context preservation
+ * Create a summary of multiple messages for context preservation (static/fallback version).
+ * Use ContextManager.summarizeWithLLM() for richer LLM-powered summaries.
  */
-export function summarizeMessages(messages: LLMMessage[]): string {
+export function summarizeMessagesStatic(messages: LLMMessage[]): string {
   const files = new Set<string>();
   const tools = new Set<string>();
   const decisions: string[] = [];
@@ -623,3 +721,9 @@ export function sortMessagesByPriority(messages: LLMMessage[]): number[] {
 
   return indices.map(i => i.index);
 }
+
+/**
+ * Backward-compatible alias for summarizeMessagesStatic.
+ * @deprecated Use summarizeMessagesStatic or ContextManager.summarizeWithLLM instead.
+ */
+export const summarizeMessages = summarizeMessagesStatic;

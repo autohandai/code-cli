@@ -3,7 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { AutohandAgent } from '../src/core/agent.js';
 
 /**
@@ -156,6 +156,58 @@ describe('XML <tool_call> parsing', () => {
       expect(calls).toHaveLength(1);
       expect(calls[0].id).toBe('call_abc123');
     });
+
+    it('should handle truncated first <tool_call> followed by complete retry', () => {
+      // Real-world bug: LLM starts a tool call, gets cut off mid-JSON,
+      // then retries with a complete tool call. The first <tool_call> has no </tool_call>.
+      const content = [
+        '<tool_call>{"name": "write_file", "arguments": {"contents":"import React from \\u0027r',
+        '<tool_call>{"name": "write_file", "arguments": {"contents": "full content", "path": "src/SearchBar.tsx"}}</tool_call>',
+      ].join('\n');
+
+      const calls = extractXmlToolCalls(content);
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0].tool).toBe('write_file');
+      expect(calls[0].args.path).toBe('src/SearchBar.tsx');
+      expect(calls[0].args.contents).toBe('full content');
+    });
+
+    it('should handle unclosed <tool_call> at end of content (no </tool_call>)', () => {
+      // Some models never close the tag
+      const content = `Some text\n<tool_call>\n{"name": "write_file", "arguments": {"path": "app.ts", "contents": "hello"}}`;
+
+      const calls = extractXmlToolCalls(content);
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0].tool).toBe('write_file');
+      expect(calls[0].args.path).toBe('app.ts');
+    });
+
+    it('should handle newline between <tool_call> tag and JSON', () => {
+      const content = `<tool_call>\n{"name": "read_file", "arguments": {"path": "test.ts"}}\n</tool_call>`;
+
+      const calls = extractXmlToolCalls(content);
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0].tool).toBe('read_file');
+    });
+
+    it('should handle the exact real-world pattern from debug output', () => {
+      // Exact pattern from the bug report: truncated first block + complete second block
+      const content = `<tool_call>
+{"name": "write_file", "arguments": {"contents":"import React, { useState } from \\u0027react\\u0027\\nimport { SearchFilters } from \\u0027../types\\u0027\\nimport { samplePies } f
+<tool_call>
+{"name": "write_file", "arguments": {"contents":"import React, { useState } from \\u0027react\\u0027\\n\\nexport function SearchBar() {\\n  return \\u003cdiv\\u003eSearch\\u003c/div\\u003e\\n}", "path":"src/components/SearchBar.tsx"}}
+</tool_call>`;
+
+      const calls = extractXmlToolCalls(content);
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0].tool).toBe('write_file');
+      expect(calls[0].args.path).toBe('src/components/SearchBar.tsx');
+      expect(calls[0].args.contents).toContain('SearchBar');
+    });
   });
 
   describe('parseAssistantResponse with XML tool calls', () => {
@@ -195,7 +247,7 @@ describe('XML <tool_call> parsing', () => {
       (agent as any).parseAssistantReactPayload = (content: string) => ({
         finalResponse: content
       });
-      (agent as any).extractJson = (raw: string) => null;
+      (agent as any).extractJson = (_raw: string) => null;
 
       const completion = {
         content: 'Hello, how can I help?',
