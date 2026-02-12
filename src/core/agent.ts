@@ -1095,7 +1095,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
             errorType: 'interactive_loop_error',
             model: this.runtime.options.model ?? getProviderConfig(this.runtime.config, this.activeProvider)?.model,
             provider: this.activeProvider,
-            sessionId: this.sessionManager.getCurrentSession()?.id,
+            sessionId: this.sessionManager.getCurrentSession()?.metadata.sessionId,
             conversationLength: this.conversation.history().length,
             contextUsagePercent: Math.round((1 - this.contextPercentLeft / 100) * 100),
           }).catch(() => {});
@@ -3722,7 +3722,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         errorType: 'session_failure',
         model,
         provider: this.activeProvider,
-        sessionId: this.sessionManager.getCurrentSession()?.id,
+        sessionId: this.sessionManager.getCurrentSession()?.metadata.sessionId,
         conversationLength: history.length,
         lastToolCalls: recentToolCalls,
         contextUsagePercent: Math.round((1 - this.contextPercentLeft / 100) * 100),
