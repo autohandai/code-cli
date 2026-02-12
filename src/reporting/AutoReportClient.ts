@@ -9,7 +9,6 @@
 import crypto from 'node:crypto';
 import fs from 'fs-extra';
 import os from 'node:os';
-import path from 'node:path';
 import type { ErrorReport, ErrorReportPayload, ReportResponse } from './types.js';
 import { AUTOHAND_FILES } from '../constants.js';
 import packageJson from '../../package.json' with { type: 'json' };

@@ -286,9 +286,11 @@ describe('Built-in Hooks', () => {
 
   describe('Git Auto-Stage Script', () => {
     test('should exit 0 outside git repository', async () => {
+      // Use GIT_CEILING_DIRECTORIES to prevent git from finding a parent repo
       const result = await runHookScript(GIT_AUTO_STAGE_SCRIPT, {
         HOOK_PATH: path.join(TEST_DIR, 'test.ts'),
         HOOK_CHANGE_TYPE: 'modify',
+        GIT_CEILING_DIRECTORIES: TEST_DIR,
       });
       expect(result.exitCode).toBe(0);
     });
