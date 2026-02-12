@@ -93,6 +93,7 @@ import {
 } from './agent/AgentFormatter.js';
 import { WorkspaceFileCollector } from './agent/WorkspaceFileCollector.js';
 import { ProviderConfigManager } from './agent/ProviderConfigManager.js';
+import { AutoReportManager } from '../reporting/AutoReportManager.js';
 
 export class AutohandAgent {
   private mentionContexts: { path: string; contents: string }[] = [];
@@ -127,6 +128,7 @@ export class AutohandAgent {
   private hasPrintedExplorationHeader = false;
   private activeProvider: ProviderName;
   private errorLogger: ErrorLogger;
+  private autoReportManager: AutoReportManager;
 
   private taskStartedAt: number | null = null;
   private totalTokensUsed = 0;
@@ -294,6 +296,7 @@ export class AutohandAgent {
       }
     });
     this.errorLogger = new ErrorLogger(packageJson.version);
+    this.autoReportManager = new AutoReportManager(runtime.config, packageJson.version);
     this.feedbackManager = new FeedbackManager({
       apiBaseUrl: runtime.config.api?.baseUrl || 'https://api.autohand.ai',
       cliVersion: packageJson.version
@@ -1086,6 +1089,16 @@ If lint or tests fail, report the issues but do NOT commit.`;
             stack: (error as Error).stack,
             context: 'Interactive loop'
           });
+
+          // Auto-report to GitHub (fire-and-forget, non-blocking)
+          this.autoReportManager.reportError(error as Error, {
+            errorType: 'interactive_loop_error',
+            model: this.runtime.options.model ?? getProviderConfig(this.runtime.config, this.activeProvider)?.model,
+            provider: this.activeProvider,
+            sessionId: this.sessionManager.getCurrentSession()?.id,
+            conversationLength: this.conversation.history().length,
+            contextUsagePercent: Math.round((1 - this.contextPercentLeft / 100) * 100),
+          }).catch(() => {});
         }
 
         // Exit if the same error repeats 3 times - it won't fix itself
@@ -1848,6 +1861,18 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
         // Detect context overflow (400 from API) and auto-compact before retrying
         if (this.isContextOverflowError(errMsg)) {
+          // Auto-report context overflow (fire-and-forget)
+          this.autoReportManager.reportError(
+            llmError instanceof Error ? llmError : new Error(errMsg),
+            {
+              errorType: 'context_overflow',
+              model: this.runtime.options.model,
+              provider: this.activeProvider,
+              conversationLength: this.conversation.history().length,
+              contextUsagePercent: Math.round((1 - this.contextPercentLeft / 100) * 100),
+            }
+          ).catch(() => {});
+
           this.runtime.spinner?.stop();
           console.log(chalk.yellow('\n⚠ Context too long for model, auto-compacting...'));
 
@@ -3691,6 +3716,19 @@ If lint or tests fail, report the issues but do NOT commit.`;
         context: `Session failure (retry ${retryAttempt + 1}/${maxRetries})`,
         workspace: this.runtime.workspaceRoot
       });
+
+      // Auto-report to GitHub (fire-and-forget, non-blocking)
+      this.autoReportManager.reportError(error, {
+        errorType: 'session_failure',
+        model,
+        provider: this.activeProvider,
+        sessionId: this.sessionManager.getCurrentSession()?.id,
+        conversationLength: history.length,
+        lastToolCalls: recentToolCalls,
+        contextUsagePercent: Math.round((1 - this.contextPercentLeft / 100) * 100),
+        retryAttempt,
+        maxRetries,
+      }).catch(() => {});
     } catch (reportError) {
       // Don't let bug reporting failure prevent the retry
       console.error(chalk.gray(`[Debug] Failed to submit bug report: ${(reportError as Error).message}`));

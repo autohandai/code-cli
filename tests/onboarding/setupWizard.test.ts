@@ -83,9 +83,10 @@ describe('SetupWizard', () => {
       mockShowModal.mockResolvedValueOnce({ value: 'openrouter' });
       mockShowPassword.mockResolvedValueOnce('sk-test-key-long-enough');
       mockShowInput.mockResolvedValueOnce('anthropic/claude-3.5-sonnet');
-      mockShowConfirm.mockResolvedValueOnce(true);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(true);  // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -123,9 +124,10 @@ describe('SetupWizard', () => {
       mockShowModal.mockResolvedValueOnce({ value: 'openrouter' });
       mockShowPassword.mockResolvedValueOnce('sk-new-key-long-enough');
       mockShowInput.mockResolvedValueOnce('anthropic/claude-3.5-sonnet');
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(false); // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -148,9 +150,10 @@ describe('SetupWizard', () => {
       mockShowModal.mockResolvedValueOnce({ value: 'openrouter' });
       mockShowPassword.mockResolvedValueOnce('sk-new-api-key-long');
       mockShowInput.mockResolvedValueOnce('anthropic/claude-3.5-sonnet');
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(false); // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -173,9 +176,10 @@ describe('SetupWizard', () => {
       mockShowModal.mockResolvedValueOnce({ value: 'openrouter' });
       mockShowPassword.mockResolvedValueOnce('sk-new-api-key-long');
       mockShowInput.mockResolvedValueOnce('anthropic/claude-3.5-sonnet');
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(false); // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -196,12 +200,13 @@ describe('SetupWizard', () => {
       const wizard = new SetupWizard(testWorkspace, configWithShortKey);
 
       mockShowModal.mockResolvedValueOnce({ value: 'openrouter' });
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(false); // reject short existing key
       mockShowPassword.mockResolvedValueOnce('sk-new-valid-api-key');
       mockShowInput.mockResolvedValueOnce('anthropic/claude-3.5-sonnet');
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(false); // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -234,9 +239,10 @@ describe('SetupWizard', () => {
 
       mockShowModal.mockResolvedValueOnce({ value: 'ollama' });
       mockShowInput.mockResolvedValueOnce('llama3.2:latest');
-      mockShowConfirm.mockResolvedValueOnce(true);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(true);  // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -249,9 +255,10 @@ describe('SetupWizard', () => {
 
       mockShowModal.mockResolvedValueOnce({ value: 'ollama' });
       mockShowInput.mockResolvedValueOnce('llama3.2:latest');
-      mockShowConfirm.mockResolvedValueOnce(true);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(true);  // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -260,7 +267,7 @@ describe('SetupWizard', () => {
       expect(mockShowModal).toHaveBeenCalledTimes(1); // provider only
       expect(mockShowPassword).not.toHaveBeenCalled(); // No API key for local providers
       expect(mockShowInput).toHaveBeenCalledTimes(1); // model
-      expect(mockShowConfirm).toHaveBeenCalledTimes(3); // telemetry, prefs, agents
+      expect(mockShowConfirm).toHaveBeenCalledTimes(4); // telemetry, autoReport, prefs, agents
     });
 
     it('should prompt for API key for cloud providers', async () => {
@@ -269,9 +276,10 @@ describe('SetupWizard', () => {
       mockShowModal.mockResolvedValueOnce({ value: 'openrouter' });
       mockShowPassword.mockResolvedValueOnce('sk-test-key-long-enough');
       mockShowInput.mockResolvedValueOnce('anthropic/claude-3.5-sonnet');
-      mockShowConfirm.mockResolvedValueOnce(true);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(true);  // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -280,7 +288,7 @@ describe('SetupWizard', () => {
       expect(mockShowModal).toHaveBeenCalledTimes(1); // provider only
       expect(mockShowPassword).toHaveBeenCalledTimes(1); // API key
       expect(mockShowInput).toHaveBeenCalledTimes(1); // model
-      expect(mockShowConfirm).toHaveBeenCalledTimes(3); // telemetry, prefs, agents
+      expect(mockShowConfirm).toHaveBeenCalledTimes(4); // telemetry, autoReport, prefs, agents
     });
   });
 
@@ -291,9 +299,10 @@ describe('SetupWizard', () => {
       mockShowModal.mockResolvedValueOnce({ value: 'openrouter' });
       mockShowPassword.mockResolvedValueOnce('sk-or-test-key-long');
       mockShowInput.mockResolvedValueOnce('anthropic/claude-3.5-sonnet');
-      mockShowConfirm.mockResolvedValueOnce(true);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(true);  // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -306,9 +315,10 @@ describe('SetupWizard', () => {
       mockShowModal.mockResolvedValueOnce({ value: 'openai' });
       mockShowPassword.mockResolvedValueOnce('sk-openai-test-key');
       mockShowInput.mockResolvedValueOnce('gpt-4o');
-      mockShowConfirm.mockResolvedValueOnce(true);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(true);  // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -328,11 +338,12 @@ describe('SetupWizard', () => {
       const wizard = new SetupWizard(testWorkspace, existingConfig);
 
       mockShowModal.mockResolvedValueOnce({ value: 'openrouter' });
-      mockShowConfirm.mockResolvedValueOnce(true);
+      mockShowConfirm.mockResolvedValueOnce(true);  // use existing key
       mockShowInput.mockResolvedValueOnce('anthropic/claude-3.5-sonnet');
-      mockShowConfirm.mockResolvedValueOnce(true);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(true);  // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true, force: true });
 
@@ -347,9 +358,10 @@ describe('SetupWizard', () => {
       mockShowModal.mockResolvedValueOnce({ value: 'openrouter' });
       mockShowPassword.mockResolvedValueOnce('sk-test-long-key');
       mockShowInput.mockResolvedValueOnce('anthropic/claude-sonnet-4-20250514');
-      mockShowConfirm.mockResolvedValueOnce(true);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(true);  // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -363,9 +375,10 @@ describe('SetupWizard', () => {
 
       mockShowModal.mockResolvedValueOnce({ value: 'ollama' });
       mockShowInput.mockResolvedValueOnce('llama3.2:latest');
-      mockShowConfirm.mockResolvedValueOnce(true);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(true);  // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -377,9 +390,10 @@ describe('SetupWizard', () => {
 
       mockShowModal.mockResolvedValueOnce({ value: 'ollama' });
       mockShowInput.mockResolvedValueOnce('llama3.2:latest');
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(false); // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -393,9 +407,10 @@ describe('SetupWizard', () => {
 
       mockShowModal.mockResolvedValueOnce({ value: 'ollama' });
       mockShowInput.mockResolvedValueOnce('llama3.2:latest');
-      mockShowConfirm.mockResolvedValueOnce(true);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(true);  // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -408,12 +423,13 @@ describe('SetupWizard', () => {
 
       mockShowModal.mockResolvedValueOnce({ value: 'ollama' });
       mockShowInput.mockResolvedValueOnce('llama3.2:latest');
-      mockShowConfirm.mockResolvedValueOnce(true);
-      mockShowConfirm.mockResolvedValueOnce(true);
+      mockShowConfirm.mockResolvedValueOnce(true);  // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(true);  // prefs=yes
       mockShowModal.mockResolvedValueOnce({ value: 'dark' });
-      mockShowConfirm.mockResolvedValueOnce(true);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoConfirm
+      mockShowConfirm.mockResolvedValueOnce(false); // checkForUpdates
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -427,8 +443,9 @@ describe('SetupWizard', () => {
 
       mockShowModal.mockResolvedValueOnce({ value: 'ollama' });
       mockShowInput.mockResolvedValueOnce('llama3.2:latest');
-      mockShowConfirm.mockResolvedValueOnce(true);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(true);  // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true, quickSetup: true });
 
@@ -453,9 +470,10 @@ describe('SetupWizard', () => {
 
       mockShowModal.mockResolvedValueOnce({ value: 'ollama' });
       mockShowInput.mockResolvedValueOnce('llama3.2:latest');
-      mockShowConfirm.mockResolvedValueOnce(true);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(true);
+      mockShowConfirm.mockResolvedValueOnce(true);  // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(true);  // agents - create AGENTS.md
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -469,9 +487,10 @@ describe('SetupWizard', () => {
 
       mockShowModal.mockResolvedValueOnce({ value: 'ollama' });
       mockShowInput.mockResolvedValueOnce('llama3.2:latest');
-      mockShowConfirm.mockResolvedValueOnce(true);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(true);  // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -493,9 +512,10 @@ describe('SetupWizard', () => {
 
       mockShowModal.mockResolvedValueOnce({ value: 'ollama' });
       mockShowInput.mockResolvedValueOnce('llama3.2:latest');
-      mockShowConfirm.mockResolvedValueOnce(true);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false); // Don't overwrite
+      mockShowConfirm.mockResolvedValueOnce(true);  // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(false); // Don't overwrite AGENTS.md
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -546,9 +566,10 @@ describe('SetupWizard', () => {
 
       mockShowModal.mockResolvedValueOnce({ value: 'ollama' });
       mockShowInput.mockResolvedValueOnce('llama3.2:latest');
-      mockShowConfirm.mockResolvedValueOnce(true);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(true);  // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true, force: true });
 
@@ -565,9 +586,10 @@ describe('SetupWizard', () => {
       mockShowModal.mockResolvedValueOnce({ value: 'openrouter' });
       mockShowPassword.mockResolvedValueOnce('sk-test-long-key');
       mockShowInput.mockResolvedValueOnce('test');
-      mockShowConfirm.mockResolvedValueOnce(true);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(true);  // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -580,9 +602,10 @@ describe('SetupWizard', () => {
       mockShowModal.mockResolvedValueOnce({ value: 'openai' });
       mockShowPassword.mockResolvedValueOnce('sk-test-long-key');
       mockShowInput.mockResolvedValueOnce('gpt-4o');
-      mockShowConfirm.mockResolvedValueOnce(true);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(true);  // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true });
 
@@ -594,9 +617,10 @@ describe('SetupWizard', () => {
 
       mockShowModal.mockResolvedValueOnce({ value: 'ollama' });
       mockShowInput.mockResolvedValueOnce('llama3.2:latest');
-      mockShowConfirm.mockResolvedValueOnce(true);
-      mockShowConfirm.mockResolvedValueOnce(false);
-      mockShowConfirm.mockResolvedValueOnce(false);
+      mockShowConfirm.mockResolvedValueOnce(true);  // telemetry
+      mockShowConfirm.mockResolvedValueOnce(true);  // autoReport
+      mockShowConfirm.mockResolvedValueOnce(false); // prefs
+      mockShowConfirm.mockResolvedValueOnce(false); // agents
 
       const result = await wizard.run({ skipWelcome: true });
 

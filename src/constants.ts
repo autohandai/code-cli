@@ -54,6 +54,9 @@ export const AUTOHAND_PATHS = {
 
   /** MCP community registry cache */
   mcpCache: path.join(AUTOHAND_HOME, 'community-mcp', 'cache'),
+
+  /** Auto-report data */
+  reporting: path.join(AUTOHAND_HOME, 'reporting'),
 } as const;
 
 /**

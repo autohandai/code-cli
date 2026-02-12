@@ -104,6 +104,9 @@ export async function loadConfig(customPath?: string): Promise<LoadedConfig> {
       },
       telemetry: {
         enabled: false
+      },
+      autoReport: {
+        enabled: true
       }
     };
 

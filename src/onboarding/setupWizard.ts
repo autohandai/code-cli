@@ -24,6 +24,7 @@ export type OnboardingStep =
   | 'apiKey'
   | 'model'
   | 'telemetry'
+  | 'autoReport'
   | 'preferences'
   | 'agentsFile'
   | 'complete';
@@ -37,6 +38,7 @@ interface OnboardingState {
   apiKey?: string;
   model?: string;
   telemetryEnabled?: boolean;
+  autoReportEnabled?: boolean;
   preferences?: {
     theme?: string;
     autoConfirm?: boolean;
@@ -133,6 +135,9 @@ export class SetupWizard {
 
       // Step 5: Telemetry opt-in/opt-out
       await this.promptTelemetry();
+
+      // Step 5.5: Auto Report Issues (opt-out)
+      await this.promptAutoReport();
 
       // Step 6: Preferences (optional)
       if (!options?.quickSetup) {
@@ -355,6 +360,44 @@ export class SetupWizard {
   }
 
   /**
+   * Prompt for auto report issues preference
+   */
+  private async promptAutoReport(): Promise<void> {
+    this.state.currentStep = 'autoReport';
+
+    console.log();
+    console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
+    console.log(chalk.white.bold('  Auto Report Issues'));
+    console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
+    console.log();
+    console.log(chalk.gray('  When errors occur, Autohand can automatically report'));
+    console.log(chalk.gray('  them as GitHub issues to help us fix bugs faster.'));
+    console.log();
+    console.log(chalk.gray('  What gets reported:'));
+    console.log(chalk.gray('  - Error type, message, and sanitized stack trace'));
+    console.log(chalk.gray('  - CLI version, platform, and model info'));
+    console.log();
+    console.log(chalk.gray('  What we never report:'));
+    console.log(chalk.gray('  - Your code or file contents'));
+    console.log(chalk.gray('  - API keys or credentials'));
+    console.log(chalk.gray('  - Personal information'));
+    console.log();
+
+    const autoReportEnabled = await showConfirm({
+      title: 'Automatically report errors to help us fix bugs faster?',
+      defaultValue: true
+    });
+
+    this.state.autoReportEnabled = autoReportEnabled;
+
+    if (autoReportEnabled) {
+      console.log(chalk.green('  Thanks! This helps us catch and fix issues quickly.'));
+    } else {
+      console.log(chalk.gray('  No problem! You can enable this anytime in config.'));
+    }
+  }
+
+  /**
    * Prompt for additional preferences
    */
   private async promptPreferences(): Promise<void> {
@@ -516,6 +559,11 @@ export class SetupWizard {
     // Set telemetry preference
     config.telemetry = {
       enabled: this.state.telemetryEnabled ?? true
+    };
+
+    // Set auto report preference
+    config.autoReport = {
+      enabled: this.state.autoReportEnabled ?? true
     };
 
     // Set UI preferences
