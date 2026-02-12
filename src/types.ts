@@ -95,6 +95,11 @@ export interface TelemetrySettings {
   enableSessionSync?: boolean;
 }
 
+export interface AutoReportSettings {
+  /** Enable auto-reporting of errors to GitHub (default: true, opt-out) */
+  enabled?: boolean;
+}
+
 export type PermissionMode = 'interactive' | 'unrestricted' | 'restricted' | 'external';
 
 export interface PermissionRule {
@@ -469,6 +474,8 @@ export interface AutohandConfig {
   share?: ShareSettings;
   /** Settings sync configuration (syncs ~/.autohand/ to cloud for logged users) */
   sync?: SyncSettings;
+  /** Auto-report settings (automatic error reporting to GitHub) */
+  autoReport?: AutoReportSettings;
   /** Web search provider settings */
   search?: SearchSettings;
   /** MCP (Model Context Protocol) settings */
