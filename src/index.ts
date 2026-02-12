@@ -136,8 +136,9 @@ const program = new Command();
 
 program
   .name('autohand')
-  .description('Autonomous LLM-powered coding agent CLI')
+  .description('Autonomous coding agent')
   .version(getVersionString(), '-v, --version', 'output the current version')
+  .argument('[prompt]', 'Run a single instruction in command mode (same as -p)')
   .option('-p, --prompt <text>', 'Run a single instruction in command mode')
   .option('--path <path>', 'Workspace path to operate in')
   .option('-y, --yes', 'Auto-confirm risky actions', false)
@@ -179,7 +180,13 @@ program
   .option('--append-sys-prompt <value>', 'Append to system prompt (inline string or file path)')
   .option('--yolo [pattern]', 'Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)')
   .option('--timeout <seconds>', 'Timeout in seconds for auto-approve mode', parseInt)
-  .action(async (opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean; setup?: boolean; about?: boolean; syncSettings?: string | boolean; cc?: boolean; searchEngine?: string }) => {
+  .action(async (positionalPrompt: string | undefined, opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean; setup?: boolean; about?: boolean; syncSettings?: string | boolean; cc?: boolean; searchEngine?: string }) => {
+    // Positional argument acts as prompt (e.g. autohand 'explain this')
+    // -p/--prompt flag takes precedence if both are provided
+    if (positionalPrompt && !opts.prompt) {
+      opts.prompt = positionalPrompt;
+    }
+
     // Handle --skill-install flag
     if (opts.skillInstall !== undefined) {
       await runSkillInstall(opts);
