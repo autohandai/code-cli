@@ -16,7 +16,10 @@ import { saveConfig, getProviderConfig } from '../config.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import { ProviderNotConfiguredError } from '../providers/ProviderFactory.js';
 import { readInstruction, safeEmitKeypressEvents } from '../ui/inputPrompt.js';
-// showFilePalette is imported dynamically to avoid bundling ink in standalone binary
+import { showFilePalette } from '../ui/filePalette.js';
+import { createInkRenderer } from '../ui/ink/InkRenderer.js';
+import { showQuestionModal } from '../ui/questionModal.js';
+import { showPlanAcceptModal } from '../ui/planAcceptModal.js';
 import {
   getContextWindow,
   estimateMessagesTokens,
@@ -2227,7 +2230,71 @@ If lint or tests fail, report the issues but do NOT commit.`;
         })
       };
     }
+
+    // Fallback: some models output <tool_call> XML tags in text content
+    // instead of using the native tool calling API
+    const xmlToolCalls = this.extractXmlToolCalls(completion.content);
+    if (xmlToolCalls.length > 0) {
+      // Strip <tool_call> blocks from content to extract any surrounding text as thought
+      const textOutside = completion.content
+        .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
+        .trim();
+      return {
+        thought: textOutside || undefined,
+        toolCalls: xmlToolCalls
+      };
+    }
+
     return this.parseAssistantReactPayload(completion.content);
+  }
+
+  /**
+   * Extract tool calls from <tool_call> XML tags in text content.
+   * Some models output tool calls as:
+   *   <tool_call>{"name": "write_file", "arguments": {"path": "...", "contents": "..."}}</tool_call>
+   */
+  private extractXmlToolCalls(content: string): ToolCallRequest[] {
+    if (!content?.includes('<tool_call>')) return [];
+
+    const calls: ToolCallRequest[] = [];
+    const regex = /<tool_call>([\s\S]*?)<\/tool_call>/g;
+    let match;
+
+    while ((match = regex.exec(content)) !== null) {
+      try {
+        const parsed = JSON.parse(match[1].trim());
+        const name = parsed.name || parsed.tool;
+        if (!name) continue;
+
+        // Arguments can be in "arguments" or "args" field, or at top level
+        let args = parsed.arguments || parsed.args;
+        if (!args || typeof args !== 'object') {
+          // Try top-level keys (excluding name/tool/id)
+          const topLevel: Record<string, unknown> = {};
+          for (const [key, value] of Object.entries(parsed)) {
+            if (!['name', 'tool', 'id', 'arguments', 'args'].includes(key)) {
+              topLevel[key] = value;
+            }
+          }
+          if (Object.keys(topLevel).length > 0) args = topLevel;
+        }
+
+        // If arguments is a string (double-encoded JSON), parse it
+        if (typeof args === 'string') {
+          try { args = JSON.parse(args); } catch { /* keep as-is */ }
+        }
+
+        calls.push({
+          id: parsed.id || randomUUID(),
+          tool: name as AgentAction['type'],
+          args
+        });
+      } catch {
+        // Skip malformed tool call blocks
+      }
+    }
+
+    return calls;
   }
 
   /**
@@ -2851,10 +2918,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       return normalizedSeed || null;
     }
 
-    // Dynamic import to avoid bundling ink in standalone binary
-    // Use computed path to prevent bun from statically analyzing the import
-    const palettePath = ['..', 'ui', 'filePalette.js'].join('/');
-    const { showFilePalette } = await import(/* @vite-ignore */ palettePath);
+    // showFilePalette is statically imported at the top of this file
     const selection = await showFilePalette({
       files: workspaceFiles,
       statusLine: this.formatStatusLine(),
@@ -3060,11 +3124,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
    */
   private async initializeUI(abortController?: AbortController, onCancel?: () => void): Promise<void> {
     if (this.useInkRenderer && process.stdout.isTTY && process.stdin.isTTY) {
-      // Dynamically import InkRenderer to avoid bundling yoga-wasm in standalone binary
-      // Use computed path to prevent bun from statically analyzing the import
+      // createInkRenderer is statically imported at the top of this file
       try {
-        const inkPath = ['..', 'ui', 'ink', 'InkRenderer.js'].join('/');
-        const { createInkRenderer } = await import(/* @vite-ignore */ inkPath);
         // Create and start InkRenderer (only in TTY mode)
         this.inkRenderer = createInkRenderer({
           onInstruction: (text: string) => {
@@ -4124,10 +4185,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     // Let Ink manage its own stdin mode - don't manipulate it manually
 
     try {
-      // Dynamically import the question modal to avoid bundling issues
-      // Path is relative to dist/ directory where index.js is located
-      const modalPath = ['.', 'ui', 'questionModal.js'].join('/');
-      const { showQuestionModal } = await import(/* @vite-ignore */ modalPath);
+      // showQuestionModal is statically imported at the top of this file
 
       const answer = await showQuestionModal({
         question,
@@ -4204,9 +4262,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
 
     try {
-      // Dynamically import the plan accept modal
-      const modalPath = ['..', 'ui', 'planAcceptModal.js'].join('/');
-      const { showPlanAcceptModal } = await import(/* @vite-ignore */ modalPath);
+      // showPlanAcceptModal is statically imported at the top of this file
 
       const result = await showPlanAcceptModal({
         planFilePath: filePath,
