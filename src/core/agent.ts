@@ -699,6 +699,12 @@ export class AutohandAgent {
       await this.initReady;
       this.initReady = null;
 
+      // Wait for MCP connections to finish (started as fire-and-forget in background init).
+      // Without this, /mcp and LLM instructions may run before servers are connected.
+      if (this.mcpReady) {
+        await this.mcpReady;
+      }
+
       // Fire session-start hook now that the prompt is closed and stdout is clean
       const session = this.sessionManager.getCurrentSession();
       await this.hookManager.executeHooks('session-start', {
