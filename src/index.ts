@@ -542,8 +542,13 @@ async function runCLI(options: CLIOptions): Promise<void> {
       process.exit(0);
     } else if (options.resumeSessionId) {
       await agent.resumeSession(options.resumeSessionId);
+      // Explicitly exit to prevent hanging from open handles
+      process.exit(0);
     } else {
       await agent.runInteractive();
+      // Explicitly exit after interactive mode to prevent hanging.
+      // Background managers (telemetry, MCP, hooks) may keep the event loop alive.
+      process.exit(0);
     }
   } catch (error) {
     if (error instanceof Error) {
