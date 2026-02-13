@@ -5,7 +5,7 @@
  *
  * Tests for MCP CLI subcommands (autohand mcp add/remove/list)
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execSync } from 'node:child_process';
 import fs from 'fs-extra';
 import path from 'node:path';
