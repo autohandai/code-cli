@@ -79,11 +79,14 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'plan',
-    description: 'Capture a quick plan before executing',
+    description: 'Create a structured implementation plan with detailed numbered steps before executing a task. Always break the task into concrete, actionable steps (e.g. "1. Read existing auth code\\n2. Create JWT utility module\\n3. Add login endpoint"). Each step should be a single clear action. Aim for 3-10 steps depending on complexity.',
     parameters: {
       type: 'object',
       properties: {
-        notes: { type: 'string', description: 'Plan notes or description' }
+        notes: {
+          type: 'string',
+          description: 'A numbered step-by-step plan. Each step on its own line starting with "N. " (e.g. "1. Read existing code\\n2. Create new module\\n3. Write tests"). Be specific and actionable — avoid single vague descriptions.'
+        }
       }
     }
   },
