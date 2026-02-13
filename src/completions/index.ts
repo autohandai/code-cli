@@ -38,6 +38,16 @@ const DEFAULT_CONFIG: CompletionConfig = {
     '/formatters',
     '/lint',
     '/export',
+    '/mcp',
+    '/about',
+    '/status',
+    '/hooks',
+    '/theme',
+    '/completion',
+    '/share',
+    '/plan',
+    '/search',
+    '/skills',
   ],
   options: [
     { flag: '--prompt', description: 'Run a single instruction' },
@@ -68,7 +78,7 @@ export function generateBashCompletion(config: CompletionConfig = DEFAULT_CONFIG
 # Or save to /etc/bash_completion.d/autohand
 
 _autohand_completions() {
-    local cur prev opts slash_commands
+    local cur prev opts slash_commands subcommands mcp_subcommands
     COMPREPLY=()
     cur="\${COMP_WORDS[COMP_CWORD]}"
     prev="\${COMP_WORDS[COMP_CWORD-1]}"
@@ -76,8 +86,20 @@ _autohand_completions() {
     # Command line options
     opts="${opts}"
 
+    # Subcommands
+    subcommands="resume login logout mcp sessions init completion"
+
+    # MCP subcommands
+    mcp_subcommands="add remove list install"
+
     # Slash commands (for interactive mode)
     slash_commands="${slashCmds}"
+
+    # Complete mcp subcommands
+    if [[ "\${COMP_WORDS[1]}" == "mcp" ]] && [[ \${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=( $(compgen -W "\${mcp_subcommands}" -- \${cur}) )
+        return 0
+    fi
 
     # Complete options
     if [[ \${cur} == -* ]]; then
@@ -98,11 +120,16 @@ _autohand_completions() {
             return 0
             ;;
         --model)
-            # Could be extended to fetch available models
             COMPREPLY=()
             return 0
             ;;
     esac
+
+    # Complete subcommands at position 1
+    if [[ \${COMP_CWORD} -eq 1 ]]; then
+        COMPREPLY=( $(compgen -W "\${subcommands}" -- \${cur}) )
+        return 0
+    fi
 
     # Default: complete with files
     COMPREPLY=( $(compgen -f -- \${cur}) )
