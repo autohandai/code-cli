@@ -100,10 +100,6 @@ export async function about(): Promise<string | null> {
   console.log(text(`   • ${t('commands.about.reportIssues')}:     ${issuesLink}`));
   console.log();
 
-  // Footer
-  console.log(muted(t('commands.about.pressKey')));
-  console.log();
-
   return null;
 }
 
