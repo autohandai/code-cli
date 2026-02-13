@@ -74,6 +74,7 @@ function buildServerItems(
     name: s.name,
     status: s.status,
     toolCount: s.toolCount,
+    error: s.error,
   }));
 
   // Add config-only servers that aren't in runtime yet

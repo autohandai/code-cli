@@ -672,11 +672,12 @@ export class McpClientManager {
    * Lists all known servers with their connection status and tool count.
    * @returns Array of server status objects
    */
-  listServers(): Array<{ name: string; status: McpServerStatus; toolCount: number }> {
+  listServers(): Array<{ name: string; status: McpServerStatus; toolCount: number; error?: string }> {
     return Array.from(this.servers.values()).map((state) => ({
       name: state.config.name,
       status: state.status,
       toolCount: state.tools.length,
+      error: state.error,
     }));
   }
 
@@ -706,7 +707,9 @@ export class McpClientManager {
 
     connection.on('close', () => {
       const state = this.servers.get(config.name);
-      if (state) {
+      // Only set to 'disconnected' if currently connected.
+      // Preserve 'error' status so the user can see why connection failed.
+      if (state && state.status === 'connected') {
         state.status = 'disconnected';
       }
     });
