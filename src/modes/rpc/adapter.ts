@@ -12,6 +12,7 @@ import type {
   AgentStatusSnapshot,
   AgentOutputEvent,
   LLMToolCall,
+  McpServerConfigEntry,
 } from '../../types.js';
 import type {
   JsonRpcId,
@@ -43,6 +44,9 @@ import type {
   McpListServersResult,
   McpListToolsParams,
   McpListToolsResult,
+  McpSetVscodeToolsParams,
+  McpInvokeResponseParams,
+  McpGetServerConfigsResult,
 } from './types.js';
 import {
   RPC_NOTIFICATIONS,
@@ -51,6 +55,28 @@ import {
 } from './types.js';
 import { writeNotification, createTimestamp, generateId } from './protocol.js';
 import { ImageManager, type ImageMimeType, supportsVision } from '../../core/ImageManager.js';
+
+/**
+ * Descriptor for a VS Code MCP tool registered by the extension
+ */
+interface VscodeTool {
+  name: string;
+  description: string;
+  serverName: string;
+  inputSchema?: {
+    type: 'object';
+    properties: Record<string, unknown>;
+    required?: string[];
+  };
+}
+
+/**
+ * Pending VS Code tool invocation awaiting a response from the extension
+ */
+interface PendingVscodeInvocation {
+  resolve: (result: string) => void;
+  reject: (error: Error) => void;
+}
 
 /**
  * RPC Adapter for AutohandAgent
@@ -74,6 +100,12 @@ export class RPCAdapter {
   private currentChangesBatchId: string | null = null;
   // Enable preview mode for multi-file change batching (future: make configurable)
   private previewModeEnabled = true;
+  // MCP bridge: VS Code tools registered by the extension
+  private vscodeTools = new Map<string, VscodeTool>();
+  // MCP bridge: pending tool invocations waiting for extension response
+  private pendingVscodeInvocations = new Map<string, PendingVscodeInvocation>();
+  // MCP server configurations from CLI config (set during initialization)
+  private mcpServerConfigs: McpServerConfigEntry[] = [];
 
   /**
    * Initialize the adapter with an agent instance
@@ -82,13 +114,15 @@ export class RPCAdapter {
     agent: AutohandAgent,
     conversation: ConversationManager,
     model: string,
-    workspace: string
+    workspace: string,
+    mcpServerConfigs?: McpServerConfigEntry[]
   ): void {
     this.agent = agent;
     this.conversation = conversation;
     this.model = model;
     this.workspace = workspace;
     this.sessionId = generateId('session');
+    this.mcpServerConfigs = mcpServerConfigs ?? [];
 
     // Get reference to agent's ImageManager for handling multimodal prompts
     this.imageManager = agent.getImageManager?.() ?? new ImageManager();
@@ -1320,6 +1354,198 @@ export class RPCAdapter {
     };
   }
 
+  // ============================================================================
+  // MCP Bridge Methods (VS Code <-> CLI bidirectional tool bridging)
+  // ============================================================================
+
+  /**
+   * Receive VS Code MCP tool descriptors from the extension.
+   * These tools become available for the agent to invoke via the extension.
+   * Tool names are stored with a 'vscode__' prefix to distinguish them.
+   */
+  handleMcpSetVscodeTools(
+    _requestId: JsonRpcId,
+    params: McpSetVscodeToolsParams
+  ): { success: boolean } {
+    // Clear previous VS Code tools
+    this.vscodeTools.clear();
+
+    for (const tool of params.tools) {
+      const prefixedName = `vscode__${tool.serverName}__${tool.name}`;
+      this.vscodeTools.set(prefixedName, {
+        name: tool.name,
+        description: tool.description,
+        serverName: tool.serverName,
+        inputSchema: tool.inputSchema,
+      });
+    }
+
+    process.stderr.write(
+      `[RPC] MCP bridge: registered ${this.vscodeTools.size} VS Code tools\n`
+    );
+
+    // Notify the extension that the tool set has changed
+    const allTools = this.getVscodeToolsList();
+    writeNotification(RPC_NOTIFICATIONS.MCP_TOOLS_CHANGED, {
+      tools: allTools,
+      timestamp: createTimestamp(),
+    });
+
+    return { success: true };
+  }
+
+  /**
+   * Get the list of registered VS Code tools for notifications
+   */
+  private getVscodeToolsList(): Array<{
+    name: string;
+    description: string;
+    serverName: string;
+  }> {
+    const tools: Array<{ name: string; description: string; serverName: string }> = [];
+    for (const [prefixedName, tool] of this.vscodeTools) {
+      tools.push({
+        name: prefixedName,
+        description: tool.description,
+        serverName: tool.serverName,
+      });
+    }
+    return tools;
+  }
+
+  /**
+   * Invoke a VS Code MCP tool by sending a notification to the extension
+   * and waiting for the response. Called internally when the agent uses
+   * a tool with the 'vscode__' prefix.
+   */
+  async invokeVscodeTool(
+    toolName: string,
+    args: Record<string, unknown>
+  ): Promise<string> {
+    const tool = this.vscodeTools.get(toolName);
+    if (!tool) {
+      throw new Error(`VS Code tool not found: ${toolName}`);
+    }
+
+    const requestId = generateId('mcp-invoke');
+
+    // Send invocation request to extension
+    writeNotification(RPC_NOTIFICATIONS.MCP_INVOKE_REQUEST, {
+      requestId,
+      toolName,
+      args,
+      timestamp: createTimestamp(),
+    });
+
+    // Wait for the extension to respond
+    return new Promise<string>((resolve, reject) => {
+      // Timeout after 5 minutes (VS Code tool execution can be slow)
+      const timeout = setTimeout(() => {
+        this.pendingVscodeInvocations.delete(requestId);
+        reject(new Error(`VS Code tool invocation timed out: ${toolName}`));
+      }, 300000);
+
+      this.pendingVscodeInvocations.set(requestId, {
+        resolve: (result: string) => {
+          clearTimeout(timeout);
+          resolve(result);
+        },
+        reject: (error: Error) => {
+          clearTimeout(timeout);
+          reject(error);
+        },
+      });
+    });
+  }
+
+  /**
+   * Handle the invoke response from the extension for a pending VS Code tool call.
+   * Resolves or rejects the promise created in invokeVscodeTool.
+   */
+  handleMcpInvokeResponse(
+    _requestId: JsonRpcId,
+    params: McpInvokeResponseParams
+  ): { success: boolean } {
+    const pending = this.pendingVscodeInvocations.get(params.requestId);
+    if (!pending) {
+      process.stderr.write(
+        `[RPC] MCP bridge: invoke response for unknown request ${params.requestId}\n`
+      );
+      return { success: false };
+    }
+
+    this.pendingVscodeInvocations.delete(params.requestId);
+
+    if (params.success) {
+      pending.resolve(params.result ?? '');
+    } else {
+      pending.reject(new Error(params.error ?? 'VS Code tool invocation failed'));
+    }
+
+    return { success: true };
+  }
+
+  /**
+   * Return MCP server configurations from the CLI config.
+   * Sensitive environment variables (keys, tokens, secrets) are sanitized.
+   */
+  handleMcpGetServerConfigs(
+    _requestId: JsonRpcId
+  ): McpGetServerConfigsResult {
+    const configs = this.mcpServerConfigs.map((server) => ({
+      name: server.name,
+      transport: server.transport,
+      command: server.command,
+      args: server.args,
+      url: server.url,
+      env: server.env ? this.sanitizeEnv(server.env) : undefined,
+      headers: server.headers ? this.sanitizeHeaders(server.headers) : undefined,
+      autoConnect: server.autoConnect,
+    }));
+
+    return { configs };
+  }
+
+  /**
+   * Check if a tool name is a registered VS Code MCP tool
+   */
+  isVscodeTool(toolName: string): boolean {
+    return this.vscodeTools.has(toolName);
+  }
+
+  /**
+   * Sanitize environment variables by redacting values that look like secrets.
+   * Keeps the key names but replaces sensitive values with '***'.
+   */
+  private sanitizeEnv(env: Record<string, string>): Record<string, string> {
+    const sensitivePatterns = /key|token|secret|password|credential|auth/i;
+    const sanitized: Record<string, string> = {};
+    for (const [key, value] of Object.entries(env)) {
+      if (sensitivePatterns.test(key)) {
+        sanitized[key] = '***';
+      } else {
+        sanitized[key] = value;
+      }
+    }
+    return sanitized;
+  }
+
+  /**
+   * Sanitize HTTP headers by redacting values that look like auth tokens.
+   */
+  private sanitizeHeaders(headers: Record<string, string>): Record<string, string> {
+    const sensitivePatterns = /authorization|token|key|secret|bearer/i;
+    const sanitized: Record<string, string> = {};
+    for (const [key, value] of Object.entries(headers)) {
+      if (sensitivePatterns.test(key)) {
+        sanitized[key] = '***';
+      } else {
+        sanitized[key] = value;
+      }
+    }
+    return sanitized;
+  }
+
   /**
    * Shutdown the adapter
    */
@@ -1335,6 +1561,12 @@ export class RPCAdapter {
       pending.reject(new Error('Adapter shutdown'));
     }
     this.pendingPermissions.clear();
+
+    // Cancel any pending VS Code tool invocations
+    for (const [, pending] of this.pendingVscodeInvocations) {
+      pending.reject(new Error('Adapter shutdown'));
+    }
+    this.pendingVscodeInvocations.clear();
 
     // Abort any running operation
     if (this.abortController) {
