@@ -30,6 +30,8 @@ import type {
   GetHistoryParams,
   YoloSetParams,
   McpListToolsParams,
+  McpSetVscodeToolsParams,
+  McpInvokeResponseParams,
 } from './types.js';
 import {
   RPC_METHODS,
@@ -159,7 +161,8 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
       agent,
       conversation,
       options.model ?? config.openrouter?.model ?? 'unknown',
-      workspaceRoot
+      workspaceRoot,
+      config.mcp?.servers
     );
 
     // Connect agent confirmation to RPC adapter for permission handling
@@ -474,6 +477,43 @@ async function handleSingleRequest(
       case RPC_METHODS.MCP_LIST_TOOLS: {
         const mcpToolsParams = params as McpListToolsParams | undefined;
         result = adapter.handleMcpListTools(id!, mcpToolsParams);
+        break;
+      }
+
+      case RPC_METHODS.MCP_SET_VSCODE_TOOLS: {
+        const setToolsParams = params as McpSetVscodeToolsParams | undefined;
+        if (!setToolsParams?.tools) {
+          if (shouldRespond) {
+            return createErrorResponse(
+              id!,
+              JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+              'Missing required parameter: tools'
+            );
+          }
+          return null;
+        }
+        result = adapter.handleMcpSetVscodeTools(id!, setToolsParams);
+        break;
+      }
+
+      case RPC_METHODS.MCP_INVOKE_RESPONSE: {
+        const invokeParams = params as McpInvokeResponseParams | undefined;
+        if (!invokeParams?.requestId || invokeParams?.success === undefined) {
+          if (shouldRespond) {
+            return createErrorResponse(
+              id!,
+              JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+              'Missing required parameters: requestId, success'
+            );
+          }
+          return null;
+        }
+        result = adapter.handleMcpInvokeResponse(id!, invokeParams);
+        break;
+      }
+
+      case RPC_METHODS.MCP_GET_SERVER_CONFIGS: {
+        result = adapter.handleMcpGetServerConfigs(id!);
         break;
       }
 

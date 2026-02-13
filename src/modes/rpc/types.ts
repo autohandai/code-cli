@@ -115,6 +115,9 @@ export const RPC_METHODS = {
   // MCP (Model Context Protocol) management
   MCP_LIST_SERVERS: 'autohand.mcp.listServers',
   MCP_LIST_TOOLS: 'autohand.mcp.listTools',
+  MCP_SET_VSCODE_TOOLS: 'autohand.mcp.setVscodeTools',
+  MCP_INVOKE_RESPONSE: 'autohand.mcp.invokeResponse',
+  MCP_GET_SERVER_CONFIGS: 'autohand.mcp.getServerConfigs',
 } as const;
 
 export type RpcMethod = (typeof RPC_METHODS)[keyof typeof RPC_METHODS];
@@ -165,6 +168,9 @@ export const RPC_NOTIFICATIONS = {
   PIPE_OUTPUT: 'autohand.pipe.output',
   PIPE_COMPLETE: 'autohand.pipe.complete',
   PIPE_ERROR: 'autohand.pipe.error',
+  // MCP bridge notifications (Server -> Client)
+  MCP_INVOKE_REQUEST: 'autohand.mcp.invokeRequest',
+  MCP_TOOLS_CHANGED: 'autohand.mcp.toolsChanged',
 } as const;
 
 export type RpcNotification = (typeof RPC_NOTIFICATIONS)[keyof typeof RPC_NOTIFICATIONS];
@@ -984,4 +990,69 @@ export interface McpListToolsParams {
  */
 export interface McpListToolsResult {
   tools: Array<{ name: string; description: string; serverName: string }>;
+}
+
+/**
+ * Params for setting VS Code MCP tools
+ * Extension sends its MCP tool descriptors so the CLI agent can invoke them.
+ */
+export interface McpSetVscodeToolsParams {
+  tools: Array<{
+    name: string;
+    description: string;
+    serverName: string;
+    inputSchema?: {
+      type: 'object';
+      properties: Record<string, unknown>;
+      required?: string[];
+    };
+  }>;
+}
+
+/**
+ * Params for MCP invoke response from extension
+ * The extension sends this after executing a VS Code MCP tool invocation.
+ */
+export interface McpInvokeResponseParams {
+  requestId: string;
+  success: boolean;
+  result?: string;
+  error?: string;
+}
+
+/**
+ * Result for getMcpServerConfigs
+ * Returns the MCP server configurations from the CLI config.
+ */
+export interface McpGetServerConfigsResult {
+  configs: Array<{
+    name: string;
+    transport: 'stdio' | 'sse' | 'http';
+    command?: string;
+    args?: string[];
+    url?: string;
+    env?: Record<string, string>;
+    headers?: Record<string, string>;
+    autoConnect?: boolean;
+  }>;
+}
+
+/**
+ * Notification params for MCP invoke request (Server -> Client)
+ * The CLI sends this when the agent needs to call a VS Code MCP tool.
+ */
+export interface McpInvokeRequestNotificationParams {
+  requestId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  timestamp: string;
+}
+
+/**
+ * Notification params for MCP tools changed (Server -> Client)
+ * The CLI sends this when the set of available MCP tools changes.
+ */
+export interface McpToolsChangedNotificationParams {
+  tools: Array<{ name: string; description: string; serverName: string }>;
+  timestamp: string;
 }
