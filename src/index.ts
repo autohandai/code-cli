@@ -320,6 +320,131 @@ program
     process.exit(0);
   });
 
+// ── MCP subcommand ──────────────────────────────────────────────────────
+const mcpCmd = program
+  .command('mcp')
+  .description('Manage MCP (Model Context Protocol) servers');
+
+mcpCmd
+  .command('add <name> <command> [args...]')
+  .description('Add an MCP server to config')
+  .action(async (name: string, command: string, args: string[]) => {
+    const config = await loadConfig();
+    const { McpClientManager } = await import('./mcp/McpClientManager.js');
+    const manager = new McpClientManager();
+    const { mcp } = await import('./commands/mcp.js');
+    const result = await mcp({ mcpManager: manager, config }, ['add', name, command, ...args]);
+    if (result) console.log(result);
+    process.exit(0);
+  });
+
+mcpCmd
+  .command('remove <name>')
+  .description('Remove an MCP server from config')
+  .action(async (name: string) => {
+    const config = await loadConfig();
+    const { McpClientManager } = await import('./mcp/McpClientManager.js');
+    const manager = new McpClientManager();
+    const { mcp } = await import('./commands/mcp.js');
+    const result = await mcp({ mcpManager: manager, config }, ['remove', name]);
+    if (result) console.log(result);
+    process.exit(0);
+  });
+
+mcpCmd
+  .command('list')
+  .description('List MCP tools from connected servers')
+  .action(async () => {
+    const config = await loadConfig();
+    const { McpClientManager } = await import('./mcp/McpClientManager.js');
+    const manager = new McpClientManager();
+
+    // Auto-connect configured servers before listing
+    for (const server of config.mcp?.servers ?? []) {
+      if (server.autoConnect !== false) {
+        try { await manager.connect(server); } catch { /* skip failures */ }
+      }
+    }
+
+    const { mcp } = await import('./commands/mcp.js');
+    const result = await mcp({ mcpManager: manager, config }, ['list']);
+    if (result) console.log(result);
+    await manager.disconnectAll().catch(() => {});
+    process.exit(0);
+  });
+
+mcpCmd
+  .command('install [server-name]')
+  .description('Browse and install community MCP servers')
+  .action(async (serverName?: string) => {
+    const config = await loadConfig();
+    const { McpClientManager } = await import('./mcp/McpClientManager.js');
+    const manager = new McpClientManager();
+    const { mcpInstall } = await import('./commands/mcp-install.js');
+    const result = await mcpInstall({ mcpManager: manager, config }, serverName);
+    if (result) console.log(result);
+    await manager.disconnectAll().catch(() => {});
+    process.exit(0);
+  });
+
+// ── Sessions subcommand ─────────────────────────────────────────────────
+program
+  .command('sessions')
+  .description('List saved sessions')
+  .option('--project <name>', 'Filter sessions by project name')
+  .action(async (opts: { project?: string }) => {
+    const { SessionManager } = await import('./session/SessionManager.js');
+    const sessionManager = new SessionManager();
+    await sessionManager.initialize();
+    const { sessions } = await import('./commands/sessions.js');
+    const args = opts.project ? ['--project', opts.project] : [];
+    await sessions({ sessionManager, args });
+    process.exit(0);
+  });
+
+// ── Init subcommand ─────────────────────────────────────────────────────
+program
+  .command('init')
+  .description('Create an AGENTS.md file in the workspace')
+  .option('--path <path>', 'Workspace path')
+  .action(async (opts: { path?: string }) => {
+    const config = await loadConfig();
+    const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
+    const agentsPath = path.join(workspaceRoot, 'AGENTS.md');
+    const exists = await fs.pathExists(agentsPath);
+    if (exists) {
+      console.log(chalk.yellow('AGENTS.md already exists in this workspace.'));
+      process.exit(0);
+    }
+    const template = [
+      '# AGENTS.md',
+      '',
+      '## Project Context',
+      'Describe your project here so the agent understands the codebase.',
+      '',
+      '## Coding Standards',
+      '- List your coding conventions',
+      '- Preferred patterns and practices',
+      '',
+      '## Important Files',
+      '- `src/index.ts` - Entry point',
+      '',
+    ].join('\n');
+    await fs.writeFile(agentsPath, template);
+    console.log(chalk.green(`Created ${agentsPath}`));
+    process.exit(0);
+  });
+
+// ── Completion subcommand ───────────────────────────────────────────────
+program
+  .command('completion <shell>')
+  .description('Generate shell completion scripts (bash, zsh, fish)')
+  .action(async (shell: string) => {
+    const { runCompletionCommand } = await import('./commands/completion.js');
+    await runCompletionCommand(shell);
+    process.exit(0);
+  });
+
 async function runCLI(options: CLIOptions): Promise<void> {
   try {
     let config = await loadConfig(options.config);
