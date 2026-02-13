@@ -26,6 +26,7 @@
     "dev": "bun src/index.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
+    "proof": "bun run lint && bun run typecheck && bun run test",
     "test": "vitest run",
     "start": "node dist/index.js",
     "compile:macos-arm64": "bun build ./src/index.ts --compile --target=bun-darwin-arm64 --outfile ./binaries/autohand-macos-arm64",
