@@ -327,14 +327,29 @@ const mcpCmd = program
 
 mcpCmd
   .command('add <name> <command> [args...]')
-  .description('Add an MCP server to config')
-  .action(async (name: string, command: string, args: string[]) => {
+  .description('Add an MCP server to config and auto-connect on next session')
+  .action(async (name: string, command: string, serverArgs: string[]) => {
     const config = await loadConfig();
-    const { McpClientManager } = await import('./mcp/McpClientManager.js');
-    const manager = new McpClientManager();
-    const { mcp } = await import('./commands/mcp.js');
-    const result = await mcp({ mcpManager: manager, config }, ['add', name, command, ...args]);
-    if (result) console.log(result);
+
+    if (config.mcp?.servers?.some(s => s.name === name)) {
+      console.log(chalk.yellow(`Server "${name}" already exists in config. Use "autohand mcp remove ${name}" first.`));
+      process.exit(1);
+    }
+
+    if (!config.mcp) config.mcp = {};
+    if (!config.mcp.servers) config.mcp.servers = [];
+
+    config.mcp.servers.push({
+      name,
+      transport: 'stdio' as const,
+      command,
+      args: serverArgs.length > 0 ? serverArgs : undefined,
+      autoConnect: true,
+    });
+
+    await saveConfig(config);
+    console.log(chalk.green(`Added "${name}" to config (command: ${command} ${serverArgs.join(' ')})`));
+    console.log(chalk.gray('Server will auto-connect when you start autohand.'));
     process.exit(0);
   });
 
@@ -343,11 +358,16 @@ mcpCmd
   .description('Remove an MCP server from config')
   .action(async (name: string) => {
     const config = await loadConfig();
-    const { McpClientManager } = await import('./mcp/McpClientManager.js');
-    const manager = new McpClientManager();
-    const { mcp } = await import('./commands/mcp.js');
-    const result = await mcp({ mcpManager: manager, config }, ['remove', name]);
-    if (result) console.log(result);
+    const serverIndex = config.mcp?.servers?.findIndex(s => s.name === name);
+
+    if (serverIndex === undefined || serverIndex < 0) {
+      console.log(chalk.yellow(`Server "${name}" not found in config.`));
+      process.exit(1);
+    }
+
+    config.mcp!.servers!.splice(serverIndex, 1);
+    await saveConfig(config);
+    console.log(chalk.green(`Removed "${name}" from config.`));
     process.exit(0);
   });
 
