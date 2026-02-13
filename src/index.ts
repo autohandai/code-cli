@@ -373,23 +373,25 @@ mcpCmd
 
 mcpCmd
   .command('list')
-  .description('List MCP tools from connected servers')
+  .description('List configured MCP servers')
   .action(async () => {
     const config = await loadConfig();
-    const { McpClientManager } = await import('./mcp/McpClientManager.js');
-    const manager = new McpClientManager();
+    const servers = config.mcp?.servers ?? [];
 
-    // Auto-connect configured servers before listing
-    for (const server of config.mcp?.servers ?? []) {
-      if (server.autoConnect !== false) {
-        try { await manager.connect(server); } catch { /* skip failures */ }
-      }
+    if (servers.length === 0) {
+      console.log(chalk.gray('No MCP servers configured.'));
+      console.log(chalk.gray('Add one with: autohand mcp add <name> <command> [args...]'));
+      process.exit(0);
     }
 
-    const { mcp } = await import('./commands/mcp.js');
-    const result = await mcp({ mcpManager: manager, config }, ['list']);
-    if (result) console.log(result);
-    await manager.disconnectAll().catch(() => {});
+    console.log(chalk.cyan(`\nConfigured MCP Servers (${servers.length}):\n`));
+    for (const server of servers) {
+      const args = server.args?.join(' ') ?? '';
+      const cmd = `${server.command}${args ? ' ' + args : ''}`;
+      const auto = server.autoConnect !== false ? chalk.green('auto-connect') : chalk.gray('manual');
+      console.log(`  ${chalk.white(server.name)} ${chalk.gray('→')} ${cmd} ${chalk.gray(`[${auto}]`)}`);
+    }
+    console.log();
     process.exit(0);
   });
 
