@@ -72,6 +72,7 @@ import { SecurityScanner } from './SecurityScanner.js';
 import { execSync } from 'node:child_process';
 import { PlanFileStorage } from '../modes/planMode/PlanFileStorage.js';
 import type { Plan, PlanStep } from '../modes/planMode/types.js';
+import { getPlanModeManager } from '../commands/plan.js';
 import { randomUUID } from 'node:crypto';
 
 /** Response from permission-request hook */
@@ -217,76 +218,76 @@ export class ActionExecutor {
           console.log(chalk.gray(`\n🧹 Cleaned up ${cleanedCount} plan(s) older than 30 days`));
         }
 
-        // Check for incomplete plans (pending or in_progress steps)
-        const refreshedPlanIds = await storage.listPlans();
-        const incompletePlans: Array<{ plan: Plan; pendingCount: number; inProgressCount: number }> = [];
+        // Only offer resume of incomplete plans when user explicitly entered plan mode
+        // (via /plan or Shift+Tab). When the LLM calls the plan tool on its own during
+        // normal conversation, always create a fresh plan — don't interrupt with stale plans.
+        const planModeManager = getPlanModeManager();
+        if (planModeManager.isEnabled() && this.onAskFollowup) {
+          const refreshedPlanIds = await storage.listPlans();
+          const incompletePlans: Array<{ plan: Plan; pendingCount: number; inProgressCount: number }> = [];
 
-        for (const planId of refreshedPlanIds) {
-          const existingPlan = await storage.loadPlan(planId);
-          if (existingPlan) {
-            const pendingCount = existingPlan.steps.filter(s => s.status === 'pending').length;
-            const inProgressCount = existingPlan.steps.filter(s => s.status === 'in_progress').length;
+          for (const planId of refreshedPlanIds) {
+            const existingPlan = await storage.loadPlan(planId);
+            if (existingPlan) {
+              const pendingCount = existingPlan.steps.filter(s => s.status === 'pending').length;
+              const inProgressCount = existingPlan.steps.filter(s => s.status === 'in_progress').length;
 
-            if (pendingCount > 0 || inProgressCount > 0) {
-              incompletePlans.push({ plan: existingPlan, pendingCount, inProgressCount });
-            }
-          }
-        }
-
-        // If there are incomplete plans, ask user if they want to resume one
-        if (incompletePlans.length > 0 && this.onAskFollowup) {
-          console.log(chalk.yellow(`\n📋 Found ${incompletePlans.length} incomplete plan(s):`));
-
-          for (const { plan, pendingCount, inProgressCount } of incompletePlans) {
-            const age = Math.floor((now - plan.createdAt) / (1000 * 60 * 60 * 24));
-            const ageStr = age === 0 ? 'today' : age === 1 ? '1 day ago' : `${age} days ago`;
-            const statusStr = inProgressCount > 0
-              ? `${inProgressCount} in progress, ${pendingCount} pending`
-              : `${pendingCount} pending`;
-            console.log(chalk.gray(`   • ${plan.id} (${ageStr}) - ${plan.steps.length} steps, ${statusStr}`));
-          }
-          console.log();
-
-          // Build suggested answers
-          const suggestedAnswers = [
-            'Create new plan',
-            ...incompletePlans.slice(0, 3).map(({ plan }) => `Resume: ${plan.id}`)
-          ];
-
-          const answer = await this.onAskFollowup(
-            'Would you like to resume an incomplete plan or create a new one?',
-            suggestedAnswers
-          );
-
-          const answerText = answer.replace(/<\/?answer>/g, '').trim();
-
-          // Check if user wants to resume an existing plan
-          if (answerText.toLowerCase().includes('resume:') || answerText.toLowerCase().startsWith('resume')) {
-            // Extract plan ID from answer
-            const resumeMatch = answerText.match(/resume[:\s]+(\S+)/i);
-            if (resumeMatch) {
-              const planIdToResume = resumeMatch[1];
-              const planToResume = incompletePlans.find(p => p.plan.id === planIdToResume);
-
-              if (planToResume) {
-                const filePath = `${storage.getPlansDirectory()}/${planToResume.plan.id}.md`;
-                console.log(chalk.cyan(`\n📋 Resuming plan: ${planToResume.plan.id}`));
-                console.log(chalk.gray(`   File: ${filePath}\n`));
-
-                if (this.onPlanCreated) {
-                  return this.onPlanCreated(planToResume.plan, filePath);
-                }
-
-                return `Resumed plan ${planToResume.plan.id}\n\nSteps:\n${planToResume.plan.steps.map(s => {
-                  const status = s.status === 'completed' ? '✓' : s.status === 'in_progress' ? '>' : '○';
-                  return `${status} ${s.number}. ${s.description}`;
-                }).join('\n')}`;
+              if (pendingCount > 0 || inProgressCount > 0) {
+                incompletePlans.push({ plan: existingPlan, pendingCount, inProgressCount });
               }
             }
           }
 
-          // User chose to create new plan or answer didn't match resume pattern
-          console.log(chalk.cyan('\n📋 Creating new plan...'));
+          if (incompletePlans.length > 0) {
+            console.log(chalk.yellow(`\n📋 Found ${incompletePlans.length} incomplete plan(s):`));
+
+            for (const { plan, pendingCount, inProgressCount } of incompletePlans) {
+              const age = Math.floor((now - plan.createdAt) / (1000 * 60 * 60 * 24));
+              const ageStr = age === 0 ? 'today' : age === 1 ? '1 day ago' : `${age} days ago`;
+              const statusStr = inProgressCount > 0
+                ? `${inProgressCount} in progress, ${pendingCount} pending`
+                : `${pendingCount} pending`;
+              console.log(chalk.gray(`   • ${plan.id} (${ageStr}) - ${plan.steps.length} steps, ${statusStr}`));
+            }
+            console.log();
+
+            const suggestedAnswers = [
+              'Create new plan',
+              ...incompletePlans.slice(0, 3).map(({ plan }) => `Resume: ${plan.id}`)
+            ];
+
+            const answer = await this.onAskFollowup(
+              'Would you like to resume an incomplete plan or create a new one?',
+              suggestedAnswers
+            );
+
+            const answerText = answer.replace(/<\/?answer>/g, '').trim();
+
+            if (answerText.toLowerCase().includes('resume:') || answerText.toLowerCase().startsWith('resume')) {
+              const resumeMatch = answerText.match(/resume[:\s]+(\S+)/i);
+              if (resumeMatch) {
+                const planIdToResume = resumeMatch[1];
+                const planToResume = incompletePlans.find(p => p.plan.id === planIdToResume);
+
+                if (planToResume) {
+                  const filePath = `${storage.getPlansDirectory()}/${planToResume.plan.id}.md`;
+                  console.log(chalk.cyan(`\n📋 Resuming plan: ${planToResume.plan.id}`));
+                  console.log(chalk.gray(`   File: ${filePath}\n`));
+
+                  if (this.onPlanCreated) {
+                    return this.onPlanCreated(planToResume.plan, filePath);
+                  }
+
+                  return `Resumed plan ${planToResume.plan.id}\n\nSteps:\n${planToResume.plan.steps.map(s => {
+                    const status = s.status === 'completed' ? '✓' : s.status === 'in_progress' ? '>' : '○';
+                    return `${status} ${s.number}. ${s.description}`;
+                  }).join('\n')}`;
+                }
+              }
+            }
+
+            console.log(chalk.cyan('\n📋 Creating new plan...'));
+          }
         }
 
         // Parse notes into PlanStep[] - look for numbered lines

@@ -475,7 +475,12 @@ describe('plan cleanup and resume', () => {
     expect(mockFs.remove).not.toHaveBeenCalled();
   });
 
-  it('offers to resume incomplete plans', async () => {
+  it('offers to resume incomplete plans when plan mode is enabled', async () => {
+    // Resume prompt only shows when user explicitly entered plan mode
+    const { getPlanModeManager } = await import('../src/commands/plan.js');
+    const planModeManager = getPlanModeManager();
+    planModeManager.enable();
+
     const recentDate = Date.now() - (1 * 24 * 60 * 60 * 1000); // 1 day ago
     const incompletePlanContent = `# Plan: incomplete-plan\n\nCreated: ${new Date(recentDate).toISOString()}\n\n## Steps\n\n- [ ] 1. Pending step\n- [>] 2. In progress step`;
 
@@ -495,9 +500,16 @@ describe('plan cleanup and resume', () => {
       expect.stringContaining('resume'),
       expect.arrayContaining(['Create new plan'])
     );
+
+    planModeManager.disable();
   });
 
   it('resumes plan when user selects resume option', async () => {
+    // Resume prompt only shows when user explicitly entered plan mode
+    const { getPlanModeManager } = await import('../src/commands/plan.js');
+    const planModeManager = getPlanModeManager();
+    planModeManager.enable();
+
     const recentDate = Date.now() - (1 * 24 * 60 * 60 * 1000);
     const incompletePlanContent = `# Plan: incomplete-plan\n\nCreated: ${new Date(recentDate).toISOString()}\n\n## Steps\n\n- [ ] 1. Pending step`;
 
@@ -517,9 +529,16 @@ describe('plan cleanup and resume', () => {
       expect.objectContaining({ id: 'incomplete-plan' }),
       expect.any(String)
     );
+
+    planModeManager.disable();
   });
 
   it('creates new plan when user chooses not to resume', async () => {
+    // Resume prompt only shows when user explicitly entered plan mode
+    const { getPlanModeManager } = await import('../src/commands/plan.js');
+    const planModeManager = getPlanModeManager();
+    planModeManager.enable();
+
     const recentDate = Date.now() - (1 * 24 * 60 * 60 * 1000);
     const incompletePlanContent = `# Plan: incomplete-plan\n\nCreated: ${new Date(recentDate).toISOString()}\n\n## Steps\n\n- [ ] 1. Pending step`;
 
@@ -540,6 +559,40 @@ describe('plan cleanup and resume', () => {
         id: expect.stringMatching(/^plan-[a-f0-9]+$/),
         steps: expect.arrayContaining([
           expect.objectContaining({ description: 'Brand new step' })
+        ])
+      }),
+      expect.any(String)
+    );
+
+    planModeManager.disable();
+  });
+
+  it('does not show resume prompt when plan mode is not enabled (LLM-initiated)', async () => {
+    // This is the core bug fix: when the LLM calls the plan tool during normal
+    // conversation (plan mode NOT enabled), it should never interrupt with stale plans.
+    const { getPlanModeManager } = await import('../src/commands/plan.js');
+    expect(getPlanModeManager().isEnabled()).toBe(false);
+
+    const recentDate = Date.now() - (1 * 24 * 60 * 60 * 1000);
+    const incompletePlanContent = `# Plan: stale-plan\n\nCreated: ${new Date(recentDate).toISOString()}\n\n## Steps\n\n- [ ] 1. Pending step\n- [>] 2. In progress step`;
+
+    mockFs.pathExists.mockResolvedValue(true);
+    mockFs.readdir.mockResolvedValue(['stale-plan.md']);
+    mockFs.readFile.mockResolvedValue(incompletePlanContent);
+    mockOnPlanCreated.mockResolvedValue('Plan accepted');
+
+    await executor.execute({
+      type: 'plan',
+      notes: '1. Fresh step from LLM'
+    });
+
+    // Should NOT have asked about resuming — just create the new plan
+    expect(mockOnAskFollowup).not.toHaveBeenCalled();
+    // Should have created a new plan
+    expect(mockOnPlanCreated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        steps: expect.arrayContaining([
+          expect.objectContaining({ description: 'Fresh step from LLM' })
         ])
       }),
       expect.any(String)
