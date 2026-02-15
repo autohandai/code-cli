@@ -28,25 +28,26 @@ describe('MCP CLI subcommands', () => {
     await fs.remove(tmpDir);
   });
 
-  // Helper to run CLI commands against the local build
+  // Helper to run CLI commands against the local build.
+  // Uses AUTOHAND_CONFIG env var (which detectConfigPath() checks)
+  // to point at the temp config file.
   function runCli(args: string): { stdout: string; exitCode: number } {
     try {
       const stdout = execSync(
-        `AUTOHAND_CONFIG_PATH=${configPath} bun ${path.resolve('dist/index.js')} ${args}`,
+        `bun ${path.resolve('dist/index.js')} ${args}`,
         {
           encoding: 'utf8',
           timeout: 15000,
           env: {
             ...process.env,
-            AUTOHAND_CONFIG_PATH: configPath,
-            AUTOHAND_HOME: tmpDir,
+            AUTOHAND_CONFIG: configPath,
           },
         }
       );
       return { stdout, exitCode: 0 };
     } catch (error: any) {
       return {
-        stdout: error.stdout?.toString() ?? error.stderr?.toString() ?? '',
+        stdout: (error.stdout?.toString() ?? '') + (error.stderr?.toString() ?? ''),
         exitCode: error.status ?? 1,
       };
     }
