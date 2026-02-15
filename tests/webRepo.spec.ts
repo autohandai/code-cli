@@ -68,10 +68,9 @@ describe('webRepo', () => {
     });
 
     it('fetches GitLab repo info', async () => {
-      const info = await fetchRepoInfo({ platform: 'gitlab', owner: 'gitlab-org', repo: 'gitlab' });
+      const info = await fetchRepoInfo({ platform: 'gitlab', owner: 'gitlab-org', repo: 'gitlab-runner' });
       expect(info.platform).toBe('gitlab');
-      // GitLab API returns 'GitLab' (capitalized) as the display name
-      expect(info.name).toBe('GitLab');
+      expect(info.name).toBe('gitlab-runner');
       expect(typeof info.stars).toBe('number');
     }, 15_000);
 
@@ -92,14 +91,14 @@ describe('webRepo', () => {
     });
 
     it('lists GitLab repository root', async () => {
-      const files = await listRepoDir({ platform: 'gitlab', owner: 'gitlab-org', repo: 'gitlab' }, '');
+      const files = await listRepoDir({ platform: 'gitlab', owner: 'gitlab-org', repo: 'gitlab-runner' }, '');
       expect(Array.isArray(files)).toBe(true);
       expect(files.length).toBeGreaterThan(0);
     }, 15_000);
 
     it('lists subdirectory', async () => {
-      // gitlab-org/gitlab has an 'app' directory
-      const files = await listRepoDir({ platform: 'gitlab', owner: 'gitlab-org', repo: 'gitlab' }, 'app');
+      // gitlab-org/gitlab-runner has a 'docs' directory
+      const files = await listRepoDir({ platform: 'gitlab', owner: 'gitlab-org', repo: 'gitlab-runner' }, 'docs');
       expect(Array.isArray(files)).toBe(true);
       expect(files.length).toBeGreaterThan(0);
     }, 15_000);
@@ -117,9 +116,9 @@ describe('webRepo', () => {
     });
 
     it('fetches GitLab file content', async () => {
-      const content = await fetchRepoFile({ platform: 'gitlab', owner: 'gitlab-org', repo: 'gitlab' }, 'README.md');
+      const content = await fetchRepoFile({ platform: 'gitlab', owner: 'gitlab-org', repo: 'gitlab-runner' }, 'README.md');
       expect(content.length).toBeGreaterThan(0);
-      expect(content).toContain('GitLab');
+      expect(content).toContain('GitLab Runner');
     }, 15_000);
 
     it('throws on non-existent file', async () => {
@@ -147,18 +146,18 @@ describe('webRepo', () => {
     });
 
     it('routes to list operation with custom path', async () => {
-      const result = await webRepo({ repo: 'gitlab:gitlab-org/gitlab', operation: 'list', path: 'app' });
+      const result = await webRepo({ repo: 'gitlab:gitlab-org/gitlab-runner', operation: 'list', path: 'docs' });
       expect(result.type).toBe('list');
       if (result.type === 'list') {
         expect(Array.isArray(result.data)).toBe(true);
-        expect(result.path).toBe('app');
+        expect(result.path).toBe('docs');
         expect(result.data.length).toBeGreaterThan(0);
       }
     }, 15_000);
 
     it('routes to fetch operation with default path', async () => {
-      // Use gitlab-org/gitlab which has a README.md file
-      const result = await webRepo({ repo: 'gitlab:gitlab-org/gitlab', operation: 'fetch' });
+      // Use gitlab-org/gitlab-runner which has a README.md file
+      const result = await webRepo({ repo: 'gitlab:gitlab-org/gitlab-runner', operation: 'fetch' });
       expect(result.type).toBe('fetch');
       if (result.type === 'fetch') {
         expect(result.path).toBe('README.md');

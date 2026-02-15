@@ -28,13 +28,14 @@ describe('MCP CLI subcommands', () => {
     await fs.remove(tmpDir);
   });
 
-  // Helper to run CLI commands against the local build.
+  // Helper to run CLI commands against the TypeScript source directly.
   // Uses AUTOHAND_CONFIG env var (which detectConfigPath() checks)
   // to point at the temp config file.
+  // Runs src/index.ts instead of dist/index.js so tests work without a prior build step (e.g. in CI).
   function runCli(args: string): { stdout: string; exitCode: number } {
     try {
       const stdout = execSync(
-        `bun ${path.resolve('dist/index.js')} ${args}`,
+        `bun ${path.resolve('src/index.ts')} ${args}`,
         {
           encoding: 'utf8',
           timeout: 15000,
