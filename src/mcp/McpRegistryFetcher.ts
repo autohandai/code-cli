@@ -138,7 +138,7 @@ export class McpRegistryFetcher {
       typeof s.name === 'string' &&
       typeof s.description === 'string' &&
       typeof s.directory === 'string' &&
-      (s.transport === 'stdio' || s.transport === 'sse')
+      (s.transport === 'stdio' || s.transport === 'sse' || s.transport === 'http')
     );
   }
 
