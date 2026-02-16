@@ -82,6 +82,18 @@ describe('runCommand', () => {
     // Should be killed by timeout
     expect(result.signal).toBe('SIGTERM');
   });
+
+  it('rejects with "Command not found" for non-existent command', async () => {
+    await expect(
+      runCommand('nonexistent-command-that-does-not-exist-12345', [], testDir)
+    ).rejects.toThrow('Command not found: nonexistent-command-that-does-not-exist-12345');
+  });
+
+  it('rejects with "Command not found" for non-existent command with args', async () => {
+    await expect(
+      runCommand('python99-does-not-exist', ['-m', 'http.server', '8000'], testDir)
+    ).rejects.toThrow('Command not found: python99-does-not-exist');
+  });
 });
 
 describe('runShellCommand', () => {
