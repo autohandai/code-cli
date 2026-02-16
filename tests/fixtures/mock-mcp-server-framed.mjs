@@ -53,6 +53,19 @@ function handleRequest(msg) {
 
     case 'tools/call':
       if (msg.params?.name === 'echo_test') {
+        if (
+          msg.params?.arguments
+          && typeof msg.params.arguments === 'object'
+          && 'type' in msg.params.arguments
+        ) {
+          send({
+            jsonrpc: '2.0',
+            id: msg.id,
+            error: { code: -32602, message: 'Unexpected internal field: type' },
+          });
+          break;
+        }
+
         send({
           jsonrpc: '2.0',
           id: msg.id,
