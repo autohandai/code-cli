@@ -125,6 +125,29 @@ describe('MCP CLI subcommands', () => {
         args: ['-y', '@mcp/server@latest', 'arg1', 'arg2'],
       });
     });
+
+    it('adds an HTTP transport server', () => {
+      const result = runCli('mcp add --transport http context7 https://mcp.context7.com/mcp');
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Added "context7"');
+      expect(result.stdout).toContain('http');
+
+      const config = fs.readJsonSync(configPath);
+      expect(config.mcp.servers[0]).toMatchObject({
+        name: 'context7',
+        transport: 'http',
+        url: 'https://mcp.context7.com/mcp',
+        autoConnect: true,
+      });
+    });
+
+    it('rejects SSE transport from CLI add', () => {
+      const result = runCli('mcp add --transport sse my-sse http://localhost:3001/mcp');
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('not implemented');
+    });
   });
 
   describe('mcp remove', () => {
