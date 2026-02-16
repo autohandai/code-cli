@@ -5,7 +5,7 @@
  *
  * Tests for MCP CLI subcommands (autohand mcp add/remove/list)
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
 import { execSync } from 'node:child_process';
 import fs from 'fs-extra';
 import path from 'node:path';
@@ -16,6 +16,14 @@ const tmpDir = path.join(os.tmpdir(), `autohand-mcp-test-${Date.now()}`);
 const configPath = path.join(tmpDir, 'config.json');
 
 describe('MCP CLI subcommands', () => {
+  beforeAll(() => {
+    // Ensure Ink's nested slice-ansi dependencies resolve ansi-styles v6 under Bun.
+    execSync(`node ${path.resolve('scripts/fix-ansi-styles.js')}`, {
+      encoding: 'utf8',
+      timeout: 15000,
+    });
+  });
+
   beforeEach(async () => {
     await fs.ensureDir(tmpDir);
     // Write a minimal config
