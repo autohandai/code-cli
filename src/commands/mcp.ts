@@ -8,6 +8,7 @@
 import chalk from 'chalk';
 import { t } from '../i18n/index.js';
 import type { McpClientManager } from '../mcp/McpClientManager.js';
+import { normalizeMcpCommandForConfig } from '../mcp/commandNormalization.js';
 import type { LoadedConfig } from '../types.js';
 import { saveConfig } from '../config.js';
 import {
@@ -264,6 +265,11 @@ async function handleAdd(
   }
 
   const [name, command, ...serverArgs] = args;
+  const normalized = normalizeMcpCommandForConfig(
+    command,
+    serverArgs.length > 0 ? serverArgs : undefined
+  );
+  const normalizedCommand = normalized.command ?? command;
 
   if (!config.mcp) {
     config.mcp = {};
@@ -272,11 +278,11 @@ async function handleAdd(
     config.mcp.servers = [];
   }
 
-  const newArgs = serverArgs.length > 0 ? serverArgs : undefined;
+  const newArgs = normalized.args;
   const existing = config.mcp.servers.find(s => s.name === name);
 
   if (existing) {
-    const sameConfig = existing.command === command
+    const sameConfig = existing.command === normalizedCommand
       && JSON.stringify(existing.args) === JSON.stringify(newArgs);
 
     if (sameConfig) {
@@ -284,7 +290,7 @@ async function handleAdd(
     }
 
     // Update in-place
-    existing.command = command;
+    existing.command = normalizedCommand;
     existing.args = newArgs;
 
     try {
@@ -310,7 +316,7 @@ async function handleAdd(
   const newServer = {
     name,
     transport: 'stdio' as const,
-    command,
+    command: normalizedCommand,
     args: newArgs,
     autoConnect: true,
   };
