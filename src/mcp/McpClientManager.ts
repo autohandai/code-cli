@@ -773,7 +773,8 @@ export class McpClientManager {
     }
 
     // Strip internal agent metadata fields that are not part of MCP tool schemas.
-    const { type: _internalType, ...toolArgs } = args as Record<string, unknown> & { type?: unknown };
+    const toolArgs = { ...args };
+    delete (toolArgs as { type?: unknown }).type;
 
     const result = await connection.request('tools/call', {
       name: toolName,
