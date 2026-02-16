@@ -75,7 +75,21 @@ export function runCommand(
       spawnOptions.stdio = ['ignore', 'pipe', 'pipe'];
     }
 
-    const child = spawn(cmd, args, spawnOptions);
+    // Bun may throw synchronously from spawn() when the command is not found (ENOENT),
+    // unlike Node.js which defers it to the 'error' event. Catch here to prevent
+    // uncaught exceptions from crashing the process.
+    let child;
+    try {
+      child = spawn(cmd, args, spawnOptions);
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === 'ENOENT') {
+        reject(new Error(`Command not found: ${cmd}`));
+      } else {
+        reject(error);
+      }
+      return;
+    }
 
     // For background processes, unref and return immediately with PID
     if (options.background) {
@@ -113,9 +127,13 @@ export function runCommand(
       options.onStderr?.(text);
     });
 
-    child.once('error', (error) => {
+    child.once('error', (error: NodeJS.ErrnoException) => {
       if (timeoutId) clearTimeout(timeoutId);
-      reject(error);
+      if (error.code === 'ENOENT') {
+        reject(new Error(`Command not found: ${cmd}`));
+      } else {
+        reject(error);
+      }
     });
 
     child.once('close', (code, signal) => {
