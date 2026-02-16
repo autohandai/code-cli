@@ -56,6 +56,26 @@ export function parseShellCommand(input: string): string {
 }
 
 /**
+ * Check if the input is a command that should execute immediately (not queued).
+ * Shell commands (! prefix) and slash commands (/ prefix) bypass the queue.
+ */
+export function isImmediateCommand(input: string): boolean {
+  const trimmed = input.trim();
+  if (!trimmed) return false;
+
+  // Shell commands: ! followed by actual command
+  if (isShellCommand(trimmed)) return true;
+
+  // Slash commands: / followed by at least one non-space character
+  if (trimmed.startsWith('/')) {
+    const command = trimmed.slice(1).trim();
+    return command.length > 0;
+  }
+
+  return false;
+}
+
+/**
  * Execute a shell command and return the result
  * @param command - The command to execute
  * @param cwd - Working directory (defaults to process.cwd())

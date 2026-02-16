@@ -50,6 +50,7 @@ import { AutohandAgent } from './core/agent.js';
 import { runAutoSkillGeneration } from './skills/autoSkill.js';
 import { runRpcMode } from './modes/rpc/index.js';
 import { runAcpMode } from './modes/acp/index.js';
+import { normalizeMcpCommandForConfig } from './mcp/commandNormalization.js';
 import { SetupWizard } from './onboarding/index.js';
 import type { CLIOptions, AgentRuntime } from './types.js';
 
@@ -334,11 +335,16 @@ mcpCmd
     if (!config.mcp) config.mcp = {};
     if (!config.mcp.servers) config.mcp.servers = [];
 
-    const newArgs = serverArgs.length > 0 ? serverArgs : undefined;
+    const normalized = normalizeMcpCommandForConfig(
+      command,
+      serverArgs.length > 0 ? serverArgs : undefined
+    );
+    const normalizedCommand = normalized.command ?? command;
+    const newArgs = normalized.args;
     const existing = config.mcp.servers.find(s => s.name === name);
 
     if (existing) {
-      const sameConfig = existing.command === command
+      const sameConfig = existing.command === normalizedCommand
         && JSON.stringify(existing.args) === JSON.stringify(newArgs);
 
       if (sameConfig) {
@@ -347,10 +353,10 @@ mcpCmd
       }
 
       // Update in-place
-      existing.command = command;
+      existing.command = normalizedCommand;
       existing.args = newArgs;
       await saveConfig(config);
-      console.log(chalk.green(`Updated "${name}" config (command: ${command} ${serverArgs.join(' ')})`));
+      console.log(chalk.green(`Updated "${name}" config (command: ${normalizedCommand} ${(newArgs ?? []).join(' ')})`));
       console.log(chalk.gray('Server will use the new settings on next start.'));
       process.exit(0);
     }
@@ -358,13 +364,13 @@ mcpCmd
     config.mcp.servers.push({
       name,
       transport: 'stdio' as const,
-      command,
+      command: normalizedCommand,
       args: newArgs,
       autoConnect: true,
     });
 
     await saveConfig(config);
-    console.log(chalk.green(`Added "${name}" to config (command: ${command} ${serverArgs.join(' ')})`));
+    console.log(chalk.green(`Added "${name}" to config (command: ${normalizedCommand} ${(newArgs ?? []).join(' ')})`));
     console.log(chalk.gray('Server will auto-connect when you start autohand.'));
     process.exit(0);
   });

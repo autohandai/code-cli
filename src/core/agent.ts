@@ -16,7 +16,7 @@ import { saveConfig, getProviderConfig } from '../config.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import { ProviderNotConfiguredError } from '../providers/ProviderFactory.js';
 import { readInstruction, safeEmitKeypressEvents } from '../ui/inputPrompt.js';
-import { isShellCommand, parseShellCommand, executeShellCommand } from '../ui/shellCommand.js';
+import { isShellCommand, isImmediateCommand, parseShellCommand, executeShellCommand } from '../ui/shellCommand.js';
 import { showFilePalette } from '../ui/filePalette.js';
 import { createInkRenderer } from '../ui/ink/InkRenderer.js';
 import { showQuestionModal } from '../ui/questionModal.js';
@@ -522,6 +522,27 @@ export class AutohandAgent {
             this.runtime.spinner.text = originalText;
           }
         }, 1500);
+      }
+    });
+
+    // Handle immediate commands (! shell, / slash) from PersistentInput — bypass queue
+    this.persistentInput.on('immediate-command', (text: string) => {
+      if (isShellCommand(text)) {
+        const cmd = parseShellCommand(text);
+        console.log(chalk.gray(`\n$ ${cmd}`));
+        const result = executeShellCommand(cmd, this.runtime.workspaceRoot);
+        if (result.success) {
+          if (result.output) console.log(result.output);
+        } else {
+          console.log(chalk.red(result.error || 'Command failed'));
+        }
+      } else if (text.startsWith('/')) {
+        const parts = text.slice(1).split(/\s+/);
+        const command = parts[0];
+        const args = parts.slice(1);
+        this.handleSlashCommand(command, args).catch((err: Error) => {
+          console.log(chalk.red(`\nCommand error: ${err.message}`));
+        });
       }
     });
 
@@ -3495,6 +3516,29 @@ If lint or tests fail, report the issues but do NOT commit.`;
           if (this.queueInput.trim()) {
             const text = this.queueInput.trim();
             this.queueInput = '';
+
+            // Shell commands (!) and slash commands (/) execute immediately, never queued
+            if (isImmediateCommand(text)) {
+              if (isShellCommand(text)) {
+                const cmd = parseShellCommand(text);
+                console.log(chalk.gray(`\n$ ${cmd}`));
+                const result = executeShellCommand(cmd, this.runtime.workspaceRoot);
+                if (result.success) {
+                  if (result.output) console.log(result.output);
+                } else {
+                  console.log(chalk.red(result.error || 'Command failed'));
+                }
+              } else if (text.startsWith('/')) {
+                const parts = text.slice(1).split(/\s+/);
+                const command = parts[0];
+                const args = parts.slice(1);
+                this.handleSlashCommand(command, args).catch((err: Error) => {
+                  console.log(chalk.red(`\nCommand error: ${err.message}`));
+                });
+              }
+              this.updateInputLine();
+              return;
+            }
 
             const queue = (this.persistentInput as any).queue as Array<{ text: string; timestamp: number }>;
             if (queue.length >= 10) {
