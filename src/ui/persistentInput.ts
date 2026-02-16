@@ -11,6 +11,7 @@ import readline from 'node:readline';
 import EventEmitter from 'node:events';
 import { TerminalRegions, createTerminalRegions } from './terminalRegions.js';
 import { safeEmitKeypressEvents } from './inputPrompt.js';
+import { isImmediateCommand } from './shellCommand.js';
 
 export interface QueuedMessage {
   text: string;
@@ -216,10 +217,22 @@ export class PersistentInput extends EventEmitter {
       return;
     }
 
-    // Handle Enter - submit to queue
+    // Handle Enter - execute immediate commands or submit to queue
     if (key?.name === 'return' || key?.name === 'enter') {
       if (this.currentInput.trim()) {
-        this.addToQueue(this.currentInput.trim());
+        const text = this.currentInput.trim();
+
+        // Shell commands (!) and slash commands (/) execute immediately, never queued
+        if (isImmediateCommand(text)) {
+          this.currentInput = '';
+          if (!this.silentMode) {
+            this.regions.updateInput('');
+          }
+          this.emit('immediate-command', text);
+          return;
+        }
+
+        this.addToQueue(text);
         this.currentInput = '';
         if (!this.silentMode) {
           this.regions.updateInput('');
