@@ -113,6 +113,7 @@ async function showInteractiveList(
     lines.push('');
     lines.push(chalk.gray('Add a server:'));
     lines.push(chalk.gray('  /mcp add <name> <command> [args...]'));
+    lines.push(chalk.gray('  /mcp add --transport http <name> <url>'));
     lines.push('');
     lines.push(chalk.gray('Browse community servers:'));
     lines.push(chalk.gray('  /mcp install'));
@@ -256,20 +257,48 @@ async function handleAdd(
   config: LoadedConfig | undefined,
   args: string[]
 ): Promise<string> {
-  if (args.length < 2) {
-    return 'Usage: /mcp add <name> <command> [args...]';
+  type Transport = 'stdio' | 'http' | 'sse';
+
+  let transport: Transport = 'stdio';
+  const positional: string[] = [];
+
+  for (let i = 0; i < args.length; i++) {
+    const token = args[i];
+    if (token === '--transport' || token === '-t') {
+      const value = args[i + 1];
+      if (!value) {
+        return 'Usage: /mcp add [--transport <stdio|http|sse>] <name> <command-or-url> [args...]';
+      }
+      const lowered = value.toLowerCase();
+      if (lowered !== 'stdio' && lowered !== 'http' && lowered !== 'sse') {
+        return `Invalid transport "${value}". Use: stdio, http, or sse.`;
+      }
+      transport = lowered;
+      i++;
+      continue;
+    }
+    positional.push(token);
+  }
+
+  if (positional.length < 2) {
+    return 'Usage: /mcp add [--transport <stdio|http|sse>] <name> <command-or-url> [args...]';
+  }
+
+  const [name, target, ...serverArgs] = positional;
+  if ((transport === 'http' || transport === 'sse') && serverArgs.length > 0) {
+    return `Transport "${transport}" does not accept extra args. Usage: /mcp add --transport ${transport} <name> <url>`;
   }
 
   if (!config) {
     return 'Config not available.';
   }
 
-  const [name, command, ...serverArgs] = args;
   const normalized = normalizeMcpCommandForConfig(
-    command,
+    target,
     serverArgs.length > 0 ? serverArgs : undefined
   );
-  const normalizedCommand = normalized.command ?? command;
+  const normalizedCommand = normalized.command ?? target;
+  const normalizedArgs = normalized.args;
 
   if (!config.mcp) {
     config.mcp = {};
@@ -278,20 +307,51 @@ async function handleAdd(
     config.mcp.servers = [];
   }
 
-  const newArgs = normalized.args;
+  const newServer = transport === 'stdio'
+    ? {
+        name,
+        transport: 'stdio' as const,
+        command: normalizedCommand,
+        args: normalizedArgs,
+        autoConnect: true,
+      }
+    : {
+        name,
+        transport: transport as 'http' | 'sse',
+        url: target,
+        autoConnect: true,
+      };
+
+  const displayTarget = transport === 'stdio'
+    ? `${normalizedCommand} ${(normalizedArgs ?? []).join(' ')}`.trim()
+    : target;
+
   const existing = config.mcp.servers.find(s => s.name === name);
 
   if (existing) {
-    const sameConfig = existing.command === normalizedCommand
-      && JSON.stringify(existing.args) === JSON.stringify(newArgs);
+    const sameConfig = transport === 'stdio'
+      ? existing.transport === 'stdio'
+        && existing.command === normalizedCommand
+        && JSON.stringify(existing.args) === JSON.stringify(normalizedArgs)
+      : existing.transport === transport
+        && existing.url === target;
 
     if (sameConfig) {
       return `Server "${name}" is already configured with the same settings.`;
     }
 
     // Update in-place
-    existing.command = normalizedCommand;
-    existing.args = newArgs;
+    existing.transport = newServer.transport;
+    if (newServer.transport === 'stdio') {
+      existing.command = newServer.command;
+      existing.args = newServer.args;
+      existing.url = undefined;
+    } else {
+      existing.url = newServer.url;
+      existing.command = undefined;
+      existing.args = undefined;
+    }
+    existing.autoConnect = true;
 
     try {
       await saveConfig(config);
@@ -304,7 +364,7 @@ async function handleAdd(
       try {
         await manager.connect(existing);
         const tools = manager.getToolsForServer(name);
-        return `Updated and reconnected "${name}" (${tools.length} tools available)`;
+        return `Updated and reconnected "${name}" (${transport}: ${displayTarget}, ${tools.length} tools available)`;
       } catch (connectError) {
         return `Updated "${name}" config but failed to reconnect: ${connectError instanceof Error ? connectError.message : 'Unknown error'}`;
       }
@@ -312,14 +372,6 @@ async function handleAdd(
       return `Failed to save config: ${error instanceof Error ? error.message : 'Unknown error'}`;
     }
   }
-
-  const newServer = {
-    name,
-    transport: 'stdio' as const,
-    command: normalizedCommand,
-    args: newArgs,
-    autoConnect: true,
-  };
 
   config.mcp.servers.push(newServer);
 
@@ -330,7 +382,7 @@ async function handleAdd(
     try {
       await manager.connect(newServer);
       const tools = manager.getToolsForServer(name);
-      return `Added and connected to "${name}" (${tools.length} tools available)`;
+      return `Added and connected to "${name}" (${transport}: ${displayTarget}, ${tools.length} tools available)`;
     } catch (connectError) {
       return `Added "${name}" to config but failed to connect: ${connectError instanceof Error ? connectError.message : 'Unknown error'}`;
     }
