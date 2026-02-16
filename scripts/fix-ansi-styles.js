@@ -17,6 +17,7 @@ const nodeModules = path.join(__dirname, '..', 'node_modules');
 
 // Paths that need ansi-styles@6.x but might pick up v4.x
 const pathsToFix = [
+  'ink/node_modules/slice-ansi',
   'ink/node_modules/wrap-ansi',
   'ink/node_modules/cli-truncate/node_modules/slice-ansi',
 ];
