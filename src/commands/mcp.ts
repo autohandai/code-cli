@@ -271,7 +271,7 @@ async function handleAdd(
       }
       const lowered = value.toLowerCase();
       if (lowered !== 'stdio' && lowered !== 'http' && lowered !== 'sse') {
-        return `Invalid transport "${value}". Use: stdio, http, or sse.`;
+        return `Invalid transport "${value}". Use: stdio or http.`;
       }
       transport = lowered;
       i++;
@@ -285,7 +285,11 @@ async function handleAdd(
   }
 
   const [name, target, ...serverArgs] = positional;
-  if ((transport === 'http' || transport === 'sse') && serverArgs.length > 0) {
+  if (transport === 'sse') {
+    return 'SSE transport is not implemented yet. Use --transport http or stdio.';
+  }
+
+  if (transport === 'http' && serverArgs.length > 0) {
     return `Transport "${transport}" does not accept extra args. Usage: /mcp add --transport ${transport} <name> <url>`;
   }
 
@@ -315,12 +319,12 @@ async function handleAdd(
         args: normalizedArgs,
         autoConnect: true,
       }
-    : {
-        name,
-        transport: transport as 'http' | 'sse',
-        url: target,
-        autoConnect: true,
-      };
+      : {
+          name,
+          transport: 'http' as const,
+          url: target,
+          autoConnect: true,
+        };
 
   const displayTarget = transport === 'stdio'
     ? `${normalizedCommand} ${(normalizedArgs ?? []).join(' ')}`.trim()

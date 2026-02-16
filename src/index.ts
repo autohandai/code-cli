@@ -343,11 +343,17 @@ mcpCmd
 
     const transport = (options.transport ?? 'stdio').toLowerCase();
     if (transport !== 'stdio' && transport !== 'http' && transport !== 'sse') {
-      console.log(chalk.red(`Invalid transport "${options.transport}". Use: stdio, http, or sse.`));
+      console.log(chalk.red(`Invalid transport "${options.transport}". Use: stdio or http.`));
       process.exit(1);
     }
 
-    if ((transport === 'http' || transport === 'sse') && serverArgs.length > 0) {
+    if (transport === 'sse') {
+      console.log(chalk.yellow('SSE transport is not implemented yet.'));
+      console.log(chalk.gray('Use --transport http (streamable HTTP) or stdio for now.'));
+      process.exit(1);
+    }
+
+    if (transport === 'http' && serverArgs.length > 0) {
       console.log(chalk.red(`Transport "${transport}" does not accept extra args.`));
       console.log(chalk.gray(`Usage: autohand mcp add --transport ${transport} <name> <url>`));
       process.exit(1);
@@ -370,7 +376,7 @@ mcpCmd
         }
       : {
           name,
-          transport: transport as 'http' | 'sse',
+          transport: 'http' as const,
           url: target,
           autoConnect: true,
         };
