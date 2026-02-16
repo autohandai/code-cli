@@ -69,7 +69,7 @@ describe('MCP CLI subcommands', () => {
         name: 'test-server',
         transport: 'stdio',
         command: 'npx',
-        args: ['test-mcp@latest'],
+        args: ['-y', 'test-mcp@latest'],
         autoConnect: true,
       });
     });
@@ -103,7 +103,7 @@ describe('MCP CLI subcommands', () => {
       expect(config.mcp.servers[0]).toMatchObject({
         name: 'test-server',
         command: 'npx',
-        args: ['other-mcp@latest'],
+        args: ['-y', 'other-mcp@latest'],
       });
     });
 
@@ -114,7 +114,7 @@ describe('MCP CLI subcommands', () => {
       expect(config.mcp.servers[0]).toMatchObject({
         name: 'multi-arg',
         command: 'npx',
-        args: ['@mcp/server@latest', 'arg1', 'arg2'],
+        args: ['-y', '@mcp/server@latest', 'arg1', 'arg2'],
       });
     });
   });

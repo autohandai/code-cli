@@ -10,13 +10,13 @@ import { McpClientManager } from '../src/mcp/McpClientManager.js';
 import type { McpServerConfig } from '../src/mcp/types.js';
 import path from 'node:path';
 
-const testServerScript = path.resolve('tests/fixtures/mock-mcp-server.mjs');
+const framedServerScript = path.resolve('tests/fixtures/mock-mcp-server-framed.mjs');
 
 const stdioConfig: McpServerConfig = {
   name: 'test-server',
   transport: 'stdio',
   command: 'node',
-  args: [testServerScript],
+  args: [framedServerScript],
   autoConnect: true,
 };
 
@@ -147,7 +147,7 @@ describe('McpClientManager', () => {
   // ========================================================================
 
   describe('connect', () => {
-    it('connects to a valid stdio server', async () => {
+    it('connects to a Content-Length framed stdio server', async () => {
       await manager.connect(stdioConfig);
 
       const servers = manager.listServers();

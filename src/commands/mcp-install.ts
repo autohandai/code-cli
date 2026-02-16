@@ -10,6 +10,7 @@ import { safePrompt } from '../utils/prompt.js';
 import type { McpClientManager } from '../mcp/McpClientManager.js';
 import { McpRegistryFetcher } from '../mcp/McpRegistryFetcher.js';
 import { McpRegistryCache } from '../mcp/McpRegistryCache.js';
+import { normalizeMcpCommandForConfig } from '../mcp/commandNormalization.js';
 import { saveConfig } from '../config.js';
 import type {
   GitHubCommunityMcp,
@@ -264,11 +265,15 @@ async function installServer(
   }
 
   // Build server config
+  const normalized = normalizeMcpCommandForConfig(
+    server.command,
+    serverArgs.length > 0 ? serverArgs : undefined
+  );
   const newServer = {
     name: server.id,
     transport: server.transport,
-    command: server.command,
-    args: serverArgs.length > 0 ? serverArgs : undefined,
+    command: normalized.command,
+    args: normalized.args,
     env: Object.keys(env).length > 0 ? env : undefined,
     autoConnect: true,
   };

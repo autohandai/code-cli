@@ -23,6 +23,7 @@ import {
   validateMcpServerConfig,
   convertMcpToolToAutohand,
 } from './types.js';
+import { normalizeMcpCommandForSpawn } from './commandNormalization.js';
 
 // ============================================================================
 // JSON-RPC 2.0 Types (MCP protocol wire format)
@@ -59,7 +60,8 @@ interface JsonRpcResponse {
 /** Manages a single stdio connection to an MCP server process */
 class McpStdioConnection extends EventEmitter {
   private process: ChildProcess | null = null;
-  private buffer = '';
+  private lineBuffer = '';
+  private frameBuffer = Buffer.alloc(0);
   private nextId = 1;
   private pendingRequests = new Map<
     number,
@@ -73,7 +75,10 @@ class McpStdioConnection extends EventEmitter {
   /** Default timeout for RPC requests in milliseconds */
   private static readonly REQUEST_TIMEOUT_MS = 30_000;
 
-  constructor(private readonly config: McpServerConfig) {
+  constructor(
+    private readonly config: McpServerConfig,
+    private readonly framing: 'content-length' | 'newline'
+  ) {
     super();
   }
 
@@ -87,7 +92,8 @@ class McpStdioConnection extends EventEmitter {
 
     return new Promise<void>((resolve, reject) => {
       try {
-        this.process = spawn(this.config.command!, this.config.args ?? [], {
+        const normalized = normalizeMcpCommandForSpawn(this.config.command!, this.config.args);
+        this.process = spawn(normalized.command, normalized.args ?? [], {
           stdio: ['pipe', 'pipe', 'pipe'],
           env: {
             ...process.env,
@@ -146,7 +152,7 @@ class McpStdioConnection extends EventEmitter {
 
       this.pendingRequests.set(id, { resolve, reject, timer });
 
-      const message = JSON.stringify(request) + '\n';
+      const message = this.serializeMessage(request);
       this.process!.stdin!.write(message);
     });
   }
@@ -165,7 +171,7 @@ class McpStdioConnection extends EventEmitter {
       ...(params !== undefined ? { params } : {}),
     };
 
-    const message = JSON.stringify(notification) + '\n';
+    const message = this.serializeMessage(notification);
     this.process.stdin.write(message);
   }
 
@@ -204,24 +210,12 @@ class McpStdioConnection extends EventEmitter {
    * Parses incoming stdout data as newline-delimited JSON-RPC messages.
    */
   private handleStdoutData(data: Buffer): void {
-    this.buffer += data.toString();
-
-    // Process complete lines (newline-delimited JSON)
-    let newlineIndex: number;
-    while ((newlineIndex = this.buffer.indexOf('\n')) !== -1) {
-      const line = this.buffer.slice(0, newlineIndex).trim();
-      this.buffer = this.buffer.slice(newlineIndex + 1);
-
-      if (line.length === 0) continue;
-
-      try {
-        const message = JSON.parse(line) as JsonRpcResponse;
-        this.handleMessage(message);
-      } catch {
-        // Non-JSON output, ignore (could be server logs)
-        this.emit('stderr', `Non-JSON output: ${line}`);
-      }
+    if (this.framing === 'newline') {
+      this.parseLineDelimitedData(data);
+      return;
     }
+
+    this.parseContentLengthData(data);
   }
 
   /**
@@ -256,7 +250,129 @@ class McpStdioConnection extends EventEmitter {
       this.pendingRequests.delete(id);
     }
     this.process = null;
-    this.buffer = '';
+    this.lineBuffer = '';
+    this.frameBuffer = Buffer.alloc(0);
+  }
+
+  /**
+   * Serializes JSON-RPC payload according to configured stdio framing mode.
+   */
+  private serializeMessage(payload: JsonRpcRequest | JsonRpcNotification): string {
+    const json = JSON.stringify(payload);
+    if (this.framing === 'newline') {
+      return `${json}\n`;
+    }
+
+    const contentLength = Buffer.byteLength(json, 'utf8');
+    return `Content-Length: ${contentLength}\r\n\r\n${json}`;
+  }
+
+  /**
+   * Parses newline-delimited JSON-RPC messages (legacy mode).
+   */
+  private parseLineDelimitedData(data: Buffer): void {
+    this.lineBuffer += data.toString();
+
+    let newlineIndex: number;
+    while ((newlineIndex = this.lineBuffer.indexOf('\n')) !== -1) {
+      const line = this.lineBuffer.slice(0, newlineIndex).trim();
+      this.lineBuffer = this.lineBuffer.slice(newlineIndex + 1);
+
+      if (line.length === 0) continue;
+      this.handleJsonPayload(line);
+    }
+  }
+
+  /**
+   * Parses Content-Length framed JSON-RPC messages (MCP stdio spec).
+   */
+  private parseContentLengthData(data: Buffer): void {
+    this.frameBuffer = Buffer.concat([this.frameBuffer, data]);
+
+    while (this.frameBuffer.length > 0) {
+      const header = this.findHeaderEnd(this.frameBuffer);
+      if (!header) {
+        return;
+      }
+
+      const headersText = this.frameBuffer.subarray(0, header.index).toString('utf8');
+      const contentLength = this.extractContentLength(headersText);
+
+      if (contentLength === null) {
+        // Not a framed protocol message. Consume one line as diagnostic.
+        const newlineIndex = this.frameBuffer.indexOf('\n');
+        if (newlineIndex === -1) return;
+
+        const line = this.frameBuffer.subarray(0, newlineIndex).toString('utf8').trim();
+        this.frameBuffer = this.frameBuffer.subarray(newlineIndex + 1);
+        if (line.length > 0) {
+          this.handleJsonPayload(line);
+        }
+        continue;
+      }
+
+      const payloadStart = header.index + header.separatorLength;
+      const payloadEnd = payloadStart + contentLength;
+
+      if (this.frameBuffer.length < payloadEnd) {
+        return;
+      }
+
+      const json = this.frameBuffer.subarray(payloadStart, payloadEnd).toString('utf8').trim();
+      this.frameBuffer = this.frameBuffer.subarray(payloadEnd);
+
+      if (json.length > 0) {
+        this.handleJsonPayload(json);
+      }
+    }
+  }
+
+  /**
+   * Finds the end of a stdio frame header block.
+   */
+  private findHeaderEnd(
+    buffer: Buffer
+  ): { index: number; separatorLength: number } | null {
+    const crlfIndex = buffer.indexOf('\r\n\r\n');
+    const lfIndex = buffer.indexOf('\n\n');
+
+    if (crlfIndex === -1 && lfIndex === -1) return null;
+    if (crlfIndex !== -1 && (lfIndex === -1 || crlfIndex < lfIndex)) {
+      return { index: crlfIndex, separatorLength: 4 };
+    }
+
+    return { index: lfIndex, separatorLength: 2 };
+  }
+
+  /**
+   * Extracts Content-Length header value from frame headers.
+   */
+  private extractContentLength(headers: string): number | null {
+    const lines = headers.split(/\r?\n/);
+
+    for (const line of lines) {
+      const match = /^content-length\s*:\s*(\d+)\s*$/i.exec(line.trim());
+      if (!match) continue;
+
+      const parsed = Number.parseInt(match[1], 10);
+      if (Number.isNaN(parsed) || parsed < 0) return null;
+      return parsed;
+    }
+
+    return null;
+  }
+
+  /**
+   * Parses and routes a single JSON-RPC payload.
+   */
+  private handleJsonPayload(json: string): void {
+    try {
+      const message = JSON.parse(json) as JsonRpcResponse;
+      this.handleMessage(message);
+    } catch {
+      // Non-JSON output, ignore (could be server logs)
+      this.emit('stderr', `Non-JSON output: ${json}`);
+    }
   }
 }
 
@@ -691,7 +807,18 @@ export class McpClientManager {
    * and discovers available tools.
    */
   private async connectStdio(config: McpServerConfig): Promise<void> {
-    const connection = new McpStdioConnection(config);
+    const connected = await this.connectStdioWithFraming(config, 'content-length');
+    this.registerConnectedStdioServer(config, connected.connection, connected.tools);
+  }
+
+  /**
+   * Tries to establish a stdio MCP connection with a specific framing mode.
+   */
+  private async connectStdioWithFraming(
+    config: McpServerConfig,
+    framing: 'content-length' | 'newline'
+  ): Promise<{ connection: McpStdioConnection; tools: McpToolDefinition[] }> {
+    const connection = new McpStdioConnection(config, framing);
 
     // Track error state
     let connectionError: Error | null = null;
@@ -710,15 +837,6 @@ export class McpClientManager {
 
     connection.on('stderr', (data: string) => {
       stderrOutput += data;
-    });
-
-    connection.on('close', () => {
-      const state = this.servers.get(config.name);
-      // Only set to 'disconnected' if currently connected.
-      // Preserve 'error' status so the user can see why connection failed.
-      if (state && state.status === 'connected') {
-        state.status = 'disconnected';
-      }
     });
 
     try {
@@ -752,14 +870,7 @@ export class McpClientManager {
         convertMcpToolToAutohand(rawTool, config.name)
       );
 
-      // Store server state
-      this.servers.set(config.name, {
-        config,
-        status: 'connected',
-        tools,
-      });
-
-      this.connections.set(config.name, connection);
+      return { connection, tools };
     } catch (error) {
       // Clean up on failure
       await connection.stop().catch(() => {});
@@ -773,6 +884,33 @@ export class McpClientManager {
 
       throw error;
     }
+  }
+
+  /**
+   * Stores connected server state and attaches lifecycle listeners.
+   */
+  private registerConnectedStdioServer(
+    config: McpServerConfig,
+    connection: McpStdioConnection,
+    tools: McpToolDefinition[]
+  ): void {
+    connection.on('close', () => {
+      const state = this.servers.get(config.name);
+      // Only set to 'disconnected' if currently connected.
+      // Preserve 'error' status so the user can see why connection failed.
+      if (state && state.status === 'connected') {
+        state.status = 'disconnected';
+      }
+    });
+
+    // Store server state
+    this.servers.set(config.name, {
+      config,
+      status: 'connected',
+      tools,
+    });
+
+    this.connections.set(config.name, connection);
   }
 
   /**

@@ -1,0 +1,171 @@
+/**
+ * @license
+ * Copyright 2025 Autohand AI LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+vi.mock('node:child_process', () => ({
+  execSync: vi.fn()
+}));
+
+vi.mock('chalk', () => ({
+  default: {
+    red: (str: string) => str,
+    gray: (str: string) => str,
+    cyan: (str: string) => str,
+    green: (str: string) => str,
+    yellow: (str: string) => str,
+    bold: (str: string) => str,
+    dim: (str: string) => str,
+  }
+}));
+
+describe('Immediate command detection - isImmediateCommand', () => {
+  let isImmediateCommand: typeof import('../../src/ui/shellCommand.js').isImmediateCommand;
+
+  beforeEach(async () => {
+    const module = await import('../../src/ui/shellCommand.js');
+    isImmediateCommand = module.isImmediateCommand;
+  });
+
+  it('should return true for shell commands starting with !', () => {
+    expect(isImmediateCommand('! ls -la')).toBe(true);
+    expect(isImmediateCommand('!git status')).toBe(true);
+    expect(isImmediateCommand('!  pwd')).toBe(true);
+  });
+
+  it('should return true for slash commands starting with /', () => {
+    expect(isImmediateCommand('/help')).toBe(true);
+    expect(isImmediateCommand('/model')).toBe(true);
+    expect(isImmediateCommand('/quit')).toBe(true);
+    expect(isImmediateCommand('/exit')).toBe(true);
+  });
+
+  it('should return false for regular prompts', () => {
+    expect(isImmediateCommand('fix the bug in auth')).toBe(false);
+    expect(isImmediateCommand('add a new feature')).toBe(false);
+    expect(isImmediateCommand('explain this code')).toBe(false);
+  });
+
+  it('should return false for empty input', () => {
+    expect(isImmediateCommand('')).toBe(false);
+    expect(isImmediateCommand('   ')).toBe(false);
+  });
+
+  it('should return false for bare ! with no command', () => {
+    expect(isImmediateCommand('!')).toBe(false);
+    expect(isImmediateCommand('!  ')).toBe(false);
+  });
+
+  it('should return false for bare / with no command', () => {
+    expect(isImmediateCommand('/')).toBe(false);
+    expect(isImmediateCommand('/  ')).toBe(false);
+  });
+
+  it('should return false for ! or / in middle of text', () => {
+    expect(isImmediateCommand('hello! world')).toBe(false);
+    expect(isImmediateCommand('path/to/file')).toBe(false);
+  });
+});
+
+describe('PersistentInput immediate command handling', () => {
+  let PersistentInput: typeof import('../../src/ui/persistentInput.js').PersistentInput;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    const module = await import('../../src/ui/persistentInput.js');
+    PersistentInput = module.PersistentInput;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should emit immediate-command instead of queuing for ! commands', () => {
+    const pi = new PersistentInput({ silentMode: true });
+    // Bypass start() which needs TTY — set isActive directly
+    (pi as any).isActive = true;
+
+    const immediateHandler = vi.fn();
+    const queueHandler = vi.fn();
+
+    pi.on('immediate-command', immediateHandler);
+    pi.on('queued', queueHandler);
+
+    const handler = (pi as any).handleKeypress;
+
+    handler('!', { name: undefined });
+    handler(' ', { name: undefined });
+    handler('l', { name: undefined });
+    handler('s', { name: undefined });
+    handler('', { name: 'return' });
+
+    expect(immediateHandler).toHaveBeenCalledWith('! ls');
+    expect(queueHandler).not.toHaveBeenCalled();
+    expect(pi.hasQueued()).toBe(false);
+  });
+
+  it('should emit immediate-command instead of queuing for / commands', () => {
+    const pi = new PersistentInput({ silentMode: true });
+    (pi as any).isActive = true;
+
+    const immediateHandler = vi.fn();
+    const queueHandler = vi.fn();
+
+    pi.on('immediate-command', immediateHandler);
+    pi.on('queued', queueHandler);
+
+    const handler = (pi as any).handleKeypress;
+
+    handler('/', { name: undefined });
+    handler('h', { name: undefined });
+    handler('e', { name: undefined });
+    handler('l', { name: undefined });
+    handler('p', { name: undefined });
+    handler('', { name: 'return' });
+
+    expect(immediateHandler).toHaveBeenCalledWith('/help');
+    expect(queueHandler).not.toHaveBeenCalled();
+    expect(pi.hasQueued()).toBe(false);
+  });
+
+  it('should queue regular prompts normally', () => {
+    const pi = new PersistentInput({ silentMode: true });
+    (pi as any).isActive = true;
+
+    const immediateHandler = vi.fn();
+    const queueHandler = vi.fn();
+
+    pi.on('immediate-command', immediateHandler);
+    pi.on('queued', queueHandler);
+
+    const handler = (pi as any).handleKeypress;
+
+    handler('f', { name: undefined });
+    handler('i', { name: undefined });
+    handler('x', { name: undefined });
+    handler('', { name: 'return' });
+
+    expect(immediateHandler).not.toHaveBeenCalled();
+    expect(queueHandler).toHaveBeenCalledWith('fix', 1);
+    expect(pi.hasQueued()).toBe(true);
+  });
+
+  it('should clear currentInput after immediate command', () => {
+    const pi = new PersistentInput({ silentMode: true });
+    (pi as any).isActive = true;
+
+    pi.on('immediate-command', () => {});
+
+    const handler = (pi as any).handleKeypress;
+
+    handler('!', { name: undefined });
+    handler('l', { name: undefined });
+    handler('s', { name: undefined });
+    handler('', { name: 'return' });
+
+    expect(pi.getCurrentInput()).toBe('');
+  });
+});
