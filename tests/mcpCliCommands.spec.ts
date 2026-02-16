@@ -74,15 +74,37 @@ describe('MCP CLI subcommands', () => {
       });
     });
 
-    it('rejects duplicate server names', () => {
-      // Add the first server
+    it('is idempotent when adding same config twice', () => {
       runCli('mcp add test-server npx test-mcp@latest');
 
-      // Try to add with same name
+      // Same name + same command/args → success, "already configured"
+      const result = runCli('mcp add test-server npx test-mcp@latest');
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('already configured');
+
+      // Config still has exactly one entry
+      const config = fs.readJsonSync(configPath);
+      expect(config.mcp.servers).toHaveLength(1);
+    });
+
+    it('updates existing server when config differs', () => {
+      runCli('mcp add test-server npx test-mcp@latest');
+
+      // Same name but different command → updates in-place
       const result = runCli('mcp add test-server npx other-mcp@latest');
 
-      expect(result.exitCode).toBe(1);
-      expect(result.stdout).toContain('already exists');
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Updated');
+
+      // Config still has one entry with the new command args
+      const config = fs.readJsonSync(configPath);
+      expect(config.mcp.servers).toHaveLength(1);
+      expect(config.mcp.servers[0]).toMatchObject({
+        name: 'test-server',
+        command: 'npx',
+        args: ['other-mcp@latest'],
+      });
     });
 
     it('handles multiple args correctly', () => {

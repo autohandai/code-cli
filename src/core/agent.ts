@@ -73,6 +73,7 @@ type InkRenderer = any;
 import { PermissionManager } from '../permissions/PermissionManager.js';
 import { HookManager } from './HookManager.js';
 import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
+import { NotificationService } from '../utils/notification.js';
 import { getPlanModeManager } from '../commands/plan.js';
 import packageJson from '../../package.json' with { type: 'json' };
 // New feature modules
@@ -129,6 +130,7 @@ export class AutohandAgent {
   private activeProvider: ProviderName;
   private errorLogger: ErrorLogger;
   private autoReportManager: AutoReportManager;
+  private notificationService: NotificationService;
 
   private taskStartedAt: number | null = null;
   private totalTokensUsed = 0;
@@ -197,6 +199,7 @@ export class AutohandAgent {
     this.intentDetector = new IntentDetector();
     this.environmentBootstrap = new EnvironmentBootstrap();
     this.codeQualityPipeline = new CodeQualityPipeline();
+    this.notificationService = new NotificationService();
 
     // Create permission manager with persistence callback and local project support
     this.permissionManager = new PermissionManager({
@@ -785,6 +788,14 @@ export class AutohandAgent {
       process.stdout.write('\x07');
     }
 
+    // Native OS notification for task completion
+    if (this.runtime.config.ui?.showCompletionNotification !== false) {
+      this.notificationService.notify(
+        { body: 'Task completed', reason: 'task_complete' },
+        this.getNotificationGuards()
+      ).catch(() => {});
+    }
+
     if (this.runtime.options.autoCommit) {
       await this.performAutoCommit();
     }
@@ -1038,6 +1049,14 @@ If lint or tests fail, report the issues but do NOT commit.`;
         // Ring terminal bell to notify user (shows badge on terminal tab)
         if (this.runtime.config.ui?.terminalBell !== false) {
           process.stdout.write('\x07');
+        }
+
+        // Native OS notification for task completion
+        if (this.runtime.config.ui?.showCompletionNotification !== false) {
+          this.notificationService.notify(
+            { body: 'Task completed', reason: 'task_complete' },
+            this.getNotificationGuards()
+          ).catch(() => {});
         }
 
         this.feedbackManager.recordInteraction();
@@ -4221,6 +4240,17 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
 
+  private getNotificationGuards() {
+    return {
+      isRpcMode: !!this.runtime.isRpcMode,
+      hasConfirmationCallback: !!this.confirmationCallback,
+      isAutoConfirm: !!this.runtime.config.ui?.autoConfirm,
+      isYesMode: !!this.runtime.options.yes,
+      hasExternalCallback: isExternalCallbackEnabled(),
+      notificationsConfig: this.runtime.config.ui?.notifications,
+    };
+  }
+
   private async confirmDangerousAction(message: string, context?: { tool?: string; path?: string; command?: string }): Promise<boolean> {
     if (this.runtime.options.yes || this.runtime.config.ui?.autoConfirm) {
       return true;
@@ -4234,6 +4264,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
     if (isExternalCallbackEnabled()) {
       return unifiedConfirm(message);
     }
+
+    this.notificationService.notify(
+      { body: message, reason: 'confirmation' },
+      this.getNotificationGuards()
+    ).catch(() => {});
 
     this.stopStatusUpdates();
 
@@ -4285,6 +4320,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
       console.log(chalk.gray('  (Auto-skipped in non-interactive mode)\n'));
       return '<answer>Skipped (non-interactive mode)</answer>';
     }
+
+    this.notificationService.notify(
+      { body: `Question: ${question.slice(0, 100)}`, reason: 'question' },
+      this.getNotificationGuards()
+    ).catch(() => {});
 
     this.stopStatusUpdates();
 
