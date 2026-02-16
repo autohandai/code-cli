@@ -327,25 +327,67 @@ const mcpCmd = program
   .description('Manage MCP (Model Context Protocol) servers');
 
 mcpCmd
-  .command('add <name> <command> [args...]')
+  .command('add <name> <target> [args...]')
   .description('Add an MCP server to config and auto-connect on next session')
-  .action(async (name: string, command: string, serverArgs: string[]) => {
+  .option('-t, --transport <transport>', 'Transport type: stdio | http | sse', 'stdio')
+  .action(async (
+    name: string,
+    target: string,
+    serverArgs: string[],
+    options: { transport?: string }
+  ) => {
     const config = await loadConfig();
 
     if (!config.mcp) config.mcp = {};
     if (!config.mcp.servers) config.mcp.servers = [];
 
+    const transport = (options.transport ?? 'stdio').toLowerCase();
+    if (transport !== 'stdio' && transport !== 'http' && transport !== 'sse') {
+      console.log(chalk.red(`Invalid transport "${options.transport}". Use: stdio, http, or sse.`));
+      process.exit(1);
+    }
+
+    if ((transport === 'http' || transport === 'sse') && serverArgs.length > 0) {
+      console.log(chalk.red(`Transport "${transport}" does not accept extra args.`));
+      console.log(chalk.gray(`Usage: autohand mcp add --transport ${transport} <name> <url>`));
+      process.exit(1);
+    }
+
     const normalized = normalizeMcpCommandForConfig(
-      command,
+      target,
       serverArgs.length > 0 ? serverArgs : undefined
     );
-    const normalizedCommand = normalized.command ?? command;
-    const newArgs = normalized.args;
+    const normalizedCommand = normalized.command ?? target;
+    const normalizedArgs = normalized.args;
+
+    const newServer = transport === 'stdio'
+      ? {
+          name,
+          transport: 'stdio' as const,
+          command: normalizedCommand,
+          args: normalizedArgs,
+          autoConnect: true,
+        }
+      : {
+          name,
+          transport: transport as 'http' | 'sse',
+          url: target,
+          autoConnect: true,
+        };
+
+    const displayTarget = transport === 'stdio'
+      ? `${normalizedCommand} ${(normalizedArgs ?? []).join(' ')}`.trim()
+      : target;
+
     const existing = config.mcp.servers.find(s => s.name === name);
 
     if (existing) {
-      const sameConfig = existing.command === normalizedCommand
-        && JSON.stringify(existing.args) === JSON.stringify(newArgs);
+      const sameConfig = transport === 'stdio'
+        ? existing.transport === 'stdio'
+          && existing.command === normalizedCommand
+          && JSON.stringify(existing.args) === JSON.stringify(normalizedArgs)
+        : existing.transport === transport
+          && existing.url === target;
 
       if (sameConfig) {
         console.log(chalk.green(`Server "${name}" is already configured with the same settings.`));
@@ -353,24 +395,27 @@ mcpCmd
       }
 
       // Update in-place
-      existing.command = normalizedCommand;
-      existing.args = newArgs;
+      existing.transport = newServer.transport;
+      if (newServer.transport === 'stdio') {
+        existing.command = newServer.command;
+        existing.args = newServer.args;
+        existing.url = undefined;
+      } else {
+        existing.url = newServer.url;
+        existing.command = undefined;
+        existing.args = undefined;
+      }
+      existing.autoConnect = true;
       await saveConfig(config);
-      console.log(chalk.green(`Updated "${name}" config (command: ${normalizedCommand} ${(newArgs ?? []).join(' ')})`));
+      console.log(chalk.green(`Updated "${name}" config (${newServer.transport}: ${displayTarget})`));
       console.log(chalk.gray('Server will use the new settings on next start.'));
       process.exit(0);
     }
 
-    config.mcp.servers.push({
-      name,
-      transport: 'stdio' as const,
-      command: normalizedCommand,
-      args: newArgs,
-      autoConnect: true,
-    });
+    config.mcp.servers.push(newServer);
 
     await saveConfig(config);
-    console.log(chalk.green(`Added "${name}" to config (command: ${normalizedCommand} ${(newArgs ?? []).join(' ')})`));
+    console.log(chalk.green(`Added "${name}" to config (${newServer.transport}: ${displayTarget})`));
     console.log(chalk.gray('Server will auto-connect when you start autohand.'));
     process.exit(0);
   });
@@ -403,15 +448,17 @@ mcpCmd
     if (servers.length === 0) {
       console.log(chalk.gray('No MCP servers configured.'));
       console.log(chalk.gray('Add one with: autohand mcp add <name> <command> [args...]'));
+      console.log(chalk.gray('Or HTTP: autohand mcp add --transport http <name> <url>'));
       process.exit(0);
     }
 
     console.log(chalk.cyan(`\nConfigured MCP Servers (${servers.length}):\n`));
     for (const server of servers) {
-      const args = server.args?.join(' ') ?? '';
-      const cmd = `${server.command}${args ? ' ' + args : ''}`;
+      const target = server.transport === 'stdio'
+        ? `${server.command}${server.args?.length ? ' ' + server.args.join(' ') : ''}`.trim()
+        : (server.url ?? '<missing-url>');
       const auto = server.autoConnect !== false ? chalk.green('auto-connect') : chalk.gray('manual');
-      console.log(`  ${chalk.white(server.name)} ${chalk.gray('→')} ${cmd} ${chalk.gray(`[${auto}]`)}`);
+      console.log(`  ${chalk.white(server.name)} ${chalk.gray('→')} ${server.transport}:${target} ${chalk.gray(`[${auto}]`)}`);
     }
     console.log();
     process.exit(0);
