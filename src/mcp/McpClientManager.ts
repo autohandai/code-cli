@@ -772,9 +772,12 @@ export class McpClientManager {
       throw new Error(`MCP server not found or not connected: "${serverName}"`);
     }
 
+    // Strip internal agent metadata fields that are not part of MCP tool schemas.
+    const { type: _internalType, ...toolArgs } = args as Record<string, unknown> & { type?: unknown };
+
     const result = await connection.request('tools/call', {
       name: toolName,
-      arguments: args,
+      arguments: toolArgs,
     });
 
     return result;

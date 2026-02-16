@@ -296,6 +296,23 @@ describe('McpClientManager', () => {
       expect(result).toBeTruthy();
     });
 
+    it('strips internal action metadata from MCP tool arguments', async () => {
+      await manager.connect(stdioConfig);
+
+      const tools = manager.getAllTools();
+      expect(tools.length).toBeGreaterThan(0);
+
+      const parsed = McpClientManager.parseMcpToolName(tools[0].name);
+      expect(parsed).toBeTruthy();
+
+      const result = await manager.callTool(parsed!.serverName, parsed!.toolName, {
+        type: tools[0].name,
+        message: 'hello',
+      });
+
+      expect(result).toBeTruthy();
+    });
+
     it('throws for disconnected server', async () => {
       await expect(
         manager.callTool('nonexistent', 'tool', {})
