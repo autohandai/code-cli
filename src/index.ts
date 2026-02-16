@@ -331,19 +331,35 @@ mcpCmd
   .action(async (name: string, command: string, serverArgs: string[]) => {
     const config = await loadConfig();
 
-    if (config.mcp?.servers?.some(s => s.name === name)) {
-      console.log(chalk.yellow(`Server "${name}" already exists in config. Use "autohand mcp remove ${name}" first.`));
-      process.exit(1);
-    }
-
     if (!config.mcp) config.mcp = {};
     if (!config.mcp.servers) config.mcp.servers = [];
+
+    const newArgs = serverArgs.length > 0 ? serverArgs : undefined;
+    const existing = config.mcp.servers.find(s => s.name === name);
+
+    if (existing) {
+      const sameConfig = existing.command === command
+        && JSON.stringify(existing.args) === JSON.stringify(newArgs);
+
+      if (sameConfig) {
+        console.log(chalk.green(`Server "${name}" is already configured with the same settings.`));
+        process.exit(0);
+      }
+
+      // Update in-place
+      existing.command = command;
+      existing.args = newArgs;
+      await saveConfig(config);
+      console.log(chalk.green(`Updated "${name}" config (command: ${command} ${serverArgs.join(' ')})`));
+      console.log(chalk.gray('Server will use the new settings on next start.'));
+      process.exit(0);
+    }
 
     config.mcp.servers.push({
       name,
       transport: 'stdio' as const,
       command,
-      args: serverArgs.length > 0 ? serverArgs : undefined,
+      args: newArgs,
       autoConnect: true,
     });
 

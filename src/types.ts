@@ -51,6 +51,15 @@ export interface WorkspaceSettings {
   allowDangerousOps?: boolean;
 }
 
+export interface NotificationConfig {
+  /** Enable/disable native OS notifications (default: true) */
+  enabled?: boolean;
+  /** Custom notification title (default: 'Autohand') */
+  title?: string;
+  /** Play notification sound on macOS (default: true) */
+  sound?: boolean;
+}
+
 export interface UISettings {
   /** Theme name: 'dark', 'light', or custom theme from ~/.autohand/themes/*.json */
   theme?: string;
@@ -71,6 +80,8 @@ export interface UISettings {
   updateCheckInterval?: number;
   /** Display language locale (e.g., 'en', 'zh-cn', 'fr') */
   locale?: string;
+  /** Native OS desktop notifications when user attention is needed (default: true) */
+  notifications?: boolean | NotificationConfig;
 }
 
 export interface AgentSettings {

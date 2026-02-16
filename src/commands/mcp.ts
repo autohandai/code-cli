@@ -265,12 +265,6 @@ async function handleAdd(
 
   const [name, command, ...serverArgs] = args;
 
-  // Check if server already exists
-  if (config.mcp?.servers?.some(s => s.name === name)) {
-    return `Server "${name}" already exists in config. Use /mcp remove first.`;
-  }
-
-  // Add to config
   if (!config.mcp) {
     config.mcp = {};
   }
@@ -278,11 +272,46 @@ async function handleAdd(
     config.mcp.servers = [];
   }
 
+  const newArgs = serverArgs.length > 0 ? serverArgs : undefined;
+  const existing = config.mcp.servers.find(s => s.name === name);
+
+  if (existing) {
+    const sameConfig = existing.command === command
+      && JSON.stringify(existing.args) === JSON.stringify(newArgs);
+
+    if (sameConfig) {
+      return `Server "${name}" is already configured with the same settings.`;
+    }
+
+    // Update in-place
+    existing.command = command;
+    existing.args = newArgs;
+
+    try {
+      await saveConfig(config);
+
+      // Disconnect old, reconnect with new config
+      try {
+        await manager.disconnect(name);
+      } catch { /* may not be connected */ }
+
+      try {
+        await manager.connect(existing);
+        const tools = manager.getToolsForServer(name);
+        return `Updated and reconnected "${name}" (${tools.length} tools available)`;
+      } catch (connectError) {
+        return `Updated "${name}" config but failed to reconnect: ${connectError instanceof Error ? connectError.message : 'Unknown error'}`;
+      }
+    } catch (error) {
+      return `Failed to save config: ${error instanceof Error ? error.message : 'Unknown error'}`;
+    }
+  }
+
   const newServer = {
     name,
     transport: 'stdio' as const,
     command,
-    args: serverArgs.length > 0 ? serverArgs : undefined,
+    args: newArgs,
     autoConnect: true,
   };
 

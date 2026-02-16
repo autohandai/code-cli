@@ -696,6 +696,9 @@ export class McpClientManager {
     // Track error state
     let connectionError: Error | null = null;
 
+    // Capture stderr output for diagnostics
+    let stderrOutput = '';
+
     connection.on('error', (err: Error) => {
       connectionError = err;
       const state = this.servers.get(config.name);
@@ -703,6 +706,10 @@ export class McpClientManager {
         state.status = 'error';
         state.error = err.message;
       }
+    });
+
+    connection.on('stderr', (data: string) => {
+      stderrOutput += data;
     });
 
     connection.on('close', () => {
@@ -756,6 +763,14 @@ export class McpClientManager {
     } catch (error) {
       // Clean up on failure
       await connection.stop().catch(() => {});
+
+      // Enrich error with stderr output for diagnostics
+      const detail = stderrOutput.trim();
+      if (detail) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        throw new Error(`${errMsg}\n  Server stderr: ${detail.slice(0, 500)}`);
+      }
+
       throw error;
     }
   }
