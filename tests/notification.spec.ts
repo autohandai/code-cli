@@ -16,7 +16,7 @@ import { spawn } from 'node:child_process';
 import {
   NotificationService,
   type NotificationGuards,
-  type NotificationOptions,
+
 } from '../src/utils/notification.js';
 
 const mockSpawn = vi.mocked(spawn);
@@ -443,7 +443,6 @@ describe('NotificationService', () => {
       service = new NotificationService();
 
       // Focus check returns unfocused
-      let firstCall = true;
       mockSpawn.mockImplementation((cmd: string, args?: readonly string[]) => {
         if (cmd === 'osascript' && (args?.[1] as string)?.includes('frontmost')) {
           return createMockChild(0, 'Chrome');
