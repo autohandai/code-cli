@@ -197,6 +197,10 @@ async function installServer(
     return 'MCP manager or config not available.';
   }
 
+  if (server.transport === 'sse') {
+    return `MCP server "${server.name}" uses SSE transport, which is not implemented yet. Use a stdio or http server.`;
+  }
+
   // Check if already installed
   if (config.mcp?.servers?.some(s => s.name === server.id)) {
     const confirm = await safePrompt<{ overwrite: boolean }>([

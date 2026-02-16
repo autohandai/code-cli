@@ -157,7 +157,7 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 - [x] **Custom System Prompt**: Override or append system prompt
 
 ## MCP Support
-- [x] Connect to external MCP servers (stdio and SSE transports)
+- [x] Connect to external MCP servers (stdio and HTTP transports)
 - [x] Automatic tool discovery and namespaced registration
 - [x] Server lifecycle management
 - [x] **Non-blocking startup**: servers connect in background without delaying the prompt

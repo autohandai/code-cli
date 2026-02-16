@@ -976,11 +976,11 @@ export class McpClientManager {
       config,
       status: 'error',
       tools: [],
-      error: 'SSE transport is not yet implemented. Use stdio transport instead.',
+      error: 'SSE transport is not yet implemented. Use stdio or http transport instead.',
     });
 
     throw new Error(
-      `SSE transport for MCP server "${config.name}" is not yet implemented. Use stdio transport instead.`
+      `SSE transport for MCP server "${config.name}" is not yet implemented. Use stdio or http transport instead.`
     );
   }
 }
