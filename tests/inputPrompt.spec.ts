@@ -188,7 +188,7 @@ describe('inputPrompt', () => {
         { announce: false }
       );
 
-      expect(output).toBe('[Image #1] Screenshot 2026-02-17 at 9.22.22 PM.png');
+      expect(output).toBe('[Image #1]');
       fs.rmSync(tempDir, { recursive: true, force: true });
     });
 
@@ -211,7 +211,7 @@ describe('inputPrompt', () => {
       const input = `${imgA} ${imgB}`;
       const output = processImagesInText(input, onImage, { announce: false });
 
-      expect(output).toBe('[Image #1] a.png [Image #2] b.png');
+      expect(output).toBe('[Image #1] [Image #2]');
       expect(counter).toBe(2);
 
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -231,8 +231,8 @@ describe('inputPrompt', () => {
       const input = `${escaped} ${simplePath}`;
       const output = processImagesInText(input, onImage, { announce: false });
 
-      expect(output).toContain('[Image #1] my screenshot.png');
-      expect(output).toContain('[Image #2] icon.jpg');
+      expect(output).toContain('[Image #1]');
+      expect(output).toContain('[Image #2]');
       expect(counter).toBe(2);
 
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -255,7 +255,7 @@ describe('inputPrompt', () => {
         { announce: false }
       );
 
-      expect(output).toBe(`[Image #1] ${filename}`);
+      expect(output).toBe('[Image #1]');
       fs.rmSync(tempDir, { recursive: true, force: true });
     });
 
@@ -269,6 +269,32 @@ describe('inputPrompt', () => {
 
       expect(output).toBe('Look at this [Image #1] image');
       expect(counter).toBe(1);
+    });
+
+    it('finds file with U+202F when terminal normalizes to regular space', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'autohand-img-norm-'));
+      // Actual file on disk uses U+202F before PM (macOS Sequoia+)
+      const realFilename = 'Screenshot 2026-02-17 at 10.33.32\u202FPM.png';
+      const imagePath = path.join(tempDir, realFilename);
+      fs.writeFileSync(imagePath, Buffer.from('fake-nnbsp'));
+
+      // Terminal normalizes U+202F to regular space when escaping
+      const terminalPath = path.join(tempDir, 'Screenshot 2026-02-17 at 10.33.32 PM.png');
+      const escapedPath = terminalPath.replace(/ /g, (v) => `\\${v}`);
+
+      let counter = 0;
+      const output = processImagesInText(
+        escapedPath,
+        (_data, _mime, filename) => {
+          expect(filename).toBe(realFilename);
+          return ++counter;
+        },
+        { announce: false }
+      );
+
+      expect(output).toContain('[Image #1]');
+      expect(counter).toBe(1);
+      fs.rmSync(tempDir, { recursive: true, force: true });
     });
 
     it('returns text unchanged when no callback provided', () => {
