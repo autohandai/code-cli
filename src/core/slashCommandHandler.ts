@@ -274,6 +274,7 @@ export class SlashCommandHandler {
           return mcp({
             mcpManager: this.ctx.mcpManager,
             config: this.ctx.config,
+            workspaceRoot: this.ctx.workspaceRoot,
           }, args);
         }
         case '/mcp install': {

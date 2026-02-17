@@ -937,7 +937,8 @@ export class McpClientManager {
       // Enrich error with stderr output for diagnostics
       const detail = stderrOutput.trim();
       if (detail) {
-        throw new Error(`${errMsg}\n  Server stderr: ${detail.slice(0, 500)}`);
+        const stderrSnippet = detail.length > 500 ? detail.slice(-500) : detail;
+        throw new Error(`${errMsg}\n  Server stderr (tail): ${stderrSnippet}`);
       }
 
       throw new Error(errMsg);

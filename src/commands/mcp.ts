@@ -6,19 +6,59 @@
  * MCP command - List and manage MCP (Model Context Protocol) servers
  */
 import chalk from 'chalk';
+import path from 'node:path';
 import { t } from '../i18n/index.js';
 import type { McpClientManager } from '../mcp/McpClientManager.js';
 import { normalizeMcpCommandForConfig } from '../mcp/commandNormalization.js';
 import type { LoadedConfig } from '../types.js';
-import { saveConfig } from '../config.js';
+import { loadConfig, saveConfig } from '../config.js';
+import { PROJECT_DIR_NAME } from '../constants.js';
 import {
   showMcpServerList,
   type McpServerItem,
 } from '../ui/ink/components/McpServerList.js';
 
+type McpConfigScope = 'user' | 'project';
+
 export interface McpCommandContext {
   mcpManager?: McpClientManager;
   config?: LoadedConfig;
+  workspaceRoot?: string;
+}
+
+function normalizeMcpScope(scopeInput?: string): McpConfigScope | null {
+  const scope = (scopeInput ?? 'user').toLowerCase();
+  if (scope === 'user' || scope === 'project') {
+    return scope;
+  }
+  return null;
+}
+
+async function loadConfigForScope(
+  scopeInput: string,
+  workspaceRoot?: string
+): Promise<{ config: LoadedConfig; scope: McpConfigScope }> {
+  const scope = normalizeMcpScope(scopeInput);
+  if (!scope) {
+    throw new Error(`Invalid scope "${scopeInput}". Use: user or project.`);
+  }
+
+  if (scope === 'user') {
+    return { config: await loadConfig(), scope };
+  }
+
+  if (!workspaceRoot) {
+    throw new Error('Workspace root is required for project scope.');
+  }
+
+  const projectConfigPath = path.join(workspaceRoot, PROJECT_DIR_NAME, 'config.json');
+  return { config: await loadConfig(projectConfigPath), scope };
+}
+
+function syncRuntimeConfig(runtimeConfig: LoadedConfig | undefined, updatedConfig: LoadedConfig): void {
+  if (!runtimeConfig) return;
+  if (runtimeConfig.configPath !== updatedConfig.configPath) return;
+  runtimeConfig.mcp = updatedConfig.mcp;
 }
 
 /**
@@ -31,7 +71,7 @@ export interface McpCommandContext {
  * /mcp remove <name> - Remove a server from config
  */
 export async function mcp(ctx: McpCommandContext, args: string[] = []): Promise<string | null> {
-  const { mcpManager, config } = ctx;
+  const { mcpManager, config, workspaceRoot } = ctx;
 
   if (!mcpManager) {
     return 'MCP manager not available.';
@@ -51,11 +91,11 @@ export async function mcp(ctx: McpCommandContext, args: string[] = []): Promise<
       return handleListTools(mcpManager);
 
     case 'add':
-      return handleAdd(mcpManager, config, args.slice(1));
+      return handleAdd(mcpManager, config, args.slice(1), workspaceRoot);
 
     case 'remove':
     case 'rm':
-      return handleRemove(mcpManager, config, args.slice(1));
+      return handleRemove(mcpManager, config, args.slice(1), workspaceRoot);
 
     default:
       return showInteractiveList(mcpManager, config);
@@ -112,7 +152,7 @@ async function showInteractiveList(
     lines.push(t('commands.mcp.noServers'));
     lines.push('');
     lines.push(chalk.gray('Add a server:'));
-    lines.push(chalk.gray('  /mcp add <name> <command> [args...]'));
+    lines.push(chalk.gray('  /mcp add [--scope user|project] <name> <command> [args...]'));
     lines.push(chalk.gray('  /mcp add --transport http <name> <url>'));
     lines.push('');
     lines.push(chalk.gray('Browse community servers:'));
@@ -255,11 +295,13 @@ function handleListTools(manager: McpClientManager): string {
 async function handleAdd(
   manager: McpClientManager,
   config: LoadedConfig | undefined,
-  args: string[]
+  args: string[],
+  workspaceRoot?: string
 ): Promise<string> {
   type Transport = 'stdio' | 'http' | 'sse';
 
   let transport: Transport = 'stdio';
+  let scopeInput: string | undefined;
   const positional: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -267,7 +309,7 @@ async function handleAdd(
     if (token === '--transport' || token === '-t') {
       const value = args[i + 1];
       if (!value) {
-        return 'Usage: /mcp add [--transport <stdio|http|sse>] <name> <command-or-url> [args...]';
+        return 'Usage: /mcp add [--transport <stdio|http|sse>] [--scope <user|project>] <name> <command-or-url> [args...]';
       }
       const lowered = value.toLowerCase();
       if (lowered !== 'stdio' && lowered !== 'http' && lowered !== 'sse') {
@@ -277,11 +319,20 @@ async function handleAdd(
       i++;
       continue;
     }
+    if (token === '--scope' || token === '-s') {
+      const value = args[i + 1];
+      if (!value) {
+        return 'Usage: /mcp add [--transport <stdio|http|sse>] [--scope <user|project>] <name> <command-or-url> [args...]';
+      }
+      scopeInput = value;
+      i++;
+      continue;
+    }
     positional.push(token);
   }
 
   if (positional.length < 2) {
-    return 'Usage: /mcp add [--transport <stdio|http|sse>] <name> <command-or-url> [args...]';
+    return 'Usage: /mcp add [--transport <stdio|http|sse>] [--scope <user|project>] <name> <command-or-url> [args...]';
   }
 
   const [name, target, ...serverArgs] = positional;
@@ -293,7 +344,19 @@ async function handleAdd(
     return `Transport "${transport}" does not accept extra args. Usage: /mcp add --transport ${transport} <name> <url>`;
   }
 
-  if (!config) {
+  let targetConfig = config;
+  let scopeLabel: McpConfigScope | undefined;
+  if (scopeInput) {
+    try {
+      const scoped = await loadConfigForScope(scopeInput, workspaceRoot);
+      targetConfig = scoped.config;
+      scopeLabel = scoped.scope;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  if (!targetConfig) {
     return 'Config not available.';
   }
 
@@ -304,11 +367,11 @@ async function handleAdd(
   const normalizedCommand = normalized.command ?? target;
   const normalizedArgs = normalized.args;
 
-  if (!config.mcp) {
-    config.mcp = {};
+  if (!targetConfig.mcp) {
+    targetConfig.mcp = {};
   }
-  if (!config.mcp.servers) {
-    config.mcp.servers = [];
+  if (!targetConfig.mcp.servers) {
+    targetConfig.mcp.servers = [];
   }
 
   const newServer = transport === 'stdio'
@@ -330,7 +393,8 @@ async function handleAdd(
     ? `${normalizedCommand} ${(normalizedArgs ?? []).join(' ')}`.trim()
     : target;
 
-  const existing = config.mcp.servers.find(s => s.name === name);
+  const existing = targetConfig.mcp.servers.find(s => s.name === name);
+  const scopeSuffix = scopeLabel ? ` in ${scopeLabel} config` : '';
 
   if (existing) {
     const sameConfig = transport === 'stdio'
@@ -341,7 +405,7 @@ async function handleAdd(
         && existing.url === target;
 
     if (sameConfig) {
-      return `Server "${name}" is already configured with the same settings.`;
+      return `Server "${name}" is already configured with the same settings${scopeSuffix}.`;
     }
 
     // Update in-place
@@ -358,7 +422,8 @@ async function handleAdd(
     existing.autoConnect = true;
 
     try {
-      await saveConfig(config);
+      await saveConfig(targetConfig);
+      syncRuntimeConfig(config, targetConfig);
 
       // Disconnect old, reconnect with new config
       try {
@@ -368,27 +433,28 @@ async function handleAdd(
       try {
         await manager.connect(existing);
         const tools = manager.getToolsForServer(name);
-        return `Updated and reconnected "${name}" (${transport}: ${displayTarget}, ${tools.length} tools available)`;
+        return `Updated and reconnected "${name}"${scopeSuffix} (${transport}: ${displayTarget}, ${tools.length} tools available)`;
       } catch (connectError) {
-        return `Updated "${name}" config but failed to reconnect: ${connectError instanceof Error ? connectError.message : 'Unknown error'}`;
+        return `Updated "${name}" config${scopeSuffix} but failed to reconnect: ${connectError instanceof Error ? connectError.message : 'Unknown error'}`;
       }
     } catch (error) {
       return `Failed to save config: ${error instanceof Error ? error.message : 'Unknown error'}`;
     }
   }
 
-  config.mcp.servers.push(newServer);
+  targetConfig.mcp.servers.push(newServer);
 
   try {
-    await saveConfig(config);
+    await saveConfig(targetConfig);
+    syncRuntimeConfig(config, targetConfig);
 
     // Auto-connect
     try {
       await manager.connect(newServer);
       const tools = manager.getToolsForServer(name);
-      return `Added and connected to "${name}" (${transport}: ${displayTarget}, ${tools.length} tools available)`;
+      return `Added and connected to "${name}"${scopeSuffix} (${transport}: ${displayTarget}, ${tools.length} tools available)`;
     } catch (connectError) {
-      return `Added "${name}" to config but failed to connect: ${connectError instanceof Error ? connectError.message : 'Unknown error'}`;
+      return `Added "${name}" to config${scopeSuffix} but failed to connect: ${connectError instanceof Error ? connectError.message : 'Unknown error'}`;
     }
   } catch (error) {
     return `Failed to save config: ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -401,20 +467,50 @@ async function handleAdd(
 async function handleRemove(
   manager: McpClientManager,
   config: LoadedConfig | undefined,
-  args: string[]
+  args: string[],
+  workspaceRoot?: string
 ): Promise<string> {
-  const serverName = args[0];
-  if (!serverName) {
-    return 'Usage: /mcp remove <server-name>';
+  let scopeInput: string | undefined;
+  const positional: string[] = [];
+
+  for (let i = 0; i < args.length; i++) {
+    const token = args[i];
+    if (token === '--scope' || token === '-s') {
+      const value = args[i + 1];
+      if (!value) {
+        return 'Usage: /mcp remove [--scope <user|project>] <server-name>';
+      }
+      scopeInput = value;
+      i++;
+      continue;
+    }
+    positional.push(token);
   }
 
-  if (!config) {
+  const serverName = positional[0];
+  if (!serverName) {
+    return 'Usage: /mcp remove [--scope <user|project>] <server-name>';
+  }
+
+  let targetConfig = config;
+  let scopeLabel: McpConfigScope | undefined;
+  if (scopeInput) {
+    try {
+      const scoped = await loadConfigForScope(scopeInput, workspaceRoot);
+      targetConfig = scoped.config;
+      scopeLabel = scoped.scope;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  if (!targetConfig) {
     return 'Config not available.';
   }
 
-  const serverIndex = config.mcp?.servers?.findIndex(s => s.name === serverName);
+  const serverIndex = targetConfig.mcp?.servers?.findIndex(s => s.name === serverName);
   if (serverIndex === undefined || serverIndex < 0) {
-    return `Server "${serverName}" not found in config.`;
+    return `Server "${serverName}" not found in ${scopeLabel ? `${scopeLabel} config` : 'config'}.`;
   }
 
   // Disconnect if connected
@@ -425,11 +521,12 @@ async function handleRemove(
   }
 
   // Remove from config
-  config.mcp!.servers!.splice(serverIndex, 1);
+  targetConfig.mcp!.servers!.splice(serverIndex, 1);
 
   try {
-    await saveConfig(config);
-    return `Removed "${serverName}" from config`;
+    await saveConfig(targetConfig);
+    syncRuntimeConfig(config, targetConfig);
+    return `Removed "${serverName}" from ${scopeLabel ? `${scopeLabel} config` : 'config'}`;
   } catch (error) {
     return `Failed to save config: ${error instanceof Error ? error.message : 'Unknown error'}`;
   }
