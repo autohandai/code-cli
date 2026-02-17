@@ -16,6 +16,7 @@ import { AgentUI, createInitialUIState, type AgentUIState } from './AgentUI.js';
 import type { ToolOutputEntry } from './ToolOutput.js';
 import { ThemeProvider } from '../theme/ThemeContext.js';
 import { I18nProvider } from '../i18n/index.js';
+import { safeSetRawMode } from '../rawMode.js';
 
 export interface InkRendererOptions {
   onInstruction: (text: string) => void;
@@ -297,7 +298,7 @@ export class InkRenderer {
     if (!this.instance) {
       // Ensure stdin is restored to proper state after Modal prompts
       if (process.stdin.isTTY) {
-        process.stdin.setRawMode(true);
+        safeSetRawMode(process.stdin, true);
       }
       process.stdin.resume();
 

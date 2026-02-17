@@ -89,6 +89,7 @@ import { runAcpMode } from './modes/acp/index.js';
 import { normalizeMcpCommandForConfig } from './mcp/commandNormalization.js';
 import { SetupWizard } from './onboarding/index.js';
 import type { CLIOptions, AgentRuntime } from './types.js';
+import { safeSetRawMode } from './ui/rawMode.js';
 
 /**
  * Validate auth token on startup
@@ -1308,7 +1309,7 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
   // Set up ESC key handling for cancellation
   if (process.stdin.isTTY) {
     readline.emitKeypressEvents(process.stdin);
-    process.stdin.setRawMode(true);
+    safeSetRawMode(process.stdin, true);
 
     process.stdin.on('keypress', (_str, key) => {
       if (key && key.name === 'escape') {
@@ -1321,7 +1322,7 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
         automodeManager.cancel('user_escape');
         // Restore terminal and exit
         if (process.stdin.isTTY) {
-          process.stdin.setRawMode(false);
+          safeSetRawMode(process.stdin, false);
         }
         process.exit(0);
       }
@@ -1395,7 +1396,7 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
 
     // Restore terminal
     if (process.stdin.isTTY) {
-      process.stdin.setRawMode(false);
+      safeSetRawMode(process.stdin, false);
     }
 
     // Get final state
@@ -1418,13 +1419,13 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
       }
 
       readline.emitKeypressEvents(process.stdin);
-      process.stdin.setRawMode(true);
+      safeSetRawMode(process.stdin, true);
       process.stdin.resume();
 
       const handleKey = (_str: string, key: readline.Key) => {
         process.stdin.off('keypress', handleKey);
         if (process.stdin.isTTY) {
-          process.stdin.setRawMode(false);
+          safeSetRawMode(process.stdin, false);
         }
 
         if (key && key.ctrl && key.name === 'c') {
@@ -1459,7 +1460,7 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
   } catch (error) {
     // Restore terminal
     if (process.stdin.isTTY) {
-      process.stdin.setRawMode(false);
+      safeSetRawMode(process.stdin, false);
     }
 
     // Close session on error
