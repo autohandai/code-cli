@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import readline from 'node:readline';
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
+import os from 'node:os';
 import { TerminalResizeWatcher } from './terminalResize.js';
 import { isShellCommand, parseShellCommand, executeShellCommand } from './shellCommand.js';
 import type { SlashCommand } from '../core/slashCommands.js';
@@ -83,6 +84,28 @@ interface ProcessImagesOptions {
   output?: NodeJS.WriteStream;
 }
 
+const IMAGE_FILE_EXTENSIONS = '(?:png|jpg|jpeg|gif|webp)';
+const IMAGE_FILE_SUFFIX_REGEX = new RegExp(`\\.${IMAGE_FILE_EXTENSIONS}$`, 'i');
+const ASCII_WHITESPACE = '[ \\t\\r\\n]';
+
+function createEscapedImagePathRegex(flags: string): RegExp {
+  return new RegExp(
+    `(?:^|${ASCII_WHITESPACE})((\\/|~)(?:[^ \\t\\r\\n\\\\]|\\\\.)+\\.${IMAGE_FILE_EXTENSIONS})(?=${ASCII_WHITESPACE}|$)`,
+    flags
+  );
+}
+
+function createSimpleImagePathRegex(flags: string): RegExp {
+  return new RegExp(
+    `(?:^|${ASCII_WHITESPACE})([^ \\t\\r\\n"']+\\.${IMAGE_FILE_EXTENSIONS})(?=${ASCII_WHITESPACE}|$)`,
+    flags
+  );
+}
+
+function hasPotentialImagePath(text: string): boolean {
+  return createEscapedImagePathRegex('i').test(text) || createSimpleImagePathRegex('i').test(text);
+}
+
 function writeImageNotice(
   output: NodeJS.WriteStream | undefined,
   message: string,
@@ -92,6 +115,47 @@ function writeImageNotice(
     return;
   }
   output.write(chalk.cyan(`\n${message}\n`));
+}
+
+function normalizeDragPathCandidates(rawPath: string): string[] {
+  const trimmed = rawPath.trim();
+  if (!trimmed) return [];
+
+  const unquoted = trimmed
+    .replace(/^"(.*)"$/s, '$1')
+    .replace(/^'(.*)'$/s, '$1');
+
+  const unescaped = unquoted
+    // Shell-escaped path fragments from drag-and-drop (e.g. "\ ").
+    .replace(/\\([ \t\r\n\u00a0\u202f])/g, '$1')
+    // Conservative generic unescape for common escaped path chars.
+    .replace(/\\([\\'"()])/g, '$1');
+  const broadlyUnescaped = unquoted.replace(/\\(.)/g, '$1');
+
+  const withHomeExpanded = (value: string): string => {
+    if (value.startsWith('~/')) {
+      return `${os.homedir()}/${value.slice(2)}`;
+    }
+    return value;
+  };
+
+  const candidates = new Set<string>();
+  const push = (value: string) => {
+    if (!value) return;
+    candidates.add(value);
+    candidates.add(withHomeExpanded(value));
+    // macOS screenshot names can include narrow no-break spaces.
+    // Try normalized variants because terminal/client may transform them.
+    candidates.add(value.replace(/\u202f/g, ' '));
+    candidates.add(withHomeExpanded(value.replace(/\u202f/g, ' ')));
+    candidates.add(value.replace(/\u00a0/g, ' '));
+    candidates.add(withHomeExpanded(value.replace(/\u00a0/g, ' ')));
+  };
+
+  push(unquoted);
+  push(unescaped);
+  push(broadlyUnescaped);
+  return Array.from(candidates).filter(Boolean);
 }
 
 /**
@@ -110,6 +174,28 @@ export function processImagesInText(
   const announce = options.announce ?? true;
   const output = options.output;
   let result = text;
+
+  const replaceImagePath = (rawMatch: string): boolean => {
+    const candidates = normalizeDragPathCandidates(rawMatch);
+    for (const candidatePath of candidates) {
+      if (!existsSync(candidatePath)) continue;
+
+      try {
+        const data = readFileSync(candidatePath);
+        const ext = extname(candidatePath);
+        const mimeType = getMimeTypeFromExtension(ext);
+        if (!mimeType) continue;
+
+        const id = onImageDetected(data, mimeType, basename(candidatePath));
+        result = result.replace(rawMatch, `[Image #${id}] ${basename(candidatePath)}`);
+        writeImageNotice(output, `📷 Loaded image: ${candidatePath} -> [Image #${id}]`, announce);
+        return true;
+      } catch {
+        // Ignore file read errors and try next candidate
+      }
+    }
+    return false;
+  };
 
   // Detect base64 image data URLs: data:image/...;base64,...
   const base64Regex = /data:image\/[a-z]+;base64,[A-Za-z0-9+/=]+/g;
@@ -131,30 +217,17 @@ export function processImagesInText(
   // 3. Simple paths without spaces: /path/to/file.png
 
   // First, try to find quoted paths
-  const quotedPathRegex = /["']([^"']+\.(?:png|jpg|jpeg|gif|webp))["']/gi;
+  const quotedPathRegex = new RegExp(`["']([^"']+\\.${IMAGE_FILE_EXTENSIONS})["']`, 'gi');
   let quotedMatch;
   while ((quotedMatch = quotedPathRegex.exec(text)) !== null) {
-    const filePath = quotedMatch[1];
     const fullMatch = quotedMatch[0];
-    if (!result.includes(fullMatch) || !existsSync(filePath)) continue;
-
-    try {
-      const data = readFileSync(filePath);
-      const ext = extname(filePath);
-      const mimeType = getMimeTypeFromExtension(ext);
-      if (!mimeType) continue;
-
-      const id = onImageDetected(data, mimeType, basename(filePath));
-      result = result.replace(fullMatch, `[Image #${id}] ${basename(filePath)}`);
-      writeImageNotice(output, `📷 Loaded image: ${filePath} -> [Image #${id}]`, announce);
-    } catch {
-      // Ignore file read errors
-    }
+    if (!result.includes(fullMatch)) continue;
+    replaceImagePath(quotedMatch[1]) || replaceImagePath(fullMatch);
   }
 
   // Then, find paths with escaped spaces or regular paths.
   // On macOS terminal, dragged files have spaces escaped as "\ ".
-  const escapedPathRegex = /(?:^|[\s])((\/|~)(?:[^\s\\]|\\.)+\.(?:png|jpg|jpeg|gif|webp))(?=[\s]|$)/gi;
+  const escapedPathRegex = createEscapedImagePathRegex('gi');
   let escapedMatch;
 
   // Debug: log input for image detection
@@ -167,52 +240,34 @@ export function processImagesInText(
 
   while ((escapedMatch = escapedPathRegex.exec(text)) !== null) {
     const rawPath = escapedMatch[1];
-    // Convert escaped spaces to actual spaces for file system lookup
-    const filePath = rawPath.replace(/\\ /g, ' ');
 
     if (process.env.DEBUG_IMAGES && output) {
       output.write(chalk.gray(`[DEBUG] Regex matched: ${JSON.stringify(rawPath)}\n`));
-      output.write(chalk.gray(`[DEBUG] Converted path: ${JSON.stringify(filePath)}\n`));
-      output.write(chalk.gray(`[DEBUG] File exists: ${existsSync(filePath)}\n`));
+      const candidates = normalizeDragPathCandidates(rawPath);
+      output.write(chalk.gray(`[DEBUG] Candidate paths: ${JSON.stringify(candidates)}\n`));
     }
 
-    if (!result.includes(rawPath) || !existsSync(filePath)) continue;
-
-    try {
-      const data = readFileSync(filePath);
-      const ext = extname(filePath);
-      const mimeType = getMimeTypeFromExtension(ext);
-      if (!mimeType) continue;
-
-      const id = onImageDetected(data, mimeType, basename(filePath));
-      result = result.replace(rawPath, `[Image #${id}] ${basename(filePath)}`);
-      writeImageNotice(output, `📷 Loaded image: ${filePath} -> [Image #${id}]`, announce);
-    } catch {
-      // Ignore file read errors
-    }
+    if (!result.includes(rawPath)) continue;
+    replaceImagePath(rawPath);
   }
 
   // Finally, simple paths without spaces (fallback)
-  const simplePathRegex = /(?:^|[\s])([^\s"']+\.(?:png|jpg|jpeg|gif|webp))(?=[\s]|$)/gi;
+  const simplePathRegex = createSimpleImagePathRegex('gi');
   let simpleMatch;
   while ((simpleMatch = simplePathRegex.exec(text)) !== null) {
     const filePath = simpleMatch[1];
     // Skip if already processed by a previous regex pass
-    if (!result.includes(filePath) || !existsSync(filePath)) {
+    if (!result.includes(filePath)) {
       continue;
     }
+    replaceImagePath(filePath);
+  }
 
-    try {
-      const data = readFileSync(filePath);
-      const ext = extname(filePath);
-      const mimeType = getMimeTypeFromExtension(ext);
-      if (!mimeType) continue;
-
-      const id = onImageDetected(data, mimeType, basename(filePath));
-      result = result.replace(filePath, `[Image #${id}] ${basename(filePath)}`);
-      writeImageNotice(output, `📷 Loaded image: ${filePath} -> [Image #${id}]`, announce);
-    } catch {
-      // Ignore file read errors
+  // Final fallback: treat the entire input as a single dragged path token.
+  if (!result.includes('[Image #')) {
+    const trimmed = result.trim();
+    if (IMAGE_FILE_SUFFIX_REGEX.test(trimmed)) {
+      replaceImagePath(trimmed);
     }
   }
 
@@ -574,11 +629,6 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
 
       rlAny.cursor = rlAny.line.length;
       refreshLine();
-    };
-
-    const hasPotentialImagePath = (text: string): boolean => {
-      return /(?:^|[\s])((\/|~)(?:[^\s\\]|\\.)+\.(?:png|jpg|jpeg|gif|webp))(?=[\s]|$)/i.test(text)
-        || /(?:^|[\s])[^\s"']+\.(?:png|jpg|jpeg|gif|webp)(?=[\s]|$)/i.test(text);
     };
 
     const replaceDroppedImagesInline = (): boolean => {
