@@ -10,6 +10,7 @@ import { execSync } from 'node:child_process';
 import fs from 'fs-extra';
 import path from 'node:path';
 import os from 'node:os';
+import { PROJECT_DIR_NAME } from '../src/constants.js';
 
 // Use a temp config directory for isolation
 const tmpDir = path.join(os.tmpdir(), `autohand-mcp-test-${Date.now()}`);
@@ -40,16 +41,21 @@ describe('MCP CLI subcommands', () => {
   // Uses AUTOHAND_CONFIG env var (which detectConfigPath() checks)
   // to point at the temp config file.
   // Runs src/index.ts instead of dist/index.js so tests work without a prior build step (e.g. in CI).
-  function runCli(args: string): { stdout: string; exitCode: number } {
+  function runCli(
+    args: string,
+    options?: { cwd?: string; env?: Record<string, string> }
+  ): { stdout: string; exitCode: number } {
     try {
       const stdout = execSync(
         `bun ${path.resolve('src/index.ts')} ${args}`,
         {
           encoding: 'utf8',
           timeout: 15000,
+          cwd: options?.cwd,
           env: {
             ...process.env,
             AUTOHAND_CONFIG: configPath,
+            ...(options?.env ?? {}),
           },
         }
       );
@@ -148,6 +154,57 @@ describe('MCP CLI subcommands', () => {
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toContain('not implemented');
     });
+
+    it('accepts explicit user scope on mcp add', () => {
+      const result = runCli('mcp add chrome-devtools --scope user npx chrome-devtools-mcp@latest');
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Added "chrome-devtools"');
+      expect(result.stdout).toContain('user config');
+
+      const config = fs.readJsonSync(configPath);
+      expect(config.mcp?.servers).toHaveLength(1);
+      expect(config.mcp.servers[0]).toMatchObject({
+        name: 'chrome-devtools',
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', 'chrome-devtools-mcp@latest'],
+      });
+    });
+
+    it('writes to project config when scope is project', () => {
+      const projectRoot = path.join(tmpDir, 'project');
+      fs.ensureDirSync(projectRoot);
+
+      const result = runCli(
+        'mcp add project-only --scope project npx test-mcp@latest',
+        { cwd: projectRoot }
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('project config');
+
+      const userConfig = fs.readJsonSync(configPath);
+      expect(userConfig.mcp?.servers ?? []).toHaveLength(0);
+
+      const projectConfigPath = path.join(projectRoot, PROJECT_DIR_NAME, 'config.json');
+      const projectConfig = fs.readJsonSync(projectConfigPath);
+      expect(projectConfig.mcp?.servers).toHaveLength(1);
+      expect(projectConfig.mcp.servers[0]).toMatchObject({
+        name: 'project-only',
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', 'test-mcp@latest'],
+      });
+    });
+
+    it('rejects invalid scope values', () => {
+      const result = runCli('mcp add test-server --scope workspace npx test-mcp@latest');
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('Invalid scope');
+      expect(result.stdout).toContain('user or project');
+    });
   });
 
   describe('mcp remove', () => {
@@ -190,7 +247,7 @@ describe('MCP CLI subcommands', () => {
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('chrome-devtools');
       expect(result.stdout).toContain('filesystem');
-      expect(result.stdout).toContain('Configured MCP Servers (2)');
+      expect(result.stdout).toContain('Configured MCP Servers (2, user config)');
     });
   });
 });
