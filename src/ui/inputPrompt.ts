@@ -13,6 +13,7 @@ import { isShellCommand, parseShellCommand, executeShellCommand } from './shellC
 import type { SlashCommand } from '../core/slashCommands.js';
 import { MentionPreview } from './mentionPreview.js';
 import { getPlanModeManager } from '../commands/plan.js';
+import { safeSetRawMode } from './rawMode.js';
 import {
   type ImageMimeType,
   parseBase64DataUrl,
@@ -485,7 +486,7 @@ function createReadline(
   const supportsRawMode = typeof input.setRawMode === 'function';
 
   if (supportsRawMode && input.isTTY) {
-    input.setRawMode(true);
+    safeSetRawMode(input, true);
   }
   input.resume();
   input.setEncoding('utf8');
@@ -586,7 +587,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       input.off('keypress', handleKeypress);
       input.off('data', handleInputData);
       if (supportsRawMode && input.isTTY) {
-        input.setRawMode(false);
+        safeSetRawMode(input, false);
       }
       input.pause();
       rl.close();

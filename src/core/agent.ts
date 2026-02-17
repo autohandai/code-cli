@@ -16,6 +16,7 @@ import { saveConfig, getProviderConfig } from '../config.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import { ProviderNotConfiguredError } from '../providers/ProviderFactory.js';
 import { readInstruction, safeEmitKeypressEvents } from '../ui/inputPrompt.js';
+import { safeSetRawMode } from '../ui/rawMode.js';
 import { isShellCommand, isImmediateCommand, parseShellCommand, executeShellCommand } from '../ui/shellCommand.js';
 import { showFilePalette } from '../ui/filePalette.js';
 import { createInkRenderer } from '../ui/ink/InkRenderer.js';
@@ -3482,7 +3483,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const supportsRaw = typeof input.setRawMode === 'function';
     const wasRaw = (input as any).isRaw;
     if (!wasRaw && supportsRaw) {
-      input.setRawMode(true);
+      safeSetRawMode(input, true);
     }
 
     let ctrlCCount = 0;
@@ -3585,7 +3586,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       input.off('keypress', handler);
       this.queueInput = ''; // Clear input on cleanup
       if (!wasRaw && supportsRaw) {
-        input.setRawMode(false);
+        safeSetRawMode(input, false);
       }
     };
   }
@@ -4243,7 +4244,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     try {
       // First, ensure raw mode is off (readline will set it as needed)
       if (typeof stdin.setRawMode === 'function' && (stdin as any).isRaw) {
-        stdin.setRawMode(false);
+        safeSetRawMode(stdin, false);
       }
 
       // Resume stdin if it was paused
@@ -4340,7 +4341,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     // Reset stdin to cooked mode for Modal prompts
     const wasRaw = process.stdin.isTTY && (process.stdin as any).isRaw;
     if (wasRaw) {
-      process.stdin.setRawMode(false);
+      safeSetRawMode(process.stdin as NodeJS.ReadStream, false);
     }
 
     try {
