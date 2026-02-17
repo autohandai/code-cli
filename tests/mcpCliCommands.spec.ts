@@ -168,7 +168,7 @@ describe('MCP CLI subcommands', () => {
         name: 'chrome-devtools',
         transport: 'stdio',
         command: 'npx',
-        args: ['-y', 'chrome-devtools-mcp@latest'],
+        args: ['-y', 'chrome-devtools-mcp@latest', '--no-usage-stats'],
       });
     });
 

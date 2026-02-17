@@ -21,6 +21,59 @@ function hasNpxYesFlag(args: string[] | undefined): boolean {
   return args.some(arg => arg === '-y' || arg === '--yes');
 }
 
+function hasFlag(args: string[], flag: string): boolean {
+  return args.some(arg => arg === flag || arg.startsWith(`${flag}=`));
+}
+
+function findNpxCommandIndex(args: string[]): number | null {
+  for (let i = 0; i < args.length; i++) {
+    const token = args[i];
+
+    if (token === '--') {
+      return i + 1 < args.length ? i + 1 : null;
+    }
+
+    if (!token.startsWith('-') || token === '-') {
+      return i;
+    }
+
+    const consumesNextValue = token === '-p'
+      || token === '--package'
+      || token === '-c'
+      || token === '--call';
+    if (consumesNextValue) {
+      i++;
+    }
+  }
+
+  return null;
+}
+
+function isChromeDevtoolsMcpPackage(spec: string): boolean {
+  const normalized = spec.toLowerCase();
+  return normalized === 'chrome-devtools-mcp' || normalized.startsWith('chrome-devtools-mcp@');
+}
+
+function addKnownNonInteractiveServerFlags(args: string[]): string[] {
+  const normalizedArgs = [...args];
+  const commandIndex = findNpxCommandIndex(normalizedArgs);
+  if (commandIndex === null || commandIndex >= normalizedArgs.length) {
+    return normalizedArgs;
+  }
+
+  const packageSpec = normalizedArgs[commandIndex];
+  if (!isChromeDevtoolsMcpPackage(packageSpec)) {
+    return normalizedArgs;
+  }
+
+  // Prevent startup prompts that block MCP initialize handshake.
+  if (!hasFlag(normalizedArgs, '--no-usage-stats')) {
+    normalizedArgs.push('--no-usage-stats');
+  }
+
+  return normalizedArgs;
+}
+
 function sanitizePathSegment(value: string): string {
   const sanitized = value
     .toLowerCase()
@@ -87,10 +140,11 @@ export function normalizeMcpCommandForSpawn(
   if (!hasNpxYesFlag(normalizedArgs)) {
     normalizedArgs.unshift('-y');
   }
+  const spawnSafeArgs = addKnownNonInteractiveServerFlags(normalizedArgs);
 
   return {
     command,
-    args: normalizedArgs.length > 0 ? normalizedArgs : undefined,
+    args: spawnSafeArgs.length > 0 ? spawnSafeArgs : undefined,
   };
 }
 
