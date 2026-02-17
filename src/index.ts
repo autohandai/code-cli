@@ -18,6 +18,7 @@ import { initI18n, detectLocale } from './i18n/index.js';
 import { initPingService, startPingService, stopPingService } from './telemetry/index.js';
 import { detectStdinType, readPipedStdin } from './utils/stdinDetector.js';
 import { buildPipePrompt } from './modes/pipeMode.js';
+import { PROJECT_DIR_NAME } from './constants.js';
 
 /**
  * Get git commit hash (short)
@@ -42,6 +43,41 @@ function getGitCommit(): string {
 function getVersionString(): string {
   const commit = getGitCommit();
   return `${packageJson.version} (${commit})`;
+}
+
+type McpConfigScope = 'user' | 'project';
+
+function normalizeMcpScope(scopeInput?: string): McpConfigScope | null {
+  const scope = (scopeInput ?? 'user').toLowerCase();
+  if (scope === 'user' || scope === 'project') {
+    return scope;
+  }
+  return null;
+}
+
+async function resolveProjectConfigPath(workspaceRoot: string): Promise<string> {
+  const projectConfigDir = path.join(workspaceRoot, PROJECT_DIR_NAME);
+  const yamlPath = path.join(projectConfigDir, 'config.yaml');
+  const ymlPath = path.join(projectConfigDir, 'config.yml');
+  const jsonPath = path.join(projectConfigDir, 'config.json');
+
+  if (await fs.pathExists(yamlPath)) return yamlPath;
+  if (await fs.pathExists(ymlPath)) return ymlPath;
+  return jsonPath;
+}
+
+async function loadConfigForMcpScope(scopeInput?: string): Promise<{ config: LoadedConfig; scope: McpConfigScope }> {
+  const scope = normalizeMcpScope(scopeInput);
+  if (!scope) {
+    throw new Error(`Invalid scope "${scopeInput}". Use: user or project.`);
+  }
+
+  if (scope === 'user') {
+    return { config: await loadConfig(), scope };
+  }
+
+  const projectConfigPath = await resolveProjectConfigPath(process.cwd());
+  return { config: await loadConfig(projectConfigPath), scope };
 }
 import { FileActionManager } from './actions/filesystem.js';
 import { configureSearch } from './actions/web.js';
@@ -330,13 +366,24 @@ mcpCmd
   .command('add <name> <target> [args...]')
   .description('Add an MCP server to config and auto-connect on next session')
   .option('-t, --transport <transport>', 'Transport type: stdio | http | sse', 'stdio')
+  .option('-s, --scope <scope>', 'Config scope: user | project', 'user')
   .action(async (
     name: string,
     target: string,
     serverArgs: string[],
-    options: { transport?: string }
+    options: { transport?: string; scope?: string }
   ) => {
-    const config = await loadConfig();
+    let config: LoadedConfig;
+    let scope: McpConfigScope;
+    try {
+      const scoped = await loadConfigForMcpScope(options.scope);
+      config = scoped.config;
+      scope = scoped.scope;
+    } catch (error) {
+      console.log(chalk.red(error instanceof Error ? error.message : String(error)));
+      process.exit(1);
+      return;
+    }
 
     if (!config.mcp) config.mcp = {};
     if (!config.mcp.servers) config.mcp.servers = [];
@@ -413,7 +460,7 @@ mcpCmd
       }
       existing.autoConnect = true;
       await saveConfig(config);
-      console.log(chalk.green(`Updated "${name}" config (${newServer.transport}: ${displayTarget})`));
+      console.log(chalk.green(`Updated "${name}" in ${scope} config (${newServer.transport}: ${displayTarget})`));
       console.log(chalk.gray('Server will use the new settings on next start.'));
       process.exit(0);
     }
@@ -421,7 +468,7 @@ mcpCmd
     config.mcp.servers.push(newServer);
 
     await saveConfig(config);
-    console.log(chalk.green(`Added "${name}" to config (${newServer.transport}: ${displayTarget})`));
+    console.log(chalk.green(`Added "${name}" to ${scope} config (${newServer.transport}: ${displayTarget})`));
     console.log(chalk.gray('Server will auto-connect when you start autohand.'));
     process.exit(0);
   });
@@ -429,36 +476,58 @@ mcpCmd
 mcpCmd
   .command('remove <name>')
   .description('Remove an MCP server from config')
-  .action(async (name: string) => {
-    const config = await loadConfig();
+  .option('-s, --scope <scope>', 'Config scope: user | project', 'user')
+  .action(async (name: string, options: { scope?: string }) => {
+    let config: LoadedConfig;
+    let scope: McpConfigScope;
+    try {
+      const scoped = await loadConfigForMcpScope(options.scope);
+      config = scoped.config;
+      scope = scoped.scope;
+    } catch (error) {
+      console.log(chalk.red(error instanceof Error ? error.message : String(error)));
+      process.exit(1);
+      return;
+    }
     const serverIndex = config.mcp?.servers?.findIndex(s => s.name === name);
 
     if (serverIndex === undefined || serverIndex < 0) {
-      console.log(chalk.yellow(`Server "${name}" not found in config.`));
+      console.log(chalk.yellow(`Server "${name}" not found in ${scope} config.`));
       process.exit(1);
     }
 
     config.mcp!.servers!.splice(serverIndex, 1);
     await saveConfig(config);
-    console.log(chalk.green(`Removed "${name}" from config.`));
+    console.log(chalk.green(`Removed "${name}" from ${scope} config.`));
     process.exit(0);
   });
 
 mcpCmd
   .command('list')
   .description('List configured MCP servers')
-  .action(async () => {
-    const config = await loadConfig();
+  .option('-s, --scope <scope>', 'Config scope: user | project', 'user')
+  .action(async (options: { scope?: string }) => {
+    let config: LoadedConfig;
+    let scope: McpConfigScope;
+    try {
+      const scoped = await loadConfigForMcpScope(options.scope);
+      config = scoped.config;
+      scope = scoped.scope;
+    } catch (error) {
+      console.log(chalk.red(error instanceof Error ? error.message : String(error)));
+      process.exit(1);
+      return;
+    }
     const servers = config.mcp?.servers ?? [];
 
     if (servers.length === 0) {
-      console.log(chalk.gray('No MCP servers configured.'));
+      console.log(chalk.gray(`No MCP servers configured in ${scope} config.`));
       console.log(chalk.gray('Add one with: autohand mcp add <name> <command> [args...]'));
       console.log(chalk.gray('Or HTTP: autohand mcp add --transport http <name> <url>'));
       process.exit(0);
     }
 
-    console.log(chalk.cyan(`\nConfigured MCP Servers (${servers.length}):\n`));
+    console.log(chalk.cyan(`\nConfigured MCP Servers (${servers.length}, ${scope} config):\n`));
     for (const server of servers) {
       const target = server.transport === 'stdio'
         ? `${server.command}${server.args?.length ? ' ' + server.args.join(' ') : ''}`.trim()
@@ -473,8 +542,17 @@ mcpCmd
 mcpCmd
   .command('install [server-name]')
   .description('Browse and install community MCP servers')
-  .action(async (serverName?: string) => {
-    const config = await loadConfig();
+  .option('-s, --scope <scope>', 'Config scope: user | project', 'user')
+  .action(async (serverName: string | undefined, options: { scope?: string }) => {
+    let config: LoadedConfig;
+    try {
+      const scoped = await loadConfigForMcpScope(options.scope);
+      config = scoped.config;
+    } catch (error) {
+      console.log(chalk.red(error instanceof Error ? error.message : String(error)));
+      process.exit(1);
+      return;
+    }
     const { McpClientManager } = await import('./mcp/McpClientManager.js');
     const manager = new McpClientManager();
     const { mcpInstall } = await import('./commands/mcp-install.js');
