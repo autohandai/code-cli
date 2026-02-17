@@ -502,6 +502,8 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     let ctrlCCount = 0;
     let closed = false;
     let inlineImageScanTimeout: NodeJS.Timeout | undefined;
+    let inlineImageRetryCount = 0;
+    const MAX_INLINE_IMAGE_RETRIES = 12;
 
     const cleanup = () => {
       if (closed) return;
@@ -520,6 +522,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       mentionPreview.dispose();
       resizeWatcher.dispose();
       input.off('keypress', handleKeypress);
+      input.off('data', handleInputData);
       if (supportsRawMode && input.isTTY) {
         input.setRawMode(false);
       }
@@ -573,15 +576,21 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       refreshLine();
     };
 
-    const replaceDroppedImagesInline = () => {
+    const hasPotentialImagePath = (text: string): boolean => {
+      return /(?:^|[\s])((\/|~)(?:[^\s\\]|\\.)+\.(?:png|jpg|jpeg|gif|webp))(?=[\s]|$)/i.test(text)
+        || /(?:^|[\s])[^\s"']+\.(?:png|jpg|jpeg|gif|webp)(?=[\s]|$)/i.test(text);
+    };
+
+    const replaceDroppedImagesInline = (): boolean => {
       if (!onImageDetected) {
-        return;
+        return false;
       }
 
       const rlAny = rl as readline.Interface & { line: string };
       const sourceText = pasteState.hiddenContent ?? rlAny.line ?? '';
       if (!sourceText) {
-        return;
+        inlineImageRetryCount = 0;
+        return false;
       }
 
       const processed = processImagesInText(sourceText, onImageDetected, {
@@ -590,11 +599,23 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       });
 
       if (processed !== sourceText) {
+        inlineImageRetryCount = 0;
         applyDetectedImagesToLine(processed);
+        return true;
       }
+
+      // Some macOS drag sources emit a path before the screenshot file
+      // is fully materialized in TemporaryItems. Retry briefly.
+      if (hasPotentialImagePath(sourceText) && inlineImageRetryCount < MAX_INLINE_IMAGE_RETRIES) {
+        inlineImageRetryCount += 1;
+        scheduleInlineImageScan(180);
+      } else if (!hasPotentialImagePath(sourceText)) {
+        inlineImageRetryCount = 0;
+      }
+      return false;
     };
 
-    const scheduleInlineImageScan = () => {
+    const scheduleInlineImageScan = (delayMs = 75) => {
       if (!onImageDetected || pasteState.isInPaste) {
         return;
       }
@@ -609,7 +630,13 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         if (!closed && !pasteState.isInPaste) {
           replaceDroppedImagesInline();
         }
-      }, 75);
+      }, delayMs);
+    };
+
+    const handleInputData = () => {
+      // Catch drag/drop payloads even when terminal does not emit keypress
+      // events for each pasted character.
+      scheduleInlineImageScan();
     };
 
     const handleKeypress = (_str: string, key: readline.Key) => {
@@ -755,6 +782,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     };
 
     input.on('keypress', handleKeypress);
+    input.on('data', handleInputData);
 
     // Note: renderPromptLine already called rl.setPrompt() and rl.prompt()
     // No need to call them again here
