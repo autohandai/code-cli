@@ -829,6 +829,8 @@ export class McpClientManager {
 
     // Capture stderr output for diagnostics
     let stderrOutput = '';
+    let closeCode: number | null | undefined;
+    let handshakeComplete = false;
 
     connection.on('error', (err: Error) => {
       connectionError = err;
@@ -837,6 +839,17 @@ export class McpClientManager {
         state.status = 'error';
         state.error = err.message;
       }
+    });
+
+    connection.on('close', (code: number | null | undefined) => {
+      closeCode = code;
+      if (handshakeComplete || connectionError) return;
+
+      connectionError = new Error(
+        typeof code === 'number'
+          ? `MCP server process exited with code ${code}`
+          : 'MCP server process exited before completing initialization'
+      );
     });
 
     connection.on('stderr', (data: string) => {
@@ -874,19 +887,26 @@ export class McpClientManager {
         convertMcpToolToAutohand(rawTool, config.name)
       );
 
+      handshakeComplete = true;
       return { connection, tools };
     } catch (error) {
       // Clean up on failure
       await connection.stop().catch(() => {});
 
+      let errMsg = error instanceof Error ? error.message : String(error);
+      if (errMsg === 'MCP connection closed') {
+        errMsg = typeof closeCode === 'number'
+          ? `MCP connection closed (server exited with code ${closeCode})`
+          : 'MCP connection closed before initialization completed';
+      }
+
       // Enrich error with stderr output for diagnostics
       const detail = stderrOutput.trim();
       if (detail) {
-        const errMsg = error instanceof Error ? error.message : String(error);
         throw new Error(`${errMsg}\n  Server stderr: ${detail.slice(0, 500)}`);
       }
 
-      throw error;
+      throw new Error(errMsg);
     }
   }
 
