@@ -197,8 +197,8 @@ export function processImagesInText(
   let simpleMatch;
   while ((simpleMatch = simplePathRegex.exec(text)) !== null) {
     const filePath = simpleMatch[1];
-    // Skip if already processed (check if placeholder exists)
-    if (!result.includes(filePath) || result.includes('[Image #') || !existsSync(filePath)) {
+    // Skip if already processed by a previous regex pass
+    if (!result.includes(filePath) || !existsSync(filePath)) {
       continue;
     }
 
@@ -501,6 +501,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
   return new Promise<PromptResult>((resolve) => {
     let ctrlCCount = 0;
     let closed = false;
+    let inlineImageScanTimeout: NodeJS.Timeout | undefined;
 
     const cleanup = () => {
       if (closed) return;
@@ -509,6 +510,10 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       if (pasteState.timeout) {
         clearTimeout(pasteState.timeout);
         pasteState.timeout = undefined;
+      }
+      if (inlineImageScanTimeout) {
+        clearTimeout(inlineImageScanTimeout);
+        inlineImageScanTimeout = undefined;
       }
       // Disable bracketed paste mode
       disableBracketedPaste(stdOutput);
@@ -587,6 +592,24 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       if (processed !== sourceText) {
         applyDetectedImagesToLine(processed);
       }
+    };
+
+    const scheduleInlineImageScan = () => {
+      if (!onImageDetected || pasteState.isInPaste) {
+        return;
+      }
+
+      if (inlineImageScanTimeout) {
+        clearTimeout(inlineImageScanTimeout);
+      }
+
+      // Defer scan until typing settles so readline has updated rl.line.
+      inlineImageScanTimeout = setTimeout(() => {
+        inlineImageScanTimeout = undefined;
+        if (!closed && !pasteState.isInPaste) {
+          replaceDroppedImagesInline();
+        }
+      }, 75);
     };
 
     const handleKeypress = (_str: string, key: readline.Key) => {
@@ -724,6 +747,11 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
 
       // Reset Ctrl+C counter on any other key
       ctrlCCount = 0;
+
+      // Some terminals send drag/drop as rapid keypresses without bracketed-paste
+      // delimiters. Scan the current line after keypress idle to replace image paths
+      // with [Image #N] placeholders inline.
+      scheduleInlineImageScan();
     };
 
     input.on('keypress', handleKeypress);

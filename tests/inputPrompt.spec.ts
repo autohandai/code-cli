@@ -197,6 +197,64 @@ describe('inputPrompt', () => {
       const output = processImagesInText(input, () => 1, { announce: false });
       expect(output).toBe(input);
     });
+
+    it('increments [Image #N] per callback across multiple images', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'autohand-img-multi-'));
+      const imgA = path.join(tempDir, 'a.png');
+      const imgB = path.join(tempDir, 'b.png');
+      fs.writeFileSync(imgA, Buffer.from('fake-a'));
+      fs.writeFileSync(imgB, Buffer.from('fake-b'));
+
+      let counter = 0;
+      const onImage = () => ++counter;
+
+      const input = `${imgA} ${imgB}`;
+      const output = processImagesInText(input, onImage, { announce: false });
+
+      expect(output).toBe('[Image #1] a.png [Image #2] b.png');
+      expect(counter).toBe(2);
+
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('handles mixed escaped and simple paths with incrementing IDs', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'autohand-img-mixed-'));
+      const spacePath = path.join(tempDir, 'my screenshot.png');
+      const simplePath = path.join(tempDir, 'icon.jpg');
+      fs.writeFileSync(spacePath, Buffer.from('fake-space'));
+      fs.writeFileSync(simplePath, Buffer.from('fake-simple'));
+
+      let counter = 0;
+      const onImage = () => ++counter;
+
+      const escaped = spacePath.replace(/ /g, '\\ ');
+      const input = `${escaped} ${simplePath}`;
+      const output = processImagesInText(input, onImage, { announce: false });
+
+      expect(output).toContain('[Image #1] my screenshot.png');
+      expect(output).toContain('[Image #2] icon.jpg');
+      expect(counter).toBe(2);
+
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('replaces base64 data URL with [Image #N]', () => {
+      const base64Png = 'data:image/png;base64,iVBORw0KGgo=';
+      let counter = 0;
+      const onImage = () => ++counter;
+
+      const input = `Look at this ${base64Png} image`;
+      const output = processImagesInText(input, onImage, { announce: false });
+
+      expect(output).toBe('Look at this [Image #1] image');
+      expect(counter).toBe(1);
+    });
+
+    it('returns text unchanged when no callback provided', () => {
+      const input = '/tmp/some-file.png';
+      const output = processImagesInText(input, undefined);
+      expect(output).toBe(input);
+    });
   });
 
   describe('regression tests', () => {

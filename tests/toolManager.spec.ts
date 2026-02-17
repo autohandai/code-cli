@@ -47,4 +47,28 @@ describe('ToolManager', () => {
 
     expect(manager.listToolNames()).toEqual(['read_file', 'delete_path']);
   });
+
+  it('replaces MCP tools without touching other tools', () => {
+    const manager = new ToolManager({
+      executor: vi.fn(),
+      confirmApproval: vi.fn(),
+      definitions: [{ name: 'read_file', description: 'read file' }] as any
+    });
+
+    manager.registerMetaTools([
+      { name: 'mcp__old__tool', description: 'old mcp tool' },
+      { name: 'custom_meta_tool', description: 'custom tool' }
+    ] as any);
+
+    manager.replaceMcpTools([
+      { name: 'mcp__new__tool', description: 'new mcp tool' }
+    ] as any);
+
+    const names = manager.listAllDefinitions().map(def => def.name);
+
+    expect(names).toContain('read_file');
+    expect(names).toContain('custom_meta_tool');
+    expect(names).toContain('mcp__new__tool');
+    expect(names).not.toContain('mcp__old__tool');
+  });
 });
