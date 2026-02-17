@@ -23,7 +23,12 @@ import {
   validateMcpServerConfig,
   convertMcpToolToAutohand,
 } from './types.js';
-import { normalizeMcpCommandForSpawn } from './commandNormalization.js';
+import {
+  normalizeMcpCommandForSpawn,
+  isNpxCommand,
+  isRetriableNpxInstallError,
+  buildNpxIsolatedCacheEnv,
+} from './commandNormalization.js';
 
 // ============================================================================
 // JSON-RPC 2.0 Types (MCP protocol wire format)
@@ -811,8 +816,37 @@ export class McpClientManager {
    * and discovers available tools.
    */
   private async connectStdio(config: McpServerConfig): Promise<void> {
-    const connected = await this.connectStdioWithFraming(config, 'content-length');
-    this.registerConnectedStdioServer(config, connected.connection, connected.tools);
+    try {
+      const connected = await this.connectStdioWithFraming(config, 'content-length');
+      this.registerConnectedStdioServer(config, connected.connection, connected.tools);
+    } catch (error) {
+      if (!this.shouldRetryNpxWithIsolatedCache(config, error)) {
+        throw error;
+      }
+
+      const retryConfig: McpServerConfig = {
+        ...config,
+        env: buildNpxIsolatedCacheEnv(config.env, config.name),
+      };
+
+      try {
+        const connected = await this.connectStdioWithFraming(retryConfig, 'content-length');
+        // Keep persisted config intact; retry cache env is only a runtime override.
+        this.registerConnectedStdioServer(config, connected.connection, connected.tools);
+      } catch (retryError) {
+        const initialMessage = error instanceof Error ? error.message : String(error);
+        const retryMessage = retryError instanceof Error ? retryError.message : String(retryError);
+        throw new Error(`${initialMessage}\nRetry with isolated npm cache failed: ${retryMessage}`);
+      }
+    }
+  }
+
+  private shouldRetryNpxWithIsolatedCache(config: McpServerConfig, error: unknown): boolean {
+    if (!config.command || !isNpxCommand(config.command)) {
+      return false;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    return isRetriableNpxInstallError(message);
   }
 
   /**
