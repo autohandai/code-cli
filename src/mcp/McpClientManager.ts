@@ -297,6 +297,16 @@ class McpStdioConnection extends EventEmitter {
     while (this.frameBuffer.length > 0) {
       const header = this.findHeaderEnd(this.frameBuffer);
       if (!header) {
+        // Compatibility: some legacy MCP servers speak newline-delimited JSON-RPC.
+        // If buffered stdout looks like JSON lines, parse it immediately instead of
+        // waiting for a Content-Length timeout.
+        const preview = this.frameBuffer.toString('utf8', 0, Math.min(this.frameBuffer.length, 256));
+        const trimmed = preview.trimStart();
+        const looksLikeJsonLine = trimmed.startsWith('{') || trimmed.startsWith('[');
+        if (looksLikeJsonLine && this.frameBuffer.includes(0x0a)) {
+          this.parseLineDelimitedData(this.frameBuffer);
+          this.frameBuffer = Buffer.alloc(0);
+        }
         return;
       }
 
@@ -817,7 +827,7 @@ export class McpClientManager {
    */
   private async connectStdio(config: McpServerConfig): Promise<void> {
     try {
-      const connected = await this.connectStdioWithFraming(config, 'content-length');
+      const connected = await this.connectStdioWithFallbackFraming(config);
       this.registerConnectedStdioServer(config, connected.connection, connected.tools);
     } catch (error) {
       if (!this.shouldRetryNpxWithIsolatedCache(config, error)) {
@@ -830,7 +840,7 @@ export class McpClientManager {
       };
 
       try {
-        const connected = await this.connectStdioWithFraming(retryConfig, 'content-length');
+        const connected = await this.connectStdioWithFallbackFraming(retryConfig);
         // Keep persisted config intact; retry cache env is only a runtime override.
         this.registerConnectedStdioServer(config, connected.connection, connected.tools);
       } catch (retryError) {
@@ -847,6 +857,42 @@ export class McpClientManager {
     }
     const message = error instanceof Error ? error.message : String(error);
     return isRetriableNpxInstallError(message);
+  }
+
+  /**
+   * Some MCP servers still use newline-delimited JSON-RPC over stdio.
+   * Start with Content-Length framing (spec), then fallback to newline when
+   * initialize stalls/closes without a successful handshake.
+   */
+  private shouldRetryWithNewlineFraming(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return (
+      message.includes('MCP request "initialize" timed out')
+      || message.includes('MCP connection closed before initialization completed')
+      || message.includes('MCP connection closed (server exited with code')
+    );
+  }
+
+  private async connectStdioWithFallbackFraming(
+    config: McpServerConfig
+  ): Promise<{ connection: McpStdioConnection; tools: McpToolDefinition[] }> {
+    try {
+      return await this.connectStdioWithFraming(config, 'content-length');
+    } catch (contentLengthError) {
+      if (!this.shouldRetryWithNewlineFraming(contentLengthError)) {
+        throw contentLengthError;
+      }
+
+      try {
+        return await this.connectStdioWithFraming(config, 'newline');
+      } catch (newlineError) {
+        const first = contentLengthError instanceof Error
+          ? contentLengthError.message
+          : String(contentLengthError);
+        const second = newlineError instanceof Error ? newlineError.message : String(newlineError);
+        throw new Error(`${first}\nRetry with newline framing failed: ${second}`);
+      }
+    }
   }
 
   /**

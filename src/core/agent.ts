@@ -96,6 +96,7 @@ import {
 import { WorkspaceFileCollector } from './agent/WorkspaceFileCollector.js';
 import { ProviderConfigManager } from './agent/ProviderConfigManager.js';
 import { AutoReportManager } from '../reporting/AutoReportManager.js';
+import { isLikelyFilePathSlashInput } from './slashInputDetection.js';
 
 export class AutohandAgent {
   private mentionContexts: { path: string; contents: string }[] = [];
@@ -1212,20 +1213,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       return null;
     }
 
-    // Check if it looks like a file path rather than a slash command
-    // Slash commands are short: /help, /model, /new
-    // File paths have: multiple /, /Users/, extensions like .png, .ts, etc.
-    const looksLikeFilePath = (text: string): boolean => {
-      // Has multiple path separators (e.g., /Users/foo/bar)
-      if ((text.match(/\//g) || []).length > 1) return true;
-      // Starts with common path prefixes
-      if (/^\/(?:Users|home|tmp|var|opt|etc|usr)\//i.test(text)) return true;
-      // Has a file extension
-      if (/\.[a-z0-9]{1,5}(?:\s|$)/i.test(text)) return true;
-      return false;
-    };
-
-    if (normalized.startsWith('/') && !looksLikeFilePath(normalized)) {
+    if (normalized.startsWith('/') && !isLikelyFilePathSlashInput(normalized)) {
       // Parse command and arguments from input
       const parts = normalized.split(/\s+/);
       let command = parts[0];
