@@ -54,6 +54,9 @@ function isChromeDevtoolsMcpPackage(spec: string): boolean {
   return normalized === 'chrome-devtools-mcp' || normalized.startsWith('chrome-devtools-mcp@');
 }
 
+const CHROME_DEVTOOLS_USAGE_STATS_FLAG = '--no-usage-statistics';
+const CHROME_DEVTOOLS_LEGACY_USAGE_STATS_FLAG = '--no-usage-stats';
+
 function addKnownNonInteractiveServerFlags(args: string[]): string[] {
   const normalizedArgs = [...args];
   const commandIndex = findNpxCommandIndex(normalizedArgs);
@@ -66,9 +69,19 @@ function addKnownNonInteractiveServerFlags(args: string[]): string[] {
     return normalizedArgs;
   }
 
+  // Normalize deprecated flag spelling used by older client integrations.
+  const hasLegacyFlag = hasFlag(normalizedArgs, CHROME_DEVTOOLS_LEGACY_USAGE_STATS_FLAG);
+  if (hasLegacyFlag) {
+    for (let i = normalizedArgs.length - 1; i >= 0; i--) {
+      if (normalizedArgs[i] === CHROME_DEVTOOLS_LEGACY_USAGE_STATS_FLAG) {
+        normalizedArgs.splice(i, 1);
+      }
+    }
+  }
+
   // Prevent startup prompts that block MCP initialize handshake.
-  if (!hasFlag(normalizedArgs, '--no-usage-stats')) {
-    normalizedArgs.push('--no-usage-stats');
+  if (!hasFlag(normalizedArgs, CHROME_DEVTOOLS_USAGE_STATS_FLAG)) {
+    normalizedArgs.push(CHROME_DEVTOOLS_USAGE_STATS_FLAG);
   }
 
   return normalizedArgs;
