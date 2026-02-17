@@ -76,6 +76,149 @@ function createPasteState(): PasteState {
   };
 }
 
+interface ProcessImagesOptions {
+  /** Whether to print detection notices to terminal output */
+  announce?: boolean;
+  /** Output stream used for notices when announce=true */
+  output?: NodeJS.WriteStream;
+}
+
+function writeImageNotice(
+  output: NodeJS.WriteStream | undefined,
+  message: string,
+  announce: boolean
+): void {
+  if (!announce || !output) {
+    return;
+  }
+  output.write(chalk.cyan(`\n${message}\n`));
+}
+
+/**
+ * Process text and replace embedded image references with [Image #N] placeholders.
+ * Supports base64 image data URLs and filesystem image paths (quoted, escaped, or plain).
+ */
+export function processImagesInText(
+  text: string,
+  onImageDetected?: ImageDetectedCallback,
+  options: ProcessImagesOptions = {}
+): string {
+  if (!onImageDetected) {
+    return text;
+  }
+
+  const announce = options.announce ?? true;
+  const output = options.output;
+  let result = text;
+
+  // Detect base64 image data URLs: data:image/...;base64,...
+  const base64Regex = /data:image\/[a-z]+;base64,[A-Za-z0-9+/=]+/g;
+  const base64Matches = result.match(base64Regex) || [];
+
+  for (const dataUrl of base64Matches) {
+    const parsed = parseBase64DataUrl(dataUrl);
+    if (!parsed) continue;
+
+    const id = onImageDetected(parsed.data, parsed.mimeType);
+    result = result.replace(dataUrl, `[Image #${id}]`);
+    writeImageNotice(output, `📷 Detected base64 image -> [Image #${id}]`, announce);
+  }
+
+  // Detect image file paths (with supported extensions)
+  // Handles:
+  // 1. Paths with escaped spaces: /path/to/file\ name.png
+  // 2. Quoted paths: "/path/to/file name.png" or '/path/to/file name.png'
+  // 3. Simple paths without spaces: /path/to/file.png
+
+  // First, try to find quoted paths
+  const quotedPathRegex = /["']([^"']+\.(?:png|jpg|jpeg|gif|webp))["']/gi;
+  let quotedMatch;
+  while ((quotedMatch = quotedPathRegex.exec(text)) !== null) {
+    const filePath = quotedMatch[1];
+    const fullMatch = quotedMatch[0];
+    if (!result.includes(fullMatch) || !existsSync(filePath)) continue;
+
+    try {
+      const data = readFileSync(filePath);
+      const ext = extname(filePath);
+      const mimeType = getMimeTypeFromExtension(ext);
+      if (!mimeType) continue;
+
+      const id = onImageDetected(data, mimeType, basename(filePath));
+      result = result.replace(fullMatch, `[Image #${id}] ${basename(filePath)}`);
+      writeImageNotice(output, `📷 Loaded image: ${filePath} -> [Image #${id}]`, announce);
+    } catch {
+      // Ignore file read errors
+    }
+  }
+
+  // Then, find paths with escaped spaces or regular paths.
+  // On macOS terminal, dragged files have spaces escaped as "\ ".
+  const escapedPathRegex = /(?:^|[\s])((\/|~)(?:[^\s\\]|\\.)+\.(?:png|jpg|jpeg|gif|webp))(?=[\s]|$)/gi;
+  let escapedMatch;
+
+  // Debug: log input for image detection
+  if (process.env.DEBUG_IMAGES && output) {
+    output.write(chalk.gray(`\n[DEBUG] processImagesInText called\n`));
+    output.write(chalk.gray(`[DEBUG] Input text: ${JSON.stringify(text)}\n`));
+    output.write(chalk.gray(`[DEBUG] Has backslash: ${text.includes('\\')}\n`));
+    output.write(chalk.gray(`[DEBUG] Char codes: ${text.slice(0, 50).split('').map(c => c.charCodeAt(0)).join(',')}\n`));
+  }
+
+  while ((escapedMatch = escapedPathRegex.exec(text)) !== null) {
+    const rawPath = escapedMatch[1];
+    // Convert escaped spaces to actual spaces for file system lookup
+    const filePath = rawPath.replace(/\\ /g, ' ');
+
+    if (process.env.DEBUG_IMAGES && output) {
+      output.write(chalk.gray(`[DEBUG] Regex matched: ${JSON.stringify(rawPath)}\n`));
+      output.write(chalk.gray(`[DEBUG] Converted path: ${JSON.stringify(filePath)}\n`));
+      output.write(chalk.gray(`[DEBUG] File exists: ${existsSync(filePath)}\n`));
+    }
+
+    if (!result.includes(rawPath) || !existsSync(filePath)) continue;
+
+    try {
+      const data = readFileSync(filePath);
+      const ext = extname(filePath);
+      const mimeType = getMimeTypeFromExtension(ext);
+      if (!mimeType) continue;
+
+      const id = onImageDetected(data, mimeType, basename(filePath));
+      result = result.replace(rawPath, `[Image #${id}] ${basename(filePath)}`);
+      writeImageNotice(output, `📷 Loaded image: ${filePath} -> [Image #${id}]`, announce);
+    } catch {
+      // Ignore file read errors
+    }
+  }
+
+  // Finally, simple paths without spaces (fallback)
+  const simplePathRegex = /(?:^|[\s])([^\s"']+\.(?:png|jpg|jpeg|gif|webp))(?=[\s]|$)/gi;
+  let simpleMatch;
+  while ((simpleMatch = simplePathRegex.exec(text)) !== null) {
+    const filePath = simpleMatch[1];
+    // Skip if already processed (check if placeholder exists)
+    if (!result.includes(filePath) || result.includes('[Image #') || !existsSync(filePath)) {
+      continue;
+    }
+
+    try {
+      const data = readFileSync(filePath);
+      const ext = extname(filePath);
+      const mimeType = getMimeTypeFromExtension(ext);
+      if (!mimeType) continue;
+
+      const id = onImageDetected(data, mimeType, basename(filePath));
+      result = result.replace(filePath, `[Image #${id}] ${basename(filePath)}`);
+      writeImageNotice(output, `📷 Loaded image: ${filePath} -> [Image #${id}]`, announce);
+    } catch {
+      // Ignore file read errors
+    }
+  }
+
+  return result;
+}
+
 // Visual marker for newlines in single-line input (converted to \n on submit)
 export const NEWLINE_MARKER = ' ↵ ';
 const MAX_NEWLINES = 2; // Max 3 lines = 2 newline markers
@@ -355,126 +498,6 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
   // Render initial prompt with status line (was missing - caused status to only show on typing)
   renderPromptLine(rl, statusLine, stdOutput);
 
-  /**
-   * Process text and detect embedded images (base64 data URLs or file paths)
-   * @param text - Input text that may contain image references
-   * @returns Text with image references replaced by placeholders
-   */
-  const processImagesInText = (text: string): string => {
-    if (!onImageDetected) {
-      return text;
-    }
-
-    let result = text;
-
-    // Detect base64 image data URLs: data:image/...;base64,...
-    const base64Regex = /data:image\/[a-z]+;base64,[A-Za-z0-9+/=]+/g;
-    const base64Matches = result.match(base64Regex) || [];
-
-    for (const dataUrl of base64Matches) {
-      const parsed = parseBase64DataUrl(dataUrl);
-      if (parsed) {
-        const id = onImageDetected(parsed.data, parsed.mimeType);
-        result = result.replace(dataUrl, `[Image #${id}]`);
-        stdOutput.write(chalk.cyan(`\n📷 Detected base64 image -> [Image #${id}]\n`));
-      }
-    }
-
-    // Detect image file paths (with supported extensions)
-    // Handles:
-    // 1. Paths with escaped spaces: /path/to/file\ name.png
-    // 2. Quoted paths: "/path/to/file name.png" or '/path/to/file name.png'
-    // 3. Simple paths without spaces: /path/to/file.png
-
-    // First, try to find quoted paths
-    const quotedPathRegex = /["']([^"']+\.(?:png|jpg|jpeg|gif|webp))["']/gi;
-    let quotedMatch;
-    while ((quotedMatch = quotedPathRegex.exec(text)) !== null) {
-      const filePath = quotedMatch[1];
-      const fullMatch = quotedMatch[0];
-      if (result.includes(fullMatch) && existsSync(filePath)) {
-        try {
-          const data = readFileSync(filePath);
-          const ext = extname(filePath);
-          const mimeType = getMimeTypeFromExtension(ext);
-          if (mimeType) {
-            const id = onImageDetected(data, mimeType, basename(filePath));
-            result = result.replace(fullMatch, `[Image #${id}] ${basename(filePath)}`);
-            stdOutput.write(chalk.cyan(`\n📷 Loaded image: ${filePath} -> [Image #${id}]\n`));
-          }
-        } catch {
-          // Ignore file read errors
-        }
-      }
-    }
-
-    // Then, find paths with escaped spaces or regular paths
-    // On macOS terminal, dragged files have spaces escaped as "\ "
-    // Pattern matches: (non-space non-backslash) OR (backslash followed by any char)
-    // This handles: /path/to/file\ with\ spaces.png
-    const escapedPathRegex = /(?:^|[\s])((\/|~)(?:[^\s\\]|\\.)+\.(?:png|jpg|jpeg|gif|webp))(?=[\s]|$)/gi;
-    let escapedMatch;
-
-    // Debug: log input for image detection
-    if (process.env.DEBUG_IMAGES) {
-      stdOutput.write(chalk.gray(`\n[DEBUG] processImagesInText called\n`));
-      stdOutput.write(chalk.gray(`[DEBUG] Input text: ${JSON.stringify(text)}\n`));
-      stdOutput.write(chalk.gray(`[DEBUG] Has backslash: ${text.includes('\\')}\n`));
-      stdOutput.write(chalk.gray(`[DEBUG] Char codes: ${text.slice(0, 50).split('').map(c => c.charCodeAt(0)).join(',')}\n`));
-    }
-
-    while ((escapedMatch = escapedPathRegex.exec(text)) !== null) {
-      const rawPath = escapedMatch[1];
-      // Convert escaped spaces to actual spaces for file system lookup
-      const filePath = rawPath.replace(/\\ /g, ' ');
-
-      if (process.env.DEBUG_IMAGES) {
-        stdOutput.write(chalk.gray(`[DEBUG] Regex matched: ${JSON.stringify(rawPath)}\n`));
-        stdOutput.write(chalk.gray(`[DEBUG] Converted path: ${JSON.stringify(filePath)}\n`));
-        stdOutput.write(chalk.gray(`[DEBUG] File exists: ${existsSync(filePath)}\n`));
-      }
-
-      if (result.includes(rawPath) && existsSync(filePath)) {
-        try {
-          const data = readFileSync(filePath);
-          const ext = extname(filePath);
-          const mimeType = getMimeTypeFromExtension(ext);
-          if (mimeType) {
-            const id = onImageDetected(data, mimeType, basename(filePath));
-            result = result.replace(rawPath, `[Image #${id}] ${basename(filePath)}`);
-            stdOutput.write(chalk.cyan(`\n📷 Loaded image: ${filePath} -> [Image #${id}]\n`));
-          }
-        } catch {
-          // Ignore file read errors
-        }
-      }
-    }
-
-    // Finally, simple paths without spaces (fallback)
-    const simplePathRegex = /(?:^|[\s])([^\s"']+\.(?:png|jpg|jpeg|gif|webp))(?=[\s]|$)/gi;
-    let simpleMatch;
-    while ((simpleMatch = simplePathRegex.exec(text)) !== null) {
-      const filePath = simpleMatch[1];
-      // Skip if already processed (check if placeholder exists)
-      if (result.includes(filePath) && !result.includes(`[Image #`) && existsSync(filePath)) {
-        try {
-          const data = readFileSync(filePath);
-          const ext = extname(filePath);
-          const mimeType = getMimeTypeFromExtension(ext);
-          if (mimeType) {
-            const id = onImageDetected(data, mimeType, basename(filePath));
-            result = result.replace(filePath, `[Image #${id}] ${basename(filePath)}`);
-            stdOutput.write(chalk.cyan(`\n📷 Loaded image: ${filePath} -> [Image #${id}]\n`));
-          }
-        } catch {
-          // Ignore file read errors
-        }
-      }
-    }
-
-    return result;
-  };
-
   return new Promise<PromptResult>((resolve) => {
     let ctrlCCount = 0;
     let closed = false;
@@ -518,6 +541,54 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       }
     };
 
+    const refreshLine = () => {
+      const rlAny = rl as readline.Interface & { _refreshLine?: () => void };
+      if (typeof rlAny._refreshLine === 'function') {
+        rlAny._refreshLine();
+      } else {
+        readline.cursorTo(stdOutput, 0);
+        readline.clearLine(stdOutput, 0);
+        rl.prompt(true);
+      }
+    };
+
+    const applyDetectedImagesToLine = (processedText: string) => {
+      const rlAny = rl as readline.Interface & { line: string; cursor: number };
+      const display = getContentDisplay(processedText);
+
+      if (display.isPasted) {
+        pasteState.hiddenContent = display.actual;
+        rlAny.line = display.visual;
+      } else {
+        pasteState.hiddenContent = undefined;
+        rlAny.line = display.actual;
+      }
+
+      rlAny.cursor = rlAny.line.length;
+      refreshLine();
+    };
+
+    const replaceDroppedImagesInline = () => {
+      if (!onImageDetected) {
+        return;
+      }
+
+      const rlAny = rl as readline.Interface & { line: string };
+      const sourceText = pasteState.hiddenContent ?? rlAny.line ?? '';
+      if (!sourceText) {
+        return;
+      }
+
+      const processed = processImagesInText(sourceText, onImageDetected, {
+        announce: false,
+        output: stdOutput,
+      });
+
+      if (processed !== sourceText) {
+        applyDetectedImagesToLine(processed);
+      }
+    };
+
     const handleKeypress = (_str: string, key: readline.Key) => {
       // Detect bracketed paste start: ESC[200~ (Node names this 'paste-start')
       if (key?.name === 'paste-start') {
@@ -545,6 +616,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         if (pasteState.isInPaste) {
           pasteState.isInPaste = false;
           handlePasteComplete(pasteState, rl, stdOutput);
+          replaceDroppedImagesInline();
         }
         return;
       }
@@ -567,6 +639,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
           if (pasteState.isInPaste && pasteState.buffer) {
             pasteState.isInPaste = false;
             handlePasteComplete(pasteState, rl, stdOutput);
+            replaceDroppedImagesInline();
           }
         }, 50);
 
@@ -674,7 +747,10 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       finalValue = convertNewlineMarkersToNewlines(finalValue).trim();
 
       // Process any embedded images (base64 data URLs or file paths)
-      finalValue = processImagesInText(finalValue);
+      finalValue = processImagesInText(finalValue, onImageDetected, {
+        announce: true,
+        output: stdOutput,
+      });
 
       // Handle shell commands (prefix with !)
       if (isShellCommand(finalValue)) {

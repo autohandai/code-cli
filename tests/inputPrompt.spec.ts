@@ -10,7 +10,11 @@ import {
   NEWLINE_MARKER,
   countNewlineMarkers,
   convertNewlineMarkersToNewlines,
+  processImagesInText,
 } from '../src/ui/inputPrompt.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 describe('inputPrompt', () => {
   describe('getDisplayContent', () => {
@@ -164,6 +168,34 @@ describe('inputPrompt', () => {
   describe('NEWLINE_MARKER constant', () => {
     it('is a visible marker', () => {
       expect(NEWLINE_MARKER).toBe(' ↵ ');
+    });
+  });
+
+  describe('processImagesInText', () => {
+    it('replaces escaped macOS image paths with image placeholders', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'autohand-img-test-'));
+      const imagePath = path.join(tempDir, 'Screenshot 2026-02-17 at 9.22.22 PM.png');
+      fs.writeFileSync(imagePath, Buffer.from('fake-png-data'));
+
+      const escapedPath = imagePath.replace(/ /g, '\\ ');
+      const output = processImagesInText(
+        escapedPath,
+        (_data, mimeType, filename) => {
+          expect(mimeType).toBe('image/png');
+          expect(filename).toBe('Screenshot 2026-02-17 at 9.22.22 PM.png');
+          return 1;
+        },
+        { announce: false }
+      );
+
+      expect(output).toBe('[Image #1] Screenshot 2026-02-17 at 9.22.22 PM.png');
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('leaves missing image paths unchanged', () => {
+      const input = '/tmp/this-image-does-not-exist-12345.png';
+      const output = processImagesInText(input, () => 1, { announce: false });
+      expect(output).toBe(input);
     });
   });
 
