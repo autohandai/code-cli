@@ -953,6 +953,19 @@ export class ToolManager {
   }
 
   /**
+   * Replace all MCP tools (mcp__*) with a fresh set.
+   * Keeps built-ins and non-MCP meta-tools intact.
+   */
+  replaceMcpTools(toolDefinitions: ToolDefinition[]): void {
+    for (const name of Array.from(this.definitions.keys())) {
+      if ((name as string).startsWith('mcp__')) {
+        this.definitions.delete(name);
+      }
+    }
+    this.registerMetaTools(toolDefinitions);
+  }
+
+  /**
    * Check if a tool name conflicts with built-in definitions
    */
   isBuiltInTool(name: string): boolean {

@@ -537,12 +537,16 @@ export class AutohandAgent {
           console.log(chalk.red(result.error || 'Command failed'));
         }
       } else if (text.startsWith('/')) {
-        const parts = text.slice(1).split(/\s+/);
-        const command = parts[0];
-        const args = parts.slice(1);
-        this.handleSlashCommand(command, args).catch((err: Error) => {
-          console.log(chalk.red(`\nCommand error: ${err.message}`));
-        });
+        const { command, args } = this.parseSlashCommand(text);
+        this.handleSlashCommand(command, args)
+          .then((handled) => {
+            if (handled !== null) {
+              console.log(handled);
+            }
+          })
+          .catch((err: Error) => {
+            console.log(chalk.red(`\nCommand error: ${err.message}`));
+          });
       }
     });
 
@@ -598,12 +602,10 @@ export class AutohandAgent {
   }
 
   /**
-   * Register discovered MCP tools with the tool manager so the LLM can use them.
+   * Sync discovered MCP tools with tool definitions exposed to the LLM.
    */
-  private registerMcpTools(): void {
+  private syncMcpTools(): void {
     const mcpTools = this.mcpManager.getAllTools();
-    if (mcpTools.length === 0) return;
-
     const toolDefs: ToolDefinition[] = mcpTools.map((tool) => ({
       name: tool.name as AgentAction['type'],
       description: `[MCP:${tool.serverName}] ${tool.description}`,
@@ -623,7 +625,7 @@ export class AutohandAgent {
       requiresApproval: false,
     }));
 
-    this.toolManager.registerMetaTools(toolDefs);
+    this.toolManager.replaceMcpTools(toolDefs);
   }
 
   // Context compaction toggle methods for /cc command
@@ -683,7 +685,7 @@ export class AutohandAgent {
       if (this.runtime.config.mcp?.enabled !== false) {
         this.mcpReady = this.mcpManager
           .connectAll(this.runtime.config.mcp?.servers ?? [])
-          .then(() => { this.registerMcpTools(); })
+          .then(() => { this.syncMcpTools(); })
           .catch(() => { /* individual server errors already captured by connectAll */ });
       }
 
@@ -756,7 +758,7 @@ export class AutohandAgent {
     if (this.runtime.config.mcp?.enabled !== false) {
       this.mcpReady = this.mcpManager
         .connectAll(this.runtime.config.mcp?.servers ?? [])
-        .then(() => { this.registerMcpTools(); })
+        .then(() => { this.syncMcpTools(); })
         .catch(() => {});
     }
     // These must run sequentially after the parallel init
@@ -1243,7 +1245,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         return command;
       }
 
-      const handled = await this.slashHandler.handle(command, args);
+      const handled = await this.handleSlashCommand(command, args);
       if (handled !== null) {
         // Slash command returned display output — print it, don't send to LLM
         console.log(handled);
@@ -3529,12 +3531,16 @@ If lint or tests fail, report the issues but do NOT commit.`;
                   console.log(chalk.red(result.error || 'Command failed'));
                 }
               } else if (text.startsWith('/')) {
-                const parts = text.slice(1).split(/\s+/);
-                const command = parts[0];
-                const args = parts.slice(1);
-                this.handleSlashCommand(command, args).catch((err: Error) => {
-                  console.log(chalk.red(`\nCommand error: ${err.message}`));
-                });
+                const { command, args } = this.parseSlashCommand(text);
+                this.handleSlashCommand(command, args)
+                  .then((handled) => {
+                    if (handled !== null) {
+                      console.log(handled);
+                    }
+                  })
+                  .catch((err: Error) => {
+                    console.log(chalk.red(`\nCommand error: ${err.message}`));
+                  });
               }
               this.updateInputLine();
               return;
@@ -4018,7 +4024,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Returns the command output or null if the command doesn't exist
    */
   async handleSlashCommand(command: string, args: string[] = []): Promise<string | null> {
-    return this.slashHandler.handle(command, args);
+    const result = await this.slashHandler.handle(command, args);
+    if (command === '/mcp' || command === '/mcp install') {
+      this.syncMcpTools();
+    }
+    return result;
   }
 
   /**
