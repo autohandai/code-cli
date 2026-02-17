@@ -999,12 +999,15 @@ export class McpClientManager {
     connection: McpStdioConnection,
     tools: McpToolDefinition[]
   ): void {
-    connection.on('close', () => {
+    connection.on('close', (code: number | null | undefined) => {
       const state = this.servers.get(config.name);
-      // Only set to 'disconnected' if currently connected.
-      // Preserve 'error' status so the user can see why connection failed.
+      // Only mutate state if currently connected.
+      // Preserve existing error state from handshake failures.
       if (state && state.status === 'connected') {
-        state.status = 'disconnected';
+        state.status = 'error';
+        state.error = typeof code === 'number'
+          ? `MCP server process exited with code ${code}`
+          : 'MCP server disconnected unexpectedly';
       }
     });
 

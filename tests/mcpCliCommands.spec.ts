@@ -102,6 +102,32 @@ describe('MCP CLI subcommands', () => {
       expect(config.mcp.servers).toHaveLength(1);
     });
 
+    it('re-enables MCP support and auto-connect when same config was disabled', async () => {
+      await fs.writeJson(configPath, {
+        openrouter: { apiKey: 'test-key' },
+        mcp: {
+          enabled: false,
+          servers: [{
+            name: 'test-server',
+            transport: 'stdio',
+            command: 'npx',
+            args: ['-y', 'test-mcp@latest'],
+            autoConnect: false,
+          }],
+        },
+      });
+
+      const result = runCli('mcp add test-server npx test-mcp@latest');
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('already configured');
+      expect(result.stdout).toContain('Re-enabled');
+
+      const config = fs.readJsonSync(configPath);
+      expect(config.mcp.enabled).toBe(true);
+      expect(config.mcp.servers[0].autoConnect).toBe(true);
+    });
+
     it('updates existing server when config differs', () => {
       runCli('mcp add test-server npx test-mcp@latest');
 

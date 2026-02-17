@@ -97,6 +97,11 @@ import { WorkspaceFileCollector } from './agent/WorkspaceFileCollector.js';
 import { ProviderConfigManager } from './agent/ProviderConfigManager.js';
 import { AutoReportManager } from '../reporting/AutoReportManager.js';
 import { isLikelyFilePathSlashInput } from './slashInputDetection.js';
+import {
+  buildMcpStartupSummaryRows,
+  getAutoConnectMcpServerNames,
+  truncateMcpStartupError,
+} from './mcpStartupHistory.js';
 
 export class AutohandAgent {
   private mentionContexts: { path: string; contents: string }[] = [];
@@ -646,6 +651,9 @@ export class AutohandAgent {
   /** Promise that resolves when background init is complete */
   private initReady: Promise<void> | null = null;
   private initDone = false;
+  private mcpStartupAutoConnectServers: string[] = [];
+  private mcpStartupConnectStartedAt: number | null = null;
+  private mcpStartupSummaryPrinted = false;
 
   async runInteractive(): Promise<void> {
     // Bail out early if stdin is not a TTY - interactive mode requires a terminal
@@ -653,6 +661,16 @@ export class AutohandAgent {
       console.error(chalk.red('Interactive mode requires a terminal (TTY). Use --prompt for non-interactive usage.'));
       process.exitCode = 1;
       return;
+    }
+
+    // Prepare startup visibility for async MCP connections.
+    this.mcpStartupAutoConnectServers = getAutoConnectMcpServerNames(this.runtime.config.mcp?.servers);
+    this.mcpStartupConnectStartedAt = null;
+    this.mcpStartupSummaryPrinted = false;
+    if (this.runtime.config.mcp?.enabled !== false && this.mcpStartupAutoConnectServers.length > 0) {
+      const count = this.mcpStartupAutoConnectServers.length;
+      const label = count === 1 ? 'server' : 'servers';
+      console.log(chalk.gray(`MCP startup: connecting ${count} ${label} in background...`));
     }
 
     // Start ALL initialization in background so prompt appears instantly.
@@ -685,6 +703,7 @@ export class AutohandAgent {
       // Servers connect asynchronously; tools become available once ready.
       // Does NOT block the main init pipeline or user prompt.
       if (this.runtime.config.mcp?.enabled !== false) {
+        this.mcpStartupConnectStartedAt = Date.now();
         this.mcpReady = this.mcpManager
           .connectAll(this.runtime.config.mcp?.servers ?? [])
           .then(() => { this.syncMcpTools(); })
@@ -732,6 +751,7 @@ export class AutohandAgent {
       if (this.mcpReady) {
         await this.mcpReady;
       }
+      this.printMcpStartupSummaryIfNeeded();
 
       // Fire session-start hook now that the prompt is closed and stdout is clean
       const session = this.sessionManager.getCurrentSession();
@@ -1213,33 +1233,32 @@ If lint or tests fail, report the issues but do NOT commit.`;
       return null;
     }
 
-    if (normalized.startsWith('/') && !isLikelyFilePathSlashInput(normalized)) {
-      // Parse command and arguments from input
-      const parts = normalized.split(/\s+/);
-      let command = parts[0];
-      let args = parts.slice(1);
+    if (normalized.startsWith('/')) {
+      // Always prioritize known slash commands, even when args contain '/'
+      // (e.g. package specs like "@playwright/mcp@latest").
+      const parsed = this.parseSlashCommand(normalized);
+      const isKnownSlashCommand = this.isSlashCommandSupported(parsed.command);
+      if (!isKnownSlashCommand && isLikelyFilePathSlashInput(normalized)) {
+        // Looks like an absolute file path, not a command.
+        // Fall through to normal prompt handling below.
+      } else {
+        const command = parsed.command;
+        const args = parsed.args;
 
-      // Handle multi-word commands like "/skills install", "/mcp install"
-      const twoWordCommands = ['/skills install', '/skills new', '/skills use', '/agents new', '/mcp install'];
-      const potentialTwoWord = `${parts[0]} ${parts[1] || ''}`.trim();
-      if (twoWordCommands.includes(potentialTwoWord)) {
-        command = potentialTwoWord;
-        args = parts.slice(2);
-      }
+        // /quit and /exit return themselves as pass-through instructions
+        // so the interactive loop's special exit handler (line 963) can catch them.
+        // Skip the slash handler for these — they're control-flow, not commands.
+        if (command === '/quit' || command === '/exit') {
+          return command;
+        }
 
-      // /quit and /exit return themselves as pass-through instructions
-      // so the interactive loop's special exit handler (line 963) can catch them.
-      // Skip the slash handler for these — they're control-flow, not commands.
-      if (command === '/quit' || command === '/exit') {
-        return command;
+        const handled = await this.handleSlashCommand(command, args);
+        if (handled !== null) {
+          // Slash command returned display output — print it, don't send to LLM
+          console.log(handled);
+        }
+        return null;
       }
-
-      const handled = await this.handleSlashCommand(command, args);
-      if (handled !== null) {
-        // Slash command returned display output — print it, don't send to LLM
-        console.log(handled);
-      }
-      return null;
     }
 
     // Handle # trigger for storing memories
@@ -4013,6 +4032,12 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Returns the command output or null if the command doesn't exist
    */
   async handleSlashCommand(command: string, args: string[] = []): Promise<string | null> {
+    // /mcp depends on background startup state (notably MCP auto-connect).
+    // Ensure startup init is settled before rendering server status/actions.
+    if (command === '/mcp' || command === '/mcp install') {
+      await this.ensureInitComplete();
+    }
+
     const result = await this.slashHandler.handle(command, args);
     if (command === '/mcp' || command === '/mcp install') {
       this.syncMcpTools();
@@ -4262,6 +4287,64 @@ If lint or tests fail, report the issues but do NOT commit.`;
       : '';
 
     return `${planIndicator}${percent}% context left · ${t('ui.commandHint')}${queueStatus}`;
+  }
+
+  private printMcpStartupSummaryIfNeeded(): void {
+    if (this.mcpStartupSummaryPrinted) {
+      return;
+    }
+    if (this.runtime.config.mcp?.enabled === false) {
+      this.mcpStartupSummaryPrinted = true;
+      return;
+    }
+    if (this.mcpStartupAutoConnectServers.length === 0) {
+      this.mcpStartupSummaryPrinted = true;
+      return;
+    }
+
+    this.mcpStartupSummaryPrinted = true;
+
+    const rows = buildMcpStartupSummaryRows(
+      this.mcpStartupAutoConnectServers,
+      this.mcpManager.listServers()
+    );
+
+    const elapsed = this.mcpStartupConnectStartedAt
+      ? formatElapsedTime(this.mcpStartupConnectStartedAt)
+      : null;
+
+    const connected = rows.filter((row) => row.status === 'connected').length;
+    const failed = rows.filter((row) => row.status === 'error').length;
+    const disconnected = rows.filter((row) => row.status === 'disconnected').length;
+    const summaryParts = [
+      `${connected} connected`,
+      failed > 0 ? `${failed} failed` : null,
+      disconnected > 0 ? `${disconnected} disconnected` : null,
+    ].filter(Boolean).join(', ');
+    const elapsedSuffix = elapsed ? ` in ${elapsed}` : '';
+
+    console.log(chalk.bold('\n* MCP startup'));
+    console.log(chalk.gray(`  Async connection phase complete${elapsedSuffix} (${summaryParts})`));
+
+    for (const row of rows) {
+      if (row.status === 'connected') {
+        const toolLabel = row.toolCount === 1 ? 'tool' : 'tools';
+        console.log(`  ${chalk.green('✓')} ${row.name} connected (${row.toolCount} ${toolLabel})`);
+        continue;
+      }
+
+      if (row.status === 'error') {
+        const errorSuffix = row.error
+          ? `: ${truncateMcpStartupError(row.error)}`
+          : '';
+        console.log(`  ${chalk.red('✖')} ${row.name} failed${errorSuffix}`);
+        continue;
+      }
+
+      console.log(`  ${chalk.yellow('○')} ${row.name} not connected`);
+    }
+
+    console.log();
   }
 
   private async resetConversationContext(): Promise<void> {
