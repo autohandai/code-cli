@@ -150,6 +150,13 @@ function normalizeDragPathCandidates(rawPath: string): string[] {
     candidates.add(withHomeExpanded(value.replace(/\u202f/g, ' ')));
     candidates.add(value.replace(/\u00a0/g, ' '));
     candidates.add(withHomeExpanded(value.replace(/\u00a0/g, ' ')));
+    // Reverse: terminal may normalize U+202F to regular space during drag.
+    // macOS Sequoia+ uses U+202F before AM/PM in screenshot filenames.
+    const withNNBSP = value.replace(/ (?=(?:AM|PM)\.)/gi, '\u202f');
+    if (withNNBSP !== value) {
+      candidates.add(withNNBSP);
+      candidates.add(withHomeExpanded(withNNBSP));
+    }
   };
 
   push(unquoted);
@@ -187,7 +194,7 @@ export function processImagesInText(
         if (!mimeType) continue;
 
         const id = onImageDetected(data, mimeType, basename(candidatePath));
-        result = result.replace(rawMatch, `[Image #${id}] ${basename(candidatePath)}`);
+        result = result.replace(rawMatch, `[Image #${id}]`);
         writeImageNotice(output, `📷 Loaded image: ${candidatePath} -> [Image #${id}]`, announce);
         return true;
       } catch {
@@ -715,8 +722,18 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
 
         if (pasteState.isInPaste) {
           pasteState.isInPaste = false;
+          // Process images in the paste buffer BEFORE handlePasteComplete
+          // sets rl.line — this is the earliest moment where the temp file
+          // is most likely to still exist on disk.
+          if (onImageDetected && pasteState.buffer) {
+            pasteState.buffer = processImagesInText(
+              pasteState.buffer, onImageDetected, { announce: false, output: stdOutput }
+            );
+          }
           handlePasteComplete(pasteState, rl, stdOutput);
-          replaceDroppedImagesInline();
+          // Schedule a deferred fallback scan in case the synchronous
+          // replacement missed (e.g. file not yet materialized).
+          scheduleInlineImageScan(10);
         }
         return;
       }
@@ -738,8 +755,13 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         pasteState.timeout = setTimeout(() => {
           if (pasteState.isInPaste && pasteState.buffer) {
             pasteState.isInPaste = false;
+            if (onImageDetected) {
+              pasteState.buffer = processImagesInText(
+                pasteState.buffer, onImageDetected, { announce: false, output: stdOutput }
+              );
+            }
             handlePasteComplete(pasteState, rl, stdOutput);
-            replaceDroppedImagesInline();
+            scheduleInlineImageScan(10);
           }
         }, 50);
 
