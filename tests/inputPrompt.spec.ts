@@ -177,7 +177,7 @@ describe('inputPrompt', () => {
       const imagePath = path.join(tempDir, 'Screenshot 2026-02-17 at 9.22.22 PM.png');
       fs.writeFileSync(imagePath, Buffer.from('fake-png-data'));
 
-      const escapedPath = imagePath.replace(/ /g, '\\ ');
+      const escapedPath = imagePath.replace(/ /g, (value) => `\\${value}`);
       const output = processImagesInText(
         escapedPath,
         (_data, mimeType, filename) => {
@@ -227,7 +227,7 @@ describe('inputPrompt', () => {
       let counter = 0;
       const onImage = () => ++counter;
 
-      const escaped = spacePath.replace(/ /g, '\\ ');
+      const escaped = spacePath.replace(/ /g, (value) => `\\${value}`);
       const input = `${escaped} ${simplePath}`;
       const output = processImagesInText(input, onImage, { announce: false });
 
@@ -235,6 +235,27 @@ describe('inputPrompt', () => {
       expect(output).toContain('[Image #2] icon.jpg');
       expect(counter).toBe(2);
 
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('replaces escaped paths containing narrow no-break spaces', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'autohand-img-u202f-'));
+      const filename = 'Screenshot 2026-02-17 at 10.48.54\u202FPM.png';
+      const imagePath = path.join(tempDir, filename);
+      fs.writeFileSync(imagePath, Buffer.from('fake-u202f'));
+
+      const escapedPath = imagePath.replace(/[ \u202f]/g, (value) => `\\${value}`);
+      const output = processImagesInText(
+        escapedPath,
+        (_data, mimeType, detectedFilename) => {
+          expect(mimeType).toBe('image/png');
+          expect(detectedFilename).toBe(filename);
+          return 1;
+        },
+        { announce: false }
+      );
+
+      expect(output).toBe(`[Image #1] ${filename}`);
       fs.rmSync(tempDir, { recursive: true, force: true });
     });
 
