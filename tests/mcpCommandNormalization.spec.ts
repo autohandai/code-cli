@@ -17,7 +17,7 @@ describe('MCP command normalization', () => {
     const normalized = normalizeMcpCommandForSpawn('npx', ['chrome-devtools-mcp@latest']);
     expect(normalized).toEqual({
       command: 'npx',
-      args: ['-y', 'chrome-devtools-mcp@latest'],
+      args: ['-y', 'chrome-devtools-mcp@latest', '--no-usage-stats'],
     });
   });
 
@@ -25,7 +25,18 @@ describe('MCP command normalization', () => {
     const normalized = normalizeMcpCommandForSpawn('npx', ['-y', 'chrome-devtools-mcp@latest']);
     expect(normalized).toEqual({
       command: 'npx',
-      args: ['-y', 'chrome-devtools-mcp@latest'],
+      args: ['-y', 'chrome-devtools-mcp@latest', '--no-usage-stats'],
+    });
+  });
+
+  it('does not duplicate chrome-devtools non-interactive flag', () => {
+    const normalized = normalizeMcpCommandForSpawn(
+      'npx',
+      ['-y', 'chrome-devtools-mcp@latest', '--no-usage-stats']
+    );
+    expect(normalized).toEqual({
+      command: 'npx',
+      args: ['-y', 'chrome-devtools-mcp@latest', '--no-usage-stats'],
     });
   });
 
@@ -50,6 +61,14 @@ describe('MCP command normalization', () => {
     expect(normalized).toEqual({
       command: undefined,
       args: ['arg'],
+    });
+  });
+
+  it('adds chrome-devtools non-interactive flag for config normalization', () => {
+    const normalized = normalizeMcpCommandForConfig('npx', ['chrome-devtools-mcp@latest']);
+    expect(normalized).toEqual({
+      command: 'npx',
+      args: ['-y', 'chrome-devtools-mcp@latest', '--no-usage-stats'],
     });
   });
 
