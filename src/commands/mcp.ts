@@ -373,6 +373,10 @@ async function handleAdd(
   if (!targetConfig.mcp.servers) {
     targetConfig.mcp.servers = [];
   }
+  const wasMcpDisabled = targetConfig.mcp.enabled === false;
+  if (wasMcpDisabled) {
+    targetConfig.mcp.enabled = true;
+  }
 
   const newServer = transport === 'stdio'
     ? {
@@ -405,7 +409,31 @@ async function handleAdd(
         && existing.url === target;
 
     if (sameConfig) {
-      return `Server "${name}" is already configured with the same settings${scopeSuffix}.`;
+      const wasAutoConnectDisabled = existing.autoConnect === false;
+      if (!wasAutoConnectDisabled && !wasMcpDisabled) {
+        return `Server "${name}" is already configured with the same settings${scopeSuffix}.`;
+      }
+
+      existing.autoConnect = true;
+      const reenabledParts: string[] = [];
+      if (wasMcpDisabled) reenabledParts.push('MCP support');
+      if (wasAutoConnectDisabled) reenabledParts.push('auto-connect');
+      const reenabled = reenabledParts.join(' and ');
+
+      try {
+        await saveConfig(targetConfig);
+        syncRuntimeConfig(config, targetConfig);
+
+        try {
+          await manager.connect(existing);
+          const tools = manager.getToolsForServer(name);
+          return `Server "${name}" is already configured${scopeSuffix}. Re-enabled ${reenabled} and connected (${tools.length} tools available).`;
+        } catch (connectError) {
+          return `Server "${name}" is already configured${scopeSuffix}. Re-enabled ${reenabled} but failed to connect: ${connectError instanceof Error ? connectError.message : 'Unknown error'}`;
+        }
+      } catch (error) {
+        return `Failed to save config: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      }
     }
 
     // Update in-place

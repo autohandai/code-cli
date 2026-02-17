@@ -388,6 +388,10 @@ mcpCmd
 
     if (!config.mcp) config.mcp = {};
     if (!config.mcp.servers) config.mcp.servers = [];
+    const wasMcpDisabled = config.mcp.enabled === false;
+    if (wasMcpDisabled) {
+      config.mcp.enabled = true;
+    }
 
     const transport = (options.transport ?? 'stdio').toLowerCase();
     if (transport !== 'stdio' && transport !== 'http' && transport !== 'sse') {
@@ -444,6 +448,21 @@ mcpCmd
           && existing.url === target;
 
       if (sameConfig) {
+        const wasAutoConnectDisabled = existing.autoConnect === false;
+        if (wasAutoConnectDisabled || wasMcpDisabled) {
+          existing.autoConnect = true;
+          await saveConfig(config);
+
+          const reenabledParts: string[] = [];
+          if (wasMcpDisabled) reenabledParts.push('MCP support');
+          if (wasAutoConnectDisabled) reenabledParts.push('auto-connect');
+          const reenabled = reenabledParts.join(' and ');
+
+          console.log(chalk.green(`Server "${name}" is already configured. Re-enabled ${reenabled}.`));
+          console.log(chalk.gray('Server will auto-connect when you start autohand.'));
+          process.exit(0);
+        }
+
         console.log(chalk.green(`Server "${name}" is already configured with the same settings.`));
         process.exit(0);
       }

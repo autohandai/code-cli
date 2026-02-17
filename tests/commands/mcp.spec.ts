@@ -80,6 +80,43 @@ describe('/mcp slash command', () => {
     expect(saveConfig).not.toHaveBeenCalled();
   });
 
+  it('re-enables disabled MCP settings when server config already matches', async () => {
+    const manager = createManagerMock();
+    (saveConfig as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
+    const runtimeConfig = makeConfig('/tmp/runtime-config.json');
+    runtimeConfig.mcp = {
+      enabled: false,
+      servers: [{
+        name: 'playwright',
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', '@playwright/mcp@latest'],
+        autoConnect: false,
+      }],
+    };
+
+    const result = await mcp(
+      {
+        mcpManager: manager as any,
+        config: runtimeConfig,
+        workspaceRoot: '/tmp/workspace',
+      },
+      ['add', 'playwright', 'npx', '@playwright/mcp@latest']
+    );
+
+    expect(saveConfig).toHaveBeenCalledWith(runtimeConfig);
+    expect(runtimeConfig.mcp?.enabled).toBe(true);
+    expect(runtimeConfig.mcp?.servers?.[0].autoConnect).toBe(true);
+    expect(manager.connect).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'playwright',
+      transport: 'stdio',
+      command: 'npx',
+    }));
+    expect(result).toContain('already configured');
+    expect(result).toContain('Re-enabled');
+  });
+
   it('parses --scope in /mcp remove and removes from that scoped config', async () => {
     const manager = createManagerMock();
     const scopedConfig = makeConfig('/tmp/user-config.json');
