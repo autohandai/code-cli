@@ -28,6 +28,14 @@ const badConfig: McpServerConfig = {
   autoConnect: true,
 };
 
+const earlyExitConfig: McpServerConfig = {
+  name: 'early-exit-server',
+  transport: 'stdio',
+  command: 'node',
+  args: ['-e', 'process.exit(42)'],
+  autoConnect: true,
+};
+
 describe('McpClientManager', () => {
   let manager: McpClientManager;
 
@@ -158,6 +166,10 @@ describe('McpClientManager', () => {
 
     it('throws for invalid command', async () => {
       await expect(manager.connect(badConfig)).rejects.toThrow();
+    });
+
+    it('includes exit code when a stdio server exits during startup', async () => {
+      await expect(manager.connect(earlyExitConfig)).rejects.toThrow('code 42');
     });
 
     it('reconnects if server already exists', async () => {
