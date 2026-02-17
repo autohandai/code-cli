@@ -48,7 +48,7 @@ export function isRetriableNpxInstallError(message: string): boolean {
 export function buildNpxIsolatedCacheEnv(
   baseEnv: NodeJS.ProcessEnv | undefined,
   serverName: string
-): NodeJS.ProcessEnv {
+): Record<string, string> {
   const token = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const cacheDir = path.join(
     os.tmpdir(),
@@ -57,8 +57,15 @@ export function buildNpxIsolatedCacheEnv(
     token
   );
 
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(baseEnv ?? {})) {
+    if (typeof value === 'string') {
+      env[key] = value;
+    }
+  }
+
   return {
-    ...(baseEnv ?? {}),
+    ...env,
     npm_config_cache: cacheDir,
     NPM_CONFIG_CACHE: cacheDir,
   };
