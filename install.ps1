@@ -365,7 +365,7 @@ function Install-Autohand {
     Write-Host "Get started:"
     Write-Host "  autohand              # Start interactive mode"
     Write-Host "  autohand --help       # Show all options"
-    Write-Host "  autohand /login       # Sign in to your account"
+    Write-Host "  autohand login        # Sign in to your account"
     Write-Host ""
 }
 
