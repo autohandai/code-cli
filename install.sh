@@ -155,7 +155,7 @@ EOF
         echo "Get started:"
         echo "  autohand              # Start interactive mode"
         echo "  autohand --help       # Show all options"
-        echo "  autohand /login       # Sign in to your account"
+        echo "  autohand login        # Sign in to your account"
     fi
 
     echo ""
