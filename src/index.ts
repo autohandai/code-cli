@@ -24,10 +24,20 @@ import { PROJECT_DIR_NAME } from './constants.js';
  * Get git commit hash (short)
  * Uses build-time embedded commit, falls back to runtime git command for dev
  */
+function getCommitFromAlphaVersion(version: string): string | null {
+  const match = version.match(/-alpha\.([0-9a-f]{7,40})$/i);
+  return match?.[1] ?? null;
+}
+
 function getGitCommit(): string {
   // Use build-time embedded commit if available
   if (process.env.BUILD_GIT_COMMIT && process.env.BUILD_GIT_COMMIT !== 'undefined') {
     return process.env.BUILD_GIT_COMMIT;
+  }
+  // For alpha builds, version suffix encodes the source commit
+  const alphaCommit = getCommitFromAlphaVersion(packageJson.version);
+  if (alphaCommit) {
+    return alphaCommit;
   }
   // Fallback for development (running from source)
   try {

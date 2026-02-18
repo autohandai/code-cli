@@ -137,7 +137,7 @@ function Get-LatestVersion {
 }
 
 function Get-LatestAlphaVersion {
-    $apiUrl = "https://api.github.com/repos/$REPO/releases?per_page=10"
+    $apiUrl = "https://api.github.com/repos/$REPO/releases?per_page=100"
 
     try {
         $headers = @{
@@ -147,17 +147,33 @@ function Get-LatestAlphaVersion {
 
         $releases = Invoke-RestMethod -Uri $apiUrl -Headers $headers -UseBasicParsing
 
-        foreach ($release in $releases) {
-            if ($release.prerelease -eq $true) {
-                $tagName = $release.tag_name
-                if ($tagName.StartsWith("v")) {
-                    $tagName = $tagName.Substring(1)
-                }
-                return $tagName
-            }
+        $alphaReleases = $releases | Where-Object { $_.prerelease -eq $true -and $_.tag_name }
+        if (-not $alphaReleases) {
+            throw "No alpha (pre-release) builds found"
         }
 
-        throw "No alpha (pre-release) builds found"
+        # GitHub releases API order is not guaranteed chronological for prereleases.
+        # Choose newest by published_at (fallback to created_at).
+        $latestAlpha = $alphaReleases |
+            Sort-Object -Property @{
+                Expression = {
+                    if ($_.published_at) {
+                        [DateTime]$_.published_at
+                    } elseif ($_.created_at) {
+                        [DateTime]$_.created_at
+                    } else {
+                        [DateTime]::MinValue
+                    }
+                }
+                Descending = $true
+            } |
+            Select-Object -First 1
+
+        $tagName = $latestAlpha.tag_name
+        if ($tagName.StartsWith("v")) {
+            $tagName = $tagName.Substring(1)
+        }
+        return $tagName
     }
     catch {
         throw "Failed to fetch latest alpha version from GitHub API: $_"

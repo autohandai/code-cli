@@ -162,35 +162,63 @@ EOF
 }
 
 get_latest_alpha_tag() {
-    # Fetch recent releases and find the first prerelease
+    # Fetch recent releases and pick the newest prerelease by published timestamp.
+    # GitHub API list order is not guaranteed chronological for prereleases.
     local _releases_json
-    _releases_json=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases?per_page=10" 2>/dev/null) || return 1
+    _releases_json=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases?per_page=100" 2>/dev/null) || return 1
 
-    # Parse JSON to find first prerelease tag
-    # Uses a here-doc (not a pipeline) so the while loop runs in the current
-    # shell — avoids the POSIX subshell bug where `return` inside
-    # `echo | while` only exits the subshell, not the function.
-    local _current_tag=""
-    local _found_tag=""
-    local _line
-    while IFS= read -r _line; do
-        case "$_line" in
-            *'"tag_name"'*)
-                _current_tag=$(printf '%s' "$_line" | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
-                ;;
-            *'"prerelease"'*true*)
-                if [ -n "$_current_tag" ]; then
-                    _found_tag="$_current_tag"
-                    break
-                fi
-                ;;
-            *'"prerelease"'*false*)
-                _current_tag=""
-                ;;
-        esac
-    done <<EOF
-$(printf '%s' "$_releases_json" | tr ',' '\n')
-EOF
+    local _found_tag
+    _found_tag=$(
+        printf '%s' "$_releases_json" \
+            | tr '\n' ' ' \
+            | tr '{' '\n' \
+            | awk '
+                BEGIN {
+                    best_tag = "";
+                    best_timestamp = "";
+                }
+                /"tag_name"[[:space:]]*:/ && /"prerelease"[[:space:]]*:[[:space:]]*true/ {
+                    tag = "";
+                    published = "";
+                    created = "";
+
+                    if (match($0, /"tag_name"[[:space:]]*:[[:space:]]*"[^"]+"/)) {
+                        tag = substr($0, RSTART, RLENGTH);
+                        sub(/.*"tag_name"[[:space:]]*:[[:space:]]*"/, "", tag);
+                        sub(/".*/, "", tag);
+                    }
+
+                    if (match($0, /"published_at"[[:space:]]*:[[:space:]]*"[^"]+"/)) {
+                        published = substr($0, RSTART, RLENGTH);
+                        sub(/.*"published_at"[[:space:]]*:[[:space:]]*"/, "", published);
+                        sub(/".*/, "", published);
+                    }
+
+                    if (match($0, /"created_at"[[:space:]]*:[[:space:]]*"[^"]+"/)) {
+                        created = substr($0, RSTART, RLENGTH);
+                        sub(/.*"created_at"[[:space:]]*:[[:space:]]*"/, "", created);
+                        sub(/".*/, "", created);
+                    }
+
+                    timestamp = published;
+                    if (timestamp == "") {
+                        timestamp = created;
+                    }
+
+                    if (tag != "" && timestamp != "") {
+                        if (best_timestamp == "" || timestamp > best_timestamp) {
+                            best_timestamp = timestamp;
+                            best_tag = tag;
+                        }
+                    }
+                }
+                END {
+                    if (best_tag != "") {
+                        print best_tag;
+                    }
+                }
+            '
+    )
 
     if [ -n "$_found_tag" ]; then
         printf '%s\n' "$_found_tag"
