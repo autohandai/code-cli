@@ -10,7 +10,7 @@ import os from 'os';
 
 const GITHUB_REPO = 'autohandai/code-cli';
 const GITHUB_API_LATEST_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
-const GITHUB_API_RELEASES_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=10`;
+const GITHUB_API_RELEASES_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=100`;
 const CACHE_DIR = path.join(os.homedir(), '.autohand');
 const DEFAULT_CHECK_INTERVAL_HOURS = 24;
 const REQUEST_TIMEOUT_MS = 3000;
@@ -31,6 +31,14 @@ interface VersionCache {
   lastCheck: string;
   latestVersion: string;
   releaseUrl: string;
+}
+
+interface GitHubRelease {
+  tag_name?: string;
+  html_url?: string;
+  prerelease?: boolean;
+  published_at?: string | null;
+  created_at?: string | null;
 }
 
 /**
@@ -81,6 +89,64 @@ function compareVersions(a: string, b: string): number {
   }
 
   return 0;
+}
+
+function parseReleaseTimestamp(release: GitHubRelease): number | null {
+  const rawTimestamp = release.published_at ?? release.created_at ?? null;
+  if (!rawTimestamp) {
+    return null;
+  }
+
+  const parsed = Date.parse(rawTimestamp);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+/**
+ * Select latest prerelease from a GitHub releases response.
+ * Uses published_at/created_at timestamps because API list order is not guaranteed.
+ */
+export function selectLatestPrereleaseRelease(releases: GitHubRelease[]): GitHubRelease | null {
+  const prereleases = releases.filter((release) => release.prerelease && release.tag_name);
+  if (prereleases.length === 0) {
+    return null;
+  }
+
+  let selected = prereleases[0];
+  let selectedTimestamp = parseReleaseTimestamp(selected);
+
+  for (const release of prereleases.slice(1)) {
+    const timestamp = parseReleaseTimestamp(release);
+    if (timestamp === null) {
+      continue;
+    }
+    if (selectedTimestamp === null || timestamp > selectedTimestamp) {
+      selected = release;
+      selectedTimestamp = timestamp;
+    }
+  }
+
+  return selected;
+}
+
+/**
+ * Evaluate update state for a channel.
+ * Alpha tags are commit-addressed and not semver-orderable, so equality is used.
+ */
+export function evaluateUpdateStatus(
+  currentVersion: string,
+  latestVersion: string,
+  channel: ReleaseChannel
+): { isUpToDate: boolean; updateAvailable: boolean } {
+  if (channel === 'alpha') {
+    const isUpToDate = currentVersion === latestVersion;
+    return { isUpToDate, updateAvailable: !isUpToDate };
+  }
+
+  const comparison = compareVersions(currentVersion, latestVersion);
+  return {
+    isUpToDate: comparison >= 0,
+    updateAvailable: comparison < 0,
+  };
 }
 
 /**
@@ -184,19 +250,14 @@ async function fetchLatestAlphaRelease(): Promise<{ version: string; url: string
       return null;
     }
 
-    const releases = await response.json() as Array<{
-      tag_name?: string;
-      html_url?: string;
-      prerelease?: boolean;
-    }>;
+    const releases = await response.json() as GitHubRelease[];
+    const latestPrerelease = selectLatestPrereleaseRelease(releases);
 
-    for (const release of releases) {
-      if (release.prerelease && release.tag_name) {
-        return {
-          version: release.tag_name.replace(/^v/, ''),
-          url: release.html_url || `https://github.com/${GITHUB_REPO}/releases/tag/${release.tag_name}`,
-        };
-      }
+    if (latestPrerelease?.tag_name) {
+      return {
+        version: latestPrerelease.tag_name.replace(/^v/, ''),
+        url: latestPrerelease.html_url || `https://github.com/${GITHUB_REPO}/releases/tag/${latestPrerelease.tag_name}`,
+      };
     }
   } catch {
     // Network error, timeout, or abort - silently fail
@@ -255,9 +316,9 @@ export async function checkForUpdates(
       if (cache && isCacheValid(cache, checkIntervalHours)) {
         result.latestVersion = cache.latestVersion;
         result.releaseUrl = cache.releaseUrl;
-        const comparison = compareVersions(currentVersion, cache.latestVersion);
-        result.isUpToDate = comparison >= 0;
-        result.updateAvailable = comparison < 0;
+        const status = evaluateUpdateStatus(currentVersion, cache.latestVersion, channel);
+        result.isUpToDate = status.isUpToDate;
+        result.updateAvailable = status.updateAvailable;
         return result;
       }
     }
@@ -270,10 +331,9 @@ export async function checkForUpdates(
     if (latest) {
       result.latestVersion = latest.version;
       result.releaseUrl = latest.url;
-
-      const comparison = compareVersions(currentVersion, latest.version);
-      result.isUpToDate = comparison >= 0;
-      result.updateAvailable = comparison < 0;
+      const status = evaluateUpdateStatus(currentVersion, latest.version, channel);
+      result.isUpToDate = status.isUpToDate;
+      result.updateAvailable = status.updateAvailable;
 
       // Update cache
       await writeCache(channel, {
