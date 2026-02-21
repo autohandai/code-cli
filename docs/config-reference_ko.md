@@ -631,6 +631,8 @@ Autohand는 `~/.autohand/` (또는 `$AUTOHAND_HOME`)에 데이터를 저장합�
 |--------|------|
 | `--model <model>` | 모델 덮어쓰기 |
 | `--path <path>` | 워크스페이스 루트 덮어쓰기 |
+| `--worktree [name]` | 세션을 격리된 git worktree에서 실행 (선택적으로 worktree/브랜치 이름 지정) |
+| `--tmux` | 전용 tmux 세션에서 실행 (`--worktree` 포함, `--no-worktree`와 함께 사용 불가) |
 | `--add-dir <path>` | 워크스페이스 범위에 추가 디렉토리 추가 (여러 번 사용 가능) |
 | `--config <path>` | 사용자 지정 설정 파일 사용 |
 | `--temperature <n>` | 온도 설정 (0-1) |

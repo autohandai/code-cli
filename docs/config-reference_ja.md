@@ -1163,6 +1163,8 @@ Autohandは `~/.autohand/`（または `$AUTOHAND_HOME`）にデータを保存�
 |--------|------|
 | `--model <model>` | モデルをオーバーライド |
 | `--path <path>` | ワークスペースルートをオーバーライド |
+| `--worktree [name]` | セッションを分離されたgit worktreeで実行（worktree/ブランチ名は任意） |
+| `--tmux` | 専用のtmuxセッションで起動（`--worktree`を含意。`--no-worktree`とは併用不可） |
 | `--add-dir <path>` | ワークスペーススコープに追加ディレクトリを追加（複数回使用可能） |
 | `--config <path>` | カスタム設定ファイルを使用 |
 | `--temperature <n>` | 温度を設定（0-1） |

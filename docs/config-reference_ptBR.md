@@ -642,6 +642,8 @@ Estas flags sobrescrevem as configurações do arquivo:
 |------|-----------|
 | `--model <modelo>` | Sobrescrever modelo |
 | `--path <caminho>` | Sobrescrever raiz do workspace |
+| `--worktree [nome]` | Executar sessão em git worktree isolado (nome opcional do worktree/branch) |
+| `--tmux` | Iniciar em uma sessão tmux dedicada (implica `--worktree`; não pode ser usado com `--no-worktree`) |
 | `--add-dir <caminho>` | Adicionar diretórios adicionais ao escopo do workspace (pode ser usado múltiplas vezes) |
 | `--config <caminho>` | Usar arquivo de configuração personalizado |
 | `--temperature <n>` | Definir temperatura (0-1) |

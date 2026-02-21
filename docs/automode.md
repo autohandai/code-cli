@@ -1,6 +1,6 @@
 # Auto-Mode: Autonomous Development Loops
 
-Auto-Mode lets autohand work autonomously on your tasks through iterative improvement cycles—inspired by the [Ralph technique](https://ghuntley.com/ralph/).
+Auto-Mode lets autohand work autonomously on your tasks through iterative improvement cycles-inspired by the [Ralph technique](https://ghuntley.com/ralph/).
 
 ## Overview
 
