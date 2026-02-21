@@ -631,6 +631,8 @@ Flag-flag ini mengganti pengaturan file konfigurasi:
 |------|-----------|
 | `--model <model>` | Ganti model |
 | `--path <path>` | Ganti root workspace |
+| `--worktree [nama]` | Jalankan sesi di git worktree terisolasi (nama worktree/branch opsional) |
+| `--tmux` | Jalankan dalam sesi tmux khusus (mengimplikasikan `--worktree`; tidak bisa dipakai dengan `--no-worktree`) |
 | `--add-dir <path>` | Tambahkan direktori tambahan ke lingkup workspace (dapat digunakan beberapa kali) |
 | `--config <path>` | Gunakan file konfigurasi kustom |
 | `--temperature <n>` | Atur temperature (0-1) |
