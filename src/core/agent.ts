@@ -173,6 +173,7 @@ export class AutohandAgent {
   private executedActionNames: string[] = [];
   private searchQueries: string[] = [];
   private sessionRetryCount = 0;
+  private consecutiveCancellations = 0;
 
   // Context compaction - auto-compresses context to prevent "context too long" errors
   private contextManager!: ContextManager;
@@ -1838,6 +1839,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async runReactLoop(abortController: AbortController): Promise<void> {
+    this.consecutiveCancellations = 0;
+
     const debugMode = this.runtime.config.agent?.debug === true || process.env.AUTOHAND_DEBUG === '1';
     if (debugMode) process.stderr.write(`[AGENT DEBUG] runReactLoop started\n`);
 
@@ -2133,6 +2136,15 @@ If lint or tests fail, report the issues but do NOT commit.`;
               `Do NOT retry the same tool(s) with the same arguments. The user said "No". ` +
               `Instead, ask the user how they would like to proceed, or suggest an alternative approach. ` +
               `If there is nothing else to do, provide your final response.`
+            );
+          }
+
+          // Detect repeated ask_followup_question cancellations — force the LLM to stop asking
+          if (this.consecutiveCancellations >= 2) {
+            this.conversation.addSystemNote(
+              `[CRITICAL] The user has cancelled ask_followup_question ${this.consecutiveCancellations} times in a row. ` +
+              `STOP calling ask_followup_question immediately. Do NOT ask the user any more questions. ` +
+              `Provide your best final response now using the information you already have.`
             );
           }
         }
@@ -4695,10 +4707,12 @@ If lint or tests fail, report the issues but do NOT commit.`;
       });
 
       if (answer === null) {
+        this.consecutiveCancellations++;
         console.log(chalk.yellow('\n  (Question cancelled)\n'));
-        return '<answer>User cancelled</answer>';
+        return '<answer>User cancelled this question. Do NOT call ask_followup_question again. Continue with your best judgment or provide a final response.</answer>';
       }
 
+      this.consecutiveCancellations = 0;
       console.log(chalk.green(`\n✓ Answer: ${answer}\n`));
       return `<answer>${answer}</answer>`;
     } finally {
