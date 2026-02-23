@@ -78,6 +78,7 @@ type InkRenderer = any;
 import { PermissionManager } from '../permissions/PermissionManager.js';
 import { HookManager } from './HookManager.js';
 import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
+import { ActivityIndicator } from '../ui/activityIndicator.js';
 import { NotificationService } from '../utils/notification.js';
 import { getPlanModeManager } from '../commands/plan.js';
 import type { VersionCheckResult } from '../utils/versionCheck.js';
@@ -158,6 +159,7 @@ export class AutohandAgent {
   private persistentInputActiveTurn = false;
   private queueInput = '';
   private lastRenderedStatus = '';
+  private activityIndicator: ActivityIndicator;
 
   // New feature modules
   private imageManager: ImageManager;
@@ -215,6 +217,11 @@ export class AutohandAgent {
     this.environmentBootstrap = new EnvironmentBootstrap();
     this.codeQualityPipeline = new CodeQualityPipeline();
     this.notificationService = new NotificationService();
+
+    this.activityIndicator = new ActivityIndicator({
+      activityVerbs: runtime.config.ui?.activityVerbs,
+      activitySymbol: runtime.config.ui?.activitySymbol,
+    });
 
     // Create permission manager with persistence callback and local project support
     this.permissionManager = new PermissionManager({
@@ -4291,15 +4298,16 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const tokens = formatTokens(sessionTotal);
     const queueCount = this.inkRenderer?.getQueueCount() ?? this.persistentInput.getQueueLength();
     const queueHint = queueCount > 0 ? ` [${queueCount} queued]` : '';
+    const verb = this.activityIndicator.getVerb();
     const typedPreview = this.getTypingPreview();
     const typingHint = typedPreview ? ` · typing: ${typedPreview}` : '';
-    const statusLine = `Working... (esc to interrupt · ${elapsed} · ${tokens}${queueHint})${typingHint}`;
+    const statusLine = `${verb}... (esc to interrupt · ${elapsed} · ${tokens}${queueHint})${typingHint}`;
     const footerLine = this.formatStatusLine();
     this.persistentInput.setStatusLine(footerLine);
 
     if (this.inkRenderer) {
       // InkRenderer handles its own state updates
-      this.inkRenderer.setStatus('Working...');
+      this.inkRenderer.setStatus(`${verb}...`);
       this.inkRenderer.setElapsed(elapsed);
       this.inkRenderer.setTokens(tokens);
       return;
@@ -4367,6 +4375,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
     // Reset tracking state
     this.lastRenderedStatus = '';
+
+    // Pick a fresh verb and tip for this working session
+    this.activityIndicator.next();
 
     // Immediate initial render
     this.forceRenderSpinner();
