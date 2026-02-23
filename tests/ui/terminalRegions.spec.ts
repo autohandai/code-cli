@@ -66,6 +66,7 @@ describe('TerminalRegions', () => {
     const plain = stripAnsi(output.writes.join(''));
     expect(plain).toContain('│');
     expect(plain).toContain('▸ queue this');
+    expect(output.writes.join('')).toContain('\x1b[22;12H');
   });
 
   it('updates status and appends queue count when not already present', () => {
@@ -134,5 +135,45 @@ describe('TerminalRegions', () => {
     expect(joined).toContain('\x1b[s');
     expect(joined).toContain('\x1b[u');
     expect(joined).not.toContain('\x1b[20;1H');
+  });
+
+  it('updates activity line above the composer', () => {
+    const output = createMockOutput();
+    const regions = new TerminalRegions(output);
+    regions.enable();
+    output.writes = [];
+
+    regions.updateActivity('Working... (esc to interrupt · 0m 01s · 1.2k tokens)');
+
+    const plain = stripAnsi(output.writes.join(''));
+    expect(plain).toContain('Working...');
+  });
+
+  it('writeAbove anchors output at scroll bottom without restoring stale cursor', () => {
+    const output = createMockOutput();
+    const regions = new TerminalRegions(output);
+    regions.enable();
+    output.writes = [];
+
+    regions.writeAbove('queued message\n');
+
+    const joined = output.writes.join('');
+    expect(joined).toContain('\x1b[20;1H');
+    expect(joined).toContain('\x1b[22;2H');
+    expect(joined).not.toContain('\x1b[s');
+    expect(joined).not.toContain('\x1b[u');
+  });
+
+  it('status updates keep cursor anchored to the composer input row', () => {
+    const output = createMockOutput();
+    const regions = new TerminalRegions(output);
+    regions.enable();
+    output.writes = [];
+
+    regions.updateStatus('82% context left', 1);
+
+    const joined = output.writes.join('');
+    expect(joined).toContain('\x1b[24;1H');
+    expect(joined).toContain('\x1b[22;2H');
   });
 });

@@ -168,15 +168,15 @@ describe('buildPromptRenderState', () => {
     const state = buildPromptRenderState('', 0, 80);
 
     expect(state.lineText).toContain(PROMPT_PLACEHOLDER);
-    expect(state.cursorColumn).toBe(3);
+    expect(state.cursorColumn).toBe(2);
   });
 
   it('positions cursor after typed content', async () => {
     const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
     const state = buildPromptRenderState('hello', 5, 80);
 
-    // border (1) + prefix "> " (2) + cursor at end (5)
-    expect(state.cursorColumn).toBe(8);
+    // prefix "> " (2) + cursor at end (5)
+    expect(state.cursorColumn).toBe(7);
   });
 });
 
