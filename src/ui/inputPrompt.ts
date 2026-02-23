@@ -690,7 +690,7 @@ export function convertNewlineMarkersToNewlines(text: string): string {
 export async function readInstruction(
   files: string[],
   slashCommands: SlashCommandHint[],
-  statusLine?: string,
+  statusLine?: string | { left: string; right: string },
   io: PromptIO = {},
   onImageDetected?: ImageDetectedCallback,
   workspaceRoot?: string
@@ -731,7 +731,7 @@ export async function readInstruction(
 interface PromptOnceOptions {
   files: string[];
   slashCommands: SlashCommandHint[];
-  statusLine?: string;
+  statusLine?: string | { left: string; right: string };
   stdInput: NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void };
   stdOutput: NodeJS.WriteStream;
   onImageDetected?: ImageDetectedCallback;
@@ -1445,7 +1445,7 @@ function disableReadlineTabBehavior(rl: readline.Interface): void {
 
 function renderPromptLine(
   rl: readline.Interface,
-  statusLine: string | undefined,
+  statusLine: string | { left: string; right: string } | undefined,
   output: NodeJS.WriteStream,
   isResize = false,
   hasExistingPromptBlock = true,
@@ -1453,12 +1453,29 @@ function renderPromptLine(
   previousHelpLines = 0
 ): void {
   const width = getPromptBlockWidth(output.columns);
-  const plainStatus = truncatePlainText(stripAnsiCodes(sanitizeRenderLine(statusLine ?? ' ')), width);
+
+  let leftStatus: string;
+  let rightStatus = '';
+  if (typeof statusLine === 'object' && statusLine !== null) {
+    leftStatus = statusLine.left ?? '';
+    rightStatus = statusLine.right ?? '';
+  } else {
+    leftStatus = statusLine ?? ' ';
+  }
+
+  const plainLeft = stripAnsiCodes(sanitizeRenderLine(leftStatus));
+  const plainRight = stripAnsiCodes(sanitizeRenderLine(rightStatus));
+  const minGap = plainRight ? 2 : 0;
+  const leftWidth = Math.max(0, width - plainRight.length - minGap);
+  const clippedLeft = truncatePlainText(plainLeft, leftWidth);
+  const gap = Math.max(0, width - clippedLeft.length - plainRight.length);
+  const plainStatus = `${clippedLeft}${' '.repeat(gap)}${plainRight}`.slice(0, width);
   const status = themedFg(
     'muted',
-    plainStatus.padEnd(width).slice(0, width),
+    plainStatus.padEnd(width),
     (value) => chalk.gray(value)
   );
+
   const rlAny = rl as readline.Interface & { cursor?: number; line?: string };
   const currentLine = rlAny.line ?? '';
   const cursorPos = rlAny.cursor ?? currentLine.length;
