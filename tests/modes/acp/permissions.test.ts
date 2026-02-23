@@ -293,7 +293,7 @@ describe('createPermissionBridge', () => {
         modeId: 'interactive',
       });
 
-      // Start in interactive mode — would need to call requestPermission
+      // Start in interactive mode - would need to call requestPermission
       (connection.requestPermission as ReturnType<typeof vi.fn>).mockResolvedValue(
         makeAllowResponse()
       );
@@ -301,13 +301,13 @@ describe('createPermissionBridge', () => {
       expect(result1).toBe(true);
       expect(connection.requestPermission).toHaveBeenCalledTimes(1);
 
-      // Switch to unrestricted — should auto-approve without calling requestPermission
+      // Switch to unrestricted - should auto-approve without calling requestPermission
       bridge.setMode('unrestricted');
       const result2 = await bridge.confirmAction('Action 2', { tool: 'run_command' });
       expect(result2).toBe(true);
       expect(connection.requestPermission).toHaveBeenCalledTimes(1); // still 1, no new call
 
-      // Switch to restricted — should auto-deny without calling requestPermission
+      // Switch to restricted - should auto-deny without calling requestPermission
       bridge.setMode('restricted');
       const result3 = await bridge.confirmAction('Action 3', { tool: 'delete_path' });
       expect(result3).toBe(false);
