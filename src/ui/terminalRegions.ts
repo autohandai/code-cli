@@ -247,6 +247,20 @@ export class TerminalRegions {
   }
 
   /**
+   * Focus cursor at the bottom of the scroll region.
+   * Useful before disabling split regions so subsequent output lands above composer.
+   */
+  focusScrollBottom(): void {
+    if (!this.isActive) {
+      return;
+    }
+
+    const height = this.output.rows || 24;
+    const scrollEnd = Math.max(1, height - this.fixedLines);
+    this.output.write(`${CSI}${scrollEnd};1H`);
+  }
+
+  /**
    * Get the number of lines reserved for the fixed region
    */
   getFixedLines(): number {

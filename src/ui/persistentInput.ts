@@ -21,7 +21,7 @@ export interface QueuedMessage {
 
 export interface PersistentInputOptions {
   maxQueueSize?: number;
-  statusLine?: string;
+  statusLine?: string | { left: string; right: string };
   /** Silent mode - queue input without terminal regions UI (works better with ora spinner) */
   silentMode?: boolean;
 }
@@ -35,7 +35,7 @@ export class PersistentInput extends EventEmitter {
   private currentInput = '';
   private isActive = false;
   private maxQueueSize: number;
-  private statusLine: string;
+  private statusLine: string | { left: string; right: string };
   private output: NodeJS.WriteStream;
   private input: NodeJS.ReadStream;
   private isPaused = false;
@@ -131,10 +131,13 @@ export class PersistentInput extends EventEmitter {
 
     this.isPaused = true;
 
-    // Temporarily disable regions so Modal prompts can work
-    this.regions.disable();
+    // Temporarily disable regions so modal prompts can work
+    if (!this.silentMode) {
+      this.regions.focusScrollBottom();
+      this.regions.disable();
+    }
 
-    // Restore terminal for Modal prompts
+    // Restore terminal for modal prompts
     const supportsRaw = (this as any)._supportsRaw;
     if (supportsRaw && this.input.isTTY) {
       safeSetRawMode(this.input, false);
@@ -149,8 +152,15 @@ export class PersistentInput extends EventEmitter {
 
     this.isPaused = false;
 
-    // Re-enable regions
-    this.regions.enable();
+    try {
+      this.input.resume();
+    } catch {
+      // Best effort
+    }
+
+    if (!this.silentMode) {
+      this.regions.enable();
+    }
 
     // Re-enable raw mode
     const supportsRaw = (this as any)._supportsRaw;
@@ -158,16 +168,18 @@ export class PersistentInput extends EventEmitter {
       safeSetRawMode(this.input, true);
     }
 
-    this.render();
+    if (!this.silentMode) {
+      this.render();
+    }
   }
 
   /**
    * Update the status line
    */
-  setStatusLine(status: string): void {
+  setStatusLine(status: string | { left: string; right: string }): void {
     this.statusLine = status;
     if (this.isActive && !this.isPaused) {
-      this.regions.updateStatus(status, this.queue.length);
+      this.regions.updateStatus(this.getStatusText(status), this.queue.length);
     }
   }
 
@@ -314,7 +326,7 @@ export class PersistentInput extends EventEmitter {
     const preview = text.length > 40 ? text.slice(0, 37) + '...' : text;
     if (!this.silentMode) {
       this.regions.writeAbove(chalk.cyan(`\n✓ Queued: "${preview}" (${this.queue.length} pending)\n`));
-      this.regions.updateStatus(this.statusLine, this.queue.length);
+      this.regions.updateStatus(this.getStatusText(), this.queue.length);
     }
 
     this.emit('queued', text, this.queue.length);
@@ -331,8 +343,15 @@ export class PersistentInput extends EventEmitter {
     this.regions.renderFixedRegion(
       this.currentInput,
       this.queue.length,
-      this.statusLine
+      this.getStatusText()
     );
+  }
+
+  private getStatusText(status: string | { left: string; right: string } = this.statusLine): string {
+    if (typeof status === 'string') {
+      return status;
+    }
+    return status.right ? `${status.left} · ${status.right}` : status.left;
   }
 
   /**

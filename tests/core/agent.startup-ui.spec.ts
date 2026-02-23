@@ -57,7 +57,8 @@ describe('agent startup and active input UI', () => {
 
     expect(spinner.text).toContain('Working...');
     expect(spinner.text).toContain('tokens');
-    expect(spinner.text).toContain('typing:');
+    expect(spinner.text).toContain('plan:off');
+    expect(spinner.text).not.toContain('typing:');
     expect(spinner.text).not.toContain('┌');
     expect(spinner.text).not.toContain('\n');
   });
@@ -153,10 +154,10 @@ describe('agent startup and active input UI', () => {
 
     const line = (agent as any).formatStatusLine();
 
-    expect(line).toContain('53% context left');
-    expect(line).toContain('plan:off');
-    expect(line).toContain('tokens used');
-    expect(line).toContain('? shortcuts');
+    expect(line.left).toContain('53% context left');
+    expect(line.left).toContain('plan:off');
+    expect(line.left).toContain('tokens used');
+    expect(line.left).toContain('? shortcuts');
   });
 
   it('formatStatusLine shows plan:on when plan mode is enabled', () => {
@@ -174,14 +175,14 @@ describe('agent startup and active input UI', () => {
 
     try {
       const line = (agent as any).formatStatusLine();
-      expect(line).toContain('plan:on');
-      expect(line).toContain('99% context left');
+      expect(line.left).toContain('plan:on');
+      expect(line.left).toContain('99% context left');
     } finally {
       planModeManager.disable();
     }
   });
 
-  it('forceRenderSpinner shows live typing preview while working', () => {
+  it('forceRenderSpinner keeps typed draft out of spinner status line while working', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const spinner = { text: '' };
 
@@ -201,8 +202,8 @@ describe('agent startup and active input UI', () => {
 
     (agent as any).forceRenderSpinner();
 
-    expect(spinner.text).toContain('typing:');
-    expect(spinner.text).toContain('next message');
+    expect(spinner.text).not.toContain('typing:');
+    expect(spinner.text).not.toContain('next message');
   });
 
   it('setupEscListener resumes stdin so queue input can be captured while working', () => {
