@@ -52,12 +52,18 @@ describe('agent startup and active input UI', () => {
     agent.runtime = {
       spinner,
     };
+    agent.activityIndicator = {
+      getVerb: () => 'Working',
+      getTip: () => 'Tip',
+      next: vi.fn(),
+    };
 
     (agent as any).forceRenderSpinner();
 
     expect(spinner.text).toContain('Working...');
     expect(spinner.text).toContain('tokens');
-    expect(spinner.text).toContain('typing:');
+    expect(spinner.text).toContain('context left');
+    expect(spinner.text).not.toContain('typing:');
     expect(spinner.text).not.toContain('┌');
     expect(spinner.text).not.toContain('\n');
   });
@@ -110,7 +116,7 @@ describe('agent startup and active input UI', () => {
     const stop = (agent as any).startPreparationStatus('build tests');
 
     expect(spinner.text).toContain('Preparing to');
-    expect(spinner.text).toContain('plan:off');
+    expect(spinner.text).toContain('context left');
     expect(spinner.text).not.toContain('\n');
 
     stop();
@@ -138,7 +144,7 @@ describe('agent startup and active input UI', () => {
     }
   });
 
-  it('formatStatusLine includes tokens used and ? shortcuts hint', () => {
+  it('formatStatusLine includes command hints and context value', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const planModeManager = getPlanModeManager();
     planModeManager.disable();
@@ -153,10 +159,11 @@ describe('agent startup and active input UI', () => {
 
     const line = (agent as any).formatStatusLine();
 
-    expect(line).toContain('53% context left');
-    expect(line).toContain('plan:off');
-    expect(line).toContain('tokens used');
-    expect(line).toContain('? shortcuts');
+    expect(line.left).toContain('53% context left');
+    expect(line.left).not.toContain('plan:off');
+    expect(line.left).toContain('/ for commands');
+    expect(line.left).toContain('@ to mention files');
+    expect(line.left).toContain('! for terminal');
   });
 
   it('formatStatusLine shows plan:on when plan mode is enabled', () => {
@@ -174,14 +181,14 @@ describe('agent startup and active input UI', () => {
 
     try {
       const line = (agent as any).formatStatusLine();
-      expect(line).toContain('plan:on');
-      expect(line).toContain('99% context left');
+      expect(line.left).toContain('PLAN');
+      expect(line.left).toContain('99% context left');
     } finally {
       planModeManager.disable();
     }
   });
 
-  it('forceRenderSpinner shows live typing preview while working', () => {
+  it('forceRenderSpinner does not show live typing preview while working', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const spinner = { text: '' };
 
@@ -198,11 +205,17 @@ describe('agent startup and active input UI', () => {
     agent.queueInput = '';
     agent.lastRenderedStatus = '';
     agent.runtime = { spinner };
+    agent.activityIndicator = {
+      getVerb: () => 'Working',
+      getTip: () => 'Tip',
+      next: vi.fn(),
+    };
 
     (agent as any).forceRenderSpinner();
 
-    expect(spinner.text).toContain('typing:');
-    expect(spinner.text).toContain('next message');
+    expect(spinner.text).toContain('Working...');
+    expect(spinner.text).not.toContain('typing:');
+    expect(spinner.text).not.toContain('next message');
   });
 
   it('setupEscListener resumes stdin so queue input can be captured while working', () => {
@@ -389,6 +402,47 @@ describe('agent startup and active input UI', () => {
         configurable: true,
         value: originalStdin,
       });
+    }
+  });
+
+  it('persistent input interrupt handlers cancel on escape', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const input = new EventEmitter();
+    const controller = new AbortController();
+    const onCancel = vi.fn();
+
+    agent.persistentInput = input;
+
+    const cleanup = (agent as any).setupPersistentInputInterruptHandlers(controller, onCancel);
+    input.emit('escape');
+
+    expect(controller.signal.aborted).toBe(true);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+
+    cleanup();
+  });
+
+  it('persistent input interrupt handlers require double ctrl+c to cancel', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const input = new EventEmitter();
+    const controller = new AbortController();
+    const onCancel = vi.fn();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    agent.persistentInput = input;
+
+    try {
+      const cleanup = (agent as any).setupPersistentInputInterruptHandlers(controller, onCancel);
+      input.emit('ctrl-c');
+      expect(controller.signal.aborted).toBe(false);
+      expect(onCancel).not.toHaveBeenCalled();
+
+      input.emit('ctrl-c');
+      expect(controller.signal.aborted).toBe(true);
+      expect(onCancel).toHaveBeenCalledTimes(1);
+      cleanup();
+    } finally {
+      logSpy.mockRestore();
     }
   });
 

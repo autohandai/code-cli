@@ -792,6 +792,10 @@ async function runCLI(options: CLIOptions): Promise<void> {
     // Print welcome immediately with no version/auth info - don't block on network
     printWelcome(runtime, undefined, null);
 
+    // Mutable reference so the background startup IIFE can reach the agent
+    // once it's constructed (after synchronous setup below).
+    const agentHolder: { current: AutohandAgent | null } = { current: null };
+
     // Run auth, version check, startup checks in background (fire-and-forget)
     // These complete while the user reads the welcome message and types
     (async () => {
@@ -802,20 +806,22 @@ async function runCLI(options: CLIOptions): Promise<void> {
             })
           : Promise.resolve(null);
 
-        const [authUser, , checkResults] = await Promise.all([
+        const [authUser, versionResult, checkResults] = await Promise.all([
           validateAuthOnStartup(config),
           versionCheckPromise,
           runStartupChecks(workspaceRoot),
         ]);
 
-        // Avoid writing background startup logs while the interactive prompt is active.
-        // Those async writes can corrupt readline rendering.
-        const shouldPrintStartupChecks = Boolean(options.prompt || options.resumeSessionId || !process.stdout.isTTY);
-        if (shouldPrintStartupChecks) {
-          printStartupCheckResults(checkResults);
-          if (!checkResults.allRequiredMet) {
-            console.log(chalk.yellow('Continuing anyway, but some features may not work correctly.\n'));
-          }
+        // Pass version check result to agent for status bar display
+        if (versionResult && agentHolder.current) {
+          agentHolder.current.setVersionCheckResult(versionResult);
+        }
+
+        // Print startup check warnings (missing tools etc.)
+        printStartupCheckResults(checkResults);
+
+        if (!checkResults.allRequiredMet) {
+          console.log(chalk.yellow('Continuing anyway, but some features may not work correctly.\n'));
         }
 
         // Start settings sync service for logged-in users
@@ -902,6 +908,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
     });
 
     const agent = new AutohandAgent(llmProvider, files, runtime);
+    agentHolder.current = agent;
 
     if (options.prompt) {
       // Read piped stdin if available (e.g. git diff | autohand -p "explain")

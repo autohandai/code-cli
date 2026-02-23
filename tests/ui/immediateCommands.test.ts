@@ -169,4 +169,25 @@ describe('PersistentInput immediate command handling', () => {
 
     expect(changes).toEqual(['h', 'hi', 'h', '']);
   });
+
+  it('pause anchors cursor before disabling regions', () => {
+    const pi = new PersistentInput({ silentMode: false });
+    const focusScrollBottom = vi.fn();
+    const disable = vi.fn();
+
+    (pi as any).isActive = true;
+    (pi as any).regions = {
+      focusScrollBottom,
+      disable,
+      enable: vi.fn(),
+    };
+
+    pi.pause();
+
+    expect(focusScrollBottom).toHaveBeenCalledTimes(1);
+    expect(disable).toHaveBeenCalledTimes(1);
+    expect(focusScrollBottom.mock.invocationCallOrder[0]).toBeLessThan(
+      disable.mock.invocationCallOrder[0]
+    );
+  });
 });

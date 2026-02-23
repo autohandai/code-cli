@@ -238,12 +238,25 @@ export class TerminalRegions {
       return;
     }
 
-    this.output.write(`${CSI}s`);
     const height = this.output.rows || 24;
     const scrollEnd = height - this.fixedLines;
     this.output.write(`${CSI}${scrollEnd};1H`);
+    this.output.write(`${CSI}K`);
     this.output.write(message);
-    this.output.write(`${CSI}u`);
+  }
+
+  /**
+   * Move cursor to the end of the scrollable region.
+   * Useful before temporarily disabling regions for modal prompts.
+   */
+  focusScrollBottom(): void {
+    if (!this.isActive) {
+      return;
+    }
+
+    const height = this.output.rows || 24;
+    const scrollEnd = Math.max(1, height - this.fixedLines);
+    this.output.write(`${CSI}${scrollEnd};1H`);
   }
 
   /**
