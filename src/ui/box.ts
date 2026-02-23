@@ -68,12 +68,23 @@ function truncateVisible(value: string, maxVisible: number): string {
   return out;
 }
 
-export function drawInputBox(prompt: string, width: number): string {
-  const innerWidth = Math.max(0, width - 2);
-  const truncated = truncateVisible(prompt, innerWidth);
-  const paddingSize = Math.max(0, innerWidth - getVisibleLength(truncated));
-  const content = `${truncated}${' '.repeat(paddingSize)}`;
-  const leftBorder = themedFg('border', '│', (value) => chalk.hex(DEFAULT_BORDER_COLOR)(value));
-  const rightBorder = themedFg('border', '│', (value) => chalk.hex(DEFAULT_BORDER_COLOR)(value));
-  return `${leftBorder}${content}${rightBorder}`;
+export function drawInputBox(left: string, width: number, right?: string): string {
+  if (!right) {
+    const padded = left.padEnd(width, ' ');
+    return chalk.bgHex('#2b2b2b').hex('#a0a0a0')(padded);
+  }
+
+  const minGap = 2;
+  const available = width - left.length - minGap;
+
+  if (available <= 0) {
+    const padded = left.padEnd(width, ' ');
+    return chalk.bgHex('#2b2b2b').hex('#a0a0a0')(padded);
+  }
+
+  const rightText = right.length > available ? right.slice(0, available) : right;
+  const gap = width - left.length - rightText.length;
+  const line = left + ' '.repeat(Math.max(0, gap)) + rightText;
+
+  return chalk.bgHex('#2b2b2b').hex('#a0a0a0')(line);
 }

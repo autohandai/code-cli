@@ -20,13 +20,14 @@ import {
   getMimeTypeFromExtension,
 } from '../core/ImageManager.js';
 import { getContentDisplay } from './displayUtils.js';
-import { drawInputBottomBorder, drawInputBox, drawInputTopBorder } from './box.js';
+import { drawInputBox } from './box.js';
 import { buildFileMentionSuggestions } from './mentionFilter.js';
 import { getTheme, isThemeInitialized } from './theme/index.js';
 import type { ColorToken } from './theme/types.js';
 
-// Internal readline prompt prefix is empty because the boxed composer handles all visible rendering.
-export const PROMPT_PREFIX = '';
+export const PROMPT_PREFIX = `${chalk.gray('›')} `;
+// Visible length of the prompt prefix (ANSI codes not counted)
+export const PROMPT_VISIBLE_LENGTH = 2;
 // Number of fixed status lines we render beneath the prompt
 export const STATUS_LINE_COUNT = 1;
 // Composer block structure relative to input line.
@@ -690,7 +691,7 @@ export function convertNewlineMarkersToNewlines(text: string): string {
 export async function readInstruction(
   files: string[],
   slashCommands: SlashCommandHint[],
-  statusLine?: string,
+  statusLine?: string | { left: string; right: string },
   io: PromptIO = {},
   onImageDetected?: ImageDetectedCallback,
   workspaceRoot?: string
@@ -731,7 +732,7 @@ export async function readInstruction(
 interface PromptOnceOptions {
   files: string[];
   slashCommands: SlashCommandHint[];
-  statusLine?: string;
+  statusLine?: string | { left: string; right: string };
   stdInput: NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void };
   stdOutput: NodeJS.WriteStream;
   onImageDetected?: ImageDetectedCallback;
@@ -931,7 +932,10 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     return `${planPrefix} · ${line}`;
   };
 
-  const getActiveStatusLine = (): string | undefined => {
+  const getActiveStatusLine = (): string | { left: string; right: string } | undefined => {
+    if (typeof statusLine === 'object' && statusLine !== null) {
+      return statusLine;
+    }
     return applyPlanModePrefix(statusLine ?? '');
   };
 
@@ -944,18 +948,13 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     return buildContextualHelpPanelLines(rlAny.line ?? '', width, files, slashCommands);
   };
 
-  const renderPromptSurface = (isResize = false, hasExistingPromptBlock = true): void => {
-    const helpLines = getActiveContextualHelpLines();
+  const renderPromptSurface = (isResize = false, _hasExistingPromptBlock = true): void => {
     renderPromptLine(
       rl,
-      getActiveStatusLine(),
+      statusLine,
       stdOutput,
-      isResize,
-      hasExistingPromptBlock,
-      helpLines,
-      renderedContextualHelpLines
+      isResize
     );
-    renderedContextualHelpLines = helpLines.length;
   };
 
   const resizeWatcher = new TerminalResizeWatcher(stdOutput, () => {
@@ -1378,7 +1377,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         }
         // Re-prompt without sending to LLM
         stdOutput.write('\n');
-        renderPromptLine(rl, statusLine, stdOutput, false, false);
+        renderPromptLine(rl, statusLine, stdOutput);
         return;
       }
 
@@ -1443,65 +1442,42 @@ function disableReadlineTabBehavior(rl: readline.Interface): void {
   }
 }
 
-function renderPromptLine(
-  rl: readline.Interface,
-  statusLine: string | undefined,
-  output: NodeJS.WriteStream,
-  isResize = false,
-  hasExistingPromptBlock = true,
-  helpLines: string[] = [],
-  previousHelpLines = 0
-): void {
-  const width = getPromptBlockWidth(output.columns);
-  const plainStatus = truncatePlainText(stripAnsiCodes(sanitizeRenderLine(statusLine ?? ' ')), width);
-  const status = themedFg(
-    'muted',
-    plainStatus.padEnd(width).slice(0, width),
-    (value) => chalk.gray(value)
-  );
+function renderPromptLine(rl: readline.Interface, statusLine: string | { left: string; right: string } | undefined, output: NodeJS.WriteStream, isResize = false): void {
+  const width = Math.max(20, output.columns || 80);
+
+  let left: string;
+  let right: string | undefined;
+  if (typeof statusLine === 'object' && statusLine !== null) {
+    left = statusLine.left;
+    right = statusLine.right || undefined;
+  } else {
+    left = statusLine ?? ' ';
+  }
+
   const rlAny = rl as readline.Interface & { cursor?: number; line?: string };
+  const box = drawInputBox(left, width, right);
   const currentLine = rlAny.line ?? '';
   const cursorPos = rlAny.cursor ?? currentLine.length;
-  const topBorder = drawInputTopBorder(width);
-  const bottomBorder = drawInputBottomBorder(width);
-  const { lineText, cursorColumn } = buildPromptRenderState(currentLine, cursorPos, width);
 
   // Keep readline's prompt in sync with the prefix we render
   rl.setPrompt(PROMPT_PREFIX);
 
-  // Clear prompt block + status line region
+  // Clear prompt + status line region
   readline.cursorTo(output, 0);
-  // Move to prompt top line (cursor is on input line) when re-rendering an existing block
-  if (hasExistingPromptBlock) {
-    readline.moveCursor(output, 0, -PROMPT_LINES_ABOVE_INPUT);
-  }
-
-  // Clear top border + input line + bottom border + status line.
-  // On resize we clear a couple extra lines to absorb previous wrapped remnants
-  // without clearing the full screen/chat log.
-  const extraResizeLines = isResize ? 2 : 0;
-  const helpLinesToClear = Math.max(previousHelpLines, helpLines.length);
-  const linesToClear = PROMPT_BLOCK_LINE_COUNT + STATUS_LINE_COUNT + helpLinesToClear + extraResizeLines;
-  for (let i = 0; i < linesToClear; i++) {
+  if (isResize) {
+    readline.clearScreenDown(output);
+  } else {
     readline.clearLine(output, 0);
-    if (i < linesToClear - 1) {
-      readline.moveCursor(output, 0, 1);
-    }
+    readline.moveCursor(output, 0, 1);
+    readline.clearLine(output, 0);
+    readline.moveCursor(output, 0, -1);
   }
-  readline.moveCursor(output, 0, -(linesToClear - 1));
 
-  // Render top border, boxed input, bottom border, then status
-  output.write(`${topBorder}\n`);
-  output.write(`${lineText}\n`);
-  output.write(`${bottomBorder}\n`);
-  output.write(status);
-  if (helpLines.length > 0) {
-    for (const helpLine of helpLines) {
-      output.write(`\n${helpLine}`);
-    }
-  }
+  // Render prompt/input then status directly below
+  output.write(`${PROMPT_PREFIX}${currentLine}\n`);
+  output.write(box);
 
   // Move cursor back to prompt line at correct column
-  readline.moveCursor(output, 0, -(PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT + helpLines.length)); // from status/help to input line
-  readline.cursorTo(output, cursorColumn);
+  readline.moveCursor(output, 0, -1);
+  readline.cursorTo(output, PROMPT_VISIBLE_LENGTH + cursorPos);
 }

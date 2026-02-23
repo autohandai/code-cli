@@ -78,8 +78,11 @@ type InkRenderer = any;
 import { PermissionManager } from '../permissions/PermissionManager.js';
 import { HookManager } from './HookManager.js';
 import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
+import { ActivityIndicator } from '../ui/activityIndicator.js';
 import { NotificationService } from '../utils/notification.js';
 import { getPlanModeManager } from '../commands/plan.js';
+import type { VersionCheckResult } from '../utils/versionCheck.js';
+import { getInstallHint } from '../utils/versionCheck.js';
 import packageJson from '../../package.json' with { type: 'json' };
 // New feature modules
 import { ImageManager } from './ImageManager.js';
@@ -142,6 +145,7 @@ export class AutohandAgent {
   private errorLogger: ErrorLogger;
   private autoReportManager: AutoReportManager;
   private notificationService: NotificationService;
+  private versionCheckResult?: VersionCheckResult;
 
   private taskStartedAt: number | null = null;
   private totalTokensUsed = 0;
@@ -155,6 +159,7 @@ export class AutohandAgent {
   private persistentInputActiveTurn = false;
   private queueInput = '';
   private lastRenderedStatus = '';
+  private activityIndicator: ActivityIndicator;
 
   // New feature modules
   private imageManager: ImageManager;
@@ -168,6 +173,7 @@ export class AutohandAgent {
   private executedActionNames: string[] = [];
   private searchQueries: string[] = [];
   private sessionRetryCount = 0;
+  private consecutiveCancellations = 0;
 
   // Context compaction - auto-compresses context to prevent "context too long" errors
   private contextManager!: ContextManager;
@@ -212,6 +218,11 @@ export class AutohandAgent {
     this.environmentBootstrap = new EnvironmentBootstrap();
     this.codeQualityPipeline = new CodeQualityPipeline();
     this.notificationService = new NotificationService();
+
+    this.activityIndicator = new ActivityIndicator({
+      activityVerbs: runtime.config.ui?.activityVerbs,
+      activitySymbol: runtime.config.ui?.activitySymbol,
+    });
 
     // Create permission manager with persistence callback and local project support
     this.permissionManager = new PermissionManager({
@@ -1544,6 +1555,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
     let canceledByUser = false;
     let success = true;
 
+    const queueEnabled = this.runtime.config.agent?.enableRequestQueue !== false;
+    const canUsePersistentInput = process.stdout.isTTY && process.stdin.isTTY && queueEnabled;
+
     // Initialize UI (InkRenderer or ora spinner)
     // Pass abort controller for InkRenderer to handle ESC/Ctrl+C
     await this.initializeUI(abortController, () => {
@@ -1553,32 +1567,35 @@ If lint or tests fail, report the issues but do NOT commit.`;
         this.stopUI();
         console.log('\n' + chalk.yellow('Request canceled by user (ESC).'));
       }
-    });
+    }, canUsePersistentInput);
 
-    const shouldUsePersistentInput = !this.useInkRenderer &&
-      process.stdout.isTTY &&
-      process.stdin.isTTY &&
-      this.runtime.config.agent?.enableRequestQueue !== false;
+    const shouldUsePersistentInput = canUsePersistentInput && !this.inkRenderer;
 
     if (shouldUsePersistentInput) {
       this.persistentInput.start();
       this.persistentInputActiveTurn = true;
-      this.persistentInput.setStatusLine(this.formatStatusLine());
+      const status = this.formatStatusLine();
+      this.persistentInput.setStatusLine(status.left + (status.right ? ` · ${status.right}` : ''));
     } else {
       this.persistentInputActiveTurn = false;
     }
 
-    // Only setup ESC listener for non-Ink mode (Ink handles its own input)
+    // Only one input owner should handle interrupts:
+    // InkRenderer, PersistentInput, or fallback ESC listener.
+    const handleCancel = () => {
+      if (!canceledByUser) {
+        canceledByUser = true;
+        this.stopStatusUpdates();
+        this.stopUI();
+        console.log('\n' + chalk.yellow('Request canceled by user (ESC).'));
+      }
+    };
+
     const cleanupEsc = this.useInkRenderer
       ? () => {} // No-op, Ink handles input
-      : this.setupEscListener(abortController, () => {
-          if (!canceledByUser) {
-            canceledByUser = true;
-            this.stopStatusUpdates();
-            this.stopUI();
-            console.log('\n' + chalk.yellow('Request canceled by user (ESC).'));
-          }
-        }, true);
+      : shouldUsePersistentInput
+        ? this.setupPersistentInputInterruptHandlers(abortController, handleCancel)
+        : this.setupEscListener(abortController, handleCancel, true);
     const stopPreparation = this.startPreparationStatus(instruction);
     try {
       const userMessage = await this.buildUserMessage(instruction);
@@ -1828,6 +1845,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async runReactLoop(abortController: AbortController): Promise<void> {
+    this.consecutiveCancellations = 0;
+
     const debugMode = this.runtime.config.agent?.debug === true || process.env.AUTOHAND_DEBUG === '1';
     if (debugMode) process.stderr.write(`[AGENT DEBUG] runReactLoop started\n`);
 
@@ -2123,6 +2142,15 @@ If lint or tests fail, report the issues but do NOT commit.`;
               `Do NOT retry the same tool(s) with the same arguments. The user said "No". ` +
               `Instead, ask the user how they would like to proceed, or suggest an alternative approach. ` +
               `If there is nothing else to do, provide your final response.`
+            );
+          }
+
+          // Detect repeated ask_followup_question cancellations — force the LLM to stop asking
+          if (this.consecutiveCancellations >= 2) {
+            this.conversation.addSystemNote(
+              `[CRITICAL] The user has cancelled ask_followup_question ${this.consecutiveCancellations} times in a row. ` +
+              `STOP calling ask_followup_question immediately. Do NOT ask the user any more questions. ` +
+              `Provide your best final response now using the information you already have.`
             );
           }
         }
@@ -3166,7 +3194,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     // showFilePalette is statically imported at the top of this file
     const selection = await showFilePalette({
       files: workspaceFiles,
-      statusLine: this.formatStatusLine(),
+      statusLine: this.formatStatusLine().left,
       seed: normalizedSeed
     });
     if (selection) {
@@ -3317,7 +3345,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Initialize the UI for a new instruction.
    * Uses InkRenderer when enabled, otherwise falls back to ora spinner.
    */
-  private async initializeUI(abortController?: AbortController, onCancel?: () => void): Promise<void> {
+  private async initializeUI(
+    abortController?: AbortController,
+    onCancel?: () => void,
+    suppressSpinner = false
+  ): Promise<void> {
     if (this.useInkRenderer && process.stdout.isTTY && process.stdin.isTTY) {
       // createInkRenderer is statically imported at the top of this file
       try {
@@ -3346,9 +3378,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
       } catch {
         // Fall back to ora spinner if ink can't be loaded (e.g., standalone binary)
         this.useInkRenderer = false;
-        this.initFallbackSpinner();
+        if (!suppressSpinner) {
+          this.initFallbackSpinner();
+        }
       }
-    } else if (process.stdout.isTTY) {
+    } else if (process.stdout.isTTY && !suppressSpinner) {
       // Use ora spinner (only in TTY mode)
       const spinner = ora({
         text: 'Gathering context...',
@@ -3720,6 +3754,46 @@ If lint or tests fail, report the issues but do NOT commit.`;
       if (!wasRaw && supportsRaw) {
         safeSetRawMode(input, false);
       }
+    };
+  }
+
+  /**
+   * Wire ESC/Ctrl+C through PersistentInput while it owns stdin.
+   * This prevents dual keypress listeners from racing the cursor state.
+   */
+  private setupPersistentInputInterruptHandlers(
+    controller: AbortController,
+    onCancel: () => void
+  ): () => void {
+    let ctrlCCount = 0;
+
+    const onEscape = () => {
+      if (controller.signal.aborted) {
+        return;
+      }
+      controller.abort();
+      onCancel();
+    };
+
+    const onCtrlC = () => {
+      if (controller.signal.aborted) {
+        return;
+      }
+      ctrlCCount += 1;
+      if (ctrlCCount >= 2) {
+        controller.abort();
+        onCancel();
+      } else {
+        console.log(chalk.gray('Press Ctrl+C again to exit.'));
+      }
+    };
+
+    this.persistentInput.on('escape', onEscape);
+    this.persistentInput.on('ctrl-c', onCtrlC);
+
+    return () => {
+      this.persistentInput.off('escape', onEscape);
+      this.persistentInput.off('ctrl-c', onCtrlC);
     };
   }
 
@@ -4288,27 +4362,25 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const tokens = formatTokens(sessionTotal);
     const queueCount = this.inkRenderer?.getQueueCount() ?? this.persistentInput.getQueueLength();
     const queueHint = queueCount > 0 ? ` [${queueCount} queued]` : '';
-    const typedPreview = this.getTypingPreview();
-    const typingHint = typedPreview ? ` · typing: ${typedPreview}` : '';
-    const statusLine = `Working... (esc to interrupt · ${elapsed} · ${tokens}${queueHint})${typingHint}`;
-    const footerLine = this.formatStatusLine();
-    this.persistentInput.setStatusLine(footerLine);
+    const verb = this.activityIndicator?.getVerb?.() ?? 'Working';
+    const statusLine = `${verb}... (esc to interrupt · ${elapsed} · ${tokens}${queueHint})`;
+    const footer = this.formatStatusLine();
+    this.persistentInput.setStatusLine(footer);
 
     if (this.inkRenderer) {
       // InkRenderer handles its own state updates
-      this.inkRenderer.setStatus('Working...');
+      this.inkRenderer.setStatus(`${verb}...`);
       this.inkRenderer.setElapsed(elapsed);
       this.inkRenderer.setTokens(tokens);
       return;
     }
 
     if (!this.runtime.spinner) return;
-
-    const promptWidth = getPromptBlockWidth(process.stdout.columns);
-    const fullText = this.buildSpinnerStatusText(statusLine, footerLine);
+    const footerText = footer.left + (footer.right ? ` · ${footer.right}` : '');
+    const fullText = this.buildSpinnerStatusText(statusLine, footerText);
 
     // Only update if something actually changed
-    const cacheKey = `${statusLine}|${footerLine}|${typedPreview}|${promptWidth}`;
+    const cacheKey = `${statusLine}|${footerText}`;
     if (cacheKey === this.lastRenderedStatus) return;
     this.lastRenderedStatus = cacheKey;
 
@@ -4354,7 +4426,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
       return;
     }
 
-    this.runtime.spinner.text = this.buildSpinnerStatusText(status, this.formatStatusLine());
+    const footer = this.formatStatusLine();
+    const footerText = footer.left + (footer.right ? ` · ${footer.right}` : '');
+    this.runtime.spinner.text = this.buildSpinnerStatusText(status, footerText);
   }
 
   private startStatusUpdates(): void {
@@ -4364,6 +4438,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
     // Reset tracking state
     this.lastRenderedStatus = '';
+
+    // Pick a fresh verb and tip for this working session
+    this.activityIndicator?.next?.();
 
     // Immediate initial render
     this.forceRenderSpinner();
@@ -4440,20 +4517,34 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
   }
 
-  private formatStatusLine(): string {
+  setVersionCheckResult(result: VersionCheckResult): void {
+    this.versionCheckResult = result;
+  }
+
+  private formatStatusLine(): { left: string; right: string } {
     const percent = Number.isFinite(this.contextPercentLeft)
       ? Math.max(0, Math.min(100, this.contextPercentLeft))
       : 100;
-    const totalTokens = this.sessionTokensUsed + this.totalTokensUsed;
-    const tokenStatus = `${formatTokens(totalTokens)} used`;
 
     const queueCount = this.inkRenderer?.getQueueCount() ?? this.persistentInput.getQueueLength();
     const queueStatus = queueCount > 0 ? ` · ${queueCount} queued` : '';
 
     const planModeManager = getPlanModeManager();
-    const planStatus = planModeManager.isEnabled() ? 'plan:on' : 'plan:off';
 
-    return `${planStatus} · ${percent}% context left · ${tokenStatus} · ${t('ui.commandHint')} · ? shortcuts${queueStatus}`;
+    // Plan mode indicator
+    const planIndicator = planModeManager.isEnabled()
+      ? chalk.bgCyan.black.bold(' PLAN ') + ' '
+      : '';
+
+    const left = `${planIndicator}${percent}% context left · ${t('ui.commandHint')}${queueStatus}`;
+
+    let right = '';
+    if (this.versionCheckResult?.updateAvailable) {
+      const hint = getInstallHint(this.versionCheckResult.channel);
+      right = chalk.yellow('Update available! ') + chalk.cyan(`Run: ${hint}`);
+    }
+
+    return { left, right };
   }
 
   private printUserInstructionToChatLog(instruction: string): void {
@@ -4669,10 +4760,12 @@ If lint or tests fail, report the issues but do NOT commit.`;
       });
 
       if (answer === null) {
+        this.consecutiveCancellations++;
         console.log(chalk.yellow('\n  (Question cancelled)\n'));
-        return '<answer>User cancelled</answer>';
+        return '<answer>User cancelled this question. Do NOT call ask_followup_question again. Continue with your best judgment or provide a final response.</answer>';
       }
 
+      this.consecutiveCancellations = 0;
       console.log(chalk.green(`\n✓ Answer: ${answer}\n`));
       return `<answer>${answer}</answer>`;
     } finally {

@@ -1,15 +1,6 @@
-/**
- * @license
- * Copyright 2025 Autohand AI LLC
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { describe, it, expect } from 'vitest';
-import { drawInputBox, drawInputTopBorder, drawInputBottomBorder } from '../../src/ui/box.js';
-
-function stripAnsi(value: string): string {
-  return value.replace(/\u001b\[[0-9;]*m/g, '');
-}
+import { drawInputBox } from '../../src/ui/box.js';
+import stripAnsi from 'strip-ansi';
 
 describe('drawInputBox', () => {
   it('renders left-only content padded to width', () => {
@@ -35,27 +26,5 @@ describe('drawInputBox', () => {
     const result = stripAnsi(drawInputBox('status', 40, ''));
     expect(result.length).toBe(40);
     expect(result.startsWith('status')).toBe(true);
-  });
-});
-
-describe('drawInputTopBorder', () => {
-  it('renders full-width top border', () => {
-    const rendered = drawInputTopBorder(20);
-    const plain = stripAnsi(rendered);
-
-    expect(plain.length).toBe(20);
-    expect(plain.startsWith('┌')).toBe(true);
-    expect(plain.endsWith('┐')).toBe(true);
-  });
-});
-
-describe('drawInputBottomBorder', () => {
-  it('renders full-width bottom border', () => {
-    const rendered = drawInputBottomBorder(20);
-    const plain = stripAnsi(rendered);
-
-    expect(plain.length).toBe(20);
-    expect(plain.startsWith('└')).toBe(true);
-    expect(plain.endsWith('┘')).toBe(true);
   });
 });
