@@ -4310,10 +4310,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const tokens = formatTokens(sessionTotal);
     const queueCount = this.inkRenderer?.getQueueCount() ?? this.persistentInput.getQueueLength();
     const queueHint = queueCount > 0 ? ` [${queueCount} queued]` : '';
-    const verb = this.activityIndicator.getVerb();
-    const typedPreview = this.getTypingPreview();
-    const typingHint = typedPreview ? ` · typing: ${typedPreview}` : '';
-    const statusLine = `${verb}... (esc to interrupt · ${elapsed} · ${tokens}${queueHint})${typingHint}`;
+    const verb = this.activityIndicator?.getVerb?.() ?? 'Working';
+    const statusLine = `${verb}... (esc to interrupt · ${elapsed} · ${tokens}${queueHint})`;
     const footerLine = this.formatStatusLine();
     this.persistentInput.setStatusLine(footerLine);
 
@@ -4329,33 +4327,37 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
     const promptWidth = getPromptBlockWidth(process.stdout.columns);
     const fullText = this.buildSpinnerStatusText(statusLine, footerLine);
+    const footerText = this.formatSpinnerFooter(footerLine);
 
     // Only update if something actually changed
-    const cacheKey = `${statusLine}|${footerLine}|${typedPreview}|${promptWidth}`;
+    const cacheKey = `${statusLine}|${footerText}|${promptWidth}`;
     if (cacheKey === this.lastRenderedStatus) return;
     this.lastRenderedStatus = cacheKey;
 
     this.runtime.spinner.text = fullText;
   }
 
-  private getTypingPreview(): string {
-    const activeText = this.persistentInputActiveTurn
-      ? this.persistentInput.getCurrentInput()
-      : this.queueInput;
-    const trimmed = activeText.trim();
-    if (!trimmed) {
-      return '';
-    }
-    return trimmed.length > 36 ? `${trimmed.slice(0, 33)}...` : trimmed;
-  }
-
-  private buildSpinnerStatusText(statusLine: string, footerLine?: string): string {
+  private buildSpinnerStatusText(
+    statusLine: string,
+    footerLine?: string | { left: string; right: string }
+  ): string {
     const promptWidth = getPromptBlockWidth(process.stdout.columns);
     // Ora prefixes the first line with the spinner glyph and a space.
     // Reserve 2 columns so wrapped status lines do not corrupt redraw.
     const statusWidth = Math.max(10, promptWidth - 2);
-    const combined = footerLine ? `${statusLine} · ${footerLine}` : statusLine;
+    const footerText = this.formatSpinnerFooter(footerLine);
+    const combined = footerText ? `${statusLine} · ${footerText}` : statusLine;
     return this.fitSpinnerLine(combined, statusWidth);
+  }
+
+  private formatSpinnerFooter(footerLine?: string | { left: string; right: string }): string {
+    if (!footerLine) {
+      return '';
+    }
+    if (typeof footerLine === 'string') {
+      return footerLine;
+    }
+    return footerLine.right ? `${footerLine.left} · ${footerLine.right}` : footerLine.left;
   }
 
   private fitSpinnerLine(value: string, width: number): string {

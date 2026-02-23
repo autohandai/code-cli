@@ -19,7 +19,7 @@ import {
 
 } from '../src/utils/notification.js';
 
-const mockSpawn = vi.mocked(spawn);
+const mockSpawn = spawn as unknown as ReturnType<typeof vi.fn>;
 
 function createMockChild(exitCode = 0, stdout = ''): ChildProcess {
   const child = new EventEmitter() as ChildProcess;
@@ -51,8 +51,10 @@ function defaultGuards(overrides: Partial<NotificationGuards> = {}): Notificatio
 describe('NotificationService', () => {
   let service: NotificationService;
   const originalPlatform = process.platform;
+  const originalMacBackend = process.env.AUTOHAND_MAC_NOTIFICATION_BACKEND;
 
   beforeEach(() => {
+    process.env.AUTOHAND_MAC_NOTIFICATION_BACKEND = 'osascript';
     service = new NotificationService();
     mockSpawn.mockReset();
     mockSpawn.mockReturnValue(createMockChild());
@@ -60,6 +62,11 @@ describe('NotificationService', () => {
 
   afterEach(() => {
     Object.defineProperty(process, 'platform', { value: originalPlatform });
+    if (originalMacBackend === undefined) {
+      delete process.env.AUTOHAND_MAC_NOTIFICATION_BACKEND;
+    } else {
+      process.env.AUTOHAND_MAC_NOTIFICATION_BACKEND = originalMacBackend;
+    }
     vi.restoreAllMocks();
   });
 
@@ -139,7 +146,7 @@ describe('NotificationService', () => {
       // Force unfocused (no focus command for unknown platform)
       await expect(
         service.notify({ body: 'Unknown', reason: 'confirmation' }, defaultGuards()),
-      ).resolves.not.toThrow();
+      ).resolves.toBeUndefined();
 
       // No notification commands spawned (focus check might still be called)
       const notifyCalls = mockSpawn.mock.calls.filter(
@@ -154,6 +161,32 @@ describe('NotificationService', () => {
         return false;
       });
       expect(sendCalls.length).toBe(0);
+    });
+
+    it('1e. macOS forced terminal-notifier backend: spawns terminal-notifier', async () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin' });
+      process.env.AUTOHAND_MAC_NOTIFICATION_BACKEND = 'terminal-notifier';
+      service = new NotificationService();
+
+      mockSpawn.mockImplementation((cmd: string, args?: readonly string[]) => {
+        if (cmd === 'osascript' && args?.[0] === '-e' && (args?.[1] as string)?.includes('frontmost')) {
+          return createMockChild(0, 'Google Chrome');
+        }
+        return createMockChild();
+      });
+
+      await service.notify(
+        { body: 'Native mac notification', reason: 'task_complete' },
+        defaultGuards(),
+      );
+
+      const notifierCalls = mockSpawn.mock.calls.filter(([cmd]) => cmd === 'terminal-notifier');
+      expect(notifierCalls.length).toBe(1);
+      const args = notifierCalls[0][1] as string[];
+      expect(args).toContain('-title');
+      expect(args).toContain('Autohand');
+      expect(args).toContain('-message');
+      expect(args).toContain('Native mac notification');
     });
   });
 
@@ -455,7 +488,7 @@ describe('NotificationService', () => {
 
       await expect(
         service.notify({ body: 'Test', reason: 'confirmation' }, defaultGuards()),
-      ).resolves.not.toThrow();
+      ).resolves.toBeUndefined();
     });
 
     it('7b. osascript exits non-zero: focus returns false, notification still sent', async () => {
