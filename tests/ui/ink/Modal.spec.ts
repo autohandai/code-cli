@@ -300,4 +300,35 @@ describe('Modal Export Validation', () => {
     const module = await import('../../../src/ui/ink/components/Modal.js');
     expect(module.default).toBe(module.Modal);
   });
+
+  it('exports resolveInitialCursor helper', async () => {
+    const module = await import('../../../src/ui/ink/components/Modal.js');
+    expect(module.resolveInitialCursor).toBeDefined();
+    expect(typeof module.resolveInitialCursor).toBe('function');
+  });
+});
+
+describe('resolveInitialCursor', () => {
+  it('defaults to first option for select mode', async () => {
+    const { resolveInitialCursor } = await import('../../../src/ui/ink/components/Modal.js');
+    expect(resolveInitialCursor('select', 5)).toBe(0);
+  });
+
+  it('clamps select initialIndex to valid bounds', async () => {
+    const { resolveInitialCursor } = await import('../../../src/ui/ink/components/Modal.js');
+    expect(resolveInitialCursor('select', 5, 3)).toBe(3);
+    expect(resolveInitialCursor('select', 5, -10)).toBe(0);
+    expect(resolveInitialCursor('select', 5, 99)).toBe(4);
+  });
+
+  it('maps confirm defaultValue=false to the second option', async () => {
+    const { resolveInitialCursor } = await import('../../../src/ui/ink/components/Modal.js');
+    expect(resolveInitialCursor('confirm', 2, undefined, false)).toBe(1);
+  });
+
+  it('maps confirm defaultValue=true or undefined to the first option', async () => {
+    const { resolveInitialCursor } = await import('../../../src/ui/ink/components/Modal.js');
+    expect(resolveInitialCursor('confirm', 2, undefined, true)).toBe(0);
+    expect(resolveInitialCursor('confirm', 2)).toBe(0);
+  });
 });
