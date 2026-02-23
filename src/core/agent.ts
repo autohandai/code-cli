@@ -1583,8 +1583,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         this.persistentInput.setCurrentInput(this.promptSeedInput);
         this.promptSeedInput = '';
       }
-      const status = this.formatStatusLine();
-      this.persistentInput.setStatusLine(status.left + (status.right ? ` · ${status.right}` : ''));
+      this.persistentInput.setStatusLine(this.formatStatusLine());
     } else {
       this.persistentInputActiveTurn = false;
     }
@@ -4381,9 +4380,15 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const tokens = formatTokens(sessionTotal);
     const queueCount = this.inkRenderer?.getQueueCount() ?? this.persistentInput.getQueueLength();
     const queueHint = queueCount > 0 ? ` [${queueCount} queued]` : '';
-    const verb = this.activityIndicator.getVerb();
-    const tip = this.activityIndicator.getTip();
+    const verb = this.activityIndicator?.getVerb?.() ?? 'Working';
     const statusLine = `${verb}... (esc to interrupt · ${elapsed} · ${tokens}${queueHint})`;
+    const footer = this.formatStatusLine();
+    this.persistentInput.setStatusLine(footer);
+    const usingTerminalRegions = this.persistentInputActiveTurn &&
+      process.env.AUTOHAND_TERMINAL_REGIONS !== '0';
+    if (usingTerminalRegions) {
+      this.persistentInput.setActivityLine(statusLine);
+    }
 
     if (this.inkRenderer) {
       // InkRenderer handles its own state updates
@@ -4393,18 +4398,16 @@ If lint or tests fail, report the issues but do NOT commit.`;
       return;
     }
 
+    if (usingTerminalRegions) {
+      return;
+    }
+
     if (!this.runtime.spinner) return;
-
-    const inputPreview = this.queueInput.length > 40
-      ? '...' + this.queueInput.slice(-37)
-      : this.queueInput;
-    const tipLine = chalk.gray(`⎿  Tip: ${tip}`);
-    const inputLine = `\n${chalk.gray('›')} ${inputPreview}${chalk.gray('▋')}`;
-
-    const fullText = statusLine + '\n' + tipLine + inputLine;
+    const footerText = footer.left + (footer.right ? ` · ${footer.right}` : '');
+    const fullText = this.buildSpinnerStatusText(statusLine, footerText);
 
     // Only update if something actually changed
-    const cacheKey = `${statusLine}|${inputPreview}`;
+    const cacheKey = `${statusLine}|${footerText}`;
     if (cacheKey === this.lastRenderedStatus) return;
     this.lastRenderedStatus = cacheKey;
 
