@@ -37,12 +37,13 @@ function themedFg(token: ColorToken, text: string, fallback: (value: string) => 
  */
 export class TerminalRegions {
   private isActive = false;
-  private fixedLines = 4; // input top + input line + input bottom + status
+  private fixedLines = 5; // activity + input top + input line + input bottom + status
   private output: NodeJS.WriteStream;
   private resizeHandler: (() => void) | null = null;
   private currentInput = '';
   private currentQueueCount = 0;
   private currentStatus = '';
+  private currentActivity = '';
 
   constructor(output: NodeJS.WriteStream = process.stdout) {
     this.output = output;
@@ -62,7 +63,7 @@ export class TerminalRegions {
     if (this.isActive) return;
     if (!this.output.isTTY) return;
 
-    const height = this.output.rows || 24;
+    const { height } = this.getDimensions();
     const scrollEnd = Math.max(1, height - this.fixedLines);
 
     // Set scroll region (CSI Ps ; Ps r) - top to scrollEnd
@@ -105,31 +106,36 @@ export class TerminalRegions {
   private handleResize(): void {
     if (!this.isActive) return;
 
-    const height = this.output.rows || 24;
+    const { height } = this.getDimensions();
     const scrollEnd = Math.max(1, height - this.fixedLines);
 
     // Update scroll region
     this.output.write(`${CSI}1;${scrollEnd}r`);
 
     // Re-render fixed region
-    this.renderFixedRegion(this.currentInput, this.currentQueueCount, this.currentStatus);
+    this.renderFixedRegion(this.currentInput, this.currentQueueCount, this.currentStatus, this.currentActivity);
   }
 
   /**
    * Render content in the fixed bottom region
    */
-  renderFixedRegion(input = '', queueCount = 0, status = ''): void {
+  renderFixedRegion(input = '', queueCount = 0, status = '', activity = ''): void {
     if (!this.isActive) return;
 
     this.currentInput = input;
     this.currentQueueCount = queueCount;
     this.currentStatus = status;
+    this.currentActivity = activity;
 
-    const height = this.output.rows || 24;
-    const promptWidth = this.getPromptWidth(this.output.columns || 80);
+    const { height, width } = this.getDimensions();
+    const promptWidth = this.getPromptWidth(width);
 
     // Save cursor position
     this.output.write(`${CSI}s`);
+
+    this.output.write(`${CSI}${height - 4};1H`);
+    this.output.write(`${CSI}K`);
+    this.output.write(this.formatActivityLine(activity, promptWidth));
 
     this.output.write(`${CSI}${height - 3};1H`);
     this.output.write(`${CSI}K`);
@@ -158,8 +164,8 @@ export class TerminalRegions {
     if (!this.isActive) return;
 
     this.currentInput = input;
-    const height = this.output.rows || 24;
-    const promptWidth = this.getPromptWidth(this.output.columns || 80);
+    const { height, width } = this.getDimensions();
+    const promptWidth = this.getPromptWidth(width);
 
     this.output.write(`${CSI}s`);
     this.output.write(`${CSI}${height - 2};1H`);
@@ -176,13 +182,27 @@ export class TerminalRegions {
 
     this.currentStatus = status;
     this.currentQueueCount = queueCount;
-    const height = this.output.rows || 24;
-    const promptWidth = this.getPromptWidth(this.output.columns || 80);
+    const { height, width } = this.getDimensions();
+    const promptWidth = this.getPromptWidth(width);
 
     this.output.write(`${CSI}s`);
     this.output.write(`${CSI}${height};1H`);
     this.output.write(`${CSI}K`);
     this.output.write(this.formatStatusLine(status, queueCount, promptWidth));
+    this.output.write(`${CSI}u`);
+  }
+
+  updateActivity(activity: string): void {
+    if (!this.isActive) return;
+
+    this.currentActivity = activity;
+    const { height, width } = this.getDimensions();
+    const promptWidth = this.getPromptWidth(width);
+
+    this.output.write(`${CSI}s`);
+    this.output.write(`${CSI}${height - 4};1H`);
+    this.output.write(`${CSI}K`);
+    this.output.write(this.formatActivityLine(activity, promptWidth));
     this.output.write(`${CSI}u`);
   }
 
@@ -215,11 +235,23 @@ export class TerminalRegions {
     return themedFg('muted', clipped, (value) => chalk.gray(value));
   }
 
+  private formatActivityLine(activity: string, width: number): string {
+    const plain = (activity || '').replace(ANSI_PATTERN, '');
+    if (!plain) {
+      return ''.padEnd(width);
+    }
+    if (plain.length <= width) {
+      return themedFg('muted', plain.padEnd(width), (value) => chalk.gray(value));
+    }
+    const clipped = width <= 1 ? '…' : `${plain.slice(0, width - 1)}…`;
+    return themedFg('muted', clipped, (value) => chalk.gray(value));
+  }
+
   /**
    * Clear the fixed region (used when disabling)
    */
   private clearFixedRegion(): void {
-    const height = this.output.rows || 24;
+    const { height } = this.getDimensions();
     this.output.write(`${CSI}s`);
     for (let i = 0; i < this.fixedLines; i++) {
       this.output.write(`${CSI}${height - i};1H`);
@@ -238,7 +270,7 @@ export class TerminalRegions {
       return;
     }
 
-    const height = this.output.rows || 24;
+    const { height } = this.getDimensions();
     const scrollEnd = height - this.fixedLines;
     this.output.write(`${CSI}${scrollEnd};1H`);
     this.output.write(`${CSI}K`);
@@ -254,7 +286,7 @@ export class TerminalRegions {
       return;
     }
 
-    const height = this.output.rows || 24;
+    const { height } = this.getDimensions();
     const scrollEnd = Math.max(1, height - this.fixedLines);
     this.output.write(`${CSI}${scrollEnd};1H`);
   }
@@ -270,8 +302,34 @@ export class TerminalRegions {
    * Get the available scroll region height
    */
   getScrollHeight(): number {
-    const height = this.output.rows || 24;
+    const { height } = this.getDimensions();
     return Math.max(1, height - this.fixedLines);
+  }
+
+  private getDimensions(): { width: number; height: number } {
+    const stream = this.output as NodeJS.WriteStream & {
+      getWindowSize?: () => [number, number];
+      columns?: number;
+      rows?: number;
+    };
+
+    let width = stream.columns ?? 80;
+    let height = stream.rows ?? 24;
+
+    if ((width <= 0 || height <= 0) && typeof stream.getWindowSize === 'function') {
+      try {
+        const [w, h] = stream.getWindowSize();
+        if (w > 0) width = w;
+        if (h > 0) height = h;
+      } catch {
+        // Ignore terminal query failures and use fallbacks.
+      }
+    }
+
+    return {
+      width: Math.max(10, width || 80),
+      height: Math.max(this.fixedLines + 2, height || 24),
+    };
   }
 }
 

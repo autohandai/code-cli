@@ -158,8 +158,10 @@ export class AutohandAgent {
   private persistentInput: PersistentInput;
   private persistentInputActiveTurn = false;
   private queueInput = '';
+  private promptSeedInput = '';
   private lastRenderedStatus = '';
   private activityIndicator: ActivityIndicator;
+  private lastAssistantResponseForNotification = '';
 
   // New feature modules
   private imageManager: ImageManager;
@@ -527,12 +529,12 @@ export class AutohandAgent {
     this.useInkRenderer = runtime.config.ui?.useInkRenderer === true;
 
     // Initialize persistent input for queuing messages while agent works.
-    // Default to silent mode so scrollback/chat logs are never impacted by
-    // terminal scroll-region behavior. Full region mode remains opt-in.
-    const enableTerminalRegions = process.env.AUTOHAND_TERMINAL_REGIONS === '1';
+    // Default to terminal regions so the boxed composer stays visible during turns.
+    // Allow disabling via env for troubleshooting terminals with region issues.
+    const disableTerminalRegions = process.env.AUTOHAND_TERMINAL_REGIONS === '0';
     this.persistentInput = createPersistentInput({
       maxQueueSize: 10,
-      silentMode: !enableTerminalRegions
+      silentMode: disableTerminalRegions
     });
 
     this.persistentInput.on('queued', (text: string, count: number) => {
@@ -548,13 +550,6 @@ export class AutohandAgent {
           }
         }, 1500);
       }
-    });
-
-    this.persistentInput.on('input-change', () => {
-      if (!this.persistentInputActiveTurn || !this.taskStartedAt || this.inkRenderer) {
-        return;
-      }
-      this.forceRenderSpinner();
     });
 
     // Handle immediate commands (! shell, / slash) from PersistentInput - bypass queue
@@ -866,7 +861,7 @@ export class AutohandAgent {
     // Native OS notification for task completion
     if (this.runtime.config.ui?.showCompletionNotification !== false) {
       this.notificationService.notify(
-        { body: 'Task completed', reason: 'task_complete' },
+        { body: this.getCompletionNotificationBody(), reason: 'task_complete' },
         this.getNotificationGuards()
       ).catch(() => {});
     }
@@ -1058,6 +1053,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
         }
 
         if (!instruction) {
+          if (this.persistentInputActiveTurn) {
+            this.promptSeedInput = this.persistentInput.getCurrentInput();
+            this.persistentInput.stop();
+            this.persistentInputActiveTurn = false;
+          }
           instruction = await this.promptForInstruction();
         }
 
@@ -1133,7 +1133,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         // Native OS notification for task completion
         if (this.runtime.config.ui?.showCompletionNotification !== false) {
           this.notificationService.notify(
-            { body: 'Task completed', reason: 'task_complete' },
+            { body: this.getCompletionNotificationBody(), reason: 'task_complete' },
             this.getNotificationGuards()
           ).catch(() => {});
         }
@@ -1240,13 +1240,16 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const workspaceFiles = this.workspaceFileCollector.getCachedFiles();
     this.workspaceFileCollector.collectWorkspaceFiles().catch(() => {});
     const statusLine = this.formatStatusLine();
+    const initialValue = this.promptSeedInput;
+    this.promptSeedInput = '';
     const input = await readInstruction(
       workspaceFiles,
       SLASH_COMMANDS,
       statusLine,
       {}, // default IO
       (data, mimeType, filename) => this.imageManager.add(data, mimeType, filename),
-      this.runtime.workspaceRoot
+      this.runtime.workspaceRoot,
+      initialValue
     );
     // Only exit on explicit ABORT (double Ctrl+C). Palette cancel or dismiss should continue.
     if (input === 'ABORT') { // double Ctrl+C from prompt
@@ -1502,6 +1505,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       const payload = this.parseAssistantResponse(completion);
       const rawContent = (payload.finalResponse ?? payload.response ?? completion.content).trim();
       const content = this.cleanupModelResponse(rawContent);
+      this.lastAssistantResponseForNotification = content;
       console.log(content);
 
       // Add to conversation and save
@@ -1529,6 +1533,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     this.isInstructionActive = true;
     this.clearExplorationLog();
     this.filesModifiedThisSession = false;
+    this.lastAssistantResponseForNotification = '';
 
     // Initialize task-level tracking
     this.taskStartedAt = Date.now();
@@ -1574,6 +1579,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
     if (shouldUsePersistentInput) {
       this.persistentInput.start();
       this.persistentInputActiveTurn = true;
+      if (this.promptSeedInput && !this.persistentInput.getCurrentInput()) {
+        this.persistentInput.setCurrentInput(this.promptSeedInput);
+        this.promptSeedInput = '';
+      }
       const status = this.formatStatusLine();
       this.persistentInput.setStatusLine(status.left + (status.right ? ` · ${status.right}` : ''));
     } else {
@@ -1688,7 +1697,13 @@ If lint or tests fail, report the issues but do NOT commit.`;
       cleanupEsc();
       stopPreparation();
       this.stopStatusUpdates();
+      const keepPersistentInputForNextTurn =
+        this.persistentInputActiveTurn &&
+        (this.persistentInput.hasQueued() || this.persistentInput.getCurrentInput().trim().length > 0);
       if (this.persistentInputActiveTurn) {
+        this.promptSeedInput = this.persistentInput.getCurrentInput();
+      }
+      if (this.persistentInputActiveTurn && !keepPersistentInputForNextTurn) {
         this.persistentInput.stop();
         this.persistentInputActiveTurn = false;
       }
@@ -2325,6 +2340,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
           if (debugMode) process.stderr.write(`[AGENT DEBUG] Exiting after 3 consecutive empty responses\n`);
           console.log(chalk.yellow('\n⚠ Model not providing response after multiple attempts. Showing available context.'));
           const fallback = payload.thought || 'The model did not provide a clear response. Please try rephrasing your question.';
+          this.lastAssistantResponseForNotification = fallback;
           if (this.inkRenderer) {
             this.inkRenderer.setWorking(false);
             this.inkRenderer.setFinalResponse(fallback);
@@ -2346,6 +2362,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
       // Reset consecutive empty counter on success
       (this as any).__consecutiveEmpty = 0;
+      this.lastAssistantResponseForNotification = response;
 
       // Emit output event for RPC mode
       const suppressThinking = usedThoughtAsResponse && response.length > 0;
@@ -2394,6 +2411,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
       const summaryResponse = summaryCompletion.content?.trim();
       if (summaryResponse) {
+        this.lastAssistantResponseForNotification = summaryResponse;
         if (this.inkRenderer) {
           this.inkRenderer.setWorking(false);
           this.inkRenderer.setFinalResponse(summaryResponse);
@@ -2412,6 +2430,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       this.conversation.history().slice(1) // skip system prompt
     );
     const fallbackMsg = `Task did not complete within ${maxIterations} iterations.\n\nProgress summary:\n${staticSummary}`;
+    this.lastAssistantResponseForNotification = fallbackMsg;
     if (this.inkRenderer) {
       this.inkRenderer.setWorking(false);
       this.inkRenderer.setFinalResponse(fallbackMsg);
@@ -4362,10 +4381,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const tokens = formatTokens(sessionTotal);
     const queueCount = this.inkRenderer?.getQueueCount() ?? this.persistentInput.getQueueLength();
     const queueHint = queueCount > 0 ? ` [${queueCount} queued]` : '';
-    const verb = this.activityIndicator?.getVerb?.() ?? 'Working';
+    const verb = this.activityIndicator.getVerb();
+    const tip = this.activityIndicator.getTip();
     const statusLine = `${verb}... (esc to interrupt · ${elapsed} · ${tokens}${queueHint})`;
-    const footer = this.formatStatusLine();
-    this.persistentInput.setStatusLine(footer);
 
     if (this.inkRenderer) {
       // InkRenderer handles its own state updates
@@ -4376,26 +4394,21 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
 
     if (!this.runtime.spinner) return;
-    const footerText = footer.left + (footer.right ? ` · ${footer.right}` : '');
-    const fullText = this.buildSpinnerStatusText(statusLine, footerText);
+
+    const inputPreview = this.queueInput.length > 40
+      ? '...' + this.queueInput.slice(-37)
+      : this.queueInput;
+    const tipLine = chalk.gray(`⎿  Tip: ${tip}`);
+    const inputLine = `\n${chalk.gray('›')} ${inputPreview}${chalk.gray('▋')}`;
+
+    const fullText = statusLine + '\n' + tipLine + inputLine;
 
     // Only update if something actually changed
-    const cacheKey = `${statusLine}|${footerText}`;
+    const cacheKey = `${statusLine}|${inputPreview}`;
     if (cacheKey === this.lastRenderedStatus) return;
     this.lastRenderedStatus = cacheKey;
 
     this.runtime.spinner.text = fullText;
-  }
-
-  private getTypingPreview(): string {
-    const activeText = this.persistentInputActiveTurn
-      ? this.persistentInput.getCurrentInput()
-      : this.queueInput;
-    const trimmed = activeText.trim();
-    if (!trimmed) {
-      return '';
-    }
-    return trimmed.length > 36 ? `${trimmed.slice(0, 33)}...` : trimmed;
   }
 
   private buildSpinnerStatusText(statusLine: string, footerLine?: string): string {
@@ -4422,6 +4435,13 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private setSpinnerStatus(status: string): void {
+    const usingTerminalRegions = this.persistentInputActiveTurn &&
+      process.env.AUTOHAND_TERMINAL_REGIONS !== '0';
+    if (usingTerminalRegions) {
+      this.persistentInput.setActivityLine(status);
+      return;
+    }
+
     if (!this.runtime.spinner) {
       return;
     }
@@ -4456,6 +4476,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
     if (this.statusInterval) {
       clearInterval(this.statusInterval);
       this.statusInterval = null;
+    }
+    if (this.persistentInputActiveTurn && process.env.AUTOHAND_TERMINAL_REGIONS !== '0') {
+      this.persistentInput.setActivityLine('');
     }
   }
 
@@ -4659,6 +4682,19 @@ If lint or tests fail, report the issues but do NOT commit.`;
       hasExternalCallback: isExternalCallbackEnabled(),
       notificationsConfig: this.runtime.config.ui?.notifications,
     };
+  }
+
+  private getCompletionNotificationBody(): string {
+    const raw = this.lastAssistantResponseForNotification
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!raw) {
+      return 'Task completed';
+    }
+    if (raw.length <= 220) {
+      return raw;
+    }
+    return `${raw.slice(0, 219)}…`;
   }
 
   private async confirmDangerousAction(message: string, context?: { tool?: string; path?: string; command?: string }): Promise<boolean> {

@@ -170,6 +170,14 @@ describe('PersistentInput immediate command handling', () => {
     expect(changes).toEqual(['h', 'hi', 'h', '']);
   });
 
+  it('setCurrentInput updates draft text directly', () => {
+    const pi = new PersistentInput({ silentMode: true });
+
+    pi.setCurrentInput('draft message');
+
+    expect(pi.getCurrentInput()).toBe('draft message');
+  });
+
   it('pause anchors cursor before disabling regions', () => {
     const pi = new PersistentInput({ silentMode: false });
     const focusScrollBottom = vi.fn();

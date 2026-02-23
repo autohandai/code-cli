@@ -694,7 +694,8 @@ export async function readInstruction(
   statusLine?: string | { left: string; right: string },
   io: PromptIO = {},
   onImageDetected?: ImageDetectedCallback,
-  workspaceRoot?: string
+  workspaceRoot?: string,
+  initialValue = ''
 ): Promise<string | null> {
   const stdInput = (io.input ?? process.stdin) as NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void };
   const stdOutput = (io.output ?? process.stdout) as NodeJS.WriteStream;
@@ -712,6 +713,7 @@ export async function readInstruction(
         files,
         slashCommands,
         statusLine,
+        initialValue,
         stdInput,
         stdOutput,
         onImageDetected,
@@ -733,6 +735,7 @@ interface PromptOnceOptions {
   files: string[];
   slashCommands: SlashCommandHint[];
   statusLine?: string | { left: string; right: string };
+  initialValue?: string;
   stdInput: NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void };
   stdOutput: NodeJS.WriteStream;
   onImageDetected?: ImageDetectedCallback;
@@ -908,7 +911,7 @@ function handlePasteComplete(
 }
 
 async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
-  const { files, slashCommands, statusLine, stdInput, stdOutput, onImageDetected, workspaceRoot } = options;
+  const { files, slashCommands, statusLine, initialValue, stdInput, stdOutput, onImageDetected, workspaceRoot } = options;
   const { rl, input, supportsRawMode } = createReadline(stdInput, stdOutput);
 
   // Don't pass statusLine to MentionPreview - renderPromptLine handles the status display
@@ -964,6 +967,14 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
 
   // Render initial prompt with status line (was missing - caused status to only show on typing)
   renderPromptSurface(false, false);
+
+  const initialLine = sanitizeRenderLine(initialValue ?? '');
+  if (initialLine.length > 0) {
+    const rlAny = rl as readline.Interface & { line: string; cursor: number };
+    rlAny.line = initialLine;
+    rlAny.cursor = initialLine.length;
+    renderPromptSurface(false, true);
+  }
 
   return new Promise<PromptResult>((resolve) => {
     let ctrlCCount = 0;

@@ -46,6 +46,7 @@ describe('agent startup and active input UI', () => {
     agent.persistentInput = {
       getQueueLength: () => 0,
       setStatusLine: vi.fn(),
+      setActivityLine: vi.fn(),
     };
     agent.queueInput = 'queued prompt text';
     agent.lastRenderedStatus = '';
@@ -62,10 +63,8 @@ describe('agent startup and active input UI', () => {
 
     expect(spinner.text).toContain('Working...');
     expect(spinner.text).toContain('tokens');
-    expect(spinner.text).toContain('context left');
     expect(spinner.text).not.toContain('typing:');
     expect(spinner.text).not.toContain('┌');
-    expect(spinner.text).not.toContain('\n');
   });
 
   it('flushMcpStartupSummaryIfPending prints once and clears pending flag', () => {
@@ -90,6 +89,7 @@ describe('agent startup and active input UI', () => {
     agent.persistentInput = {
       getQueueLength: () => 0,
       setStatusLine: vi.fn(),
+      setActivityLine: vi.fn(),
     };
     agent.contextPercentLeft = 74;
 
@@ -110,6 +110,7 @@ describe('agent startup and active input UI', () => {
     agent.persistentInput = {
       getQueueLength: () => 0,
       setStatusLine: vi.fn(),
+      setActivityLine: vi.fn(),
     };
     agent.contextPercentLeft = 74;
 
@@ -155,6 +156,7 @@ describe('agent startup and active input UI', () => {
     agent.persistentInput = {
       getQueueLength: () => 0,
       setStatusLine: vi.fn(),
+      setActivityLine: vi.fn(),
     };
 
     const line = (agent as any).formatStatusLine();
@@ -177,6 +179,7 @@ describe('agent startup and active input UI', () => {
     agent.persistentInput = {
       getQueueLength: () => 0,
       setStatusLine: vi.fn(),
+      setActivityLine: vi.fn(),
     };
 
     try {
@@ -186,6 +189,24 @@ describe('agent startup and active input UI', () => {
     } finally {
       planModeManager.disable();
     }
+  });
+
+  it('completion notification body uses latest assistant response preview', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    agent.lastAssistantResponseForNotification = '  Added worktree support and fixed composer rendering.  ';
+
+    const body = (agent as any).getCompletionNotificationBody();
+
+    expect(body).toBe('Added worktree support and fixed composer rendering.');
+  });
+
+  it('completion notification body falls back when response is empty', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    agent.lastAssistantResponseForNotification = '   ';
+
+    const body = (agent as any).getCompletionNotificationBody();
+
+    expect(body).toBe('Task completed');
   });
 
   it('forceRenderSpinner does not show live typing preview while working', () => {
@@ -242,6 +263,7 @@ describe('agent startup and active input UI', () => {
       queue: [],
       getQueueLength: () => 0,
       setStatusLine: vi.fn(),
+      setActivityLine: vi.fn(),
     };
     agent.queueInput = '';
 
@@ -288,6 +310,7 @@ describe('agent startup and active input UI', () => {
       queue,
       getQueueLength: () => queue.length,
       setStatusLine: vi.fn(),
+      setActivityLine: vi.fn(),
     };
     agent.queueInput = '';
 
@@ -336,6 +359,7 @@ describe('agent startup and active input UI', () => {
       queue,
       getQueueLength: () => queue.length,
       setStatusLine: vi.fn(),
+      setActivityLine: vi.fn(),
     };
     agent.queueInput = '';
 
@@ -383,6 +407,7 @@ describe('agent startup and active input UI', () => {
       queue,
       getQueueLength: () => queue.length,
       setStatusLine: vi.fn(),
+      setActivityLine: vi.fn(),
     };
     agent.queueInput = '';
 
