@@ -76,6 +76,8 @@ import { HookManager } from './HookManager.js';
 import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
 import { NotificationService } from '../utils/notification.js';
 import { getPlanModeManager } from '../commands/plan.js';
+import type { VersionCheckResult } from '../utils/versionCheck.js';
+import { getInstallHint } from '../utils/versionCheck.js';
 import packageJson from '../../package.json' with { type: 'json' };
 // New feature modules
 import { ImageManager } from './ImageManager.js';
@@ -138,6 +140,7 @@ export class AutohandAgent {
   private errorLogger: ErrorLogger;
   private autoReportManager: AutoReportManager;
   private notificationService: NotificationService;
+  private versionCheckResult?: VersionCheckResult;
 
   private taskStartedAt: number | null = null;
   private totalTokensUsed = 0;
@@ -3125,7 +3128,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     // showFilePalette is statically imported at the top of this file
     const selection = await showFilePalette({
       files: workspaceFiles,
-      statusLine: this.formatStatusLine(),
+      statusLine: this.formatStatusLine().left,
       seed: normalizedSeed
     });
     if (selection) {
@@ -4272,7 +4275,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
   }
 
-  private formatStatusLine(): string {
+  setVersionCheckResult(result: VersionCheckResult): void {
+    this.versionCheckResult = result;
+  }
+
+  private formatStatusLine(): { left: string; right: string } {
     const percent = Number.isFinite(this.contextPercentLeft)
       ? Math.max(0, Math.min(100, this.contextPercentLeft))
       : 100;
@@ -4286,7 +4293,15 @@ If lint or tests fail, report the issues but do NOT commit.`;
       ? chalk.bgCyan.black.bold(' PLAN ') + ' '
       : '';
 
-    return `${planIndicator}${percent}% context left · ${t('ui.commandHint')}${queueStatus}`;
+    const left = `${planIndicator}${percent}% context left · ${t('ui.commandHint')}${queueStatus}`;
+
+    let right = '';
+    if (this.versionCheckResult?.updateAvailable) {
+      const hint = getInstallHint(this.versionCheckResult.channel);
+      right = chalk.yellow('Update available! ') + chalk.cyan(`Run: ${hint}`);
+    }
+
+    return { left, right };
   }
 
   private printMcpStartupSummaryIfNeeded(): void {
