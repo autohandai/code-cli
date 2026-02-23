@@ -130,9 +130,6 @@ export class TerminalRegions {
     const { height, width } = this.getDimensions();
     const promptWidth = this.getPromptWidth(width);
 
-    // Save cursor position
-    this.output.write(`${CSI}s`);
-
     this.output.write(`${CSI}${height - 4};1H`);
     this.output.write(`${CSI}K`);
     this.output.write(this.formatActivityLine(activity, promptWidth));
@@ -152,9 +149,7 @@ export class TerminalRegions {
     this.output.write(`${CSI}${height};1H`);
     this.output.write(`${CSI}K`);
     this.output.write(this.formatStatusLine(status, queueCount, promptWidth));
-
-    // Restore cursor position to scroll region
-    this.output.write(`${CSI}u`);
+    this.focusInputCursor();
   }
 
   /**
@@ -167,11 +162,10 @@ export class TerminalRegions {
     const { height, width } = this.getDimensions();
     const promptWidth = this.getPromptWidth(width);
 
-    this.output.write(`${CSI}s`);
     this.output.write(`${CSI}${height - 2};1H`);
     this.output.write(`${CSI}K`);
     this.output.write(drawInputBox(this.getInputContent(input), promptWidth));
-    this.output.write(`${CSI}u`);
+    this.focusInputCursor();
   }
 
   /**
@@ -185,11 +179,10 @@ export class TerminalRegions {
     const { height, width } = this.getDimensions();
     const promptWidth = this.getPromptWidth(width);
 
-    this.output.write(`${CSI}s`);
     this.output.write(`${CSI}${height};1H`);
     this.output.write(`${CSI}K`);
     this.output.write(this.formatStatusLine(status, queueCount, promptWidth));
-    this.output.write(`${CSI}u`);
+    this.focusInputCursor();
   }
 
   updateActivity(activity: string): void {
@@ -199,11 +192,10 @@ export class TerminalRegions {
     const { height, width } = this.getDimensions();
     const promptWidth = this.getPromptWidth(width);
 
-    this.output.write(`${CSI}s`);
     this.output.write(`${CSI}${height - 4};1H`);
     this.output.write(`${CSI}K`);
     this.output.write(this.formatActivityLine(activity, promptWidth));
-    this.output.write(`${CSI}u`);
+    this.focusInputCursor();
   }
 
   private getPromptWidth(columns: number): number {
@@ -247,6 +239,19 @@ export class TerminalRegions {
     return themedFg('muted', clipped, (value) => chalk.gray(value));
   }
 
+  private focusInputCursor(): void {
+    if (!this.isActive) {
+      return;
+    }
+
+    const { height, width } = this.getDimensions();
+    const promptWidth = this.getPromptWidth(width);
+    const prefixColumns = PROMPT_INPUT_PREFIX.length;
+    const inputColumns = this.currentInput.length;
+    const cursorColumn = Math.max(1, Math.min(promptWidth, prefixColumns + inputColumns + 1));
+    this.output.write(`${CSI}${height - 2};${cursorColumn}H`);
+  }
+
   /**
    * Clear the fixed region (used when disabling)
    */
@@ -275,6 +280,7 @@ export class TerminalRegions {
     this.output.write(`${CSI}${scrollEnd};1H`);
     this.output.write(`${CSI}K`);
     this.output.write(message);
+    this.focusInputCursor();
   }
 
   /**
