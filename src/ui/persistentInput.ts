@@ -63,6 +63,11 @@ export class PersistentInput extends EventEmitter {
     this.isActive = true;
     this.currentInput = '';
     this.isPaused = false;
+    try {
+      this.input.resume();
+    } catch {
+      // Best effort only.
+    }
 
     if (this.silentMode) {
       // Silent mode: use readline keypress events (same as ESC listener)
@@ -151,11 +156,10 @@ export class PersistentInput extends EventEmitter {
     if (!this.isActive) return;
 
     this.isPaused = false;
-
     try {
       this.input.resume();
     } catch {
-      // Best effort
+      // Best effort only.
     }
 
     if (!this.silentMode) {
@@ -220,6 +224,17 @@ export class PersistentInput extends EventEmitter {
    */
   getCurrentInput(): string {
     return this.currentInput;
+  }
+
+  /**
+   * Set current draft input (used to preserve typed text across turn boundaries).
+   */
+  setCurrentInput(value: string): void {
+    this.currentInput = value;
+    if (this.isActive && !this.isPaused && !this.silentMode) {
+      this.regions.updateInput(this.currentInput);
+    }
+    this.emitInputChange();
   }
 
   private emitInputChange(): void {
