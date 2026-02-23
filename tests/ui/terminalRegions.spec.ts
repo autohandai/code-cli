@@ -132,7 +132,19 @@ describe('TerminalRegions', () => {
 
     expect(joined).toContain('\x1b[s');
     expect(joined).toContain('\x1b[u');
-    expect(joined).not.toContain('\x1b[20;1H');
+    expect(joined).not.toContain('\x1b[19;1H');
+  });
+
+  it('updates activity line above the composer', () => {
+    const output = createMockOutput();
+    const regions = new TerminalRegions(output);
+    regions.enable();
+    output.writes = [];
+
+    regions.updateActivity('Working... (esc to interrupt · 0m 01s · 1.2k tokens)');
+
+    const plain = stripAnsi(output.writes.join(''));
+    expect(plain).toContain('Working...');
   });
 
   it('writeAbove anchors output at scroll bottom without restoring stale cursor', () => {
@@ -144,7 +156,21 @@ describe('TerminalRegions', () => {
     regions.writeAbove('queued message\n');
 
     const joined = output.writes.join('');
-    expect(joined).toContain('\x1b[20;1H');
+    expect(joined).toContain('\x1b[19;1H');
+    expect(joined).not.toContain('\x1b[s');
+    expect(joined).not.toContain('\x1b[u');
+  });
+
+  it('writeAbove anchors output at scroll bottom without restoring stale cursor', () => {
+    const output = createMockOutput();
+    const regions = new TerminalRegions(output);
+    regions.enable();
+    output.writes = [];
+
+    regions.writeAbove('queued message\n');
+
+    const joined = output.writes.join('');
+    expect(joined).toContain('\x1b[19;1H');
     expect(joined).not.toContain('\x1b[s');
     expect(joined).not.toContain('\x1b[u');
   });

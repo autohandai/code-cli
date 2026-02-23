@@ -41,6 +41,7 @@ export class PersistentInput extends EventEmitter {
   private isPaused = false;
   private regions: TerminalRegions;
   private silentMode: boolean;
+  private activityLine = '';
 
   constructor(options: PersistentInputOptions = {}) {
     super();
@@ -172,6 +173,13 @@ export class PersistentInput extends EventEmitter {
     }
   }
 
+  setActivityLine(status: string): void {
+    this.activityLine = status;
+    if (this.isActive && !this.isPaused && !this.silentMode) {
+      this.regions.updateActivity(status);
+    }
+  }
+
   /**
    * Check if there are queued messages
    */
@@ -209,6 +217,17 @@ export class PersistentInput extends EventEmitter {
    */
   getCurrentInput(): string {
     return this.currentInput;
+  }
+
+  /**
+   * Replace the current draft input text.
+   */
+  setCurrentInput(value: string): void {
+    this.currentInput = value;
+    if (this.isActive && !this.isPaused && !this.silentMode) {
+      this.regions.updateInput(this.currentInput);
+    }
+    this.emitInputChange();
   }
 
   private emitInputChange(): void {
@@ -332,7 +351,8 @@ export class PersistentInput extends EventEmitter {
     this.regions.renderFixedRegion(
       this.currentInput,
       this.queue.length,
-      this.getStatusText()
+      this.getStatusText(),
+      this.activityLine
     );
   }
 

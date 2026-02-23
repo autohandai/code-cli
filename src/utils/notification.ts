@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 import type { NotificationConfig } from '../types.js';
 
 export interface NotificationGuards {
@@ -28,6 +30,7 @@ const TERMINAL_KEYWORDS = [
 ];
 
 const FOCUS_CACHE_TTL_MS = 2000;
+type MacNotificationBackend = 'terminal-notifier' | 'osascript';
 
 export class NotificationService {
   private focusCache: { value: boolean; timestamp: number } | null = null;
@@ -179,8 +182,34 @@ export class NotificationService {
   }
 
   private sendMacNotification(title: string, body: string, sound: boolean): void {
-    const escapedBody = body.replace(/"/g, '\\"');
-    const escapedTitle = title.replace(/"/g, '\\"');
+    const backend = this.resolveMacBackend();
+    if (backend === 'terminal-notifier') {
+      const args = [
+        '-title',
+        title,
+        '-message',
+        body,
+        '-group',
+        'autohand-cli',
+      ];
+      if (sound) {
+        args.push('-sound', 'Glass');
+      }
+      const child = spawn('terminal-notifier', args, { stdio: 'ignore' });
+      child.once('error', () => {
+        // Fallback for environments where terminal-notifier is unavailable at runtime.
+        this.sendMacNotificationViaAppleScript(title, body, sound);
+      });
+      child.unref();
+      return;
+    }
+
+    this.sendMacNotificationViaAppleScript(title, body, sound);
+  }
+
+  private sendMacNotificationViaAppleScript(title: string, body: string, sound: boolean): void {
+    const escapedBody = this.escapeAppleScript(body);
+    const escapedTitle = this.escapeAppleScript(title);
     let script = `display notification "${escapedBody}" with title "${escapedTitle}"`;
     if (sound) {
       script += ' sound name "Glass"';
@@ -188,6 +217,45 @@ export class NotificationService {
 
     const child = spawn('osascript', ['-e', script], { stdio: 'ignore' });
     child.unref();
+  }
+
+  private resolveMacBackend(): MacNotificationBackend {
+    const forced = process.env.AUTOHAND_MAC_NOTIFICATION_BACKEND?.trim().toLowerCase();
+    if (forced === 'osascript' || forced === 'apple-script' || forced === 'applescript') {
+      return 'osascript';
+    }
+    if (forced === 'terminal-notifier' || forced === 'terminal_notifier') {
+      return 'terminal-notifier';
+    }
+
+    return this.hasBinaryInPath('terminal-notifier') ? 'terminal-notifier' : 'osascript';
+  }
+
+  private hasBinaryInPath(binaryName: string): boolean {
+    const envPath = process.env.PATH;
+    if (!envPath) {
+      return false;
+    }
+
+    const segments = envPath.split(path.delimiter);
+    for (const segment of segments) {
+      const candidate = path.join(segment, binaryName);
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return true;
+      } catch {
+        // Continue probing next PATH segment.
+      }
+    }
+
+    return false;
+  }
+
+  private escapeAppleScript(value: string): string {
+    return value
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/\r?\n/g, ' ');
   }
 
   private sendLinuxNotification(title: string, body: string): void {
