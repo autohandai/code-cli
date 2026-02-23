@@ -175,4 +175,26 @@ describe('TerminalRegions', () => {
     expect(joined).toContain('\x1b[24;1H');
     expect(joined).toContain('\x1b[22;3H');
   });
+
+  it('prefers getWindowSize dimensions when stream rows are stale', () => {
+    const output = createMockOutput() as NodeJS.WriteStream & {
+      rows: number;
+      columns: number;
+      getWindowSize?: () => [number, number];
+      writes: string[];
+    };
+    output.rows = 7;
+    output.columns = 20;
+    output.getWindowSize = () => [100, 40];
+
+    const regions = new TerminalRegions(output);
+    regions.enable();
+    output.writes = [];
+
+    regions.updateInput('x');
+
+    const joined = output.writes.join('');
+    expect(joined).toContain('\x1b[38;1H');
+    expect(joined).toContain('\x1b[38;4H');
+  });
 });
