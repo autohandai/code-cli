@@ -35,7 +35,7 @@ export const PROMPT_LINES_ABOVE_INPUT = 1;
 export const PROMPT_LINES_BELOW_INPUT = 1;
 export const PROMPT_BLOCK_LINE_COUNT = PROMPT_LINES_ABOVE_INPUT + 1 + PROMPT_LINES_BELOW_INPUT;
 export const PROMPT_PLACEHOLDER = 'Plan, search, build anything';
-export const PROMPT_INPUT_PREFIX = '▸ ';
+export const PROMPT_INPUT_PREFIX = '❯ ';
 
 export type SlashCommandHint = SlashCommand;
 
@@ -850,7 +850,7 @@ export function leavePromptSurface(
   // With a boxed prompt, readline can advance into the rows below input.
   // Normalize back to the input line before clearing the full prompt block.
   if (fromLineEvent) {
-    const normalizationRows = PROMPT_LINES_BELOW_INPUT + statusLineCount;
+    const normalizationRows = PROMPT_LINES_BELOW_INPUT;
     for (let i = 0; i < normalizationRows; i++) {
       readline.moveCursor(output, 0, -1);
     }

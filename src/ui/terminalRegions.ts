@@ -15,7 +15,7 @@ import type { ColorToken } from './theme/types.js';
 const ESC = '\x1B';
 const CSI = `${ESC}[`;
 const PROMPT_PLACEHOLDER = 'Plan, search, build anything';
-const PROMPT_INPUT_PREFIX = '▸ ';
+const PROMPT_INPUT_PREFIX = '❯ ';
 const ANSI_PATTERN = /\u001b\[[0-9;]*m/g;
 
 function themedFg(token: ColorToken, text: string, fallback: (value: string) => string): string {

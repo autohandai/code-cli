@@ -64,6 +64,11 @@ export class PersistentInput extends EventEmitter {
     this.isActive = true;
     this.currentInput = '';
     this.isPaused = false;
+    try {
+      this.input.resume();
+    } catch {
+      // Best effort only.
+    }
 
     if (this.silentMode) {
       // Silent mode: use readline keypress events (same as ESC listener)
@@ -150,6 +155,11 @@ export class PersistentInput extends EventEmitter {
     if (!this.isActive) return;
 
     this.isPaused = false;
+    try {
+      this.input.resume();
+    } catch {
+      // Best effort only.
+    }
 
     // Re-enable regions
     this.regions.enable();
