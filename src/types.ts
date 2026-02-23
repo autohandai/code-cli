@@ -78,6 +78,10 @@ export interface UISettings {
   checkForUpdates?: boolean;
   /** Hours between update checks (default: 24) */
   updateCheckInterval?: number;
+  /** Custom activity verbs for working indicator (string for fixed, string[] for pool) */
+  activityVerbs?: string | string[];
+  /** Symbol shown before activity verb (default: '✳') */
+  activitySymbol?: string;
   /** Display language locale (e.g., 'en', 'zh-cn', 'fr') */
   locale?: string;
   /** Native OS desktop notifications when user attention is needed (default: true) */
