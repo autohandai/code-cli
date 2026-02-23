@@ -34,7 +34,7 @@ function createMinimalContext() {
     workspaceRoot: '/tmp/test',
     model: 'test-model',
     config: {} as any,
-    // /mcp — deliberately omit mcpManager to trigger the "not available" branch
+    // /mcp - deliberately omit mcpManager to trigger the "not available" branch
     mcpManager: undefined,
   };
 }
@@ -74,7 +74,7 @@ describe('slash command dispatch – output vs instruction', () => {
 
     const result = await handler.handle('/mcp');
 
-    // The handler returns a display string — this used to be sent to the LLM
+    // The handler returns a display string - this used to be sent to the LLM
     expect(result).toEqual(expect.any(String));
     expect(result).not.toBeNull();
     expect(result).toContain('MCP');
@@ -177,7 +177,7 @@ describe('slash command dispatch – output vs instruction', () => {
       const command = cmd;
       // This is the guard in promptForInstruction():
       if (command === '/quit' || command === '/exit') {
-        // Pass through to interactive loop — NOT swallowed
+        // Pass through to interactive loop - NOT swallowed
         expect(command).toBe(cmd);
       }
     }

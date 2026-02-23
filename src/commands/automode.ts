@@ -225,7 +225,7 @@ function showHelp(): string {
 ${chalk.cyan('Auto-Mode: Autonomous Development Loops')}
 
 Auto-mode lets autohand work autonomously on tasks through
-iterative improvement cycles—inspired by the Ralph technique.
+iterative improvement cycles-inspired by the Ralph technique.
 
 ${chalk.yellow('Usage:')}
   /automode <prompt>              Start auto-mode with a task

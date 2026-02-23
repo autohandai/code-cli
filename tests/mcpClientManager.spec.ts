@@ -176,7 +176,7 @@ describe('McpClientManager', () => {
       await manager.connect(stdioConfig);
       expect(manager.listServers()[0].status).toBe('connected');
 
-      // Connect again — should disconnect old and reconnect
+      // Connect again - should disconnect old and reconnect
       await manager.connect(stdioConfig);
       expect(manager.listServers()).toHaveLength(1);
       expect(manager.listServers()[0].status).toBe('connected');
