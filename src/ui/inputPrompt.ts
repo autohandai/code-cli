@@ -20,7 +20,7 @@ import {
   getMimeTypeFromExtension,
 } from '../core/ImageManager.js';
 import { getContentDisplay } from './displayUtils.js';
-import { drawInputBox } from './box.js';
+import { drawInputBottomBorder, drawInputBox, drawInputTopBorder } from './box.js';
 import { buildFileMentionSuggestions } from './mentionFilter.js';
 import { getTheme, isThemeInitialized } from './theme/index.js';
 import type { ColorToken } from './theme/types.js';
@@ -345,6 +345,29 @@ export function buildPromptRenderState(
   const clampedCursor = Math.max(0, Math.min(width - 1, cursorColumn));
 
   return { lineText, cursorColumn: clampedCursor };
+}
+
+function formatPromptStatusRow(
+  statusLine: string | { left: string; right: string } | undefined,
+  width: number
+): string {
+  let left: string;
+  let right: string | undefined;
+  if (typeof statusLine === 'object' && statusLine !== null) {
+    left = statusLine.left ?? '';
+    right = statusLine.right || undefined;
+  } else {
+    left = statusLine ?? ' ';
+  }
+
+  const plainLeft = stripAnsiCodes(left);
+  const plainRight = right ? stripAnsiCodes(right) : '';
+  const minGap = plainRight ? 2 : 0;
+  const availableForLeft = Math.max(0, width - plainRight.length - minGap);
+  const clippedLeft = truncatePlainText(plainLeft, availableForLeft);
+  const gap = Math.max(0, width - clippedLeft.length - plainRight.length);
+  const row = `${clippedLeft}${' '.repeat(gap)}${plainRight}`;
+  return themedFg('muted', row.padEnd(width), (value) => chalk.gray(value));
 }
 
 /**
@@ -951,12 +974,13 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     return buildContextualHelpPanelLines(rlAny.line ?? '', width, files, slashCommands);
   };
 
-  const renderPromptSurface = (isResize = false, _hasExistingPromptBlock = true): void => {
+  const renderPromptSurface = (isResize = false, hasExistingPromptBlock = true): void => {
     renderPromptLine(
       rl,
       statusLine,
       stdOutput,
-      isResize
+      isResize,
+      hasExistingPromptBlock
     );
   };
 
@@ -1388,7 +1412,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         }
         // Re-prompt without sending to LLM
         stdOutput.write('\n');
-        renderPromptLine(rl, statusLine, stdOutput);
+        renderPromptLine(rl, statusLine, stdOutput, false, false);
         return;
       }
 
@@ -1453,42 +1477,55 @@ function disableReadlineTabBehavior(rl: readline.Interface): void {
   }
 }
 
-function renderPromptLine(rl: readline.Interface, statusLine: string | { left: string; right: string } | undefined, output: NodeJS.WriteStream, isResize = false): void {
-  const width = Math.max(20, output.columns || 80);
-
-  let left: string;
-  let right: string | undefined;
-  if (typeof statusLine === 'object' && statusLine !== null) {
-    left = statusLine.left;
-    right = statusLine.right || undefined;
-  } else {
-    left = statusLine ?? ' ';
-  }
-
+function renderPromptLine(
+  rl: readline.Interface,
+  statusLine: string | { left: string; right: string } | undefined,
+  output: NodeJS.WriteStream,
+  isResize = false,
+  hasExistingPromptBlock = true
+): void {
+  const width = getPromptBlockWidth(output.columns);
   const rlAny = rl as readline.Interface & { cursor?: number; line?: string };
-  const box = drawInputBox(left, width, right);
   const currentLine = rlAny.line ?? '';
   const cursorPos = rlAny.cursor ?? currentLine.length;
+  const prompt = buildPromptRenderState(currentLine, cursorPos, width);
+  const topBorder = drawInputTopBorder(width);
+  const bottomBorder = drawInputBottomBorder(width);
+  const statusRow = formatPromptStatusRow(statusLine, width);
 
-  // Keep readline's prompt in sync with the prefix we render
+  // Keep readline's prompt in sync for line editing internals.
   rl.setPrompt(PROMPT_PREFIX);
 
-  // Clear prompt + status line region
-  readline.cursorTo(output, 0);
   if (isResize) {
+    readline.cursorTo(output, 0);
     readline.clearScreenDown(output);
-  } else {
+  } else if (hasExistingPromptBlock) {
+    // Cursor normally sits on the input row.
+    // Clear the full prompt block in place before re-drawing.
+    readline.cursorTo(output, 0);
+    for (let i = 0; i < PROMPT_LINES_ABOVE_INPUT; i++) {
+      readline.moveCursor(output, 0, -1);
+      readline.clearLine(output, 0);
+    }
+    readline.cursorTo(output, 0);
     readline.clearLine(output, 0);
-    readline.moveCursor(output, 0, 1);
-    readline.clearLine(output, 0);
-    readline.moveCursor(output, 0, -1);
+    for (let i = 0; i < PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT; i++) {
+      readline.moveCursor(output, 0, 1);
+      readline.clearLine(output, 0);
+    }
+    for (let i = 0; i < PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT; i++) {
+      readline.moveCursor(output, 0, -1);
+    }
+    readline.cursorTo(output, 0);
   }
 
-  // Render prompt/input then status directly below
-  output.write(`${PROMPT_PREFIX}${currentLine}\n`);
-  output.write(box);
+  // Render top border, input row, bottom border, and status row.
+  output.write(`${topBorder}\n`);
+  output.write(`${prompt.lineText}\n`);
+  output.write(`${bottomBorder}\n`);
+  output.write(statusRow);
 
-  // Move cursor back to prompt line at correct column
-  readline.moveCursor(output, 0, -1);
-  readline.cursorTo(output, PROMPT_VISIBLE_LENGTH + cursorPos);
+  // Move cursor back to input row, inside the box.
+  readline.moveCursor(output, 0, -(PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT));
+  readline.cursorTo(output, prompt.cursorColumn);
 }
