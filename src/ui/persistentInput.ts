@@ -210,6 +210,10 @@ export class PersistentInput extends EventEmitter {
     return this.currentInput;
   }
 
+  private emitInputChange(): void {
+    this.emit('input-change', this.currentInput);
+  }
+
   /**
    * Handle keypress events
    */
@@ -229,6 +233,7 @@ export class PersistentInput extends EventEmitter {
           if (!this.silentMode) {
             this.regions.updateInput('');
           }
+          this.emitInputChange();
           this.emit('immediate-command', text);
           return;
         }
@@ -238,6 +243,7 @@ export class PersistentInput extends EventEmitter {
         if (!this.silentMode) {
           this.regions.updateInput('');
         }
+        this.emitInputChange();
       }
       return;
     }
@@ -249,6 +255,7 @@ export class PersistentInput extends EventEmitter {
         if (!this.silentMode) {
           this.regions.updateInput(this.currentInput);
         }
+        this.emitInputChange();
       }
       return;
     }
@@ -278,6 +285,7 @@ export class PersistentInput extends EventEmitter {
         if (!this.silentMode) {
           this.regions.updateInput(this.currentInput);
         }
+        this.emitInputChange();
       }
     }
   };

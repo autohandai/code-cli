@@ -7,10 +7,28 @@
  * Allows spinner/output in top region while keeping input visible at bottom
  */
 import chalk from 'chalk';
+import { drawInputBottomBorder, drawInputBox, drawInputTopBorder } from './box.js';
+import { getTheme, isThemeInitialized } from './theme/index.js';
+import type { ColorToken } from './theme/types.js';
 
 // ANSI escape sequences
 const ESC = '\x1B';
 const CSI = `${ESC}[`;
+const PROMPT_PLACEHOLDER = 'Plan, search, build anything';
+const PROMPT_INPUT_PREFIX = '▸ ';
+const ANSI_PATTERN = /\u001b\[[0-9;]*m/g;
+
+function themedFg(token: ColorToken, text: string, fallback: (value: string) => string): string {
+  if (!isThemeInitialized()) {
+    return fallback(text);
+  }
+
+  try {
+    return getTheme().fg(token, text);
+  } catch {
+    return fallback(text);
+  }
+}
 
 /**
  * TerminalRegions manages split terminal regions:
@@ -19,9 +37,12 @@ const CSI = `${ESC}[`;
  */
 export class TerminalRegions {
   private isActive = false;
-  private fixedLines = 3; // separator + status + input
+  private fixedLines = 4; // input top + input line + input bottom + status
   private output: NodeJS.WriteStream;
   private resizeHandler: (() => void) | null = null;
+  private currentInput = '';
+  private currentQueueCount = 0;
+  private currentStatus = '';
 
   constructor(output: NodeJS.WriteStream = process.stdout) {
     this.output = output;
@@ -46,9 +67,6 @@ export class TerminalRegions {
 
     // Set scroll region (CSI Ps ; Ps r) - top to scrollEnd
     this.output.write(`${CSI}1;${scrollEnd}r`);
-
-    // Move cursor to top of scroll region
-    this.output.write(`${CSI}1;1H`);
 
     this.isActive = true;
 
@@ -94,7 +112,7 @@ export class TerminalRegions {
     this.output.write(`${CSI}1;${scrollEnd}r`);
 
     // Re-render fixed region
-    this.renderFixedRegion();
+    this.renderFixedRegion(this.currentInput, this.currentQueueCount, this.currentStatus);
   }
 
   /**
@@ -103,25 +121,31 @@ export class TerminalRegions {
   renderFixedRegion(input = '', queueCount = 0, status = ''): void {
     if (!this.isActive) return;
 
+    this.currentInput = input;
+    this.currentQueueCount = queueCount;
+    this.currentStatus = status;
+
     const height = this.output.rows || 24;
-    const width = this.output.columns || 80;
+    const promptWidth = this.getPromptWidth(this.output.columns || 80);
 
     // Save cursor position
     this.output.write(`${CSI}s`);
 
+    this.output.write(`${CSI}${height - 3};1H`);
+    this.output.write(`${CSI}K`);
+    this.output.write(drawInputTopBorder(promptWidth));
+
     this.output.write(`${CSI}${height - 2};1H`);
     this.output.write(`${CSI}K`);
-    this.output.write(chalk.gray('─'.repeat(width)));
+    this.output.write(drawInputBox(this.getInputContent(input), promptWidth));
 
     this.output.write(`${CSI}${height - 1};1H`);
     this.output.write(`${CSI}K`);
-    const queueStatus = queueCount > 0 ? chalk.cyan(` [${queueCount} queued]`) : '';
-    const statusText = status || 'type to queue · Enter to submit';
-    this.output.write(chalk.gray(statusText) + queueStatus);
+    this.output.write(drawInputBottomBorder(promptWidth));
 
     this.output.write(`${CSI}${height};1H`);
     this.output.write(`${CSI}K`);
-    this.output.write(chalk.gray('›') + ' ' + input);
+    this.output.write(this.formatStatusLine(status, queueCount, promptWidth));
 
     // Restore cursor position to scroll region
     this.output.write(`${CSI}u`);
@@ -133,12 +157,14 @@ export class TerminalRegions {
   updateInput(input: string): void {
     if (!this.isActive) return;
 
+    this.currentInput = input;
     const height = this.output.rows || 24;
+    const promptWidth = this.getPromptWidth(this.output.columns || 80);
 
     this.output.write(`${CSI}s`);
-    this.output.write(`${CSI}${height};1H`);
+    this.output.write(`${CSI}${height - 2};1H`);
     this.output.write(`${CSI}K`);
-    this.output.write(chalk.gray('›') + ' ' + input);
+    this.output.write(drawInputBox(this.getInputContent(input), promptWidth));
     this.output.write(`${CSI}u`);
   }
 
@@ -148,14 +174,45 @@ export class TerminalRegions {
   updateStatus(status: string, queueCount = 0): void {
     if (!this.isActive) return;
 
+    this.currentStatus = status;
+    this.currentQueueCount = queueCount;
     const height = this.output.rows || 24;
+    const promptWidth = this.getPromptWidth(this.output.columns || 80);
 
     this.output.write(`${CSI}s`);
-    this.output.write(`${CSI}${height - 1};1H`);
+    this.output.write(`${CSI}${height};1H`);
     this.output.write(`${CSI}K`);
-    const queueStatus = queueCount > 0 ? chalk.cyan(` [${queueCount} queued]`) : '';
-    this.output.write(chalk.gray(status) + queueStatus);
+    this.output.write(this.formatStatusLine(status, queueCount, promptWidth));
     this.output.write(`${CSI}u`);
+  }
+
+  private getPromptWidth(columns: number): number {
+    return Math.max(10, columns - 1);
+  }
+
+  private getInputContent(input: string): string {
+    if (!input) {
+      return themedFg(
+        'muted',
+        `${PROMPT_INPUT_PREFIX}${PROMPT_PLACEHOLDER}`,
+        (value) => chalk.gray(value)
+      );
+    }
+    const prefix = themedFg('accent', PROMPT_INPUT_PREFIX, (value) => chalk.gray(value));
+    return `${prefix}${input}`;
+  }
+
+  private formatStatusLine(status: string, queueCount: number, width: number): string {
+    const defaultStatus = 'type to queue · Enter to submit';
+    const baseStatus = status || defaultStatus;
+    const hasQueuedText = /\bqueued\b/i.test(baseStatus);
+    const queueSuffix = queueCount > 0 && !hasQueuedText ? ` · ${queueCount} queued` : '';
+    const plain = `${baseStatus}${queueSuffix}`.replace(ANSI_PATTERN, '');
+    if (plain.length <= width) {
+      return themedFg('muted', plain.padEnd(width), (value) => chalk.gray(value));
+    }
+    const clipped = width <= 1 ? '…' : `${plain.slice(0, width - 1)}…`;
+    return themedFg('muted', clipped, (value) => chalk.gray(value));
   }
 
   /**
@@ -163,11 +220,12 @@ export class TerminalRegions {
    */
   private clearFixedRegion(): void {
     const height = this.output.rows || 24;
+    this.output.write(`${CSI}s`);
     for (let i = 0; i < this.fixedLines; i++) {
       this.output.write(`${CSI}${height - i};1H`);
       this.output.write(`${CSI}K`);
     }
-    this.output.write(`${CSI}${height - this.fixedLines};1H`);
+    this.output.write(`${CSI}u`);
   }
 
   /**
