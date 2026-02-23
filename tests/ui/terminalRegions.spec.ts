@@ -51,7 +51,7 @@ describe('TerminalRegions', () => {
     const plain = stripAnsi(output.writes.join(''));
     expect(plain).toContain('┌');
     expect(plain).toContain('└');
-    expect(plain).toContain('▸ Plan, search, build anything');
+    expect(plain).toContain('❯ Plan, search, build anything');
     expect(output.writes.join('')).not.toContain('\x1b[1;1H');
   });
 
@@ -64,7 +64,7 @@ describe('TerminalRegions', () => {
     regions.updateInput('queue this');
 
     const plain = stripAnsi(output.writes.join(''));
-    expect(plain).toContain('▸ queue this');
+    expect(plain).toContain('❯ queue this');
     expect(output.writes.join('')).toContain('\x1b[22;13H');
   });
 

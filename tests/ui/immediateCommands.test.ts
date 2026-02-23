@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { EventEmitter } from 'node:events';
 
 describe('Immediate command detection - isImmediateCommand', () => {
   let isImmediateCommand: typeof import('../../src/ui/shellCommand.js').isImmediateCommand;
@@ -197,5 +198,57 @@ describe('PersistentInput immediate command handling', () => {
     expect(focusScrollBottom.mock.invocationCallOrder[0]).toBeLessThan(
       disable.mock.invocationCallOrder[0]
     );
+  });
+
+  it('start resumes stdin so queue typing works after readline prompt closes', () => {
+    const pi = new PersistentInput({ silentMode: true });
+    const mockInput = new EventEmitter() as NodeJS.ReadStream;
+    const resume = vi.fn();
+    const setRawMode = vi.fn();
+
+    (mockInput as any).isTTY = true;
+    (mockInput as any).resume = resume;
+    (mockInput as any).setRawMode = setRawMode;
+    (mockInput as any).isRaw = false;
+    (pi as any).input = mockInput;
+
+    pi.start();
+
+    expect(resume).toHaveBeenCalled();
+  });
+
+  it('resume resumes stdin and redraws regions after pause', () => {
+    const pi = new PersistentInput({ silentMode: false });
+    const mockInput = new EventEmitter() as NodeJS.ReadStream;
+    const resume = vi.fn();
+    const setRawMode = vi.fn();
+    const enable = vi.fn();
+    const renderFixedRegion = vi.fn();
+
+    (mockInput as any).isTTY = true;
+    (mockInput as any).resume = resume;
+    (mockInput as any).setRawMode = setRawMode;
+    (mockInput as any).isRaw = false;
+    (pi as any).input = mockInput;
+    (pi as any).isActive = true;
+    (pi as any).isPaused = true;
+    (pi as any)._supportsRaw = true;
+    (pi as any).regions = {
+      enable,
+      renderFixedRegion,
+      updateInput: vi.fn(),
+      updateStatus: vi.fn(),
+      updateActivity: vi.fn(),
+      disable: vi.fn(),
+      focusScrollBottom: vi.fn(),
+      writeAbove: vi.fn(),
+    };
+
+    pi.resume();
+
+    expect(resume).toHaveBeenCalled();
+    expect(enable).toHaveBeenCalled();
+    expect(setRawMode).toHaveBeenCalledWith(true);
+    expect(renderFixedRegion).toHaveBeenCalled();
   });
 });
