@@ -185,25 +185,41 @@ describe('agent startup and active input UI', () => {
   it('forceRenderSpinner keeps typed draft out of spinner status line while working', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const spinner = { text: '' };
+    const originalTerminalRegions = process.env.AUTOHAND_TERMINAL_REGIONS;
+    process.env.AUTOHAND_TERMINAL_REGIONS = '0';
+    try {
+      agent.taskStartedAt = Date.now() - 1000;
+      agent.sessionTokensUsed = 0;
+      agent.totalTokensUsed = 0;
+      agent.inkRenderer = null;
+      agent.persistentInputActiveTurn = true;
+      agent.persistentInput = {
+        getQueueLength: () => 0,
+        getCurrentInput: () => 'next message while working',
+        setStatusLine: vi.fn(),
+        setActivityLine: vi.fn(),
+      };
+      agent.queueInput = '';
+      agent.lastRenderedStatus = '';
+      agent.runtime = { spinner };
+      agent.activityIndicator = {
+        getVerb: () => 'Working',
+        getTip: () => 'Tip',
+        next: vi.fn(),
+      };
 
-    agent.taskStartedAt = Date.now() - 1000;
-    agent.sessionTokensUsed = 0;
-    agent.totalTokensUsed = 0;
-    agent.inkRenderer = null;
-    agent.persistentInputActiveTurn = true;
-    agent.persistentInput = {
-      getQueueLength: () => 0,
-      getCurrentInput: () => 'next message while working',
-      setStatusLine: vi.fn(),
-    };
-    agent.queueInput = '';
-    agent.lastRenderedStatus = '';
-    agent.runtime = { spinner };
+      (agent as any).forceRenderSpinner();
 
-    (agent as any).forceRenderSpinner();
-
-    expect(spinner.text).not.toContain('typing:');
-    expect(spinner.text).not.toContain('next message');
+      expect(spinner.text).toContain('Working...');
+      expect(spinner.text).not.toContain('typing:');
+      expect(spinner.text).not.toContain('next message');
+    } finally {
+      if (originalTerminalRegions === undefined) {
+        delete process.env.AUTOHAND_TERMINAL_REGIONS;
+      } else {
+        process.env.AUTOHAND_TERMINAL_REGIONS = originalTerminalRegions;
+      }
+    }
   });
 
   it('setupEscListener resumes stdin so queue input can be captured while working', () => {
