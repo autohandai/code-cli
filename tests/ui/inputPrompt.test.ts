@@ -150,14 +150,18 @@ describe('Prompt surface teardown', () => {
   });
 
   it('normalizes cursor offset when clearing from line events', async () => {
-    const { leavePromptSurface, PROMPT_LINES_BELOW_INPUT } = await import('../../src/ui/inputPrompt.js');
+    const {
+      leavePromptSurface,
+      PROMPT_LINES_BELOW_INPUT,
+      STATUS_LINE_COUNT
+    } = await import('../../src/ui/inputPrompt.js');
     const output = createMockOutput() as NodeJS.WriteStream & { _writes: string[] };
 
     leavePromptSurface(output, 1, true);
 
     const terminalOps = output._writes.join('');
     // line-event normalization moves upward before the clear pass
-    expect((terminalOps.match(/\[1A/g) || []).length).toBeGreaterThanOrEqual(PROMPT_LINES_BELOW_INPUT);
+    expect((terminalOps.match(/\[1A/g) || []).length).toBeGreaterThanOrEqual(PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT);
     expect((terminalOps.match(/\[2K/g) || []).length).toBeGreaterThanOrEqual(3);
   });
 });

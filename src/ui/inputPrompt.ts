@@ -847,9 +847,11 @@ export function leavePromptSurface(
   fromLineEvent = false
 ): void {
   // Enter submissions can leave the cursor one line below the input row.
-  // Normalize to the input line before clearing the prompt block.
+  // With a boxed prompt, readline can advance into the rows below input.
+  // Normalize back to the input line before clearing the full prompt block.
   if (fromLineEvent) {
-    for (let i = 0; i < PROMPT_LINES_BELOW_INPUT; i++) {
+    const normalizationRows = PROMPT_LINES_BELOW_INPUT + statusLineCount;
+    for (let i = 0; i < normalizationRows; i++) {
       readline.moveCursor(output, 0, -1);
     }
   }
