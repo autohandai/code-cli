@@ -6,22 +6,6 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('node:child_process', () => ({
-  execSync: vi.fn()
-}));
-
-vi.mock('chalk', () => ({
-  default: {
-    red: (str: string) => str,
-    gray: (str: string) => str,
-    cyan: (str: string) => str,
-    green: (str: string) => str,
-    yellow: (str: string) => str,
-    bold: (str: string) => str,
-    dim: (str: string) => str,
-  }
-}));
-
 describe('Immediate command detection - isImmediateCommand', () => {
   let isImmediateCommand: typeof import('../../src/ui/shellCommand.js').isImmediateCommand;
 
@@ -74,7 +58,8 @@ describe('PersistentInput immediate command handling', () => {
   let PersistentInput: typeof import('../../src/ui/persistentInput.js').PersistentInput;
 
   beforeEach(async () => {
-    vi.resetModules();
+    const resetModules = (vi as unknown as { resetModules?: () => void }).resetModules;
+    resetModules?.();
     const module = await import('../../src/ui/persistentInput.js');
     PersistentInput = module.PersistentInput;
   });
@@ -85,7 +70,7 @@ describe('PersistentInput immediate command handling', () => {
 
   it('should emit immediate-command instead of queuing for ! commands', () => {
     const pi = new PersistentInput({ silentMode: true });
-    // Bypass start() which needs TTY — set isActive directly
+    // Bypass start() which needs TTY - set isActive directly
     (pi as any).isActive = true;
 
     const immediateHandler = vi.fn();
@@ -167,5 +152,21 @@ describe('PersistentInput immediate command handling', () => {
     handler('', { name: 'return' });
 
     expect(pi.getCurrentInput()).toBe('');
+  });
+
+  it('emits input-change events while editing and after submit', () => {
+    const pi = new PersistentInput({ silentMode: true });
+    (pi as any).isActive = true;
+
+    const handler = (pi as any).handleKeypress;
+    const changes: string[] = [];
+    pi.on('input-change', (value: string) => changes.push(value));
+
+    handler('h', { name: undefined });
+    handler('i', { name: undefined });
+    handler('', { name: 'backspace' });
+    handler('', { name: 'return' });
+
+    expect(changes).toEqual(['h', 'hi', 'h', '']);
   });
 });

@@ -7,7 +7,13 @@ import chalk from 'chalk';
 import readline from 'node:readline';
 import type { SlashCommand } from '../core/slashCommands.js';
 import { buildFileMentionSuggestions, MENTION_SUGGESTION_LIMIT } from './mentionFilter.js';
-import { PROMPT_PREFIX, PROMPT_VISIBLE_LENGTH, STATUS_LINE_COUNT, safeEmitKeypressEvents } from './inputPrompt.js';
+import {
+  STATUS_LINE_COUNT,
+  PROMPT_LINES_BELOW_INPUT,
+  safeEmitKeypressEvents,
+  buildPromptRenderState,
+  getPromptBlockWidth
+} from './inputPrompt.js';
 
 type Mode = 'file' | 'slash' | null;
 
@@ -19,9 +25,10 @@ export class MentionPreview {
   private mode: Mode = null;
   private activeIndex = 0;
   private disposed = false;
+  private suspended = false;
   private lastSuggestions: string[] = [];
   // Suggestions render below the status line (one extra line for spacing)
-  private readonly suggestionOffset = STATUS_LINE_COUNT + 1;
+  private readonly suggestionOffset = STATUS_LINE_COUNT + PROMPT_LINES_BELOW_INPUT + 1;
 
   constructor(
     private readonly rl: readline.Interface,
@@ -54,20 +61,30 @@ export class MentionPreview {
   }
 
   handleResize(): void {
-    if (this.disposed || !this.suggestionLines) {
+    if (this.disposed || this.suspended || !this.suggestionLines) {
       return;
     }
     this.clear(false);
     this.render(this.lastSuggestions);
   }
 
+  setSuspended(suspended: boolean): void {
+    if (this.suspended === suspended) {
+      return;
+    }
+    this.suspended = suspended;
+    if (suspended) {
+      this.clear();
+    }
+  }
+
   private handleKeypress(_str: string, key: readline.Key): void {
-    if (this.disposed) {
+    if (this.disposed || this.suspended) {
       return;
     }
     const beforeCursor = this.rl.line.slice(0, this.rl.cursor);
 
-    if (this.isTabKey(key)) {
+    if (this.isTabKey(_str, key)) {
       if (this.mode === 'file' && this.fileSuggestions.length) {
         this.insertFileSuggestion(beforeCursor, this.fileSuggestions[this.activeIndex]);
         return;
@@ -142,8 +159,11 @@ export class MentionPreview {
     return /@([A-Za-z0-9_./\\-]*)$/.exec(beforeCursor);
   }
 
-  private isTabKey(key: readline.Key | undefined): boolean {
-    return key?.name === 'tab' || key?.sequence === '\t';
+  private isTabKey(str: string, key: readline.Key | undefined): boolean {
+    if (key?.name === 'backtab' || key?.sequence === '\x1b[Z' || str === '\x1b[Z' || key?.shift) {
+      return false;
+    }
+    return key?.name === 'tab' || key?.sequence === '\t' || str === '\t';
   }
 
   private filterSlash(seed: string): string[] {
@@ -153,13 +173,13 @@ export class MentionPreview {
       .slice(0, 5);
 
     return this.slashMatches.map((cmd) => {
-      const detail = cmd.description ? chalk.gray(` — ${cmd.description}`) : '';
+      const detail = cmd.description ? chalk.gray(` - ${cmd.description}`) : '';
       return `${cmd.command}${detail}`;
     });
   }
 
   private render(suggestions: string[]): void {
-    if (this.disposed) {
+    if (this.disposed || this.suspended) {
       return;
     }
 
@@ -213,8 +233,10 @@ export class MentionPreview {
     readline.cursorTo(this.output, 0);
     const rlAny = this.rl as readline.Interface & { line: string; cursor: number };
     const cursorPos = rlAny.cursor ?? rlAny.line.length;
-    this.output.write(`${PROMPT_PREFIX}${rlAny.line}`);
-    readline.cursorTo(this.output, PROMPT_VISIBLE_LENGTH + cursorPos);
+    const width = getPromptBlockWidth(this.output.columns);
+    const state = buildPromptRenderState(rlAny.line, cursorPos, width);
+    this.output.write(state.lineText);
+    readline.cursorTo(this.output, state.cursorColumn);
   }
 
   private clear(reprompt = true): void {
@@ -235,9 +257,11 @@ export class MentionPreview {
     if (reprompt && !this.disposed) {
       const rlAny = this.rl as readline.Interface & { line: string; cursor: number };
       readline.cursorTo(this.output, 0);
-      this.output.write(`${PROMPT_PREFIX}${rlAny.line}`);
       const cursorPos = rlAny.cursor ?? rlAny.line.length;
-      readline.cursorTo(this.output, PROMPT_VISIBLE_LENGTH + cursorPos);
+      const width = getPromptBlockWidth(this.output.columns);
+      const state = buildPromptRenderState(rlAny.line, cursorPos, width);
+      this.output.write(state.lineText);
+      readline.cursorTo(this.output, state.cursorColumn);
     }
   }
 
@@ -268,8 +292,10 @@ export class MentionPreview {
       this.rl._refreshLine();
     } else {
       readline.cursorTo(this.output, 0);
-      this.output.write(`${PROMPT_PREFIX}${newLine}`);
-      readline.cursorTo(this.output, PROMPT_VISIBLE_LENGTH + newCursorPos);
+      const width = getPromptBlockWidth(this.output.columns);
+      const state = buildPromptRenderState(newLine, newCursorPos, width);
+      this.output.write(state.lineText);
+      readline.cursorTo(this.output, state.cursorColumn);
     }
   }
 

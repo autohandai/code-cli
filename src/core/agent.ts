@@ -15,7 +15,11 @@ import { FileActionManager } from '../actions/filesystem.js';
 import { saveConfig, getProviderConfig } from '../config.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import { ProviderNotConfiguredError } from '../providers/ProviderFactory.js';
-import { readInstruction, safeEmitKeypressEvents } from '../ui/inputPrompt.js';
+import {
+  getPromptBlockWidth,
+  readInstruction,
+  safeEmitKeypressEvents
+} from '../ui/inputPrompt.js';
 import { safeSetRawMode } from '../ui/rawMode.js';
 import { isShellCommand, isImmediateCommand, parseShellCommand, executeShellCommand } from '../ui/shellCommand.js';
 import { showFilePalette } from '../ui/filePalette.js';
@@ -148,6 +152,7 @@ export class AutohandAgent {
   private useInkRenderer = false;
   private pendingInkInstructions: string[] = [];
   private persistentInput: PersistentInput;
+  private persistentInputActiveTurn = false;
   private queueInput = '';
   private lastRenderedStatus = '';
 
@@ -510,18 +515,20 @@ export class AutohandAgent {
     // Check if Ink renderer is enabled
     this.useInkRenderer = runtime.config.ui?.useInkRenderer === true;
 
-    // Initialize persistent input for queuing messages while agent works
-    // Using silent mode to avoid conflicts with ora spinner
+    // Initialize persistent input for queuing messages while agent works.
+    // Default to silent mode so scrollback/chat logs are never impacted by
+    // terminal scroll-region behavior. Full region mode remains opt-in.
+    const enableTerminalRegions = process.env.AUTOHAND_TERMINAL_REGIONS === '1';
     this.persistentInput = createPersistentInput({
       maxQueueSize: 10,
-      silentMode: true
+      silentMode: !enableTerminalRegions
     });
 
     this.persistentInput.on('queued', (text: string, count: number) => {
       const preview = text.length > 30 ? text.slice(0, 27) + '...' : text;
       if (this.inkRenderer) {
         this.inkRenderer.addQueuedInstruction(text);
-      } else if (this.runtime.spinner) {
+      } else if (this.runtime.spinner && !this.persistentInputActiveTurn) {
         const originalText = this.runtime.spinner.text;
         this.runtime.spinner.text = chalk.cyan(`✓ Queued: "${preview}" (${count} pending)`);
         setTimeout(() => {
@@ -532,7 +539,14 @@ export class AutohandAgent {
       }
     });
 
-    // Handle immediate commands (! shell, / slash) from PersistentInput — bypass queue
+    this.persistentInput.on('input-change', () => {
+      if (!this.persistentInputActiveTurn || !this.taskStartedAt || this.inkRenderer) {
+        return;
+      }
+      this.forceRenderSpinner();
+    });
+
+    // Handle immediate commands (! shell, / slash) from PersistentInput - bypass queue
     this.persistentInput.on('immediate-command', (text: string) => {
       if (isShellCommand(text)) {
         const cmd = parseShellCommand(text);
@@ -602,7 +616,7 @@ export class AutohandAgent {
       // Context compaction toggle for /cc command
       toggleContextCompaction: () => this.toggleContextCompaction(),
       isContextCompactionEnabled: () => this.isContextCompactionEnabled(),
-      // Non-interactive mode (RPC/ACP) — guards interactive commands
+      // Non-interactive mode (RPC/ACP) - guards interactive commands
       isNonInteractive: runtime.isRpcMode === true,
     };
     this.slashHandler = new SlashCommandHandler(slashContext, SLASH_COMMANDS);
@@ -654,6 +668,7 @@ export class AutohandAgent {
   private mcpStartupAutoConnectServers: string[] = [];
   private mcpStartupConnectStartedAt: number | null = null;
   private mcpStartupSummaryPrinted = false;
+  private mcpStartupSummaryPending = false;
 
   async runInteractive(): Promise<void> {
     // Bail out early if stdin is not a TTY - interactive mode requires a terminal
@@ -667,6 +682,7 @@ export class AutohandAgent {
     this.mcpStartupAutoConnectServers = getAutoConnectMcpServerNames(this.runtime.config.mcp?.servers);
     this.mcpStartupConnectStartedAt = null;
     this.mcpStartupSummaryPrinted = false;
+    this.mcpStartupSummaryPending = false;
     if (this.runtime.config.mcp?.enabled !== false && this.mcpStartupAutoConnectServers.length > 0) {
       const count = this.mcpStartupAutoConnectServers.length;
       const label = count === 1 ? 'server' : 'servers';
@@ -707,7 +723,10 @@ export class AutohandAgent {
         this.mcpReady = this.mcpManager
           .connectAll(this.runtime.config.mcp?.servers ?? [])
           .then(() => { this.syncMcpTools(); })
-          .catch(() => { /* individual server errors already captured by connectAll */ });
+          .catch(() => { /* individual server errors already captured by connectAll */ })
+          .finally(() => {
+            this.mcpStartupSummaryPending = true;
+          });
       }
 
       // Phase 2: Sequential setup that depends on phase 1
@@ -746,12 +765,9 @@ export class AutohandAgent {
       await this.initReady;
       this.initReady = null;
 
-      // Wait for MCP connections to finish (started as fire-and-forget in background init).
-      // Without this, /mcp and LLM instructions may run before servers are connected.
-      if (this.mcpReady) {
-        await this.mcpReady;
-      }
-      this.printMcpStartupSummaryIfNeeded();
+      // Keep MCP startup async and do not block first instruction execution.
+      // MCP tool calls still await mcpReady in the tool executor path.
+      this.flushMcpStartupSummaryIfPending();
 
       // Fire session-start hook now that the prompt is closed and stdout is clean
       const session = this.sessionManager.getCurrentSession();
@@ -781,7 +797,10 @@ export class AutohandAgent {
       this.mcpReady = this.mcpManager
         .connectAll(this.runtime.config.mcp?.servers ?? [])
         .then(() => { this.syncMcpTools(); })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => {
+          this.mcpStartupSummaryPending = true;
+        });
     }
     // These must run sequentially after the parallel init
     await this.skillsRegistry.setWorkspace(this.runtime.workspaceRoot);
@@ -1051,6 +1070,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         // Ensure background init is complete before processing any instruction.
         // This runs while the user was typing, so it's usually already done.
         await this.ensureInitComplete();
+        this.flushMcpStartupSummaryIfPending();
 
         if (instruction === '/exit' || instruction === '/quit') {
           // Fire-and-forget: don't block quit on telemetry
@@ -1069,12 +1089,15 @@ If lint or tests fail, report the issues but do NOT commit.`;
           await this.telemetryManager.trackCommand({ command: instruction.split(' ')[0] });
         }
 
+        this.printUserInstructionToChatLog(instruction);
+
         // Reset error tracking on successful prompt
         this.lastErrorMessage = null;
         this.consecutiveErrorCount = 0;
 
         const turnStartTime = Date.now();
         await this.runInstruction(instruction);
+        this.flushMcpStartupSummaryIfPending();
 
         // Fire stop hook after turn completes (non-blocking)
         const turnDuration = Date.now() - turnStartTime;
@@ -1247,14 +1270,14 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
         // /quit and /exit return themselves as pass-through instructions
         // so the interactive loop's special exit handler (line 963) can catch them.
-        // Skip the slash handler for these — they're control-flow, not commands.
+        // Skip the slash handler for these - they're control-flow, not commands.
         if (command === '/quit' || command === '/exit') {
           return command;
         }
 
         const handled = await this.handleSlashCommand(command, args);
         if (handled !== null) {
-          // Slash command returned display output — print it, don't send to LLM
+          // Slash command returned display output - print it, don't send to LLM
           console.log(handled);
         }
         return null;
@@ -1532,6 +1555,19 @@ If lint or tests fail, report the issues but do NOT commit.`;
       }
     });
 
+    const shouldUsePersistentInput = !this.useInkRenderer &&
+      process.stdout.isTTY &&
+      process.stdin.isTTY &&
+      this.runtime.config.agent?.enableRequestQueue !== false;
+
+    if (shouldUsePersistentInput) {
+      this.persistentInput.start();
+      this.persistentInputActiveTurn = true;
+      this.persistentInput.setStatusLine(this.formatStatusLine());
+    } else {
+      this.persistentInputActiveTurn = false;
+    }
+
     // Only setup ESC listener for non-Ink mode (Ink handles its own input)
     const cleanupEsc = this.useInkRenderer
       ? () => {} // No-op, Ink handles input
@@ -1635,6 +1671,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
       cleanupEsc();
       stopPreparation();
       this.stopStatusUpdates();
+      if (this.persistentInputActiveTurn) {
+        this.persistentInput.stop();
+        this.persistentInputActiveTurn = false;
+      }
       this.cleanupUI();
 
       // Show completion summary (skip if using Ink - it handles this via completionStats)
@@ -1753,7 +1793,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const summary = lastUserMsg?.content.slice(0, 60) || 'Session complete';
     await this.sessionManager.closeSession(summary);
 
-    // Print exit message immediately — user sees instant feedback
+    // Print exit message immediately - user sees instant feedback
     console.log(chalk.gray('\nEnding Autohand session.\n'));
     console.log(chalk.cyan(`💾 Session saved: ${session.metadata.sessionId}`));
     console.log(chalk.gray(`   Resume with: autohand resume ${session.metadata.sessionId}\n`));
@@ -1882,11 +1922,12 @@ If lint or tests fail, report the issues but do NOT commit.`;
         }
       }
 
-      // Show iteration progress for long-running tasks (every 10 steps after step 10)
-      if (iteration >= 10 && iteration % 10 === 0) {
-        this.runtime.spinner?.start(`Working... (step ${iteration + 1})`);
-      } else {
-        this.runtime.spinner?.start('Working ...');
+      // Keep spinner active without switching to a non-boxed status renderer.
+      if (this.runtime.spinner && !this.runtime.spinner.isSpinning) {
+        this.runtime.spinner.start();
+      }
+      if (!this.inkRenderer) {
+        this.forceRenderSpinner();
       }
       // Get messages with images included for multimodal support
       const messagesWithImages = this.getMessagesWithImages();
@@ -1978,7 +2019,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         console.log(chalk.yellow(`  - finishReason: ${completion.finishReason ?? '(none)'}`));
       }
 
-      // Detect truncated responses — some models silently cut off at max_tokens
+      // Detect truncated responses - some models silently cut off at max_tokens
       if (completion.finishReason === 'length' && !payload.finalResponse) {
         if (debugMode) process.stderr.write(`[AGENT DEBUG] Response truncated (finishReason=length), asking model to continue\n`);
         this.conversation.addSystemNote(
@@ -2335,7 +2376,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         return;
       }
     } catch {
-      // Summary call failed — fall through to static summary
+      // Summary call failed - fall through to static summary
     }
 
     // Last resort: show a static summary of what was accomplished
@@ -2797,7 +2838,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       '### Phase 3: Implementation',
       '1. Write code using `write_file`, `search_replace`, `apply_patch`, or `multi_file_edit`.',
       '2. Make small, logical changes with clear reasoning in your "thought" field.',
-      '3. Destructive operations (delete_path, run_command with rm/sudo) require explicit user approval—clearly justify them.',
+      '3. Destructive operations (delete_path, run_command with rm/sudo) require explicit user approval. Clearly justify them.',
       '',
       '### Phase 4: Verification (MANDATORY for implementation)',
       'You are NOT done until you have validated your changes:',
@@ -2896,7 +2937,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       '### Plan Format',
       'When using the `plan` tool, the `notes` field MUST contain a numbered step-by-step plan.',
       'Break the task into 3-10 concrete, actionable steps. Each step should be specific enough to execute independently.',
-      'NEVER submit a single sentence as the plan — always break it into multiple numbered steps.',
+      'NEVER submit a single sentence as the plan - always break it into multiple numbered steps.',
       '',
       'Example plan notes:',
       '"1. Read the existing authentication code in src/auth/\\n2. Create JWT utility module at src/auth/jwt.ts\\n3. Add token generation and validation functions\\n4. Update login endpoint to use JWT\\n5. Write unit tests for JWT module\\n6. Run tests and verify"',
@@ -3338,7 +3379,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     if (this.inkRenderer) {
       this.inkRenderer.setStatus(status);
     } else if (this.runtime.spinner) {
-      this.runtime.spinner.text = status;
+      this.setSpinnerStatus(status);
     }
   }
 
@@ -3492,10 +3533,97 @@ If lint or tests fail, report the issues but do NOT commit.`;
     if (!wasRaw && supportsRaw) {
       safeSetRawMode(input, true);
     }
+    // promptOnce() pauses stdin during cleanup, so resume to keep queue capture alive mid-turn.
+    try {
+      input.resume();
+    } catch {
+      // Best effort, continue without failing interactive turn.
+    }
+    try {
+      input.setEncoding('utf8');
+    } catch {
+      // Best effort, continue without failing interactive turn.
+    }
 
     let ctrlCCount = 0;
     this.queueInput = '';
     const enableQueue = this.runtime.config.agent?.enableRequestQueue !== false;
+    const enableEscQueueInput = enableQueue && !this.persistentInputActiveTurn;
+    const rawEnabled = supportsRaw ? Boolean((input as any).isRaw) : false;
+    const useLineQueueFallback = enableEscQueueInput && !rawEnabled;
+    let lastKeypressAt = 0;
+    let lineReader: readline.Interface | null = null;
+
+    const submitQueueInput = () => {
+      if (!this.queueInput.trim()) {
+        return;
+      }
+
+      const text = this.queueInput.trim();
+      this.queueInput = '';
+
+      // Shell commands (!) and slash commands (/) execute immediately, never queued
+      if (isImmediateCommand(text)) {
+        if (isShellCommand(text)) {
+          const cmd = parseShellCommand(text);
+          console.log(chalk.gray(`\n$ ${cmd}`));
+          const result = executeShellCommand(cmd, this.runtime.workspaceRoot);
+          if (result.success) {
+            if (result.output) console.log(result.output);
+          } else {
+            console.log(chalk.red(result.error || 'Command failed'));
+          }
+        } else if (text.startsWith('/')) {
+          const { command, args } = this.parseSlashCommand(text);
+          this.handleSlashCommand(command, args)
+            .then((handled) => {
+              if (handled !== null) {
+                console.log(handled);
+              }
+            })
+            .catch((err: Error) => {
+              console.log(chalk.red(`\nCommand error: ${err.message}`));
+            });
+        }
+        this.updateInputLine();
+        return;
+      }
+
+      const queue = (this.persistentInput as any).queue as Array<{ text: string; timestamp: number }>;
+      if (queue.length >= 10) {
+        this.updateInputLine();
+        return;
+      }
+      queue.push({ text, timestamp: Date.now() });
+
+      const preview = text.length > 30 ? text.slice(0, 27) + '...' : text;
+      if (this.runtime.spinner) {
+        this.runtime.spinner.text = chalk.cyan(`✓ Queued: "${preview}" (${this.persistentInput.getQueueLength()} pending)`);
+      }
+      this.updateInputLine();
+    };
+
+    const ingestTextChunk = (chunk: string) => {
+      if (!chunk) {
+        return;
+      }
+
+      const normalized = chunk.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      const hasSubmit = normalized.includes('\n');
+      const printable = normalized.replace(/\n/g, '').replace(/[\x00-\x1F\x7F]/g, '');
+      if (printable) {
+        this.queueInput += printable;
+      }
+
+      if (hasSubmit) {
+        submitQueueInput();
+        return;
+      }
+
+      if (printable) {
+        this.updateInputLine();
+      }
+    };
 
     const handler = (_str: string, key: readline.Key) => {
       if (controller.signal.aborted) {
@@ -3521,50 +3649,13 @@ If lint or tests fail, report the issues but do NOT commit.`;
         return;
       }
 
-      if (enableQueue) {
+      if (enableEscQueueInput) {
+        if (useLineQueueFallback) {
+          return;
+        }
+
         if (key?.name === 'return' || key?.name === 'enter') {
-          if (this.queueInput.trim()) {
-            const text = this.queueInput.trim();
-            this.queueInput = '';
-
-            // Shell commands (!) and slash commands (/) execute immediately, never queued
-            if (isImmediateCommand(text)) {
-              if (isShellCommand(text)) {
-                const cmd = parseShellCommand(text);
-                console.log(chalk.gray(`\n$ ${cmd}`));
-                const result = executeShellCommand(cmd, this.runtime.workspaceRoot);
-                if (result.success) {
-                  if (result.output) console.log(result.output);
-                } else {
-                  console.log(chalk.red(result.error || 'Command failed'));
-                }
-              } else if (text.startsWith('/')) {
-                const { command, args } = this.parseSlashCommand(text);
-                this.handleSlashCommand(command, args)
-                  .then((handled) => {
-                    if (handled !== null) {
-                      console.log(handled);
-                    }
-                  })
-                  .catch((err: Error) => {
-                    console.log(chalk.red(`\nCommand error: ${err.message}`));
-                  });
-              }
-              this.updateInputLine();
-              return;
-            }
-
-            const queue = (this.persistentInput as any).queue as Array<{ text: string; timestamp: number }>;
-            if (queue.length >= 10) {
-              return;
-            }
-            queue.push({ text, timestamp: Date.now() });
-
-            const preview = text.length > 30 ? text.slice(0, 27) + '...' : text;
-            if (this.runtime.spinner) {
-              this.runtime.spinner.text = chalk.cyan(`✓ Queued: "${preview}" (${this.persistentInput.getQueueLength()} pending)`);
-            }
-          }
+          submitQueueInput();
           return;
         }
 
@@ -3579,18 +3670,52 @@ If lint or tests fail, report the issues but do NOT commit.`;
         }
 
         if (_str) {
-          const printable = _str.replace(/[\x00-\x1F\x7F]/g, '');
-          if (printable) {
-            this.queueInput += printable;
-            this.updateInputLine();
-          }
+          lastKeypressAt = Date.now();
         }
+        ingestTextChunk(_str);
       }
     };
+    const dataHandler = (chunk: string | Buffer) => {
+      if (controller.signal.aborted || !enableEscQueueInput) {
+        return;
+      }
+      const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      const now = Date.now();
+      // In raw mode, emitKeypressEvents and the data event can both fire for the same bytes.
+      // Deduplicate those bursts to avoid double-queuing typed input.
+      if (now - lastKeypressAt < 30) {
+        return;
+      }
+      ingestTextChunk(text);
+    };
+    if (useLineQueueFallback) {
+      lineReader = readline.createInterface({
+        input,
+        crlfDelay: Infinity,
+        historySize: 0,
+        terminal: false,
+      });
+      lineReader.on('line', (line) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        this.queueInput = line;
+        submitQueueInput();
+      });
+    }
+
     input.on('keypress', handler);
+    if (enableEscQueueInput && !useLineQueueFallback) {
+      input.on('data', dataHandler);
+    }
 
     return () => {
       input.off('keypress', handler);
+      if (enableEscQueueInput && !useLineQueueFallback) {
+        input.off('data', dataHandler);
+      }
+      lineReader?.close();
+      lineReader = null;
       this.queueInput = ''; // Clear input on cleanup
       if (!wasRaw && supportsRaw) {
         safeSetRawMode(input, false);
@@ -3608,7 +3733,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         this.inkRenderer.setStatus(status);
         this.inkRenderer.setElapsed(elapsed);
       } else if (this.runtime.spinner) {
-        this.runtime.spinner.text = status;
+        this.setSpinnerStatus(status);
       }
     };
     update();
@@ -4036,6 +4161,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     // Ensure startup init is settled before rendering server status/actions.
     if (command === '/mcp' || command === '/mcp install') {
       await this.ensureInitComplete();
+      this.flushMcpStartupSummaryIfPending();
     }
 
     const result = await this.slashHandler.handle(command, args);
@@ -4162,7 +4288,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const tokens = formatTokens(sessionTotal);
     const queueCount = this.inkRenderer?.getQueueCount() ?? this.persistentInput.getQueueLength();
     const queueHint = queueCount > 0 ? ` [${queueCount} queued]` : '';
-    const statusLine = `Working... (esc to interrupt · ${elapsed} · ${tokens}${queueHint})`;
+    const typedPreview = this.getTypingPreview();
+    const typingHint = typedPreview ? ` · typing: ${typedPreview}` : '';
+    const statusLine = `Working... (esc to interrupt · ${elapsed} · ${tokens}${queueHint})${typingHint}`;
+    const footerLine = this.formatStatusLine();
+    this.persistentInput.setStatusLine(footerLine);
 
     if (this.inkRenderer) {
       // InkRenderer handles its own state updates
@@ -4174,19 +4304,57 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
     if (!this.runtime.spinner) return;
 
-    const inputPreview = this.queueInput.length > 40
-      ? '...' + this.queueInput.slice(-37)
-      : this.queueInput;
-    const inputLine = `\n${chalk.gray('›')} ${inputPreview}${chalk.gray('▋')}`;
-
-    const fullText = statusLine + inputLine;
+    const promptWidth = getPromptBlockWidth(process.stdout.columns);
+    const fullText = this.buildSpinnerStatusText(statusLine, footerLine);
 
     // Only update if something actually changed
-    const cacheKey = `${statusLine}|${inputPreview}`;
+    const cacheKey = `${statusLine}|${footerLine}|${typedPreview}|${promptWidth}`;
     if (cacheKey === this.lastRenderedStatus) return;
     this.lastRenderedStatus = cacheKey;
 
     this.runtime.spinner.text = fullText;
+  }
+
+  private getTypingPreview(): string {
+    const activeText = this.persistentInputActiveTurn
+      ? this.persistentInput.getCurrentInput()
+      : this.queueInput;
+    const trimmed = activeText.trim();
+    if (!trimmed) {
+      return '';
+    }
+    return trimmed.length > 36 ? `${trimmed.slice(0, 33)}...` : trimmed;
+  }
+
+  private buildSpinnerStatusText(statusLine: string, footerLine?: string): string {
+    const promptWidth = getPromptBlockWidth(process.stdout.columns);
+    // Ora prefixes the first line with the spinner glyph and a space.
+    // Reserve 2 columns so wrapped status lines do not corrupt redraw.
+    const statusWidth = Math.max(10, promptWidth - 2);
+    const combined = footerLine ? `${statusLine} · ${footerLine}` : statusLine;
+    return this.fitSpinnerLine(combined, statusWidth);
+  }
+
+  private fitSpinnerLine(value: string, width: number): string {
+    const plain = value.replace(/\u001b\[[0-9;]*m/g, '').replace(/[\x00-\x1F\x7F]/g, '');
+    if (width <= 0) {
+      return '';
+    }
+    if (plain.length <= width) {
+      return plain;
+    }
+    if (width === 1) {
+      return '…';
+    }
+    return `${plain.slice(0, width - 1)}…`;
+  }
+
+  private setSpinnerStatus(status: string): void {
+    if (!this.runtime.spinner) {
+      return;
+    }
+
+    this.runtime.spinner.text = this.buildSpinnerStatusText(status, this.formatStatusLine());
   }
 
   private startStatusUpdates(): void {
@@ -4276,17 +4444,42 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const percent = Number.isFinite(this.contextPercentLeft)
       ? Math.max(0, Math.min(100, this.contextPercentLeft))
       : 100;
+    const totalTokens = this.sessionTokensUsed + this.totalTokensUsed;
+    const tokenStatus = `${formatTokens(totalTokens)} used`;
 
     const queueCount = this.inkRenderer?.getQueueCount() ?? this.persistentInput.getQueueLength();
     const queueStatus = queueCount > 0 ? ` · ${queueCount} queued` : '';
 
-    // Plan mode indicator
     const planModeManager = getPlanModeManager();
-    const planIndicator = planModeManager.isEnabled()
-      ? chalk.bgCyan.black.bold(' PLAN ') + ' '
-      : '';
+    const planStatus = planModeManager.isEnabled() ? 'plan:on' : 'plan:off';
 
-    return `${planIndicator}${percent}% context left · ${t('ui.commandHint')}${queueStatus}`;
+    return `${planStatus} · ${percent}% context left · ${tokenStatus} · ${t('ui.commandHint')} · ? shortcuts${queueStatus}`;
+  }
+
+  private printUserInstructionToChatLog(instruction: string): void {
+    if (this.useInkRenderer) {
+      return;
+    }
+
+    const normalized = instruction.replace(/\r\n/g, '\n').trim();
+    if (!normalized) {
+      return;
+    }
+
+    const lines = normalized.split('\n');
+    console.log(chalk.white(`\n› ${lines[0] ?? ''}`));
+    for (const line of lines.slice(1)) {
+      console.log(chalk.white(`  ${line}`));
+    }
+  }
+
+  private flushMcpStartupSummaryIfPending(): void {
+    if (!this.mcpStartupSummaryPending) {
+      return;
+    }
+
+    this.mcpStartupSummaryPending = false;
+    this.printMcpStartupSummaryIfNeeded();
   }
 
   private printMcpStartupSummaryIfNeeded(): void {
