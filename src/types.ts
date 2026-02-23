@@ -547,6 +547,8 @@ export interface CLIOptions {
   patch?: boolean;
   /** Output file for patch (default: stdout) */
   output?: string;
+  /** Launch in dedicated tmux session */
+  tmux?: boolean;
   // Auto-mode options
   /** Enable auto-mode autonomous loop */
   autoMode?: string;
@@ -554,6 +556,8 @@ export interface CLIOptions {
   maxIterations?: number;
   /** Completion promise text to detect (default: "DONE") */
   completionPromise?: string;
+  /** Run the session in an isolated git worktree (optional explicit worktree name) */
+  worktree?: boolean | string;
   /** Disable git worktree isolation */
   noWorktree?: boolean;
   /** Checkpoint interval (default: 5) */
