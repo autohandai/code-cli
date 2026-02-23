@@ -322,13 +322,19 @@ export class TerminalRegions {
     let width = stream.columns ?? 80;
     let height = stream.rows ?? 24;
 
-    if ((width <= 0 || height <= 0) && typeof stream.getWindowSize === 'function') {
+    // Prefer active terminal dimensions from getWindowSize() when available.
+    // Some runtimes can report stale stream.rows values after redraw-heavy flows.
+    if (typeof stream.getWindowSize === 'function') {
       try {
         const [w, h] = stream.getWindowSize();
-        if (w > 0) width = w;
-        if (h > 0) height = h;
+        if (w > 0) {
+          width = w;
+        }
+        if (h > 0) {
+          height = h;
+        }
       } catch {
-        // Ignore terminal query failures and use fallbacks.
+        // Ignore terminal query failures and keep stream-provided dimensions.
       }
     }
 
