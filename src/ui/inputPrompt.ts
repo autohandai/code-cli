@@ -374,7 +374,7 @@ export function convertNewlineMarkersToNewlines(text: string): string {
 export async function readInstruction(
   files: string[],
   slashCommands: SlashCommandHint[],
-  statusLine?: string,
+  statusLine?: string | { left: string; right: string },
   io: PromptIO = {},
   onImageDetected?: ImageDetectedCallback,
   workspaceRoot?: string
@@ -415,7 +415,7 @@ export async function readInstruction(
 interface PromptOnceOptions {
   files: string[];
   slashCommands: SlashCommandHint[];
-  statusLine?: string;
+  statusLine?: string | { left: string; right: string };
   stdInput: NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void };
   stdOutput: NodeJS.WriteStream;
   onImageDetected?: ImageDetectedCallback;
@@ -951,11 +951,20 @@ function disableReadlineTabBehavior(rl: readline.Interface): void {
 
 import { drawInputBox } from './box.js';
 
-function renderPromptLine(rl: readline.Interface, statusLine: string | undefined, output: NodeJS.WriteStream, isResize = false): void {
+function renderPromptLine(rl: readline.Interface, statusLine: string | { left: string; right: string } | undefined, output: NodeJS.WriteStream, isResize = false): void {
   const width = Math.max(20, output.columns || 80);
-  const status = (statusLine ?? ' ').padEnd(width).slice(0, width);
+
+  let left: string;
+  let right: string | undefined;
+  if (typeof statusLine === 'object' && statusLine !== null) {
+    left = statusLine.left;
+    right = statusLine.right || undefined;
+  } else {
+    left = statusLine ?? ' ';
+  }
+
   const rlAny = rl as readline.Interface & { cursor?: number; line?: string };
-  const box = drawInputBox(status, width);
+  const box = drawInputBox(left, width, right);
   const currentLine = rlAny.line ?? '';
   const cursorPos = rlAny.cursor ?? currentLine.length;
 
