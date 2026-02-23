@@ -311,11 +311,11 @@ export function buildPromptRenderState(
   const placeholder = `${prefix}${PROMPT_PLACEHOLDER}`;
 
   let visibleText = fullInput;
-  let cursorColumn = 1 + prefix.length + effectiveCursor; // +1 for leading border
+  let cursorColumn = prefix.length + effectiveCursor;
 
   if (!normalizedLine) {
     visibleText = chalk.gray(placeholder);
-    cursorColumn = 1 + prefix.length;
+    cursorColumn = prefix.length;
   } else if (fullInput.length > innerWidth) {
     const ellipsis = '…';
     const visibleSliceLen = Math.max(1, innerWidth - ellipsis.length);
@@ -323,9 +323,9 @@ export function buildPromptRenderState(
     visibleText = `${ellipsis}${fullInput.slice(startIndex)}`;
     const fullCursor = prefix.length + effectiveCursor;
     if (fullCursor < startIndex) {
-      cursorColumn = 1; // right after border
+      cursorColumn = 0;
     } else {
-      cursorColumn = 1 + ellipsis.length + (fullCursor - startIndex);
+      cursorColumn = ellipsis.length + (fullCursor - startIndex);
     }
   }
 
@@ -344,6 +344,29 @@ export function buildPromptRenderState(
   const clampedCursor = Math.max(0, Math.min(width - 1, cursorColumn));
 
   return { lineText, cursorColumn: clampedCursor };
+}
+
+function formatPromptStatusRow(
+  statusLine: string | { left: string; right: string } | undefined,
+  width: number
+): string {
+  let left: string;
+  let right: string | undefined;
+  if (typeof statusLine === 'object' && statusLine !== null) {
+    left = statusLine.left ?? '';
+    right = statusLine.right || undefined;
+  } else {
+    left = statusLine ?? ' ';
+  }
+
+  const plainLeft = stripAnsiCodes(left);
+  const plainRight = right ? stripAnsiCodes(right) : '';
+  const minGap = plainRight ? 2 : 0;
+  const availableForLeft = Math.max(0, width - plainRight.length - minGap);
+  const clippedLeft = truncatePlainText(plainLeft, availableForLeft);
+  const gap = Math.max(0, width - clippedLeft.length - plainRight.length);
+  const row = `${clippedLeft}${' '.repeat(gap)}${plainRight}`;
+  return themedFg('muted', row.padEnd(width), (value) => chalk.gray(value));
 }
 
 /**
@@ -1470,37 +1493,15 @@ function renderPromptLine(
   previousHelpLines = 0
 ): void {
   const width = getPromptBlockWidth(output.columns);
-
-  let leftStatus: string;
-  let rightStatus = '';
-  if (typeof statusLine === 'object' && statusLine !== null) {
-    leftStatus = statusLine.left ?? '';
-    rightStatus = statusLine.right ?? '';
-  } else {
-    leftStatus = statusLine ?? ' ';
-  }
-
-  const plainLeft = stripAnsiCodes(sanitizeRenderLine(leftStatus));
-  const plainRight = stripAnsiCodes(sanitizeRenderLine(rightStatus));
-  const minGap = plainRight ? 2 : 0;
-  const leftWidth = Math.max(0, width - plainRight.length - minGap);
-  const clippedLeft = truncatePlainText(plainLeft, leftWidth);
-  const gap = Math.max(0, width - clippedLeft.length - plainRight.length);
-  const plainStatus = `${clippedLeft}${' '.repeat(gap)}${plainRight}`.slice(0, width);
-  const status = themedFg(
-    'muted',
-    plainStatus.padEnd(width),
-    (value) => chalk.gray(value)
-  );
-
   const rlAny = rl as readline.Interface & { cursor?: number; line?: string };
   const currentLine = rlAny.line ?? '';
   const cursorPos = rlAny.cursor ?? currentLine.length;
+  const prompt = buildPromptRenderState(currentLine, cursorPos, width);
   const topBorder = drawInputTopBorder(width);
   const bottomBorder = drawInputBottomBorder(width);
-  const { lineText, cursorColumn } = buildPromptRenderState(currentLine, cursorPos, width);
+  const statusRow = formatPromptStatusRow(statusLine, width);
 
-  // Keep readline's prompt in sync with the prefix we render
+  // Keep readline's prompt in sync for line editing internals.
   rl.setPrompt(PROMPT_PREFIX);
 
   // Clear prompt block + status line region
@@ -1526,9 +1527,9 @@ function renderPromptLine(
 
   // Render top border, boxed input, bottom border, then status
   output.write(`${topBorder}\n`);
-  output.write(`${lineText}\n`);
+  output.write(`${prompt.lineText}\n`);
   output.write(`${bottomBorder}\n`);
-  output.write(status);
+  output.write(statusRow);
   if (helpLines.length > 0) {
     for (const helpLine of helpLines) {
       output.write(`\n${helpLine}`);
@@ -1537,5 +1538,5 @@ function renderPromptLine(
 
   // Move cursor back to prompt line at correct column
   readline.moveCursor(output, 0, -(PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT + helpLines.length)); // from status/help to input line
-  readline.cursorTo(output, cursorColumn);
+  readline.cursorTo(output, prompt.cursorColumn);
 }
