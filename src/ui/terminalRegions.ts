@@ -202,13 +202,6 @@ export class TerminalRegions {
     return Math.max(10, columns - 1);
   }
 
-  private getDimensions(): { height: number; width: number } {
-    return {
-      height: this.output.rows || 24,
-      width: this.output.columns || 80,
-    };
-  }
-
   private getInputContent(input: string): string {
     if (!input) {
       return themedFg(
@@ -315,6 +308,38 @@ export class TerminalRegions {
   getScrollHeight(): number {
     const height = this.output.rows || 24;
     return Math.max(1, height - this.fixedLines);
+  }
+
+  private getDimensions(): { width: number; height: number } {
+    const stream = this.output as NodeJS.WriteStream & {
+      getWindowSize?: () => [number, number];
+      columns?: number;
+      rows?: number;
+    };
+
+    let width = stream.columns ?? 80;
+    let height = stream.rows ?? 24;
+
+    // Prefer active terminal dimensions from getWindowSize() when available.
+    // Some runtimes can report stale stream.rows values after redraw-heavy flows.
+    if (typeof stream.getWindowSize === 'function') {
+      try {
+        const [w, h] = stream.getWindowSize();
+        if (w > 0) {
+          width = w;
+        }
+        if (h > 0) {
+          height = h;
+        }
+      } catch {
+        // Ignore terminal query failures and keep stream-provided dimensions.
+      }
+    }
+
+    return {
+      width: Math.max(10, width || 80),
+      height: Math.max(this.fixedLines + 2, height || 24),
+    };
   }
 }
 
