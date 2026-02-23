@@ -68,11 +68,45 @@ function truncateVisible(value: string, maxVisible: number): string {
   return out;
 }
 
-export function drawInputBox(prompt: string, width: number): string {
+export function drawInputBox(left: string, width: number, right?: string): string {
   const innerWidth = Math.max(0, width - 2);
-  const truncated = truncateVisible(prompt, innerWidth);
-  const paddingSize = Math.max(0, innerWidth - getVisibleLength(truncated));
-  const content = `${truncated}${' '.repeat(paddingSize)}`;
+  let content = '';
+
+  if (!right) {
+    const clippedLeft = truncateVisible(left, innerWidth);
+    const paddingSize = Math.max(0, innerWidth - getVisibleLength(clippedLeft));
+    content = `${clippedLeft}${' '.repeat(paddingSize)}`;
+  } else {
+    const minGap = 2;
+    const visLeft = getVisibleLength(left);
+    const visRight = getVisibleLength(right);
+    const availableForLeft = Math.max(0, innerWidth - minGap);
+
+    let clippedLeft = visLeft > availableForLeft
+      ? truncateVisible(left, availableForLeft)
+      : left;
+    let clippedLeftVis = getVisibleLength(clippedLeft);
+    let availableForRight = innerWidth - clippedLeftVis - minGap;
+
+    if (availableForRight < 0) {
+      clippedLeft = truncateVisible(clippedLeft, Math.max(0, innerWidth));
+      clippedLeftVis = getVisibleLength(clippedLeft);
+      availableForRight = 0;
+    }
+
+    const clippedRight = visRight > availableForRight
+      ? truncateVisible(right, Math.max(0, availableForRight))
+      : right;
+    const clippedRightVis = getVisibleLength(clippedRight);
+    const gap = Math.max(0, innerWidth - clippedLeftVis - clippedRightVis);
+    content = `${clippedLeft}${' '.repeat(gap)}${clippedRight}`;
+
+    const visibleContent = getVisibleLength(content);
+    if (visibleContent < innerWidth) {
+      content += ' '.repeat(innerWidth - visibleContent);
+    }
+  }
+
   const leftBorder = themedFg('border', '│', (value) => chalk.hex(DEFAULT_BORDER_COLOR)(value));
   const rightBorder = themedFg('border', '│', (value) => chalk.hex(DEFAULT_BORDER_COLOR)(value));
   return `${leftBorder}${content}${rightBorder}`;
