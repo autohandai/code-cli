@@ -4523,6 +4523,12 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const stdin = process.stdin as NodeJS.ReadStream;
     if (!stdin.isTTY) return;
 
+    // When persistent input is active, it owns raw mode and key handling.
+    // Do not override stdin state between queued turns.
+    if (this.persistentInputActiveTurn) {
+      return;
+    }
+
     // Ensure stdin is not paused and is readable
     // Some operations (like shell spawns) can leave stdin in an unexpected state
     try {
