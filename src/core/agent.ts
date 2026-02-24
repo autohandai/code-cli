@@ -8,6 +8,7 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { format as formatText } from 'node:util';
 import ora from 'ora';
 import { showModal, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 import readline from 'node:readline';
@@ -680,6 +681,7 @@ export class AutohandAgent {
   private mcpStartupConnectStartedAt: number | null = null;
   private mcpStartupSummaryPrinted = false;
   private mcpStartupSummaryPending = false;
+  private persistentConsoleBridgeCleanup: (() => void) | null = null;
 
   async runInteractive(): Promise<void> {
     // Bail out early if stdin is not a TTY - interactive mode requires a terminal
@@ -1566,30 +1568,36 @@ If lint or tests fail, report the issues but do NOT commit.`;
       }
     });
 
-    const shouldUsePersistentInput = !this.useInkRenderer &&
+    const canUsePersistentInput = !this.useInkRenderer &&
       process.stdout.isTTY &&
       process.stdin.isTTY &&
       this.runtime.config.agent?.enableRequestQueue !== false;
+    const shouldUsePersistentInput = canUsePersistentInput && !this.inkRenderer;
+    let cleanupConsoleBridge: () => void = () => {};
 
     if (shouldUsePersistentInput) {
       this.persistentInput.start();
       this.persistentInputActiveTurn = true;
       this.persistentInput.setStatusLine(this.formatStatusLine());
+      cleanupConsoleBridge = this.installPersistentConsoleBridge();
     } else {
       this.persistentInputActiveTurn = false;
     }
 
     // Only setup ESC listener for non-Ink mode (Ink handles its own input)
+    const cancelActiveTurn = () => {
+      if (!canceledByUser) {
+        canceledByUser = true;
+        this.stopStatusUpdates();
+        this.stopUI();
+        console.log('\n' + chalk.yellow('Request canceled by user (ESC).'));
+      }
+    };
     const cleanupEsc = this.useInkRenderer
       ? () => {} // No-op, Ink handles input
-      : this.setupEscListener(abortController, () => {
-          if (!canceledByUser) {
-            canceledByUser = true;
-            this.stopStatusUpdates();
-            this.stopUI();
-            console.log('\n' + chalk.yellow('Request canceled by user (ESC).'));
-          }
-        }, true);
+      : shouldUsePersistentInput
+        ? this.setupPersistentInputInterruptHandlers(abortController, cancelActiveTurn)
+        : this.setupEscListener(abortController, cancelActiveTurn, true);
     const stopPreparation = this.startPreparationStatus(instruction);
     try {
       const userMessage = await this.buildUserMessage(instruction);
@@ -1679,6 +1687,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         console.error(error);
       }
     } finally {
+      cleanupConsoleBridge();
       cleanupEsc();
       stopPreparation();
       this.stopStatusUpdates();
@@ -3745,6 +3754,85 @@ If lint or tests fail, report the issues but do NOT commit.`;
     };
   }
 
+  /**
+   * Wire ESC/Ctrl+C through PersistentInput while it owns stdin.
+   * This prevents dual keypress listeners from racing the cursor state.
+   */
+  private setupPersistentInputInterruptHandlers(
+    controller: AbortController,
+    onCancel: () => void
+  ): () => void {
+    let ctrlCCount = 0;
+
+    const onEscape = () => {
+      if (controller.signal.aborted) {
+        return;
+      }
+      controller.abort();
+      onCancel();
+    };
+
+    const onCtrlC = () => {
+      if (controller.signal.aborted) {
+        return;
+      }
+      ctrlCCount += 1;
+      if (ctrlCCount >= 2) {
+        controller.abort();
+        onCancel();
+      } else {
+        console.log(chalk.gray('Press Ctrl+C again to exit.'));
+      }
+    };
+
+    this.persistentInput.on('escape', onEscape);
+    this.persistentInput.on('ctrl-c', onCtrlC);
+
+    return () => {
+      this.persistentInput.off('escape', onEscape);
+      this.persistentInput.off('ctrl-c', onCtrlC);
+    };
+  }
+
+  private installPersistentConsoleBridge(): () => void {
+    if (this.persistentConsoleBridgeCleanup) {
+      return () => {};
+    }
+
+    if (!this.persistentInputActiveTurn || process.env.AUTOHAND_TERMINAL_REGIONS === '0') {
+      return () => {};
+    }
+
+    const originalLog = console.log;
+    const originalInfo = console.info;
+    const originalWarn = console.warn;
+    const originalError = console.error;
+
+    const bridgeWriter = (fallback: (...args: any[]) => void) => (...args: any[]) => {
+      if (!this.persistentInputActiveTurn || process.env.AUTOHAND_TERMINAL_REGIONS === '0') {
+        fallback(...args);
+        return;
+      }
+      const text = formatText(...args);
+      this.persistentInput.writeAbove(`${text}\n`);
+    };
+
+    console.log = bridgeWriter(originalLog);
+    console.info = bridgeWriter(originalInfo);
+    console.warn = bridgeWriter(originalWarn);
+    console.error = bridgeWriter(originalError);
+
+    const restore = () => {
+      console.log = originalLog;
+      console.info = originalInfo;
+      console.warn = originalWarn;
+      console.error = originalError;
+      this.persistentConsoleBridgeCleanup = null;
+    };
+
+    this.persistentConsoleBridgeCleanup = restore;
+    return restore;
+  }
   private startPreparationStatus(instruction: string): () => void {
     const label = describeInstruction(instruction);
     const startedAt = Date.now();
