@@ -30,6 +30,51 @@ export interface AgentDefinition extends AgentConfig {
     source: AgentSource;
 }
 
+function extractMarkdownTitle(content: string): string | null {
+    const lines = content.split(/\r?\n/);
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        if (trimmed.startsWith('#')) {
+            return trimmed.replace(/^#+\s*/, '').trim() || null;
+        }
+        return trimmed;
+    }
+    return null;
+}
+
+function parseMarkdownAgent(content: string): {
+    description: string | null;
+    systemPrompt: string;
+    tools: string[];
+    model?: string;
+} {
+    const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+    if (!frontmatterMatch) {
+        return {
+            description: extractMarkdownTitle(content),
+            systemPrompt: content,
+            tools: [],
+        };
+    }
+
+    const [, frontmatter, body] = frontmatterMatch;
+    const meta: Record<string, string> = {};
+    for (const line of frontmatter.split('\n')) {
+        const match = line.match(/^(\w+):\s*(.+)$/);
+        if (match) {
+            meta[match[1]] = match[2].trim();
+        }
+    }
+
+    return {
+        description: meta.description || extractMarkdownTitle(body),
+        systemPrompt: body.trim(),
+        tools: meta.tools ? meta.tools.split(',').map((t) => t.trim()).filter(Boolean) : [],
+        model: meta.model,
+    };
+}
+
 export class AgentRegistry {
     private static instance: AgentRegistry;
     private agents: Map<string, AgentDefinition> = new Map();
@@ -77,6 +122,9 @@ export class AgentRegistry {
         for (const extPath of this.externalPaths) {
             await this.loadAgentsFromDir(extPath, 'external');
         }
+
+        // Built-ins loaded last so user agents take priority (first-loaded-wins)
+        await this.loadBuiltinAgents();
     }
 
     /**
@@ -84,8 +132,8 @@ export class AgentRegistry {
      */
     private async loadAgentsFromDir(dir: string, source: AgentSource): Promise<void> {
         try {
-            // Only create the main agents dir, not external ones
-            if (source === 'user') {
+            // Only create the main agents dir, not external or builtin ones
+            if (source !== 'builtin' && source !== 'external') {
                 await fs.mkdir(dir, { recursive: true });
             }
 
@@ -159,17 +207,16 @@ export class AgentRegistry {
         const name = path.basename(filePath, path.extname(filePath));
         try {
             const content = await fs.readFile(filePath, 'utf-8');
-            const description = extractMarkdownTitle(content) || `Agent ${name}`;
+            const parsed = parseMarkdownAgent(content);
             const definition: AgentDefinition = {
                 name,
                 path: filePath,
                 source,
-                description,
-                systemPrompt: content,
-                tools: [],
-                model: undefined
+                description: parsed.description || `Agent ${name}`,
+                systemPrompt: parsed.systemPrompt,
+                tools: parsed.tools,
+                model: parsed.model,
             };
-            // Don't overwrite existing agents (first loaded wins)
             if (!this.agents.has(name)) {
                 this.agents.set(name, definition);
             }
@@ -177,17 +224,14 @@ export class AgentRegistry {
             console.warn(`Failed to load agent '${name}': ${(error as Error).message}`);
         }
     }
-}
 
-function extractMarkdownTitle(content: string): string | null {
-    const lines = content.split(/\r?\n/);
-    for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        if (trimmed.startsWith('#')) {
-            return trimmed.replace(/^#+\s*/, '').trim() || null;
-        }
-        return trimmed;
+    /**
+     * Load built-in agent definitions bundled with the package.
+     * These have `source: 'builtin'` and lower priority than user agents
+     * (loaded after user agents, so first-loaded-wins applies).
+     */
+    public async loadBuiltinAgents(): Promise<void> {
+        const builtinDir = path.join(path.dirname(new URL(import.meta.url).pathname), '../../agents/builtin');
+        await this.loadAgentsFromDir(builtinDir, 'builtin');
     }
-    return null;
 }
