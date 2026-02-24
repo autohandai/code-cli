@@ -294,6 +294,18 @@ export class SlashCommandHandler {
             workspaceRoot: this.ctx.workspaceRoot,
           }, ['use', ...args]);
         }
+        case '/team': {
+          const { team } = await import('../commands/team.js');
+          return team({ teamManager: this.ctx.teamManager }, args);
+        }
+        case '/tasks': {
+          const { tasks } = await import('../commands/tasks.js');
+          return tasks({ teamManager: this.ctx.teamManager });
+        }
+        case '/message': {
+          const { message } = await import('../commands/message.js');
+          return message({ teamManager: this.ctx.teamManager }, args);
+        }
         default:
           this.printUnsupported(command);
           return null;

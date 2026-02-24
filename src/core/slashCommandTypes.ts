@@ -13,6 +13,7 @@ import type { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import type { AutomodeManager } from './AutomodeManager.js';
 import type { FileActionManager } from '../actions/filesystem.js';
 import type { McpClientManager } from '../mcp/McpClientManager.js';
+import type { TeamManager } from './teams/TeamManager.js';
 import type { LoadedConfig, ProviderName } from '../types.js';
 
 export interface SlashCommandContext {
@@ -59,6 +60,8 @@ export interface SlashCommandContext {
     isContextCompactionEnabled?: () => boolean;
     /** Whether running in non-interactive mode (RPC/ACP) where stdin is not a TTY */
     isNonInteractive?: boolean;
+    /** Team manager for /team and /tasks commands */
+    teamManager?: TeamManager;
 }
 
 export interface SlashCommand {
