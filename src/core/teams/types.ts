@@ -14,7 +14,7 @@ export type TeamMemberStatus = z.infer<typeof TeamMemberStatusSchema>;
 export const TeamMemberSchema = z.object({
   name: z.string().min(1),
   agentName: z.string().min(1),
-  pid: z.number().int().positive(),
+  pid: z.number().int().nonnegative(),
   status: TeamMemberStatusSchema,
   model: z.string().optional(),
 });
