@@ -122,6 +122,8 @@ export class TeamManager {
         if (status === 'completed') {
           this._tasks.completeTask(taskId);
           tp?.setStatus('idle');
+        } else if (status === 'in_progress') {
+          tp?.setStatus('working');
         }
         break;
       }

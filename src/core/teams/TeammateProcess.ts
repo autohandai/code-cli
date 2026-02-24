@@ -93,6 +93,12 @@ export class TeammateProcess {
       this.router.onMessage(this.child.stdout, onMessage);
     }
 
+    if (this.child.stderr) {
+      this.child.stderr.on('data', () => {
+        // Drain stderr to prevent buffer backpressure
+      });
+    }
+
     this.child.on('exit', (code) => {
       this._status = 'shutdown';
       onExit(code);
@@ -122,6 +128,14 @@ export class TeammateProcess {
    */
   sendMessage(from: string, content: string): void {
     this.send({ method: 'team.message', params: { from, content } });
+  }
+
+  /**
+   * Push an updated task list to the teammate so it has current context
+   * about overall team progress and dependencies.
+   */
+  sendContextUpdate(tasks: TeamTask[]): void {
+    this.send({ method: 'team.updateContext', params: { tasks } });
   }
 
   /**
