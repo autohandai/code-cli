@@ -67,7 +67,6 @@
   },
   "devDependencies": {
     "@types/diff": "^8.0.0",
-    "react-devtools-core": "^7.0.1",
     "@types/fs-extra": "^11.0.4",
     "@types/minimatch": "^6.0.0",
     "@types/node": "^24.10.1",
@@ -76,7 +75,9 @@
     "@typescript-eslint/eslint-plugin": "^8.48.1",
     "@typescript-eslint/parser": "^8.48.1",
     "eslint": "^9.39.1",
+    "ink-testing-library": "^3.0.0",
     "memfs": "^4.51.1",
+    "react-devtools-core": "^7.0.1",
     "tsup": "^8.5.1",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
