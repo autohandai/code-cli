@@ -21,7 +21,7 @@ export const AgentConfigSchema = z.object({
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 
 /** Source of an agent definition */
-export type AgentSource = 'builtin' | 'user' | 'external';
+export type AgentSource = 'builtin' | 'user' | 'external' | 'auto-generated';
 
 export interface AgentDefinition extends AgentConfig {
     name: string; // Derived from filename

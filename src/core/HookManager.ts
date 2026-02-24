@@ -812,6 +812,13 @@ export class HookManager {
       'automode:cancel',
       'automode:complete',
       'automode:error',
+      // Team events
+      'team-created',
+      'teammate-spawned',
+      'teammate-idle',
+      'task-assigned',
+      'task-completed',
+      'team-shutdown',
     ];
     const summary: Record<HookEvent, { total: number; enabled: number }> = {} as Record<HookEvent, { total: number; enabled: number }>;
 
