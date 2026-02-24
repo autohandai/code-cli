@@ -38,7 +38,7 @@ export const TeammateView = memo(({ name, status, logs, maxLines = 10 }: Teammat
           const color = log.level === 'error' ? 'red' :
                        log.level === 'warn' ? 'yellow' : undefined;
           return (
-            <Text key={i} color={color} wrap="truncate">
+            <Text key={`${log.timestamp}-${i}`} color={color} wrap="truncate">
               <Text color="gray">[{log.timestamp}] </Text>
               {log.text}
             </Text>

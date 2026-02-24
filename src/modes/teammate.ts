@@ -41,7 +41,6 @@ export async function runTeammateMode(opts: TeammateOptions): Promise<void> {
 
   // Track current task
   let currentTask: TeamTask | null = null;
-  let shutdownRequested = false;
 
   // Listen for incoming messages from lead via stdin
   router.onMessage(process.stdin, async (msg) => {
@@ -103,7 +102,6 @@ export async function runTeammateMode(opts: TeammateOptions): Promise<void> {
       }
 
       case 'team.shutdown': {
-        shutdownRequested = true;
         sendToLead('team.shutdownAck', {});
         process.exit(0);
         break;

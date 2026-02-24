@@ -172,14 +172,18 @@ export class ProjectProfiler {
     try {
       const { stdout } = await execFileAsync(
         'git',
-        ['ls-files', '*.ts', '*.tsx', '*.js', '*.jsx', '*.py', '*.rs', '*.go'],
+        ['ls-files'],
         {
           cwd: this.repoRoot,
           encoding: 'utf-8',
           timeout: 5000,
         },
       );
-      const files = stdout.trim().split('\n').filter(Boolean);
+      const sourceExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.py', '.rs', '.go']);
+      const files = stdout
+        .trim()
+        .split('\n')
+        .filter((f) => f && sourceExtensions.has(path.extname(f)));
 
       for (const file of files.slice(0, 200)) {
         try {
