@@ -9,4 +9,5 @@ export { TaskManager } from './TaskManager.js';
 export { TeammateProcess } from './TeammateProcess.js';
 export { MessageRouter } from './MessageRouter.js';
 export { ProjectProfiler } from './ProjectProfiler.js';
+export { TmuxManager } from './TmuxManager.js';
 export * from './types.js';
