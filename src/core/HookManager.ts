@@ -104,6 +104,28 @@ export interface HookContext {
   // Multi-directory support
   /** Additional workspace directories (from --add-dir or /add-dir) */
   additionalWorkspaces?: string[];
+
+  // Team hooks
+  /** Team name (for team events) */
+  teamName?: string;
+  /** Teammate name (for teammate events) */
+  teammateName?: string;
+  /** Teammate agent definition name (for teammate events) */
+  teammateAgentName?: string;
+  /** Teammate process ID (for teammate events) */
+  teammatePid?: number;
+  /** Team task ID (for task events) */
+  teamTaskId?: string;
+  /** Team task owner (for task events) */
+  teamTaskOwner?: string;
+  /** Team task result (for task-completed) */
+  teamTaskResult?: string;
+  /** Total team members (for team events) */
+  teamMemberCount?: number;
+  /** Completed tasks count (for team-shutdown) */
+  teamTasksCompleted?: number;
+  /** Total tasks count (for team-shutdown) */
+  teamTasksTotal?: number;
 }
 
 /** Result of hook execution */
