@@ -461,6 +461,16 @@ export interface HookResponse {
   additionalContext?: string;
 }
 
+/** Team coordination settings */
+export interface TeamSettings {
+  /** Enable team features (default: true) */
+  enabled?: boolean;
+  /** Display mode: auto-detect, in-process TUI, or tmux split panes */
+  teammateMode?: 'auto' | 'in-process' | 'tmux';
+  /** Maximum simultaneous teammates (default: 5) */
+  maxTeammates?: number;
+}
+
 export interface AutohandConfig {
   provider?: ProviderName;
   openrouter?: OpenRouterSettings;
@@ -498,6 +508,8 @@ export interface AutohandConfig {
   search?: SearchSettings;
   /** MCP (Model Context Protocol) settings */
   mcp?: McpSettings;
+  /** Team coordination settings */
+  teams?: TeamSettings;
 }
 
 /** Supported web search providers */

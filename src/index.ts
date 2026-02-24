@@ -209,6 +209,7 @@ program
   .option('--patch', 'Generate git patch without applying changes (requires --prompt)', false)
   .option('--output <file>', 'Output file for patch (default: stdout, used with --patch)')
   .option('--mode <mode>', 'Run mode: interactive (default), rpc, or acp', 'interactive')
+  .option('--teammate-mode <mode>', 'Team display mode: auto, in-process, or tmux')
   // Auto-mode options
   .option('--auto-mode <prompt>', 'Start autonomous development loop with the given task')
   .option('--max-iterations <n>', 'Max auto-mode iterations (default: 50)', parseInt)
