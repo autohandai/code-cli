@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
+import readline from 'node:readline';
 import { AutohandAgent } from '../../src/core/agent.js';
 import { getPlanModeManager } from '../../src/commands/plan.js';
 
@@ -409,6 +410,78 @@ describe('agent startup and active input UI', () => {
     }
   });
 
+  it('ensureStdinReady does not reset raw mode while persistent input owns stdin', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const originalStdin = process.stdin;
+    const mockInput = new EventEmitter() as NodeJS.ReadStream;
+    const setRawMode = vi.fn();
+    const resume = vi.fn();
+    const emitSpy = vi.spyOn(readline, 'emitKeypressEvents').mockImplementation(() => {});
+
+    (mockInput as any).isTTY = true;
+    (mockInput as any).isRaw = true;
+    (mockInput as any).setRawMode = setRawMode;
+    (mockInput as any).isPaused = () => true;
+    (mockInput as any).resume = resume;
+
+    agent.persistentInputActiveTurn = true;
+
+    Object.defineProperty(process, 'stdin', {
+      configurable: true,
+      value: mockInput,
+    });
+
+    try {
+      (agent as any).ensureStdinReady();
+      expect(setRawMode).not.toHaveBeenCalled();
+      expect(resume).not.toHaveBeenCalled();
+      expect(emitSpy).not.toHaveBeenCalled();
+    } finally {
+      emitSpy.mockRestore();
+      Object.defineProperty(process, 'stdin', {
+        configurable: true,
+        value: originalStdin,
+      });
+    }
+  });
+
+  it('ensureStdinReady restores cooked mode when persistent input is inactive', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const originalStdin = process.stdin;
+    const mockInput = new EventEmitter() as NodeJS.ReadStream;
+    const setRawMode = vi.fn((mode: boolean) => {
+      (mockInput as any).isRaw = mode;
+      return mockInput;
+    });
+    const resume = vi.fn();
+    const emitSpy = vi.spyOn(readline, 'emitKeypressEvents').mockImplementation(() => {});
+
+    (mockInput as any).isTTY = true;
+    (mockInput as any).isRaw = true;
+    (mockInput as any).setRawMode = setRawMode;
+    (mockInput as any).isPaused = () => true;
+    (mockInput as any).resume = resume;
+
+    agent.persistentInputActiveTurn = false;
+
+    Object.defineProperty(process, 'stdin', {
+      configurable: true,
+      value: mockInput,
+    });
+
+    try {
+      (agent as any).ensureStdinReady();
+      expect(setRawMode).toHaveBeenCalledWith(false);
+      expect(resume).toHaveBeenCalled();
+      expect(emitSpy).toHaveBeenCalledWith(mockInput);
+    } finally {
+      emitSpy.mockRestore();
+      Object.defineProperty(process, 'stdin', {
+        configurable: true,
+        value: originalStdin,
+      });
+    }
+  });
   it('prints submitted user instruction into chat log for non-ink mode', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
