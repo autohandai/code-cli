@@ -400,7 +400,14 @@ export type HookEvent =
   | 'automode:resume'   // Auto-mode loop resumed
   | 'automode:cancel'   // Auto-mode loop cancelled (trigger to cancel)
   | 'automode:complete' // Auto-mode loop completed successfully
-  | 'automode:error';   // Auto-mode error occurred
+  | 'automode:error'    // Auto-mode error occurred
+  // Team events
+  | 'team-created'       // Lead creates a team
+  | 'teammate-spawned'   // Teammate process started
+  | 'teammate-idle'      // Teammate finished task and is idle
+  | 'task-assigned'      // Task assigned to a teammate
+  | 'task-completed'     // Task marked as done
+  | 'team-shutdown';     // Team cleanup completed
 
 /** Filter to limit when a hook fires */
 export interface HookFilter {
