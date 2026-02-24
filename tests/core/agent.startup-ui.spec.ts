@@ -483,6 +483,50 @@ describe('agent startup and active input UI', () => {
     }
   });
 
+  it('console bridge routes logs above composer while persistent input is active', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const originalTerminalRegions = process.env.AUTOHAND_TERMINAL_REGIONS;
+    const originalLog = console.log;
+    const originalInfo = console.info;
+    const originalWarn = console.warn;
+    const originalError = console.error;
+    const writeAbove = vi.fn();
+
+    process.env.AUTOHAND_TERMINAL_REGIONS = '1';
+    agent.persistentInputActiveTurn = true;
+    agent.persistentInput = { writeAbove };
+    agent.persistentConsoleBridgeCleanup = null;
+
+    try {
+      const cleanup = (agent as any).installPersistentConsoleBridge();
+      console.log('queued', 'line');
+      console.info('info line');
+      console.warn('warn line');
+      console.error('error line');
+
+      expect(writeAbove).toHaveBeenCalledWith('queued line\n');
+      expect(writeAbove).toHaveBeenCalledWith('info line\n');
+      expect(writeAbove).toHaveBeenCalledWith('warn line\n');
+      expect(writeAbove).toHaveBeenCalledWith('error line\n');
+
+      cleanup();
+      expect(console.log).toBe(originalLog);
+      expect(console.info).toBe(originalInfo);
+      expect(console.warn).toBe(originalWarn);
+      expect(console.error).toBe(originalError);
+    } finally {
+      console.log = originalLog;
+      console.info = originalInfo;
+      console.warn = originalWarn;
+      console.error = originalError;
+      if (originalTerminalRegions === undefined) {
+        delete process.env.AUTOHAND_TERMINAL_REGIONS;
+      } else {
+        process.env.AUTOHAND_TERMINAL_REGIONS = originalTerminalRegions;
+      }
+    }
+  });
+
   it('ensureStdinReady does not reset raw mode while persistent input owns stdin', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const originalStdin = process.stdin;

@@ -8,6 +8,7 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { format as formatText } from 'node:util';
 import ora from 'ora';
 import { showModal, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 import readline from 'node:readline';
@@ -675,6 +676,7 @@ export class AutohandAgent {
   private mcpStartupConnectStartedAt: number | null = null;
   private mcpStartupSummaryPrinted = false;
   private mcpStartupSummaryPending = false;
+  private persistentConsoleBridgeCleanup: (() => void) | null = null;
 
   async runInteractive(): Promise<void> {
     // Bail out early if stdin is not a TTY - interactive mode requires a terminal
@@ -1575,6 +1577,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }, canUsePersistentInput);
 
     const shouldUsePersistentInput = canUsePersistentInput && !this.inkRenderer;
+    const cleanupConsoleBridge = shouldUsePersistentInput
+      ? this.installPersistentConsoleBridge()
+      : () => {};
 
     if (shouldUsePersistentInput) {
       this.persistentInput.start();
@@ -1693,6 +1698,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         console.error(error);
       }
     } finally {
+      cleanupConsoleBridge();
       cleanupEsc();
       stopPreparation();
       this.stopStatusUpdates();
@@ -3813,6 +3819,46 @@ If lint or tests fail, report the issues but do NOT commit.`;
       this.persistentInput.off('escape', onEscape);
       this.persistentInput.off('ctrl-c', onCtrlC);
     };
+  }
+
+  private installPersistentConsoleBridge(): () => void {
+    if (this.persistentConsoleBridgeCleanup) {
+      return () => {};
+    }
+
+    if (!this.persistentInputActiveTurn || process.env.AUTOHAND_TERMINAL_REGIONS === '0') {
+      return () => {};
+    }
+
+    const originalLog = console.log;
+    const originalInfo = console.info;
+    const originalWarn = console.warn;
+    const originalError = console.error;
+
+    const bridgeWriter = (fallback: (...args: any[]) => void) => (...args: any[]) => {
+      if (!this.persistentInputActiveTurn || process.env.AUTOHAND_TERMINAL_REGIONS === '0') {
+        fallback(...args);
+        return;
+      }
+      const text = formatText(...args);
+      this.persistentInput.writeAbove(`${text}\n`);
+    };
+
+    console.log = bridgeWriter(originalLog);
+    console.info = bridgeWriter(originalInfo);
+    console.warn = bridgeWriter(originalWarn);
+    console.error = bridgeWriter(originalError);
+
+    const restore = () => {
+      console.log = originalLog;
+      console.info = originalInfo;
+      console.warn = originalWarn;
+      console.error = originalError;
+      this.persistentConsoleBridgeCleanup = null;
+    };
+
+    this.persistentConsoleBridgeCleanup = restore;
+    return restore;
   }
 
   private startPreparationStatus(instruction: string): () => void {
