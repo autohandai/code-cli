@@ -328,6 +328,18 @@ program
       return;
     }
 
+    // Teammate mode — headless process receiving tasks from lead
+    if (opts.mode === 'teammate') {
+      const { parseTeammateOptions, runTeammateMode } = await import('./modes/teammate.js');
+      const teammateOpts = parseTeammateOptions(process.argv);
+      if (!teammateOpts) {
+        console.error('Error: --mode teammate requires --team, --name, --agent, and --lead-session');
+        process.exit(1);
+      }
+      await runTeammateMode(teammateOpts);
+      return;
+    }
+
     // Handle --auto-mode flag (standalone CLI mode only, not RPC)
     if (opts.autoMode) {
       // Commander's --no-worktree sets opts.worktree to false
