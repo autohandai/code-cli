@@ -199,6 +199,36 @@ describe('PersistentInput immediate command handling', () => {
     );
   });
 
+  it('pause and resume skip terminal regions when running in silent mode', () => {
+    const pi = new PersistentInput({ silentMode: true });
+    const focusScrollBottom = vi.fn();
+    const disable = vi.fn();
+    const enable = vi.fn();
+    const render = vi.fn();
+
+    (pi as any).isActive = true;
+    (pi as any)._supportsRaw = true;
+    (pi as any).input = {
+      isTTY: true,
+      setRawMode: vi.fn(),
+      resume: vi.fn(),
+    };
+    (pi as any).regions = {
+      focusScrollBottom,
+      disable,
+      enable,
+    };
+    (pi as any).render = render;
+
+    pi.pause();
+    pi.resume();
+
+    expect(focusScrollBottom).not.toHaveBeenCalled();
+    expect(disable).not.toHaveBeenCalled();
+    expect(enable).not.toHaveBeenCalled();
+    expect(render).not.toHaveBeenCalled();
+  });
+
   it('start resumes stdin so queue typing works after readline prompt closes', () => {
     const pi = new PersistentInput({ silentMode: true });
     const mockInput = new EventEmitter() as NodeJS.ReadStream;
