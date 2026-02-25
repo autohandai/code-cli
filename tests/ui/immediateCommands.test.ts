@@ -57,12 +57,15 @@ describe('Immediate command detection - isImmediateCommand', () => {
 
 describe('PersistentInput immediate command handling', () => {
   let PersistentInput: typeof import('../../src/ui/persistentInput.js').PersistentInput;
+  let getPlanModeManager: typeof import('../../src/commands/plan.js').getPlanModeManager;
 
   beforeEach(async () => {
     const resetModules = (vi as unknown as { resetModules?: () => void }).resetModules;
     resetModules?.();
     const module = await import('../../src/ui/persistentInput.js');
+    const planModule = await import('../../src/commands/plan.js');
     PersistentInput = module.PersistentInput;
+    getPlanModeManager = planModule.getPlanModeManager;
   });
 
   afterEach(() => {
@@ -279,5 +282,23 @@ describe('PersistentInput immediate command handling', () => {
     expect(enable).toHaveBeenCalled();
     expect(setRawMode).toHaveBeenCalledWith(true);
     expect(renderFixedRegion).toHaveBeenCalled();
+  });
+
+  it('Shift+Tab toggles plan mode and emits plan-mode-toggled while working', () => {
+    const pi = new PersistentInput({ silentMode: true });
+    (pi as any).isActive = true;
+    const manager = getPlanModeManager();
+    manager.disable();
+
+    const toggled: boolean[] = [];
+    pi.on('plan-mode-toggled', (enabled: boolean) => toggled.push(enabled));
+
+    const handler = (pi as any).handleKeypress;
+    handler('\u001b[Z', { name: 'backtab', shift: true });
+    handler('\u001b[Z', { name: 'backtab', shift: true });
+
+    expect(toggled).toEqual([true, false]);
+    expect(pi.getCurrentInput()).toBe('');
+    manager.disable();
   });
 });
