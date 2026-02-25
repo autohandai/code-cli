@@ -20,7 +20,12 @@ import {
   getMimeTypeFromExtension,
 } from '../core/ImageManager.js';
 import { getContentDisplay } from './displayUtils.js';
-import { drawInputBottomBorder, drawInputBox, drawInputTopBorder } from './box.js';
+import {
+  drawInputBottomBorder,
+  drawInputBox,
+  drawInputTopBorder,
+  type InputBorderStyle
+} from './box.js';
 import { buildFileMentionSuggestions } from './mentionFilter.js';
 import { getTheme, isThemeInitialized } from './theme/index.js';
 import type { ColorToken } from './theme/types.js';
@@ -1368,14 +1373,14 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         setContextualHelpVisible(false);
       }
 
-      if (typeof rlInternal._refreshLine !== 'function') {
-        // Fallback for runtimes without readline refresh hooks.
-        setImmediate(() => {
-          if (!closed && !pasteState.isInPaste) {
-            renderActivePrompt();
-          }
-        });
-      }
+      // Force a post-keypress repaint so border/mode styling follows the
+      // latest readline buffer even on terminals where _refreshLine timing
+      // can run one keystroke behind.
+      setImmediate(() => {
+        if (!closed && !pasteState.isInPaste) {
+          renderActivePrompt();
+        }
+      });
     };
 
     input.on('keypress', handleKeypress);
@@ -1487,6 +1492,16 @@ function disableReadlineTabBehavior(rl: readline.Interface): void {
   }
 }
 
+function getComposerBorderStyle(line: string): InputBorderStyle {
+  if (/^[\s\u200B-\u200D\uFEFF]*!/u.test(line)) {
+    return 'shell';
+  }
+  if (getPlanModeManager().isEnabled()) {
+    return 'plan';
+  }
+  return 'default';
+}
+
 function renderPromptLine(
   rl: readline.Interface,
   statusLine: string | { left: string; right: string } | undefined,
@@ -1499,8 +1514,9 @@ function renderPromptLine(
   const currentLine = rlAny.line ?? '';
   const cursorPos = rlAny.cursor ?? currentLine.length;
   const prompt = buildPromptRenderState(currentLine, cursorPos, width);
-  const topBorder = drawInputTopBorder(width);
-  const bottomBorder = drawInputBottomBorder(width);
+  const borderStyle = getComposerBorderStyle(currentLine);
+  const topBorder = drawInputTopBorder(width, borderStyle);
+  const bottomBorder = drawInputBottomBorder(width, borderStyle);
   const statusRow = formatPromptStatusRow(statusLine, width);
 
   // Keep readline's prompt in sync for line editing internals.

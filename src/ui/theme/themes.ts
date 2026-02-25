@@ -44,7 +44,7 @@ export const darkTheme: ThemeDefinition = {
     borderMuted: 'gray800',
     success: 'green',
     error: 'red',
-    warning: 'yellow',
+    warning: 'orange',
     muted: 'gray500',
     dim: 'gray200',
     text: 'gray200',
