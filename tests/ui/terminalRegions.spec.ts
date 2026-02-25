@@ -123,7 +123,7 @@ describe('TerminalRegions', () => {
     }
   });
 
-  it('disable clears fixed lines without forcing cursor to scroll start row', () => {
+  it('disable clears fixed lines and moves cursor to scroll region end', () => {
     const output = createMockOutput();
     const regions = new TerminalRegions(output);
     regions.enable();
@@ -132,9 +132,10 @@ describe('TerminalRegions', () => {
     regions.disable();
     const joined = output.writes.join('');
 
+    // Should save/restore cursor while clearing fixed lines
     expect(joined).toContain('\x1b[s');
     expect(joined).toContain('\x1b[u');
-    expect(joined).not.toContain('\x1b[20;1H');
+    expect(joined).toContain('\x1b[20;1H');
   });
 
   it('updates activity line above the composer', () => {

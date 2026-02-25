@@ -85,11 +85,19 @@ export class TerminalRegions {
   disable(): void {
     if (!this.isActive) return;
 
+    const { height } = this.getDimensions();
+    const scrollEnd = Math.max(1, height - this.fixedLines);
+
     // Reset scroll region to full terminal
     this.output.write(`${CSI}r`);
 
     // Clear the fixed region area
     this.clearFixedRegion();
+
+    // Move cursor to the last row of the former scroll region so subsequent
+    // output continues right after the agent's last printed line rather than
+    // staying in the (now-cleared) fixed-region area at the bottom.
+    this.output.write(`${CSI}${scrollEnd};1H`);
 
     // Remove resize handler
     if (this.resizeHandler) {

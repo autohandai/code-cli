@@ -181,6 +181,28 @@ describe('buildPromptRenderState', () => {
     // prefix "> " (2) + cursor at end (5)
     expect(state.cursorColumn).toBe(7);
   });
+
+  it('keeps cursor within a centered scrolling window when editing long input', async () => {
+    const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
+    const state = buildPromptRenderState('abcdefghijklmnopqrstuvwxyz', 10, 14);
+    const plain = state.lineText.replace(/\u001b\[[0-9;]*m/g, '');
+    const inner = plain.slice(1, -1).trimEnd();
+
+    expect(inner.startsWith('…')).toBe(true);
+    expect(inner.endsWith('…')).toBe(true);
+    expect(state.cursorColumn).toBe(6);
+  });
+
+  it('keeps cursor aligned near end when editing long input tail', async () => {
+    const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
+    const state = buildPromptRenderState('abcdefghijklmnopqrstuvwxyz', 26, 14);
+    const plain = state.lineText.replace(/\u001b\[[0-9;]*m/g, '');
+    const inner = plain.slice(1, -1).trimEnd();
+
+    expect(inner.startsWith('…')).toBe(true);
+    expect(inner.endsWith('…')).toBe(false);
+    expect(state.cursorColumn).toBe(12);
+  });
 });
 
 describe('themed prompt rendering', () => {

@@ -136,8 +136,8 @@ export class PersistentInput extends EventEmitter {
 
     this.isPaused = true;
 
-    // Temporarily disable regions so modal prompts can work
     if (!this.silentMode) {
+      // Temporarily disable regions so Modal prompts can work
       this.regions.focusScrollBottom();
       this.regions.disable();
     }
@@ -163,6 +163,7 @@ export class PersistentInput extends EventEmitter {
     }
 
     if (!this.silentMode) {
+      // Re-enable regions
       this.regions.enable();
     }
 
