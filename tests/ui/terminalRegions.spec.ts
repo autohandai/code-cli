@@ -4,12 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { TerminalRegions } from '../../src/ui/terminalRegions.js';
 import { Theme, setTheme } from '../../src/ui/theme/Theme.js';
 import type { ResolvedColors } from '../../src/ui/theme/types.js';
 import { COLOR_TOKENS } from '../../src/ui/theme/types.js';
+import { getPlanModeManager } from '../../src/commands/plan.js';
 
 function createMockOutput() {
   const output = new EventEmitter() as NodeJS.WriteStream & {
@@ -42,6 +43,14 @@ function createMockColors(overrides: Partial<ResolvedColors> = {}): ResolvedColo
 }
 
 describe('TerminalRegions', () => {
+  beforeEach(() => {
+    getPlanModeManager().disable();
+  });
+
+  afterEach(() => {
+    getPlanModeManager().disable();
+  });
+
   it('renders boxed composer with placeholder when enabled', () => {
     const output = createMockOutput();
     const regions = new TerminalRegions(output);
@@ -199,5 +208,60 @@ describe('TerminalRegions', () => {
     const joined = output.writes.join('');
     expect(joined).toContain('\x1b[38;1H');
     expect(joined).toContain('\x1b[38;3H');
+  });
+
+  it('uses orange border color when plan mode is enabled', () => {
+    const theme = new Theme(
+      'test-plan',
+      createMockColors({
+        borderAccent: '#0055aa',
+        warning: '#ff8800',
+      }),
+      'truecolor'
+    );
+    setTheme(theme);
+    getPlanModeManager().enable();
+
+    try {
+      const output = createMockOutput();
+      const regions = new TerminalRegions(output);
+      regions.enable();
+      output.writes = [];
+
+      regions.renderFixedRegion('', 0, 'status');
+      const joined = output.writes.join('');
+      expect(joined).toContain('\x1b[38;2;255;136;0m');
+    } finally {
+      setTheme(null as unknown as Theme);
+      getPlanModeManager().disable();
+    }
+  });
+
+  it('uses light gray border color when input starts with ! even in plan mode', () => {
+    const theme = new Theme(
+      'test-shell',
+      createMockColors({
+        dim: '#c0c0c0',
+        warning: '#ff8800',
+      }),
+      'truecolor'
+    );
+    setTheme(theme);
+    getPlanModeManager().enable();
+
+    try {
+      const output = createMockOutput();
+      const regions = new TerminalRegions(output);
+      regions.enable();
+      output.writes = [];
+
+      regions.updateInput('! git status');
+      const joined = output.writes.join('');
+      expect(joined).toContain('\x1b[38;2;192;192;192m');
+      expect(joined).not.toContain('\x1b[38;2;255;136;0m');
+    } finally {
+      setTheme(null as unknown as Theme);
+      getPlanModeManager().disable();
+    }
   });
 });
