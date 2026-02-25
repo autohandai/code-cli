@@ -174,6 +174,30 @@ describe('feedback command', () => {
       expect(body).toHaveProperty('freeformFeedback', 'The feedback text');
     });
 
+    it('should prefer AUTOHAND_API_URL or config api base URL when submitting feedback', async () => {
+      (safePrompt as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce({ rating: '5' })
+        .mockResolvedValueOnce({ feedback: 'Uses custom URL' });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true, id: 'test-custom-url' }),
+      });
+
+      await feedback({
+        sessionManager: null as any,
+        config: {
+          api: {
+            baseUrl: 'https://custom-api.example.com',
+          },
+        } as any,
+      });
+
+      const fetchCall = mockFetch.mock.calls[0];
+      const url = fetchCall[0] as string;
+      expect(url).toContain('https://custom-api.example.com/v1/feedback');
+    });
+
     it('should set npsScore to 0 when user skips rating', async () => {
       (safePrompt as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce({ rating: 'skip' })
@@ -369,6 +393,26 @@ describe('feedback command', () => {
       // Should not throw
       const result = await feedback({ sessionManager: null as any });
       expect(result).toBeNull();
+    });
+
+    it('should sanitize HTML challenge responses from API errors', async () => {
+      (safePrompt as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce({ rating: '4' })
+        .mockResolvedValueOnce({ feedback: 'Test feedback' });
+
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 403,
+        text: async () => '<!DOCTYPE html><html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>',
+      });
+
+      const result = await feedback({ sessionManager: null as any });
+      expect(result).toBeNull();
+
+      const combined = consoleOutput.join('\n');
+      expect(combined).toContain('API error: 403 blocked by Cloudflare challenge');
+      expect(combined).not.toContain('<html>');
+      expect(combined).not.toContain('__cf_chl_opt');
     });
 
     it('should discard feedback when user cancels rating prompt', async () => {
