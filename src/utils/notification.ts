@@ -4,8 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { spawn } from 'node:child_process';
-import fs from 'node:fs';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import notifier from 'node-notifier';
 import type { NotificationConfig } from '../types.js';
 
 export interface NotificationGuards {
@@ -30,7 +32,14 @@ const TERMINAL_KEYWORDS = [
 ];
 
 const FOCUS_CACHE_TTL_MS = 2000;
-type MacNotificationBackend = 'terminal-notifier' | 'osascript';
+
+// Resolve icon path once at module level.
+// In dev (src/utils/) the icon is at ../../assets/icon.png;
+// in prod (dist/) it's at ../assets/icon.png (shipped in package).
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DEV_ICON = path.resolve(__dirname, '../../assets/icon.png');
+const PROD_ICON = path.resolve(__dirname, '../assets/icon.png');
+const ICON_PATH = existsSync(DEV_ICON) ? DEV_ICON : PROD_ICON;
 
 export class NotificationService {
   private focusCache: { value: boolean; timestamp: number } | null = null;
@@ -74,7 +83,7 @@ export class NotificationService {
     const sound = config.sound !== false; // default: true
 
     try {
-      this.sendNotification(title, options.body, sound);
+      this.sendNotification(title, options.body, sound, options.reason);
     } catch {
       // Notifications must never crash the app
     }
@@ -166,119 +175,22 @@ export class NotificationService {
     });
   }
 
-  // ── Private: platform notification dispatch ────────────────────
+  // ── Private: notification dispatch via node-notifier ────────────
 
-  private sendNotification(title: string, body: string, sound: boolean): void {
-    const platform = process.platform;
+  private sendNotification(title: string, body: string, sound: boolean, reason: NotificationOptions['reason']): void {
+    const contextTitle = reason === 'confirmation'
+      ? `${title} - Approval Needed`
+      : reason === 'question'
+        ? `${title} - Question`
+        : title; // task_complete keeps plain title
 
-    if (platform === 'darwin') {
-      this.sendMacNotification(title, body, sound);
-    } else if (platform === 'linux') {
-      this.sendLinuxNotification(title, body);
-    } else if (platform === 'win32') {
-      this.sendWindowsNotification(title, body);
-    }
-    // Unknown platforms: no-op
-  }
-
-  private sendMacNotification(title: string, body: string, sound: boolean): void {
-    const backend = this.resolveMacBackend();
-    if (backend === 'terminal-notifier') {
-      const args = [
-        '-title',
-        title,
-        '-message',
-        body,
-        '-group',
-        'autohand-cli',
-      ];
-      if (sound) {
-        args.push('-sound', 'Glass');
-      }
-      const child = spawn('terminal-notifier', args, { stdio: 'ignore' });
-      child.once('error', () => {
-        // Fallback for environments where terminal-notifier is unavailable at runtime.
-        this.sendMacNotificationViaAppleScript(title, body, sound);
-      });
-      child.unref();
-      return;
-    }
-
-    this.sendMacNotificationViaAppleScript(title, body, sound);
-  }
-
-  private sendMacNotificationViaAppleScript(title: string, body: string, sound: boolean): void {
-    const escapedBody = this.escapeAppleScript(body);
-    const escapedTitle = this.escapeAppleScript(title);
-    let script = `display notification "${escapedBody}" with title "${escapedTitle}"`;
-    if (sound) {
-      script += ' sound name "Glass"';
-    }
-
-    const child = spawn('osascript', ['-e', script], { stdio: 'ignore' });
-    child.unref();
-  }
-
-  private resolveMacBackend(): MacNotificationBackend {
-    const forced = process.env.AUTOHAND_MAC_NOTIFICATION_BACKEND?.trim().toLowerCase();
-    if (forced === 'osascript' || forced === 'apple-script' || forced === 'applescript') {
-      return 'osascript';
-    }
-    if (forced === 'terminal-notifier' || forced === 'terminal_notifier') {
-      return 'terminal-notifier';
-    }
-
-    return this.hasBinaryInPath('terminal-notifier') ? 'terminal-notifier' : 'osascript';
-  }
-
-  private hasBinaryInPath(binaryName: string): boolean {
-    const envPath = process.env.PATH;
-    if (!envPath) {
-      return false;
-    }
-
-    const segments = envPath.split(path.delimiter);
-    for (const segment of segments) {
-      const candidate = path.join(segment, binaryName);
-      try {
-        fs.accessSync(candidate, fs.constants.X_OK);
-        return true;
-      } catch {
-        // Continue probing next PATH segment.
-      }
-    }
-
-    return false;
-  }
-
-  private escapeAppleScript(value: string): string {
-    return value
-      .replace(/\\/g, '\\\\')
-      .replace(/"/g, '\\"')
-      .replace(/\r?\n/g, ' ');
-  }
-
-  private sendLinuxNotification(title: string, body: string): void {
-    const child = spawn('notify-send', ['--app-name=Autohand', '--urgency=normal', title, body], {
-      stdio: 'ignore',
+    notifier.notify({
+      title: contextTitle,
+      message: body,
+      icon: ICON_PATH,
+      sound,
+      wait: reason !== 'task_complete',
+      timeout: reason === 'task_complete' ? 5 : 15,
     });
-    child.unref();
-  }
-
-  private sendWindowsNotification(title: string, body: string): void {
-    const escapedBody = body.replace(/'/g, "''");
-    const escapedTitle = title.replace(/'/g, "''");
-    const script = `
-      [void] [System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms');
-      $n = New-Object System.Windows.Forms.NotifyIcon;
-      $n.Icon = [System.Drawing.SystemIcons]::Information;
-      $n.Visible = $true;
-      $n.ShowBalloonTip(5000, '${escapedTitle}', '${escapedBody}', 'Info');
-      Start-Sleep -Seconds 6;
-      $n.Dispose();
-    `.trim();
-
-    const child = spawn('powershell', ['-NoProfile', '-Command', script], { stdio: 'ignore' });
-    child.unref();
   }
 }
