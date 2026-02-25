@@ -1,5 +1,6 @@
 import { defineConfig } from 'tsup';
 import { execSync } from 'node:child_process';
+import { cpSync, mkdirSync } from 'node:fs';
 
 // Get git commit at build time
 function getGitCommit(): string {
@@ -29,5 +30,10 @@ export default defineConfig({
   // Embed git commit at build time
   define: {
     'process.env.BUILD_GIT_COMMIT': JSON.stringify(getGitCommit()),
+  },
+  // Copy static assets into dist after build
+  onSuccess: async () => {
+    mkdirSync('dist/assets', { recursive: true });
+    cpSync('assets/icon.png', 'dist/assets/icon.png');
   },
 });
