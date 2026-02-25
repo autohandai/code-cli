@@ -140,7 +140,54 @@ describe('agent startup and active input UI', () => {
     }
   });
 
-  it('formatStatusLine includes tokens used and ? shortcuts hint', () => {
+  it('registers and removes resize handler around status updates', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const spinner = {
+      isSpinning: true,
+      stop: vi.fn(),
+      start: vi.fn(),
+    };
+    const stdoutDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    const onSpy = vi.spyOn(process.stdout, 'on');
+    const offSpy = vi.spyOn(process.stdout, 'off');
+    const forceRender = vi.fn();
+
+    agent.runtime = { spinner };
+    agent.activityIndicator = { next: vi.fn() };
+    agent.lastRenderedStatus = 'cached';
+    agent.statusInterval = null;
+    agent.forceRenderSpinner = forceRender;
+    agent.persistentInputActiveTurn = false;
+    agent.resizeHandler = null;
+
+    try {
+      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+      (agent as any).startStatusUpdates();
+      expect(onSpy).toHaveBeenCalled();
+      const resizeCall = onSpy.mock.calls.find((call) => call[0] === 'resize');
+      expect(resizeCall).toBeDefined();
+      const handler = resizeCall?.[1] as (() => void);
+      expect(typeof handler).toBe('function');
+
+      handler();
+      expect(spinner.stop).toHaveBeenCalled();
+      expect(spinner.start).toHaveBeenCalled();
+      expect(forceRender).toHaveBeenCalled();
+
+      (agent as any).stopStatusUpdates();
+      expect(offSpy).toHaveBeenCalledWith('resize', handler);
+      expect(agent.resizeHandler).toBeNull();
+    } finally {
+      if (stdoutDescriptor) {
+        Object.defineProperty(process.stdout, 'isTTY', stdoutDescriptor);
+      }
+      onSpy.mockRestore();
+      offSpy.mockRestore();
+      (agent as any).stopStatusUpdates();
+    }
+  });
+
+  it('formatStatusLine includes command hints and context value', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const planModeManager = getPlanModeManager();
     planModeManager.disable();
@@ -494,6 +541,116 @@ describe('agent startup and active input UI', () => {
       }
     }
   });
+  it('installs console bridge after persistent input activation in runInstruction', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+
+    const stdoutDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    const stdinDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+
+    const stateAtBridgeInstall: boolean[] = [];
+    const cleanupBridge = vi.fn();
+    const cleanupEsc = vi.fn();
+    const stopPreparation = vi.fn();
+
+    agent.runtime = {
+      config: { agent: { enableRequestQueue: true } },
+      workspaceRoot: process.cwd(),
+    };
+    agent.intentDetector = {
+      detect: vi.fn(() => ({ intent: 'diagnostic' })),
+    };
+    agent.displayIntentMode = vi.fn();
+    agent.initializeUI = vi.fn(async () => {});
+    agent.inkRenderer = null;
+    agent.persistentInput = {
+      start: vi.fn(),
+      stop: vi.fn(),
+      hasQueued: vi.fn(() => false),
+      getQueueLength: vi.fn(() => 0),
+      getCurrentInput: vi.fn(() => ''),
+      setCurrentInput: vi.fn(),
+      setStatusLine: vi.fn(),
+    };
+    agent.formatStatusLine = vi.fn(() => ({ left: '100% context left', right: '' }));
+    agent.installPersistentConsoleBridge = vi.fn(() => {
+      stateAtBridgeInstall.push(agent.persistentInputActiveTurn);
+      return cleanupBridge;
+    });
+    agent.setupPersistentInputInterruptHandlers = vi.fn(() => cleanupEsc);
+    agent.startPreparationStatus = vi.fn(() => stopPreparation);
+    agent.buildUserMessage = vi.fn(async (instruction: string) => instruction);
+    agent.setUIStatus = vi.fn();
+    agent.conversation = {
+      addMessage: vi.fn(),
+      history: vi.fn(() => []),
+    };
+    agent.saveUserMessage = vi.fn(async () => {});
+    agent.updateContextUsage = vi.fn();
+    agent.runReactLoop = vi.fn(async () => {});
+    agent.stopStatusUpdates = vi.fn();
+    agent.cleanupUI = vi.fn();
+    agent.clearExplorationLog = vi.fn();
+    agent.pendingInkInstructions = [];
+    agent.taskStartedAt = null;
+    agent.totalTokensUsed = 0;
+    agent.sessionTokensUsed = 0;
+    agent.filesModifiedThisSession = false;
+    agent.useInkRenderer = false;
+    agent.persistentInputActiveTurn = false;
+    agent.promptSeedInput = '';
+
+    try {
+      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+
+      await (agent as any).runInstruction('hello');
+
+      expect(agent.persistentInput.start).toHaveBeenCalledTimes(1);
+      expect(agent.installPersistentConsoleBridge).toHaveBeenCalledTimes(1);
+      expect(stateAtBridgeInstall).toEqual([true]);
+      expect(cleanupBridge).toHaveBeenCalledTimes(1);
+      expect(cleanupEsc).toHaveBeenCalledTimes(1);
+      expect(stopPreparation).toHaveBeenCalled();
+    } finally {
+      if (stdoutDescriptor) {
+        Object.defineProperty(process.stdout, 'isTTY', stdoutDescriptor);
+      }
+      if (stdinDescriptor) {
+        Object.defineProperty(process.stdin, 'isTTY', stdinDescriptor);
+      }
+    }
+  });
+
+  it('routes queued-processing message above composer when terminal regions are active', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const writeAbove = vi.fn();
+    const originalEnv = process.env.AUTOHAND_TERMINAL_REGIONS;
+    const originalLog = console.log;
+    const logSpy = vi.fn();
+
+    agent.persistentInputActiveTurn = true;
+    agent.useInkRenderer = false;
+    agent.persistentInput = { writeAbove };
+
+    try {
+      process.env.AUTOHAND_TERMINAL_REGIONS = '1';
+      console.log = logSpy as unknown as typeof console.log;
+
+      (agent as any).logQueuedProcessingMessage('tell me if I have future', 1);
+
+      expect(writeAbove).toHaveBeenCalledTimes(2);
+      expect(writeAbove.mock.calls[0]?.[0]).toContain('Processing queued request');
+      expect(writeAbove.mock.calls[1]?.[0]).toContain('1 more request(s) queued');
+      expect(logSpy).not.toHaveBeenCalled();
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env.AUTOHAND_TERMINAL_REGIONS;
+      } else {
+        process.env.AUTOHAND_TERMINAL_REGIONS = originalEnv;
+      }
+      console.log = originalLog;
+    }
+  });
   it('ensureStdinReady does not reset raw mode while persistent input owns stdin', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const originalStdin = process.stdin;
@@ -570,6 +727,7 @@ describe('agent startup and active input UI', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     agent.useInkRenderer = false;
+    agent.persistentInputActiveTurn = false;
 
     try {
       (agent as any).printUserInstructionToChatLog('build the feature');
@@ -582,6 +740,51 @@ describe('agent startup and active input UI', () => {
     }
   });
 
+  it('routes submitted user instruction above composer when terminal regions are active', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const writeAbove = vi.fn();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const originalEnv = process.env.AUTOHAND_TERMINAL_REGIONS;
+
+    agent.useInkRenderer = false;
+    agent.persistentInputActiveTurn = true;
+    agent.persistentInput = { writeAbove };
+
+    try {
+      process.env.AUTOHAND_TERMINAL_REGIONS = '1';
+      (agent as any).printUserInstructionToChatLog('queued message');
+      expect(writeAbove).toHaveBeenCalledTimes(1);
+      expect(String(writeAbove.mock.calls[0]?.[0] ?? '')).toContain('› queued message');
+      expect(logSpy).not.toHaveBeenCalled();
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env.AUTOHAND_TERMINAL_REGIONS;
+      } else {
+        process.env.AUTOHAND_TERMINAL_REGIONS = originalEnv;
+      }
+      logSpy.mockRestore();
+    }
+  });
+
+  it('classifies joke prompts as simple chat', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    expect((agent as any).isSimpleChat('tell me a joke')).toBe(true);
+    expect((agent as any).isSimpleChat('say something funny')).toBe(true);
+    expect((agent as any).isSimpleChat('hello there')).toBe(true);
+  });
+
+  it('does not classify time-sensitive requests as simple chat', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    expect((agent as any).isSimpleChat("what's the weather today in lisbon")).toBe(false);
+    expect((agent as any).isSimpleChat('latest ai news')).toBe(false);
+  });
+
+  it('does not classify coding requests as simple chat', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    expect((agent as any).isSimpleChat('fix the failing test in parser.ts')).toBe(false);
+    expect((agent as any).isSimpleChat('search for TODO comments')).toBe(false);
+  });
+
   it('does not print user instruction log in ink renderer mode', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -590,6 +793,111 @@ describe('agent startup and active input UI', () => {
     try {
       (agent as any).printUserInstructionToChatLog('do not echo');
       expect(logSpy).not.toHaveBeenCalled();
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('buildToolLoopCallSignature is stable for key and call ordering', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const first = (agent as any).buildToolLoopCallSignature([
+      { id: '1', tool: 'git_log', args: { max_count: 1, oneline: true } },
+      { id: '2', tool: 'search', args: { query: 'TODO', path: 'src' } },
+    ]);
+    const second = (agent as any).buildToolLoopCallSignature([
+      { id: '2', tool: 'search', args: { path: 'src', query: 'TODO' } },
+      { id: '1', tool: 'git_log', args: { oneline: true, max_count: 1 } },
+    ]);
+    expect(first).toBe(second);
+  });
+
+  it('runReactLoop breaks repeated identical tool loops and emits fallback response', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const spinner = {
+      isSpinning: true,
+      text: '',
+      start: vi.fn(function (this: any) {
+        this.isSpinning = true;
+        return this;
+      }),
+      stop: vi.fn(function (this: any) {
+        this.isSpinning = false;
+        return this;
+      }),
+    };
+    const addSystemNote = vi.fn();
+    const emitSpy = vi.fn();
+    const executeTools = vi.fn(async () => [{
+      tool: 'git_log',
+      success: false,
+      error: 'Tool failed: blocked',
+    }]);
+    const llmComplete = vi.fn(async () => ({
+      id: 'id-1',
+      created: Date.now(),
+      content: '',
+      raw: {},
+    }));
+
+    agent.runtime = {
+      spinner,
+      config: {
+        agent: { maxIterations: 20, debug: false },
+        ui: { showThinking: false },
+      },
+      options: { model: 'test-model' },
+      workspaceRoot: process.cwd(),
+    };
+    agent.conversation = {
+      history: vi.fn(() => []),
+      addMessage: vi.fn(),
+      addSystemNote,
+    };
+    agent.llm = { complete: llmComplete };
+    agent.toolManager = {
+      toFunctionDefinitions: vi.fn(() => []),
+      execute: executeTools,
+    };
+    agent.contextCompactionEnabled = false;
+    agent.updateContextUsage = vi.fn();
+    agent.getMessagesWithImages = vi.fn(() => []);
+    agent.parseAssistantResponse = vi.fn(() => ({
+      thought: 'Retrying',
+      toolCalls: [{ id: 'call-1', tool: 'git_log', args: { max_count: 1, oneline: true } }],
+    }));
+    agent.saveAssistantMessage = vi.fn(async () => {});
+    agent.saveToolMessage = vi.fn(async () => {});
+    agent.startStatusUpdates = vi.fn();
+    agent.stopStatusUpdates = vi.fn();
+    agent.forceRenderSpinner = vi.fn();
+    agent.sessionManager = {
+      getCurrentSession: vi.fn(() => ({ metadata: { sessionId: 'session-1' } })),
+    };
+    agent.projectManager = {
+      recordSuccess: vi.fn(async () => {}),
+      recordFailure: vi.fn(async () => {}),
+    };
+    agent.activityIndicator = { getVerb: vi.fn(() => 'Working'), getTip: vi.fn(() => 'Tip'), next: vi.fn() };
+    agent.contextPercentLeft = 100;
+    agent.queueInput = '';
+    agent.totalTokensUsed = 0;
+    agent.sessionTokensUsed = 0;
+    agent.searchQueries = [];
+    agent.executedActionNames = [];
+    agent.persistentInputActiveTurn = false;
+    agent.inkRenderer = null;
+    agent.outputListener = emitSpy;
+
+    try {
+      await (agent as any).runReactLoop(new AbortController());
+      expect(executeTools).toHaveBeenCalledTimes(3);
+      expect(llmComplete).toHaveBeenCalledTimes(5);
+      expect(addSystemNote).toHaveBeenCalledWith(expect.stringContaining('Critical Loop Guard'));
+      expect(emitSpy).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'message',
+        content: expect.stringContaining('repeated tool calls'),
+      }));
     } finally {
       logSpy.mockRestore();
     }

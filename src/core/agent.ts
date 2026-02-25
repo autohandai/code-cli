@@ -151,6 +151,7 @@ export class AutohandAgent {
   private taskStartedAt: number | null = null;
   private totalTokensUsed = 0;
   private statusInterval: NodeJS.Timeout | null = null;
+  private resizeHandler: (() => void) | null = null;
   private sessionStartedAt: number = Date.now();
   private sessionTokensUsed = 0;
   private inkRenderer: InkRenderer | null = null;
@@ -159,8 +160,10 @@ export class AutohandAgent {
   private persistentInput: PersistentInput;
   private persistentInputActiveTurn = false;
   private queueInput = '';
+  private promptSeedInput = '';
   private lastRenderedStatus = '';
   private activityIndicator: ActivityIndicator;
+  private lastAssistantResponseForNotification = '';
 
   // New feature modules
   private imageManager: ImageManager;
@@ -538,16 +541,20 @@ export class AutohandAgent {
 
     this.persistentInput.on('queued', (text: string, count: number) => {
       const preview = text.length > 30 ? text.slice(0, 27) + '...' : text;
+      const usingTerminalRegions = this.persistentInputActiveTurn &&
+        process.env.AUTOHAND_TERMINAL_REGIONS !== '0' &&
+        !this.useInkRenderer;
       if (this.inkRenderer) {
         this.inkRenderer.addQueuedInstruction(text);
-      } else if (this.runtime.spinner && !this.persistentInputActiveTurn) {
-        const originalText = this.runtime.spinner.text;
-        this.runtime.spinner.text = chalk.cyan(`✓ Queued: "${preview}" (${count} pending)`);
-        setTimeout(() => {
-          if (this.runtime.spinner) {
-            this.runtime.spinner.text = originalText;
-          }
-        }, 1500);
+      } else if (usingTerminalRegions) {
+        // In terminal-regions mode, PersistentInput already renders queued feedback.
+        return;
+      } else if (this.runtime.spinner) {
+        this.runtime.spinner.stop();
+        console.log(chalk.cyan(`✓ Queued: "${preview}" (${count} pending)`));
+        this.runtime.spinner.start();
+        this.lastRenderedStatus = '';
+        this.forceRenderSpinner();
       }
     });
 
@@ -1022,6 +1029,28 @@ If lint or tests fail, report the issues but do NOT commit.`;
   private lastErrorMessage: string | null = null;
   private consecutiveErrorCount = 0;
 
+  private logQueuedProcessingMessage(instruction: string, remaining = 0): void {
+    const preview = `${instruction.slice(0, 50)}${instruction.length > 50 ? '...' : ''}`;
+    const headline = chalk.cyan(`▶ Processing queued request: "${preview}"`);
+    const detail = remaining > 0 ? chalk.gray(`  ${remaining} more request(s) queued`) : '';
+    const usingTerminalRegions = this.persistentInputActiveTurn &&
+      process.env.AUTOHAND_TERMINAL_REGIONS !== '0' &&
+      !this.useInkRenderer;
+
+    if (usingTerminalRegions) {
+      this.persistentInput.writeAbove(`${headline}\n`);
+      if (detail) {
+        this.persistentInput.writeAbove(`${detail}\n`);
+      }
+      return;
+    }
+
+    console.log(`\n${headline}`);
+    if (detail) {
+      console.log(detail);
+    }
+  }
+
   private async runInteractiveLoop(): Promise<void> {
     while (true) {
       try {
@@ -1030,32 +1059,35 @@ If lint or tests fail, report the issues but do NOT commit.`;
         if (this.pendingInkInstructions.length > 0) {
           instruction = this.pendingInkInstructions.shift() ?? null;
           if (instruction) {
-            console.log(chalk.cyan(`\n▶ Processing queued request: "${instruction.slice(0, 50)}${instruction.length > 50 ? '...' : ''}"`));
-
-            const remaining = this.pendingInkInstructions.length;
-            if (remaining > 0) {
-              console.log(chalk.gray(`  ${remaining} more request(s) queued`));
+            if (this.runtime.spinner?.isSpinning) {
+              this.runtime.spinner.stop();
+              this.lastRenderedStatus = '';
             }
+            const remaining = this.pendingInkInstructions.length;
+            this.logQueuedProcessingMessage(instruction, remaining);
           }
         } else if (this.inkRenderer?.hasQueuedInstructions()) {
           instruction = this.inkRenderer.dequeueInstruction() ?? null;
           if (instruction) {
-            console.log(chalk.cyan(`\n▶ Processing queued request: "${instruction.slice(0, 50)}${instruction.length > 50 ? '...' : ''}"`));
-
-            const remaining = this.inkRenderer.getQueueCount();
-            if (remaining > 0) {
-              console.log(chalk.gray(`  ${remaining} more request(s) queued`));
+            if (this.runtime.spinner?.isSpinning) {
+              this.runtime.spinner.stop();
+              this.lastRenderedStatus = '';
             }
+            const remaining = this.inkRenderer.getQueueCount();
+            this.logQueuedProcessingMessage(instruction, remaining);
           }
         } else if (this.persistentInput.hasQueued()) {
           const queued = this.persistentInput.dequeue();
           if (queued) {
             instruction = queued.text;
-            console.log(chalk.cyan(`\n▶ Processing queued request: "${instruction.slice(0, 50)}${instruction.length > 50 ? '...' : ''}"`));
-
-            if (this.persistentInput.hasQueued()) {
-              console.log(chalk.gray(`  ${this.persistentInput.getQueueLength()} more request(s) queued`));
+            if (this.runtime.spinner?.isSpinning) {
+              this.runtime.spinner.stop();
+              this.lastRenderedStatus = '';
             }
+            const remaining = this.persistentInput.hasQueued()
+              ? this.persistentInput.getQueueLength()
+              : 0;
+            this.logQueuedProcessingMessage(instruction, remaining);
           }
         }
 
@@ -1109,7 +1141,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
         this.consecutiveErrorCount = 0;
 
         const turnStartTime = Date.now();
-        await this.runInstruction(instruction);
+        if (this.isSimpleChat(instruction)) {
+          await this.handleSimpleChat(instruction);
+        } else {
+          await this.runInstruction(instruction);
+        }
         this.flushMcpStartupSummaryIfPending();
 
         // Fire stop hook after turn completes (non-blocking)
@@ -1465,20 +1501,29 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Fast path for conversational responses
    */
   private isSimpleChat(instruction: string): boolean {
-    // Too long = likely complex request
-    if (instruction.length > 200) return false;
+    const normalized = instruction.trim().toLowerCase();
+    if (!normalized) return false;
 
-    // File mentions = needs context
-    if (instruction.includes('@')) return false;
+    // Keep fast-path scoped to obvious casual chat only.
+    // All coding/analysis tasks should go through the full ReAct loop.
+    if (normalized.length > 200) return false;
+    if (normalized.includes('@')) return false;
+    if (normalized.startsWith('/')) return false;
+    if (normalized.startsWith('!')) return false;
 
-    // Slash commands = special handling
-    if (instruction.startsWith('/')) return false;
+    const codingOrActionKeywords = /\b(file|create|edit|delete|run|fix|implement|refactor|build|test|install|commit|push|read|write|search|find|list|show me|update|add|remove|change|modify|rename|copy|move|execute|deploy|check|analyze|review|debug|inspect|explore|look at|open|save)\b/i;
+    if (codingOrActionKeywords.test(normalized)) return false;
 
-    // Keywords that suggest tool usage
-    const toolKeywords = /\b(file|create|edit|delete|run|fix|implement|refactor|build|test|install|commit|push|read|write|search|find|list|show me|update|add|remove|change|modify|rename|copy|move|execute|deploy|check|analyze|review|debug|inspect|explore|look at|open|save)\b/i;
-    if (toolKeywords.test(instruction)) return false;
+    const casualPatterns = [
+      /^(hi|hello|hey|yo|sup|hola|bonjour|ola)\b/,
+      /^(thanks|thank you|thx|cool|nice|awesome|great|ok|okay)\b/,
+      /\b(tell me a joke|another joke|say something funny|make me laugh)\b/,
+      /\bwho are you\b/,
+      /\bwhat can you do\b/,
+      /^good (morning|afternoon|evening)\b/,
+    ];
 
-    return true;
+    return casualPatterns.some((pattern) => pattern.test(normalized));
   }
 
   /**
@@ -1578,6 +1623,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
     if (shouldUsePersistentInput) {
       this.persistentInput.start();
       this.persistentInputActiveTurn = true;
+      if (this.promptSeedInput && !this.persistentInput.getCurrentInput()) {
+        this.persistentInput.setCurrentInput(this.promptSeedInput);
+        this.promptSeedInput = '';
+      }
       this.persistentInput.setStatusLine(this.formatStatusLine());
       cleanupConsoleBridge = this.installPersistentConsoleBridge();
     } else {
@@ -1691,11 +1740,28 @@ If lint or tests fail, report the issues but do NOT commit.`;
       cleanupEsc();
       stopPreparation();
       this.stopStatusUpdates();
+      const keepPersistentInputForNextTurn =
+        this.persistentInputActiveTurn &&
+        (this.persistentInput.hasQueued() || this.persistentInput.getCurrentInput().trim().length > 0);
       if (this.persistentInputActiveTurn) {
+        this.promptSeedInput = this.persistentInput.getCurrentInput();
+      }
+      // Stop the spinner BEFORE disabling scroll regions. ora tracks its
+      // cursor position relative to the active scroll region; if regions are
+      // reset first, ora.stop() moves the cursor to an incorrect absolute
+      // row (typically row 1), causing the next prompt to render at the top.
+      this.cleanupUI();
+
+      if (this.persistentInputActiveTurn && !keepPersistentInputForNextTurn) {
         this.persistentInput.stop();
         this.persistentInputActiveTurn = false;
       }
-      this.cleanupUI();
+
+      // Ensure the cursor is on a fresh blank line after cleanup so the next
+      // prompt box doesn't overwrite the last output row.
+      if (process.stdout.isTTY && !this.useInkRenderer) {
+        process.stdout.write('\n');
+      }
 
       // Show completion summary (skip if using Ink - it handles this via completionStats)
       if (this.taskStartedAt && !canceledByUser && !this.useInkRenderer) {
@@ -1706,7 +1772,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
           (this.inkRenderer?.getQueueCount() ?? 0) +
           this.persistentInput.getQueueLength();
         const queueStatus = queueCount > 0 ? ` · ${queueCount} queued` : '';
-        console.log(chalk.gray(`\nCompleted in ${elapsed} · ${tokens} used${queueStatus}`));
+        console.log(chalk.gray(`Completed in ${elapsed} · ${tokens} used${queueStatus}`));
       }
 
       // Accumulate session tokens before resetting task
@@ -1872,6 +1938,15 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
     // Check if thinking should be shown
     const showThinking = this.runtime.config.ui?.showThinking !== false;
+    const identicalCallHardLimit = 6;
+    const identicalCallAndResultLimit = 3;
+    const forceNoToolsViolationLimit = 2;
+    let lastToolCallSignature = '';
+    let identicalToolCallCount = 0;
+    let lastToolResultSignature = '';
+    let identicalToolResultCount = 0;
+    let forceNoToolsUntilResponse = false;
+    let forceNoToolsViolationCount = 0;
 
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
       // Check for abort at the start of each iteration
@@ -1892,6 +1967,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
         if (debugMode) {
           process.stderr.write(`[AGENT DEBUG] Plan mode active: filtered to ${tools.length} read-only tools\n`);
         }
+      }
+
+      if (forceNoToolsUntilResponse) {
+        tools = [];
       }
 
       // Use ContextManager for smart auto-compaction when enabled
@@ -2057,6 +2136,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
       const hasResponse = Boolean(payload.finalResponse || payload.response || (!toolCount && payload.thought));
       const thoughtPreview = payload.thought?.slice(0, 80) || '';
 
+      if (!payload.toolCalls?.length) {
+        forceNoToolsViolationCount = 0;
+      }
+
       if (this.inkRenderer) {
         if (toolCount > 0) {
           const toolNames = payload.toolCalls!.map(t => t.tool).join(', ');
@@ -2079,6 +2162,54 @@ If lint or tests fail, report the issues but do NOT commit.`;
       }
 
       if (payload.toolCalls && payload.toolCalls.length > 0) {
+        const toolCallSignature = this.buildToolLoopCallSignature(payload.toolCalls);
+        if (toolCallSignature === lastToolCallSignature) {
+          identicalToolCallCount += 1;
+        } else {
+          lastToolCallSignature = toolCallSignature;
+          identicalToolCallCount = 1;
+          lastToolResultSignature = '';
+          identicalToolResultCount = 0;
+          forceNoToolsViolationCount = 0;
+        }
+
+        if (forceNoToolsUntilResponse) {
+          forceNoToolsViolationCount += 1;
+          this.conversation.addSystemNote(
+            '[Critical Loop Guard] You are still calling tools after being told to stop. ' +
+            'Do not call tools again. Provide your finalResponse now.'
+          );
+
+          if (forceNoToolsViolationCount >= forceNoToolsViolationLimit) {
+            this.stopStatusUpdates();
+            const loopFallback =
+              'I stopped repeated tool calls to prevent a loop and token waste. ' +
+              'Please confirm if you want a direct answer now or a narrower retry instruction.';
+            this.lastAssistantResponseForNotification = loopFallback;
+            if (this.inkRenderer) {
+              this.inkRenderer.setWorking(false);
+              this.inkRenderer.setFinalResponse(loopFallback);
+            } else {
+              this.runtime.spinner?.stop();
+              console.log(loopFallback);
+            }
+            this.emitOutput({ type: 'message', content: loopFallback });
+            return;
+          }
+
+          continue;
+        }
+
+        if (identicalToolCallCount >= identicalCallHardLimit) {
+          forceNoToolsUntilResponse = true;
+          this.conversation.addSystemNote(
+            `[Critical Loop Guard] Repeated tool call sequence detected (${identicalToolCallCount}x). ` +
+            `Last sequence: ${this.truncateToolLoopSignature(toolCallSignature)}. ` +
+            'Stop calling tools and provide your finalResponse using the current results.'
+          );
+          continue;
+        }
+
         const cropCalls = payload.toolCalls.filter((call) => call.tool === 'smart_context_cropper');
         const otherCalls = payload.toolCalls.filter((call) => call.tool !== 'smart_context_cropper');
 
@@ -2154,6 +2285,25 @@ If lint or tests fail, report the issues but do NOT commit.`;
               `[CRITICAL] The user has cancelled ask_followup_question ${this.consecutiveCancellations} times in a row. ` +
               `STOP calling ask_followup_question immediately. Do NOT ask the user any more questions. ` +
               `Provide your best final response now using the information you already have.`
+            );
+          }
+
+          const toolResultSignature = this.buildToolLoopResultSignature(results);
+          if (toolResultSignature === lastToolResultSignature) {
+            identicalToolResultCount += 1;
+          } else {
+            lastToolResultSignature = toolResultSignature;
+            identicalToolResultCount = 1;
+          }
+
+          if (
+            identicalToolCallCount >= identicalCallAndResultLimit &&
+            identicalToolResultCount >= identicalCallAndResultLimit
+          ) {
+            forceNoToolsUntilResponse = true;
+            this.conversation.addSystemNote(
+              '[Critical Loop Guard] Tool calls and outputs are repeating without progress. ' +
+              'Stop calling tools and provide your finalResponse now.'
             );
           }
         }
@@ -3328,6 +3478,72 @@ If lint or tests fail, report the issues but do NOT commit.`;
     return cleaned;
   }
 
+  private buildToolLoopCallSignature(calls: ToolCallRequest[]): string {
+    return calls
+      .map((call) => {
+        const args = call.args === undefined ? '' : this.stableSerializeForLoop(call.args);
+        return `${call.tool}:${args}`;
+      })
+      .sort()
+      .join('|');
+  }
+
+  private buildToolLoopResultSignature(
+    results: Array<{ tool: AgentAction['type']; success: boolean; output?: string; error?: string }>
+  ): string {
+    return results
+      .map((result) => {
+        const payload = result.success ? result.output : (result.error ?? result.output ?? '');
+        const normalized = this.normalizeToolLoopText(payload);
+        return `${result.tool}:${result.success ? 'ok' : 'err'}:${normalized}`;
+      })
+      .sort()
+      .join('|');
+  }
+
+  private stableSerializeForLoop(value: unknown): string {
+    const normalize = (input: unknown): unknown => {
+      if (Array.isArray(input)) {
+        return input.map((entry) => normalize(entry));
+      }
+      if (input && typeof input === 'object') {
+        const record = input as Record<string, unknown>;
+        const normalized: Record<string, unknown> = {};
+        for (const key of Object.keys(record).sort()) {
+          normalized[key] = normalize(record[key]);
+        }
+        return normalized;
+      }
+      return input;
+    };
+
+    try {
+      const serialized = JSON.stringify(normalize(value));
+      return serialized ?? String(value);
+    } catch {
+      return String(value);
+    }
+  }
+
+  private normalizeToolLoopText(value: string | undefined): string {
+    if (!value) {
+      return '';
+    }
+
+    return value
+      .replace(/\u001b\[[0-9;]*m/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 240);
+  }
+
+  private truncateToolLoopSignature(signature: string, maxLength = 180): string {
+    if (signature.length <= maxLength) {
+      return signature;
+    }
+    return `${signature.slice(0, Math.max(0, maxLength - 3))}...`;
+  }
+
   private recordExploration(event: ExplorationEvent): void {
     if (!this.isInstructionActive) {
       return;
@@ -4489,12 +4705,28 @@ If lint or tests fail, report the issues but do NOT commit.`;
     this.statusInterval = setInterval(() => {
       this.forceRenderSpinner();
     }, 1000); // Once per second is enough for time updates
+
+    if (process.stdout.isTTY && !this.resizeHandler) {
+      this.resizeHandler = () => {
+        this.lastRenderedStatus = '';
+        if (this.runtime.spinner?.isSpinning) {
+          this.runtime.spinner.stop();
+          this.runtime.spinner.start();
+        }
+        this.forceRenderSpinner();
+      };
+      process.stdout.on('resize', this.resizeHandler);
+    }
   }
 
   private stopStatusUpdates(): void {
     if (this.statusInterval) {
       clearInterval(this.statusInterval);
       this.statusInterval = null;
+    }
+    if (this.resizeHandler) {
+      process.stdout.off('resize', this.resizeHandler);
+      this.resizeHandler = null;
     }
   }
 
@@ -4601,6 +4833,16 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
 
     const lines = normalized.split('\n');
+    const usingTerminalRegions = this.persistentInputActiveTurn &&
+      process.env.AUTOHAND_TERMINAL_REGIONS !== '0';
+    if (usingTerminalRegions) {
+      this.persistentInput.writeAbove(`${chalk.white(`› ${lines[0] ?? ''}`)}\n`);
+      for (const line of lines.slice(1)) {
+        this.persistentInput.writeAbove(`${chalk.white(`  ${line}`)}\n`);
+      }
+      return;
+    }
+
     console.log(chalk.white(`\n› ${lines[0] ?? ''}`));
     for (const line of lines.slice(1)) {
       console.log(chalk.white(`  ${line}`));
