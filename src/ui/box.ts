@@ -69,22 +69,28 @@ function truncateVisible(value: string, maxVisible: number): string {
 }
 
 export function drawInputBox(left: string, width: number, right?: string): string {
+  const visLeft = getVisibleLength(left);
+
   if (!right) {
-    const padded = left.padEnd(width, ' ');
-    return chalk.bgHex('#2b2b2b').hex('#a0a0a0')(padded);
+    const pad = Math.max(0, width - visLeft);
+    return chalk.bgHex('#2b2b2b').hex('#a0a0a0')(left + ' '.repeat(pad));
   }
 
+  const visRight = getVisibleLength(right);
   const minGap = 2;
-  const available = width - left.length - minGap;
+  const available = width - visLeft - minGap;
 
   if (available <= 0) {
-    const padded = left.padEnd(width, ' ');
-    return chalk.bgHex('#2b2b2b').hex('#a0a0a0')(padded);
+    const pad = Math.max(0, width - visLeft);
+    return chalk.bgHex('#2b2b2b').hex('#a0a0a0')(left + ' '.repeat(pad));
   }
 
-  const rightText = right.length > available ? right.slice(0, available) : right;
-  const gap = width - left.length - rightText.length;
-  const line = left + ' '.repeat(Math.max(0, gap)) + rightText;
+  const clippedRight = visRight > available
+    ? truncateVisible(right, available)
+    : right;
+  const clippedRightVis = getVisibleLength(clippedRight);
+  const gap = Math.max(0, width - visLeft - clippedRightVis);
+  const line = left + ' '.repeat(gap) + clippedRight;
 
   return chalk.bgHex('#2b2b2b').hex('#a0a0a0')(line);
 }
