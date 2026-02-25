@@ -13,6 +13,7 @@ import { TerminalRegions, createTerminalRegions } from './terminalRegions.js';
 import { safeEmitKeypressEvents } from './inputPrompt.js';
 import { safeSetRawMode } from './rawMode.js';
 import { isImmediateCommand } from './shellCommand.js';
+import { getPlanModeManager } from '../commands/plan.js';
 
 export interface QueuedMessage {
   text: string;
@@ -24,6 +25,15 @@ export interface PersistentInputOptions {
   statusLine?: string | { left: string; right: string };
   /** Silent mode - queue input without terminal regions UI (works better with ora spinner) */
   silentMode?: boolean;
+}
+
+function isShiftTabShortcut(str: string, key: readline.Key | undefined): boolean {
+  return (
+    key?.name === 'backtab' ||
+    (key?.name === 'tab' && key.shift === true) ||
+    key?.sequence === '\u001b[Z' ||
+    str === '\u001b[Z'
+  );
 }
 
 /**
@@ -255,6 +265,14 @@ export class PersistentInput extends EventEmitter {
    */
   private handleKeypress = (_str: string, key: readline.Key): void => {
     if (!this.isActive || this.isPaused) {
+      return;
+    }
+
+    // Shift+Tab toggles plan mode while the agent is actively working.
+    if (isShiftTabShortcut(_str, key)) {
+      const planModeManager = getPlanModeManager();
+      planModeManager.handleShiftTab();
+      this.emit('plan-mode-toggled', planModeManager.isEnabled());
       return;
     }
 
