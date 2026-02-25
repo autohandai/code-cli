@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ActivityIndicator } from '../../src/ui/activityIndicator.js';
 
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-9;]*m/g, '');
+}
+
 describe('ActivityIndicator', () => {
   let indicator: ActivityIndicator;
 
@@ -17,7 +21,7 @@ describe('ActivityIndicator', () => {
   it('rotates verbs across calls', () => {
     const verbs = new Set<string>();
     for (let i = 0; i < 5; i++) {
-      const result = indicator.next();
+      const result = stripAnsi(indicator.next());
       const match = result.match(/^\S+\s+(\w+)\.\.\./);
       expect(match).toBeTruthy();
       verbs.add(match![1]);
