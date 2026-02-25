@@ -312,21 +312,38 @@ export function buildPromptRenderState(
   const placeholder = `${prefix}${PROMPT_PLACEHOLDER}`;
 
   let visibleText = fullInput;
-  let cursorColumn = 1 + prefix.length + effectiveCursor; // +1 for leading border
+  let cursorColumn = prefix.length + effectiveCursor;
+  const fullCursor = prefix.length + effectiveCursor;
 
   if (!normalizedLine) {
     visibleText = chalk.gray(placeholder);
-    cursorColumn = 1 + prefix.length;
+    cursorColumn = prefix.length;
   } else if (fullInput.length > innerWidth) {
     const ellipsis = '…';
-    const visibleSliceLen = Math.max(1, innerWidth - ellipsis.length);
-    const startIndex = Math.max(0, fullInput.length - visibleSliceLen);
-    visibleText = `${ellipsis}${fullInput.slice(startIndex)}`;
-    const fullCursor = prefix.length + effectiveCursor;
-    if (fullCursor < startIndex) {
-      cursorColumn = 1; // right after border
+    const nearStartThreshold = innerWidth - 1;
+    const nearEndThreshold = innerWidth - 1;
+
+    // Near start: keep left side stable and show a right ellipsis.
+    if (fullCursor <= nearStartThreshold) {
+      const body = fullInput.slice(0, Math.max(1, innerWidth - 1));
+      visibleText = `${body}${ellipsis}`;
+      cursorColumn = fullCursor;
+    // Near end: keep right side stable and show a left ellipsis.
+    } else if ((fullInput.length - fullCursor) <= nearEndThreshold) {
+      const start = Math.max(0, fullInput.length - Math.max(1, innerWidth - 1));
+      const body = fullInput.slice(start);
+      visibleText = `${ellipsis}${body}`;
+      cursorColumn = 1 + (fullCursor - start);
+    // Middle: keep cursor in a moving window with ellipses on both sides.
     } else {
-      cursorColumn = 1 + ellipsis.length + (fullCursor - startIndex);
+      const windowSize = Math.max(1, innerWidth - 2);
+      const half = Math.floor(windowSize / 2);
+      const minStart = 1;
+      const maxStart = Math.max(minStart, fullInput.length - windowSize - 1);
+      const start = Math.max(minStart, Math.min(maxStart, fullCursor - half));
+      const body = fullInput.slice(start, start + windowSize);
+      visibleText = `${ellipsis}${body}${ellipsis}`;
+      cursorColumn = 1 + (fullCursor - start);
     }
   }
 
@@ -795,9 +812,11 @@ function createReadline(
   stdInput: NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void },
   stdOutput: NodeJS.WriteStream
 ): { rl: readline.Interface; input: NodeJS.ReadStream; supportsRawMode: boolean } {
-  // Reset terminal state before creating new readline
-  // This ensures cursor position and output buffer are clean
-  stdOutput.write('\r'); // Move cursor to column 0
+  // Move cursor to column 0 of the current row. The caller is responsible for
+  // ensuring the cursor is already on a fresh blank line before calling
+  // createReadline (e.g., by writing '\n' after all agent/spinner output).
+  // This '\r' is a defensive reset; it does NOT advance to a new row.
+  stdOutput.write('\r');
 
   // Ensure stdin keypress events are set up (only once per stream)
   safeEmitKeypressEvents(stdInput);
@@ -1519,6 +1538,12 @@ function renderPromptLine(
       readline.moveCursor(output, 0, -1);
     }
     readline.cursorTo(output, 0);
+  } else {
+    // Initial render: the cursor has been placed on a fresh row by createReadline,
+    // but defensively clear the current line before drawing the top border to
+    // eliminate any residual characters that could cause a one-frame flash.
+    readline.cursorTo(output, 0);
+    readline.clearLine(output, 0);
   }
 
   // Render top border, input row, bottom border, and status row.

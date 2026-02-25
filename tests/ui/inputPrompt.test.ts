@@ -171,15 +171,36 @@ describe('buildPromptRenderState', () => {
     const state = buildPromptRenderState('', 0, 80);
 
     expect(state.lineText).toContain(PROMPT_PLACEHOLDER);
-    expect(state.cursorColumn).toBe(3);
+    expect(state.cursorColumn).toBe(2);
   });
 
   it('positions cursor after typed content', async () => {
     const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
     const state = buildPromptRenderState('hello', 5, 80);
 
-    // border (1) + prefix "> " (2) + cursor at end (5)
-    expect(state.cursorColumn).toBe(8);
+    // prefix (2) + cursor at end (5)
+    expect(state.cursorColumn).toBe(7);
+  });
+
+  it('keeps cursor within a centered scrolling window when editing long input', async () => {
+    const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
+    const state = buildPromptRenderState('abcdefghijklmnopqrstuvwxyz', 10, 14);
+    const plain = state.lineText.replace(/\u001b\[[0-9;]*m/g, '');
+    const visible = plain.trimEnd();
+
+    expect(visible.startsWith('…')).toBe(true);
+    expect(visible.endsWith('…')).toBe(true);
+    expect(state.cursorColumn).toBe(6);
+  });
+
+  it('keeps cursor aligned near end when editing long input tail', async () => {
+    const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
+    const state = buildPromptRenderState('abcdefghijklmnopqrstuvwxyz', 26, 14);
+    const plain = state.lineText.replace(/\u001b\[[0-9;]*m/g, '');
+
+    expect(plain.startsWith('…')).toBe(true);
+    expect(plain.endsWith('…')).toBe(false);
+    expect(state.cursorColumn).toBe(12);
   });
 });
 

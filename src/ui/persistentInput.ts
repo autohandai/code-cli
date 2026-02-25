@@ -137,9 +137,11 @@ export class PersistentInput extends EventEmitter {
 
     this.isPaused = true;
 
-    // Temporarily disable regions so Modal prompts can work
-    this.regions.focusScrollBottom();
-    this.regions.disable();
+    if (!this.silentMode) {
+      // Temporarily disable regions so Modal prompts can work
+      this.regions.focusScrollBottom();
+      this.regions.disable();
+    }
 
     // Restore terminal for Modal prompts
     const supportsRaw = (this as any)._supportsRaw;
@@ -161,8 +163,10 @@ export class PersistentInput extends EventEmitter {
       // Best effort only.
     }
 
-    // Re-enable regions
-    this.regions.enable();
+    if (!this.silentMode) {
+      // Re-enable regions
+      this.regions.enable();
+    }
 
     // Re-enable raw mode
     const supportsRaw = (this as any)._supportsRaw;
@@ -170,7 +174,9 @@ export class PersistentInput extends EventEmitter {
       safeSetRawMode(this.input, true);
     }
 
-    this.render();
+    if (!this.silentMode) {
+      this.render();
+    }
   }
 
   /**
