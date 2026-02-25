@@ -601,6 +601,9 @@ export class AutohandAgent {
       const usingTerminalRegions = this.persistentInputActiveTurn &&
         process.env.AUTOHAND_TERMINAL_REGIONS !== '0' &&
         !this.useInkRenderer;
+      if (usingTerminalRegions) {
+        this.persistentInput.render();
+      }
 
       if (usingTerminalRegions) {
         this.persistentInput.writeAbove(`${message}\n`);

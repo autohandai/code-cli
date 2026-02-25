@@ -8,6 +8,10 @@ import { getTheme, isThemeInitialized } from './theme/index.js';
 import type { ColorToken } from './theme/types.js';
 
 const DEFAULT_BORDER_COLOR = '#8a8a8a';
+const PLAN_BORDER_COLOR = '#ff9d3f';
+const SHELL_BORDER_COLOR = '#c8c8c8';
+
+export type InputBorderStyle = 'default' | 'plan' | 'shell';
 
 function themedFg(token: ColorToken, text: string, fallback: (value: string) => string): string {
   if (!isThemeInitialized()) {
@@ -21,22 +25,42 @@ function themedFg(token: ColorToken, text: string, fallback: (value: string) => 
   }
 }
 
-export function drawInputTopBorder(width: number): string {
-  const innerWidth = Math.max(0, width - 2);
+function resolveBorderToken(style: InputBorderStyle): ColorToken {
+  if (style === 'plan') {
+    return 'warning';
+  }
+  if (style === 'shell') {
+    return 'dim';
+  }
+  return 'borderAccent';
+}
+
+function resolveBorderFallback(style: InputBorderStyle): string {
+  if (style === 'plan') {
+    return PLAN_BORDER_COLOR;
+  }
+  if (style === 'shell') {
+    return SHELL_BORDER_COLOR;
+  }
+  return DEFAULT_BORDER_COLOR;
+}
+
+function drawBorderText(style: InputBorderStyle, text: string): string {
   return themedFg(
-    'borderAccent',
-    `┌${'─'.repeat(innerWidth)}┐`,
-    (value) => chalk.hex(DEFAULT_BORDER_COLOR)(value)
+    resolveBorderToken(style),
+    text,
+    (value) => chalk.hex(resolveBorderFallback(style))(value)
   );
 }
 
-export function drawInputBottomBorder(width: number): string {
+export function drawInputTopBorder(width: number, style: InputBorderStyle = 'default'): string {
   const innerWidth = Math.max(0, width - 2);
-  return themedFg(
-    'borderAccent',
-    `└${'─'.repeat(innerWidth)}┘`,
-    (value) => chalk.hex(DEFAULT_BORDER_COLOR)(value)
-  );
+  return drawBorderText(style, `┌${'─'.repeat(innerWidth)}┐`);
+}
+
+export function drawInputBottomBorder(width: number, style: InputBorderStyle = 'default'): string {
+  const innerWidth = Math.max(0, width - 2);
+  return drawBorderText(style, `└${'─'.repeat(innerWidth)}┘`);
 }
 
 const ANSI_PATTERN = /\u001b\[[0-9;]*m/g;

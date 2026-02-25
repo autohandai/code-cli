@@ -7,9 +7,15 @@
  * Allows spinner/output in top region while keeping input visible at bottom
  */
 import chalk from 'chalk';
-import { drawInputBottomBorder, drawInputBox, drawInputTopBorder } from './box.js';
+import {
+  drawInputBottomBorder,
+  drawInputBox,
+  drawInputTopBorder,
+  type InputBorderStyle
+} from './box.js';
 import { getTheme, isThemeInitialized } from './theme/index.js';
 import type { ColorToken } from './theme/types.js';
+import { getPlanModeManager } from '../commands/plan.js';
 
 // ANSI escape sequences
 const ESC = '\x1B';
@@ -137,6 +143,7 @@ export class TerminalRegions {
 
     const { height, width } = this.getDimensions();
     const promptWidth = this.getPromptWidth(width);
+    const borderStyle = this.getInputBorderStyle(input);
 
     this.output.write(`${CSI}${height - 4};1H`);
     this.output.write(`${CSI}K`);
@@ -144,7 +151,7 @@ export class TerminalRegions {
 
     this.output.write(`${CSI}${height - 3};1H`);
     this.output.write(`${CSI}K`);
-    this.output.write(drawInputTopBorder(promptWidth));
+    this.output.write(drawInputTopBorder(promptWidth, borderStyle));
 
     this.output.write(`${CSI}${height - 2};1H`);
     this.output.write(`${CSI}K`);
@@ -152,7 +159,7 @@ export class TerminalRegions {
 
     this.output.write(`${CSI}${height - 1};1H`);
     this.output.write(`${CSI}K`);
-    this.output.write(drawInputBottomBorder(promptWidth));
+    this.output.write(drawInputBottomBorder(promptWidth, borderStyle));
 
     this.output.write(`${CSI}${height};1H`);
     this.output.write(`${CSI}K`);
@@ -169,10 +176,17 @@ export class TerminalRegions {
     this.currentInput = input;
     const { height, width } = this.getDimensions();
     const promptWidth = this.getPromptWidth(width);
+    const borderStyle = this.getInputBorderStyle(input);
 
     this.output.write(`${CSI}${height - 2};1H`);
     this.output.write(`${CSI}K`);
     this.output.write(drawInputBox(this.getInputContent(input), promptWidth));
+    this.output.write(`${CSI}${height - 3};1H`);
+    this.output.write(`${CSI}K`);
+    this.output.write(drawInputTopBorder(promptWidth, borderStyle));
+    this.output.write(`${CSI}${height - 1};1H`);
+    this.output.write(`${CSI}K`);
+    this.output.write(drawInputBottomBorder(promptWidth, borderStyle));
     this.focusInputCursor();
   }
 
@@ -220,6 +234,16 @@ export class TerminalRegions {
     }
     const prefix = themedFg('accent', PROMPT_INPUT_PREFIX, (value) => chalk.gray(value));
     return `${prefix}${input}`;
+  }
+
+  private getInputBorderStyle(input: string): InputBorderStyle {
+    if (/^[\s\u200B-\u200D\uFEFF]*!/u.test(input)) {
+      return 'shell';
+    }
+    if (getPlanModeManager().isEnabled()) {
+      return 'plan';
+    }
+    return 'default';
   }
 
   private formatStatusLine(status: string, queueCount: number, width: number): string {
