@@ -251,10 +251,28 @@ describe('agent startup and active input UI', () => {
   it('completion notification body falls back when response is empty', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     agent.lastAssistantResponseForNotification = '   ';
+    agent.conversation = {
+      history: vi.fn(() => []),
+    };
 
     const body = (agent as any).getCompletionNotificationBody();
 
     expect(body).toBe('Task completed');
+  });
+
+  it('completion notification body falls back to latest assistant message when cached preview is empty', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    agent.lastAssistantResponseForNotification = '   ';
+    agent.conversation = {
+      history: vi.fn(() => [
+        { role: 'user', content: 'hello' },
+        { role: 'assistant', content: '{"finalResponse":"Great progress on the UI composer."}' },
+      ]),
+    };
+
+    const body = (agent as any).getCompletionNotificationBody();
+
+    expect(body).toBe('Great progress on the UI composer.');
   });
 
   it('forceRenderSpinner does not show live typing preview while working', () => {
@@ -818,6 +836,71 @@ describe('agent startup and active input UI', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     expect((agent as any).isSimpleChat('fix the failing test in parser.ts')).toBe(false);
     expect((agent as any).isSimpleChat('search for TODO comments')).toBe(false);
+  });
+
+  it('routes casual prompts through runInstruction in interactive loop', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    agent.pendingInkInstructions = [];
+    agent.inkRenderer = null;
+    agent.useInkRenderer = false;
+    agent.persistentInputActiveTurn = false;
+    agent.promptSeedInput = '';
+    agent.persistentInput = {
+      hasQueued: vi.fn(() => false),
+      dequeue: vi.fn(),
+      getQueueLength: vi.fn(() => 0),
+      getCurrentInput: vi.fn(() => ''),
+      stop: vi.fn(),
+    };
+    agent.promptForInstruction = vi
+      .fn()
+      .mockResolvedValueOnce('cool work on the ui')
+      .mockResolvedValueOnce('/exit');
+    agent.ensureInitComplete = vi.fn(async () => {});
+    agent.flushMcpStartupSummaryIfPending = vi.fn();
+    agent.printUserInstructionToChatLog = vi.fn();
+    agent.runInstruction = vi.fn(async () => true);
+    agent.handleSimpleChat = vi.fn(async () => true);
+    agent.ensureStdinReady = vi.fn();
+    agent.runtime = {
+      config: {
+        ui: {
+          terminalBell: false,
+          showCompletionNotification: false,
+        },
+        agent: {},
+      },
+      options: {},
+      workspaceRoot: process.cwd(),
+    };
+    agent.telemetryManager = {
+      trackCommand: vi.fn(async () => {}),
+      recordInteraction: vi.fn(),
+    };
+    agent.feedbackManager = {
+      shouldPrompt: vi.fn(() => null),
+      recordInteraction: vi.fn(),
+    };
+    agent.hookManager = {
+      executeHooks: vi.fn(async () => {}),
+    };
+    agent.sessionManager = {
+      getCurrentSession: vi.fn(() => ({ metadata: { sessionId: 'session-1' } })),
+    };
+    agent.closeSession = vi.fn(async () => {});
+    agent.notificationService = {
+      notify: vi.fn(async () => {}),
+    };
+
+    try {
+      await (agent as any).runInteractiveLoop();
+      expect(agent.runInstruction).toHaveBeenCalledWith('cool work on the ui');
+      expect(agent.handleSimpleChat).not.toHaveBeenCalled();
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 
   it('does not print user instruction log in ink renderer mode', () => {

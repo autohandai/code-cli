@@ -1139,11 +1139,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         this.consecutiveErrorCount = 0;
 
         const turnStartTime = Date.now();
-        if (this.isSimpleChat(instruction)) {
-          await this.handleSimpleChat(instruction);
-        } else {
-          await this.runInstruction(instruction);
-        }
+        await this.runInstruction(instruction);
         this.flushMcpStartupSummaryIfPending();
 
         // Fire stop hook after turn completes (non-blocking)
@@ -4969,16 +4965,39 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private getCompletionNotificationBody(): string {
-    const raw = this.lastAssistantResponseForNotification
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (!raw) {
-      return 'Task completed';
+    const direct = this.normalizeCompletionNotificationBody(this.lastAssistantResponseForNotification);
+    if (direct) {
+      return direct;
     }
-    if (raw.length <= 220) {
-      return raw;
+
+    const history = this.conversation.history();
+    for (let i = history.length - 1; i >= 0; i -= 1) {
+      const message = history[i];
+      if (message.role !== 'assistant' || typeof message.content !== 'string') {
+        continue;
+      }
+
+      const payload = this.parseAssistantReactPayload(message.content);
+      const candidate = this.normalizeCompletionNotificationBody(
+        payload.finalResponse ?? payload.response ?? payload.thought ?? message.content
+      );
+      if (candidate) {
+        return candidate;
+      }
     }
-    return `${raw.slice(0, 219)}…`;
+
+    return 'Task completed';
+  }
+
+  private normalizeCompletionNotificationBody(raw: string): string {
+    const cleaned = this.cleanupModelResponse(raw).replace(/\s+/g, ' ').trim();
+    if (!cleaned) {
+      return '';
+    }
+    if (cleaned.length <= 220) {
+      return cleaned;
+    }
+    return `${cleaned.slice(0, 219)}…`;
   }
 
   private async confirmDangerousAction(message: string, context?: { tool?: string; path?: string; command?: string }): Promise<boolean> {
