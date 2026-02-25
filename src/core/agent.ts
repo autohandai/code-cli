@@ -586,7 +586,40 @@ export class AutohandAgent {
           })
           .catch((err: Error) => {
             console.log(chalk.red(`\nCommand error: ${err.message}`));
-          });
+        });
+      }
+    });
+
+    this.persistentInput.on('plan-mode-toggled', (enabled: boolean) => {
+      const statusLine = this.formatStatusLine();
+      this.persistentInput.setStatusLine(statusLine);
+
+      const message = enabled
+        ? `${chalk.bgCyan.black.bold(' PLAN ')} ${chalk.cyan('Plan mode ON - read-only tools')}`
+        : `${chalk.gray('Plan mode')} ${chalk.red('OFF')}`;
+
+      const usingTerminalRegions = this.persistentInputActiveTurn &&
+        process.env.AUTOHAND_TERMINAL_REGIONS !== '0' &&
+        !this.useInkRenderer;
+
+      if (usingTerminalRegions) {
+        this.persistentInput.writeAbove(`${message}\n`);
+      } else if (this.runtime.spinner) {
+        const wasSpinning = this.runtime.spinner.isSpinning;
+        if (wasSpinning) {
+          this.runtime.spinner.stop();
+        }
+        console.log(`\n${message}`);
+        if (wasSpinning) {
+          this.runtime.spinner.start();
+        }
+      } else {
+        console.log(`\n${message}`);
+      }
+
+      this.lastRenderedStatus = '';
+      if (!this.inkRenderer) {
+        this.forceRenderSpinner();
       }
     });
 
