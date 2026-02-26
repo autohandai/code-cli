@@ -10,6 +10,7 @@ export default defineConfig({
       '**/node_modules/**',
       '**/dist/**',
       '**/.worktrees/**',
+      '**/.claude/worktrees/**',
       '**/.{idea,git,cache,output,temp}/**',
     ],
   },

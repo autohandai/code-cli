@@ -20,15 +20,377 @@ import {
   getMimeTypeFromExtension,
 } from '../core/ImageManager.js';
 import { getContentDisplay } from './displayUtils.js';
+import {
+  drawInputBottomBorder,
+  drawInputBox,
+  drawInputTopBorder,
+  type InputBorderStyle
+} from './box.js';
+import { buildFileMentionSuggestions } from './mentionFilter.js';
+import { getTheme, isThemeInitialized } from './theme/index.js';
+import type { ColorToken } from './theme/types.js';
 
-// Shared prompt prefix for the main instruction input
 export const PROMPT_PREFIX = `${chalk.gray('›')} `;
 // Visible length of the prompt prefix (ANSI codes not counted)
 export const PROMPT_VISIBLE_LENGTH = 2;
 // Number of fixed status lines we render beneath the prompt
 export const STATUS_LINE_COUNT = 1;
+// Composer block structure relative to input line.
+export const PROMPT_LINES_ABOVE_INPUT = 1;
+export const PROMPT_LINES_BELOW_INPUT = 1;
+export const PROMPT_BLOCK_LINE_COUNT = PROMPT_LINES_ABOVE_INPUT + 1 + PROMPT_LINES_BELOW_INPUT;
+export const PROMPT_PLACEHOLDER = 'Plan, search, build anything';
+export const PROMPT_INPUT_PREFIX = '❯ ';
 
 export type SlashCommandHint = SlashCommand;
+
+export interface PromptRenderState {
+  lineText: string;
+  cursorColumn: number;
+}
+
+export interface PromptHotTip {
+  label: string;
+}
+
+interface PromptSuggestion {
+  line: string;
+  cursor: number;
+}
+
+const HOT_TIP_LIMIT = 5;
+const HOT_TIP_SHELL_SUGGESTIONS = [
+  '! git status',
+  '! bun test',
+  '! bun run lint'
+];
+
+const CONTEXTUAL_HELP_ROWS: Array<{ left: string; right: string }> = [
+  { left: '/ for commands', right: '! for shell commands' },
+  { left: '@ for file paths', right: 'tab accepts suggestion' },
+  { left: '? toggles this shortcuts panel', right: 'shift + tab toggles plan mode' },
+  { left: 'shift + enter inserts newline', right: 'alt + enter inserts newline' },
+  { left: 'enter submits prompt', right: 'ctrl + c clears input / exits' },
+  { left: 'esc interrupts active turn', right: 'type /, @, or ! to switch mode' },
+];
+
+function themedFg(token: ColorToken, text: string, fallback: (value: string) => string): string {
+  if (!isThemeInitialized()) {
+    return fallback(text);
+  }
+
+  try {
+    return getTheme().fg(token, text);
+  } catch {
+    return fallback(text);
+  }
+}
+
+function stripAnsiCodes(value: string): string {
+  return value.replace(/\u001b\[[0-9;]*m/g, '');
+}
+
+function truncatePlainText(value: string, width: number): string {
+  if (width <= 0) {
+    return '';
+  }
+  if (value.length <= width) {
+    return value;
+  }
+  if (width === 1) {
+    return '…';
+  }
+  return `${value.slice(0, width - 1)}…`;
+}
+
+export function buildPromptHotTips(
+  currentLine: string,
+  files: string[],
+  slashCommands: SlashCommandHint[]
+): PromptHotTip[] {
+  const trimmed = currentLine.trim();
+  const mentionMatch = /@([A-Za-z0-9_./\\-]*)$/.exec(currentLine);
+
+  if (mentionMatch) {
+    const seed = mentionMatch[1] ?? '';
+    const suggestions = buildFileMentionSuggestions(files, seed, HOT_TIP_LIMIT);
+    const mentionTips = suggestions.map((file) => ({
+      label: `Tab -> @${file}`
+    }));
+    return mentionTips.length > 0
+      ? mentionTips
+      : [{ label: 'Type more after @ to filter file paths' }];
+  }
+
+  if (trimmed.startsWith('/')) {
+    const seed = trimmed.slice(1).toLowerCase();
+    const matches = slashCommands
+      .filter((cmd) => cmd.command.slice(1).toLowerCase().includes(seed))
+      .slice(0, HOT_TIP_LIMIT)
+      .map((cmd) => ({
+        label: `Tab -> ${cmd.command}${cmd.description ? ` (${cmd.description})` : ''}`
+      }));
+    return matches.length > 0
+      ? matches
+      : [{ label: 'No slash command match. Try /help' }];
+  }
+
+  if (trimmed.startsWith('!')) {
+    return HOT_TIP_SHELL_SUGGESTIONS.map((value) => ({
+      label: `Tab -> ${value}`
+    }));
+  }
+
+  const defaultFileTip = files.length > 0
+    ? { label: `Tab -> @${files[0]}` }
+    : { label: 'Type @ to mention files' };
+
+  return [
+    { label: 'Tab -> /help' },
+    { label: `Tab -> ${HOT_TIP_SHELL_SUGGESTIONS[0]}` },
+    defaultFileTip,
+    { label: 'Type /, @, or ! to switch suggestion mode' },
+    { label: 'Shift+Tab toggles plan mode' },
+  ];
+}
+
+export function getPrimaryHotTipSuggestion(
+  currentLine: string,
+  files: string[],
+  slashCommands: SlashCommandHint[]
+): PromptSuggestion | null {
+  const mentionMatch = /@([A-Za-z0-9_./\\-]*)$/.exec(currentLine);
+  if (mentionMatch) {
+    const seed = mentionMatch[1] ?? '';
+    const suggestions = buildFileMentionSuggestions(files, seed, 1);
+    if (suggestions.length === 0) {
+      return null;
+    }
+    const prefix = currentLine.slice(0, mentionMatch.index);
+    const line = `${prefix}@${suggestions[0]} `;
+    return { line, cursor: line.length };
+  }
+
+  const trimmed = currentLine.trim();
+  if (!trimmed) {
+    return { line: '/help ', cursor: 6 };
+  }
+
+  if (trimmed.startsWith('/')) {
+    const seed = trimmed.slice(1).toLowerCase();
+    const match = slashCommands.find((cmd) =>
+      cmd.command.slice(1).toLowerCase().includes(seed)
+    );
+    if (!match) {
+      return null;
+    }
+    const line = `${match.command} `;
+    return { line, cursor: line.length };
+  }
+
+  if (trimmed.startsWith('!')) {
+    const suggestion = HOT_TIP_SHELL_SUGGESTIONS.find((value) => value.startsWith(trimmed))
+      ?? HOT_TIP_SHELL_SUGGESTIONS[0];
+    return { line: suggestion, cursor: suggestion.length };
+  }
+
+  return null;
+}
+
+export function buildContextualHelpPanelLines(
+  currentLine: string,
+  width: number,
+  files: string[],
+  slashCommands: SlashCommandHint[]
+): string[] {
+  const panelWidth = Math.max(20, width);
+  const gap = 3;
+  const leftWidth = Math.max(12, Math.floor((panelWidth - gap) / 2));
+  const rightWidth = Math.max(12, panelWidth - leftWidth - gap);
+  const tips = buildPromptHotTips(currentLine, files, slashCommands);
+  const primaryTip = tips[0]?.label ?? 'Tab -> /help';
+  const secondaryTip = tips[1]?.label ?? 'Type /, @, or ! to switch suggestion mode';
+
+  const formatCell = (value: string, cellWidth: number): string => {
+    const plain = sanitizeRenderLine(value);
+    return truncatePlainText(plain, cellWidth).padEnd(cellWidth, ' ');
+  };
+
+  const rowLines = CONTEXTUAL_HELP_ROWS.map((row) => {
+    const left = formatCell(row.left, leftWidth);
+    const right = formatCell(row.right, rightWidth);
+    return `${left}${' '.repeat(gap)}${right}`;
+  });
+
+  const lines = [
+    ' ? shortcuts',
+    ...rowLines,
+    '',
+    ` hot tip: ${primaryTip}`,
+    ` tab applies suggestion: ${secondaryTip}`,
+  ];
+
+  return lines.map((line) =>
+    chalk.bgHex('#2b2b2b').hex('#a8a8a8')(truncatePlainText(line, panelWidth).padEnd(panelWidth, ' '))
+  );
+}
+
+export function buildContextualPromptStatusLine(
+  currentLine: string,
+  files: string[],
+  slashCommands: SlashCommandHint[]
+): string {
+  const tips = buildPromptHotTips(currentLine, files, slashCommands);
+  const primaryTip = tips[0]?.label ?? 'Tab -> /help';
+  return `hot tip: ${primaryTip}`;
+}
+
+export function isShiftTabShortcut(str: string, key: readline.Key | undefined): boolean {
+  const sequence = key?.sequence ?? str;
+  return (
+    key?.name === 'backtab' ||
+    (key?.name === 'tab' && key.shift === true) ||
+    sequence === '\x1b[Z'
+  );
+}
+
+export function isPlainTabShortcut(str: string, key: readline.Key | undefined): boolean {
+  if (isShiftTabShortcut(str, key)) {
+    return false;
+  }
+  return key?.name === 'tab' || key?.sequence === '\t' || str === '\t';
+}
+
+export function shouldAutoHideShortcutHelp(str: string, key: readline.Key | undefined): boolean {
+  if (isPlainTabShortcut(str, key) || isShiftTabShortcut(str, key)) {
+    return false;
+  }
+  if (key?.ctrl || key?.meta) {
+    return false;
+  }
+  if (key?.name === 'escape') {
+    return false;
+  }
+  if (key?.name === 'up' || key?.name === 'down' || key?.name === 'left' || key?.name === 'right') {
+    return false;
+  }
+  if (key?.name === 'backspace' || key?.name === 'delete') {
+    return true;
+  }
+  if (!str) {
+    return false;
+  }
+  return str !== '\r' && str !== '\n';
+}
+
+function sanitizeRenderLine(line: string): string {
+  if (!line) return '';
+  // Drop ANSI escape sequences and control bytes that can leak into rl.line.
+  const withoutAnsi = line.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
+  return withoutAnsi.replace(/[\x00-\x1F\x7F]/g, '');
+}
+
+/**
+ * Calculate a safe prompt width that avoids terminal auto-wrap on full-width lines.
+ */
+export function getPromptBlockWidth(columns: number | undefined): number {
+  const terminalWidth = Math.max(10, columns ?? 80);
+  return Math.max(10, terminalWidth - 1);
+}
+
+/**
+ * Build the visible prompt row and the corresponding cursor column.
+ * Returns a boxed line (full terminal width) and a zero-based cursor column.
+ */
+export function buildPromptRenderState(
+  currentLine: string,
+  cursorPos: number,
+  width: number
+): PromptRenderState {
+  const sanitizedLine = sanitizeRenderLine(currentLine);
+  // Whitespace-only drift can happen after terminal redraws; treat it as empty.
+  const normalizedLine = sanitizedLine.trim().length === 0 ? '' : sanitizedLine;
+  const innerWidth = Math.max(1, width - 2);
+  const prefix = PROMPT_INPUT_PREFIX;
+  const effectiveCursor = Math.max(0, Math.min(normalizedLine.length, cursorPos));
+  const fullInput = `${prefix}${normalizedLine}`;
+  const placeholder = `${prefix}${PROMPT_PLACEHOLDER}`;
+
+  let visibleText = fullInput;
+  let cursorColumn = prefix.length + effectiveCursor;
+  const fullCursor = prefix.length + effectiveCursor;
+
+  if (!normalizedLine) {
+    visibleText = chalk.gray(placeholder);
+    cursorColumn = prefix.length;
+  } else if (fullInput.length > innerWidth) {
+    const ellipsis = '…';
+    const nearStartThreshold = innerWidth - 1;
+    const nearEndThreshold = innerWidth - 1;
+
+    // Near start: keep left side stable and show a right ellipsis.
+    if (fullCursor <= nearStartThreshold) {
+      const body = fullInput.slice(0, Math.max(1, innerWidth - 1));
+      visibleText = `${body}${ellipsis}`;
+      cursorColumn = fullCursor;
+    // Near end: keep right side stable and show a left ellipsis.
+    } else if ((fullInput.length - fullCursor) <= nearEndThreshold) {
+      const start = Math.max(0, fullInput.length - Math.max(1, innerWidth - 1));
+      const body = fullInput.slice(start);
+      visibleText = `${ellipsis}${body}`;
+      cursorColumn = 1 + (fullCursor - start);
+    // Middle: keep cursor in a moving window with ellipses on both sides.
+    } else {
+      const windowSize = Math.max(1, innerWidth - 2);
+      const half = Math.floor(windowSize / 2);
+      const minStart = 1;
+      const maxStart = Math.max(minStart, fullInput.length - windowSize - 1);
+      const start = Math.max(minStart, Math.min(maxStart, fullCursor - half));
+      const body = fullInput.slice(start, start + windowSize);
+      visibleText = `${ellipsis}${body}${ellipsis}`;
+      cursorColumn = 1 + (fullCursor - start);
+    }
+  }
+
+  let styledVisibleText = visibleText;
+  if (!normalizedLine) {
+    styledVisibleText = themedFg('muted', visibleText, (value) => chalk.gray(value));
+  } else if (visibleText.startsWith(prefix)) {
+    const prefixStyled = themedFg('accent', prefix, (value) => chalk.gray(value));
+    styledVisibleText = `${prefixStyled}${visibleText.slice(prefix.length)}`;
+  } else if (visibleText.startsWith(`…${prefix}`)) {
+    const prefixStyled = themedFg('accent', prefix, (value) => chalk.gray(value));
+    styledVisibleText = `…${prefixStyled}${visibleText.slice((`…${prefix}`).length)}`;
+  }
+
+  const lineText = drawInputBox(styledVisibleText, width);
+  const clampedCursor = Math.max(0, Math.min(width - 1, cursorColumn));
+
+  return { lineText, cursorColumn: clampedCursor };
+}
+
+function formatPromptStatusRow(
+  statusLine: string | { left: string; right: string } | undefined,
+  width: number
+): string {
+  let left: string;
+  let right: string | undefined;
+  if (typeof statusLine === 'object' && statusLine !== null) {
+    left = statusLine.left ?? '';
+    right = statusLine.right || undefined;
+  } else {
+    left = statusLine ?? ' ';
+  }
+
+  const plainLeft = stripAnsiCodes(left);
+  const plainRight = right ? stripAnsiCodes(right) : '';
+  const minGap = plainRight ? 2 : 0;
+  const availableForLeft = Math.max(0, width - plainRight.length - minGap);
+  const clippedLeft = truncatePlainText(plainLeft, availableForLeft);
+  const gap = Math.max(0, width - clippedLeft.length - plainRight.length);
+  const row = `${clippedLeft}${' '.repeat(gap)}${plainRight}`;
+  return themedFg('muted', row.padEnd(width), (value) => chalk.gray(value));
+}
 
 /**
  * Callback for when an image is detected in input
@@ -374,10 +736,11 @@ export function convertNewlineMarkersToNewlines(text: string): string {
 export async function readInstruction(
   files: string[],
   slashCommands: SlashCommandHint[],
-  statusLine?: string,
+  statusLine?: string | { left: string; right: string },
   io: PromptIO = {},
   onImageDetected?: ImageDetectedCallback,
-  workspaceRoot?: string
+  workspaceRoot?: string,
+  initialValue = ''
 ): Promise<string | null> {
   const stdInput = (io.input ?? process.stdin) as NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void };
   const stdOutput = (io.output ?? process.stdout) as NodeJS.WriteStream;
@@ -395,6 +758,7 @@ export async function readInstruction(
         files,
         slashCommands,
         statusLine,
+        initialValue,
         stdInput,
         stdOutput,
         onImageDetected,
@@ -415,7 +779,8 @@ export async function readInstruction(
 interface PromptOnceOptions {
   files: string[];
   slashCommands: SlashCommandHint[];
-  statusLine?: string;
+  statusLine?: string | { left: string; right: string };
+  initialValue?: string;
   stdInput: NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void };
   stdOutput: NodeJS.WriteStream;
   onImageDetected?: ImageDetectedCallback;
@@ -452,9 +817,11 @@ function createReadline(
   stdInput: NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void },
   stdOutput: NodeJS.WriteStream
 ): { rl: readline.Interface; input: NodeJS.ReadStream; supportsRawMode: boolean } {
-  // Reset terminal state before creating new readline
-  // This ensures cursor position and output buffer are clean
-  stdOutput.write('\r'); // Move cursor to column 0
+  // Move cursor to column 0 of the current row. The caller is responsible for
+  // ensuring the cursor is already on a fresh blank line before calling
+  // createReadline (e.g., by writing '\n' after all agent/spinner output).
+  // This '\r' is a defensive reset; it does NOT advance to a new row.
+  stdOutput.write('\r');
 
   // Ensure stdin keypress events are set up (only once per stream)
   safeEmitKeypressEvents(stdInput);
@@ -492,6 +859,56 @@ function createReadline(
   input.setEncoding('utf8');
 
   return { rl, input, supportsRawMode };
+}
+
+/**
+ * Clear the prompt and status lines, then move the cursor below that region.
+ * Assumes the cursor currently sits on the prompt line.
+ */
+export function leavePromptSurface(
+  output: NodeJS.WriteStream,
+  statusLineCount = STATUS_LINE_COUNT,
+  fromLineEvent = false
+): void {
+  // Enter submissions can leave the cursor one line below the input row.
+  // With a boxed prompt, readline can advance into the rows below input.
+  // Normalize back to the input line before clearing the full prompt block.
+  if (fromLineEvent) {
+    const normalizationRows = PROMPT_LINES_BELOW_INPUT;
+    for (let i = 0; i < normalizationRows; i++) {
+      readline.moveCursor(output, 0, -1);
+    }
+  }
+
+  // Clear current input line
+  readline.cursorTo(output, 0);
+  readline.clearLine(output, 0);
+
+  // Clear prompt lines above the input
+  for (let i = 0; i < PROMPT_LINES_ABOVE_INPUT; i++) {
+    readline.moveCursor(output, 0, -1);
+    readline.clearLine(output, 0);
+  }
+
+  // Return to input line
+  for (let i = 0; i < PROMPT_LINES_ABOVE_INPUT; i++) {
+    readline.moveCursor(output, 0, 1);
+  }
+
+  // Clear prompt lines below the input
+  for (let i = 0; i < PROMPT_LINES_BELOW_INPUT; i++) {
+    readline.moveCursor(output, 0, 1);
+    readline.clearLine(output, 0);
+  }
+
+  for (let i = 0; i < statusLineCount; i++) {
+    readline.moveCursor(output, 0, 1);
+    readline.clearLine(output, 0);
+  }
+
+  // Move to the first free line below the prompt surface.
+  readline.moveCursor(output, 0, 1);
+  readline.cursorTo(output, 0);
 }
 
 /**
@@ -543,7 +960,7 @@ function handlePasteComplete(
 }
 
 async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
-  const { files, slashCommands, statusLine, stdInput, stdOutput, onImageDetected, workspaceRoot } = options;
+  const { files, slashCommands, statusLine, initialValue, stdInput, stdOutput, onImageDetected, workspaceRoot } = options;
   const { rl, input, supportsRawMode } = createReadline(stdInput, stdOutput);
 
   // Don't pass statusLine to MentionPreview - renderPromptLine handles the status display
@@ -552,14 +969,52 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
 
   // Initialize paste state for bracketed paste detection
   const pasteState = createPasteState();
+  let contextualHelpVisible = false;
+
+  const applyPlanModePrefix = (line: string): string => {
+    const planPrefix = getPlanModeManager().isEnabled() ? 'plan:on' : 'plan:off';
+    if (!line) {
+      return planPrefix;
+    }
+    if (line.startsWith('plan:on · ') || line.startsWith('plan:off · ')) {
+      const separatorIndex = line.indexOf(' · ');
+      return `${planPrefix}${line.slice(separatorIndex)}`;
+    }
+    return `${planPrefix} · ${line}`;
+  };
+
+  const getActiveStatusLine = (): string | { left: string; right: string } | undefined => {
+    if (typeof statusLine === 'object' && statusLine !== null) {
+      return statusLine;
+    }
+    return applyPlanModePrefix(statusLine ?? '');
+  };
+
+  const renderPromptSurface = (isResize = false, hasExistingPromptBlock = true): void => {
+    renderPromptLine(
+      rl,
+      getActiveStatusLine(),
+      stdOutput,
+      isResize,
+      hasExistingPromptBlock
+    );
+  };
 
   const resizeWatcher = new TerminalResizeWatcher(stdOutput, () => {
-    renderPromptLine(rl, statusLine, stdOutput, true);
+    renderPromptSurface(true, true);
     mentionPreview.handleResize();
   });
 
   // Render initial prompt with status line (was missing - caused status to only show on typing)
-  renderPromptLine(rl, statusLine, stdOutput);
+  renderPromptSurface(false, false);
+
+  const initialLine = sanitizeRenderLine(initialValue ?? '');
+  if (initialLine.length > 0) {
+    const rlAny = rl as readline.Interface & { line: string; cursor: number };
+    rlAny.line = initialLine;
+    rlAny.cursor = initialLine.length;
+    renderPromptSurface(false, true);
+  }
 
   return new Promise<PromptResult>((resolve) => {
     let ctrlCCount = 0;
@@ -567,6 +1022,28 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     let inlineImageScanTimeout: NodeJS.Timeout | undefined;
     let inlineImageRetryCount = 0;
     const MAX_INLINE_IMAGE_RETRIES = 12;
+    const rlInternal = rl as readline.Interface & { _refreshLine?: () => void };
+    const originalRefreshLine = typeof rlInternal._refreshLine === 'function'
+      ? rlInternal._refreshLine.bind(rlInternal)
+      : undefined;
+
+    const setContextualHelpVisible = (visible: boolean) => {
+      if (contextualHelpVisible === visible) {
+        return;
+      }
+      contextualHelpVisible = visible;
+      mentionPreview.setSuspended(visible);
+      if (visible) {
+        mentionPreview.reset();
+      }
+      if (!closed) {
+        renderPromptSurface(false, true);
+      }
+    };
+
+    function renderActivePrompt(): void {
+      renderPromptSurface(false, true);
+    }
 
     const cleanup = () => {
       if (closed) return;
@@ -582,15 +1059,31 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       }
       // Disable bracketed paste mode
       disableBracketedPaste(stdOutput);
+      if (contextualHelpVisible) {
+        contextualHelpVisible = false;
+      }
       mentionPreview.dispose();
       resizeWatcher.dispose();
       input.off('keypress', handleKeypress);
       input.off('data', handleInputData);
+      if (originalRefreshLine) {
+        rlInternal._refreshLine = originalRefreshLine;
+      }
       if (supportsRawMode && input.isTTY) {
         safeSetRawMode(input, false);
       }
       input.pause();
       rl.close();
+    };
+
+    const showPromptMessage = (message: string) => {
+      mentionPreview.reset();
+      if (contextualHelpVisible) {
+        setContextualHelpVisible(false);
+      }
+      leavePromptSurface(stdOutput);
+      stdOutput.write(`${message.replace(/\n+$/g, '')}\n`);
+      renderPromptSurface(false, false);
     };
 
     const insertAtCursor = (text: string) => {
@@ -600,28 +1093,20 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       rlAny.line = before + text + after;
       rlAny.cursor = before.length + text.length;
 
-      // Use atomic refresh to avoid triple rendering
-      // _refreshLine is a stable internal method that handles cursor positioning
-      if (typeof rlAny._refreshLine === 'function') {
-        rlAny._refreshLine();
-      } else {
-        // Fallback for environments where _refreshLine is not available
-        readline.cursorTo(stdOutput, 0);
-        readline.clearLine(stdOutput, 0);
-        rl.prompt(true);
-      }
+      renderActivePrompt();
     };
 
     const refreshLine = () => {
-      const rlAny = rl as readline.Interface & { _refreshLine?: () => void };
-      if (typeof rlAny._refreshLine === 'function') {
-        rlAny._refreshLine();
-      } else {
-        readline.cursorTo(stdOutput, 0);
-        readline.clearLine(stdOutput, 0);
-        rl.prompt(true);
-      }
+      renderActivePrompt();
     };
+
+    if (typeof rlInternal._refreshLine === 'function') {
+      rlInternal._refreshLine = () => {
+        if (!closed && !pasteState.isInPaste) {
+          renderActivePrompt();
+        }
+      };
+    }
 
     const applyDetectedImagesToLine = (processedText: string) => {
       const rlAny = rl as readline.Interface & { line: string; cursor: number };
@@ -724,7 +1209,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         if (pasteState.isInPaste) {
           pasteState.isInPaste = false;
           // Process images in the paste buffer BEFORE handlePasteComplete
-          // sets rl.line — this is the earliest moment where the temp file
+          // sets rl.line - this is the earliest moment where the temp file
           // is most likely to still exist on disk.
           if (onImageDetected && pasteState.buffer) {
             pasteState.buffer = processImagesInText(
@@ -779,30 +1264,51 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         rlAny.cursor = displayContent.length;
         pasteState.hiddenContent = undefined;
 
-        // Refresh display
-        if (typeof rlAny._refreshLine === 'function') {
-          rlAny._refreshLine();
-        } else {
-          readline.cursorTo(stdOutput, 0);
-          readline.clearLine(stdOutput, 0);
-          rl.prompt(true);
-        }
+        // Refresh display with boxed renderer
+        renderActivePrompt();
         return;
       }
 
-      // Shift+Tab: toggle plan mode on/off
-      if (key?.name === 'tab' && key.shift) {
+      // '?' on empty input toggles contextual shortcut help.
+      if (_str === '?' && !key?.ctrl && !key?.meta) {
+        const rlAny = rl as readline.Interface & { line: string; cursor: number };
+        const typedLine = rlAny.line ?? '';
+        if (typedLine.trim() === '?') {
+          const markerIndex = Math.max(0, (rlAny.cursor ?? typedLine.length) - 1);
+          if (typedLine[markerIndex] === '?') {
+            rlAny.line = `${typedLine.slice(0, markerIndex)}${typedLine.slice(markerIndex + 1)}`;
+            rlAny.cursor = markerIndex;
+          } else {
+            rlAny.line = typedLine.replace(/\?/g, '');
+            rlAny.cursor = rlAny.line.length;
+          }
+          setContextualHelpVisible(!contextualHelpVisible);
+          return;
+        }
+      }
+
+      if (isShiftTabShortcut(_str, key)) {
         const planModeManager = getPlanModeManager();
         const wasEnabled = planModeManager.isEnabled();
         planModeManager.handleShiftTab();
 
         // Show immediate feedback
         if (wasEnabled) {
-          stdOutput.write(`\n${chalk.gray('Plan mode')} ${chalk.red('OFF')}\n`);
+          showPromptMessage(`${chalk.gray('Plan mode')} ${chalk.red('OFF')}`);
         } else {
-          stdOutput.write(`\n${chalk.bgCyan.black.bold(' PLAN ')} ${chalk.cyan('Plan mode ON - read-only tools')}\n`);
+          showPromptMessage(`${chalk.bgCyan.black.bold(' PLAN ')} ${chalk.cyan('Plan mode ON - read-only tools')}`);
         }
-        renderPromptLine(rl, statusLine, stdOutput);
+        return;
+      }
+
+      if (isPlainTabShortcut(_str, key) && contextualHelpVisible) {
+        const rlAny = rl as readline.Interface & { line: string; cursor: number };
+        const suggestion = getPrimaryHotTipSuggestion(rlAny.line ?? '', files, slashCommands);
+        if (suggestion) {
+          rlAny.line = suggestion.line;
+          rlAny.cursor = suggestion.cursor;
+          renderActivePrompt();
+        }
         return;
       }
 
@@ -822,6 +1328,9 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         if (currentInput.length > 0) {
           // Clear the input
           mentionPreview.reset();
+          if (contextualHelpVisible) {
+            setContextualHelpVisible(false);
+          }
           const rlAny = rl as readline.Interface & { line: string; cursor: number };
           rlAny.line = '';
           rlAny.cursor = 0;
@@ -836,10 +1345,17 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         if (ctrlCCount === 0) {
           ctrlCCount = 1;
           mentionPreview.reset();
-          stdOutput.write(`\n${chalk.gray('Press Ctrl+C again to exit.')}\n`);
-          renderPromptLine(rl, statusLine, stdOutput);
+          if (contextualHelpVisible) {
+            setContextualHelpVisible(false);
+          }
+          showPromptMessage(chalk.gray('Press Ctrl+C again to exit.'));
           return;
         }
+        mentionPreview.reset();
+        if (contextualHelpVisible) {
+          setContextualHelpVisible(false);
+        }
+        leavePromptSurface(stdOutput);
         cleanup();
         resolve({ kind: 'abort' });
         return;
@@ -852,13 +1368,23 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       // delimiters. Scan the current line after keypress idle to replace image paths
       // with [Image #N] placeholders inline.
       scheduleInlineImageScan();
+
+      if (contextualHelpVisible && shouldAutoHideShortcutHelp(_str, key)) {
+        setContextualHelpVisible(false);
+      }
+
+      // Force a post-keypress repaint so border/mode styling follows the
+      // latest readline buffer even on terminals where _refreshLine timing
+      // can run one keystroke behind.
+      setImmediate(() => {
+        if (!closed && !pasteState.isInPaste) {
+          renderActivePrompt();
+        }
+      });
     };
 
     input.on('keypress', handleKeypress);
     input.on('data', handleInputData);
-
-    // Note: renderPromptLine already called rl.setPrompt() and rl.prompt()
-    // No need to call them again here
 
     rl.on('line', (value) => {
       // Ignore line events during paste mode - we're buffering
@@ -881,10 +1407,15 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         output: stdOutput,
       });
 
+      if (contextualHelpVisible) {
+        setContextualHelpVisible(false);
+      }
+
       // Handle shell commands (prefix with !)
       if (isShellCommand(finalValue)) {
         const shellCmd = parseShellCommand(finalValue);
-        stdOutput.write('\n');
+        mentionPreview.reset();
+        leavePromptSurface(stdOutput, STATUS_LINE_COUNT, true);
         const result = executeShellCommand(shellCmd, workspaceRoot);
         if (result.success && result.output) {
           stdOutput.write(result.output);
@@ -896,14 +1427,16 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         }
         // Re-prompt without sending to LLM
         stdOutput.write('\n');
-        renderPromptLine(rl, statusLine, stdOutput);
+        renderPromptLine(rl, statusLine, stdOutput, false, false);
         return;
       }
 
-      stdOutput.write('\n');
+      mentionPreview.reset();
+      leavePromptSurface(stdOutput, STATUS_LINE_COUNT, true);
       // Show interrupt hint when user submits a non-empty, non-command instruction
       if (finalValue && !finalValue.startsWith('/')) {
-        stdOutput.write(`${chalk.gray('press ESC to interrupt')}\n\n`);
+        stdOutput.write(`${chalk.gray('press ESC to interrupt')}\n`);
+        stdOutput.write('\n');
       }
       cleanup();
       resolve({ kind: 'submit', value: finalValue });
@@ -914,6 +1447,9 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       
       if (currentInput.length > 0) {
         mentionPreview.reset();
+        if (contextualHelpVisible) {
+          setContextualHelpVisible(false);
+        }
         const rlAny = rl as readline.Interface & { line: string; cursor: number };
         rlAny.line = '';
         rlAny.cursor = 0;
@@ -927,10 +1463,17 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       if (ctrlCCount === 0) {
         ctrlCCount = 1;
         mentionPreview.reset();
-        stdOutput.write(`\n${chalk.gray('Press Ctrl+C again to exit.')}\n`);
-        renderPromptLine(rl, statusLine, stdOutput);
+        if (contextualHelpVisible) {
+          setContextualHelpVisible(false);
+        }
+        showPromptMessage(chalk.gray('Press Ctrl+C again to exit.'));
         return;
       }
+      mentionPreview.reset();
+      if (contextualHelpVisible) {
+        setContextualHelpVisible(false);
+      }
+      leavePromptSurface(stdOutput);
       cleanup();
       resolve({ kind: 'abort' });
     });
@@ -949,35 +1492,72 @@ function disableReadlineTabBehavior(rl: readline.Interface): void {
   }
 }
 
-import { drawInputBox } from './box.js';
+function getComposerBorderStyle(line: string): InputBorderStyle {
+  if (/^[\s\u200B-\u200D\uFEFF]*!/u.test(line)) {
+    return 'shell';
+  }
+  if (getPlanModeManager().isEnabled()) {
+    return 'plan';
+  }
+  return 'default';
+}
 
-function renderPromptLine(rl: readline.Interface, statusLine: string | undefined, output: NodeJS.WriteStream, isResize = false): void {
-  const width = Math.max(20, output.columns || 80);
-  const status = (statusLine ?? ' ').padEnd(width).slice(0, width);
+function renderPromptLine(
+  rl: readline.Interface,
+  statusLine: string | { left: string; right: string } | undefined,
+  output: NodeJS.WriteStream,
+  isResize = false,
+  hasExistingPromptBlock = true
+): void {
+  const width = getPromptBlockWidth(output.columns);
   const rlAny = rl as readline.Interface & { cursor?: number; line?: string };
-  const box = drawInputBox(status, width);
   const currentLine = rlAny.line ?? '';
   const cursorPos = rlAny.cursor ?? currentLine.length;
+  const prompt = buildPromptRenderState(currentLine, cursorPos, width);
+  const borderStyle = getComposerBorderStyle(currentLine);
+  const topBorder = drawInputTopBorder(width, borderStyle);
+  const bottomBorder = drawInputBottomBorder(width, borderStyle);
+  const statusRow = formatPromptStatusRow(statusLine, width);
 
-  // Keep readline's prompt in sync with the prefix we render
+  // Keep readline's prompt in sync for line editing internals.
   rl.setPrompt(PROMPT_PREFIX);
 
-  // Clear prompt + status line region
-  readline.cursorTo(output, 0);
   if (isResize) {
+    readline.cursorTo(output, 0);
     readline.clearScreenDown(output);
+  } else if (hasExistingPromptBlock) {
+    // Cursor normally sits on the input row.
+    // Clear the full prompt block in place before re-drawing.
+    readline.cursorTo(output, 0);
+    for (let i = 0; i < PROMPT_LINES_ABOVE_INPUT; i++) {
+      readline.moveCursor(output, 0, -1);
+      readline.clearLine(output, 0);
+    }
+    readline.cursorTo(output, 0);
+    readline.clearLine(output, 0);
+    for (let i = 0; i < PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT; i++) {
+      readline.moveCursor(output, 0, 1);
+      readline.clearLine(output, 0);
+    }
+    for (let i = 0; i < PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT; i++) {
+      readline.moveCursor(output, 0, -1);
+    }
+    readline.cursorTo(output, 0);
   } else {
+    // Initial render: the cursor has been placed on a fresh row by createReadline,
+    // but defensively clear the current line before drawing the top border to
+    // eliminate any residual characters that could cause a one-frame flash.
+    readline.cursorTo(output, 0);
     readline.clearLine(output, 0);
-    readline.moveCursor(output, 0, 1);
-    readline.clearLine(output, 0);
-    readline.moveCursor(output, 0, -1);
   }
 
-  // Render prompt/input then status directly below
-  output.write(`${PROMPT_PREFIX}${currentLine}\n`);
-  output.write(box);
+  // Render top border, input row, bottom border, and status row.
+  output.write(`${topBorder}\n`);
+  output.write(`${prompt.lineText}\n`);
+  output.write(`${bottomBorder}\n`);
+  output.write(statusRow);
 
-  // Move cursor back to prompt line at correct column
-  readline.moveCursor(output, 0, -1);
-  readline.cursorTo(output, PROMPT_VISIBLE_LENGTH + cursorPos);
+  // Move cursor back to input row, inside the box.
+  readline.moveCursor(output, 0, -(PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT));
+  readline.cursorTo(output, prompt.cursorColumn);
 }

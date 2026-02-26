@@ -75,7 +75,7 @@ import { RPCAdapter } from '../../../src/modes/rpc/adapter.js';
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('RPC Adapter — P2 Handlers', () => {
+describe('RPC Adapter - P2 Handlers', () => {
   let adapter: RPCAdapter;
 
   beforeEach(() => {

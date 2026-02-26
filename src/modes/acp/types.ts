@@ -285,7 +285,7 @@ export const DEFAULT_ACP_MODES: AcpMode[] = [
 // ============================================================================
 
 /**
- * ACP session state — simplified vs. the external adapter's subprocess-heavy state.
+ * ACP session state - simplified vs. the external adapter's subprocess-heavy state.
  * No stdout buffer, no conversation file watching, no subprocess fields.
  */
 export interface AcpSessionState {

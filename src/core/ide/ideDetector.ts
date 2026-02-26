@@ -19,7 +19,7 @@ import { IDE_REGISTRY } from './ideTypes.js';
  * storage on disk.
  *
  * Storage lookups only check whether cwd appears in the IDE's recent
- * workspaces — they never dump all historical entries.
+ * workspaces - they never dump all historical entries.
  */
 export async function detectRunningIDEs(cwd: string): Promise<DetectedIDE[]> {
   const platform = getCurrentPlatform();
@@ -53,7 +53,7 @@ export async function detectRunningIDEs(cwd: string): Promise<DetectedIDE[]> {
         });
       }
     } else {
-      // No paths from args — check storage to see if cwd is a known workspace
+      // No paths from args - check storage to see if cwd is a known workspace
       const cwdFoundInStorage = await checkCwdInStorage(entry, normalizedCwd, platform);
 
       detected.push({

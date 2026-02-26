@@ -13,6 +13,7 @@ import { ProviderFactory } from '../../providers/ProviderFactory.js';
 import { loadConfig } from '../../config.js';
 import { checkWorkspaceSafety } from '../../startup/workspaceSafety.js';
 import type { CLIOptions, AgentRuntime } from '../../types.js';
+import { isSessionWorktreeEnabled, prepareSessionWorktree } from '../../utils/sessionWorktree.js';
 import type {
   JsonRpcRequest,
   JsonRpcResponse,
@@ -103,7 +104,18 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
     config.ui.useInkRenderer = false;
 
     // Determine workspace
-    const workspaceRoot = options.path ?? process.cwd();
+    const originalWorkspaceRoot = options.path ?? process.cwd();
+    let workspaceRoot = originalWorkspaceRoot;
+
+    if (isSessionWorktreeEnabled(options.worktree)) {
+      const sessionWorktree = prepareSessionWorktree({
+        cwd: originalWorkspaceRoot,
+        worktree: options.worktree,
+        mode: 'rpc',
+      });
+      workspaceRoot = sessionWorktree.worktreePath;
+      process.stderr.write(`[RPC] Using git worktree ${sessionWorktree.worktreePath} (${sessionWorktree.branchName})\n`);
+    }
 
     // Validate and resolve additional directories from --add-dir flag
     const additionalDirs: string[] = [];

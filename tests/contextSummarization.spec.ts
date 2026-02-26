@@ -271,18 +271,18 @@ describe('summarizeMessagesStatic backward compatibility', () => {
 describe('Silent completion fix', () => {
   // Test 6: Empty response on first iteration triggers retry
   it('should describe the fix: empty response on iteration 0 now triggers retry', () => {
-    // This is a behavioral test — the fix removes `iteration > 0` guard.
+    // This is a behavioral test - the fix removes `iteration > 0` guard.
     // We verify the code change was made by checking the source doesn't contain the old guard.
     // The actual integration test would require full agent instantiation which is heavy,
     // so we verify the contract: empty response always triggers retry regardless of iteration.
     //
     // The key assertion: the condition is now `if (!response)` not `if (!response && iteration > 0)`
-    expect(true).toBe(true); // Placeholder — verified by reading agent.ts source
+    expect(true).toBe(true); // Placeholder - verified by reading agent.ts source
   });
 
   // Test 7: Three consecutive empty responses show fallback
   it('should describe the fallback: 3 consecutive empty responses show fallback message', () => {
-    // This behavior exists and is unchanged — the fix only removed the iteration > 0 guard.
+    // This behavior exists and is unchanged - the fix only removed the iteration > 0 guard.
     // After 3 consecutive empty responses, the fallback "Model not providing response" is shown.
     expect(true).toBe(true); // Behavioral contract verified in agent.ts
   });

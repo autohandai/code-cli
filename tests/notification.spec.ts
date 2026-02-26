@@ -7,12 +7,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 
-// Mock child_process before importing the module under test
+// Mock child_process (still needed for focus detection)
 vi.mock('node:child_process', () => ({
   spawn: vi.fn(),
 }));
 
+// Mock node-notifier
+vi.mock('node-notifier', () => ({
+  default: { notify: vi.fn() },
+}));
+
 import { spawn } from 'node:child_process';
+import notifier from 'node-notifier';
 import {
   NotificationService,
   type NotificationGuards,
@@ -20,6 +26,7 @@ import {
 } from '../src/utils/notification.js';
 
 const mockSpawn = vi.mocked(spawn);
+const mockNotify = vi.mocked(notifier.notify);
 
 function createMockChild(exitCode = 0, stdout = ''): ChildProcess {
   const child = new EventEmitter() as ChildProcess;
@@ -56,6 +63,7 @@ describe('NotificationService', () => {
     service = new NotificationService();
     mockSpawn.mockReset();
     mockSpawn.mockReturnValue(createMockChild());
+    mockNotify.mockReset();
   });
 
   afterEach(() => {
@@ -63,16 +71,16 @@ describe('NotificationService', () => {
     vi.restoreAllMocks();
   });
 
-  // ── 1. Platform notification dispatch ──────────────────────────
+  // ── 1. node-notifier notification dispatch ─────────────────────
 
-  describe('platform notification dispatch', () => {
-    it('1a. macOS: spawns osascript with AppleScript display notification', async () => {
+  describe('node-notifier notification dispatch', () => {
+    it('1a. macOS: calls notifier.notify with correct title and message', async () => {
       Object.defineProperty(process, 'platform', { value: 'darwin' });
       service = new NotificationService();
 
       // Force terminal as unfocused so notification fires
       mockSpawn.mockImplementation((cmd: string, args?: readonly string[]) => {
-        if (cmd === 'osascript' && args?.[0] === '-e' && (args?.[1] as string)?.includes('frontmost')) {
+        if (cmd === 'osascript' && (args?.[1] as string)?.includes('frontmost')) {
           return createMockChild(0, 'Google Chrome');
         }
         return createMockChild();
@@ -83,18 +91,16 @@ describe('NotificationService', () => {
         defaultGuards(),
       );
 
-      const notifyCalls = mockSpawn.mock.calls.filter(
-        ([cmd, args]) =>
-          cmd === 'osascript' && args?.[0] === '-e' && (args?.[1] as string)?.includes('display notification'),
+      expect(mockNotify).toHaveBeenCalledTimes(1);
+      expect(mockNotify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Autohand - Approval Needed',
+          message: 'Approval needed',
+        }),
       );
-      expect(notifyCalls.length).toBeGreaterThanOrEqual(1);
-      const script = notifyCalls[0][1]![1] as string;
-      expect(script).toContain('display notification');
-      expect(script).toContain('Approval needed');
-      expect(script).toContain('Autohand');
     });
 
-    it('1b. Linux: spawns notify-send with --app-name=Autohand', async () => {
+    it('1b. Linux: calls notifier.notify with correct title and message', async () => {
       Object.defineProperty(process, 'platform', { value: 'linux' });
       service = new NotificationService();
 
@@ -109,14 +115,16 @@ describe('NotificationService', () => {
         defaultGuards(),
       );
 
-      const notifyCalls = mockSpawn.mock.calls.filter(([cmd]) => cmd === 'notify-send');
-      expect(notifyCalls.length).toBeGreaterThanOrEqual(1);
-      const args = notifyCalls[0][1] as string[];
-      expect(args).toContain('--app-name=Autohand');
-      expect(args).toContain('Test body');
+      expect(mockNotify).toHaveBeenCalledTimes(1);
+      expect(mockNotify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Autohand - Approval Needed',
+          message: 'Test body',
+        }),
+      );
     });
 
-    it('1c. Windows: spawns powershell with balloon tip', async () => {
+    it('1c. Windows: calls notifier.notify (cross-platform via node-notifier)', async () => {
       Object.defineProperty(process, 'platform', { value: 'win32' });
       service = new NotificationService();
 
@@ -125,42 +133,101 @@ describe('NotificationService', () => {
         defaultGuards(),
       );
 
-      const notifyCalls = mockSpawn.mock.calls.filter(([cmd]) => cmd === 'powershell');
-      expect(notifyCalls.length).toBeGreaterThanOrEqual(1);
-      const args = notifyCalls[0][1] as string[];
-      const script = args.join(' ');
-      expect(script).toContain('BalloonTip');
+      expect(mockNotify).toHaveBeenCalledTimes(1);
+      expect(mockNotify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Autohand - Approval Needed',
+          message: 'Win test',
+        }),
+      );
     });
 
-    it('1d. Unknown platform: does not spawn anything, does not throw', async () => {
+    it('1d. Unknown platform: still sends via node-notifier (cross-platform)', async () => {
       Object.defineProperty(process, 'platform', { value: 'freebsd' });
       service = new NotificationService();
 
-      // Force unfocused (no focus command for unknown platform)
-      await expect(
-        service.notify({ body: 'Unknown', reason: 'confirmation' }, defaultGuards()),
-      ).resolves.not.toThrow();
-
-      // No notification commands spawned (focus check might still be called)
-      const notifyCalls = mockSpawn.mock.calls.filter(
-        ([cmd]) => cmd === 'osascript' || cmd === 'notify-send' || cmd === 'powershell',
+      await service.notify(
+        { body: 'Unknown', reason: 'confirmation' },
+        defaultGuards(),
       );
-      // Focus detection for unknown platform returns false so notification may attempt
-      // but the actual send should be a no-op on unknown platforms
-      const sendCalls = notifyCalls.filter(([cmd, args]) => {
-        if (cmd === 'osascript') return (args?.[1] as string)?.includes('display notification');
-        if (cmd === 'notify-send') return true;
-        if (cmd === 'powershell') return true;
-        return false;
-      });
-      expect(sendCalls.length).toBe(0);
+
+      expect(mockNotify).toHaveBeenCalledTimes(1);
     });
   });
 
-  // ── 2. Terminal focus detection ────────────────────────────────
+  // ── 2. Contextual titles ───────────────────────────────────────
+
+  describe('contextual titles', () => {
+    beforeEach(() => {
+      // Force unfocused on all platforms
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      service = new NotificationService();
+    });
+
+    it('2a. Confirmation reason: title includes "Approval Needed"', async () => {
+      await service.notify(
+        { body: 'Delete /src/old.ts?', reason: 'confirmation' },
+        defaultGuards(),
+      );
+
+      expect(mockNotify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Autohand - Approval Needed',
+          message: 'Delete /src/old.ts?',
+          wait: true,
+        }),
+      );
+    });
+
+    it('2b. Question reason: title includes "Question"', async () => {
+      await service.notify(
+        { body: 'What framework?', reason: 'question' },
+        defaultGuards(),
+      );
+
+      expect(mockNotify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Autohand - Question',
+          message: 'What framework?',
+          wait: true,
+        }),
+      );
+    });
+
+    it('2c. Task complete reason: plain title, no wait', async () => {
+      await service.notify(
+        { body: 'All done', reason: 'task_complete' },
+        defaultGuards(),
+      );
+
+      expect(mockNotify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Autohand',
+          message: 'All done',
+          wait: false,
+          timeout: 5,
+        }),
+      );
+    });
+
+    it('2d. Custom title via options: uses custom title as base', async () => {
+      await service.notify(
+        { body: 'Test', reason: 'confirmation', title: 'MyApp' },
+        defaultGuards(),
+      );
+
+      expect(mockNotify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'MyApp - Approval Needed',
+        }),
+      );
+    });
+  });
+
+  // ── 3. Terminal focus detection ────────────────────────────────
 
   describe('terminal focus detection', () => {
-    it('2a. macOS: returns true if frontmost app contains terminal keyword', async () => {
+    it('3a. macOS: returns true if frontmost app contains terminal keyword', async () => {
       Object.defineProperty(process, 'platform', { value: 'darwin' });
       service = new NotificationService();
 
@@ -175,7 +242,7 @@ describe('NotificationService', () => {
       expect(focused).toBe(true);
     });
 
-    it('2b. Linux: returns true if active window name contains terminal keyword', async () => {
+    it('3b. Linux: returns true if active window name contains terminal keyword', async () => {
       Object.defineProperty(process, 'platform', { value: 'linux' });
       service = new NotificationService();
 
@@ -188,7 +255,7 @@ describe('NotificationService', () => {
       expect(focused).toBe(true);
     });
 
-    it('2c. Windows: returns false (always notify)', async () => {
+    it('3c. Windows: returns false (always notify)', async () => {
       Object.defineProperty(process, 'platform', { value: 'win32' });
       service = new NotificationService();
 
@@ -196,7 +263,7 @@ describe('NotificationService', () => {
       expect(focused).toBe(false);
     });
 
-    it('2d. Spawn failure: returns false (safe default)', async () => {
+    it('3d. Spawn failure: returns false (safe default)', async () => {
       Object.defineProperty(process, 'platform', { value: 'darwin' });
       service = new NotificationService();
 
@@ -208,7 +275,7 @@ describe('NotificationService', () => {
       expect(focused).toBe(false);
     });
 
-    it('2e. Caches result for 2 seconds', async () => {
+    it('3e. Caches result for 2 seconds', async () => {
       Object.defineProperty(process, 'platform', { value: 'darwin' });
       service = new NotificationService();
 
@@ -230,43 +297,43 @@ describe('NotificationService', () => {
     });
   });
 
-  // ── 3. Guard chain (shouldNotify) ──────────────────────────────
+  // ── 4. Guard chain (shouldNotify) ──────────────────────────────
 
   describe('shouldNotify guard chain', () => {
-    it('3a. Returns false when ui.notifications is false', () => {
+    it('4a. Returns false when ui.notifications is false', () => {
       expect(service.shouldNotify(defaultGuards({ notificationsConfig: false }))).toBe(false);
     });
 
-    it('3b. Returns false when ui.notifications.enabled is false', () => {
+    it('4b. Returns false when ui.notifications.enabled is false', () => {
       expect(service.shouldNotify(defaultGuards({ notificationsConfig: { enabled: false } }))).toBe(false);
     });
 
-    it('3c. Returns true when ui.notifications is true or omitted (default)', () => {
+    it('4c. Returns true when ui.notifications is true or omitted (default)', () => {
       expect(service.shouldNotify(defaultGuards({ notificationsConfig: true }))).toBe(true);
       expect(service.shouldNotify(defaultGuards({ notificationsConfig: undefined }))).toBe(true);
     });
 
-    it('3d. Returns false when isRpcMode is true', () => {
+    it('4d. Returns false when isRpcMode is true', () => {
       expect(service.shouldNotify(defaultGuards({ isRpcMode: true }))).toBe(false);
     });
 
-    it('3e. Returns false when confirmationCallback is set', () => {
+    it('4e. Returns false when confirmationCallback is set', () => {
       expect(service.shouldNotify(defaultGuards({ hasConfirmationCallback: true }))).toBe(false);
     });
 
-    it('3f. Returns false when options.yes is true', () => {
+    it('4f. Returns false when options.yes is true', () => {
       expect(service.shouldNotify(defaultGuards({ isYesMode: true }))).toBe(false);
     });
 
-    it('3g. Returns false when config.ui.autoConfirm is true', () => {
+    it('4g. Returns false when config.ui.autoConfirm is true', () => {
       expect(service.shouldNotify(defaultGuards({ isAutoConfirm: true }))).toBe(false);
     });
 
-    it('3h. Returns false when AUTOHAND_PERMISSION_CALLBACK_URL env var is set', () => {
+    it('4h. Returns false when AUTOHAND_PERMISSION_CALLBACK_URL env var is set', () => {
       expect(service.shouldNotify(defaultGuards({ hasExternalCallback: true }))).toBe(false);
     });
 
-    it('3i. Returns false when terminal IS focused (async notify path)', async () => {
+    it('4i. Returns false when terminal IS focused (async notify path)', async () => {
       Object.defineProperty(process, 'platform', { value: 'darwin' });
       service = new NotificationService();
 
@@ -282,15 +349,11 @@ describe('NotificationService', () => {
         defaultGuards(),
       );
 
-      // No notification dispatch should happen when terminal is focused
-      const notifyCalls = mockSpawn.mock.calls.filter(
-        ([cmd, args]) =>
-          cmd === 'osascript' && (args?.[1] as string)?.includes('display notification'),
-      );
-      expect(notifyCalls.length).toBe(0);
+      // No notification should happen when terminal is focused
+      expect(mockNotify).not.toHaveBeenCalled();
     });
 
-    it('3j. Returns true when all guards pass (interactive, unfocused)', async () => {
+    it('4j. Sends notification when all guards pass (interactive, unfocused)', async () => {
       Object.defineProperty(process, 'platform', { value: 'darwin' });
       service = new NotificationService();
 
@@ -306,18 +369,14 @@ describe('NotificationService', () => {
         defaultGuards(),
       );
 
-      const notifyCalls = mockSpawn.mock.calls.filter(
-        ([cmd, args]) =>
-          cmd === 'osascript' && (args?.[1] as string)?.includes('display notification'),
-      );
-      expect(notifyCalls.length).toBe(1);
+      expect(mockNotify).toHaveBeenCalledTimes(1);
     });
   });
 
-  // ── 4. Integration: confirmation prompt ────────────────────────
+  // ── 5. Integration: confirmation prompt ────────────────────────
 
   describe('confirmation prompt integration', () => {
-    it('4a. Interactive mode: notify() called before confirmation modal', async () => {
+    it('5a. Interactive mode: notify() fires before confirmation modal', async () => {
       Object.defineProperty(process, 'platform', { value: 'darwin' });
       service = new NotificationService();
 
@@ -333,14 +392,16 @@ describe('NotificationService', () => {
         defaultGuards(),
       );
 
-      const notifyCalls = mockSpawn.mock.calls.filter(
-        ([cmd, args]) =>
-          cmd === 'osascript' && (args?.[1] as string)?.includes('display notification'),
+      expect(mockNotify).toHaveBeenCalledTimes(1);
+      expect(mockNotify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Autohand - Approval Needed',
+          message: 'Run npm install?',
+        }),
       );
-      expect(notifyCalls.length).toBe(1);
     });
 
-    it('4b. RPC mode (callback set): notify() is NOT called', async () => {
+    it('5b. RPC mode (callback set): notify() is NOT called', async () => {
       service = new NotificationService();
 
       await service.notify(
@@ -348,11 +409,11 @@ describe('NotificationService', () => {
         defaultGuards({ hasConfirmationCallback: true }),
       );
 
-      // No spawn calls for notifications
+      expect(mockNotify).not.toHaveBeenCalled();
       expect(mockSpawn).not.toHaveBeenCalled();
     });
 
-    it('4c. With --yes flag: notify() NOT called', async () => {
+    it('5c. With --yes flag: notify() NOT called', async () => {
       service = new NotificationService();
 
       await service.notify(
@@ -360,14 +421,15 @@ describe('NotificationService', () => {
         defaultGuards({ isYesMode: true }),
       );
 
+      expect(mockNotify).not.toHaveBeenCalled();
       expect(mockSpawn).not.toHaveBeenCalled();
     });
   });
 
-  // ── 5. Integration: followup question ──────────────────────────
+  // ── 6. Integration: followup question ──────────────────────────
 
   describe('followup question integration', () => {
-    it('5a. Interactive mode: notify() called before question modal', async () => {
+    it('6a. Interactive mode: notify() fires before question modal', async () => {
       Object.defineProperty(process, 'platform', { value: 'darwin' });
       service = new NotificationService();
 
@@ -383,14 +445,16 @@ describe('NotificationService', () => {
         defaultGuards(),
       );
 
-      const notifyCalls = mockSpawn.mock.calls.filter(
-        ([cmd, args]) =>
-          cmd === 'osascript' && (args?.[1] as string)?.includes('display notification'),
+      expect(mockNotify).toHaveBeenCalledTimes(1);
+      expect(mockNotify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Autohand - Question',
+          message: 'Question: What framework?',
+        }),
       );
-      expect(notifyCalls.length).toBe(1);
     });
 
-    it('5b. Non-interactive (CI): notify() NOT called', async () => {
+    it('6b. Non-interactive (CI): notify() NOT called', async () => {
       service = new NotificationService();
 
       await service.notify(
@@ -398,14 +462,14 @@ describe('NotificationService', () => {
         defaultGuards({ isYesMode: true }),
       );
 
-      expect(mockSpawn).not.toHaveBeenCalled();
+      expect(mockNotify).not.toHaveBeenCalled();
     });
   });
 
-  // ── 6. Turn completion notification ────────────────────────────
+  // ── 7. Turn completion notification ────────────────────────────
 
   describe('turn completion notification', () => {
-    it('6a. After turn completes: notify() called', async () => {
+    it('7a. After turn completes: notify() fires with plain title', async () => {
       Object.defineProperty(process, 'platform', { value: 'darwin' });
       service = new NotificationService();
 
@@ -421,24 +485,83 @@ describe('NotificationService', () => {
         defaultGuards(),
       );
 
-      const notifyCalls = mockSpawn.mock.calls.filter(
-        ([cmd, args]) =>
-          cmd === 'osascript' && (args?.[1] as string)?.includes('display notification'),
+      expect(mockNotify).toHaveBeenCalledTimes(1);
+      expect(mockNotify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Autohand',
+          message: 'Task completed',
+          wait: false,
+          timeout: 5,
+        }),
       );
-      expect(notifyCalls.length).toBe(1);
     });
 
-    it('6b. When showCompletionNotification is false: completion notify() NOT called (external guard)', () => {
+    it('7b. When showCompletionNotification is false: completion notify() NOT called (external guard)', () => {
       // This is handled externally in agent.ts, but we verify the guard chain itself
       // When all guards pass, shouldNotify returns true - the caller gates on showCompletionNotification
       expect(service.shouldNotify(defaultGuards())).toBe(true);
     });
   });
 
-  // ── 7. Error handling ──────────────────────────────────────────
+  // ── 8. Icon and sound options ──────────────────────────────────
+
+  describe('icon and sound options', () => {
+    beforeEach(() => {
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      service = new NotificationService();
+    });
+
+    it('8a. Passes icon path to notifier', async () => {
+      await service.notify(
+        { body: 'Test', reason: 'confirmation' },
+        defaultGuards(),
+      );
+
+      expect(mockNotify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          icon: expect.stringContaining('icon.png'),
+        }),
+      );
+    });
+
+    it('8b. Sound enabled by default', async () => {
+      await service.notify(
+        { body: 'Test', reason: 'confirmation' },
+        defaultGuards(),
+      );
+
+      expect(mockNotify).toHaveBeenCalledWith(
+        expect.objectContaining({ sound: true }),
+      );
+    });
+
+    it('8c. Sound disabled via config', async () => {
+      await service.notify(
+        { body: 'Test', reason: 'confirmation' },
+        defaultGuards({ notificationsConfig: { sound: false } }),
+      );
+
+      expect(mockNotify).toHaveBeenCalledWith(
+        expect.objectContaining({ sound: false }),
+      );
+    });
+
+    it('8d. Actionable notifications (confirmation/question) use wait: true, timeout: 15', async () => {
+      await service.notify(
+        { body: 'Approve?', reason: 'confirmation' },
+        defaultGuards(),
+      );
+
+      expect(mockNotify).toHaveBeenCalledWith(
+        expect.objectContaining({ wait: true, timeout: 15 }),
+      );
+    });
+  });
+
+  // ── 9. Error handling ──────────────────────────────────────────
 
   describe('error handling', () => {
-    it('7a. spawn throws ENOENT: caught silently, no crash', async () => {
+    it('9a. notifier.notify throws: caught silently, no crash', async () => {
       Object.defineProperty(process, 'platform', { value: 'darwin' });
       service = new NotificationService();
 
@@ -447,10 +570,12 @@ describe('NotificationService', () => {
         if (cmd === 'osascript' && (args?.[1] as string)?.includes('frontmost')) {
           return createMockChild(0, 'Chrome');
         }
-        // Notification spawn throws
-        const err = new Error('spawn osascript ENOENT') as NodeJS.ErrnoException;
-        err.code = 'ENOENT';
-        throw err;
+        return createMockChild();
+      });
+
+      // Make notifier throw
+      mockNotify.mockImplementation(() => {
+        throw new Error('notification failed');
       });
 
       await expect(
@@ -458,7 +583,7 @@ describe('NotificationService', () => {
       ).resolves.not.toThrow();
     });
 
-    it('7b. osascript exits non-zero: focus returns false, notification still sent', async () => {
+    it('9b. osascript exits non-zero: focus returns false, notification still sent', async () => {
       Object.defineProperty(process, 'platform', { value: 'darwin' });
       service = new NotificationService();
 
@@ -486,11 +611,7 @@ describe('NotificationService', () => {
         defaultGuards(),
       );
 
-      const notifyCalls = mockSpawn.mock.calls.filter(
-        ([cmd, args]) =>
-          cmd === 'osascript' && (args?.[1] as string)?.includes('display notification'),
-      );
-      expect(notifyCalls.length).toBe(1);
+      expect(mockNotify).toHaveBeenCalledTimes(1);
     });
   });
 });
