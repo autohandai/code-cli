@@ -30,17 +30,18 @@ import type {
   ForkSessionResponse,
   SessionModeState,
   SessionModelState,
-  ModelInfo,
-  SessionMode,
   ToolCallStatus,
 } from '@agentclientprotocol/sdk';
 import { PROTOCOL_VERSION, RequestError } from '@agentclientprotocol/sdk';
 
 import { AutohandAgent } from '../../core/agent.js';
+import { ConversationManager } from '../../core/conversationManager.js';
 import { FileActionManager } from '../../actions/filesystem.js';
 import { ProviderFactory } from '../../providers/ProviderFactory.js';
 import { loadConfig } from '../../config.js';
-import type { AgentOutputEvent, AgentRuntime, LoadedConfig } from '../../types.js';
+import type { AgentOutputEvent, AgentRuntime, CLIOptions, LoadedConfig, LLMToolCall } from '../../types.js';
+import { isSessionWorktreeEnabled, prepareSessionWorktree } from '../../utils/sessionWorktree.js';
+import type { SessionMessage } from '../../session/types.js';
 
 import {
   DEFAULT_ACP_COMMANDS,
@@ -67,7 +68,230 @@ export class AutohandAcpAdapter implements Agent {
   private config: LoadedConfig | null = null;
   private clientCapabilities?: InitializeRequest['clientCapabilities'];
 
-  constructor(private connection: AgentSideConnection) {}
+  constructor(
+    private connection: AgentSideConnection,
+    private cliOptions: CLIOptions = {}
+  ) {}
+
+  private async ensureConfig(): Promise<LoadedConfig> {
+    if (!this.config) {
+      this.config = await loadConfig();
+    }
+    return this.config;
+  }
+
+  private buildSessionModes(modeId: string): SessionModeState {
+    return {
+      availableModes: DEFAULT_ACP_MODES.map((m) => ({
+        id: m.id,
+        name: m.name,
+        description: m.description,
+      })),
+      currentModeId: modeId,
+    } as SessionModeState;
+  }
+
+  private buildSessionModels(config: LoadedConfig, modelId: string): SessionModelState {
+    return {
+      availableModels: parseAvailableModels(config).map((m) => ({
+        modelId: m,
+        name: m.split('/').pop() ?? m,
+      })),
+      currentModelId: modelId,
+    } as SessionModelState;
+  }
+
+  private resolveWorkspaceRoot(sessionId: string, cwd: string): string {
+    let workspaceRoot = cwd;
+
+    if (isSessionWorktreeEnabled(this.cliOptions.worktree)) {
+      const sessionWorktree = prepareSessionWorktree({
+        cwd,
+        worktree: this.cliOptions.worktree,
+        mode: 'acp',
+      });
+      workspaceRoot = sessionWorktree.worktreePath;
+      process.stderr.write(
+        `[ACP] Session ${sessionId} using git worktree ${sessionWorktree.worktreePath} (${sessionWorktree.branchName})\n`
+      );
+    }
+
+    return workspaceRoot;
+  }
+
+  private async createManagedSession(
+    sessionId: string,
+    workspaceRoot: string
+  ): Promise<{ config: LoadedConfig; state: AcpSessionState; agent: AutohandAgent }> {
+    const config = await this.ensureConfig();
+
+    // Disable Ink renderer for ACP mode
+    if (!config.ui) {
+      config.ui = {};
+    }
+    config.ui.useInkRenderer = false;
+
+    const modeId = resolveDefaultMode(config);
+    const modelId = resolveDefaultModel(config);
+
+    const runtime: AgentRuntime = {
+      config,
+      workspaceRoot,
+      options: {
+        yes: modeId === 'unrestricted' || modeId === 'full-access',
+        unrestricted: modeId === 'unrestricted',
+        restricted: modeId === 'restricted',
+        dryRun: modeId === 'dry-run',
+      },
+      isRpcMode: true,
+    };
+
+    const provider = ProviderFactory.create(config);
+    const files = new FileActionManager(workspaceRoot);
+    const agent = new AutohandAgent(provider, files, runtime);
+    await agent.initializeForRPC();
+
+    const state: AcpSessionState = {
+      sessionId,
+      modeId,
+      modelId,
+      workspaceRoot,
+      createdAt: Date.now(),
+      abortController: new AbortController(),
+    };
+
+    this.sessions.set(sessionId, state);
+    this.agents.set(sessionId, agent);
+
+    agent.setOutputListener((event: AgentOutputEvent) => {
+      this.handleAgentOutput(sessionId, event);
+    });
+
+    const permBridge = createPermissionBridge({
+      connection: this.connection,
+      sessionId,
+      modeId,
+    });
+
+    agent.setConfirmationCallback(async (message, context) => {
+      return permBridge.confirmAction(message, context);
+    });
+
+    return { config, state, agent };
+  }
+
+  private restoreConversation(messages: SessionMessage[]): void {
+    const conversation = ConversationManager.getInstance();
+    if (!conversation.isInitialized()) {
+      throw new Error('Conversation manager is not initialized');
+    }
+
+    for (const msg of messages) {
+      if (msg.role === 'system') {
+        if (!msg.content.startsWith('You are Autohand')) {
+          conversation.addSystemNote(msg.content);
+        }
+        continue;
+      }
+
+      let convertedToolCalls: LLMToolCall[] | undefined;
+      if (msg.toolCalls && Array.isArray(msg.toolCalls)) {
+        convertedToolCalls = msg.toolCalls.map((tc: any) => ({
+          id: tc.id,
+          type: 'function',
+          function: {
+            name: tc.tool || tc.function?.name || 'unknown',
+            arguments: typeof tc.args === 'string' ? tc.args : JSON.stringify(tc.args || {}),
+          },
+        }));
+      }
+
+      conversation.addMessage({
+        role: msg.role,
+        content: msg.content,
+        name: msg.name,
+        tool_calls: convertedToolCalls,
+        tool_call_id: msg.tool_call_id,
+      });
+    }
+  }
+
+  private async replayConversation(sessionId: string, messages: SessionMessage[]): Promise<void> {
+    for (const msg of messages) {
+      if (!msg.content?.trim()) {
+        continue;
+      }
+
+      if (msg.role === 'user') {
+        await this.connection.sessionUpdate({
+          sessionId,
+          update: {
+            sessionUpdate: 'user_message_chunk',
+            content: { type: 'text', text: msg.content },
+          },
+        });
+        continue;
+      }
+
+      if (msg.role === 'assistant') {
+        await this.connection.sessionUpdate({
+          sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: msg.content },
+          },
+        });
+        continue;
+      }
+
+      if (msg.role === 'tool') {
+        await this.connection.sessionUpdate({
+          sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: `[tool] ${msg.content}` },
+          },
+        });
+        continue;
+      }
+
+      if (msg.role === 'system' && !msg.content.startsWith('You are Autohand')) {
+        await this.connection.sessionUpdate({
+          sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: `[system] ${msg.content}` },
+          },
+        });
+      }
+    }
+  }
+
+  private async restoreSession(
+    sessionId: string,
+    cwd: string
+  ): Promise<{ config: LoadedConfig; state: AcpSessionState; messages: SessionMessage[] }> {
+    const workspaceRoot = this.resolveWorkspaceRoot(sessionId, cwd);
+    const { config, state, agent } = await this.createManagedSession(sessionId, workspaceRoot);
+    const sessionManager = agent.getSessionManager();
+
+    try {
+      const loadedSession = await sessionManager.loadSession(sessionId);
+      const messages = loadedSession.getMessages();
+      this.restoreConversation(messages);
+
+      if (loadedSession.metadata.model) {
+        state.modelId = loadedSession.metadata.model;
+      }
+
+      this.sessions.set(sessionId, state);
+      return { config, state, messages };
+    } catch (error) {
+      this.sessions.delete(sessionId);
+      this.agents.delete(sessionId);
+      throw error;
+    }
+  }
 
   // ==========================================================================
   // ACP Agent Interface: initialize
@@ -116,7 +340,7 @@ export class AutohandAcpAdapter implements Agent {
       return {};
     }
 
-    // No token — but we can proceed without auth for local providers
+    // No token - but we can proceed without auth for local providers
     const provider = this.config?.provider ?? 'openrouter';
     const providerConfig = (this.config as Record<string, any>)?.[provider];
     if (providerConfig?.apiKey) {
@@ -133,101 +357,15 @@ export class AutohandAcpAdapter implements Agent {
   // ==========================================================================
 
   async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
-    if (!this.config) {
-      this.config = await loadConfig();
-    }
-
-    const config = this.config;
-    const workspaceRoot = params.cwd;
-
-    // Create runtime
-    const modeId = resolveDefaultMode(config);
-    const runtime: AgentRuntime = {
-      config,
-      workspaceRoot,
-      options: {
-        yes: modeId === 'unrestricted' || modeId === 'full-access',
-        unrestricted: modeId === 'unrestricted',
-        restricted: modeId === 'restricted',
-        dryRun: modeId === 'dry-run',
-      },
-      isRpcMode: true,
-    };
-
-    // Disable Ink renderer for ACP mode
-    if (!config.ui) {
-      config.ui = {};
-    }
-    config.ui.useInkRenderer = false;
-
-    // Create provider and file manager
-    const provider = ProviderFactory.create(config);
-    const files = new FileActionManager(workspaceRoot);
-
-    // Create agent
-    const agent = new AutohandAgent(provider, files, runtime);
-    await agent.initializeForRPC();
-
-    // Generate session ID
     const sessionId = crypto.randomUUID();
-
-    // Create abort controller for this session
-    const abortController = new AbortController();
-
-    // Store session state
-    const modelId = resolveDefaultModel(config);
-    const sessionState: AcpSessionState = {
-      sessionId,
-      modeId,
-      modelId,
-      workspaceRoot,
-      createdAt: Date.now(),
-      abortController,
-    };
-    this.sessions.set(sessionId, sessionState);
-    this.agents.set(sessionId, agent);
-
-    // Wire output listener to emit ACP session updates
-    agent.setOutputListener((event: AgentOutputEvent) => {
-      this.handleAgentOutput(sessionId, event);
-    });
-
-    // Wire permission bridge
-    const permBridge = createPermissionBridge({
-      connection: this.connection,
-      sessionId,
-      modeId,
-    });
-
-    agent.setConfirmationCallback(async (message, context) => {
-      return permBridge.confirmAction(message, context);
-    });
-
-    // Build response matching external adapter format
-    const availableModes: SessionMode[] = DEFAULT_ACP_MODES.map((m) => ({
-      id: m.id,
-      name: m.name,
-      description: m.description,
-    }));
-
-    const availableModels: ModelInfo[] = parseAvailableModels(config).map((m) => ({
-      modelId: m,
-      name: m.split('/').pop() ?? m,
-    }));
-
-    const configOptions = buildConfigOptions(config);
+    const workspaceRoot = this.resolveWorkspaceRoot(sessionId, params.cwd);
+    const { config, state } = await this.createManagedSession(sessionId, workspaceRoot);
 
     const response: NewSessionResponse = {
       sessionId,
-      modes: {
-        availableModes,
-        currentModeId: modeId,
-      } as SessionModeState,
-      models: {
-        availableModels,
-        currentModelId: modelId,
-      } as SessionModelState,
-      configOptions,
+      modes: this.buildSessionModes(state.modeId),
+      models: this.buildSessionModels(config, state.modelId),
+      configOptions: buildConfigOptions(config),
       _meta: {
         commands: DEFAULT_ACP_COMMANDS.map((cmd) => ({
           name: cmd.name,
@@ -323,7 +461,7 @@ export class AutohandAcpAdapter implements Agent {
       }
     }
 
-    // Regular instruction — run through the LLM
+    // Regular instruction - run through the LLM
     try {
       const success = await agent.runInstruction(instruction);
       return { stopReason: success ? 'end_turn' : 'end_turn' };
@@ -423,14 +561,20 @@ export class AutohandAcpAdapter implements Agent {
   // ==========================================================================
 
   async unstable_resumeSession(_params: ResumeSessionRequest): Promise<ResumeSessionResponse> {
-    // For resume, we create a new agent and load the session
-    if (!this.config) {
-      this.config = await loadConfig();
-    }
+    try {
+      const params = _params;
+      const { config, state } = await this.restoreSession(params.sessionId, params.cwd);
 
-    // TODO: implement full session resume with conversation history
-    // For now, return an empty response to signal resume is supported
-    return {};
+      process.stderr.write(`[ACP] Resumed session ${params.sessionId}\n`);
+      return {
+        modes: this.buildSessionModes(state.modeId),
+        models: this.buildSessionModels(config, state.modelId),
+        configOptions: buildConfigOptions(config),
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw RequestError.invalidParams({ message: `Failed to resume session: ${message}` });
+    }
   }
 
   // ==========================================================================
@@ -460,20 +604,20 @@ export class AutohandAcpAdapter implements Agent {
   // ==========================================================================
 
   async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
-    // Load a session and replay its history as notifications
-    // TODO: implement full session loading with conversation replay
-    const session = this.sessions.get(params.sessionId);
+    try {
+      const { config, state, messages } = await this.restoreSession(params.sessionId, params.cwd);
+      await this.replayConversation(params.sessionId, messages);
 
-    return {
-      modes: session ? {
-        availableModes: DEFAULT_ACP_MODES.map((m) => ({
-          id: m.id,
-          name: m.name,
-          description: m.description,
-        })),
-        currentModeId: session.modeId,
-      } as SessionModeState : undefined,
-    };
+      process.stderr.write(`[ACP] Loaded session ${params.sessionId} with ${messages.length} messages\n`);
+      return {
+        modes: this.buildSessionModes(state.modeId),
+        models: this.buildSessionModels(config, state.modelId),
+        configOptions: buildConfigOptions(config),
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw RequestError.invalidParams({ message: `Failed to load session: ${message}` });
+    }
   }
 
   // ==========================================================================

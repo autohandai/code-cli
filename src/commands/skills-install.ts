@@ -8,6 +8,7 @@
 import path from 'node:path';
 import chalk from 'chalk';
 import { safePrompt } from '../utils/prompt.js';
+import { showInput, showModal } from '../ui/ink/components/Modal.js';
 import type { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import { GitHubRegistryFetcher } from '../skills/GitHubRegistryFetcher.js';
 import { CommunitySkillsCache } from '../skills/CommunitySkillsCache.js';
@@ -28,6 +29,10 @@ export interface SkillsInstallContext {
   skillsRegistry: SkillsRegistry;
   workspaceRoot: string;
 }
+
+const MAX_BROWSER_CHOICES = 50;
+const SEARCH_OPTION_VALUE = '__skills_search__';
+const CANCEL_OPTION_VALUE = '__skills_cancel__';
 
 /**
  * Main entry point for /skills install command
@@ -125,9 +130,6 @@ async function interactiveBrowser(
   fetcher: GitHubRegistryFetcher,
   cache: CommunitySkillsCache
 ): Promise<string | null> {
-  // For now, use a simple Modal-based list
-  // TODO: Replace with Ink-based TUI component
-
   console.log();
   console.log(chalk.bold.cyan('Community Skills Marketplace'));
   console.log(chalk.gray('─'.repeat(50)));
@@ -154,30 +156,9 @@ async function interactiveBrowser(
     console.log();
   }
 
-  // Build choices for skill selection
-  const choices = registry.skills.map((skill) => ({
-    name: skill.id,
-    message: formatSkillChoice(skill),
-    value: skill.id,
-  }));
-
-  const answer = await safePrompt<{ skill: string }>([
-    {
-      type: 'autocomplete',
-      name: 'skill',
-      message: 'Select a skill to install (type to search)',
-      choices,
-    } as any, // Cast to any to allow autocomplete-specific options
-  ]);
-
-  if (!answer?.skill) {
-    console.log(chalk.gray('No skill selected.'));
-    return null;
-  }
-
-  const selectedSkill = registry.skills.find((s) => s.id === answer.skill);
+  const selectedSkill = await browseAndSelectSkill(registry, fetcher);
   if (!selectedSkill) {
-    console.log(chalk.red('Skill not found.'));
+    console.log(chalk.gray('No skill selected.'));
     return null;
   }
 
@@ -215,6 +196,101 @@ async function interactiveBrowser(
   }
 
   return installSkill(ctx, fetcher, cache, selectedSkill, scope);
+}
+
+async function browseAndSelectSkill(
+  registry: CommunitySkillsRegistry,
+  fetcher: GitHubRegistryFetcher
+): Promise<GitHubCommunitySkill | null> {
+  let searchQuery = '';
+
+  while (true) {
+    const filteredSkills = sortSkillsForDisplay(
+      fetcher.filterSkills(registry.skills, searchQuery)
+    );
+
+    if (searchQuery && filteredSkills.length === 0) {
+      console.log(chalk.yellow(`No skills found for "${searchQuery}".`));
+      const retryQuery = await showInput({
+        title: 'Search skills (leave empty to show all)',
+        defaultValue: '',
+        placeholder: 'react, testing, python',
+      });
+
+      if (retryQuery === null) {
+        return null;
+      }
+
+      searchQuery = retryQuery.trim();
+      continue;
+    }
+
+    const options = filteredSkills
+      .slice(0, MAX_BROWSER_CHOICES)
+      .map((skill) => ({
+        label: formatSkillChoice(skill),
+        value: skill.id,
+      }));
+
+    options.push({
+      label: searchQuery
+        ? `Search again (current: "${searchQuery}")`
+        : 'Search skills',
+      value: SEARCH_OPTION_VALUE,
+    });
+    options.push({
+      label: 'Cancel',
+      value: CANCEL_OPTION_VALUE,
+    });
+
+    if (filteredSkills.length > MAX_BROWSER_CHOICES) {
+      console.log(
+        chalk.gray(
+          `Showing first ${MAX_BROWSER_CHOICES} of ${filteredSkills.length} matching skills. Refine search for more precise results.`
+        )
+      );
+    }
+
+    const selected = await showModal({
+      title: searchQuery
+        ? `Select a skill to install (search: "${searchQuery}")`
+        : 'Select a skill to install',
+      options,
+    });
+
+    if (!selected) {
+      return null;
+    }
+
+    if (selected.value === CANCEL_OPTION_VALUE) {
+      return null;
+    }
+
+    if (selected.value === SEARCH_OPTION_VALUE) {
+      const nextQuery = await showInput({
+        title: 'Search skills (leave empty to show all)',
+        defaultValue: searchQuery,
+        placeholder: 'react, testing, python',
+      });
+
+      if (nextQuery === null) {
+        return null;
+      }
+
+      searchQuery = nextQuery.trim();
+      continue;
+    }
+
+    const selectedSkill = registry.skills.find(
+      (skill) => skill.id === selected.value || skill.name === selected.value
+    );
+
+    if (selectedSkill) {
+      return selectedSkill;
+    }
+
+    console.log(chalk.yellow('Selected skill no longer exists in registry. Please choose again.'));
+  }
 }
 
 /**
@@ -331,8 +407,26 @@ function formatDownloads(count: number): string {
   return String(count);
 }
 
+function sortSkillsForDisplay(skills: GitHubCommunitySkill[]): GitHubCommunitySkill[] {
+  return [...skills].sort((a, b) => {
+    const featuredRank = Number(Boolean(b.isFeatured)) - Number(Boolean(a.isFeatured));
+    if (featuredRank !== 0) return featuredRank;
+
+    const curatedRank = Number(Boolean(b.isCurated)) - Number(Boolean(a.isCurated));
+    if (curatedRank !== 0) return curatedRank;
+
+    const ratingRank = (b.rating ?? 0) - (a.rating ?? 0);
+    if (ratingRank !== 0) return ratingRank;
+
+    const downloadRank = (b.downloadCount ?? 0) - (a.downloadCount ?? 0);
+    if (downloadRank !== 0) return downloadRank;
+
+    return a.name.localeCompare(b.name);
+  });
+}
+
 /**
- * Format a skill as a choice for the autocomplete prompt
+ * Format a skill as a choice for the Ink modal list
  */
 function formatSkillChoice(skill: GitHubCommunitySkill): string {
   const parts: string[] = [];

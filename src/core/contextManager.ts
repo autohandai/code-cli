@@ -367,7 +367,7 @@ export class ContextManager {
 
       return `[LLM Context Summary - ${messages.length} messages condensed]\n${summaryText}`;
     } catch {
-      // LLM call failed — fall back to static summarization
+      // LLM call failed - fall back to static summarization
       return summarizeMessagesStatic(messages);
     }
   }

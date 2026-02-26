@@ -5,7 +5,7 @@
  */
 
 /**
- * Pipe Mode — output handler and prompt builder for non-interactive,
+ * Pipe Mode - output handler and prompt builder for non-interactive,
  * composable Unix workflows.
  *
  * Usage: `git diff | autohand 'explain'`
