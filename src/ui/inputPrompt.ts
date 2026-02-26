@@ -305,6 +305,11 @@ export function getPromptBlockWidth(columns: number | undefined): number {
 /**
  * Build the visible prompt row and the corresponding cursor column.
  * Returns a boxed line (full terminal width) and a zero-based cursor column.
+ *
+ * @param currentLine - Raw readline buffer content.
+ * @param cursorPos - Current readline cursor offset within the line.
+ * @param width - Terminal column width for the prompt block.
+ * @param suggestionText - Ghost text shown as placeholder when input is empty.
  */
 export function buildPromptRenderState(
   currentLine: string,
@@ -974,8 +979,6 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
   const { files, slashCommands, statusLine, initialValue, stdInput, stdOutput, onImageDetected, workspaceRoot, suggestionText } = options;
   const { rl, input, supportsRawMode } = createReadline(stdInput, stdOutput);
 
-  // Don't pass statusLine to MentionPreview - renderPromptLine handles the status display
-  // MentionPreview only shows suggestions (@ mentions, / commands)
   const mentionPreview = new MentionPreview(rl, files, slashCommands, stdOutput);
 
   // Initialize paste state for bracketed paste detection
@@ -1313,12 +1316,10 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         return;
       }
 
-      if (isPlainTabShortcut(_str, key) && (contextualHelpVisible || suggestionText)) {
+      if (isPlainTabShortcut(_str, key)) {
         const rlAny = rl as readline.Interface & { line: string; cursor: number };
         const currentInput = rlAny.line ?? '';
-        const suggestion = (currentInput.trim() === '' && suggestionText)
-          ? getPrimaryHotTipSuggestion(currentInput, files, slashCommands, suggestionText)
-          : getPrimaryHotTipSuggestion(currentInput, files, slashCommands);
+        const suggestion = getPrimaryHotTipSuggestion(currentInput, files, slashCommands, suggestionText);
         if (suggestion) {
           rlAny.line = suggestion.line;
           rlAny.cursor = suggestion.cursor;
@@ -1442,7 +1443,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         }
         // Re-prompt without sending to LLM
         stdOutput.write('\n');
-        renderPromptLine(rl, statusLine, stdOutput, false, false, suggestionText);
+        renderPromptLine(rl, getActiveStatusLine(), stdOutput, false, false, suggestionText);
         return;
       }
 
