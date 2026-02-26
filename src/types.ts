@@ -86,6 +86,8 @@ export interface UISettings {
   locale?: string;
   /** Native OS desktop notifications when user attention is needed (default: true) */
   notifications?: boolean | NotificationConfig;
+  /** Show LLM-generated next-step suggestions in prompt placeholder (default: true) */
+  promptSuggestions?: boolean;
 }
 
 export interface AgentSettings {
@@ -866,6 +868,12 @@ export type AgentAction =
   | { type: 'create_meta_tool'; name: string; description: string; parameters: Record<string, unknown>; handler: string }
   | { type: 'delegate_task'; agent_name: string; task: string }
   | { type: 'delegate_parallel'; tasks: Array<{ agent_name: string; task: string }> }
+  // Team coordination tools
+  | { type: 'create_team'; name: string }
+  | { type: 'add_teammate'; name: string; agent_name: string; model?: string }
+  | { type: 'create_task'; subject: string; description: string; blocked_by?: string[] }
+  | { type: 'team_status' }
+  | { type: 'send_team_message'; to: string; content: string }
   // Web Search Operations
   | { type: 'web_search'; query: string; max_results?: number; search_type?: 'general' | 'packages' | 'docs' | 'changelog' }
   | { type: 'fetch_url'; url: string; selector?: string; max_length?: number }
