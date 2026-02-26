@@ -51,6 +51,7 @@ export class PersistentInput extends EventEmitter {
   private isPaused = false;
   private regions: TerminalRegions;
   private silentMode: boolean;
+  private activityLine = '';
 
   constructor(options: PersistentInputOptions = {}) {
     super();
@@ -152,7 +153,7 @@ export class PersistentInput extends EventEmitter {
       this.regions.disable();
     }
 
-    // Restore terminal for modal prompts
+    // Restore terminal for Modal prompts
     const supportsRaw = (this as any)._supportsRaw;
     if (supportsRaw && this.input.isTTY) {
       safeSetRawMode(this.input, false);
@@ -198,14 +199,11 @@ export class PersistentInput extends EventEmitter {
     }
   }
 
-  /**
-   * Update the activity line above the boxed input composer.
-   */
-  setActivityLine(activity: string): void {
-    if (!this.isActive || this.isPaused || this.silentMode) {
-      return;
+  setActivityLine(status: string): void {
+    this.activityLine = status;
+    if (this.isActive && !this.isPaused && !this.silentMode) {
+      this.regions.updateActivity(status);
     }
-    this.regions.updateActivity(activity);
   }
 
   /**
@@ -248,7 +246,7 @@ export class PersistentInput extends EventEmitter {
   }
 
   /**
-   * Set current draft input (used to preserve typed text across turn boundaries).
+   * Replace the current draft input text.
    */
   setCurrentInput(value: string): void {
     this.currentInput = value;
@@ -387,15 +385,9 @@ export class PersistentInput extends EventEmitter {
     this.regions.renderFixedRegion(
       this.currentInput,
       this.queue.length,
-      this.getStatusText()
+      this.getStatusText(),
+      this.activityLine
     );
-  }
-
-  private getStatusText(status: string | { left: string; right: string } = this.statusLine): string {
-    if (typeof status === 'string') {
-      return status;
-    }
-    return status.right ? `${status.left} · ${status.right}` : status.left;
   }
 
   /**
@@ -411,6 +403,18 @@ export class PersistentInput extends EventEmitter {
   dispose(): void {
     this.stop();
     this.queue = [];
+  }
+
+  private getStatusText(status: string | { left: string; right: string } = this.statusLine): string {
+    if (typeof status === 'string') {
+      return status;
+    }
+    const left = status.left ?? '';
+    const right = status.right ?? '';
+    if (!right) {
+      return left;
+    }
+    return `${left} · ${right}`;
   }
 }
 

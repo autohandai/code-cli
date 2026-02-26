@@ -93,45 +93,28 @@ function truncateVisible(value: string, maxVisible: number): string {
 }
 
 export function drawInputBox(left: string, width: number, right?: string): string {
-  const innerWidth = Math.max(0, width - 2);
-  let content = '';
+  const visLeft = getVisibleLength(left);
 
   if (!right) {
-    const clippedLeft = truncateVisible(left, innerWidth);
-    const paddingSize = Math.max(0, innerWidth - getVisibleLength(clippedLeft));
-    content = `${clippedLeft}${' '.repeat(paddingSize)}`;
-  } else {
-    const minGap = 2;
-    const visLeft = getVisibleLength(left);
-    const visRight = getVisibleLength(right);
-    const availableForLeft = Math.max(0, innerWidth - minGap);
-
-    let clippedLeft = visLeft > availableForLeft
-      ? truncateVisible(left, availableForLeft)
-      : left;
-    let clippedLeftVis = getVisibleLength(clippedLeft);
-    let availableForRight = innerWidth - clippedLeftVis - minGap;
-
-    if (availableForRight < 0) {
-      clippedLeft = truncateVisible(clippedLeft, Math.max(0, innerWidth));
-      clippedLeftVis = getVisibleLength(clippedLeft);
-      availableForRight = 0;
-    }
-
-    const clippedRight = visRight > availableForRight
-      ? truncateVisible(right, Math.max(0, availableForRight))
-      : right;
-    const clippedRightVis = getVisibleLength(clippedRight);
-    const gap = Math.max(0, innerWidth - clippedLeftVis - clippedRightVis);
-    content = `${clippedLeft}${' '.repeat(gap)}${clippedRight}`;
-
-    const visibleContent = getVisibleLength(content);
-    if (visibleContent < innerWidth) {
-      content += ' '.repeat(innerWidth - visibleContent);
-    }
+    const pad = Math.max(0, width - visLeft);
+    return chalk.bgHex('#2b2b2b').hex('#a0a0a0')(left + ' '.repeat(pad));
   }
 
-  const leftBorder = themedFg('border', '│', (value) => chalk.hex(DEFAULT_BORDER_COLOR)(value));
-  const rightBorder = themedFg('border', '│', (value) => chalk.hex(DEFAULT_BORDER_COLOR)(value));
-  return `${leftBorder}${content}${rightBorder}`;
+  const visRight = getVisibleLength(right);
+  const minGap = 2;
+  const available = width - visLeft - minGap;
+
+  if (available <= 0) {
+    const pad = Math.max(0, width - visLeft);
+    return chalk.bgHex('#2b2b2b').hex('#a0a0a0')(left + ' '.repeat(pad));
+  }
+
+  const clippedRight = visRight > available
+    ? truncateVisible(right, available)
+    : right;
+  const clippedRightVis = getVisibleLength(clippedRight);
+  const gap = Math.max(0, width - visLeft - clippedRightVis);
+  const line = left + ' '.repeat(gap) + clippedRight;
+
+  return chalk.bgHex('#2b2b2b').hex('#a0a0a0')(line);
 }

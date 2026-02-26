@@ -231,6 +231,7 @@ program
   .option('--patch', 'Generate git patch without applying changes (requires --prompt)', false)
   .option('--output <file>', 'Output file for patch (default: stdout, used with --patch)')
   .option('--mode <mode>', 'Run mode: interactive (default), rpc, or acp', 'interactive')
+  .option('--teammate-mode <mode>', 'Team display mode: auto, in-process, or tmux')
   .option('--worktree [name]', 'Run session in isolated git worktree (optional name)')
   .option('--tmux', 'Launch in a dedicated tmux session (implies --worktree)')
   // Auto-mode options
@@ -247,7 +248,7 @@ program
   .option('--display-language <locale>', 'Set display language (e.g., en, zh-cn, fr, de, ja)')
   .option('--cc, --context-compact', 'Enable context compaction (default: on)')
   .option('--no-cc, --no-context-compact', 'Disable context compaction')
-  .option('--search-engine <provider>', 'Set web search provider (brave, duckduckgo, parallel)')
+  .option('--search-engine <provider>', 'Set web search provider (google, brave, duckduckgo, parallel)')
   .option('--sys-prompt <value>', 'Replace entire system prompt (inline string or file path)')
   .option('--append-sys-prompt <value>', 'Append to system prompt (inline string or file path)')
   .option('--yolo [pattern]', 'Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)')
@@ -349,10 +350,10 @@ program
     // Map --search-engine flag to searchEngine option
     if ((opts as any).searchEngine) {
       const provider = (opts as any).searchEngine.toLowerCase();
-      if (['brave', 'duckduckgo', 'parallel'].includes(provider)) {
-        opts.searchEngine = provider as 'brave' | 'duckduckgo' | 'parallel';
+      if (['google', 'brave', 'duckduckgo', 'parallel'].includes(provider)) {
+        opts.searchEngine = provider as 'google' | 'brave' | 'duckduckgo' | 'parallel';
       } else {
-        console.error(chalk.red(`Invalid search engine: ${provider}. Valid options: brave, duckduckgo, parallel`));
+        console.error(chalk.red(`Invalid search engine: ${provider}. Valid options: google, brave, duckduckgo, parallel`));
         process.exit(1);
       }
     }
@@ -366,6 +367,18 @@ program
     // Native ACP mode - in-process Agent Client Protocol over stdio
     if (opts.mode === 'acp') {
       await runAcpMode(opts);
+      return;
+    }
+
+    // Teammate mode — headless process receiving tasks from lead
+    if (opts.mode === 'teammate') {
+      const { parseTeammateOptions, runTeammateMode } = await import('./modes/teammate.js');
+      const teammateOpts = parseTeammateOptions(process.argv);
+      if (!teammateOpts) {
+        console.error('Error: --mode teammate requires --team, --name, --agent, and --lead-session');
+        process.exit(1);
+      }
+      await runTeammateMode(teammateOpts);
       return;
     }
 
@@ -837,15 +850,11 @@ async function runCLI(options: CLIOptions): Promise<void> {
           agentHolder.current.setVersionCheckResult(versionResult);
         }
 
-        // Avoid writing background startup logs while the interactive prompt is active.
-        // Those async writes can corrupt readline rendering.
-        const shouldPrintStartupChecks = Boolean(options.prompt || options.resumeSessionId || !process.stdout.isTTY);
-        if (shouldPrintStartupChecks) {
-          // Print startup check warnings (missing tools etc.)
-          printStartupCheckResults(checkResults);
-          if (!checkResults.allRequiredMet) {
-            console.log(chalk.yellow('Continuing anyway, but some features may not work correctly.\n'));
-          }
+        // Print startup check warnings (missing tools etc.)
+        printStartupCheckResults(checkResults);
+
+        if (!checkResults.allRequiredMet) {
+          console.log(chalk.yellow('Continuing anyway, but some features may not work correctly.\n'));
         }
 
         // Start settings sync service for logged-in users
@@ -926,7 +935,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
     // Configure web search provider from CLI flag, config file, or environment
     const searchConfig = config.search ?? {};
     configureSearch({
-      provider: options.searchEngine ?? searchConfig.provider ?? 'duckduckgo',
+      provider: options.searchEngine ?? searchConfig.provider ?? 'google',
       braveApiKey: searchConfig.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY,
       parallelApiKey: searchConfig.parallelApiKey ?? process.env.PARALLEL_API_KEY,
     });
@@ -1257,7 +1266,7 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
   // Configure web search provider
   const searchConfig = config.search ?? {};
   configureSearch({
-    provider: searchConfig.provider ?? 'duckduckgo',
+    provider: searchConfig.provider ?? 'google',
     braveApiKey: searchConfig.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY,
     parallelApiKey: searchConfig.parallelApiKey ?? process.env.PARALLEL_API_KEY,
   });
@@ -1467,7 +1476,7 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
     // Configure web search provider
     const searchConfig = config.search ?? {};
     configureSearch({
-      provider: searchConfig.provider ?? 'duckduckgo',
+      provider: searchConfig.provider ?? 'google',
       braveApiKey: searchConfig.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY,
       parallelApiKey: searchConfig.parallelApiKey ?? process.env.PARALLEL_API_KEY,
     });

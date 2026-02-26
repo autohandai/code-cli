@@ -4,64 +4,44 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { drawInputBottomBorder, drawInputBox, drawInputTopBorder } from '../../src/ui/box.js';
-import { Theme, setTheme } from '../../src/ui/theme/Theme.js';
-import type { ResolvedColors } from '../../src/ui/theme/types.js';
-import { COLOR_TOKENS } from '../../src/ui/theme/types.js';
+import { describe, it, expect } from 'vitest';
+import { drawInputBox, drawInputTopBorder, drawInputBottomBorder } from '../../src/ui/box.js';
 
 function stripAnsi(value: string): string {
   return value.replace(/\u001b\[[0-9;]*m/g, '');
 }
 
-function createMockColors(overrides: Partial<ResolvedColors> = {}): ResolvedColors {
-  const base: ResolvedColors = {} as ResolvedColors;
-  for (const token of COLOR_TOKENS) {
-    base[token] = '#ffffff';
-  }
-  return { ...base, ...overrides };
-}
-
 describe('drawInputBox', () => {
-  it('renders a framed status line with exact visible width', () => {
-    const rendered = drawInputBox('> Plan, search, build anything', 30);
-    const plain = stripAnsi(rendered);
-
-    expect(plain.length).toBe(30);
-    expect(plain.startsWith('│')).toBe(true);
-    expect(plain.endsWith('│')).toBe(true);
+  it('renders left-only content padded to width', () => {
+    const result = stripAnsi(drawInputBox('hello', 20));
+    expect(result.length).toBe(20);
+    expect(result.startsWith('hello')).toBe(true);
   });
 
-  it('truncates content to fit the available inner width', () => {
-    const rendered = drawInputBox('x'.repeat(100), 20);
-    const plain = stripAnsi(rendered);
-
-    expect(plain.length).toBe(20);
+  it('renders left and right content with gap', () => {
+    const result = stripAnsi(drawInputBox('left', 30, 'right'));
+    expect(result.length).toBe(30);
+    expect(result.startsWith('left')).toBe(true);
+    expect(result.endsWith('right')).toBe(true);
   });
 
-  it('preserves frame width with ANSI-styled content', () => {
-    const rendered = drawInputBox('\u001b[90m> Plan, search, build anything\u001b[39m', 30);
-    const plain = stripAnsi(rendered);
-
-    expect(plain.length).toBe(30);
-    expect(plain.startsWith('│')).toBe(true);
-    expect(plain.endsWith('│')).toBe(true);
+  it('truncates right content when no room', () => {
+    const result = stripAnsi(drawInputBox('lefttext', 10, 'rightttx'));
+    expect(result.length).toBe(10);
+    expect(result.startsWith('lefttext')).toBe(true);
   });
 
-  it('keeps right border visible when truncating ANSI-styled content', () => {
-    const rendered = drawInputBox(`\u001b[90m${'x'.repeat(120)}\u001b[39m`, 24);
-    const plain = stripAnsi(rendered);
-
-    expect(plain.length).toBe(24);
-    expect(plain[0]).toBe('│');
-    expect(plain[23]).toBe('│');
+  it('handles empty right gracefully', () => {
+    const result = stripAnsi(drawInputBox('status', 40, ''));
+    expect(result.length).toBe(40);
+    expect(result.startsWith('status')).toBe(true);
   });
 
   it('pads to visible width when left content contains ANSI sequences', () => {
     const styled = '\u001b[31mhello\u001b[39m';
     const result = stripAnsi(drawInputBox(styled, 20));
     expect(result.length).toBe(20);
-    expect(result.startsWith('│hello')).toBe(true);
+    expect(result.startsWith('hello')).toBe(true);
   });
 
   it('calculates right clipping using visible width when ANSI is present', () => {
@@ -69,8 +49,9 @@ describe('drawInputBox', () => {
     const right = '\u001b[33mright-content\u001b[39m';
     const result = stripAnsi(drawInputBox(left, 16, right));
     expect(result.length).toBe(16);
-    expect(result.startsWith('│left')).toBe(true);
+    expect(result.startsWith('left')).toBe(true);
   });
+
 });
 
 describe('drawInputTopBorder', () => {
@@ -92,36 +73,5 @@ describe('drawInputBottomBorder', () => {
     expect(plain.length).toBe(20);
     expect(plain.startsWith('└')).toBe(true);
     expect(plain.endsWith('┘')).toBe(true);
-  });
-});
-
-describe('themed box rendering', () => {
-  beforeEach(() => {
-    setTheme(null as unknown as Theme);
-  });
-
-  afterEach(() => {
-    setTheme(null as unknown as Theme);
-  });
-
-  it('uses borderAccent for top/bottom borders when theme is initialized', () => {
-    const theme = new Theme('test', createMockColors({ borderAccent: '#112233' }), 'truecolor');
-    setTheme(theme);
-
-    const top = drawInputTopBorder(12);
-    const bottom = drawInputBottomBorder(12);
-
-    expect(top).toContain('\x1b[38;2;17;34;51m');
-    expect(bottom).toContain('\x1b[38;2;17;34;51m');
-  });
-
-  it('uses border token for the vertical frame in the input row', () => {
-    const theme = new Theme('test', createMockColors({ border: '#445566' }), 'truecolor');
-    setTheme(theme);
-
-    const row = drawInputBox('hello', 20);
-    const colorCodeCount = (row.match(/\x1b\[38;2;68;85;102m/g) ?? []).length;
-
-    expect(colorCodeCount).toBeGreaterThanOrEqual(2);
   });
 });

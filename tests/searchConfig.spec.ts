@@ -53,9 +53,9 @@ describe('Search Configuration', () => {
   });
 
   describe('getSearchConfig', () => {
-    it('returns default provider as duckduckgo', () => {
+    it('returns configured provider after explicit set', () => {
       const config = getSearchConfig();
-      expect(config.provider).toBe('duckduckgo');
+      expect(config.provider).toBe('duckduckgo'); // set by beforeEach
     });
 
     it('returns a copy of config (not reference)', () => {

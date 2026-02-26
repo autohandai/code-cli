@@ -234,7 +234,7 @@ describe('buildPromptRenderState', () => {
     const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
     const state = buildPromptRenderState('hello', 5, 80);
 
-    // prefix "> " (2) + cursor at end (5)
+    // prefix (2) + cursor at end (5)
     expect(state.cursorColumn).toBe(7);
   });
 
@@ -242,10 +242,10 @@ describe('buildPromptRenderState', () => {
     const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
     const state = buildPromptRenderState('abcdefghijklmnopqrstuvwxyz', 10, 14);
     const plain = state.lineText.replace(/\u001b\[[0-9;]*m/g, '');
-    const inner = plain.slice(1, -1).trimEnd();
+    const visible = plain.trimEnd();
 
-    expect(inner.startsWith('…')).toBe(true);
-    expect(inner.endsWith('…')).toBe(true);
+    expect(visible.startsWith('…')).toBe(true);
+    expect(visible.endsWith('…')).toBe(true);
     expect(state.cursorColumn).toBe(6);
   });
 
@@ -253,11 +253,48 @@ describe('buildPromptRenderState', () => {
     const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
     const state = buildPromptRenderState('abcdefghijklmnopqrstuvwxyz', 26, 14);
     const plain = state.lineText.replace(/\u001b\[[0-9;]*m/g, '');
-    const inner = plain.slice(1, -1).trimEnd();
 
-    expect(inner.startsWith('…')).toBe(true);
-    expect(inner.endsWith('…')).toBe(false);
+    expect(plain.startsWith('…')).toBe(true);
+    expect(plain.endsWith('…')).toBe(false);
     expect(state.cursorColumn).toBe(12);
+  });
+});
+
+describe('ghost text suggestion in placeholder', () => {
+  it('shows LLM suggestion as placeholder when input is empty and suggestion provided', async () => {
+    const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
+    const state = buildPromptRenderState('', 0, 80, 'Run the test suite');
+    expect(state.lineText).toContain('Run the test suite');
+    expect(state.lineText).not.toContain('Plan, search, build anything');
+  });
+
+  it('shows default placeholder when no suggestion provided', async () => {
+    const { buildPromptRenderState, PROMPT_PLACEHOLDER } = await import('../../src/ui/inputPrompt.js');
+    const state = buildPromptRenderState('', 0, 80);
+    expect(state.lineText).toContain(PROMPT_PLACEHOLDER);
+  });
+
+  it('ignores suggestion when user has typed content', async () => {
+    const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
+    const state = buildPromptRenderState('hello', 5, 80, 'Run the test suite');
+    expect(state.lineText).not.toContain('Run the test suite');
+  });
+});
+
+describe('Tab accepts LLM suggestion on empty input', () => {
+  it('returns LLM suggestion when input is empty and suggestion provided', async () => {
+    const { getPrimaryHotTipSuggestion } = await import('../../src/ui/inputPrompt.js');
+    const suggestion = getPrimaryHotTipSuggestion('', [], [], 'Run the test suite');
+    expect(suggestion).toEqual({
+      line: 'Run the test suite',
+      cursor: 18,
+    });
+  });
+
+  it('falls back to /help when no suggestion provided', async () => {
+    const { getPrimaryHotTipSuggestion } = await import('../../src/ui/inputPrompt.js');
+    const suggestion = getPrimaryHotTipSuggestion('', [], []);
+    expect(suggestion).toEqual({ line: '/help ', cursor: 6 });
   });
 });
 
