@@ -99,3 +99,4 @@ describe('Display content utilities', () => {
     expect(convertNewlineMarkersToNewlines(`a${NEWLINE_MARKER}b${NEWLINE_MARKER}c`)).toBe('a\nb\nc');
   });
 });
+
