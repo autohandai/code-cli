@@ -211,6 +211,7 @@ program
   .option('--patch', 'Generate git patch without applying changes (requires --prompt)', false)
   .option('--output <file>', 'Output file for patch (default: stdout, used with --patch)')
   .option('--mode <mode>', 'Run mode: interactive (default), rpc, or acp', 'interactive')
+  .option('--teammate-mode <mode>', 'Team display mode: auto, in-process, or tmux')
   .option('--worktree [name]', 'Run session in isolated git worktree (optional name)')
   .option('--tmux', 'Launch in a dedicated tmux session (implies --worktree)')
   // Auto-mode options
@@ -346,6 +347,18 @@ program
     // Native ACP mode - in-process Agent Client Protocol over stdio
     if (opts.mode === 'acp') {
       await runAcpMode(opts);
+      return;
+    }
+
+    // Teammate mode — headless process receiving tasks from lead
+    if (opts.mode === 'teammate') {
+      const { parseTeammateOptions, runTeammateMode } = await import('./modes/teammate.js');
+      const teammateOpts = parseTeammateOptions(process.argv);
+      if (!teammateOpts) {
+        console.error('Error: --mode teammate requires --team, --name, --agent, and --lead-session');
+        process.exit(1);
+      }
+      await runTeammateMode(teammateOpts);
       return;
     }
 

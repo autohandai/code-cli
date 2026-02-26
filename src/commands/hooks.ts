@@ -34,6 +34,13 @@ const HOOK_EVENTS: HookEvent[] = [
   'automode:cancel',
   'automode:complete',
   'automode:error',
+  // Team events
+  'team-created',
+  'teammate-spawned',
+  'teammate-idle',
+  'task-assigned',
+  'task-completed',
+  'team-shutdown',
 ];
 
 // Event descriptions for better UX
@@ -59,6 +66,13 @@ const EVENT_DESCRIPTIONS: Record<HookEvent, string> = {
   'automode:cancel': 'When auto-mode is cancelled',
   'automode:complete': 'When auto-mode completes',
   'automode:error': 'When auto-mode encounters an error',
+  // Team events
+  'team-created': 'When a team is created',
+  'teammate-spawned': 'When a teammate process starts',
+  'teammate-idle': 'When a teammate becomes idle',
+  'task-assigned': 'When a task is assigned to a teammate',
+  'task-completed': 'When a task is marked as done',
+  'team-shutdown': 'When team cleanup completes',
 };
 
 // Icons for built-in hooks (matched by script name or description keywords)
