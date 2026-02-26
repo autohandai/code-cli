@@ -561,6 +561,23 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
   // Render initial prompt with status line (was missing - caused status to only show on typing)
   renderPromptLine(rl, statusLine, stdOutput);
 
+  // Override readline's _refreshLine to use our renderPromptLine instead.
+  // readline's default _refreshLine miscalculates cursor position when the
+  // prompt contains ANSI escape codes (chalk styling), causing the cursor
+  // to appear on top of typed text rather than after it.
+  const rlInternal = rl as readline.Interface & { _refreshLine?: () => void };
+  const originalRefreshLine = typeof rlInternal._refreshLine === 'function'
+    ? rlInternal._refreshLine.bind(rlInternal)
+    : undefined;
+
+  if (typeof rlInternal._refreshLine === 'function') {
+    rlInternal._refreshLine = () => {
+      if (!pasteState.isInPaste) {
+        renderPromptLine(rl, statusLine, stdOutput);
+      }
+    };
+  }
+
   return new Promise<PromptResult>((resolve) => {
     let ctrlCCount = 0;
     let closed = false;
@@ -580,12 +597,16 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         clearTimeout(inlineImageScanTimeout);
         inlineImageScanTimeout = undefined;
       }
-      // Disable bracketed paste mode
+      // Disable bracketed paste mode and ensure cursor is visible
       disableBracketedPaste(stdOutput);
+      stdOutput.write('\x1b[?25h');
       mentionPreview.dispose();
       resizeWatcher.dispose();
       input.off('keypress', handleKeypress);
       input.off('data', handleInputData);
+      if (originalRefreshLine) {
+        rlInternal._refreshLine = originalRefreshLine;
+      }
       if (supportsRawMode && input.isTTY) {
         safeSetRawMode(input, false);
       }
@@ -962,6 +983,11 @@ function renderPromptLine(rl: readline.Interface, statusLine: string | undefined
   // Keep readline's prompt in sync with the prefix we render
   rl.setPrompt(PROMPT_PREFIX);
 
+  // Hide cursor during rendering to prevent flicker/slow blinking.
+  // The cursor visibly jumps as lines are cleared and rewritten;
+  // hiding it produces a clean, natural blink at the final position.
+  output.write('\x1b[?25l');
+
   // Clear prompt + status line region
   readline.cursorTo(output, 0);
   if (isResize) {
@@ -980,4 +1006,7 @@ function renderPromptLine(rl: readline.Interface, statusLine: string | undefined
   // Move cursor back to prompt line at correct column
   readline.moveCursor(output, 0, -1);
   readline.cursorTo(output, PROMPT_VISIBLE_LENGTH + cursorPos);
+
+  // Show cursor at its final, correct position.
+  output.write('\x1b[?25h');
 }
