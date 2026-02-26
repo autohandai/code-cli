@@ -151,6 +151,7 @@ export class AutohandAgent {
   private versionCheckResult?: VersionCheckResult;
   private teamManager: TeamManager;
   private suggestionEngine: SuggestionEngine | null = null;
+  private pendingSuggestion: Promise<void> | null = null;
 
   private taskStartedAt: number | null = null;
   private totalTokensUsed = 0;
@@ -1324,9 +1325,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
         await this.runInstruction(instruction);
         this.flushMcpStartupSummaryIfPending();
 
-        // Generate next-step suggestion in background (non-blocking)
+        // Start generating next-step suggestion in background.
+        // The promise is awaited in promptForInstruction() with a deadline
+        // so the LLM call runs concurrently with hooks/notifications below.
         if (this.suggestionEngine) {
-          this.suggestionEngine.generate(this.conversation.history()).catch(() => {});
+          this.pendingSuggestion = this.suggestionEngine.generate(this.conversation.history());
         }
 
         // Fire stop hook after turn completes (non-blocking)
@@ -1461,6 +1464,14 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const statusLine = this.formatStatusLine();
     const initialValue = this.promptSeedInput;
     this.promptSeedInput = '';
+    // Wait for the pending suggestion LLM call to finish (max 1.5s).
+    // The call was started right after the previous turn completed and runs
+    // concurrently with hooks/notifications, so it's usually already done.
+    if (this.pendingSuggestion) {
+      const deadline = new Promise<void>((r) => setTimeout(r, 1500));
+      await Promise.race([this.pendingSuggestion, deadline]).catch(() => {});
+      this.pendingSuggestion = null;
+    }
     const suggestionText = this.suggestionEngine?.getSuggestion() ?? undefined;
     const input = await readInstruction(
       workspaceFiles,
