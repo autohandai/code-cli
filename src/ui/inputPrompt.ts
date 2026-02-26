@@ -30,8 +30,9 @@ import { buildFileMentionSuggestions } from './mentionFilter.js';
 import { getTheme, isThemeInitialized } from './theme/index.js';
 import type { ColorToken } from './theme/types.js';
 
-// Internal readline prompt prefix is empty because the boxed composer handles all visible rendering.
-export const PROMPT_PREFIX = '';
+export const PROMPT_PREFIX = `${chalk.gray('›')} `;
+// Visible length of the prompt prefix (ANSI codes not counted)
+export const PROMPT_VISIBLE_LENGTH = 2;
 // Number of fixed status lines we render beneath the prompt
 export const STATUS_LINE_COUNT = 1;
 // Composer block structure relative to input line.
@@ -156,7 +157,8 @@ export function buildPromptHotTips(
 export function getPrimaryHotTipSuggestion(
   currentLine: string,
   files: string[],
-  slashCommands: SlashCommandHint[]
+  slashCommands: SlashCommandHint[],
+  suggestionText?: string
 ): PromptSuggestion | null {
   const mentionMatch = /@([A-Za-z0-9_./\\-]*)$/.exec(currentLine);
   if (mentionMatch) {
@@ -172,6 +174,9 @@ export function getPrimaryHotTipSuggestion(
 
   const trimmed = currentLine.trim();
   if (!trimmed) {
+    if (suggestionText) {
+      return { line: suggestionText, cursor: suggestionText.length };
+    }
     return { line: '/help ', cursor: 6 };
   }
 
@@ -316,11 +321,17 @@ export function getPromptBlockWidth(columns: number | undefined): number {
 /**
  * Build the visible prompt row and the corresponding cursor column.
  * Returns a boxed line (full terminal width) and a zero-based cursor column.
+ *
+ * @param currentLine - Raw readline buffer content.
+ * @param cursorPos - Current readline cursor offset within the line.
+ * @param width - Terminal column width for the prompt block.
+ * @param suggestionText - Ghost text shown as placeholder when input is empty.
  */
 export function buildPromptRenderState(
   currentLine: string,
   cursorPos: number,
-  width: number
+  width: number,
+  suggestionText?: string
 ): PromptRenderState {
   const sanitizedLine = sanitizeRenderLine(currentLine);
   // Whitespace-only drift can happen after terminal redraws; treat it as empty.
@@ -336,7 +347,10 @@ export function buildPromptRenderState(
   const fullCursor = prefix.length + effectiveCursor;
 
   if (!normalizedLine) {
-    visibleText = chalk.gray(placeholder);
+    const displayPlaceholder = suggestionText
+      ? `${prefix}${suggestionText}`
+      : placeholder;
+    visibleText = chalk.gray(displayPlaceholder);
     cursorColumn = prefix.length;
   } else if (fullInput.length > innerWidth) {
     const ellipsis = '…';
@@ -795,7 +809,8 @@ export async function readInstruction(
   io: PromptIO = {},
   onImageDetected?: ImageDetectedCallback,
   workspaceRoot?: string,
-  initialValue = ''
+  initialValue = '',
+  suggestionText?: string
 ): Promise<string | null> {
   const stdInput = (io.input ?? process.stdin) as NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void };
   const stdOutput = (io.output ?? process.stdout) as NodeJS.WriteStream;
@@ -817,7 +832,8 @@ export async function readInstruction(
         stdInput,
         stdOutput,
         onImageDetected,
-        workspaceRoot
+        workspaceRoot,
+        suggestionText
       });
 
       if (result.kind === 'abort') {
@@ -840,6 +856,7 @@ interface PromptOnceOptions {
   stdOutput: NodeJS.WriteStream;
   onImageDetected?: ImageDetectedCallback;
   workspaceRoot?: string;
+  suggestionText?: string;
 }
 
 /**
@@ -1020,11 +1037,9 @@ function handlePasteComplete(
 }
 
 async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
-  const { files, slashCommands, statusLine, initialValue, stdInput, stdOutput, onImageDetected, workspaceRoot } = options;
+  const { files, slashCommands, statusLine, initialValue, stdInput, stdOutput, onImageDetected, workspaceRoot, suggestionText } = options;
   const { rl, input, supportsRawMode } = createReadline(stdInput, stdOutput);
 
-  // Don't pass statusLine to MentionPreview - renderPromptLine handles the status display
-  // MentionPreview only shows suggestions (@ mentions, / commands)
   const mentionPreview = new MentionPreview(rl, files, slashCommands, stdOutput);
 
   // Initialize paste state for bracketed paste detection
@@ -1046,10 +1061,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
 
   const getActiveStatusLine = (): string | { left: string; right: string } | undefined => {
     if (typeof statusLine === 'object' && statusLine !== null) {
-      return {
-        left: applyPlanModePrefix(statusLine.left ?? ''),
-        right: statusLine.right ?? '',
-      };
+      return statusLine;
     }
     return applyPlanModePrefix(statusLine ?? '');
   };
@@ -1072,10 +1084,8 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       stdOutput,
       isResize,
       hasExistingPromptBlock,
-      helpLines,
-      renderedContextualHelpLines
+      suggestionText
     );
-    renderedContextualHelpLines = helpLines.length;
   };
 
   const resizeWatcher = new TerminalResizeWatcher(stdOutput, () => {
@@ -1092,6 +1102,23 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     rlAny.line = initialLine;
     rlAny.cursor = initialLine.length;
     renderPromptSurface(false, true);
+  }
+
+  // Override readline's _refreshLine to use our renderPromptLine instead.
+  // readline's default _refreshLine miscalculates cursor position when the
+  // prompt contains ANSI escape codes (chalk styling), causing the cursor
+  // to appear on top of typed text rather than after it.
+  const rlInternal = rl as readline.Interface & { _refreshLine?: () => void };
+  const originalRefreshLine = typeof rlInternal._refreshLine === 'function'
+    ? rlInternal._refreshLine.bind(rlInternal)
+    : undefined;
+
+  if (typeof rlInternal._refreshLine === 'function') {
+    rlInternal._refreshLine = () => {
+      if (!pasteState.isInPaste) {
+        renderPromptLine(rl, statusLine, stdOutput);
+      }
+    };
   }
 
   return new Promise<PromptResult>((resolve) => {
@@ -1391,9 +1418,10 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         return;
       }
 
-      if (isPlainTabShortcut(_str, key) && contextualHelpVisible) {
+      if (isPlainTabShortcut(_str, key)) {
         const rlAny = rl as readline.Interface & { line: string; cursor: number };
-        const suggestion = getPrimaryHotTipSuggestion(rlAny.line ?? '', files, slashCommands);
+        const currentInput = rlAny.line ?? '';
+        const suggestion = getPrimaryHotTipSuggestion(currentInput, files, slashCommands, suggestionText);
         if (suggestion) {
           rlAny.line = suggestion.line;
           rlAny.cursor = suggestion.cursor;
@@ -1517,7 +1545,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         }
         // Re-prompt without sending to LLM
         stdOutput.write('\n');
-        renderPromptLine(rl, statusLine, stdOutput, false, false);
+        renderPromptLine(rl, getActiveStatusLine(), stdOutput, false, false, suggestionText);
         return;
       }
 
@@ -1598,14 +1626,13 @@ function renderPromptLine(
   output: NodeJS.WriteStream,
   isResize = false,
   hasExistingPromptBlock = true,
-  helpLines: string[] = [],
-  previousHelpLines = 0
+  suggestionText?: string
 ): void {
   const width = getPromptBlockWidth(output.columns);
   const rlAny = rl as readline.Interface & { cursor?: number; line?: string };
   const currentLine = rlAny.line ?? '';
   const cursorPos = rlAny.cursor ?? currentLine.length;
-  const prompt = buildPromptRenderState(currentLine, cursorPos, width);
+  const prompt = buildPromptRenderState(currentLine, cursorPos, width, suggestionText);
   const borderStyle = getComposerBorderStyle(currentLine);
   const topBorder = drawInputTopBorder(width, borderStyle);
   const bottomBorder = drawInputBottomBorder(width, borderStyle);
@@ -1615,47 +1642,48 @@ function renderPromptLine(
   rl.setPrompt(PROMPT_PREFIX);
 
   // Hide cursor during rendering to prevent flicker/slow blinking.
-  // The cursor visibly jumps around as lines are cleared and rewritten;
+  // The cursor visibly jumps as lines are cleared and rewritten;
   // hiding it produces a clean, natural blink at the final position.
   output.write('\x1b[?25l');
 
-  // Clear prompt block + status line region
-  readline.cursorTo(output, 0);
-  // Move to prompt top line (cursor is on input line) when re-rendering an existing block
-  if (hasExistingPromptBlock) {
-    readline.moveCursor(output, 0, -PROMPT_LINES_ABOVE_INPUT);
-  } else {
-    readline.clearLine(output, 0);
-  }
-
-  // Clear top border + input line + bottom border + status line.
-  // On resize we clear a couple extra lines to absorb previous wrapped remnants
-  // without clearing the full screen/chat log.
-  const extraResizeLines = isResize ? 2 : 0;
-  const helpLinesToClear = Math.max(previousHelpLines, helpLines.length);
-  const linesToClear = PROMPT_BLOCK_LINE_COUNT + STATUS_LINE_COUNT + helpLinesToClear + extraResizeLines;
-  for (let i = 0; i < linesToClear; i++) {
-    readline.clearLine(output, 0);
-    if (i < linesToClear - 1) {
-      readline.moveCursor(output, 0, 1);
+  if (isResize) {
+    readline.cursorTo(output, 0);
+    readline.clearScreenDown(output);
+  } else if (hasExistingPromptBlock) {
+    // Cursor normally sits on the input row.
+    // Clear the full prompt block in place before re-drawing.
+    readline.cursorTo(output, 0);
+    for (let i = 0; i < PROMPT_LINES_ABOVE_INPUT; i++) {
+      readline.moveCursor(output, 0, -1);
+      readline.clearLine(output, 0);
     }
+    readline.cursorTo(output, 0);
+    readline.clearLine(output, 0);
+    for (let i = 0; i < PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT; i++) {
+      readline.moveCursor(output, 0, 1);
+      readline.clearLine(output, 0);
+    }
+    for (let i = 0; i < PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT; i++) {
+      readline.moveCursor(output, 0, -1);
+    }
+    readline.cursorTo(output, 0);
+  } else {
+    // Initial render: the cursor has been placed on a fresh row by createReadline,
+    // but defensively clear the current line before drawing the top border to
+    // eliminate any residual characters that could cause a one-frame flash.
+    readline.cursorTo(output, 0);
+    readline.clearLine(output, 0);
   }
-  readline.moveCursor(output, 0, -(linesToClear - 1));
 
-  // Render top border, boxed input, bottom border, then status
+  // Render top border, input row, bottom border, and status row.
   output.write(`${topBorder}\n`);
   output.write(`${prompt.lineText}\n`);
   output.write(`${bottomBorder}\n`);
   output.write(statusRow);
-  if (helpLines.length > 0) {
-    for (const helpLine of helpLines) {
-      output.write(`\n${helpLine}`);
-    }
-  }
 
-  // Move cursor back to prompt line at correct column.
-  // +1 accounts for the left │ border character added by drawInputBox.
-  readline.moveCursor(output, 0, -(PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT + helpLines.length)); // from status/help to input line
+  // Move cursor back to input row, inside the box.
+  // +1 accounts for the left | border character added by drawInputBox.
+  readline.moveCursor(output, 0, -(PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT));
   readline.cursorTo(output, prompt.cursorColumn + 1);
 
   // Show cursor at its final, correct position.

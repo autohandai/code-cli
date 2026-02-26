@@ -40,6 +40,9 @@ import * as about from '../commands/about.js';
 import * as ide from '../commands/ide.js';
 import * as history from '../commands/history.js';
 import * as mcpCmd from '../commands/mcp.js';
+import * as teamCmd from '../commands/team.js';
+import * as tasksCmd from '../commands/tasks.js';
+import * as messageCmd from '../commands/message.js';
 
 import type { SlashCommand } from './slashCommandTypes.js';
 export type { SlashCommand } from './slashCommandTypes.js';
@@ -86,4 +89,7 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   history.metadata,
   mcpCmd.metadata,
   mcpCmd.installMetadata,
+  teamCmd.metadata,
+  tasksCmd.metadata,
+  messageCmd.metadata,
 ] as (SlashCommand | undefined)[]).filter((cmd): cmd is SlashCommand => cmd != null && typeof cmd.command === 'string');

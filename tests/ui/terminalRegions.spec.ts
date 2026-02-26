@@ -73,9 +73,8 @@ describe('TerminalRegions', () => {
     regions.updateInput('queue this');
 
     const plain = stripAnsi(output.writes.join(''));
-    expect(plain).toContain('│');
     expect(plain).toContain('❯ queue this');
-    expect(output.writes.join('')).toContain('\x1b[22;13H');
+    expect(output.writes.join('')).toContain('\x1b[22;12H');
   });
 
   it('updates status and appends queue count when not already present', () => {
@@ -144,7 +143,9 @@ describe('TerminalRegions', () => {
     // Should save/restore cursor while clearing fixed lines
     expect(joined).toContain('\x1b[s');
     expect(joined).toContain('\x1b[u');
-    expect(joined).toContain('\x1b[20;1H');
+    // Should move cursor to the last scroll region row (row 19 for 24-row terminal)
+    // so subsequent output continues after the agent's last printed line
+    expect(joined).toContain('\x1b[19;1H');
   });
 
   it('updates activity line above the composer', () => {
@@ -169,7 +170,7 @@ describe('TerminalRegions', () => {
 
     const joined = output.writes.join('');
     expect(joined).toContain('\x1b[19;1H');
-    expect(joined).toContain('\x1b[22;3H');
+    expect(joined).toContain('\x1b[22;2H');
     expect(joined).not.toContain('\x1b[s');
     expect(joined).not.toContain('\x1b[u');
   });
@@ -184,7 +185,7 @@ describe('TerminalRegions', () => {
 
     const joined = output.writes.join('');
     expect(joined).toContain('\x1b[24;1H');
-    expect(joined).toContain('\x1b[22;3H');
+    expect(joined).toContain('\x1b[22;2H');
   });
 
   it('prefers getWindowSize dimensions when stream rows are stale', () => {
@@ -206,7 +207,7 @@ describe('TerminalRegions', () => {
 
     const joined = output.writes.join('');
     expect(joined).toContain('\x1b[38;1H');
-    expect(joined).toContain('\x1b[38;4H');
+    expect(joined).toContain('\x1b[38;3H');
   });
 
   it('uses orange border color when plan mode is enabled', () => {

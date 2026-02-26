@@ -86,6 +86,8 @@ export interface UISettings {
   locale?: string;
   /** Native OS desktop notifications when user attention is needed (default: true) */
   notifications?: boolean | NotificationConfig;
+  /** Show LLM-generated next-step suggestions in prompt placeholder (default: true) */
+  promptSuggestions?: boolean;
 }
 
 export interface AgentSettings {
@@ -404,7 +406,14 @@ export type HookEvent =
   | 'automode:resume'   // Auto-mode loop resumed
   | 'automode:cancel'   // Auto-mode loop cancelled (trigger to cancel)
   | 'automode:complete' // Auto-mode loop completed successfully
-  | 'automode:error';   // Auto-mode error occurred
+  | 'automode:error'    // Auto-mode error occurred
+  // Team events
+  | 'team-created'       // Lead creates a team
+  | 'teammate-spawned'   // Teammate process started
+  | 'teammate-idle'      // Teammate finished task and is idle
+  | 'task-assigned'      // Task assigned to a teammate
+  | 'task-completed'     // Task marked as done
+  | 'team-shutdown';     // Team cleanup completed
 
 /** Filter to limit when a hook fires */
 export interface HookFilter {
@@ -458,6 +467,16 @@ export interface HookResponse {
   additionalContext?: string;
 }
 
+/** Team coordination settings */
+export interface TeamSettings {
+  /** Enable team features (default: true) */
+  enabled?: boolean;
+  /** Display mode: auto-detect, in-process TUI, or tmux split panes */
+  teammateMode?: 'auto' | 'in-process' | 'tmux';
+  /** Maximum simultaneous teammates (default: 5) */
+  maxTeammates?: number;
+}
+
 export interface AutohandConfig {
   provider?: ProviderName;
   openrouter?: OpenRouterSettings;
@@ -495,14 +514,16 @@ export interface AutohandConfig {
   search?: SearchSettings;
   /** MCP (Model Context Protocol) settings */
   mcp?: McpSettings;
+  /** Team coordination settings */
+  teams?: TeamSettings;
 }
 
 /** Supported web search providers */
-export type SearchProvider = 'brave' | 'duckduckgo' | 'parallel';
+export type SearchProvider = 'brave' | 'duckduckgo' | 'parallel' | 'google';
 
 /** Web search provider settings */
 export interface SearchSettings {
-  /** Active search provider (default: duckduckgo) */
+  /** Active search provider (default: google) */
   provider?: SearchProvider;
   /** Brave Search API key */
   braveApiKey?: string;
@@ -576,7 +597,7 @@ export interface CLIOptions {
   displayLanguage?: string;
   /** Enable/disable context compaction (default: true) */
   contextCompact?: boolean;
-  /** Web search provider (brave, duckduckgo, parallel) */
+  /** Web search provider (google, brave, duckduckgo, parallel) */
   searchEngine?: SearchProvider;
   /** Replace entire system prompt (inline string or file path) */
   sysPrompt?: string;
@@ -847,6 +868,12 @@ export type AgentAction =
   | { type: 'create_meta_tool'; name: string; description: string; parameters: Record<string, unknown>; handler: string }
   | { type: 'delegate_task'; agent_name: string; task: string }
   | { type: 'delegate_parallel'; tasks: Array<{ agent_name: string; task: string }> }
+  // Team coordination tools
+  | { type: 'create_team'; name: string }
+  | { type: 'add_teammate'; name: string; agent_name: string; model?: string }
+  | { type: 'create_task'; subject: string; description: string; blocked_by?: string[] }
+  | { type: 'team_status' }
+  | { type: 'send_team_message'; to: string; content: string }
   // Web Search Operations
   | { type: 'web_search'; query: string; max_results?: number; search_type?: 'general' | 'packages' | 'docs' | 'changelog' }
   | { type: 'fetch_url'; url: string; selector?: string; max_length?: number }

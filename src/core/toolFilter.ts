@@ -56,6 +56,11 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   create_meta_tool: 'meta',
   delegate_task: 'meta',
   delegate_parallel: 'meta',
+  create_team: 'meta',
+  add_teammate: 'meta',
+  create_task: 'meta',
+  team_status: 'meta',
+  send_team_message: 'meta',
   ask_followup_question: 'meta',
 
   // Read operations
@@ -407,6 +412,11 @@ const RELEVANCE_CATEGORIES: Record<string, RelevanceCategory> = {
   custom_command: 'meta',
   delegate_task: 'meta',
   delegate_parallel: 'meta',
+  create_team: 'meta',
+  add_teammate: 'meta',
+  create_task: 'meta',
+  team_status: 'meta',
+  send_team_message: 'meta',
   ask_followup_question: 'always', // User interaction should always be available when in interactive mode
 };
 
@@ -420,7 +430,8 @@ const CATEGORY_TRIGGERS: Record<RelevanceCategory, string[]> = {
   git_advanced: ['merge', 'rebase', 'cherry-pick', 'worktree', 'reset'],
   search: ['search', 'find', 'grep', 'look for', 'locate', 'where is'],
   dependencies: ['dependency', 'dependencies', 'package', 'npm', 'install', 'yarn', 'bun add'],
-  meta: ['tool', 'delegate', 'agent', 'remember', 'memory', 'recall'],
+  meta: ['tool', 'delegate', 'agent', 'remember', 'memory', 'recall',
+         'team', 'teammate', 'together', 'engineers', 'crew', 'collaborate'],
 };
 
 /**

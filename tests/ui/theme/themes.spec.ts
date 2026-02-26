@@ -236,13 +236,9 @@ describe('theme color contrast (basic validation)', () => {
     expect(errorColor === 'red' || (typeof errorColor === 'string' && errorColor.includes('f44336'))).toBe(true);
   });
 
-  it('warning color is yellowish', () => {
-    // Verify warning uses a warm alert tone token/hex
+  it('warning color is yellowish or orange', () => {
+    // Verify warning refers to yellow/orange var or warm hex
     const warningColor = darkTheme.colors.warning;
-    expect(
-      warningColor === 'yellow' ||
-      warningColor === 'orange' ||
-      (typeof warningColor === 'string' && (warningColor.includes('ffeb3b') || warningColor.includes('ff9800')))
-    ).toBe(true);
+    expect(warningColor === 'yellow' || warningColor === 'orange' || (typeof warningColor === 'string' && (warningColor.includes('ffeb3b') || warningColor.includes('ff9800')))).toBe(true);
   });
 });

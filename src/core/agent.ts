@@ -7,8 +7,10 @@ import chalk from 'chalk';
 import fs from 'fs-extra';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
-import { format as formatText } from 'node:util';
+import { execFile, spawnSync } from 'node:child_process';
+import { format as formatText, promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 import ora from 'ora';
 import { showModal, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 import readline from 'node:readline';
@@ -35,6 +37,7 @@ import {
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
 import { getAutoCommitInfo } from '../actions/git.js';
 import { filterToolsByRelevance } from './toolFilter.js';
+import { isSearchConfigured } from '../actions/web.js';
 import { SLASH_COMMANDS } from './slashCommands.js';
 import { ConversationManager } from './conversationManager.js';
 import { ContextManager } from './contextManager.js';
@@ -78,6 +81,7 @@ import { formatToolOutputForDisplay } from '../ui/toolOutput.js';
 type InkRenderer = any;
 import { PermissionManager } from '../permissions/PermissionManager.js';
 import { HookManager } from './HookManager.js';
+import { TeamManager } from './teams/TeamManager.js';
 import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
 import { ActivityIndicator } from '../ui/activityIndicator.js';
 import { NotificationService } from '../utils/notification.js';
@@ -105,6 +109,7 @@ import { WorkspaceFileCollector } from './agent/WorkspaceFileCollector.js';
 import { ProviderConfigManager } from './agent/ProviderConfigManager.js';
 import { AutoReportManager } from '../reporting/AutoReportManager.js';
 import { isLikelyFilePathSlashInput } from './slashInputDetection.js';
+import { SuggestionEngine } from './SuggestionEngine.js';
 import {
   buildMcpStartupSummaryRows,
   getAutoConnectMcpServerNames,
@@ -147,6 +152,10 @@ export class AutohandAgent {
   private autoReportManager: AutoReportManager;
   private notificationService: NotificationService;
   private versionCheckResult?: VersionCheckResult;
+  private teamManager: TeamManager;
+  private suggestionEngine: SuggestionEngine | null = null;
+  private pendingSuggestion: Promise<void> | null = null;
+  private isStartupSuggestion = false;
 
   private taskStartedAt: number | null = null;
   private totalTokensUsed = 0;
@@ -195,6 +204,12 @@ export class AutohandAgent {
     this.ignoreFilter = new GitIgnoreParser(runtime.workspaceRoot, []);
     this.workspaceFileCollector = new WorkspaceFileCollector(runtime.workspaceRoot, this.ignoreFilter);
     this.conversation = ConversationManager.getInstance();
+
+    // Initialize suggestion engine if enabled in config
+    if (runtime.config.ui?.promptSuggestions !== false) {
+      this.suggestionEngine = new SuggestionEngine(this.llm);
+    }
+
     this.toolsRegistry = new ToolsRegistry();
     this.memoryManager = new MemoryManager(runtime.workspaceRoot);
 
@@ -269,6 +284,19 @@ export class AutohandAgent {
           process.stderr.write(msg + '\n');
         }
       }
+    });
+
+    // Initialize team manager for /team, /tasks, /message commands
+    this.teamManager = new TeamManager({
+      leadSessionId: randomUUID(),
+      workspacePath: runtime.workspaceRoot,
+      onTeammateMessage: (from, msg) => {
+        if (msg.method === 'team.log') {
+          const { level, text } = msg.params as { level: string; text: string };
+          const prefix = level === 'error' ? chalk.red(`[${from}]`) : chalk.cyan(`[${from}]`);
+          this.emitOutput({ type: 'message', content: `${prefix} ${text}` });
+        }
+      },
     });
 
     this.actionExecutor = new ActionExecutor({
@@ -404,6 +432,65 @@ export class AutohandAgent {
           required: ['tasks']
         },
         requiresApproval: false
+      },
+      // Team coordination tools
+      {
+        name: 'create_team',
+        description: 'Create a named agent team for parallel work. Auto-profiles the project and returns available agents. Call this first, then add_teammate and create_task.',
+        parameters: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Short team name (e.g., "auth-refactor")' }
+          },
+          required: ['name']
+        },
+        requiresApproval: false
+      },
+      {
+        name: 'add_teammate',
+        description: 'Spawn a teammate process using an agent definition. The agent_name must match one from the Available Agents list.',
+        parameters: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Friendly name for this teammate' },
+            agent_name: { type: 'string', description: 'Agent definition to use (from Available Agents)' },
+            model: { type: 'string', description: 'Optional LLM model override' }
+          },
+          required: ['name', 'agent_name']
+        },
+        requiresApproval: false
+      },
+      {
+        name: 'create_task',
+        description: 'Add a task to the team task list. Tasks auto-assign to idle teammates.',
+        parameters: {
+          type: 'object',
+          properties: {
+            subject: { type: 'string', description: 'Short task title' },
+            description: { type: 'string', description: 'Full task description with acceptance criteria' },
+            blocked_by: { type: 'array', description: 'Task IDs that must complete first', items: { type: 'string' } }
+          },
+          required: ['subject', 'description']
+        },
+        requiresApproval: false
+      },
+      {
+        name: 'team_status',
+        description: 'Get current team status: members, tasks, progress, available agents.',
+        requiresApproval: false
+      },
+      {
+        name: 'send_team_message',
+        description: 'Send a message to a specific teammate.',
+        parameters: {
+          type: 'object',
+          properties: {
+            to: { type: 'string', description: 'Teammate name' },
+            content: { type: 'string', description: 'Message content' }
+          },
+          required: ['to', 'content']
+        },
+        requiresApproval: false
       }
     ];
 
@@ -442,6 +529,68 @@ export class AutohandAgent {
             result = await this.delegator.delegateTask(action.agent_name, action.task);
           } else if (action.type === 'delegate_parallel') {
             result = await this.delegator.delegateParallel(action.tasks);
+          } else if (action.type === 'create_team') {
+            // Handle existing team: same name → reuse, different name → replace
+            let team = this.teamManager.getTeam();
+            let created = false;
+            if (team && team.name !== action.name) {
+              // Different team requested — shutdown old, create new
+              await this.teamManager.shutdown();
+              team = null;
+            }
+            if (!team) {
+              team = this.teamManager.createTeam(action.name);
+              created = true;
+            }
+            // Auto-profile the project
+            const { ProjectProfiler } = await import('./teams/ProjectProfiler.js');
+            const profiler = new ProjectProfiler(this.runtime.workspaceRoot);
+            const profile = await profiler.analyze();
+            // List available agents
+            const { AgentRegistry } = await import('./agents/AgentRegistry.js');
+            const registry = AgentRegistry.getInstance();
+            await registry.loadAgents();
+            const agents = registry.getAllAgents().map(a => `  - ${a.name}: ${a.description}`).join('\n');
+            const header = created
+              ? `Team "${team.name}" created.`
+              : `Team "${team.name}" already active (reusing). Members: ${team.members.length}, Tasks: ${this.teamManager.tasks.listTasks().length}.`;
+            result = [
+              header,
+              `\nProject: ${profile.languages.join(', ')} | Frameworks: ${profile.frameworks.join(', ') || 'none'}`,
+              `Signals: ${profile.signals.map(s => `${s.type}(${s.severity})`).join(', ') || 'none'}`,
+              `\nAvailable agents:\n${agents || '  (none)'}`,
+              `\nNext: call add_teammate for each role, then create_task.`,
+            ].join('\n');
+          } else if (action.type === 'add_teammate') {
+            this.teamManager.addTeammate({ name: action.name, agentName: action.agent_name, model: action.model });
+            result = `Teammate "${action.name}" added (agent: ${action.agent_name}). Process spawning.`;
+          } else if (action.type === 'create_task') {
+            const task = this.teamManager.tasks.createTask({
+              subject: action.subject,
+              description: action.description,
+              blockedBy: action.blocked_by,
+            });
+            // Auto-assign to idle teammates
+            this.teamManager.tryAssignIdleTeammate();
+            result = `Task ${task.id}: "${task.subject}" created (status: ${task.status})`;
+          } else if (action.type === 'team_status') {
+            const team = this.teamManager.getTeam();
+            if (!team) {
+              result = 'No active team. Use create_team first.';
+            } else {
+              const status = this.teamManager.getStatus();
+              const members = team.members.map(m => `  ${m.name} (${m.agentName}) - ${m.status}`).join('\n');
+              const tasks = this.teamManager.tasks.listTasks();
+              const taskLines = tasks.map(t => {
+                const owner = t.owner ? ` -> ${t.owner}` : '';
+                const blocked = t.blockedBy.length > 0 ? ` (blocked by: ${t.blockedBy.join(', ')})` : '';
+                return `  [${t.status}] ${t.id}: ${t.subject}${owner}${blocked}`;
+              }).join('\n');
+              result = `Team: ${team.name} (${status.memberCount} members, ${status.tasksDone}/${status.tasksTotal} done)\n\nMembers:\n${members}\n\nTasks:\n${taskLines || '  (none)'}`;
+            }
+          } else if (action.type === 'send_team_message') {
+            this.teamManager.sendMessageTo(action.to, 'lead', action.content);
+            result = `Message sent to ${action.to}.`;
           } else if (McpClientManager.isMcpTool(action.type)) {
             // Ensure MCP servers have finished connecting before dispatching
             if (this.mcpReady) await this.mcpReady;
@@ -531,12 +680,12 @@ export class AutohandAgent {
     this.useInkRenderer = runtime.config.ui?.useInkRenderer === true;
 
     // Initialize persistent input for queuing messages while agent works.
-    // Default to terminal regions so the boxed composer stays visible during
-    // active turns. AUTOHAND_TERMINAL_REGIONS=0 opts out to silent mode.
-    const enableTerminalRegions = process.env.AUTOHAND_TERMINAL_REGIONS !== '0';
+    // Default to terminal regions so the boxed composer stays visible during turns.
+    // Allow disabling via env for troubleshooting terminals with region issues.
+    const disableTerminalRegions = process.env.AUTOHAND_TERMINAL_REGIONS === '0';
     this.persistentInput = createPersistentInput({
       maxQueueSize: 10,
-      silentMode: !enableTerminalRegions
+      silentMode: disableTerminalRegions
     });
 
     this.persistentInput.on('queued', (text: string, count: number) => {
@@ -556,13 +705,6 @@ export class AutohandAgent {
         this.lastRenderedStatus = '';
         this.forceRenderSpinner();
       }
-    });
-
-    this.persistentInput.on('input-change', () => {
-      if (!this.persistentInputActiveTurn || !this.taskStartedAt || this.inkRenderer) {
-        return;
-      }
-      this.forceRenderSpinner();
     });
 
     // Handle immediate commands (! shell, / slash) from PersistentInput - bypass queue
@@ -673,6 +815,8 @@ export class AutohandAgent {
       isContextCompactionEnabled: () => this.isContextCompactionEnabled(),
       // Non-interactive mode (RPC/ACP) - guards interactive commands
       isNonInteractive: runtime.isRpcMode === true,
+      // Team manager for /team, /tasks, /message commands
+      teamManager: this.teamManager,
     };
     this.slashHandler = new SlashCommandHandler(slashContext, SLASH_COMMANDS);
   }
@@ -749,6 +893,30 @@ export class AutohandAgent {
     // The user can start typing while managers initialize.
     // When they submit, we await initReady before processing.
     this.initReady = this.performBackgroundInit();
+
+    // Fire startup suggestion LLM call immediately so the first prompt
+    // shows contextual ghost text. Git context is gathered asynchronously
+    // and the LLM call runs fully in the background.
+    // promptForInstruction() awaits this with a 5s startup deadline,
+    // then falls back to no suggestion if the call hasn't resolved.
+    if (this.suggestionEngine) {
+      const engine = this.suggestionEngine;
+      const workspaceRoot = this.runtime.workspaceRoot;
+      const collector = this.workspaceFileCollector;
+      this.isStartupSuggestion = true;
+      this.pendingSuggestion = (async () => {
+        const [gitStatusResult, gitLogResult] = await Promise.all([
+          execFileAsync('git', ['status', '-sb'], { cwd: workspaceRoot, encoding: 'utf8' }).catch(() => null),
+          execFileAsync('git', ['log', '--oneline', '-5'], { cwd: workspaceRoot, encoding: 'utf8' }).catch(() => null),
+        ]);
+        const recentFiles = collector.getCachedFiles().slice(0, 20);
+        await engine.generateFromProjectContext({
+          gitStatus: gitStatusResult?.stdout.trim() || undefined,
+          recentCommits: gitLogResult?.stdout.trim() || undefined,
+          recentFiles,
+        });
+      })();
+    }
 
     // Show prompt immediately - don't wait for init
     await this.runInteractiveLoop();
@@ -911,7 +1079,7 @@ export class AutohandAgent {
     // Native OS notification for task completion
     if (this.runtime.config.ui?.showCompletionNotification !== false) {
       this.notificationService.notify(
-        { body: 'Task completed', reason: 'task_complete' },
+        { body: this.getCompletionNotificationBody(), reason: 'task_complete' },
         this.getNotificationGuards()
       ).catch(() => {});
     }
@@ -1128,6 +1296,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
         }
 
         if (!instruction) {
+          if (this.persistentInputActiveTurn) {
+            this.promptSeedInput = this.persistentInput.getCurrentInput();
+            this.persistentInput.stop();
+            this.persistentInputActiveTurn = false;
+          }
           instruction = await this.promptForInstruction();
         }
 
@@ -1170,8 +1343,6 @@ If lint or tests fail, report the issues but do NOT commit.`;
           await this.telemetryManager.trackCommand({ command: instruction.split(' ')[0] });
         }
 
-        this.printUserInstructionToChatLog(instruction);
-
         // Reset error tracking on successful prompt
         this.lastErrorMessage = null;
         this.consecutiveErrorCount = 0;
@@ -1179,6 +1350,13 @@ If lint or tests fail, report the issues but do NOT commit.`;
         const turnStartTime = Date.now();
         await this.runInstruction(instruction);
         this.flushMcpStartupSummaryIfPending();
+
+        // Start generating next-step suggestion in background.
+        // The promise is awaited in promptForInstruction() with a deadline
+        // so the LLM call runs concurrently with hooks/notifications below.
+        if (this.suggestionEngine) {
+          this.pendingSuggestion = this.suggestionEngine.generate(this.conversation.history());
+        }
 
         // Fire stop hook after turn completes (non-blocking)
         const turnDuration = Date.now() - turnStartTime;
@@ -1203,7 +1381,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         // Native OS notification for task completion
         if (this.runtime.config.ui?.showCompletionNotification !== false) {
           this.notificationService.notify(
-            { body: 'Task completed', reason: 'task_complete' },
+            { body: this.getCompletionNotificationBody(), reason: 'task_complete' },
             this.getNotificationGuards()
           ).catch(() => {});
         }
@@ -1310,13 +1488,30 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const workspaceFiles = this.workspaceFileCollector.getCachedFiles();
     this.workspaceFileCollector.collectWorkspaceFiles().catch(() => {});
     const statusLine = this.formatStatusLine();
+    const initialValue = this.promptSeedInput;
+    this.promptSeedInput = '';
+    // Wait for the pending suggestion LLM call to finish.
+    // Startup gets a longer deadline (5s) since the first API call is cold
+    // and the user is still reading the banner. Subsequent prompts use 1.5s
+    // because the LLM call ran concurrently with the previous turn's output.
+    if (this.pendingSuggestion) {
+      const deadlineMs = this.isStartupSuggestion ? 5000 : 1500;
+      this.isStartupSuggestion = false;
+      const deadline = new Promise<void>((r) => setTimeout(r, deadlineMs));
+      await Promise.race([this.pendingSuggestion, deadline]).catch(() => {});
+      this.pendingSuggestion = null;
+    }
+    const suggestionText = this.suggestionEngine?.getSuggestion() ?? undefined;
+    this.suggestionEngine?.clear();
     const input = await readInstruction(
       workspaceFiles,
       SLASH_COMMANDS,
       statusLine,
       {}, // default IO
       (data, mimeType, filename) => this.imageManager.add(data, mimeType, filename),
-      this.runtime.workspaceRoot
+      this.runtime.workspaceRoot,
+      initialValue,
+      suggestionText
     );
     // Only exit on explicit ABORT (double Ctrl+C). Palette cancel or dismiss should continue.
     if (input === 'ABORT') { // double Ctrl+C from prompt
@@ -1581,6 +1776,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       const payload = this.parseAssistantResponse(completion);
       const rawContent = (payload.finalResponse ?? payload.response ?? completion.content).trim();
       const content = this.cleanupModelResponse(rawContent);
+      this.lastAssistantResponseForNotification = content;
       console.log(content);
 
       // Add to conversation and save
@@ -1608,6 +1804,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     this.isInstructionActive = true;
     this.clearExplorationLog();
     this.filesModifiedThisSession = false;
+    this.lastAssistantResponseForNotification = '';
 
     // Initialize task-level tracking
     this.taskStartedAt = Date.now();
@@ -1634,6 +1831,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
     let canceledByUser = false;
     let success = true;
 
+    const queueEnabled = this.runtime.config.agent?.enableRequestQueue !== false;
+    const canUsePersistentInput = process.stdout.isTTY && process.stdin.isTTY && queueEnabled;
+
     // Initialize UI (InkRenderer or ora spinner)
     // Pass abort controller for InkRenderer to handle ESC/Ctrl+C
     await this.initializeUI(abortController, () => {
@@ -1643,12 +1843,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
         this.stopUI();
         console.log('\n' + chalk.yellow('Request canceled by user (ESC).'));
       }
-    });
+    }, canUsePersistentInput);
 
-    const canUsePersistentInput = !this.useInkRenderer &&
-      process.stdout.isTTY &&
-      process.stdin.isTTY &&
-      this.runtime.config.agent?.enableRequestQueue !== false;
     const shouldUsePersistentInput = canUsePersistentInput && !this.inkRenderer;
     let cleanupConsoleBridge: () => void = () => {};
 
@@ -1658,18 +1854,23 @@ If lint or tests fail, report the issues but do NOT commit.`;
       if (this.isUsingTerminalRegionsForActiveTurn() && this.runtime.spinner?.isSpinning) {
         this.runtime.spinner.stop();
       }
+      cleanupConsoleBridge = this.installPersistentConsoleBridge();
       if (this.promptSeedInput && !this.persistentInput.getCurrentInput()) {
         this.persistentInput.setCurrentInput(this.promptSeedInput);
         this.promptSeedInput = '';
       }
       this.persistentInput.setStatusLine(this.formatStatusLine());
-      cleanupConsoleBridge = this.installPersistentConsoleBridge();
     } else {
       this.persistentInputActiveTurn = false;
     }
 
-    // Only setup ESC listener for non-Ink mode (Ink handles its own input)
-    const cancelActiveTurn = () => {
+    // Print user instruction AFTER persistent input is started so it
+    // renders inside the scroll region (not overwritten by the fixed region).
+    this.printUserInstructionToChatLog(instruction);
+
+    // Only one input owner should handle interrupts:
+    // InkRenderer, PersistentInput, or fallback ESC listener.
+    const handleCancel = () => {
       if (!canceledByUser) {
         canceledByUser = true;
         this.stopStatusUpdates();
@@ -1677,11 +1878,12 @@ If lint or tests fail, report the issues but do NOT commit.`;
         console.log('\n' + chalk.yellow('Request canceled by user (ESC).'));
       }
     };
+
     const cleanupEsc = this.useInkRenderer
       ? () => {} // No-op, Ink handles input
       : shouldUsePersistentInput
-        ? this.setupPersistentInputInterruptHandlers(abortController, cancelActiveTurn)
-        : this.setupEscListener(abortController, cancelActiveTurn, true);
+        ? this.setupPersistentInputInterruptHandlers(abortController, handleCancel)
+        : this.setupEscListener(abortController, handleCancel, true);
     const stopPreparation = this.startPreparationStatus(instruction);
     try {
       const userMessage = await this.buildUserMessage(instruction);
@@ -1965,7 +2167,17 @@ If lint or tests fail, report the issues but do NOT commit.`;
       : (this.runtime.config.agent?.maxIterations ?? 100);
 
     // Get all function definitions for native tool calling
-    const allTools = this.toolManager.toFunctionDefinitions();
+    let allTools = this.toolManager.toFunctionDefinitions();
+
+    // Gate web tools: only offer web_search/fetch_url/web_repo when a
+    // reliable search provider is configured (Brave/Parallel with API key,
+    // or Google). DuckDuckGo (the default) is unreliable and causes the LLM
+    // to get stuck in retry loops.
+    if (!isSearchConfigured()) {
+      const WEB_TOOLS = new Set(['web_search', 'fetch_url', 'web_repo']);
+      allTools = allTools.filter(t => !WEB_TOOLS.has(t.name));
+    }
+
     if (debugMode) process.stderr.write(`[AGENT DEBUG] Loaded ${allTools.length} tools, maxIterations=${maxIterations}\n`);
 
     // Start status updates for the main loop
@@ -2296,29 +2508,6 @@ If lint or tests fail, report the issues but do NOT commit.`;
           }
           this.updateContextUsage(this.conversation.history(), tools);
 
-          // Track per-tool consecutive failures (catches loops where LLM varies args but same tool keeps failing)
-          for (const result of results) {
-            if (!result.success) {
-              const count = (toolConsecutiveFailures.get(result.tool) ?? 0) + 1;
-              toolConsecutiveFailures.set(result.tool, count);
-
-              if (count >= perToolFailureLimit) {
-                const errorSnippet = (result.error ?? result.output ?? '').slice(0, 200);
-                this.conversation.addSystemNote(
-                  `[Tool Failure Guard] The "${result.tool}" tool has failed ${count} times consecutively. ` +
-                  `Latest error: ${errorSnippet}\n` +
-                  `STOP using "${result.tool}". Do NOT retry it with different arguments. Instead:\n` +
-                  `- If you can answer from your own knowledge, provide a finalResponse directly.\n` +
-                  `- If the tool requires configuration (e.g., API key, provider), tell the user what to configure.\n` +
-                  `- If the task cannot be completed without this tool, explain the limitation to the user.`
-                );
-              }
-            } else {
-              // Reset on success
-              toolConsecutiveFailures.delete(result.tool);
-            }
-          }
-
           // Add batched tool output (with thought shown before tools)
           const charLimit = this.runtime.config.ui?.readFileCharLimit ?? 300;
           outputLines.push(formatToolResultsBatch(results, charLimit, otherCalls, thought));
@@ -2335,6 +2524,27 @@ If lint or tests fail, report the issues but do NOT commit.`;
               `Instead, ask the user how they would like to proceed, or suggest an alternative approach. ` +
               `If there is nothing else to do, provide your final response.`
             );
+          }
+
+          // Track per-tool consecutive failures (catches loops where LLM varies args but same tool keeps failing)
+          for (const result of results) {
+            if (!result.success) {
+              const count = (toolConsecutiveFailures.get(result.tool) ?? 0) + 1;
+              toolConsecutiveFailures.set(result.tool, count);
+              if (count >= perToolFailureLimit) {
+                const errorSnippet = (result.error ?? result.output ?? '').slice(0, 200);
+                this.conversation.addSystemNote(
+                  `[Tool Failure Guard] The "${result.tool}" tool has failed ${count} times consecutively. ` +
+                  `Latest error: ${errorSnippet}\n` +
+                  `STOP using "${result.tool}". Do NOT retry it with different arguments. Instead:\n` +
+                  `- If you can answer from your own knowledge, provide a finalResponse directly.\n` +
+                  `- If the tool requires configuration (e.g., API key, provider), tell the user what to configure.\n` +
+                  `- If the task cannot be completed without this tool, explain the limitation to the user.`
+                );
+              }
+            } else {
+              toolConsecutiveFailures.delete(result.tool);
+            }
           }
 
           // Detect repeated ask_followup_question cancellations — force the LLM to stop asking
@@ -2536,6 +2746,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
           if (debugMode) process.stderr.write(`[AGENT DEBUG] Exiting after 3 consecutive empty responses\n`);
           console.log(chalk.yellow('\n⚠ Model not providing response after multiple attempts. Showing available context.'));
           const fallback = payload.thought || 'The model did not provide a clear response. Please try rephrasing your question.';
+          this.lastAssistantResponseForNotification = fallback;
           if (this.inkRenderer) {
             this.inkRenderer.setWorking(false);
             this.inkRenderer.setFinalResponse(fallback);
@@ -2557,6 +2768,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
       // Reset consecutive empty counter on success
       (this as any).__consecutiveEmpty = 0;
+      this.lastAssistantResponseForNotification = response;
 
       // Emit output event for RPC mode
       const suppressThinking = usedThoughtAsResponse && response.length > 0;
@@ -2605,6 +2817,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
       const summaryResponse = summaryCompletion.content?.trim();
       if (summaryResponse) {
+        this.lastAssistantResponseForNotification = summaryResponse;
         if (this.inkRenderer) {
           this.inkRenderer.setWorking(false);
           this.inkRenderer.setFinalResponse(summaryResponse);
@@ -2623,6 +2836,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       this.conversation.history().slice(1) // skip system prompt
     );
     const fallbackMsg = `Task did not complete within ${maxIterations} iterations.\n\nProgress summary:\n${staticSummary}`;
+    this.lastAssistantResponseForNotification = fallbackMsg;
     if (this.inkRenderer) {
       this.inkRenderer.setWorking(false);
       this.inkRenderer.setFinalResponse(fallbackMsg);
@@ -3116,13 +3330,6 @@ If lint or tests fail, report the issues but do NOT commit.`;
       'If you need a capability not listed, define it as a `custom_command` (with name, command, args, description) before invoking it.',
       'Do not override existing tool functionality when adding meta tools.',
       '',
-      '### Tool Failure Handling',
-      'When a tool fails, do NOT retry the same tool with different arguments. Instead:',
-      '1. If the task is simple (jokes, general knowledge, explanations, opinions) — answer directly from your own knowledge without tools.',
-      '2. If the tool requires configuration (e.g., web_search needs a search provider API key), tell the user what to configure and answer from your own knowledge if possible.',
-      '3. If the tool failure is transient (timeout, network error), you may retry ONCE with the exact same arguments. Do not rephrase and retry.',
-      '4. After ANY tool failure, prefer providing a direct finalResponse over calling more tools.',
-      '',
       '### Response Format',
       'Always reply with structured JSON:',
       '{"thought": "your reasoning here", "toolCalls": [{"tool": "tool_name", "args": {...}}], "finalResponse": "your answer to the user"}',
@@ -3141,6 +3348,13 @@ If lint or tests fail, report the issues but do NOT commit.`;
       '  Do NOT write "let me update X" in finalResponse without the actual tool call.',
       '- Never include markdown fences (```json) around the JSON.',
       '- Never hallucinate tools that do not exist.',
+      '',
+      '### Tool Failure Handling',
+      'When a tool fails, do NOT retry the same tool with different arguments. Instead:',
+      '1. If the task is simple (jokes, general knowledge, explanations, opinions) — answer directly from your own knowledge without tools.',
+      '2. If the tool requires configuration (e.g., web_search needs a search provider API key), tell the user what to configure and answer from your own knowledge if possible.',
+      '3. If the tool failure is transient (timeout, network error), you may retry ONCE with the exact same arguments. Do not rephrase and retry.',
+      '4. After ANY tool failure, prefer providing a direct finalResponse over calling more tools.',
       '',
       '### Tool Call Examples',
       'Always include ALL required parameters. Here are correct examples:',
@@ -3333,6 +3547,28 @@ If lint or tests fail, report the issues but do NOT commit.`;
       parts.push('The following skills are active and provide specialized instructions:');
       for (const skill of activeSkills) {
         parts.push('', `### Skill: ${skill.name}`, skill.body);
+      }
+    }
+
+    // List available agents for team formation
+    const { AgentRegistry } = await import('./agents/AgentRegistry.js');
+    const agentRegistry = AgentRegistry.getInstance();
+    await agentRegistry.loadAgents();
+    const allAgents = agentRegistry.getAllAgents();
+    if (allAgents.length > 0) {
+      parts.push('', '## Available Agents');
+      parts.push('These agents can be spawned as teammates using create_team + add_teammate:');
+      for (const agent of allAgents) {
+        parts.push(`- **${agent.name}**: ${agent.description}`);
+      }
+    }
+
+    // Show active team context if exists
+    const activeTeam = this.teamManager.getTeam();
+    if (activeTeam) {
+      parts.push('', '## Active Team: ' + activeTeam.name);
+      for (const m of activeTeam.members) {
+        parts.push(`- ${m.name} [${m.agentName}] ${m.status}`);
       }
     }
 
@@ -3629,7 +3865,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Initialize the UI for a new instruction.
    * Uses InkRenderer when enabled, otherwise falls back to ora spinner.
    */
-  private async initializeUI(abortController?: AbortController, onCancel?: () => void): Promise<void> {
+  private async initializeUI(
+    abortController?: AbortController,
+    onCancel?: () => void,
+    suppressSpinner = false
+  ): Promise<void> {
     if (this.useInkRenderer && process.stdout.isTTY && process.stdin.isTTY) {
       // createInkRenderer is statically imported at the top of this file
       try {
@@ -3658,9 +3898,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
       } catch {
         // Fall back to ora spinner if ink can't be loaded (e.g., standalone binary)
         this.useInkRenderer = false;
-        this.initFallbackSpinner();
+        if (!suppressSpinner) {
+          this.initFallbackSpinner();
+        }
       }
-    } else if (process.stdout.isTTY) {
+    } else if (process.stdout.isTTY && !suppressSpinner) {
       // Use ora spinner (only in TTY mode)
       const spinner = ora({
         text: 'Gathering context...',
@@ -4114,6 +4356,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     this.persistentConsoleBridgeCleanup = restore;
     return restore;
   }
+
   private startPreparationStatus(instruction: string): () => void {
     const label = describeInstruction(instruction);
     const startedAt = Date.now();
@@ -4711,31 +4954,21 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
     if (!this.runtime.spinner) return;
 
-    const fullText = this.buildSpinnerStatusText(statusLine, footerLine);
+    const fullText = this.buildSpinnerStatusText(statusLine, footerText);
     this.runtime.spinner.text = fullText;
   }
 
-  private buildSpinnerStatusText(
-    statusLine: string,
-    footerLine?: string | { left: string; right: string }
-  ): string {
+  private formatSpinnerFooter(footer: { left: string; right?: string }): string {
+    return footer.left + (footer.right ? ` · ${footer.right}` : '');
+  }
+
+  private buildSpinnerStatusText(statusLine: string, footerLine?: string): string {
     const promptWidth = getPromptBlockWidth(process.stdout.columns);
     // Ora prefixes the first line with the spinner glyph and a space.
     // Reserve 2 columns so wrapped status lines do not corrupt redraw.
     const statusWidth = Math.max(10, promptWidth - 2);
-    const footerText = this.formatSpinnerFooter(footerLine);
-    const combined = footerText ? `${statusLine} · ${footerText}` : statusLine;
+    const combined = footerLine ? `${statusLine} · ${footerLine}` : statusLine;
     return this.fitSpinnerLine(combined, statusWidth);
-  }
-
-  private formatSpinnerFooter(footerLine?: string | { left: string; right: string }): string {
-    if (!footerLine) {
-      return '';
-    }
-    if (typeof footerLine === 'string') {
-      return footerLine;
-    }
-    return footerLine.right ? `${footerLine.left} · ${footerLine.right}` : footerLine.left;
   }
 
   private fitSpinnerLine(value: string, width: number): string {
@@ -4768,7 +5001,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
       return;
     }
 
-    this.runtime.spinner.text = this.buildSpinnerStatusText(status, footerLine);
+    const footerText = footerLine.left + (footerLine.right ? ` · ${footerLine.right}` : '');
+    this.runtime.spinner.text = this.buildSpinnerStatusText(status, footerText);
   }
 
   private startStatusUpdates(): void {
@@ -4780,7 +5014,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     this.lastRenderedStatus = '';
 
     // Pick a fresh verb and tip for this working session
-    this.activityIndicator.next();
+    this.activityIndicator?.next?.();
 
     // Immediate initial render
     this.forceRenderSpinner();
@@ -4811,12 +5045,12 @@ If lint or tests fail, report the issues but do NOT commit.`;
       clearInterval(this.statusInterval);
       this.statusInterval = null;
     }
-    if (this.isUsingTerminalRegionsForActiveTurn()) {
-      this.setPersistentInputActivityLine('');
-    }
     if (this.resizeHandler) {
       process.stdout.off('resize', this.resizeHandler);
       this.resizeHandler = null;
+    }
+    if (this.isUsingTerminalRegionsForActiveTurn()) {
+      this.setPersistentInputActivityLine('');
     }
   }
 
@@ -4930,16 +5164,18 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const percent = Number.isFinite(this.contextPercentLeft)
       ? Math.max(0, Math.min(100, this.contextPercentLeft))
       : 100;
-    const totalTokens = this.sessionTokensUsed + this.totalTokensUsed;
-    const tokenStatus = `${formatTokens(totalTokens)} used`;
 
     const queueCount = this.inkRenderer?.getQueueCount() ?? this.persistentInput.getQueueLength();
     const queueStatus = queueCount > 0 ? ` · ${queueCount} queued` : '';
 
     const planModeManager = getPlanModeManager();
-    const planStatus = planModeManager.isEnabled() ? 'plan:on' : 'plan:off';
 
-    const left = `${planStatus} · ${percent}% context left · ${tokenStatus} · ${t('ui.commandHint')} · ? shortcuts${queueStatus}`;
+    // Plan mode indicator
+    const planIndicator = planModeManager.isEnabled()
+      ? chalk.bgCyan.black.bold(' PLAN ') + ' '
+      : '';
+
+    const left = `${planIndicator}${percent}% context left · ${t('ui.commandHint')}${queueStatus}`;
 
     let right = '';
     if (this.versionCheckResult?.updateAvailable) {
@@ -5109,6 +5345,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
     return `${cleaned.slice(0, 219)}…`;
   }
+
   private async confirmDangerousAction(message: string, context?: { tool?: string; path?: string; command?: string }): Promise<boolean> {
     if (this.runtime.options.yes || this.runtime.config.ui?.autoConfirm) {
       return true;

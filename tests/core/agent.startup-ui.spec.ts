@@ -47,21 +47,25 @@ describe('agent startup and active input UI', () => {
     agent.persistentInput = {
       getQueueLength: () => 0,
       setStatusLine: vi.fn(),
+      setActivityLine: vi.fn(),
     };
     agent.queueInput = 'queued prompt text';
     agent.lastRenderedStatus = '';
     agent.runtime = {
       spinner,
     };
+    agent.activityIndicator = {
+      getVerb: () => 'Working',
+      getTip: () => 'Tip',
+      next: vi.fn(),
+    };
 
     (agent as any).forceRenderSpinner();
 
     expect(spinner.text).toContain('Working...');
     expect(spinner.text).toContain('tokens');
-    expect(spinner.text).toContain('plan:off');
     expect(spinner.text).not.toContain('typing:');
     expect(spinner.text).not.toContain('┌');
-    expect(spinner.text).not.toContain('\n');
   });
 
   it('flushMcpStartupSummaryIfPending prints once and clears pending flag', () => {
@@ -86,6 +90,7 @@ describe('agent startup and active input UI', () => {
     agent.persistentInput = {
       getQueueLength: () => 0,
       setStatusLine: vi.fn(),
+      setActivityLine: vi.fn(),
     };
     agent.contextPercentLeft = 74;
 
@@ -175,13 +180,14 @@ describe('agent startup and active input UI', () => {
     agent.persistentInput = {
       getQueueLength: () => 0,
       setStatusLine: vi.fn(),
+      setActivityLine: vi.fn(),
     };
     agent.contextPercentLeft = 74;
 
     const stop = (agent as any).startPreparationStatus('build tests');
 
     expect(spinner.text).toContain('Preparing to');
-    expect(spinner.text).toContain('plan:off');
+    expect(spinner.text).toContain('context left');
     expect(spinner.text).not.toContain('\n');
 
     stop();
@@ -267,14 +273,16 @@ describe('agent startup and active input UI', () => {
     agent.persistentInput = {
       getQueueLength: () => 0,
       setStatusLine: vi.fn(),
+      setActivityLine: vi.fn(),
     };
 
     const line = (agent as any).formatStatusLine();
 
     expect(line.left).toContain('53% context left');
-    expect(line.left).toContain('plan:off');
-    expect(line.left).toContain('tokens used');
-    expect(line.left).toContain('? shortcuts');
+    expect(line.left).not.toContain('plan:off');
+    expect(line.left).toContain('/ for commands');
+    expect(line.left).toContain('@ to mention files');
+    expect(line.left).toContain('! for terminal');
   });
 
   it('formatStatusLine shows plan:on when plan mode is enabled', () => {
@@ -288,11 +296,12 @@ describe('agent startup and active input UI', () => {
     agent.persistentInput = {
       getQueueLength: () => 0,
       setStatusLine: vi.fn(),
+      setActivityLine: vi.fn(),
     };
 
     try {
       const line = (agent as any).formatStatusLine();
-      expect(line.left).toContain('plan:on');
+      expect(line.left).toContain('PLAN');
       expect(line.left).toContain('99% context left');
     } finally {
       planModeManager.disable();
@@ -340,6 +349,7 @@ describe('agent startup and active input UI', () => {
     const spinner = { text: '' };
     const originalTerminalRegions = process.env.AUTOHAND_TERMINAL_REGIONS;
     process.env.AUTOHAND_TERMINAL_REGIONS = '0';
+
     try {
       agent.taskStartedAt = Date.now() - 1000;
       agent.sessionTokensUsed = 0;
@@ -399,6 +409,7 @@ describe('agent startup and active input UI', () => {
       queue: [],
       getQueueLength: () => 0,
       setStatusLine: vi.fn(),
+      setActivityLine: vi.fn(),
     };
     agent.queueInput = '';
 
@@ -445,6 +456,7 @@ describe('agent startup and active input UI', () => {
       queue,
       getQueueLength: () => queue.length,
       setStatusLine: vi.fn(),
+      setActivityLine: vi.fn(),
     };
     agent.queueInput = '';
 
@@ -493,6 +505,7 @@ describe('agent startup and active input UI', () => {
       queue,
       getQueueLength: () => queue.length,
       setStatusLine: vi.fn(),
+      setActivityLine: vi.fn(),
     };
     agent.queueInput = '';
 
@@ -540,6 +553,7 @@ describe('agent startup and active input UI', () => {
       queue,
       getQueueLength: () => queue.length,
       setStatusLine: vi.fn(),
+      setActivityLine: vi.fn(),
     };
     agent.queueInput = '';
 
@@ -646,6 +660,7 @@ describe('agent startup and active input UI', () => {
       }
     }
   });
+
   it('installs console bridge after persistent input activation in runInstruction', async () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
 
@@ -703,6 +718,7 @@ describe('agent startup and active input UI', () => {
     agent.useInkRenderer = false;
     agent.persistentInputActiveTurn = false;
     agent.promptSeedInput = '';
+    agent.printUserInstructionToChatLog = vi.fn();
 
     try {
       Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
@@ -716,6 +732,12 @@ describe('agent startup and active input UI', () => {
       expect(cleanupBridge).toHaveBeenCalledTimes(1);
       expect(cleanupEsc).toHaveBeenCalledTimes(1);
       expect(stopPreparation).toHaveBeenCalled();
+      // User instruction must be printed AFTER persistent input starts
+      // so it renders inside the scroll region (not overwritten by fixed region)
+      expect(agent.printUserInstructionToChatLog).toHaveBeenCalledWith('hello');
+      const startOrder = agent.persistentInput.start.mock.invocationCallOrder[0];
+      const printOrder = agent.printUserInstructionToChatLog.mock.invocationCallOrder[0];
+      expect(printOrder).toBeGreaterThan(startOrder);
     } finally {
       if (stdoutDescriptor) {
         Object.defineProperty(process.stdout, 'isTTY', stdoutDescriptor);
@@ -756,6 +778,7 @@ describe('agent startup and active input UI', () => {
       console.log = originalLog;
     }
   });
+
   it('ensureStdinReady does not reset raw mode while persistent input owns stdin', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const originalStdin = process.stdin;
@@ -828,6 +851,7 @@ describe('agent startup and active input UI', () => {
       });
     }
   });
+
   it('prints submitted user instruction into chat log for non-ink mode', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});

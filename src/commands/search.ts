@@ -35,6 +35,10 @@ export async function search(ctx: SearchContext): Promise<string | null> {
   // Provider selection
   const providerOptions: ModalOption[] = [
     {
+      label: `Google ${chalk.gray('(no API key required, recommended default)')}`,
+      value: 'google'
+    },
+    {
       label: `DuckDuckGo ${chalk.gray('(no API key required, may be blocked by CAPTCHA)')}`,
       value: 'duckduckgo'
     },
@@ -118,6 +122,9 @@ export async function search(ctx: SearchContext): Promise<string | null> {
 
     // Show provider-specific info
     switch (provider) {
+      case 'google':
+        console.log(chalk.gray('Google Search is now active. No API key required.'));
+        break;
       case 'duckduckgo':
         console.log(chalk.gray('Note: DuckDuckGo may block automated requests with a CAPTCHA.'));
         break;
@@ -138,6 +145,6 @@ export async function search(ctx: SearchContext): Promise<string | null> {
 
 export const metadata = {
   command: '/search',
-  description: 'configure web search provider (brave, duckduckgo, parallel)',
+  description: 'configure web search provider (google, brave, duckduckgo, parallel)',
   implemented: true,
 };

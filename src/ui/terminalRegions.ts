@@ -43,8 +43,7 @@ function themedFg(token: ColorToken, text: string, fallback: (value: string) => 
  */
 export class TerminalRegions {
   private isActive = false;
-  // activity + input top + input line + input bottom + status
-  private fixedLines = 5;
+  private fixedLines = 5; // activity + input top + input line + input bottom + status
   private output: NodeJS.WriteStream;
   private resizeHandler: (() => void) | null = null;
   private currentInput = '';
@@ -70,7 +69,7 @@ export class TerminalRegions {
     if (this.isActive) return;
     if (!this.output.isTTY) return;
 
-    const height = this.output.rows || 24;
+    const { height } = this.getDimensions();
     const scrollEnd = Math.max(1, height - this.fixedLines);
 
     // Set scroll region (CSI Ps ; Ps r) - top to scrollEnd
@@ -121,20 +120,20 @@ export class TerminalRegions {
   private handleResize(): void {
     if (!this.isActive) return;
 
-    const height = this.output.rows || 24;
+    const { height } = this.getDimensions();
     const scrollEnd = Math.max(1, height - this.fixedLines);
 
     // Update scroll region
     this.output.write(`${CSI}1;${scrollEnd}r`);
 
     // Re-render fixed region
-    this.renderFixedRegion(this.currentInput, this.currentQueueCount, this.currentStatus);
+    this.renderFixedRegion(this.currentInput, this.currentQueueCount, this.currentStatus, this.currentActivity);
   }
 
   /**
    * Render content in the fixed bottom region
    */
-  renderFixedRegion(input = '', queueCount = 0, status = '', activity = this.currentActivity): void {
+  renderFixedRegion(input = '', queueCount = 0, status = '', activity = ''): void {
     if (!this.isActive) return;
 
     this.currentInput = input;
@@ -281,14 +280,15 @@ export class TerminalRegions {
     const promptWidth = this.getPromptWidth(width);
     const prefixColumns = PROMPT_INPUT_PREFIX.length;
     const inputColumns = this.currentInput.length;
-    const cursorColumn = Math.max(1, Math.min(promptWidth, prefixColumns + inputColumns + 1));
+    const cursorColumn = Math.max(1, Math.min(promptWidth, prefixColumns + inputColumns));
     this.output.write(`${CSI}${height - 2};${cursorColumn}H`);
   }
+
   /**
    * Clear the fixed region (used when disabling)
    */
   private clearFixedRegion(): void {
-    const height = this.output.rows || 24;
+    const { height } = this.getDimensions();
     this.output.write(`${CSI}s`);
     for (let i = 0; i < this.fixedLines; i++) {
       this.output.write(`${CSI}${height - i};1H`);
@@ -310,20 +310,21 @@ export class TerminalRegions {
     const { height } = this.getDimensions();
     const scrollEnd = height - this.fixedLines;
     this.output.write(`${CSI}${scrollEnd};1H`);
+    this.output.write(`${CSI}K`);
     this.output.write(message);
     this.focusInputCursor();
   }
 
   /**
-   * Focus cursor at the bottom of the scroll region.
-   * Useful before disabling split regions so subsequent output lands above composer.
+   * Move cursor to the end of the scrollable region.
+   * Useful before temporarily disabling regions for modal prompts.
    */
   focusScrollBottom(): void {
     if (!this.isActive) {
       return;
     }
 
-    const height = this.output.rows || 24;
+    const { height } = this.getDimensions();
     const scrollEnd = Math.max(1, height - this.fixedLines);
     this.output.write(`${CSI}${scrollEnd};1H`);
   }
@@ -339,7 +340,7 @@ export class TerminalRegions {
    * Get the available scroll region height
    */
   getScrollHeight(): number {
-    const height = this.output.rows || 24;
+    const { height } = this.getDimensions();
     return Math.max(1, height - this.fixedLines);
   }
 
