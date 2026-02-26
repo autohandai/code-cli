@@ -157,7 +157,8 @@ export function buildPromptHotTips(
 export function getPrimaryHotTipSuggestion(
   currentLine: string,
   files: string[],
-  slashCommands: SlashCommandHint[]
+  slashCommands: SlashCommandHint[],
+  suggestionText?: string
 ): PromptSuggestion | null {
   const mentionMatch = /@([A-Za-z0-9_./\\-]*)$/.exec(currentLine);
   if (mentionMatch) {
@@ -173,6 +174,9 @@ export function getPrimaryHotTipSuggestion(
 
   const trimmed = currentLine.trim();
   if (!trimmed) {
+    if (suggestionText) {
+      return { line: suggestionText, cursor: suggestionText.length };
+    }
     return { line: '/help ', cursor: 6 };
   }
 
@@ -301,11 +305,17 @@ export function getPromptBlockWidth(columns: number | undefined): number {
 /**
  * Build the visible prompt row and the corresponding cursor column.
  * Returns a boxed line (full terminal width) and a zero-based cursor column.
+ *
+ * @param currentLine - Raw readline buffer content.
+ * @param cursorPos - Current readline cursor offset within the line.
+ * @param width - Terminal column width for the prompt block.
+ * @param suggestionText - Ghost text shown as placeholder when input is empty.
  */
 export function buildPromptRenderState(
   currentLine: string,
   cursorPos: number,
-  width: number
+  width: number,
+  suggestionText?: string
 ): PromptRenderState {
   const sanitizedLine = sanitizeRenderLine(currentLine);
   // Whitespace-only drift can happen after terminal redraws; treat it as empty.
@@ -321,7 +331,10 @@ export function buildPromptRenderState(
   const fullCursor = prefix.length + effectiveCursor;
 
   if (!normalizedLine) {
-    visibleText = chalk.gray(placeholder);
+    const displayPlaceholder = suggestionText
+      ? `${prefix}${suggestionText}`
+      : placeholder;
+    visibleText = chalk.gray(displayPlaceholder);
     cursorColumn = prefix.length;
   } else if (fullInput.length > innerWidth) {
     const ellipsis = '…';
@@ -740,7 +753,8 @@ export async function readInstruction(
   io: PromptIO = {},
   onImageDetected?: ImageDetectedCallback,
   workspaceRoot?: string,
-  initialValue = ''
+  initialValue = '',
+  suggestionText?: string
 ): Promise<string | null> {
   const stdInput = (io.input ?? process.stdin) as NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void };
   const stdOutput = (io.output ?? process.stdout) as NodeJS.WriteStream;
@@ -762,7 +776,8 @@ export async function readInstruction(
         stdInput,
         stdOutput,
         onImageDetected,
-        workspaceRoot
+        workspaceRoot,
+        suggestionText
       });
 
       if (result.kind === 'abort') {
@@ -785,6 +800,7 @@ interface PromptOnceOptions {
   stdOutput: NodeJS.WriteStream;
   onImageDetected?: ImageDetectedCallback;
   workspaceRoot?: string;
+  suggestionText?: string;
 }
 
 /**
@@ -960,11 +976,9 @@ function handlePasteComplete(
 }
 
 async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
-  const { files, slashCommands, statusLine, initialValue, stdInput, stdOutput, onImageDetected, workspaceRoot } = options;
+  const { files, slashCommands, statusLine, initialValue, stdInput, stdOutput, onImageDetected, workspaceRoot, suggestionText } = options;
   const { rl, input, supportsRawMode } = createReadline(stdInput, stdOutput);
 
-  // Don't pass statusLine to MentionPreview - renderPromptLine handles the status display
-  // MentionPreview only shows suggestions (@ mentions, / commands)
   const mentionPreview = new MentionPreview(rl, files, slashCommands, stdOutput);
 
   // Initialize paste state for bracketed paste detection
@@ -996,7 +1010,8 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       getActiveStatusLine(),
       stdOutput,
       isResize,
-      hasExistingPromptBlock
+      hasExistingPromptBlock,
+      suggestionText
     );
   };
 
@@ -1319,9 +1334,10 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         return;
       }
 
-      if (isPlainTabShortcut(_str, key) && contextualHelpVisible) {
+      if (isPlainTabShortcut(_str, key)) {
         const rlAny = rl as readline.Interface & { line: string; cursor: number };
-        const suggestion = getPrimaryHotTipSuggestion(rlAny.line ?? '', files, slashCommands);
+        const currentInput = rlAny.line ?? '';
+        const suggestion = getPrimaryHotTipSuggestion(currentInput, files, slashCommands, suggestionText);
         if (suggestion) {
           rlAny.line = suggestion.line;
           rlAny.cursor = suggestion.cursor;
@@ -1445,7 +1461,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         }
         // Re-prompt without sending to LLM
         stdOutput.write('\n');
-        renderPromptLine(rl, statusLine, stdOutput, false, false);
+        renderPromptLine(rl, getActiveStatusLine(), stdOutput, false, false, suggestionText);
         return;
       }
 
@@ -1525,13 +1541,14 @@ function renderPromptLine(
   statusLine: string | { left: string; right: string } | undefined,
   output: NodeJS.WriteStream,
   isResize = false,
-  hasExistingPromptBlock = true
+  hasExistingPromptBlock = true,
+  suggestionText?: string
 ): void {
   const width = getPromptBlockWidth(output.columns);
   const rlAny = rl as readline.Interface & { cursor?: number; line?: string };
   const currentLine = rlAny.line ?? '';
   const cursorPos = rlAny.cursor ?? currentLine.length;
-  const prompt = buildPromptRenderState(currentLine, cursorPos, width);
+  const prompt = buildPromptRenderState(currentLine, cursorPos, width, suggestionText);
   const borderStyle = getComposerBorderStyle(currentLine);
   const topBorder = drawInputTopBorder(width, borderStyle);
   const bottomBorder = drawInputBottomBorder(width, borderStyle);

@@ -7,8 +7,10 @@ import chalk from 'chalk';
 import fs from 'fs-extra';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
-import { format as formatText } from 'node:util';
+import { execFile, spawnSync } from 'node:child_process';
+import { format as formatText, promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 import ora from 'ora';
 import { showModal, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 import readline from 'node:readline';
@@ -79,6 +81,7 @@ import { formatToolOutputForDisplay } from '../ui/toolOutput.js';
 type InkRenderer = any;
 import { PermissionManager } from '../permissions/PermissionManager.js';
 import { HookManager } from './HookManager.js';
+import { TeamManager } from './teams/TeamManager.js';
 import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
 import { ActivityIndicator } from '../ui/activityIndicator.js';
 import { NotificationService } from '../utils/notification.js';
@@ -106,6 +109,7 @@ import { WorkspaceFileCollector } from './agent/WorkspaceFileCollector.js';
 import { ProviderConfigManager } from './agent/ProviderConfigManager.js';
 import { AutoReportManager } from '../reporting/AutoReportManager.js';
 import { isLikelyFilePathSlashInput } from './slashInputDetection.js';
+import { SuggestionEngine } from './SuggestionEngine.js';
 import {
   buildMcpStartupSummaryRows,
   getAutoConnectMcpServerNames,
@@ -148,6 +152,10 @@ export class AutohandAgent {
   private autoReportManager: AutoReportManager;
   private notificationService: NotificationService;
   private versionCheckResult?: VersionCheckResult;
+  private teamManager: TeamManager;
+  private suggestionEngine: SuggestionEngine | null = null;
+  private pendingSuggestion: Promise<void> | null = null;
+  private isStartupSuggestion = false;
 
   private taskStartedAt: number | null = null;
   private totalTokensUsed = 0;
@@ -196,6 +204,12 @@ export class AutohandAgent {
     this.ignoreFilter = new GitIgnoreParser(runtime.workspaceRoot, []);
     this.workspaceFileCollector = new WorkspaceFileCollector(runtime.workspaceRoot, this.ignoreFilter);
     this.conversation = ConversationManager.getInstance();
+
+    // Initialize suggestion engine if enabled in config
+    if (runtime.config.ui?.promptSuggestions !== false) {
+      this.suggestionEngine = new SuggestionEngine(this.llm);
+    }
+
     this.toolsRegistry = new ToolsRegistry();
     this.memoryManager = new MemoryManager(runtime.workspaceRoot);
 
@@ -270,6 +284,19 @@ export class AutohandAgent {
           process.stderr.write(msg + '\n');
         }
       }
+    });
+
+    // Initialize team manager for /team, /tasks, /message commands
+    this.teamManager = new TeamManager({
+      leadSessionId: randomUUID(),
+      workspacePath: runtime.workspaceRoot,
+      onTeammateMessage: (from, msg) => {
+        if (msg.method === 'team.log') {
+          const { level, text } = msg.params as { level: string; text: string };
+          const prefix = level === 'error' ? chalk.red(`[${from}]`) : chalk.cyan(`[${from}]`);
+          this.emitOutput({ type: 'message', content: `${prefix} ${text}` });
+        }
+      },
     });
 
     this.actionExecutor = new ActionExecutor({
@@ -405,6 +432,65 @@ export class AutohandAgent {
           required: ['tasks']
         },
         requiresApproval: false
+      },
+      // Team coordination tools
+      {
+        name: 'create_team',
+        description: 'Create a named agent team for parallel work. Auto-profiles the project and returns available agents. Call this first, then add_teammate and create_task.',
+        parameters: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Short team name (e.g., "auth-refactor")' }
+          },
+          required: ['name']
+        },
+        requiresApproval: false
+      },
+      {
+        name: 'add_teammate',
+        description: 'Spawn a teammate process using an agent definition. The agent_name must match one from the Available Agents list.',
+        parameters: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Friendly name for this teammate' },
+            agent_name: { type: 'string', description: 'Agent definition to use (from Available Agents)' },
+            model: { type: 'string', description: 'Optional LLM model override' }
+          },
+          required: ['name', 'agent_name']
+        },
+        requiresApproval: false
+      },
+      {
+        name: 'create_task',
+        description: 'Add a task to the team task list. Tasks auto-assign to idle teammates.',
+        parameters: {
+          type: 'object',
+          properties: {
+            subject: { type: 'string', description: 'Short task title' },
+            description: { type: 'string', description: 'Full task description with acceptance criteria' },
+            blocked_by: { type: 'array', description: 'Task IDs that must complete first', items: { type: 'string' } }
+          },
+          required: ['subject', 'description']
+        },
+        requiresApproval: false
+      },
+      {
+        name: 'team_status',
+        description: 'Get current team status: members, tasks, progress, available agents.',
+        requiresApproval: false
+      },
+      {
+        name: 'send_team_message',
+        description: 'Send a message to a specific teammate.',
+        parameters: {
+          type: 'object',
+          properties: {
+            to: { type: 'string', description: 'Teammate name' },
+            content: { type: 'string', description: 'Message content' }
+          },
+          required: ['to', 'content']
+        },
+        requiresApproval: false
       }
     ];
 
@@ -443,6 +529,68 @@ export class AutohandAgent {
             result = await this.delegator.delegateTask(action.agent_name, action.task);
           } else if (action.type === 'delegate_parallel') {
             result = await this.delegator.delegateParallel(action.tasks);
+          } else if (action.type === 'create_team') {
+            // Handle existing team: same name → reuse, different name → replace
+            let team = this.teamManager.getTeam();
+            let created = false;
+            if (team && team.name !== action.name) {
+              // Different team requested — shutdown old, create new
+              await this.teamManager.shutdown();
+              team = null;
+            }
+            if (!team) {
+              team = this.teamManager.createTeam(action.name);
+              created = true;
+            }
+            // Auto-profile the project
+            const { ProjectProfiler } = await import('./teams/ProjectProfiler.js');
+            const profiler = new ProjectProfiler(this.runtime.workspaceRoot);
+            const profile = await profiler.analyze();
+            // List available agents
+            const { AgentRegistry } = await import('./agents/AgentRegistry.js');
+            const registry = AgentRegistry.getInstance();
+            await registry.loadAgents();
+            const agents = registry.getAllAgents().map(a => `  - ${a.name}: ${a.description}`).join('\n');
+            const header = created
+              ? `Team "${team.name}" created.`
+              : `Team "${team.name}" already active (reusing). Members: ${team.members.length}, Tasks: ${this.teamManager.tasks.listTasks().length}.`;
+            result = [
+              header,
+              `\nProject: ${profile.languages.join(', ')} | Frameworks: ${profile.frameworks.join(', ') || 'none'}`,
+              `Signals: ${profile.signals.map(s => `${s.type}(${s.severity})`).join(', ') || 'none'}`,
+              `\nAvailable agents:\n${agents || '  (none)'}`,
+              `\nNext: call add_teammate for each role, then create_task.`,
+            ].join('\n');
+          } else if (action.type === 'add_teammate') {
+            this.teamManager.addTeammate({ name: action.name, agentName: action.agent_name, model: action.model });
+            result = `Teammate "${action.name}" added (agent: ${action.agent_name}). Process spawning.`;
+          } else if (action.type === 'create_task') {
+            const task = this.teamManager.tasks.createTask({
+              subject: action.subject,
+              description: action.description,
+              blockedBy: action.blocked_by,
+            });
+            // Auto-assign to idle teammates
+            this.teamManager.tryAssignIdleTeammate();
+            result = `Task ${task.id}: "${task.subject}" created (status: ${task.status})`;
+          } else if (action.type === 'team_status') {
+            const team = this.teamManager.getTeam();
+            if (!team) {
+              result = 'No active team. Use create_team first.';
+            } else {
+              const status = this.teamManager.getStatus();
+              const members = team.members.map(m => `  ${m.name} (${m.agentName}) - ${m.status}`).join('\n');
+              const tasks = this.teamManager.tasks.listTasks();
+              const taskLines = tasks.map(t => {
+                const owner = t.owner ? ` -> ${t.owner}` : '';
+                const blocked = t.blockedBy.length > 0 ? ` (blocked by: ${t.blockedBy.join(', ')})` : '';
+                return `  [${t.status}] ${t.id}: ${t.subject}${owner}${blocked}`;
+              }).join('\n');
+              result = `Team: ${team.name} (${status.memberCount} members, ${status.tasksDone}/${status.tasksTotal} done)\n\nMembers:\n${members}\n\nTasks:\n${taskLines || '  (none)'}`;
+            }
+          } else if (action.type === 'send_team_message') {
+            this.teamManager.sendMessageTo(action.to, 'lead', action.content);
+            result = `Message sent to ${action.to}.`;
           } else if (McpClientManager.isMcpTool(action.type)) {
             // Ensure MCP servers have finished connecting before dispatching
             if (this.mcpReady) await this.mcpReady;
@@ -667,6 +815,8 @@ export class AutohandAgent {
       isContextCompactionEnabled: () => this.isContextCompactionEnabled(),
       // Non-interactive mode (RPC/ACP) - guards interactive commands
       isNonInteractive: runtime.isRpcMode === true,
+      // Team manager for /team, /tasks, /message commands
+      teamManager: this.teamManager,
     };
     this.slashHandler = new SlashCommandHandler(slashContext, SLASH_COMMANDS);
   }
@@ -743,6 +893,30 @@ export class AutohandAgent {
     // The user can start typing while managers initialize.
     // When they submit, we await initReady before processing.
     this.initReady = this.performBackgroundInit();
+
+    // Fire startup suggestion LLM call immediately so the first prompt
+    // shows contextual ghost text. Git context is gathered asynchronously
+    // and the LLM call runs fully in the background.
+    // promptForInstruction() awaits this with a 5s startup deadline,
+    // then falls back to no suggestion if the call hasn't resolved.
+    if (this.suggestionEngine) {
+      const engine = this.suggestionEngine;
+      const workspaceRoot = this.runtime.workspaceRoot;
+      const collector = this.workspaceFileCollector;
+      this.isStartupSuggestion = true;
+      this.pendingSuggestion = (async () => {
+        const [gitStatusResult, gitLogResult] = await Promise.all([
+          execFileAsync('git', ['status', '-sb'], { cwd: workspaceRoot, encoding: 'utf8' }).catch(() => null),
+          execFileAsync('git', ['log', '--oneline', '-5'], { cwd: workspaceRoot, encoding: 'utf8' }).catch(() => null),
+        ]);
+        const recentFiles = collector.getCachedFiles().slice(0, 20);
+        await engine.generateFromProjectContext({
+          gitStatus: gitStatusResult?.stdout.trim() || undefined,
+          recentCommits: gitLogResult?.stdout.trim() || undefined,
+          recentFiles,
+        });
+      })();
+    }
 
     // Show prompt immediately - don't wait for init
     await this.runInteractiveLoop();
@@ -1177,6 +1351,13 @@ If lint or tests fail, report the issues but do NOT commit.`;
         await this.runInstruction(instruction);
         this.flushMcpStartupSummaryIfPending();
 
+        // Start generating next-step suggestion in background.
+        // The promise is awaited in promptForInstruction() with a deadline
+        // so the LLM call runs concurrently with hooks/notifications below.
+        if (this.suggestionEngine) {
+          this.pendingSuggestion = this.suggestionEngine.generate(this.conversation.history());
+        }
+
         // Fire stop hook after turn completes (non-blocking)
         const turnDuration = Date.now() - turnStartTime;
         const session = this.sessionManager.getCurrentSession();
@@ -1309,6 +1490,19 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const statusLine = this.formatStatusLine();
     const initialValue = this.promptSeedInput;
     this.promptSeedInput = '';
+    // Wait for the pending suggestion LLM call to finish.
+    // Startup gets a longer deadline (5s) since the first API call is cold
+    // and the user is still reading the banner. Subsequent prompts use 1.5s
+    // because the LLM call ran concurrently with the previous turn's output.
+    if (this.pendingSuggestion) {
+      const deadlineMs = this.isStartupSuggestion ? 5000 : 1500;
+      this.isStartupSuggestion = false;
+      const deadline = new Promise<void>((r) => setTimeout(r, deadlineMs));
+      await Promise.race([this.pendingSuggestion, deadline]).catch(() => {});
+      this.pendingSuggestion = null;
+    }
+    const suggestionText = this.suggestionEngine?.getSuggestion() ?? undefined;
+    this.suggestionEngine?.clear();
     const input = await readInstruction(
       workspaceFiles,
       SLASH_COMMANDS,
@@ -1316,7 +1510,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
       {}, // default IO
       (data, mimeType, filename) => this.imageManager.add(data, mimeType, filename),
       this.runtime.workspaceRoot,
-      initialValue
+      initialValue,
+      suggestionText
     );
     // Only exit on explicit ABORT (double Ctrl+C). Palette cancel or dismiss should continue.
     if (input === 'ABORT') { // double Ctrl+C from prompt
@@ -3351,6 +3546,28 @@ If lint or tests fail, report the issues but do NOT commit.`;
       parts.push('The following skills are active and provide specialized instructions:');
       for (const skill of activeSkills) {
         parts.push('', `### Skill: ${skill.name}`, skill.body);
+      }
+    }
+
+    // List available agents for team formation
+    const { AgentRegistry } = await import('./agents/AgentRegistry.js');
+    const agentRegistry = AgentRegistry.getInstance();
+    await agentRegistry.loadAgents();
+    const allAgents = agentRegistry.getAllAgents();
+    if (allAgents.length > 0) {
+      parts.push('', '## Available Agents');
+      parts.push('These agents can be spawned as teammates using create_team + add_teammate:');
+      for (const agent of allAgents) {
+        parts.push(`- **${agent.name}**: ${agent.description}`);
+      }
+    }
+
+    // Show active team context if exists
+    const activeTeam = this.teamManager.getTeam();
+    if (activeTeam) {
+      parts.push('', '## Active Team: ' + activeTeam.name);
+      for (const m of activeTeam.members) {
+        parts.push(`- ${m.name} [${m.agentName}] ${m.status}`);
       }
     }
 
