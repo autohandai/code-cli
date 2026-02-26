@@ -1976,12 +1976,14 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const identicalCallHardLimit = 6;
     const identicalCallAndResultLimit = 3;
     const forceNoToolsViolationLimit = 2;
+    const perToolFailureLimit = 2; // Max consecutive failures for same tool (regardless of args)
     let lastToolCallSignature = '';
     let identicalToolCallCount = 0;
     let lastToolResultSignature = '';
     let identicalToolResultCount = 0;
     let forceNoToolsUntilResponse = false;
     let forceNoToolsViolationCount = 0;
+    const toolConsecutiveFailures = new Map<string, number>();
 
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
       // Check for abort at the start of each iteration
@@ -2293,6 +2295,29 @@ If lint or tests fail, report the issues but do NOT commit.`;
             await this.saveToolMessage(result.tool, content, otherCalls[i]?.id);
           }
           this.updateContextUsage(this.conversation.history(), tools);
+
+          // Track per-tool consecutive failures (catches loops where LLM varies args but same tool keeps failing)
+          for (const result of results) {
+            if (!result.success) {
+              const count = (toolConsecutiveFailures.get(result.tool) ?? 0) + 1;
+              toolConsecutiveFailures.set(result.tool, count);
+
+              if (count >= perToolFailureLimit) {
+                const errorSnippet = (result.error ?? result.output ?? '').slice(0, 200);
+                this.conversation.addSystemNote(
+                  `[Tool Failure Guard] The "${result.tool}" tool has failed ${count} times consecutively. ` +
+                  `Latest error: ${errorSnippet}\n` +
+                  `STOP using "${result.tool}". Do NOT retry it with different arguments. Instead:\n` +
+                  `- If you can answer from your own knowledge, provide a finalResponse directly.\n` +
+                  `- If the tool requires configuration (e.g., API key, provider), tell the user what to configure.\n` +
+                  `- If the task cannot be completed without this tool, explain the limitation to the user.`
+                );
+              }
+            } else {
+              // Reset on success
+              toolConsecutiveFailures.delete(result.tool);
+            }
+          }
 
           // Add batched tool output (with thought shown before tools)
           const charLimit = this.runtime.config.ui?.readFileCharLimit ?? 300;
@@ -3090,6 +3115,13 @@ If lint or tests fail, report the issues but do NOT commit.`;
       toolSignatures ? `\n${toolSignatures}\n` : 'Tools are resolved at runtime. Use tools_registry to inspect them.',
       'If you need a capability not listed, define it as a `custom_command` (with name, command, args, description) before invoking it.',
       'Do not override existing tool functionality when adding meta tools.',
+      '',
+      '### Tool Failure Handling',
+      'When a tool fails, do NOT retry the same tool with different arguments. Instead:',
+      '1. If the task is simple (jokes, general knowledge, explanations, opinions) — answer directly from your own knowledge without tools.',
+      '2. If the tool requires configuration (e.g., web_search needs a search provider API key), tell the user what to configure and answer from your own knowledge if possible.',
+      '3. If the tool failure is transient (timeout, network error), you may retry ONCE with the exact same arguments. Do not rephrase and retry.',
+      '4. After ANY tool failure, prefer providing a direct finalResponse over calling more tools.',
       '',
       '### Response Format',
       'Always reply with structured JSON:',
