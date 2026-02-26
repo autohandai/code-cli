@@ -9,24 +9,27 @@ import { TeamManager } from '../../../src/core/teams/TeamManager.js';
 // Mock TeammateProcess to avoid real process spawning
 vi.mock('../../../src/core/teams/TeammateProcess.js', () => {
   return {
-    TeammateProcess: vi.fn().mockImplementation((opts) => ({
-      name: opts.name,
-      status: 'spawning',
-      pid: 0,
-      setStatus: vi.fn(),
-      spawn: vi.fn(),
-      send: vi.fn(),
-      assignTask: vi.fn(),
-      sendMessage: vi.fn(),
-      requestShutdown: vi.fn(),
-      kill: vi.fn(),
-      toMember: () => ({
+    TeammateProcess: vi.fn().mockImplementation((opts) => {
+      const mock = {
         name: opts.name,
-        agentName: opts.agentName,
+        status: 'spawning' as string,
         pid: 0,
-        status: 'idle',
-      }),
-    })),
+        setStatus: vi.fn((s: string) => { mock.status = s; }),
+        spawn: vi.fn(),
+        send: vi.fn(),
+        assignTask: vi.fn(),
+        sendMessage: vi.fn(),
+        requestShutdown: vi.fn(),
+        kill: vi.fn(),
+        toMember: () => ({
+          name: opts.name,
+          agentName: opts.agentName,
+          pid: 0,
+          status: 'idle',
+        }),
+      };
+      return mock;
+    }),
   };
 });
 
@@ -79,5 +82,19 @@ describe('TeamManager', () => {
     const status = manager.getStatus();
     expect(status.tasksDone).toBe(0);
     expect(status.tasksTotal).toBe(0);
+  });
+
+  it('should auto-assign idle teammate when tryAssignIdleTeammate is called', () => {
+    manager.createTeam('test');
+    manager.addTeammate({ name: 'worker', agentName: 'code-cleaner' });
+    // The mock starts with status 'spawning'; set it to 'idle' so the method picks it up
+    const teammates = (manager as unknown as { teammates: Map<string, { status: string; setStatus: (s: string) => void }> }).teammates;
+    const tp = teammates.get('worker')!;
+    tp.setStatus('idle');
+    manager.tasks.createTask({ subject: 'Fix bug', description: 'Fix it' });
+    manager.tryAssignIdleTeammate();
+    const tasks = manager.tasks.listTasks();
+    expect(tasks[0].owner).toBe('worker');
+    expect(tasks[0].status).toBe('in_progress');
   });
 });

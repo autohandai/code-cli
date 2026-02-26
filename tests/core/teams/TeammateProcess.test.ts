@@ -1,6 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { TeammateProcess } from '../../../src/core/teams/TeammateProcess.js';
-import type { TeamMember } from '../../../src/core/teams/types.js';
 
 // We test the class logic without actually spawning processes
 describe('TeammateProcess', () => {

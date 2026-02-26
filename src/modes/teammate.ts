@@ -4,8 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import path from 'node:path';
 import { MessageRouter } from '../core/teams/MessageRouter.js';
-import type { TeammateIncoming, TeamTask } from '../core/teams/types.js';
+import type { TeamTask } from '../core/teams/types.js';
 
 export interface TeammateOptions {
   teamName: string;
@@ -14,6 +15,58 @@ export interface TeammateOptions {
   leadSessionId: string;
   model?: string;
   workspacePath?: string;
+}
+
+/**
+ * Execute a task using SubAgent. Loads config, creates provider and action executor,
+ * then runs the agent's LLM loop against the task description.
+ */
+export async function executeTask(
+  opts: TeammateOptions,
+  task: TeamTask
+): Promise<string> {
+  const { loadConfig } = await import('../config.js');
+  const { ProviderFactory } = await import('../providers/ProviderFactory.js');
+  const { AgentRegistry } = await import('../core/agents/AgentRegistry.js');
+  const { SubAgent } = await import('../core/agents/SubAgent.js');
+  const { ActionExecutor } = await import('../core/actionExecutor.js');
+  const { FileActionManager } = await import('../actions/filesystem.js');
+
+  // Load config and create provider
+  const config = await loadConfig();
+  const provider = ProviderFactory.create(config);
+  if (opts.model) provider.setModel(opts.model);
+
+  // Load agent definition
+  const registry = AgentRegistry.getInstance();
+  await registry.loadAgents();
+  const agentDef = registry.getAgent(opts.agentName);
+  if (!agentDef) {
+    return `Error: Agent "${opts.agentName}" not found in registry.`;
+  }
+
+  // Create action executor with minimal deps for headless teammate mode
+  const workspacePath = opts.workspacePath || process.cwd();
+  const files = new FileActionManager(workspacePath);
+  const executor = new ActionExecutor({
+    runtime: {
+      config,
+      workspaceRoot: workspacePath,
+      options: { dryRun: false },
+    },
+    files,
+    resolveWorkspacePath: (rel: string) => path.resolve(workspacePath, rel),
+    confirmDangerousAction: async () => true, // auto-approve in teammate mode
+  });
+
+  // Run SubAgent
+  const agent = new SubAgent(agentDef, provider, executor, {
+    clientContext: 'cli',
+    depth: 0,
+    maxDepth: 2,
+  });
+
+  return agent.run(task.description);
 }
 
 /**
@@ -39,9 +92,6 @@ export async function runTeammateMode(opts: TeammateOptions): Promise<void> {
   // Signal ready to the lead
   sendToLead('team.ready', { name: opts.name });
 
-  // Track current task
-  let currentTask: TeamTask | null = null;
-
   // Listen for incoming messages from lead via stdin
   router.onMessage(process.stdin, async (msg) => {
     const { method, params } = msg as { method: string; params: Record<string, unknown> };
@@ -49,27 +99,16 @@ export async function runTeammateMode(opts: TeammateOptions): Promise<void> {
     switch (method) {
       case 'team.assignTask': {
         const task = params.task as TeamTask;
-        currentTask = task;
 
-        // Signal in-progress
-        sendToLead('team.taskUpdate', {
-          taskId: task.id,
-          status: 'in_progress',
-        });
+        sendToLead('team.taskUpdate', { taskId: task.id, status: 'in_progress' });
 
-        // Execute the task (placeholder - real implementation would use LLM)
         try {
-          sendToLead('team.log', {
-            level: 'info',
-            text: `Working on: ${task.subject}`,
-          });
-
-          // TODO: Phase 13 will wire this to the actual LLM loop
-          // For now, mark as completed
+          sendToLead('team.log', { level: 'info', text: `Working on: ${task.subject}` });
+          const result = await executeTask(opts, task);
           sendToLead('team.taskUpdate', {
             taskId: task.id,
             status: 'completed',
-            result: `Completed: ${task.subject}`,
+            result,
           });
         } catch (err) {
           sendToLead('team.log', {
@@ -78,7 +117,6 @@ export async function runTeammateMode(opts: TeammateOptions): Promise<void> {
           });
         }
 
-        currentTask = null;
         sendToLead('team.idle', { lastTask: task.id });
         break;
       }

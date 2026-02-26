@@ -6,7 +6,7 @@
 
 import { TeammateProcess } from './TeammateProcess.js';
 import { TaskManager } from './TaskManager.js';
-import type { Team, TeamTask } from './types.js';
+import type { Team } from './types.js';
 
 interface TeamManagerOptions {
   leadSessionId: string;
@@ -139,7 +139,7 @@ export class TeamManager {
 
       case 'team.idle':
         tp?.setStatus('idle');
-        this.tryAssignWork(from);
+        this.tryAssignIdleTeammate();
         break;
 
       case 'team.shutdownAck':
@@ -168,15 +168,19 @@ export class TeamManager {
   }
 
   /**
-   * Try to assign the next available task to a teammate that just became idle.
+   * Try to assign the next available task to any idle teammate.
+   * Call after creating tasks or when a teammate becomes idle.
    */
-  private tryAssignWork(teammateName: string): void {
-    const available = this._tasks.getAvailableTasks();
-    if (available.length === 0) return;
-    const task = available[0];
-    this._tasks.assignTask(task.id, teammateName);
-    const tp = this.teammates.get(teammateName);
-    tp?.assignTask(task);
+  tryAssignIdleTeammate(): void {
+    for (const [name, tp] of this.teammates) {
+      if (tp.status !== 'idle') continue;
+      const available = this._tasks.getAvailableTasks();
+      if (available.length === 0) return;
+      const task = available[0];
+      this._tasks.assignTask(task.id, name);
+      tp.assignTask(task);
+      return;
+    }
   }
 
   /**
