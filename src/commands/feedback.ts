@@ -18,10 +18,10 @@ export const metadata = {
     implemented: true
 };
 
-type FeedbackContext = Pick<SlashCommandContext, 'sessionManager'>;
+type FeedbackContext = Pick<SlashCommandContext, 'sessionManager' | 'config'>;
 
 // API configuration
-const API_BASE_URL = 'https://api.autohand.ai';
+const DEFAULT_API_BASE_URL = 'https://api.autohand.ai';
 const API_TIMEOUT = 10000;
 
 // Cooldown configuration
@@ -178,12 +178,13 @@ export async function feedback(_ctx: FeedbackContext): Promise<string | null> {
 
     // Send to API
     try {
-        const response = await sendFeedbackToApi(payload);
+        const apiBaseUrl = getFeedbackApiBaseUrl(_ctx);
+        const response = await sendFeedbackToApi(payload, apiBaseUrl);
         if (response.success) {
             console.log(chalk.green(t('commands.feedback.success')));
         } else {
             // Show specific error if available
-            if (response.error?.includes('Rate limit')) {
+            if (/rate limit/i.test(response.error ?? '')) {
                 console.log(chalk.yellow('Feedback saved locally (rate limited, will retry later).'));
             } else {
                 console.log(chalk.yellow(`Feedback saved locally. ${response.error ? `(${response.error})` : ''}`));
@@ -206,12 +207,15 @@ export async function feedback(_ctx: FeedbackContext): Promise<string | null> {
 /**
  * Send feedback to api.autohand.ai
  */
-async function sendFeedbackToApi(payload: Record<string, unknown>): Promise<{ success: boolean; id?: string; error?: string }> {
+async function sendFeedbackToApi(
+    payload: Record<string, unknown>,
+    apiBaseUrl: string
+): Promise<{ success: boolean; id?: string; error?: string }> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
 
     try {
-        const response = await fetch(`${API_BASE_URL}/v1/feedback`, {
+        const response = await fetch(`${apiBaseUrl}/v1/feedback`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -226,7 +230,7 @@ async function sendFeedbackToApi(payload: Record<string, unknown>): Promise<{ su
 
         if (!response.ok) {
             const errorText = await response.text().catch(() => 'Unknown error');
-            return { success: false, error: `API error: ${response.status} ${errorText}` };
+            return { success: false, error: formatFeedbackApiError(response.status, errorText) };
         }
 
         const data = await response.json() as { success: boolean; id?: string };
@@ -240,6 +244,63 @@ async function sendFeedbackToApi(payload: Record<string, unknown>): Promise<{ su
 
         return { success: false, error: (error as Error).message };
     }
+}
+
+function getFeedbackApiBaseUrl(ctx: FeedbackContext): string {
+    return process.env.AUTOHAND_API_URL?.trim()
+        || ctx.config?.api?.baseUrl?.trim()
+        || DEFAULT_API_BASE_URL;
+}
+
+function formatFeedbackApiError(status: number, rawBody: string): string {
+    const body = (rawBody ?? '').replace(/\s+/g, ' ').trim();
+    if (!body) {
+        return `API error: ${status}`;
+    }
+
+    // Prefer concise error fields if backend returned JSON.
+    if (body.startsWith('{') || body.startsWith('[')) {
+        try {
+            const parsed = JSON.parse(body) as Record<string, unknown>;
+            const candidate = typeof parsed.error === 'string'
+                ? parsed.error
+                : typeof parsed.message === 'string'
+                    ? parsed.message
+                    : typeof parsed.detail === 'string'
+                        ? parsed.detail
+                        : '';
+            if (candidate) {
+                return `API error: ${status} ${truncateFeedbackError(candidate)}`;
+            }
+        } catch {
+            // Fall through to generic handling.
+        }
+    }
+
+    // Cloudflare / WAF challenge pages are HTML and too noisy for terminal output.
+    if (isLikelyHtmlChallenge(body)) {
+        return status === 403
+            ? 'API error: 403 blocked by Cloudflare challenge'
+            : `API error: ${status} blocked by upstream challenge page`;
+    }
+
+    return `API error: ${status} ${truncateFeedbackError(body)}`;
+}
+
+function isLikelyHtmlChallenge(body: string): boolean {
+    const lower = body.toLowerCase();
+    return lower.includes('<!doctype html')
+        || lower.includes('<html')
+        || lower.includes('__cf_chl')
+        || lower.includes('just a moment')
+        || lower.includes('cloudflare');
+}
+
+function truncateFeedbackError(text: string, max = 220): string {
+    if (text.length <= max) {
+        return text;
+    }
+    return `${text.slice(0, Math.max(0, max - 1))}…`;
 }
 
 /**

@@ -1423,6 +1423,8 @@ These flags override config file settings:
 |------|-------------|
 | `--model <model>` | Override model |
 | `--path <path>` | Override workspace root |
+| `--worktree [name]` | Run session in isolated git worktree (optional worktree/branch name) |
+| `--tmux` | Launch in a dedicated tmux session (implies `--worktree`; cannot be used with `--no-worktree`) |
 | `--add-dir <path>` | Add additional directories to workspace scope (can be used multiple times) |
 | `--config <path>` | Use custom config file |
 | `--temperature <n>` | Set temperature (0-1) |

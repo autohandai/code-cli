@@ -586,7 +586,7 @@ describe('plan cleanup and resume', () => {
       notes: '1. Fresh step from LLM'
     });
 
-    // Should NOT have asked about resuming — just create the new plan
+    // Should NOT have asked about resuming - just create the new plan
     expect(mockOnAskFollowup).not.toHaveBeenCalled();
     // Should have created a new plan
     expect(mockOnPlanCreated).toHaveBeenCalledWith(

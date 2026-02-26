@@ -9,20 +9,36 @@ import type { AgentSideConnection, InitializeRequest, NewSessionRequest } from '
 import type { LoadedConfig } from '../../../src/types.js';
 
 // ---------------------------------------------------------------------------
-// Hoisted mocks — created before vi.mock hoists
+// Hoisted mocks - created before vi.mock hoists
 // ---------------------------------------------------------------------------
 
 const {
   mockAgent,
+  mockSessionManager,
+  mockConversation,
   mockLoadConfig,
   mockProviderCreate,
   mockFileActionManager,
+  mockPrepareSessionWorktree,
+  mockIsSessionWorktreeEnabled,
   MockAutohandAgent,
 } = vi.hoisted(() => {
+  const mockSessionManager = {
+    loadSession: vi.fn(),
+    listSessions: vi.fn(),
+  };
+
+  const mockConversation = {
+    isInitialized: vi.fn().mockReturnValue(true),
+    addSystemNote: vi.fn(),
+    addMessage: vi.fn(),
+  };
+
   const mockAgent = {
     initializeForRPC: vi.fn().mockResolvedValue(undefined),
     setOutputListener: vi.fn(),
     setConfirmationCallback: vi.fn(),
+    getSessionManager: vi.fn().mockReturnValue(mockSessionManager),
     runInstruction: vi.fn().mockResolvedValue(true),
     isSlashCommand: vi.fn().mockReturnValue(false),
     isSlashCommandSupported: vi.fn().mockReturnValue(false),
@@ -44,8 +60,20 @@ const {
   });
 
   const mockFileActionManager = vi.fn().mockImplementation(() => ({}));
+  const mockPrepareSessionWorktree = vi.fn();
+  const mockIsSessionWorktreeEnabled = vi.fn().mockImplementation((value: unknown) => value !== undefined && value !== false);
 
-  return { mockAgent, mockLoadConfig, mockProviderCreate, mockFileActionManager, MockAutohandAgent };
+  return {
+    mockAgent,
+    mockSessionManager,
+    mockConversation,
+    mockLoadConfig,
+    mockProviderCreate,
+    mockFileActionManager,
+    mockPrepareSessionWorktree,
+    mockIsSessionWorktreeEnabled,
+    MockAutohandAgent,
+  };
 });
 
 // ---------------------------------------------------------------------------
@@ -64,6 +92,17 @@ vi.mock('../../../src/providers/ProviderFactory.js', () => ({
 
 vi.mock('../../../src/actions/filesystem.js', () => ({
   FileActionManager: mockFileActionManager,
+}));
+
+vi.mock('../../../src/utils/sessionWorktree.js', () => ({
+  prepareSessionWorktree: mockPrepareSessionWorktree,
+  isSessionWorktreeEnabled: mockIsSessionWorktreeEnabled,
+}));
+
+vi.mock('../../../src/core/conversationManager.js', () => ({
+  ConversationManager: {
+    getInstance: () => mockConversation,
+  },
 }));
 
 vi.mock('../../../src/config.js', () => ({
@@ -136,6 +175,7 @@ describe('AutohandAcpAdapter', () => {
     // Re-establish the constructor mock after clearAllMocks resets it
     MockAutohandAgent.mockImplementation(() => mockAgent);
     mockAgent.initializeForRPC.mockResolvedValue(undefined);
+    mockAgent.getSessionManager.mockReturnValue(mockSessionManager);
     mockAgent.runInstruction.mockResolvedValue(true);
     mockAgent.isSlashCommand.mockReturnValue(false);
     mockAgent.isSlashCommandSupported.mockReturnValue(false);
@@ -144,6 +184,22 @@ describe('AutohandAcpAdapter', () => {
       const parts = input.trim().split(/\s+/);
       return { command: parts[0], args: parts.slice(1) };
     });
+    mockIsSessionWorktreeEnabled.mockImplementation((value: unknown) => value !== undefined && value !== false);
+    mockPrepareSessionWorktree.mockReturnValue({
+      repoRoot: '/workspace',
+      worktreePath: '/workspace-worktree',
+      branchName: 'autohand-acp-test',
+      createdBranch: true,
+    });
+    mockSessionManager.listSessions.mockResolvedValue([]);
+    mockSessionManager.loadSession.mockResolvedValue({
+      metadata: {
+        model: 'anthropic/claude-3.5-sonnet',
+        projectPath: '/workspace',
+      },
+      getMessages: () => [],
+    });
+    mockConversation.isInitialized.mockReturnValue(true);
 
     connection = makeConnection();
     config = makeConfig();
@@ -354,6 +410,27 @@ describe('AutohandAcpAdapter', () => {
       expect(mockAgent.setConfirmationCallback).toHaveBeenCalledTimes(1);
       expect(typeof mockAgent.setConfirmationCallback.mock.calls[0][0]).toBe('function');
     });
+
+    it('uses original workspace when worktree option is not enabled', async () => {
+      await adapter.newSession(makeNewSessionRequest());
+
+      expect(mockPrepareSessionWorktree).not.toHaveBeenCalled();
+      expect(mockFileActionManager).toHaveBeenCalledWith('/workspace');
+    });
+
+    it('creates and uses a worktree when CLI worktree option is enabled', async () => {
+      adapter = new AutohandAcpAdapter(connection, { worktree: true });
+      await adapter.initialize(makeInitRequest());
+
+      await adapter.newSession(makeNewSessionRequest());
+
+      expect(mockPrepareSessionWorktree).toHaveBeenCalledWith({
+        cwd: '/workspace',
+        worktree: true,
+        mode: 'acp',
+      });
+      expect(mockFileActionManager).toHaveBeenCalledWith('/workspace-worktree');
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -464,6 +541,83 @@ describe('AutohandAcpAdapter', () => {
 
       // Should not throw for a session that does not exist
       await adapter.cancel({ sessionId: 'nonexistent' });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // unstable_resumeSession()
+  // -------------------------------------------------------------------------
+
+  describe('unstable_resumeSession()', () => {
+    it('loads session history into conversation context', async () => {
+      await adapter.initialize(makeInitRequest());
+      mockSessionManager.loadSession.mockResolvedValue({
+        metadata: {
+          model: 'openai/gpt-4o',
+          projectPath: '/workspace',
+        },
+        getMessages: () => [
+          { role: 'system', content: 'System note', timestamp: '2025-01-01T00:00:00Z' },
+          { role: 'user', content: 'hello', timestamp: '2025-01-01T00:00:01Z' },
+          { role: 'assistant', content: 'hi', timestamp: '2025-01-01T00:00:02Z' },
+        ],
+      });
+
+      const response = await adapter.unstable_resumeSession({
+        sessionId: 'session-123',
+        cwd: '/workspace',
+      } as any);
+
+      expect(mockSessionManager.loadSession).toHaveBeenCalledWith('session-123');
+      expect(response.models?.currentModelId).toBe('openai/gpt-4o');
+      expect(mockConversation.addSystemNote).toHaveBeenCalledWith('System note');
+      expect(mockConversation.addMessage).toHaveBeenCalledTimes(2);
+    });
+
+    it('throws invalid params when session cannot be resumed', async () => {
+      await adapter.initialize(makeInitRequest());
+      mockSessionManager.loadSession.mockRejectedValue(new Error('Session not found'));
+
+      await expect(
+        adapter.unstable_resumeSession({
+          sessionId: 'missing-session',
+          cwd: '/workspace',
+        } as any)
+      ).rejects.toThrow();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // loadSession()
+  // -------------------------------------------------------------------------
+
+  describe('loadSession()', () => {
+    it('replays loaded messages through session updates', async () => {
+      await adapter.initialize(makeInitRequest());
+      mockSessionManager.loadSession.mockResolvedValue({
+        metadata: {
+          model: 'anthropic/claude-3.5-sonnet',
+          projectPath: '/workspace',
+        },
+        getMessages: () => [
+          { role: 'system', content: 'System note', timestamp: '2025-01-01T00:00:00Z' },
+          { role: 'user', content: 'hello', timestamp: '2025-01-01T00:00:01Z' },
+          { role: 'assistant', content: 'hi', timestamp: '2025-01-01T00:00:02Z' },
+          { role: 'tool', content: 'tool output', timestamp: '2025-01-01T00:00:03Z' },
+        ],
+      });
+
+      const response = await adapter.loadSession({
+        sessionId: 'session-456',
+        cwd: '/workspace',
+        mcpServers: [],
+      } as any);
+
+      expect(response.modes?.currentModeId).toBeDefined();
+      expect(connection.sessionUpdate).toHaveBeenCalled();
+      const sessionUpdates = (connection.sessionUpdate as any).mock.calls.map((call: any[]) => call[0]?.update?.sessionUpdate);
+      expect(sessionUpdates).toContain('user_message_chunk');
+      expect(sessionUpdates).toContain('agent_message_chunk');
     });
   });
 

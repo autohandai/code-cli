@@ -85,7 +85,7 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
       properties: {
         notes: {
           type: 'string',
-          description: 'A numbered step-by-step plan. Each step on its own line starting with "N. " (e.g. "1. Read existing code\\n2. Create new module\\n3. Write tests"). Be specific and actionable — avoid single vague descriptions.'
+          description: 'A numbered step-by-step plan. Each step on its own line starting with "N. " (e.g. "1. Read existing code\\n2. Create new module\\n3. Write tests"). Be specific and actionable - avoid single vague descriptions.'
         }
       }
     }

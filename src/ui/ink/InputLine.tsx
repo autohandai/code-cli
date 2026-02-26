@@ -6,6 +6,8 @@
 import React, { memo } from 'react';
 import { Box, Text } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
+import { buildPromptRenderState, getPromptBlockWidth } from '../inputPrompt.js';
+import { drawInputBottomBorder, drawInputTopBorder } from '../box.js';
 
 export interface InputLineProps {
   value: string;
@@ -14,23 +16,26 @@ export interface InputLineProps {
 
 function InputLineComponent({ value, isActive }: InputLineProps) {
   const { colors } = useTheme();
+  const width = getPromptBlockWidth(process.stdout.columns);
+  const topBorder = drawInputTopBorder(width);
+  const bottomBorder = drawInputBottomBorder(width);
+  const { lineText } = buildPromptRenderState(value, value.length, width);
 
-  // When inactive, render minimal placeholder for layout stability
-  // This prevents layout jumps but doesn't look like an active input
+  // Keep space stable when queue input is inactive.
   if (!isActive) {
     return (
-      <Box marginTop={1} height={1}>
+      <Box marginTop={1} height={3}>
         <Text color={colors.dim}> </Text>
       </Box>
     );
   }
 
-  // Active state - show full input with cursor
+  // Active state mirrors the boxed prompt style from readline mode.
   return (
-    <Box marginTop={1}>
-      <Text color={colors.muted}>› </Text>
-      <Text color={colors.text}>{value}</Text>
-      <Text color={colors.accent}>▊</Text>
+    <Box marginTop={1} flexDirection="column">
+      <Text>{topBorder}</Text>
+      <Text>{lineText}</Text>
+      <Text>{bottomBorder}</Text>
     </Box>
   );
 }

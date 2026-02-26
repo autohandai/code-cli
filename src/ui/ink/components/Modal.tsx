@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { Box, Text, useInput, render } from 'ink';
+import { Box, Text, useInput, render, type Instance } from 'ink';
 import { I18nProvider, useTranslation } from '../../i18n/index.js';
 
 /**
@@ -104,6 +104,36 @@ export type ModalProps = SelectModalProps | ConfirmModalProps | InputModalProps 
 const OTHER_VALUE = '__other__';
 
 /**
+ * Resolve initial cursor index for select/confirm modes.
+ */
+export function resolveInitialCursor(
+  mode: 'select' | 'confirm',
+  optionsLength: number,
+  initialIndex?: number,
+  defaultValue?: boolean
+): number {
+  if (mode === 'confirm') {
+    return defaultValue === false ? 1 : 0;
+  }
+
+  if (typeof initialIndex !== 'number' || !Number.isFinite(initialIndex) || optionsLength <= 0) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(optionsLength - 1, Math.floor(initialIndex)));
+}
+
+function unmountAndResolve<T>(
+  instance: Instance,
+  value: T,
+  resolve: (value: T) => void
+): void {
+  instance.unmount();
+  // Give Ink one tick to fully release terminal control before the next UI mounts.
+  process.nextTick(() => resolve(value));
+}
+
+/**
  * A unified modal component supporting multiple modes:
  * - select: Choose from a list of options (default, original behavior)
  * - confirm: Yes/No question
@@ -147,9 +177,22 @@ function Modal(props: ModalProps) {
 
   // Determine mode (default to 'select' for backward compatibility)
   const mode = 'mode' in props ? props.mode : 'select';
+  const selectOptionCount = mode === 'select' && 'options' in props
+    ? props.options.length + (('allowCustomInput' in props && props.allowCustomInput) ? 1 : 0)
+    : 0;
+  const confirmDefaultValue = mode === 'confirm' && typeof (props as ConfirmModalProps).defaultValue === 'boolean'
+    ? (props as ConfirmModalProps).defaultValue
+    : undefined;
 
   // State for select mode
-  const [cursor, setCursor] = useState(0);
+  const [cursor, setCursor] = useState(() =>
+    resolveInitialCursor(
+      mode === 'confirm' ? 'confirm' : 'select',
+      mode === 'confirm' ? 2 : selectOptionCount,
+      mode === 'select' && 'initialIndex' in props ? props.initialIndex : undefined,
+      confirmDefaultValue
+    )
+  );
   const [customInput, setCustomInput] = useState('');
   const [isCustomMode, setIsCustomMode] = useState(false);
 
@@ -187,14 +230,6 @@ function Modal(props: ModalProps) {
 
     return [];
   }, [mode, props, t]);
-
-  // Initialize cursor for confirm mode
-  useState(() => {
-    if (mode === 'confirm' && 'defaultValue' in props) {
-      const defaultIdx = props.defaultValue === false ? 1 : 0;
-      setCursor(defaultIdx);
-    }
-  });
 
   const hasNoChoices = mode === 'select' && choices.length === 0;
 
@@ -494,14 +529,12 @@ export async function showModal(
           onSelect={(option) => {
             if (completed) return;
             completed = true;
-            instance.unmount();
-            resolve(option);
+            unmountAndResolve(instance, option, resolve);
           }}
           onCancel={() => {
             if (completed) return;
             completed = true;
-            instance.unmount();
-            resolve(null);
+            unmountAndResolve(instance, null, resolve);
           }}
         />
       </I18nProvider>,
@@ -552,14 +585,13 @@ export async function showConfirm(options: {
           onConfirm={(confirmed) => {
             if (completed) return;
             completed = true;
-            instance.unmount();
-            resolve(confirmed);
+            unmountAndResolve(instance, confirmed, resolve);
           }}
           onCancel={() => {
             if (completed) return;
             completed = true;
-            instance.unmount();
-            resolve(false); // Treat ESC as "No"
+            // Treat ESC as "No"
+            unmountAndResolve(instance, false, resolve);
           }}
         />
       </I18nProvider>,
@@ -610,14 +642,12 @@ export async function showInput(options: {
           onSubmit={(value) => {
             if (completed) return;
             completed = true;
-            instance.unmount();
-            resolve(value);
+            unmountAndResolve(instance, value, resolve);
           }}
           onCancel={() => {
             if (completed) return;
             completed = true;
-            instance.unmount();
-            resolve(null);
+            unmountAndResolve(instance, null, resolve);
           }}
         />
       </I18nProvider>,
@@ -665,14 +695,12 @@ export async function showPassword(options: {
           onSubmit={(value) => {
             if (completed) return;
             completed = true;
-            instance.unmount();
-            resolve(value);
+            unmountAndResolve(instance, value, resolve);
           }}
           onCancel={() => {
             if (completed) return;
             completed = true;
-            instance.unmount();
-            resolve(null);
+            unmountAndResolve(instance, null, resolve);
           }}
         />
       </I18nProvider>,

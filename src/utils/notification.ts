@@ -4,6 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import notifier from 'node-notifier';
 import type { NotificationConfig } from '../types.js';
 
 export interface NotificationGuards {
@@ -28,6 +32,14 @@ const TERMINAL_KEYWORDS = [
 ];
 
 const FOCUS_CACHE_TTL_MS = 2000;
+
+// Resolve icon path once at module level.
+// In dev (src/utils/) the icon is at ../../assets/icon.png;
+// in prod (dist/) it's at ../assets/icon.png (shipped in package).
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DEV_ICON = path.resolve(__dirname, '../../assets/icon.png');
+const PROD_ICON = path.resolve(__dirname, '../assets/icon.png');
+const ICON_PATH = existsSync(DEV_ICON) ? DEV_ICON : PROD_ICON;
 
 export class NotificationService {
   private focusCache: { value: boolean; timestamp: number } | null = null;
@@ -71,7 +83,7 @@ export class NotificationService {
     const sound = config.sound !== false; // default: true
 
     try {
-      this.sendNotification(title, options.body, sound);
+      this.sendNotification(title, options.body, sound, options.reason);
     } catch {
       // Notifications must never crash the app
     }
@@ -163,54 +175,22 @@ export class NotificationService {
     });
   }
 
-  // ── Private: platform notification dispatch ────────────────────
+  // ── Private: notification dispatch via node-notifier ────────────
 
-  private sendNotification(title: string, body: string, sound: boolean): void {
-    const platform = process.platform;
+  private sendNotification(title: string, body: string, sound: boolean, reason: NotificationOptions['reason']): void {
+    const contextTitle = reason === 'confirmation'
+      ? `${title} - Approval Needed`
+      : reason === 'question'
+        ? `${title} - Question`
+        : title; // task_complete keeps plain title
 
-    if (platform === 'darwin') {
-      this.sendMacNotification(title, body, sound);
-    } else if (platform === 'linux') {
-      this.sendLinuxNotification(title, body);
-    } else if (platform === 'win32') {
-      this.sendWindowsNotification(title, body);
-    }
-    // Unknown platforms: no-op
-  }
-
-  private sendMacNotification(title: string, body: string, sound: boolean): void {
-    const escapedBody = body.replace(/"/g, '\\"');
-    const escapedTitle = title.replace(/"/g, '\\"');
-    let script = `display notification "${escapedBody}" with title "${escapedTitle}"`;
-    if (sound) {
-      script += ' sound name "Glass"';
-    }
-
-    const child = spawn('osascript', ['-e', script], { stdio: 'ignore' });
-    child.unref();
-  }
-
-  private sendLinuxNotification(title: string, body: string): void {
-    const child = spawn('notify-send', ['--app-name=Autohand', '--urgency=normal', title, body], {
-      stdio: 'ignore',
+    notifier.notify({
+      title: contextTitle,
+      message: body,
+      icon: ICON_PATH,
+      sound,
+      wait: reason !== 'task_complete',
+      timeout: reason === 'task_complete' ? 5 : 15,
     });
-    child.unref();
-  }
-
-  private sendWindowsNotification(title: string, body: string): void {
-    const escapedBody = body.replace(/'/g, "''");
-    const escapedTitle = title.replace(/'/g, "''");
-    const script = `
-      [void] [System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms');
-      $n = New-Object System.Windows.Forms.NotifyIcon;
-      $n.Icon = [System.Drawing.SystemIcons]::Information;
-      $n.Visible = $true;
-      $n.ShowBalloonTip(5000, '${escapedTitle}', '${escapedBody}', 'Info');
-      Start-Sleep -Seconds 6;
-      $n.Dispose();
-    `.trim();
-
-    const child = spawn('powershell', ['-NoProfile', '-Command', script], { stdio: 'ignore' });
-    child.unref();
   }
 }

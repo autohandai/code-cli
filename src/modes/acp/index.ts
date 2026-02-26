@@ -34,7 +34,7 @@ function redirectConsoleToStderr(): void {
  *   Before: Zed -> autohand-acp -> spawns autohand --mode rpc -> JSON-RPC
  *   After:  Zed -> autohand --mode acp -> in-process ACP protocol
  */
-export async function runAcpMode(_options: CLIOptions): Promise<void> {
+export async function runAcpMode(options: CLIOptions): Promise<void> {
   // Redirect all console output to stderr
   redirectConsoleToStderr();
 
@@ -62,11 +62,11 @@ export async function runAcpMode(_options: CLIOptions): Promise<void> {
 
   // Create the ACP connection with our adapter
   const _connection = new AgentSideConnection(
-    (conn) => new AutohandAcpAdapter(conn),
+    (conn) => new AutohandAcpAdapter(conn, options),
     stream,
   );
 
-  // Keep process alive — stdin will keep the event loop running
+  // Keep process alive - stdin will keep the event loop running
   process.stdin.resume();
 
   // Monitor connection lifecycle
