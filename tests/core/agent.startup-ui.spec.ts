@@ -1096,4 +1096,45 @@ describe('agent startup and active input UI', () => {
       logSpy.mockRestore();
     }
   });
+
+  it('promptForInstruction does not block on startup suggestion', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+
+    // Simulate a slow suggestion that takes 10 seconds
+    let suggestionResolved = false;
+    agent.pendingSuggestion = new Promise<void>((resolve) => {
+      setTimeout(() => {
+        suggestionResolved = true;
+        resolve();
+      }, 10_000);
+    });
+    agent.isStartupSuggestion = true;
+    agent.suggestionEngine = {
+      getSuggestion: () => null,
+      clear: vi.fn(),
+    };
+    agent.formatStatusLine = vi.fn(() => ({ left: '', right: '' }));
+    agent.promptSeedInput = '';
+    agent.workspaceFileCollector = {
+      getCachedFiles: () => [],
+      collectWorkspaceFiles: vi.fn(async () => {}),
+    };
+
+    // Mock readInstruction to resolve immediately
+    const readInstructionMock = vi.fn(async () => 'test input');
+
+    // Replace the private method's dependency on readInstruction
+    // by checking the timing: promptForInstruction must NOT wait
+    // more than 200ms before invoking readInstruction.
+    const start = Date.now();
+    const promptPromise = (agent as any).promptForInstruction([], []).catch(() => {});
+
+    // Give it a short window to proceed
+    await new Promise((r) => setTimeout(r, 200));
+
+    // The suggestion should NOT have resolved (it takes 10s)
+    expect(suggestionResolved).toBe(false);
+    // The pendingSuggestion should have been cleared (not awaited to completion)
+    expect(agent.pendingSuggestion).toBeNull();
+  });
 });

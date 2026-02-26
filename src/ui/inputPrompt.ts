@@ -1647,6 +1647,11 @@ function renderPromptLine(
   output.write('\x1b[?25l');
 
   if (isResize) {
+    // Cursor sits on the input row. Move up to include the top border
+    // before clearing, otherwise old borders at previous width remain.
+    for (let i = 0; i < PROMPT_LINES_ABOVE_INPUT; i++) {
+      readline.moveCursor(output, 0, -1);
+    }
     readline.cursorTo(output, 0);
     readline.clearScreenDown(output);
   } else if (hasExistingPromptBlock) {
@@ -1682,9 +1687,10 @@ function renderPromptLine(
   output.write(statusRow);
 
   // Move cursor back to input row, inside the box.
-  // +1 accounts for the left | border character added by drawInputBox.
+  // drawInputBox uses chalk background only (no │ side borders),
+  // so cursorColumn from buildPromptRenderState is already correct.
   readline.moveCursor(output, 0, -(PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT));
-  readline.cursorTo(output, prompt.cursorColumn + 1);
+  readline.cursorTo(output, prompt.cursorColumn);
 
   // Show cursor at its final, correct position.
   output.write('\x1b[?25h');
