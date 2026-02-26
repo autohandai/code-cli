@@ -1136,8 +1136,9 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         clearTimeout(inlineImageScanTimeout);
         inlineImageScanTimeout = undefined;
       }
-      // Disable bracketed paste mode
+      // Disable bracketed paste mode and ensure cursor is visible
       disableBracketedPaste(stdOutput);
+      stdOutput.write('\x1b[?25h');
       if (contextualHelpVisible) {
         contextualHelpVisible = false;
       }
@@ -1613,6 +1614,11 @@ function renderPromptLine(
   // Keep readline's prompt in sync for line editing internals.
   rl.setPrompt(PROMPT_PREFIX);
 
+  // Hide cursor during rendering to prevent flicker/slow blinking.
+  // The cursor visibly jumps around as lines are cleared and rewritten;
+  // hiding it produces a clean, natural blink at the final position.
+  output.write('\x1b[?25l');
+
   // Clear prompt block + status line region
   readline.cursorTo(output, 0);
   // Move to prompt top line (cursor is on input line) when re-rendering an existing block
@@ -1647,7 +1653,11 @@ function renderPromptLine(
     }
   }
 
-  // Move cursor back to prompt line at correct column
+  // Move cursor back to prompt line at correct column.
+  // +1 accounts for the left │ border character added by drawInputBox.
   readline.moveCursor(output, 0, -(PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT + helpLines.length)); // from status/help to input line
-  readline.cursorTo(output, prompt.cursorColumn);
+  readline.cursorTo(output, prompt.cursorColumn + 1);
+
+  // Show cursor at its final, correct position.
+  output.write('\x1b[?25h');
 }
