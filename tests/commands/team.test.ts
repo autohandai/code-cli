@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { team } from '../../src/commands/team.js';
 import { tasks } from '../../src/commands/tasks.js';
 import { message } from '../../src/commands/message.js';
@@ -30,6 +30,7 @@ function createMockTeamManager(hasTeam = true) {
     },
     shutdown: vi.fn().mockResolvedValue(undefined),
     sendMessageTo: vi.fn(),
+    createTeam: vi.fn().mockReturnValue({ name: 'new-team', status: 'active', members: [] }),
   };
 }
 
@@ -58,6 +59,33 @@ describe('/team command', () => {
     const result = await team({ teamManager: mock as any }, ['shutdown']);
     expect(mock.shutdown).toHaveBeenCalled();
     expect(result).toContain('shut down');
+  });
+
+  it('should create a team with a given name', async () => {
+    const mock = createMockTeamManager(false);
+    const result = await team({ teamManager: mock as any }, ['create', 'my-project']);
+    expect(mock.createTeam).toHaveBeenCalledWith('my-project');
+    expect(result).toContain('my-project');
+    expect(result).toContain('created');
+  });
+
+  it('should create a team with default name when none provided', async () => {
+    const mock = createMockTeamManager(false);
+    const result = await team({ teamManager: mock as any }, ['create']);
+    expect(mock.createTeam).toHaveBeenCalledWith('default');
+    expect(result).toContain('default');
+  });
+
+  it('should join multi-word team names with hyphens', async () => {
+    const mock = createMockTeamManager(false);
+    await team({ teamManager: mock as any }, ['create', 'auth', 'refactor']);
+    expect(mock.createTeam).toHaveBeenCalledWith('auth-refactor');
+  });
+
+  it('should include create in help text', async () => {
+    const mock = createMockTeamManager();
+    const result = await team({ teamManager: mock as any }, ['help']);
+    expect(result).toContain('create');
   });
 });
 

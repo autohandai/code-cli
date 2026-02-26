@@ -10,7 +10,7 @@ import type { TeamManager } from '../core/teams/TeamManager.js';
 
 export const metadata: SlashCommand = {
   command: '/team',
-  description: 'Manage agent teams (status, shutdown)',
+  description: 'Manage agent teams (create, status, shutdown)',
   implemented: true,
 };
 
@@ -29,15 +29,20 @@ export async function team(ctx: TeamCommandContext, args: string[]): Promise<str
     return [
       chalk.bold('Team Commands:'),
       '',
-      `  ${chalk.cyan('/team status')}    Show current team status`,
-      `  ${chalk.cyan('/team shutdown')}  Shut down all teammates`,
-      `  ${chalk.cyan('/team')}           Show this help`,
-      '',
-      chalk.gray('To create a team, describe the task and ask autohand to form a team.'),
+      `  ${chalk.cyan('/team create <name>')}  Create a new team`,
+      `  ${chalk.cyan('/team status')}         Show current team status`,
+      `  ${chalk.cyan('/team shutdown')}       Shut down all teammates`,
+      `  ${chalk.cyan('/team')}                Show this help`,
     ].join('\n');
   }
 
   switch (subcommand) {
+    case 'create': {
+      const name = args.slice(1).join('-') || 'default';
+      ctx.teamManager.createTeam(name);
+      return chalk.green(`Team "${name}" created. Use /team status to view.`);
+    }
+
     case 'status': {
       const team = ctx.teamManager.getTeam();
       if (!team) {

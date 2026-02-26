@@ -49,7 +49,7 @@ describe('TaskManager', () => {
 
   it('should track blocked tasks', () => {
     const t1 = tm.createTask({ subject: 'A', description: '' });
-    const t2 = tm.createTask({ subject: 'B', description: '', blockedBy: [t1.id] });
+    tm.createTask({ subject: 'B', description: '', blockedBy: [t1.id] });
     expect(tm.getAvailableTasks()).toHaveLength(1);
     expect(tm.getAvailableTasks()[0].id).toBe(t1.id);
   });
