@@ -9,6 +9,8 @@
 
 import * as https from 'https';
 import * as http from 'http';
+import { existsSync } from 'fs';
+import { spawn } from 'child_process';
 
 export interface WebSearchResult {
   title: string;
@@ -20,19 +22,19 @@ export interface WebSearchOptions {
   maxResults?: number;
   searchType?: 'general' | 'packages' | 'docs' | 'changelog';
   /** Override the default search provider */
-  provider?: 'brave' | 'duckduckgo' | 'parallel';
+  provider?: 'brave' | 'duckduckgo' | 'parallel' | 'google';
 }
 
 /** Search provider configuration */
 export interface SearchConfig {
-  provider: 'brave' | 'duckduckgo' | 'parallel';
+  provider: 'brave' | 'duckduckgo' | 'parallel' | 'google';
   braveApiKey?: string;
   parallelApiKey?: string;
 }
 
 /** Global search configuration - set by the agent at startup */
 let globalSearchConfig: SearchConfig = {
-  provider: 'duckduckgo'
+  provider: 'google'
 };
 
 /**
@@ -47,6 +49,236 @@ export function configureSearch(config: Partial<SearchConfig>): void {
  */
 export function getSearchConfig(): SearchConfig {
   return { ...globalSearchConfig };
+}
+
+/**
+ * Check if a reliable search provider is configured.
+ *
+ * DuckDuckGo (the default) is unreliable — it frequently returns CAPTCHA
+ * challenges and timeouts. It should NOT count as "configured" for the
+ * purpose of offering the web_search tool to the LLM.
+ *
+ * Returns true when:
+ * - Brave is selected AND has an API key
+ * - Parallel is selected AND has an API key
+ * - Google is selected (no key required, more reliable than DDG)
+ */
+export function isSearchConfigured(): boolean {
+  const config = getSearchConfig();
+  const braveKey = config.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY;
+  const parallelKey = config.parallelApiKey ?? process.env.PARALLEL_API_KEY;
+
+  switch (config.provider) {
+    case 'brave':
+      return !!braveKey;
+    case 'parallel':
+      return !!parallelKey;
+    case 'google':
+      return true; // Google scraping doesn't need an API key
+    case 'duckduckgo':
+    default:
+      return false; // Unreliable — don't count as configured
+  }
+}
+
+/**
+ * Detect system Chrome/Chromium installation path.
+ * Checks platform-specific locations in priority order.
+ * Returns null if no Chrome installation is found.
+ */
+export function findChromePath(): string | null {
+  const platform = process.platform;
+
+  const paths: string[] = [];
+
+  if (platform === 'darwin') {
+    paths.push(
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+      '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
+    );
+  }
+
+  if (platform === 'linux') {
+    paths.push(
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
+      '/snap/bin/chromium',
+    );
+  }
+
+  if (platform === 'win32') {
+    const programFiles = process.env.PROGRAMFILES ?? 'C:\\Program Files';
+    const programFilesX86 = process.env['PROGRAMFILES(X86)'] ?? 'C:\\Program Files (x86)';
+    const localAppData = process.env.LOCALAPPDATA ?? '';
+    paths.push(
+      `${programFiles}\\Google\\Chrome\\Application\\chrome.exe`,
+      `${programFilesX86}\\Google\\Chrome\\Application\\chrome.exe`,
+      `${localAppData}\\Google\\Chrome\\Application\\chrome.exe`,
+    );
+  }
+
+  for (const p of paths) {
+    if (existsSync(p)) {
+      return p;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Parse Google search results from rendered DOM HTML.
+ * Handles multiple Google result page layouts.
+ *
+ * Returns empty array if the page is a CAPTCHA or noscript redirect.
+ */
+export function parseGoogleResultsFromDOM(html: string, maxResults: number): WebSearchResult[] {
+  // Detect CAPTCHA or block pages
+  if (
+    html.includes('unusual traffic') ||
+    html.includes('captcha-form') ||
+    html.includes('g-recaptcha') ||
+    html.includes('sorry/index')
+  ) {
+    return [];
+  }
+
+  // Detect noscript redirect (no JS rendered)
+  if (html.includes('<noscript') && !html.includes('class="g"')) {
+    return [];
+  }
+
+  const results: WebSearchResult[] = [];
+
+  // Strategy 1: Parse <div class="g"> result blocks (standard Google layout)
+  // Each block contains an <a> with href and an <h3> with the title
+  const gBlockRegex = /<div\s+class="g"[^>]*>([\s\S]*?)(?=<div\s+class="g"|<footer|$)/gi;
+  let blockMatch;
+
+  while ((blockMatch = gBlockRegex.exec(html)) !== null && results.length < maxResults) {
+    const block = blockMatch[1];
+
+    // Extract URL — either direct https:// or /url?q= redirect
+    let url: string | null = null;
+    const urlMatch = block.match(/<a[^>]*href="(\/url\?q=([^&"]+)|https?:\/\/[^"]+)"[^>]*>/i);
+    if (urlMatch) {
+      if (urlMatch[2]) {
+        // /url?q= redirect
+        url = decodeURIComponent(urlMatch[2]);
+      } else {
+        url = urlMatch[1];
+      }
+    }
+
+    // Skip Google's own URLs
+    if (!url || url.includes('google.com') || !url.startsWith('http')) {
+      continue;
+    }
+
+    // Extract title from <h3>
+    const titleMatch = block.match(/<h3[^>]*>([\s\S]*?)<\/h3>/i);
+    const title = titleMatch ? htmlToText(titleMatch[1]).trim() : '';
+
+    if (!title) continue;
+
+    // Extract snippet — look for common snippet class patterns
+    let snippet = '';
+    const snippetMatch = block.match(
+      /class="(?:VwiC3b|st|aCOpRe|s3v9rd)[^"]*"[^>]*>([\s\S]*?)<\/(?:div|span)>/i
+    );
+    if (snippetMatch) {
+      snippet = htmlToText(snippetMatch[1]).trim().slice(0, 300);
+    }
+
+    results.push({ title, url, snippet });
+  }
+
+  // Strategy 2: Fallback — scan for <a> with <h3> children anywhere in the doc
+  if (results.length === 0) {
+    const linkH3Regex = /<a[^>]*href="(\/url\?q=(https?:\/\/[^&"]+)[^"]*|https?:\/\/[^"]+)"[^>]*>[\s\S]*?<h3[^>]*>([\s\S]*?)<\/h3>/gi;
+    let match;
+    while ((match = linkH3Regex.exec(html)) !== null && results.length < maxResults) {
+      const url = match[2] ? decodeURIComponent(match[2]) : match[1];
+      const title = htmlToText(match[3]).trim();
+
+      if (!url || !title || url.includes('google.com') || !url.startsWith('http')) continue;
+
+      results.push({ title, url, snippet: '' });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Execute headless Chrome to render a URL and return the DOM.
+ * Uses --headless=new --dump-dom for modern headless mode.
+ */
+async function chromeHeadlessFetch(url: string, timeout = 20000): Promise<string> {
+  const chromePath = findChromePath();
+  if (!chromePath) {
+    throw new Error(
+      'Google Chrome or Chromium not found. Install Chrome or configure a different search provider with /search.'
+    );
+  }
+
+  return new Promise((resolve, reject) => {
+    const args = [
+      '--headless=new',
+      '--dump-dom',
+      '--no-sandbox',
+      '--disable-gpu',
+      '--disable-extensions',
+      '--disable-dev-shm-usage',
+      '--disable-background-networking',
+      '--disable-default-apps',
+      '--disable-sync',
+      '--no-first-run',
+      '--mute-audio',
+      url,
+    ];
+
+    let stdout = '';
+    let stderr = '';
+    let killed = false;
+
+    const proc = spawn(chromePath, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout,
+    });
+
+    proc.stdout.on('data', (data: Buffer) => {
+      stdout += data.toString();
+      // Safety limit: 500KB
+      if (stdout.length > 500000) {
+        killed = true;
+        proc.kill('SIGTERM');
+      }
+    });
+
+    proc.stderr.on('data', (data: Buffer) => {
+      stderr += data.toString();
+    });
+
+    proc.on('close', (code) => {
+      if (killed) {
+        resolve(stdout.slice(0, 500000));
+        return;
+      }
+      if (code !== 0 && code !== null) {
+        reject(new Error(`Chrome exited with code ${code}: ${stderr.slice(0, 500)}`));
+        return;
+      }
+      resolve(stdout);
+    });
+
+    proc.on('error', (err) => {
+      reject(new Error(`Failed to launch Chrome: ${err.message}`));
+    });
+  });
 }
 
 export interface NpmPackageInfo {
@@ -65,7 +297,7 @@ export interface NpmPackageInfo {
 /**
  * Simple HTTP/HTTPS fetch that works without external dependencies
  */
-async function simpleFetch(url: string, options: { timeout?: number; maxLength?: number } = {}): Promise<string> {
+async function simpleFetch(url: string, options: { timeout?: number; maxLength?: number; headers?: Record<string, string> } = {}): Promise<string> {
   const timeout = options.timeout ?? 10000;
   const maxLength = options.maxLength ?? 50000;
 
@@ -73,13 +305,15 @@ async function simpleFetch(url: string, options: { timeout?: number; maxLength?:
     const parsedUrl = new URL(url);
     const protocol = parsedUrl.protocol === 'https:' ? https : http;
 
+    const defaultHeaders: Record<string, string> = {
+      'User-Agent': 'Autohand-CLI/1.0 (https://autohand.ai)',
+      'Accept': 'text/html,application/json,text/plain,*/*',
+      'Accept-Language': 'en-US,en;q=0.9'
+    };
+
     const req = protocol.get(url, {
       timeout,
-      headers: {
-        'User-Agent': 'Autohand-CLI/1.0 (https://autohand.ai)',
-        'Accept': 'text/html,application/json,text/plain,*/*',
-        'Accept-Language': 'en-US,en;q=0.9'
-      }
+      headers: options.headers ?? defaultHeaders
     }, (res) => {
       // Handle redirects
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
@@ -146,6 +380,7 @@ function htmlToText(html: string): string {
  * Search the web using the configured search provider
  *
  * Supports:
+ * - Google HTML scraping (no API key, reliable default)
  * - Brave Search API (requires API key)
  * - DuckDuckGo HTML (may be blocked by CAPTCHA)
  * - Parallel.ai Search API (requires API key)
@@ -194,10 +429,89 @@ export async function webSearch(query: string, options: WebSearchOptions = {}): 
       }
       return parallelSearch(enhancedQuery, parallelApiKey, maxResults);
 
+    case 'google':
+      return googleSearch(enhancedQuery, maxResults);
+
     case 'duckduckgo':
     default:
       return duckduckgoSearch(enhancedQuery, maxResults);
   }
+}
+
+/**
+ * Search using Google via headless Chrome (no API key required).
+ * Uses the system Chrome installation to render JS-heavy search pages.
+ * Falls back to HTTP scraping if Chrome is not installed.
+ */
+async function googleSearch(query: string, maxResults: number): Promise<WebSearchResult[]> {
+  const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=${maxResults}&hl=en`;
+
+  // Strategy 1: Headless Chrome (renders JS, most reliable)
+  const chromePath = findChromePath();
+  if (chromePath) {
+    try {
+      const html = await chromeHeadlessFetch(searchUrl, 25000);
+      const results = parseGoogleResultsFromDOM(html, maxResults);
+
+      if (results.length > 0) {
+        return results;
+      }
+
+      // CAPTCHA or empty results — Chrome rendered but Google blocked us
+      if (html.includes('unusual traffic') || html.includes('captcha') || html.includes('g-recaptcha')) {
+        throw new Error(
+          'Google blocked this search with a CAPTCHA. Your IP may be rate-limited. ' +
+          'Configure Brave Search (free 2K queries/month) with /search command: https://brave.com/search/api/'
+        );
+      }
+    } catch (error) {
+      // If Chrome failed entirely, try HTTP fallback
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes('CAPTCHA') || msg.includes('blocked')) {
+        throw error; // Don't retry — IP is flagged
+      }
+      // Chrome launch failure — fall through to HTTP
+    }
+  }
+
+  // Strategy 2: Direct HTTP scraping (works when Google serves non-JS page)
+  try {
+    const html = await simpleFetch(searchUrl, {
+      timeout: 15000,
+      maxLength: 200000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      }
+    });
+
+    // Check for CAPTCHA / block
+    if (html.includes('unusual traffic') || html.includes('captcha') || html.includes('sorry/index')) {
+      throw new Error(
+        'Google blocked this search request. ' +
+        'Configure Brave Search (free 2K queries/month) with /search command: https://brave.com/search/api/'
+      );
+    }
+
+    const results = parseGoogleResultsFromDOM(html, maxResults);
+    if (results.length > 0) {
+      return results;
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg.includes('blocked') || msg.includes('CAPTCHA')) {
+      throw new Error(`Google search failed: ${msg}`);
+    }
+    // HTTP also failed — give a helpful error
+  }
+
+  // Both strategies failed
+  const hasChrome = !!chromePath;
+  throw new Error(
+    `Google search failed: Could not retrieve results${hasChrome ? '' : ' (Chrome not installed)'}. ` +
+    'Configure Brave Search for reliable results: /search → Brave (free 2K queries/month at https://brave.com/search/api/)'
+  );
 }
 
 /**

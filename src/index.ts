@@ -227,7 +227,7 @@ program
   .option('--display-language <locale>', 'Set display language (e.g., en, zh-cn, fr, de, ja)')
   .option('--cc, --context-compact', 'Enable context compaction (default: on)')
   .option('--no-cc, --no-context-compact', 'Disable context compaction')
-  .option('--search-engine <provider>', 'Set web search provider (brave, duckduckgo, parallel)')
+  .option('--search-engine <provider>', 'Set web search provider (google, brave, duckduckgo, parallel)')
   .option('--sys-prompt <value>', 'Replace entire system prompt (inline string or file path)')
   .option('--append-sys-prompt <value>', 'Append to system prompt (inline string or file path)')
   .option('--yolo [pattern]', 'Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)')
@@ -329,10 +329,10 @@ program
     // Map --search-engine flag to searchEngine option
     if ((opts as any).searchEngine) {
       const provider = (opts as any).searchEngine.toLowerCase();
-      if (['brave', 'duckduckgo', 'parallel'].includes(provider)) {
-        opts.searchEngine = provider as 'brave' | 'duckduckgo' | 'parallel';
+      if (['google', 'brave', 'duckduckgo', 'parallel'].includes(provider)) {
+        opts.searchEngine = provider as 'google' | 'brave' | 'duckduckgo' | 'parallel';
       } else {
-        console.error(chalk.red(`Invalid search engine: ${provider}. Valid options: brave, duckduckgo, parallel`));
+        console.error(chalk.red(`Invalid search engine: ${provider}. Valid options: google, brave, duckduckgo, parallel`));
         process.exit(1);
       }
     }
@@ -902,7 +902,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
     // Configure web search provider from CLI flag, config file, or environment
     const searchConfig = config.search ?? {};
     configureSearch({
-      provider: options.searchEngine ?? searchConfig.provider ?? 'duckduckgo',
+      provider: options.searchEngine ?? searchConfig.provider ?? 'google',
       braveApiKey: searchConfig.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY,
       parallelApiKey: searchConfig.parallelApiKey ?? process.env.PARALLEL_API_KEY,
     });
@@ -1233,7 +1233,7 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
   // Configure web search provider
   const searchConfig = config.search ?? {};
   configureSearch({
-    provider: searchConfig.provider ?? 'duckduckgo',
+    provider: searchConfig.provider ?? 'google',
     braveApiKey: searchConfig.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY,
     parallelApiKey: searchConfig.parallelApiKey ?? process.env.PARALLEL_API_KEY,
   });
@@ -1443,7 +1443,7 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
     // Configure web search provider
     const searchConfig = config.search ?? {};
     configureSearch({
-      provider: searchConfig.provider ?? 'duckduckgo',
+      provider: searchConfig.provider ?? 'google',
       braveApiKey: searchConfig.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY,
       parallelApiKey: searchConfig.parallelApiKey ?? process.env.PARALLEL_API_KEY,
     });

@@ -498,11 +498,11 @@ export interface AutohandConfig {
 }
 
 /** Supported web search providers */
-export type SearchProvider = 'brave' | 'duckduckgo' | 'parallel';
+export type SearchProvider = 'brave' | 'duckduckgo' | 'parallel' | 'google';
 
 /** Web search provider settings */
 export interface SearchSettings {
-  /** Active search provider (default: duckduckgo) */
+  /** Active search provider (default: google) */
   provider?: SearchProvider;
   /** Brave Search API key */
   braveApiKey?: string;
@@ -576,7 +576,7 @@ export interface CLIOptions {
   displayLanguage?: string;
   /** Enable/disable context compaction (default: true) */
   contextCompact?: boolean;
-  /** Web search provider (brave, duckduckgo, parallel) */
+  /** Web search provider (google, brave, duckduckgo, parallel) */
   searchEngine?: SearchProvider;
   /** Replace entire system prompt (inline string or file path) */
   sysPrompt?: string;
