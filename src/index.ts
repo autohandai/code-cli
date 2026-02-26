@@ -156,7 +156,24 @@ async function validateAuthOnStartup(config: LoadedConfig): Promise<AuthUser | u
 }
 
 
+function isIgnorableStdinReadError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') {
+    return false;
+  }
+
+  const maybeError = err as {
+    code?: string;
+    syscall?: string;
+    fd?: number;
+  };
+  const stdinFd = typeof process.stdin.fd === 'number' ? process.stdin.fd : 0;
+  return maybeError.code === 'EIO' && maybeError.syscall === 'read' && maybeError.fd === stdinFd;
+}
+
 process.on('uncaughtException', (err) => {
+  if (isIgnorableStdinReadError(err)) {
+    return;
+  }
   (globalThis as any).__autohandLastError = err;
   console.error('[DEBUG] Uncaught Exception:', err);
   process.exit(1);
@@ -165,6 +182,9 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason, promise) => {
   // Ignore readline close errors (happens during exit with Modal prompts)
   if (reason && typeof reason === 'object' && (reason as any).code === 'ERR_USE_AFTER_CLOSE') {
+    return;
+  }
+  if (isIgnorableStdinReadError(reason)) {
     return;
   }
   (globalThis as any).__autohandLastError = reason;

@@ -20,7 +20,7 @@ import { getPlanModeManager } from '../commands/plan.js';
 // ANSI escape sequences
 const ESC = '\x1B';
 const CSI = `${ESC}[`;
-const PROMPT_PLACEHOLDER = 'Plan, search, build anything';
+const PROMPT_PLACEHOLDER = 'Build anything';
 const PROMPT_INPUT_PREFIX = '❯ ';
 const ANSI_PATTERN = /\u001b\[[0-9;]*m/g;
 
@@ -43,7 +43,8 @@ function themedFg(token: ColorToken, text: string, fallback: (value: string) => 
  */
 export class TerminalRegions {
   private isActive = false;
-  private fixedLines = 4; // input top + input line + input bottom + status
+  // activity + input top + input line + input bottom + status
+  private fixedLines = 5;
   private output: NodeJS.WriteStream;
   private resizeHandler: (() => void) | null = null;
   private currentInput = '';
@@ -280,7 +281,7 @@ export class TerminalRegions {
     const promptWidth = this.getPromptWidth(width);
     const prefixColumns = PROMPT_INPUT_PREFIX.length;
     const inputColumns = this.currentInput.length;
-    const cursorColumn = Math.max(1, Math.min(promptWidth, prefixColumns + inputColumns));
+    const cursorColumn = Math.max(1, Math.min(promptWidth, prefixColumns + inputColumns + 1));
     this.output.write(`${CSI}${height - 2};${cursorColumn}H`);
   }
   /**

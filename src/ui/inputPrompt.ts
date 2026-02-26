@@ -244,6 +244,22 @@ export function buildContextualPromptStatusLine(
   return `hot tip: ${primaryTip}`;
 }
 
+const PASTED_REFERENCE_PATTERN = /\[Text pasted:\s*\d+\s+lines\]/;
+
+export function removePastedReferenceFromLine(line: string): { line: string; cursor: number } | null {
+  const match = PASTED_REFERENCE_PATTERN.exec(line);
+  if (!match) {
+    return null;
+  }
+
+  const start = match.index;
+  const end = start + match[0].length;
+  return {
+    line: `${line.slice(0, start)}${line.slice(end)}`,
+    cursor: start,
+  };
+}
+
 export function isShiftTabShortcut(str: string, key: readline.Key | undefined): boolean {
   const sequence = key?.sequence ?? str;
   return (
@@ -421,6 +437,8 @@ interface PasteState {
   isInPaste: boolean;
   /** Accumulated paste content */
   buffer: string;
+  /** Whether readline echo was suppressed for this paste */
+  outputSuppressed: boolean;
   /** Hidden actual content when indicator shown */
   hiddenContent?: string;
   /** Content that was in the line before paste started (prefix to preserve) */
@@ -435,7 +453,45 @@ interface PasteState {
 function createPasteState(): PasteState {
   return {
     isInPaste: false,
-    buffer: ''
+    buffer: '',
+    outputSuppressed: false
+  };
+}
+
+type ReadlineOutputWriter = readline.Interface & { _writeToOutput?: (chunk: string) => void };
+
+export interface ReadlineOutputGuard {
+  setSuppressed: (suppressed: boolean) => void;
+  restore: () => void;
+}
+
+export function installReadlineOutputGuard(rl: readline.Interface): ReadlineOutputGuard {
+  const rlWriter = rl as ReadlineOutputWriter;
+  const originalWriteToOutput = typeof rlWriter._writeToOutput === 'function'
+    ? rlWriter._writeToOutput.bind(rlWriter)
+    : undefined;
+
+  if (!originalWriteToOutput) {
+    return {
+      setSuppressed: () => { },
+      restore: () => { },
+    };
+  }
+
+  let suppressed = false;
+  rlWriter._writeToOutput = (chunk: string) => {
+    if (!suppressed) {
+      originalWriteToOutput(chunk);
+    }
+  };
+
+  return {
+    setSuppressed: (nextSuppressed: boolean) => {
+      suppressed = nextSuppressed;
+    },
+    restore: () => {
+      rlWriter._writeToOutput = originalWriteToOutput;
+    },
   };
 }
 
@@ -927,16 +983,20 @@ function handlePasteComplete(
   // Count newlines to know how many extra prompt lines were printed
   const newlineCount = (pasteState.buffer.match(/\n/g) || []).length;
 
-  // Clear all the extra lines that readline printed during paste
-  // Move cursor up for each newline, clearing as we go
-  for (let i = 0; i < newlineCount; i++) {
-    readline.moveCursor(output, 0, -1); // Move up one line
-    readline.clearLine(output, 0); // Clear that line
-  }
+  // If readline echoed pasted rows, clear that transient output.
+  // When output is suppressed, skip this so we don't move into chat logs.
+  if (!pasteState.outputSuppressed) {
+    // Clear all the extra lines that readline printed during paste
+    // Move cursor up for each newline, clearing as we go
+    for (let i = 0; i < newlineCount; i++) {
+      readline.moveCursor(output, 0, -1); // Move up one line
+      readline.clearLine(output, 0); // Clear that line
+    }
 
-  // Now we're back at the original prompt line - clear it too
-  readline.cursorTo(output, 0);
-  readline.clearLine(output, 0);
+    // Now we're back at the original prompt line - clear it too
+    readline.cursorTo(output, 0);
+    readline.clearLine(output, 0);
+  }
 
   if (display.isPasted) {
     // Large paste: show indicator, store actual content
@@ -955,6 +1015,7 @@ function handlePasteComplete(
 
   // Clear the buffer and prefix
   pasteState.buffer = '';
+  pasteState.outputSuppressed = false;
   pasteState.prefixContent = undefined;
 }
 
@@ -1043,6 +1104,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     const originalRefreshLine = typeof rlInternal._refreshLine === 'function'
       ? rlInternal._refreshLine.bind(rlInternal)
       : undefined;
+    const outputGuard = installReadlineOutputGuard(rl);
 
     const setContextualHelpVisible = (visible: boolean) => {
       if (contextualHelpVisible === visible) {
@@ -1086,6 +1148,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       if (originalRefreshLine) {
         rlInternal._refreshLine = originalRefreshLine;
       }
+      outputGuard.restore();
       if (supportsRawMode && input.isTTY) {
         safeSetRawMode(input, false);
       }
@@ -1204,6 +1267,8 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       if (key?.name === 'paste-start') {
         pasteState.isInPaste = true;
         pasteState.buffer = '';
+        pasteState.outputSuppressed = true;
+        outputGuard.setSuppressed(true);
 
         if (pasteState.timeout) {
           clearTimeout(pasteState.timeout);
@@ -1225,6 +1290,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
 
         if (pasteState.isInPaste) {
           pasteState.isInPaste = false;
+          outputGuard.setSuppressed(false);
           // Process images in the paste buffer BEFORE handlePasteComplete
           // sets rl.line - this is the earliest moment where the temp file
           // is most likely to still exist on disk.
@@ -1258,6 +1324,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         pasteState.timeout = setTimeout(() => {
           if (pasteState.isInPaste && pasteState.buffer) {
             pasteState.isInPaste = false;
+            outputGuard.setSuppressed(false);
             if (onImageDetected) {
               pasteState.buffer = processImagesInText(
                 pasteState.buffer, onImageDetected, { announce: false, output: stdOutput }
@@ -1271,17 +1338,22 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         return; // Don't process normally during paste
       }
 
-      // Backspace on indicator: expand to full content
-      if (key?.name === 'backspace' && pasteState.hiddenContent) {
+      // Backspace/delete on paste indicator: drop reference token from the line.
+      // Users should be able to remove the compact pasted marker without restoring
+      // the full pasted content into the composer.
+      if ((key?.name === 'backspace' || key?.name === 'delete') && pasteState.hiddenContent) {
         const rlAny = rl as readline.Interface & { line: string; cursor: number; _refreshLine?: () => void };
-
-        // Replace indicator with actual content (convert newlines to markers for display)
-        const displayContent = pasteState.hiddenContent.split('\n').join(NEWLINE_MARKER);
-        rlAny.line = displayContent;
-        rlAny.cursor = displayContent.length;
+        const stripped = removePastedReferenceFromLine(rlAny.line ?? '');
+        if (stripped) {
+          rlAny.line = stripped.line;
+          rlAny.cursor = stripped.cursor;
+        } else {
+          rlAny.line = '';
+          rlAny.cursor = 0;
+        }
         pasteState.hiddenContent = undefined;
 
-        // Refresh display with boxed renderer
+        // Refresh display with boxed renderer.
         renderActivePrompt();
         return;
       }

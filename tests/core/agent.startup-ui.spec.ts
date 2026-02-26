@@ -96,6 +96,75 @@ describe('agent startup and active input UI', () => {
     expect(spinner.text).not.toContain('\n');
   });
 
+  it('setUIStatus routes active-turn status to activity row when terminal regions are enabled', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const spinner = {
+      text: 'initial',
+      isSpinning: true,
+      stop: vi.fn(),
+      start: vi.fn(),
+    };
+    const setStatusLine = vi.fn();
+    const setActivityLine = vi.fn();
+    const originalTerminalRegions = process.env.AUTOHAND_TERMINAL_REGIONS;
+    process.env.AUTOHAND_TERMINAL_REGIONS = '1';
+
+    agent.runtime = { spinner };
+    agent.inkRenderer = null;
+    agent.queueInput = '';
+    agent.useInkRenderer = false;
+    agent.persistentInputActiveTurn = true;
+    agent.persistentInput = {
+      getQueueLength: () => 0,
+      setStatusLine,
+      setActivityLine,
+    };
+    agent.contextPercentLeft = 74;
+
+    try {
+      (agent as any).setUIStatus('Composing... (esc to interrupt · 0m 02s · 28.7k tokens)');
+
+      expect(setStatusLine).toHaveBeenCalled();
+      expect(setActivityLine).toHaveBeenCalledTimes(1);
+      expect(String(setActivityLine.mock.calls[0]?.[0] ?? '')).toContain('Composing...');
+      expect(spinner.stop).toHaveBeenCalledTimes(1);
+      expect(spinner.text).toBe('initial');
+    } finally {
+      if (originalTerminalRegions === undefined) {
+        delete process.env.AUTOHAND_TERMINAL_REGIONS;
+      } else {
+        process.env.AUTOHAND_TERMINAL_REGIONS = originalTerminalRegions;
+      }
+    }
+  });
+
+  it('ensureSpinnerRunning does not restart ora while terminal regions are active', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const spinner = {
+      isSpinning: false,
+      start: vi.fn(),
+      stop: vi.fn(),
+    };
+    const originalTerminalRegions = process.env.AUTOHAND_TERMINAL_REGIONS;
+    process.env.AUTOHAND_TERMINAL_REGIONS = '1';
+
+    agent.runtime = { spinner };
+    agent.useInkRenderer = false;
+    agent.persistentInputActiveTurn = true;
+
+    try {
+      (agent as any).ensureSpinnerRunning();
+      expect(spinner.start).not.toHaveBeenCalled();
+      expect(spinner.stop).not.toHaveBeenCalled();
+    } finally {
+      if (originalTerminalRegions === undefined) {
+        delete process.env.AUTOHAND_TERMINAL_REGIONS;
+      } else {
+        process.env.AUTOHAND_TERMINAL_REGIONS = originalTerminalRegions;
+      }
+    }
+  });
+
   it('startPreparationStatus renders single-line status during preparation', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const spinner = { text: '' };
