@@ -35,6 +35,7 @@ import {
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
 import { getAutoCommitInfo } from '../actions/git.js';
 import { filterToolsByRelevance } from './toolFilter.js';
+import { isSearchConfigured } from '../actions/web.js';
 import { SLASH_COMMANDS } from './slashCommands.js';
 import { ConversationManager } from './conversationManager.js';
 import { ContextManager } from './contextManager.js';
@@ -1168,8 +1169,6 @@ If lint or tests fail, report the issues but do NOT commit.`;
           await this.telemetryManager.trackCommand({ command: instruction.split(' ')[0] });
         }
 
-        this.printUserInstructionToChatLog(instruction);
-
         // Reset error tracking on successful prompt
         this.lastErrorMessage = null;
         this.consecutiveErrorCount = 0;
@@ -1667,6 +1666,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
       this.persistentInputActiveTurn = false;
     }
 
+    // Print user instruction AFTER persistent input is started so it
+    // renders inside the scroll region (not overwritten by the fixed region).
+    this.printUserInstructionToChatLog(instruction);
+
     // Only one input owner should handle interrupts:
     // InkRenderer, PersistentInput, or fallback ESC listener.
     const handleCancel = () => {
@@ -1966,7 +1969,17 @@ If lint or tests fail, report the issues but do NOT commit.`;
       : (this.runtime.config.agent?.maxIterations ?? 100);
 
     // Get all function definitions for native tool calling
-    const allTools = this.toolManager.toFunctionDefinitions();
+    let allTools = this.toolManager.toFunctionDefinitions();
+
+    // Gate web tools: only offer web_search/fetch_url/web_repo when a
+    // reliable search provider is configured (Brave/Parallel with API key,
+    // or Google). DuckDuckGo (the default) is unreliable and causes the LLM
+    // to get stuck in retry loops.
+    if (!isSearchConfigured()) {
+      const WEB_TOOLS = new Set(['web_search', 'fetch_url', 'web_repo']);
+      allTools = allTools.filter(t => !WEB_TOOLS.has(t.name));
+    }
+
     if (debugMode) process.stderr.write(`[AGENT DEBUG] Loaded ${allTools.length} tools, maxIterations=${maxIterations}\n`);
 
     // Start status updates for the main loop
@@ -1977,12 +1990,14 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const identicalCallHardLimit = 6;
     const identicalCallAndResultLimit = 3;
     const forceNoToolsViolationLimit = 2;
+    const perToolFailureLimit = 2; // Max consecutive failures for same tool (regardless of args)
     let lastToolCallSignature = '';
     let identicalToolCallCount = 0;
     let lastToolResultSignature = '';
     let identicalToolResultCount = 0;
     let forceNoToolsUntilResponse = false;
     let forceNoToolsViolationCount = 0;
+    const toolConsecutiveFailures = new Map<string, number>();
 
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
       // Check for abort at the start of each iteration
@@ -2313,6 +2328,27 @@ If lint or tests fail, report the issues but do NOT commit.`;
               `Instead, ask the user how they would like to proceed, or suggest an alternative approach. ` +
               `If there is nothing else to do, provide your final response.`
             );
+          }
+
+          // Track per-tool consecutive failures (catches loops where LLM varies args but same tool keeps failing)
+          for (const result of results) {
+            if (!result.success) {
+              const count = (toolConsecutiveFailures.get(result.tool) ?? 0) + 1;
+              toolConsecutiveFailures.set(result.tool, count);
+              if (count >= perToolFailureLimit) {
+                const errorSnippet = (result.error ?? result.output ?? '').slice(0, 200);
+                this.conversation.addSystemNote(
+                  `[Tool Failure Guard] The "${result.tool}" tool has failed ${count} times consecutively. ` +
+                  `Latest error: ${errorSnippet}\n` +
+                  `STOP using "${result.tool}". Do NOT retry it with different arguments. Instead:\n` +
+                  `- If you can answer from your own knowledge, provide a finalResponse directly.\n` +
+                  `- If the tool requires configuration (e.g., API key, provider), tell the user what to configure.\n` +
+                  `- If the task cannot be completed without this tool, explain the limitation to the user.`
+                );
+              }
+            } else {
+              toolConsecutiveFailures.delete(result.tool);
+            }
           }
 
           // Detect repeated ask_followup_question cancellations — force the LLM to stop asking
@@ -3116,6 +3152,13 @@ If lint or tests fail, report the issues but do NOT commit.`;
       '  Do NOT write "let me update X" in finalResponse without the actual tool call.',
       '- Never include markdown fences (```json) around the JSON.',
       '- Never hallucinate tools that do not exist.',
+      '',
+      '### Tool Failure Handling',
+      'When a tool fails, do NOT retry the same tool with different arguments. Instead:',
+      '1. If the task is simple (jokes, general knowledge, explanations, opinions) — answer directly from your own knowledge without tools.',
+      '2. If the tool requires configuration (e.g., web_search needs a search provider API key), tell the user what to configure and answer from your own knowledge if possible.',
+      '3. If the tool failure is transient (timeout, network error), you may retry ONCE with the exact same arguments. Do not rephrase and retry.',
+      '4. After ANY tool failure, prefer providing a direct finalResponse over calling more tools.',
       '',
       '### Tool Call Examples',
       'Always include ALL required parameters. Here are correct examples:',

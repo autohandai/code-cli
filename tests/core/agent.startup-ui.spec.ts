@@ -649,6 +649,7 @@ describe('agent startup and active input UI', () => {
     agent.useInkRenderer = false;
     agent.persistentInputActiveTurn = false;
     agent.promptSeedInput = '';
+    agent.printUserInstructionToChatLog = vi.fn();
 
     try {
       Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
@@ -662,6 +663,12 @@ describe('agent startup and active input UI', () => {
       expect(cleanupBridge).toHaveBeenCalledTimes(1);
       expect(cleanupEsc).toHaveBeenCalledTimes(1);
       expect(stopPreparation).toHaveBeenCalled();
+      // User instruction must be printed AFTER persistent input starts
+      // so it renders inside the scroll region (not overwritten by fixed region)
+      expect(agent.printUserInstructionToChatLog).toHaveBeenCalledWith('hello');
+      const startOrder = agent.persistentInput.start.mock.invocationCallOrder[0];
+      const printOrder = agent.printUserInstructionToChatLog.mock.invocationCallOrder[0];
+      expect(printOrder).toBeGreaterThan(startOrder);
     } finally {
       if (stdoutDescriptor) {
         Object.defineProperty(process.stdout, 'isTTY', stdoutDescriptor);
