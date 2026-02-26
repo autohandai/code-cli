@@ -7,8 +7,10 @@ import chalk from 'chalk';
 import fs from 'fs-extra';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
-import { format as formatText } from 'node:util';
+import { execFile, spawnSync } from 'node:child_process';
+import { format as formatText, promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 import ora from 'ora';
 import { showModal, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 import readline from 'node:readline';
@@ -152,6 +154,7 @@ export class AutohandAgent {
   private teamManager: TeamManager;
   private suggestionEngine: SuggestionEngine | null = null;
   private pendingSuggestion: Promise<void> | null = null;
+  private isStartupSuggestion = false;
 
   private taskStartedAt: number | null = null;
   private totalTokensUsed = 0;
@@ -890,6 +893,30 @@ export class AutohandAgent {
     // When they submit, we await initReady before processing.
     this.initReady = this.performBackgroundInit();
 
+    // Fire startup suggestion LLM call immediately so the first prompt
+    // shows contextual ghost text. Git context is gathered asynchronously
+    // and the LLM call runs fully in the background.
+    // promptForInstruction() awaits this with a 5s startup deadline,
+    // then falls back to no suggestion if the call hasn't resolved.
+    if (this.suggestionEngine) {
+      const engine = this.suggestionEngine;
+      const workspaceRoot = this.runtime.workspaceRoot;
+      const collector = this.workspaceFileCollector;
+      this.isStartupSuggestion = true;
+      this.pendingSuggestion = (async () => {
+        const [gitStatusResult, gitLogResult] = await Promise.all([
+          execFileAsync('git', ['status', '-sb'], { cwd: workspaceRoot, encoding: 'utf8' }).catch(() => null),
+          execFileAsync('git', ['log', '--oneline', '-5'], { cwd: workspaceRoot, encoding: 'utf8' }).catch(() => null),
+        ]);
+        const recentFiles = collector.getCachedFiles().slice(0, 20);
+        await engine.generateFromProjectContext({
+          gitStatus: gitStatusResult?.stdout.trim() || undefined,
+          recentCommits: gitLogResult?.stdout.trim() || undefined,
+          recentFiles,
+        });
+      })();
+    }
+
     // Show prompt immediately - don't wait for init
     await this.runInteractiveLoop();
   }
@@ -1464,15 +1491,19 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const statusLine = this.formatStatusLine();
     const initialValue = this.promptSeedInput;
     this.promptSeedInput = '';
-    // Wait for the pending suggestion LLM call to finish (max 1.5s).
-    // The call was started right after the previous turn completed and runs
-    // concurrently with hooks/notifications, so it's usually already done.
+    // Wait for the pending suggestion LLM call to finish.
+    // Startup gets a longer deadline (5s) since the first API call is cold
+    // and the user is still reading the banner. Subsequent prompts use 1.5s
+    // because the LLM call ran concurrently with the previous turn's output.
     if (this.pendingSuggestion) {
-      const deadline = new Promise<void>((r) => setTimeout(r, 1500));
+      const deadlineMs = this.isStartupSuggestion ? 5000 : 1500;
+      this.isStartupSuggestion = false;
+      const deadline = new Promise<void>((r) => setTimeout(r, deadlineMs));
       await Promise.race([this.pendingSuggestion, deadline]).catch(() => {});
       this.pendingSuggestion = null;
     }
     const suggestionText = this.suggestionEngine?.getSuggestion() ?? undefined;
+    this.suggestionEngine?.clear();
     const input = await readInstruction(
       workspaceFiles,
       SLASH_COMMANDS,

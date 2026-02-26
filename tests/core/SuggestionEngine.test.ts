@@ -17,12 +17,8 @@ function createMockProvider(response = 'Run the test suite'): LLMProvider {
       raw: {},
     }),
     listModels: vi.fn().mockResolvedValue([]),
-    getModel: vi.fn().mockReturnValue('mock-model'),
+    isAvailable: vi.fn().mockResolvedValue(true),
     setModel: vi.fn(),
-    supportsTools: vi.fn().mockReturnValue(false),
-    supportsStreaming: vi.fn().mockReturnValue(false),
-    getProviderSettings: vi.fn().mockReturnValue({}),
-    supportsThinking: vi.fn().mockReturnValue(false),
   } as unknown as LLMProvider;
 }
 
@@ -54,9 +50,11 @@ describe('SuggestionEngine', () => {
     expect(provider.complete).toHaveBeenCalledWith(
       expect.objectContaining({
         maxTokens: 60,
-        tools: undefined,
       })
     );
+    // Verify tools is not passed (omitted, not explicitly undefined)
+    const call = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call).not.toHaveProperty('tools');
   });
 
   it('should clear the suggestion', async () => {
@@ -115,5 +113,60 @@ describe('SuggestionEngine', () => {
     const call = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0][0];
     // System prompt + last 6 messages (3 turns)
     expect(call.messages.length).toBeLessThanOrEqual(7);
+  });
+
+  describe('generateFromProjectContext', () => {
+    it('should generate a suggestion from git status and recent files', async () => {
+      const contextProvider = createMockProvider('Review the 3 uncommitted files');
+      const contextEngine = new SuggestionEngine(contextProvider);
+      await contextEngine.generateFromProjectContext({
+        gitStatus: '## main\n M src/index.ts\n M src/config.ts\n?? new-file.ts',
+        recentFiles: ['src/index.ts', 'src/config.ts', 'package.json'],
+      });
+      expect(contextEngine.getSuggestion()).toBe('Review the 3 uncommitted files');
+    });
+
+    it('should include recent commits in the LLM prompt', async () => {
+      await engine.generateFromProjectContext({
+        gitStatus: '## main',
+        recentCommits: 'abc1234 feat: add auth module\ndef5678 fix: login redirect',
+        recentFiles: ['src/auth.ts'],
+      });
+      const call = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const userMessage = call.messages[1].content;
+      expect(userMessage).toContain('Recent commits:');
+      expect(userMessage).toContain('feat: add auth module');
+    });
+
+    it('should return null when no project context is available', async () => {
+      await engine.generateFromProjectContext({
+        recentFiles: [],
+      });
+      expect(engine.getSuggestion()).toBeNull();
+      // Should not call LLM when there is no context
+      expect(provider.complete).not.toHaveBeenCalled();
+    });
+
+    it('should use startup-specific system prompt', async () => {
+      await engine.generateFromProjectContext({
+        gitStatus: '## main\n M src/index.ts',
+        recentFiles: ['src/index.ts'],
+      });
+      const call = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const systemMessage = call.messages[0].content;
+      expect(systemMessage).toContain('project context');
+      expect(systemMessage).not.toContain('recent conversation');
+    });
+
+    it('should handle LLM errors gracefully', async () => {
+      const errorProvider = createMockProvider();
+      (errorProvider.complete as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('API down'));
+      const errorEngine = new SuggestionEngine(errorProvider);
+      await errorEngine.generateFromProjectContext({
+        gitStatus: '## main',
+        recentFiles: ['src/index.ts'],
+      });
+      expect(errorEngine.getSuggestion()).toBeNull();
+    });
   });
 });
