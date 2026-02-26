@@ -969,6 +969,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
   // Initialize paste state for bracketed paste detection
   const pasteState = createPasteState();
   let contextualHelpVisible = false;
+  let renderedContextualHelpLines = 0;
 
   const applyPlanModePrefix = (line: string): string => {
     const planPrefix = getPlanModeManager().isEnabled() ? 'plan:on' : 'plan:off';
@@ -990,6 +991,16 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       };
     }
     return applyPlanModePrefix(statusLine ?? '');
+  };
+
+  const getActiveContextualHelpLines = (): string[] => {
+    if (!contextualHelpVisible) {
+      return [];
+    }
+    const rlAny = rl as readline.Interface & { line?: string };
+    const currentLine = rlAny.line ?? '';
+    const width = getPromptBlockWidth(stdOutput.columns);
+    return buildContextualHelpPanelLines(currentLine, width, files, slashCommands);
   };
 
   const renderPromptSurface = (isResize = false, hasExistingPromptBlock = true): void => {
