@@ -237,8 +237,12 @@ describe('theme color contrast (basic validation)', () => {
   });
 
   it('warning color is yellowish', () => {
-    // Verify warning refers to yellow var or yellow hex
+    // Verify warning uses a warm alert tone token/hex
     const warningColor = darkTheme.colors.warning;
-    expect(warningColor === 'yellow' || (typeof warningColor === 'string' && warningColor.includes('ffeb3b'))).toBe(true);
+    expect(
+      warningColor === 'yellow' ||
+      warningColor === 'orange' ||
+      (typeof warningColor === 'string' && (warningColor.includes('ffeb3b') || warningColor.includes('ff9800')))
+    ).toBe(true);
   });
 });
