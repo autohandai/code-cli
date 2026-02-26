@@ -100,7 +100,8 @@ export async function loadConfig(customPath?: string): Promise<LoadedConfig> {
       },
       ui: {
         theme: 'dark',
-        autoConfirm: false
+        autoConfirm: false,
+        promptSuggestions: true
       },
       telemetry: {
         enabled: false
@@ -169,7 +170,8 @@ function normalizeConfig(config: AutohandConfig | LegacyConfigShape): AutohandCo
       },
       ui: {
         autoConfirm: config.dry_run ?? false,
-        theme: 'dark'
+        theme: 'dark',
+        promptSuggestions: true
       }
     };
   }
@@ -211,6 +213,9 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
     }
     if (config.ui.autoConfirm !== undefined && typeof config.ui.autoConfirm !== 'boolean') {
       throw new Error(`ui.autoConfirm must be boolean in ${configPath}`);
+    }
+    if (config.ui.promptSuggestions !== undefined && typeof config.ui.promptSuggestions !== 'boolean') {
+      throw new Error(`ui.promptSuggestions must be boolean in ${configPath}`);
     }
   }
 
