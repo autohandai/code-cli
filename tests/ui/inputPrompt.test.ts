@@ -168,6 +168,42 @@ describe('pasted reference helpers', () => {
   });
 });
 
+describe('renderPromptLine cursor positioning', () => {
+  function createMockRl(line: string, cursor: number) {
+    return {
+      line,
+      cursor,
+      setPrompt: vi.fn(),
+    } as unknown as readline.Interface;
+  }
+
+  function createMockOutputStream(): NodeJS.WriteStream & { _writes: string[]; _cursorTo: number[] } {
+    const stream = new EventEmitter() as NodeJS.WriteStream & { _writes: string[]; _cursorTo: number[] };
+    stream._writes = [];
+    stream._cursorTo = [];
+    (stream as any).columns = 120;
+    (stream as any).write = (chunk: string | Buffer) => {
+      stream._writes.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
+      return true;
+    };
+    return stream;
+  }
+
+  it('cursor position matches buildPromptRenderState without extra offset', async () => {
+    const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
+
+    // "the" typed → prefix (2) + 3 chars = cursor at column 5
+    const state = buildPromptRenderState('the', 3, 80);
+    expect(state.cursorColumn).toBe(5);
+
+    // drawInputBox does NOT render │ side borders — it only applies
+    // chalk background color. Therefore renderPromptLine must NOT add
+    // +1 to the cursor column.
+    // If this test fails it means an erroneous +1 offset was added back.
+    expect(state.cursorColumn).toBe(5); // NOT 6
+  });
+});
+
 describe('Prompt surface teardown', () => {
   function createMockOutput(): NodeJS.WriteStream {
     const stream = new EventEmitter() as NodeJS.WriteStream;

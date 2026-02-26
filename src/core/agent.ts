@@ -1490,15 +1490,13 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const statusLine = this.formatStatusLine();
     const initialValue = this.promptSeedInput;
     this.promptSeedInput = '';
-    // Wait for the pending suggestion LLM call to finish.
-    // Startup gets a longer deadline (5s) since the first API call is cold
-    // and the user is still reading the banner. Subsequent prompts use 1.5s
-    // because the LLM call ran concurrently with the previous turn's output.
+    // Check for a ready suggestion without blocking the prompt.
+    // On startup the LLM call may still be in-flight; grab any result that
+    // resolved early but never wait — the prompt must render instantly.
+    // For subsequent prompts the suggestion ran during the previous turn
+    // and is usually ready; if not, the default placeholder is shown.
     if (this.pendingSuggestion) {
-      const deadlineMs = this.isStartupSuggestion ? 5000 : 1500;
       this.isStartupSuggestion = false;
-      const deadline = new Promise<void>((r) => setTimeout(r, deadlineMs));
-      await Promise.race([this.pendingSuggestion, deadline]).catch(() => {});
       this.pendingSuggestion = null;
     }
     const suggestionText = this.suggestionEngine?.getSuggestion() ?? undefined;
@@ -1841,7 +1839,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
         canceledByUser = true;
         this.stopStatusUpdates();
         this.stopUI();
-        console.log('\n' + chalk.yellow('Request canceled by user (ESC).'));
+        // Don't console.log here — terminal regions may still be active,
+        // which routes output through writeAbove and corrupts the composer.
+        // The cancel message is printed in the finally block after cleanup.
       }
     }, canUsePersistentInput);
 
@@ -1875,7 +1875,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
         canceledByUser = true;
         this.stopStatusUpdates();
         this.stopUI();
-        console.log('\n' + chalk.yellow('Request canceled by user (ESC).'));
+        // Don't console.log here — terminal regions may still be active,
+        // which routes output through writeAbove and corrupts the composer.
+        // The cancel message is printed in the finally block after cleanup.
       }
     };
 
@@ -1992,6 +1994,12 @@ If lint or tests fail, report the issues but do NOT commit.`;
       if (this.persistentInputActiveTurn && !keepPersistentInputForNextTurn) {
         this.persistentInput.stop();
         this.persistentInputActiveTurn = false;
+      }
+
+      // Print the cancel message AFTER terminal regions are torn down so it
+      // goes to normal stdout instead of being routed through writeAbove.
+      if (canceledByUser && !this.useInkRenderer) {
+        console.log('\n' + chalk.yellow('Request canceled by user (ESC).'));
       }
 
       // Ensure the cursor is on a fresh blank line after cleanup so the next
