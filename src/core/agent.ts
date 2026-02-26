@@ -531,9 +531,9 @@ export class AutohandAgent {
     this.useInkRenderer = runtime.config.ui?.useInkRenderer === true;
 
     // Initialize persistent input for queuing messages while agent works.
-    // Default to silent mode so scrollback/chat logs are never impacted by
-    // terminal scroll-region behavior. Full region mode remains opt-in.
-    const enableTerminalRegions = process.env.AUTOHAND_TERMINAL_REGIONS === '1';
+    // Default to terminal regions so the boxed composer stays visible during
+    // active turns. AUTOHAND_TERMINAL_REGIONS=0 opts out to silent mode.
+    const enableTerminalRegions = process.env.AUTOHAND_TERMINAL_REGIONS !== '0';
     this.persistentInput = createPersistentInput({
       maxQueueSize: 10,
       silentMode: !enableTerminalRegions
@@ -1655,6 +1655,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
     if (shouldUsePersistentInput) {
       this.persistentInput.start();
       this.persistentInputActiveTurn = true;
+      if (this.isUsingTerminalRegionsForActiveTurn() && this.runtime.spinner?.isSpinning) {
+        this.runtime.spinner.stop();
+      }
       if (this.promptSeedInput && !this.persistentInput.getCurrentInput()) {
         this.persistentInput.setCurrentInput(this.promptSeedInput);
         this.promptSeedInput = '';
@@ -2056,9 +2059,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       }
 
       // Keep spinner active without switching to a non-boxed status renderer.
-      if (this.runtime.spinner && !this.runtime.spinner.isSpinning) {
-        this.runtime.spinner.start();
-      }
+      this.ensureSpinnerRunning();
       if (!this.inkRenderer) {
         this.forceRenderSpinner();
       }
@@ -4650,6 +4651,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const statusLine = `${verb}... (esc to interrupt · ${elapsed} · ${tokens}${queueHint})`;
     const footerLine = this.formatStatusLine();
     this.persistentInput.setStatusLine(footerLine);
+    const usingTerminalRegions = this.isUsingTerminalRegionsForActiveTurn();
 
     if (this.inkRenderer) {
       // InkRenderer handles its own state updates
@@ -4659,17 +4661,25 @@ If lint or tests fail, report the issues but do NOT commit.`;
       return;
     }
 
-    if (!this.runtime.spinner) return;
-
     const promptWidth = getPromptBlockWidth(process.stdout.columns);
-    const fullText = this.buildSpinnerStatusText(statusLine, footerLine);
     const footerText = this.formatSpinnerFooter(footerLine);
+    const cacheKey = `${statusLine}|${footerText}|${promptWidth}|${usingTerminalRegions ? 'regions' : 'spinner'}`;
 
     // Only update if something actually changed
-    const cacheKey = `${statusLine}|${footerText}|${promptWidth}`;
     if (cacheKey === this.lastRenderedStatus) return;
     this.lastRenderedStatus = cacheKey;
 
+    if (usingTerminalRegions) {
+      if (this.runtime.spinner?.isSpinning) {
+        this.runtime.spinner.stop();
+      }
+      this.setPersistentInputActivityLine(statusLine);
+      return;
+    }
+
+    if (!this.runtime.spinner) return;
+
+    const fullText = this.buildSpinnerStatusText(statusLine, footerLine);
     this.runtime.spinner.text = fullText;
   }
 
@@ -4711,11 +4721,22 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private setSpinnerStatus(status: string): void {
+    const footerLine = this.formatStatusLine();
+    this.persistentInput.setStatusLine(footerLine);
+
+    if (this.isUsingTerminalRegionsForActiveTurn()) {
+      if (this.runtime.spinner?.isSpinning) {
+        this.runtime.spinner.stop();
+      }
+      this.setPersistentInputActivityLine(status);
+      return;
+    }
+
     if (!this.runtime.spinner) {
       return;
     }
 
-    this.runtime.spinner.text = this.buildSpinnerStatusText(status, this.formatStatusLine());
+    this.runtime.spinner.text = this.buildSpinnerStatusText(status, footerLine);
   }
 
   private startStatusUpdates(): void {
@@ -4743,7 +4764,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
         this.lastRenderedStatus = '';
         if (this.runtime.spinner?.isSpinning) {
           this.runtime.spinner.stop();
-          this.runtime.spinner.start();
+          if (!this.isUsingTerminalRegionsForActiveTurn()) {
+            this.runtime.spinner.start();
+          }
         }
         this.forceRenderSpinner();
       };
@@ -4756,10 +4779,51 @@ If lint or tests fail, report the issues but do NOT commit.`;
       clearInterval(this.statusInterval);
       this.statusInterval = null;
     }
+    if (this.isUsingTerminalRegionsForActiveTurn()) {
+      this.setPersistentInputActivityLine('');
+    }
     if (this.resizeHandler) {
       process.stdout.off('resize', this.resizeHandler);
       this.resizeHandler = null;
     }
+  }
+
+  private isUsingTerminalRegionsForActiveTurn(): boolean {
+    return this.persistentInputActiveTurn &&
+      process.env.AUTOHAND_TERMINAL_REGIONS !== '0' &&
+      !this.useInkRenderer;
+  }
+
+  private setPersistentInputActivityLine(activity: string): void {
+    const persistentInputWithActivity = this.persistentInput as {
+      setActivityLine?: (value: string) => void;
+    } | undefined;
+    persistentInputWithActivity?.setActivityLine?.(activity);
+  }
+
+  private ensureSpinnerRunning(): void {
+    if (!this.runtime.spinner) {
+      return;
+    }
+    if (this.isUsingTerminalRegionsForActiveTurn()) {
+      if (this.runtime.spinner.isSpinning) {
+        this.runtime.spinner.stop();
+      }
+      return;
+    }
+    if (!this.runtime.spinner.isSpinning) {
+      this.runtime.spinner.start();
+    }
+  }
+
+  private resumeSpinnerAfterModalPause(): void {
+    if (!this.runtime.spinner) {
+      return;
+    }
+    if (this.isUsingTerminalRegionsForActiveTurn()) {
+      return;
+    }
+    this.runtime.spinner.start();
   }
 
   private updateContextUsage(messages: LLMMessage[], tools?: any[]): void {
@@ -5061,7 +5125,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       this.persistentInput.resume();
 
       if (spinnerWasSpinning && this.runtime.spinner) {
-        this.runtime.spinner.start();
+        this.resumeSpinnerAfterModalPause();
       }
 
       this.startStatusUpdates();
@@ -5128,7 +5192,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       this.persistentInput.resume();
 
       if (spinnerWasSpinning && this.runtime.spinner) {
-        this.runtime.spinner.start();
+        this.resumeSpinnerAfterModalPause();
       }
 
       this.startStatusUpdates();
@@ -5235,7 +5299,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       this.persistentInput.resume();
 
       if (spinnerWasSpinning && this.runtime.spinner) {
-        this.runtime.spinner.start();
+        this.resumeSpinnerAfterModalPause();
       }
 
       this.startStatusUpdates();

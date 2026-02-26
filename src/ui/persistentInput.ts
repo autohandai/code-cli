@@ -199,6 +199,16 @@ export class PersistentInput extends EventEmitter {
   }
 
   /**
+   * Update the activity line above the boxed input composer.
+   */
+  setActivityLine(activity: string): void {
+    if (!this.isActive || this.isPaused || this.silentMode) {
+      return;
+    }
+    this.regions.updateActivity(activity);
+  }
+
+  /**
    * Check if there are queued messages
    */
   hasQueued(): boolean {
