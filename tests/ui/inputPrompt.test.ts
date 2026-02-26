@@ -78,6 +78,41 @@ describe('safeEmitKeypressEvents', () => {
   });
 });
 
+describe('installReadlineOutputGuard', () => {
+  it('suppresses and restores readline output writes', async () => {
+    const { installReadlineOutputGuard } = await import('../../src/ui/inputPrompt.js');
+
+    const writes: string[] = [];
+    const rlLike = {
+      _writeToOutput: (chunk: string) => {
+        writes.push(chunk);
+      },
+    } as unknown as readline.Interface;
+
+    const guard = installReadlineOutputGuard(rlLike);
+
+    (rlLike as any)._writeToOutput('before');
+    guard.setSuppressed(true);
+    (rlLike as any)._writeToOutput('hidden');
+    guard.setSuppressed(false);
+    (rlLike as any)._writeToOutput('after');
+    guard.restore();
+    (rlLike as any)._writeToOutput('restored');
+
+    expect(writes).toEqual(['before', 'after', 'restored']);
+  });
+
+  it('returns no-op guard when readline has no writer hook', async () => {
+    const { installReadlineOutputGuard } = await import('../../src/ui/inputPrompt.js');
+
+    const rlLike = {} as readline.Interface;
+    const guard = installReadlineOutputGuard(rlLike);
+
+    expect(() => guard.setSuppressed(true)).not.toThrow();
+    expect(() => guard.restore()).not.toThrow();
+  });
+});
+
 describe('Display content utilities', () => {
   it('should calculate display content with truncation', async () => {
     const { getDisplayContent } = await import('../../src/ui/inputPrompt.js');
@@ -109,6 +144,27 @@ describe('Display content utilities', () => {
     expect(convertNewlineMarkersToNewlines('hello')).toBe('hello');
     expect(convertNewlineMarkersToNewlines(`hello${NEWLINE_MARKER}world`)).toBe('hello\nworld');
     expect(convertNewlineMarkersToNewlines(`a${NEWLINE_MARKER}b${NEWLINE_MARKER}c`)).toBe('a\nb\nc');
+  });
+});
+
+describe('pasted reference helpers', () => {
+  it('removes compact pasted reference token and keeps surrounding text', async () => {
+    const { removePastedReferenceFromLine } = await import('../../src/ui/inputPrompt.js');
+
+    const result = removePastedReferenceFromLine('fix this [Text pasted: 283 lines] now');
+
+    expect(result).toEqual({
+      line: 'fix this  now',
+      cursor: 9,
+    });
+  });
+
+  it('returns null when no compact pasted reference token exists', async () => {
+    const { removePastedReferenceFromLine } = await import('../../src/ui/inputPrompt.js');
+
+    const result = removePastedReferenceFromLine('plain text');
+
+    expect(result).toBeNull();
   });
 });
 
