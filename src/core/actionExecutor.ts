@@ -220,7 +220,7 @@ export class ActionExecutor {
 
         // Only offer resume of incomplete plans when user explicitly entered plan mode
         // (via /plan or Shift+Tab). When the LLM calls the plan tool on its own during
-        // normal conversation, always create a fresh plan — don't interrupt with stale plans.
+        // normal conversation, always create a fresh plan - don't interrupt with stale plans.
         const planModeManager = getPlanModeManager();
         if (planModeManager.isEnabled() && this.onAskFollowup) {
           const refreshedPlanIds = await storage.listPlans();

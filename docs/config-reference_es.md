@@ -631,6 +631,8 @@ Estos flags sobrescriben la configuración del archivo:
 |------|-------------|
 | `--model <modelo>` | Sobrescribir modelo |
 | `--path <ruta>` | Sobrescribir raíz del espacio de trabajo |
+| `--worktree [nombre]` | Ejecutar sesión en un git worktree aislado (nombre opcional de worktree/rama) |
+| `--tmux` | Iniciar en una sesión tmux dedicada (implica `--worktree`; no se puede usar con `--no-worktree`) |
 | `--add-dir <ruta>` | Agregar directorios adicionales al alcance del espacio de trabajo (se puede usar múltiples veces) |
 | `--config <ruta>` | Usar archivo de configuración personalizado |
 | `--temperature <n>` | Establecer temperatura (0-1) |

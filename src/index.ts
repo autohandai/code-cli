@@ -5,7 +5,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import fs from 'fs-extra';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import readline from 'node:readline';
 import packageJson from '../package.json' with { type: 'json' };
 import { getProviderConfig, loadConfig, resolveWorkspaceRoot, saveConfig } from './config.js';
@@ -19,6 +19,8 @@ import { initPingService, startPingService, stopPingService } from './telemetry/
 import { detectStdinType, readPipedStdin } from './utils/stdinDetector.js';
 import { buildPipePrompt } from './modes/pipeMode.js';
 import { PROJECT_DIR_NAME } from './constants.js';
+import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessionWorktree.js';
+import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './utils/tmux.js';
 
 /**
  * Get git commit hash (short)
@@ -209,6 +211,8 @@ program
   .option('--patch', 'Generate git patch without applying changes (requires --prompt)', false)
   .option('--output <file>', 'Output file for patch (default: stdout, used with --patch)')
   .option('--mode <mode>', 'Run mode: interactive (default), rpc, or acp', 'interactive')
+  .option('--worktree [name]', 'Run session in isolated git worktree (optional name)')
+  .option('--tmux', 'Launch in a dedicated tmux session (implies --worktree)')
   // Auto-mode options
   .option('--auto-mode <prompt>', 'Start autonomous development loop with the given task')
   .option('--max-iterations <n>', 'Max auto-mode iterations (default: 50)', parseInt)
@@ -228,11 +232,28 @@ program
   .option('--append-sys-prompt <value>', 'Append to system prompt (inline string or file path)')
   .option('--yolo [pattern]', 'Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)')
   .option('--timeout <seconds>', 'Timeout in seconds for auto-approve mode', parseInt)
-  .action(async (positionalPrompt: string | undefined, opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean; setup?: boolean; about?: boolean; syncSettings?: string | boolean; cc?: boolean; searchEngine?: string }) => {
+  .action(async (positionalPrompt: string | undefined, opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean | string; tmux?: boolean; setup?: boolean; about?: boolean; syncSettings?: string | boolean; cc?: boolean; searchEngine?: string }) => {
     // Positional argument acts as prompt (e.g. autohand 'explain this')
     // -p/--prompt flag takes precedence if both are provided
     if (positionalPrompt && !opts.prompt) {
       opts.prompt = positionalPrompt;
+    }
+
+    // tmux sessions are intended to run with isolated worktrees by default.
+    // Respect explicit --no-worktree (opts.worktree === false) as invalid with --tmux.
+    if (isTmuxEnabled(opts.tmux)) {
+      if (opts.worktree === false) {
+        console.error(chalk.red('--tmux cannot be used with --no-worktree'));
+        process.exit(1);
+      }
+      if (opts.worktree === undefined) {
+        opts.worktree = true;
+      }
+    }
+
+    // Launch in tmux first (single-hop; child continues with AUTOHAND_TMUX_LAUNCHED=1)
+    if (isTmuxEnabled(opts.tmux) && launchInTmuxIfRequested(opts)) {
+      return;
     }
 
     // Handle --skill-install flag
@@ -322,7 +343,7 @@ program
       return;
     }
 
-    // Native ACP mode — in-process Agent Client Protocol over stdio
+    // Native ACP mode - in-process Agent Client Protocol over stdio
     if (opts.mode === 'acp') {
       await runAcpMode(opts);
       return;
@@ -653,7 +674,9 @@ program
 async function runCLI(options: CLIOptions): Promise<void> {
   try {
     let config = await loadConfig(options.config);
-    const workspaceRoot = resolveWorkspaceRoot(config, options.path);
+    const originalWorkspaceRoot = resolveWorkspaceRoot(config, options.path);
+    let workspaceRoot = originalWorkspaceRoot;
+    let sessionWorktree: ReturnType<typeof prepareSessionWorktree> | null = null;
 
     // Initialize i18n with locale detection
     const { locale: detectedLocale } = detectLocale({
@@ -668,7 +691,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
 
     if (!providerConfig) {
       // No valid provider config - run the setup wizard
-      const wizard = new SetupWizard(workspaceRoot, config);
+      const wizard = new SetupWizard(originalWorkspaceRoot, config);
       const result = await wizard.run({ skipWelcome: !config.isNewConfig });
 
       if (result.cancelled) {
@@ -685,10 +708,26 @@ async function runCLI(options: CLIOptions): Promise<void> {
     }
 
     // Check for dangerous workspace directories (home, root, system dirs)
-    const safetyCheck = checkWorkspaceSafety(workspaceRoot);
+    const safetyCheck = checkWorkspaceSafety(originalWorkspaceRoot);
     if (!safetyCheck.safe) {
-      printDangerousWorkspaceWarning(workspaceRoot, safetyCheck);
+      printDangerousWorkspaceWarning(originalWorkspaceRoot, safetyCheck);
       process.exit(1);
+    }
+
+    // Optional isolated git worktree for interactive/prompt sessions
+    if (isSessionWorktreeEnabled(options.worktree)) {
+      sessionWorktree = prepareSessionWorktree({
+        cwd: originalWorkspaceRoot,
+        worktree: options.worktree,
+        mode: 'cli',
+      });
+      workspaceRoot = sessionWorktree.worktreePath;
+
+      const worktreeSafetyCheck = checkWorkspaceSafety(workspaceRoot);
+      if (!worktreeSafetyCheck.safe) {
+        printDangerousWorkspaceWarning(workspaceRoot, worktreeSafetyCheck);
+        process.exit(1);
+      }
     }
 
     // Validate and resolve additional directories from --add-dir flag
@@ -731,6 +770,10 @@ async function runCLI(options: CLIOptions): Promise<void> {
 
     // Print banner FIRST for immediate visual feedback
     printBanner();
+    if (sessionWorktree && process.stdout.isTTY) {
+      console.log(chalk.gray(`Using git worktree: ${sessionWorktree.worktreePath}`));
+      console.log(chalk.gray(`Branch: ${sessionWorktree.branchName}${sessionWorktree.createdBranch ? ' (new)' : ''}\n`));
+    }
 
     // Initialize and start ping service (45-minute intervals for usage tracking)
     // This runs independently of telemetry opt-in for basic usage counting
@@ -749,6 +792,10 @@ async function runCLI(options: CLIOptions): Promise<void> {
     // Print welcome immediately with no version/auth info - don't block on network
     printWelcome(runtime, undefined, null);
 
+    // Mutable reference so the background startup IIFE can reach the agent
+    // once it's constructed (after synchronous setup below).
+    const agentHolder: { current: AutohandAgent | null } = { current: null };
+
     // Run auth, version check, startup checks in background (fire-and-forget)
     // These complete while the user reads the welcome message and types
     (async () => {
@@ -759,11 +806,16 @@ async function runCLI(options: CLIOptions): Promise<void> {
             })
           : Promise.resolve(null);
 
-        const [authUser, , checkResults] = await Promise.all([
+        const [authUser, versionResult, checkResults] = await Promise.all([
           validateAuthOnStartup(config),
           versionCheckPromise,
           runStartupChecks(workspaceRoot),
         ]);
+
+        // Pass version check result to agent for status bar display
+        if (versionResult && agentHolder.current) {
+          agentHolder.current.setVersionCheckResult(versionResult);
+        }
 
         // Print startup check warnings (missing tools etc.)
         printStartupCheckResults(checkResults);
@@ -856,6 +908,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
     });
 
     const agent = new AutohandAgent(llmProvider, files, runtime);
+    agentHolder.current = agent;
 
     if (options.prompt) {
       // Read piped stdin if available (e.g. git diff | autohand -p "explain")
@@ -1095,13 +1148,30 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
   const { generateUnifiedPatch, formatChangeSummary } = await import('./utils/patch.js');
 
   const config = await loadConfig(opts.config);
-  const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
+  const originalWorkspaceRoot = resolveWorkspaceRoot(config, opts.path);
+  let workspaceRoot = originalWorkspaceRoot;
 
   // Check for dangerous workspace directories
-  const safetyCheck = checkWorkspaceSafety(workspaceRoot);
+  const safetyCheck = checkWorkspaceSafety(originalWorkspaceRoot);
   if (!safetyCheck.safe) {
-    printDangerousWorkspaceWarning(workspaceRoot, safetyCheck);
+    printDangerousWorkspaceWarning(originalWorkspaceRoot, safetyCheck);
     process.exit(1);
+  }
+
+  if (isSessionWorktreeEnabled(opts.worktree)) {
+    const sessionWorktree = prepareSessionWorktree({
+      cwd: originalWorkspaceRoot,
+      worktree: opts.worktree,
+      mode: 'patch',
+    });
+    workspaceRoot = sessionWorktree.worktreePath;
+    const worktreeSafetyCheck = checkWorkspaceSafety(workspaceRoot);
+    if (!worktreeSafetyCheck.safe) {
+      printDangerousWorkspaceWarning(workspaceRoot, worktreeSafetyCheck);
+      process.exit(1);
+    }
+    console.error(chalk.gray(`Using git worktree: ${sessionWorktree.worktreePath}`));
+    console.error(chalk.gray(`Branch: ${sessionWorktree.branchName}${sessionWorktree.createdBranch ? ' (new)' : ''}\n`));
   }
 
   // Validate and resolve additional directories from --add-dir flag
@@ -1522,3 +1592,55 @@ Do not stop early - keep improving until the task is truly complete.`;
 }
 
 program.parseAsync();
+
+function launchInTmuxIfRequested(opts: CLIOptions & { mode?: string }): boolean {
+  if (!opts.tmux) {
+    return false;
+  }
+
+  if (process.env.AUTOHAND_TMUX_LAUNCHED === '1') {
+    return false;
+  }
+
+  if (opts.mode === 'rpc' || opts.mode === 'acp') {
+    console.error(chalk.red('--tmux is not supported with --mode rpc or --mode acp'));
+    process.exit(1);
+  }
+
+  const check = spawnSync('tmux', ['-V'], { encoding: 'utf8' });
+  if (check.status !== 0) {
+    console.error(chalk.red('tmux is not available. Install tmux or run without --tmux.'));
+    process.exit(1);
+  }
+
+  const sessionName = createTmuxSessionName();
+  const command = buildTmuxLaunchCommand(process.argv);
+
+  const create = spawnSync('tmux', ['new-session', '-d', '-s', sessionName, command], {
+    encoding: 'utf8',
+  });
+
+  if (create.status !== 0) {
+    const details = create.stderr?.trim() || create.stdout?.trim() || 'unknown error';
+    console.error(chalk.red(`Failed to start tmux session: ${details}`));
+    process.exit(1);
+  }
+
+  if (process.env.TMUX) {
+    const switched = spawnSync('tmux', ['switch-client', '-t', sessionName], { stdio: 'inherit' });
+    if (switched.status !== 0) {
+      console.log(chalk.green(`Started tmux session: ${sessionName}`));
+      console.log(chalk.gray(`Attach with: tmux attach-session -t ${sessionName}`));
+    }
+    process.exit(0);
+  }
+
+  if (process.stdin.isTTY) {
+    const attached = spawnSync('tmux', ['attach-session', '-t', sessionName], { stdio: 'inherit' });
+    process.exit(attached.status ?? 0);
+  }
+
+  console.log(chalk.green(`Started tmux session: ${sessionName}`));
+  console.log(chalk.gray(`Attach with: tmux attach-session -t ${sessionName}`));
+  process.exit(0);
+}

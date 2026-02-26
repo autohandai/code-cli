@@ -631,6 +631,8 @@ Autohand 将数据存储在 `~/.autohand/`（或 `$AUTOHAND_HOME`）：
 |------|------|
 | `--model <model>` | 覆盖模型 |
 | `--path <path>` | 覆盖工作区根目录 |
+| `--worktree [name]` | 在隔离的 git worktree 中运行会话（可选 worktree/分支名称） |
+| `--tmux` | 在专用 tmux 会话中启动（隐含 `--worktree`；不能与 `--no-worktree` 一起使用） |
 | `--add-dir <path>` | 添加额外目录到工作区范围（可多次使用） |
 | `--config <path>` | 使用自定义配置文件 |
 | `--temperature <n>` | 设置温度（0-1） |
