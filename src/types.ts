@@ -396,6 +396,7 @@ export type HookEvent =
   | 'subagent-stop'     // Subagent (Task tool) finished
   | 'session-start'     // Session begins (startup, resume, clear)
   | 'session-end'       // Session ends (quit, exit)
+  | 'pre-clear'          // Fires before memory extraction on /clear or /new
   | 'permission-request' // Permission dialog shown
   | 'notification'      // Notification sent to user
   // Auto-mode events

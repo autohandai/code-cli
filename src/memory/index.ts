@@ -6,3 +6,8 @@
 
 export { MemoryManager } from './MemoryManager.js';
 export * from './types.js';
+export {
+  extractAndSaveSessionMemories,
+  type ExtractedMemory,
+  type ExtractionDeps,
+} from './extractSessionMemories.js';

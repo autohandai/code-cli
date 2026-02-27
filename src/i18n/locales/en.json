@@ -168,6 +168,11 @@
       "description": "start a new conversation",
       "cleared": "Conversation cleared. Starting fresh."
     },
+    "clear": {
+      "description": "clear conversation with automatic memory extraction",
+      "savedMemories": "Saved {{count}} memories ({{details}}). Starting fresh session.",
+      "noMemories": "No patterns detected. Starting fresh session."
+    },
     "status": {
       "description": "show current status",
       "title": "Autohand Status",

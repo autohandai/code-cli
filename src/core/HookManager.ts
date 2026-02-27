@@ -801,6 +801,7 @@ export class HookManager {
       'subagent-stop',
       'session-start',
       'session-end',
+      'pre-clear',
       'permission-request',
       'notification',
       // Auto-mode events

@@ -52,7 +52,8 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 | `/session` | Show current session details |
 | `/sessions` | List past sessions |
 | `/resume` | Resume a previous session |
-| `/new` | Start fresh conversation |
+| `/new` | Start fresh conversation (with memory extraction) |
+| `/clear` | Clear conversation with automatic memory extraction |
 | `/undo` | Revert git changes and last turn |
 | `/memory` | View stored memories |
 | `/init` | Create `AGENTS.md` file |
@@ -94,6 +95,12 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 - [x] `#` trigger to store memories
 - [x] Similarity detection (update vs duplicate)
 - [x] Context injection for personalized responses
+- [x] **Automatic memory extraction** on `/clear` and `/new`
+  - LLM analyzes conversation history for reusable patterns
+  - Classifies memories as user-level or project-level
+  - Auto-saves without manual intervention
+  - `pre-clear` hook event fires before extraction begins
+  - View and manage extracted memories with `/memory`
 
 ## Feedback System
 - [x] Smart triggers (after tasks, on session end, gratitude detection)
