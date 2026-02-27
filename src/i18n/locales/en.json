@@ -173,6 +173,107 @@
       "savedMemories": "Saved {{count}} memories ({{details}}). Starting fresh session.",
       "noMemories": "No patterns detected. Starting fresh session."
     },
+    "settings": {
+      "description": "configure autohand settings",
+      "title": "Settings",
+      "selectCategory": "Select a category:",
+      "selectSetting": "Select a setting to change:",
+      "saved": "Setting saved.",
+      "cancelled": "Cancelled.",
+      "redirect": "Use {{command}} to change this setting.",
+      "back": "Back",
+      "on": "on",
+      "off": "off",
+      "currentValue": "Current: {{value}}",
+      "categories": {
+        "ui": "UI & Display",
+        "agent": "Agent Behavior",
+        "permissions": "Permissions",
+        "network": "Network",
+        "telemetry": "Telemetry & Reporting",
+        "automode": "Auto-mode",
+        "teams": "Teams",
+        "search": "Search"
+      },
+      "ui": {
+        "autoConfirm": "Auto-confirm actions",
+        "autoConfirmDesc": "Skip confirmation prompts for tool actions",
+        "showThinking": "Show LLM thinking",
+        "showThinkingDesc": "Display the model reasoning process",
+        "terminalBell": "Terminal bell",
+        "terminalBellDesc": "Ring bell when task completes",
+        "checkForUpdates": "Check for updates",
+        "checkForUpdatesDesc": "Check for CLI updates on startup",
+        "showCompletionNotification": "Completion notifications",
+        "showCompletionNotificationDesc": "Show OS notification when work completes",
+        "promptSuggestions": "Prompt suggestions",
+        "promptSuggestionsDesc": "Show LLM-generated next-step suggestions",
+        "activitySymbol": "Activity symbol",
+        "activitySymbolDesc": "Symbol shown before activity verb",
+        "updateCheckInterval": "Update check interval (hours)",
+        "updateCheckIntervalDesc": "Hours between update checks"
+      },
+      "agent": {
+        "maxIterations": "Max iterations",
+        "maxIterationsDesc": "Maximum tool iterations per request",
+        "enableRequestQueue": "Request queue",
+        "enableRequestQueueDesc": "Allow typing while agent works",
+        "sessionRetryLimit": "Session retry limit",
+        "sessionRetryLimitDesc": "Max retries before giving up",
+        "sessionRetryDelay": "Retry delay (ms)",
+        "sessionRetryDelayDesc": "Delay between retries in milliseconds",
+        "debug": "Debug mode",
+        "debugDesc": "Enable debug output"
+      },
+      "permissions": {
+        "mode": "Permission mode",
+        "modeDesc": "How tool permissions are handled",
+        "rememberSession": "Remember session decisions",
+        "rememberSessionDesc": "Remember permission choices for this session"
+      },
+      "network": {
+        "maxRetries": "Max retries",
+        "maxRetriesDesc": "Maximum retry attempts for failed requests",
+        "timeout": "Timeout (ms)",
+        "timeoutDesc": "Request timeout in milliseconds",
+        "retryDelay": "Retry delay (ms)",
+        "retryDelayDesc": "Delay between retries in milliseconds"
+      },
+      "telemetry": {
+        "enabled": "Telemetry",
+        "enabledDesc": "Send anonymous usage data",
+        "autoReportEnabled": "Auto error reporting",
+        "autoReportEnabledDesc": "Automatically report errors to GitHub"
+      },
+      "automode": {
+        "maxIterations": "Max iterations",
+        "maxIterationsDesc": "Default max iterations for auto-mode",
+        "maxRuntime": "Max runtime (minutes)",
+        "maxRuntimeDesc": "Default max runtime in minutes",
+        "maxCost": "Max cost ($)",
+        "maxCostDesc": "Default max cost in dollars",
+        "checkpointInterval": "Checkpoint interval",
+        "checkpointIntervalDesc": "Iterations between git checkpoints",
+        "useWorktree": "Use worktree",
+        "useWorktreeDesc": "Use git worktree by default"
+      },
+      "teams": {
+        "enabled": "Teams enabled",
+        "enabledDesc": "Enable team coordination features",
+        "teammateMode": "Teammate mode",
+        "teammateModeDesc": "Display mode for teammates",
+        "maxTeammates": "Max teammates",
+        "maxTeammatesDesc": "Maximum simultaneous teammates"
+      },
+      "search": {
+        "provider": "Search provider",
+        "providerDesc": "Active web search provider",
+        "braveApiKey": "Brave API key",
+        "braveApiKeyDesc": "API key for Brave Search",
+        "parallelApiKey": "Parallel API key",
+        "parallelApiKeyDesc": "API key for Parallel.ai"
+      }
+    },
     "status": {
       "description": "show current status",
       "title": "Autohand Status",
