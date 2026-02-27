@@ -160,3 +160,135 @@ describe('formatSettingValue', () => {
     expect(result).toBeTruthy();
   });
 });
+
+// ── Integration Tests ──────────────────────────────────────────────────
+
+vi.mock('../../src/ui/ink/components/Modal.js', () => ({
+  showModal: vi.fn(),
+  showInput: vi.fn(),
+  showConfirm: vi.fn(),
+  showPassword: vi.fn(),
+}));
+
+vi.mock('../../src/config.js', () => ({
+  saveConfig: vi.fn().mockResolvedValue(undefined),
+}));
+
+// Dynamic imports to get mocked versions
+const { showModal: mockShowModal, showInput: mockShowInput, showConfirm: mockShowConfirm, showPassword: mockShowPassword } = await import('../../src/ui/ink/components/Modal.js');
+const { saveConfig: mockSaveConfig } = await import('../../src/config.js');
+const { settings: settingsCmd } = await import('../../src/commands/settings.js');
+
+function createMockConfig(): any {
+  return {
+    configPath: '/tmp/test/config.json',
+    ui: { theme: 'dark', terminalBell: true, autoConfirm: false },
+    agent: { maxIterations: 100, debug: false },
+    permissions: { mode: 'interactive' },
+    network: { maxRetries: 3, timeout: 30000 },
+    telemetry: { enabled: false },
+    automode: { maxIterations: 50 },
+    teams: { enabled: true, maxTeammates: 5 },
+    search: { provider: 'google' },
+  };
+}
+
+describe('settings command integration', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('exits when user presses ESC at category level', async () => {
+    (mockShowModal as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+    const config = createMockConfig();
+    await settingsCmd({ config });
+    expect(mockShowModal).toHaveBeenCalledOnce();
+  });
+
+  it('shows settings for selected category then returns on back', async () => {
+    (mockShowModal as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ label: 'UI & Display', value: 'ui' })
+      .mockResolvedValueOnce({ label: 'Back', value: '__back__' })
+      .mockResolvedValueOnce(null);
+    const config = createMockConfig();
+    await settingsCmd({ config });
+    expect(mockShowModal).toHaveBeenCalledTimes(3);
+  });
+
+  it('toggles boolean setting and saves', async () => {
+    (mockShowModal as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ label: 'UI & Display', value: 'ui' })
+      .mockResolvedValueOnce({ label: 'Terminal bell: on', value: 'ui.terminalBell' })
+      .mockResolvedValueOnce({ label: 'Back', value: '__back__' })
+      .mockResolvedValueOnce(null);
+    (mockShowConfirm as ReturnType<typeof vi.fn>).mockResolvedValueOnce(false);
+    const config = createMockConfig();
+    await settingsCmd({ config });
+    expect(config.ui.terminalBell).toBe(false);
+    expect(mockSaveConfig).toHaveBeenCalled();
+  });
+
+  it('edits enum setting and saves', async () => {
+    (mockShowModal as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ label: 'Permissions', value: 'permissions' })
+      .mockResolvedValueOnce({ label: 'Permission mode', value: 'permissions.mode' })
+      .mockResolvedValueOnce({ label: 'unrestricted', value: 'unrestricted' })
+      .mockResolvedValueOnce({ label: 'Back', value: '__back__' })
+      .mockResolvedValueOnce(null);
+    const config = createMockConfig();
+    await settingsCmd({ config });
+    expect(config.permissions.mode).toBe('unrestricted');
+    expect(mockSaveConfig).toHaveBeenCalled();
+  });
+
+  it('edits number setting and saves', async () => {
+    (mockShowModal as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ label: 'Network', value: 'network' })
+      .mockResolvedValueOnce({ label: 'Timeout (ms)', value: 'network.timeout' })
+      .mockResolvedValueOnce({ label: 'Back', value: '__back__' })
+      .mockResolvedValueOnce(null);
+    (mockShowInput as ReturnType<typeof vi.fn>).mockResolvedValueOnce('60000');
+    const config = createMockConfig();
+    await settingsCmd({ config });
+    expect(config.network.timeout).toBe(60000);
+    expect(mockSaveConfig).toHaveBeenCalled();
+  });
+
+  it('edits password setting and saves', async () => {
+    (mockShowModal as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ label: 'Search', value: 'search' })
+      .mockResolvedValueOnce({ label: 'Brave API key', value: 'search.braveApiKey' })
+      .mockResolvedValueOnce({ label: 'Back', value: '__back__' })
+      .mockResolvedValueOnce(null);
+    (mockShowPassword as ReturnType<typeof vi.fn>).mockResolvedValueOnce('sk-brave-123');
+    const config = createMockConfig();
+    await settingsCmd({ config });
+    expect(config.search.braveApiKey).toBe('sk-brave-123');
+    expect(mockSaveConfig).toHaveBeenCalled();
+  });
+
+  it('shows redirect message for redirected settings', async () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    (mockShowModal as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ label: 'UI & Display', value: 'ui' })
+      .mockResolvedValueOnce({ label: 'Theme', value: 'ui.theme' })
+      .mockResolvedValueOnce({ label: 'Back', value: '__back__' })
+      .mockResolvedValueOnce(null);
+    const config = createMockConfig();
+    await settingsCmd({ config });
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('/theme'));
+    consoleSpy.mockRestore();
+  });
+
+  it('does not save when user cancels edit', async () => {
+    (mockShowModal as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ label: 'Agent Behavior', value: 'agent' })
+      .mockResolvedValueOnce({ label: 'Max iterations', value: 'agent.maxIterations' })
+      .mockResolvedValueOnce({ label: 'Back', value: '__back__' })
+      .mockResolvedValueOnce(null);
+    (mockShowInput as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+    const config = createMockConfig();
+    await settingsCmd({ config });
+    expect(mockSaveConfig).not.toHaveBeenCalled();
+  });
+});
