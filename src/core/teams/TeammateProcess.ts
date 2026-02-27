@@ -94,8 +94,20 @@ export class TeammateProcess {
     }
 
     if (this.child.stderr) {
-      this.child.stderr.on('data', () => {
-        // Drain stderr to prevent buffer backpressure
+      const chunks: Buffer[] = [];
+      this.child.stderr.on('data', (chunk: Buffer) => {
+        chunks.push(chunk);
+      });
+      this.child.stderr.on('end', () => {
+        if (chunks.length > 0) {
+          const stderr = Buffer.concat(chunks).toString().trim();
+          if (stderr) {
+            onMessage({
+              method: 'team.log',
+              params: { level: 'error', text: `[${this.opts.name} stderr] ${stderr}` },
+            });
+          }
+        }
       });
     }
 
