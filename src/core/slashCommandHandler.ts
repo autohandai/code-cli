@@ -135,6 +135,14 @@ export class SlashCommandHandler {
             hookManager: this.ctx.hookManager,
           });
         }
+        case '/settings': {
+          const { settings } = await import('../commands/settings.js');
+          if (!this.ctx.config) {
+            console.log(chalk.yellow('Config not available.'));
+            return null;
+          }
+          return settings({ config: this.ctx.config });
+        }
         case '/memory': {
           const { memory } = await import('../commands/memory.js');
           return memory({ memoryManager: this.ctx.memoryManager });
