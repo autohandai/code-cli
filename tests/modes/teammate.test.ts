@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { PassThrough } from 'node:stream';
 
 // Mock heavy dependencies before importing
 vi.mock('../../src/config.js', () => ({
@@ -50,7 +51,8 @@ vi.mock('../../src/actions/filesystem.js', () => ({
   FileActionManager: vi.fn().mockImplementation(() => ({})),
 }));
 
-import { executeTask, parseTeammateOptions } from '../../src/modes/teammate.js';
+import { executeTask, parseTeammateOptions, runTeammateModeWithStreams } from '../../src/modes/teammate.js';
+import type { TeammateOptions } from '../../src/modes/teammate.js';
 
 describe('parseTeammateOptions', () => {
 
@@ -131,5 +133,103 @@ describe('teammate executeTask', () => {
       { id: 'task-3', subject: 'Test', description: 'test', status: 'in_progress', blockedBy: [], createdAt: '' }
     );
     expect(mockProvider.setModel).toHaveBeenCalledWith('custom-model');
+  });
+});
+
+describe('runTeammateModeWithStreams (keep-alive)', () => {
+  const defaultOpts: TeammateOptions = {
+    teamName: 'test-team',
+    name: 'worker',
+    agentName: 'tester',
+    leadSessionId: 'sess-1',
+  };
+
+  function collectOutput(stdout: PassThrough): string[] {
+    const lines: string[] = [];
+    stdout.on('data', (chunk: Buffer) => {
+      const text = chunk.toString();
+      for (const line of text.split('\n')) {
+        if (line.trim()) lines.push(line.trim());
+      }
+    });
+    return lines;
+  }
+
+  function parseMessages(lines: string[]): Array<{ method: string; params: Record<string, unknown> }> {
+    return lines.map((l) => {
+      try { return JSON.parse(l); }
+      catch { return null; }
+    }).filter(Boolean);
+  }
+
+  it('sends team.ready on startup', async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const lines = collectOutput(stdout);
+
+    // Start teammate mode (don't await — it blocks until shutdown)
+    const promise = runTeammateModeWithStreams(defaultOpts, stdin, stdout);
+
+    // Give it a tick to send ready message
+    await new Promise((r) => setTimeout(r, 50));
+
+    const messages = parseMessages(lines);
+    expect(messages.some((m) => m.method === 'team.ready')).toBe(true);
+
+    // Clean up: send shutdown
+    stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'team.shutdown', params: {} }) + '\n');
+    await promise;
+  });
+
+  it('stays alive when stdin has no data (does not exit prematurely)', async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+
+    const promise = runTeammateModeWithStreams(defaultOpts, stdin, stdout);
+
+    // Wait 200ms — if the bug exists, the promise resolves immediately
+    let resolved = false;
+    promise.then(() => { resolved = true; });
+    await new Promise((r) => setTimeout(r, 200));
+
+    expect(resolved).toBe(false);
+
+    // Clean up: send shutdown
+    stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'team.shutdown', params: {} }) + '\n');
+    await promise;
+  });
+
+  it('exits gracefully on team.shutdown message', async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const lines = collectOutput(stdout);
+
+    const promise = runTeammateModeWithStreams(defaultOpts, stdin, stdout);
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Send shutdown
+    stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'team.shutdown', params: {} }) + '\n');
+    await promise; // Should resolve (not hang)
+
+    const messages = parseMessages(lines);
+    expect(messages.some((m) => m.method === 'team.shutdownAck')).toBe(true);
+  });
+
+  it('exits when stdin closes (parent process died)', async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+
+    const promise = runTeammateModeWithStreams(defaultOpts, stdin, stdout);
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Simulate parent death by ending stdin
+    stdin.end();
+
+    // Should resolve within a reasonable time
+    const result = await Promise.race([
+      promise.then(() => 'resolved'),
+      new Promise<string>((r) => setTimeout(() => r('timeout'), 2000)),
+    ]);
+    expect(result).toBe('resolved');
   });
 });

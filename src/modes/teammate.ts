@@ -5,6 +5,7 @@
  */
 
 import path from 'node:path';
+import type { Readable, Writable } from 'node:stream';
 import { MessageRouter } from '../core/teams/MessageRouter.js';
 import type { TeamTask } from '../core/teams/types.js';
 
@@ -70,6 +71,102 @@ export async function executeTask(
 }
 
 /**
+ * Core teammate loop with injectable streams for testability.
+ *
+ * Uses a setInterval keep-alive instead of awaiting process.stdin 'end',
+ * which is unreliable when readline has consumed the stream (readline's
+ * internal stream management can cause premature 'end' events on piped stdin,
+ * making the teammate exit before receiving any tasks).
+ *
+ * The teammate exits when:
+ * 1. It receives a 'team.shutdown' message from the lead
+ * 2. The stdin stream closes (lead process died)
+ */
+export async function runTeammateModeWithStreams(
+  opts: TeammateOptions,
+  stdin: Readable,
+  stdout: Writable,
+): Promise<void> {
+  const router = new MessageRouter();
+
+  const sendToLead = (method: string, params: Record<string, unknown> = {}) => {
+    router.send(stdout, { method, params });
+  };
+
+  sendToLead('team.ready', { name: opts.name });
+
+  return new Promise<void>((resolve) => {
+    // setInterval holds a ref on the event loop, preventing Node.js from
+    // exiting the process while we wait for messages from the lead.
+    const keepAlive = setInterval(() => {}, 30_000);
+
+    const shutdown = () => {
+      clearInterval(keepAlive);
+      resolve();
+    };
+
+    router.onMessage(stdin, async (msg) => {
+      const { method, params } = msg as { method: string; params: Record<string, unknown> };
+
+      switch (method) {
+        case 'team.assignTask': {
+          const task = params.task as TeamTask;
+
+          sendToLead('team.taskUpdate', { taskId: task.id, status: 'in_progress' });
+
+          try {
+            sendToLead('team.log', { level: 'info', text: `Working on: ${task.subject}` });
+            const result = await executeTask(opts, task);
+            sendToLead('team.taskUpdate', {
+              taskId: task.id,
+              status: 'completed',
+              result,
+            });
+          } catch (err) {
+            sendToLead('team.log', {
+              level: 'error',
+              text: `Error on task ${task.id}: ${(err as Error).message}`,
+            });
+          }
+
+          sendToLead('team.idle', { lastTask: task.id });
+          break;
+        }
+
+        case 'team.message': {
+          const { from, content } = params as { from: string; content: string };
+          sendToLead('team.log', {
+            level: 'info',
+            text: `Message from ${from}: ${content}`,
+          });
+          break;
+        }
+
+        case 'team.updateContext': {
+          sendToLead('team.log', {
+            level: 'debug',
+            text: 'Received context update',
+          });
+          break;
+        }
+
+        case 'team.shutdown': {
+          sendToLead('team.shutdownAck', {});
+          shutdown();
+          break;
+        }
+      }
+    });
+
+    // When stdin closes (lead process died / pipe broken), exit gracefully.
+    // We listen via the 'close' event on the readline interface's underlying
+    // stream. For the router.onMessage path, readline fires 'close' when
+    // its input stream ends, which reliably means the pipe is gone.
+    stdin.on('close', shutdown);
+  });
+}
+
+/**
  * Run autohand in teammate mode. This is a headless mode where the process
  * receives tasks from the lead process via JSON-RPC over stdin and reports
  * results back via stdout.
@@ -82,77 +179,7 @@ export async function executeTask(
  * 5. On shutdown: send shutdownAck and exit
  */
 export async function runTeammateMode(opts: TeammateOptions): Promise<void> {
-  const router = new MessageRouter();
-
-  // Helper to send a message to the lead process via stdout
-  const sendToLead = (method: string, params: Record<string, unknown> = {}) => {
-    router.send(process.stdout, { method, params });
-  };
-
-  // Signal ready to the lead
-  sendToLead('team.ready', { name: opts.name });
-
-  // Listen for incoming messages from lead via stdin
-  router.onMessage(process.stdin, async (msg) => {
-    const { method, params } = msg as { method: string; params: Record<string, unknown> };
-
-    switch (method) {
-      case 'team.assignTask': {
-        const task = params.task as TeamTask;
-
-        sendToLead('team.taskUpdate', { taskId: task.id, status: 'in_progress' });
-
-        try {
-          sendToLead('team.log', { level: 'info', text: `Working on: ${task.subject}` });
-          const result = await executeTask(opts, task);
-          sendToLead('team.taskUpdate', {
-            taskId: task.id,
-            status: 'completed',
-            result,
-          });
-        } catch (err) {
-          sendToLead('team.log', {
-            level: 'error',
-            text: `Error on task ${task.id}: ${(err as Error).message}`,
-          });
-        }
-
-        sendToLead('team.idle', { lastTask: task.id });
-        break;
-      }
-
-      case 'team.message': {
-        const { from, content } = params as { from: string; content: string };
-        sendToLead('team.log', {
-          level: 'info',
-          text: `Message from ${from}: ${content}`,
-        });
-        break;
-      }
-
-      case 'team.updateContext': {
-        // Receive updated task list - could be used for context
-        sendToLead('team.log', {
-          level: 'debug',
-          text: 'Received context update',
-        });
-        break;
-      }
-
-      case 'team.shutdown': {
-        sendToLead('team.shutdownAck', {});
-        process.exit(0);
-        break;
-      }
-    }
-  });
-
-  // Keep the process alive waiting for messages
-  await new Promise<void>((resolve) => {
-    process.stdin.on('end', () => {
-      resolve();
-    });
-  });
+  return runTeammateModeWithStreams(opts, process.stdin, process.stdout);
 }
 
 /**
