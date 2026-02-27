@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import { TipsBag } from './tips.js';
 
 const DEFAULT_VERBS: string[] = [
+  // 70s computer geek
   'Computing',
   'Hacking',
   'Compiling',
@@ -22,6 +23,12 @@ const DEFAULT_VERBS: string[] = [
   'Demonizing',
   'Forking',
   'Spooling',
+  // Gandalf-inspired
+  'Conjuring',
+  'Summoning',
+  'Delving',
+  'Pondering',
+  'Wandering',
 ];
 
 const DEFAULT_SYMBOL = '✳';
