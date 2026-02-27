@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { configureSearch, getSearchConfig, isSearchConfigured } from '../src/actions/web.js';
+import { configureSearch, isSearchConfigured } from '../src/actions/web.js';
 
 describe('isSearchConfigured', () => {
   beforeEach(() => {

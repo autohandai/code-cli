@@ -8,7 +8,7 @@
  * and HTML result parsing from rendered DOM.
  */
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 // We'll test the exported helpers from web.ts
 import { findChromePath, parseGoogleResultsFromDOM } from '../src/actions/web.js';

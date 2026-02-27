@@ -989,35 +989,30 @@ export function leavePromptSurface(
 function handlePasteComplete(
   pasteState: PasteState,
   rl: readline.Interface,
-  output: NodeJS.WriteStream
+  output: NodeJS.WriteStream,
+  renderActivePrompt: () => void
 ): void {
   const display = getContentDisplay(pasteState.buffer);
-  const rlAny = rl as readline.Interface & { line: string; cursor: number; _refreshLine?: () => void };
+  const rlAny = rl as readline.Interface & { line: string; cursor: number };
 
   // Get any prefix content that was typed before the paste
   const prefix = pasteState.prefixContent || '';
 
-  // Count newlines to know how many extra prompt lines were printed
-  const newlineCount = (pasteState.buffer.match(/\n/g) || []).length;
-
-  // If readline echoed pasted rows, clear that transient output.
-  // When output is suppressed, skip this so we don't move into chat logs.
+  // If readline echoed pasted rows (timeout fallback path where output was
+  // not suppressed), clear those transient lines. On the normal bracketed-
+  // paste path outputSuppressed is true so the box was never disturbed.
   if (!pasteState.outputSuppressed) {
-    // Clear all the extra lines that readline printed during paste
-    // Move cursor up for each newline, clearing as we go
+    const newlineCount = (pasteState.buffer.match(/\n/g) || []).length;
     for (let i = 0; i < newlineCount; i++) {
-      readline.moveCursor(output, 0, -1); // Move up one line
-      readline.clearLine(output, 0); // Clear that line
+      readline.moveCursor(output, 0, -1);
+      readline.clearLine(output, 0);
     }
-
-    // Now we're back at the original prompt line - clear it too
     readline.cursorTo(output, 0);
     readline.clearLine(output, 0);
   }
 
   if (display.isPasted) {
     // Large paste: show indicator, store actual content
-    // Prepend prefix to hidden content so it's included in submission
     pasteState.hiddenContent = prefix + display.actual;
     rlAny.line = prefix + display.visual;
     rlAny.cursor = rlAny.line.length;
@@ -1027,8 +1022,9 @@ function handlePasteComplete(
     rlAny.cursor = rlAny.line.length;
   }
 
-  // Refresh the display with clean prompt
-  rl.prompt(true);
+  // Use the boxed renderer — NOT rl.prompt(true) — so the composer stays
+  // anchored at the bottom and the 3-row layout is preserved.
+  renderActivePrompt();
 
   // Clear the buffer and prefix
   pasteState.buffer = '';
@@ -1045,7 +1041,6 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
   // Initialize paste state for bracketed paste detection
   const pasteState = createPasteState();
   let contextualHelpVisible = false;
-  let renderedContextualHelpLines = 0;
 
   const applyPlanModePrefix = (line: string): string => {
     const planPrefix = getPlanModeManager().isEnabled() ? 'plan:on' : 'plan:off';
@@ -1066,26 +1061,8 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     return applyPlanModePrefix(statusLine ?? '');
   };
 
-  const getActiveContextualHelpLines = (): string[] => {
-    if (!contextualHelpVisible) {
-      return [];
-    }
-    const rlAny = rl as readline.Interface & { line?: string };
-    const currentLine = rlAny.line ?? '';
-    const width = getPromptBlockWidth(stdOutput.columns);
-    return buildContextualHelpPanelLines(currentLine, width, files, slashCommands);
-  };
-
   const renderPromptSurface = (isResize = false, hasExistingPromptBlock = true): void => {
-    const helpLines = getActiveContextualHelpLines();
-    renderPromptLine(
-      rl,
-      getActiveStatusLine(),
-      stdOutput,
-      isResize,
-      hasExistingPromptBlock,
-      suggestionText
-    );
+    renderPromptLine(rl, getActiveStatusLine(), stdOutput, isResize, hasExistingPromptBlock, suggestionText);
   };
 
   const resizeWatcher = new TerminalResizeWatcher(stdOutput, () => {
@@ -1102,23 +1079,6 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     rlAny.line = initialLine;
     rlAny.cursor = initialLine.length;
     renderPromptSurface(false, true);
-  }
-
-  // Override readline's _refreshLine to use our renderPromptLine instead.
-  // readline's default _refreshLine miscalculates cursor position when the
-  // prompt contains ANSI escape codes (chalk styling), causing the cursor
-  // to appear on top of typed text rather than after it.
-  const rlInternal = rl as readline.Interface & { _refreshLine?: () => void };
-  const originalRefreshLine = typeof rlInternal._refreshLine === 'function'
-    ? rlInternal._refreshLine.bind(rlInternal)
-    : undefined;
-
-  if (typeof rlInternal._refreshLine === 'function') {
-    rlInternal._refreshLine = () => {
-      if (!pasteState.isInPaste) {
-        renderPromptLine(rl, statusLine, stdOutput);
-      }
-    };
   }
 
   return new Promise<PromptResult>((resolve) => {
@@ -1327,7 +1287,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
               pasteState.buffer, onImageDetected, { announce: false, output: stdOutput }
             );
           }
-          handlePasteComplete(pasteState, rl, stdOutput);
+          handlePasteComplete(pasteState, rl, stdOutput, renderActivePrompt);
           // Schedule a deferred fallback scan in case the synchronous
           // replacement missed (e.g. file not yet materialized).
           scheduleInlineImageScan(10);
@@ -1358,7 +1318,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
                 pasteState.buffer, onImageDetected, { announce: false, output: stdOutput }
               );
             }
-            handlePasteComplete(pasteState, rl, stdOutput);
+            handlePasteComplete(pasteState, rl, stdOutput, renderActivePrompt);
             scheduleInlineImageScan(10);
           }
         }, 50);
@@ -1620,6 +1580,10 @@ function getComposerBorderStyle(line: string): InputBorderStyle {
   return 'default';
 }
 
+// Track the width used by the last renderPromptLine call so we can detect
+// width changes (resize) and compute reflow line counts for clearing.
+let lastRenderedPromptWidth = 0;
+
 function renderPromptLine(
   rl: readline.Interface,
   statusLine: string | { left: string; right: string } | undefined,
@@ -1638,25 +1602,41 @@ function renderPromptLine(
   const bottomBorder = drawInputBottomBorder(width, borderStyle);
   const statusRow = formatPromptStatusRow(statusLine, width);
 
+  // Detect width change even when called from _refreshLine (which passes
+  // isResize=false). Readline triggers _refreshLine on resize before our
+  // debounced handler fires, so we must use the reflow-aware clearing path
+  // whenever the width has actually changed.
+  const widthChanged = lastRenderedPromptWidth > 0 && width !== lastRenderedPromptWidth;
+  const effectiveResize = isResize || widthChanged;
+
   // Keep readline's prompt in sync for line editing internals.
   rl.setPrompt(PROMPT_PREFIX);
 
   // Hide cursor during rendering to prevent flicker/slow blinking.
-  // The cursor visibly jumps as lines are cleared and rewritten;
-  // hiding it produces a clean, natural blink at the final position.
   output.write('\x1b[?25l');
 
-  if (isResize) {
-    // Cursor sits on the input row. Move up to include the top border
-    // before clearing, otherwise old borders at previous width remain.
-    for (let i = 0; i < PROMPT_LINES_ABOVE_INPUT; i++) {
-      readline.moveCursor(output, 0, -1);
-    }
+  if (effectiveResize && hasExistingPromptBlock) {
+    // When the terminal resizes, it reflows all previously written content.
+    // A line of N chars wraps to ceil(N / newCols) physical rows at the new
+    // terminal width. We must move up enough to reach above ALL reflowed
+    // remnants of the old prompt block before clearing.
+    const termCols = output.columns ?? 80;
+    const oldWidth = lastRenderedPromptWidth || width;
+    const logicalLines = PROMPT_BLOCK_LINE_COUNT + STATUS_LINE_COUNT;
+    // Use actual terminal columns (not prompt width) since that's what
+    // the terminal uses for reflow calculations.
+    const rowsPerOldLine = Math.max(1, Math.ceil(oldWidth / Math.max(1, termCols)));
+    const totalReflowedRows = logicalLines * rowsPerOldLine;
+    // Move up generously to reach above all reflowed prompt content.
+    // Add extra margin because the cursor's physical position within the
+    // reflowed input row is uncertain.
+    const moveUp = totalReflowedRows + rowsPerOldLine;
+    readline.moveCursor(output, 0, -moveUp);
     readline.cursorTo(output, 0);
     readline.clearScreenDown(output);
   } else if (hasExistingPromptBlock) {
-    // Cursor normally sits on the input row.
-    // Clear the full prompt block in place before re-drawing.
+    // Same-width redraw: cursor sits on the input row.
+    // Clear the fixed 4-line prompt block in place.
     readline.cursorTo(output, 0);
     for (let i = 0; i < PROMPT_LINES_ABOVE_INPUT; i++) {
       readline.moveCursor(output, 0, -1);
@@ -1673,9 +1653,7 @@ function renderPromptLine(
     }
     readline.cursorTo(output, 0);
   } else {
-    // Initial render: the cursor has been placed on a fresh row by createReadline,
-    // but defensively clear the current line before drawing the top border to
-    // eliminate any residual characters that could cause a one-frame flash.
+    // Initial render: defensively clear current line before drawing.
     readline.cursorTo(output, 0);
     readline.clearLine(output, 0);
   }
@@ -1687,11 +1665,11 @@ function renderPromptLine(
   output.write(statusRow);
 
   // Move cursor back to input row, inside the box.
-  // drawInputBox uses chalk background only (no │ side borders),
-  // so cursorColumn from buildPromptRenderState is already correct.
   readline.moveCursor(output, 0, -(PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT));
   readline.cursorTo(output, prompt.cursorColumn);
 
   // Show cursor at its final, correct position.
   output.write('\x1b[?25h');
+
+  lastRenderedPromptWidth = width;
 }
