@@ -169,26 +169,6 @@ describe('pasted reference helpers', () => {
 });
 
 describe('renderPromptLine cursor positioning', () => {
-  function createMockRl(line: string, cursor: number) {
-    return {
-      line,
-      cursor,
-      setPrompt: vi.fn(),
-    } as unknown as readline.Interface;
-  }
-
-  function createMockOutputStream(): NodeJS.WriteStream & { _writes: string[]; _cursorTo: number[] } {
-    const stream = new EventEmitter() as NodeJS.WriteStream & { _writes: string[]; _cursorTo: number[] };
-    stream._writes = [];
-    stream._cursorTo = [];
-    (stream as any).columns = 120;
-    (stream as any).write = (chunk: string | Buffer) => {
-      stream._writes.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
-      return true;
-    };
-    return stream;
-  }
-
   it('cursor position matches buildPromptRenderState without extra offset', async () => {
     const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
 

@@ -11,19 +11,30 @@ type ResizeCallback = () => void;
 
 /**
  * Watches a TTY stream for resize events and runs the supplied callback.
+ * Debounces rapid events (e.g. while dragging a window edge) to avoid
+ * redundant redraws that leave ghost prompt artifacts.
  */
 export class TerminalResizeWatcher {
   private readonly stream: ResizableStream;
   private readonly handler: ResizeCallback;
   private disposed = false;
+  private debounceTimer: NodeJS.Timeout | undefined;
 
-  constructor(stream: ResizableStream, callback: ResizeCallback) {
+  constructor(stream: ResizableStream, callback: ResizeCallback, debounceMs = 80) {
     this.stream = stream;
     this.handler = () => {
       if (this.disposed) {
         return;
       }
-      callback();
+      if (this.debounceTimer) {
+        clearTimeout(this.debounceTimer);
+      }
+      this.debounceTimer = setTimeout(() => {
+        this.debounceTimer = undefined;
+        if (!this.disposed) {
+          callback();
+        }
+      }, debounceMs);
     };
     if (this.stream && typeof this.stream.on === 'function') {
       this.stream.on('resize', this.handler);
@@ -35,6 +46,10 @@ export class TerminalResizeWatcher {
       return;
     }
     this.disposed = true;
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = undefined;
+    }
     if (this.stream && typeof this.stream.off === 'function') {
       this.stream.off('resize', this.handler);
     }
