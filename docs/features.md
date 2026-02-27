@@ -44,6 +44,16 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 - [x] `/history` for paginated session browsing
 - [x] Session sharing and export
 
+## Settings Editor
+
+The `/settings` command opens an interactive settings editor directly in the terminal.
+
+- **Two-level category navigation** across 8 categories: UI, Agent, Permissions, Network, Telemetry, Auto-mode, Teams, and Search
+- **33 configurable settings** editable without leaving the TUI
+- **Auto-save on change** — values are written to `~/.autohand/config.json` immediately
+- **Type-aware inputs**: booleans toggle on Enter, enums show a pick list, strings and numbers use inline editing, passwords are masked
+- **Smart redirects**: Provider config opens `/model`, theme opens `/theme`, language opens `/language`
+
 ## Slash Commands
 | Command | Description |
 |---------|-------------|
@@ -88,6 +98,7 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 | `/automode` | Start autonomous coding mode |
 | `/cc` | Context compaction |
 | `/search` | Search codebase |
+| `/settings` | Interactive settings editor — browse categories, edit values inline |
 
 ## Memory System
 - [x] Project memory in `.autohand/memory/`

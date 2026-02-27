@@ -2,6 +2,8 @@
 
 Complete reference for all configuration options in `~/.autohand/config.json` (or `.yaml`/`.yml`).
 
+> **Tip:** Most settings below can be changed interactively using the `/settings` command instead of editing the file manually.
+
 ## Table of Contents
 
 - [Configuration File Location](#configuration-file-location)
