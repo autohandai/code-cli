@@ -559,7 +559,22 @@ export class RPCAdapter {
   /**
    * Handle reset request
    */
-  handleReset(_requestId: JsonRpcId): ResetResult {
+  async handleReset(_requestId: JsonRpcId): Promise<ResetResult> {
+    // Best-effort memory extraction before resetting the conversation
+    if (this.agent && this.conversation) {
+      try {
+        const { extractAndSaveSessionMemories } = await import('../../memory/extractSessionMemories.js');
+        await extractAndSaveSessionMemories({
+          llm: this.agent.getLlmProvider(),
+          memoryManager: this.agent.getMemoryManager(),
+          conversationHistory: this.conversation.history(),
+          workspaceRoot: this.workspace,
+        });
+      } catch {
+        // Memory extraction is best-effort; don't block reset
+      }
+    }
+
     if (this.conversation) {
       // Get system prompt if available
       const history = this.conversation.history();

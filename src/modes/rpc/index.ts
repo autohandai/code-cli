@@ -307,7 +307,7 @@ async function handleSingleRequest(
       }
 
       case RPC_METHODS.RESET: {
-        result = adapter.handleReset(id!);
+        result = await adapter.handleReset(id!);
         break;
       }
 
