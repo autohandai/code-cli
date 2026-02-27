@@ -82,6 +82,7 @@ export {
 export {
   darkTheme,
   lightTheme,
+  githubDarkTheme,
   builtInThemes,
   getBuiltInTheme,
   isBuiltInTheme,

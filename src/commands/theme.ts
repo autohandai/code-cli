@@ -25,10 +25,19 @@ export async function theme(ctx: ThemeContext): Promise<string | null> {
   console.log(chalk.gray(t('commands.theme.currentTheme', { theme: chalk.white(currentTheme) })));
   console.log(chalk.gray(`Custom themes location: ${CUSTOM_THEMES_DIR}\n`));
 
+  const descriptions: Record<string, string> = {
+    dark: 'Default dark theme',
+    light: 'Light terminal backgrounds',
+    dracula: 'Vibrant Dracula palette',
+    sandy: 'Warm, earthy desert tones',
+    tui: 'New Zealand-inspired colors',
+    'github-dark': 'GitHub Dark terminal palette',
+  };
+
   const options: ModalOption[] = themes.map(name => ({
     label: name === currentTheme ? `${name} (current)` : name,
     value: name,
-    description: name === 'dark' ? 'Default dark theme' : name === 'light' ? 'Light theme' : 'Custom theme'
+    description: descriptions[name] ?? 'Custom theme',
   }));
 
   const result = await showModal({
