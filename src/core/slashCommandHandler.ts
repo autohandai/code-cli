@@ -116,8 +116,23 @@ export class SlashCommandHandler {
           return newConversation({
             resetConversation: this.ctx.resetConversation,
             sessionManager: this.ctx.sessionManager,
+            memoryManager: this.ctx.memoryManager,
+            llm: this.ctx.llm,
             workspaceRoot: this.ctx.workspaceRoot,
-            model: this.ctx.model
+            model: this.ctx.model,
+            hookManager: this.ctx.hookManager,
+          });
+        }
+        case '/clear': {
+          const { clearConversation } = await import('../commands/clear.js');
+          return clearConversation({
+            resetConversation: this.ctx.resetConversation,
+            sessionManager: this.ctx.sessionManager,
+            memoryManager: this.ctx.memoryManager,
+            llm: this.ctx.llm,
+            workspaceRoot: this.ctx.workspaceRoot,
+            model: this.ctx.model,
+            hookManager: this.ctx.hookManager,
           });
         }
         case '/memory': {

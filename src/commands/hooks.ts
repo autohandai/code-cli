@@ -16,6 +16,7 @@ export interface HooksCommandContext {
 const HOOK_EVENTS: HookEvent[] = [
   'session-start',
   'session-end',
+  'pre-clear',
   'pre-prompt',
   'pre-tool',
   'post-tool',
@@ -47,6 +48,7 @@ const HOOK_EVENTS: HookEvent[] = [
 const EVENT_DESCRIPTIONS: Record<HookEvent, string> = {
   'session-start': 'When a session begins',
   'session-end': 'When a session ends',
+  'pre-clear': 'Before memory extraction on /clear or /new',
   'pre-prompt': 'Before processing user input',
   'pre-tool': 'Before a tool executes',
   'post-tool': 'After a tool completes',

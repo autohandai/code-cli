@@ -5,33 +5,68 @@
  */
 import chalk from 'chalk';
 import { t } from '../i18n/index.js';
+import { ConversationManager } from '../core/conversationManager.js';
+import { extractAndSaveSessionMemories } from '../memory/extractSessionMemories.js';
 import type { SessionManager } from '../session/SessionManager.js';
+import type { MemoryManager } from '../memory/MemoryManager.js';
+import type { LLMProvider } from '../providers/LLMProvider.js';
+import type { HookManager } from '../core/HookManager.js';
 
 export interface NewCommandContext {
     resetConversation: () => void | Promise<void>;
     sessionManager: SessionManager;
+    memoryManager: MemoryManager;
+    llm: LLMProvider;
     workspaceRoot: string;
     model: string;
+    hookManager?: HookManager;
 }
 
 /**
- * New conversation command - creates a fresh session and resets conversation
+ * New conversation command - extracts memories, then creates a fresh session and resets conversation.
  */
 export async function newConversation(ctx: NewCommandContext): Promise<string | null> {
-    // Close the current session if one exists
+    // 1. Emit pre-clear hook before memory extraction
+    if (ctx.hookManager) {
+        await ctx.hookManager.executeHooks('pre-clear', {
+            sessionId: ctx.sessionManager.getCurrentSession()?.metadata.sessionId ?? '',
+        });
+    }
+
+    // 2. Capture conversation history before we reset anything
+    const conversationHistory = ConversationManager.getInstance().history();
+
+    // 3. Extract and save memories from the conversation
+    const saved = await extractAndSaveSessionMemories({
+        llm: ctx.llm,
+        memoryManager: ctx.memoryManager,
+        conversationHistory,
+        workspaceRoot: ctx.workspaceRoot,
+    });
+
+    // 4. Close the current session if one exists
     const currentSession = ctx.sessionManager.getCurrentSession();
     if (currentSession) {
         await ctx.sessionManager.closeSession('Session ended - new conversation started');
     }
 
-    // Reset the conversation context
+    // 5. Reset the conversation context
     await ctx.resetConversation();
 
-    // Create a new session
+    // 6. Create a new session
     await ctx.sessionManager.createSession(ctx.workspaceRoot, ctx.model);
 
+    // 7. Print summary
     console.log();
-    console.log(chalk.cyan(t('commands.new.cleared')));
+    if (saved.length > 0) {
+        console.log(
+            chalk.cyan(
+                `Conversation cleared. ${saved.length} ${saved.length === 1 ? 'memory' : 'memories'} saved. Starting fresh.`,
+            ),
+        );
+    } else {
+        console.log(chalk.cyan(t('commands.new.cleared')));
+    }
     console.log();
 
     return null;
