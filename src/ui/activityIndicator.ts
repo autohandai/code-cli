@@ -7,21 +7,21 @@ import chalk from 'chalk';
 import { TipsBag } from './tips.js';
 
 const DEFAULT_VERBS: string[] = [
-  'Thinking',
-  'Reasoning',
-  'Conjuring',
-  'Weaving',
-  'Forging',
-  'Crafting',
-  'Brewing',
-  'Channeling',
-  'Synthesizing',
-  'Manifesting',
-  'Architecting',
-  'Composing',
-  'Orchestrating',
-  'Transmuting',
-  'Thundering',
+  'Computing',
+  'Hacking',
+  'Compiling',
+  'Parsing',
+  'Grokking',
+  'Crunching',
+  'Paging',
+  'Buffering',
+  'Bootstrapping',
+  'Multiplexing',
+  'Kerneling',
+  'Piping',
+  'Demonizing',
+  'Forking',
+  'Spooling',
 ];
 
 const DEFAULT_SYMBOL = '✳';

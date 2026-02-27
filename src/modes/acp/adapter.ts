@@ -587,6 +587,23 @@ export class AutohandAcpAdapter implements Agent {
       throw RequestError.invalidParams({ message: 'Source session not found' });
     }
 
+    // Best-effort memory extraction from source session before forking
+    const sourceAgent = this.agents.get(params.sessionId);
+    if (sourceAgent) {
+      try {
+        const conversation = ConversationManager.getInstance();
+        const { extractAndSaveSessionMemories } = await import('../../memory/extractSessionMemories.js');
+        await extractAndSaveSessionMemories({
+          llm: sourceAgent.getLlmProvider(),
+          memoryManager: sourceAgent.getMemoryManager(),
+          conversationHistory: conversation.history(),
+          workspaceRoot: sourceSession.workspaceRoot,
+        });
+      } catch {
+        // Memory extraction is best-effort; don't block fork
+      }
+    }
+
     // Create a new session based on the source
     // For now, create a fresh session at the same workspace
     const newSessionResponse = await this.newSession({

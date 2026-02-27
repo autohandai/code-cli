@@ -4788,6 +4788,20 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   /**
+   * Get the memory manager for memory extraction and storage
+   */
+  getMemoryManager(): MemoryManager {
+    return this.memoryManager;
+  }
+
+  /**
+   * Get the LLM provider for direct model access (e.g. memory extraction)
+   */
+  getLlmProvider(): LLMProvider {
+    return this.llm;
+  }
+
+  /**
    * Get the permission manager for mode control
    */
   getPermissionManager(): PermissionManager {
