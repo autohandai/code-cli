@@ -319,6 +319,83 @@ export const tuiTheme: ThemeDefinition = {
 };
 
 /**
+ * GitHub Dark theme - based on the GitHub Dark terminal color palette.
+ * Features GitHub's signature blue accents, muted grays, and vivid diff colors.
+ */
+export const githubDarkTheme: ThemeDefinition = {
+  name: 'github-dark',
+  vars: {
+    // GitHub Dark ANSI palette (colors 0–15)
+    gray: '#6e7681',            // ANSI 0/8 - muted gray
+    red: '#f97583',             // ANSI 1 - coral red
+    green: '#3fb950',           // ANSI 2 - green
+    yellow: '#d29922',          // ANSI 3 - orange/yellow
+    blue: '#79c0ff',            // ANSI 4 - blue
+    purple: '#d2a8ff',          // ANSI 5 - purple
+    cyan: '#56d4dd',            // ANSI 6 - cyan
+    lightGray: '#8b949e',       // ANSI 7 - light gray
+    brightRed: '#ffa198',       // ANSI 9 - light pink
+    brightGreen: '#56d364',     // ANSI 10 - light green
+    brightYellow: '#e3b341',    // ANSI 11 - light orange
+    brightBlue: '#a5d6ff',      // ANSI 12 - light blue
+    brightCyan: '#76e4f7',      // ANSI 14 - light cyan
+    white: '#ffffff',           // ANSI 15 - white
+    // GitHub Dark semantic backgrounds
+    bg: '#0d1117',
+    bgSurface: '#161b22',
+    bgOverlay: '#1c2128',
+    borderDefault: '#30363d',
+    fgDefault: '#e6edf3',
+  },
+  colors: {
+    // Core UI
+    accent: 'blue',
+    border: 'borderDefault',
+    borderAccent: 'blue',
+    borderMuted: '#21262d',
+    success: 'green',
+    error: 'red',
+    warning: 'yellow',
+    muted: 'lightGray',
+    dim: 'fgDefault',
+    text: 'fgDefault',
+    // Backgrounds & Content
+    userMessageBg: 'bgSurface',
+    userMessageText: 'fgDefault',
+    toolPendingBg: 'bgOverlay',
+    toolSuccessBg: '#0f2d16',
+    toolErrorBg: '#3d1418',
+    toolTitle: 'blue',
+    toolOutput: 'lightGray',
+    // Diff Colors
+    diffAdded: 'green',
+    diffRemoved: 'red',
+    diffContext: 'lightGray',
+    // Syntax Highlighting
+    syntaxComment: 'gray',
+    syntaxKeyword: 'red',
+    syntaxFunction: 'purple',
+    syntaxVariable: 'brightBlue',
+    syntaxString: 'brightBlue',
+    syntaxNumber: 'blue',
+    syntaxType: 'brightRed',
+    syntaxOperator: 'red',
+    syntaxPunctuation: 'lightGray',
+    // Markdown
+    mdHeading: 'blue',
+    mdLink: 'blue',
+    mdLinkUrl: 'lightGray',
+    mdCode: 'brightCyan',
+    mdCodeBlock: 'fgDefault',
+    mdCodeBlockBorder: 'borderDefault',
+    mdQuote: 'lightGray',
+    mdQuoteBorder: 'borderDefault',
+    mdHr: 'borderDefault',
+    mdListBullet: 'blue',
+  },
+};
+
+/**
  * Light theme - optimized for light terminal backgrounds.
  * Uses darker, more saturated colors for visibility against light backgrounds.
  */
@@ -405,6 +482,7 @@ export const builtInThemes: Record<string, ThemeDefinition> = {
   dracula: draculaTheme,
   sandy: sandyTheme,
   tui: tuiTheme,
+  'github-dark': githubDarkTheme,
 };
 
 /**

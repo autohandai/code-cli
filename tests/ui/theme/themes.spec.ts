@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 import {
   darkTheme,
   lightTheme,
+  githubDarkTheme,
   builtInThemes,
   getBuiltInTheme,
   isBuiltInTheme,
@@ -124,6 +125,33 @@ describe('lightTheme', () => {
   });
 });
 
+describe('githubDarkTheme', () => {
+  it('has correct name', () => {
+    expect(githubDarkTheme.name).toBe('github-dark');
+  });
+
+  it('has all required color tokens', () => {
+    for (const token of COLOR_TOKENS) {
+      expect(githubDarkTheme.colors[token]).toBeDefined();
+    }
+  });
+
+  it('has vars section for color reuse', () => {
+    expect(githubDarkTheme.vars).toBeDefined();
+    expect(Object.keys(githubDarkTheme.vars!).length).toBeGreaterThan(0);
+  });
+
+  it('uses GitHub signature blue as accent', () => {
+    expect(githubDarkTheme.colors.accent).toBe('blue');
+  });
+
+  it('has distinct colors for success, error, warning', () => {
+    expect(githubDarkTheme.colors.success).not.toBe(githubDarkTheme.colors.error);
+    expect(githubDarkTheme.colors.success).not.toBe(githubDarkTheme.colors.warning);
+    expect(githubDarkTheme.colors.error).not.toBe(githubDarkTheme.colors.warning);
+  });
+});
+
 describe('builtInThemes', () => {
   it('contains dark theme', () => {
     expect(builtInThemes.dark).toBe(darkTheme);
@@ -133,8 +161,8 @@ describe('builtInThemes', () => {
     expect(builtInThemes.light).toBe(lightTheme);
   });
 
-  it('has exactly 5 built-in themes', () => {
-    expect(Object.keys(builtInThemes)).toHaveLength(5);
+  it('has exactly 6 built-in themes', () => {
+    expect(Object.keys(builtInThemes)).toHaveLength(6);
   });
 
   it('all themes have unique names', () => {
