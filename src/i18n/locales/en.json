@@ -196,6 +196,8 @@
         "search": "Search"
       },
       "ui": {
+        "theme": "Theme",
+        "locale": "Language",
         "autoConfirm": "Auto-confirm actions",
         "autoConfirmDesc": "Skip confirmation prompts for tool actions",
         "showThinking": "Show LLM thinking",
