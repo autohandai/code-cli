@@ -281,6 +281,35 @@ export function isPlainTabShortcut(str: string, key: readline.Key | undefined): 
   return key?.name === 'tab' || key?.sequence === '\t' || str === '\t';
 }
 
+/**
+ * Detect Shift+Enter or Alt+Enter across different terminal protocols.
+ *
+ * Standard terminals rely on Node's readline parser to set key.name='return'
+ * with key.shift/key.meta.  Modern terminals using the kitty keyboard protocol
+ * (CSI u) send ESC[13;Xu where X encodes modifiers – Node's readline does NOT
+ * understand this format and would insert the raw bytes as garbage text.
+ *
+ * Modifier bits (CSI u): 2=Shift, 3=Alt, 4=Shift+Alt, 10=Shift+Alt+Ctrl
+ */
+export function isShiftEnterSequence(str: string, key: readline.Key | undefined): boolean {
+  // Standard readline detection
+  if (key?.name === 'return' && (key.shift || key.meta)) {
+    return true;
+  }
+  const seq = key?.sequence ?? str ?? '';
+  // CSI u protocol (kitty keyboard): ESC[13;Xu  (u terminator)
+  // xterm modified key format:       ESC[13;X~  (~ terminator)
+  // Modifier X: 2=Shift, 3=Alt, 4=Shift+Alt
+  if (/^\x1b\[13;[234]\d*[u~]$/.test(seq)) {
+    return true;
+  }
+  // Alt+Enter: ESC followed by carriage return
+  if (seq === '\x1b\r' || seq === '\x1b\n') {
+    return true;
+  }
+  return false;
+}
+
 export function shouldAutoHideShortcutHelp(str: string, key: readline.Key | undefined): boolean {
   if (isPlainTabShortcut(str, key) || isShiftTabShortcut(str, key)) {
     return false;
@@ -1176,6 +1205,20 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       };
     }
 
+    // Intercept _ttyWrite to suppress CSI u Shift+Enter sequences.
+    // Readline processes keypresses BEFORE our handler (registered later).
+    // Without this, readline inserts the raw escape bytes as garbage text.
+    const rlTtyWrite = rl as readline.Interface & { _ttyWrite?: (s: string, key: readline.Key) => void };
+    const originalTtyWrite = rlTtyWrite._ttyWrite?.bind(rl);
+    if (originalTtyWrite) {
+      rlTtyWrite._ttyWrite = (s: string, key: readline.Key) => {
+        if (isShiftEnterSequence(s, key)) {
+          return; // Suppress — our keypress handler inserts NEWLINE_MARKER
+        }
+        return originalTtyWrite(s, key);
+      };
+    }
+
     const applyDetectedImagesToLine = (processedText: string) => {
       const rlAny = rl as readline.Interface & { line: string; cursor: number };
       const display = getContentDisplay(processedText);
@@ -1391,7 +1434,8 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       }
 
       // Shift+Enter or Alt+Enter: insert newline marker (max 3 lines)
-      if (key?.name === 'return' && (key.shift || key.meta)) {
+      // Supports both standard readline parsing and CSI u (kitty keyboard protocol)
+      if (isShiftEnterSequence(_str, key)) {
         const currentMarkers = countNewlineMarkers(rl.line || '');
         if (currentMarkers < MAX_NEWLINES) {
           insertAtCursor(NEWLINE_MARKER);
@@ -1633,7 +1677,16 @@ function renderPromptLine(
     const moveUp = totalReflowedRows + rowsPerOldLine;
     readline.moveCursor(output, 0, -moveUp);
     readline.cursorTo(output, 0);
-    readline.clearScreenDown(output);
+    // Clear only the reflowed prompt block rows, NOT the entire screen below.
+    // Using clearScreenDown here would wipe the chat log above the prompt.
+    const rowsToClear = moveUp + PROMPT_BLOCK_LINE_COUNT + STATUS_LINE_COUNT;
+    for (let i = 0; i < rowsToClear; i++) {
+      readline.clearLine(output, 0);
+      readline.moveCursor(output, 0, 1);
+    }
+    // Return cursor to the starting position for the new prompt block
+    readline.moveCursor(output, 0, -rowsToClear);
+    readline.cursorTo(output, 0);
   } else if (hasExistingPromptBlock) {
     // Same-width redraw: cursor sits on the input row.
     // Clear the fixed 4-line prompt block in place.

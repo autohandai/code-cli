@@ -829,8 +829,20 @@ async function runCLI(options: CLIOptions): Promise<void> {
     // once it's constructed (after synchronous setup below).
     const agentHolder: { current: AutohandAgent | null } = { current: null };
 
-    // Run auth, version check, startup checks in background (fire-and-forget)
-    // These complete while the user reads the welcome message and types
+    // Run startup checks synchronously before prompt to prevent output racing.
+    // git init, tool checks etc. must finish printing BEFORE the prompt renders.
+    try {
+      const checkResults = await runStartupChecks(workspaceRoot);
+      printStartupCheckResults(checkResults);
+      if (!checkResults.allRequiredMet) {
+        console.log(chalk.yellow('Continuing anyway, but some features may not work correctly.\n'));
+      }
+    } catch {
+      // Non-critical - continue without startup check output
+    }
+
+    // Run auth, version check, sync in background (fire-and-forget).
+    // These are network-bound and should not block the prompt.
     (async () => {
       try {
         const versionCheckPromise = config.ui?.checkForUpdates !== false
@@ -839,22 +851,14 @@ async function runCLI(options: CLIOptions): Promise<void> {
             })
           : Promise.resolve(null);
 
-        const [authUser, versionResult, checkResults] = await Promise.all([
+        const [authUser, versionResult] = await Promise.all([
           validateAuthOnStartup(config),
           versionCheckPromise,
-          runStartupChecks(workspaceRoot),
         ]);
 
         // Pass version check result to agent for status bar display
         if (versionResult && agentHolder.current) {
           agentHolder.current.setVersionCheckResult(versionResult);
-        }
-
-        // Print startup check warnings (missing tools etc.)
-        printStartupCheckResults(checkResults);
-
-        if (!checkResults.allRequiredMet) {
-          console.log(chalk.yellow('Continuing anyway, but some features may not work correctly.\n'));
         }
 
         // Start settings sync service for logged-in users
@@ -899,8 +903,6 @@ async function runCLI(options: CLIOptions): Promise<void> {
         // Non-critical startup tasks - don't crash on failure
       }
     })();
-
-    // Don't await startupPromise - let it run while agent initializes
 
     // Note: Git repo check is passed to the agent via runtime.
     // The agent/LLM can suggest initializing git if needed for complex tasks.

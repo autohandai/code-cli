@@ -10,7 +10,7 @@ import chalk from 'chalk';
 import readline from 'node:readline';
 import EventEmitter from 'node:events';
 import { TerminalRegions, createTerminalRegions } from './terminalRegions.js';
-import { safeEmitKeypressEvents } from './inputPrompt.js';
+import { safeEmitKeypressEvents, isShiftEnterSequence } from './inputPrompt.js';
 import { safeSetRawMode } from './rawMode.js';
 import { isImmediateCommand } from './shellCommand.js';
 import { getPlanModeManager } from '../commands/plan.js';
@@ -273,6 +273,12 @@ export class PersistentInput extends EventEmitter {
       const planModeManager = getPlanModeManager();
       planModeManager.handleShiftTab();
       this.emit('plan-mode-toggled', planModeManager.isEnabled());
+      return;
+    }
+
+    // Suppress Shift+Enter / Alt+Enter escape sequences (CSI u protocol).
+    // PersistentInput is single-line only; just ignore without inserting garbage.
+    if (isShiftEnterSequence(_str, key)) {
       return;
     }
 

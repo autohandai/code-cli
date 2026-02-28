@@ -50,6 +50,8 @@ export class TerminalRegions {
   private currentQueueCount = 0;
   private currentStatus = '';
   private currentActivity = '';
+  private lastHeight = 0;
+  private lastWidth = 0;
 
   constructor(output: NodeJS.WriteStream = process.stdout) {
     this.output = output;
@@ -69,12 +71,14 @@ export class TerminalRegions {
     if (this.isActive) return;
     if (!this.output.isTTY) return;
 
-    const { height } = this.getDimensions();
+    const { height, width } = this.getDimensions();
     const scrollEnd = Math.max(1, height - this.fixedLines);
 
     // Set scroll region (CSI Ps ; Ps r) - top to scrollEnd
     this.output.write(`${CSI}1;${scrollEnd}r`);
 
+    this.lastHeight = height;
+    this.lastWidth = width;
     this.isActive = true;
 
     // Handle terminal resize
@@ -120,13 +124,32 @@ export class TerminalRegions {
   private handleResize(): void {
     if (!this.isActive) return;
 
-    const { height } = this.getDimensions();
+    const { height, width } = this.getDimensions();
     const scrollEnd = Math.max(1, height - this.fixedLines);
 
-    // Update scroll region
+    // 1. Reset scroll region to full terminal so we can address all rows
+    this.output.write(`${CSI}r`);
+
+    // 2. Move to the first row of the new fixed-region area and use
+    //    CSI J (Erase in Display — cursor to end) to wipe everything below.
+    //    Unlike CSI K (Erase in Line), CSI J handles wrapped/reflowed content
+    //    across multiple physical rows in a single operation.
+    this.output.write(`${CSI}${scrollEnd + 1};1H`);
+    this.output.write(`${CSI}J`);
+
+    // 3. Set the new scroll region
     this.output.write(`${CSI}1;${scrollEnd}r`);
 
-    // Re-render fixed region
+    // 4. Park cursor at the bottom of the scroll area.  We intentionally do
+    //    NOT use CSI s/u (save/restore) because the saved position is
+    //    meaningless after terminal reflow changes the physical layout.
+    this.output.write(`${CSI}${scrollEnd};1H`);
+
+    // Track dimensions for future resize events
+    this.lastHeight = height;
+    this.lastWidth = width;
+
+    // 5. Re-render the fixed region at the new dimensions
     this.renderFixedRegion(this.currentInput, this.currentQueueCount, this.currentStatus, this.currentActivity);
   }
 

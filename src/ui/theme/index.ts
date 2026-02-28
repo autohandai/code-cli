@@ -107,6 +107,17 @@ export {
   autoInitTheme,
 } from './loader.js';
 
+// Ghostty theme loader
+export {
+  findGhosttyThemesDir,
+  listGhosttyThemes,
+  parseGhosttyTheme,
+  ghosttyPaletteToTheme,
+  loadGhosttyTheme,
+} from './ghosttyLoader.js';
+
+export type { GhosttyPalette } from './ghosttyLoader.js';
+
 // React/Ink support
 export {
   ThemeContext,
