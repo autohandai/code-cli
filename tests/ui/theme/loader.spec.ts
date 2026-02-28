@@ -23,6 +23,7 @@ import {
 } from '../../../src/ui/theme/loader.js';
 import { setTheme, isThemeInitialized, getTheme } from '../../../src/ui/theme/Theme.js';
 import { COLOR_TOKENS } from '../../../src/ui/theme/types.js';
+import { builtInThemes } from '../../../src/ui/theme/themes.js';
 
 // Use a temp directory for custom themes in tests
 const TEST_THEMES_DIR = join(tmpdir(), 'autohand-test-themes');
@@ -283,11 +284,18 @@ describe('listAvailableThemes()', () => {
     expect(themes).toContain('light');
   });
 
-  it('returns sorted array', () => {
+  it('returns built-in themes first, each group sorted', () => {
     const themes = listAvailableThemes();
-    const sorted = [...themes].sort();
+    const builtInNames = Object.keys(builtInThemes).sort();
 
-    expect(themes).toEqual(sorted);
+    // Built-in themes come first
+    const builtInSection = themes.slice(0, builtInNames.length);
+    expect(builtInSection).toEqual(builtInNames);
+
+    // Remaining themes (Ghostty/custom) are sorted within their group
+    const rest = themes.slice(builtInNames.length);
+    const restSorted = [...rest].sort();
+    expect(rest).toEqual(restSorted);
   });
 });
 
