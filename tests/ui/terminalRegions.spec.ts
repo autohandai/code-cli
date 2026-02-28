@@ -237,6 +237,61 @@ describe('TerminalRegions', () => {
     }
   });
 
+  describe('handleResize', () => {
+    it('uses CSI J (Erase in Display) to clear fixed region instead of row-by-row CSI K', () => {
+      const output = createMockOutput();
+      const regions = new TerminalRegions(output);
+      regions.enable();
+      output.writes = [];
+
+      // Simulate terminal resize
+      output.rows = 30;
+      output.columns = 100;
+      output.emit('resize');
+
+      const joined = output.writes.join('');
+      // Should contain CSI J (Erase in Display from cursor to end)
+      expect(joined).toContain('\x1b[J');
+    });
+
+    it('updates scroll region with new dimensions after resize', () => {
+      const output = createMockOutput();
+      const regions = new TerminalRegions(output);
+      regions.enable();
+      output.writes = [];
+
+      // Resize from 24 to 30 rows
+      output.rows = 30;
+      output.columns = 80;
+      output.emit('resize');
+
+      const joined = output.writes.join('');
+      // New scroll region: 1 to (30 - 5) = 25
+      expect(joined).toContain('\x1b[1;25r');
+    });
+
+    it('re-renders fixed region with cached input, status, and activity', () => {
+      const output = createMockOutput();
+      const regions = new TerminalRegions(output);
+      regions.enable();
+
+      // Set some state that should be preserved across resize
+      regions.renderFixedRegion('my input', 2, 'test status', 'Working...');
+      output.writes = [];
+
+      // Trigger resize
+      output.rows = 30;
+      output.columns = 80;
+      output.emit('resize');
+
+      const plain = stripAnsi(output.writes.join(''));
+      // Should re-render with cached content
+      expect(plain).toContain('my input');
+      expect(plain).toContain('test status');
+      expect(plain).toContain('Working...');
+    });
+  });
+
   it('uses light gray border color when input starts with ! even in plan mode', () => {
     const theme = new Theme(
       'test-shell',

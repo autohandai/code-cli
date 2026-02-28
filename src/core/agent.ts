@@ -2471,8 +2471,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
         // Collect all output lines for a single batch write
         const outputLines: string[] = [];
 
-        // Extract thought for display (skip raw JSON)
-        const thought = showThinking && payload.thought && !payload.thought.trim().startsWith('{')
+        // Extract thought for display
+        // Note: by this point, parseAssistantReactPayload has already extracted
+        // the thought string from JSON, so payload.thought is clean text.
+        const thought = showThinking && payload.thought
           ? payload.thought
           : undefined;
 
@@ -2587,7 +2589,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
         // Output tool results
         if (this.inkRenderer) {
           // InkRenderer: add tool outputs to the UI with thought
-          const thought = showThinking && payload.thought && !payload.thought.trim().startsWith('{')
+          // parseAssistantReactPayload already extracted thought from JSON
+          const thought = showThinking && payload.thought
             ? payload.thought
             : undefined;
 
@@ -2798,11 +2801,18 @@ If lint or tests fail, report the issues but do NOT commit.`;
       } else {
         // Ora mode: stop spinner and output
         this.runtime.spinner?.stop();
-        if (showThinking && payload.thought && !suppressThinking && !payload.thought.trim().startsWith('{')) {
+        if (showThinking && payload.thought && !suppressThinking) {
+          // parseAssistantReactPayload already extracted thought from JSON
           console.log(chalk.gray(`Thinking: ${payload.thought}`));
           console.log();
         }
-        console.log(response);
+        if (usedThoughtAsResponse) {
+          // When thought was used as the response, prefix with "Thinking:" header
+          // so the user understands the model's internal reasoning became the reply
+          console.log(chalk.gray('Thinking: ') + response);
+        } else {
+          console.log(response);
+        }
       }
       return;
     }

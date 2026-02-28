@@ -20,12 +20,6 @@ function ThinkingOutputComponent({ thought }: ThinkingOutputProps) {
     return null;
   }
 
-  // Don't display if it looks like raw JSON
-  const trimmed = thought.trim();
-  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-    return null;
-  }
-
   return (
     <Box marginBottom={1}>
       <Text color={colors.dim} dimColor>{t('ui.thinking')}: {thought}</Text>

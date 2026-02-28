@@ -11,6 +11,7 @@ import type { ThemeDefinition, ThemeColors, ColorValue, ResolvedColors, ColorTok
 import { COLOR_TOKENS, isHexColor, is256ColorIndex } from './types.js';
 import { Theme, setTheme, detectColorMode } from './Theme.js';
 import { builtInThemes, darkTheme, getDefaultThemeName } from './themes.js';
+import { loadGhosttyTheme, listGhosttyThemes } from './ghosttyLoader.js';
 
 /**
  * Custom themes directory.
@@ -63,7 +64,7 @@ export function initTheme(themeName?: string): Theme {
 
 /**
  * Get theme definition by name.
- * Checks built-in themes first, then custom themes.
+ * Checks built-in themes first, then custom themes, then Ghostty themes.
  */
 export function getThemeDefinition(themeName: string): ThemeDefinition {
   // Check built-in themes
@@ -75,6 +76,12 @@ export function getThemeDefinition(themeName: string): ThemeDefinition {
   const customThemePath = join(CUSTOM_THEMES_DIR, `${themeName}.json`);
   if (existsSync(customThemePath)) {
     return loadCustomTheme(customThemePath, themeName);
+  }
+
+  // Check Ghostty themes
+  const ghosttyTheme = loadGhosttyTheme(themeName);
+  if (ghosttyTheme) {
+    return ghosttyTheme;
   }
 
   throw new ThemeLoadError(`Theme "${themeName}" not found`, themeName);
@@ -223,10 +230,45 @@ export function resolveColorValue(
 }
 
 /**
- * List all available themes (built-in + custom).
+ * Curated popular Ghostty themes shown in the theme selector.
+ * Users can still use ANY Ghostty theme by name in their config file.
+ */
+export const CURATED_GHOSTTY_THEMES = [
+  'Atom One Dark',
+  'Ayu Mirage',
+  'Catppuccin Frappe',
+  'Catppuccin Latte',
+  'Catppuccin Macchiato',
+  'Catppuccin Mocha',
+  'Everforest Dark Hard',
+  'Gruvbox Dark',
+  'Gruvbox Light',
+  'Kanagawa Wave',
+  'Monokai Pro',
+  'Nord',
+  'One Half Dark',
+  'Rose Pine',
+  'Rose Pine Dawn',
+  'Rose Pine Moon',
+  'Solarized Osaka Night',
+  'TokyoNight',
+  'TokyoNight Storm',
+];
+
+/**
+ * List all available themes (built-in + curated Ghostty + custom).
+ * Only shows curated Ghostty themes in the selector — not the full 400+.
+ * Users can still use any Ghostty theme by setting it in their config.
  */
 export function listAvailableThemes(): string[] {
   const themes = new Set<string>(Object.keys(builtInThemes));
+
+  // Add curated Ghostty themes (only if Ghostty is installed and theme exists)
+  for (const name of CURATED_GHOSTTY_THEMES) {
+    if (loadGhosttyTheme(name)) {
+      themes.add(name);
+    }
+  }
 
   // Add custom themes
   if (existsSync(CUSTOM_THEMES_DIR)) {
@@ -251,7 +293,8 @@ export function listAvailableThemes(): string[] {
 export function themeExists(themeName: string): boolean {
   if (themeName in builtInThemes) return true;
   const customPath = join(CUSTOM_THEMES_DIR, `${themeName}.json`);
-  return existsSync(customPath);
+  if (existsSync(customPath)) return true;
+  return loadGhosttyTheme(themeName) !== null;
 }
 
 /**

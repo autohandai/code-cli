@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import { t } from '../i18n/index.js';
 import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import { listAvailableThemes, initTheme, getTheme, isThemeInitialized, CUSTOM_THEMES_DIR } from '../ui/theme/index.js';
+import { builtInThemes } from '../ui/theme/themes.js';
 import type { LoadedConfig } from '../types.js';
 import { saveConfig } from '../config.js';
 
@@ -26,19 +27,41 @@ export async function theme(ctx: ThemeContext): Promise<string | null> {
   console.log(chalk.gray(`Custom themes location: ${CUSTOM_THEMES_DIR}\n`));
 
   const descriptions: Record<string, string> = {
+    // Built-in
     dark: 'Default dark theme',
     light: 'Light terminal backgrounds',
     dracula: 'Vibrant Dracula palette',
     sandy: 'Warm, earthy desert tones',
     tui: 'New Zealand-inspired colors',
     'github-dark': 'GitHub Dark terminal palette',
+    // Curated Ghostty themes
+    'Atom One Dark': 'Atom editor dark theme',
+    'Ayu Mirage': 'Soft dark with warm accents',
+    'Catppuccin Frappe': 'Soothing pastel dark',
+    'Catppuccin Latte': 'Soothing pastel light',
+    'Catppuccin Macchiato': 'Soothing pastel medium dark',
+    'Catppuccin Mocha': 'Soothing pastel deep dark',
+    'Everforest Dark Hard': 'Comfortable green-tinted dark',
+    'Gruvbox Dark': 'Retro groove warm dark',
+    'Gruvbox Light': 'Retro groove warm light',
+    'Kanagawa Wave': 'Dark with Japanese wave palette',
+    'Monokai Pro': 'Modern Monokai refined',
+    'Nord': 'Arctic, north-bluish palette',
+    'One Half Dark': 'Clean dark balanced colors',
+    'Rose Pine': 'All-natural pine dark',
+    'Rose Pine Dawn': 'All-natural pine light',
+    'Rose Pine Moon': 'All-natural pine dimmed dark',
+    'Solarized Osaka Night': 'Solarized meets Osaka nights',
+    'TokyoNight': 'Clean dark with vivid colors',
+    'TokyoNight Storm': 'Storm variant with blue tints',
   };
 
-  const options: ModalOption[] = themes.map(name => ({
-    label: name === currentTheme ? `${name} (current)` : name,
-    value: name,
-    description: descriptions[name] ?? 'Custom theme',
-  }));
+  const options: ModalOption[] = themes.map(name => {
+    const label = name === currentTheme ? `${name} (current)` : name;
+    const description = descriptions[name]
+      ?? (name in builtInThemes ? 'Built-in theme' : 'Ghostty theme');
+    return { label, value: name, description };
+  });
 
   const result = await showModal({
     title: t('commands.theme.selectPrompt'),

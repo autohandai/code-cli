@@ -455,6 +455,67 @@ describe('prompt shortcut key helpers', () => {
   });
 });
 
+describe('isShiftEnterSequence', () => {
+  it('detects standard Shift+Enter (readline parsed)', async () => {
+    const { isShiftEnterSequence } = await import('../../src/ui/inputPrompt.js');
+
+    expect(isShiftEnterSequence('\r', { name: 'return', sequence: '\r', shift: true } as readline.Key)).toBe(true);
+    expect(isShiftEnterSequence('\r', { name: 'return', sequence: '\r', meta: true } as readline.Key)).toBe(true);
+  });
+
+  it('detects CSI u protocol Shift+Enter (kitty keyboard)', async () => {
+    const { isShiftEnterSequence } = await import('../../src/ui/inputPrompt.js');
+
+    // Shift+Enter: ESC[13;2u
+    expect(isShiftEnterSequence('\x1b[13;2u', { sequence: '\x1b[13;2u' } as readline.Key)).toBe(true);
+    // Alt+Enter: ESC[13;3u
+    expect(isShiftEnterSequence('\x1b[13;3u', { sequence: '\x1b[13;3u' } as readline.Key)).toBe(true);
+    // Shift+Alt+Enter: ESC[13;4u
+    expect(isShiftEnterSequence('\x1b[13;4u', { sequence: '\x1b[13;4u' } as readline.Key)).toBe(true);
+  });
+
+  it('detects xterm modified key format Shift+Enter (~ terminator)', async () => {
+    const { isShiftEnterSequence } = await import('../../src/ui/inputPrompt.js');
+
+    // Shift+Enter: ESC[13;2~
+    expect(isShiftEnterSequence('\x1b[13;2~', { sequence: '\x1b[13;2~' } as readline.Key)).toBe(true);
+    // Alt+Enter: ESC[13;3~
+    expect(isShiftEnterSequence('\x1b[13;3~', { sequence: '\x1b[13;3~' } as readline.Key)).toBe(true);
+    // Shift+Alt+Enter: ESC[13;4~
+    expect(isShiftEnterSequence('\x1b[13;4~', { sequence: '\x1b[13;4~' } as readline.Key)).toBe(true);
+  });
+
+  it('detects Alt+Enter as ESC followed by carriage return', async () => {
+    const { isShiftEnterSequence } = await import('../../src/ui/inputPrompt.js');
+
+    expect(isShiftEnterSequence('\x1b\r', { sequence: '\x1b\r' } as readline.Key)).toBe(true);
+    expect(isShiftEnterSequence('\x1b\n', { sequence: '\x1b\n' } as readline.Key)).toBe(true);
+  });
+
+  it('does NOT match plain Enter', async () => {
+    const { isShiftEnterSequence } = await import('../../src/ui/inputPrompt.js');
+
+    expect(isShiftEnterSequence('\r', { name: 'return', sequence: '\r' } as readline.Key)).toBe(false);
+    expect(isShiftEnterSequence('\n', { name: 'return', sequence: '\n' } as readline.Key)).toBe(false);
+  });
+
+  it('does NOT match unrelated CSI u sequences', async () => {
+    const { isShiftEnterSequence } = await import('../../src/ui/inputPrompt.js');
+
+    // Tab: CSI 9;2u
+    expect(isShiftEnterSequence('\x1b[9;2u', { sequence: '\x1b[9;2u' } as readline.Key)).toBe(false);
+    // Space: CSI 32;2u
+    expect(isShiftEnterSequence('\x1b[32;2u', { sequence: '\x1b[32;2u' } as readline.Key)).toBe(false);
+  });
+
+  it('detects from _str when key.sequence is missing', async () => {
+    const { isShiftEnterSequence } = await import('../../src/ui/inputPrompt.js');
+
+    expect(isShiftEnterSequence('\x1b[13;2u', undefined)).toBe(true);
+    expect(isShiftEnterSequence('\x1b[13;3u', {} as readline.Key)).toBe(true);
+  });
+});
+
 describe('getPromptBlockWidth', () => {
   it('uses one column less than terminal width to avoid auto-wrap', async () => {
     const { getPromptBlockWidth } = await import('../../src/ui/inputPrompt.js');
