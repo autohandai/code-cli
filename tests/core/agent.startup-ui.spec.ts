@@ -1123,7 +1123,7 @@ describe('agent startup and active input UI', () => {
     // Replace the private method's dependency on readInstruction
     // by checking the timing: promptForInstruction must NOT wait
     // more than 200ms before invoking readInstruction.
-    const _promptPromise = (agent as any).promptForInstruction([], []).catch(() => {});
+    void (agent as any).promptForInstruction([], []).catch(() => {});
 
     // Give it a short window to proceed
     await new Promise((r) => setTimeout(r, 200));
