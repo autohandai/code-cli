@@ -704,6 +704,31 @@ program
     process.exit(0);
   });
 
+// ── Update/Upgrade subcommand ───────────────────────────────────────────
+program
+  .command('update')
+  .description('Check for updates and install if available')
+  .option('--check', 'Only check for updates without installing')
+  .action(async (opts: { check?: boolean }) => {
+    const { runUpdate } = await import('./commands/update.js');
+    await runUpdate({
+      currentVersion: packageJson.version,
+      check: opts.check ?? false,
+    });
+  });
+
+program
+  .command('upgrade')
+  .description('Check for updates and install if available')
+  .option('--check', 'Only check for updates without installing')
+  .action(async (opts: { check?: boolean }) => {
+    const { runUpdate } = await import('./commands/update.js');
+    await runUpdate({
+      currentVersion: packageJson.version,
+      check: opts.check ?? false,
+    });
+  });
+
 async function runCLI(options: CLIOptions): Promise<void> {
   try {
     let config = await loadConfig(options.config);
