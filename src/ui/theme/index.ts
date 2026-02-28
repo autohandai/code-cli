@@ -118,6 +118,9 @@ export {
 
 export type { GhosttyPalette } from './ghosttyLoader.js';
 
+// Curated Ghostty themes list
+export { CURATED_GHOSTTY_THEMES } from './loader.js';
+
 // React/Ink support
 export {
   ThemeContext,
