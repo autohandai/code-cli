@@ -256,35 +256,43 @@ export const CURATED_GHOSTTY_THEMES = [
 ];
 
 /**
- * List all available themes (built-in + curated Ghostty + custom).
+ * List all available themes (built-in first, then curated Ghostty, then custom).
  * Only shows curated Ghostty themes in the selector — not the full 400+.
  * Users can still use any Ghostty theme by setting it in their config.
  */
 export function listAvailableThemes(): string[] {
-  const themes = new Set<string>(Object.keys(builtInThemes));
+  // Built-in themes first (sorted)
+  const builtIn = Object.keys(builtInThemes).sort();
 
-  // Add curated Ghostty themes (only if Ghostty is installed and theme exists)
+  // Curated Ghostty themes (only if installed, sorted)
+  const ghostty: string[] = [];
   for (const name of CURATED_GHOSTTY_THEMES) {
     if (loadGhosttyTheme(name)) {
-      themes.add(name);
+      ghostty.push(name);
     }
   }
+  ghostty.sort();
 
-  // Add custom themes
+  // Custom themes last (sorted)
+  const custom: string[] = [];
   if (existsSync(CUSTOM_THEMES_DIR)) {
     try {
       const files = readdirSync(CUSTOM_THEMES_DIR);
       for (const file of files) {
         if (file.endsWith('.json')) {
-          themes.add(file.slice(0, -5)); // Remove .json extension
+          const name = file.slice(0, -5);
+          if (!builtIn.includes(name)) {
+            custom.push(name);
+          }
         }
       }
     } catch {
       // Ignore errors reading custom themes dir
     }
   }
+  custom.sort();
 
-  return Array.from(themes).sort();
+  return [...builtIn, ...ghostty, ...custom];
 }
 
 /**

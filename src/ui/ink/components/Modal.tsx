@@ -45,6 +45,8 @@ export interface SelectModalProps extends BaseModalProps {
   allowCustomInput?: boolean;
   /** Initial selected index (0-based) */
   initialIndex?: number;
+  /** Max visible items before scrolling (default: 10) */
+  maxVisible?: number;
   /**
    * Multi-select mode (stub for future implementation).
    * @remarks Currently not implemented - accepts prop but has no effect.
@@ -184,6 +186,10 @@ function Modal(props: ModalProps) {
     ? (props as ConfirmModalProps).defaultValue
     : undefined;
 
+  const maxVisible = mode === 'select' && 'maxVisible' in props && typeof props.maxVisible === 'number'
+    ? props.maxVisible
+    : 10;
+
   // State for select mode
   const [cursor, setCursor] = useState(() =>
     resolveInitialCursor(
@@ -193,6 +199,15 @@ function Modal(props: ModalProps) {
       confirmDefaultValue
     )
   );
+  const [windowStart, setWindowStart] = useState(() => {
+    const initial = resolveInitialCursor(
+      mode === 'confirm' ? 'confirm' : 'select',
+      mode === 'confirm' ? 2 : selectOptionCount,
+      mode === 'select' && 'initialIndex' in props ? props.initialIndex : undefined,
+      confirmDefaultValue
+    );
+    return Math.max(0, initial - Math.floor(maxVisible / 2));
+  });
   const [customInput, setCustomInput] = useState('');
   const [isCustomMode, setIsCustomMode] = useState(false);
 
@@ -338,11 +353,27 @@ function Modal(props: ModalProps) {
 
     // Arrow navigation
     if (key.upArrow) {
-      setCursor((prev) => findNextEnabled(prev, -1));
+      setCursor((prev) => {
+        const next = findNextEnabled(prev, -1);
+        setWindowStart((ws) => {
+          if (next < ws) return next;
+          if (next >= ws + maxVisible) return Math.max(0, next - maxVisible + 1);
+          return ws;
+        });
+        return next;
+      });
       return;
     }
     if (key.downArrow) {
-      setCursor((prev) => findNextEnabled(prev, 1));
+      setCursor((prev) => {
+        const next = findNextEnabled(prev, 1);
+        setWindowStart((ws) => {
+          if (next >= ws + maxVisible) return next - maxVisible + 1;
+          if (next < ws) return next;
+          return ws;
+        });
+        return next;
+      });
       return;
     }
 
@@ -416,8 +447,15 @@ function Modal(props: ModalProps) {
       );
     }
 
-    // Select/Confirm mode - show options
-    return choices.map((choice, i) => {
+    // Select/Confirm mode - show options with viewport scrolling
+    const needsScroll = choices.length > maxVisible;
+    const windowEnd = Math.min(windowStart + maxVisible, choices.length);
+    const visibleChoices = needsScroll
+      ? choices.slice(windowStart, windowEnd)
+      : choices;
+
+    const items = visibleChoices.map((choice, vi) => {
+      const i = needsScroll ? windowStart + vi : vi;
       const isSelected = i === cursor;
       const isDisabled = choice.disabled;
 
@@ -441,6 +479,18 @@ function Modal(props: ModalProps) {
         </Box>
       );
     });
+
+    return (
+      <>
+        {needsScroll && windowStart > 0 && (
+          <Text color="gray">  {'\u2191'} {windowStart} more above</Text>
+        )}
+        {items}
+        {needsScroll && windowEnd < choices.length && (
+          <Text color="gray">  {'\u2193'} {choices.length - windowEnd} more below</Text>
+        )}
+      </>
+    );
   };
 
   // Render hint text
@@ -480,6 +530,8 @@ export interface ShowModalOptions {
   allowCustomInput?: boolean;
   /** Initial selected index (0-based) */
   initialIndex?: number;
+  /** Max visible items before scrolling (default: 10) */
+  maxVisible?: number;
   /**
    * Multi-select mode (stub for future implementation).
    * @remarks Currently not implemented.
@@ -509,7 +561,7 @@ export interface ShowModalOptions {
 export async function showModal(
   options: ShowModalOptions
 ): Promise<ModalOption | null> {
-  const { title, options: modalOptions, allowCustomInput, multiSelect } = options;
+  const { title, options: modalOptions, allowCustomInput, multiSelect, maxVisible } = options;
 
   // Non-interactive fallback
   if (!process.stdout.isTTY) {
@@ -526,6 +578,7 @@ export async function showModal(
           options={modalOptions}
           allowCustomInput={allowCustomInput}
           multiSelect={multiSelect}
+          maxVisible={maxVisible}
           onSelect={(option) => {
             if (completed) return;
             completed = true;
