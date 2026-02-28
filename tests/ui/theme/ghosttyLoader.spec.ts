@@ -4,13 +4,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   parseGhosttyTheme,
   ghosttyPaletteToTheme,
   findGhosttyThemesDir,
   listGhosttyThemes,
   loadGhosttyTheme,
+  isInsideGhostty,
+  readGhosttyConfigTheme,
+  detectGhosttyTheme,
 } from '../../../src/ui/theme/ghosttyLoader.js';
 import { COLOR_TOKENS } from '../../../src/ui/theme/types.js';
 
@@ -208,5 +211,65 @@ describe('loadGhosttyTheme', () => {
     for (const token of COLOR_TOKENS) {
       expect(theme.colors[token]).toBeDefined();
     }
+  });
+});
+
+describe('isInsideGhostty', () => {
+  const origTermProgram = process.env.TERM_PROGRAM;
+
+  afterEach(() => {
+    if (origTermProgram !== undefined) {
+      process.env.TERM_PROGRAM = origTermProgram;
+    } else {
+      delete process.env.TERM_PROGRAM;
+    }
+  });
+
+  it('returns true when TERM_PROGRAM is ghostty', () => {
+    process.env.TERM_PROGRAM = 'ghostty';
+    expect(isInsideGhostty()).toBe(true);
+  });
+
+  it('returns false when TERM_PROGRAM is something else', () => {
+    process.env.TERM_PROGRAM = 'iTerm2';
+    expect(isInsideGhostty()).toBe(false);
+  });
+
+  it('returns false when TERM_PROGRAM is unset', () => {
+    delete process.env.TERM_PROGRAM;
+    expect(isInsideGhostty()).toBe(false);
+  });
+});
+
+describe('readGhosttyConfigTheme', () => {
+  it('returns null or a config object', () => {
+    const result = readGhosttyConfigTheme();
+    if (result !== null) {
+      expect(typeof result).toBe('object');
+      expect(result.single !== undefined || result.dark !== undefined || result.light !== undefined).toBe(true);
+    }
+  });
+});
+
+describe('detectGhosttyTheme', () => {
+  const origTermProgram = process.env.TERM_PROGRAM;
+
+  afterEach(() => {
+    if (origTermProgram !== undefined) {
+      process.env.TERM_PROGRAM = origTermProgram;
+    } else {
+      delete process.env.TERM_PROGRAM;
+    }
+  });
+
+  it('returns null when not inside Ghostty', () => {
+    process.env.TERM_PROGRAM = 'iTerm2';
+    expect(detectGhosttyTheme()).toBeNull();
+  });
+
+  it('returns a string or null when inside Ghostty', () => {
+    process.env.TERM_PROGRAM = 'ghostty';
+    const result = detectGhosttyTheme();
+    expect(result === null || typeof result === 'string').toBe(true);
   });
 });

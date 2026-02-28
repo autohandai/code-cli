@@ -64,8 +64,9 @@ export function formatToolResultsBatch(
 ): string {
   const lines: string[] = [];
 
-  // Show thought before first tool if present (skip JSON)
-  if (thought && !thought.trim().startsWith('{')) {
+  // Show thought before first tool if present
+  // (parseAssistantReactPayload already extracted clean text from JSON)
+  if (thought) {
     lines.push(chalk.white(thought));
     lines.push('');
   }

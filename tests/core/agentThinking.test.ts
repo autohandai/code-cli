@@ -128,4 +128,36 @@ describe('cleanupModelResponse does not mangle thought text', () => {
 
     expect(cleaned).toBe('Here is my analysis of the problem.');
   });
+
+  it('strips closed <tool_call> XML blocks from response', () => {
+    const agent = createMinimalAgent();
+    const raw = 'Some response text <tool_call>{"name": "list_files", "arguments": {"path": "."}}</tool_call> more text';
+    const cleaned = agent.cleanupModelResponse(raw);
+
+    expect(cleaned).not.toContain('<tool_call>');
+    expect(cleaned).not.toContain('</tool_call>');
+    expect(cleaned).not.toContain('list_files');
+    expect(cleaned).toContain('Some response text');
+    expect(cleaned).toContain('more text');
+  });
+
+  it('strips unclosed <tool_call> tags at end of content', () => {
+    const agent = createMinimalAgent();
+    const raw = 'Response here } <tool_call>{"name": "list_files", "arguments": {"path": "."}}';
+    const cleaned = agent.cleanupModelResponse(raw);
+
+    expect(cleaned).not.toContain('<tool_call>');
+    expect(cleaned).not.toContain('list_files');
+    expect(cleaned).toContain('Response here');
+  });
+
+  it('strips multiple <tool_call> blocks from response', () => {
+    const agent = createMinimalAgent();
+    const raw = '} <tool_call>{"name": "read_file"}</tool_call>\n} <tool_call>{"name": "list_files"}</tool_call>';
+    const cleaned = agent.cleanupModelResponse(raw);
+
+    expect(cleaned).not.toContain('<tool_call>');
+    expect(cleaned).not.toContain('read_file');
+    expect(cleaned).not.toContain('list_files');
+  });
 });
