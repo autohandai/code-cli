@@ -3780,6 +3780,13 @@ If lint or tests fail, report the issues but do NOT commit.`;
     cleaned = cleaned.replace(/<end_of.turn>/gi, '');
     cleaned = cleaned.replace(/<\|.*?\|>/g, ''); // Remove tokens like <|eot_id|>
 
+    // Strip <tool_call> XML blocks that leaked through (some models output these
+    // as text instead of using native tool calling; if extractXmlToolCalls didn't
+    // catch them, they must not be displayed as raw text)
+    cleaned = cleaned.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '');
+    // Also strip unclosed <tool_call> tags at the end of content
+    cleaned = cleaned.replace(/<tool_call>[\s\S]*$/g, '');
+
     // Remove broken JSON fragments at the end
     cleaned = cleaned.replace(/```json[\s\S]*$/i, '');
     cleaned = cleaned.replace(/\{"?toolCalls"?\s*:\s*\[\][\s\S]*$/i, '');

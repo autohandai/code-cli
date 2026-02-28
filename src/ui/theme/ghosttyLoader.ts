@@ -5,8 +5,9 @@
  */
 
 import { readFileSync, existsSync, readdirSync } from 'fs';
+import { execSync } from 'child_process';
 import { join } from 'path';
-import { platform } from 'os';
+import { homedir, platform } from 'os';
 import type { ThemeDefinition } from './types.js';
 
 /**
@@ -291,4 +292,110 @@ export function loadGhosttyTheme(themeName: string): ThemeDefinition | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Check if the CLI is running inside Ghostty.
+ */
+export function isInsideGhostty(): boolean {
+  return process.env.TERM_PROGRAM === 'ghostty';
+}
+
+/**
+ * Detect the system appearance (dark or light).
+ * macOS: reads AppleInterfaceStyle via `defaults`.
+ * Falls back to 'dark' on other platforms.
+ */
+export function detectSystemAppearance(): 'dark' | 'light' {
+  if (platform() === 'darwin') {
+    try {
+      const result = execSync('defaults read -g AppleInterfaceStyle 2>/dev/null', {
+        encoding: 'utf-8',
+        timeout: 500,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return result.trim().toLowerCase() === 'dark' ? 'dark' : 'light';
+    } catch {
+      // Command exits non-zero when light mode is active (no AppleInterfaceStyle key)
+      return 'light';
+    }
+  }
+
+  // Linux: check common dark mode indicators
+  const gtkTheme = process.env.GTK_THEME ?? '';
+  if (gtkTheme.toLowerCase().includes('dark')) return 'dark';
+
+  return 'dark';
+}
+
+/**
+ * Read the Ghostty config file and extract the theme name.
+ * Supports both single (`theme = X`) and dual (`theme = dark:X,light:Y`) forms.
+ * Returns null if config doesn't exist or has no theme set.
+ */
+export function readGhosttyConfigTheme(): { single?: string; dark?: string; light?: string } | null {
+  const configDir = process.env.XDG_CONFIG_HOME
+    ? join(process.env.XDG_CONFIG_HOME, 'ghostty')
+    : join(homedir(), '.config', 'ghostty');
+  const configPath = join(configDir, 'config');
+
+  if (!existsSync(configPath)) return null;
+
+  try {
+    const content = readFileSync(configPath, 'utf-8');
+    // Find last theme line (later lines override earlier ones in Ghostty)
+    let themeLine: string | undefined;
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('#') || !trimmed.startsWith('theme')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq === -1) continue;
+      const key = trimmed.slice(0, eq).trim();
+      if (key === 'theme') {
+        themeLine = trimmed.slice(eq + 1).trim();
+      }
+    }
+
+    if (!themeLine) return null;
+
+    // Dual form: dark:X,light:Y
+    if (themeLine.includes(',') && (themeLine.includes('dark:') || themeLine.includes('light:'))) {
+      const parts = themeLine.split(',').map(p => p.trim());
+      let dark: string | undefined;
+      let light: string | undefined;
+      for (const part of parts) {
+        if (part.startsWith('dark:')) dark = part.slice('dark:'.length).trim();
+        if (part.startsWith('light:')) light = part.slice('light:'.length).trim();
+      }
+      return { dark, light };
+    }
+
+    // Single form
+    return { single: themeLine };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Detect the active Ghostty theme name.
+ * Returns null if not inside Ghostty or no theme configured.
+ */
+export function detectGhosttyTheme(): string | null {
+  if (!isInsideGhostty()) return null;
+
+  const config = readGhosttyConfigTheme();
+  if (!config) return null;
+
+  if (config.single) {
+    return config.single;
+  }
+
+  // Dual theme — pick based on system appearance
+  const appearance = detectSystemAppearance();
+  if (appearance === 'dark' && config.dark) return config.dark;
+  if (appearance === 'light' && config.light) return config.light;
+
+  // Fallback to whichever is defined
+  return config.dark ?? config.light ?? null;
 }

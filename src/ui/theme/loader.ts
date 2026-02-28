@@ -11,7 +11,7 @@ import type { ThemeDefinition, ThemeColors, ColorValue, ResolvedColors, ColorTok
 import { COLOR_TOKENS, isHexColor, is256ColorIndex } from './types.js';
 import { Theme, setTheme, detectColorMode } from './Theme.js';
 import { builtInThemes, darkTheme, getDefaultThemeName } from './themes.js';
-import { loadGhosttyTheme, listGhosttyThemes } from './ghosttyLoader.js';
+import { loadGhosttyTheme, listGhosttyThemes, detectGhosttyTheme } from './ghosttyLoader.js';
 
 /**
  * Custom themes directory.
@@ -334,10 +334,30 @@ export function detectTerminalBackground(): 'dark' | 'light' {
 }
 
 /**
- * Auto-detect and initialize theme based on terminal background.
- * If themeName is provided, use it. Otherwise, auto-detect based on terminal.
+ * Auto-detect and initialize theme.
+ *
+ * Priority:
+ * 1. User's explicit theme from config (if not the default 'dark')
+ * 2. Ghostty terminal theme (auto-detected from ~/.config/ghostty/config)
+ * 3. Terminal background detection fallback
  */
 export function autoInitTheme(themeName?: string): Theme {
+  // User explicitly chose a non-default theme — respect it
+  if (themeName && themeName !== getDefaultThemeName()) {
+    return initTheme(themeName);
+  }
+
+  // Try auto-detecting Ghostty's theme
+  const ghosttyThemeName = detectGhosttyTheme();
+  if (ghosttyThemeName) {
+    try {
+      return initTheme(ghosttyThemeName);
+    } catch {
+      // Ghostty theme not loadable, fall through
+    }
+  }
+
+  // Fall back to user's config or terminal detection
   if (themeName) {
     return initTheme(themeName);
   }

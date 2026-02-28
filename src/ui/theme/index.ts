@@ -114,6 +114,10 @@ export {
   parseGhosttyTheme,
   ghosttyPaletteToTheme,
   loadGhosttyTheme,
+  isInsideGhostty,
+  detectSystemAppearance,
+  readGhosttyConfigTheme,
+  detectGhosttyTheme,
 } from './ghosttyLoader.js';
 
 export type { GhosttyPalette } from './ghosttyLoader.js';
