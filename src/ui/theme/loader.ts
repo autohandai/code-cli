@@ -11,7 +11,7 @@ import type { ThemeDefinition, ThemeColors, ColorValue, ResolvedColors, ColorTok
 import { COLOR_TOKENS, isHexColor, is256ColorIndex } from './types.js';
 import { Theme, setTheme, detectColorMode } from './Theme.js';
 import { builtInThemes, darkTheme, getDefaultThemeName } from './themes.js';
-import { loadGhosttyTheme, listGhosttyThemes, detectGhosttyTheme } from './ghosttyLoader.js';
+import { loadGhosttyTheme, detectGhosttyTheme } from './ghosttyLoader.js';
 
 /**
  * Custom themes directory.
