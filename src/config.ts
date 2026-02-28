@@ -208,8 +208,10 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
     if (config.ui.theme && typeof config.ui.theme !== 'string') {
       throw new Error(`ui.theme must be a string in ${configPath}`);
     }
-    if (config.ui.theme && !themeExists(config.ui.theme)) {
-      throw new Error(`ui.theme '${config.ui.theme}' not found. Use 'dark', 'light', or a custom theme in ~/.autohand/themes/`);
+    // Theme validation is lenient — unknown themes fall back to dark at init time.
+    // This avoids crashes when a Ghostty or custom theme was saved but is no longer available.
+    if (config.ui.theme && typeof config.ui.theme === 'string' && !themeExists(config.ui.theme)) {
+      console.warn(`Theme '${config.ui.theme}' not found — falling back to default.`);
     }
     if (config.ui.autoConfirm !== undefined && typeof config.ui.autoConfirm !== 'boolean') {
       throw new Error(`ui.autoConfirm must be boolean in ${configPath}`);
