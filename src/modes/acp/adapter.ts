@@ -28,8 +28,12 @@ import type {
   ResumeSessionResponse,
   ForkSessionRequest,
   ForkSessionResponse,
+  McpServer,
+  SessionConfigOption,
   SessionModeState,
   SessionModelState,
+  SetSessionConfigOptionRequest,
+  SetSessionConfigOptionResponse,
   ToolCallStatus,
 } from '@agentclientprotocol/sdk';
 import { PROTOCOL_VERSION, RequestError } from '@agentclientprotocol/sdk';
@@ -40,6 +44,7 @@ import { FileActionManager } from '../../actions/filesystem.js';
 import { ProviderFactory } from '../../providers/ProviderFactory.js';
 import { loadConfig } from '../../config.js';
 import type { AgentOutputEvent, AgentRuntime, CLIOptions, LoadedConfig, LLMToolCall } from '../../types.js';
+import type { McpServerConfig } from '../../mcp/types.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from '../../utils/sessionWorktree.js';
 import type { SessionMessage } from '../../session/types.js';
 
@@ -65,8 +70,12 @@ import packageJson from '../../../package.json' with { type: 'json' };
 export class AutohandAcpAdapter implements Agent {
   private sessions = new Map<string, AcpSessionState>();
   private agents = new Map<string, AutohandAgent>();
+  private permissionBridges = new Map<string, ReturnType<typeof createPermissionBridge>>();
+  private sessionConfigOptions = new Map<string, SessionConfigOption[]>();
+  private cancelledSessions = new Set<string>();
   private config: LoadedConfig | null = null;
   private clientCapabilities?: InitializeRequest['clientCapabilities'];
+  private static readonly LIST_SESSIONS_PAGE_SIZE = 50;
 
   constructor(
     private connection: AgentSideConnection,
@@ -99,6 +108,66 @@ export class AutohandAcpAdapter implements Agent {
       })),
       currentModelId: modelId,
     } as SessionModelState;
+  }
+
+  private cloneConfigOptions(options: SessionConfigOption[]): SessionConfigOption[] {
+    return options.map((opt) => ({
+      ...opt,
+      options: opt.options.map((valueOption) => ({ ...valueOption })),
+    }));
+  }
+
+  private getSessionConfigOptions(sessionId: string): SessionConfigOption[] {
+    const options = this.sessionConfigOptions.get(sessionId) ?? [];
+    return this.cloneConfigOptions(options);
+  }
+
+  private validateMode(modeId: string): void {
+    if (!DEFAULT_ACP_MODES.some((mode) => mode.id === modeId)) {
+      throw RequestError.invalidParams({ message: `Unsupported mode: ${modeId}` });
+    }
+  }
+
+  private validateModel(config: LoadedConfig, modelId: string): void {
+    const models = parseAvailableModels(config);
+    if (!models.includes(modelId)) {
+      throw RequestError.invalidParams({ message: `Unsupported model: ${modelId}` });
+    }
+  }
+
+  private convertAcpMcpServers(mcpServers: McpServer[] | undefined): McpServerConfig[] {
+    if (!mcpServers || mcpServers.length === 0) {
+      return [];
+    }
+
+    return mcpServers.map((server): McpServerConfig => {
+      if (server.type === 'stdio') {
+        return {
+          name: server.name,
+          transport: 'stdio',
+          command: server.command,
+          args: [...server.args],
+          env: Object.fromEntries(server.env.map((variable) => [variable.name, variable.value])),
+          autoConnect: true,
+        };
+      }
+
+      return {
+        name: server.name,
+        transport: server.type,
+        url: server.url,
+        headers: Object.fromEntries(server.headers.map((header) => [header.name, header.value])),
+        autoConnect: true,
+      };
+    });
+  }
+
+  private async connectSessionMcpServers(agent: AutohandAgent, mcpServers: McpServer[] | undefined): Promise<void> {
+    const converted = this.convertAcpMcpServers(mcpServers);
+    if (converted.length === 0) {
+      return;
+    }
+    await agent.connectAcpMcpServers(converted);
   }
 
   private resolveWorkspaceRoot(sessionId: string, cwd: string): string {
@@ -162,6 +231,7 @@ export class AutohandAcpAdapter implements Agent {
 
     this.sessions.set(sessionId, state);
     this.agents.set(sessionId, agent);
+    this.sessionConfigOptions.set(sessionId, buildConfigOptions(config));
 
     agent.setOutputListener((event: AgentOutputEvent) => {
       this.handleAgentOutput(sessionId, event);
@@ -176,6 +246,7 @@ export class AutohandAcpAdapter implements Agent {
     agent.setConfirmationCallback(async (message, context) => {
       return permBridge.confirmAction(message, context);
     });
+    this.permissionBridges.set(sessionId, permBridge);
 
     return { config, state, agent };
   }
@@ -269,10 +340,12 @@ export class AutohandAcpAdapter implements Agent {
 
   private async restoreSession(
     sessionId: string,
-    cwd: string
+    cwd: string,
+    mcpServers?: McpServer[]
   ): Promise<{ config: LoadedConfig; state: AcpSessionState; messages: SessionMessage[] }> {
     const workspaceRoot = this.resolveWorkspaceRoot(sessionId, cwd);
     const { config, state, agent } = await this.createManagedSession(sessionId, workspaceRoot);
+    await this.connectSessionMcpServers(agent, mcpServers);
     const sessionManager = agent.getSessionManager();
 
     try {
@@ -289,6 +362,8 @@ export class AutohandAcpAdapter implements Agent {
     } catch (error) {
       this.sessions.delete(sessionId);
       this.agents.delete(sessionId);
+      this.permissionBridges.delete(sessionId);
+      this.sessionConfigOptions.delete(sessionId);
       throw error;
     }
   }
@@ -359,13 +434,14 @@ export class AutohandAcpAdapter implements Agent {
   async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
     const sessionId = crypto.randomUUID();
     const workspaceRoot = this.resolveWorkspaceRoot(sessionId, params.cwd);
-    const { config, state } = await this.createManagedSession(sessionId, workspaceRoot);
+    const { config, state, agent } = await this.createManagedSession(sessionId, workspaceRoot);
+    await this.connectSessionMcpServers(agent, params.mcpServers);
 
     const response: NewSessionResponse = {
       sessionId,
       modes: this.buildSessionModes(state.modeId),
       models: this.buildSessionModels(config, state.modelId),
-      configOptions: buildConfigOptions(config),
+      configOptions: this.getSessionConfigOptions(sessionId),
       _meta: {
         commands: DEFAULT_ACP_COMMANDS.map((cmd) => ({
           name: cmd.name,
@@ -391,6 +467,7 @@ export class AutohandAcpAdapter implements Agent {
 
     // Reset cancellation state
     session.abortController = new AbortController();
+    this.cancelledSessions.delete(params.sessionId);
 
     // Resolve prompt text from content blocks
     let instruction = '';
@@ -464,9 +541,12 @@ export class AutohandAcpAdapter implements Agent {
     // Regular instruction - run through the LLM
     try {
       const success = await agent.runInstruction(instruction);
-      return { stopReason: success ? 'end_turn' : 'end_turn' };
+      if (!success && this.cancelledSessions.has(params.sessionId)) {
+        return { stopReason: 'cancelled' };
+      }
+      return { stopReason: 'end_turn' };
     } catch (err) {
-      if (session.abortController.signal.aborted) {
+      if (session.abortController.signal.aborted || this.cancelledSessions.has(params.sessionId)) {
         return { stopReason: 'cancelled' };
       }
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -489,8 +569,13 @@ export class AutohandAcpAdapter implements Agent {
 
   async cancel(params: CancelNotification): Promise<void> {
     const session = this.sessions.get(params.sessionId);
+    const agent = this.agents.get(params.sessionId);
     if (session) {
       session.abortController.abort();
+      this.cancelledSessions.add(params.sessionId);
+    }
+    if (agent) {
+      agent.cancelCurrentInstruction();
     }
   }
 
@@ -500,12 +585,27 @@ export class AutohandAcpAdapter implements Agent {
 
   async setSessionMode(params: SetSessionModeRequest): Promise<SetSessionModeResponse> {
     const session = this.sessions.get(params.sessionId);
+    const agent = this.agents.get(params.sessionId);
     if (!session) {
       throw RequestError.invalidParams({ message: 'Session not found' });
     }
+    if (!agent) {
+      throw RequestError.invalidParams({ message: 'Session agent not found' });
+    }
+
+    this.validateMode(params.modeId);
 
     session.modeId = params.modeId;
+    this.permissionBridges.get(params.sessionId)?.setMode(params.modeId);
+    agent.applyAcpMode(params.modeId);
     process.stderr.write(`[ACP] Session ${params.sessionId} mode set to: ${params.modeId}\n`);
+    await this.connection.sessionUpdate({
+      sessionId: params.sessionId,
+      update: {
+        sessionUpdate: 'current_mode_update',
+        currentModeId: params.modeId,
+      },
+    });
 
     return {};
   }
@@ -516,39 +616,82 @@ export class AutohandAcpAdapter implements Agent {
 
   async unstable_setSessionModel(params: SetSessionModelRequest): Promise<SetSessionModelResponse> {
     const session = this.sessions.get(params.sessionId);
+    const agent = this.agents.get(params.sessionId);
     if (!session) {
       throw RequestError.invalidParams({ message: 'Session not found' });
     }
+    if (!agent) {
+      throw RequestError.invalidParams({ message: 'Session agent not found' });
+    }
+    const config = await this.ensureConfig();
+    this.validateModel(config, params.modelId);
 
     session.modelId = params.modelId;
+    agent.applyAcpModel(params.modelId);
     process.stderr.write(`[ACP] Session ${params.sessionId} model set to: ${params.modelId}\n`);
-
-    // Update the provider model for the agent
-    // The agent's provider is internal but we can access it through config
-    // For now, we just update the session state. Full implementation would
-    // call provider.setModel().
     return {};
+  }
+
+  async unstable_setSessionConfigOption(
+    params: SetSessionConfigOptionRequest
+  ): Promise<SetSessionConfigOptionResponse> {
+    const options = this.sessionConfigOptions.get(params.sessionId);
+    const agent = this.agents.get(params.sessionId);
+    if (!options || !agent) {
+      throw RequestError.invalidParams({ message: 'Session not found' });
+    }
+
+    const option = options.find((entry) => entry.id === params.configId);
+    if (!option) {
+      throw RequestError.invalidParams({ message: `Unknown config option: ${params.configId}` });
+    }
+
+    const validValues = option.options.map((entry) => entry.value);
+    if (!validValues.includes(params.value)) {
+      throw RequestError.invalidParams({
+        message: `Invalid value "${params.value}" for config option "${params.configId}"`,
+      });
+    }
+
+    option.currentValue = params.value;
+    agent.applyAcpConfigOption(params.configId, params.value);
+
+    return {
+      configOptions: this.cloneConfigOptions(options),
+    };
   }
 
   // ==========================================================================
   // ACP Agent Interface: unstable_listSessions (optional)
   // ==========================================================================
 
-  async unstable_listSessions(_params: ListSessionsRequest): Promise<ListSessionsResponse> {
+  async unstable_listSessions(params: ListSessionsRequest): Promise<ListSessionsResponse> {
     // Delegate to SessionManager for persistent session listing
     try {
       const { SessionManager } = await import('../../session/SessionManager.js');
       const sessionManager = new SessionManager();
       await sessionManager.initialize();
       const sessions = await sessionManager.listSessions();
+      const filtered = params.cwd
+        ? sessions.filter((session) => session.projectPath === params.cwd)
+        : sessions;
+
+      const offset = params.cursor ? Number.parseInt(params.cursor, 10) : 0;
+      if (Number.isNaN(offset) || offset < 0) {
+        throw RequestError.invalidParams({ message: `Invalid cursor: ${params.cursor}` });
+      }
+      const paged = filtered.slice(offset, offset + AutohandAcpAdapter.LIST_SESSIONS_PAGE_SIZE);
+      const nextOffset = offset + paged.length;
+      const nextCursor = nextOffset < filtered.length ? String(nextOffset) : undefined;
 
       return {
-        sessions: sessions.map((s) => ({
+        sessions: paged.map((s) => ({
           sessionId: s.sessionId,
           cwd: s.projectPath ?? '',
           title: s.summary ?? s.projectName ?? `Session ${s.sessionId.slice(0, 8)}`,
           updatedAt: s.lastActiveAt ?? s.createdAt,
         })),
+        ...(nextCursor ? { nextCursor } : {}),
       };
     } catch (err) {
       process.stderr.write(`[ACP] Failed to list sessions: ${err instanceof Error ? err.message : String(err)}\n`);
@@ -563,13 +706,13 @@ export class AutohandAcpAdapter implements Agent {
   async unstable_resumeSession(_params: ResumeSessionRequest): Promise<ResumeSessionResponse> {
     try {
       const params = _params;
-      const { config, state } = await this.restoreSession(params.sessionId, params.cwd);
+      const { config, state } = await this.restoreSession(params.sessionId, params.cwd, params.mcpServers);
 
       process.stderr.write(`[ACP] Resumed session ${params.sessionId}\n`);
       return {
         modes: this.buildSessionModes(state.modeId),
         models: this.buildSessionModels(config, state.modelId),
-        configOptions: buildConfigOptions(config),
+        configOptions: this.getSessionConfigOptions(params.sessionId),
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -622,14 +765,14 @@ export class AutohandAcpAdapter implements Agent {
 
   async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
     try {
-      const { config, state, messages } = await this.restoreSession(params.sessionId, params.cwd);
+      const { config, state, messages } = await this.restoreSession(params.sessionId, params.cwd, params.mcpServers);
       await this.replayConversation(params.sessionId, messages);
 
       process.stderr.write(`[ACP] Loaded session ${params.sessionId} with ${messages.length} messages\n`);
       return {
         modes: this.buildSessionModes(state.modeId),
         models: this.buildSessionModels(config, state.modelId),
-        configOptions: buildConfigOptions(config),
+        configOptions: this.getSessionConfigOptions(params.sessionId),
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
