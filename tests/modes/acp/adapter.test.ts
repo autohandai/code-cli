@@ -15,6 +15,8 @@ import type { LoadedConfig } from '../../../src/types.js';
 const {
   mockAgent,
   mockSessionManager,
+  mockPersistentSessionManager,
+  MockPersistentSessionManagerClass,
   mockConversation,
   mockLoadConfig,
   mockProviderCreate,
@@ -27,6 +29,11 @@ const {
     loadSession: vi.fn(),
     listSessions: vi.fn(),
   };
+  const mockPersistentSessionManager = {
+    initialize: vi.fn(),
+    listSessions: vi.fn(),
+  };
+  const MockPersistentSessionManagerClass = vi.fn().mockImplementation(() => mockPersistentSessionManager);
 
   const mockConversation = {
     isInitialized: vi.fn().mockReturnValue(true),
@@ -38,6 +45,11 @@ const {
     initializeForRPC: vi.fn().mockResolvedValue(undefined),
     setOutputListener: vi.fn(),
     setConfirmationCallback: vi.fn(),
+    connectAcpMcpServers: vi.fn().mockResolvedValue(undefined),
+    applyAcpMode: vi.fn(),
+    applyAcpModel: vi.fn(),
+    applyAcpConfigOption: vi.fn(),
+    cancelCurrentInstruction: vi.fn(),
     getSessionManager: vi.fn().mockReturnValue(mockSessionManager),
     runInstruction: vi.fn().mockResolvedValue(true),
     isSlashCommand: vi.fn().mockReturnValue(false),
@@ -66,6 +78,8 @@ const {
   return {
     mockAgent,
     mockSessionManager,
+    mockPersistentSessionManager,
+    MockPersistentSessionManagerClass,
     mockConversation,
     mockLoadConfig,
     mockProviderCreate,
@@ -108,6 +122,10 @@ vi.mock('../../../src/core/conversationManager.js', () => ({
 vi.mock('../../../src/config.js', () => ({
   loadConfig: mockLoadConfig,
   resolveWorkspaceRoot: vi.fn().mockReturnValue('/workspace'),
+}));
+
+vi.mock('../../../src/session/SessionManager.js', () => ({
+  SessionManager: MockPersistentSessionManagerClass,
 }));
 
 // Mock the package.json import
@@ -174,12 +192,18 @@ describe('AutohandAcpAdapter', () => {
 
     // Re-establish the constructor mock after clearAllMocks resets it
     MockAutohandAgent.mockImplementation(() => mockAgent);
+    MockPersistentSessionManagerClass.mockImplementation(() => mockPersistentSessionManager);
     mockAgent.initializeForRPC.mockResolvedValue(undefined);
     mockAgent.getSessionManager.mockReturnValue(mockSessionManager);
     mockAgent.runInstruction.mockResolvedValue(true);
     mockAgent.isSlashCommand.mockReturnValue(false);
     mockAgent.isSlashCommandSupported.mockReturnValue(false);
     mockAgent.handleSlashCommand.mockResolvedValue(null);
+    mockAgent.connectAcpMcpServers.mockResolvedValue(undefined);
+    mockAgent.applyAcpMode.mockImplementation(() => {});
+    mockAgent.applyAcpModel.mockImplementation(() => {});
+    mockAgent.applyAcpConfigOption.mockImplementation(() => {});
+    mockAgent.cancelCurrentInstruction.mockImplementation(() => {});
     mockAgent.parseSlashCommand.mockImplementation((input: string) => {
       const parts = input.trim().split(/\s+/);
       return { command: parts[0], args: parts.slice(1) };
@@ -192,6 +216,8 @@ describe('AutohandAcpAdapter', () => {
       createdBranch: true,
     });
     mockSessionManager.listSessions.mockResolvedValue([]);
+    mockPersistentSessionManager.initialize.mockResolvedValue(undefined);
+    mockPersistentSessionManager.listSessions.mockResolvedValue([]);
     mockSessionManager.loadSession.mockResolvedValue({
       metadata: {
         model: 'anthropic/claude-3.5-sonnet',
@@ -397,6 +423,47 @@ describe('AutohandAcpAdapter', () => {
       expect(mockAgent.initializeForRPC).toHaveBeenCalledTimes(1);
     });
 
+    it('connects ACP-provided MCP servers on session creation', async () => {
+      await adapter.newSession(
+        makeNewSessionRequest({
+          mcpServers: [
+            {
+              type: 'http',
+              name: 'remote-http',
+              url: 'https://mcp.example/http',
+              headers: [{ name: 'Authorization', value: 'Bearer test' }],
+            },
+            {
+              type: 'stdio',
+              name: 'local-stdio',
+              command: 'npx',
+              args: ['-y', '@modelcontextprotocol/server-filesystem'],
+              env: [{ name: 'NODE_ENV', value: 'test' }],
+            },
+          ],
+        }),
+      );
+
+      expect(mockAgent.connectAcpMcpServers).toHaveBeenCalledTimes(1);
+      expect(mockAgent.connectAcpMcpServers).toHaveBeenCalledWith([
+        {
+          name: 'remote-http',
+          transport: 'http',
+          url: 'https://mcp.example/http',
+          headers: { Authorization: 'Bearer test' },
+          autoConnect: true,
+        },
+        {
+          name: 'local-stdio',
+          transport: 'stdio',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-filesystem'],
+          env: { NODE_ENV: 'test' },
+          autoConnect: true,
+        },
+      ]);
+    });
+
     it('sets output listener on the agent', async () => {
       await adapter.newSession(makeNewSessionRequest());
 
@@ -521,6 +588,25 @@ describe('AutohandAcpAdapter', () => {
 
       stderrSpy.mockRestore();
     });
+
+    it('returns cancelled stopReason when prompt is cancelled while instruction is in flight', async () => {
+      mockAgent.isSlashCommand.mockReturnValue(false);
+      mockAgent.runInstruction.mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve(false), 40))
+      );
+
+      const promptPromise = adapter.prompt({
+        sessionId,
+        prompt: [{ type: 'text', text: 'Run a long task' }],
+      } as any);
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      await adapter.cancel({ sessionId });
+
+      const result = await promptPromise;
+      expect(result.stopReason).toBe('cancelled');
+      expect(mockAgent.cancelCurrentInstruction).toHaveBeenCalledTimes(1);
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -528,12 +614,13 @@ describe('AutohandAcpAdapter', () => {
   // -------------------------------------------------------------------------
 
   describe('cancel()', () => {
-    it('aborts the session abort controller', async () => {
+    it('aborts the session and forwards cancellation to the active agent', async () => {
       await adapter.initialize(makeInitRequest());
       const session = await adapter.newSession(makeNewSessionRequest());
 
       // cancel() should complete without error
       await adapter.cancel({ sessionId: session.sessionId });
+      expect(mockAgent.cancelCurrentInstruction).toHaveBeenCalledTimes(1);
     });
 
     it('does nothing for non-existent session', async () => {
@@ -572,6 +659,33 @@ describe('AutohandAcpAdapter', () => {
       expect(response.models?.currentModelId).toBe('openai/gpt-4o');
       expect(mockConversation.addSystemNote).toHaveBeenCalledWith('System note');
       expect(mockConversation.addMessage).toHaveBeenCalledTimes(2);
+    });
+
+    it('connects ACP-provided MCP servers when resuming a session', async () => {
+      await adapter.initialize(makeInitRequest());
+
+      await adapter.unstable_resumeSession({
+        sessionId: 'session-123',
+        cwd: '/workspace',
+        mcpServers: [
+          {
+            type: 'sse',
+            name: 'remote-sse',
+            url: 'https://mcp.example/sse',
+            headers: [{ name: 'X-Test', value: '1' }],
+          },
+        ],
+      } as any);
+
+      expect(mockAgent.connectAcpMcpServers).toHaveBeenCalledWith([
+        {
+          name: 'remote-sse',
+          transport: 'sse',
+          url: 'https://mcp.example/sse',
+          headers: { 'X-Test': '1' },
+          autoConnect: true,
+        },
+      ]);
     });
 
     it('throws invalid params when session cannot be resumed', async () => {
@@ -619,6 +733,101 @@ describe('AutohandAcpAdapter', () => {
       expect(sessionUpdates).toContain('user_message_chunk');
       expect(sessionUpdates).toContain('agent_message_chunk');
     });
+
+    it('connects ACP-provided MCP servers when loading a session', async () => {
+      await adapter.initialize(makeInitRequest());
+
+      await adapter.loadSession({
+        sessionId: 'session-456',
+        cwd: '/workspace',
+        mcpServers: [
+          {
+            type: 'http',
+            name: 'remote-http',
+            url: 'https://mcp.example/http',
+            headers: [],
+          },
+        ],
+      } as any);
+
+      expect(mockAgent.connectAcpMcpServers).toHaveBeenCalledWith([
+        {
+          name: 'remote-http',
+          transport: 'http',
+          url: 'https://mcp.example/http',
+          headers: {},
+          autoConnect: true,
+        },
+      ]);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // unstable_listSessions()
+  // -------------------------------------------------------------------------
+
+  describe('unstable_listSessions()', () => {
+    it('supports cursor pagination', async () => {
+      const sessions = Array.from({ length: 75 }, (_, index) => ({
+        sessionId: `session-${index + 1}`,
+        projectPath: '/workspace',
+        summary: `Session ${index + 1}`,
+        createdAt: new Date(2025, 0, 1).toISOString(),
+        lastActiveAt: new Date(2025, 0, 2).toISOString(),
+      }));
+      mockPersistentSessionManager.listSessions.mockResolvedValue(sessions);
+
+      const firstPage = await adapter.unstable_listSessions({} as any);
+      expect(firstPage.sessions).toHaveLength(50);
+      expect(firstPage.nextCursor).toBe('50');
+
+      const secondPage = await adapter.unstable_listSessions({ cursor: firstPage.nextCursor } as any);
+      expect(secondPage.sessions).toHaveLength(25);
+      expect(secondPage.nextCursor).toBeUndefined();
+      expect(secondPage.sessions[0].sessionId).toBe('session-51');
+    });
+
+    it('filters sessions by cwd when provided', async () => {
+      mockPersistentSessionManager.listSessions.mockResolvedValue([
+        {
+          sessionId: 'a',
+          projectPath: '/workspace/a',
+          summary: 'A',
+          createdAt: new Date(2025, 0, 1).toISOString(),
+          lastActiveAt: new Date(2025, 0, 2).toISOString(),
+        },
+        {
+          sessionId: 'b',
+          projectPath: '/workspace/b',
+          summary: 'B',
+          createdAt: new Date(2025, 0, 1).toISOString(),
+          lastActiveAt: new Date(2025, 0, 2).toISOString(),
+        },
+      ]);
+
+      const result = await adapter.unstable_listSessions({ cwd: '/workspace/a' } as any);
+      expect(result.sessions).toHaveLength(1);
+      expect(result.sessions[0].sessionId).toBe('a');
+      expect(result.sessions[0].cwd).toBe('/workspace/a');
+    });
+
+    it('returns empty sessions when cursor is invalid', async () => {
+      mockPersistentSessionManager.listSessions.mockResolvedValue([
+        {
+          sessionId: 'a',
+          projectPath: '/workspace/a',
+          summary: 'A',
+          createdAt: new Date(2025, 0, 1).toISOString(),
+          lastActiveAt: new Date(2025, 0, 2).toISOString(),
+        },
+      ]);
+      const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+      const result = await adapter.unstable_listSessions({ cursor: 'invalid-cursor' } as any);
+      expect(result.sessions).toEqual([]);
+
+      stderrSpy.mockRestore();
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -635,12 +844,32 @@ describe('AutohandAcpAdapter', () => {
 
       const result = await adapter.setSessionMode({
         sessionId: session.sessionId,
-        mode: 'unrestricted',
+        modeId: 'unrestricted',
       } as any);
 
       expect(result).toEqual({});
+      expect(mockAgent.applyAcpMode).toHaveBeenCalledWith('unrestricted');
+      expect(connection.sessionUpdate).toHaveBeenCalledWith({
+        sessionId: session.sessionId,
+        update: {
+          sessionUpdate: 'current_mode_update',
+          currentModeId: 'unrestricted',
+        },
+      });
 
       stderrSpy.mockRestore();
+    });
+
+    it('throws for unsupported mode ids', async () => {
+      await adapter.initialize(makeInitRequest());
+      const session = await adapter.newSession(makeNewSessionRequest());
+
+      await expect(
+        adapter.setSessionMode({
+          sessionId: session.sessionId,
+          modeId: 'unsupported-mode',
+        } as any)
+      ).rejects.toThrow();
     });
 
     it('throws for non-existent session', async () => {
@@ -649,7 +878,7 @@ describe('AutohandAcpAdapter', () => {
       await expect(
         adapter.setSessionMode({
           sessionId: 'nonexistent',
-          mode: 'unrestricted',
+          modeId: 'unrestricted',
         } as any)
       ).rejects.toThrow();
     });
@@ -673,8 +902,21 @@ describe('AutohandAcpAdapter', () => {
       } as any);
 
       expect(result).toEqual({});
+      expect(mockAgent.applyAcpModel).toHaveBeenCalledWith('openai/gpt-4o');
 
       stderrSpy.mockRestore();
+    });
+
+    it('throws for unsupported model ids', async () => {
+      await adapter.initialize(makeInitRequest());
+      const session = await adapter.newSession(makeNewSessionRequest());
+
+      await expect(
+        adapter.unstable_setSessionModel({
+          sessionId: session.sessionId,
+          modelId: 'not-a-real-model',
+        } as any)
+      ).rejects.toThrow();
     });
 
     it('throws for non-existent session', async () => {
@@ -684,6 +926,52 @@ describe('AutohandAcpAdapter', () => {
         adapter.unstable_setSessionModel({
           sessionId: 'nonexistent',
           modelId: 'openai/gpt-4o',
+        } as any)
+      ).rejects.toThrow();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // unstable_setSessionConfigOption()
+  // -------------------------------------------------------------------------
+
+  describe('unstable_setSessionConfigOption()', () => {
+    it('updates known config options and applies the change to the active agent', async () => {
+      await adapter.initialize(makeInitRequest());
+      const session = await adapter.newSession(makeNewSessionRequest());
+
+      const result = await adapter.unstable_setSessionConfigOption({
+        sessionId: session.sessionId,
+        configId: 'thinking_level',
+        value: 'extended',
+      } as any);
+
+      expect(mockAgent.applyAcpConfigOption).toHaveBeenCalledWith('thinking_level', 'extended');
+      expect(result.configOptions.find((opt: any) => opt.id === 'thinking_level')?.currentValue).toBe('extended');
+    });
+
+    it('throws for unknown config option ids', async () => {
+      await adapter.initialize(makeInitRequest());
+      const session = await adapter.newSession(makeNewSessionRequest());
+
+      await expect(
+        adapter.unstable_setSessionConfigOption({
+          sessionId: session.sessionId,
+          configId: 'unknown_option',
+          value: 'on',
+        } as any)
+      ).rejects.toThrow();
+    });
+
+    it('throws for invalid option values', async () => {
+      await adapter.initialize(makeInitRequest());
+      const session = await adapter.newSession(makeNewSessionRequest());
+
+      await expect(
+        adapter.unstable_setSessionConfigOption({
+          sessionId: session.sessionId,
+          configId: 'thinking_level',
+          value: 'invalid',
         } as any)
       ).rejects.toThrow();
     });

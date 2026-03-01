@@ -72,6 +72,7 @@ import { TelemetryManager } from '../telemetry/TelemetryManager.js';
 import { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import { CommunitySkillsClient } from '../skills/CommunitySkillsClient.js';
 import { McpClientManager } from '../mcp/McpClientManager.js';
+import type { McpServerConfig } from '../mcp/types.js';
 import { AUTOHAND_PATHS } from '../constants.js';
 import { PersistentInput, createPersistentInput } from '../ui/persistentInput.js';
 import { injectLocaleIntoPrompt, getCurrentLocale, t } from '../i18n/index.js';
@@ -143,6 +144,7 @@ export class AutohandAgent {
   private mcpManager: McpClientManager;
   /** Background MCP connection promise - resolves when all servers finish connecting */
   private mcpReady: Promise<void> | null = null;
+  private activeAbortController: AbortController | null = null;
   private workspaceFileCollector: WorkspaceFileCollector;
   private providerConfigManager: ProviderConfigManager;
   private isInstructionActive = false;
@@ -1826,6 +1828,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
 
     const abortController = new AbortController();
+    this.activeAbortController = abortController;
     let canceledByUser = false;
     let success = true;
 
@@ -2018,6 +2021,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
       this.taskStartedAt = null;
       this.isInstructionActive = false;
+      this.activeAbortController = null;
       this.clearExplorationLog();
     }
     return success;
@@ -2285,8 +2289,13 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
       let completion;
       try {
-        // Get thinking level from env var (set by ACP extensions like Zed)
-        const thinkingLevel = (process.env.AUTOHAND_THINKING_LEVEL as 'none' | 'normal' | 'extended') || 'normal';
+        // ACP and CLI can override thinking level at runtime; fall back to env and then normal.
+        const runtimeThinking = this.runtime.options.thinking;
+        const thinkingLevel = (
+          typeof runtimeThinking === 'string' && ['none', 'normal', 'extended'].includes(runtimeThinking)
+            ? runtimeThinking
+            : process.env.AUTOHAND_THINKING_LEVEL
+        ) as 'none' | 'normal' | 'extended' | undefined ?? 'normal';
 
         completion = await this.llm.complete({
           messages: messagesWithImages,
@@ -4839,6 +4848,88 @@ If lint or tests fail, report the issues but do NOT commit.`;
    */
   getPermissionManager(): PermissionManager {
     return this.permissionManager;
+  }
+
+  /**
+   * Cancel the currently active instruction loop, if any.
+   * Used by ACP/RPC adapters to propagate session/cancel.
+   */
+  cancelCurrentInstruction(): void {
+    this.activeAbortController?.abort();
+  }
+
+  /**
+   * Apply ACP mode changes to runtime and permission behavior.
+   */
+  applyAcpMode(modeId: string): void {
+    const unrestricted = modeId === 'unrestricted' || modeId === 'full-access' || modeId === 'auto-mode';
+    const restricted = modeId === 'restricted' || modeId === 'dry-run';
+
+    this.runtime.options.yes = unrestricted;
+    this.runtime.options.unrestricted = unrestricted;
+    this.runtime.options.restricted = modeId === 'restricted';
+    this.runtime.options.dryRun = modeId === 'dry-run';
+
+    if (restricted) {
+      this.permissionManager.setMode('restricted');
+      return;
+    }
+    if (unrestricted) {
+      this.permissionManager.setMode('unrestricted');
+      return;
+    }
+    this.permissionManager.setMode('interactive');
+  }
+
+  /**
+   * Apply ACP model changes for subsequent and in-flight iterations.
+   */
+  applyAcpModel(modelId: string): void {
+    this.runtime.options.model = modelId;
+
+    const provider = this.activeProvider ?? this.runtime.config.provider ?? 'openrouter';
+    const providerConfig = this.runtime.config[provider] as { model?: string } | undefined;
+    if (providerConfig) {
+      providerConfig.model = modelId;
+    }
+
+    this.llm.setModel(modelId);
+    this.contextWindow = getContextWindow(modelId);
+    this.contextManager.setModel(modelId);
+    this.contextPercentLeft = 100;
+    this.emitStatus();
+  }
+
+  /**
+   * Apply ACP config option changes to runtime behavior.
+   */
+  applyAcpConfigOption(configId: string, value: string): void {
+    if (configId === 'thinking_level') {
+      if (value === 'none' || value === 'normal' || value === 'extended') {
+        this.runtime.options.thinking = value;
+      }
+      return;
+    }
+
+    if (configId === 'auto_commit') {
+      this.runtime.options.autoCommit = value === 'on';
+      return;
+    }
+
+    if (configId === 'context_compact') {
+      this.setContextCompaction(value === 'on');
+    }
+  }
+
+  /**
+   * Connect ACP-provided MCP servers and refresh available MCP tools.
+   */
+  async connectAcpMcpServers(configs: McpServerConfig[]): Promise<void> {
+    if (configs.length === 0) {
+      return;
+    }
+    await this.mcpManager.connectAll(configs);
+    this.syncMcpTools();
   }
 
   /**
