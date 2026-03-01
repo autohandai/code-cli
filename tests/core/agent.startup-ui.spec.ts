@@ -1133,4 +1133,84 @@ describe('agent startup and active input UI', () => {
     // The pendingSuggestion should have been cleared (not awaited to completion)
     expect(agent.pendingSuggestion).toBeNull();
   });
+
+  it('routes completion summary through writeAbove when persistent input is kept for next turn', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const writeAboveCalls: string[] = [];
+
+    agent.taskStartedAt = Date.now() - 2000;
+    agent.sessionTokensUsed = 0;
+    agent.totalTokensUsed = 5000;
+    agent.useInkRenderer = false;
+    agent.inkRenderer = null;
+    agent.pendingInkInstructions = [];
+    agent.persistentInputActiveTurn = true;
+    agent.persistentInput = {
+      hasQueued: () => true,
+      getCurrentInput: () => '',
+      getQueueLength: () => 1,
+      writeAbove: (text: string) => writeAboveCalls.push(text),
+      stop: vi.fn(),
+    };
+
+    // Spy on console.log to verify it is NOT used
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    // Call the completion summary logic directly:
+    // When persistentInputActiveTurn is true and hasQueued() returns true,
+    // keepPersistentInputForNextTurn is true, so regions stay active.
+    // The completion message must go through writeAbove, not console.log.
+    const keepPersistentInputForNextTurn =
+      agent.persistentInputActiveTurn &&
+      (agent.persistentInput.hasQueued() || agent.persistentInput.getCurrentInput().trim().length > 0);
+
+    expect(keepPersistentInputForNextTurn).toBe(true);
+
+    // Simulate the completion summary output path
+    (agent as any).printCompletionSummary(keepPersistentInputForNextTurn);
+
+    // Should have used writeAbove, not console.log
+    expect(writeAboveCalls.length).toBe(1);
+    expect(writeAboveCalls[0]).toContain('Completed in');
+    expect(writeAboveCalls[0]).toContain('used');
+
+    // console.log should NOT have been called with the completion message
+    const completionCalls = consoleLogSpy.mock.calls.filter(
+      (args) => typeof args[0] === 'string' && args[0].includes('Completed in')
+    );
+    expect(completionCalls).toHaveLength(0);
+
+    consoleLogSpy.mockRestore();
+  });
+
+  it('uses console.log for completion summary when persistent input is stopped', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+
+    agent.taskStartedAt = Date.now() - 2000;
+    agent.sessionTokensUsed = 0;
+    agent.totalTokensUsed = 5000;
+    agent.useInkRenderer = false;
+    agent.inkRenderer = null;
+    agent.pendingInkInstructions = [];
+    agent.persistentInput = {
+      getQueueLength: () => 0,
+      writeAbove: vi.fn(),
+    };
+
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    // keepPersistentInputForNextTurn is false — regions are torn down
+    (agent as any).printCompletionSummary(false);
+
+    // Should have used console.log
+    const completionCalls = consoleLogSpy.mock.calls.filter(
+      (args) => typeof args[0] === 'string' && args[0].includes('Completed in')
+    );
+    expect(completionCalls).toHaveLength(1);
+
+    // writeAbove should NOT have been called
+    expect(agent.persistentInput.writeAbove).not.toHaveBeenCalled();
+
+    consoleLogSpy.mockRestore();
+  });
 });
