@@ -2010,14 +2010,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
       // Show completion summary (skip if using Ink - it handles this via completionStats)
       if (this.taskStartedAt && !canceledByUser && !this.useInkRenderer) {
-        const elapsed = formatElapsedTime(this.taskStartedAt);
-        const tokens = formatTokens(this.totalTokensUsed);
-        // Count queued instructions from all sources
-        const queueCount = this.pendingInkInstructions.length +
-          (this.inkRenderer?.getQueueCount() ?? 0) +
-          this.persistentInput.getQueueLength();
-        const queueStatus = queueCount > 0 ? ` · ${queueCount} queued` : '';
-        console.log(chalk.gray(`Completed in ${elapsed} · ${tokens} used${queueStatus}`));
+        this.printCompletionSummary(keepPersistentInputForNextTurn);
       }
 
       // Accumulate session tokens before resetting task
@@ -4004,6 +3997,29 @@ If lint or tests fail, report the issues but do NOT commit.`;
     if (this.runtime.spinner) {
       this.runtime.spinner.stop();
       this.runtime.spinner = undefined;
+    }
+  }
+
+  /**
+   * Print the turn-completion summary line.  When terminal regions are still
+   * active (queued instruction keeps persistent input alive), route through
+   * writeAbove so the message lands in the scroll region instead of on top of
+   * the composer.
+   */
+  private printCompletionSummary(regionsStillActive: boolean): void {
+    if (!this.taskStartedAt) return;
+    const elapsed = formatElapsedTime(this.taskStartedAt);
+    const tokens = formatTokens(this.totalTokensUsed);
+    const queueCount = this.pendingInkInstructions.length +
+      (this.inkRenderer?.getQueueCount() ?? 0) +
+      this.persistentInput.getQueueLength();
+    const queueStatus = queueCount > 0 ? ` · ${queueCount} queued` : '';
+    const message = chalk.gray(`Completed in ${elapsed} · ${tokens} used${queueStatus}`);
+
+    if (regionsStillActive) {
+      this.persistentInput.writeAbove(message + '\n');
+    } else {
+      console.log(message);
     }
   }
 
