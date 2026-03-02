@@ -108,6 +108,44 @@ describe('Resume Command', () => {
   });
 
   describe('without session ID argument (interactive mode)', () => {
+    it('should filter sessions by current project (workspaceRoot)', async () => {
+      const mockSessions = [
+        {
+          sessionId: 'session-1',
+          createdAt: new Date().toISOString(),
+          messageCount: 5,
+          projectName: 'my-project',
+          projectPath: '/home/user/my-project',
+          summary: 'Only session for this project'
+        }
+      ];
+
+      const mockSession = {
+        metadata: mockSessions[0],
+        getMessages: () => [
+          { role: 'user', content: 'Hello', timestamp: new Date().toISOString() }
+        ]
+      };
+
+      const mockSessionManager = {
+        loadSession: vi.fn().mockResolvedValue(mockSession),
+        listSessions: vi.fn().mockResolvedValue(mockSessions)
+      };
+
+      mockShowModal.mockResolvedValueOnce({ value: 'session-1' });
+
+      await resume({
+        sessionManager: mockSessionManager as any,
+        args: [],
+        workspaceRoot: '/home/user/my-project'
+      });
+
+      // Should filter by project
+      expect(mockSessionManager.listSessions).toHaveBeenCalledWith({
+        project: '/home/user/my-project'
+      });
+    });
+
     it('should show message when no sessions exist', async () => {
       const mockSessionManager = {
         loadSession: vi.fn(),
@@ -116,7 +154,8 @@ describe('Resume Command', () => {
 
       const result = await resume({
         sessionManager: mockSessionManager as any,
-        args: []
+        args: [],
+        workspaceRoot: '/some/path'
       });
 
       expect(result).toBeNull();

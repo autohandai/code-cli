@@ -729,6 +729,26 @@ program
     });
   });
 
+// ── Import subcommand ─────────────────────────────────────────────────
+program
+  .command('import [source]')
+  .description('Import data from other coding agents (claude, codex, gemini, cursor, cline, continue, augment)')
+  .option('--all', 'Import all available categories without prompting')
+  .option('--categories <list>', 'Comma-separated list of categories to import (sessions,settings,skills,memory,mcp,hooks)', (val: string) => val.split(','))
+  .option('--dry-run', 'Preview what would be imported without making changes')
+  .option('--retry-failed', 'Retry previously failed import items')
+  .action(async (source: string | undefined, opts: { all?: boolean; categories?: string[]; dryRun?: boolean; retryFailed?: boolean }) => {
+    const { runImport } = await import('./import/index.js');
+    await runImport({
+      source: source as any,
+      categories: opts.categories as any,
+      all: opts.all,
+      dryRun: opts.dryRun,
+      retryFailed: opts.retryFailed,
+    });
+    process.exit(0);
+  });
+
 async function runCLI(options: CLIOptions): Promise<void> {
   try {
     let config = await loadConfig(options.config);

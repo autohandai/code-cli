@@ -45,6 +45,7 @@ import * as mcpCmd from '../commands/mcp.js';
 import * as teamCmd from '../commands/team.js';
 import * as tasksCmd from '../commands/tasks.js';
 import * as messageCmd from '../commands/message.js';
+import * as importCmd from '../commands/import.js';
 
 import type { SlashCommand } from './slashCommandTypes.js';
 export type { SlashCommand } from './slashCommandTypes.js';
@@ -96,4 +97,5 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   teamCmd.metadata,
   tasksCmd.metadata,
   messageCmd.metadata,
+  importCmd.metadata,
 ] as (SlashCommand | undefined)[]).filter((cmd): cmd is SlashCommand => cmd != null && typeof cmd.command === 'string');
