@@ -28,6 +28,12 @@ export interface SessionMetadata {
     client?: string;
     /** Client version if available */
     clientVersion?: string;
+    /** Import provenance: set when session was imported from another agent */
+    importedFrom?: {
+        source: string;
+        originalId: string;
+        importedAt: string;
+    };
 }
 
 export interface SessionMessage {
@@ -54,6 +60,11 @@ export interface SessionIndex {
         projectPath: string;
         createdAt: string;
         summary?: string;
+        /** Import provenance stored in index for fast dedup checks */
+        importedFrom?: {
+            source: string;
+            originalId: string;
+        };
     }>;
     byProject: Record<string, string[]>;
 }
