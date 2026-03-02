@@ -27,12 +27,14 @@ vi.mock('../../src/ui/ink/components/Modal.js', () => ({
   showConfirm: mockShowConfirm
 }));
 
-// Mock fs-extra
+// Mock fs-extra default export (source uses `import fse from 'fs-extra'`)
 vi.mock('fs-extra', () => ({
-  pathExists: mockPathExists,
-  readJson: mockReadJson,
-  readFile: mockReadFile,
-  writeFile: mockWriteFile
+  default: {
+    pathExists: mockPathExists,
+    readJson: mockReadJson,
+    readFile: mockReadFile,
+    writeFile: mockWriteFile,
+  },
 }));
 
 // Mock chalk (to avoid terminal color issues in tests)

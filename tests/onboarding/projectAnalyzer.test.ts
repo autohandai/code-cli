@@ -5,19 +5,22 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import * as fsExtra from 'fs-extra';
 import { ProjectAnalyzer } from '../../src/onboarding/projectAnalyzer';
 
-// Mock fs-extra
-vi.mock('fs-extra', () => ({
-  pathExists: vi.fn(),
-  readJson: vi.fn(),
-  readFile: vi.fn()
+const { mockPathExists, mockReadJson, mockReadFile } = vi.hoisted(() => ({
+  mockPathExists: vi.fn(),
+  mockReadJson: vi.fn(),
+  mockReadFile: vi.fn(),
 }));
 
-const mockPathExists = fsExtra.pathExists as ReturnType<typeof vi.fn>;
-const mockReadJson = fsExtra.readJson as ReturnType<typeof vi.fn>;
-const mockReadFile = fsExtra.readFile as ReturnType<typeof vi.fn>;
+// Mock fs-extra default export (source uses `import fse from 'fs-extra'`)
+vi.mock('fs-extra', () => ({
+  default: {
+    pathExists: mockPathExists,
+    readJson: mockReadJson,
+    readFile: mockReadFile,
+  },
+}));
 
 describe('ProjectAnalyzer', () => {
   const testWorkspace = '/test/workspace';

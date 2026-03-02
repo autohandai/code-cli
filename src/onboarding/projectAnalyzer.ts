@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { pathExists, readJson, readFile } from 'fs-extra';
+import fse from 'fs-extra';
 import { join } from 'path';
 
 /**
@@ -53,12 +53,12 @@ export class ProjectAnalyzer {
   private async analyzeNodeProject(info: ProjectInfo): Promise<void> {
     const pkgPath = join(this.workspaceRoot, 'package.json');
 
-    if (!await pathExists(pkgPath)) {
+    if (!await fse.pathExists(pkgPath)) {
       return;
     }
 
     try {
-      const pkg = await readJson(pkgPath);
+      const pkg = await fse.readJson(pkgPath);
       const deps = { ...pkg.dependencies, ...pkg.devDependencies };
 
       // Detect language
@@ -121,20 +121,20 @@ export class ProjectAnalyzer {
    */
   private async detectNodePackageManager(): Promise<string> {
     // Check lockfiles in priority order
-    if (await pathExists(join(this.workspaceRoot, 'bun.lockb')) ||
-        await pathExists(join(this.workspaceRoot, 'bun.lock'))) {
+    if (await fse.pathExists(join(this.workspaceRoot, 'bun.lockb')) ||
+        await fse.pathExists(join(this.workspaceRoot, 'bun.lock'))) {
       return 'bun';
     }
 
-    if (await pathExists(join(this.workspaceRoot, 'pnpm-lock.yaml'))) {
+    if (await fse.pathExists(join(this.workspaceRoot, 'pnpm-lock.yaml'))) {
       return 'pnpm';
     }
 
-    if (await pathExists(join(this.workspaceRoot, 'yarn.lock'))) {
+    if (await fse.pathExists(join(this.workspaceRoot, 'yarn.lock'))) {
       return 'yarn';
     }
 
-    if (await pathExists(join(this.workspaceRoot, 'package-lock.json'))) {
+    if (await fse.pathExists(join(this.workspaceRoot, 'package-lock.json'))) {
       return 'npm';
     }
 
@@ -203,7 +203,7 @@ export class ProjectAnalyzer {
   private async analyzeRustProject(info: ProjectInfo): Promise<void> {
     const cargoPath = join(this.workspaceRoot, 'Cargo.toml');
 
-    if (!await pathExists(cargoPath)) {
+    if (!await fse.pathExists(cargoPath)) {
       return;
     }
 
@@ -212,7 +212,7 @@ export class ProjectAnalyzer {
 
     // Could parse Cargo.toml for more info like web frameworks (actix, axum, etc.)
     try {
-      const cargoContent = await readFile(cargoPath, 'utf-8');
+      const cargoContent = await fse.readFile(cargoPath, 'utf-8');
 
       // Detect web frameworks
       if (cargoContent.includes('actix-web')) {
@@ -237,7 +237,7 @@ export class ProjectAnalyzer {
   private async analyzeGoProject(info: ProjectInfo): Promise<void> {
     const goModPath = join(this.workspaceRoot, 'go.mod');
 
-    if (!await pathExists(goModPath)) {
+    if (!await fse.pathExists(goModPath)) {
       return;
     }
 
@@ -246,7 +246,7 @@ export class ProjectAnalyzer {
 
     // Could parse go.mod for framework detection
     try {
-      const goModContent = await readFile(goModPath, 'utf-8');
+      const goModContent = await fse.readFile(goModPath, 'utf-8');
 
       // Detect web frameworks
       if (goModContent.includes('github.com/gin-gonic/gin')) {
@@ -272,8 +272,8 @@ export class ProjectAnalyzer {
     const poetryLockPath = join(this.workspaceRoot, 'poetry.lock');
     const pipfilePath = join(this.workspaceRoot, 'Pipfile');
 
-    const hasPyproject = await pathExists(pyprojectPath);
-    const hasRequirements = await pathExists(requirementsPath);
+    const hasPyproject = await fse.pathExists(pyprojectPath);
+    const hasRequirements = await fse.pathExists(requirementsPath);
 
     if (!hasPyproject && !hasRequirements) {
       return;
@@ -282,9 +282,9 @@ export class ProjectAnalyzer {
     info.language = 'Python';
 
     // Detect package manager
-    if (await pathExists(poetryLockPath)) {
+    if (await fse.pathExists(poetryLockPath)) {
       info.packageManager = 'poetry';
-    } else if (await pathExists(pipfilePath)) {
+    } else if (await fse.pathExists(pipfilePath)) {
       info.packageManager = 'pipenv';
     } else if (hasPyproject) {
       // Could be uv, hatch, or other modern tools
@@ -297,9 +297,9 @@ export class ProjectAnalyzer {
     let depsContent = '';
     try {
       if (hasRequirements) {
-        depsContent = await readFile(requirementsPath, 'utf-8');
+        depsContent = await fse.readFile(requirementsPath, 'utf-8');
       } else if (hasPyproject) {
-        depsContent = await readFile(pyprojectPath, 'utf-8');
+        depsContent = await fse.readFile(pyprojectPath, 'utf-8');
       }
 
       // Detect framework
