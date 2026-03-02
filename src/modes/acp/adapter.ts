@@ -398,7 +398,7 @@ export class AutohandAcpAdapter implements Agent {
       },
       agentInfo: {
         name: 'autohand-cli',
-        title: 'Autohand CLI',
+        title: 'Autohand Code',
         version: packageJson.version,
       },
     };
