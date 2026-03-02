@@ -102,14 +102,14 @@ describe('GeminiImporter', () => {
         return false;
       });
 
-      vi.mocked(fse.readJson).mockImplementation(async (p: string) => {
+      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
         if (String(p).endsWith('settings.json')) {
-          return {
+          return JSON.stringify({
             hooks: {
               BeforeAgent: [{ command: 'echo before' }],
               AfterAgent: [{ command: 'echo after' }],
             },
-          };
+          }) as never;
         }
         throw new Error('not found');
       });
@@ -133,9 +133,9 @@ describe('GeminiImporter', () => {
         return false;
       });
 
-      vi.mocked(fse.readJson).mockImplementation(async (p: string) => {
+      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
         if (String(p).endsWith('settings.json')) {
-          return { theme: 'dark', model: 'gemini-2.0-flash' };
+          return JSON.stringify({ theme: 'dark', model: 'gemini-2.0-flash' }) as never;
         }
         throw new Error('not found');
       });
@@ -164,15 +164,15 @@ describe('GeminiImporter', () => {
         return false;
       });
 
-      vi.mocked(fse.readJson).mockImplementation(async (p: string) => {
+      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
         if (String(p).endsWith('settings.json')) {
-          return {
+          return JSON.stringify({
             hooks: {
               BeforeAgent: [{ command: 'lint' }],
               AfterAgent: [{ command: 'test' }],
               AfterTool: [{ command: 'format' }],
             },
-          };
+          }) as never;
         }
         throw new Error('not found');
       });
@@ -226,7 +226,7 @@ describe('GeminiImporter', () => {
         return false;
       });
 
-      vi.mocked(fse.readJson).mockRejectedValue(new Error('invalid json') as never);
+      vi.mocked(fse.readFile).mockRejectedValue(new Error('invalid json') as never);
 
       const result = await importer.import(['settings']);
       expect(result.imported.get('settings')!.failed).toBe(1);

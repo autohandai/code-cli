@@ -498,6 +498,170 @@ describe('CodexImporter', () => {
   });
 
   // ---------------------------------------------------------------
+  // System message filtering
+  // ---------------------------------------------------------------
+  describe('system message filtering', () => {
+    function setupSessionDir() {
+      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+        const s = String(p);
+        if (s === CODEX_HOME) return true;
+        if (s === path.join(CODEX_HOME, 'sessions')) return true;
+        return false;
+      });
+
+      vi.mocked(fse.readdir).mockImplementation(async (p: string) => {
+        const s = String(p);
+        if (s === path.join(CODEX_HOME, 'sessions')) {
+          return [{ name: '2026', isDirectory: () => true, isFile: () => false }] as any;
+        }
+        if (s.endsWith('2026')) {
+          return [{ name: '01', isDirectory: () => true, isFile: () => false }] as any;
+        }
+        if (s.endsWith('01')) {
+          return [{ name: 'rollout.jsonl', isDirectory: () => false, isFile: () => true }] as any;
+        }
+        return [];
+      });
+    }
+
+    it('should filter out <user_instructions> messages', async () => {
+      setupSessionDir();
+
+      const events = [
+        JSON.stringify({ timestamp: '2026-01-01T00:00:00Z', type: 'session_meta', payload: { id: 's1', cwd: '/p' } }),
+        JSON.stringify({ timestamp: '2026-01-01T00:00:01Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<user_instructions>\n# Agents Guidance\nYou are an experienced...\n</user_instructions>' }] } }),
+        JSON.stringify({ timestamp: '2026-01-01T00:00:02Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'fix the login bug' }] } }),
+        JSON.stringify({ timestamp: '2026-01-01T00:00:03Z', type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Sure, let me fix that.' }] } }),
+      ].join('\n');
+
+      vi.mocked(fse.readFile).mockResolvedValue(events as never);
+      vi.mocked(fse.readJson).mockRejectedValue(new Error('not found') as never);
+
+      await importer.import(['sessions']);
+
+      const writeFileCalls = vi.mocked(fse.writeFile).mock.calls;
+      const convCall = writeFileCalls.find(call => String(call[0]).endsWith('conversation.jsonl'));
+      const lines = String(convCall![1]).trim().split('\n');
+
+      // Only 2 messages: real user msg + assistant msg (system msg filtered out)
+      expect(lines).toHaveLength(2);
+      expect(JSON.parse(lines[0]).content).toBe('fix the login bug');
+    });
+
+    it('should filter out <environment_context> messages', async () => {
+      setupSessionDir();
+
+      const events = [
+        JSON.stringify({ timestamp: '2026-01-01T00:00:00Z', type: 'session_meta', payload: { id: 's1', cwd: '/p' } }),
+        JSON.stringify({ timestamp: '2026-01-01T00:00:01Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<environment_context>\n  <cwd>/Users/me/project</cwd>\n</environment_context>' }] } }),
+        JSON.stringify({ timestamp: '2026-01-01T00:00:02Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hello' }] } }),
+        JSON.stringify({ timestamp: '2026-01-01T00:00:03Z', type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Hi!' }] } }),
+      ].join('\n');
+
+      vi.mocked(fse.readFile).mockResolvedValue(events as never);
+      vi.mocked(fse.readJson).mockRejectedValue(new Error('not found') as never);
+
+      await importer.import(['sessions']);
+
+      const writeFileCalls = vi.mocked(fse.writeFile).mock.calls;
+      const convCall = writeFileCalls.find(call => String(call[0]).endsWith('conversation.jsonl'));
+      const lines = String(convCall![1]).trim().split('\n');
+
+      expect(lines).toHaveLength(2);
+      expect(JSON.parse(lines[0]).content).toBe('hello');
+    });
+
+    it('should filter out messages starting with "# Agents Guidance"', async () => {
+      setupSessionDir();
+
+      const events = [
+        JSON.stringify({ timestamp: '2026-01-01T00:00:00Z', type: 'session_meta', payload: { id: 's1', cwd: '/p' } }),
+        JSON.stringify({ timestamp: '2026-01-01T00:00:01Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '# Agents Guidance\nYou are an experienced...' }] } }),
+        JSON.stringify({ timestamp: '2026-01-01T00:00:02Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'deploy to staging' }] } }),
+        JSON.stringify({ timestamp: '2026-01-01T00:00:03Z', type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Deploying...' }] } }),
+      ].join('\n');
+
+      vi.mocked(fse.readFile).mockResolvedValue(events as never);
+      vi.mocked(fse.readJson).mockRejectedValue(new Error('not found') as never);
+
+      await importer.import(['sessions']);
+
+      const writeFileCalls = vi.mocked(fse.writeFile).mock.calls;
+      const convCall = writeFileCalls.find(call => String(call[0]).endsWith('conversation.jsonl'));
+      const lines = String(convCall![1]).trim().split('\n');
+
+      expect(lines).toHaveLength(2);
+      expect(JSON.parse(lines[0]).content).toBe('deploy to staging');
+    });
+
+    it('should skip session when only system messages remain after filtering', async () => {
+      setupSessionDir();
+
+      const events = [
+        JSON.stringify({ timestamp: '2026-01-01T00:00:00Z', type: 'session_meta', payload: { id: 's1', cwd: '/p' } }),
+        JSON.stringify({ timestamp: '2026-01-01T00:00:01Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<user_instructions>system prompt</user_instructions>' }] } }),
+        JSON.stringify({ timestamp: '2026-01-01T00:00:02Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<environment_context><cwd>/p</cwd></environment_context>' }] } }),
+      ].join('\n');
+
+      vi.mocked(fse.readFile).mockResolvedValue(events as never);
+
+      const result = await importer.import(['sessions']);
+      expect(result.imported.get('sessions')!.skipped).toBe(1);
+      expect(result.imported.get('sessions')!.success).toBe(0);
+    });
+
+    it('should generate summary from first real user message, not system message', async () => {
+      setupSessionDir();
+
+      const events = [
+        JSON.stringify({ timestamp: '2026-01-01T00:00:00Z', type: 'session_meta', payload: { id: 's1', cwd: '/p' } }),
+        JSON.stringify({ timestamp: '2026-01-01T00:00:01Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<user_instructions># AGENTS.md instructions for /Users/me</user_instructions>' }] } }),
+        JSON.stringify({ timestamp: '2026-01-01T00:00:02Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<environment_context><cwd>/p</cwd></environment_context>' }] } }),
+        JSON.stringify({ timestamp: '2026-01-01T00:00:03Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'refactor the authentication module' }] } }),
+        JSON.stringify({ timestamp: '2026-01-01T00:00:04Z', type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'On it!' }] } }),
+      ].join('\n');
+
+      vi.mocked(fse.readFile).mockResolvedValue(events as never);
+      vi.mocked(fse.readJson).mockRejectedValue(new Error('not found') as never);
+
+      await importer.import(['sessions']);
+
+      const writeJsonCalls = vi.mocked(fse.writeJson).mock.calls;
+      const metadataCall = writeJsonCalls.find(call => String(call[0]).endsWith('metadata.json'));
+      const metadata = metadataCall![1] as Record<string, unknown>;
+      expect(metadata.summary).toBe('refactor the authentication module');
+    });
+
+    it('should keep assistant messages even when surrounding user system messages are filtered', async () => {
+      setupSessionDir();
+
+      const events = [
+        JSON.stringify({ timestamp: '2026-01-01T00:00:00Z', type: 'session_meta', payload: { id: 's1', cwd: '/p' } }),
+        JSON.stringify({ timestamp: '2026-01-01T00:00:01Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<user_instructions>prompt</user_instructions>' }] } }),
+        JSON.stringify({ timestamp: '2026-01-01T00:00:02Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'test this' }] } }),
+        JSON.stringify({ timestamp: '2026-01-01T00:00:03Z', type: 'event_msg', payload: { type: 'agent_message', message: 'Running tests...' } }),
+        JSON.stringify({ timestamp: '2026-01-01T00:00:04Z', type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'All tests pass!' }] } }),
+      ].join('\n');
+
+      vi.mocked(fse.readFile).mockResolvedValue(events as never);
+      vi.mocked(fse.readJson).mockRejectedValue(new Error('not found') as never);
+
+      await importer.import(['sessions']);
+
+      const writeFileCalls = vi.mocked(fse.writeFile).mock.calls;
+      const convCall = writeFileCalls.find(call => String(call[0]).endsWith('conversation.jsonl'));
+      const lines = String(convCall![1]).trim().split('\n');
+
+      // user "test this" + agent_message + assistant — 3 messages total
+      expect(lines).toHaveLength(3);
+      expect(JSON.parse(lines[0]).role).toBe('user');
+      expect(JSON.parse(lines[0]).content).toBe('test this');
+      expect(JSON.parse(lines[1]).role).toBe('assistant');
+      expect(JSON.parse(lines[2]).role).toBe('assistant');
+    });
+  });
+
+  // ---------------------------------------------------------------
   // import() – progress callback
   // ---------------------------------------------------------------
   describe('import() - progress callback', () => {

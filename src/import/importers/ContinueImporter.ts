@@ -107,7 +107,7 @@ export class ContinueImporter extends BaseImporter {
     });
 
     try {
-      const config = await fse.readJson(configPath) as Record<string, unknown>;
+      const config = await this.safeReadJson(configPath);
 
       // Extract relevant sections
       const extracted: Record<string, unknown> = {

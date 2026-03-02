@@ -145,6 +145,12 @@ export class CodexImporter extends BaseImporter {
     let success = 0;
     let failed = 0;
     let skipped = 0;
+    const skipReasons: Record<string, number> = {};
+
+    const trackSkip = (reason: string) => {
+      skipped++;
+      skipReasons[reason] = (skipReasons[reason] ?? 0) + 1;
+    };
 
     if (!(await fse.pathExists(sessionsDir))) {
       imported.set('sessions', { success: 0, failed: 0, skipped: 0 });
@@ -166,7 +172,19 @@ export class CodexImporter extends BaseImporter {
       });
 
       try {
+        // Pre-validation: check file is readable and non-empty
+        const fileContent = await fse.readFile(filePath, 'utf-8') as string;
+        if (!fileContent.trim()) {
+          trackSkip('empty file');
+          continue;
+        }
+
         const records = await this.readJsonlFile(filePath);
+        if (records.length === 0) {
+          trackSkip('no valid JSON records');
+          continue;
+        }
+
         const events = records as unknown as CodexEvent[];
 
         // Extract session metadata
@@ -191,7 +209,8 @@ export class CodexImporter extends BaseImporter {
                 .map(c => c.text!)
                 .join('');
 
-              if (text) {
+              // Skip system-injected context messages
+              if (text && !this.isSystemMessage(text)) {
                 messages.push({
                   role: payload.role as SessionMessage['role'],
                   content: text,
@@ -213,13 +232,13 @@ export class CodexImporter extends BaseImporter {
         }
 
         if (messages.length === 0) {
-          skipped++;
+          trackSkip('no user messages (only system content)');
           continue;
         }
 
         const projectName = path.basename(cwd);
 
-        await this.writeAutohandSession({
+        const result = await this.writeAutohandSession({
           projectPath: cwd,
           projectName,
           model: 'codex',
@@ -232,7 +251,11 @@ export class CodexImporter extends BaseImporter {
           status: 'completed',
         });
 
-        success++;
+        if (result === null) {
+          trackSkip('already imported');
+        } else {
+          success++;
+        }
       } catch (err) {
         failed++;
         errors.push({
@@ -244,7 +267,12 @@ export class CodexImporter extends BaseImporter {
       }
     }
 
-    imported.set('sessions', { success, failed, skipped });
+    imported.set('sessions', {
+      success,
+      failed,
+      skipped,
+      ...(Object.keys(skipReasons).length > 0 ? { skipReasons } : {}),
+    });
   }
 
   // ---------------------------------------------------------------
@@ -452,12 +480,29 @@ export class CodexImporter extends BaseImporter {
   }
 
   /**
-   * Build a brief summary from the first user message.
+   * Detect system-injected context messages that should not be imported.
+   * These are Codex CLI-generated system prompts, environment info, etc.
+   */
+  protected isSystemMessage(text: string): boolean {
+    const trimmed = text.trimStart();
+    return (
+      trimmed.startsWith('<user_instructions>') ||
+      trimmed.startsWith('<environment_context>') ||
+      trimmed.startsWith('<user_request>') ||
+      trimmed.startsWith('<automatic_reminders>') ||
+      trimmed.startsWith('<system-reminder>') ||
+      trimmed.startsWith('<context>') ||
+      trimmed.startsWith('# Agents Guidance\n')
+    );
+  }
+
+  /**
+   * Build a brief summary from the first real user message.
    */
   protected buildSummary(messages: SessionMessage[]): string {
     const firstUser = messages.find(m => m.role === 'user');
     if (!firstUser) return 'Imported Codex session';
-    const text = firstUser.content.slice(0, 100);
-    return text.length < firstUser.content.length ? `${text}...` : text;
+    const text = firstUser.content.trim().slice(0, 100);
+    return text.length < firstUser.content.trim().length ? `${text}...` : text;
   }
 }

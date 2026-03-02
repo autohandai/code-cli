@@ -48,7 +48,7 @@ export class GeminiImporter extends BaseImporter {
 
       // Try to count hooks from settings
       try {
-        const settings = await fse.readJson(settingsPath) as Record<string, unknown>;
+        const settings = await this.safeReadJson(settingsPath);
         const hooks = settings.hooks as Record<string, unknown[]> | undefined;
         if (hooks) {
           const hookSections = Object.keys(hooks).filter(
@@ -136,7 +136,7 @@ export class GeminiImporter extends BaseImporter {
     });
 
     try {
-      const settings = await fse.readJson(settingsPath) as Record<string, unknown>;
+      const settings = await this.safeReadJson(settingsPath);
       const configDir = AUTOHAND_PATHS.config;
       await fse.ensureDir(configDir);
 
@@ -195,7 +195,7 @@ export class GeminiImporter extends BaseImporter {
     });
 
     try {
-      const settings = await fse.readJson(settingsPath) as Record<string, unknown>;
+      const settings = await this.safeReadJson(settingsPath);
       const hooks = settings.hooks as Record<string, unknown[]> | undefined;
 
       if (!hooks || Object.keys(hooks).length === 0) {

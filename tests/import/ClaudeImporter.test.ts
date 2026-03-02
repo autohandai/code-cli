@@ -518,6 +518,128 @@ describe('ClaudeImporter', () => {
   });
 
   // ---------------------------------------------------------------
+  // Summary generation (system content stripping)
+  // ---------------------------------------------------------------
+  describe('summary generation', () => {
+    function setupOneSession(projectDir: string, jsonlContent: string) {
+      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+        const s = String(p);
+        if (s === CLAUDE_HOME) return true;
+        if (s === path.join(CLAUDE_HOME, 'projects')) return true;
+        return false;
+      });
+
+      vi.mocked(fse.readdir).mockImplementation(async (p: string) => {
+        const s = String(p);
+        if (s === path.join(CLAUDE_HOME, 'projects')) {
+          return [{ name: projectDir, isDirectory: () => true, isFile: () => false }] as any;
+        }
+        if (s.includes(projectDir)) {
+          return [{ name: 'session.jsonl', isDirectory: () => false, isFile: () => true }] as any;
+        }
+        return [];
+      });
+
+      vi.mocked(fse.readFile).mockResolvedValue(jsonlContent as never);
+      vi.mocked(fse.readJson).mockRejectedValue(new Error('not found') as never);
+    }
+
+    it('should strip <system-reminder> tags from summary', async () => {
+      const events = [
+        JSON.stringify({ type: 'user', sessionId: 's1', cwd: '/p', timestamp: '2026-01-01T00:00:00Z', message: { role: 'user', content: '<system-reminder>Some system info</system-reminder>add dark mode support' } }),
+        JSON.stringify({ type: 'assistant', sessionId: 's1', timestamp: '2026-01-01T00:00:01Z', message: { role: 'assistant', content: 'Sure!', model: 'claude' } }),
+      ].join('\n');
+
+      setupOneSession('-Users-me-project', events);
+      await importer.import(['sessions']);
+
+      const writeJsonCalls = vi.mocked(fse.writeJson).mock.calls;
+      const metadataCall = writeJsonCalls.find(call => String(call[0]).endsWith('metadata.json'));
+      expect(metadataCall).toBeDefined();
+      const metadata = metadataCall![1] as Record<string, unknown>;
+      expect(metadata.summary).toBe('add dark mode support');
+    });
+
+    it('should strip <local-command-caveat> tags from summary', async () => {
+      const events = [
+        JSON.stringify({ type: 'user', sessionId: 's1', cwd: '/p', timestamp: '2026-01-01T00:00:00Z', message: { role: 'user', content: '<local-command-caveat>Caveat about commands</local-command-caveat>fix the login page' } }),
+        JSON.stringify({ type: 'assistant', sessionId: 's1', timestamp: '2026-01-01T00:00:01Z', message: { role: 'assistant', content: 'On it!', model: 'claude' } }),
+      ].join('\n');
+
+      setupOneSession('-Users-me-project', events);
+      await importer.import(['sessions']);
+
+      const writeJsonCalls = vi.mocked(fse.writeJson).mock.calls;
+      const metadataCall = writeJsonCalls.find(call => String(call[0]).endsWith('metadata.json'));
+      const metadata = metadataCall![1] as Record<string, unknown>;
+      expect(metadata.summary).toBe('fix the login page');
+    });
+
+    it('should skip to next user message when first is only system content', async () => {
+      const events = [
+        JSON.stringify({ type: 'user', sessionId: 's1', cwd: '/p', timestamp: '2026-01-01T00:00:00Z', message: { role: 'user', content: '<system-reminder>Full system prompt only</system-reminder>' } }),
+        JSON.stringify({ type: 'user', sessionId: 's1', cwd: '/p', timestamp: '2026-01-01T00:00:01Z', message: { role: 'user', content: 'build a REST API' } }),
+        JSON.stringify({ type: 'assistant', sessionId: 's1', timestamp: '2026-01-01T00:00:02Z', message: { role: 'assistant', content: 'Sure!', model: 'claude' } }),
+      ].join('\n');
+
+      setupOneSession('-Users-me-project', events);
+      await importer.import(['sessions']);
+
+      const writeJsonCalls = vi.mocked(fse.writeJson).mock.calls;
+      const metadataCall = writeJsonCalls.find(call => String(call[0]).endsWith('metadata.json'));
+      const metadata = metadataCall![1] as Record<string, unknown>;
+      expect(metadata.summary).toBe('build a REST API');
+    });
+
+    it('should strip multiple system tags from a single message', async () => {
+      const events = [
+        JSON.stringify({ type: 'user', sessionId: 's1', cwd: '/p', timestamp: '2026-01-01T00:00:00Z', message: { role: 'user', content: '<system-reminder>info</system-reminder><bash-input>pwd</bash-input><bash-stdout>/home</bash-stdout>update the config parser' } }),
+        JSON.stringify({ type: 'assistant', sessionId: 's1', timestamp: '2026-01-01T00:00:01Z', message: { role: 'assistant', content: 'Done!', model: 'claude' } }),
+      ].join('\n');
+
+      setupOneSession('-Users-me-project', events);
+      await importer.import(['sessions']);
+
+      const writeJsonCalls = vi.mocked(fse.writeJson).mock.calls;
+      const metadataCall = writeJsonCalls.find(call => String(call[0]).endsWith('metadata.json'));
+      const metadata = metadataCall![1] as Record<string, unknown>;
+      expect(metadata.summary).toBe('update the config parser');
+    });
+
+    it('should fall back to "Imported Claude session" when all user content is system tags', async () => {
+      const events = [
+        JSON.stringify({ type: 'user', sessionId: 's1', cwd: '/p', timestamp: '2026-01-01T00:00:00Z', message: { role: 'user', content: '<system-reminder>All system</system-reminder><context>Only context</context>' } }),
+        JSON.stringify({ type: 'assistant', sessionId: 's1', timestamp: '2026-01-01T00:00:01Z', message: { role: 'assistant', content: 'Hmm.', model: 'claude' } }),
+      ].join('\n');
+
+      setupOneSession('-Users-me-project', events);
+      await importer.import(['sessions']);
+
+      const writeJsonCalls = vi.mocked(fse.writeJson).mock.calls;
+      const metadataCall = writeJsonCalls.find(call => String(call[0]).endsWith('metadata.json'));
+      const metadata = metadataCall![1] as Record<string, unknown>;
+      expect(metadata.summary).toBe('Imported Claude session');
+    });
+
+    it('should truncate long summaries to 100 characters with ellipsis', async () => {
+      const longText = 'a'.repeat(150);
+      const events = [
+        JSON.stringify({ type: 'user', sessionId: 's1', cwd: '/p', timestamp: '2026-01-01T00:00:00Z', message: { role: 'user', content: longText } }),
+        JSON.stringify({ type: 'assistant', sessionId: 's1', timestamp: '2026-01-01T00:00:01Z', message: { role: 'assistant', content: 'OK', model: 'claude' } }),
+      ].join('\n');
+
+      setupOneSession('-Users-me-project', events);
+      await importer.import(['sessions']);
+
+      const writeJsonCalls = vi.mocked(fse.writeJson).mock.calls;
+      const metadataCall = writeJsonCalls.find(call => String(call[0]).endsWith('metadata.json'));
+      const metadata = metadataCall![1] as Record<string, unknown>;
+      expect((metadata.summary as string).length).toBe(103); // 100 + "..."
+      expect((metadata.summary as string).endsWith('...')).toBe(true);
+    });
+  });
+
+  // ---------------------------------------------------------------
   // import() – settings
   // ---------------------------------------------------------------
   describe('import() - settings', () => {
@@ -529,15 +651,15 @@ describe('ClaudeImporter', () => {
         return false;
       });
 
-      vi.mocked(fse.readJson).mockImplementation(async (p: string) => {
+      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
         const s = String(p);
         if (s === path.join(CLAUDE_HOME, 'settings.json')) {
-          return {
+          return JSON.stringify({
             env: {},
             permissions: {
               allow: ['Read', 'Write', 'Bash(git:*)'],
             },
-          };
+          }) as never;
         }
         throw new Error('not found');
       });
@@ -646,9 +768,9 @@ describe('ClaudeImporter', () => {
         return false;
       });
 
-      vi.mocked(fse.readJson).mockImplementation(async (p: string) => {
+      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
         if (String(p).endsWith('settings.json')) {
-          return { permissions: { allow: [] } };
+          return JSON.stringify({ permissions: { allow: [] } }) as never;
         }
         throw new Error('not found');
       });
@@ -673,9 +795,9 @@ describe('ClaudeImporter', () => {
         return false;
       });
 
-      vi.mocked(fse.readJson).mockImplementation(async (p: string) => {
+      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
         if (String(p).endsWith('settings.json')) {
-          return { permissions: { allow: [] } };
+          return JSON.stringify({ permissions: { allow: [] } }) as never;
         }
         throw new Error('not found');
       });

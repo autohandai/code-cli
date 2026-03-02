@@ -90,9 +90,9 @@ describe('ContinueImporter', () => {
         return false;
       });
 
-      vi.mocked(fse.readJson).mockImplementation(async (p: string) => {
+      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
         if (String(p).endsWith('config.json')) {
-          return {
+          return JSON.stringify({
             models: [
               { title: 'GPT-4', provider: 'openai', model: 'gpt-4' },
               { title: 'Claude', provider: 'anthropic', model: 'claude-3.5-sonnet' },
@@ -107,7 +107,7 @@ describe('ContinueImporter', () => {
               provider: 'openai',
               model: 'text-embedding-3-small',
             },
-          };
+          }) as never;
         }
         throw new Error('not found');
       });
@@ -141,7 +141,7 @@ describe('ContinueImporter', () => {
         return false;
       });
 
-      vi.mocked(fse.readJson).mockRejectedValue(new Error('invalid json') as never);
+      vi.mocked(fse.readFile).mockRejectedValue(new Error('invalid json') as never);
 
       const result = await importer.import(['settings']);
       expect(result.imported.get('settings')!.failed).toBe(1);
