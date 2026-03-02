@@ -1213,4 +1213,92 @@ describe('agent startup and active input UI', () => {
 
     consoleLogSpy.mockRestore();
   });
+
+  it('pauses persistent input before showing feedback modal and resumes after', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const callOrder: string[] = [];
+
+    agent.persistentInputActiveTurn = true;
+    agent.persistentInput = {
+      pause: () => callOrder.push('pause'),
+      resume: () => callOrder.push('resume'),
+      hasQueued: () => true,
+      getCurrentInput: () => '',
+      getQueueLength: () => 1,
+    };
+    agent.runtime = { spinner: undefined };
+    agent.inkRenderer = null;
+
+    // Mock feedbackManager that tracks call order
+    agent.feedbackManager = {
+      shouldPrompt: () => 'periodic',
+      promptForFeedback: async () => {
+        callOrder.push('promptForFeedback');
+        return true;
+      },
+      recordInteraction: vi.fn(),
+    };
+
+    // Call the method that wraps feedback with pause/resume
+    await (agent as any).showFeedbackWithPause(
+      'periodic',
+      'session-1'
+    );
+
+    // Verify: pause → feedback → resume
+    expect(callOrder).toEqual(['pause', 'promptForFeedback', 'resume']);
+  });
+
+  it('resumes persistent input even if feedback modal throws', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const callOrder: string[] = [];
+
+    agent.persistentInputActiveTurn = true;
+    agent.persistentInput = {
+      pause: () => callOrder.push('pause'),
+      resume: () => callOrder.push('resume'),
+      hasQueued: () => true,
+      getCurrentInput: () => '',
+    };
+    agent.runtime = { spinner: undefined };
+    agent.inkRenderer = null;
+
+    agent.feedbackManager = {
+      promptForFeedback: async () => {
+        callOrder.push('promptForFeedback');
+        throw new Error('Modal crashed');
+      },
+    };
+
+    // Should not throw — error is swallowed
+    await (agent as any).showFeedbackWithPause('periodic', 'session-1');
+
+    // Resume must still happen
+    expect(callOrder).toEqual(['pause', 'promptForFeedback', 'resume']);
+  });
+
+  it('skips pause/resume when persistent input is not active', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const callOrder: string[] = [];
+
+    agent.persistentInputActiveTurn = false;
+    agent.persistentInput = {
+      pause: () => callOrder.push('pause'),
+      resume: () => callOrder.push('resume'),
+    };
+    agent.runtime = { spinner: undefined };
+    agent.inkRenderer = null;
+
+    agent.feedbackManager = {
+      promptForFeedback: async () => {
+        callOrder.push('promptForFeedback');
+        return true;
+      },
+    };
+
+    await (agent as any).showFeedbackWithPause('periodic', 'session-1');
+
+    // No pause/resume — persistent input wasn't active
+    expect(callOrder).toEqual(['promptForFeedback']);
+  });
 });

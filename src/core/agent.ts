@@ -1334,7 +1334,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
           const trigger = this.feedbackManager.shouldPrompt({ sessionEnding: true });
           if (trigger) {
             const session = this.sessionManager.getCurrentSession();
-            await this.feedbackManager.promptForFeedback(trigger, session?.metadata.sessionId);
+            await this.showFeedbackWithPause(trigger, session?.metadata.sessionId);
           }
           await this.closeSession();
           return;
@@ -1398,11 +1398,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
         if (feedbackTrigger) {
           const session = this.sessionManager.getCurrentSession();
-          if (feedbackTrigger === 'gratitude') {
-            await this.feedbackManager.quickRating();
-          } else {
-            await this.feedbackManager.promptForFeedback(feedbackTrigger, session?.metadata.sessionId);
-          }
+          await this.showFeedbackWithPause(feedbackTrigger, session?.metadata.sessionId);
         }
 
         console.log();
@@ -4029,6 +4025,35 @@ If lint or tests fail, report the issues but do NOT commit.`;
       this.persistentInput.writeAbove(message + '\n');
     } else {
       console.log(message);
+    }
+  }
+
+  /**
+   * Show a feedback prompt, pausing persistent input first so the Modal
+   * owns stdin exclusively and keystrokes don't leak into the composer.
+   */
+  private async showFeedbackWithPause(
+    trigger: string,
+    sessionId?: string
+  ): Promise<void> {
+    const needsPause = this.persistentInputActiveTurn;
+
+    if (needsPause) {
+      this.persistentInput.pause();
+    }
+
+    try {
+      if (trigger === 'gratitude') {
+        await this.feedbackManager.quickRating();
+      } else {
+        await this.feedbackManager.promptForFeedback(trigger as any, sessionId);
+      }
+    } catch {
+      // Feedback should never crash the session
+    } finally {
+      if (needsPause) {
+        this.persistentInput.resume();
+      }
     }
   }
 
