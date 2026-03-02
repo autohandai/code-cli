@@ -93,7 +93,7 @@ export class SlashCommandHandler {
         }
         case '/resume': {
           const { resume } = await import('../commands/resume.js');
-          return resume({ sessionManager: this.ctx.sessionManager, args });
+          return resume({ sessionManager: this.ctx.sessionManager, args, workspaceRoot: this.ctx.workspaceRoot });
         }
         case '/sessions': {
           const { sessions } = await import('../commands/sessions.js');
@@ -328,6 +328,10 @@ export class SlashCommandHandler {
         case '/message': {
           const { message } = await import('../commands/message.js');
           return message({ teamManager: this.ctx.teamManager }, args);
+        }
+        case '/import': {
+          const { execute } = await import('../commands/import.js');
+          return execute(args);
         }
         default:
           this.printUnsupported(command);

@@ -100,6 +100,7 @@ function getTimeAgo(date: Date): string {
 export async function resume(ctx: {
     sessionManager: SessionManager;
     args: string[];
+    workspaceRoot?: string;
 }): Promise<string | null> {
     const sessionId = ctx.args[0];
 
@@ -108,13 +109,22 @@ export async function resume(ctx: {
         return resumeSession(ctx.sessionManager, sessionId);
     }
 
-    // Otherwise, show interactive session picker
+    // Otherwise, show interactive session picker filtered by current project
     try {
-        const allSessions = await ctx.sessionManager.listSessions();
+        const projectFilter = ctx.workspaceRoot
+            ? { project: ctx.workspaceRoot }
+            : undefined;
+        const allSessions = await ctx.sessionManager.listSessions(projectFilter);
 
         if (allSessions.length === 0) {
-            console.log(chalk.gray(`\n${t('commands.sessions.noSessions')}`));
-            console.log(chalk.gray('Start a new conversation to create a session.\n'));
+            if (ctx.workspaceRoot) {
+                const projectName = path.basename(ctx.workspaceRoot);
+                console.log(chalk.gray(`\nNo sessions found for project "${projectName}".`));
+                console.log(chalk.gray('Use /sessions to see all sessions across projects.\n'));
+            } else {
+                console.log(chalk.gray(`\n${t('commands.sessions.noSessions')}`));
+                console.log(chalk.gray('Start a new conversation to create a session.\n'));
+            }
             return null;
         }
 
