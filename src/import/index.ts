@@ -7,8 +7,8 @@
  * interactive (TTY) and non-interactive (CI/pipe) modes.
  */
 import chalk from 'chalk';
-import type { ImportOptions, ImportSource, ImportCategory, ImportResult } from './types.js';
-import { IMPORT_SOURCES, ALL_CATEGORIES } from './types.js';
+import type { ImportOptions, ImportCategory, ImportResult } from './types.js';
+import { IMPORT_SOURCES } from './types.js';
 
 /**
  * Run the import command.

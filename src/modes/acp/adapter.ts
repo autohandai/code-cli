@@ -111,10 +111,7 @@ export class AutohandAcpAdapter implements Agent {
   }
 
   private cloneConfigOptions(options: SessionConfigOption[]): SessionConfigOption[] {
-    return options.map((opt) => ({
-      ...opt,
-      options: opt.options.map((valueOption) => ({ ...valueOption })),
-    }));
+    return structuredClone(options);
   }
 
   private getSessionConfigOptions(sessionId: string): SessionConfigOption[] {
@@ -141,13 +138,13 @@ export class AutohandAcpAdapter implements Agent {
     }
 
     return mcpServers.map((server): McpServerConfig => {
-      if (server.type === 'stdio') {
+      if ('command' in server) {
         return {
           name: server.name,
           transport: 'stdio',
           command: server.command,
           args: [...server.args],
-          env: Object.fromEntries(server.env.map((variable) => [variable.name, variable.value])),
+          env: Object.fromEntries(server.env.map((variable: { name: string; value: string }) => [variable.name, variable.value])),
           autoConnect: true,
         };
       }
@@ -156,7 +153,7 @@ export class AutohandAcpAdapter implements Agent {
         name: server.name,
         transport: server.type,
         url: server.url,
-        headers: Object.fromEntries(server.headers.map((header) => [header.name, header.value])),
+        headers: Object.fromEntries(server.headers.map((header: { name: string; value: string }) => [header.name, header.value])),
         autoConnect: true,
       };
     });
@@ -646,7 +643,16 @@ export class AutohandAcpAdapter implements Agent {
       throw RequestError.invalidParams({ message: `Unknown config option: ${params.configId}` });
     }
 
-    const validValues = option.options.map((entry) => entry.value);
+    const validValues: string[] = [];
+    for (const entry of option.options) {
+      if ('value' in entry) {
+        validValues.push(entry.value);
+      } else if ('options' in entry) {
+        for (const subEntry of entry.options) {
+          validValues.push(subEntry.value);
+        }
+      }
+    }
     if (!validValues.includes(params.value)) {
       throw RequestError.invalidParams({
         message: `Invalid value "${params.value}" for config option "${params.configId}"`,
