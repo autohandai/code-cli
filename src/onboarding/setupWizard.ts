@@ -6,7 +6,7 @@
 
 import chalk from 'chalk';
 import { showModal, showInput, showPassword, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
-import { pathExists, writeFile } from 'fs-extra';
+import fse from 'fs-extra';
 import { join } from 'path';
 
 import type { AutohandConfig, LoadedConfig, ProviderName } from '../types.js';
@@ -456,7 +456,7 @@ export class SetupWizard {
     this.state.currentStep = 'agentsFile';
 
     const agentsPath = join(this.workspaceRoot, 'AGENTS.md');
-    const exists = await pathExists(agentsPath);
+    const exists = await fse.pathExists(agentsPath);
 
     // If exists, ask to overwrite
     if (exists) {
@@ -521,7 +521,7 @@ export class SetupWizard {
     // Generate and write
     const generator = new AgentsGenerator();
     const content = generator.generateContent(projectInfo);
-    await writeFile(agentsPath, content);
+    await fse.writeFile(agentsPath, content);
 
     this.state.agentsFileCreated = true;
     console.log();
