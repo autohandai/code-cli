@@ -325,7 +325,7 @@ describe('Import types', () => {
           return { source: 'claude' as ImportSource, imported: new Map(), errors: [], duration: 0 };
         },
       };
-      await importer.import(['sessions'], (p) => { progressCalled = true; });
+      await importer.import(['sessions'], (_p) => { progressCalled = true; });
       expect(progressCalled).toBe(true);
     });
   });

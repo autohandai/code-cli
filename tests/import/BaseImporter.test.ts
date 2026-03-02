@@ -3,7 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import os from 'node:os';
 import path from 'node:path';
 import type { ImportSource, ImportCategory, ImportScanResult, ImportResult, ProgressCallback } from '../../src/import/types.js';
@@ -367,7 +367,7 @@ describe('BaseImporter', () => {
       vi.mocked(fse.readJson).mockRejectedValue(new Error('not found') as never);
       vi.mocked(fse.pathExists).mockResolvedValue(false as never);
 
-      const { status, ...optsWithoutStatus } = baseOpts;
+      const { status: _status, ...optsWithoutStatus } = baseOpts;
       await importer.testWriteAutohandSession(optsWithoutStatus);
 
       const writeJsonCalls = vi.mocked(fse.writeJson).mock.calls;
