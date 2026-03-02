@@ -290,7 +290,7 @@ describe('AutohandAcpAdapter', () => {
 
       expect(result.agentInfo).toBeDefined();
       expect(result.agentInfo!.name).toBe('autohand-cli');
-      expect(result.agentInfo!.title).toBe('Autohand CLI');
+      expect(result.agentInfo!.title).toBe('Autohand Code');
       expect(result.agentInfo!.version).toBe('0.7.9');
     });
 
