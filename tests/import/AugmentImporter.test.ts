@@ -106,13 +106,13 @@ describe('AugmentImporter', () => {
         return false;
       });
 
-      vi.mocked(fse.readJson).mockImplementation(async (p: string) => {
+      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
         if (String(p).endsWith('mcp.json')) {
-          return {
+          return JSON.stringify({
             mcpServers: {
               myServer: { command: 'node', args: ['server.js'] },
             },
-          };
+          }) as never;
         }
         throw new Error('not found');
       });
@@ -141,9 +141,9 @@ describe('AugmentImporter', () => {
         return false;
       });
 
-      vi.mocked(fse.readJson).mockImplementation(async (p: string) => {
+      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
         if (String(p).endsWith('settings.json')) {
-          return { model: 'augment-v2', theme: 'dark' };
+          return JSON.stringify({ model: 'augment-v2', theme: 'dark' }) as never;
         }
         throw new Error('not found');
       });
@@ -172,7 +172,7 @@ describe('AugmentImporter', () => {
         return false;
       });
 
-      vi.mocked(fse.readJson).mockRejectedValue(new Error('invalid json') as never);
+      vi.mocked(fse.readFile).mockRejectedValue(new Error('invalid json') as never);
 
       const result = await importer.import(['mcp']);
       expect(result.imported.get('mcp')!.failed).toBe(1);

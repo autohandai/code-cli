@@ -108,7 +108,7 @@ export class ClineImporter extends BaseImporter {
     });
 
     try {
-      const state = await fse.readJson(globalStatePath) as Record<string, unknown>;
+      const state = await this.safeReadJson(globalStatePath);
 
       // Extract relevant settings
       const extracted: Record<string, unknown> = {};

@@ -176,6 +176,12 @@ export class ClaudeImporter extends BaseImporter {
     let success = 0;
     let failed = 0;
     let skipped = 0;
+    const skipReasons: Record<string, number> = {};
+
+    const trackSkip = (reason: string) => {
+      skipped++;
+      skipReasons[reason] = (skipReasons[reason] ?? 0) + 1;
+    };
 
     if (!(await fse.pathExists(projectsDir))) {
       imported.set('sessions', { success: 0, failed: 0, skipped: 0 });
@@ -215,7 +221,19 @@ export class ClaudeImporter extends BaseImporter {
       });
 
       try {
+        // Pre-validation: check file is readable and non-empty
+        const fileContent = await fse.readFile(filePath, 'utf-8') as string;
+        if (!fileContent.trim()) {
+          trackSkip('empty file');
+          continue;
+        }
+
         const records = await this.readJsonlFile(filePath);
+        if (records.length === 0) {
+          trackSkip('no valid JSON records');
+          continue;
+        }
+
         const events = records as unknown as ClaudeEvent[];
 
         // Filter relevant events
@@ -226,7 +244,7 @@ export class ClaudeImporter extends BaseImporter {
         );
 
         if (relevantEvents.length === 0) {
-          skipped++;
+          trackSkip('no user/assistant messages');
           continue;
         }
 
@@ -254,7 +272,7 @@ export class ClaudeImporter extends BaseImporter {
           const model = this.extractModel(sessionEvents) ?? 'unknown';
           const projectName = path.basename(cwd);
 
-          await this.writeAutohandSession({
+          const result = await this.writeAutohandSession({
             projectPath: cwd,
             projectName,
             model,
@@ -267,7 +285,11 @@ export class ClaudeImporter extends BaseImporter {
             status: 'completed',
           });
 
-          success++;
+          if (result === null) {
+            trackSkip('already imported');
+          } else {
+            success++;
+          }
         }
       } catch (err) {
         failed++;
@@ -280,7 +302,12 @@ export class ClaudeImporter extends BaseImporter {
       }
     }
 
-    imported.set('sessions', { success, failed, skipped });
+    imported.set('sessions', {
+      success,
+      failed,
+      skipped,
+      ...(Object.keys(skipReasons).length > 0 ? { skipReasons } : {}),
+    });
   }
 
   // ---------------------------------------------------------------
@@ -308,7 +335,7 @@ export class ClaudeImporter extends BaseImporter {
     });
 
     try {
-      const settings = await fse.readJson(settingsPath) as Record<string, unknown>;
+      const settings = await this.safeReadJson(settingsPath);
 
       // Extract permissions.allow and merge into autohand config
       const permissions = settings.permissions as { allow?: string[] } | undefined;
@@ -512,12 +539,38 @@ export class ClaudeImporter extends BaseImporter {
   }
 
   /**
-   * Build a brief summary from the first user message.
+   * Build a brief summary from the first real user message.
+   * Skips system-injected context (XML tags, CLAUDE.md, etc.)
    */
   protected buildSummary(messages: SessionMessage[]): string {
-    const firstUser = messages.find(m => m.role === 'user');
-    if (!firstUser) return 'Imported Claude session';
-    const text = firstUser.content.slice(0, 100);
-    return text.length < firstUser.content.length ? `${text}...` : text;
+    for (const msg of messages) {
+      if (msg.role !== 'user') continue;
+      const cleaned = this.stripSystemContent(msg.content);
+      if (cleaned.length > 0) {
+        const text = cleaned.slice(0, 100);
+        return text.length < cleaned.length ? `${text}...` : text;
+      }
+    }
+    return 'Imported Claude session';
+  }
+
+  /**
+   * Strip system-injected XML tags and their content from a message,
+   * returning only the actual user text.
+   */
+  private stripSystemContent(text: string): string {
+    // Remove common system-injected XML block patterns
+    let cleaned = text;
+    const systemTags = [
+      'local-command-caveat', 'system-reminder', 'user_instructions',
+      'environment_context', 'context', 'automatic_reminders',
+      'user_request', 'bash-input', 'bash-stdout', 'bash-stderr',
+    ];
+    for (const tag of systemTags) {
+      // Remove <tag>...</tag> blocks (non-greedy, supports multiline)
+      const pattern = new RegExp(`<${tag}>[\\s\\S]*?</${tag}>`, 'g');
+      cleaned = cleaned.replace(pattern, '');
+    }
+    return cleaned.trim();
   }
 }

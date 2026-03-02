@@ -116,7 +116,7 @@ export class CursorImporter extends BaseImporter {
     });
 
     try {
-      const hooksData = await fse.readJson(hooksPath) as Record<string, unknown>;
+      const hooksData = await this.safeReadJson(hooksPath);
       const configDir = AUTOHAND_PATHS.config;
       await fse.ensureDir(configDir);
 
@@ -175,7 +175,7 @@ export class CursorImporter extends BaseImporter {
     });
 
     try {
-      const hooksData = await fse.readJson(hooksPath) as Record<string, unknown>;
+      const hooksData = await this.safeReadJson(hooksPath);
       const configDir = AUTOHAND_PATHS.config;
       await fse.ensureDir(configDir);
 
@@ -234,7 +234,7 @@ export class CursorImporter extends BaseImporter {
     });
 
     try {
-      const mcpData = await fse.readJson(mcpPath) as Record<string, unknown>;
+      const mcpData = await this.safeReadJson(mcpPath);
       const configDir = AUTOHAND_PATHS.config;
       await fse.ensureDir(configDir);
 

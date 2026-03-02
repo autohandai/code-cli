@@ -114,7 +114,7 @@ export class AugmentImporter extends BaseImporter {
     });
 
     try {
-      const mcpData = await fse.readJson(mcpPath) as Record<string, unknown>;
+      const mcpData = await this.safeReadJson(mcpPath);
       const configDir = AUTOHAND_PATHS.config;
       await fse.ensureDir(configDir);
 
@@ -173,7 +173,7 @@ export class AugmentImporter extends BaseImporter {
     });
 
     try {
-      const settings = await fse.readJson(settingsPath) as Record<string, unknown>;
+      const settings = await this.safeReadJson(settingsPath);
       const configDir = AUTOHAND_PATHS.config;
       await fse.ensureDir(configDir);
 

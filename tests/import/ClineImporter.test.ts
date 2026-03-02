@@ -90,14 +90,14 @@ describe('ClineImporter', () => {
         return false;
       });
 
-      vi.mocked(fse.readJson).mockImplementation(async (p: string) => {
+      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
         if (String(p).includes('globalState.json')) {
-          return {
+          return JSON.stringify({
             apiModelId: 'claude-3.5-sonnet',
             autoApprovalSettings: { enabled: true, maxRequests: 10 },
             browserSettings: { headless: true },
             workspaceRoots: ['/home/user/project1', '/home/user/project2'],
-          };
+          }) as never;
         }
         throw new Error('not found');
       });
@@ -130,7 +130,7 @@ describe('ClineImporter', () => {
         return false;
       });
 
-      vi.mocked(fse.readJson).mockRejectedValue(new Error('invalid json') as never);
+      vi.mocked(fse.readFile).mockRejectedValue(new Error('invalid json') as never);
 
       const result = await importer.import(['settings']);
       expect(result.imported.get('settings')!.failed).toBe(1);

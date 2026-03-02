@@ -120,9 +120,9 @@ describe('CursorImporter', () => {
         return false;
       });
 
-      vi.mocked(fse.readJson).mockImplementation(async (p: string) => {
+      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
         if (String(p).endsWith('hooks.json')) {
-          return { hooks: [{ event: 'onSave', command: 'lint' }] };
+          return JSON.stringify({ hooks: [{ event: 'onSave', command: 'lint' }] }) as never;
         }
         throw new Error('not found');
       });
@@ -151,13 +151,13 @@ describe('CursorImporter', () => {
         return false;
       });
 
-      vi.mocked(fse.readJson).mockImplementation(async (p: string) => {
+      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
         if (String(p).endsWith('mcp.json')) {
-          return {
+          return JSON.stringify({
             mcpServers: {
               filesystem: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem'] },
             },
-          };
+          }) as never;
         }
         throw new Error('not found');
       });
@@ -186,9 +186,9 @@ describe('CursorImporter', () => {
         return false;
       });
 
-      vi.mocked(fse.readJson).mockImplementation(async (p: string) => {
+      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
         if (String(p).endsWith('hooks.json')) {
-          return { hooks: [{ event: 'onSave', command: 'lint' }] };
+          return JSON.stringify({ hooks: [{ event: 'onSave', command: 'lint' }] }) as never;
         }
         throw new Error('not found');
       });
@@ -217,7 +217,7 @@ describe('CursorImporter', () => {
         return false;
       });
 
-      vi.mocked(fse.readJson).mockRejectedValue(new Error('invalid json') as never);
+      vi.mocked(fse.readFile).mockRejectedValue(new Error('invalid json') as never);
 
       const result = await importer.import(['settings']);
       expect(result.imported.get('settings')!.failed).toBe(1);
