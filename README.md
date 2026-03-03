@@ -265,6 +265,23 @@ autohand resume <session-id>
 /resume
 ```
 
+## Entire Integration
+
+Autohand Code supports [Entire](https://entire.io) for session checkpointing. Entire captures your coding sessions -- prompts, file changes, and token usage -- as git-backed checkpoints that you can rewind to, review, and share.
+
+```bash
+# Install hooks in this repository
+entire enable --agent autohand-code
+
+# Check status
+entire status
+
+# Remove hooks
+entire disable --agent autohand-code
+```
+
+Once enabled, Entire works automatically through Autohand's hooks system. No changes to your workflow are needed. See the [Entire Integration Guide](docs/entire-integration.md) for setup details and troubleshooting.
+
 ## Security & Permissions
 
 Autohand includes a permission system for sensitive operations:
@@ -346,6 +363,7 @@ docker run -it autohand
 - [Features](docs/features.md) - Complete feature list
 - [Agent Skills](docs/agent-skills.md) - Skills system guide
 - [Configuration Reference](docs/config-reference.md) - All config options
+- [Entire Integration](docs/entire-integration.md) - Session checkpointing with Entire
 
 ## License
 
