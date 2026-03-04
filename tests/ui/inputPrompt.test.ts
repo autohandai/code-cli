@@ -135,6 +135,8 @@ describe('Display content utilities', () => {
     expect(countNewlineMarkers('hello')).toBe(0);
     expect(countNewlineMarkers(`hello${NEWLINE_MARKER}world`)).toBe(1);
     expect(countNewlineMarkers(`a${NEWLINE_MARKER}b${NEWLINE_MARKER}c`)).toBe(2);
+    expect(countNewlineMarkers('line1\nline2')).toBe(1);
+    expect(countNewlineMarkers(`a${NEWLINE_MARKER}b\nc`)).toBe(2);
   });
 
   it('should convert newline markers to actual newlines', async () => {
@@ -144,6 +146,7 @@ describe('Display content utilities', () => {
     expect(convertNewlineMarkersToNewlines('hello')).toBe('hello');
     expect(convertNewlineMarkersToNewlines(`hello${NEWLINE_MARKER}world`)).toBe('hello\nworld');
     expect(convertNewlineMarkersToNewlines(`a${NEWLINE_MARKER}b${NEWLINE_MARKER}c`)).toBe('a\nb\nc');
+    expect(convertNewlineMarkersToNewlines(`a${NEWLINE_MARKER}b\r\nc\rd\ne`)).toBe('a\nb\nc\nd\ne');
   });
 });
 
@@ -592,6 +595,25 @@ describe('buildMultiLineRenderState', () => {
 
     expect(state.lineCount).toBe(3);
     expect(state.lines.length).toBe(3);
+  });
+
+  it('splits input into multiple lines when literal newlines are present', async () => {
+    const { buildMultiLineRenderState } = await import('../../src/ui/inputPrompt.js');
+    const input = 'line1\nline2\nline3';
+    const state = buildMultiLineRenderState(input, 5, 80);
+
+    expect(state.lineCount).toBe(3);
+    expect(state.lines.length).toBe(3);
+  });
+
+  it('positions cursor correctly for mixed marker + literal newline separators', async () => {
+    const { buildMultiLineRenderState, NEWLINE_MARKER } = await import('../../src/ui/inputPrompt.js');
+    const input = `line1${NEWLINE_MARKER}line2\nline3`;
+    const cursorPos = `line1${NEWLINE_MARKER}li`.length;
+    const state = buildMultiLineRenderState(input, cursorPos, 80);
+
+    expect(state.cursorRow).toBe(1);
+    expect(state.lineCount).toBe(3);
   });
 
   it('positions cursor on the correct row', async () => {

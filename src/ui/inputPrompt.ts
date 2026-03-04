@@ -545,7 +545,7 @@ export function buildPromptRenderState(
 
 /**
  * Build multi-line render state for the composer.
- * Splits input by NEWLINE_MARKER and builds a boxed row for each segment.
+ * Splits input by NEWLINE_MARKER and literal newlines, then builds boxed rows.
  */
 export function buildMultiLineRenderState(
   currentLine: string,
@@ -555,7 +555,7 @@ export function buildMultiLineRenderState(
   suggestionText?: string,
   inlineGhostSuffix?: string
 ): MultiLineRenderState {
-  const segments = currentLine.split(NEWLINE_MARKER);
+  const { segments, separatorLengths } = splitMultilineSegments(currentLine);
 
   if (segments.length <= 1) {
     const seg = renderSegment(
@@ -583,7 +583,7 @@ export function buildMultiLineRenderState(
       cursorInSegment = Math.max(0, cursorPos - pos);
       break;
     }
-    pos = segEnd + NEWLINE_MARKER.length;
+    pos = segEnd + (separatorLengths[i] ?? 0);
   }
 
   const lines: string[] = [];
@@ -606,6 +606,49 @@ export function buildMultiLineRenderState(
   }
 
   return { lines, cursorRow, cursorColumn: finalCursorColumn, lineCount: segments.length };
+}
+
+interface MultilineSegments {
+  segments: string[];
+  separatorLengths: number[];
+}
+
+function splitMultilineSegments(value: string): MultilineSegments {
+  const segments: string[] = [];
+  const separatorLengths: number[] = [];
+
+  let segmentStart = 0;
+  let i = 0;
+  while (i < value.length) {
+    if (value.startsWith(NEWLINE_MARKER, i)) {
+      segments.push(value.slice(segmentStart, i));
+      separatorLengths.push(NEWLINE_MARKER.length);
+      i += NEWLINE_MARKER.length;
+      segmentStart = i;
+      continue;
+    }
+
+    const ch = value[i];
+    if (ch === '\n') {
+      segments.push(value.slice(segmentStart, i));
+      separatorLengths.push(1);
+      i += 1;
+      segmentStart = i;
+      continue;
+    }
+    if (ch === '\r') {
+      const separatorLength = value[i + 1] === '\n' ? 2 : 1;
+      segments.push(value.slice(segmentStart, i));
+      separatorLengths.push(separatorLength);
+      i += separatorLength;
+      segmentStart = i;
+      continue;
+    }
+    i += 1;
+  }
+
+  segments.push(value.slice(segmentStart));
+  return { segments, separatorLengths };
 }
 
 function formatPromptStatusRow(
@@ -926,6 +969,11 @@ export function processImagesInText(
 // Visual marker for newlines in single-line input (converted to \n on submit)
 export const NEWLINE_MARKER = ' ↵ ';
 const MAX_NEWLINES = 9; // Max 10 lines = 9 newline markers
+const NEWLINE_MARKER_REGEX = new RegExp(escapeRegex(NEWLINE_MARKER), 'g');
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 // Maximum lines to display visually (input can contain more)
 export const MAX_DISPLAY_LINES = 10;
@@ -1002,14 +1050,19 @@ export function getDisplayContent(fullContent: string, terminalWidth: number): D
  * Count the number of newline markers in text
  */
 export function countNewlineMarkers(text: string): number {
-  return (text.match(new RegExp(NEWLINE_MARKER, 'g')) || []).length;
+  const markerCount = (text.match(NEWLINE_MARKER_REGEX) || []).length;
+  const literalNewlineCount = (text.match(/\r\n|\r|\n/g) || []).length;
+  return markerCount + literalNewlineCount;
 }
 
 /**
  * Convert newline markers back to actual newlines
  */
 export function convertNewlineMarkersToNewlines(text: string): string {
-  return text.replace(new RegExp(NEWLINE_MARKER, 'g'), '\n');
+  return text
+    .replace(NEWLINE_MARKER_REGEX, '\n')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
 }
 
 export async function readInstruction(
@@ -1319,7 +1372,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     }
     const rlAny = rl as readline.Interface & { line?: string };
     const currentLine = rlAny.line ?? '';
-    if (!currentLine || currentLine.includes(NEWLINE_MARKER)) {
+    if (!currentLine || currentLine.includes(NEWLINE_MARKER) || /[\r\n]/.test(currentLine)) {
       return undefined;
     }
     return getInlineGhostCompletionSuffix(
@@ -1974,7 +2027,6 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       // Show interrupt hint when user submits a non-empty, non-command instruction
       if (finalValue && !finalValue.startsWith('/')) {
         stdOutput.write(`${chalk.gray('press ESC to interrupt')}\n`);
-        stdOutput.write('\n');
       }
       cleanup();
       resolve({ kind: 'submit', value: finalValue });
