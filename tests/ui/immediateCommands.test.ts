@@ -519,4 +519,42 @@ describe('PersistentInput immediate command handling', () => {
     expect(pi.getCurrentInput()).toBe('draft');
     expect(pi.getQueueLength()).toBe(0);
   });
+
+  it('shows shortcut help when ? is typed on empty draft in terminal regions mode', () => {
+    const pi = new PersistentInput({ silentMode: false });
+    (pi as any).isActive = true;
+
+    const writeAbove = vi.fn();
+    (pi as any).regions = {
+      writeAbove,
+      updateInput: vi.fn(),
+      updateStatus: vi.fn(),
+      renderFixedRegion: vi.fn(),
+      updateActivity: vi.fn(),
+      disable: vi.fn(),
+      focusScrollBottom: vi.fn(),
+      enable: vi.fn(),
+    };
+
+    const handler = (pi as any).handleKeypress;
+    handler('?', { name: undefined, ctrl: false, meta: false });
+
+    expect(writeAbove).toHaveBeenCalledTimes(1);
+    const output = String(writeAbove.mock.calls[0]?.[0] ?? '');
+    expect(output).toContain('Shortcuts');
+    expect(output).toContain('/ commands');
+    expect(output).toContain('Ctrl+Q queue browser');
+    expect(pi.getCurrentInput()).toBe('');
+  });
+
+  it('? behaves as normal character when draft is not empty', () => {
+    const pi = new PersistentInput({ silentMode: true });
+    (pi as any).isActive = true;
+    pi.setCurrentInput('why');
+
+    const handler = (pi as any).handleKeypress;
+    handler('?', { name: undefined, ctrl: false, meta: false });
+
+    expect(pi.getCurrentInput()).toBe('why?');
+  });
 });
