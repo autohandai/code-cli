@@ -138,6 +138,15 @@ describe('inputPrompt', () => {
     it('handles text with only markers', () => {
       expect(countNewlineMarkers(`${NEWLINE_MARKER}${NEWLINE_MARKER}`)).toBe(2);
     });
+
+    it('counts literal newline characters too', () => {
+      expect(countNewlineMarkers('line1\nline2')).toBe(1);
+      expect(countNewlineMarkers('a\nb\nc')).toBe(2);
+    });
+
+    it('counts mixed marker and literal newline forms', () => {
+      expect(countNewlineMarkers(`a${NEWLINE_MARKER}b\nc`)).toBe(2);
+    });
   });
 
   describe('convertNewlineMarkersToNewlines', () => {
@@ -158,6 +167,11 @@ describe('inputPrompt', () => {
 
     it('handles empty string', () => {
       expect(convertNewlineMarkersToNewlines('')).toBe('');
+    });
+
+    it('normalizes mixed marker and literal CRLF/LF newlines', () => {
+      const input = `a${NEWLINE_MARKER}b\r\nc\rd\ne`;
+      expect(convertNewlineMarkersToNewlines(input)).toBe('a\nb\nc\nd\ne');
     });
   });
 
