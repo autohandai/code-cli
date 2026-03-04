@@ -74,6 +74,7 @@ export class PersistentInput extends EventEmitter {
   private workspaceRoot: string;
   private resolveShellSuggestion?: (input: string) => Promise<string | null>;
   private shellSuggestionRequestId = 0;
+  private queueShortcutSelectionIndex: number | null = null;
 
   // ── Paste state ──
   private isInPaste = false;
@@ -189,6 +190,7 @@ export class PersistentInput extends EventEmitter {
     }
 
     this.currentInput = '';
+    this.queueShortcutSelectionIndex = null;
   }
 
   /**
@@ -277,6 +279,11 @@ export class PersistentInput extends EventEmitter {
    */
   dequeue(): QueuedMessage | undefined {
     const msg = this.queue.shift();
+    if (this.queueShortcutSelectionIndex !== null && this.queue.length === 0) {
+      this.queueShortcutSelectionIndex = null;
+    } else if (this.queueShortcutSelectionIndex !== null && this.queue.length > 0) {
+      this.queueShortcutSelectionIndex = this.clampQueueSelection(this.queueShortcutSelectionIndex - 1);
+    }
     if (this.isActive && !this.isPaused) {
       this.render();
     }
@@ -288,6 +295,7 @@ export class PersistentInput extends EventEmitter {
    */
   clearQueue(): void {
     this.queue = [];
+    this.queueShortcutSelectionIndex = null;
   }
 
   /**
@@ -318,6 +326,16 @@ export class PersistentInput extends EventEmitter {
   private handleKeypress = (_str: string, key: readline.Key): void => {
     if (!this.isActive || this.isPaused) {
       return;
+    }
+
+    // Queue browser has priority while active.
+    if (this.queueShortcutSelectionIndex !== null) {
+      const consumed = this.handleQueueShortcutKeypress(_str, key);
+      if (consumed) {
+        return;
+      }
+      // Any non-queue-browser key closes it and continues normal handling.
+      this.closeQueueShortcut(false);
     }
 
     // ── Bracketed paste detection ──
@@ -468,7 +486,7 @@ export class PersistentInput extends EventEmitter {
       return;
     }
 
-    // Ctrl+Q opens queue shortcut: show queued items and pull latest for editing.
+    // Ctrl+Q opens queue browser.
     if (isCtrlQShortcut(_str, key)) {
       this.openQueueShortcut();
       return;
@@ -586,6 +604,9 @@ export class PersistentInput extends EventEmitter {
       timestamp: Date.now()
     });
 
+    // Queue changed: keep queue-browser selection stable and in range.
+    this.queueShortcutSelectionIndex = null;
+
     // Show confirmation
     const preview = text.length > 40 ? text.slice(0, 37) + '...' : text;
     if (!this.silentMode) {
@@ -604,42 +625,162 @@ export class PersistentInput extends EventEmitter {
       if (!this.silentMode) {
         this.regions.writeAbove(chalk.gray('\nQueue is empty.\n'));
       }
+      this.queueShortcutSelectionIndex = null;
       return;
     }
-
-    const queueCountBefore = this.queue.length;
-    const maxVisible = 6;
-    const start = Math.max(0, queueCountBefore - maxVisible);
-    const lines: string[] = [];
-    lines.push(chalk.cyan(`\n🧾 Queued requests (${queueCountBefore})`));
-    if (start > 0) {
-      lines.push(chalk.gray(`  ... ${start} older request(s)`));
+    if (this.queueShortcutSelectionIndex === null) {
+      this.queueShortcutSelectionIndex = this.queue.length - 1;
+    } else {
+      this.queueShortcutSelectionIndex = this.clampQueueSelection(this.queueShortcutSelectionIndex);
     }
-    for (let i = start; i < queueCountBefore; i++) {
-      const preview = this.getQueuePreview(this.queue[i].text);
-      lines.push(chalk.gray(`  ${i + 1}. "${preview}"`));
+    this.renderQueueShortcutSnapshot();
+  }
+
+  private handleQueueShortcutKeypress(_str: string, key: readline.Key): boolean {
+    if (this.queueShortcutSelectionIndex === null) {
+      return false;
     }
 
-    const pulled = this.queue.pop();
+    if (key?.name === 'up') {
+      this.moveQueueSelection(-1);
+      return true;
+    }
+    if (key?.name === 'down') {
+      this.moveQueueSelection(1);
+      return true;
+    }
+    if (isCtrlQShortcut(_str, key)) {
+      this.moveQueueSelection(-1);
+      return true;
+    }
+    if (key?.name === 'return' || key?.name === 'enter') {
+      this.pullSelectedQueueItemForEdit();
+      return true;
+    }
+    if (key?.name === 'backspace' || key?.name === 'delete') {
+      this.removeSelectedQueueItem();
+      return true;
+    }
+    if (key?.name === 'escape') {
+      this.closeQueueShortcut(true);
+      return true;
+    }
+
+    return false;
+  }
+
+  private moveQueueSelection(delta: number): void {
+    if (this.queue.length === 0) {
+      this.closeQueueShortcut(false);
+      return;
+    }
+    const current = this.clampQueueSelection(this.queueShortcutSelectionIndex ?? (this.queue.length - 1));
+    const next = ((current + delta) % this.queue.length + this.queue.length) % this.queue.length;
+    this.queueShortcutSelectionIndex = next;
+    this.renderQueueShortcutSnapshot();
+  }
+
+  private pullSelectedQueueItemForEdit(): void {
+    if (this.queue.length === 0) {
+      this.closeQueueShortcut(false);
+      return;
+    }
+    const selectedIndex = this.clampQueueSelection(this.queueShortcutSelectionIndex ?? (this.queue.length - 1));
+    const [pulled] = this.queue.splice(selectedIndex, 1);
+    this.queueShortcutSelectionIndex = null;
     if (!pulled) {
       return;
     }
-    const pulledPreview = this.getQueuePreview(pulled.text);
-    lines.push(chalk.cyan(`✎ Pulled #${queueCountBefore} for edit: "${pulledPreview}"`));
-    lines.push(chalk.gray('  Press Enter to re-queue after editing.'));
 
+    const pulledPreview = this.getQueuePreview(pulled.text);
     this.currentInput = pulled.text;
     if (!this.silentMode) {
-      this.regions.writeAbove(`${lines.join('\n')}\n`);
+      this.regions.writeAbove(chalk.cyan(`\nPulled #${selectedIndex + 1} for edit: "${pulledPreview}"\n`));
+      this.regions.writeAbove(chalk.gray('Press Enter to re-queue after editing.\n'));
       this.regions.updateInput(this.currentInput);
       this.regions.updateStatus(this.getStatusText(), this.queue.length);
     }
     this.emitInputChange();
     this.emit('queue-shortcut', {
-      action: 'edit-latest',
+      action: 'edit',
       pulled: pulled.text,
       remaining: this.queue.length,
     });
+  }
+
+  private removeSelectedQueueItem(): void {
+    if (this.queue.length === 0) {
+      this.closeQueueShortcut(false);
+      return;
+    }
+    const selectedIndex = this.clampQueueSelection(this.queueShortcutSelectionIndex ?? (this.queue.length - 1));
+    const [removed] = this.queue.splice(selectedIndex, 1);
+    if (!removed) {
+      return;
+    }
+
+    if (this.queue.length === 0) {
+      this.queueShortcutSelectionIndex = null;
+      if (!this.silentMode) {
+        this.regions.writeAbove(chalk.gray('\nRemoved queued request. Queue is now empty.\n'));
+        this.regions.updateStatus(this.getStatusText(), 0);
+      }
+    } else {
+      this.queueShortcutSelectionIndex = Math.min(selectedIndex, this.queue.length - 1);
+      this.renderQueueShortcutSnapshot();
+      if (!this.silentMode) {
+        this.regions.updateStatus(this.getStatusText(), this.queue.length);
+      }
+    }
+
+    this.emit('queue-shortcut', {
+      action: 'remove',
+      removed: removed.text,
+      remaining: this.queue.length,
+    });
+  }
+
+  private closeQueueShortcut(announce: boolean): void {
+    if (this.queueShortcutSelectionIndex === null) {
+      return;
+    }
+    this.queueShortcutSelectionIndex = null;
+    if (announce && !this.silentMode) {
+      this.regions.writeAbove(chalk.gray('\nQueue browser closed.\n'));
+    }
+  }
+
+  private renderQueueShortcutSnapshot(): void {
+    if (this.silentMode || this.queue.length === 0) {
+      return;
+    }
+    const selectedIndex = this.clampQueueSelection(this.queueShortcutSelectionIndex ?? (this.queue.length - 1));
+    const maxVisible = 6;
+    const start = Math.max(0, selectedIndex - (maxVisible - 1));
+    const end = Math.min(this.queue.length, start + maxVisible);
+    const lines: string[] = [];
+    lines.push(chalk.cyan(`\nQueued requests (${this.queue.length})`));
+    if (start > 0) {
+      lines.push(chalk.gray(`  ... ${start} older request(s)`));
+    }
+    for (let i = start; i < end; i++) {
+      const marker = i === selectedIndex ? '>' : ' ';
+      const preview = this.getQueuePreview(this.queue[i].text);
+      const row = `${marker} ${i + 1}. "${preview}"`;
+      lines.push(i === selectedIndex ? chalk.cyan(row) : chalk.gray(row));
+    }
+    if (end < this.queue.length) {
+      lines.push(chalk.gray(`  ... ${this.queue.length - end} newer request(s)`));
+    }
+    lines.push(chalk.gray('Up/Down to select · Enter to edit · Backspace to remove · Esc to close'));
+    this.regions.writeAbove(`${lines.join('\n')}\n`);
+  }
+
+  private clampQueueSelection(index: number): number {
+    if (this.queue.length === 0) {
+      return 0;
+    }
+    return Math.max(0, Math.min(this.queue.length - 1, index));
   }
 
   private getQueuePreview(text: string): string {
