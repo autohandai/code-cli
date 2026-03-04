@@ -209,7 +209,7 @@ program
   .description('Autonomous coding agent')
   .version(getVersionString(), '-v, --version', 'output the current version')
   .argument('[prompt]', 'Run a single instruction in command mode (same as -p)')
-  .option('-p, --prompt <text>', 'Run a single instruction in command mode')
+  .option('-p, --prompt [text]', 'Run a single instruction in command mode')
   .option('--path <path>', 'Workspace path to operate in')
   .option('-y, --yes', 'Auto-confirm risky actions', false)
   .option('--dry-run', 'Preview actions without applying mutations', false)
@@ -254,6 +254,12 @@ program
   .option('--yolo [pattern]', 'Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)')
   .option('--timeout <seconds>', 'Timeout in seconds for auto-approve mode', parseInt)
   .action(async (positionalPrompt: string | undefined, opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean | string; tmux?: boolean; setup?: boolean; about?: boolean; syncSettings?: string | boolean; cc?: boolean; searchEngine?: string }) => {
+    // When -p is passed without a value, Commander sets opts.prompt to true (boolean).
+    // Normalize to undefined so downstream code can detect "flag present, no text".
+    if ((opts as Record<string, unknown>).prompt === true) {
+      opts.prompt = undefined;
+    }
+
     // Positional argument acts as prompt (e.g. autohand 'explain this')
     // -p/--prompt flag takes precedence if both are provided
     if (positionalPrompt && !opts.prompt) {
@@ -990,16 +996,24 @@ async function runCLI(options: CLIOptions): Promise<void> {
     const agent = new AutohandAgent(llmProvider, files, runtime);
     agentHolder.current = agent;
 
-    if (options.prompt) {
-      // Read piped stdin if available (e.g. git diff | autohand -p "explain")
-      let instruction = options.prompt;
-      const stdinType = detectStdinType();
-      if (stdinType === 'pipe') {
-        const pipedInput = await readPipedStdin();
-        instruction = buildPipePrompt(instruction, pipedInput);
+    // Pipe mode: read stdin once if piped, then compose with prompt text (if any).
+    // Supports: echo "data" | autohand -p "explain"  (stdin + prompt)
+    //           echo "data" | autohand -p             (stdin only)
+    //           echo "data" | autohand                (stdin only)
+    const stdinType = detectStdinType();
+    if (stdinType === 'pipe') {
+      const pipedInput = await readPipedStdin();
+      if (options.prompt) {
+        // Both prompt text and stdin: combine them
+        options.prompt = buildPipePrompt(options.prompt, pipedInput);
+      } else if (pipedInput) {
+        // Stdin only (no prompt text): use stdin as the instruction
+        options.prompt = pipedInput;
       }
+    }
 
-      await agent.runCommandMode(instruction);
+    if (options.prompt) {
+      await agent.runCommandMode(options.prompt);
       // Explicitly exit after prompt mode to prevent hanging
       // Some managers may keep event loop alive
       process.exit(0);

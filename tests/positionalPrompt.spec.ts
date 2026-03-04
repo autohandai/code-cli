@@ -23,15 +23,19 @@ function parseArgs(argv: string[]): { prompt?: string; path?: string; positional
   program
     .name('autohand')
     .argument('[prompt]', 'Run a single instruction in command mode (same as -p)')
-    .option('-p, --prompt <text>', 'Run a single instruction in command mode')
+    .option('-p, --prompt [text]', 'Run a single instruction in command mode')
     .option('--path <path>', 'Workspace path to operate in')
     .exitOverride()   // throw instead of process.exit on error
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
-    .action((positionalPrompt: string | undefined, opts: { prompt?: string; path?: string }) => {
+    .action((positionalPrompt: string | undefined, opts: { prompt?: string | boolean; path?: string }) => {
+      // Normalize boolean (flag with no value) to undefined
+      if (opts.prompt === true) {
+        opts.prompt = undefined;
+      }
       if (positionalPrompt && !opts.prompt) {
         opts.prompt = positionalPrompt;
       }
-      captured = { ...opts, positionalPrompt };
+      captured = { ...opts, positionalPrompt } as any;
     });
 
   program.parse(['node', 'autohand', ...argv]);
@@ -107,6 +111,36 @@ describe('Positional prompt argument', () => {
   it('handles multi-word prompt correctly', () => {
     const result = parseArgs(['add input validation to the login form and show error messages']);
     expect(result.prompt).toBe('add input validation to the login form and show error messages');
+  });
+
+  it('-p flag without value does not throw (for pipe mode)', () => {
+    // Commander should accept -p alone since it uses [text] (optional)
+    const result = parseArgs(['-p']);
+    // -p without a value normalizes to undefined (was boolean true)
+    expect(result.prompt).toBeUndefined();
+  });
+
+  it('-p flag without value falls back to positional prompt', () => {
+    // autohand 'explain' -p  → positional should fill in
+    const result = parseArgs(['explain this', '-p']);
+    expect(result.prompt).toBe('explain this');
+  });
+
+  it('--prompt flag without value does not throw (for pipe mode)', () => {
+    const result = parseArgs(['--prompt']);
+    expect(result.prompt).toBeUndefined();
+  });
+
+  it('-p with value still works (no regression)', () => {
+    const result = parseArgs(['-p', 'summarize changes']);
+    expect(result.prompt).toBe('summarize changes');
+    expect(result.positionalPrompt).toBeUndefined();
+  });
+
+  it('-p with value takes precedence over positional even with pipe intent', () => {
+    // autohand "positional text" -p "flag text" → flag wins
+    const result = parseArgs(['positional text', '-p', 'flag text']);
+    expect(result.prompt).toBe('flag text');
   });
 });
 
