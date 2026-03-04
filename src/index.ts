@@ -17,6 +17,7 @@ import { initI18n, detectLocale } from './i18n/index.js';
 import { initPingService, startPingService, stopPingService } from './telemetry/index.js';
 import { detectStdinType, readPipedStdin } from './utils/stdinDetector.js';
 import { buildPipePrompt } from './modes/pipeMode.js';
+import { shouldUseInteractivePipeHandoff } from './modes/pipeRouting.js';
 import { PROJECT_DIR_NAME } from './constants.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessionWorktree.js';
 import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './utils/tmux.js';
@@ -998,18 +999,51 @@ async function runCLI(options: CLIOptions): Promise<void> {
     agentHolder.current = agent;
 
     // Pipe mode: read stdin once if piped, then compose with prompt text (if any).
-    // Supports: echo "data" | autohand -p "explain"  (stdin + prompt)
-    //           echo "data" | autohand -p             (stdin only)
-    //           echo "data" | autohand                (stdin only)
+    // Supports: echo "data" | autohand -p "explain"  (stdin + prompt → command mode)
+    //           echo "data" | autohand -p             (stdin only → command mode)
+    //           echo "data" | autohand                (stdin → first instruction, then interactive)
     const stdinType = detectStdinType();
+    let pipeInitialInstruction: string | undefined;
     if (stdinType === 'pipe') {
       const pipedInput = await readPipedStdin();
+      const hasExplicitPromptFlag = process.argv.some(a => a === '-p' || a === '--prompt');
       if (options.prompt) {
-        // Both prompt text and stdin: combine them
+        // Both -p "text" and stdin: combine them → command mode
         options.prompt = buildPipePrompt(options.prompt, pipedInput);
-      } else if (pipedInput) {
-        // Stdin only (no prompt text): use stdin as the instruction
+      } else if (pipedInput && hasExplicitPromptFlag) {
+        // -p without text, pipe provides content → command mode
         options.prompt = pipedInput;
+      } else if (pipedInput) {
+        const shouldHandoffInteractive = shouldUseInteractivePipeHandoff({
+          pipedInput,
+          hasExplicitPromptFlag,
+          hasPromptText: Boolean(options.prompt),
+          stdoutIsTTY: Boolean(process.stdout.isTTY),
+        });
+
+        if (shouldHandoffInteractive) {
+          // No -p flag, just piped input → interactive with initial instruction.
+          // Reopen /dev/tty so readline can accept interactive input after pipe.
+          try {
+            const { openSync } = await import('node:fs');
+            const tty = await import('node:tty');
+            const fd = openSync('/dev/tty', 'r');
+            const ttyIn = new tty.ReadStream(fd);
+            Object.defineProperty(process, 'stdin', {
+              value: ttyIn,
+              writable: true,
+              configurable: true,
+            });
+            agent.rebindInteractiveStreams(process.stdin, process.stdout);
+            pipeInitialInstruction = pipedInput;
+          } catch {
+            // Can't reopen TTY (e.g., no terminal, Windows) — fall back to command mode
+            options.prompt = pipedInput;
+          }
+        } else {
+          // Non-interactive output (pipe/file) must stay in command mode.
+          options.prompt = pipedInput;
+        }
       }
     }
 
@@ -1023,7 +1057,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
       // Explicitly exit to prevent hanging from open handles
       process.exit(0);
     } else {
-      await agent.runInteractive();
+      await agent.runInteractive(pipeInitialInstruction);
       // Explicitly exit after interactive mode to prevent hanging.
       // Background managers (telemetry, MCP, hooks) may keep the event loop alive.
       process.exit(0);

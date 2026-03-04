@@ -870,12 +870,24 @@ export class AutohandAgent {
   private mcpStartupSummaryPending = false;
   private persistentConsoleBridgeCleanup: (() => void) | null = null;
 
-  async runInteractive(): Promise<void> {
+  rebindInteractiveStreams(
+    input: NodeJS.ReadStream = process.stdin,
+    output: NodeJS.WriteStream = process.stdout
+  ): void {
+    this.persistentInput.rebindStreams(input, output);
+  }
+
+  async runInteractive(initialInstruction?: string): Promise<void> {
     // Bail out early if stdin is not a TTY - interactive mode requires a terminal
     if (!process.stdin.isTTY) {
       console.error(chalk.red('Interactive mode requires a terminal (TTY). Use --prompt for non-interactive usage.'));
       process.exitCode = 1;
       return;
+    }
+
+    // Queue piped text so the first loop iteration processes it before prompting.
+    if (initialInstruction) {
+      this.pendingInkInstructions.push(initialInstruction);
     }
 
     // Prepare startup visibility for async MCP connections.

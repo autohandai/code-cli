@@ -64,6 +64,22 @@ export class PersistentInput extends EventEmitter {
   }
 
   /**
+   * Rebind stdin/stdout streams, used when process stdin is swapped
+   * (for example, pipe -> /dev/tty handoff before interactive mode).
+   */
+  rebindStreams(
+    input: NodeJS.ReadStream = process.stdin,
+    output: NodeJS.WriteStream = process.stdout
+  ): void {
+    if (this.isActive) {
+      return;
+    }
+    this.input = input;
+    this.output = output;
+    this.regions = createTerminalRegions(this.output);
+  }
+
+  /**
    * Start the persistent input (call when agent starts working)
    */
   start(): void {
