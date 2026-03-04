@@ -470,41 +470,41 @@ jobs:
             cp Formula/autohand-code.rb Formula/autohand-code.rb.bak 2>/dev/null || true
 
             cat > Formula/autohand-code.rb << FORMULA_EOF
-class AutohandCode < Formula
-  desc "Autonomous LLM-powered coding agent CLI"
-  homepage "https://autohand.ai"
-  version "${VERSION}"
-  license "Apache-2.0"
+          class AutohandCode < Formula
+            desc "Autonomous LLM-powered coding agent CLI"
+            homepage "https://autohand.ai"
+            version "${VERSION}"
+            license "Apache-2.0"
 
-  on_macos do
-    if Hardware::CPU.arm?
-      url "https://github.com/autohandai/code-cli/releases/download/v${VERSION}/autohand-macos-arm64.tar.gz"
-      sha256 "${SHA_MACOS_ARM64}"
-    else
-      url "https://github.com/autohandai/code-cli/releases/download/v${VERSION}/autohand-macos-x64.tar.gz"
-      sha256 "${SHA_MACOS_X64}"
-    end
-  end
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/autohandai/code-cli/releases/download/v${VERSION}/autohand-macos-arm64.tar.gz"
+                sha256 "${SHA_MACOS_ARM64}"
+              else
+                url "https://github.com/autohandai/code-cli/releases/download/v${VERSION}/autohand-macos-x64.tar.gz"
+                sha256 "${SHA_MACOS_X64}"
+              end
+            end
 
-  on_linux do
-    if Hardware::CPU.arm?
-      url "https://github.com/autohandai/code-cli/releases/download/v${VERSION}/autohand-linux-arm64.tar.gz"
-      sha256 "${SHA_LINUX_ARM64}"
-    else
-      url "https://github.com/autohandai/code-cli/releases/download/v${VERSION}/autohand-linux-x64.tar.gz"
-      sha256 "${SHA_LINUX_X64}"
-    end
-  end
+            on_linux do
+              if Hardware::CPU.arm?
+                url "https://github.com/autohandai/code-cli/releases/download/v${VERSION}/autohand-linux-arm64.tar.gz"
+                sha256 "${SHA_LINUX_ARM64}"
+              else
+                url "https://github.com/autohandai/code-cli/releases/download/v${VERSION}/autohand-linux-x64.tar.gz"
+                sha256 "${SHA_LINUX_X64}"
+              end
+            end
 
-  def install
-    bin.install "autohand" => "autohand-code"
-  end
+            def install
+              bin.install "autohand" => "autohand-code"
+            end
 
-  test do
-    assert_match version.to_s, shell_output("#{bin}/autohand-code --version")
-  end
-end
-FORMULA_EOF
+            test do
+              assert_match version.to_s, shell_output("#{bin}/autohand-code --version")
+            end
+          end
+          FORMULA_EOF
 
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
