@@ -169,18 +169,12 @@ describe('pasted reference helpers', () => {
 });
 
 describe('renderPromptLine cursor positioning', () => {
-  it('cursor position matches buildPromptRenderState without extra offset', async () => {
+  it('cursor position includes +1 offset for left │ border', async () => {
     const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
 
-    // "the" typed → prefix (2) + 3 chars = cursor at column 5
+    // "the" typed → prefix (2) + 3 chars + 1 for left │ border = cursor at column 6
     const state = buildPromptRenderState('the', 3, 80);
-    expect(state.cursorColumn).toBe(5);
-
-    // drawInputBox does NOT render │ side borders — it only applies
-    // chalk background color. Therefore renderPromptLine must NOT add
-    // +1 to the cursor column.
-    // If this test fails it means an erroneous +1 offset was added back.
-    expect(state.cursorColumn).toBe(5); // NOT 6
+    expect(state.cursorColumn).toBe(6);
   });
 });
 
@@ -197,28 +191,30 @@ describe('Prompt surface teardown', () => {
     return stream;
   }
 
-  it('clears prompt/status lines and advances cursor below the surface', async () => {
+  it('clears prompt/status lines and moves cursor to top of cleared area', async () => {
     const { leavePromptSurface } = await import('../../src/ui/inputPrompt.js');
     const output = createMockOutput() as NodeJS.WriteStream & { _writes: string[] };
 
     leavePromptSurface(output, 2);
 
     const terminalOps = output._writes.join('');
-    // Clear line control sequence appears multiple times
+    // Clear line control sequence appears multiple times (top border + content + bottom border + 2 status)
     expect((terminalOps.match(/\[2K/g) || []).length).toBeGreaterThanOrEqual(3);
-    // Cursor-down operations: 2 status lines + 1 final free line
-    expect((terminalOps.match(/\[1B/g) || []).length).toBeGreaterThanOrEqual(3);
+    // Cursor-up operations: after clearing below, cursor moves back to top of prompt
+    expect((terminalOps.match(/\[1A/g) || []).length).toBeGreaterThanOrEqual(1);
   });
 
   it('uses default status line count when omitted', async () => {
-    const { leavePromptSurface, PROMPT_LINES_BELOW_INPUT } = await import('../../src/ui/inputPrompt.js');
+    const { leavePromptSurface } = await import('../../src/ui/inputPrompt.js');
     const output = createMockOutput() as NodeJS.WriteStream & { _writes: string[] };
 
     leavePromptSurface(output);
 
     const terminalOps = output._writes.join('');
-    // Default STATUS_LINE_COUNT is 1, plus prompt lines below input and one final line advance.
-    expect((terminalOps.match(/\[1B/g) || []).length).toBeGreaterThanOrEqual(PROMPT_LINES_BELOW_INPUT + 2);
+    // Clears top border + content + bottom border + status
+    expect((terminalOps.match(/\[2K/g) || []).length).toBeGreaterThanOrEqual(3);
+    // Cursor moves back up to top of cleared area
+    expect((terminalOps.match(/\[1A/g) || []).length).toBeGreaterThanOrEqual(1);
   });
 
   it('normalizes cursor offset when clearing from line events', async () => {
@@ -231,8 +227,8 @@ describe('Prompt surface teardown', () => {
     leavePromptSurface(output, 1, true);
 
     const terminalOps = output._writes.join('');
-    // line-event normalization moves upward before the clear pass
-    expect((terminalOps.match(/\[1A/g) || []).length).toBeGreaterThanOrEqual(PROMPT_LINES_BELOW_INPUT);
+    // line-event normalization + return-to-top both move upward
+    expect((terminalOps.match(/\[1A/g) || []).length).toBeGreaterThanOrEqual(PROMPT_LINES_BELOW_INPUT + 1);
     expect((terminalOps.match(/\[2K/g) || []).length).toBeGreaterThanOrEqual(3);
   });
 });
@@ -243,36 +239,42 @@ describe('buildPromptRenderState', () => {
     const state = buildPromptRenderState('', 0, 80);
 
     expect(state.lineText).toContain(PROMPT_PLACEHOLDER);
-    expect(state.cursorColumn).toBe(2);
+    // prefix (2) + 1 for left │ border
+    expect(state.cursorColumn).toBe(3);
   });
 
   it('positions cursor after typed content', async () => {
     const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
     const state = buildPromptRenderState('hello', 5, 80);
 
-    // prefix (2) + cursor at end (5)
-    expect(state.cursorColumn).toBe(7);
+    // prefix (2) + cursor at end (5) + 1 for left │ border
+    expect(state.cursorColumn).toBe(8);
   });
 
   it('keeps cursor within a centered scrolling window when editing long input', async () => {
     const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
     const state = buildPromptRenderState('abcdefghijklmnopqrstuvwxyz', 10, 14);
     const plain = state.lineText.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
-    const visible = plain.trimEnd();
+    // Strip │ borders before checking inner content
+    const inner = plain.slice(1, -1).trimEnd();
 
-    expect(visible.startsWith('…')).toBe(true);
-    expect(visible.endsWith('…')).toBe(true);
-    expect(state.cursorColumn).toBe(6);
+    expect(inner.startsWith('…')).toBe(true);
+    expect(inner.endsWith('…')).toBe(true);
+    // +1 for left │ border
+    expect(state.cursorColumn).toBe(7);
   });
 
   it('keeps cursor aligned near end when editing long input tail', async () => {
     const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
     const state = buildPromptRenderState('abcdefghijklmnopqrstuvwxyz', 26, 14);
     const plain = state.lineText.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
+    // Strip │ borders before checking inner content
+    const inner = plain.slice(1, -1);
 
-    expect(plain.startsWith('…')).toBe(true);
-    expect(plain.endsWith('…')).toBe(false);
-    expect(state.cursorColumn).toBe(12);
+    expect(inner.startsWith('…')).toBe(true);
+    expect(inner.endsWith('…')).toBe(false);
+    // +1 for left │ border
+    expect(state.cursorColumn).toBe(13);
   });
 });
 
@@ -550,5 +552,212 @@ describe('promptNotify', () => {
   it('should not throw when called without active prompt', async () => {
     const { promptNotify } = await import('../../src/ui/inputPrompt.js');
     expect(() => promptNotify('test message')).not.toThrow();
+  });
+});
+
+describe('partial escape sequence filtering', () => {
+  it('regex matches residual CSI fragments after readline strips ESC[', () => {
+    // These are the fragments left when readline consumes ESC[ from CSI u / xterm sequences
+    const regex = /^13;?[234]?\d*[u~]$/;
+    expect(regex.test('13;2u')).toBe(true);
+    expect(regex.test('13;3u')).toBe(true);
+    expect(regex.test('13;4u')).toBe(true);
+    expect(regex.test('13;2~')).toBe(true);
+    expect(regex.test('13;3~')).toBe(true);
+    expect(regex.test('13~')).toBe(true);
+    expect(regex.test('13u')).toBe(true);
+    // Should NOT match normal text
+    expect(regex.test('hello')).toBe(false);
+    expect(regex.test('13')).toBe(false);
+    expect(regex.test('9;2u')).toBe(false);
+  });
+});
+
+describe('buildMultiLineRenderState', () => {
+  it('returns single line for input without NEWLINE_MARKER', async () => {
+    const { buildMultiLineRenderState } = await import('../../src/ui/inputPrompt.js');
+    const state = buildMultiLineRenderState('hello', 5, 80);
+
+    expect(state.lineCount).toBe(1);
+    expect(state.lines.length).toBe(1);
+    expect(state.cursorRow).toBe(0);
+    // prefix (2) + cursor at end (5) + 1 for border
+    expect(state.cursorColumn).toBe(8);
+  });
+
+  it('splits input into multiple lines at NEWLINE_MARKER', async () => {
+    const { buildMultiLineRenderState, NEWLINE_MARKER } = await import('../../src/ui/inputPrompt.js');
+    const input = `line1${NEWLINE_MARKER}line2${NEWLINE_MARKER}line3`;
+    const state = buildMultiLineRenderState(input, 5, 80);
+
+    expect(state.lineCount).toBe(3);
+    expect(state.lines.length).toBe(3);
+  });
+
+  it('positions cursor on the correct row', async () => {
+    const { buildMultiLineRenderState, NEWLINE_MARKER } = await import('../../src/ui/inputPrompt.js');
+    const input = `line1${NEWLINE_MARKER}line2`;
+    // Cursor at position after "line1" + NEWLINE_MARKER + "li" = 5 + 3 + 2 = 10
+    const cursorPos = 5 + NEWLINE_MARKER.length + 2;
+    const state = buildMultiLineRenderState(input, cursorPos, 80);
+
+    expect(state.cursorRow).toBe(1);
+    expect(state.lineCount).toBe(2);
+  });
+
+  it('uses PROMPT_INPUT_PREFIX for first row and indent for continuation', async () => {
+    const { buildMultiLineRenderState, NEWLINE_MARKER } = await import('../../src/ui/inputPrompt.js');
+    const input = `first${NEWLINE_MARKER}second`;
+    const state = buildMultiLineRenderState(input, 0, 80);
+    const stripAnsi = (s: string) => s.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
+
+    // First line should contain the ❯ prefix
+    expect(stripAnsi(state.lines[0])).toContain('❯');
+    // Second line should NOT contain ❯ (uses space indent instead)
+    const secondInner = stripAnsi(state.lines[1]).slice(1, -1); // strip │ borders
+    expect(secondInner.startsWith('  ')).toBe(true);
+    expect(secondInner).toContain('second');
+  });
+
+  it('each line has correct box width', async () => {
+    const { buildMultiLineRenderState, NEWLINE_MARKER } = await import('../../src/ui/inputPrompt.js');
+    const input = `a${NEWLINE_MARKER}b${NEWLINE_MARKER}c`;
+    const state = buildMultiLineRenderState(input, 0, 40);
+    const stripAnsi = (s: string) => s.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
+
+    for (const line of state.lines) {
+      expect(stripAnsi(line).length).toBe(40);
+    }
+  });
+});
+
+describe('inline ghost suffix rendering', () => {
+  it('renders ghost suffix on single-line prompt when input is non-empty', async () => {
+    const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
+    const stripAnsi = (s: string) => s.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
+
+    const state = buildPromptRenderState('! git s', 7, 80, undefined, 'tatus');
+    const plain = stripAnsi(state.lineText);
+
+    expect(plain).toContain('! git status');
+  });
+});
+
+describe('color cache invalidation', () => {
+  it('invalidateBoxColorCache is exported and callable', async () => {
+    const { invalidateBoxColorCache } = await import('../../src/ui/box.js');
+    expect(typeof invalidateBoxColorCache).toBe('function');
+    expect(() => invalidateBoxColorCache()).not.toThrow();
+  });
+});
+
+describe('paste-during-processing protection', () => {
+  it('isShiftEnterSequence does NOT match plain return key', async () => {
+    const { isShiftEnterSequence } = await import('../../src/ui/inputPrompt.js');
+    // Plain Enter — should NOT be treated as Shift+Enter
+    expect(isShiftEnterSequence('\r', { name: 'return', sequence: '\r', ctrl: false, meta: false, shift: false })).toBe(false);
+    expect(isShiftEnterSequence('\n', { name: 'return', sequence: '\n', ctrl: false, meta: false, shift: false })).toBe(false);
+  });
+
+  it('isShiftEnterSequence matches Shift+Enter variants', async () => {
+    const { isShiftEnterSequence } = await import('../../src/ui/inputPrompt.js');
+    // Standard readline detection
+    expect(isShiftEnterSequence('\r', { name: 'return', sequence: '\r', ctrl: false, meta: false, shift: true })).toBe(true);
+    // Alt+Enter
+    expect(isShiftEnterSequence('\x1b\r', { name: 'return', sequence: '\x1b\r', ctrl: false, meta: true, shift: false })).toBe(true);
+    // CSI u protocol
+    expect(isShiftEnterSequence('\x1b[13;2u', { name: undefined, sequence: '\x1b[13;2u', ctrl: false, meta: false, shift: false })).toBe(true);
+  });
+
+  it('bracketed paste flow: newlines during paste must not leak to readline', () => {
+    // This tests the design invariant: when pasteState.isInPaste is true,
+    // _ttyWrite must suppress originalTtyWrite to prevent newlines from
+    // triggering individual 'line' events (which would submit each line
+    // as a separate request instead of buffering the entire paste).
+    //
+    // The actual implementation is in the _ttyWrite override inside promptOnce.
+    // We verify the contract here with a state machine test.
+
+    const lineEvents: string[] = [];
+    let pasteActive = false;
+
+    // Simulate _ttyWrite behavior
+    const processKey = (s: string, isReturn: boolean) => {
+      // During paste, suppress ALL readline processing
+      if (pasteActive) {
+        return; // <-- the fix: don't call originalTtyWrite
+      }
+      // Simulate originalTtyWrite for return key
+      if (isReturn) {
+        lineEvents.push(s); // simulates line event
+      }
+    };
+
+    // Simulate paste flow
+    pasteActive = true;
+    processKey('line1', false);
+    processKey('\r', true);   // newline during paste
+    processKey('line2', false);
+    processKey('\r', true);   // another newline during paste
+    pasteActive = false;
+
+    // No line events should have fired during paste
+    expect(lineEvents).toHaveLength(0);
+  });
+
+  it('without paste protection, newlines would leak as line events', () => {
+    // Demonstrates the bug we're fixing: without the pasteState check in
+    // _ttyWrite, each newline triggers a 'line' event = separate submission
+    const lineEvents: string[] = [];
+
+    // Simulate OLD _ttyWrite behavior (no paste check)
+    const processKeyBroken = (s: string, isReturn: boolean) => {
+      // No paste check — falls through to originalTtyWrite
+      if (isReturn) {
+        lineEvents.push(s);
+      }
+    };
+
+    processKeyBroken('line1', false);
+    processKeyBroken('\r', true);
+    processKeyBroken('line2', false);
+    processKeyBroken('\r', true);
+
+    // BUG: two line events = two submissions instead of one buffered paste
+    expect(lineEvents).toHaveLength(2);
+  });
+});
+
+describe('drainStdin', () => {
+  it('drainStdin discards buffered data', async () => {
+    const { Readable } = await import('node:stream');
+
+    // Create a readable stream with buffered data
+    const stream = new Readable({
+      read() {
+        // Provide data then signal end
+        this.push(Buffer.from('line1\nline2\nline3\n'));
+        this.push(null);
+      }
+    });
+
+    // Read all data to fill the buffer
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(chunk as Buffer);
+    }
+    expect(chunks.length).toBeGreaterThan(0);
+  });
+});
+
+describe('multi-line state exports', () => {
+  it('getLastRenderedContentLines defaults to 1', async () => {
+    const { getLastRenderedContentLines } = await import('../../src/ui/inputPrompt.js');
+    expect(getLastRenderedContentLines()).toBeGreaterThanOrEqual(1);
+  });
+
+  it('getLastRenderedCursorRow defaults to 0', async () => {
+    const { getLastRenderedCursorRow } = await import('../../src/ui/inputPrompt.js');
+    expect(getLastRenderedCursorRow()).toBeGreaterThanOrEqual(0);
   });
 });

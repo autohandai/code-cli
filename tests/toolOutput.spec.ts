@@ -85,4 +85,80 @@ describe('formatToolOutputForDisplay', () => {
     expect(result.output).toContain('$ git branch');
     expect(result.output).toContain('main');
   });
+
+  // ── tools_registry summary formatting ──────────────────────────────
+
+  describe('tools_registry', () => {
+    it('shows tool count summary instead of raw JSON', () => {
+      const tools = [
+        { name: 'read_file', description: 'Read a file', source: 'builtin' },
+        { name: 'write_file', description: 'Write a file', source: 'builtin' },
+        { name: 'custom_tool', description: 'A meta tool', source: 'meta' },
+      ];
+      const result = formatToolOutputForDisplay({
+        tool: 'tools_registry',
+        content: JSON.stringify(tools, null, 2),
+        charLimit: 300,
+      });
+
+      // Should NOT contain raw JSON fields
+      expect(result.output).not.toContain('"source"');
+      expect(result.output).not.toContain('"builtin"');
+      // Should contain a human-readable summary
+      expect(result.output).toContain('3 tools');
+      expect(result.output).toContain('2 builtin');
+      expect(result.output).toContain('1 meta');
+    });
+
+    it('handles empty tools array gracefully', () => {
+      const result = formatToolOutputForDisplay({
+        tool: 'tools_registry',
+        content: '[]',
+        charLimit: 300,
+      });
+
+      expect(result.output).toContain('0 tools');
+      expect(result.output).not.toContain('"source"');
+    });
+
+    it('handles all-builtin tools', () => {
+      const tools = [
+        { name: 'read_file', description: 'Read a file', source: 'builtin' },
+        { name: 'write_file', description: 'Write a file', source: 'builtin' },
+      ];
+      const result = formatToolOutputForDisplay({
+        tool: 'tools_registry',
+        content: JSON.stringify(tools),
+        charLimit: 300,
+      });
+
+      expect(result.output).toContain('2 tools');
+      expect(result.output).toContain('2 builtin');
+    });
+
+    it('falls back to truncated content on malformed JSON', () => {
+      const result = formatToolOutputForDisplay({
+        tool: 'tools_registry',
+        content: 'not valid json {{{',
+        charLimit: 300,
+      });
+
+      // Should not throw, should fall through to default or show truncated
+      expect(result.output).toBeTruthy();
+    });
+
+    it('does NOT show tool descriptions in the summary', () => {
+      const tools = [
+        { name: 'read_file', description: 'Read contents of a file from disk', source: 'builtin' },
+      ];
+      const result = formatToolOutputForDisplay({
+        tool: 'tools_registry',
+        content: JSON.stringify(tools),
+        charLimit: 300,
+      });
+
+      // Descriptions are internal — should not leak to TUI
+      expect(result.output).not.toContain('Read contents of a file from disk');
+    });
+  });
 });

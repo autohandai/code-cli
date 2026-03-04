@@ -6,6 +6,9 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { execSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 // Mock child_process
 vi.mock('node:child_process', () => ({
@@ -182,6 +185,27 @@ describe('Shell Command Feature', () => {
       expect(parseShellCommand('!')).toBe('');
       expect(parseShellCommand('!  ')).toBe('');
       expect(parseShellCommand('ls')).toBe('');
+    });
+  });
+
+  describe('shell suggestions', () => {
+    let getPrimaryShellCommandSuggestion: typeof import('../../src/ui/shellCommand.js').getPrimaryShellCommandSuggestion;
+
+    beforeEach(async () => {
+      const module = await import('../../src/ui/shellCommand.js');
+      getPrimaryShellCommandSuggestion = module.getPrimaryShellCommandSuggestion;
+    });
+
+    it('treats trailing space as next-argument context', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'autohand-shell-suggest-'));
+      fs.writeFileSync(path.join(tempDir, 'source.txt'), 'x');
+      fs.mkdirSync(path.join(tempDir, 'dest-dir'), { recursive: true });
+
+      const suggestion = getPrimaryShellCommandSuggestion('! cp source.txt ', { cwd: tempDir });
+      expect(suggestion).toContain('! cp source.txt');
+      expect(suggestion).toContain('dest-dir/');
+
+      fs.rmSync(tempDir, { recursive: true, force: true });
     });
   });
 

@@ -12,7 +12,9 @@ import {
   PROMPT_LINES_BELOW_INPUT,
   safeEmitKeypressEvents,
   buildPromptRenderState,
-  getPromptBlockWidth
+  getPromptBlockWidth,
+  getLastRenderedContentLines,
+  getLastRenderedCursorRow
 } from './inputPrompt.js';
 
 type Mode = 'file' | 'slash' | null;
@@ -27,8 +29,14 @@ export class MentionPreview {
   private disposed = false;
   private suspended = false;
   private lastSuggestions: string[] = [];
-  // Suggestions render below the status line (one extra line for spacing)
-  private readonly suggestionOffset = STATUS_LINE_COUNT + PROMPT_LINES_BELOW_INPUT + 1;
+
+  // Dynamic offset from cursor to suggestion area, accounting for multi-line content
+  private get suggestionOffset(): number {
+    const contentLines = getLastRenderedContentLines();
+    const cursorRow = getLastRenderedCursorRow();
+    const contentLinesBelow = contentLines - 1 - cursorRow;
+    return contentLinesBelow + PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT + 1;
+  }
 
   constructor(
     private readonly rl: readline.Interface,
@@ -84,6 +92,7 @@ export class MentionPreview {
     }
     const beforeCursor = this.rl.line.slice(0, this.rl.cursor);
 
+    // Tab and arrow keys must be handled synchronously (before readline processes them)
     if (this.isTabKey(_str, key)) {
       if (this.mode === 'file' && this.fileSuggestions.length) {
         this.insertFileSuggestion(beforeCursor, this.fileSuggestions[this.activeIndex]);
@@ -115,6 +124,17 @@ export class MentionPreview {
       this.render(this.lastSuggestions);
       return;
     }
+
+    // Defer filter updates to next tick — prependListener fires BEFORE readline
+    // updates rl.line, so reading it synchronously here would be one char behind.
+    setImmediate(() => this.updateSuggestions());
+  }
+
+  private updateSuggestions(): void {
+    if (this.disposed || this.suspended) {
+      return;
+    }
+    const beforeCursor = this.rl.line.slice(0, this.rl.cursor);
 
     if (beforeCursor.startsWith('/')) {
       const seed = beforeCursor.slice(1);
@@ -168,9 +188,16 @@ export class MentionPreview {
 
   private filterSlash(seed: string): string[] {
     const normalized = seed.toLowerCase();
-    this.slashMatches = this.slashCommands
-      .filter((cmd) => cmd.command.replace('/', '').toLowerCase().includes(normalized))
-      .slice(0, 5);
+
+    // Prefix match first; fall back to substring if no prefix hits
+    let matches = this.slashCommands
+      .filter((cmd) => cmd.command.replace('/', '').toLowerCase().startsWith(normalized));
+    if (matches.length === 0) {
+      matches = this.slashCommands
+        .filter((cmd) => cmd.command.replace('/', '').toLowerCase().includes(normalized));
+    }
+
+    this.slashMatches = matches.slice(0, 5);
 
     return this.slashMatches.map((cmd) => {
       const detail = cmd.description ? chalk.gray(` - ${cmd.description}`) : '';

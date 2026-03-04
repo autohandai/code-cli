@@ -23,6 +23,11 @@ const TRUNCATED_TOOLS = new Set<AgentAction['type']>([
   'semantic_search'
 ]);
 
+/** Tools that should show a summary count instead of raw content */
+const SUMMARY_TOOLS = new Set<AgentAction['type']>([
+  'tools_registry'
+]);
+
 export interface ToolOutputDisplay {
   output: string;
   truncated: boolean;
@@ -95,6 +100,22 @@ export function formatToolOutputForDisplay(options: FileToolOutputOptions): Tool
       truncated: false,
       totalChars
     };
+  }
+
+  // For tools_registry, show a human-readable summary instead of raw JSON
+  if (SUMMARY_TOOLS.has(tool)) {
+    try {
+      const parsed = JSON.parse(content) as Array<{ source?: string }>;
+      const total = parsed.length;
+      const builtin = parsed.filter(t => t.source === 'builtin').length;
+      const meta = total - builtin;
+      const parts = [`${total} tools`];
+      if (builtin > 0) parts.push(`${builtin} builtin`);
+      if (meta > 0) parts.push(`${meta} meta`);
+      return { output: parts.join(', '), truncated: false, totalChars };
+    } catch {
+      // Malformed JSON — fall through to default
+    }
   }
 
   // For search tools, show truncated content

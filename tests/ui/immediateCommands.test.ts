@@ -6,6 +6,9 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 describe('Immediate command detection - isImmediateCommand', () => {
   let isImmediateCommand: typeof import('../../src/ui/shellCommand.js').isImmediateCommand;
@@ -121,25 +124,33 @@ describe('PersistentInput immediate command handling', () => {
   });
 
   it('should queue regular prompts normally', () => {
-    const pi = new PersistentInput({ silentMode: true });
-    (pi as any).isActive = true;
+    vi.useFakeTimers();
+    try {
+      const pi = new PersistentInput({ silentMode: true });
+      (pi as any).isActive = true;
 
-    const immediateHandler = vi.fn();
-    const queueHandler = vi.fn();
+      const immediateHandler = vi.fn();
+      const queueHandler = vi.fn();
 
-    pi.on('immediate-command', immediateHandler);
-    pi.on('queued', queueHandler);
+      pi.on('immediate-command', immediateHandler);
+      pi.on('queued', queueHandler);
 
-    const handler = (pi as any).handleKeypress;
+      const handler = (pi as any).handleKeypress;
 
-    handler('f', { name: undefined });
-    handler('i', { name: undefined });
-    handler('x', { name: undefined });
-    handler('', { name: 'return' });
+      handler('f', { name: undefined });
+      handler('i', { name: undefined });
+      handler('x', { name: undefined });
+      handler('', { name: 'return' });
 
-    expect(immediateHandler).not.toHaveBeenCalled();
-    expect(queueHandler).toHaveBeenCalledWith('fix', 1);
-    expect(pi.hasQueued()).toBe(true);
+      // Flush the rapid-Enter debounce timer
+      vi.advanceTimersByTime(100);
+
+      expect(immediateHandler).not.toHaveBeenCalled();
+      expect(queueHandler).toHaveBeenCalledWith('fix', 1);
+      expect(pi.hasQueued()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('should clear currentInput after immediate command', () => {
@@ -301,5 +312,83 @@ describe('PersistentInput immediate command handling', () => {
     expect(toggled).toEqual([true, false]);
     expect(pi.getCurrentInput()).toBe('');
     manager.disable();
+  });
+
+  it('Tab accepts shell command completion while composing ! command', () => {
+    const pi = new PersistentInput({ silentMode: true });
+    (pi as any).isActive = true;
+
+    const handler = (pi as any).handleKeypress;
+    handler('!', { name: undefined });
+    handler('g', { name: undefined });
+    handler('i', { name: undefined });
+    handler('\t', { name: 'tab', sequence: '\t' });
+
+    expect(pi.getCurrentInput()).toBe('! git ');
+  });
+
+  it('Tab completes shell path suggestions using workspaceRoot', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'autohand-pi-shell-'));
+    fs.mkdirSync(path.join(tempDir, 'build'), { recursive: true });
+
+    const pi = new PersistentInput({ silentMode: true, workspaceRoot: tempDir });
+    (pi as any).isActive = true;
+
+    const handler = (pi as any).handleKeypress;
+    handler('!', { name: undefined });
+    handler(' ', { name: undefined });
+    handler('c', { name: undefined });
+    handler('d', { name: undefined });
+    handler(' ', { name: undefined });
+    handler('b', { name: undefined });
+    handler('u', { name: undefined });
+    handler('\t', { name: 'tab', sequence: '\t' });
+
+    expect(pi.getCurrentInput()).toBe('! cd build/');
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('Tab uses async resolver suggestion for ! commands when provided', async () => {
+    const resolveShellSuggestion = vi.fn(async () => '! git status');
+    const pi = new PersistentInput({
+      silentMode: true,
+      resolveShellSuggestion,
+    });
+    (pi as any).isActive = true;
+
+    const handler = (pi as any).handleKeypress;
+    handler('!', { name: undefined });
+    handler('g', { name: undefined });
+    handler('i', { name: undefined });
+    handler('\t', { name: 'tab', sequence: '\t' });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(resolveShellSuggestion).toHaveBeenCalledWith('!gi');
+    expect(pi.getCurrentInput()).toBe('! git status');
+  });
+
+  it('Tab applies local fallback immediately when async resolver is pending', () => {
+    const resolveShellSuggestion = vi.fn(
+      () => new Promise<string | null>(() => { /* intentionally pending */ })
+    );
+    const pi = new PersistentInput({
+      silentMode: true,
+      resolveShellSuggestion,
+    });
+    (pi as any).isActive = true;
+
+    const handler = (pi as any).handleKeypress;
+    handler('!', { name: undefined });
+    handler(' ', { name: undefined });
+    handler('g', { name: undefined });
+    handler('i', { name: undefined });
+    handler('t', { name: undefined });
+    handler(' ', { name: undefined });
+    handler('s', { name: undefined });
+    handler('\t', { name: 'tab', sequence: '\t' });
+
+    expect(resolveShellSuggestion).toHaveBeenCalledWith('! git s');
+    expect(pi.getCurrentInput()).toBe('! git status');
   });
 });

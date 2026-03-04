@@ -159,6 +159,8 @@ export class AutohandAgent {
   private suggestionEngine: SuggestionEngine | null = null;
   private pendingSuggestion: Promise<void> | null = null;
   private isStartupSuggestion = false;
+  private shellSuggestionAbortController: AbortController | null = null;
+  private shellSuggestionPackageContextCache: { value: string; expiresAt: number } | null = null;
 
   private taskStartedAt: number | null = null;
   private totalTokensUsed = 0;
@@ -685,7 +687,9 @@ export class AutohandAgent {
     const disableTerminalRegions = process.env.AUTOHAND_TERMINAL_REGIONS === '0';
     this.persistentInput = createPersistentInput({
       maxQueueSize: 10,
-      silentMode: disableTerminalRegions
+      silentMode: disableTerminalRegions,
+      workspaceRoot: this.runtime.workspaceRoot,
+      resolveShellSuggestion: (input) => this.resolveLlmShellSuggestion(input)
     });
 
     this.persistentInput.on('queued', (text: string, count: number) => {
@@ -1517,7 +1521,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
       (data, mimeType, filename) => this.imageManager.add(data, mimeType, filename),
       this.runtime.workspaceRoot,
       initialValue,
-      suggestionText
+      suggestionText,
+      (line) => this.resolveLlmShellSuggestion(line)
     );
     // Only exit on explicit ABORT (double Ctrl+C). Palette cancel or dismiss should continue.
     if (input === 'ABORT') { // double Ctrl+C from prompt
@@ -1577,6 +1582,174 @@ If lint or tests fail, report the issues but do NOT commit.`;
       return normalized;
     }
     return null;
+  }
+
+  private async resolveLlmShellSuggestion(inputLine: string): Promise<string | null> {
+    const trimmedInput = inputLine.trim();
+    if (!trimmedInput.startsWith('!')) {
+      return null;
+    }
+
+    const partialCommand = parseShellCommand(trimmedInput);
+    if (!partialCommand) {
+      return null;
+    }
+
+    this.shellSuggestionAbortController?.abort();
+    const controller = new AbortController();
+    this.shellSuggestionAbortController = controller;
+    const timeout = setTimeout(() => controller.abort(), 1800);
+
+    try {
+      const [packageContext, gitStatus] = await Promise.all([
+        this.getShellSuggestionPackageContext(),
+        this.getShellSuggestionGitStatus(),
+      ]);
+
+      const recentHistory = this.conversation
+        .history()
+        .slice(-6)
+        .map((message) => {
+          const content = String(message.content ?? '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 220);
+          return `${message.role}: ${content}`;
+        })
+        .filter(Boolean)
+        .join('\n');
+
+      const completion = await this.llm.complete({
+        messages: [
+          {
+            role: 'system',
+            content: [
+              'You are a shell autocomplete engine for a coding CLI.',
+              'Return exactly ONE shell command completion for the current partial command.',
+              'Output only the command line, no quotes and no markdown.',
+              'Must start with "! " and should extend the current partial input.',
+              'Prefer commands valid for this repo package manager and scripts.',
+            ].join(' '),
+          },
+          {
+            role: 'user',
+            content: [
+              `Current partial input: ${trimmedInput}`,
+              packageContext ? `Package/dependency context:\n${packageContext}` : 'Package/dependency context: unavailable',
+              gitStatus ? `Uncommitted changes context:\n${gitStatus}` : 'Uncommitted changes context: unavailable',
+              recentHistory ? `Recent chat context:\n${recentHistory}` : 'Recent chat context: unavailable',
+            ].join('\n\n'),
+          },
+        ],
+        maxTokens: 80,
+        temperature: 0.1,
+        signal: controller.signal,
+      });
+
+      if (controller.signal.aborted) {
+        return null;
+      }
+
+      return this.normalizeShellSuggestionFromLlm(completion.content, trimmedInput);
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeout);
+      if (this.shellSuggestionAbortController === controller) {
+        this.shellSuggestionAbortController = null;
+      }
+    }
+  }
+
+  private normalizeShellSuggestionFromLlm(raw: string, partialInput: string): string | null {
+    if (!raw) {
+      return null;
+    }
+
+    const candidate = raw
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)[0]
+      ?.replace(/^`+|`+$/g, '')
+      ?.replace(/^\$+\s*/, '')
+      ?.trim();
+
+    if (!candidate) {
+      return null;
+    }
+
+    const normalized = candidate.startsWith('!')
+      ? candidate
+      : `! ${candidate}`;
+    const compact = normalized.replace(/\s+/g, ' ').trim();
+    const compactPartial = partialInput.replace(/\s+/g, ' ').trim();
+
+    if (!compact.toLowerCase().startsWith(compactPartial.toLowerCase())) {
+      return null;
+    }
+    if (compact.toLowerCase() === compactPartial.toLowerCase()) {
+      return null;
+    }
+
+    return compact;
+  }
+
+  private async getShellSuggestionGitStatus(): Promise<string> {
+    try {
+      const { stdout } = await execFileAsync(
+        'git',
+        ['status', '--short', '--branch'],
+        { cwd: this.runtime.workspaceRoot, encoding: 'utf8', timeout: 1200 }
+      );
+      return String(stdout || '').trim().slice(0, 1200);
+    } catch {
+      return '';
+    }
+  }
+
+  private async getShellSuggestionPackageContext(): Promise<string> {
+    const now = Date.now();
+    if (this.shellSuggestionPackageContextCache && this.shellSuggestionPackageContextCache.expiresAt > now) {
+      return this.shellSuggestionPackageContextCache.value;
+    }
+
+    const root = this.runtime.workspaceRoot;
+    const lines: string[] = [];
+    const managers: string[] = [];
+
+    const has = async (rel: string): Promise<boolean> => fs.pathExists(path.join(root, rel));
+
+    if (await has('bun.lockb') || await has('bun.lock')) managers.push('bun');
+    if (await has('pnpm-lock.yaml')) managers.push('pnpm');
+    if (await has('yarn.lock')) managers.push('yarn');
+    if (await has('package-lock.json')) managers.push('npm');
+    if (await has('pyproject.toml') || await has('requirements.txt') || await has('Pipfile')) managers.push('python');
+    if (await has('Cargo.toml')) managers.push('cargo');
+    if (await has('go.mod')) managers.push('go');
+
+    if (managers.length > 0) {
+      lines.push(`Detected package managers: ${Array.from(new Set(managers)).join(', ')}`);
+    }
+
+    try {
+      const packageJsonPath = path.join(root, 'package.json');
+      if (await fs.pathExists(packageJsonPath)) {
+        const pkg = await fs.readJson(packageJsonPath) as { scripts?: Record<string, string> };
+        const scripts = Object.keys(pkg.scripts ?? {});
+        if (scripts.length > 0) {
+          lines.push(`package.json scripts: ${scripts.slice(0, 20).join(', ')}`);
+        }
+      }
+    } catch {
+      // best effort
+    }
+
+    const value = lines.join('\n');
+    this.shellSuggestionPackageContextCache = {
+      value,
+      expiresAt: now + 30_000,
+    };
+    return value;
   }
 
   private async handleMemoryStore(content: string): Promise<void> {
@@ -1984,7 +2157,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
         console.error(error);
       }
     } finally {
-      cleanupConsoleBridge();
+      // IMPORTANT: Keep the console bridge active until AFTER terminal regions
+      // are disabled. Otherwise, in-flight streaming output bypasses writeAbove
+      // and writes directly to stdout while regions are still active, corrupting
+      // the fixed-region composer box (overlapping borders, leaked tool data).
       cleanupEsc();
       stopPreparation();
       this.stopStatusUpdates();
@@ -2004,6 +2180,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
         this.persistentInput.stop();
         this.persistentInputActiveTurn = false;
       }
+
+      // Restore original console AFTER regions are disabled so no output
+      // leaks into the fixed-region area during the transition.
+      cleanupConsoleBridge();
 
       // Print the cancel message AFTER terminal regions are torn down so it
       // goes to normal stdout instead of being routed through writeAbove.

@@ -74,7 +74,8 @@ describe('TerminalRegions', () => {
 
     const plain = stripAnsi(output.writes.join(''));
     expect(plain).toContain('❯ queue this');
-    expect(output.writes.join('')).toContain('\x1b[22;12H');
+    // Column = 1 (border) + 2 (prefix "❯ ") + 10 (input "queue this") = 13
+    expect(output.writes.join('')).toContain('\x1b[22;13H');
   });
 
   it('updates status and appends queue count when not already present', () => {
@@ -170,7 +171,8 @@ describe('TerminalRegions', () => {
 
     const joined = output.writes.join('');
     expect(joined).toContain('\x1b[19;1H');
-    expect(joined).toContain('\x1b[22;2H');
+    // Empty input: cursor is hidden rather than positioned on the placeholder
+    expect(joined).toContain('\x1b[?25l');
     expect(joined).not.toContain('\x1b[s');
     expect(joined).not.toContain('\x1b[u');
   });
@@ -185,7 +187,8 @@ describe('TerminalRegions', () => {
 
     const joined = output.writes.join('');
     expect(joined).toContain('\x1b[24;1H');
-    expect(joined).toContain('\x1b[22;2H');
+    // Empty input: cursor hidden instead of positioned
+    expect(joined).toContain('\x1b[?25l');
   });
 
   it('prefers getWindowSize dimensions when stream rows are stale', () => {
@@ -207,7 +210,8 @@ describe('TerminalRegions', () => {
 
     const joined = output.writes.join('');
     expect(joined).toContain('\x1b[38;1H');
-    expect(joined).toContain('\x1b[38;3H');
+    // Column = 1 (border) + 2 (prefix "❯ ") + 1 (input "x") = 4
+    expect(joined).toContain('\x1b[38;4H');
   });
 
   it('uses orange border color when plan mode is enabled', () => {
