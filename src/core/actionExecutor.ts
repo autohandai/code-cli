@@ -1048,6 +1048,23 @@ export class ActionExecutor {
         console.log(chalk.white(`   ${commitMessage}`));
         console.log();
 
+        const autoApproveCommit = Boolean(
+          this.runtime.options.yes
+          || process.env.CI === '1'
+          || process.env.AUTOHAND_NON_INTERACTIVE === '1'
+        );
+
+        if (autoApproveCommit) {
+          console.log(chalk.gray('Auto-commit approval enabled; committing without prompt.'));
+          const result = executeAutoCommit(this.runtime.workspaceRoot, commitMessage, action.stage_all !== false);
+          if (result.success) {
+            console.log(chalk.green(`\n✓ ${result.message}`));
+            return result.message;
+          }
+          console.log(chalk.red(`\n✗ ${result.message}`));
+          return result.message;
+        }
+
         // Ask for confirmation with y/n/e
         const options: ModalOption[] = [
           { label: 'Yes - commit with this message', value: 'y' },

@@ -9,6 +9,7 @@ import type { FileActionManager } from '../src/actions/filesystem.js';
 import { ActionExecutor } from '../src/core/actionExecutor.js';
 import * as gitActions from '../src/actions/git.js';
 import * as commandActions from '../src/actions/command.js';
+import * as modalComponents from '../src/ui/ink/components/Modal.js';
 import type { ToolDefinition } from '../src/core/toolManager.js';
 import { execSync } from 'node:child_process';
 
@@ -480,6 +481,67 @@ describe('ActionExecutor', () => {
 
       expect(result).toBe('committed');
       commitSpy.mockRestore();
+    });
+
+    it('auto_commit bypasses confirmation modal in yes mode', async () => {
+      const mockedExecSync = vi.mocked(execSync);
+      mockedExecSync.mockReturnValue('+const message = "safe";\n');
+
+      const infoSpy = vi.spyOn(gitActions, 'getAutoCommitInfo').mockReturnValue({
+        canCommit: true,
+        suggestedMessage: 'chore: automated commit',
+        filesChanged: ['src/index.ts']
+      } as any);
+      const executeSpy = vi.spyOn(gitActions, 'executeAutoCommit').mockReturnValue({
+        success: true,
+        message: 'Committed 1 file'
+      } as any);
+      const modalSpy = vi.spyOn(modalComponents, 'showModal');
+      const inputSpy = vi.spyOn(modalComponents, 'showInput');
+
+      const executor = createExecutor(
+        {},
+        { runtime: { options: { yes: true } } as any }
+      );
+
+      const result = await executor.execute({ type: 'auto_commit' } as any);
+
+      expect(modalSpy).not.toHaveBeenCalled();
+      expect(inputSpy).not.toHaveBeenCalled();
+      expect(executeSpy).toHaveBeenCalledWith('/repo', 'chore: automated commit', true);
+      expect(result).toBe('Committed 1 file');
+
+      infoSpy.mockRestore();
+      executeSpy.mockRestore();
+      modalSpy.mockRestore();
+      inputSpy.mockRestore();
+    });
+
+    it('auto_commit still prompts in interactive mode', async () => {
+      const mockedExecSync = vi.mocked(execSync);
+      mockedExecSync.mockReturnValue('+const message = "safe";\n');
+
+      const infoSpy = vi.spyOn(gitActions, 'getAutoCommitInfo').mockReturnValue({
+        canCommit: true,
+        suggestedMessage: 'chore: suggested message',
+        filesChanged: ['src/index.ts']
+      } as any);
+      const executeSpy = vi.spyOn(gitActions, 'executeAutoCommit').mockReturnValue({
+        success: true,
+        message: 'Committed 1 file'
+      } as any);
+      const modalSpy = vi.spyOn(modalComponents, 'showModal').mockResolvedValue({ value: 'n' } as any);
+
+      const executor = createExecutor();
+      const result = await executor.execute({ type: 'auto_commit' } as any);
+
+      expect(modalSpy).toHaveBeenCalled();
+      expect(executeSpy).not.toHaveBeenCalled();
+      expect(result).toBe('Commit cancelled by user');
+
+      infoSpy.mockRestore();
+      executeSpy.mockRestore();
+      modalSpy.mockRestore();
     });
   });
 

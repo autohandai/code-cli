@@ -677,7 +677,7 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'auto_commit',
-    description: 'Automatically stage all changes and create a commit. Auto-generates a commit message which the user can accept, edit, or reject.',
+    description: 'Automatically stage all changes and create a commit. In interactive mode, user can accept/edit/reject the message. In yes/non-interactive mode, commits immediately with the suggested or provided message.',
     parameters: {
       type: 'object',
       properties: {
@@ -685,7 +685,7 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
         stage_all: { type: 'boolean', description: 'Stage all changes before committing (default: true)' }
       }
     },
-    requiresApproval: false  // The tool has its own y/n/e confirmation
+    requiresApproval: false  // Interactive flow prompts inside the tool; yes/non-interactive auto-approves
   },
   {
     name: 'git_log',
