@@ -209,7 +209,7 @@ Skills can specify which tools they need via the `allowed-tools` field. Availabl
 | `git_fetch` | Fetch from remote |
 | `git_pull` | Pull changes |
 | `git_push` | Push changes |
-| `auto_commit` | Auto-generate commit message |
+| `auto_commit` | Auto-generate commit message and commit (auto-approves in yes/non-interactive mode) |
 
 ### Commands
 
