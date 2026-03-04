@@ -314,6 +314,9 @@
       "empty": "No sessions found",
       "showing": "Page {{page}} of {{total}} ({{count}} sessions)",
       "resumeHint": "Use /resume <session-id> to resume a session"
+    },
+    "import": {
+      "description": "從其他編碼代理匯入資料"
     }
   },
   "setup": {

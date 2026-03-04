@@ -314,6 +314,9 @@
       "empty": "未找到会话",
       "showing": "第 {{page}} 页，共 {{total}} 页（{{count}} 个会话）",
       "resumeHint": "使用 /resume <session-id> 恢复会话"
+    },
+    "import": {
+      "description": "从其他编码代理导入数据"
     }
   },
   "setup": {

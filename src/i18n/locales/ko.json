@@ -314,6 +314,9 @@
       "empty": "No sessions found",
       "showing": "Page {{page}} of {{total}} ({{count}} sessions)",
       "resumeHint": "Use /resume <session-id> to resume a session"
+    },
+    "import": {
+      "description": "다른 코딩 에이전트에서 데이터 가져오기"
     }
   },
   "setup": {
