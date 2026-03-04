@@ -391,4 +391,89 @@ describe('PersistentInput immediate command handling', () => {
     expect(resolveShellSuggestion).toHaveBeenCalledWith('! git s');
     expect(pi.getCurrentInput()).toBe('! git status');
   });
+
+  it('Ctrl+Q pulls latest queued item into composer for editing', () => {
+    vi.useFakeTimers();
+    try {
+      const pi = new PersistentInput({ silentMode: true });
+      (pi as any).isActive = true;
+
+      const handler = (pi as any).handleKeypress;
+
+      handler('f', { name: undefined });
+      handler('i', { name: undefined });
+      handler('r', { name: undefined });
+      handler('s', { name: undefined });
+      handler('t', { name: undefined });
+      handler('', { name: 'return' });
+      vi.advanceTimersByTime(100);
+
+      handler('s', { name: undefined });
+      handler('e', { name: undefined });
+      handler('c', { name: undefined });
+      handler('o', { name: undefined });
+      handler('n', { name: undefined });
+      handler('d', { name: undefined });
+      handler('', { name: 'return' });
+      vi.advanceTimersByTime(100);
+
+      expect(pi.getQueueLength()).toBe(2);
+
+      handler('', { name: 'q', ctrl: true, sequence: '\x11' });
+
+      expect(pi.getCurrentInput()).toBe('second');
+      expect(pi.getQueueLength()).toBe(1);
+      expect(pi.dequeue()?.text).toBe('first');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Ctrl+Q writes queue snapshot above composer in terminal regions mode', () => {
+    const pi = new PersistentInput({ silentMode: false });
+    (pi as any).isActive = true;
+    (pi as any).queue = [
+      { text: 'first item', timestamp: 1 },
+      { text: 'second item', timestamp: 2 },
+    ];
+
+    const writeAbove = vi.fn();
+    const updateInput = vi.fn();
+    const updateStatus = vi.fn();
+    (pi as any).regions = {
+      writeAbove,
+      updateInput,
+      updateStatus,
+      renderFixedRegion: vi.fn(),
+      updateActivity: vi.fn(),
+      disable: vi.fn(),
+      focusScrollBottom: vi.fn(),
+      enable: vi.fn(),
+    };
+
+    const handler = (pi as any).handleKeypress;
+    handler('', { name: 'q', ctrl: true, sequence: '\x11' });
+
+    expect(writeAbove).toHaveBeenCalledTimes(1);
+    const output = String(writeAbove.mock.calls[0]?.[0] ?? '');
+    expect(output).toContain('Queued requests (2)');
+    expect(output).toContain('1. "first item"');
+    expect(output).toContain('2. "second item"');
+    expect(output).toContain('Pulled #2 for edit');
+    expect(updateInput).toHaveBeenCalledWith('second item');
+    expect(updateStatus).toHaveBeenCalled();
+    expect(pi.getQueueLength()).toBe(1);
+  });
+
+  it('Ctrl+Q reports empty queue without changing input', () => {
+    const pi = new PersistentInput({ silentMode: true });
+    (pi as any).isActive = true;
+    pi.setCurrentInput('draft');
+
+    const handler = (pi as any).handleKeypress;
+    handler('', { name: 'q', ctrl: true, sequence: '\x11' });
+
+    expect(pi.getCurrentInput()).toBe('draft');
+    expect(pi.getQueueLength()).toBe(0);
+  });
 });
