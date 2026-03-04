@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { drawInputBox, drawInputTopBorder, drawInputBottomBorder } from '../../src/ui/box.js';
 
 /** Strip ALL CSI escape sequences (colors, cursor control, erase-in-line, etc.) */
@@ -12,11 +12,10 @@ function stripAnsi(value: string): string {
   return value.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
 }
 
-// Known ANSI codes used by drawInputBox
-const BG_CODE = '\x1b[48;2;43;43;43m';  // bg #2b2b2b
-const FG_CODE = '\x1b[38;2;160;160;160m'; // fg #a0a0a0
 const CLEAR_EOL = '\x1b[K';
 const RESET = '\x1b[0m';
+const BG_PATTERN = /\x1b\[48;2;\d+;\d+;\d+m/;
+const FG_PATTERN = /\x1b\[38;2;\d+;\d+;\d+m/;
 
 describe('drawInputBox', () => {
   it('renders left-only content padded to width', () => {
@@ -63,7 +62,7 @@ describe('drawInputBox', () => {
 
   it('includes background ANSI code in output', () => {
     const result = drawInputBox('hello', 20);
-    expect(result).toContain(BG_CODE);
+    expect(result).toMatch(BG_PATTERN);
   });
 
   it('includes clear-to-EOL escape to extend background to terminal edge', () => {
@@ -84,8 +83,8 @@ describe('drawInputBox', () => {
     const styledContent = `\x1b[90mhello${RESET} world`;
     const result = drawInputBox(styledContent, 30);
 
-    // After inner \x1b[0m, background must be re-applied
-    const reApplyPattern = /\x1b\[0m\x1b\[48;2;43;43;43m/;
+    // After inner \x1b[0m, background must be re-applied (any RGB bg code)
+    const reApplyPattern = /\x1b\[0m\x1b\[48;2;\d+;\d+;\d+m/;
     expect(result).toMatch(reApplyPattern);
 
     // Visible content is correct
@@ -109,14 +108,14 @@ describe('drawInputBox', () => {
     const styledContent = '\x1b[31mred text\x1b[39m normal';
     const result = drawInputBox(styledContent, 30);
 
-    // The output should contain the box fg code (replacing \x1b[39m)
-    expect(result).toContain(FG_CODE);
+    // The output should contain a box fg code (replacing \x1b[39m)
+    expect(result).toMatch(FG_PATTERN);
     expect(stripAnsi(result).length).toBe(30);
   });
 
   it('extends background with clear-to-EOL when right param is provided', () => {
     const result = drawInputBox('left', 30, 'right');
-    expect(result).toContain(BG_CODE);
+    expect(result).toMatch(BG_PATTERN);
     expect(result).toContain(CLEAR_EOL);
     expect(stripAnsi(result).length).toBe(30);
   });
@@ -131,6 +130,14 @@ describe('drawInputTopBorder', () => {
     expect(plain.startsWith('┌')).toBe(true);
     expect(plain.endsWith('┐')).toBe(true);
   });
+
+  it('includes background fill and clear-to-EOL', () => {
+    const rendered = drawInputTopBorder(20);
+    // Must have a 48;2 background code (any RGB value)
+    expect(rendered).toMatch(/\x1b\[48;2;\d+;\d+;\d+m/);
+    expect(rendered).toContain(CLEAR_EOL);
+    expect(rendered).toContain(RESET);
+  });
 });
 
 describe('drawInputBottomBorder', () => {
@@ -141,5 +148,60 @@ describe('drawInputBottomBorder', () => {
     expect(plain.length).toBe(20);
     expect(plain.startsWith('└')).toBe(true);
     expect(plain.endsWith('┘')).toBe(true);
+  });
+
+  it('includes background fill and clear-to-EOL', () => {
+    const rendered = drawInputBottomBorder(20);
+    expect(rendered).toMatch(/\x1b\[48;2;\d+;\d+;\d+m/);
+    expect(rendered).toContain(CLEAR_EOL);
+    expect(rendered).toContain(RESET);
+  });
+});
+
+describe('theme-aware rendering', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('uses theme colors for box background when theme is initialized', async () => {
+    // Set up a mock theme with custom bg color
+    const { setTheme, Theme } = await import('../../src/ui/theme/index.js');
+    const customColors: Record<string, string> = {
+      userMessageBg: '#112233',
+      userMessageText: '#aabbcc',
+      borderAccent: '#ff0000',
+      warning: '#ffaa00',
+      dim: '#cccccc',
+    };
+    setTheme(new Theme('test', customColors as never));
+
+    // Re-import to pick up the theme state
+    const { drawInputBox: themedBox } = await import('../../src/ui/box.js');
+    const result = themedBox('hello', 20);
+
+    // Should use theme's userMessageBg (#112233 → rgb 17,34,51)
+    expect(result).toContain('\x1b[48;2;17;34;51m');
+  });
+
+  it('uses theme colors for border foreground when theme is initialized', async () => {
+    const { setTheme, Theme } = await import('../../src/ui/theme/index.js');
+    const customColors: Record<string, string> = {
+      userMessageBg: '#112233',
+      userMessageText: '#aabbcc',
+      borderAccent: '#ff0000',
+      warning: '#ffaa00',
+      dim: '#cccccc',
+    };
+    setTheme(new Theme('test', customColors as never));
+
+    const { drawInputTopBorder: themedBorder } = await import('../../src/ui/box.js');
+    const result = themedBorder(20);
+
+    // Should use theme's borderAccent (#ff0000 → rgb 255,0,0)
+    expect(result).toContain('\x1b[38;2;255;0;0m');
   });
 });
