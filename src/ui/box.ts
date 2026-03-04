@@ -92,12 +92,33 @@ function truncateVisible(value: string, maxVisible: number): string {
   return out;
 }
 
+// Raw ANSI codes for the input box.  Using raw codes instead of chalk
+// ensures the background persists through inner ANSI resets and allows
+// \x1b[K (Erase in Line) to extend the background to the terminal edge.
+const INPUT_BOX_BG = '\x1b[48;2;43;43;43m';      // bg #2b2b2b
+const INPUT_BOX_FG = '\x1b[38;2;160;160;160m';    // fg #a0a0a0
+const INPUT_BOX_BASE = INPUT_BOX_BG + INPUT_BOX_FG;
+const RESET_ALL = '\x1b[0m';
+const CLEAR_TO_EOL = '\x1b[K';
+
+/**
+ * Re-apply background/foreground after any inner ANSI codes that would
+ * otherwise reset them.  This prevents styled content (e.g. themed
+ * prefix, chalk.gray placeholder) from breaking the box background.
+ */
+function stabilizeBoxAnsi(text: string): string {
+  return text
+    .replace(/\x1b\[0m/g, RESET_ALL + INPUT_BOX_BASE)
+    .replace(/\x1b\[49m/g, INPUT_BOX_BG)
+    .replace(/\x1b\[39m/g, INPUT_BOX_FG);
+}
+
 export function drawInputBox(left: string, width: number, right?: string): string {
   const visLeft = getVisibleLength(left);
 
   if (!right) {
     const pad = Math.max(0, width - visLeft);
-    return chalk.bgHex('#2b2b2b').hex('#a0a0a0')(left + ' '.repeat(pad));
+    return INPUT_BOX_BASE + stabilizeBoxAnsi(left) + ' '.repeat(pad) + CLEAR_TO_EOL + RESET_ALL;
   }
 
   const visRight = getVisibleLength(right);
@@ -106,7 +127,7 @@ export function drawInputBox(left: string, width: number, right?: string): strin
 
   if (available <= 0) {
     const pad = Math.max(0, width - visLeft);
-    return chalk.bgHex('#2b2b2b').hex('#a0a0a0')(left + ' '.repeat(pad));
+    return INPUT_BOX_BASE + stabilizeBoxAnsi(left) + ' '.repeat(pad) + CLEAR_TO_EOL + RESET_ALL;
   }
 
   const clippedRight = visRight > available
@@ -114,7 +135,7 @@ export function drawInputBox(left: string, width: number, right?: string): strin
     : right;
   const clippedRightVis = getVisibleLength(clippedRight);
   const gap = Math.max(0, width - visLeft - clippedRightVis);
-  const line = left + ' '.repeat(gap) + clippedRight;
+  const line = stabilizeBoxAnsi(left) + ' '.repeat(gap) + stabilizeBoxAnsi(clippedRight);
 
-  return chalk.bgHex('#2b2b2b').hex('#a0a0a0')(line);
+  return INPUT_BOX_BASE + line + CLEAR_TO_EOL + RESET_ALL;
 }
