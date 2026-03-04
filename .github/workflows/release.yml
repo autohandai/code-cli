@@ -436,6 +436,84 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Update Homebrew tap (release only)
+        if: needs.prepare.outputs.channel == 'release'
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$TAP_GITHUB_TOKEN" ]; then
+            echo "⚠️ TAP_GITHUB_TOKEN not set, skipping Homebrew tap update"
+          else
+            VERSION="${{ needs.prepare.outputs.version }}"
+            echo "Updating Homebrew tap to v${VERSION}..."
+
+            # Wait for release assets to be available
+            sleep 10
+
+            # Download release archives and compute sha256
+            SHA_MACOS_ARM64=$(curl -sL "https://github.com/autohandai/code-cli/releases/download/v${VERSION}/autohand-macos-arm64.tar.gz" | shasum -a 256 | cut -d' ' -f1)
+            SHA_MACOS_X64=$(curl -sL "https://github.com/autohandai/code-cli/releases/download/v${VERSION}/autohand-macos-x64.tar.gz" | shasum -a 256 | cut -d' ' -f1)
+            SHA_LINUX_X64=$(curl -sL "https://github.com/autohandai/code-cli/releases/download/v${VERSION}/autohand-linux-x64.tar.gz" | shasum -a 256 | cut -d' ' -f1)
+            SHA_LINUX_ARM64=$(curl -sL "https://github.com/autohandai/code-cli/releases/download/v${VERSION}/autohand-linux-arm64.tar.gz" | shasum -a 256 | cut -d' ' -f1)
+
+            echo "SHA256 checksums computed:"
+            echo "  macOS ARM64: ${SHA_MACOS_ARM64}"
+            echo "  macOS x64:   ${SHA_MACOS_X64}"
+            echo "  Linux x64:   ${SHA_LINUX_X64}"
+            echo "  Linux ARM64: ${SHA_LINUX_ARM64}"
+
+            # Clone tap repo
+            git clone "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/autohandai/homebrew-code.git" homebrew-tap
+            cd homebrew-tap
+
+            # Write updated formula using sed replacements on the existing template
+            cp Formula/autohand-code.rb Formula/autohand-code.rb.bak 2>/dev/null || true
+
+            cat > Formula/autohand-code.rb << FORMULA_EOF
+class AutohandCode < Formula
+  desc "Autonomous LLM-powered coding agent CLI"
+  homepage "https://autohand.ai"
+  version "${VERSION}"
+  license "Apache-2.0"
+
+  on_macos do
+    if Hardware::CPU.arm?
+      url "https://github.com/autohandai/code-cli/releases/download/v${VERSION}/autohand-macos-arm64.tar.gz"
+      sha256 "${SHA_MACOS_ARM64}"
+    else
+      url "https://github.com/autohandai/code-cli/releases/download/v${VERSION}/autohand-macos-x64.tar.gz"
+      sha256 "${SHA_MACOS_X64}"
+    end
+  end
+
+  on_linux do
+    if Hardware::CPU.arm?
+      url "https://github.com/autohandai/code-cli/releases/download/v${VERSION}/autohand-linux-arm64.tar.gz"
+      sha256 "${SHA_LINUX_ARM64}"
+    else
+      url "https://github.com/autohandai/code-cli/releases/download/v${VERSION}/autohand-linux-x64.tar.gz"
+      sha256 "${SHA_LINUX_X64}"
+    end
+  end
+
+  def install
+    bin.install "autohand" => "autohand-code"
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/autohand-code --version")
+  end
+end
+FORMULA_EOF
+
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add Formula/autohand-code.rb
+            git commit -m "Update autohand-code to v${VERSION}"
+            git push
+            echo "Homebrew tap updated to v${VERSION}"
+          fi
+
       - name: Build JS dist for npm
         if: needs.prepare.outputs.channel == 'release'
         run: |
