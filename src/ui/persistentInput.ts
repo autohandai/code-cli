@@ -10,7 +10,14 @@ import chalk from 'chalk';
 import readline from 'node:readline';
 import EventEmitter from 'node:events';
 import { TerminalRegions, createTerminalRegions } from './terminalRegions.js';
-import { safeEmitKeypressEvents, isPlainTabShortcut, isShiftEnterSequence } from './inputPrompt.js';
+import {
+  NEWLINE_MARKER,
+  convertNewlineMarkersToNewlines,
+  countNewlineMarkers,
+  safeEmitKeypressEvents,
+  isPlainTabShortcut,
+  isShiftEnterSequence
+} from './inputPrompt.js';
 import { safeSetRawMode } from './rawMode.js';
 import { getPrimaryShellCommandSuggestion, isImmediateCommand } from './shellCommand.js';
 import { getPlanModeManager } from '../commands/plan.js';
@@ -58,6 +65,8 @@ const PASTE_END = '\x1b[201~';
 
 /** How long to wait after a rapid Enter before treating it as a real submit (ms) */
 const RAPID_ENTER_DEBOUNCE_MS = 50;
+const MAX_PERSISTENT_NEWLINES = 9;
+const SHIFT_ENTER_RESIDUAL_PATTERN = /^13;?[234]?\d*[u~]$/;
 
 export class PersistentInput extends EventEmitter {
   private queue: QueuedMessage[] = [];
@@ -434,16 +443,24 @@ export class PersistentInput extends EventEmitter {
       return;
     }
 
-    // Suppress Shift+Enter / Alt+Enter escape sequences (CSI u protocol).
-    // PersistentInput is single-line only; just ignore without inserting garbage.
-    if (isShiftEnterSequence(_str, key)) {
+    // Shift+Enter / Alt+Enter insert visible newline marker; converted on submit.
+    // Also catch residual "13~" fragments when ESC[ is stripped by terminal/readline.
+    const rawSeq = key?.sequence ?? _str ?? '';
+    if (isShiftEnterSequence(_str, key) || SHIFT_ENTER_RESIDUAL_PATTERN.test(rawSeq)) {
+      if (countNewlineMarkers(this.currentInput) < MAX_PERSISTENT_NEWLINES) {
+        this.currentInput += NEWLINE_MARKER;
+        if (!this.silentMode) {
+          this.regions.updateInput(this.currentInput);
+        }
+        this.emitInputChange();
+      }
       return;
     }
 
     // Handle Enter - execute immediate commands or submit to queue
     if (key?.name === 'return' || key?.name === 'enter') {
-      if (this.currentInput.trim()) {
-        const text = this.currentInput.trim();
+      const text = convertNewlineMarkersToNewlines(this.currentInput).trim();
+      if (text) {
 
         // Shell commands (!) and slash commands (/) execute immediately, never queued
         if (isImmediateCommand(text)) {
@@ -471,7 +488,11 @@ export class PersistentInput extends EventEmitter {
     // Handle Backspace
     if (key?.name === 'backspace') {
       if (this.currentInput.length > 0) {
-        this.currentInput = this.currentInput.slice(0, -1);
+        if (this.currentInput.endsWith(NEWLINE_MARKER)) {
+          this.currentInput = this.currentInput.slice(0, -NEWLINE_MARKER.length);
+        } else {
+          this.currentInput = this.currentInput.slice(0, -1);
+        }
         if (!this.silentMode) {
           this.regions.updateInput(this.currentInput);
         }

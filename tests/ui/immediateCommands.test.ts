@@ -557,4 +557,63 @@ describe('PersistentInput immediate command handling', () => {
 
     expect(pi.getCurrentInput()).toBe('why?');
   });
+
+  it('queues multiline text when Shift+Enter is used', () => {
+    vi.useFakeTimers();
+    try {
+      const pi = new PersistentInput({ silentMode: true });
+      (pi as any).isActive = true;
+      const queued: string[] = [];
+      pi.on('queued', (text: string) => queued.push(text));
+
+      const handler = (pi as any).handleKeypress;
+      handler('l', { name: undefined });
+      handler('i', { name: undefined });
+      handler('n', { name: undefined });
+      handler('e', { name: undefined });
+      handler('1', { name: undefined });
+      handler('\r', { name: 'return', sequence: '\r', shift: true });
+      handler('l', { name: undefined });
+      handler('i', { name: undefined });
+      handler('n', { name: undefined });
+      handler('e', { name: undefined });
+      handler('2', { name: undefined });
+      handler('', { name: 'return' });
+      vi.advanceTimersByTime(100);
+
+      expect(queued).toEqual(['line1\nline2']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('suppresses residual 13~ Shift+Enter fragments and treats them as newline', () => {
+    vi.useFakeTimers();
+    try {
+      const pi = new PersistentInput({ silentMode: true });
+      (pi as any).isActive = true;
+      const queued: string[] = [];
+      pi.on('queued', (text: string) => queued.push(text));
+
+      const handler = (pi as any).handleKeypress;
+      handler('l', { name: undefined });
+      handler('i', { name: undefined });
+      handler('n', { name: undefined });
+      handler('e', { name: undefined });
+      handler('1', { name: undefined });
+      handler('13~', { sequence: '13~' as unknown as string, name: undefined });
+      handler('l', { name: undefined });
+      handler('i', { name: undefined });
+      handler('n', { name: undefined });
+      handler('e', { name: undefined });
+      handler('2', { name: undefined });
+      handler('', { name: 'return' });
+      vi.advanceTimersByTime(100);
+
+      expect(queued).toEqual(['line1\nline2']);
+      expect(pi.getCurrentInput()).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

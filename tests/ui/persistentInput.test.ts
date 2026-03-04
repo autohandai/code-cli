@@ -57,8 +57,8 @@ function pressEnter(mockStdin: EventEmitter) {
   emitKey(mockStdin, '\r', { name: 'return' });
 }
 
-describe('PersistentInput Shift+Enter suppression', () => {
-  it('handleKeypress ignores Shift+Enter CSI u sequences without inserting characters', async () => {
+describe('PersistentInput Shift+Enter handling', () => {
+  it('handleKeypress inserts newline marker for Shift+Enter CSI/u and parsed variants', async () => {
     const mockStdin = createMockStdin();
     const mockStdout = createMockStdout();
 
@@ -69,6 +69,7 @@ describe('PersistentInput Shift+Enter suppression', () => {
 
     try {
       const { PersistentInput } = await import('../../src/ui/persistentInput.js');
+      const { NEWLINE_MARKER } = await import('../../src/ui/inputPrompt.js');
 
       const input = new PersistentInput({ silentMode: true });
       input.start();
@@ -82,12 +83,12 @@ describe('PersistentInput Shift+Enter suppression', () => {
       // Also simulate Shift+Enter via readline parsed (shift: true)
       emitKey(mockStdin, '\r', { name: 'return', sequence: '\r', shift: true });
 
-      // No characters should have been added
-      expect(input.getCurrentInput()).toBe('');
+      // Three newline markers should have been inserted
+      expect(input.getCurrentInput()).toBe(`${NEWLINE_MARKER}${NEWLINE_MARKER}${NEWLINE_MARKER}`);
 
       // Now verify normal typing still works
       emitKey(mockStdin, 'a', { name: 'a' });
-      expect(input.getCurrentInput()).toBe('a');
+      expect(input.getCurrentInput()).toBe(`${NEWLINE_MARKER}${NEWLINE_MARKER}${NEWLINE_MARKER}a`);
 
       input.stop();
     } finally {
