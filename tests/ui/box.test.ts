@@ -12,42 +12,58 @@ function stripAnsi(value: string): string {
   return value.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
 }
 
+/** Extract content between the │ side borders */
+function innerContent(value: string): string {
+  const plain = stripAnsi(value);
+  return plain.slice(1, -1); // strip leading │ and trailing │
+}
+
 const CLEAR_EOL = '\x1b[K';
 const RESET = '\x1b[0m';
 const BG_PATTERN = /\x1b\[48;2;\d+;\d+;\d+m/;
 const FG_PATTERN = /\x1b\[38;2;\d+;\d+;\d+m/;
 
 describe('drawInputBox', () => {
-  it('renders left-only content padded to width', () => {
+  it('renders left-only content padded to width with │ borders', () => {
     const result = stripAnsi(drawInputBox('hello', 20));
     expect(result.length).toBe(20);
-    expect(result.startsWith('hello')).toBe(true);
+    expect(result[0]).toBe('│');
+    expect(result[result.length - 1]).toBe('│');
+    expect(result).toContain('hello');
   });
 
   it('renders left and right content with gap', () => {
     const result = stripAnsi(drawInputBox('left', 30, 'right'));
     expect(result.length).toBe(30);
-    expect(result.startsWith('left')).toBe(true);
-    expect(result.endsWith('right')).toBe(true);
+    expect(result[0]).toBe('│');
+    expect(result[result.length - 1]).toBe('│');
+    const inner = innerContent(drawInputBox('left', 30, 'right'));
+    expect(inner.startsWith('left')).toBe(true);
+    expect(inner.endsWith('right')).toBe(true);
   });
 
   it('truncates right content when no room', () => {
     const result = stripAnsi(drawInputBox('lefttext', 10, 'rightttx'));
     expect(result.length).toBe(10);
-    expect(result.startsWith('lefttext')).toBe(true);
+    expect(result[0]).toBe('│');
+    expect(result[result.length - 1]).toBe('│');
+    expect(innerContent(drawInputBox('lefttext', 10, 'rightttx')).startsWith('lefttext')).toBe(true);
   });
 
   it('handles empty right gracefully', () => {
     const result = stripAnsi(drawInputBox('status', 40, ''));
     expect(result.length).toBe(40);
-    expect(result.startsWith('status')).toBe(true);
+    expect(result[0]).toBe('│');
+    expect(result[result.length - 1]).toBe('│');
+    expect(result).toContain('status');
   });
 
   it('pads to visible width when left content contains ANSI sequences', () => {
     const styled = '\u001b[31mhello\u001b[39m';
     const result = stripAnsi(drawInputBox(styled, 20));
     expect(result.length).toBe(20);
-    expect(result.startsWith('hello')).toBe(true);
+    expect(result[0]).toBe('│');
+    expect(result).toContain('hello');
   });
 
   it('calculates right clipping using visible width when ANSI is present', () => {
@@ -55,7 +71,9 @@ describe('drawInputBox', () => {
     const right = '\u001b[33mright-content\u001b[39m';
     const result = stripAnsi(drawInputBox(left, 16, right));
     expect(result.length).toBe(16);
-    expect(result.startsWith('left')).toBe(true);
+    expect(result[0]).toBe('│');
+    expect(result[result.length - 1]).toBe('│');
+    expect(result).toContain('left');
   });
 
   // --- Background fill tests ---
@@ -65,29 +83,19 @@ describe('drawInputBox', () => {
     expect(result).toMatch(BG_PATTERN);
   });
 
-  it('includes clear-to-EOL escape to extend background to terminal edge', () => {
-    const result = drawInputBox('hello', 20);
-    expect(result).toContain(CLEAR_EOL);
-  });
-
-  it('places clear-to-EOL before the final reset', () => {
+  it('ends with RESET + CLEAR_TO_EOL so bg stops at the right border', () => {
     const result = drawInputBox('test', 20);
-    const eolIndex = result.lastIndexOf(CLEAR_EOL);
-    const resetIndex = result.lastIndexOf(RESET);
-    expect(eolIndex).toBeGreaterThan(-1);
-    expect(resetIndex).toBeGreaterThan(eolIndex);
+    // RESET clears attributes, then CLEAR_TO_EOL fills rest of line with default bg
+    expect(result.endsWith(RESET + CLEAR_EOL)).toBe(true);
   });
 
   it('re-applies background after inner full-reset ANSI code', () => {
-    // Simulates styled text that contains \x1b[0m (e.g., from nested chalk)
     const styledContent = `\x1b[90mhello${RESET} world`;
     const result = drawInputBox(styledContent, 30);
 
-    // After inner \x1b[0m, background must be re-applied (any RGB bg code)
     const reApplyPattern = /\x1b\[0m\x1b\[48;2;\d+;\d+;\d+m/;
     expect(result).toMatch(reApplyPattern);
 
-    // Visible content is correct
     expect(stripAnsi(result).length).toBe(30);
     expect(stripAnsi(result)).toContain('hello');
     expect(stripAnsi(result)).toContain('world');
@@ -98,8 +106,6 @@ describe('drawInputBox', () => {
     const styledContent = `styled${bgClose}text`;
     const result = drawInputBox(styledContent, 20);
 
-    // The bg-close code should be replaced (not present as-is)
-    // Instead, the bg-open code should appear in its place
     expect(stripAnsi(result)).toContain('styledtext');
     expect(stripAnsi(result).length).toBe(20);
   });
@@ -108,15 +114,14 @@ describe('drawInputBox', () => {
     const styledContent = '\x1b[31mred text\x1b[39m normal';
     const result = drawInputBox(styledContent, 30);
 
-    // The output should contain a box fg code (replacing \x1b[39m)
     expect(result).toMatch(FG_PATTERN);
     expect(stripAnsi(result).length).toBe(30);
   });
 
-  it('extends background with clear-to-EOL when right param is provided', () => {
+  it('ends with RESET + CLEAR_TO_EOL when right param is provided', () => {
     const result = drawInputBox('left', 30, 'right');
     expect(result).toMatch(BG_PATTERN);
-    expect(result).toContain(CLEAR_EOL);
+    expect(result.endsWith(RESET + CLEAR_EOL)).toBe(true);
     expect(stripAnsi(result).length).toBe(30);
   });
 });
@@ -131,12 +136,10 @@ describe('drawInputTopBorder', () => {
     expect(plain.endsWith('┐')).toBe(true);
   });
 
-  it('includes background fill and clear-to-EOL', () => {
+  it('ends with RESET + CLEAR_TO_EOL to prevent bg bleed', () => {
     const rendered = drawInputTopBorder(20);
-    // Must have a 48;2 background code (any RGB value)
     expect(rendered).toMatch(/\x1b\[48;2;\d+;\d+;\d+m/);
-    expect(rendered).toContain(CLEAR_EOL);
-    expect(rendered).toContain(RESET);
+    expect(rendered.endsWith(RESET + CLEAR_EOL)).toBe(true);
   });
 });
 
@@ -150,11 +153,10 @@ describe('drawInputBottomBorder', () => {
     expect(plain.endsWith('┘')).toBe(true);
   });
 
-  it('includes background fill and clear-to-EOL', () => {
+  it('ends with RESET + CLEAR_TO_EOL to prevent bg bleed', () => {
     const rendered = drawInputBottomBorder(20);
     expect(rendered).toMatch(/\x1b\[48;2;\d+;\d+;\d+m/);
-    expect(rendered).toContain(CLEAR_EOL);
-    expect(rendered).toContain(RESET);
+    expect(rendered.endsWith(RESET + CLEAR_EOL)).toBe(true);
   });
 });
 
@@ -168,7 +170,6 @@ describe('theme-aware rendering', () => {
   });
 
   it('uses theme colors for box background when theme is initialized', async () => {
-    // Set up a mock theme with custom bg color
     const { setTheme, Theme } = await import('../../src/ui/theme/index.js');
     const customColors: Record<string, string> = {
       userMessageBg: '#112233',
@@ -179,11 +180,9 @@ describe('theme-aware rendering', () => {
     };
     setTheme(new Theme('test', customColors as never));
 
-    // Re-import to pick up the theme state
     const { drawInputBox: themedBox } = await import('../../src/ui/box.js');
     const result = themedBox('hello', 20);
 
-    // Should use theme's userMessageBg (#112233 → rgb 17,34,51)
     expect(result).toContain('\x1b[48;2;17;34;51m');
   });
 
@@ -201,7 +200,6 @@ describe('theme-aware rendering', () => {
     const { drawInputTopBorder: themedBorder } = await import('../../src/ui/box.js');
     const result = themedBorder(20);
 
-    // Should use theme's borderAccent (#ff0000 → rgb 255,0,0)
     expect(result).toContain('\x1b[38;2;255;0;0m');
   });
 });

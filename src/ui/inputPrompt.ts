@@ -10,7 +10,13 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import os from 'node:os';
 import { TerminalResizeWatcher } from './terminalResize.js';
-import { isShellCommand, parseShellCommand, executeShellCommand } from './shellCommand.js';
+import {
+  isShellCommand,
+  parseShellCommand,
+  executeShellCommand,
+  getPrimaryShellCommandSuggestion,
+  getShellCommandSuggestions
+} from './shellCommand.js';
 import type { SlashCommand } from '../core/slashCommands.js';
 import { MentionPreview } from './mentionPreview.js';
 import { getPlanModeManager } from '../commands/plan.js';
@@ -25,6 +31,7 @@ import {
   drawInputBottomBorder,
   drawInputBox,
   drawInputTopBorder,
+  invalidateBoxColorCache,
   type InputBorderStyle
 } from './box.js';
 import { buildFileMentionSuggestions } from './mentionFilter.js';
@@ -61,6 +68,13 @@ export interface PromptRenderState {
   cursorColumn: number;
 }
 
+export interface MultiLineRenderState {
+  lines: string[];        // drawInputBox() output per content row
+  cursorRow: number;      // which content line has cursor (0-based)
+  cursorColumn: number;   // screen column on that row (includes border offset)
+  lineCount: number;      // total content lines
+}
+
 export interface PromptHotTip {
   label: string;
 }
@@ -71,11 +85,6 @@ interface PromptSuggestion {
 }
 
 const HOT_TIP_LIMIT = 5;
-const HOT_TIP_SHELL_SUGGESTIONS = [
-  '! git status',
-  '! bun test',
-  '! bun run lint'
-];
 
 const CONTEXTUAL_HELP_ROWS: Array<{ left: string; right: string }> = [
   { left: '/ for commands', right: '! for shell commands' },
@@ -118,7 +127,8 @@ function truncatePlainText(value: string, width: number): string {
 export function buildPromptHotTips(
   currentLine: string,
   files: string[],
-  slashCommands: SlashCommandHint[]
+  slashCommands: SlashCommandHint[],
+  workspaceRoot?: string
 ): PromptHotTip[] {
   const trimmed = currentLine.trim();
   const mentionMatch = /@([A-Za-z0-9_./\\-]*)$/.exec(currentLine);
@@ -148,9 +158,13 @@ export function buildPromptHotTips(
   }
 
   if (trimmed.startsWith('!')) {
-    return HOT_TIP_SHELL_SUGGESTIONS.map((value) => ({
-      label: `Tab -> ${value}`
-    }));
+    const shellSuggestions = getShellCommandSuggestions(trimmed, {
+      cwd: workspaceRoot,
+      limit: HOT_TIP_LIMIT
+    });
+    return shellSuggestions.length > 0
+      ? shellSuggestions.map((value) => ({ label: `Tab -> ${value}` }))
+      : [{ label: 'Type a shell command after ! (e.g. ! git status)' }];
   }
 
   const defaultFileTip = files.length > 0
@@ -159,7 +173,7 @@ export function buildPromptHotTips(
 
   return [
     { label: 'Tab -> /help' },
-    { label: `Tab -> ${HOT_TIP_SHELL_SUGGESTIONS[0]}` },
+    { label: 'Tab -> ! git status' },
     defaultFileTip,
     { label: 'Type /, @, or ! to switch suggestion mode' },
     { label: 'Shift+Tab toggles plan mode' },
@@ -170,7 +184,8 @@ export function getPrimaryHotTipSuggestion(
   currentLine: string,
   files: string[],
   slashCommands: SlashCommandHint[],
-  suggestionText?: string
+  suggestionText?: string,
+  workspaceRoot?: string
 ): PromptSuggestion | null {
   const mentionMatch = /@([A-Za-z0-9_./\\-]*)$/.exec(currentLine);
   if (mentionMatch) {
@@ -205,12 +220,53 @@ export function getPrimaryHotTipSuggestion(
   }
 
   if (trimmed.startsWith('!')) {
-    const suggestion = HOT_TIP_SHELL_SUGGESTIONS.find((value) => value.startsWith(trimmed))
-      ?? HOT_TIP_SHELL_SUGGESTIONS[0];
+    const suggestion = getPrimaryShellCommandSuggestion(trimmed, { cwd: workspaceRoot });
+    if (!suggestion) {
+      return null;
+    }
     return { line: suggestion, cursor: suggestion.length };
   }
 
   return null;
+}
+
+export function getInlineGhostCompletionSuffix(
+  currentLine: string,
+  files: string[],
+  slashCommands: SlashCommandHint[],
+  workspaceRoot?: string,
+  llmSuggestion?: string | null
+): string | null {
+  const trimmed = currentLine.trim();
+  if (!trimmed.startsWith('!')) {
+    return null;
+  }
+
+  const cleanLlmSuggestion = sanitizeRenderLine(llmSuggestion ?? '');
+  if (
+    cleanLlmSuggestion &&
+    cleanLlmSuggestion.startsWith(currentLine) &&
+    cleanLlmSuggestion !== currentLine
+  ) {
+    return cleanLlmSuggestion.slice(currentLine.length);
+  }
+
+  const suggestion = getPrimaryHotTipSuggestion(
+    currentLine,
+    files,
+    slashCommands,
+    undefined,
+    workspaceRoot
+  );
+  if (!suggestion) {
+    return null;
+  }
+  if (!suggestion.line.startsWith(currentLine)) {
+    return null;
+  }
+
+  const suffix = suggestion.line.slice(currentLine.length);
+  return suffix.length > 0 ? suffix : null;
 }
 
 export function buildContextualHelpPanelLines(
@@ -360,56 +416,60 @@ export function getPromptBlockWidth(columns: number | undefined): number {
 }
 
 /**
- * Build the visible prompt row and the corresponding cursor column.
- * Returns a boxed line (full terminal width) and a zero-based cursor column.
- *
- * @param currentLine - Raw readline buffer content.
- * @param cursorPos - Current readline cursor offset within the line.
- * @param width - Terminal column width for the prompt block.
- * @param suggestionText - Ghost text shown as placeholder when input is empty.
+ * Render a single segment of input text with truncation/scrolling and styling.
+ * Returns styled text ready for drawInputBox and a cursor column (without border offset).
  */
-export function buildPromptRenderState(
-  currentLine: string,
+interface SegmentRender {
+  styledText: string;
+  cursorColumn: number;
+}
+
+function renderSegment(
+  rawSegment: string,
   cursorPos: number,
   width: number,
-  suggestionText?: string
-): PromptRenderState {
-  const sanitizedLine = sanitizeRenderLine(currentLine);
-  // Whitespace-only drift can happen after terminal redraws; treat it as empty.
+  prefix: string,
+  showPlaceholder: boolean,
+  suggestionText?: string,
+  inlineGhostSuffix?: string
+): SegmentRender {
+  const sanitizedLine = sanitizeRenderLine(rawSegment);
   const normalizedLine = sanitizedLine.trim().length === 0 ? '' : sanitizedLine;
   const innerWidth = Math.max(1, width - 2);
-  const prefix = PROMPT_INPUT_PREFIX;
   const effectiveCursor = Math.max(0, Math.min(normalizedLine.length, cursorPos));
   const fullInput = `${prefix}${normalizedLine}`;
-  const placeholder = `${prefix}${PROMPT_PLACEHOLDER}`;
+  const safeGhostSuffix = sanitizeRenderLine(inlineGhostSuffix ?? '');
 
   let visibleText = fullInput;
   let cursorColumn = prefix.length + effectiveCursor;
   const fullCursor = prefix.length + effectiveCursor;
+  let ghostFragment = '';
 
-  if (!normalizedLine) {
+  if (showPlaceholder && !normalizedLine) {
+    const placeholder = `${prefix}${PROMPT_PLACEHOLDER}`;
     const displayPlaceholder = suggestionText
       ? `${prefix}${suggestionText}`
       : placeholder;
     visibleText = chalk.gray(displayPlaceholder);
+    cursorColumn = prefix.length;
+  } else if (!normalizedLine) {
+    // Empty segment (continuation line or first line in multi-line)
+    visibleText = prefix;
     cursorColumn = prefix.length;
   } else if (fullInput.length > innerWidth) {
     const ellipsis = '…';
     const nearStartThreshold = innerWidth - 1;
     const nearEndThreshold = innerWidth - 1;
 
-    // Near start: keep left side stable and show a right ellipsis.
     if (fullCursor <= nearStartThreshold) {
       const body = fullInput.slice(0, Math.max(1, innerWidth - 1));
       visibleText = `${body}${ellipsis}`;
       cursorColumn = fullCursor;
-    // Near end: keep right side stable and show a left ellipsis.
     } else if ((fullInput.length - fullCursor) <= nearEndThreshold) {
       const start = Math.max(0, fullInput.length - Math.max(1, innerWidth - 1));
       const body = fullInput.slice(start);
       visibleText = `${ellipsis}${body}`;
       cursorColumn = 1 + (fullCursor - start);
-    // Middle: keep cursor in a moving window with ellipses on both sides.
     } else {
       const windowSize = Math.max(1, innerWidth - 2);
       const half = Math.floor(windowSize / 2);
@@ -422,21 +482,130 @@ export function buildPromptRenderState(
     }
   }
 
-  let styledVisibleText = visibleText;
-  if (!normalizedLine) {
-    styledVisibleText = themedFg('muted', visibleText, (value) => chalk.gray(value));
+  let styledText = visibleText;
+  if (showPlaceholder && !normalizedLine) {
+    styledText = themedFg('muted', visibleText, (value) => chalk.gray(value));
   } else if (visibleText.startsWith(prefix)) {
     const prefixStyled = themedFg('accent', prefix, (value) => chalk.gray(value));
-    styledVisibleText = `${prefixStyled}${visibleText.slice(prefix.length)}`;
+    styledText = `${prefixStyled}${visibleText.slice(prefix.length)}`;
   } else if (visibleText.startsWith(`…${prefix}`)) {
     const prefixStyled = themedFg('accent', prefix, (value) => chalk.gray(value));
-    styledVisibleText = `…${prefixStyled}${visibleText.slice((`…${prefix}`).length)}`;
+    styledText = `…${prefixStyled}${visibleText.slice((`…${prefix}`).length)}`;
   }
 
-  const lineText = drawInputBox(styledVisibleText, width);
-  const clampedCursor = Math.max(0, Math.min(width - 1, cursorColumn));
+  if (
+    normalizedLine &&
+    safeGhostSuffix &&
+    fullInput.length <= innerWidth &&
+    effectiveCursor === normalizedLine.length
+  ) {
+    const availableGhostWidth = Math.max(0, innerWidth - fullInput.length);
+    if (availableGhostWidth > 0) {
+      ghostFragment = safeGhostSuffix.slice(0, availableGhostWidth);
+    }
+  }
 
+  if (ghostFragment) {
+    styledText += themedFg('muted', ghostFragment, (value) => chalk.gray(value));
+  }
+
+  return { styledText, cursorColumn };
+}
+
+/**
+ * Build the visible prompt row and the corresponding cursor column.
+ * Returns a boxed line (full terminal width) and a zero-based cursor column.
+ *
+ * @param currentLine - Raw readline buffer content.
+ * @param cursorPos - Current readline cursor offset within the line.
+ * @param width - Terminal column width for the prompt block.
+ * @param suggestionText - Ghost text shown as placeholder when input is empty.
+ */
+export function buildPromptRenderState(
+  currentLine: string,
+  cursorPos: number,
+  width: number,
+  suggestionText?: string,
+  inlineGhostSuffix?: string
+): PromptRenderState {
+  const segment = renderSegment(
+    currentLine,
+    cursorPos,
+    width,
+    PROMPT_INPUT_PREFIX,
+    true,
+    suggestionText,
+    inlineGhostSuffix
+  );
+  const lineText = drawInputBox(segment.styledText, width);
+  // +1 accounts for the left │ border character in drawInputBox
+  const clampedCursor = Math.max(0, Math.min(width - 1, segment.cursorColumn + 1));
   return { lineText, cursorColumn: clampedCursor };
+}
+
+/**
+ * Build multi-line render state for the composer.
+ * Splits input by NEWLINE_MARKER and builds a boxed row for each segment.
+ */
+export function buildMultiLineRenderState(
+  currentLine: string,
+  cursorPos: number,
+  width: number,
+  borderStyle: InputBorderStyle = 'default',
+  suggestionText?: string,
+  inlineGhostSuffix?: string
+): MultiLineRenderState {
+  const segments = currentLine.split(NEWLINE_MARKER);
+
+  if (segments.length <= 1) {
+    const seg = renderSegment(
+      currentLine,
+      cursorPos,
+      width,
+      PROMPT_INPUT_PREFIX,
+      true,
+      suggestionText,
+      inlineGhostSuffix
+    );
+    const lineText = drawInputBox(seg.styledText, width, undefined, borderStyle);
+    const clampedCursor = Math.max(0, Math.min(width - 1, seg.cursorColumn + 1));
+    return { lines: [lineText], cursorRow: 0, cursorColumn: clampedCursor, lineCount: 1 };
+  }
+
+  // Find which segment the flat cursor falls in
+  let cursorRow = 0;
+  let cursorInSegment = 0;
+  let pos = 0;
+  for (let i = 0; i < segments.length; i++) {
+    const segEnd = pos + segments[i].length;
+    if (cursorPos <= segEnd || i === segments.length - 1) {
+      cursorRow = i;
+      cursorInSegment = Math.max(0, cursorPos - pos);
+      break;
+    }
+    pos = segEnd + NEWLINE_MARKER.length;
+  }
+
+  const lines: string[] = [];
+  let finalCursorColumn = 0;
+
+  for (let i = 0; i < segments.length; i++) {
+    const isFirst = i === 0;
+    const prefix = isFirst ? PROMPT_INPUT_PREFIX : '  ';
+    const segCursor = i === cursorRow ? cursorInSegment : 0;
+    const seg = renderSegment(
+      segments[i], segCursor, width, prefix,
+      false, // never show placeholder in multi-line mode
+      isFirst ? suggestionText : undefined,
+      isFirst ? inlineGhostSuffix : undefined
+    );
+    lines.push(drawInputBox(seg.styledText, width, undefined, borderStyle));
+    if (i === cursorRow) {
+      finalCursorColumn = Math.max(0, Math.min(width - 1, seg.cursorColumn + 1));
+    }
+  }
+
+  return { lines, cursorRow, cursorColumn: finalCursorColumn, lineCount: segments.length };
 }
 
 function formatPromptStatusRow(
@@ -756,10 +925,10 @@ export function processImagesInText(
 
 // Visual marker for newlines in single-line input (converted to \n on submit)
 export const NEWLINE_MARKER = ' ↵ ';
-const MAX_NEWLINES = 2; // Max 3 lines = 2 newline markers
+const MAX_NEWLINES = 9; // Max 10 lines = 9 newline markers
 
 // Maximum lines to display visually (input can contain more)
-export const MAX_DISPLAY_LINES = 5;
+export const MAX_DISPLAY_LINES = 10;
 
 // Track stdin streams that have been instrumented with emitKeypressEvents
 // to prevent duplicate listener registration
@@ -851,7 +1020,8 @@ export async function readInstruction(
   onImageDetected?: ImageDetectedCallback,
   workspaceRoot?: string,
   initialValue = '',
-  suggestionText?: string
+  suggestionText?: string,
+  resolveShellSuggestion?: (input: string) => Promise<string | null>
 ): Promise<string | null> {
   const stdInput = (io.input ?? process.stdin) as NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void };
   const stdOutput = (io.output ?? process.stdout) as NodeJS.WriteStream;
@@ -874,7 +1044,8 @@ export async function readInstruction(
         stdOutput,
         onImageDetected,
         workspaceRoot,
-        suggestionText
+        suggestionText,
+        resolveShellSuggestion
       });
 
       if (result.kind === 'abort') {
@@ -898,6 +1069,7 @@ interface PromptOnceOptions {
   onImageDetected?: ImageDetectedCallback;
   workspaceRoot?: string;
   suggestionText?: string;
+  resolveShellSuggestion?: (input: string) => Promise<string | null>;
 }
 
 /**
@@ -926,6 +1098,21 @@ function disableBracketedPaste(output: NodeJS.WriteStream): void {
   }
 }
 
+/**
+ * Drain any pending data from stdin that accumulated while the prompt was
+ * inactive (e.g., user pasted text while the agent was processing).
+ * Without this, buffered raw text floods the new readline and each newline
+ * triggers a separate submission.
+ */
+function drainStdin(input: NodeJS.ReadStream): void {
+  // Read and discard all available data without blocking.
+  // `read()` returns null when no data is available.
+  let chunk: Buffer | string | null;
+  do {
+    chunk = input.read();
+  } while (chunk !== null);
+}
+
 function createReadline(
   stdInput: NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void },
   stdOutput: NodeJS.WriteStream
@@ -938,6 +1125,17 @@ function createReadline(
 
   // Ensure stdin keypress events are set up (only once per stream)
   safeEmitKeypressEvents(stdInput);
+
+  // Drain any data that was buffered while the prompt was inactive.
+  // When the user pastes during agent processing, bracketed paste is disabled,
+  // so the text arrives as raw lines without paste delimiters. Without draining,
+  // each newline would trigger a separate submission.
+  try {
+    stdInput.resume();
+    drainStdin(stdInput);
+  } catch {
+    // Ignore errors during drain
+  }
 
   // Enable bracketed paste mode for paste detection
   enableBracketedPaste(stdOutput);
@@ -983,6 +1181,9 @@ export function leavePromptSurface(
   statusLineCount = STATUS_LINE_COUNT,
   fromLineEvent = false
 ): void {
+  const numContentLines = lastRenderedContentLines;
+  const cursorRow = lastRenderedCursorRow;
+
   // Enter submissions can leave the cursor one line below the input row.
   // With a boxed prompt, readline can advance into the rows below input.
   // Normalize back to the input line before clearing the full prompt block.
@@ -993,34 +1194,32 @@ export function leavePromptSurface(
     }
   }
 
-  // Clear current input line
+  // Cursor is on content row `cursorRow`. Clear it.
   readline.cursorTo(output, 0);
   readline.clearLine(output, 0);
 
-  // Clear prompt lines above the input
-  for (let i = 0; i < PROMPT_LINES_ABOVE_INPUT; i++) {
+  // Clear content lines above cursor and top border
+  for (let i = 0; i < cursorRow + PROMPT_LINES_ABOVE_INPUT; i++) {
     readline.moveCursor(output, 0, -1);
     readline.clearLine(output, 0);
   }
 
-  // Return to input line
-  for (let i = 0; i < PROMPT_LINES_ABOVE_INPUT; i++) {
+  // Return to cursor's content row
+  for (let i = 0; i < cursorRow + PROMPT_LINES_ABOVE_INPUT; i++) {
     readline.moveCursor(output, 0, 1);
   }
 
-  // Clear prompt lines below the input
-  for (let i = 0; i < PROMPT_LINES_BELOW_INPUT; i++) {
-    readline.moveCursor(output, 0, 1);
-    readline.clearLine(output, 0);
-  }
-
-  for (let i = 0; i < statusLineCount; i++) {
+  // Clear content lines below cursor, bottom border, and status
+  const belowCount = (numContentLines - 1 - cursorRow) + PROMPT_LINES_BELOW_INPUT + statusLineCount;
+  for (let i = 0; i < belowCount; i++) {
     readline.moveCursor(output, 0, 1);
     readline.clearLine(output, 0);
   }
 
-  // Move to the first free line below the prompt surface.
-  readline.moveCursor(output, 0, 1);
+  // Move cursor back to the top of the cleared prompt surface so
+  // subsequent output fills the area instead of leaving blank lines.
+  const upToTop = PROMPT_LINES_ABOVE_INPUT + cursorRow + belowCount;
+  readline.moveCursor(output, 0, -upToTop);
   readline.cursorTo(output, 0);
 }
 
@@ -1074,7 +1273,18 @@ function handlePasteComplete(
 }
 
 async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
-  const { files, slashCommands, statusLine, initialValue, stdInput, stdOutput, onImageDetected, workspaceRoot, suggestionText } = options;
+  const {
+    files,
+    slashCommands,
+    statusLine,
+    initialValue,
+    stdInput,
+    stdOutput,
+    onImageDetected,
+    workspaceRoot,
+    suggestionText,
+    resolveShellSuggestion,
+  } = options;
   const { rl, input, supportsRawMode } = createReadline(stdInput, stdOutput);
 
   const mentionPreview = new MentionPreview(rl, files, slashCommands, stdOutput);
@@ -1082,6 +1292,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
   // Initialize paste state for bracketed paste detection
   const pasteState = createPasteState();
   let contextualHelpVisible = false;
+  let llmInlineShellSuggestion: string | null = null;
 
   const applyPlanModePrefix = (line: string): string => {
     const planPrefix = getPlanModeManager().isEnabled() ? 'plan:on' : 'plan:off';
@@ -1102,8 +1313,34 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     return applyPlanModePrefix(statusLine ?? '');
   };
 
+  const getInlineGhostSuffix = (): string | undefined => {
+    if (contextualHelpVisible) {
+      return undefined;
+    }
+    const rlAny = rl as readline.Interface & { line?: string };
+    const currentLine = rlAny.line ?? '';
+    if (!currentLine || currentLine.includes(NEWLINE_MARKER)) {
+      return undefined;
+    }
+    return getInlineGhostCompletionSuffix(
+      currentLine,
+      files,
+      slashCommands,
+      workspaceRoot,
+      llmInlineShellSuggestion
+    ) ?? undefined;
+  };
+
   const renderPromptSurface = (isResize = false, hasExistingPromptBlock = true): void => {
-    renderPromptLine(rl, getActiveStatusLine(), stdOutput, isResize, hasExistingPromptBlock, suggestionText);
+    renderPromptLine(
+      rl,
+      getActiveStatusLine(),
+      stdOutput,
+      isResize,
+      hasExistingPromptBlock,
+      suggestionText,
+      getInlineGhostSuffix()
+    );
   };
 
   const resizeWatcher = new TerminalResizeWatcher(stdOutput, () => {
@@ -1128,9 +1365,15 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     let inlineImageScanTimeout: NodeJS.Timeout | undefined;
     let inlineImageRetryCount = 0;
     const MAX_INLINE_IMAGE_RETRIES = 12;
-    const rlInternal = rl as readline.Interface & { _refreshLine?: () => void };
+    let shellSuggestionRequestId = 0;
+    let inlineShellSuggestionTimeout: NodeJS.Timeout | undefined;
+    let inlineShellSuggestionRequestId = 0;
+    const rlInternal = rl as readline.Interface & { _refreshLine?: () => void; _moveCursor?: () => void };
     const originalRefreshLine = typeof rlInternal._refreshLine === 'function'
       ? rlInternal._refreshLine.bind(rlInternal)
+      : undefined;
+    const originalMoveCursor = typeof rlInternal._moveCursor === 'function'
+      ? rlInternal._moveCursor.bind(rlInternal)
       : undefined;
     const outputGuard = installReadlineOutputGuard(rl);
 
@@ -1152,6 +1395,20 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       renderPromptSurface(false, true);
     }
 
+    // Coalesce renders: both _refreshLine and keypress handlers trigger renders,
+    // but we only need one per event-loop tick.
+    let renderScheduled = false;
+    function scheduleRender(): void {
+      if (renderScheduled) return;
+      renderScheduled = true;
+      setImmediate(() => {
+        renderScheduled = false;
+        if (!closed && !pasteState.isInPaste) {
+          renderActivePrompt();
+        }
+      });
+    }
+
     const cleanup = () => {
       if (closed) return;
       closed = true;
@@ -1163,6 +1420,10 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       if (inlineImageScanTimeout) {
         clearTimeout(inlineImageScanTimeout);
         inlineImageScanTimeout = undefined;
+      }
+      if (inlineShellSuggestionTimeout) {
+        clearTimeout(inlineShellSuggestionTimeout);
+        inlineShellSuggestionTimeout = undefined;
       }
       // Disable bracketed paste mode and ensure cursor is visible
       disableBracketedPaste(stdOutput);
@@ -1177,6 +1438,9 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       input.off('data', handleInputData);
       if (originalRefreshLine) {
         rlInternal._refreshLine = originalRefreshLine;
+      }
+      if (originalMoveCursor) {
+        rlInternal._moveCursor = originalMoveCursor;
       }
       outputGuard.restore();
       if (supportsRawMode && input.isTTY) {
@@ -1217,7 +1481,19 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     if (typeof rlInternal._refreshLine === 'function') {
       rlInternal._refreshLine = () => {
         if (!closed && !pasteState.isInPaste) {
-          renderActivePrompt();
+          scheduleRender();
+        }
+      };
+    }
+
+    // Override _moveCursor while preserving readline's internal cursor updates.
+    // Readline uses this path for left/right/home/end edits; skipping the
+    // original call leaves rl.cursor stale and breaks mid-line editing.
+    if (typeof rlInternal._moveCursor === 'function') {
+      rlInternal._moveCursor = (...args: unknown[]) => {
+        originalMoveCursor?.(...(args as []));
+        if (!closed && !pasteState.isInPaste) {
+          scheduleRender();
         }
       };
     }
@@ -1229,8 +1505,27 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     const originalTtyWrite = rlTtyWrite._ttyWrite?.bind(rl);
     if (originalTtyWrite) {
       rlTtyWrite._ttyWrite = (s: string, key: readline.Key) => {
+        // During paste, suppress ALL readline processing. Without this,
+        // readline processes each pasted character including newlines that
+        // fire 'line' events and trigger individual submissions.
+        // The handleKeypress handler buffers paste content separately.
+        if (pasteState.isInPaste) {
+          return;
+        }
         if (isShiftEnterSequence(s, key)) {
-          return; // Suppress — our keypress handler inserts NEWLINE_MARKER
+          // Suppress readline processing — keypress handler will insert NEWLINE_MARKER
+          return;
+        }
+        // Catch residual fragments after readline strips \x1b[ from CSI sequences.
+        // e.g. ESC[13;2~ → readline consumes ESC[, leaving "13;2~" or "13~" as
+        // literal text. The keypress event does NOT fire for these fragments, so
+        // we must insert the NEWLINE_MARKER directly here.
+        if (/^13;?[234]?\d*[u~]$/.test(s)) {
+          const currentMarkers = countNewlineMarkers(rl.line || '');
+          if (currentMarkers < MAX_NEWLINES) {
+            insertAtCursor(NEWLINE_MARKER);
+          }
+          return;
         }
         return originalTtyWrite(s, key);
       };
@@ -1301,6 +1596,50 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         if (!closed && !pasteState.isInPaste) {
           replaceDroppedImagesInline();
         }
+      }, delayMs);
+    };
+
+    const scheduleInlineShellSuggestion = (delayMs = 120) => {
+      if (!resolveShellSuggestion || pasteState.isInPaste || contextualHelpVisible) {
+        return;
+      }
+
+      const rlAny = rl as readline.Interface & { line?: string };
+      const sourceLine = rlAny.line ?? '';
+      const trimmedSource = sourceLine.trim();
+
+      if (!trimmedSource.startsWith('!') || !trimmedSource.slice(1).trim()) {
+        if (llmInlineShellSuggestion !== null) {
+          llmInlineShellSuggestion = null;
+          renderActivePrompt();
+        }
+        return;
+      }
+
+      if (inlineShellSuggestionTimeout) {
+        clearTimeout(inlineShellSuggestionTimeout);
+      }
+
+      inlineShellSuggestionTimeout = setTimeout(() => {
+        inlineShellSuggestionTimeout = undefined;
+        const requestId = ++inlineShellSuggestionRequestId;
+        const lineAtRequest = (rl as readline.Interface & { line?: string }).line ?? '';
+
+        resolveShellSuggestion(lineAtRequest)
+          .then((suggestion) => {
+            if (closed || requestId !== inlineShellSuggestionRequestId) {
+              return;
+            }
+            const latest = (rl as readline.Interface & { line?: string }).line ?? '';
+            if (latest !== lineAtRequest) {
+              return;
+            }
+            llmInlineShellSuggestion = suggestion ?? null;
+            renderActivePrompt();
+          })
+          .catch(() => {
+            // Best effort only; local deterministic ghost suggestion remains available.
+          });
       }, delayMs);
     };
 
@@ -1441,7 +1780,70 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       if (isPlainTabShortcut(_str, key)) {
         const rlAny = rl as readline.Interface & { line: string; cursor: number };
         const currentInput = rlAny.line ?? '';
-        const suggestion = getPrimaryHotTipSuggestion(currentInput, files, slashCommands, suggestionText);
+        const trimmedInput = currentInput.trim();
+
+        if (trimmedInput.startsWith('!') && resolveShellSuggestion) {
+          if (
+            llmInlineShellSuggestion &&
+            llmInlineShellSuggestion.startsWith(currentInput) &&
+            llmInlineShellSuggestion !== currentInput
+          ) {
+            rlAny.line = llmInlineShellSuggestion;
+            rlAny.cursor = llmInlineShellSuggestion.length;
+            renderActivePrompt();
+            return;
+          }
+
+          const requestId = ++shellSuggestionRequestId;
+          const immediateFallback = getPrimaryHotTipSuggestion(
+            currentInput,
+            files,
+            slashCommands,
+            suggestionText,
+            workspaceRoot
+          );
+          let expectedInputAtResponse = currentInput;
+
+          if (immediateFallback) {
+            rlAny.line = immediateFallback.line;
+            rlAny.cursor = immediateFallback.cursor;
+            expectedInputAtResponse = immediateFallback.line;
+            renderActivePrompt();
+          }
+
+          resolveShellSuggestion(currentInput)
+            .then((llmSuggestion) => {
+              if (closed || requestId !== shellSuggestionRequestId) {
+                return;
+              }
+
+              const latest = (rl as readline.Interface & { line: string }).line ?? '';
+              if (latest !== expectedInputAtResponse) {
+                return;
+              }
+
+              if (llmSuggestion) {
+                rlAny.line = llmSuggestion;
+                rlAny.cursor = llmSuggestion.length;
+                renderActivePrompt();
+              }
+            })
+            .catch(() => {
+              if (closed || requestId !== shellSuggestionRequestId) {
+                return;
+              }
+              // Ignore LLM errors: immediate local fallback already applied above.
+            });
+          return;
+        }
+
+        const suggestion = getPrimaryHotTipSuggestion(
+          currentInput,
+          files,
+          slashCommands,
+          suggestionText,
+          workspaceRoot
+        );
         if (suggestion) {
           rlAny.line = suggestion.line;
           rlAny.cursor = suggestion.cursor;
@@ -1507,6 +1909,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       // delimiters. Scan the current line after keypress idle to replace image paths
       // with [Image #N] placeholders inline.
       scheduleInlineImageScan();
+      scheduleInlineShellSuggestion();
 
       if (contextualHelpVisible && shouldAutoHideShortcutHelp(_str, key)) {
         setContextualHelpVisible(false);
@@ -1515,11 +1918,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       // Force a post-keypress repaint so border/mode styling follows the
       // latest readline buffer even on terminals where _refreshLine timing
       // can run one keystroke behind.
-      setImmediate(() => {
-        if (!closed && !pasteState.isInPaste) {
-          renderActivePrompt();
-        }
-      });
+      scheduleRender();
     };
 
     input.on('keypress', handleKeypress);
@@ -1641,6 +2040,18 @@ function getComposerBorderStyle(line: string): InputBorderStyle {
   return 'default';
 }
 
+// Track multi-line state for leavePromptSurface and MentionPreview offset.
+let lastRenderedContentLines = 1;
+let lastRenderedCursorRow = 0;
+
+export function getLastRenderedContentLines(): number {
+  return lastRenderedContentLines;
+}
+
+export function getLastRenderedCursorRow(): number {
+  return lastRenderedCursorRow;
+}
+
 // Track the width used by the last renderPromptLine call so we can detect
 // width changes (resize) and compute reflow line counts for clearing.
 let lastRenderedPromptWidth = 0;
@@ -1651,14 +2062,25 @@ function renderPromptLine(
   output: NodeJS.WriteStream,
   isResize = false,
   hasExistingPromptBlock = true,
-  suggestionText?: string
+  suggestionText?: string,
+  inlineGhostSuffix?: string
 ): void {
+  // Invalidate color cache once per render frame
+  invalidateBoxColorCache();
+
   const width = getPromptBlockWidth(output.columns);
   const rlAny = rl as readline.Interface & { cursor?: number; line?: string };
   const currentLine = rlAny.line ?? '';
   const cursorPos = rlAny.cursor ?? currentLine.length;
-  const prompt = buildPromptRenderState(currentLine, cursorPos, width, suggestionText);
   const borderStyle = getComposerBorderStyle(currentLine);
+  const state = buildMultiLineRenderState(
+    currentLine,
+    cursorPos,
+    width,
+    borderStyle,
+    suggestionText,
+    inlineGhostSuffix
+  );
   const topBorder = drawInputTopBorder(width, borderStyle);
   const bottomBorder = drawInputBottomBorder(width, borderStyle);
   const statusRow = formatPromptStatusRow(statusLine, width);
@@ -1683,20 +2105,22 @@ function renderPromptLine(
     // remnants of the old prompt block before clearing.
     const termCols = output.columns ?? 80;
     const oldWidth = lastRenderedPromptWidth || width;
-    const logicalLines = PROMPT_BLOCK_LINE_COUNT + STATUS_LINE_COUNT;
+    const prevContentLines = lastRenderedContentLines;
+    const prevCursorRow = lastRenderedCursorRow;
+    const logicalLines = PROMPT_LINES_ABOVE_INPUT + prevContentLines + PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT;
     // Use actual terminal columns (not prompt width) since that's what
     // the terminal uses for reflow calculations.
     const rowsPerOldLine = Math.max(1, Math.ceil(oldWidth / Math.max(1, termCols)));
     const totalReflowedRows = logicalLines * rowsPerOldLine;
-    // Move up generously to reach above all reflowed prompt content.
-    // Add extra margin because the cursor's physical position within the
-    // reflowed input row is uncertain.
-    const moveUp = totalReflowedRows + rowsPerOldLine;
+    // Move up generously from cursor row. The cursor sits on content row
+    // prevCursorRow, which is (prevCursorRow + PROMPT_LINES_ABOVE_INPUT)
+    // rows below the top border.
+    const cursorOffset = prevCursorRow + PROMPT_LINES_ABOVE_INPUT;
+    const moveUp = totalReflowedRows + rowsPerOldLine + cursorOffset;
     readline.moveCursor(output, 0, -moveUp);
     readline.cursorTo(output, 0);
     // Clear only the reflowed prompt block rows, NOT the entire screen below.
-    // Using clearScreenDown here would wipe the chat log above the prompt.
-    const rowsToClear = moveUp + PROMPT_BLOCK_LINE_COUNT + STATUS_LINE_COUNT;
+    const rowsToClear = moveUp + logicalLines;
     for (let i = 0; i < rowsToClear; i++) {
       readline.clearLine(output, 0);
       readline.moveCursor(output, 0, 1);
@@ -1705,20 +2129,29 @@ function renderPromptLine(
     readline.moveCursor(output, 0, -rowsToClear);
     readline.cursorTo(output, 0);
   } else if (hasExistingPromptBlock) {
-    // Same-width redraw: cursor sits on the input row.
-    // Clear the fixed 4-line prompt block in place.
+    // Same-width redraw: cursor sits on content row lastRenderedCursorRow.
+    const prevContentLines = lastRenderedContentLines;
+    const prevCursorRow = lastRenderedCursorRow;
+
     readline.cursorTo(output, 0);
-    for (let i = 0; i < PROMPT_LINES_ABOVE_INPUT; i++) {
+    readline.clearLine(output, 0);
+
+    // Clear content lines above cursor and top border
+    const upCount = prevCursorRow + PROMPT_LINES_ABOVE_INPUT;
+    for (let i = 0; i < upCount; i++) {
       readline.moveCursor(output, 0, -1);
       readline.clearLine(output, 0);
     }
-    readline.cursorTo(output, 0);
-    readline.clearLine(output, 0);
-    for (let i = 0; i < PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT; i++) {
+
+    // Move down, clearing remaining content + below + status
+    const downCount = prevContentLines + PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT;
+    for (let i = 0; i < downCount; i++) {
       readline.moveCursor(output, 0, 1);
       readline.clearLine(output, 0);
     }
-    for (let i = 0; i < PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT; i++) {
+
+    // Return to top border position (where we started minus upCount)
+    for (let i = 0; i < downCount; i++) {
       readline.moveCursor(output, 0, -1);
     }
     readline.cursorTo(output, 0);
@@ -1728,18 +2161,24 @@ function renderPromptLine(
     readline.clearLine(output, 0);
   }
 
-  // Render top border, input row, bottom border, and status row.
-  output.write(`${topBorder}\n`);
-  output.write(`${prompt.lineText}\n`);
-  output.write(`${bottomBorder}\n`);
-  output.write(statusRow);
+  // Batch all prompt content into a single write to minimize syscalls.
+  let buf = `${topBorder}\n`;
+  for (const line of state.lines) {
+    buf += `${line}\n`;
+  }
+  buf += `${bottomBorder}\n`;
+  buf += statusRow;
+  output.write(buf);
 
-  // Move cursor back to input row, inside the box.
-  readline.moveCursor(output, 0, -(PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT));
-  readline.cursorTo(output, prompt.cursorColumn);
+  // Move cursor from status row to the cursor's content row.
+  const moveUp = PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT + (state.lineCount - 1 - state.cursorRow);
+  readline.moveCursor(output, 0, -moveUp);
+  readline.cursorTo(output, state.cursorColumn);
 
   // Show cursor at its final, correct position.
   output.write('\x1b[?25h');
 
+  lastRenderedContentLines = state.lineCount;
+  lastRenderedCursorRow = state.cursorRow;
   lastRenderedPromptWidth = width;
 }

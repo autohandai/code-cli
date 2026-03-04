@@ -6,6 +6,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   getDisplayContent,
+  getInlineGhostCompletionSuffix,
+  getPrimaryHotTipSuggestion,
   MAX_DISPLAY_LINES,
   NEWLINE_MARKER,
   countNewlineMarkers,
@@ -26,24 +28,24 @@ describe('inputPrompt', () => {
     });
 
     it('returns full content when exactly at MAX_DISPLAY_LINES', () => {
-      // 5 lines at 80 width = 400 chars (with 2 char prompt)
-      const exactFiveLines = 'a'.repeat(78 * 5); // 78 = 80 - 2 (prompt width)
-      const result = getDisplayContent(exactFiveLines, 80);
-      expect(result.totalLines).toBe(5);
+      // 10 lines at 80 width (with 2 char prompt)
+      const exactTenLines = 'a'.repeat(78 * 10); // 78 = 80 - 2 (prompt width)
+      const result = getDisplayContent(exactTenLines, 80);
+      expect(result.totalLines).toBe(10);
       expect(result.isTruncated).toBe(false);
     });
 
     it('truncates content exceeding MAX_DISPLAY_LINES', () => {
-      // 6 lines at 80 width
-      const sixLines = 'a'.repeat(78 * 6);
-      const result = getDisplayContent(sixLines, 80);
+      // 11 lines at 80 width
+      const elevenLines = 'a'.repeat(78 * 11);
+      const result = getDisplayContent(elevenLines, 80);
       expect(result.isTruncated).toBe(true);
       expect(result.display).toContain('... (');
       expect(result.display).toContain('lines)');
     });
 
     it('shows end of content when truncating (most recent typing)', () => {
-      const text = 'START' + 'x'.repeat(78 * 6) + 'END';
+      const text = 'START' + 'x'.repeat(78 * 11) + 'END';
       const result = getDisplayContent(text, 80);
       expect(result.display).toContain('END');
       expect(result.display).not.toContain('START');
@@ -70,9 +72,9 @@ describe('inputPrompt', () => {
     });
 
     it('formats indicator correctly showing total line count', () => {
-      const text = 'a'.repeat(78 * 8); // 8 lines
+      const text = 'a'.repeat(78 * 15); // 15 lines (exceeds MAX_DISPLAY_LINES=10)
       const result = getDisplayContent(text, 80);
-      expect(result.display).toContain('... (8 lines)');
+      expect(result.display).toContain('... (15 lines)');
     });
 
     it('handles empty content', () => {
@@ -160,8 +162,8 @@ describe('inputPrompt', () => {
   });
 
   describe('MAX_DISPLAY_LINES constant', () => {
-    it('is set to 5', () => {
-      expect(MAX_DISPLAY_LINES).toBe(5);
+    it('is set to 10', () => {
+      expect(MAX_DISPLAY_LINES).toBe(10);
     });
   });
 
@@ -325,14 +327,14 @@ describe('inputPrompt', () => {
     });
 
     it('handles very long single word', () => {
-      const longWord = 'x'.repeat(500);
+      const longWord = 'x'.repeat(1000);
       const result = getDisplayContent(longWord, 80);
-      expect(result.totalLines).toBeGreaterThan(5);
+      expect(result.totalLines).toBeGreaterThan(10);
       expect(result.isTruncated).toBe(true);
     });
 
     it('truncation indicator does not exceed available space', () => {
-      const text = 'a'.repeat(78 * 10); // 10 lines
+      const text = 'a'.repeat(78 * 15); // 15 lines (exceeds MAX_DISPLAY_LINES)
       const result = getDisplayContent(text, 80);
 
       // Display should fit within MAX_DISPLAY_LINES * available width
@@ -345,6 +347,68 @@ describe('inputPrompt', () => {
       const result = getDisplayContent(text, 20); // Very narrow
       expect(result.display).toBeDefined();
       expect(result.totalLines).toBeGreaterThan(0);
+    });
+  });
+
+  describe('shell command tab suggestions', () => {
+    it('suggests shell command completion for ! prefix', () => {
+      const suggestion = getPrimaryHotTipSuggestion('!gi', [], []);
+      expect(suggestion).toEqual({ line: '! git ', cursor: '! git '.length });
+    });
+
+    it('completes cd path using workspace root', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'autohand-shell-suggest-'));
+      const docsDir = path.join(tempDir, 'docs');
+      fs.mkdirSync(docsDir, { recursive: true });
+
+      const suggestion = getPrimaryHotTipSuggestion('! cd do', [], [], undefined, tempDir);
+      expect(suggestion).toEqual({ line: '! cd docs/', cursor: '! cd docs/'.length });
+
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+  });
+
+  describe('inline ghost completion', () => {
+    it('returns suffix for partial ! command completion', () => {
+      const ghost = getInlineGhostCompletionSuffix('! git s', [], []);
+      expect(ghost).toBe('tatus');
+    });
+
+    it('returns null for non-shell input', () => {
+      const ghost = getInlineGhostCompletionSuffix('hello world', [], []);
+      expect(ghost).toBeNull();
+    });
+
+    it('returns directory suffix for cd path completion', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'autohand-shell-ghost-'));
+      fs.mkdirSync(path.join(tempDir, 'docs'), { recursive: true });
+
+      const ghost = getInlineGhostCompletionSuffix('! cd do', [], [], tempDir);
+      expect(ghost).toBe('cs/');
+
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('prefers LLM ghost suggestion when it extends current ! input', () => {
+      const ghost = getInlineGhostCompletionSuffix(
+        '! git s',
+        [],
+        [],
+        undefined,
+        '! git status --short'
+      );
+      expect(ghost).toBe('tatus --short');
+    });
+
+    it('falls back to local suggestion when LLM suggestion does not match prefix', () => {
+      const ghost = getInlineGhostCompletionSuffix(
+        '! git s',
+        [],
+        [],
+        undefined,
+        '! bun test'
+      );
+      expect(ghost).toBe('tatus');
     });
   });
 });

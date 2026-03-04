@@ -98,6 +98,9 @@ export class TerminalRegions {
     const { height } = this.getDimensions();
     const scrollEnd = Math.max(1, height - this.fixedLines);
 
+    // Restore cursor visibility (may have been hidden for empty placeholder)
+    this.output.write(`${CSI}?25h`);
+
     // Reset scroll region to full terminal
     this.output.write(`${CSI}r`);
 
@@ -301,9 +304,18 @@ export class TerminalRegions {
 
     const { height, width } = this.getDimensions();
     const promptWidth = this.getPromptWidth(width);
+
+    if (!this.currentInput) {
+      // No input — hide cursor so it doesn't blink over the placeholder
+      this.output.write(`${CSI}?25l`);
+      return;
+    }
+
+    // +1 for the left border │ character
     const prefixColumns = PROMPT_INPUT_PREFIX.length;
     const inputColumns = this.currentInput.length;
-    const cursorColumn = Math.max(1, Math.min(promptWidth, prefixColumns + inputColumns));
+    const cursorColumn = Math.max(1, Math.min(promptWidth, 1 + prefixColumns + inputColumns));
+    this.output.write(`${CSI}?25h`); // show cursor
     this.output.write(`${CSI}${height - 2};${cursorColumn}H`);
   }
 

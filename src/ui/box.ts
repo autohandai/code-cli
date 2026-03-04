@@ -16,6 +16,28 @@ const FALLBACK_BOX_FG = '#a0a0a0';
 
 export type InputBorderStyle = 'default' | 'plan' | 'shell';
 
+// Frame-level color cache — invalidated per render frame and on theme change.
+let cachedBoxBg: string | null = null;
+let cachedBoxFg: string | null = null;
+const cachedBorderFg = new Map<InputBorderStyle, string>();
+let cachedThemeRef: unknown = null;
+
+function ensureCacheValid(): void {
+  const currentTheme = isThemeInitialized() ? getTheme() : null;
+  if (currentTheme !== cachedThemeRef) {
+    cachedBoxBg = null;
+    cachedBoxFg = null;
+    cachedBorderFg.clear();
+    cachedThemeRef = currentTheme;
+  }
+}
+
+export function invalidateBoxColorCache(): void {
+  cachedBoxBg = null;
+  cachedBoxFg = null;
+  cachedBorderFg.clear();
+}
+
 function resolveBorderToken(style: InputBorderStyle): ColorToken {
   if (style === 'plan') {
     return 'warning';
@@ -44,54 +66,67 @@ function hexToAnsiRgb(hex: string, type: 'fg' | 'bg'): string {
 }
 
 function resolveBoxBg(): string {
+  ensureCacheValid();
+  if (cachedBoxBg !== null) return cachedBoxBg;
   if (isThemeInitialized()) {
     try {
       const hex = getTheme().getColor('userMessageBg');
       if (hex) {
         const code = hexToAnsiRgb(hex, 'bg');
-        if (code) return code;
+        if (code) { cachedBoxBg = code; return code; }
       }
     } catch { /* use fallback */ }
   }
-  return hexToAnsiRgb(FALLBACK_BOX_BG, 'bg');
+  const result = hexToAnsiRgb(FALLBACK_BOX_BG, 'bg');
+  cachedBoxBg = result;
+  return result;
 }
 
 function resolveBoxFg(): string {
+  ensureCacheValid();
+  if (cachedBoxFg !== null) return cachedBoxFg;
   if (isThemeInitialized()) {
     try {
       const hex = getTheme().getColor('userMessageText');
       if (hex) {
         const code = hexToAnsiRgb(hex, 'fg');
-        if (code) return code;
+        if (code) { cachedBoxFg = code; return code; }
       }
     } catch { /* use fallback */ }
   }
-  return hexToAnsiRgb(FALLBACK_BOX_FG, 'fg');
+  const result = hexToAnsiRgb(FALLBACK_BOX_FG, 'fg');
+  cachedBoxFg = result;
+  return result;
 }
 
 function resolveBorderFg(style: InputBorderStyle): string {
+  ensureCacheValid();
+  const cached = cachedBorderFg.get(style);
+  if (cached !== undefined) return cached;
   if (isThemeInitialized()) {
     try {
       const hex = getTheme().getColor(resolveBorderToken(style));
       if (hex) {
         const code = hexToAnsiRgb(hex, 'fg');
-        if (code) return code;
+        if (code) { cachedBorderFg.set(style, code); return code; }
       }
     } catch { /* use fallback */ }
   }
-  return hexToAnsiRgb(resolveBorderFallback(style), 'fg');
+  const result = hexToAnsiRgb(resolveBorderFallback(style), 'fg');
+  cachedBorderFg.set(style, result);
+  return result;
 }
 
 export function drawInputTopBorder(width: number, style: InputBorderStyle = 'default'): string {
   const innerWidth = Math.max(0, width - 2);
   const border = `┌${'─'.repeat(innerWidth)}┐`;
-  return resolveBoxBg() + resolveBorderFg(style) + border + CLEAR_TO_EOL + RESET_ALL;
+  return resolveBoxBg() + resolveBorderFg(style) + border + RESET_ALL + CLEAR_TO_EOL;
 }
 
 export function drawInputBottomBorder(width: number, style: InputBorderStyle = 'default'): string {
   const innerWidth = Math.max(0, width - 2);
   const border = `└${'─'.repeat(innerWidth)}┘`;
-  return resolveBoxBg() + resolveBorderFg(style) + border + CLEAR_TO_EOL + RESET_ALL;
+  return resolveBoxBg() + resolveBorderFg(style) + border + RESET_ALL + CLEAR_TO_EOL;
 }
 
 const ANSI_PATTERN = /\u001b\[[0-9;]*m/g;
@@ -124,6 +159,9 @@ function truncateVisible(value: string, maxVisible: number): string {
 }
 
 const RESET_ALL = '\x1b[0m';
+// Erase from cursor to end of line using the CURRENT attributes.
+// Placed AFTER RESET_ALL so it clears with the terminal's default bg,
+// preventing box background color from bleeding past the right border.
 const CLEAR_TO_EOL = '\x1b[K';
 
 /**
@@ -139,32 +177,38 @@ function stabilizeBoxAnsi(text: string, bg: string, fg: string): string {
     .replace(/\x1b\[39m/g, fg);
 }
 
-export function drawInputBox(left: string, width: number, right?: string): string {
+export function drawInputBox(left: string, width: number, right?: string, style: InputBorderStyle = 'default'): string {
   const bg = resolveBoxBg();
   const fg = resolveBoxFg();
+  const borderFg = resolveBorderFg(style);
   const base = bg + fg;
+  const innerWidth = Math.max(0, width - 2);
   const visLeft = getVisibleLength(left);
+  const lBorder = borderFg + '│' + fg;
+  const rBorder = borderFg + '│';
+
+  const END = RESET_ALL + CLEAR_TO_EOL;
 
   if (!right) {
-    const pad = Math.max(0, width - visLeft);
-    return base + stabilizeBoxAnsi(left, bg, fg) + ' '.repeat(pad) + CLEAR_TO_EOL + RESET_ALL;
+    const pad = Math.max(0, innerWidth - visLeft);
+    return base + lBorder + stabilizeBoxAnsi(left, bg, fg) + ' '.repeat(pad) + rBorder + END;
   }
 
   const visRight = getVisibleLength(right);
   const minGap = 2;
-  const available = width - visLeft - minGap;
+  const available = innerWidth - visLeft - minGap;
 
   if (available <= 0) {
-    const pad = Math.max(0, width - visLeft);
-    return base + stabilizeBoxAnsi(left, bg, fg) + ' '.repeat(pad) + CLEAR_TO_EOL + RESET_ALL;
+    const pad = Math.max(0, innerWidth - visLeft);
+    return base + lBorder + stabilizeBoxAnsi(left, bg, fg) + ' '.repeat(pad) + rBorder + END;
   }
 
   const clippedRight = visRight > available
     ? truncateVisible(right, available)
     : right;
   const clippedRightVis = getVisibleLength(clippedRight);
-  const gap = Math.max(0, width - visLeft - clippedRightVis);
+  const gap = Math.max(0, innerWidth - visLeft - clippedRightVis);
   const line = stabilizeBoxAnsi(left, bg, fg) + ' '.repeat(gap) + stabilizeBoxAnsi(clippedRight, bg, fg);
 
-  return base + line + CLEAR_TO_EOL + RESET_ALL;
+  return base + lBorder + line + rBorder + END;
 }

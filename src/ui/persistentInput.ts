@@ -10,9 +10,9 @@ import chalk from 'chalk';
 import readline from 'node:readline';
 import EventEmitter from 'node:events';
 import { TerminalRegions, createTerminalRegions } from './terminalRegions.js';
-import { safeEmitKeypressEvents, isShiftEnterSequence } from './inputPrompt.js';
+import { safeEmitKeypressEvents, isPlainTabShortcut, isShiftEnterSequence } from './inputPrompt.js';
 import { safeSetRawMode } from './rawMode.js';
-import { isImmediateCommand } from './shellCommand.js';
+import { getPrimaryShellCommandSuggestion, isImmediateCommand } from './shellCommand.js';
 import { getPlanModeManager } from '../commands/plan.js';
 
 export interface QueuedMessage {
@@ -25,6 +25,10 @@ export interface PersistentInputOptions {
   statusLine?: string | { left: string; right: string };
   /** Silent mode - queue input without terminal regions UI (works better with ora spinner) */
   silentMode?: boolean;
+  /** Base path used for shell path completion. Defaults to process.cwd(). */
+  workspaceRoot?: string;
+  /** Optional async LLM resolver for ! command suggestions. */
+  resolveShellSuggestion?: (input: string) => Promise<string | null>;
 }
 
 function isShiftTabShortcut(str: string, key: readline.Key | undefined): boolean {
@@ -40,6 +44,13 @@ function isShiftTabShortcut(str: string, key: readline.Key | undefined): boolean
  * PersistentInput provides an always-visible input field at the bottom
  * of the terminal using scroll regions, so spinner and output stay above.
  */
+/** Bracketed paste escape sequences */
+const PASTE_START = '\x1b[200~';
+const PASTE_END = '\x1b[201~';
+
+/** How long to wait after a rapid Enter before treating it as a real submit (ms) */
+const RAPID_ENTER_DEBOUNCE_MS = 50;
+
 export class PersistentInput extends EventEmitter {
   private queue: QueuedMessage[] = [];
   private currentInput = '';
@@ -52,6 +63,16 @@ export class PersistentInput extends EventEmitter {
   private regions: TerminalRegions;
   private silentMode: boolean;
   private activityLine = '';
+  private workspaceRoot: string;
+  private resolveShellSuggestion?: (input: string) => Promise<string | null>;
+  private shellSuggestionRequestId = 0;
+
+  // ── Paste state ──
+  private isInPaste = false;
+  private pasteBuffer: string[] = [];
+  private currentPasteLine = '';
+  private rapidEnterTimer: ReturnType<typeof setTimeout> | null = null;
+  private rapidEnterLines: string[] = [];
 
   constructor(options: PersistentInputOptions = {}) {
     super();
@@ -60,6 +81,8 @@ export class PersistentInput extends EventEmitter {
     this.output = process.stdout;
     this.input = process.stdin;
     this.silentMode = options.silentMode ?? false;
+    this.workspaceRoot = options.workspaceRoot ?? process.cwd();
+    this.resolveShellSuggestion = options.resolveShellSuggestion;
     this.regions = createTerminalRegions(this.output);
   }
 
@@ -95,6 +118,9 @@ export class PersistentInput extends EventEmitter {
     } catch {
       // Best effort only.
     }
+
+    // Enable bracketed paste so multi-line pastes are detected
+    this.enableBracketedPaste();
 
     if (this.silentMode) {
       // Silent mode: use readline keypress events (same as ESC listener)
@@ -133,6 +159,8 @@ export class PersistentInput extends EventEmitter {
     }
 
     this.isActive = false;
+    this.disableBracketedPaste();
+    this.clearRapidEnterTimer();
 
     this.input.off('keypress', this.handleKeypress);
 
@@ -284,11 +312,93 @@ export class PersistentInput extends EventEmitter {
       return;
     }
 
+    // ── Bracketed paste detection ──
+    const seq = key?.sequence ?? _str;
+    if (seq?.includes(PASTE_START) || _str?.includes(PASTE_START)) {
+      this.isInPaste = true;
+      this.pasteBuffer = [];
+      this.currentPasteLine = '';
+      return;
+    }
+    if (seq?.includes(PASTE_END) || _str?.includes(PASTE_END)) {
+      this.finalizePaste();
+      return;
+    }
+
+    // While in bracketed paste, buffer everything without queuing
+    if (this.isInPaste) {
+      if (key?.name === 'return' || key?.name === 'enter') {
+        this.pasteBuffer.push(this.currentPasteLine);
+        this.currentPasteLine = '';
+      } else if (_str) {
+        const printable = _str.replace(/[\x00-\x1F\x7F]/g, '');
+        if (printable) {
+          this.currentPasteLine += printable;
+        }
+      }
+      return;
+    }
+
     // Shift+Tab toggles plan mode while the agent is actively working.
     if (isShiftTabShortcut(_str, key)) {
       const planModeManager = getPlanModeManager();
       planModeManager.handleShiftTab();
       this.emit('plan-mode-toggled', planModeManager.isEnabled());
+      return;
+    }
+
+    if (isPlainTabShortcut(_str, key)) {
+      const currentInput = this.currentInput;
+      if (currentInput.trim().startsWith('!') && this.resolveShellSuggestion) {
+        const requestId = ++this.shellSuggestionRequestId;
+        const immediateFallback = getPrimaryShellCommandSuggestion(currentInput, {
+          cwd: this.workspaceRoot,
+        });
+        let expectedInputAtResponse = currentInput;
+
+        if (immediateFallback) {
+          this.currentInput = immediateFallback;
+          expectedInputAtResponse = immediateFallback;
+          if (!this.silentMode) {
+            this.regions.updateInput(this.currentInput);
+          }
+          this.emitInputChange();
+        }
+
+        this.resolveShellSuggestion(currentInput)
+          .then((llmSuggestion) => {
+            if (!this.isActive || this.isPaused || requestId !== this.shellSuggestionRequestId) {
+              return;
+            }
+            if (this.currentInput !== expectedInputAtResponse) {
+              return;
+            }
+
+            if (llmSuggestion) {
+              this.currentInput = llmSuggestion;
+            }
+
+            if (!this.silentMode) {
+              this.regions.updateInput(this.currentInput);
+            }
+            this.emitInputChange();
+          })
+          .catch(() => {
+            // Ignore LLM errors: immediate local fallback already applied above.
+          });
+        return;
+      }
+
+      const suggestion = getPrimaryShellCommandSuggestion(this.currentInput, {
+        cwd: this.workspaceRoot,
+      });
+      if (suggestion) {
+        this.currentInput = suggestion;
+        if (!this.silentMode) {
+          this.regions.updateInput(this.currentInput);
+        }
+        this.emitInputChange();
+      }
       return;
     }
 
@@ -314,12 +424,14 @@ export class PersistentInput extends EventEmitter {
           return;
         }
 
-        this.addToQueue(text);
+        // Rapid-Enter debounce: coalesce fast consecutive Enters (raw paste fallback)
+        this.rapidEnterLines.push(text);
         this.currentInput = '';
         if (!this.silentMode) {
           this.regions.updateInput('');
         }
         this.emitInputChange();
+        this.scheduleRapidEnterFlush();
       }
       return;
     }
@@ -365,6 +477,80 @@ export class PersistentInput extends EventEmitter {
       }
     }
   };
+
+  // ── Paste helpers ──
+
+  private enableBracketedPaste(): void {
+    try { this.output.write('\x1b[?2004h'); } catch { /* best effort */ }
+  }
+
+  private disableBracketedPaste(): void {
+    try { this.output.write('\x1b[?2004l'); } catch { /* best effort */ }
+  }
+
+  private finalizePaste(): void {
+    // Push the last line being accumulated
+    if (this.currentPasteLine) {
+      this.pasteBuffer.push(this.currentPasteLine);
+    }
+    this.isInPaste = false;
+
+    const lines = this.pasteBuffer;
+    this.pasteBuffer = [];
+    this.currentPasteLine = '';
+
+    if (lines.length === 0) return;
+
+    if (lines.length === 1) {
+      // Single-line paste: append to currentInput (user may want to edit before submitting)
+      this.currentInput += lines[0];
+      if (!this.silentMode) {
+        this.regions.updateInput(this.currentInput);
+      }
+      this.emitInputChange();
+    } else {
+      // Multi-line paste: coalesce into a single queue entry
+      const content = lines.join('\n');
+      const entry = `[Pasted: ${lines.length} lines]\n${content}`;
+      this.addToQueue(entry);
+    }
+  }
+
+  private scheduleRapidEnterFlush(): void {
+    if (this.rapidEnterTimer !== null) {
+      clearTimeout(this.rapidEnterTimer);
+    }
+    this.rapidEnterTimer = setTimeout(() => {
+      this.flushRapidEnterLines();
+    }, RAPID_ENTER_DEBOUNCE_MS);
+  }
+
+  private flushRapidEnterLines(): void {
+    this.rapidEnterTimer = null;
+    const lines = this.rapidEnterLines.splice(0);
+    if (lines.length === 0) return;
+
+    if (lines.length === 1) {
+      // Single Enter — normal queue behavior
+      this.addToQueue(lines[0]);
+    } else {
+      // Multiple rapid Enters — coalesce (likely raw paste without bracketed paste)
+      const content = lines.join('\n');
+      const entry = `[Pasted: ${lines.length} lines]\n${content}`;
+      this.addToQueue(entry);
+    }
+  }
+
+  private clearRapidEnterTimer(): void {
+    if (this.rapidEnterTimer !== null) {
+      clearTimeout(this.rapidEnterTimer);
+      this.rapidEnterTimer = null;
+    }
+    // Flush any pending rapid-enter lines
+    if (this.rapidEnterLines.length > 0) {
+      this.flushRapidEnterLines();
+    }
+  }
 
   /**
    * Add a message to the queue
