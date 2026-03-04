@@ -540,3 +540,15 @@ describe('getPromptBlockWidth', () => {
     expect(plain.length).toBeLessThan(100);
   });
 });
+
+describe('promptNotify', () => {
+  it('should be an exported function', async () => {
+    const { promptNotify } = await import('../../src/ui/inputPrompt.js');
+    expect(typeof promptNotify).toBe('function');
+  });
+
+  it('should not throw when called without active prompt', async () => {
+    const { promptNotify } = await import('../../src/ui/inputPrompt.js');
+    expect(() => promptNotify('test message')).not.toThrow();
+  });
+});

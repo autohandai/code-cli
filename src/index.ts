@@ -21,6 +21,7 @@ import { buildPipePrompt } from './modes/pipeMode.js';
 import { PROJECT_DIR_NAME } from './constants.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessionWorktree.js';
 import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './utils/tmux.js';
+import { promptNotify } from './ui/inputPrompt.js';
 
 /**
  * Get git commit hash (short)
@@ -932,7 +933,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
                 onAuthFailure: async () => {
                   config.auth = undefined;
                   try { await saveConfig(config); } catch { /* ignore */ }
-                  console.log(chalk.yellow('Session expired. Run /login to sign in again.'));
+                  promptNotify(chalk.yellow('Session expired. Run /login to sign in again.'));
                 },
               });
               syncService.start();

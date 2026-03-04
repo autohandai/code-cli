@@ -5,6 +5,7 @@
  */
 import chalk from 'chalk';
 import readline from 'node:readline';
+import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import os from 'node:os';
@@ -29,6 +30,17 @@ import {
 import { buildFileMentionSuggestions } from './mentionFilter.js';
 import { getTheme, isThemeInitialized } from './theme/index.js';
 import type { ColorToken } from './theme/types.js';
+
+/**
+ * Module-level event emitter for delivering messages above the active prompt.
+ * Use `promptNotify(message)` from anywhere to display a message cleanly
+ * above the composer without interleaving with readline output.
+ */
+const promptEvents = new EventEmitter();
+
+export function promptNotify(message: string): void {
+  promptEvents.emit('notify', message);
+}
 
 export const PROMPT_PREFIX = `${chalk.gray('›')} `;
 // Visible length of the prompt prefix (ANSI codes not counted)
@@ -1160,6 +1172,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       }
       mentionPreview.dispose();
       resizeWatcher.dispose();
+      promptEvents.off('notify', onPromptNotify);
       input.off('keypress', handleKeypress);
       input.off('data', handleInputData);
       if (originalRefreshLine) {
@@ -1182,6 +1195,10 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       stdOutput.write(`${message.replace(/\n+$/g, '')}\n`);
       renderPromptSurface(false, false);
     };
+
+    // Subscribe to external notifications so they render above the composer
+    const onPromptNotify = (msg: string) => showPromptMessage(msg);
+    promptEvents.on('notify', onPromptNotify);
 
     const insertAtCursor = (text: string) => {
       const rlAny = rl as readline.Interface & { line: string; cursor: number; _refreshLine?: () => void };
