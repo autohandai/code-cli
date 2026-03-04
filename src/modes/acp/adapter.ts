@@ -49,6 +49,7 @@ import { isSessionWorktreeEnabled, prepareSessionWorktree } from '../../utils/se
 import type { SessionMessage } from '../../session/types.js';
 
 import {
+  ACP_HOOK_NOTIFICATIONS,
   DEFAULT_ACP_COMMANDS,
   DEFAULT_ACP_MODES,
   type AcpSessionState,
@@ -75,6 +76,7 @@ export class AutohandAcpAdapter implements Agent {
   private cancelledSessions = new Set<string>();
   private config: LoadedConfig | null = null;
   private clientCapabilities?: InitializeRequest['clientCapabilities'];
+  private toolStartTimes = new Map<string, number>();
   private static readonly LIST_SESSIONS_PAGE_SIZE = 50;
 
   constructor(
@@ -433,6 +435,7 @@ export class AutohandAcpAdapter implements Agent {
     const workspaceRoot = this.resolveWorkspaceRoot(sessionId, params.cwd);
     const { config, state, agent } = await this.createManagedSession(sessionId, workspaceRoot);
     await this.connectSessionMcpServers(agent, params.mcpServers);
+    this.emitHookSessionStart(sessionId, 'startup');
 
     const response: NewSessionResponse = {
       sessionId,
@@ -536,8 +539,12 @@ export class AutohandAcpAdapter implements Agent {
     }
 
     // Regular instruction - run through the LLM
+    const turnStart = Date.now();
+    this.emitHookPrePrompt(params.sessionId, instruction, []);
     try {
       const success = await agent.runInstruction(instruction);
+      const turnDuration = Date.now() - turnStart;
+      this.emitHookStop(params.sessionId, 0, 0, turnDuration);
       if (!success && this.cancelledSessions.has(params.sessionId)) {
         return { stopReason: 'cancelled' };
       }
@@ -548,6 +555,7 @@ export class AutohandAcpAdapter implements Agent {
       }
       const errMsg = err instanceof Error ? err.message : String(err);
       process.stderr.write(`[ACP] Prompt error: ${errMsg}\n`);
+      this.emitHookSessionError(params.sessionId, errMsg);
 
       await this.connection.sessionUpdate({
         sessionId: params.sessionId,
@@ -714,6 +722,7 @@ export class AutohandAcpAdapter implements Agent {
       const params = _params;
       const { config, state } = await this.restoreSession(params.sessionId, params.cwd, params.mcpServers);
 
+      this.emitHookSessionStart(params.sessionId, 'resume');
       process.stderr.write(`[ACP] Resumed session ${params.sessionId}\n`);
       return {
         modes: this.buildSessionModes(state.modeId),
@@ -774,6 +783,7 @@ export class AutohandAcpAdapter implements Agent {
       const { config, state, messages } = await this.restoreSession(params.sessionId, params.cwd, params.mcpServers);
       await this.replayConversation(params.sessionId, messages);
 
+      this.emitHookSessionStart(params.sessionId, 'resume');
       process.stderr.write(`[ACP] Loaded session ${params.sessionId} with ${messages.length} messages\n`);
       return {
         modes: this.buildSessionModes(state.modeId),
@@ -784,6 +794,104 @@ export class AutohandAcpAdapter implements Agent {
       const message = error instanceof Error ? error.message : String(error);
       throw RequestError.invalidParams({ message: `Failed to load session: ${message}` });
     }
+  }
+
+  // ==========================================================================
+  // Hook Lifecycle Notifications
+  // ==========================================================================
+
+  /**
+   * Safely emit a hook notification via extNotification.
+   * Hook notifications must never crash the agent — errors are logged and swallowed.
+   */
+  private async emitHookSafe(method: string, params: Record<string, unknown>): Promise<void> {
+    try {
+      await this.connection.extNotification(method, params);
+    } catch (err) {
+      process.stderr.write(
+        `[ACP] Failed to emit hook notification ${method}: ${err instanceof Error ? err.message : String(err)}\n`
+      );
+    }
+  }
+
+  emitHookPreTool(sessionId: string, toolId: string, toolName: string, args: Record<string, unknown>): void {
+    void this.emitHookSafe(ACP_HOOK_NOTIFICATIONS.HOOK_PRE_TOOL, {
+      sessionId, toolId, toolName, args, timestamp: new Date().toISOString(),
+    });
+  }
+
+  emitHookPostTool(
+    sessionId: string, toolId: string, toolName: string,
+    success: boolean, duration: number, output?: string
+  ): void {
+    void this.emitHookSafe(ACP_HOOK_NOTIFICATIONS.HOOK_POST_TOOL, {
+      sessionId, toolId, toolName, success, duration, output, timestamp: new Date().toISOString(),
+    });
+  }
+
+  emitHookFileModified(sessionId: string, filePath: string, changeType: 'create' | 'modify' | 'delete', toolId: string): void {
+    void this.emitHookSafe(ACP_HOOK_NOTIFICATIONS.HOOK_FILE_MODIFIED, {
+      sessionId, filePath, changeType, toolId, timestamp: new Date().toISOString(),
+    });
+  }
+
+  emitHookPrePrompt(sessionId: string, instruction: string, mentionedFiles: string[]): void {
+    void this.emitHookSafe(ACP_HOOK_NOTIFICATIONS.HOOK_PRE_PROMPT, {
+      sessionId, instruction, mentionedFiles, timestamp: new Date().toISOString(),
+    });
+  }
+
+  emitHookPostResponse(sessionId: string, tokensUsed: number, toolCallsCount: number, duration: number): void {
+    void this.emitHookSafe(ACP_HOOK_NOTIFICATIONS.HOOK_POST_RESPONSE, {
+      sessionId, tokensUsed, toolCallsCount, duration, timestamp: new Date().toISOString(),
+    });
+  }
+
+  emitHookSessionError(sessionId: string, error: string, code?: string, context?: Record<string, unknown>): void {
+    void this.emitHookSafe(ACP_HOOK_NOTIFICATIONS.HOOK_SESSION_ERROR, {
+      sessionId, error, code, context, timestamp: new Date().toISOString(),
+    });
+  }
+
+  emitHookStop(sessionId: string, tokensUsed: number, toolCallsCount: number, duration: number): void {
+    void this.emitHookSafe(ACP_HOOK_NOTIFICATIONS.HOOK_STOP, {
+      sessionId, tokensUsed, toolCallsCount, duration, timestamp: new Date().toISOString(),
+    });
+  }
+
+  emitHookSessionStart(sessionId: string, sessionType: 'startup' | 'resume' | 'clear'): void {
+    void this.emitHookSafe(ACP_HOOK_NOTIFICATIONS.HOOK_SESSION_START, {
+      sessionId, sessionType, timestamp: new Date().toISOString(),
+    });
+  }
+
+  emitHookSessionEnd(sessionId: string, reason: 'quit' | 'clear' | 'exit' | 'error', duration: number): void {
+    void this.emitHookSafe(ACP_HOOK_NOTIFICATIONS.HOOK_SESSION_END, {
+      sessionId, reason, duration, timestamp: new Date().toISOString(),
+    });
+  }
+
+  emitHookSubagentStop(
+    sessionId: string, subagentId: string, subagentName: string,
+    subagentType: string, success: boolean, duration: number, error?: string
+  ): void {
+    void this.emitHookSafe(ACP_HOOK_NOTIFICATIONS.HOOK_SUBAGENT_STOP, {
+      sessionId, subagentId, subagentName, subagentType, success, duration, error, timestamp: new Date().toISOString(),
+    });
+  }
+
+  emitHookPermissionRequest(
+    sessionId: string, tool: string, path?: string, command?: string, args?: Record<string, unknown>
+  ): void {
+    void this.emitHookSafe(ACP_HOOK_NOTIFICATIONS.HOOK_PERMISSION_REQUEST, {
+      sessionId, tool, path, command, args, timestamp: new Date().toISOString(),
+    });
+  }
+
+  emitHookNotification(sessionId: string, notificationType: string, message: string): void {
+    void this.emitHookSafe(ACP_HOOK_NOTIFICATIONS.HOOK_NOTIFICATION, {
+      sessionId, notificationType, message, timestamp: new Date().toISOString(),
+    });
   }
 
   // ==========================================================================
@@ -854,6 +962,10 @@ export class AutohandAcpAdapter implements Agent {
                 rawInput: event.toolArgs ?? {},
               },
             });
+
+            // Hook: record start time and emit pre-tool notification
+            this.toolStartTimes.set(toolCallId, Date.now());
+            this.emitHookPreTool(sessionId, toolCallId, event.toolName, event.toolArgs ?? {});
           }
           break;
 
@@ -873,6 +985,15 @@ export class AutohandAcpAdapter implements Agent {
                   : undefined,
               },
             });
+
+            // Hook: compute duration and emit post-tool notification
+            const startTime = this.toolStartTimes.get(toolCallId);
+            const duration = startTime ? Date.now() - startTime : 0;
+            this.toolStartTimes.delete(toolCallId);
+            this.emitHookPostTool(
+              sessionId, toolCallId, event.toolName,
+              event.toolSuccess !== false, duration, event.toolOutput
+            );
           }
           break;
 
@@ -888,6 +1009,9 @@ export class AutohandAcpAdapter implements Agent {
                 },
               },
             });
+
+            // Hook: emit session error notification
+            this.emitHookSessionError(sessionId, event.content);
           }
           break;
       }

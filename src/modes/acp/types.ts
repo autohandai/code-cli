@@ -7,6 +7,31 @@ import type { ToolKind, SessionConfigOption } from '@agentclientprotocol/sdk';
 import type { LoadedConfig } from '../../types.js';
 
 // ============================================================================
+// Hook Lifecycle Notification Constants
+// ============================================================================
+
+/**
+ * Hook notification method strings for ACP ext notifications.
+ * Mirrors RPC_NOTIFICATIONS hook constants for parity with the VS Code extension.
+ */
+export const ACP_HOOK_NOTIFICATIONS = {
+  HOOK_PRE_TOOL: 'autohand.hook.preTool',
+  HOOK_POST_TOOL: 'autohand.hook.postTool',
+  HOOK_FILE_MODIFIED: 'autohand.hook.fileModified',
+  HOOK_PRE_PROMPT: 'autohand.hook.prePrompt',
+  HOOK_POST_RESPONSE: 'autohand.hook.postResponse',
+  HOOK_SESSION_ERROR: 'autohand.hook.sessionError',
+  HOOK_STOP: 'autohand.hook.stop',
+  HOOK_SESSION_START: 'autohand.hook.sessionStart',
+  HOOK_SESSION_END: 'autohand.hook.sessionEnd',
+  HOOK_SUBAGENT_STOP: 'autohand.hook.subagentStop',
+  HOOK_PERMISSION_REQUEST: 'autohand.hook.permissionRequest',
+  HOOK_NOTIFICATION: 'autohand.hook.notification',
+} as const;
+
+export type AcpHookNotification = (typeof ACP_HOOK_NOTIFICATIONS)[keyof typeof ACP_HOOK_NOTIFICATIONS];
+
+// ============================================================================
 // Tool Kind Mapping
 // ============================================================================
 
