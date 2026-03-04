@@ -159,6 +159,7 @@ function makeConnection(): AgentSideConnection {
   return {
     requestPermission: vi.fn(),
     sessionUpdate: vi.fn().mockResolvedValue(undefined),
+    extNotification: vi.fn().mockResolvedValue(undefined),
   } as unknown as AgentSideConnection;
 }
 
@@ -974,6 +975,288 @@ describe('AutohandAcpAdapter', () => {
           value: 'invalid',
         } as any)
       ).rejects.toThrow();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Hook notification emission
+  // -------------------------------------------------------------------------
+
+  describe('hook notification emission', () => {
+    let sessionId: string;
+
+    beforeEach(async () => {
+      await adapter.initialize(makeInitRequest());
+      const session = await adapter.newSession(makeNewSessionRequest());
+      sessionId = session.sessionId;
+    });
+
+    it('emits sessionStart hook with startup type on newSession', async () => {
+      // newSession already called in beforeEach — check that extNotification was called with sessionStart
+      const extNotif = connection.extNotification as ReturnType<typeof vi.fn>;
+      const sessionStartCall = extNotif.mock.calls.find(
+        (call: any[]) => call[0] === 'autohand.hook.sessionStart'
+      );
+      expect(sessionStartCall).toBeDefined();
+      expect(sessionStartCall![1]).toMatchObject({
+        sessionId: expect.any(String),
+        sessionType: 'startup',
+        timestamp: expect.any(String),
+      });
+    });
+
+    it('emits prePrompt and stop hooks during regular prompt execution', async () => {
+      mockAgent.isSlashCommand.mockReturnValue(false);
+      mockAgent.runInstruction.mockResolvedValue(true);
+
+      await adapter.prompt({
+        sessionId,
+        prompt: [{ type: 'text', text: 'Write tests' }],
+      } as any);
+
+      const extNotif = connection.extNotification as ReturnType<typeof vi.fn>;
+      const methods = extNotif.mock.calls.map((call: any[]) => call[0]);
+      expect(methods).toContain('autohand.hook.prePrompt');
+      expect(methods).toContain('autohand.hook.stop');
+
+      const prePromptCall = extNotif.mock.calls.find(
+        (call: any[]) => call[0] === 'autohand.hook.prePrompt'
+      );
+      expect(prePromptCall![1]).toMatchObject({
+        sessionId,
+        instruction: 'Write tests',
+        mentionedFiles: [],
+      });
+    });
+
+    it('emits sessionError hook when prompt throws', async () => {
+      mockAgent.isSlashCommand.mockReturnValue(false);
+      mockAgent.runInstruction.mockRejectedValue(new Error('LLM failed'));
+      const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+      await adapter.prompt({
+        sessionId,
+        prompt: [{ type: 'text', text: 'Do something' }],
+      } as any);
+
+      const extNotif = connection.extNotification as ReturnType<typeof vi.fn>;
+      const errorCalls = extNotif.mock.calls.filter(
+        (call: any[]) => call[0] === 'autohand.hook.sessionError'
+      );
+      expect(errorCalls.length).toBeGreaterThanOrEqual(1);
+      expect(errorCalls[0][1]).toMatchObject({
+        sessionId,
+        error: 'LLM failed',
+      });
+
+      stderrSpy.mockRestore();
+    });
+
+    it('emits preTool and postTool hooks via handleAgentOutput', async () => {
+      // Capture the output listener callback
+      const outputListener = mockAgent.setOutputListener.mock.calls[0][0];
+
+      // Simulate tool_start event
+      await outputListener({
+        type: 'tool_start',
+        toolId: 'tool-123',
+        toolName: 'read_file',
+        toolArgs: { path: '/foo/bar.ts' },
+      });
+
+      // Allow fire-and-forget hook emission to settle
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      const extNotif = connection.extNotification as ReturnType<typeof vi.fn>;
+      const preToolCall = extNotif.mock.calls.find(
+        (call: any[]) => call[0] === 'autohand.hook.preTool'
+      );
+      expect(preToolCall).toBeDefined();
+      expect(preToolCall![1]).toMatchObject({
+        sessionId,
+        toolId: 'tool-123',
+        toolName: 'read_file',
+        args: { path: '/foo/bar.ts' },
+      });
+
+      // Simulate tool_end event
+      await outputListener({
+        type: 'tool_end',
+        toolId: 'tool-123',
+        toolName: 'read_file',
+        toolSuccess: true,
+        toolOutput: 'file contents',
+      });
+
+      // Allow fire-and-forget hook emission to settle
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      const postToolCall = extNotif.mock.calls.find(
+        (call: any[]) => call[0] === 'autohand.hook.postTool'
+      );
+      expect(postToolCall).toBeDefined();
+      expect(postToolCall![1]).toMatchObject({
+        sessionId,
+        toolId: 'tool-123',
+        toolName: 'read_file',
+        success: true,
+        duration: expect.any(Number),
+        output: 'file contents',
+      });
+    });
+
+    it('emits sessionError hook via handleAgentOutput error event', async () => {
+      const outputListener = mockAgent.setOutputListener.mock.calls[0][0];
+
+      await outputListener({
+        type: 'error',
+        content: 'Something went wrong',
+      });
+
+      // Allow fire-and-forget hook emission to settle
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      const extNotif = connection.extNotification as ReturnType<typeof vi.fn>;
+      const errorCall = extNotif.mock.calls.find(
+        (call: any[]) => call[0] === 'autohand.hook.sessionError'
+      );
+      expect(errorCall).toBeDefined();
+      expect(errorCall![1]).toMatchObject({
+        sessionId,
+        error: 'Something went wrong',
+      });
+    });
+
+    it('does not crash when extNotification throws', async () => {
+      const extNotif = connection.extNotification as ReturnType<typeof vi.fn>;
+      extNotif.mockRejectedValue(new Error('Transport error'));
+      const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+      // Calling a hook method directly should not throw
+      adapter.emitHookPreTool(sessionId, 'tool-1', 'read_file', {});
+
+      // Give the async emitHookSafe time to settle
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // Should have logged the error but not thrown
+      expect(stderrSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to emit hook notification')
+      );
+
+      stderrSpy.mockRestore();
+    });
+
+    it('does NOT emit hook notifications for slash commands', async () => {
+      mockAgent.isSlashCommand.mockReturnValue(true);
+      mockAgent.isSlashCommandSupported.mockReturnValue(true);
+      mockAgent.handleSlashCommand.mockResolvedValue('Done');
+
+      // Clear any notifications from session creation
+      (connection.extNotification as ReturnType<typeof vi.fn>).mockClear();
+
+      await adapter.prompt({
+        sessionId,
+        prompt: [{ type: 'text', text: '/help' }],
+      } as any);
+
+      const extNotif = connection.extNotification as ReturnType<typeof vi.fn>;
+      const hookMethods = extNotif.mock.calls
+        .map((call: any[]) => call[0])
+        .filter((method: string) => method.startsWith('autohand.hook.'));
+
+      // Slash commands should NOT emit prePrompt or stop hooks
+      expect(hookMethods).not.toContain('autohand.hook.prePrompt');
+      expect(hookMethods).not.toContain('autohand.hook.stop');
+    });
+
+    it('emits all 12 hook notification methods with correct method strings', () => {
+      const extNotif = connection.extNotification as ReturnType<typeof vi.fn>;
+      extNotif.mockClear();
+
+      adapter.emitHookPreTool(sessionId, 't1', 'read_file', {});
+      adapter.emitHookPostTool(sessionId, 't1', 'read_file', true, 100);
+      adapter.emitHookFileModified(sessionId, '/a.ts', 'modify', 't1');
+      adapter.emitHookPrePrompt(sessionId, 'test', []);
+      adapter.emitHookPostResponse(sessionId, 500, 3, 2000);
+      adapter.emitHookSessionError(sessionId, 'err');
+      adapter.emitHookStop(sessionId, 500, 3, 2000);
+      adapter.emitHookSessionStart(sessionId, 'startup');
+      adapter.emitHookSessionEnd(sessionId, 'quit', 5000);
+      adapter.emitHookSubagentStop(sessionId, 'sa1', 'sub', 'worker', true, 1000);
+      adapter.emitHookPermissionRequest(sessionId, 'run_command', '/bin/rm');
+      adapter.emitHookNotification(sessionId, 'info', 'hello');
+
+      const methods = extNotif.mock.calls.map((call: any[]) => call[0]);
+      expect(methods).toEqual([
+        'autohand.hook.preTool',
+        'autohand.hook.postTool',
+        'autohand.hook.fileModified',
+        'autohand.hook.prePrompt',
+        'autohand.hook.postResponse',
+        'autohand.hook.sessionError',
+        'autohand.hook.stop',
+        'autohand.hook.sessionStart',
+        'autohand.hook.sessionEnd',
+        'autohand.hook.subagentStop',
+        'autohand.hook.permissionRequest',
+        'autohand.hook.notification',
+      ]);
+    });
+
+    it('includes sessionId in all hook notification params', () => {
+      const extNotif = connection.extNotification as ReturnType<typeof vi.fn>;
+      extNotif.mockClear();
+
+      adapter.emitHookPreTool(sessionId, 't1', 'read_file', {});
+      adapter.emitHookPostTool(sessionId, 't1', 'read_file', true, 100);
+      adapter.emitHookSessionError(sessionId, 'err');
+      adapter.emitHookSessionStart(sessionId, 'startup');
+
+      for (const call of extNotif.mock.calls) {
+        expect(call[1]).toHaveProperty('sessionId', sessionId);
+        expect(call[1]).toHaveProperty('timestamp');
+      }
+    });
+
+    it('emits sessionStart with resume type in unstable_resumeSession', async () => {
+      const extNotif = connection.extNotification as ReturnType<typeof vi.fn>;
+      extNotif.mockClear();
+
+      await adapter.unstable_resumeSession({
+        sessionId: 'session-456',
+        cwd: '/workspace',
+      } as any);
+
+      // Only 'resume' should be emitted — not 'startup'
+      const allSessionStartCalls = extNotif.mock.calls.filter(
+        (call: any[]) => call[0] === 'autohand.hook.sessionStart'
+      );
+      expect(allSessionStartCalls.length).toBe(1);
+      expect(allSessionStartCalls[0][1]).toMatchObject({
+        sessionId: 'session-456',
+        sessionType: 'resume',
+      });
+    });
+
+    it('emits sessionStart with resume type in loadSession', async () => {
+      const extNotif = connection.extNotification as ReturnType<typeof vi.fn>;
+      extNotif.mockClear();
+
+      await adapter.loadSession({
+        sessionId: 'session-789',
+        cwd: '/workspace',
+        mcpServers: [],
+      } as any);
+
+      // Only 'resume' should be emitted — not 'startup'
+      const allSessionStartCalls = extNotif.mock.calls.filter(
+        (call: any[]) => call[0] === 'autohand.hook.sessionStart'
+      );
+      expect(allSessionStartCalls.length).toBe(1);
+      expect(allSessionStartCalls[0][1]).toMatchObject({
+        sessionId: 'session-789',
+        sessionType: 'resume',
+      });
     });
   });
 });
