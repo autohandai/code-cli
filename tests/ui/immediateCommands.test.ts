@@ -392,7 +392,7 @@ describe('PersistentInput immediate command handling', () => {
     expect(pi.getCurrentInput()).toBe('! git status');
   });
 
-  it('Ctrl+Q pulls latest queued item into composer for editing', () => {
+  it('Ctrl+Q opens queue browser and Enter pulls selected item into composer for editing', () => {
     vi.useFakeTimers();
     try {
       const pi = new PersistentInput({ silentMode: true });
@@ -419,7 +419,10 @@ describe('PersistentInput immediate command handling', () => {
 
       expect(pi.getQueueLength()).toBe(2);
 
-      handler('', { name: 'q', ctrl: true, sequence: '\x11' });
+      handler('', { name: 'q', ctrl: true, sequence: '\x11' }); // open queue browser
+      expect(pi.getCurrentInput()).toBe('');
+      expect(pi.getQueueLength()).toBe(2);
+      handler('', { name: 'return' }); // pull selected (latest)
 
       expect(pi.getCurrentInput()).toBe('second');
       expect(pi.getQueueLength()).toBe(1);
@@ -459,10 +462,50 @@ describe('PersistentInput immediate command handling', () => {
     expect(output).toContain('Queued requests (2)');
     expect(output).toContain('1. "first item"');
     expect(output).toContain('2. "second item"');
-    expect(output).toContain('Pulled #2 for edit');
-    expect(updateInput).toHaveBeenCalledWith('second item');
-    expect(updateStatus).toHaveBeenCalled();
-    expect(pi.getQueueLength()).toBe(1);
+    expect(output).toContain('Enter to edit');
+    expect(output).not.toContain('🧾');
+    expect(output).not.toContain('✎');
+    expect(updateInput).not.toHaveBeenCalled();
+    expect(pi.getQueueLength()).toBe(2);
+  });
+
+  it('queue browser supports up/down selection before pulling with Enter', () => {
+    const pi = new PersistentInput({ silentMode: true });
+    (pi as any).isActive = true;
+    (pi as any).queue = [
+      { text: 'first item', timestamp: 1 },
+      { text: 'second item', timestamp: 2 },
+      { text: 'third item', timestamp: 3 },
+    ];
+
+    const handler = (pi as any).handleKeypress;
+    handler('', { name: 'q', ctrl: true, sequence: '\x11' }); // select latest: third
+    handler('', { name: 'up' }); // second
+    handler('', { name: 'return' }); // pull second
+
+    expect(pi.getCurrentInput()).toBe('second item');
+    expect(pi.getQueueLength()).toBe(2);
+    expect(pi.dequeue()?.text).toBe('first item');
+    expect(pi.dequeue()?.text).toBe('third item');
+  });
+
+  it('queue browser supports removing selected item with Backspace', () => {
+    const pi = new PersistentInput({ silentMode: true });
+    (pi as any).isActive = true;
+    (pi as any).queue = [
+      { text: 'first item', timestamp: 1 },
+      { text: 'second item', timestamp: 2 },
+      { text: 'third item', timestamp: 3 },
+    ];
+
+    const handler = (pi as any).handleKeypress;
+    handler('', { name: 'q', ctrl: true, sequence: '\x11' }); // latest selected: third
+    handler('', { name: 'up' }); // select second
+    handler('', { name: 'backspace' }); // remove second
+
+    expect(pi.getQueueLength()).toBe(2);
+    expect(pi.dequeue()?.text).toBe('first item');
+    expect(pi.dequeue()?.text).toBe('third item');
   });
 
   it('Ctrl+Q reports empty queue without changing input', () => {
