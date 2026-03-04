@@ -72,6 +72,7 @@ autohand --auto-mode "<prompt>" [options]
 | `--checkpoint-interval <n>` | Git commit every N iterations | 5 |
 | `--max-runtime <m>` | Maximum runtime in minutes | 120 |
 | `--max-cost <d>` | Maximum API cost in dollars | 10 |
+| `--interactive-on-complete` | Hand off directly to interactive mode when loop ends (TTY only) | Off |
 | `--dry-run` | Preview actions without executing | - |
 
 ### Examples
@@ -92,7 +93,16 @@ autohand --auto-mode "Fix all TypeScript errors" --no-worktree
 
 # Frequent checkpoints
 autohand --auto-mode "Add unit tests" --checkpoint-interval 2
+
+# Continue directly into interactive mode after loop completion
+autohand --auto-mode "Implement OAuth login" --interactive-on-complete
 ```
+
+## Completion Behavior
+
+- Default (`--auto-mode` only): strictly non-interactive. The process exits when the loop ends.
+- Opt-in handoff: pass `--interactive-on-complete` to continue into interactive mode after auto-mode finishes.
+- If `--interactive-on-complete` is set without a TTY, Autohand logs a warning and exits after auto-mode.
 
 ## Slash Command
 
