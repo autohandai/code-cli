@@ -6,6 +6,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ImportSource } from '../../src/import/types.js';
 
+// Mock node:sqlite so CursorImporter can be loaded in Vitest
+vi.mock('node:sqlite', () => ({
+  DatabaseSync: vi.fn().mockImplementation(() => ({
+    prepare: vi.fn(),
+    close: vi.fn(),
+  })),
+}));
+
 // Mock fs-extra so importers don't touch the real filesystem
 vi.mock('fs-extra', () => ({
   default: {

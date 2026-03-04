@@ -257,7 +257,7 @@ describe('buildPromptRenderState', () => {
   it('keeps cursor within a centered scrolling window when editing long input', async () => {
     const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
     const state = buildPromptRenderState('abcdefghijklmnopqrstuvwxyz', 10, 14);
-    const plain = state.lineText.replace(/\u001b\[[0-9;]*m/g, '');
+    const plain = state.lineText.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
     const visible = plain.trimEnd();
 
     expect(visible.startsWith('…')).toBe(true);
@@ -268,7 +268,7 @@ describe('buildPromptRenderState', () => {
   it('keeps cursor aligned near end when editing long input tail', async () => {
     const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
     const state = buildPromptRenderState('abcdefghijklmnopqrstuvwxyz', 26, 14);
-    const plain = state.lineText.replace(/\u001b\[[0-9;]*m/g, '');
+    const plain = state.lineText.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
 
     expect(plain.startsWith('…')).toBe(true);
     expect(plain.endsWith('…')).toBe(false);
@@ -416,7 +416,7 @@ describe('prompt hot tips', () => {
   it('builds contextual help panel with implemented shortcuts only', async () => {
     const { buildContextualHelpPanelLines } = await import('../../src/ui/inputPrompt.js');
     const lines = buildContextualHelpPanelLines('', 80, files, slashCommands)
-      .map((line: string) => line.replace(/\u001b\[[0-9;]*m/g, ''))
+      .map((line: string) => line.replace(/\u001b\[[0-9;]*[A-Za-z]/g, ''))
       .join('\n');
 
     expect(lines).toContain('tab accepts suggestion');
@@ -533,7 +533,7 @@ describe('getPromptBlockWidth', () => {
     const { getPromptBlockWidth, buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
     const width = getPromptBlockWidth(100);
     const state = buildPromptRenderState('hello world', 11, width);
-    const plain = state.lineText.replace(/\u001b\[[0-9;]*m/g, '');
+    const plain = state.lineText.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
 
     expect(width).toBe(99);
     expect(plain.length).toBe(width);
