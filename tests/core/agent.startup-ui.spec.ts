@@ -203,7 +203,7 @@ describe('agent startup and active input UI', () => {
       agent.queueInput = 'queued prompt text that is intentionally long';
       const text = (agent as any).buildSpinnerStatusText(
         'Working... (esc to interrupt · 00m 02s · 999999 tokens [12 queued]) and this keeps going',
-        '\u001b[46mPLAN\u001b[49m 100% context left · / for commands · @ to mention files · ! for terminal'
+        '\u001b[46mPLAN\u001b[49m 100% context left · ? shortcuts · / commands · @ mention files · ! terminal'
       );
 
       const plain = text.replace(/\u001b\[[0-9;]*m/g, '');
@@ -280,9 +280,10 @@ describe('agent startup and active input UI', () => {
 
     expect(line.left).toContain('53% context left');
     expect(line.left).not.toContain('plan:off');
-    expect(line.left).toContain('/ for commands');
-    expect(line.left).toContain('@ to mention files');
-    expect(line.left).toContain('! for terminal');
+    expect(line.left).toContain('? shortcuts');
+    expect(line.left).toContain('/ commands');
+    expect(line.left).toContain('@ mention files');
+    expect(line.left).toContain('! terminal');
   });
 
   it('formatStatusLine shows plan:on when plan mode is enabled', () => {

@@ -439,7 +439,7 @@
   },
   "ui": {
     "escToCancel": "esc a megszakításhoz",
-    "commandHint": "/ parancsokért · @ fájlok említéséhez · ! terminálhoz",
+    "commandHint": "? gyorsbillentyűk · / parancsok · @ fájlok említése · ! terminál",
     "ctrlCToExit": "Nyomd meg újra a Ctrl+C-t a kilépéshez",
     "noMatchingCommands": "Nincs egyező parancs.",
     "selectFile": "Válassz fájlt",

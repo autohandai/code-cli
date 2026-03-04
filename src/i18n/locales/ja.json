@@ -439,7 +439,7 @@
   },
   "ui": {
     "escToCancel": "escでキャンセル",
-    "commandHint": "/ コマンド · @ ファイルメンション · ! ターミナル",
+    "commandHint": "? ショートカット · / コマンド · @ ファイルメンション · ! ターミナル",
     "ctrlCToExit": "もう一度Ctrl+Cを押すと終了します",
     "noMatchingCommands": "一致するコマンドがありません。",
     "selectFile": "ファイルを選択",
