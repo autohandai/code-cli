@@ -373,6 +373,12 @@ export class PersistentInput extends EventEmitter {
       return;
     }
 
+    // Show shortcut help when user types "?" on an empty draft.
+    if (_str === '?' && !key?.ctrl && !key?.meta && this.currentInput.trim().length === 0) {
+      this.showShortcutHelp();
+      return;
+    }
+
     if (isPlainTabShortcut(_str, key)) {
       const currentInput = this.currentInput;
       if (currentInput.trim().startsWith('!') && this.resolveShellSuggestion) {
@@ -786,6 +792,21 @@ export class PersistentInput extends EventEmitter {
   private getQueuePreview(text: string): string {
     const singleLine = text.replace(/\s+/g, ' ').trim();
     return singleLine.length > 58 ? `${singleLine.slice(0, 55)}...` : singleLine;
+  }
+
+  private showShortcutHelp(): void {
+    if (this.silentMode) {
+      return;
+    }
+
+    const lines = [
+      chalk.cyan('\nShortcuts'),
+      chalk.gray('  / commands · @ mention files · ! shell commands'),
+      chalk.gray('  Enter submit · Tab autocomplete · Shift+Tab plan mode'),
+      chalk.gray('  Shift+Enter newline · Ctrl+Q queue browser'),
+      chalk.gray('  Esc interrupt · Ctrl+C twice to exit'),
+    ];
+    this.regions.writeAbove(`${lines.join('\n')}\n`);
   }
 
   /**
