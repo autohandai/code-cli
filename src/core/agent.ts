@@ -20,6 +20,7 @@ import type { LLMProvider } from '../providers/LLMProvider.js';
 import { ProviderNotConfiguredError } from '../providers/ProviderFactory.js';
 import {
   getPromptBlockWidth,
+  promptNotify,
   readInstruction,
   safeEmitKeypressEvents
 } from '../ui/inputPrompt.js';
@@ -274,16 +275,13 @@ export class AutohandAgent {
         if (runtime.isRpcMode) {
           return;
         }
-        // Display hook output to console (only if not a JSON control flow response)
-        // Write text THEN newline separately to prevent ANSI reset codes
-        // from being written after \n (which corrupts the next line for readline)
+        // Route hook output through promptNotify so it renders above the
+        // active composer instead of interleaving with readline output.
         if (result.stdout && !result.response) {
-          const msg = chalk.dim(`[hook:${result.hook.event}] ${result.stdout}`);
-          process.stdout.write(msg + '\n');
+          promptNotify(chalk.dim(`[hook:${result.hook.event}] ${result.stdout}`));
         }
         if (result.stderr && !result.blockingError) {
-          const msg = chalk.yellow(`[hook:${result.hook.event}] ${result.stderr}`);
-          process.stderr.write(msg + '\n');
+          promptNotify(chalk.yellow(`[hook:${result.hook.event}] ${result.stderr}`));
         }
       }
     });
