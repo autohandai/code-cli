@@ -5578,8 +5578,15 @@ If lint or tests fail, report the issues but do NOT commit.`;
     question: string,
     suggestedAnswers?: string[]
   ): Promise<string> {
+    // Auto-approve mode: always answer "Yes" to unblock autonomous flows.
+    if (this.runtime.options.yes) {
+      console.log(chalk.yellow(`\n❓ ${question}`));
+      console.log(chalk.gray('  (Auto-answered: Yes)\n'));
+      return '<answer>Yes</answer>';
+    }
+
     // Non-interactive mode fallback
-    if (this.runtime.options.yes || process.env.CI === '1' || process.env.AUTOHAND_NON_INTERACTIVE === '1') {
+    if (process.env.CI === '1' || process.env.AUTOHAND_NON_INTERACTIVE === '1') {
       console.log(chalk.yellow(`\n❓ ${question}`));
       console.log(chalk.gray('  (Auto-skipped in non-interactive mode)\n'));
       return '<answer>Skipped (non-interactive mode)</answer>';
