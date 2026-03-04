@@ -1262,8 +1262,8 @@ export function leavePromptSurface(
     readline.moveCursor(output, 0, 1);
   }
 
-  // Clear content lines below cursor, bottom border, and status
-  const belowCount = (numContentLines - 1 - cursorRow) + PROMPT_LINES_BELOW_INPUT + statusLineCount;
+  // Clear content lines below cursor, bottom border, help panel, and status
+  const belowCount = (numContentLines - 1 - cursorRow) + PROMPT_LINES_BELOW_INPUT + lastRenderedHelpLines + statusLineCount;
   for (let i = 0; i < belowCount; i++) {
     readline.moveCursor(output, 0, 1);
     readline.clearLine(output, 0);
@@ -1384,6 +1384,15 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     ) ?? undefined;
   };
 
+  const getHelpPanelLines = (): string[] | undefined => {
+    if (!contextualHelpVisible) {
+      return undefined;
+    }
+    const rlAny = rl as readline.Interface & { line?: string };
+    const width = getPromptBlockWidth(stdOutput.columns);
+    return buildContextualHelpPanelLines(rlAny.line ?? '', width, files, slashCommands);
+  };
+
   const renderPromptSurface = (isResize = false, hasExistingPromptBlock = true): void => {
     renderPromptLine(
       rl,
@@ -1392,7 +1401,8 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       isResize,
       hasExistingPromptBlock,
       suggestionText,
-      getInlineGhostSuffix()
+      getInlineGhostSuffix(),
+      getHelpPanelLines()
     );
   };
 
@@ -2107,6 +2117,7 @@ export function getLastRenderedCursorRow(): number {
 // Track the width used by the last renderPromptLine call so we can detect
 // width changes (resize) and compute reflow line counts for clearing.
 let lastRenderedPromptWidth = 0;
+let lastRenderedHelpLines = 0;
 
 function renderPromptLine(
   rl: readline.Interface,
@@ -2115,7 +2126,8 @@ function renderPromptLine(
   isResize = false,
   hasExistingPromptBlock = true,
   suggestionText?: string,
-  inlineGhostSuffix?: string
+  inlineGhostSuffix?: string,
+  helpPanelLines?: string[]
 ): void {
   // Invalidate color cache once per render frame
   invalidateBoxColorCache();
@@ -2159,7 +2171,7 @@ function renderPromptLine(
     const oldWidth = lastRenderedPromptWidth || width;
     const prevContentLines = lastRenderedContentLines;
     const prevCursorRow = lastRenderedCursorRow;
-    const logicalLines = PROMPT_LINES_ABOVE_INPUT + prevContentLines + PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT;
+    const logicalLines = PROMPT_LINES_ABOVE_INPUT + prevContentLines + PROMPT_LINES_BELOW_INPUT + lastRenderedHelpLines + STATUS_LINE_COUNT;
     // Use actual terminal columns (not prompt width) since that's what
     // the terminal uses for reflow calculations.
     const rowsPerOldLine = Math.max(1, Math.ceil(oldWidth / Math.max(1, termCols)));
@@ -2195,8 +2207,8 @@ function renderPromptLine(
       readline.clearLine(output, 0);
     }
 
-    // Move down, clearing remaining content + below + status
-    const downCount = prevContentLines + PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT;
+    // Move down, clearing remaining content + below + help panel + status
+    const downCount = prevContentLines + PROMPT_LINES_BELOW_INPUT + lastRenderedHelpLines + STATUS_LINE_COUNT;
     for (let i = 0; i < downCount; i++) {
       readline.moveCursor(output, 0, 1);
       readline.clearLine(output, 0);
@@ -2214,16 +2226,20 @@ function renderPromptLine(
   }
 
   // Batch all prompt content into a single write to minimize syscalls.
+  const helpLines = helpPanelLines ?? [];
   let buf = `${topBorder}\n`;
   for (const line of state.lines) {
     buf += `${line}\n`;
   }
   buf += `${bottomBorder}\n`;
+  for (const hl of helpLines) {
+    buf += `${hl}\n`;
+  }
   buf += statusRow;
   output.write(buf);
 
   // Move cursor from status row to the cursor's content row.
-  const moveUp = PROMPT_LINES_BELOW_INPUT + STATUS_LINE_COUNT + (state.lineCount - 1 - state.cursorRow);
+  const moveUp = PROMPT_LINES_BELOW_INPUT + helpLines.length + STATUS_LINE_COUNT + (state.lineCount - 1 - state.cursorRow);
   readline.moveCursor(output, 0, -moveUp);
   readline.cursorTo(output, state.cursorColumn);
 
@@ -2233,4 +2249,5 @@ function renderPromptLine(
   lastRenderedContentLines = state.lineCount;
   lastRenderedCursorRow = state.cursorRow;
   lastRenderedPromptWidth = width;
+  lastRenderedHelpLines = helpLines.length;
 }

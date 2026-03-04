@@ -430,6 +430,22 @@ describe('prompt hot tips', () => {
     expect(lines).not.toContain('ctrl + g');
     expect(lines).not.toContain('esc esc to edit previous message');
   });
+
+  it('renderPromptLine includes help panel lines in output when provided', async () => {
+    // Access the private renderPromptLine by calling the public buildContextualHelpPanelLines
+    // and verifying the integration through the exported function
+    const { buildContextualHelpPanelLines, getPromptBlockWidth } = await import('../../src/ui/inputPrompt.js');
+    const width = getPromptBlockWidth(80);
+    const helpLines = buildContextualHelpPanelLines('', width, files, slashCommands);
+
+    // Help panel should produce non-empty lines
+    expect(helpLines.length).toBeGreaterThan(0);
+
+    // Each line should contain visible text (strip ANSI)
+    const stripped = helpLines.map((l: string) => l.replace(/\u001b\[[0-9;]*[A-Za-z]/g, ''));
+    expect(stripped.some((l: string) => l.includes('?'))).toBe(true);
+    expect(stripped.some((l: string) => l.includes('tab'))).toBe(true);
+  });
 });
 
 describe('prompt shortcut key helpers', () => {

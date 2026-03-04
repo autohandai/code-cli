@@ -439,7 +439,7 @@
   },
   "ui": {
     "escToCancel": "esc para cancelar",
-    "commandHint": "/ para comandos · @ para mencionar arquivos · ! para terminal",
+    "commandHint": "? atalhos · / comandos · @ mencionar arquivos · ! terminal",
     "ctrlCToExit": "Pressione Ctrl+C novamente para sair",
     "noMatchingCommands": "Nenhum comando encontrado.",
     "selectFile": "Selecione um arquivo",
