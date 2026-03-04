@@ -6,7 +6,6 @@ import chalk from 'chalk';
 import fs from 'fs-extra';
 import path from 'node:path';
 import { execSync, spawnSync } from 'node:child_process';
-import readline from 'node:readline';
 import packageJson from '../package.json' with { type: 'json' };
 import { getProviderConfig, loadConfig, resolveWorkspaceRoot, saveConfig } from './config.js';
 import { runStartupChecks, printStartupCheckResults } from './startup/checks.js';
@@ -243,6 +242,7 @@ program
   .option('--checkpoint-interval <n>', 'Git commit every N iterations (default: 5)', parseInt)
   .option('--max-runtime <m>', 'Max runtime in minutes (default: 120)', parseInt)
   .option('--max-cost <d>', 'Max API cost in dollars (default: 10)', parseFloat)
+  .option('--interactive-on-complete', 'After auto-mode ends, hand off directly to interactive mode (TTY only)', false)
   .option('--setup', 'Run the setup wizard to configure or reconfigure Autohand', false)
   .option('--about', 'Show information about Autohand', false)
   .option('--add-dir <path...>', 'Add additional directories to workspace scope (can be used multiple times)')
@@ -1601,55 +1601,23 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
       console.log(chalk.gray(`\n📊 Auto-mode ${statusText} after ${finalState.currentIteration} iterations`));
     }
 
-    // Ask user if they want to continue in interactive mode
-    console.log(chalk.cyan('\n🔄 Auto-mode finished. You can continue working interactively.\n'));
-    console.log(chalk.gray('Press Enter to continue in interactive mode, or Ctrl+C to exit.\n'));
+    const statusText = finalState?.status === 'completed' ? 'completed' : `ended (${finalState?.status})`;
+    const exitCode = finalState?.status === 'completed' ? 0 : 1;
+    const shouldHandoffToInteractive = opts.interactiveOnComplete === true && process.stdin.isTTY;
 
-    // Wait for user input
-    const continuePromise = new Promise<boolean>((resolve) => {
-      if (!process.stdin.isTTY) {
-        resolve(false);
-        return;
-      }
-
-      readline.emitKeypressEvents(process.stdin);
-      safeSetRawMode(process.stdin, true);
-      process.stdin.resume();
-
-      const handleKey = (_str: string, key: readline.Key) => {
-        process.stdin.off('keypress', handleKey);
-        if (process.stdin.isTTY) {
-          safeSetRawMode(process.stdin, false);
-        }
-
-        if (key && key.ctrl && key.name === 'c') {
-          resolve(false);
-        } else if (key && key.name === 'return') {
-          resolve(true);
-        } else {
-          // Any other key - continue
-          resolve(true);
-        }
-      };
-
-      process.stdin.on('keypress', handleKey);
-    });
-
-    const shouldContinue = await continuePromise;
-
-    if (!shouldContinue) {
-      // Close session and exit
-      const statusText = finalState?.status === 'completed' ? 'completed' : `ended (${finalState?.status})`;
-      await sessionManager.closeSession(`Auto-mode ${statusText} after ${finalState?.currentIteration ?? 0} iterations: ${opts.autoMode?.slice(0, 50)}...`);
-      console.log(chalk.gray(`\n📁 Session saved: ${session.metadata.sessionId}`));
-      process.exit(finalState?.status === 'completed' ? 0 : 1);
+    if (opts.interactiveOnComplete && !process.stdin.isTTY) {
+      console.log(chalk.yellow('\n⚠ --interactive-on-complete requested, but no TTY is available. Exiting after auto-mode.\n'));
     }
 
-    // Continue in interactive mode with the same session
-    console.log(chalk.cyan('\n▶️ Continuing in interactive mode...\n'));
+    if (!shouldHandoffToInteractive) {
+      await sessionManager.closeSession(`Auto-mode ${statusText} after ${finalState?.currentIteration ?? 0} iterations: ${opts.autoMode?.slice(0, 50)}...`);
+      console.log(chalk.gray(`\n📁 Session saved: ${session.metadata.sessionId}`));
+      process.exit(exitCode);
+    }
 
-    // Transition to interactive mode with the existing agent
+    console.log(chalk.cyan('\n▶️ Auto-mode finished. Handing off to interactive mode (--interactive-on-complete).\n'));
     await agent.runInteractive();
+    process.exit(0);
 
   } catch (error) {
     // Restore terminal
