@@ -592,6 +592,8 @@ export interface CLIOptions {
   maxRuntime?: number;
   /** Max API cost in dollars (default: 10) */
   maxCost?: number;
+  /** Continue into interactive mode after auto-mode completes (TTY only) */
+  interactiveOnComplete?: boolean;
   /** Additional directories to include in workspace scope */
   addDir?: string[];
   /** Display language override (e.g., 'en', 'zh-cn', 'fr') */
