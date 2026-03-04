@@ -40,6 +40,14 @@ function isShiftTabShortcut(str: string, key: readline.Key | undefined): boolean
   );
 }
 
+function isCtrlQShortcut(str: string, key: readline.Key | undefined): boolean {
+  if (!key?.ctrl) {
+    return false;
+  }
+  const sequence = key.sequence ?? str;
+  return key.name === 'q' || sequence === '\x11';
+}
+
 /**
  * PersistentInput provides an always-visible input field at the bottom
  * of the terminal using scroll regions, so spinner and output stay above.
@@ -460,6 +468,12 @@ export class PersistentInput extends EventEmitter {
       return;
     }
 
+    // Ctrl+Q opens queue shortcut: show queued items and pull latest for editing.
+    if (isCtrlQShortcut(_str, key)) {
+      this.openQueueShortcut();
+      return;
+    }
+
     // Ignore other control keys
     if (key?.ctrl || key?.meta) {
       return;
@@ -576,10 +590,61 @@ export class PersistentInput extends EventEmitter {
     const preview = text.length > 40 ? text.slice(0, 37) + '...' : text;
     if (!this.silentMode) {
       this.regions.writeAbove(chalk.cyan(`\n✓ Queued: "${preview}" (${this.queue.length} pending)\n`));
+      if (this.queue.length === 1) {
+        this.regions.writeAbove(chalk.gray('  Tip: press Ctrl+Q to review and edit queued items\n'));
+      }
       this.regions.updateStatus(this.getStatusText(), this.queue.length);
     }
 
     this.emit('queued', text, this.queue.length);
+  }
+
+  private openQueueShortcut(): void {
+    if (this.queue.length === 0) {
+      if (!this.silentMode) {
+        this.regions.writeAbove(chalk.gray('\nQueue is empty.\n'));
+      }
+      return;
+    }
+
+    const queueCountBefore = this.queue.length;
+    const maxVisible = 6;
+    const start = Math.max(0, queueCountBefore - maxVisible);
+    const lines: string[] = [];
+    lines.push(chalk.cyan(`\n🧾 Queued requests (${queueCountBefore})`));
+    if (start > 0) {
+      lines.push(chalk.gray(`  ... ${start} older request(s)`));
+    }
+    for (let i = start; i < queueCountBefore; i++) {
+      const preview = this.getQueuePreview(this.queue[i].text);
+      lines.push(chalk.gray(`  ${i + 1}. "${preview}"`));
+    }
+
+    const pulled = this.queue.pop();
+    if (!pulled) {
+      return;
+    }
+    const pulledPreview = this.getQueuePreview(pulled.text);
+    lines.push(chalk.cyan(`✎ Pulled #${queueCountBefore} for edit: "${pulledPreview}"`));
+    lines.push(chalk.gray('  Press Enter to re-queue after editing.'));
+
+    this.currentInput = pulled.text;
+    if (!this.silentMode) {
+      this.regions.writeAbove(`${lines.join('\n')}\n`);
+      this.regions.updateInput(this.currentInput);
+      this.regions.updateStatus(this.getStatusText(), this.queue.length);
+    }
+    this.emitInputChange();
+    this.emit('queue-shortcut', {
+      action: 'edit-latest',
+      pulled: pulled.text,
+      remaining: this.queue.length,
+    });
+  }
+
+  private getQueuePreview(text: string): string {
+    const singleLine = text.replace(/\s+/g, ' ').trim();
+    return singleLine.length > 58 ? `${singleLine.slice(0, 55)}...` : singleLine;
   }
 
   /**
