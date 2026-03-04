@@ -2096,6 +2096,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async closeSession(): Promise<void> {
+    const CLEANUP_TIMEOUT_MS = 2500;
+
     // Clean up persistent input immediately
     this.persistentInput.dispose();
 
@@ -2103,9 +2105,13 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
     if (!session) {
       console.log(chalk.gray('Ending Autohand session.'));
-      // Fire-and-forget cleanup
-      this.mcpManager.disconnectAll().catch(() => {});
-      this.telemetryManager.shutdown().catch(() => {});
+      await Promise.race([
+        Promise.allSettled([
+          this.mcpManager.disconnectAll(),
+        ]),
+        new Promise((resolve) => setTimeout(resolve, CLEANUP_TIMEOUT_MS)),
+      ]);
+      await this.telemetryManager.shutdown().catch(() => {});
       return;
     }
 
@@ -2120,15 +2126,14 @@ If lint or tests fail, report the issues but do NOT commit.`;
     console.log(chalk.cyan(`💾 Session saved: ${session.metadata.sessionId}`));
     console.log(chalk.gray(`   Resume with: autohand resume ${session.metadata.sessionId}\n`));
 
-    // Run all network/cleanup ops in parallel with a 2s timeout
     const sessionDuration = Date.now() - this.sessionStartedAt;
-    const cleanup = Promise.all([
-      this.mcpManager.disconnectAll().catch(() => {}),
+    const cleanupTasks = [
+      this.mcpManager.disconnectAll(),
       this.hookManager.executeHooks('session-end', {
         sessionId: session.metadata.sessionId,
         sessionEndReason: 'quit',
         duration: sessionDuration,
-      }).catch(() => {}),
+      }),
       this.telemetryManager.syncSession({
         messages: messages.map(m => ({
           role: m.role,
@@ -2136,17 +2141,16 @@ If lint or tests fail, report the issues but do NOT commit.`;
           timestamp: m.timestamp
         })),
         metadata: { workspaceRoot: this.runtime.workspaceRoot }
-      }).catch(() => {}),
-      this.telemetryManager.endSession('completed').catch(() => {}),
-    ]);
+      }),
+      this.telemetryManager.endSession('completed'),
+    ];
 
-    // Wait at most 2s for cleanup, then exit regardless
     await Promise.race([
-      cleanup,
-      new Promise(resolve => setTimeout(resolve, 2000)),
+      Promise.allSettled(cleanupTasks),
+      new Promise((resolve) => setTimeout(resolve, CLEANUP_TIMEOUT_MS)),
     ]);
 
-    this.telemetryManager.shutdown().catch(() => {});
+    await this.telemetryManager.shutdown().catch(() => {});
   }
 
   private async runReactLoop(abortController: AbortController): Promise<void> {

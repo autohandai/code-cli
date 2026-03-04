@@ -1301,4 +1301,64 @@ describe('agent startup and active input UI', () => {
     // No pause/resume — persistent input wasn't active
     expect(callOrder).toEqual(['promptForFeedback']);
   });
+
+  it('closeSession awaits async cleanup before telemetry shutdown', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    let resolveDisconnect!: () => void;
+    let resolveHooks!: () => void;
+    let resolveSync!: () => void;
+    let resolveEnd!: () => void;
+
+    const disconnectAll = vi.fn(
+      () => new Promise<void>((resolve) => { resolveDisconnect = resolve; })
+    );
+    const executeHooks = vi.fn(
+      () => new Promise<void>((resolve) => { resolveHooks = resolve; })
+    );
+    const syncSession = vi.fn(
+      () => new Promise<void>((resolve) => { resolveSync = resolve; })
+    );
+    const endSession = vi.fn(
+      () => new Promise<void>((resolve) => { resolveEnd = resolve; })
+    );
+    const shutdown = vi.fn(async () => {});
+
+    agent.sessionStartedAt = Date.now() - 1000;
+    agent.runtime = { workspaceRoot: process.cwd() };
+    agent.persistentInput = { dispose: vi.fn() };
+    agent.mcpManager = { disconnectAll };
+    agent.hookManager = { executeHooks };
+    agent.telemetryManager = { syncSession, endSession, shutdown };
+    agent.sessionManager = {
+      getCurrentSession: vi.fn(() => ({
+        metadata: { sessionId: 'session-123' },
+        getMessages: () => [
+          { role: 'user', content: 'hello', timestamp: new Date().toISOString() },
+        ],
+      })),
+      closeSession: vi.fn(async () => {}),
+    };
+
+    const closePromise = (agent as any).closeSession();
+    await vi.waitFor(() => {
+      expect(disconnectAll).toHaveBeenCalledTimes(1);
+      expect(executeHooks).toHaveBeenCalledTimes(1);
+      expect(syncSession).toHaveBeenCalledTimes(1);
+      expect(endSession).toHaveBeenCalledTimes(1);
+    });
+    expect(shutdown).not.toHaveBeenCalled();
+
+    resolveDisconnect();
+    resolveHooks();
+    resolveSync();
+    resolveEnd();
+    await closePromise;
+
+    expect(shutdown).toHaveBeenCalledTimes(1);
+    expect(syncSession.mock.invocationCallOrder[0]).toBeLessThan(shutdown.mock.invocationCallOrder[0]);
+    expect(endSession.mock.invocationCallOrder[0]).toBeLessThan(shutdown.mock.invocationCallOrder[0]);
+    logSpy.mockRestore();
+  });
 });
