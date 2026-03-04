@@ -3,15 +3,33 @@
 [![Bun](https://img.shields.io/badge/Bun-%23c61f33?style=flat&logo=bun&logoColor=white)](https://bun.sh)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Us-%235865F2?style=flat&logo=discord&logoColor=white)](https://discord.com/invite/MWTNudaj8E)
 
-**An coding agentic CLI that reads, reasons, and writes code across your entire project. No context switching. No copy-paste, No you're absolute right!.**
+**An autonomous coding agent CLI that reads, reasons, and writes code across your entire project. No context switching. No copy-paste.**
 
 Autohand Code CLI is an autonomous LLM-powered coding agent that lives in your terminal. It uses the ReAct (Reason + Act) pattern to understand your codebase, plan changes, and execute them with your approval. It's blazing fast, intuitive, and extensible with a modular skill system.
 
-We built with a very minimalistic design philosophy to keep the focus on coding. Just install, run `autohand`, and start giving instructions in natural language. Autohand handles the rest.
+We built with a minimalistic design philosophy to keep the focus on coding. Just install, run `autohand`, and start giving instructions in natural language. Autohand handles the rest.
 
 Scale Autohand across your team and CI/CD pipelines to automate repetitive coding tasks, enforce code quality, and accelerate development velocity.
 
 ![Alt Autohand in the terminal](docs/gif/autohand-intro.gif)
+
+## Features
+
+- **Autonomous Coding**: Understands your codebase and executes changes with approval
+- **ReAct Pattern**: Combines reasoning and action for intelligent code modifications
+- **Interactive REPL**: Full terminal experience with file mentions and slash commands
+- **Modular Skills**: Extend functionality with specialized instruction packages
+- **Multi-Provider Support**: Works with OpenRouter, Anthropic, OpenAI, and local models
+- **Git Integration**: Full version control support with automatic commits
+- **Cross-Platform**: Works on macOS, Linux, and Windows
+
+## Why Autohand?
+
+- **No Context Switching**: Stay in your terminal, no copy-paste needed
+- **Intelligent Planning**: Understands your codebase before making changes
+- **Safe Execution**: Requires approval for all modifications
+- **Extensible**: Add new skills and customize behavior
+- **Fast**: Optimized for quick responses and efficient execution
 
 ## Installation
 
@@ -365,6 +383,42 @@ docker run -it autohand
 - [Configuration Reference](docs/config-reference.md) - All config options
 - [Entire Integration](docs/entire-integration.md) - Session checkpointing with Entire
 
+## Contributing
+
+We welcome contributions! Please read our [Contributing Guide](CONTRIBUTING.md) for details on how to get involved.
+
+## Troubleshooting
+
+### Common Issues
+
+**Installation fails**: Make sure you have Bun installed and up to date.
+
+**Permission denied**: Check your file permissions and try running with appropriate privileges.
+
+**Model not working**: Verify your API key and model configuration in `~/.autohand/config.json`.
+
+### Getting Help
+
+- Join our [Discord community](https://discord.com/invite/MWTNudaj8E)
+- Check the [documentation](docs/)
+- Open an issue on [GitHub](https://github.com/autohandai/cli/issues)
+
+## Community
+
+- **Discord**: https://discord.com/invite/MWTNudaj8E
+- **GitHub**: https://github.com/autohandai/cli
+- **Website**: https://autohand.ai
+- **Twitter**: [@autohandai](https://twitter.com/autohandai)
+
+## Security
+
+Autohand is designed with security in mind:
+
+- **No Code Execution**: Autohand only suggests changes, you approve them
+- **Permission System**: Fine-grained control over what operations are allowed
+- **Local Processing**: Your code never leaves your machine unless you choose
+- **Open Source**: Transparent code that can be audited
+
 ## License
 
 Apache License 2.0 - Free for individuals, non-profits, educational institutions, open source projects, and companies with ARR under $5M. See [LICENSE](LICENSE) and [COMMERCIAL.md](COMMERCIAL.md) for details.
@@ -375,3 +429,26 @@ Apache License 2.0 - Free for individuals, non-profits, educational institutions
 - CLI Install: https://autohand.ai/cli/
 - GitHub: https://github.com/autohandai/cli
 - API Backend: https://github.com/autohandai/api
+- Discord: https://discord.com/invite/MWTNudaj8E
+
+## Roadmap
+
+### Upcoming Features
+
+- **Enhanced AI Models**: Support for newer models and improved reasoning
+- **Plugin System**: Easier way to extend Autohand with custom functionality
+- **Team Collaboration**: Features for team-based development workflows
+- **Advanced Testing**: Automated test generation and execution
+- **Code Review**: AI-powered code review and quality checks
+
+### Current Focus
+
+- Improving response times and accuracy
+- Expanding skill library with more specialized workflows
+- Enhancing the interactive experience with better UI/UX
+- Adding more provider integrations
+- Strengthening security and permission systems
+
+---
+
+**Ready to get started?** Run `autohand` in your terminal and experience the future of coding!
