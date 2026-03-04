@@ -14,6 +14,14 @@ import { ContinueImporter } from '../../src/import/importers/ContinueImporter.js
 import { AugmentImporter } from '../../src/import/importers/AugmentImporter.js';
 import { BaseImporter } from '../../src/import/importers/BaseImporter.js';
 
+// Mock node:sqlite so CursorImporter can be loaded in Vitest
+vi.mock('node:sqlite', () => ({
+  DatabaseSync: vi.fn().mockImplementation(() => ({
+    prepare: vi.fn(),
+    close: vi.fn(),
+  })),
+}));
+
 // Mock fs-extra with all methods used by full importer implementations
 vi.mock('fs-extra', () => ({
   default: {

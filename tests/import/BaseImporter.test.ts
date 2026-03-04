@@ -367,6 +367,7 @@ describe('BaseImporter', () => {
       vi.mocked(fse.readJson).mockRejectedValue(new Error('not found') as never);
       vi.mocked(fse.pathExists).mockResolvedValue(false as never);
 
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { status: _status, ...optsWithoutStatus } = baseOpts;
       await importer.testWriteAutohandSession(optsWithoutStatus);
 
