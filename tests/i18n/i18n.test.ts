@@ -266,6 +266,16 @@ describe('i18n module', () => {
       expect(t('commands.undo.description')).toContain('revert');
       expect(t('commands.new.description')).toContain('conversation');
       expect(t('commands.status.description')).toContain('status');
+      expect(t('commands.import.description')).toContain('import');
+    });
+
+    it('should not return raw key for commands.import.description', () => {
+      const result = t('commands.import.description');
+      // Must NOT be the raw key itself — that's the i18n bug
+      expect(result).not.toBe('commands.import.description');
+      // Must be a human-readable description
+      expect(result.length).toBeGreaterThan(5);
+      expect(result.length).toBeLessThan(100);
     });
   });
 

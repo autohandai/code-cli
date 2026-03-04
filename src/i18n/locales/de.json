@@ -314,6 +314,9 @@
       "empty": "No sessions found",
       "showing": "Page {{page}} of {{total}} ({{count}} sessions)",
       "resumeHint": "Use /resume <session-id> to resume a session"
+    },
+    "import": {
+      "description": "Daten von anderen Code-Agenten importieren"
     }
   },
   "setup": {

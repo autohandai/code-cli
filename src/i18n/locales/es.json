@@ -314,6 +314,9 @@
       "empty": "No se encontraron sesiones",
       "showing": "Página {{page}} de {{total}} ({{count}} sesiones)",
       "resumeHint": "Usa /resume <session-id> para reanudar una sesión"
+    },
+    "import": {
+      "description": "importar datos de otros agentes de código"
     }
   },
   "setup": {

@@ -314,6 +314,9 @@
       "empty": "Aucune session trouvée",
       "showing": "Page {{page}} sur {{total}} ({{count}} sessions)",
       "resumeHint": "Utilisez /resume <session-id> pour reprendre une session"
+    },
+    "import": {
+      "description": "importer des données d'autres agents de code"
     }
   },
   "setup": {
