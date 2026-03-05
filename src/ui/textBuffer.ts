@@ -40,6 +40,7 @@ export class TextBuffer {
   private cursorCol: number;
   private viewportWidth: number;
   private viewportHeight: number;
+  private preferredCol: number | null = null;
 
   constructor(viewportWidth: number, viewportHeight: number, initialText?: string) {
     this.viewportWidth = viewportWidth;
@@ -115,6 +116,67 @@ export class TextBuffer {
   }
 
   // ---------------------------------------------------------------------------
+  // Cursor movement
+  // ---------------------------------------------------------------------------
+
+  /** Moves cursor left by one code point. Wraps to end of previous line at col 0. */
+  moveLeft(): void {
+    this.preferredCol = null;
+    if (this.cursorCol > 0) {
+      this.cursorCol--;
+    } else if (this.cursorRow > 0) {
+      this.cursorRow--;
+      this.cursorCol = cpLen(this.lines[this.cursorRow]!);
+    }
+  }
+
+  /** Moves cursor right by one code point. Wraps to start of next line at end of line. */
+  moveRight(): void {
+    this.preferredCol = null;
+    const lineLen = cpLen(this.lines[this.cursorRow]!);
+    if (this.cursorCol < lineLen) {
+      this.cursorCol++;
+    } else if (this.cursorRow < this.lines.length - 1) {
+      this.cursorRow++;
+      this.cursorCol = 0;
+    }
+  }
+
+  /** Moves cursor up one line. Clamps column to target line length, preserving preferredCol. */
+  moveUp(): void {
+    if (this.cursorRow <= 0) return;
+    if (this.preferredCol === null) {
+      this.preferredCol = this.cursorCol;
+    }
+    this.cursorRow--;
+    const lineLen = cpLen(this.lines[this.cursorRow]!);
+    this.cursorCol = Math.min(this.preferredCol, lineLen);
+  }
+
+  /** Moves cursor down one line. Clamps column to target line length, preserving preferredCol. */
+  moveDown(): void {
+    if (this.cursorRow >= this.lines.length - 1) return;
+    if (this.preferredCol === null) {
+      this.preferredCol = this.cursorCol;
+    }
+    this.cursorRow++;
+    const lineLen = cpLen(this.lines[this.cursorRow]!);
+    this.cursorCol = Math.min(this.preferredCol, lineLen);
+  }
+
+  /** Moves cursor to the start of the current line. */
+  moveHome(): void {
+    this.preferredCol = null;
+    this.cursorCol = 0;
+  }
+
+  /** Moves cursor to the end of the current line. */
+  moveEnd(): void {
+    this.preferredCol = null;
+    this.cursorCol = cpLen(this.lines[this.cursorRow]!);
+  }
+
+  // ---------------------------------------------------------------------------
   // Mutations
   // ---------------------------------------------------------------------------
 
@@ -128,6 +190,7 @@ export class TextBuffer {
    */
   insert(text: string): void {
     if (text === '') return;
+    this.preferredCol = null;
 
     // Strip unwanted control characters, then normalize newlines
     const cleaned = text.replace(CONTROL_CHAR_RE, '');
@@ -167,6 +230,7 @@ export class TextBuffer {
    * - At the start of the buffer, does nothing.
    */
   backspace(): void {
+    this.preferredCol = null;
     if (this.cursorCol > 0) {
       // Delete one code point before cursor
       const line = this.lines[this.cursorRow]!;
@@ -190,6 +254,7 @@ export class TextBuffer {
    * - At the end of the buffer, does nothing.
    */
   delete(): void {
+    this.preferredCol = null;
     const line = this.lines[this.cursorRow]!;
     const lineLen = cpLen(line);
 
