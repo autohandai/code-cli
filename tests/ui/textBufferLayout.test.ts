@@ -112,6 +112,48 @@ describe('logicalToVisual', () => {
   });
 });
 
+describe('layout edge cases', () => {
+  it('handles multiple words that exactly fill width', () => {
+    const layout = calculateLayout(['abc def'], 7);
+    expect(layout.visualLines).toEqual(['abc def']);
+  });
+
+  it('handles trailing space at wrap point', () => {
+    const layout = calculateLayout(['abc def ghi'], 8);
+    expect(layout.visualLines.length).toBe(2);
+  });
+
+  it('handles single-character words', () => {
+    const layout = calculateLayout(['a b c d e f'], 5);
+    expect(layout.visualLines.length).toBeGreaterThan(1);
+  });
+
+  it('handles line with only spaces', () => {
+    const layout = calculateLayout(['     '], 10);
+    expect(layout.visualLines).toEqual(['     ']);
+  });
+
+  it('handles empty string in middle of lines', () => {
+    const layout = calculateLayout(['a', '', '', 'b'], 10);
+    expect(layout.visualLines).toEqual(['a', '', '', 'b']);
+    expect(layout.visualToLogical.length).toBe(4);
+  });
+
+  it('logicalToVisual handles cursor at very end of wrapped text', () => {
+    const layout = calculateLayout(['abcdefghij extra'], 10);
+    // Cursor at end of logical line (col 16)
+    const [vRow] = logicalToVisual(layout, 0, 16);
+    expect(vRow).toBeGreaterThan(0);
+  });
+
+  it('visualToLogical handles col 0 on second visual line', () => {
+    const layout = calculateLayout(['abcdefghijk'], 10);
+    const [lRow, lCol] = visualToLogical(layout, 1, 0);
+    expect(lRow).toBe(0);
+    expect(lCol).toBe(10);
+  });
+});
+
 describe('visualToLogical', () => {
   it('maps visual cursor back — no wrap', () => {
     const layout = calculateLayout(['hello'], 20);
