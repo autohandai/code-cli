@@ -9,7 +9,7 @@ import { showModal, showInput, showPassword, type ModalOption } from '../../ui/i
 import { ProviderFactory } from '../../providers/ProviderFactory.js';
 import { saveConfig, getProviderConfig } from '../../config.js';
 import { getContextWindow } from '../../utils/context.js';
-import type { AgentRuntime, ProviderName } from '../../types.js';
+import type { AgentRuntime, ProviderName, AzureSettings, AzureAuthMethod } from '../../types.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
 import type { TelemetryManager } from '../../telemetry/TelemetryManager.js';
 import { AgentDelegator } from '../agents/AgentDelegator.js';
@@ -96,6 +96,16 @@ export class ProviderConfigManager {
     const config = this.runtime.config[provider];
     if (!config) return false;
 
+    // Azure: check auth method - managed identity needs no key, entra-id needs tenant/client, api-key needs apiKey
+    if (provider === 'azure') {
+      const azureConfig = config as AzureSettings;
+      if (azureConfig.authMethod === 'managed-identity') return true;
+      if (azureConfig.authMethod === 'entra-id') {
+        return !!azureConfig.tenantId && !!azureConfig.clientId && !!azureConfig.clientSecret;
+      }
+      return !!config.apiKey && config.apiKey !== 'replace-me';
+    }
+
     // For cloud providers, check API key
     if (provider === 'openrouter' || provider === 'openai' || provider === 'llmgateway') {
       return !!config.apiKey && config.apiKey !== 'replace-me';
@@ -127,6 +137,9 @@ export class ProviderConfigManager {
         break;
       case 'llmgateway':
         await this.configureLLMGateway();
+        break;
+      case 'azure':
+        await this.configureAzure();
         break;
     }
   }
@@ -463,6 +476,121 @@ export class ProviderConfigManager {
   }
 
   /**
+   * Configure Azure OpenAI provider
+   */
+  private async configureAzure(): Promise<void> {
+    try {
+      console.log(chalk.cyan('Azure OpenAI Configuration'));
+      console.log(chalk.gray('Get started at: https://ai.azure.com\n'));
+
+      // Step 1: Choose auth method
+      const authChoices: ModalOption[] = [
+        { label: 'API Key', value: 'api-key' },
+        { label: 'Entra ID (Azure AD)', value: 'entra-id' },
+        { label: 'Managed Identity', value: 'managed-identity' }
+      ];
+
+      const authResult = await showModal({
+        title: 'Select authentication method',
+        options: authChoices
+      });
+
+      if (!authResult) {
+        console.log(chalk.gray('\nConfiguration cancelled.'));
+        return;
+      }
+
+      const authMethod = authResult.value as AzureAuthMethod;
+      let apiKey: string | undefined;
+      let tenantId: string | undefined;
+      let clientId: string | undefined;
+      let clientSecret: string | undefined;
+
+      // Step 2: Auth-specific prompts
+      if (authMethod === 'api-key') {
+        console.log(chalk.gray('\nFind your key in Azure Portal > Your Resource > Keys and Endpoint\n'));
+        apiKey = await showPassword({ title: 'Enter your Azure API key' }) ?? undefined;
+        if (!apiKey) { console.log(chalk.gray('\nConfiguration cancelled.')); return; }
+      } else if (authMethod === 'entra-id') {
+        console.log(chalk.gray('\nEntra ID uses OAuth2 client credentials. Create an App Registration in Azure Portal.'));
+        console.log(chalk.gray('Docs: https://learn.microsoft.com/en-us/entra/identity/\n'));
+
+        tenantId = await showInput({ title: 'Enter your Azure Tenant ID' }) ?? undefined;
+        if (!tenantId) { console.log(chalk.gray('\nConfiguration cancelled.')); return; }
+
+        clientId = await showInput({ title: 'Enter your Client ID (Application ID)' }) ?? undefined;
+        if (!clientId) { console.log(chalk.gray('\nConfiguration cancelled.')); return; }
+
+        clientSecret = await showPassword({ title: 'Enter your Client Secret' }) ?? undefined;
+        if (!clientSecret) { console.log(chalk.gray('\nConfiguration cancelled.')); return; }
+      } else {
+        console.log(chalk.gray('\nManaged Identity will be used automatically when running inside Azure.'));
+        console.log(chalk.gray('Docs: https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/\n'));
+      }
+
+      // Step 3: Resource configuration
+      const endpointChoice = await showModal({
+        title: 'How do you want to specify your Azure endpoint?',
+        options: [
+          { label: 'Resource name + deployment (recommended)', value: 'structured' },
+          { label: 'Full endpoint URL', value: 'url' }
+        ]
+      });
+
+      if (!endpointChoice) { console.log(chalk.gray('\nConfiguration cancelled.')); return; }
+
+      let resourceName: string | undefined;
+      let deploymentName: string | undefined;
+      let baseUrl: string | undefined;
+
+      if (endpointChoice.value === 'structured') {
+        resourceName = await showInput({ title: 'Enter your Azure resource name' }) ?? undefined;
+        if (!resourceName) { console.log(chalk.gray('\nConfiguration cancelled.')); return; }
+
+        deploymentName = await showInput({ title: 'Enter your deployment name', defaultValue: 'gpt-4o' }) ?? undefined;
+        if (!deploymentName) { console.log(chalk.gray('\nConfiguration cancelled.')); return; }
+      } else {
+        baseUrl = await showInput({
+          title: 'Enter your full Azure endpoint URL',
+          defaultValue: 'https://your-resource.openai.azure.com/openai/deployments/gpt-4o'
+        }) ?? undefined;
+        if (!baseUrl) { console.log(chalk.gray('\nConfiguration cancelled.')); return; }
+      }
+
+      // Step 4: API version
+      const apiVersion = await showInput({ title: 'Azure API version', defaultValue: '2024-10-21' }) ?? undefined;
+      if (!apiVersion) { console.log(chalk.gray('\nConfiguration cancelled.')); return; }
+
+      const model = deploymentName ?? 'gpt-4o';
+
+      const azureConfig: AzureSettings = {
+        model,
+        authMethod,
+        apiVersion,
+        ...(apiKey && { apiKey }),
+        ...(tenantId && { tenantId }),
+        ...(clientId && { clientId }),
+        ...(clientSecret && { clientSecret }),
+        ...(resourceName && { resourceName }),
+        ...(deploymentName && { deploymentName }),
+        ...(baseUrl && { baseUrl }),
+      };
+
+      this.runtime.config.azure = azureConfig;
+      this.runtime.config.provider = 'azure';
+      this.runtime.options.model = model;
+      await saveConfig(this.runtime.config);
+      this.resetLlmClient('azure', model);
+
+      console.log(chalk.green('\n✓ Azure OpenAI configured successfully!'));
+      console.log(chalk.gray(`  Auth: ${authMethod}`));
+      console.log(chalk.gray(`  Model: ${model}`));
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
    * Change model for an already-configured provider
    */
   async changeProviderModel(provider: ProviderName): Promise<void> {
@@ -470,8 +598,8 @@ export class ProviderConfigManager {
       const currentSettings = getProviderConfig(this.runtime.config, provider);
       const currentModel = this.runtime.options.model ?? currentSettings?.model ?? '';
 
-      // For cloud providers (openai, openrouter, llmgateway), offer to change API key as well
-      if (provider === 'openai' || provider === 'openrouter' || provider === 'llmgateway') {
+      // For cloud providers (openai, openrouter, llmgateway, azure), offer to change API key as well
+      if (provider === 'openai' || provider === 'openrouter' || provider === 'llmgateway' || provider === 'azure') {
         await this.changeCloudProviderSettings(provider, currentModel, currentSettings);
         return;
       }
@@ -531,14 +659,15 @@ export class ProviderConfigManager {
    * Change settings for cloud providers (OpenAI/OpenRouter/LLMGateway) - API key and/or model
    */
   private async changeCloudProviderSettings(
-    provider: 'openai' | 'openrouter' | 'llmgateway',
+    provider: 'openai' | 'openrouter' | 'llmgateway' | 'azure',
     currentModel: string,
     currentSettings: { apiKey?: string; baseUrl?: string; model?: string } | null
   ): Promise<void> {
     const providerNameMap = {
       openai: 'OpenAI',
       openrouter: 'OpenRouter',
-      llmgateway: 'LLM Gateway'
+      llmgateway: 'LLM Gateway',
+      azure: 'Azure OpenAI'
     };
     const providerName = providerNameMap[provider];
     const maskedKey = currentSettings?.apiKey
@@ -575,7 +704,8 @@ export class ProviderConfigManager {
       const keyUrlMap = {
         openai: 'https://platform.openai.com/api-keys',
         openrouter: 'https://openrouter.ai/keys',
-        llmgateway: 'https://llmgateway.io/dashboard'
+        llmgateway: 'https://llmgateway.io/dashboard',
+        azure: 'https://ai.azure.com'
       };
       const keyUrl = keyUrlMap[provider];
       console.log(chalk.gray(`\nGet your API key at: ${keyUrl}\n`));
@@ -649,6 +779,16 @@ export class ProviderConfigManager {
         }
 
         newModel = result.value as string;
+      } else if (provider === 'azure') {
+        const model = await showInput({
+          title: 'Enter the deployment/model name',
+          defaultValue: currentModel || 'gpt-4o'
+        });
+        if (!model) {
+          console.log(chalk.gray('\nSettings change cancelled.'));
+          return;
+        }
+        newModel = model.trim();
       } else {
         // OpenRouter - allow custom model input
         const model = await showInput({
@@ -665,18 +805,28 @@ export class ProviderConfigManager {
     }
 
     // Save the changes
-    const baseUrlMap = {
-      openai: 'https://api.openai.com/v1',
-      openrouter: 'https://openrouter.ai/api/v1',
-      llmgateway: 'https://api.llmgateway.io/v1'
-    };
-    const baseUrl = baseUrlMap[provider];
+    if (provider === 'azure') {
+      // Azure: preserve existing config, just update model and key
+      const existing = this.runtime.config.azure ?? { model: newModel, authMethod: 'api-key' as const };
+      this.runtime.config.azure = {
+        ...existing,
+        model: newModel,
+        ...(newApiKey && { apiKey: newApiKey }),
+      };
+    } else {
+      const baseUrlMap = {
+        openai: 'https://api.openai.com/v1',
+        openrouter: 'https://openrouter.ai/api/v1',
+        llmgateway: 'https://api.llmgateway.io/v1'
+      };
+      const baseUrl = baseUrlMap[provider];
 
-    this.runtime.config[provider] = {
-      apiKey: newApiKey,
-      baseUrl,
-      model: newModel
-    };
+      this.runtime.config[provider] = {
+        apiKey: newApiKey,
+        baseUrl,
+        model: newModel
+      };
+    }
 
     this.runtime.config.provider = provider;
     this.runtime.options.model = newModel;
@@ -695,9 +845,14 @@ export class ProviderConfigManager {
    * Validate API key by making a test request to the provider
    */
   private async validateApiKey(
-    provider: 'openai' | 'openrouter' | 'llmgateway',
+    provider: 'openai' | 'openrouter' | 'llmgateway' | 'azure',
     apiKey: string
   ): Promise<{ valid: boolean; error?: string; hint?: string }> {
+    // Azure keys can't be easily validated without resource/deployment info
+    if (provider === 'azure') {
+      return { valid: true };
+    }
+
     try {
       const baseUrlMap = {
         openai: 'https://api.openai.com/v1',
