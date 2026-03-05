@@ -32,7 +32,7 @@ describe('ProviderFactory', () => {
             const providers = ProviderFactory.getProviderNames();
 
             expect(providers).toContain('mlx');
-            expect(providers).toEqual(['openrouter', 'ollama', 'openai', 'llamacpp', 'llmgateway', 'mlx']);
+            expect(providers).toEqual(['openrouter', 'ollama', 'openai', 'llamacpp', 'llmgateway', 'azure', 'mlx']);
         });
 
         it('should exclude mlx on non-Apple Silicon', () => {
@@ -41,10 +41,10 @@ describe('ProviderFactory', () => {
             const providers = ProviderFactory.getProviderNames();
 
             expect(providers).not.toContain('mlx');
-            expect(providers).toEqual(['openrouter', 'ollama', 'openai', 'llamacpp', 'llmgateway']);
+            expect(providers).toEqual(['openrouter', 'ollama', 'openai', 'llamacpp', 'llmgateway', 'azure']);
         });
 
-        it('should always include openrouter, ollama, openai, llamacpp, llmgateway', () => {
+        it('should always include openrouter, ollama, openai, llamacpp, llmgateway, azure', () => {
             mockIsMLXSupported.mockReturnValue(false);
 
             const providers = ProviderFactory.getProviderNames();
@@ -54,6 +54,15 @@ describe('ProviderFactory', () => {
             expect(providers).toContain('openai');
             expect(providers).toContain('llamacpp');
             expect(providers).toContain('llmgateway');
+            expect(providers).toContain('azure');
+        });
+
+        it('should always include azure in provider list', () => {
+            mockIsMLXSupported.mockReturnValue(false);
+
+            const providers = ProviderFactory.getProviderNames();
+
+            expect(providers).toContain('azure');
         });
     });
 
@@ -126,6 +135,33 @@ describe('ProviderFactory', () => {
             expect(provider.getName()).toBe('llamacpp');
         });
 
+        it('should create AzureProvider when azure is configured', () => {
+            const config: AutohandConfig = {
+                provider: 'azure',
+                azure: {
+                    model: 'gpt-4o',
+                    apiKey: 'test-azure-key',
+                    baseUrl: 'https://my-resource.openai.azure.com',
+                    deploymentName: 'gpt-4o',
+                    apiVersion: '2024-08-01-preview'
+                }
+            };
+
+            const provider = ProviderFactory.create(config);
+
+            expect(provider.getName()).toBe('azure');
+        });
+
+        it('should return UnconfiguredProvider when azure config is missing', () => {
+            const config: AutohandConfig = {
+                provider: 'azure'
+            };
+
+            const provider = ProviderFactory.create(config);
+
+            expect(provider.getName()).toBe('unconfigured');
+        });
+
         it('should default to openrouter when no provider specified', () => {
             const config: AutohandConfig = {
                 openrouter: {
@@ -166,6 +202,10 @@ describe('ProviderFactory', () => {
 
         it('should return true for llmgateway', () => {
             expect(ProviderFactory.isValidProvider('llmgateway')).toBe(true);
+        });
+
+        it('should return true for azure', () => {
+            expect(ProviderFactory.isValidProvider('azure')).toBe(true);
         });
 
         it('should return false for invalid provider', () => {
