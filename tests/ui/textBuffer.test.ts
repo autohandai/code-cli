@@ -393,6 +393,84 @@ describe('TextBuffer', () => {
   });
 
   // -------------------------------------------------------------------------
+  // Word navigation (Task 6)
+  // -------------------------------------------------------------------------
+
+  describe('word navigation', () => {
+    it('moveWordLeft jumps to previous word start', () => {
+      const buf = new TextBuffer(80, 10, 'hello world');
+      buf.moveWordLeft();
+      expect(buf.getCursorCol()).toBe(6); // start of 'world'
+    });
+
+    it('moveWordLeft from middle of word jumps to word start', () => {
+      const buf = new TextBuffer(80, 10, 'hello world');
+      buf.setCursor(0, 8); // middle of 'world'
+      buf.moveWordLeft();
+      expect(buf.getCursorCol()).toBe(6);
+    });
+
+    it('moveWordLeft at line start jumps to end of previous line', () => {
+      const buf = new TextBuffer(80, 10, 'hello\nworld');
+      buf.setCursor(1, 0);
+      buf.moveWordLeft();
+      expect(buf.getCursorRow()).toBe(0);
+      expect(buf.getCursorCol()).toBe(5);
+    });
+
+    it('moveWordRight jumps past current word', () => {
+      const buf = new TextBuffer(80, 10, 'hello world');
+      buf.setCursor(0, 0);
+      buf.moveWordRight();
+      expect(buf.getCursorCol()).toBe(5); // end of 'hello'
+    });
+
+    it('moveWordRight from space jumps to end of next word', () => {
+      const buf = new TextBuffer(80, 10, 'hello world');
+      buf.setCursor(0, 5); // at space
+      buf.moveWordRight();
+      expect(buf.getCursorCol()).toBe(11); // end of 'world'
+    });
+
+    it('moveWordRight at line end jumps to start of next line', () => {
+      const buf = new TextBuffer(80, 10, 'hello\nworld');
+      buf.setCursor(0, 5);
+      buf.moveWordRight();
+      expect(buf.getCursorRow()).toBe(1);
+      expect(buf.getCursorCol()).toBe(0);
+    });
+
+    it('moveWordLeft does nothing at start of buffer', () => {
+      const buf = new TextBuffer(80, 10, 'hello');
+      buf.setCursor(0, 0);
+      buf.moveWordLeft();
+      expect(buf.getCursorRow()).toBe(0);
+      expect(buf.getCursorCol()).toBe(0);
+    });
+
+    it('moveWordRight does nothing at end of buffer', () => {
+      const buf = new TextBuffer(80, 10, 'hello');
+      buf.moveWordRight();
+      expect(buf.getCursorRow()).toBe(0);
+      expect(buf.getCursorCol()).toBe(5);
+    });
+
+    it('moveWordLeft with multiple spaces', () => {
+      const buf = new TextBuffer(80, 10, 'hello   world');
+      buf.setCursor(0, 13);
+      buf.moveWordLeft();
+      expect(buf.getCursorCol()).toBe(8); // start of 'world'
+    });
+
+    it('moveWordRight with multiple spaces', () => {
+      const buf = new TextBuffer(80, 10, 'hello   world');
+      buf.setCursor(0, 0);
+      buf.moveWordRight();
+      expect(buf.getCursorCol()).toBe(5); // end of 'hello'
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Visual layout integration (Task 5)
   // -------------------------------------------------------------------------
 
