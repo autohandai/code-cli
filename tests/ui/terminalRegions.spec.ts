@@ -323,4 +323,98 @@ describe('TerminalRegions', () => {
       getPlanModeManager().disable();
     }
   });
+
+  describe('dynamic fixed region height (multi-line input)', () => {
+    it('increases fixedLines for multi-line input', () => {
+      const output = createMockOutput();
+      const regions = new TerminalRegions(output);
+      regions.enable();
+      output.writes = [];
+
+      // Default is 5 fixed lines (activity + top border + 1 input + bottom border + status)
+      expect(regions.getFixedLines()).toBe(5);
+
+      // Render with 3-line input
+      regions.renderFixedRegion('line1\nline2\nline3', 0, 'status');
+
+      // Should now be 7 fixed lines (activity + top + 3 input + bottom + status)
+      expect(regions.getFixedLines()).toBe(7);
+    });
+
+    it('reverts to default fixedLines when input returns to single line', () => {
+      const output = createMockOutput();
+      const regions = new TerminalRegions(output);
+      regions.enable();
+
+      // Multi-line
+      regions.renderFixedRegion('line1\nline2\nline3', 0, 'status');
+      expect(regions.getFixedLines()).toBe(7);
+
+      output.writes = [];
+
+      // Back to single-line
+      regions.renderFixedRegion('single line', 0, 'status');
+      expect(regions.getFixedLines()).toBe(5);
+    });
+
+    it('caps input lines at MAX_VISIBLE_INPUT_LINES', () => {
+      const output = createMockOutput();
+      const regions = new TerminalRegions(output);
+      regions.enable();
+      output.writes = [];
+
+      // Send input with 10 lines — should be capped at 5 visible
+      const tenLines = Array.from({ length: 10 }, (_, i) => `line${i + 1}`).join('\n');
+      regions.renderFixedRegion(tenLines, 0, 'status');
+
+      // Max 5 lines: activity + top + 5 input + bottom + status = 9
+      expect(regions.getFixedLines()).toBe(9);
+    });
+
+    it('renders all visible input lines with border decoration', () => {
+      const output = createMockOutput();
+      const regions = new TerminalRegions(output);
+      regions.enable();
+      output.writes = [];
+
+      regions.renderFixedRegion('alpha\nbeta', 0, 'status');
+
+      const plain = stripAnsi(output.writes.join(''));
+      expect(plain).toContain('alpha');
+      expect(plain).toContain('beta');
+      // Should have both top and bottom borders
+      expect(plain).toContain('┌');
+      expect(plain).toContain('└');
+    });
+
+    it('updateInput also adjusts fixedLines for multi-line content', () => {
+      const output = createMockOutput();
+      const regions = new TerminalRegions(output);
+      regions.enable();
+      output.writes = [];
+
+      regions.updateInput('line1\nline2');
+
+      // Should adjust to 6 lines (activity + top + 2 input + bottom + status)
+      expect(regions.getFixedLines()).toBe(6);
+
+      const plain = stripAnsi(output.writes.join(''));
+      expect(plain).toContain('line1');
+      expect(plain).toContain('line2');
+    });
+
+    it('re-sets scroll region when fixedLines changes', () => {
+      const output = createMockOutput();
+      const regions = new TerminalRegions(output);
+      regions.enable();
+      output.writes = [];
+
+      // Switch from 1-line (5 fixed) to 3-line (7 fixed)
+      regions.renderFixedRegion('a\nb\nc', 0, 'status');
+
+      const joined = output.writes.join('');
+      // Scroll region should be 1 to (24 - 7) = 17
+      expect(joined).toContain('\x1b[1;17r');
+    });
+  });
 });
