@@ -547,7 +547,7 @@ export function buildPromptRenderState(
 
 /**
  * Build multi-line render state for the composer.
- * Splits input by NEWLINE_MARKER and literal newlines, then builds boxed rows.
+ * Splits input by newlines (literal and legacy NEWLINE_MARKER), then builds boxed rows.
  */
 export function buildMultiLineRenderState(
   currentLine: string,
@@ -970,15 +970,11 @@ export function processImagesInText(
 
 // Visual marker for newlines in single-line input (converted to \n on submit)
 export const NEWLINE_MARKER = ' ↵ ';
-const MAX_NEWLINES = 9; // Max 10 lines = 9 newline markers
 const NEWLINE_MARKER_REGEX = new RegExp(escapeRegex(NEWLINE_MARKER), 'g');
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
-
-// Maximum lines to display visually (input can contain more)
-export const MAX_DISPLAY_LINES = 10;
 
 // Track stdin streams that have been instrumented with emitKeypressEvents
 // to prevent duplicate listener registration
@@ -993,68 +989,6 @@ export function safeEmitKeypressEvents(stream: NodeJS.ReadStream): void {
     readline.emitKeypressEvents(stream);
     instrumentedStreams.add(stream);
   }
-}
-
-/**
- * Result from getDisplayContent
- */
-export interface DisplayResult {
-  /** Content to show in terminal */
-  display: string;
-  /** Total lines if shown untruncated */
-  totalLines: number;
-  /** Whether content was truncated for display */
-  isTruncated: boolean;
-}
-
-/**
- * Calculate display content with truncation if needed.
- * When content exceeds MAX_DISPLAY_LINES, shows the END (most recent typing)
- * with an indicator showing total line count.
- *
- * @param fullContent - The complete input content
- * @param terminalWidth - Current terminal width in columns
- * @returns Display result with truncated content and metadata
- */
-export function getDisplayContent(fullContent: string, terminalWidth: number): DisplayResult {
-  if (!fullContent) {
-    return { display: '', totalLines: 0, isTruncated: false };
-  }
-
-  const promptWidth = 2; // "› " prefix
-  const availableWidth = Math.max(1, terminalWidth - promptWidth);
-
-  // Calculate how many lines the content would take
-  const totalLines = Math.ceil(fullContent.length / availableWidth);
-
-  if (totalLines <= MAX_DISPLAY_LINES) {
-    return { display: fullContent, totalLines, isTruncated: false };
-  }
-
-  // Reserve space for indicator like "... (8 lines) "
-  const indicator = `... (${totalLines} lines) `;
-  const indicatorWidth = indicator.length;
-
-  // Calculate max chars for display (MAX_DISPLAY_LINES lines minus indicator)
-  const maxChars = (availableWidth * MAX_DISPLAY_LINES) - indicatorWidth;
-
-  // Show the END of the content (most recent typing)
-  const truncated = fullContent.slice(-Math.max(0, maxChars));
-
-  return {
-    display: indicator + truncated,
-    totalLines,
-    isTruncated: true
-  };
-}
-
-/**
- * Count the number of newline markers in text
- */
-export function countNewlineMarkers(text: string): number {
-  const markerCount = (text.match(NEWLINE_MARKER_REGEX) || []).length;
-  const literalNewlineCount = (text.match(/\r\n|\r|\n/g) || []).length;
-  return markerCount + literalNewlineCount;
 }
 
 /**
@@ -1603,7 +1537,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         }
         // Catch residual CSI u fragments that readline passes as literal text.
         // These never fire keypress events, so TextBuffer can't handle them.
-        // Insert a real newline into the TextBuffer instead of NEWLINE_MARKER.
+        // Insert a real newline into the TextBuffer.
         if (/^13;?[234]?\d*[u~]$/.test(s)) {
           textBuffer.insert('\n');
           syncReadlineFromBuffer();

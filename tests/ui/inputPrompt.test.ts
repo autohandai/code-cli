@@ -114,31 +114,6 @@ describe('installReadlineOutputGuard', () => {
 });
 
 describe('Display content utilities', () => {
-  it('should calculate display content with truncation', async () => {
-    const { getDisplayContent } = await import('../../src/ui/inputPrompt.js');
-
-    // Short content should not be truncated
-    const shortResult = getDisplayContent('hello', 80);
-    expect(shortResult.isTruncated).toBe(false);
-    expect(shortResult.display).toBe('hello');
-
-    // Empty content
-    const emptyResult = getDisplayContent('', 80);
-    expect(emptyResult.display).toBe('');
-    expect(emptyResult.totalLines).toBe(0);
-  });
-
-  it('should count newline markers correctly', async () => {
-    const { countNewlineMarkers, NEWLINE_MARKER } = await import('../../src/ui/inputPrompt.js');
-
-    expect(countNewlineMarkers('')).toBe(0);
-    expect(countNewlineMarkers('hello')).toBe(0);
-    expect(countNewlineMarkers(`hello${NEWLINE_MARKER}world`)).toBe(1);
-    expect(countNewlineMarkers(`a${NEWLINE_MARKER}b${NEWLINE_MARKER}c`)).toBe(2);
-    expect(countNewlineMarkers('line1\nline2')).toBe(1);
-    expect(countNewlineMarkers(`a${NEWLINE_MARKER}b\nc`)).toBe(2);
-  });
-
   it('should convert newline markers to actual newlines', async () => {
     const { convertNewlineMarkersToNewlines, NEWLINE_MARKER } = await import('../../src/ui/inputPrompt.js');
 

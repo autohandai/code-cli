@@ -5,12 +5,9 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  getDisplayContent,
   getInlineGhostCompletionSuffix,
   getPrimaryHotTipSuggestion,
-  MAX_DISPLAY_LINES,
   NEWLINE_MARKER,
-  countNewlineMarkers,
   convertNewlineMarkersToNewlines,
   processImagesInText,
 } from '../src/ui/inputPrompt.js';
@@ -19,136 +16,6 @@ import os from 'node:os';
 import path from 'node:path';
 
 describe('inputPrompt', () => {
-  describe('getDisplayContent', () => {
-    it('returns full content when under MAX_DISPLAY_LINES', () => {
-      const result = getDisplayContent('short text', 80);
-      expect(result.display).toBe('short text');
-      expect(result.totalLines).toBe(1);
-      expect(result.isTruncated).toBe(false);
-    });
-
-    it('returns full content when exactly at MAX_DISPLAY_LINES', () => {
-      // 10 lines at 80 width (with 2 char prompt)
-      const exactTenLines = 'a'.repeat(78 * 10); // 78 = 80 - 2 (prompt width)
-      const result = getDisplayContent(exactTenLines, 80);
-      expect(result.totalLines).toBe(10);
-      expect(result.isTruncated).toBe(false);
-    });
-
-    it('truncates content exceeding MAX_DISPLAY_LINES', () => {
-      // 11 lines at 80 width
-      const elevenLines = 'a'.repeat(78 * 11);
-      const result = getDisplayContent(elevenLines, 80);
-      expect(result.isTruncated).toBe(true);
-      expect(result.display).toContain('... (');
-      expect(result.display).toContain('lines)');
-    });
-
-    it('shows end of content when truncating (most recent typing)', () => {
-      const text = 'START' + 'x'.repeat(78 * 11) + 'END';
-      const result = getDisplayContent(text, 80);
-      expect(result.display).toContain('END');
-      expect(result.display).not.toContain('START');
-    });
-
-    it('calculates line count correctly for single line', () => {
-      const text = 'hello world';
-      const result = getDisplayContent(text, 80);
-      expect(result.totalLines).toBe(1);
-    });
-
-    it('calculates line count correctly for multiple lines', () => {
-      // 3 lines at 80 width (78 chars available after prompt)
-      const text = 'a'.repeat(78 * 3);
-      const result = getDisplayContent(text, 80);
-      expect(result.totalLines).toBe(3);
-    });
-
-    it('calculates line count correctly with partial line', () => {
-      // 2 full lines + partial = 3 lines
-      const text = 'a'.repeat(78 * 2 + 10);
-      const result = getDisplayContent(text, 80);
-      expect(result.totalLines).toBe(3);
-    });
-
-    it('formats indicator correctly showing total line count', () => {
-      const text = 'a'.repeat(78 * 15); // 15 lines (exceeds MAX_DISPLAY_LINES=10)
-      const result = getDisplayContent(text, 80);
-      expect(result.display).toContain('... (15 lines)');
-    });
-
-    it('handles empty content', () => {
-      const result = getDisplayContent('', 80);
-      expect(result.display).toBe('');
-      expect(result.totalLines).toBe(0);
-      expect(result.isTruncated).toBe(false);
-    });
-
-    it('handles narrow terminal width', () => {
-      const text = 'a'.repeat(100);
-      const result = getDisplayContent(text, 30); // Narrow terminal
-      expect(result.totalLines).toBeGreaterThan(1);
-    });
-
-    it('handles very wide terminal', () => {
-      const text = 'a'.repeat(100);
-      const result = getDisplayContent(text, 200);
-      expect(result.totalLines).toBe(1);
-      expect(result.isTruncated).toBe(false);
-    });
-
-    it('preserves special characters in content', () => {
-      const text = 'test 🔧 emoji and "quotes"';
-      const result = getDisplayContent(text, 80);
-      expect(result.display).toBe(text);
-    });
-
-    it('handles content with newline markers', () => {
-      const text = `line1${NEWLINE_MARKER}line2${NEWLINE_MARKER}line3`;
-      const result = getDisplayContent(text, 80);
-      expect(result.display).toContain(NEWLINE_MARKER);
-    });
-
-    it('calculates lines based on visual length including markers', () => {
-      // Newline markers take visual space
-      const text = `${'a'.repeat(70)}${NEWLINE_MARKER}more`;
-      const result = getDisplayContent(text, 80);
-      // Should wrap because marker adds visual characters
-      expect(result.totalLines).toBeGreaterThanOrEqual(1);
-    });
-  });
-
-  describe('countNewlineMarkers', () => {
-    it('counts zero markers in plain text', () => {
-      expect(countNewlineMarkers('hello world')).toBe(0);
-    });
-
-    it('counts single newline marker', () => {
-      expect(countNewlineMarkers(`line1${NEWLINE_MARKER}line2`)).toBe(1);
-    });
-
-    it('counts multiple newline markers', () => {
-      expect(countNewlineMarkers(`a${NEWLINE_MARKER}b${NEWLINE_MARKER}c`)).toBe(2);
-    });
-
-    it('handles empty string', () => {
-      expect(countNewlineMarkers('')).toBe(0);
-    });
-
-    it('handles text with only markers', () => {
-      expect(countNewlineMarkers(`${NEWLINE_MARKER}${NEWLINE_MARKER}`)).toBe(2);
-    });
-
-    it('counts literal newline characters too', () => {
-      expect(countNewlineMarkers('line1\nline2')).toBe(1);
-      expect(countNewlineMarkers('a\nb\nc')).toBe(2);
-    });
-
-    it('counts mixed marker and literal newline forms', () => {
-      expect(countNewlineMarkers(`a${NEWLINE_MARKER}b\nc`)).toBe(2);
-    });
-  });
-
   describe('convertNewlineMarkersToNewlines', () => {
     it('converts single marker to newline', () => {
       const input = `line1${NEWLINE_MARKER}line2`;
@@ -172,12 +39,6 @@ describe('inputPrompt', () => {
     it('normalizes mixed marker and literal CRLF/LF newlines', () => {
       const input = `a${NEWLINE_MARKER}b\r\nc\rd\ne`;
       expect(convertNewlineMarkersToNewlines(input)).toBe('a\nb\nc\nd\ne');
-    });
-  });
-
-  describe('MAX_DISPLAY_LINES constant', () => {
-    it('is set to 10', () => {
-      expect(MAX_DISPLAY_LINES).toBe(10);
     });
   });
 
@@ -317,50 +178,6 @@ describe('inputPrompt', () => {
       const input = '/tmp/some-file.png';
       const output = processImagesInText(input, undefined);
       expect(output).toBe(input);
-    });
-  });
-
-  describe('regression tests', () => {
-    it('preserves full content when truncated for display', () => {
-      const fullContent = 'START' + 'x'.repeat(1000) + 'END';
-      const result = getDisplayContent(fullContent, 80);
-
-      // The display is truncated
-      expect(result.isTruncated).toBe(true);
-
-      // But original content is not modified (tested via integration)
-      // This test verifies the function doesn't mutate input
-      expect(fullContent).toContain('START');
-      expect(fullContent).toContain('END');
-    });
-
-    it('handles content with mixed special characters', () => {
-      const text = 'const API_KEY = "sk-abc123"; // TODO: fix 🔧';
-      const result = getDisplayContent(text, 80);
-      expect(result.display).toBe(text);
-    });
-
-    it('handles very long single word', () => {
-      const longWord = 'x'.repeat(1000);
-      const result = getDisplayContent(longWord, 80);
-      expect(result.totalLines).toBeGreaterThan(10);
-      expect(result.isTruncated).toBe(true);
-    });
-
-    it('truncation indicator does not exceed available space', () => {
-      const text = 'a'.repeat(78 * 15); // 15 lines (exceeds MAX_DISPLAY_LINES)
-      const result = getDisplayContent(text, 80);
-
-      // Display should fit within MAX_DISPLAY_LINES * available width
-      const maxDisplayChars = (80 - 2) * MAX_DISPLAY_LINES;
-      expect(result.display.length).toBeLessThanOrEqual(maxDisplayChars);
-    });
-
-    it('handles minimum terminal width gracefully', () => {
-      const text = 'a'.repeat(100);
-      const result = getDisplayContent(text, 20); // Very narrow
-      expect(result.display).toBeDefined();
-      expect(result.totalLines).toBeGreaterThan(0);
     });
   });
 
