@@ -391,4 +391,273 @@ describe('TextBuffer', () => {
       });
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Visual layout integration (Task 5)
+  // -------------------------------------------------------------------------
+
+  describe('visual layout integration', () => {
+    it('recomputes layout when lines change', () => {
+      const buf = new TextBuffer(10, 5);
+      buf.insert('hello world');
+      const layout = buf.getVisualLayout();
+      // 'hello world' wraps at width 10 → 'hello ' + 'world' = 2 visual lines
+      expect(layout.visualLines.length).toBe(2);
+    });
+
+    it('recomputes layout on viewport resize', () => {
+      const buf = new TextBuffer(10, 5, 'hello world');
+      expect(buf.getVisualLayout().visualLines.length).toBe(2);
+      buf.setViewport(30, 5);
+      expect(buf.getVisualLayout().visualLines.length).toBe(1);
+    });
+
+    it('caches layout until dirty', () => {
+      const buf = new TextBuffer(10, 5, 'hello world');
+      const layout1 = buf.getVisualLayout();
+      const layout2 = buf.getVisualLayout();
+      // Same object reference when nothing changed
+      expect(layout1).toBe(layout2);
+    });
+
+    it('invalidates cache on insert', () => {
+      const buf = new TextBuffer(10, 5, 'hi');
+      const layout1 = buf.getVisualLayout();
+      buf.insert('!');
+      const layout2 = buf.getVisualLayout();
+      expect(layout1).not.toBe(layout2);
+    });
+
+    it('invalidates cache on backspace', () => {
+      const buf = new TextBuffer(10, 5, 'hi');
+      const layout1 = buf.getVisualLayout();
+      buf.backspace();
+      const layout2 = buf.getVisualLayout();
+      expect(layout1).not.toBe(layout2);
+    });
+
+    it('invalidates cache on delete', () => {
+      const buf = new TextBuffer(10, 5, 'hi');
+      buf.setCursor(0, 0);
+      const layout1 = buf.getVisualLayout();
+      buf.delete();
+      const layout2 = buf.getVisualLayout();
+      expect(layout1).not.toBe(layout2);
+    });
+
+    it('invalidates cache on setText', () => {
+      const buf = new TextBuffer(10, 5, 'hi');
+      const layout1 = buf.getVisualLayout();
+      buf.setText('new');
+      const layout2 = buf.getVisualLayout();
+      expect(layout1).not.toBe(layout2);
+    });
+
+    it('provides visual cursor position', () => {
+      const buf = new TextBuffer(10, 5, 'hello world');
+      // Cursor at end of 'hello world' → logical (0,11)
+      // Wraps to ['hello ', 'world'], cursor at visual (1, 5)
+      const [vRow, vCol] = buf.getVisualCursor();
+      expect(vRow).toBe(1);
+      expect(vCol).toBe(5);
+    });
+
+    it('visual cursor at start of buffer', () => {
+      const buf = new TextBuffer(10, 5, 'hello world');
+      buf.setCursor(0, 0);
+      const [vRow, vCol] = buf.getVisualCursor();
+      expect(vRow).toBe(0);
+      expect(vCol).toBe(0);
+    });
+
+    it('getVisualLineCount reflects wrapping', () => {
+      const buf = new TextBuffer(10, 5, 'hello world');
+      // Wraps to 2 visual lines
+      expect(buf.getVisualLineCount()).toBe(2);
+    });
+
+    it('getVisualLineCount with multiple logical lines', () => {
+      const buf = new TextBuffer(10, 5, 'hello world\nfoo');
+      // 'hello world' wraps to 2, 'foo' = 1 → total 3
+      expect(buf.getVisualLineCount()).toBe(3);
+    });
+
+    it('getRenderedLines returns viewport slice', () => {
+      // 5 logical lines, no wrapping at width 20, viewport height 2
+      const buf = new TextBuffer(20, 2, 'line1\nline2\nline3\nline4\nline5');
+      // Cursor at end → logical (4, 5), visual row 4
+      // Viewport height 2, so rendered = 2 lines near cursor
+      const rendered = buf.getRenderedLines();
+      expect(rendered.length).toBeLessThanOrEqual(2);
+      // Cursor is on the last line, so the last line should be visible
+      expect(rendered).toContain('line5');
+    });
+
+    it('getRenderedLines returns all lines if fewer than viewport', () => {
+      const buf = new TextBuffer(20, 10, 'hello\nworld');
+      const rendered = buf.getRenderedLines();
+      expect(rendered).toEqual(['hello', 'world']);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Visual cursor movement with wrapping (Task 5)
+  // -------------------------------------------------------------------------
+
+  describe('visual cursor movement with wrapping', () => {
+    it('moveUp crosses visual wrap boundaries within same logical line', () => {
+      // 'hello world' at width 10 → ['hello ', 'world']
+      const buf = new TextBuffer(10, 5, 'hello world');
+      // Cursor at end → visual (1, 5)
+      const [startVisRow] = buf.getVisualCursor();
+      expect(startVisRow).toBe(1);
+      buf.moveUp();
+      const [newVisRow] = buf.getVisualCursor();
+      expect(newVisRow).toBe(0);
+    });
+
+    it('moveDown crosses visual wrap boundaries within same logical line', () => {
+      const buf = new TextBuffer(10, 5, 'hello world');
+      buf.setCursor(0, 0); // visual (0, 0)
+      const [startVisRow] = buf.getVisualCursor();
+      expect(startVisRow).toBe(0);
+      buf.moveDown();
+      const [newVisRow] = buf.getVisualCursor();
+      expect(newVisRow).toBe(1);
+    });
+
+    it('moveUp preserves visual column across wrapped lines', () => {
+      // 'hello world' at width 10 → ['hello ', 'world']
+      const buf = new TextBuffer(10, 5, 'hello world');
+      // Place cursor at logical col 8 → 'hello world'[8]='r' → visual (1, 2)
+      buf.setCursor(0, 8);
+      const [vRow, vCol] = buf.getVisualCursor();
+      expect(vRow).toBe(1);
+      expect(vCol).toBe(2);
+
+      buf.moveUp(); // visual (0, 2)
+      const [newVRow, newVCol] = buf.getVisualCursor();
+      expect(newVRow).toBe(0);
+      expect(newVCol).toBe(2);
+    });
+
+    it('moveDown preserves visual column across wrapped lines', () => {
+      const buf = new TextBuffer(10, 5, 'hello world');
+      buf.setCursor(0, 2); // visual (0, 2) — 'l' in 'hello'
+      buf.moveDown(); // visual (1, 2) — 'r' in 'world'
+      const [vRow, vCol] = buf.getVisualCursor();
+      expect(vRow).toBe(1);
+      expect(vCol).toBe(2);
+    });
+
+    it('moveUp from first visual row does nothing', () => {
+      const buf = new TextBuffer(10, 5, 'hello world');
+      buf.setCursor(0, 0); // visual (0, 0)
+      buf.moveUp();
+      const [vRow, vCol] = buf.getVisualCursor();
+      expect(vRow).toBe(0);
+      expect(vCol).toBe(0);
+    });
+
+    it('moveDown from last visual row does nothing', () => {
+      const buf = new TextBuffer(10, 5, 'hello world');
+      // Cursor at end → visual (1, 5)
+      buf.moveDown();
+      const [vRow, vCol] = buf.getVisualCursor();
+      expect(vRow).toBe(1);
+      expect(vCol).toBe(5);
+    });
+
+    it('moveDown clamps to shorter visual line', () => {
+      // 'abcdefghij' at width 5 → ['abcde', 'fghij']
+      // Then 'xy' on next logical line → visual line 2 = 'xy'
+      const buf = new TextBuffer(5, 5, 'abcdefghij\nxy');
+      buf.setCursor(0, 4); // logical (0,4) → visual (0, 4)
+      buf.moveDown(); // visual row 1 is 'fghij' (5 chars) → col stays 4
+      const [vRow1, vCol1] = buf.getVisualCursor();
+      expect(vRow1).toBe(1);
+      expect(vCol1).toBe(4);
+
+      buf.moveDown(); // visual row 2 is 'xy' (2 chars) → col clamped to 2
+      const [vRow2, vCol2] = buf.getVisualCursor();
+      expect(vRow2).toBe(2);
+      expect(vCol2).toBe(2);
+    });
+
+    it('moveUp across logical line boundary', () => {
+      // Two logical lines, each fits in width 20 → 2 visual lines
+      const buf = new TextBuffer(20, 5, 'hello\nworld');
+      // Cursor at end → logical (1, 5), visual (1, 5)
+      buf.moveUp();
+      const [vRow, vCol] = buf.getVisualCursor();
+      expect(vRow).toBe(0);
+      expect(vCol).toBe(5);
+    });
+
+    it('moveDown across logical line boundary', () => {
+      const buf = new TextBuffer(20, 5, 'hello\nworld');
+      buf.setCursor(0, 3); // visual (0, 3)
+      buf.moveDown();
+      const [vRow, vCol] = buf.getVisualCursor();
+      expect(vRow).toBe(1);
+      expect(vCol).toBe(3);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Viewport scrolling (Task 5)
+  // -------------------------------------------------------------------------
+
+  describe('viewport scrolling', () => {
+    it('starts with scrollRow 0', () => {
+      const buf = new TextBuffer(20, 3, 'a\nb\nc\nd\ne');
+      buf.setCursor(0, 0);
+      expect(buf.getScrollRow()).toBe(0);
+    });
+
+    it('scrolls down when cursor moves below viewport', () => {
+      const buf = new TextBuffer(20, 3, 'a\nb\nc\nd\ne');
+      buf.setCursor(0, 0);
+      expect(buf.getScrollRow()).toBe(0);
+      buf.setCursor(4, 1); // move to 'e' → visual row 4
+      // Viewport height 3 → scrollRow should make row 4 visible
+      // scrollRow must be >= 4 - 3 + 1 = 2
+      expect(buf.getScrollRow()).toBeGreaterThanOrEqual(2);
+      const rendered = buf.getRenderedLines();
+      expect(rendered).toContain('e');
+    });
+
+    it('scrolls up when cursor moves above viewport', () => {
+      const buf = new TextBuffer(20, 3, 'a\nb\nc\nd\ne');
+      buf.setCursor(4, 1); // scroll to bottom
+      buf.setCursor(0, 1); // jump to top
+      expect(buf.getScrollRow()).toBe(0);
+      const rendered = buf.getRenderedLines();
+      expect(rendered).toContain('a');
+    });
+
+    it('getScrollRow reflects scroll position', () => {
+      const buf = new TextBuffer(20, 2, 'a\nb\nc\nd');
+      buf.setCursor(3, 1); // bottom, visual row 3
+      // viewport height 2, so scrollRow >= 2
+      expect(buf.getScrollRow()).toBeGreaterThan(0);
+    });
+
+    it('scrollRow stays 0 when all content fits in viewport', () => {
+      const buf = new TextBuffer(20, 10, 'a\nb');
+      buf.setCursor(1, 1);
+      expect(buf.getScrollRow()).toBe(0);
+    });
+
+    it('scrolls with wrapped lines', () => {
+      // 'hello world' at width 6 wraps to ['hello ', 'world']
+      // Then 3 more short lines → total 5 visual lines
+      const buf = new TextBuffer(6, 2, 'hello world\na\nb\nc');
+      // Cursor at end → logical (3,1) → visual row 4
+      // viewport height 2 → scrollRow >= 3
+      expect(buf.getScrollRow()).toBeGreaterThanOrEqual(3);
+      const rendered = buf.getRenderedLines();
+      expect(rendered).toContain('c');
+    });
+  });
 });

@@ -4,6 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import {
+  calculateLayout,
+  logicalToVisual,
+  visualToLogical,
+  type VisualLayout,
+} from './textBufferLayout.js';
+
 /**
  * Code-point-safe string length (handles emoji and surrogate pairs).
  */
@@ -31,8 +38,8 @@ const CONTROL_CHAR_RE = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g;
  * Designed for multi-line terminal text editing. Uses code-point-safe string
  * operations so that emoji and CJK characters are handled correctly.
  *
- * This class manages the data model only (no rendering or layout). Later tasks
- * add visual layout, wrapping, and viewport scrolling on top of this foundation.
+ * Integrates with the visual layout engine to provide word-wrapping,
+ * visual cursor positioning, and viewport scrolling.
  */
 export class TextBuffer {
   private lines: string[];
@@ -41,6 +48,13 @@ export class TextBuffer {
   private viewportWidth: number;
   private viewportHeight: number;
   private preferredCol: number | null = null;
+
+  /** Cached layout result; recomputed lazily when dirty. */
+  private cachedLayout: VisualLayout | null = null;
+  /** Becomes `true` when lines or viewport dimensions change. */
+  private layoutDirty = true;
+  /** Visual row offset for viewport scrolling. */
+  private scrollRow = 0;
 
   constructor(viewportWidth: number, viewportHeight: number, initialText?: string) {
     this.viewportWidth = viewportWidth;
@@ -57,6 +71,8 @@ export class TextBuffer {
       this.cursorRow = 0;
       this.cursorCol = 0;
     }
+
+    this.ensureCursorVisible();
   }
 
   // ---------------------------------------------------------------------------
@@ -113,6 +129,7 @@ export class TextBuffer {
 
     this.cursorRow = row;
     this.cursorCol = col;
+    this.ensureCursorVisible();
   }
 
   // ---------------------------------------------------------------------------
@@ -142,26 +159,54 @@ export class TextBuffer {
     }
   }
 
-  /** Moves cursor up one line. Clamps column to target line length, preserving preferredCol. */
+  /**
+   * Moves cursor up one visual row. Navigates within wrapped lines as well
+   * as across logical line boundaries. Preserves preferred visual column.
+   */
   moveUp(): void {
-    if (this.cursorRow <= 0) return;
+    const layout = this.getVisualLayout();
+    const strCol = cpToStrIndex(this.lines[this.cursorRow]!, this.cursorCol);
+    const [visRow, visCol] = logicalToVisual(layout, this.cursorRow, strCol);
+
+    if (visRow <= 0) return; // already at the top visual row
+
     if (this.preferredCol === null) {
-      this.preferredCol = this.cursorCol;
+      this.preferredCol = visCol;
     }
-    this.cursorRow--;
-    const lineLen = cpLen(this.lines[this.cursorRow]!);
-    this.cursorCol = Math.min(this.preferredCol, lineLen);
+
+    const targetVisRow = visRow - 1;
+    const targetVisLine = layout.visualLines[targetVisRow]!;
+    const clampedVisCol = Math.min(this.preferredCol, targetVisLine.length);
+
+    const [logRow, logStrCol] = visualToLogical(layout, targetVisRow, clampedVisCol);
+    this.cursorRow = logRow;
+    this.cursorCol = strToCpIndex(this.lines[logRow]!, logStrCol);
+    this.ensureCursorVisible();
   }
 
-  /** Moves cursor down one line. Clamps column to target line length, preserving preferredCol. */
+  /**
+   * Moves cursor down one visual row. Navigates within wrapped lines as well
+   * as across logical line boundaries. Preserves preferred visual column.
+   */
   moveDown(): void {
-    if (this.cursorRow >= this.lines.length - 1) return;
+    const layout = this.getVisualLayout();
+    const strCol = cpToStrIndex(this.lines[this.cursorRow]!, this.cursorCol);
+    const [visRow, visCol] = logicalToVisual(layout, this.cursorRow, strCol);
+
+    if (visRow >= layout.visualLines.length - 1) return; // already at the bottom visual row
+
     if (this.preferredCol === null) {
-      this.preferredCol = this.cursorCol;
+      this.preferredCol = visCol;
     }
-    this.cursorRow++;
-    const lineLen = cpLen(this.lines[this.cursorRow]!);
-    this.cursorCol = Math.min(this.preferredCol, lineLen);
+
+    const targetVisRow = visRow + 1;
+    const targetVisLine = layout.visualLines[targetVisRow]!;
+    const clampedVisCol = Math.min(this.preferredCol, targetVisLine.length);
+
+    const [logRow, logStrCol] = visualToLogical(layout, targetVisRow, clampedVisCol);
+    this.cursorRow = logRow;
+    this.cursorCol = strToCpIndex(this.lines[logRow]!, logStrCol);
+    this.ensureCursorVisible();
   }
 
   /** Moves cursor to the start of the current line. */
@@ -191,6 +236,7 @@ export class TextBuffer {
   insert(text: string): void {
     if (text === '') return;
     this.preferredCol = null;
+    this.layoutDirty = true;
 
     // Strip unwanted control characters, then normalize newlines
     const cleaned = text.replace(CONTROL_CHAR_RE, '');
@@ -221,6 +267,8 @@ export class TextBuffer {
       this.cursorRow += insertLines.length - 1;
       this.cursorCol = cpLen(insertLines[insertLines.length - 1]!);
     }
+
+    this.ensureCursorVisible();
   }
 
   /**
@@ -231,6 +279,7 @@ export class TextBuffer {
    */
   backspace(): void {
     this.preferredCol = null;
+    this.layoutDirty = true;
     if (this.cursorCol > 0) {
       // Delete one code point before cursor
       const line = this.lines[this.cursorRow]!;
@@ -245,6 +294,8 @@ export class TextBuffer {
       this.cursorRow--;
       this.cursorCol = prevLen;
     }
+
+    this.ensureCursorVisible();
   }
 
   /**
@@ -255,6 +306,7 @@ export class TextBuffer {
    */
   delete(): void {
     this.preferredCol = null;
+    this.layoutDirty = true;
     const line = this.lines[this.cursorRow]!;
     const lineLen = cpLen(line);
 
@@ -266,12 +318,15 @@ export class TextBuffer {
       this.lines[this.cursorRow] = line + this.lines[this.cursorRow + 1]!;
       this.lines.splice(this.cursorRow + 1, 1);
     }
+
+    this.ensureCursorVisible();
   }
 
   /**
    * Replaces all buffer content and moves the cursor to the end.
    */
   setText(text: string): void {
+    this.layoutDirty = true;
     const normalized = normalizeNewlines(text);
     if (normalized === '') {
       this.lines = [''];
@@ -281,6 +336,86 @@ export class TextBuffer {
       this.lines = normalized.split('\n');
       this.cursorRow = this.lines.length - 1;
       this.cursorCol = cpLen(this.lines[this.cursorRow]!);
+    }
+
+    this.ensureCursorVisible();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Visual layout integration
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Returns the cached visual layout, recomputing it if dirty.
+   * The layout maps logical lines to word-wrapped visual lines.
+   */
+  getVisualLayout(): VisualLayout {
+    if (this.layoutDirty || this.cachedLayout === null) {
+      this.cachedLayout = calculateLayout(this.lines, this.viewportWidth);
+      this.layoutDirty = false;
+    }
+    return this.cachedLayout;
+  }
+
+  /**
+   * Returns the visual (row, col) position of the cursor after wrapping.
+   * The visual row accounts for word-wrapped lines.
+   */
+  getVisualCursor(): [number, number] {
+    const layout = this.getVisualLayout();
+    const strCol = cpToStrIndex(this.lines[this.cursorRow]!, this.cursorCol);
+    return logicalToVisual(layout, this.cursorRow, strCol);
+  }
+
+  /** Returns the total number of visual lines after wrapping. */
+  getVisualLineCount(): number {
+    return this.getVisualLayout().visualLines.length;
+  }
+
+  /** Returns the current scroll row offset. */
+  getScrollRow(): number {
+    return this.scrollRow;
+  }
+
+  /**
+   * Returns the visual lines currently visible within the viewport.
+   * This is the slice `visualLines[scrollRow .. scrollRow + viewportHeight)`.
+   */
+  getRenderedLines(): string[] {
+    const layout = this.getVisualLayout();
+    return layout.visualLines.slice(
+      this.scrollRow,
+      this.scrollRow + this.viewportHeight,
+    );
+  }
+
+  /**
+   * Updates viewport dimensions and marks the layout for recomputation.
+   */
+  setViewport(width: number, height: number): void {
+    this.viewportWidth = width;
+    this.viewportHeight = height;
+    this.layoutDirty = true;
+    this.ensureCursorVisible();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private: scroll management
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Adjusts `scrollRow` so the visual cursor is within the visible viewport.
+   * Called after any cursor movement or layout change.
+   */
+  private ensureCursorVisible(): void {
+    const layout = this.getVisualLayout();
+    const strCol = cpToStrIndex(this.lines[this.cursorRow]!, this.cursorCol);
+    const [visRow] = logicalToVisual(layout, this.cursorRow, strCol);
+
+    if (visRow < this.scrollRow) {
+      this.scrollRow = visRow;
+    } else if (visRow >= this.scrollRow + this.viewportHeight) {
+      this.scrollRow = visRow - this.viewportHeight + 1;
     }
   }
 }
@@ -292,4 +427,23 @@ export class TextBuffer {
 /** Normalizes `\r\n` and standalone `\r` to `\n`. */
 function normalizeNewlines(text: string): string {
   return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
+/**
+ * Converts a code-point column index to a string (UTF-16) index.
+ * This bridges TextBuffer's code-point cursor with the layout engine's
+ * string-index-based column tracking.
+ */
+function cpToStrIndex(s: string, cpCol: number): number {
+  const codePoints = Array.from(s);
+  const clamped = Math.min(cpCol, codePoints.length);
+  return codePoints.slice(0, clamped).join('').length;
+}
+
+/**
+ * Converts a string (UTF-16) index to a code-point column index.
+ */
+function strToCpIndex(s: string, strIdx: number): number {
+  const prefix = s.slice(0, strIdx);
+  return Array.from(prefix).length;
 }
