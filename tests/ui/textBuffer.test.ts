@@ -686,6 +686,182 @@ describe('TextBuffer', () => {
   // Viewport scrolling (Task 5)
   // -------------------------------------------------------------------------
 
+  describe('edge cases', () => {
+    it('handles emoji correctly (multi-codepoint)', () => {
+      const buf = new TextBuffer(80, 10);
+      buf.insert('hello 👋 world');
+      expect(buf.getText()).toBe('hello 👋 world');
+      // 'hello 👋 world' = 13 code points: h,e,l,l,o,' ',👋,' ',w,o,r,l,d
+      // cursor at col 13 (end), 7 moveLeft → col 6 (before 👋)
+      buf.moveLeft(); // col 12
+      buf.moveLeft(); // col 11
+      buf.moveLeft(); // col 10
+      buf.moveLeft(); // col 9
+      buf.moveLeft(); // col 8
+      buf.moveLeft(); // col 7 (the space after emoji)
+      buf.moveLeft(); // col 6 (before 👋)
+      buf.insert('X');
+      expect(buf.getText()).toBe('hello X👋 world');
+    });
+
+    it('handles rapid insert + delete cycles', () => {
+      const buf = new TextBuffer(80, 10);
+      for (let i = 0; i < 100; i++) {
+        buf.insert('x');
+      }
+      expect(buf.getText()).toBe('x'.repeat(100));
+      for (let i = 0; i < 100; i++) {
+        buf.backspace();
+      }
+      expect(buf.getText()).toBe('');
+      expect(buf.getCursorCol()).toBe(0);
+    });
+
+    it('handles very long single line', () => {
+      const buf = new TextBuffer(20, 5);
+      buf.insert('a'.repeat(200));
+      const layout = buf.getVisualLayout();
+      expect(layout.visualLines.length).toBe(10); // 200/20
+      expect(buf.getText().length).toBe(200);
+    });
+
+    it('handles many short lines', () => {
+      const buf = new TextBuffer(80, 5);
+      const lines = Array.from({ length: 50 }, (_, i) => `line ${i}`);
+      buf.setText(lines.join('\n'));
+      expect(buf.getLineCount()).toBe(50);
+      const rendered = buf.getRenderedLines();
+      expect(rendered.length).toBeLessThanOrEqual(5);
+    });
+
+    it('cursor stays valid after viewport resize', () => {
+      const buf = new TextBuffer(20, 10, 'hello world foo bar');
+      const textBefore = buf.getText();
+      buf.setViewport(10, 10);
+      expect(buf.getText()).toBe(textBefore);
+      const [vRow, vCol] = buf.getVisualCursor();
+      expect(vRow).toBeGreaterThanOrEqual(0);
+      expect(vCol).toBeGreaterThanOrEqual(0);
+    });
+
+    it('backspace on empty buffer is safe', () => {
+      const buf = new TextBuffer(80, 10);
+      buf.backspace();
+      buf.backspace();
+      buf.backspace();
+      expect(buf.getText()).toBe('');
+      expect(buf.getCursorRow()).toBe(0);
+      expect(buf.getCursorCol()).toBe(0);
+    });
+
+    it('delete on empty buffer is safe', () => {
+      const buf = new TextBuffer(80, 10);
+      buf.delete();
+      buf.delete();
+      buf.delete();
+      expect(buf.getText()).toBe('');
+    });
+
+    it('insert empty string is a no-op', () => {
+      const buf = new TextBuffer(80, 10, 'hello');
+      const textBefore = buf.getText();
+      const colBefore = buf.getCursorCol();
+      buf.insert('');
+      expect(buf.getText()).toBe(textBefore);
+      expect(buf.getCursorCol()).toBe(colBefore);
+    });
+
+    it('handles mixed newline styles in paste', () => {
+      const buf = new TextBuffer(80, 10);
+      buf.insert('line1\r\nline2\rline3\nline4');
+      expect(buf.getLines()).toEqual(['line1', 'line2', 'line3', 'line4']);
+    });
+
+    it('setCursor clamps to valid range', () => {
+      const buf = new TextBuffer(80, 10, 'hello');
+      buf.setCursor(-1, -5);
+      expect(buf.getCursorRow()).toBe(0);
+      expect(buf.getCursorCol()).toBe(0);
+      buf.setCursor(100, 100);
+      expect(buf.getCursorRow()).toBe(0);
+      expect(buf.getCursorCol()).toBe(5);
+    });
+
+    it('handles whitespace-only lines', () => {
+      const buf = new TextBuffer(80, 10, '   \n   ');
+      expect(buf.getLines()).toEqual(['   ', '   ']);
+      expect(buf.getText()).toBe('   \n   ');
+    });
+
+    it('handles tab characters', () => {
+      const buf = new TextBuffer(80, 10);
+      buf.insert('hello\tworld');
+      expect(buf.getText()).toBe('hello\tworld');
+    });
+
+    it('handles newline at start of text', () => {
+      const buf = new TextBuffer(80, 10);
+      buf.insert('\nhello');
+      expect(buf.getLines()).toEqual(['', 'hello']);
+    });
+
+    it('handles newline at end of text', () => {
+      const buf = new TextBuffer(80, 10);
+      buf.insert('hello\n');
+      expect(buf.getLines()).toEqual(['hello', '']);
+    });
+
+    it('handles multiple consecutive newlines', () => {
+      const buf = new TextBuffer(80, 10);
+      buf.insert('a\n\n\nb');
+      expect(buf.getLines()).toEqual(['a', '', '', 'b']);
+    });
+
+    it('moveUp from first visual line stays put', () => {
+      const buf = new TextBuffer(80, 10, 'hello');
+      buf.setCursor(0, 3);
+      buf.moveUp();
+      expect(buf.getCursorRow()).toBe(0);
+      expect(buf.getCursorCol()).toBe(3);
+    });
+
+    it('moveDown from last visual line stays put', () => {
+      const buf = new TextBuffer(80, 10, 'hello');
+      buf.setCursor(0, 3);
+      buf.moveDown();
+      expect(buf.getCursorRow()).toBe(0);
+      expect(buf.getCursorCol()).toBe(3);
+    });
+
+    it('insert after delete maintains cursor integrity', () => {
+      const buf = new TextBuffer(80, 10, 'hello world');
+      buf.setCursor(0, 5);
+      buf.delete(); // delete space
+      buf.insert('_');
+      expect(buf.getText()).toBe('hello_world');
+      expect(buf.getCursorCol()).toBe(6);
+    });
+
+    it('setText then getText round-trips', () => {
+      const buf = new TextBuffer(80, 10);
+      const text = 'line1\nline2\nline3';
+      buf.setText(text);
+      expect(buf.getText()).toBe(text);
+    });
+
+    it('handles very narrow viewport', () => {
+      const buf = new TextBuffer(3, 10, 'hello');
+      const layout = buf.getVisualLayout();
+      expect(layout.visualLines.length).toBeGreaterThan(1);
+    });
+
+    it('handles viewport height of 1', () => {
+      const buf = new TextBuffer(80, 1, 'line1\nline2\nline3');
+      const rendered = buf.getRenderedLines();
+      expect(rendered.length).toBe(1);
+    });
+  });
+
   describe('viewport scrolling', () => {
     it('starts with scrollRow 0', () => {
       const buf = new TextBuffer(20, 3, 'a\nb\nc\nd\ne');

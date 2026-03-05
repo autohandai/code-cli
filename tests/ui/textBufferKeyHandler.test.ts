@@ -297,5 +297,57 @@ describe('handleTextBufferKey', () => {
       expect(handleTextBufferKey(buf, '', makeKey('home'))).toBe('handled');
       expect(handleTextBufferKey(buf, '', makeKey('end'))).toBe('handled');
     });
+
+    it('handles null/undefined str gracefully', () => {
+      const buf = new TextBuffer(80, 10);
+      const result = handleTextBufferKey(buf, '', { name: undefined });
+      expect(result).toBe('unhandled');
+      expect(buf.getText()).toBe('');
+    });
+
+    it('handles rapid sequential key events', () => {
+      const buf = new TextBuffer(80, 10);
+      for (const ch of 'hello world') {
+        handleTextBufferKey(buf, ch, makeKey(ch));
+      }
+      expect(buf.getText()).toBe('hello world');
+    });
+
+    it('handles Ctrl+A then Ctrl+E (home then end)', () => {
+      const buf = new TextBuffer(80, 10, 'hello');
+      handleTextBufferKey(buf, '\x01', makeKey('a', { ctrl: true })); // home
+      expect(buf.getCursorCol()).toBe(0);
+      handleTextBufferKey(buf, '\x05', makeKey('e', { ctrl: true })); // end
+      expect(buf.getCursorCol()).toBe(5);
+    });
+
+    it('handles Shift+Enter then Enter (multiline then submit)', () => {
+      const buf = new TextBuffer(80, 10, 'line1');
+      handleTextBufferKey(buf, '', makeKey('return', { shift: true })); // newline
+      handleTextBufferKey(buf, 'l', makeKey('l'));
+      handleTextBufferKey(buf, 'i', makeKey('i'));
+      handleTextBufferKey(buf, 'n', makeKey('n'));
+      handleTextBufferKey(buf, 'e', makeKey('e'));
+      handleTextBufferKey(buf, '2', makeKey('2'));
+      expect(buf.getText()).toBe('line1\nline2');
+      const result = handleTextBufferKey(buf, '\r', makeKey('return'));
+      expect(result).toBe('submit');
+      expect(buf.getText()).toBe('line1\nline2'); // submit doesn't modify buffer
+    });
+
+    it('does not insert control characters', () => {
+      const buf = new TextBuffer(80, 10);
+      handleTextBufferKey(buf, '\x00', makeKey('null')); // null byte
+      handleTextBufferKey(buf, '\x01', makeKey('a')); // without ctrl flag, control char filtered
+      expect(buf.getText()).toBe('');
+    });
+
+    it('handles backspace on multi-line at line boundary', () => {
+      const buf = new TextBuffer(80, 10, 'hello\nworld');
+      buf.setCursor(1, 0);
+      handleTextBufferKey(buf, '', makeKey('backspace'));
+      expect(buf.getText()).toBe('helloworld');
+      expect(buf.getCursorRow()).toBe(0);
+    });
   });
 });
