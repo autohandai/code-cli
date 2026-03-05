@@ -37,6 +37,8 @@ import {
 import { buildFileMentionSuggestions } from './mentionFilter.js';
 import { getTheme, isThemeInitialized } from './theme/index.js';
 import type { ColorToken } from './theme/types.js';
+import { TextBuffer } from './textBuffer.js';
+import { handleTextBufferKey } from './textBufferKeyHandler.js';
 
 /**
  * Module-level event emitter for delivering messages above the active prompt.
@@ -1340,6 +1342,14 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
   } = options;
   const { rl, input, supportsRawMode } = createReadline(stdInput, stdOutput);
 
+  // Create TextBuffer as the source of truth for input content.
+  // Width is inner content width: prompt block width minus 2 for │ borders.
+  const tbWidth = Math.max(1, getPromptBlockWidth(stdOutput.columns) - 2);
+  const tbMaxVisibleLines = 10;
+  const initialLine = sanitizeRenderLine(initialValue ?? '');
+  const textBuffer = new TextBuffer(tbWidth, tbMaxVisibleLines, initialLine || undefined);
+  activeTextBuffer = textBuffer;
+
   const mentionPreview = new MentionPreview(rl, files, slashCommands, stdOutput);
 
   // Initialize paste state for bracketed paste detection
@@ -1366,17 +1376,34 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     return applyPlanModePrefix(statusLine ?? '');
   };
 
+  /** Helper to read current text from TextBuffer (the source of truth). */
+  const getCurrentText = (): string => textBuffer.getText();
+
+  /**
+   * Sync readline's internal buffer from TextBuffer so that code that reads
+   * rl.line (suggestions, ghost text, mention preview, etc.) sees the correct value.
+   * We flatten newlines to spaces for readline's single-line model.
+   */
+  const syncReadlineFromBuffer = (): void => {
+    const rlAny = rl as readline.Interface & { line: string; cursor: number };
+    const text = textBuffer.getText();
+    // Keep NEWLINE_MARKER representation so existing suggestion/ghost logic works
+    // (they check for NEWLINE_MARKER to disable ghost text on multi-line)
+    const flat = text.replace(/\n/g, NEWLINE_MARKER);
+    rlAny.line = flat;
+    rlAny.cursor = flat.length;
+  };
+
   const getInlineGhostSuffix = (): string | undefined => {
     if (contextualHelpVisible) {
       return undefined;
     }
-    const rlAny = rl as readline.Interface & { line?: string };
-    const currentLine = rlAny.line ?? '';
-    if (!currentLine || currentLine.includes(NEWLINE_MARKER) || /[\r\n]/.test(currentLine)) {
+    const currentText = getCurrentText();
+    if (!currentText || currentText.includes('\n') || currentText.includes(NEWLINE_MARKER)) {
       return undefined;
     }
     return getInlineGhostCompletionSuffix(
-      currentLine,
+      currentText,
       files,
       slashCommands,
       workspaceRoot,
@@ -1388,9 +1415,8 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     if (!contextualHelpVisible) {
       return undefined;
     }
-    const rlAny = rl as readline.Interface & { line?: string };
     const width = getPromptBlockWidth(stdOutput.columns);
-    return buildContextualHelpPanelLines(rlAny.line ?? '', width, files, slashCommands);
+    return buildContextualHelpPanelLines(getCurrentText(), width, files, slashCommands);
   };
 
   const renderPromptSurface = (isResize = false, hasExistingPromptBlock = true): void => {
@@ -1407,18 +1433,18 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
   };
 
   const resizeWatcher = new TerminalResizeWatcher(stdOutput, () => {
+    const newWidth = Math.max(1, getPromptBlockWidth(stdOutput.columns) - 2);
+    textBuffer.setViewport(newWidth, tbMaxVisibleLines);
     renderPromptSurface(true, true);
     mentionPreview.handleResize();
   });
 
   // Render initial prompt with status line (was missing - caused status to only show on typing)
+  // Sync readline from buffer before initial render so rl.line reflects initial value.
+  syncReadlineFromBuffer();
   renderPromptSurface(false, false);
 
-  const initialLine = sanitizeRenderLine(initialValue ?? '');
   if (initialLine.length > 0) {
-    const rlAny = rl as readline.Interface & { line: string; cursor: number };
-    rlAny.line = initialLine;
-    rlAny.cursor = initialLine.length;
     renderPromptSurface(false, true);
   }
 
@@ -1475,6 +1501,8 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     const cleanup = () => {
       if (closed) return;
       closed = true;
+      // Release module-level TextBuffer reference
+      activeTextBuffer = null;
       // Clear paste timeout if any
       if (pasteState.timeout) {
         clearTimeout(pasteState.timeout);
@@ -1528,12 +1556,8 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     promptEvents.on('notify', onPromptNotify);
 
     const insertAtCursor = (text: string) => {
-      const rlAny = rl as readline.Interface & { line: string; cursor: number; _refreshLine?: () => void };
-      const before = rlAny.line.slice(0, rlAny.cursor);
-      const after = rlAny.line.slice(rlAny.cursor);
-      rlAny.line = before + text + after;
-      rlAny.cursor = before.length + text.length;
-
+      textBuffer.insert(text);
+      syncReadlineFromBuffer();
       renderActivePrompt();
     };
 
@@ -1561,9 +1585,11 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       };
     }
 
-    // Intercept _ttyWrite to suppress CSI u Shift+Enter sequences.
-    // Readline processes keypresses BEFORE our handler (registered later).
-    // Without this, readline inserts the raw escape bytes as garbage text.
+    // Intercept _ttyWrite to suppress ALL readline text processing.
+    // TextBuffer is the source of truth for input content. Readline is kept
+    // only for the 'line' event emission and internal machinery.
+    // Without this, readline would duplicate character insertions and
+    // mishandle multi-line content.
     const rlTtyWrite = rl as readline.Interface & { _ttyWrite?: (s: string, key: readline.Key) => void };
     const originalTtyWrite = rlTtyWrite._ttyWrite?.bind(rl);
     if (originalTtyWrite) {
@@ -1575,38 +1601,33 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         if (pasteState.isInPaste) {
           return;
         }
-        if (isShiftEnterSequence(s, key)) {
-          // Suppress readline processing — keypress handler will insert NEWLINE_MARKER
-          return;
-        }
-        // Catch residual fragments after readline strips \x1b[ from CSI sequences.
-        // e.g. ESC[13;2~ → readline consumes ESC[, leaving "13;2~" or "13~" as
-        // literal text. The keypress event does NOT fire for these fragments, so
-        // we must insert the NEWLINE_MARKER directly here.
+        // Catch residual CSI u fragments that readline passes as literal text.
+        // These never fire keypress events, so TextBuffer can't handle them.
+        // Insert a real newline into the TextBuffer instead of NEWLINE_MARKER.
         if (/^13;?[234]?\d*[u~]$/.test(s)) {
-          const currentMarkers = countNewlineMarkers(rl.line || '');
-          if (currentMarkers < MAX_NEWLINES) {
-            insertAtCursor(NEWLINE_MARKER);
-          }
+          textBuffer.insert('\n');
+          syncReadlineFromBuffer();
+          renderActivePrompt();
           return;
         }
-        return originalTtyWrite(s, key);
+        // Suppress all other readline processing — TextBuffer handles input
+        // via the keypress handler below.
+        return;
       };
     }
 
     const applyDetectedImagesToLine = (processedText: string) => {
-      const rlAny = rl as readline.Interface & { line: string; cursor: number };
       const display = getContentDisplay(processedText);
 
       if (display.isPasted) {
         pasteState.hiddenContent = display.actual;
-        rlAny.line = display.visual;
+        textBuffer.setText(display.visual);
       } else {
         pasteState.hiddenContent = undefined;
-        rlAny.line = display.actual;
+        textBuffer.setText(display.actual);
       }
 
-      rlAny.cursor = rlAny.line.length;
+      syncReadlineFromBuffer();
       refreshLine();
     };
 
@@ -1615,8 +1636,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         return false;
       }
 
-      const rlAny = rl as readline.Interface & { line: string };
-      const sourceText = pasteState.hiddenContent ?? rlAny.line ?? '';
+      const sourceText = pasteState.hiddenContent ?? getCurrentText();
       if (!sourceText) {
         inlineImageRetryCount = 0;
         return false;
@@ -1667,8 +1687,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         return;
       }
 
-      const rlAny = rl as readline.Interface & { line?: string };
-      const sourceLine = rlAny.line ?? '';
+      const sourceLine = getCurrentText();
       const trimmedSource = sourceLine.trim();
 
       if (!trimmedSource.startsWith('!') || !trimmedSource.slice(1).trim()) {
@@ -1686,14 +1705,14 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       inlineShellSuggestionTimeout = setTimeout(() => {
         inlineShellSuggestionTimeout = undefined;
         const requestId = ++inlineShellSuggestionRequestId;
-        const lineAtRequest = (rl as readline.Interface & { line?: string }).line ?? '';
+        const lineAtRequest = getCurrentText();
 
         resolveShellSuggestion(lineAtRequest)
           .then((suggestion) => {
             if (closed || requestId !== inlineShellSuggestionRequestId) {
               return;
             }
-            const latest = (rl as readline.Interface & { line?: string }).line ?? '';
+            const latest = getCurrentText();
             if (latest !== lineAtRequest) {
               return;
             }
@@ -1713,7 +1732,9 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     };
 
     const handleKeypress = (_str: string, key: readline.Key) => {
-      // Detect bracketed paste start: ESC[200~ (Node names this 'paste-start')
+      if (closed) return;
+
+      // ── Bracketed paste start ─────────────────────────────────────────
       if (key?.name === 'paste-start') {
         pasteState.isInPaste = true;
         pasteState.buffer = '';
@@ -1724,14 +1745,13 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
           clearTimeout(pasteState.timeout);
         }
 
-        // Save any existing line content (what user typed before pasting)
-        const rlAny = rl as readline.Interface & { line: string; cursor: number };
-        pasteState.prefixContent = rlAny.line || '';
+        // Save any existing content typed before the paste
+        pasteState.prefixContent = getCurrentText();
 
         return;
       }
 
-      // Detect bracketed paste end: ESC[201~ (Node names this 'paste-end')
+      // ── Bracketed paste end ───────────────────────────────────────────
       if (key?.name === 'paste-end') {
         if (pasteState.timeout) {
           clearTimeout(pasteState.timeout);
@@ -1749,7 +1769,13 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
               pasteState.buffer, onImageDetected, { announce: false, output: stdOutput }
             );
           }
-          handlePasteComplete(pasteState, rl, stdOutput, renderActivePrompt);
+          handlePasteComplete(pasteState, rl, stdOutput, () => {
+            // After paste completes, sync TextBuffer from rl.line (paste handler sets rl.line)
+            const rlAny = rl as readline.Interface & { line: string };
+            textBuffer.setText(rlAny.line ?? '');
+            syncReadlineFromBuffer();
+            renderActivePrompt();
+          });
           // Schedule a deferred fallback scan in case the synchronous
           // replacement missed (e.g. file not yet materialized).
           scheduleInlineImageScan(10);
@@ -1757,7 +1783,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         return;
       }
 
-      // During paste, accumulate ALL input to buffer (including newlines)
+      // ── During paste: accumulate to buffer ────────────────────────────
       if (pasteState.isInPaste) {
         if (_str) {
           pasteState.buffer += _str;
@@ -1780,7 +1806,12 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
                 pasteState.buffer, onImageDetected, { announce: false, output: stdOutput }
               );
             }
-            handlePasteComplete(pasteState, rl, stdOutput, renderActivePrompt);
+            handlePasteComplete(pasteState, rl, stdOutput, () => {
+              const rlAny = rl as readline.Interface & { line: string };
+              textBuffer.setText(rlAny.line ?? '');
+              syncReadlineFromBuffer();
+              renderActivePrompt();
+            });
             scheduleInlineImageScan(10);
           }
         }, 50);
@@ -1788,163 +1819,43 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         return; // Don't process normally during paste
       }
 
-      // Backspace/delete on paste indicator: drop reference token from the line.
-      // Users should be able to remove the compact pasted marker without restoring
-      // the full pasted content into the composer.
+      // ── Backspace/delete on paste indicator ───────────────────────────
       if ((key?.name === 'backspace' || key?.name === 'delete') && pasteState.hiddenContent) {
-        const rlAny = rl as readline.Interface & { line: string; cursor: number; _refreshLine?: () => void };
-        const stripped = removePastedReferenceFromLine(rlAny.line ?? '');
+        const currentText = getCurrentText();
+        const stripped = removePastedReferenceFromLine(currentText);
         if (stripped) {
-          rlAny.line = stripped.line;
-          rlAny.cursor = stripped.cursor;
+          textBuffer.setText(stripped.line);
         } else {
-          rlAny.line = '';
-          rlAny.cursor = 0;
+          textBuffer.setText('');
         }
         pasteState.hiddenContent = undefined;
-
-        // Refresh display with boxed renderer.
+        syncReadlineFromBuffer();
         renderActivePrompt();
         return;
       }
 
-      // '?' on empty input toggles contextual shortcut help.
-      if (_str === '?' && !key?.ctrl && !key?.meta) {
-        const rlAny = rl as readline.Interface & { line: string; cursor: number };
-        const typedLine = rlAny.line ?? '';
-        if (typedLine.trim() === '?') {
-          const markerIndex = Math.max(0, (rlAny.cursor ?? typedLine.length) - 1);
-          if (typedLine[markerIndex] === '?') {
-            rlAny.line = `${typedLine.slice(0, markerIndex)}${typedLine.slice(markerIndex + 1)}`;
-            rlAny.cursor = markerIndex;
-          } else {
-            rlAny.line = typedLine.replace(/\?/g, '');
-            rlAny.cursor = rlAny.line.length;
-          }
-          setContextualHelpVisible(!contextualHelpVisible);
-          return;
-        }
+      // ── Reset Ctrl+C counter on non-Ctrl+C keys ──────────────────────
+      if (!(key?.name === 'c' && key.ctrl)) {
+        ctrlCCount = 0;
       }
 
-      if (isShiftTabShortcut(_str, key)) {
-        const planModeManager = getPlanModeManager();
-        const wasEnabled = planModeManager.isEnabled();
-        planModeManager.handleShiftTab();
-
-        // Show immediate feedback
-        if (wasEnabled) {
-          showPromptMessage(`${chalk.gray('Plan mode')} ${chalk.red('OFF')}`);
-        } else {
-          showPromptMessage(`${chalk.bgCyan.black.bold(' PLAN ')} ${chalk.cyan('Plan mode ON - read-only tools')}`);
-        }
-        return;
-      }
-
-      if (isPlainTabShortcut(_str, key)) {
-        const rlAny = rl as readline.Interface & { line: string; cursor: number };
-        const currentInput = rlAny.line ?? '';
-        const trimmedInput = currentInput.trim();
-
-        if (trimmedInput.startsWith('!') && resolveShellSuggestion) {
-          if (
-            llmInlineShellSuggestion &&
-            llmInlineShellSuggestion.startsWith(currentInput) &&
-            llmInlineShellSuggestion !== currentInput
-          ) {
-            rlAny.line = llmInlineShellSuggestion;
-            rlAny.cursor = llmInlineShellSuggestion.length;
-            renderActivePrompt();
-            return;
-          }
-
-          const requestId = ++shellSuggestionRequestId;
-          const immediateFallback = getPrimaryHotTipSuggestion(
-            currentInput,
-            files,
-            slashCommands,
-            suggestionText,
-            workspaceRoot
-          );
-          let expectedInputAtResponse = currentInput;
-
-          if (immediateFallback) {
-            rlAny.line = immediateFallback.line;
-            rlAny.cursor = immediateFallback.cursor;
-            expectedInputAtResponse = immediateFallback.line;
-            renderActivePrompt();
-          }
-
-          resolveShellSuggestion(currentInput)
-            .then((llmSuggestion) => {
-              if (closed || requestId !== shellSuggestionRequestId) {
-                return;
-              }
-
-              const latest = (rl as readline.Interface & { line: string }).line ?? '';
-              if (latest !== expectedInputAtResponse) {
-                return;
-              }
-
-              if (llmSuggestion) {
-                rlAny.line = llmSuggestion;
-                rlAny.cursor = llmSuggestion.length;
-                renderActivePrompt();
-              }
-            })
-            .catch(() => {
-              if (closed || requestId !== shellSuggestionRequestId) {
-                return;
-              }
-              // Ignore LLM errors: immediate local fallback already applied above.
-            });
-          return;
-        }
-
-        const suggestion = getPrimaryHotTipSuggestion(
-          currentInput,
-          files,
-          slashCommands,
-          suggestionText,
-          workspaceRoot
-        );
-        if (suggestion) {
-          rlAny.line = suggestion.line;
-          rlAny.cursor = suggestion.cursor;
-          renderActivePrompt();
-        }
-        return;
-      }
-
-      // Shift+Enter or Alt+Enter: insert newline marker (max 3 lines)
-      // Supports both standard readline parsing and CSI u (kitty keyboard protocol)
-      if (isShiftEnterSequence(_str, key)) {
-        const currentMarkers = countNewlineMarkers(rl.line || '');
-        if (currentMarkers < MAX_NEWLINES) {
-          insertAtCursor(NEWLINE_MARKER);
-        }
-        return;
-      }
-
-      // Ctrl+C: clear input or exit
+      // ── Ctrl+C: clear input or exit ───────────────────────────────────
       if (key?.name === 'c' && key.ctrl) {
-        const currentInput = rl.line || '';
-        
+        const currentInput = getCurrentText();
+
         if (currentInput.length > 0) {
           // Clear the input
           mentionPreview.reset();
           if (contextualHelpVisible) {
             setContextualHelpVisible(false);
           }
-          const rlAny = rl as readline.Interface & { line: string; cursor: number };
-          rlAny.line = '';
-          rlAny.cursor = 0;
-          readline.cursorTo(stdOutput, 0);
-          readline.clearLine(stdOutput, 0);
-          rl.prompt(true);
+          textBuffer.setText('');
+          syncReadlineFromBuffer();
+          renderActivePrompt();
           ctrlCCount = 0;
           return;
         }
-        
+
         // Input is empty - handle exit flow
         if (ctrlCCount === 0) {
           ctrlCCount = 1;
@@ -1965,12 +1876,138 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         return;
       }
 
-      // Reset Ctrl+C counter on any other key
-      ctrlCCount = 0;
+      // ── Shift+Tab: plan mode toggle ───────────────────────────────────
+      if (isShiftTabShortcut(_str, key)) {
+        const planModeManager = getPlanModeManager();
+        const wasEnabled = planModeManager.isEnabled();
+        planModeManager.handleShiftTab();
 
-      // Some terminals send drag/drop as rapid keypresses without bracketed-paste
-      // delimiters. Scan the current line after keypress idle to replace image paths
-      // with [Image #N] placeholders inline.
+        // Show immediate feedback
+        if (wasEnabled) {
+          showPromptMessage(`${chalk.gray('Plan mode')} ${chalk.red('OFF')}`);
+        } else {
+          showPromptMessage(`${chalk.bgCyan.black.bold(' PLAN ')} ${chalk.cyan('Plan mode ON - read-only tools')}`);
+        }
+        return;
+      }
+
+      // ── Tab: accept suggestion ────────────────────────────────────────
+      if (isPlainTabShortcut(_str, key)) {
+        const currentInput = getCurrentText();
+        const trimmedInput = currentInput.trim();
+
+        if (trimmedInput.startsWith('!') && resolveShellSuggestion) {
+          if (
+            llmInlineShellSuggestion &&
+            llmInlineShellSuggestion.startsWith(currentInput) &&
+            llmInlineShellSuggestion !== currentInput
+          ) {
+            textBuffer.setText(llmInlineShellSuggestion);
+            syncReadlineFromBuffer();
+            renderActivePrompt();
+            return;
+          }
+
+          const requestId = ++shellSuggestionRequestId;
+          const immediateFallback = getPrimaryHotTipSuggestion(
+            currentInput,
+            files,
+            slashCommands,
+            suggestionText,
+            workspaceRoot
+          );
+          let expectedInputAtResponse = currentInput;
+
+          if (immediateFallback) {
+            textBuffer.setText(immediateFallback.line);
+            syncReadlineFromBuffer();
+            expectedInputAtResponse = immediateFallback.line;
+            renderActivePrompt();
+          }
+
+          resolveShellSuggestion(currentInput)
+            .then((llmSuggestion) => {
+              if (closed || requestId !== shellSuggestionRequestId) {
+                return;
+              }
+
+              const latest = getCurrentText();
+              if (latest !== expectedInputAtResponse) {
+                return;
+              }
+
+              if (llmSuggestion) {
+                textBuffer.setText(llmSuggestion);
+                syncReadlineFromBuffer();
+                renderActivePrompt();
+              }
+            })
+            .catch(() => {
+              if (closed || requestId !== shellSuggestionRequestId) {
+                return;
+              }
+              // Ignore LLM errors: immediate local fallback already applied above.
+            });
+          return;
+        }
+
+        const suggestion = getPrimaryHotTipSuggestion(
+          currentInput,
+          files,
+          slashCommands,
+          suggestionText,
+          workspaceRoot
+        );
+        if (suggestion) {
+          textBuffer.setText(suggestion.line);
+          syncReadlineFromBuffer();
+          renderActivePrompt();
+        }
+        return;
+      }
+
+      // ── '?' on empty/single-? input: toggle contextual shortcut help ─
+      if (_str === '?' && !key?.ctrl && !key?.meta) {
+        // TextBuffer may have already inserted the '?' (if handleTextBufferKey
+        // runs first). We need to check BEFORE TextBuffer sees it.
+        // Since we handle '?' here before routing to TextBuffer, we check the
+        // current buffer state:
+        const currentText = getCurrentText();
+        if (currentText.trim() === '' || currentText.trim() === '?') {
+          // If buffer is empty, the '?' hasn't been inserted yet.
+          // If buffer is '?', it was just inserted by a prior key event.
+          // Either way, we toggle help and suppress the character.
+          // Don't insert the '?' — just toggle help panel.
+          setContextualHelpVisible(!contextualHelpVisible);
+          return;
+        }
+      }
+
+      // ── Route through TextBuffer key handler ──────────────────────────
+      const tbResult = handleTextBufferKey(textBuffer, _str, key);
+
+      if (tbResult === 'submit') {
+        const text = textBuffer.getText().trim();
+        if (!text) return; // Don't submit empty
+        // Sync readline then emit 'line' event which drives the submission handler
+        syncReadlineFromBuffer();
+        rl.emit('line', text);
+        return;
+      }
+
+      if (tbResult === 'handled') {
+        syncReadlineFromBuffer();
+        renderActivePrompt();
+        scheduleInlineImageScan();
+        scheduleInlineShellSuggestion();
+        if (contextualHelpVisible && shouldAutoHideShortcutHelp(_str, key)) {
+          setContextualHelpVisible(false);
+        }
+        return;
+      }
+
+      // 'unhandled' — Escape and other control keys fall through here.
+      // Schedule scans and renders for any unhandled key.
       scheduleInlineImageScan();
       scheduleInlineShellSuggestion();
 
@@ -1979,8 +2016,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       }
 
       // Force a post-keypress repaint so border/mode styling follows the
-      // latest readline buffer even on terminals where _refreshLine timing
-      // can run one keystroke behind.
+      // latest buffer even on terminals where timing can lag one keystroke.
       scheduleRender();
     };
 
@@ -1999,7 +2035,8 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       // Clear hidden content after use
       pasteState.hiddenContent = undefined;
 
-      // Convert newline markers back to actual newlines
+      // Convert any remaining newline markers back to actual newlines.
+      // TextBuffer uses real \n, but legacy code paths may still produce markers.
       finalValue = convertNewlineMarkersToNewlines(finalValue).trim();
 
       // Process any embedded images (base64 data URLs or file paths)
@@ -2026,7 +2063,9 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         } else if (!result.success && result.error) {
           stdOutput.write(chalk.red(`Error: ${result.error}\n`));
         }
-        // Re-prompt without sending to LLM
+        // Re-prompt without sending to LLM — reset TextBuffer for fresh input
+        textBuffer.setText('');
+        syncReadlineFromBuffer();
         stdOutput.write('\n');
         renderPromptLine(rl, getActiveStatusLine(), stdOutput, false, false, suggestionText);
         return;
@@ -2043,23 +2082,20 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     });
 
     rl.on('SIGINT', () => {
-      const currentInput = rl.line || '';
-      
+      const currentInput = getCurrentText();
+
       if (currentInput.length > 0) {
         mentionPreview.reset();
         if (contextualHelpVisible) {
           setContextualHelpVisible(false);
         }
-        const rlAny = rl as readline.Interface & { line: string; cursor: number };
-        rlAny.line = '';
-        rlAny.cursor = 0;
-        readline.cursorTo(stdOutput, 0);
-        readline.clearLine(stdOutput, 0);
-        rl.prompt(true);
+        textBuffer.setText('');
+        syncReadlineFromBuffer();
+        renderActivePrompt();
         ctrlCCount = 0;
         return;
       }
-      
+
       if (ctrlCCount === 0) {
         ctrlCCount = 1;
         mentionPreview.reset();
@@ -2106,6 +2142,15 @@ function getComposerBorderStyle(line: string): InputBorderStyle {
 let lastRenderedContentLines = 1;
 let lastRenderedCursorRow = 0;
 
+// Module-level reference to the active TextBuffer for rendering.
+// Set when entering promptOnce, cleared on cleanup.
+let activeTextBuffer: TextBuffer | null = null;
+
+/** Expose the active TextBuffer for external consumers (e.g. persistentInput). */
+export function getActiveTextBuffer(): TextBuffer | null {
+  return activeTextBuffer;
+}
+
 export function getLastRenderedContentLines(): number {
   return lastRenderedContentLines;
 }
@@ -2133,9 +2178,29 @@ function renderPromptLine(
   invalidateBoxColorCache();
 
   const width = getPromptBlockWidth(output.columns);
-  const rlAny = rl as readline.Interface & { cursor?: number; line?: string };
-  const currentLine = rlAny.line ?? '';
-  const cursorPos = rlAny.cursor ?? currentLine.length;
+
+  // Read input state from TextBuffer (source of truth) when available,
+  // otherwise fall back to readline for compatibility.
+  let currentLine: string;
+  let cursorPos: number;
+  if (activeTextBuffer) {
+    currentLine = activeTextBuffer.getText();
+    // Compute flat cursor position: sum of chars + newlines before the cursor
+    const lines = activeTextBuffer.getLines();
+    const row = activeTextBuffer.getCursorRow();
+    const col = activeTextBuffer.getCursorCol();
+    let flat = 0;
+    for (let i = 0; i < row; i++) {
+      flat += lines[i].length + 1; // +1 for the newline separator
+    }
+    flat += col;
+    cursorPos = flat;
+  } else {
+    const rlAny = rl as readline.Interface & { cursor?: number; line?: string };
+    currentLine = rlAny.line ?? '';
+    cursorPos = rlAny.cursor ?? currentLine.length;
+  }
+
   const borderStyle = getComposerBorderStyle(currentLine);
   const state = buildMultiLineRenderState(
     currentLine,
