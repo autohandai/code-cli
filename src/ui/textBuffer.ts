@@ -209,6 +209,91 @@ export class TextBuffer {
     this.ensureCursorVisible();
   }
 
+  /**
+   * Moves cursor left by one word boundary using `Intl.Segmenter`.
+   * Jumps to the start of the previous word-like segment. At column 0,
+   * wraps to the end of the previous logical line.
+   */
+  moveWordLeft(): void {
+    this.preferredCol = null;
+
+    if (this.cursorCol === 0) {
+      // At line start, jump to end of previous line
+      if (this.cursorRow > 0) {
+        this.cursorRow--;
+        this.cursorCol = cpLen(this.lines[this.cursorRow]!);
+      }
+      return;
+    }
+
+    const line = this.lines[this.cursorRow]!;
+    const codePoints = Array.from(line);
+    // Convert code-point cursor to string index for segmenter
+    const strCursor = codePoints.slice(0, this.cursorCol).join('').length;
+
+    const segmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
+    const segments = Array.from(segmenter.segment(line));
+
+    // Find the last word-like segment that starts before the cursor
+    let target: { index: number } | null = null;
+    for (const seg of segments) {
+      if (seg.isWordLike && seg.index < strCursor) {
+        target = seg;
+      }
+    }
+
+    if (target !== null) {
+      // Convert string index back to code-point index
+      this.cursorCol = strToCpIndex(line, target.index);
+    } else {
+      this.cursorCol = 0;
+    }
+
+    this.ensureCursorVisible();
+  }
+
+  /**
+   * Moves cursor right by one word boundary using `Intl.Segmenter`.
+   * Jumps to the end of the current/next word-like segment. At end of line,
+   * wraps to the start of the next logical line.
+   */
+  moveWordRight(): void {
+    this.preferredCol = null;
+
+    const line = this.lines[this.cursorRow]!;
+    const lineLen = cpLen(line);
+
+    if (this.cursorCol >= lineLen) {
+      // At line end, jump to start of next line
+      if (this.cursorRow < this.lines.length - 1) {
+        this.cursorRow++;
+        this.cursorCol = 0;
+      }
+      return;
+    }
+
+    const codePoints = Array.from(line);
+    // Convert code-point cursor to string index for segmenter
+    const strCursor = codePoints.slice(0, this.cursorCol).join('').length;
+
+    const segmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
+    const segments = Array.from(segmenter.segment(line));
+
+    // Find the first word-like segment that ends after the cursor
+    for (const seg of segments) {
+      const segEnd = seg.index + seg.segment.length;
+      if (seg.isWordLike && segEnd > strCursor) {
+        this.cursorCol = strToCpIndex(line, segEnd);
+        this.ensureCursorVisible();
+        return;
+      }
+    }
+
+    // No word found after cursor — move to end of line
+    this.cursorCol = lineLen;
+    this.ensureCursorVisible();
+  }
+
   /** Moves cursor to the start of the current line. */
   moveHome(): void {
     this.preferredCol = null;
