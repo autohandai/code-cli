@@ -217,4 +217,178 @@ describe('TextBuffer', () => {
       expect(buf.getCursorCol()).toBe(0);
     });
   });
+
+  describe('cursor movement', () => {
+    describe('moveLeft', () => {
+      it('moves cursor left by one', () => {
+        const buf = new TextBuffer(80, 10, 'abc');
+        buf.moveLeft();
+        expect(buf.getCursorCol()).toBe(2);
+      });
+
+      it('wraps to end of previous line at col 0', () => {
+        const buf = new TextBuffer(80, 10, 'hello\nworld');
+        buf.setCursor(1, 0);
+        buf.moveLeft();
+        expect(buf.getCursorRow()).toBe(0);
+        expect(buf.getCursorCol()).toBe(5);
+      });
+
+      it('does nothing at start of buffer', () => {
+        const buf = new TextBuffer(80, 10, 'abc');
+        buf.setCursor(0, 0);
+        buf.moveLeft();
+        expect(buf.getCursorRow()).toBe(0);
+        expect(buf.getCursorCol()).toBe(0);
+      });
+    });
+
+    describe('moveRight', () => {
+      it('moves cursor right by one', () => {
+        const buf = new TextBuffer(80, 10, 'abc');
+        buf.setCursor(0, 0);
+        buf.moveRight();
+        expect(buf.getCursorCol()).toBe(1);
+      });
+
+      it('wraps to start of next line at end of line', () => {
+        const buf = new TextBuffer(80, 10, 'hello\nworld');
+        buf.setCursor(0, 5);
+        buf.moveRight();
+        expect(buf.getCursorRow()).toBe(1);
+        expect(buf.getCursorCol()).toBe(0);
+      });
+
+      it('does nothing at end of buffer', () => {
+        const buf = new TextBuffer(80, 10, 'abc');
+        buf.moveRight();
+        expect(buf.getCursorRow()).toBe(0);
+        expect(buf.getCursorCol()).toBe(3);
+      });
+    });
+
+    describe('moveUp', () => {
+      it('moves to previous line preserving column', () => {
+        const buf = new TextBuffer(80, 10, 'hello\nworld');
+        buf.moveUp();
+        expect(buf.getCursorRow()).toBe(0);
+        expect(buf.getCursorCol()).toBe(5);
+      });
+
+      it('clamps column to shorter line', () => {
+        const buf = new TextBuffer(80, 10, 'hi\nworld');
+        buf.moveUp();
+        expect(buf.getCursorRow()).toBe(0);
+        expect(buf.getCursorCol()).toBe(2);
+      });
+
+      it('preserves preferredCol across short lines', () => {
+        const buf = new TextBuffer(80, 10, 'longline\nhi\nlongline');
+        buf.setCursor(2, 7);
+        buf.moveUp(); // row 1, col clamped to 2, preferredCol = 7
+        expect(buf.getCursorRow()).toBe(1);
+        expect(buf.getCursorCol()).toBe(2);
+        buf.moveUp(); // row 0, col restored to 7
+        expect(buf.getCursorRow()).toBe(0);
+        expect(buf.getCursorCol()).toBe(7);
+      });
+
+      it('does nothing on first line', () => {
+        const buf = new TextBuffer(80, 10, 'hello');
+        buf.setCursor(0, 3);
+        buf.moveUp();
+        expect(buf.getCursorRow()).toBe(0);
+        expect(buf.getCursorCol()).toBe(3);
+      });
+    });
+
+    describe('moveDown', () => {
+      it('moves to next line preserving column', () => {
+        const buf = new TextBuffer(80, 10, 'hello\nworld');
+        buf.setCursor(0, 3);
+        buf.moveDown();
+        expect(buf.getCursorRow()).toBe(1);
+        expect(buf.getCursorCol()).toBe(3);
+      });
+
+      it('clamps column to shorter line', () => {
+        const buf = new TextBuffer(80, 10, 'world\nhi');
+        buf.setCursor(0, 4);
+        buf.moveDown();
+        expect(buf.getCursorRow()).toBe(1);
+        expect(buf.getCursorCol()).toBe(2);
+      });
+
+      it('preserves preferredCol across short lines', () => {
+        const buf = new TextBuffer(80, 10, 'longline\nhi\nlongline');
+        buf.setCursor(0, 7);
+        buf.moveDown(); // row 1, col clamped to 2, preferredCol = 7
+        expect(buf.getCursorRow()).toBe(1);
+        expect(buf.getCursorCol()).toBe(2);
+        buf.moveDown(); // row 2, col restored to 7
+        expect(buf.getCursorRow()).toBe(2);
+        expect(buf.getCursorCol()).toBe(7);
+      });
+
+      it('does nothing on last line', () => {
+        const buf = new TextBuffer(80, 10, 'hello');
+        buf.setCursor(0, 0);
+        buf.moveDown();
+        expect(buf.getCursorRow()).toBe(0);
+        expect(buf.getCursorCol()).toBe(0);
+      });
+    });
+
+    describe('moveHome', () => {
+      it('moves cursor to start of line', () => {
+        const buf = new TextBuffer(80, 10, 'hello');
+        buf.moveHome();
+        expect(buf.getCursorCol()).toBe(0);
+      });
+
+      it('stays on same row', () => {
+        const buf = new TextBuffer(80, 10, 'hello\nworld');
+        buf.moveHome();
+        expect(buf.getCursorRow()).toBe(1);
+        expect(buf.getCursorCol()).toBe(0);
+      });
+    });
+
+    describe('moveEnd', () => {
+      it('moves cursor to end of line', () => {
+        const buf = new TextBuffer(80, 10, 'hello');
+        buf.setCursor(0, 0);
+        buf.moveEnd();
+        expect(buf.getCursorCol()).toBe(5);
+      });
+
+      it('stays on same row', () => {
+        const buf = new TextBuffer(80, 10, 'hello\nworld');
+        buf.setCursor(0, 0);
+        buf.moveEnd();
+        expect(buf.getCursorRow()).toBe(0);
+        expect(buf.getCursorCol()).toBe(5);
+      });
+    });
+
+    describe('preferredCol interactions', () => {
+      it('clears preferredCol on moveLeft', () => {
+        const buf = new TextBuffer(80, 10, 'longline\nhi\nlongline');
+        buf.setCursor(0, 7);
+        buf.moveDown(); // sets preferredCol = 7, col clamped to 2
+        buf.moveLeft(); // clears preferredCol, col = 1
+        buf.moveDown(); // should use current col (1), not old preferredCol
+        expect(buf.getCursorCol()).toBe(1);
+      });
+
+      it('clears preferredCol on insert', () => {
+        const buf = new TextBuffer(80, 10, 'longline\nhi\nlongline');
+        buf.setCursor(0, 7);
+        buf.moveDown(); // sets preferredCol = 7
+        buf.insert('x'); // clears preferredCol
+        buf.moveDown(); // should use current col (3 = 2+1 from 'hxi'), not 7
+        expect(buf.getCursorCol()).toBe(3);
+      });
+    });
+  });
 });
