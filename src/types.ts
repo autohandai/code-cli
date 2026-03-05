@@ -29,7 +29,9 @@ type Primitive = string | number | boolean | null;
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
-export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway';
+export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure';
+
+export type AzureAuthMethod = 'api-key' | 'entra-id' | 'managed-identity';
 
 export interface ProviderSettings {
   apiKey?: string;
@@ -44,6 +46,23 @@ export interface OpenRouterSettings extends ProviderSettings {
 
 export interface LLMGatewaySettings extends ProviderSettings {
   apiKey: string;
+}
+
+export interface AzureSettings extends ProviderSettings {
+  /** Azure resource name (e.g., "my-openai-resource") */
+  resourceName?: string;
+  /** Deployment name (e.g., "gpt-4o") */
+  deploymentName?: string;
+  /** Azure API version (default: "2024-10-21") */
+  apiVersion?: string;
+  /** Authentication method (default: "api-key") */
+  authMethod?: AzureAuthMethod;
+  /** Azure tenant ID — required for entra-id auth */
+  tenantId?: string;
+  /** Azure client ID — required for entra-id auth */
+  clientId?: string;
+  /** Azure client secret — required for entra-id auth (service principal) */
+  clientSecret?: string;
 }
 
 export interface WorkspaceSettings {
@@ -486,6 +505,8 @@ export interface AutohandConfig {
   openai?: ProviderSettings;
   mlx?: ProviderSettings;
   llmgateway?: LLMGatewaySettings;
+  /** Azure OpenAI settings */
+  azure?: AzureSettings;
   workspace?: WorkspaceSettings;
   ui?: UISettings;
   agent?: AgentSettings;
