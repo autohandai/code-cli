@@ -822,7 +822,8 @@ export class ProviderConfigManager {
       llamacpp: this.runtime.config.llamacpp ?? (this.runtime.config.llamacpp = { model }),
       openai: this.runtime.config.openai ?? (this.runtime.config.openai = { model }),
       mlx: this.runtime.config.mlx ?? (this.runtime.config.mlx = { model }),
-      llmgateway: this.runtime.config.llmgateway ?? (this.runtime.config.llmgateway = { apiKey: '', model })
+      llmgateway: this.runtime.config.llmgateway ?? (this.runtime.config.llmgateway = { apiKey: '', model }),
+      azure: this.runtime.config.azure ?? (this.runtime.config.azure = { model, authMethod: 'api-key' })
     };
     cfgMap[provider].model = model;
     this.setActiveProvider(provider);
