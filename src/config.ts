@@ -6,7 +6,7 @@
 import fs from 'fs-extra';
 import path from 'node:path';
 import YAML from 'yaml';
-import type { AutohandConfig, LoadedConfig, ProviderName, ProviderSettings } from './types.js';
+import type { AutohandConfig, LoadedConfig, ProviderName, ProviderSettings, AzureSettings } from './types.js';
 import { AUTOHAND_FILES } from './constants.js';
 import { autoInitTheme, themeExists } from './ui/theme/index.js';
 
@@ -141,13 +141,43 @@ export async function loadConfig(customPath?: string): Promise<LoadedConfig> {
  * Env vars take precedence over config file values
  */
 function mergeEnvVariables(config: AutohandConfig): AutohandConfig {
-  return {
+  config = {
     ...config,
     api: {
       baseUrl: process.env.AUTOHAND_API_URL || config.api?.baseUrl || 'https://api.autohand.ai',
       companySecret: process.env.AUTOHAND_SECRET || config.api?.companySecret || ''
     }
   };
+
+  // Resolve Azure env vars
+  if (process.env.AZURE_OPENAI_KEY || process.env.AZURE_OPENAI_ENDPOINT || process.env.AZURE_OPENAI_DEPLOYMENT) {
+    const azureEnv: Record<string, string | undefined> = {
+      apiKey: process.env.AZURE_OPENAI_KEY,
+      baseUrl: process.env.AZURE_OPENAI_ENDPOINT,
+      deploymentName: process.env.AZURE_OPENAI_DEPLOYMENT,
+      apiVersion: process.env.AZURE_OPENAI_API_VERSION,
+      tenantId: process.env.AZURE_TENANT_ID,
+      clientId: process.env.AZURE_CLIENT_ID,
+      clientSecret: process.env.AZURE_CLIENT_SECRET,
+    };
+
+    const existing = config.azure ?? { model: azureEnv.deploymentName ?? 'gpt-4o' };
+    config = {
+      ...config,
+      azure: {
+        ...existing,
+        ...(azureEnv.apiKey && { apiKey: azureEnv.apiKey }),
+        ...(azureEnv.baseUrl && { baseUrl: azureEnv.baseUrl }),
+        ...(azureEnv.deploymentName && { deploymentName: azureEnv.deploymentName }),
+        ...(azureEnv.apiVersion && { apiVersion: azureEnv.apiVersion }),
+        ...(azureEnv.tenantId && { tenantId: azureEnv.tenantId }),
+        ...(azureEnv.clientId && { clientId: azureEnv.clientId }),
+        ...(azureEnv.clientSecret && { clientSecret: azureEnv.clientSecret }),
+      } as AzureSettings
+    };
+  }
+
+  return config;
 }
 
 function normalizeConfig(config: AutohandConfig | LegacyConfigShape): AutohandConfig {
@@ -184,7 +214,8 @@ function isModernConfig(config: AutohandConfig | LegacyConfigShape): config is A
     typeof (config as AutohandConfig).ollama === 'object' ||
     typeof (config as AutohandConfig).llamacpp === 'object' ||
     typeof (config as AutohandConfig).openai === 'object' ||
-    typeof (config as AutohandConfig).mlx === 'object';
+    typeof (config as AutohandConfig).mlx === 'object' ||
+    typeof (config as AutohandConfig).azure === 'object';
 }
 
 function isLegacyConfig(config: AutohandConfig | LegacyConfigShape): config is LegacyConfigShape {
