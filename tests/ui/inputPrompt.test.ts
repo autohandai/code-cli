@@ -799,3 +799,72 @@ describe('multi-line state exports', () => {
     expect(getLastRenderedCursorRow()).toBeGreaterThanOrEqual(0);
   });
 });
+
+describe('TextBuffer integration into inputPrompt', () => {
+  it('buildMultiLineRenderState handles real newlines identically to NEWLINE_MARKER', async () => {
+    const { buildMultiLineRenderState, NEWLINE_MARKER } = await import('../../src/ui/inputPrompt.js');
+    const stripAnsi = (s: string) => s.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
+
+    // Input with real newline should produce the same number of lines
+    // as the equivalent NEWLINE_MARKER-separated input
+    const markerInput = `line1${NEWLINE_MARKER}line2${NEWLINE_MARKER}line3`;
+    const newlineInput = 'line1\nline2\nline3';
+
+    const markerState = buildMultiLineRenderState(markerInput, 5, 80);
+    const newlineState = buildMultiLineRenderState(newlineInput, 5, 80);
+
+    expect(markerState.lineCount).toBe(3);
+    expect(newlineState.lineCount).toBe(3);
+
+    // Both should render the first line with PROMPT_INPUT_PREFIX and second with indent
+    const markerFirst = stripAnsi(markerState.lines[0]);
+    const newlineFirst = stripAnsi(newlineState.lines[0]);
+    expect(markerFirst).toContain('❯');
+    expect(newlineFirst).toContain('❯');
+  });
+
+  it('isShiftEnterSequence correctly identifies Shift+Enter for TextBuffer newline insertion', async () => {
+    const { isShiftEnterSequence } = await import('../../src/ui/inputPrompt.js');
+
+    // Plain Enter should NOT be a shift enter sequence (TextBuffer returns 'submit')
+    expect(isShiftEnterSequence('\r', { name: 'return', sequence: '\r' } as readline.Key)).toBe(false);
+
+    // Shift+Enter SHOULD be detected (TextBuffer inserts '\n')
+    expect(isShiftEnterSequence('\r', { name: 'return', sequence: '\r', shift: true } as readline.Key)).toBe(true);
+    expect(isShiftEnterSequence('\x1b[13;2u', { sequence: '\x1b[13;2u' } as readline.Key)).toBe(true);
+  });
+
+  it('convertNewlineMarkersToNewlines handles mixed markers and real newlines', async () => {
+    const { convertNewlineMarkersToNewlines, NEWLINE_MARKER } = await import('../../src/ui/inputPrompt.js');
+
+    // TextBuffer uses real \n, but legacy content might still have NEWLINE_MARKER
+    const mixed = `line1${NEWLINE_MARKER}line2\nline3`;
+    const result = convertNewlineMarkersToNewlines(mixed);
+    expect(result).toBe('line1\nline2\nline3');
+  });
+
+  it('buildMultiLineRenderState handles empty lines from consecutive newlines', async () => {
+    const { buildMultiLineRenderState } = await import('../../src/ui/inputPrompt.js');
+
+    // TextBuffer can produce consecutive newlines
+    const input = 'line1\n\nline3';
+    const state = buildMultiLineRenderState(input, 5, 80);
+
+    expect(state.lineCount).toBe(3);
+    expect(state.lines.length).toBe(3);
+  });
+
+  it('buildMultiLineRenderState cursor position for real newline input', async () => {
+    const { buildMultiLineRenderState } = await import('../../src/ui/inputPrompt.js');
+
+    // Simulate cursor at the start of the second line after a real newline
+    // "hello\nw" -> cursor at position 6 (right after \n, at start of "w")
+    const input = 'hello\nworld';
+    // Position the cursor at 'w' (index 6 in the flat string with \n as separator of length 1)
+    const cursorPos = 6;
+    const state = buildMultiLineRenderState(input, cursorPos, 80);
+
+    expect(state.cursorRow).toBe(1);
+    expect(state.lineCount).toBe(2);
+  });
+});
