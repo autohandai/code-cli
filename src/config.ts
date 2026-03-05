@@ -279,7 +279,8 @@ export function getProviderConfig(config: AutohandConfig, provider?: ProviderNam
     llamacpp: config.llamacpp,
     openai: config.openai,
     mlx: config.mlx,
-    llmgateway: config.llmgateway
+    llmgateway: config.llmgateway,
+    azure: config.azure
   };
 
   const entry = configByProvider[chosen];
