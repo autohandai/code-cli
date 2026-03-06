@@ -39,6 +39,7 @@ import { getTheme, isThemeInitialized } from './theme/index.js';
 import type { ColorToken } from './theme/types.js';
 import { TextBuffer } from './textBuffer.js';
 import { handleTextBufferKey } from './textBufferKeyHandler.js';
+import { calculateLayout, logicalToVisual } from './textBufferLayout.js';
 
 /**
  * Module-level event emitter for delivering messages above the active prompt.
@@ -62,6 +63,7 @@ export const PROMPT_LINES_BELOW_INPUT = 1;
 export const PROMPT_BLOCK_LINE_COUNT = PROMPT_LINES_ABOVE_INPUT + 1 + PROMPT_LINES_BELOW_INPUT;
 export const PROMPT_PLACEHOLDER = 'Plan, search, build anything';
 export const PROMPT_INPUT_PREFIX = '❯ ';
+export const SHIFT_ENTER_RESIDUAL_PATTERN = /^13;?[234]?\d*[u~]$/;
 
 export type SlashCommandHint = SlashCommand;
 
@@ -380,6 +382,32 @@ export function isShiftEnterSequence(str: string, key: readline.Key | undefined)
   return false;
 }
 
+export function isShiftEnterResidualSequence(sequence: string | undefined): boolean {
+  return SHIFT_ENTER_RESIDUAL_PATTERN.test(sequence ?? '');
+}
+
+export function countResidualModifiedEnterSequences(chunk: string): number {
+  if (!chunk) {
+    return 0;
+  }
+
+  const matches = chunk.match(/13;?[234]?\d*[u~]/g);
+  if (!matches || matches.length === 0) {
+    return 0;
+  }
+
+  return matches.join('') === chunk ? matches.length : 0;
+}
+
+export function countRawModifiedEnterSequences(chunk: string): number {
+  if (!chunk) {
+    return 0;
+  }
+
+  const matches = chunk.match(/\x1b(?:\[13;[234]\d*[u~]|\r|\n)/g);
+  return matches?.length ?? 0;
+}
+
 export function shouldAutoHideShortcutHelp(str: string, key: readline.Key | undefined): boolean {
   if (isPlainTabShortcut(str, key) || isShiftTabShortcut(str, key)) {
     return false;
@@ -558,8 +586,30 @@ export function buildMultiLineRenderState(
   inlineGhostSuffix?: string
 ): MultiLineRenderState {
   const { segments, separatorLengths } = splitMultilineSegments(currentLine);
+  const innerWidth = Math.max(1, width - 2);
+  const continuationPrefix = '  ';
+  const contentWidth = Math.max(1, innerWidth - continuationPrefix.length);
 
   if (segments.length <= 1) {
+    const singleSegment = sanitizeRenderLine(segments[0] ?? '');
+    const singleLayout = calculateLayout([singleSegment], contentWidth);
+    if (singleLayout.visualLines.length <= 1) {
+      const seg = renderSegment(
+        currentLine,
+        cursorPos,
+        width,
+        PROMPT_INPUT_PREFIX,
+        true,
+        suggestionText,
+        inlineGhostSuffix
+      );
+      const lineText = drawInputBox(seg.styledText, width, undefined, borderStyle);
+      const clampedCursor = Math.max(0, Math.min(width - 1, seg.cursorColumn + 1));
+      return { lines: [lineText], cursorRow: 0, cursorColumn: clampedCursor, lineCount: 1 };
+    }
+  }
+
+  if (currentLine.length === 0) {
     const seg = renderSegment(
       currentLine,
       cursorPos,
@@ -589,25 +639,47 @@ export function buildMultiLineRenderState(
   }
 
   const lines: string[] = [];
+  let visualRowOffset = 0;
+  let overallVisualRow = 0;
+  let hasPromptPrefix = false;
   let finalCursorColumn = 0;
 
   for (let i = 0; i < segments.length; i++) {
-    const isFirst = i === 0;
-    const prefix = isFirst ? PROMPT_INPUT_PREFIX : '  ';
-    const segCursor = i === cursorRow ? cursorInSegment : 0;
-    const seg = renderSegment(
-      segments[i], segCursor, width, prefix,
-      false, // never show placeholder in multi-line mode
-      isFirst ? suggestionText : undefined,
-      isFirst ? inlineGhostSuffix : undefined
-    );
-    lines.push(drawInputBox(seg.styledText, width, undefined, borderStyle));
+    const sanitizedSegment = sanitizeRenderLine(segments[i] ?? '');
+    const layout = calculateLayout([sanitizedSegment], contentWidth);
+    const wrappedLines = layout.visualLines.length > 0 ? layout.visualLines : [''];
+
     if (i === cursorRow) {
-      finalCursorColumn = Math.max(0, Math.min(width - 1, seg.cursorColumn + 1));
+      const [wrappedCursorRow, wrappedCursorCol] = logicalToVisual(
+        layout,
+        0,
+        Math.max(0, Math.min(sanitizedSegment.length, cursorInSegment))
+      );
+      cursorRow = visualRowOffset + wrappedCursorRow;
+      finalCursorColumn = Math.max(
+        0,
+        Math.min(width - 1, continuationPrefix.length + wrappedCursorCol + 1)
+      );
     }
+
+    for (let j = 0; j < wrappedLines.length; j++) {
+      const prefix = !hasPromptPrefix ? PROMPT_INPUT_PREFIX : continuationPrefix;
+      const prefixStyled = themedFg('accent', prefix, (value) => chalk.gray(value));
+      const styledText = `${prefixStyled}${wrappedLines[j] ?? ''}`;
+      lines.push(drawInputBox(styledText, width, undefined, borderStyle));
+      hasPromptPrefix = true;
+      overallVisualRow += 1;
+    }
+
+    visualRowOffset += wrappedLines.length;
   }
 
-  return { lines, cursorRow, cursorColumn: finalCursorColumn, lineCount: segments.length };
+  return {
+    lines,
+    cursorRow,
+    cursorColumn: finalCursorColumn,
+    lineCount: overallVisualRow,
+  };
 }
 
 interface MultilineSegments {
@@ -1385,6 +1457,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
   return new Promise<PromptResult>((resolve) => {
     let ctrlCCount = 0;
     let closed = false;
+    let suppressResidualShiftEnterCharsUntil = 0;
     let inlineImageScanTimeout: NodeJS.Timeout | undefined;
     let inlineImageRetryCount = 0;
     const MAX_INLINE_IMAGE_RETRIES = 12;
@@ -1659,7 +1732,35 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       }, delayMs);
     };
 
-    const handleInputData = () => {
+    const handleInputData = (chunk: Buffer | string) => {
+      if (closed || pasteState.isInPaste) {
+        return;
+      }
+
+      const rawText = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk ?? '');
+      const modifiedEnterCount = countRawModifiedEnterSequences(rawText);
+      const residualModifiedEnterCount = countResidualModifiedEnterSequences(rawText);
+
+      if (modifiedEnterCount > 0) {
+        for (let i = 0; i < modifiedEnterCount; i++) {
+          textBuffer.insert('\n');
+        }
+        suppressResidualShiftEnterCharsUntil = Date.now() + 80;
+        syncReadlineFromBuffer();
+        renderActivePrompt();
+        return;
+      }
+
+      if (residualModifiedEnterCount > 0) {
+        for (let i = 0; i < residualModifiedEnterCount; i++) {
+          textBuffer.insert('\n');
+        }
+        suppressResidualShiftEnterCharsUntil = Date.now() + 80;
+        syncReadlineFromBuffer();
+        renderActivePrompt();
+        return;
+      }
+
       // Catch drag/drop payloads even when terminal does not emit keypress
       // events for each pasted character.
       scheduleInlineImageScan();
@@ -1667,6 +1768,17 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
 
     const handleKeypress = (_str: string, key: readline.Key) => {
       if (closed) return;
+      const rawSeq = key?.sequence ?? _str ?? '';
+
+      if (Date.now() < suppressResidualShiftEnterCharsUntil) {
+        if (
+          isShiftEnterSequence(_str, key) ||
+          isShiftEnterResidualSequence(rawSeq) ||
+          (_str.length > 0 && /^[13;~u]+$/.test(_str))
+        ) {
+          return;
+        }
+      }
 
       // ── Bracketed paste start ─────────────────────────────────────────
       if (key?.name === 'paste-start') {
@@ -1918,6 +2030,26 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       }
 
       // ── Route through TextBuffer key handler ──────────────────────────
+      const residualModifiedEnterCount = countResidualModifiedEnterSequences(rawSeq);
+      if (isShiftEnterSequence(_str, key) || isShiftEnterResidualSequence(rawSeq)) {
+        textBuffer.insert('\n');
+        syncReadlineFromBuffer();
+        renderActivePrompt();
+        scheduleInlineImageScan();
+        scheduleInlineShellSuggestion();
+        return;
+      }
+      if (residualModifiedEnterCount > 0) {
+        for (let i = 0; i < residualModifiedEnterCount; i++) {
+          textBuffer.insert('\n');
+        }
+        syncReadlineFromBuffer();
+        renderActivePrompt();
+        scheduleInlineImageScan();
+        scheduleInlineShellSuggestion();
+        return;
+      }
+
       const tbResult = handleTextBufferKey(textBuffer, _str, key);
 
       if (tbResult === 'submit') {

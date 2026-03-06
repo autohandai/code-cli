@@ -3,8 +3,8 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { useState, useEffect, memo, useMemo } from 'react';
-import { Box, Text, useInput, useApp, Static } from 'ink';
+import React, { useState, useEffect, memo, useMemo, useRef, useCallback } from 'react';
+import { Box, Text, useInput, useApp, Static, type Key as InkKey } from 'ink';
 import { StatusLine } from './StatusLine.js';
 import { ToolOutputStatic, type ToolOutputEntry } from './ToolOutput.js';
 import { InputLine } from './InputLine.js';
@@ -12,6 +12,9 @@ import { ThinkingOutput } from './ThinkingOutput.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/index.js';
 import { getPlanModeManager } from '../../commands/plan.js';
+import { TextBuffer } from '../textBuffer.js';
+import { handleTextBufferKey, type KeyHandlerResult } from '../textBufferKeyHandler.js';
+import { getPromptBlockWidth, isShiftEnterResidualSequence } from '../inputPrompt.js';
 
 export interface AgentUIState {
   isWorking: boolean;
@@ -40,6 +43,81 @@ export interface AgentUIProps {
   enableQueueInput?: boolean;
 }
 
+interface TextBufferKeyInfo {
+  name?: string;
+  ctrl?: boolean;
+  meta?: boolean;
+  shift?: boolean;
+  sequence?: string;
+}
+
+const INK_TEXTBUFFER_VIEWPORT_HEIGHT = 10;
+
+function getInkTextBufferViewportWidth(columns: number | undefined): number {
+  return Math.max(1, getPromptBlockWidth(columns) - 4);
+}
+
+function mapInkKeyToTextBufferKey(input: string, key: InkKey): TextBufferKeyInfo {
+  let name: string | undefined;
+
+  if (key.leftArrow) {
+    name = 'left';
+  } else if (key.rightArrow) {
+    name = 'right';
+  } else if (key.upArrow) {
+    name = 'up';
+  } else if (key.downArrow) {
+    name = 'down';
+  } else if (key.return) {
+    name = 'return';
+  } else if (key.backspace) {
+    name = 'backspace';
+  } else if (key.delete) {
+    name = 'delete';
+  } else if (key.tab) {
+    name = 'tab';
+  } else if (key.ctrl && input === 'a') {
+    name = 'a';
+  } else if (key.ctrl && input === 'e') {
+    name = 'e';
+  }
+
+  return {
+    name,
+    ctrl: key.ctrl,
+    meta: key.meta,
+    shift: key.shift,
+    sequence: input,
+  };
+}
+
+export function getTextBufferCursorOffset(buffer: TextBuffer): number {
+  const lines = buffer.getLines();
+  const row = buffer.getCursorRow();
+  const col = buffer.getCursorCol();
+  let offset = 0;
+
+  for (let i = 0; i < row; i++) {
+    offset += lines[i]?.length ?? 0;
+    offset += 1;
+  }
+
+  return offset + col;
+}
+
+export function handleInkTextBufferInput(
+  buffer: TextBuffer,
+  input: string,
+  key: InkKey
+): KeyHandlerResult {
+  if (isShiftEnterResidualSequence(input)) {
+    buffer.insert('\n');
+    return 'handled';
+  }
+
+  return handleTextBufferKey(buffer, input, mapInkKeyToTextBufferKey(input, key));
+}
+
 export function AgentUI({
   state,
   onInstruction,
@@ -51,11 +129,31 @@ export function AgentUI({
   const { exit } = useApp();
   const { colors } = useTheme();
   const { t } = useTranslation();
-  // Initialize input from state.currentInput (preserved across pause/resume)
   const [input, setInput] = useState(state.currentInput || '');
+  const [cursorOffset, setCursorOffset] = useState((state.currentInput || '').length);
   const [ctrlCCount, setCtrlCCount] = useState(0);
   const [planModeIndicator, setPlanModeIndicator] = useState('');
   const [planModeStatusKey, setPlanModeStatusKey] = useState('');
+  const textBufferRef = useRef<TextBuffer>(
+    new TextBuffer(
+      getInkTextBufferViewportWidth(process.stdout.columns),
+      INK_TEXTBUFFER_VIEWPORT_HEIGHT,
+      state.currentInput || undefined
+    )
+  );
+
+  const syncInputFromBuffer = useCallback(() => {
+    const buffer = textBufferRef.current;
+    setInput(buffer.getText());
+    setCursorOffset(getTextBufferCursorOffset(buffer));
+  }, []);
+
+  const syncBufferViewport = useCallback(() => {
+    textBufferRef.current.setViewport(
+      getInkTextBufferViewportWidth(process.stdout.columns),
+      INK_TEXTBUFFER_VIEWPORT_HEIGHT
+    );
+  }, []);
 
   // Subscribe to plan mode changes
   useEffect(() => {
@@ -84,6 +182,18 @@ export function AgentUI({
     onInputChange?.(input);
   }, [input, onInputChange]);
 
+  useEffect(() => {
+    syncBufferViewport();
+  });
+
+  useEffect(() => {
+    const buffer = textBufferRef.current;
+    if (state.currentInput !== buffer.getText()) {
+      buffer.setText(state.currentInput || '');
+      syncInputFromBuffer();
+    }
+  }, [state.currentInput, syncInputFromBuffer]);
+
   // Reset ctrl+c count after 2 seconds
   useEffect(() => {
     if (ctrlCCount > 0) {
@@ -93,6 +203,8 @@ export function AgentUI({
   }, [ctrlCCount]);
 
   useInput((char, key) => {
+    syncBufferViewport();
+
     // Handle Shift+Tab for plan mode toggle
     if (key.tab && key.shift) {
       const planModeManager = getPlanModeManager();
@@ -122,25 +234,27 @@ export function AgentUI({
       return;
     }
 
-    // Handle Enter - queue instruction
-    if (key.return && input.trim()) {
-      onInstruction(input.trim());
-      setInput('');
+    if (key.tab) {
       return;
     }
 
-    // Handle Backspace
-    if (key.backspace || key.delete) {
-      setInput(prev => prev.slice(0, -1));
-      return;
-    }
+    const buffer = textBufferRef.current;
+    const result = handleInkTextBufferInput(buffer, char, key);
 
-    // Handle printable characters
-    if (char && !key.ctrl && !key.meta) {
-      const printable = char.replace(/[\x00-\x1F\x7F]/g, '');
-      if (printable) {
-        setInput(prev => prev + printable);
+    if (result === 'submit') {
+      const text = buffer.getText().trim();
+      if (!text) {
+        return;
       }
+      onInstruction(text);
+      buffer.setText('');
+      syncInputFromBuffer();
+      return;
+    }
+
+    if (result === 'handled') {
+      syncInputFromBuffer();
+      return;
     }
   });
 
@@ -185,6 +299,7 @@ export function AgentUI({
         completionStats={state.completionStats}
         enableQueueInput={enableQueueInput}
         input={input}
+        cursorOffset={cursorOffset}
         ctrlCCount={ctrlCCount}
         contextPercent={state.contextPercent}
       />
@@ -237,6 +352,7 @@ interface FixedBottomProps {
   completionStats: { elapsed: string; tokens: string } | null;
   enableQueueInput: boolean;
   input: string;
+  cursorOffset: number;
   ctrlCCount: number;
   contextPercent?: number;
 }
@@ -250,6 +366,7 @@ const FixedBottom = memo(function FixedBottom({
   completionStats,
   enableQueueInput,
   input,
+  cursorOffset,
   ctrlCCount,
   contextPercent
 }: FixedBottomProps) {
@@ -300,6 +417,7 @@ const FixedBottom = memo(function FixedBottom({
       {enableQueueInput && (
         <InputLine
           value={input}
+          cursorOffset={cursorOffset}
           isActive={isWorking}
         />
       )}

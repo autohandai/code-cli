@@ -550,20 +550,37 @@ describe('promptNotify', () => {
 });
 
 describe('partial escape sequence filtering', () => {
-  it('regex matches residual CSI fragments after readline strips ESC[', () => {
-    // These are the fragments left when readline consumes ESC[ from CSI u / xterm sequences
-    const regex = /^13;?[234]?\d*[u~]$/;
-    expect(regex.test('13;2u')).toBe(true);
-    expect(regex.test('13;3u')).toBe(true);
-    expect(regex.test('13;4u')).toBe(true);
-    expect(regex.test('13;2~')).toBe(true);
-    expect(regex.test('13;3~')).toBe(true);
-    expect(regex.test('13~')).toBe(true);
-    expect(regex.test('13u')).toBe(true);
-    // Should NOT match normal text
-    expect(regex.test('hello')).toBe(false);
-    expect(regex.test('13')).toBe(false);
-    expect(regex.test('9;2u')).toBe(false);
+  it('matches residual CSI fragments after readline strips ESC[', async () => {
+    const { isShiftEnterResidualSequence } = await import('../../src/ui/inputPrompt.js');
+
+    expect(isShiftEnterResidualSequence('13;2u')).toBe(true);
+    expect(isShiftEnterResidualSequence('13;3u')).toBe(true);
+    expect(isShiftEnterResidualSequence('13;4u')).toBe(true);
+    expect(isShiftEnterResidualSequence('13;2~')).toBe(true);
+    expect(isShiftEnterResidualSequence('13;3~')).toBe(true);
+    expect(isShiftEnterResidualSequence('13~')).toBe(true);
+    expect(isShiftEnterResidualSequence('13u')).toBe(true);
+    expect(isShiftEnterResidualSequence('hello')).toBe(false);
+    expect(isShiftEnterResidualSequence('13')).toBe(false);
+    expect(isShiftEnterResidualSequence('9;2u')).toBe(false);
+  });
+
+  it('counts raw modified-enter sequences from terminal data chunks', async () => {
+    const { countRawModifiedEnterSequences } = await import('../../src/ui/inputPrompt.js');
+
+    expect(countRawModifiedEnterSequences('\x1b[13;2~')).toBe(1);
+    expect(countRawModifiedEnterSequences('\x1b[13;2u\x1b[13;3u')).toBe(2);
+    expect(countRawModifiedEnterSequences('\x1b\r')).toBe(1);
+    expect(countRawModifiedEnterSequences('hello')).toBe(0);
+  });
+
+  it('counts concatenated residual modified-enter fragments', async () => {
+    const { countResidualModifiedEnterSequences } = await import('../../src/ui/inputPrompt.js');
+
+    expect(countResidualModifiedEnterSequences('13~')).toBe(1);
+    expect(countResidualModifiedEnterSequences('13~13~13~')).toBe(3);
+    expect(countResidualModifiedEnterSequences('13;2u13;2u')).toBe(2);
+    expect(countResidualModifiedEnterSequences('hello13~')).toBe(0);
   });
 });
 
@@ -641,6 +658,29 @@ describe('buildMultiLineRenderState', () => {
     for (const line of state.lines) {
       expect(stripAnsi(line).length).toBe(40);
     }
+  });
+
+  it('wraps a long single line across multiple visual rows', async () => {
+    const { buildMultiLineRenderState } = await import('../../src/ui/inputPrompt.js');
+    const stripAnsi = (s: string) => s.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
+
+    const state = buildMultiLineRenderState('alpha beta gamma delta', 22, 16);
+
+    expect(state.lineCount).toBeGreaterThan(1);
+    expect(state.lines.length).toBe(state.lineCount);
+
+    const firstInner = stripAnsi(state.lines[0]).slice(1, -1);
+    const secondInner = stripAnsi(state.lines[1]).slice(1, -1);
+    expect(firstInner.startsWith('❯ ')).toBe(true);
+    expect(secondInner.startsWith('  ')).toBe(true);
+  });
+
+  it('moves the cursor onto the wrapped visual row for long single-line input', async () => {
+    const { buildMultiLineRenderState } = await import('../../src/ui/inputPrompt.js');
+
+    const state = buildMultiLineRenderState('alpha beta gamma delta', 22, 16);
+
+    expect(state.cursorRow).toBeGreaterThan(0);
   });
 });
 

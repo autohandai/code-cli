@@ -13,7 +13,8 @@ import { TerminalRegions, createTerminalRegions } from './terminalRegions.js';
 import {
   safeEmitKeypressEvents,
   isPlainTabShortcut,
-  isShiftEnterSequence
+  isShiftEnterSequence,
+  isShiftEnterResidualSequence
 } from './inputPrompt.js';
 import { TextBuffer } from './textBuffer.js';
 import { handleTextBufferKey } from './textBufferKeyHandler.js';
@@ -65,8 +66,6 @@ const PASTE_END = '\x1b[201~';
 /** How long to wait after a rapid Enter before treating it as a real submit (ms) */
 const RAPID_ENTER_DEBOUNCE_MS = 50;
 const MAX_PERSISTENT_NEWLINES = 9;
-const SHIFT_ENTER_RESIDUAL_PATTERN = /^13;?[234]?\d*[u~]$/;
-
 export class PersistentInput extends EventEmitter {
   private queue: QueuedMessage[] = [];
   private textBuffer: TextBuffer;
@@ -459,7 +458,7 @@ export class PersistentInput extends EventEmitter {
     // protocol send raw ESC[13;Xu sequences that readline doesn't parse.
     // We also catch residual fragments where readline strips the ESC[ prefix.
     const rawSeq = key?.sequence ?? _str ?? '';
-    if (isShiftEnterSequence(_str, key) || SHIFT_ENTER_RESIDUAL_PATTERN.test(rawSeq)) {
+    if (isShiftEnterSequence(_str, key) || isShiftEnterResidualSequence(rawSeq)) {
       if (this.textBuffer.getLineCount() - 1 < MAX_PERSISTENT_NEWLINES) {
         this.textBuffer.insert('\n');
         this.updateDisplay();
