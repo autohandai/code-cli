@@ -226,6 +226,7 @@ export class AutohandAcpAdapter implements Agent {
       workspaceRoot,
       createdAt: Date.now(),
       abortController: new AbortController(),
+      promptCount: 0,
     };
 
     this.sessions.set(sessionId, state);
@@ -485,6 +486,29 @@ export class AutohandAcpAdapter implements Agent {
 
     if (!instruction.trim()) {
       return { stopReason: 'end_turn' };
+    }
+
+    // Update session title on first prompt (so Zed shows it in recent sessions)
+    session.promptCount++;
+    if (session.promptCount === 1) {
+      const title = instruction.trim().slice(0, 120);
+      this.connection.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'session_info_update',
+          title,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    } else {
+      // Update timestamp on subsequent prompts
+      this.connection.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'session_info_update',
+          updatedAt: new Date().toISOString(),
+        },
+      });
     }
 
     // Check if it's a slash command

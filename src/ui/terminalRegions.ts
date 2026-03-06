@@ -22,7 +22,11 @@ const ESC = '\x1B';
 const CSI = `${ESC}[`;
 const PROMPT_PLACEHOLDER = 'Build anything';
 const PROMPT_INPUT_PREFIX = '❯ ';
+const CONTINUATION_PREFIX = '  ';
 const ANSI_PATTERN = /\u001b\[[0-9;]*m/g;
+
+/** Maximum number of visible input lines in the fixed region. */
+const MAX_VISIBLE_INPUT_LINES = 5;
 
 function themedFg(token: ColorToken, text: string, fallback: (value: string) => string): string {
   if (!isThemeInitialized()) {
@@ -157,7 +161,9 @@ export class TerminalRegions {
   }
 
   /**
-   * Render content in the fixed bottom region
+   * Render content in the fixed bottom region.
+   * Supports multi-line input by splitting on `\n` and rendering
+   * each visible line as a separate boxed row.
    */
   renderFixedRegion(input = '', queueCount = 0, status = '', activity = ''): void {
     if (!this.isActive) return;
@@ -167,26 +173,42 @@ export class TerminalRegions {
     this.currentStatus = status;
     this.currentActivity = activity;
 
+    const inputLines = input ? input.split('\n') : [''];
+    const visibleLines = Math.min(inputLines.length, MAX_VISIBLE_INPUT_LINES);
+    this.updateFixedLines(visibleLines);
+
     const { height, width } = this.getDimensions();
     const promptWidth = this.getPromptWidth(width);
     const borderStyle = this.getInputBorderStyle(input);
 
-    this.output.write(`${CSI}${height - 4};1H`);
+    // Activity line
+    this.output.write(`${CSI}${height - this.fixedLines + 1};1H`);
     this.output.write(`${CSI}K`);
     this.output.write(this.formatActivityLine(activity, promptWidth));
 
-    this.output.write(`${CSI}${height - 3};1H`);
+    // Top border
+    this.output.write(`${CSI}${height - this.fixedLines + 2};1H`);
     this.output.write(`${CSI}K`);
     this.output.write(drawInputTopBorder(promptWidth, borderStyle));
 
-    this.output.write(`${CSI}${height - 2};1H`);
-    this.output.write(`${CSI}K`);
-    this.output.write(drawInputBox(this.getInputContent(input), promptWidth));
+    // Input lines (first line gets prompt prefix, continuation lines get indent)
+    for (let i = 0; i < visibleLines; i++) {
+      const row = height - this.fixedLines + 3 + i;
+      const lineContent = inputLines[i] ?? '';
+      const content = i === 0
+        ? this.getInputContent(lineContent)
+        : this.getContinuationContent(lineContent);
+      this.output.write(`${CSI}${row};1H`);
+      this.output.write(`${CSI}K`);
+      this.output.write(drawInputBox(content, promptWidth));
+    }
 
+    // Bottom border
     this.output.write(`${CSI}${height - 1};1H`);
     this.output.write(`${CSI}K`);
     this.output.write(drawInputBottomBorder(promptWidth, borderStyle));
 
+    // Status
     this.output.write(`${CSI}${height};1H`);
     this.output.write(`${CSI}K`);
     this.output.write(this.formatStatusLine(status, queueCount, promptWidth));
@@ -194,25 +216,52 @@ export class TerminalRegions {
   }
 
   /**
-   * Update just the input text (faster than full render)
+   * Update just the input text (faster than full render).
+   * Handles multi-line input by adjusting the fixed region size and
+   * re-rendering all input rows with borders.
    */
   updateInput(input: string): void {
     if (!this.isActive) return;
 
     this.currentInput = input;
+
+    const inputLines = input ? input.split('\n') : [''];
+    const visibleLines = Math.min(inputLines.length, MAX_VISIBLE_INPUT_LINES);
+    const oldFixed = this.fixedLines;
+    this.updateFixedLines(visibleLines);
+
+    // If fixedLines changed, do a full render to reposition everything
+    if (oldFixed !== this.fixedLines) {
+      this.renderFixedRegion(input, this.currentQueueCount, this.currentStatus, this.currentActivity);
+      return;
+    }
+
     const { height, width } = this.getDimensions();
     const promptWidth = this.getPromptWidth(width);
     const borderStyle = this.getInputBorderStyle(input);
 
-    this.output.write(`${CSI}${height - 2};1H`);
-    this.output.write(`${CSI}K`);
-    this.output.write(drawInputBox(this.getInputContent(input), promptWidth));
-    this.output.write(`${CSI}${height - 3};1H`);
+    // Top border
+    this.output.write(`${CSI}${height - this.fixedLines + 2};1H`);
     this.output.write(`${CSI}K`);
     this.output.write(drawInputTopBorder(promptWidth, borderStyle));
+
+    // Input lines
+    for (let i = 0; i < visibleLines; i++) {
+      const row = height - this.fixedLines + 3 + i;
+      const lineContent = inputLines[i] ?? '';
+      const content = i === 0
+        ? this.getInputContent(lineContent)
+        : this.getContinuationContent(lineContent);
+      this.output.write(`${CSI}${row};1H`);
+      this.output.write(`${CSI}K`);
+      this.output.write(drawInputBox(content, promptWidth));
+    }
+
+    // Bottom border
     this.output.write(`${CSI}${height - 1};1H`);
     this.output.write(`${CSI}K`);
     this.output.write(drawInputBottomBorder(promptWidth, borderStyle));
+
     this.focusInputCursor();
   }
 
@@ -240,7 +289,7 @@ export class TerminalRegions {
     const { height, width } = this.getDimensions();
     const promptWidth = this.getPromptWidth(width);
 
-    this.output.write(`${CSI}${height - 4};1H`);
+    this.output.write(`${CSI}${height - this.fixedLines + 1};1H`);
     this.output.write(`${CSI}K`);
     this.output.write(this.formatActivityLine(activity, promptWidth));
     this.focusInputCursor();
@@ -248,6 +297,22 @@ export class TerminalRegions {
 
   private getPromptWidth(columns: number): number {
     return Math.max(10, columns - 1);
+  }
+
+  /**
+   * Dynamically adjust the number of fixed lines based on visible input line count.
+   * Re-sets the scroll region if the count changes.
+   */
+  private updateFixedLines(inputLineCount: number): void {
+    // Fixed region = activity + top border + N input lines + bottom border + status
+    const newFixed = 4 + Math.max(1, inputLineCount);
+    if (newFixed !== this.fixedLines) {
+      this.fixedLines = newFixed;
+      // Re-set scroll region
+      const { height } = this.getDimensions();
+      const scrollEnd = Math.max(1, height - this.fixedLines);
+      this.output.write(`${CSI}1;${scrollEnd}r`);
+    }
   }
 
   private getInputContent(input: string): string {
@@ -260,6 +325,12 @@ export class TerminalRegions {
     }
     const prefix = themedFg('accent', PROMPT_INPUT_PREFIX, (value) => chalk.gray(value));
     return `${prefix}${input}`;
+  }
+
+  /** Format a continuation line (lines 2+ in multi-line input). */
+  private getContinuationContent(line: string): string {
+    const prefix = themedFg('accent', CONTINUATION_PREFIX, (value) => chalk.gray(value));
+    return `${prefix}${line}`;
   }
 
   private getInputBorderStyle(input: string): InputBorderStyle {
@@ -311,12 +382,22 @@ export class TerminalRegions {
       return;
     }
 
-    // +1 for the left border │ character
-    const prefixColumns = PROMPT_INPUT_PREFIX.length;
-    const inputColumns = this.currentInput.length;
+    // For multi-line input, cursor is placed at the end of the last visible line.
+    const inputLines = this.currentInput.split('\n');
+    const visibleLines = Math.min(inputLines.length, MAX_VISIBLE_INPUT_LINES);
+    const lastLineIndex = visibleLines - 1;
+    const lastLine = inputLines[lastLineIndex] ?? '';
+
+    // Prefix width differs for first vs continuation lines
+    const prefixColumns = lastLineIndex === 0 ? PROMPT_INPUT_PREFIX.length : CONTINUATION_PREFIX.length;
+    const inputColumns = lastLine.length;
     const cursorColumn = Math.max(1, Math.min(promptWidth, 1 + prefixColumns + inputColumns));
+
+    // Cursor row: first input line is at (height - fixedLines + 3), offset by lastLineIndex
+    const cursorRow = height - this.fixedLines + 3 + lastLineIndex;
+
     this.output.write(`${CSI}?25h`); // show cursor
-    this.output.write(`${CSI}${height - 2};${cursorColumn}H`);
+    this.output.write(`${CSI}${cursorRow};${cursorColumn}H`);
   }
 
   /**
