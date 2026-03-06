@@ -3,7 +3,7 @@
     "error": "Erreur",
     "warning": "Avertissement",
     "success": "Succès",
-    "failed": "Échoué",
+    "failed": "Échec",
     "cancelled": "Annulé",
     "continue": "Continuer",
     "yes": "Oui",
@@ -18,7 +18,7 @@
     "none": "Aucun",
     "default": "Par défaut",
     "current": "actuel",
-    "required": "requis",
+    "required": "obligatoire",
     "optional": "optionnel",
     "enabled": "Activé",
     "disabled": "Désactivé",
@@ -26,72 +26,72 @@
     "off": "Désactivé"
   },
   "cli": {
-    "description": "CLI d'agent de codage autonome alimenté par LLM",
+    "description": "Agent de codage CLI autonome alimenté par LLM",
     "options": {
-      "prompt": "Exécuter une instruction unique en mode commande",
-      "path": "Chemin du workspace",
-      "yes": "Auto-confirmer les actions risquées",
-      "dryRun": "Prévisualiser les actions sans appliquer les mutations",
-      "debug": "Activer la sortie de débogage (journalisation détaillée)",
+      "prompt": "Exécuter une seule instruction en mode commande",
+      "path": "Chemin de l'espace de travail où opérer",
+      "yes": "Confirmer automatiquement les actions risquées",
+      "dryRun": "Aperçu des actions sans appliquer les modifications",
+      "debug": "Activer la sortie de débogage (journalisation verbeuse)",
       "model": "Remplacer le modèle LLM configuré",
-      "config": "Chemin du fichier de configuration (par défaut ~/.autohand/config.json)",
+      "config": "Chemin vers le fichier de configuration (défaut ~/.autohand/config.json)",
       "temperature": "Température d'échantillonnage",
-      "displayLanguage": "Définir la langue d'affichage (ex., en, zh-cn, fr, de)",
+      "displayLanguage": "Définir la langue d'affichage (ex: en, zh-cn, fr, de)",
       "autoCommit": "Auto-commit avec message généré par LLM",
-      "unrestricted": "Exécuter sans invites d'approbation",
-      "restricted": "Refuser automatiquement les opérations dangereuses",
-      "autoSkill": "Auto-générer des compétences basées sur l'analyse du projet",
+      "unrestricted": "Exécuter sans aucune invite d'approbation",
+      "restricted": "Refuser automatiquement toutes les opérations dangereuses",
+      "autoSkill": "Générer automatiquement des compétences basées sur l'analyse du projet",
       "skillInstall": "Installer une compétence communautaire",
       "project": "Installer la compétence au niveau du projet",
-      "permissions": "Afficher les paramètres de permission actuels et quitter",
+      "permissions": "Afficher les paramètres de permissions actuels et quitter",
       "login": "Se connecter à votre compte Autohand",
       "logout": "Se déconnecter de votre compte Autohand",
       "syncSettings": "Activer/désactiver la synchronisation des paramètres",
-      "patch": "Générer un patch git sans appliquer les modifications",
-      "output": "Fichier de sortie pour le patch (par défaut: stdout)",
+      "patch": "Générer un patch git sans appliquer les changements",
+      "output": "Fichier de sortie pour le patch (défaut: stdout)",
       "autoMode": "Démarrer la boucle de développement autonome",
-      "maxIterations": "Max. itérations en auto-mode (par défaut: 50)",
-      "completionPromise": "Texte marqueur de complétion (par défaut: DONE)",
-      "noWorktree": "Désactiver l'isolation git worktree en auto-mode",
-      "checkpointInterval": "Commit git toutes les N itérations (par défaut: 5)",
-      "maxRuntime": "Durée maximale d'exécution en minutes (par défaut: 120)",
-      "maxCost": "Coût API maximum en dollars (par défaut: 10)",
+      "maxIterations": "Nombre maximum d'itérations en mode auto (défaut: 50)",
+      "completionPromise": "Texte du marqueur de complétion (défaut: DONE)",
+      "noWorktree": "Désactiver l'isolation git worktree en mode auto",
+      "checkpointInterval": "Commit git toutes les N itérations (défaut: 5)",
+      "maxRuntime": "Temps d'exécution maximum en minutes (défaut: 120)",
+      "maxCost": "Coût API maximum en dollars (défaut: 10)",
       "setup": "Exécuter l'assistant de configuration",
-      "addDir": "Ajouter des répertoires supplémentaires à la portée du workspace",
-      "thinking": "Définir la profondeur de raisonnement (none, normal, extended)",
-      "yolo": "Auto-approuver les appels d'outils correspondant au motif (ex., allow:read,write ou deny:delete)",
+      "addDir": "Ajouter des répertoires supplémentaires à la portée de l'espace de travail",
+      "thinking": "Définir la profondeur de réflexion/raisonnement (none, normal, extended)",
+      "yolo": "Auto-approuver les appels d'outils correspondant au motif (ex: allow:read,write ou deny:delete)",
       "timeout": "Délai en secondes pour le mode auto-approbation"
     },
     "thinking": {
-      "enabled": "Pensée étendue activée",
-      "level": "Niveau de pensée : {{level}}"
+      "enabled": "Réflexion étendue activée",
+      "level": "Niveau de réflexion: {{level}}"
     },
     "stdin": {
-      "reading": "Lecture de l'entrée par pipe...",
-      "timeout": "Délai d'attente stdin dépassé",
-      "empty": "Aucune entrée reçue du pipe"
+      "reading": "Lecture de l'entrée redirigée...",
+      "timeout": "Délai de lecture stdin",
+      "empty": "Aucune entrée reçue depuis le pipe"
     }
   },
   "welcome": {
-    "banner": "Bienvenue sur Autohand !",
-    "subtitle": "Votre agent de codage IA ultra-rapide",
+    "banner": "Bienvenue sur Autohand!",
+    "subtitle": "Votre agent de codage IA ultra rapide",
     "version": "v{{version}}",
-    "updateAvailable": "Mise à jour disponible : {{current}} -> {{latest}}. Exécutez 'npm i -g autohand' pour mettre à jour.",
+    "updateAvailable": "Mise à jour disponible: {{current}} -> {{latest}}. Exécutez 'npm i -g autohand' pour mettre à jour.",
     "loggedInAs": "Connecté en tant que {{email}}",
     "notLoggedIn": "Non connecté",
-    "modelLine": "modèle : {{model}}",
-    "directoryLine": "répertoire : {{directory}}",
+    "modelLine": "modèle: {{model}}",
+    "directoryLine": "répertoire: {{directory}}",
     "tips": {
-      "title": "Pour commencer, décrivez une tâche ou essayez une de ces commandes :",
+      "title": "Pour commencer, décrivez une tâche ou essayez une de ces commandes:",
       "init": "/init - créer un fichier AGENTS.md avec des instructions pour Autohand",
       "help": "/help - afficher toutes les commandes disponibles",
-      "model": "/model - changer le modèle d'IA",
+      "model": "/model - changer le modèle IA",
       "language": "/language - changer la langue d'affichage"
     },
     "shortcuts": {
-      "title": "Raccourcis clavier :",
+      "title": "Raccourcis clavier:",
       "mention": "@ - mentionner des fichiers pour le contexte",
-      "arrows": "Touches fléchées - naviguer dans les suggestions",
+      "arrows": "Flèches - naviguer dans les suggestions",
       "tab": "Tab - autocomplétion",
       "escape": "Échap - annuler l'opération en cours",
       "ctrlC": "Ctrl+C - quitter"
@@ -99,13 +99,13 @@
   },
   "commands": {
     "help": {
-      "title": "Commandes Disponibles :",
+      "title": "Commandes disponibles:",
       "command": "Commande",
       "description": "Description",
       "tips": {
-        "title": "Conseils :",
-        "mention": "Tapez @ pour mentionner des fichiers pour l'IA",
-        "arrows": "Utilisez les touches fléchées pour naviguer dans les suggestions de fichiers",
+        "title": "Conseils:",
+        "mention": "Tapez @ pour mentionner des fichiers à l'IA",
+        "arrows": "Utilisez les flèches pour naviguer dans les suggestions de fichiers",
         "tab": "Appuyez sur Tab pour autocompléter les chemins de fichiers",
         "escape": "Appuyez sur Échap pour annuler l'opération en cours"
       },
@@ -113,66 +113,174 @@
     },
     "about": {
       "title": "Autohand",
-      "subtitle": "Agent de codage autonome propulsé par l'IA",
+      "subtitle": "Agent de codage autonome alimenté par IA",
       "website": "Site web",
       "github": "GitHub",
-      "docs": "Documentation",
-      "contribute": "Vous souhaitez contribuer ?",
-      "feedback": "Envoyer des commentaires",
+      "docs": "Docs",
+      "contribute": "Vous voulez contribuer?",
+      "feedback": "Envoyer un feedback",
       "submitPR": "Soumettre une PR",
       "reportIssues": "Signaler des problèmes",
       "pressKey": "Appuyez sur Échap ou n'importe quelle touche pour revenir..."
     },
     "model": {
       "description": "choisir quel modèle et effort de raisonnement utiliser",
-      "title": "Sélection du Modèle",
-      "currentModel": "Modèle actuel : {{model}}",
-      "selectPrompt": "Sélectionnez un modèle :",
+      "title": "Sélection du modèle",
+      "currentModel": "Modèle actuel: {{model}}",
+      "selectPrompt": "Sélectionner un modèle:",
       "changed": "Modèle changé pour {{model}}",
       "noChange": "Aucun changement effectué."
     },
     "theme": {
-      "description": "changer le thème de couleurs du terminal",
-      "title": "Sélection du Thème",
-      "currentTheme": "Thème actuel : {{theme}}",
-      "selectPrompt": "Sélectionnez un thème :",
+      "description": "changer le thème de couleur du terminal",
+      "title": "Sélection du thème",
+      "currentTheme": "Thème actuel: {{theme}}",
+      "selectPrompt": "Sélectionner un thème:",
       "changed": "Thème changé pour '{{theme}}'",
       "noChange": "Aucun changement effectué."
     },
     "language": {
       "description": "changer la langue d'affichage",
-      "title": "Sélection de la Langue",
-      "currentLanguage": "Langue actuelle : {{language}}",
-      "selectPrompt": "Sélectionnez une langue :",
+      "title": "Sélection de la langue",
+      "currentLanguage": "Langue actuelle: {{language}}",
+      "selectPrompt": "Sélectionner une langue:",
       "changed": "Langue changée pour {{language}}",
       "noChange": "Aucun changement effectué.",
-      "restartHint": "Certains changements peuvent nécessiter un redémarrage de la CLI pour prendre effet."
+      "restartHint": "Certains changements peuvent nécessiter de redémarrer le CLI pour prendre pleinement effet."
     },
     "quit": {
       "description": "quitter Autohand",
-      "goodbye": "Au revoir !"
+      "goodbye": "Au revoir!"
     },
     "init": {
       "description": "créer un fichier AGENTS.md",
       "created": "AGENTS.md créé dans {{path}}",
       "alreadyExists": "AGENTS.md existe déjà dans {{path}}",
-      "overwritePrompt": "Écraser le AGENTS.md existant ?"
+      "overwritePrompt": "Écraser le AGENTS.md existant?"
     },
     "undo": {
       "description": "annuler la dernière mutation de fichier",
-      "success": "Modifications annulées dans {{file}}",
-      "noChanges": "Aucune modification à annuler.",
-      "failed": "Échec de l'annulation : {{error}}"
+      "success": "Changements annulés pour {{file}}",
+      "noChanges": "Aucun changement à annuler.",
+      "failed": "Échec de l'annulation: {{error}}"
     },
     "new": {
-      "description": "démarrer une nouvelle conversation",
-      "cleared": "Conversation effacée. Nouveau départ."
+      "description": "commencer une nouvelle conversation",
+      "cleared": "Conversation effacée. Démarrage à zéro."
+    },
+    "clear": {
+      "description": "effacer la conversation avec extraction automatique de mémoire",
+      "savedMemories": "Sauvegardé {{count}} mémoires ({{details}}). Démarrage d'une nouvelle session.",
+      "noMemories": "Aucun motif détecté. Démarrage d'une nouvelle session."
+    },
+    "settings": {
+      "description": "configurer les paramètres autohand",
+      "title": "Paramètres",
+      "selectCategory": "Sélectionner une catégorie:",
+      "selectSetting": "Sélectionner un paramètre à modifier:",
+      "saved": "Paramètre sauvegardé.",
+      "cancelled": "Annulé.",
+      "redirect": "Utilisez {{command}} pour modifier ce paramètre.",
+      "back": "Retour",
+      "on": "activé",
+      "off": "désactivé",
+      "currentValue": "Actuel: {{value}}",
+      "categories": {
+        "ui": "UI & Affichage",
+        "agent": "Comportement de l'agent",
+        "permissions": "Permissions",
+        "network": "Réseau",
+        "telemetry": "Télémétrie & Rapports",
+        "automode": "Mode auto",
+        "teams": "Équipes",
+        "search": "Recherche"
+      },
+      "ui": {
+        "theme": "Thème",
+        "locale": "Langue",
+        "autoConfirm": "Auto-confirmer les actions",
+        "autoConfirmDesc": "Passer les invites de confirmation pour les actions d'outils",
+        "showThinking": "Afficher la réflexion LLM",
+        "showThinkingDesc": "Afficher le processus de raisonnement du modèle",
+        "terminalBell": "Son terminal",
+        "terminalBellDesc": "Sonner quand une tâche est terminée",
+        "checkForUpdates": "Vérifier les mises à jour",
+        "checkForUpdatesDesc": "Vérifier les mises à jour du CLI au démarrage",
+        "showCompletionNotification": "Notifications de complétion",
+        "showCompletionNotificationDesc": "Afficher une notification OS quand le travail est terminé",
+        "promptSuggestions": "Suggestions de prompt",
+        "promptSuggestionsDesc": "Afficher les suggestions d'étapes suivantes générées par LLM",
+        "activitySymbol": "Symbole d'activité",
+        "activitySymbolDesc": "Symbole affiché avant le verbe d'activité",
+        "updateCheckInterval": "Intervalle de vérification des mises à jour (heures)",
+        "updateCheckIntervalDesc": "Heures entre les vérifications de mises à jour"
+      },
+      "agent": {
+        "maxIterations": "Nombre max d'itérations",
+        "maxIterationsDesc": "Nombre maximum d'itérations d'outils par requête",
+        "enableRequestQueue": "File d'attente de requêtes",
+        "enableRequestQueueDesc": "Permettre de taper pendant que l'agent travaille",
+        "sessionRetryLimit": "Limite de nouvelles tentatives de session",
+        "sessionRetryLimitDesc": "Nombre max de nouvelles tentatives avant abandon",
+        "sessionRetryDelay": "Délai entre nouvelles tentatives (ms)",
+        "sessionRetryDelayDesc": "Délai entre nouvelles tentatives en millisecondes",
+        "debug": "Mode débogage",
+        "debugDesc": "Activer la sortie de débogage"
+      },
+      "permissions": {
+        "mode": "Mode de permissions",
+        "modeDesc": "Comment les permissions d'outils sont gérées",
+        "rememberSession": "Se souvenir des décisions de session",
+        "rememberSessionDesc": "Se souvenir des choix de permissions pour cette session"
+      },
+      "network": {
+        "maxRetries": "Nombre max de nouvelles tentatives",
+        "maxRetriesDesc": "Nombre maximum de nouvelles tentatives pour les requêtes échouées",
+        "timeout": "Délai (ms)",
+        "timeoutDesc": "Délai des requêtes en millisecondes",
+        "retryDelay": "Délai entre nouvelles tentatives (ms)",
+        "retryDelayDesc": "Délai entre nouvelles tentatives en millisecondes"
+      },
+      "telemetry": {
+        "enabled": "Télémétrie",
+        "enabledDesc": "Envoyer des données d'utilisation anonymes",
+        "autoReportEnabled": "Rapport d'erreurs automatique",
+        "autoReportEnabledDesc": "Signaler automatiquement les erreurs à GitHub"
+      },
+      "automode": {
+        "maxIterations": "Nombre max d'itérations",
+        "maxIterationsDesc": "Nombre max d'itérations par défaut pour le mode auto",
+        "maxRuntime": "Temps d'exécution max (minutes)",
+        "maxRuntimeDesc": "Temps d'exécution max par défaut en minutes",
+        "maxCost": "Coût max ($)",
+        "maxCostDesc": "Coût API max par défaut en dollars",
+        "checkpointInterval": "Intervalle de points de contrôle",
+        "checkpointIntervalDesc": "Itérations entre les points de contrôle git",
+        "useWorktree": "Utiliser worktree",
+        "useWorktreeDesc": "Utiliser git worktree par défaut"
+      },
+      "teams": {
+        "enabled": "Équipes activées",
+        "enabledDesc": "Activer les fonctionnalités de coordination d'équipe",
+        "teammateMode": "Mode coéquipier",
+        "teammateModeDesc": "Mode d'affichage pour les coéquipiers",
+        "maxTeammates": "Nombre max de coéquipiers",
+        "maxTeammatesDesc": "Nombre maximum de coéquipiers simultanés"
+      },
+      "search": {
+        "provider": "Fournisseur de recherche",
+        "providerDesc": "Fournisseur de recherche web actif",
+        "braveApiKey": "Clé API Brave",
+        "braveApiKeyDesc": "Clé API pour Brave Search",
+        "parallelApiKey": "Clé API Parallel",
+        "parallelApiKeyDesc": "Clé API pour Parallel.ai"
+      }
     },
     "status": {
       "description": "afficher le statut actuel",
       "title": "Statut Autohand",
       "version": "Version",
-      "sessionId": "ID de Session",
+      "sessionId": "ID de session",
       "cwd": "Répertoire actuel",
       "provider": "Fournisseur",
       "model": "Modèle",
@@ -181,49 +289,49 @@
       "connected": "Connecté",
       "disconnected": "Déconnecté",
       "sessions": "Sessions",
-      "total": "{{count}} total"
+      "total": "{{count}} au total"
     },
     "sessions": {
       "description": "lister les sessions sauvegardées",
-      "title": "Sessions Sauvegardées",
+      "title": "Sessions sauvegardées",
       "noSessions": "Aucune session sauvegardée trouvée.",
-      "selectPrompt": "Sélectionnez une session à reprendre :",
+      "selectPrompt": "Sélectionner une session à reprendre:",
       "sessionInfo": "{{name}} - {{date}}"
     },
     "resume": {
       "description": "reprendre une session précédente",
       "resuming": "Reprise de la session {{id}}...",
-      "notFound": "Session non trouvée : {{id}}",
-      "failed": "Échec de la reprise de session : {{error}}"
+      "notFound": "Session non trouvée: {{id}}",
+      "failed": "Échec de la reprise de session: {{error}}"
     },
     "memory": {
       "description": "gérer la mémoire du projet et de l'utilisateur",
-      "title": "Gestion de la Mémoire",
-      "projectMemory": "Mémoire du Projet",
-      "userMemory": "Mémoire Utilisateur",
+      "title": "Gestion de la mémoire",
+      "projectMemory": "Mémoire du projet",
+      "userMemory": "Mémoire de l'utilisateur",
       "noMemory": "Aucune mémoire stockée.",
-      "addPrompt": "Ajouter une nouvelle mémoire :",
+      "addPrompt": "Ajouter une nouvelle mémoire:",
       "added": "Mémoire ajoutée.",
       "cleared": "Mémoire effacée."
     },
     "permissions": {
-      "description": "afficher les paramètres de permission actuels",
-      "title": "Paramètres de Permission",
-      "mode": "Mode : {{mode}}",
-      "allowed": "Actions autorisées :",
-      "denied": "Actions refusées :",
-      "pending": "En attente d'approbation :"
+      "description": "afficher les paramètres de permissions actuels",
+      "title": "Paramètres de permissions",
+      "mode": "Mode: {{mode}}",
+      "allowed": "Actions autorisées:",
+      "denied": "Actions refusées:",
+      "pending": "Approbation en attente:"
     },
     "login": {
       "description": "se connecter à votre compte Autohand",
-      "prompt": "Entrez votre code de connexion :",
-      "success": "Connexion réussie en tant que {{email}}",
-      "failed": "Échec de la connexion : {{error}}",
+      "prompt": "Entrer votre code de connexion:",
+      "success": "Connecté avec succès en tant que {{email}}",
+      "failed": "Échec de la connexion: {{error}}",
       "cancelled": "Connexion annulée."
     },
     "logout": {
       "description": "se déconnecter de votre compte Autohand",
-      "confirm": "Se déconnecter de {{email}} ?",
+      "confirm": "Se déconnecter de {{email}}?",
       "success": "Déconnexion réussie.",
       "cancelled": "Déconnexion annulée."
     },
@@ -231,33 +339,33 @@
       "description": "gérer la synchronisation des paramètres",
       "enabled": "Synchronisation des paramètres activée.",
       "disabled": "Synchronisation des paramètres désactivée.",
-      "status": "Statut de synchronisation : {{status}}",
-      "lastSync": "Dernière synchronisation : {{date}}"
+      "status": "Statut de synchronisation: {{status}}",
+      "lastSync": "Dernière synchronisation: {{date}}"
     },
     "feedback": {
-      "description": "envoyer des commentaires sur le CLI",
-      "prompt": "Entrez vos commentaires :",
-      "success": "Merci pour vos commentaires !",
-      "failed": "Échec de l'envoi des commentaires : {{error}}"
+      "description": "soumettre un feedback sur le CLI",
+      "prompt": "Entrer votre feedback:",
+      "success": "Merci pour votre feedback!",
+      "failed": "Échec de l'envoi du feedback: {{error}}"
     },
     "hooks": {
-      "description": "gérer les git hooks",
-      "title": "Git Hooks",
-      "installed": "Hooks installés :",
-      "available": "Hooks disponibles :",
+      "description": "gérer les hooks git",
+      "title": "Hooks Git",
+      "installed": "Hooks installés:",
+      "available": "Hooks disponibles:",
       "noHooks": "Aucun hook configuré."
     },
     "skills": {
       "description": "lister et gérer les compétences",
       "title": "Compétences",
-      "installed": "Compétences installées :",
-      "available": "Compétences disponibles :",
+      "installed": "Compétences installées:",
+      "available": "Compétences disponibles:",
       "noSkills": "Aucune compétence installée."
     },
     "mcp": {
       "title": "Serveurs MCP",
       "description": "gérer les serveurs MCP (Model Context Protocol)",
-      "installDescription": "parcourir et installer des serveurs MCP communautaires",
+      "installDescription": "parcourir et installer les serveurs MCP communautaires",
       "noServers": "Aucun serveur MCP configuré",
       "connected": "Connecté",
       "disconnected": "Déconnecté",
@@ -269,11 +377,11 @@
     "export": {
       "description": "exporter les données de session",
       "success": "Exporté vers {{path}}",
-      "failed": "Échec de l'exportation : {{error}}"
+      "failed": "Échec de l'exportation: {{error}}"
     },
     "agents": {
       "description": "gérer les sous-agents",
-      "title": "Sous-Agents",
+      "title": "Sous-agents",
       "noAgents": "Aucun sous-agent configuré."
     },
     "automode": {
@@ -282,100 +390,100 @@
       "stopping": "Arrêt du mode auto...",
       "iteration": "Itération {{current}} sur {{max}}",
       "completed": "Mode auto terminé.",
-      "aborted": "Mode auto abandonné."
+      "aborted": "Mode auto annulé."
     },
     "share": {
       "description": "partager la session",
       "generating": "Génération du lien de partage...",
-      "success": "Lien de partage : {{url}}",
-      "failed": "Échec de la génération du lien de partage : {{error}}"
+      "success": "Lien de partage: {{url}}",
+      "failed": "Échec de la génération du lien de partage: {{error}}"
     },
     "addDir": {
-      "description": "ajouter des répertoires à la portée du workspace",
-      "added": "Répertoire ajouté : {{path}}",
-      "alreadyAdded": "Répertoire déjà ajouté : {{path}}",
-      "notFound": "Répertoire non trouvé : {{path}}"
+      "description": "ajouter des répertoires à la portée de l'espace de travail",
+      "added": "Répertoire ajouté: {{path}}",
+      "alreadyAdded": "Répertoire déjà ajouté: {{path}}",
+      "notFound": "Répertoire non trouvé: {{path}}"
     },
     "ide": {
       "description": "se connecter à un IDE en cours d'exécution",
       "title": "Sélectionner un IDE",
-      "connectDescription": "Connectez-vous à un IDE pour des fonctionnalités de développement intégrées.",
-      "noIdesDetected": "Aucun IDE en cours d'exécution détecté. Démarrez l'un des suivants : VS Code, VS Code Insiders, Cursor, Zed ou Antigravity.",
-      "noMatchingIdes": "Aucun IDE disponible détecté. Assurez-vous que votre IDE a l'extension ou le plugin Autohand installé et qu'il est en cours d'exécution.",
-      "foundMatching": "{{count}} IDE(s) correspondant à votre répertoire actuel trouvé(s) :",
-      "otherNotMatching": "{{count}} autre(s) IDE(s) en cours d'exécution trouvé(s). Cependant, leurs répertoires de workspace/projet ne correspondent pas au cwd actuel.",
-      "selectPrompt": "Sélectionnez un IDE à connecter :",
+      "connectDescription": "Se connecter à un IDE pour les fonctionnalités de développement intégrées.",
+      "noIdesDetected": "Aucun IDE en cours d'exécution détecté. Démarrez un des suivants: VS Code, VS Code Insiders, Cursor, Zed, ou Antigravity.",
+      "noMatchingIdes": "Aucun IDE disponible détecté. Assurez-vous que votre IDE a l'extension ou plugin Autohand installé et est en cours d'exécution.",
+      "foundMatching": "Trouvé {{count}} IDE(s) correspondant à votre répertoire actuel:",
+      "otherNotMatching": "Trouvé {{count}} autre(s) IDE(s) en cours d'exécution. Cependant, leurs répertoires d'espace de travail/projet ne correspondent pas au répertoire de travail actuel.",
+      "selectPrompt": "Sélectionner un IDE pour se connecter:",
       "connected": "Connecté à {{ide}}",
-      "extensionHint": "Installez des extensions pour une intégration plus poussée :",
-      "startIde": "Démarrez un IDE dans ce répertoire pour vous connecter."
+      "extensionHint": "Installer des extensions pour une intégration plus profonde:",
+      "startIde": "Démarrer un IDE dans ce répertoire pour se connecter."
     },
     "history": {
-      "title": "Historique des Sessions",
+      "title": "Historique des sessions",
       "empty": "Aucune session trouvée",
       "showing": "Page {{page}} sur {{total}} ({{count}} sessions)",
       "resumeHint": "Utilisez /resume <session-id> pour reprendre une session"
     },
     "import": {
-      "description": "importer des données d'autres agents de code"
+      "description": "importer des données depuis d'autres agents de codage"
     }
   },
   "setup": {
-    "welcome": "Bienvenue sur Autohand !",
-    "subtitle": "Votre agent de codage IA ultra-rapide",
-    "letsStart": "Configurons-vous en quelques étapes.",
-    "providerSelect": "Quel fournisseur LLM souhaitez-vous utiliser ?",
-    "apiKeyPrompt": "Entrez votre clé API {{provider}} :",
-    "apiKeyHelp": "Obtenez votre clé API sur : {{url}}",
+    "welcome": "Bienvenue sur Autohand!",
+    "subtitle": "Votre agent de codage IA ultra rapide",
+    "letsStart": "Commençons la configuration en quelques étapes.",
+    "providerSelect": "Quel fournisseur LLM souhaitez-vous utiliser?",
+    "apiKeyPrompt": "Entrer votre clé API {{provider}}:",
+    "apiKeyHelp": "Obtenir votre clé API sur: {{url}}",
     "apiKeyHint": "Votre clé API sera stockée localement dans ~/.autohand/config.json",
-    "modelPrompt": "Entrez l'ID du modèle (ou appuyez sur Entrée pour le défaut) :",
-    "modelDefault": "Par défaut : {{model}}",
+    "modelPrompt": "Entrer l'ID du modèle (ou appuyer sur Entrée pour le défaut):",
+    "modelDefault": "Défaut: {{model}}",
     "testingConnection": "Test de la connexion...",
-    "connectionSuccess": "Connexion réussie !",
-    "connectionFailed": "Échec de la connexion : {{error}}",
+    "connectionSuccess": "Connexion réussie!",
+    "connectionFailed": "Échec de la connexion: {{error}}",
     "telemetry": {
       "title": "Aidez-nous à améliorer Autohand",
       "description": "Nous collectons des données d'utilisation anonymes pour comprendre comment Autohand est utilisé.",
-      "whatWeCollect": "Ce que nous collectons :",
+      "whatWeCollect": "Ce que nous collectons:",
       "collectItem1": "Utilisation des commandes (quelles fonctionnalités sont populaires)",
       "collectItem2": "Taux d'erreurs (pour corriger les bugs plus rapidement)",
       "collectItem3": "Métriques de performance (pour accélérer les choses)",
-      "whatWeNeverCollect": "Ce que nous ne collectons jamais :",
+      "whatWeNeverCollect": "Ce que nous ne collectons jamais:",
       "neverItem1": "Votre code ou le contenu des fichiers",
       "neverItem2": "Clés API ou identifiants",
       "neverItem3": "Informations personnelles",
-      "prompt": "Partager des données d'utilisation anonymes pour aider à améliorer Autohand ?",
-      "thanks": "Merci de nous aider à améliorer Autohand !",
-      "declined": "Pas de problème ! Vous pouvez changer cela à tout moment dans la configuration."
+      "prompt": "Partager des données d'utilisation anonymes pour aider à améliorer Autohand?",
+      "thanks": "Merci d'aider à améliorer Autohand!",
+      "declined": "Pas de problème! Vous pouvez changer cela à tout moment dans la configuration."
     },
-    "complete": "Configuration terminée !",
-    "created": "Ce qui a été créé :",
+    "complete": "Configuration terminée!",
+    "created": "Ce qui a été créé:",
     "configFile": "~/.autohand/config.json (vos paramètres)",
     "agentsFile": "AGENTS.md (instructions du projet pour Autohand)",
-    "nextSteps": "Prochaines étapes :",
-    "tryCommand": "Essayez : autohand"
+    "nextSteps": "Étapes suivantes:",
+    "tryCommand": "Essayer: autohand"
   },
   "errors": {
-    "generic": "Une erreur s'est produite : {{message}}",
-    "invalidLocale": "Locale invalide : {{locale}}. Supportées : {{supported}}",
-    "configParseFailed": "Échec de l'analyse de la configuration dans {{path}} : {{error}}",
-    "configSaveFailed": "Échec de la sauvegarde de la configuration : {{error}}",
+    "generic": "Une erreur est survenue: {{message}}",
+    "invalidLocale": "Locale invalide: {{locale}}. Supporté: {{supported}}",
+    "configParseFailed": "Échec de l'analyse du fichier de configuration à {{path}}: {{error}}",
+    "configSaveFailed": "Échec de la sauvegarde de la configuration: {{error}}",
     "apiKeyRequired": "Clé API requise",
     "apiKeyTooShort": "La clé API semble trop courte",
     "apiKeyInvalid": "Format de clé API invalide",
-    "directoryNotExist": "Le répertoire n'existe pas : {{path}}",
-    "unsafeDirectory": "Répertoire non sécurisé : {{path}}. Impossible d'opérer dans les répertoires système.",
-    "fileNotFound": "Fichier non trouvé : {{path}}",
-    "permissionDenied": "Permission refusée : {{path}}",
+    "directoryNotExist": "Le répertoire n'existe pas: {{path}}",
+    "unsafeDirectory": "Répertoire dangereux: {{path}}. Impossible d'opérer dans les répertoires système.",
+    "fileNotFound": "Fichier non trouvé: {{path}}",
+    "permissionDenied": "Permission refusée: {{path}}",
     "patchRequiresPrompt": "--patch nécessite --prompt pour spécifier l'instruction",
     "autoModeRequiresPrompt": "--auto-mode nécessite un prompt de tâche",
-    "noProviderConfigured": "Aucun fournisseur configuré. Exécutez la configuration avec : autohand --setup",
-    "modelNotFound": "Modèle non trouvé : {{model}}",
-    "rateLimited": "Limite de débit atteinte. Veuillez patienter et réessayer.",
-    "networkError": "Erreur réseau : {{message}}",
-    "timeout": "La requête a expiré. Veuillez réessayer.",
-    "contextTooLong": "Contexte trop long. Essayez /new pour repartir à zéro ou /undo pour supprimer les tours récents.",
+    "noProviderConfigured": "Aucun fournisseur n'est configuré encore. Exécutez la configuration avec: autohand --setup",
+    "modelNotFound": "Modèle non trouvé: {{model}}",
+    "rateLimited": "Limité en taux. Veuillez attendre un moment et réessayer.",
+    "networkError": "Erreur réseau: {{message}}",
+    "timeout": "Délai de requête expiré. Veuillez réessayer.",
+    "contextTooLong": "Contexte trop long. Essayez /new pour commencer frais ou /undo pour retirer les tours récents.",
     "authFailed": "Échec de l'authentification. Vérifiez votre clé API.",
-    "paymentRequired": "Paiement requis. Vérifiez le solde de votre compte.",
+    "paymentRequired": "Paiement requis. Vérifiez votre solde de compte.",
     "serverError": "Erreur serveur. Veuillez réessayer plus tard.",
     "cancelled": "Opération annulée par l'utilisateur."
   },
@@ -386,16 +494,16 @@
     "writing": "Écriture de {{file}}...",
     "searching": "Recherche...",
     "toolSuccess": "{{tool}} terminé avec succès",
-    "toolFailed": "{{tool}} a échoué : {{error}}",
+    "toolFailed": "{{tool}} a échoué: {{error}}",
     "taskComplete": "Tâche terminée",
-    "noChanges": "Aucune modification effectuée.",
-    "changesApplied": "Modifications appliquées avec succès.",
-    "awaitingApproval": "En attente d'approbation...",
+    "noChanges": "Aucun changement n'a été effectué.",
+    "changesApplied": "Changements appliqués avec succès.",
+    "awaitingApproval": "Approbation en attente...",
     "approved": "Approuvé",
     "denied": "Refusé",
-    "skipped": "Ignoré",
+    "skipped": "Passé",
     "exploring": "Exploration...",
-    "exploredFiles": "{{count}} fichiers explorés"
+    "exploredFiles": "Exploré {{count}} fichiers"
   },
   "providers": {
     "openrouter": "OpenRouter",
@@ -403,53 +511,178 @@
     "ollama": "Ollama",
     "llamacpp": "llama.cpp",
     "mlx": "MLX (Apple Silicon)",
+    "llmgateway": "LLM Gateway",
+    "azure": "Azure OpenAI",
     "hints": {
-      "openrouter": "Cloud - Accès à plus de 100 modèles (Claude, GPT-4, etc.)",
+      "openrouter": "Cloud - Accès à 100+ modèles (Claude, GPT-4, etc.)",
       "openai": "Cloud - Modèles officiels OpenAI (GPT-4o, o1, etc.)",
-      "ollama": "Local - Exécutez des modèles sur votre machine (gratuit)",
-      "llamacpp": "Local - Inférence rapide avec des modèles GGUF",
-      "mlx": "Local - Optimisé pour Apple Silicon Macs"
+      "ollama": "Local - Exécuter des modèles sur votre machine (gratuit)",
+      "llamacpp": "Local - Inférence rapide avec modèles GGUF",
+      "mlx": "Local - Optimisé pour les Macs Apple Silicon",
+      "llmgateway": "Cloud - API unifiée pour plusieurs fournisseurs LLM",
+      "azure": "Cloud - Service Azure OpenAI (entreprise)"
+    },
+    "config": {
+      "chooseProvider": "Choisir un fournisseur LLM",
+      "cancelled": "Configuration annulée.",
+      "notConfigured": "{{provider}} n'est pas encore configuré. Configurons-le!",
+      "configuredSuccessfully": "{{provider}} configuré avec succès!",
+      "selectModel": "Sélectionner un modèle",
+      "enterModelId": "Entrer l'ID du modèle",
+      "enterApiKey": "Entrer votre clé API {{provider}}",
+      "apiKeyUrl": "Obtenir votre clé API sur: {{url}}",
+      "modelChangeCancelled": "Changement de modèle annulé.",
+      "modelUnchanged": "Modèle inchangé.",
+      "settingsChangeCancelled": "Changement de paramètres annulé.",
+      "settingsUpdated": "Paramètres de {{provider}} mis à jour avec succès!",
+      "currentModel": "Modèle actuel: {{model}}",
+      "currentApiKey": "Clé API actuelle: {{key}}",
+      "whatToChange": "Que souhaitez-vous modifier?",
+      "changeModelOnly": "Changer uniquement le modèle",
+      "changeApiKeyOnly": "Changer uniquement la clé API",
+      "changeBoth": "Changer le modèle et la clé API",
+      "validatingApiKey": "Validation de la clé API...",
+      "apiKeyValid": "Clé API valide",
+      "apiKeyRequired": "Clé API requise",
+      "apiKeyTooShort": "La clé API semble trop courte",
+      "invalidApiKey": "Clé API invalide",
+      "invalidApiKeyHint": "Vérifiez que votre clé API est correcte sur {{url}}",
+      "apiKeyNoPermission": "La clé API n'a pas la permission",
+      "apiKeyNoPermissionHint": "Votre clé API peut avoir des permissions restreintes ou votre compte peut nécessiter d'ajouter un moyen de paiement.",
+      "rateLimited": "Limité en taux ou quota dépassé",
+      "rateLimitedHint": "Vous avez peut-être dépassé votre quota API. Vérifiez votre utilisation et vos paramètres de facturation.",
+      "networkError": "Erreur réseau - impossible d'atteindre l'API",
+      "networkErrorHint": "Vérifiez votre connexion internet et réessayez.",
+      "validationFailed": "Validation échouée: {{error}}",
+      "validationFailedHint": "Veuillez réessayer ou vérifier votre connexion réseau.",
+      "verifyApiKeyHint": "Veuillez vérifier votre clé API et réessayer.",
+      "usingModel": "Utilisation du modèle {{provider}} {{model}}",
+      "providerLabel": "Fournisseur: {{provider}}",
+      "modelLabel": "Modèle: {{model}}",
+      "appleSilicon": "Apple Silicon",
+      "hosted": "hébergé",
+      "current": "actuel",
+      "enterModelIdToUse": "Entrer l'ID du modèle à utiliser",
+      "settingsTitle": "Paramètres {{provider}}",
+      "notSet": "non défini",
+      "apiReturnedStatus": "L'API a retourné le statut {{status}}"
+    },
+    "wizard": {
+      "openrouter": {
+        "title": "Configuration OpenRouter",
+        "apiKeyUrl": "https://openrouter.ai/keys"
+      },
+      "openai": {
+        "title": "Configuration OpenAI",
+        "apiKeyUrl": "https://platform.openai.com/api-keys"
+      },
+      "ollama": {
+        "title": "Configuration Ollama",
+        "ensureRunning": "Assurez-vous qu'Ollama est en cours d'exécution: ollama serve",
+        "cannotConnect": "Impossible de se connecter à Ollama. Assurez-vous qu'il est en cours d'exécution.",
+        "foundModels": "Trouvé {{count}} modèle(s)",
+        "enterModelName": "Entrer le nom du modèle (ex: llama3.2:latest)"
+      },
+      "llamacpp": {
+        "title": "Configuration llama.cpp",
+        "ensureRunning": "Assurez-vous que le serveur llama.cpp est en cours d'exécution: ./server -m model.gguf",
+        "serverPort": "Port du serveur",
+        "modelNameDesc": "Nom/description du modèle"
+      },
+      "mlx": {
+        "title": "Configuration MLX (Apple Silicon)",
+        "description": "MLX fournit l'inférence LLM locale optimisée pour les Macs Apple Silicon.",
+        "ensureRunning": "Assurez-vous que le serveur mlx-lm est en cours d'exécution: mlx_lm.server --model <model-name>",
+        "cannotConnect": "Impossible de se connecter au serveur MLX. Assurez-vous qu'il est en cours d'exécution.",
+        "enterModelName": "Entrer le nom du modèle (ex: mlx-community/Llama-3.2-3B-Instruct-4bit)"
+      },
+      "llmgateway": {
+        "title": "Configuration LLM Gateway",
+        "apiKeyUrl": "https://llmgateway.io/dashboard"
+      },
+      "azure": {
+        "title": "Configuration Azure OpenAI",
+        "getStarted": "Commencer sur: https://ai.azure.com",
+        "setupSteps": {
+          "title": "Avant de commencer, assurez-vous d'avoir:",
+          "step1": "1. Un compte Azure avec un abonnement actif",
+          "step2": "2. Une ressource Azure OpenAI créée sur https://ai.azure.com",
+          "step3": "3. Au moins un modèle déployé (ex. gpt-4o) dans Deployments",
+          "step4": "4. Votre URL de point de terminaison et clé API depuis la page Keys and Endpoint"
+        },
+        "selectAuthMethod": "Sélectionner la méthode d'authentification",
+        "authApiKey": "Clé API",
+        "authEntraId": "Entra ID (Azure AD)",
+        "authManagedIdentity": "Identité managée",
+        "apiKeyLocation": "Trouver votre clé dans le portail Azure > Votre ressource > Keys and Endpoint",
+        "enterAzureApiKey": "Entrer votre clé API Azure",
+        "entraIdDescription": "Entra ID utilise OAuth2 client credentials. Créez une App Registration dans le portail Azure.",
+        "entraIdDocs": "Docs: https://learn.microsoft.com/en-us/entra/identity/",
+        "enterTenantId": "Entrer votre ID de locataire Azure",
+        "enterClientId": "Entrer votre ID client (Application ID)",
+        "enterClientSecret": "Entrer votre secret client",
+        "managedIdentityDescription": "Identité managée sera utilisée automatiquement lors de l'exécution dans Azure.",
+        "managedIdentityDocs": "Docs: https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/",
+        "endpointChoice": "Comment souhaitez-vous spécifier votre point de terminaison Azure?",
+        "endpointStructured": "Nom de ressource + déploiement (recommandé)",
+        "endpointUrl": "URL complète du point de terminaison",
+        "endpointUrlHint": "Coller votre URL de point de terminaison depuis le portail Azure > Endpoints and keys",
+        "endpointUrlExample": "ex: https://my-resource.openai.azure.com ou https://my-resource.services.ai.azure.com",
+        "enterEndpointOrResource": "Entrer votre URL de point de terminaison Azure ou nom de ressource",
+        "deploymentHint": "Trouver votre déploiement sous Azure AI Foundry > Deployments (ex: gpt-4o, gpt-4o-mini)",
+        "deploymentNotUrl": "CE N'EST PAS une URL — c'est le nom court de votre modèle déployé.",
+        "enterDeploymentName": "Entrer le nom de votre déploiement de modèle",
+        "deploymentUrlError": "Cela ressemble à une URL, pas à un nom de déploiement.",
+        "deploymentUrlErrorHint": "Le nom de déploiement est un nom court comme \"gpt-4o\" ou \"gpt-4o-mini\".",
+        "deploymentUrlErrorLocation": "Le trouver dans Azure AI Foundry > votre projet > Deployments.",
+        "enterFullEndpointUrl": "Entrer votre URL complète de point de terminaison Azure",
+        "apiVersion": "Version d'API Azure",
+        "authLabel": "Auth: {{method}}",
+        "enterDeploymentNameChange": "Entrer le nom de votre déploiement",
+        "deploymentChangeHint": "Entrer le nom de votre modèle déployé depuis Azure AI Foundry > Deployments",
+        "deploymentChangeExample": "ex: gpt-4o, gpt-4o-mini, gpt-4-turbo (PAS une URL)"
+      }
     }
   },
   "startup": {
     "checkingTools": "Vérification des outils requis...",
     "toolFound": "{{tool}} trouvé",
     "toolMissing": "{{tool}} non trouvé",
-    "installHint": "Installer avec : {{command}}",
-    "allToolsReady": "Tous les outils sont prêts !",
-    "someToolsMissing": "Certains outils manquent. Certaines fonctionnalités peuvent ne pas fonctionner."
+    "installHint": "Installer avec: {{command}}",
+    "allToolsReady": "Tous les outils prêts!",
+    "someToolsMissing": "Certains outils sont manquants. Certaines fonctionnalités peuvent ne pas fonctionner."
   },
   "confirmation": {
-    "proceed": "Continuer ?",
-    "areYouSure": "Êtes-vous sûr ?",
-    "thisWillDelete": "Cela supprimera {{item}}. Cette action ne peut pas être annulée.",
+    "proceed": "Continuer?",
+    "areYouSure": "Êtes-vous sûr?",
+    "thisWillDelete": "Cela supprimera {{item}}. Cette action est irréversible.",
     "confirm": "Confirmer",
     "cancel": "Annuler",
     "yesDelete": "Oui, supprimer",
-    "noDontDelete": "Non, garder"
+    "noDontDelete": "Non, conserver"
   },
   "diff": {
-    "title": "Modifications dans {{file}}",
+    "title": "Changements pour {{file}}",
     "additions": "{{count}} ajouts",
     "deletions": "{{count}} suppressions",
-    "noChanges": "Aucune modification",
-    "apply": "Appliquer les modifications ?",
-    "applied": "Modifications appliquées.",
-    "discarded": "Modifications annulées."
+    "noChanges": "Aucun changement",
+    "apply": "Appliquer les changements?",
+    "applied": "Changements appliqués.",
+    "discarded": "Changements ignorés."
   },
   "ui": {
-    "escToCancel": "esc pour annuler",
-    "commandHint": "/ pour les commandes · @ pour mentionner des fichiers · ! pour terminal",
-    "ctrlCToExit": "Appuyez à nouveau sur Ctrl+C pour quitter",
+    "escToCancel": "échap pour annuler",
+    "commandHint": "/ pour les commandes · @ pour mentionner les fichiers · ! pour le terminal",
+    "ctrlCToExit": "Appuyez sur Ctrl+C à nouveau pour quitter",
     "noMatchingCommands": "Aucune commande correspondante.",
-    "selectFile": "Sélectionnez un fichier",
+    "selectFile": "Sélectionner un fichier",
     "noMatchingFiles": "Aucun fichier correspondant. Continuez à taper...",
     "thinking": "Réflexion",
-    "planModeActive": "Mode plan actif - outils en lecture seule",
+    "planModeActive": "Mode plan actif - les outils sont en lecture seule",
     "planModeExecuting": "Exécution du plan",
     "typeToFilter": "Filtrer",
-    "navigateHint": "Tapez pour filtrer · ↑/↓ naviguer · Entrée exécuter · Esc annuler",
-    "fileNavigateHint": "Tapez pour filtrer · ↑/↓ naviguer · Entrée choisir · Esc annuler",
+    "navigateHint": "Taper pour filtrer · ↑/↓ naviguer · Entrée pour exécuter · Échap annuler",
+    "fileNavigateHint": "Taper pour filtrer · ↑/↓ naviguer · Entrée choisir · Échap annuler",
     "questionPrompt": "❓",
     "questionOther": "Autre (tapez votre propre réponse)",
     "questionYourAnswer": "▸ Votre réponse",
@@ -460,62 +693,62 @@
     "planEditHint": "ctrl-g pour éditer dans VS Code",
     "confirmYes": "Oui",
     "confirmNo": "Non",
-    "inputHint": "Entrée pour soumettre, ESC pour annuler",
+    "inputHint": "Entrée pour soumettre, Échap pour annuler",
     "inputPlaceholder": "Tapez votre réponse...",
-    "passwordPlaceholder": "Entrez le mot de passe...",
+    "passwordPlaceholder": "Entrer le mot de passe...",
     "validationError": "Entrée invalide"
   },
   "homebrew": {
-    "formulaGenerated": "Formule Homebrew générée dans {{path}}"
+    "formulaGenerated": "Formule Homebrew générée à {{path}}"
   },
   "yolo": {
-    "enabled": "Auto-approbation activée : {{pattern}}",
+    "enabled": "Auto-approbation activée: {{pattern}}",
     "expired": "Délai d'auto-approbation expiré",
     "denied": "Outil {{tool}} refusé par le motif yolo",
-    "remaining": "Auto-approbation : {{seconds}}s restantes"
+    "remaining": "Auto-approbation: {{seconds}}s restantes"
   },
   "pipe": {
-    "reading": "Lecture de l'entrée canalisée...",
+    "reading": "Lecture de l'entrée redirigée...",
     "processing": "Traitement avec {{model}}...",
     "complete": "Tâche terminée",
-    "error": "Erreur en mode pipe : {{message}}",
-    "timeout": "Délai expiré en mode pipe après {{seconds}}s",
-    "noPrompt": "Aucun prompt fourni. Usage : echo 'code' | autohand 'expliquer'"
+    "error": "Erreur mode pipe: {{message}}",
+    "timeout": "Délai du mode pipe après {{seconds}}s",
+    "noPrompt": "Aucun prompt fourni. Utilisation: echo 'code' | autohand 'explain'"
   },
   "mcp": {
-    "connecting": "Connexion au serveur MCP : {{name}}...",
-    "connected": "Connecté au serveur MCP : {{name}} ({{toolCount}} outils)",
-    "disconnected": "Déconnecté du serveur MCP : {{name}}",
-    "error": "Erreur du serveur MCP ({{name}}) : {{message}}",
-    "toolRegistered": "Outil MCP enregistré : {{tool}}",
+    "connecting": "Connexion au serveur MCP: {{name}}...",
+    "connected": "Connecté au serveur MCP: {{name}} ({{toolCount}} outils)",
+    "disconnected": "Déconnecté du serveur MCP: {{name}}",
+    "error": "Erreur du serveur MCP ({{name}}): {{message}}",
+    "toolRegistered": "Outil MCP enregistré: {{tool}}",
     "noServers": "Aucun serveur MCP configuré"
   },
   "acp": {
-    "description": "Mode natif Agent Client Protocol pour l'intégration avec les éditeurs",
+    "description": "Mode Native Agent Client Protocol pour l'intégration d'éditeur",
     "connected": "Connexion ACP établie",
-    "sessionStarted": "Session ACP démarrée : {{sessionId}}",
-    "modeChanged": "Mode de session ACP changé en : {{mode}}",
-    "modelChanged": "Modèle de session ACP changé en : {{model}}",
+    "sessionStarted": "Session ACP démarrée: {{sessionId}}",
+    "modeChanged": "Mode de session ACP changé pour: {{mode}}",
+    "modelChanged": "Modèle de session ACP changé pour: {{model}}",
     "sessionClosed": "Session ACP fermée",
-    "permissionRequested": "Permission demandée : {{action}}",
-    "error": "Erreur ACP : {{message}}"
+    "permissionRequested": "Permission demandée: {{action}}",
+    "error": "Erreur ACP: {{message}}"
   },
   "languages": {
-    "en": "English",
-    "zh-cn": "简体中文 (Chinois Simplifié)",
-    "zh-tw": "繁體中文 (Chinois Traditionnel)",
-    "fr": "Français (Français)",
-    "de": "Deutsch (Allemand)",
-    "it": "Italiano (Italien)",
-    "es": "Español (Espagnol)",
-    "ja": "日本語 (Japonais)",
-    "ko": "한국어 (Coréen)",
-    "ru": "Русский (Russe)",
-    "pt-br": "Português (Portugais Brésilien)",
-    "tr": "Türkçe (Turc)",
-    "pl": "Polski (Polonais)",
-    "cs": "Čeština (Tchèque)",
-    "hu": "Magyar (Hongrois)",
-    "hi": "हिन्दी (Hindi)"
+    "en": "Anglais",
+    "zh-cn": "简体中文 (Chinois simplifié)",
+    "zh-tw": "繁體中文 (Chinois traditionnel)",
+    "fr": "Français",
+    "de": "Allemand",
+    "it": "Italien",
+    "es": "Espagnol",
+    "ja": "Japonais",
+    "ko": "Coréen",
+    "ru": "Russe",
+    "pt-br": "Portugais (Brésilien)",
+    "tr": "Turc",
+    "pl": "Polonais",
+    "cs": "Tchèque",
+    "hu": "Hongrois",
+    "hi": "Hindi"
   }
 }
