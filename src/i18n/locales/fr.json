@@ -73,7 +73,7 @@
     }
   },
   "welcome": {
-    "banner": "Bienvenue sur Autohand!",
+    "banner": "Bienvenue sur Autohand !",
     "subtitle": "Votre agent de codage IA ultra rapide",
     "version": "v{{version}}",
     "updateAvailable": "Mise à jour disponible: {{current}} -> {{latest}}. Exécutez 'npm i -g autohand' pour mettre à jour.",
@@ -150,7 +150,7 @@
     },
     "quit": {
       "description": "quitter Autohand",
-      "goodbye": "Au revoir!"
+      "goodbye": "Au revoir !"
     },
     "init": {
       "description": "créer un fichier AGENTS.md",
@@ -428,7 +428,7 @@
     }
   },
   "setup": {
-    "welcome": "Bienvenue sur Autohand!",
+    "welcome": "Bienvenue sur Autohand !",
     "subtitle": "Votre agent de codage IA ultra rapide",
     "letsStart": "Commençons la configuration en quelques étapes.",
     "providerSelect": "Quel fournisseur LLM souhaitez-vous utiliser?",
