@@ -5,29 +5,43 @@
  */
 
 import chalk from 'chalk';
-import { t } from '../i18n/index.js';
+import { t, changeLanguage, detectLocale, SUPPORTED_LOCALES, LANGUAGE_DISPLAY_NAMES } from '../i18n/index.js';
+import type { SupportedLocale } from '../i18n/index.js';
 import { showModal, showInput, showPassword, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 import fse from 'fs-extra';
 import { join } from 'path';
 
-import type { AutohandConfig, LoadedConfig, ProviderName, AzureSettings, AzureAuthMethod } from '../types.js';
+import type { AutohandConfig, LoadedConfig, ProviderName, AzureSettings, AzureAuthMethod, PermissionMode, SearchProvider } from '../types.js';
 import { getProviderConfig } from '../config.js';
 import { ProviderFactory } from '../providers/ProviderFactory.js';
 import { ProjectAnalyzer } from './projectAnalyzer.js';
 import { AgentsGenerator } from './agentsGenerator.js';
+import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from '../startup/workspaceSafety.js';
 
 /**
  * Steps in the onboarding wizard
  */
 export type OnboardingStep =
   | 'welcome'
+  | 'language'
+  | 'workspaceSafety'
   | 'provider'
   | 'apiKey'
   | 'model'
+  | 'connectionTest'
+  | 'permissions'
   | 'telemetry'
   | 'autoReport'
   | 'preferences'
+  | 'advanced'
+  | 'notifications'
+  | 'network'
+  | 'search'
+  | 'mcp'
+  | 'agentBehavior'
+  | 'communitySkills'
   | 'agentsFile'
+  | 'reviewSummary'
   | 'complete';
 
 /**
@@ -35,6 +49,7 @@ export type OnboardingStep =
  */
 interface OnboardingState {
   currentStep: OnboardingStep;
+  locale?: SupportedLocale;
   provider?: ProviderName;
   apiKey?: string;
   model?: string;
@@ -46,6 +61,27 @@ interface OnboardingState {
     checkForUpdates?: boolean;
   };
   azureConfig?: AzureSettings;
+  permissionMode?: PermissionMode;
+  rememberSession?: boolean;
+  notifications?: {
+    enabled?: boolean;
+    sound?: boolean;
+  };
+  network?: {
+    maxRetries?: number;
+    timeout?: number;
+  };
+  search?: {
+    provider?: SearchProvider;
+    braveApiKey?: string;
+    parallelApiKey?: string;
+  };
+  mcpEnabled?: boolean;
+  agentSettings?: {
+    maxIterations?: number;
+    debug?: boolean;
+  };
+  communitySkillsEnabled?: boolean;
   agentsFileCreated?: boolean;
   skipped: OnboardingStep[];
   completed: boolean;
@@ -110,7 +146,7 @@ export class SetupWizard {
       return {
         success: true,
         config: {},
-        skippedSteps: ['welcome', 'provider', 'apiKey', 'model', 'telemetry', 'preferences', 'agentsFile'],
+        skippedSteps: ['welcome', 'language', 'workspaceSafety', 'provider', 'apiKey', 'model', 'permissions', 'telemetry', 'preferences', 'advanced', 'agentsFile', 'reviewSummary'],
         cancelled: false
       };
     }
@@ -121,43 +157,96 @@ export class SetupWizard {
         await this.showWelcome();
       }
 
-      // Step 2: Provider selection
+      // Step 2: Language selection
+      await this.promptLanguage();
+
+      // Step 3: Workspace safety check
+      const safeWorkspace = await this.checkWorkspaceStep();
+      if (!safeWorkspace) return this.cancelled();
+
+      // Step 4: Provider selection
       const provider = await this.promptProvider();
       if (!provider) return this.cancelled();
 
-      // Step 3 & 4: Provider-specific configuration
+      // Step 5: Provider-specific configuration (API key + validation OR Azure flow)
       if (provider === 'azure') {
-        // Azure has its own full config flow (auth, endpoint, deployment)
         const azureResult = await this.promptAzureConfig();
         if (!azureResult) return this.cancelled();
       } else {
-        // Standard flow: API key + model
         if (this.requiresApiKey(provider)) {
           const apiKey = await this.promptApiKey(provider);
           if (apiKey === null) return this.cancelled();
+          // Validate API key for cloud providers
+          await this.validateApiKeyDuringSetup();
         }
 
         const model = await this.promptModel(provider);
         if (!model) return this.cancelled();
       }
 
-      // Step 5: Telemetry opt-in/opt-out
+      // Step 7: Connection test for local providers
+      if (this.isLocalProvider(provider)) {
+        const connected = await this.testLocalProviderConnection();
+        if (!connected) return this.cancelled();
+      }
+
+      // Step 8: Permissions mode
+      await this.promptPermissions();
+
+      // Step 9: Telemetry opt-in/opt-out
       await this.promptTelemetry();
 
-      // Step 5.5: Auto Report Issues (opt-out)
+      // Step 10: Auto Report Issues (opt-out)
       await this.promptAutoReport();
 
-      // Step 6: Preferences (optional)
+      // Step 11: Preferences (optional)
       if (!options?.quickSetup) {
         await this.promptPreferences();
       } else {
         this.state.skipped.push('preferences');
       }
 
-      // Step 7: Create AGENTS.md
+      // Step 12: Advanced settings gate (skip in quickSetup)
+      if (!options?.quickSetup) {
+        const wantsAdvanced = await showConfirm({
+          title: t('setup.advanced.prompt'),
+          defaultValue: false
+        });
+
+        if (wantsAdvanced) {
+          // 12a: Notifications
+          await this.promptNotifications();
+          // 12b: Network
+          await this.promptNetwork();
+          // 12c: Web search provider
+          await this.promptSearch();
+          // 12d: MCP support
+          await this.promptMcp();
+          // 12e: Agent behavior
+          await this.promptAgentBehavior();
+          // 12f: Community skills
+          await this.promptCommunitySkills();
+        } else {
+          this.state.skipped.push('advanced', 'notifications', 'network', 'search', 'mcp', 'agentBehavior', 'communitySkills');
+        }
+      } else {
+        this.state.skipped.push('advanced', 'notifications', 'network', 'search', 'mcp', 'agentBehavior', 'communitySkills');
+      }
+
+      // Step 13: Create AGENTS.md
       await this.promptAgentsFile();
 
-      // Step 8: Complete
+      // Step 14: Review summary (skip in quickSetup)
+      if (!options?.quickSetup) {
+        const confirmed = await this.promptReviewConfirm();
+        if (!confirmed) {
+          // Restart setup
+          this.state = { currentStep: 'welcome', skipped: [], completed: false };
+          return this.run({ ...options, force: true });
+        }
+      }
+
+      // Step 15: Complete
       return this.complete();
 
     } catch (error) {
@@ -576,13 +665,54 @@ export class SetupWizard {
       enabled: this.state.autoReportEnabled ?? true
     };
 
-    // Set UI preferences
+    // Set UI preferences (merge locale + user preferences)
+    const uiConfig: Partial<AutohandConfig['ui']> = {};
+    if (this.state.locale) {
+      uiConfig.locale = this.state.locale;
+    }
     if (this.state.preferences) {
-      config.ui = {
-        theme: this.state.preferences.theme,
-        autoConfirm: this.state.preferences.autoConfirm,
-        checkForUpdates: this.state.preferences.checkForUpdates
+      uiConfig.theme = this.state.preferences.theme;
+      uiConfig.autoConfirm = this.state.preferences.autoConfirm;
+      uiConfig.checkForUpdates = this.state.preferences.checkForUpdates;
+    }
+    if (this.state.notifications) {
+      uiConfig.notifications = this.state.notifications;
+    }
+    if (Object.keys(uiConfig).length > 0) {
+      config.ui = uiConfig as AutohandConfig['ui'];
+    }
+
+    // Set permissions
+    if (this.state.permissionMode) {
+      config.permissions = {
+        mode: this.state.permissionMode,
+        rememberSession: this.state.rememberSession ?? true
       };
+    }
+
+    // Set network settings
+    if (this.state.network) {
+      config.network = this.state.network;
+    }
+
+    // Set search settings
+    if (this.state.search) {
+      config.search = this.state.search;
+    }
+
+    // Set MCP settings
+    if (this.state.mcpEnabled !== undefined) {
+      config.mcp = { enabled: this.state.mcpEnabled };
+    }
+
+    // Set agent settings
+    if (this.state.agentSettings) {
+      config.agent = this.state.agentSettings;
+    }
+
+    // Set community skills settings
+    if (this.state.communitySkillsEnabled !== undefined) {
+      config.communitySkills = { enabled: this.state.communitySkillsEnabled };
     }
 
     // Show completion message
@@ -763,6 +893,414 @@ export class SetupWizard {
     return true;
   }
 
+  /**
+   * Prompt for language selection
+   */
+  private async promptLanguage(): Promise<void> {
+    this.state.currentStep = 'language';
+
+    const detected = detectLocale();
+    console.log(chalk.gray('\n  ' + t('setup.language.detected', { language: LANGUAGE_DISPLAY_NAMES[detected.locale] })));
+
+    const options: ModalOption[] = SUPPORTED_LOCALES.map(locale => ({
+      label: LANGUAGE_DISPLAY_NAMES[locale],
+      value: locale
+    }));
+
+    const initialIndex = SUPPORTED_LOCALES.indexOf(detected.locale);
+
+    const result = await showModal({
+      title: t('setup.language.prompt'),
+      options,
+      initialIndex: initialIndex >= 0 ? initialIndex : 0
+    });
+
+    if (!result) {
+      this.state.locale = detected.locale;
+      return;
+    }
+
+    const selectedLocale = result.value as SupportedLocale;
+    this.state.locale = selectedLocale;
+
+    if (selectedLocale !== detected.locale) {
+      await changeLanguage(selectedLocale);
+      console.log(chalk.green('  ' + t('setup.language.changed', { language: LANGUAGE_DISPLAY_NAMES[selectedLocale] })));
+    }
+  }
+
+  /**
+   * Validate API key during setup by hitting GET /models
+   */
+  private async validateApiKeyDuringSetup(): Promise<void> {
+    if (!this.state.provider || !this.state.apiKey) return;
+    if (!this.requiresApiKey(this.state.provider)) return;
+
+    const baseUrl = this.getDefaultBaseUrl(this.state.provider);
+    console.log(chalk.gray('\n  ' + t('setup.apiKeyValidation.validating')));
+
+    try {
+      const response = await fetch(`${baseUrl}/models`, {
+        headers: { Authorization: `Bearer ${this.state.apiKey}` },
+        signal: AbortSignal.timeout(10000)
+      });
+
+      if (response.ok) {
+        console.log(chalk.green('  ' + t('setup.apiKeyValidation.success')));
+      } else {
+        console.log(chalk.yellow('  ' + t('setup.apiKeyValidation.failed', { error: `HTTP ${response.status}` })));
+        console.log(chalk.gray('  ' + t('setup.apiKeyValidation.hint')));
+      }
+    } catch {
+      console.log(chalk.yellow('  ' + t('setup.apiKeyValidation.skipped')));
+    }
+  }
+
+  /**
+   * Test local provider connection (Ollama, llama.cpp, MLX)
+   */
+  private async testLocalProviderConnection(): Promise<boolean> {
+    if (!this.state.provider || !this.isLocalProvider(this.state.provider)) return true;
+
+    this.state.currentStep = 'connectionTest';
+    const provider = this.state.provider;
+    const baseUrl = this.getDefaultBaseUrl(provider);
+
+    const endpoints: Record<string, string> = {
+      ollama: `${baseUrl}/api/tags`,
+      llamacpp: `${baseUrl}/health`,
+      mlx: `${baseUrl}/v1/models`
+    };
+
+    const endpoint = endpoints[provider];
+    if (!endpoint) return true;
+
+    console.log(chalk.gray('\n  ' + t('setup.connectionTest.testing', { provider: this.getProviderDisplayName(provider) })));
+
+    try {
+      const response = await fetch(endpoint, { signal: AbortSignal.timeout(5000) });
+      if (response.ok) {
+        console.log(chalk.green('  ' + t('setup.connectionTest.success', { provider: this.getProviderDisplayName(provider) })));
+        return true;
+      }
+      throw new Error(`HTTP ${response.status}`);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      console.log(chalk.yellow('  ' + t('setup.connectionTest.failed', { provider: this.getProviderDisplayName(provider), error: errorMsg })));
+
+      // Show provider-specific hint
+      const hintKey = `setup.connectionTest.hint${provider.charAt(0).toUpperCase() + provider.slice(1)}` as const;
+      const hint = t(hintKey as string);
+      if (hint !== hintKey) {
+        console.log(chalk.gray('  ' + hint));
+      }
+
+      const continueAnyway = await showConfirm({
+        title: t('setup.connectionTest.continueAnyway'),
+        defaultValue: true
+      });
+
+      return continueAnyway;
+    }
+  }
+
+  /**
+   * Prompt for permission mode selection
+   */
+  private async promptPermissions(): Promise<void> {
+    this.state.currentStep = 'permissions';
+
+    console.log();
+    console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
+    console.log(chalk.white.bold('  ' + t('setup.permissions.title')));
+    console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
+    console.log();
+    console.log(chalk.gray('  ' + t('setup.permissions.description')));
+    console.log();
+
+    const options: ModalOption[] = [
+      { label: t('setup.permissions.interactive'), value: 'interactive' },
+      { label: t('setup.permissions.unrestricted'), value: 'unrestricted' },
+      { label: t('setup.permissions.restricted'), value: 'restricted' }
+    ];
+
+    const result = await showModal({
+      title: t('setup.permissions.title'),
+      options
+    });
+
+    const mode = (result?.value as PermissionMode) ?? 'interactive';
+    this.state.permissionMode = mode;
+
+    if (mode === 'unrestricted') {
+      console.log(chalk.yellow('  ' + t('setup.permissions.warning')));
+    }
+
+    console.log(chalk.green('  ' + t('setup.permissions.set', { mode })));
+
+    const rememberSession = await showConfirm({
+      title: t('setup.permissions.rememberPrompt'),
+      defaultValue: true
+    });
+
+    this.state.rememberSession = rememberSession;
+  }
+
+  /**
+   * Check workspace safety
+   */
+  private async checkWorkspaceStep(): Promise<boolean> {
+    this.state.currentStep = 'workspaceSafety';
+
+    console.log(chalk.gray('\n  ' + t('setup.workspaceSafety.checking')));
+
+    const result = checkWorkspaceSafety(this.workspaceRoot);
+
+    if (result.safe) {
+      console.log(chalk.green('  ' + t('setup.workspaceSafety.safe')));
+      return true;
+    }
+
+    printDangerousWorkspaceWarning(this.workspaceRoot, result);
+    console.log(chalk.yellow('  ' + t('setup.workspaceSafety.unsafe', { reason: result.reason || '' })));
+
+    const continueUnsafe = await showConfirm({
+      title: t('setup.workspaceSafety.continueUnsafe'),
+      defaultValue: false
+    });
+
+    return continueUnsafe;
+  }
+
+  /**
+   * Prompt for notification preferences
+   */
+  private async promptNotifications(): Promise<void> {
+    this.state.currentStep = 'notifications';
+
+    console.log();
+    console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
+    console.log(chalk.white.bold('  ' + t('setup.notifications.title')));
+    console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
+    console.log();
+    console.log(chalk.gray('  ' + t('setup.notifications.description')));
+    console.log();
+
+    const enabled = await showConfirm({
+      title: t('setup.notifications.enablePrompt'),
+      defaultValue: true
+    });
+
+    let sound = true;
+    if (enabled) {
+      sound = await showConfirm({
+        title: t('setup.notifications.soundPrompt'),
+        defaultValue: true
+      });
+    }
+
+    this.state.notifications = { enabled, sound };
+  }
+
+  /**
+   * Prompt for network settings
+   */
+  private async promptNetwork(): Promise<void> {
+    this.state.currentStep = 'network';
+
+    const needCustom = await showConfirm({
+      title: t('setup.network.needCustom'),
+      defaultValue: false
+    });
+
+    if (!needCustom) {
+      this.state.skipped.push('network');
+      return;
+    }
+
+    const maxRetriesStr = await showInput({
+      title: t('setup.network.maxRetries'),
+      defaultValue: '3',
+      validate: (val: string) => {
+        const n = parseInt(val, 10);
+        if (isNaN(n) || n < 1 || n > 5) return 'Enter a number between 1 and 5';
+        return true;
+      }
+    });
+
+    const timeoutStr = await showInput({
+      title: t('setup.network.timeout'),
+      defaultValue: '30000',
+      validate: (val: string) => {
+        const n = parseInt(val, 10);
+        if (isNaN(n) || n < 5000 || n > 120000) return 'Enter a number between 5000 and 120000';
+        return true;
+      }
+    });
+
+    this.state.network = {
+      maxRetries: parseInt(maxRetriesStr || '3', 10),
+      timeout: parseInt(timeoutStr || '30000', 10)
+    };
+  }
+
+  /**
+   * Prompt for web search provider
+   */
+  private async promptSearch(): Promise<void> {
+    this.state.currentStep = 'search';
+
+    const options: ModalOption[] = [
+      { label: 'Google', value: 'google', description: 'Default web search' },
+      { label: 'Brave Search', value: 'brave', description: 'Privacy-focused search (requires API key)' },
+      { label: 'DuckDuckGo', value: 'duckduckgo', description: 'Privacy-focused, no API key needed' },
+      { label: 'Parallel.ai', value: 'parallel', description: 'AI-optimized search (requires API key)' }
+    ];
+
+    const result = await showModal({
+      title: t('setup.search.prompt'),
+      options
+    });
+
+    const provider = (result?.value as SearchProvider) ?? 'google';
+    const searchState: OnboardingState['search'] = { provider };
+
+    if (provider === 'brave') {
+      const key = await showPassword({ title: t('setup.search.braveKeyPrompt') });
+      if (key) searchState.braveApiKey = key;
+    } else if (provider === 'parallel') {
+      const key = await showPassword({ title: t('setup.search.parallelKeyPrompt') });
+      if (key) searchState.parallelApiKey = key;
+    }
+
+    this.state.search = searchState;
+  }
+
+  /**
+   * Prompt for MCP support
+   */
+  private async promptMcp(): Promise<void> {
+    this.state.currentStep = 'mcp';
+
+    console.log();
+    console.log(chalk.gray('  ' + t('setup.mcp.description')));
+    console.log();
+
+    const enabled = await showConfirm({
+      title: t('setup.mcp.enablePrompt'),
+      defaultValue: true
+    });
+
+    this.state.mcpEnabled = enabled;
+
+    if (enabled) {
+      console.log(chalk.green('  ' + t('setup.mcp.enabled')));
+    }
+  }
+
+  /**
+   * Prompt for agent behavior settings
+   */
+  private async promptAgentBehavior(): Promise<void> {
+    this.state.currentStep = 'agentBehavior';
+
+    const maxIterStr = await showInput({
+      title: t('setup.agent.maxIterationsPrompt'),
+      defaultValue: '100',
+      validate: (val: string) => {
+        const n = parseInt(val, 10);
+        if (isNaN(n) || n < 10 || n > 500) return 'Enter a number between 10 and 500';
+        return true;
+      }
+    });
+
+    const debug = await showConfirm({
+      title: t('setup.agent.debugPrompt'),
+      defaultValue: false
+    });
+
+    this.state.agentSettings = {
+      maxIterations: parseInt(maxIterStr || '100', 10),
+      debug
+    };
+
+    console.log(chalk.green('  ' + t('setup.agent.set')));
+  }
+
+  /**
+   * Prompt for community skills
+   */
+  private async promptCommunitySkills(): Promise<void> {
+    this.state.currentStep = 'communitySkills';
+
+    console.log();
+    console.log(chalk.gray('  ' + t('setup.communitySkills.description')));
+    console.log();
+
+    const enabled = await showConfirm({
+      title: t('setup.communitySkills.enablePrompt'),
+      defaultValue: true
+    });
+
+    this.state.communitySkillsEnabled = enabled;
+  }
+
+  /**
+   * Show review summary and confirm settings
+   */
+  private async promptReviewConfirm(): Promise<boolean> {
+    this.state.currentStep = 'reviewSummary';
+
+    console.log();
+    console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
+    console.log(chalk.white.bold('  ' + t('setup.review.title')));
+    console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
+    console.log();
+
+    if (this.state.locale) {
+      console.log(chalk.white(`  Language: ${LANGUAGE_DISPLAY_NAMES[this.state.locale]}`));
+    }
+    if (this.state.provider) {
+      console.log(chalk.white('  ' + t('setup.review.provider', { provider: this.getProviderDisplayName(this.state.provider) })));
+    }
+    if (this.state.model) {
+      console.log(chalk.white('  ' + t('setup.review.model', { model: this.state.model })));
+    }
+    if (this.state.permissionMode) {
+      console.log(chalk.white(`  Permissions: ${this.state.permissionMode}`));
+    }
+    console.log(chalk.white(`  Telemetry: ${this.state.telemetryEnabled ? 'enabled' : 'disabled'}`));
+    console.log(chalk.white(`  Auto-report: ${this.state.autoReportEnabled ? 'enabled' : 'disabled'}`));
+
+    if (this.state.notifications) {
+      console.log(chalk.white(`  Notifications: ${this.state.notifications.enabled ? 'enabled' : 'disabled'}`));
+    }
+    if (this.state.search?.provider) {
+      console.log(chalk.white(`  Search: ${this.state.search.provider}`));
+    }
+    if (this.state.mcpEnabled !== undefined) {
+      console.log(chalk.white(`  MCP: ${this.state.mcpEnabled ? 'enabled' : 'disabled'}`));
+    }
+    console.log();
+
+    const confirmed = await showConfirm({
+      title: t('setup.review.confirm'),
+      defaultValue: true
+    });
+
+    if (!confirmed) {
+      console.log(chalk.gray('  ' + t('setup.review.goBack')));
+    }
+
+    return confirmed;
+  }
+
+  /**
+   * Check if a provider is local (no API key, has server to test)
+   */
+  private isLocalProvider(provider: ProviderName): boolean {
+    return provider === 'ollama' || provider === 'llamacpp' || provider === 'mlx';
+  }
   // Helper methods
 
   private requiresApiKey(provider: ProviderName): boolean {
