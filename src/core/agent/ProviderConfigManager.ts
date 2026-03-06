@@ -5,6 +5,7 @@
  */
 
 import chalk from 'chalk';
+import { t } from '../../i18n/index.js';
 import { showModal, showInput, showPassword, type ModalOption } from '../../ui/ink/components/Modal.js';
 import { ProviderFactory } from '../../providers/ProviderFactory.js';
 import { saveConfig, getProviderConfig } from '../../config.js';
@@ -51,11 +52,11 @@ export class ProviderConfigManager {
       const providerChoices: ModalOption[] = allProviders.map(name => {
         const isConfigured = this.isProviderConfigured(name);
         const indicator = isConfigured ? chalk.green('●') : chalk.red('○');
-        const current = name === this.getActiveProvider() ? chalk.cyan(' (current)') : '';
+        const current = name === this.getActiveProvider() ? chalk.cyan(' (' + t('providers.config.current') + ')') : '';
         // Add Apple Silicon indicator for MLX
-        const siliconNote = name === 'mlx' ? chalk.gray(' (Apple Silicon)') : '';
+        const siliconNote = name === 'mlx' ? chalk.gray(' (' + t('providers.config.appleSilicon') + ')') : '';
         // Add hosted indicator for cloud providers
-        const hostedNote = name === 'llmgateway' ? chalk.gray(' (hosted)') : '';
+        const hostedNote = name === 'llmgateway' ? chalk.gray(' (' + t('providers.config.hosted') + ')') : '';
         return {
           label: `${indicator} ${name}${current}${siliconNote}${hostedNote}`,
           value: name
@@ -63,12 +64,12 @@ export class ProviderConfigManager {
       });
 
       const result = await showModal({
-        title: 'Choose an LLM provider',
+        title: t('providers.config.chooseProvider'),
         options: providerChoices
       });
 
       if (!result) {
-        console.log(chalk.gray('\nConfiguration cancelled.'));
+        console.log(chalk.gray('\n' + t('providers.config.cancelled')));
         return;
       }
 
@@ -76,7 +77,7 @@ export class ProviderConfigManager {
 
       // Check if provider needs configuration
       if (!this.isProviderConfigured(selectedProvider)) {
-        console.log(chalk.yellow(`\n${selectedProvider} is not configured yet. Let's set it up!\n`));
+        console.log(chalk.yellow('\n' + t('providers.config.notConfigured', { provider: selectedProvider }) + '\n'));
         await this.configureProvider(selectedProvider);
         return;
       }
@@ -149,25 +150,25 @@ export class ProviderConfigManager {
    */
   private async configureOpenRouter(): Promise<void> {
     try {
-      console.log(chalk.cyan('OpenRouter Configuration'));
-      console.log(chalk.gray('Get your API key at: https://openrouter.ai/keys\n'));
+      console.log(chalk.cyan(t('providers.wizard.openrouter.title')));
+      console.log(chalk.gray(t('providers.config.apiKeyUrl', { url: t('providers.wizard.openrouter.apiKeyUrl') }) + '\n'));
 
       const apiKey = await showPassword({
-        title: 'Enter your OpenRouter API key'
+        title: t('providers.config.enterApiKey', { provider: t('providers.openrouter') })
       });
 
       if (!apiKey) {
-        console.log(chalk.gray('\nConfiguration cancelled.'));
+        console.log(chalk.gray('\n' + t('providers.config.cancelled')));
         return;
       }
 
       const model = await showInput({
-        title: 'Enter the model ID',
+        title: t('providers.config.enterModelId'),
         defaultValue: 'anthropic/claude-3.5-sonnet'
       });
 
       if (!model) {
-        console.log(chalk.gray('\nConfiguration cancelled.'));
+        console.log(chalk.gray('\n' + t('providers.config.cancelled')));
         return;
       }
 
@@ -182,7 +183,7 @@ export class ProviderConfigManager {
       await saveConfig(this.runtime.config);
       this.resetLlmClient('openrouter', model);
 
-      console.log(chalk.green('\n✓ OpenRouter configured successfully!'));
+      console.log(chalk.green('\n✓ ' + t('providers.config.configuredSuccessfully', { provider: t('providers.openrouter') })));
     } catch (error) {
       // Cancellation is now handled inline
       throw error;
@@ -194,8 +195,8 @@ export class ProviderConfigManager {
    */
   private async configureOllama(): Promise<void> {
     try {
-      console.log(chalk.cyan('Ollama Configuration'));
-      console.log(chalk.gray('Make sure Ollama is running: ollama serve\n'));
+      console.log(chalk.cyan(t('providers.wizard.ollama.title')));
+      console.log(chalk.gray(t('providers.wizard.ollama.ensureRunning') + '\n'));
 
       // Try to fetch available models
       const ollamaUrl = 'http://localhost:11434';
@@ -208,30 +209,30 @@ export class ProviderConfigManager {
           availableModels = data.models?.map((m: any) => m.name) || [];
         }
       } catch {
-        console.log(chalk.yellow('⚠ Could not connect to Ollama. Make sure it\'s running.\n'));
+        console.log(chalk.yellow('⚠ ' + t('providers.wizard.ollama.cannotConnect') + '\n'));
       }
 
       let model: string | null;
       if (availableModels.length > 0) {
-        console.log(chalk.green(`Found ${availableModels.length} model(s)\n`));
+        console.log(chalk.green(t('providers.wizard.ollama.foundModels', { count: availableModels.length }) + '\n'));
         const options: ModalOption[] = availableModels.map(name => ({
           label: name,
           value: name
         }));
         const result = await showModal({
-          title: 'Select a model',
+          title: t('providers.config.selectModel'),
           options
         });
         model = result?.value as string | null;
       } else {
         model = await showInput({
-          title: 'Enter the model name (e.g., llama3.2:latest)',
+          title: t('providers.wizard.ollama.enterModelName'),
           defaultValue: 'llama3.2:latest'
         });
       }
 
       if (!model) {
-        console.log(chalk.gray('\nConfiguration cancelled.'));
+        console.log(chalk.gray('\n' + t('providers.config.cancelled')));
         return;
       }
 
@@ -245,10 +246,10 @@ export class ProviderConfigManager {
       await saveConfig(this.runtime.config);
       this.resetLlmClient('ollama', model);
 
-      console.log(chalk.green('\n✓ Ollama configured successfully!'));
+      console.log(chalk.green('\n✓ ' + t('providers.config.configuredSuccessfully', { provider: t('providers.ollama') })));
     } catch (error) {
       if ((error as Error).message?.includes('cancelled')) {
-        console.log(chalk.gray('\nConfiguration cancelled.'));
+        console.log(chalk.gray('\n' + t('providers.config.cancelled')));
         return;
       }
       throw error;
@@ -260,26 +261,26 @@ export class ProviderConfigManager {
    */
   private async configureLlamaCpp(): Promise<void> {
     try {
-      console.log(chalk.cyan('llama.cpp Configuration'));
-      console.log(chalk.gray('Make sure llama.cpp server is running: ./server -m model.gguf\n'));
+      console.log(chalk.cyan(t('providers.wizard.llamacpp.title')));
+      console.log(chalk.gray(t('providers.wizard.llamacpp.ensureRunning') + '\n'));
 
       const port = await showInput({
-        title: 'Server port',
+        title: t('providers.wizard.llamacpp.serverPort'),
         defaultValue: '8080'
       });
 
       if (!port) {
-        console.log(chalk.gray('\nConfiguration cancelled.'));
+        console.log(chalk.gray('\n' + t('providers.config.cancelled')));
         return;
       }
 
       const model = await showInput({
-        title: 'Model name/description',
+        title: t('providers.wizard.llamacpp.modelNameDesc'),
         defaultValue: 'llama-model'
       });
 
       if (!model) {
-        console.log(chalk.gray('\nConfiguration cancelled.'));
+        console.log(chalk.gray('\n' + t('providers.config.cancelled')));
         return;
       }
 
@@ -294,7 +295,7 @@ export class ProviderConfigManager {
       await saveConfig(this.runtime.config);
       this.resetLlmClient('llamacpp', model);
 
-      console.log(chalk.green('\n✓ llama.cpp configured successfully!'));
+      console.log(chalk.green('\n✓ ' + t('providers.config.configuredSuccessfully', { provider: t('providers.llamacpp') })));
     } catch (error) {
       // Cancellation is now handled inline
       throw error;
@@ -306,15 +307,15 @@ export class ProviderConfigManager {
    */
   private async configureOpenAI(): Promise<void> {
     try {
-      console.log(chalk.cyan('OpenAI Configuration'));
-      console.log(chalk.gray('Get your API key at: https://platform.openai.com/api-keys\n'));
+      console.log(chalk.cyan(t('providers.wizard.openai.title')));
+      console.log(chalk.gray(t('providers.config.apiKeyUrl', { url: t('providers.wizard.openai.apiKeyUrl') }) + '\n'));
 
       const apiKey = await showPassword({
-        title: 'Enter your OpenAI API key'
+        title: t('providers.config.enterApiKey', { provider: t('providers.openai') })
       });
 
       if (!apiKey) {
-        console.log(chalk.gray('\nConfiguration cancelled.'));
+        console.log(chalk.gray('\n' + t('providers.config.cancelled')));
         return;
       }
 
@@ -327,12 +328,12 @@ export class ProviderConfigManager {
       ];
 
       const result = await showModal({
-        title: 'Select a model',
+        title: t('providers.config.selectModel'),
         options: modelChoices
       });
 
       if (!result) {
-        console.log(chalk.gray('\nConfiguration cancelled.'));
+        console.log(chalk.gray('\n' + t('providers.config.cancelled')));
         return;
       }
 
@@ -349,7 +350,7 @@ export class ProviderConfigManager {
       await saveConfig(this.runtime.config);
       this.resetLlmClient('openai', model);
 
-      console.log(chalk.green('\n✓ OpenAI configured successfully!'));
+      console.log(chalk.green('\n✓ ' + t('providers.config.configuredSuccessfully', { provider: t('providers.openai') })));
     } catch (error) {
       // Cancellation is now handled inline
       throw error;
@@ -361,9 +362,9 @@ export class ProviderConfigManager {
    */
   private async configureMLX(): Promise<void> {
     try {
-      console.log(chalk.cyan('MLX Configuration (Apple Silicon)'));
-      console.log(chalk.gray('MLX provides local LLM inference optimized for Apple Silicon.'));
-      console.log(chalk.gray('Make sure mlx-lm server is running: mlx_lm.server --model <model-name>\n'));
+      console.log(chalk.cyan(t('providers.wizard.mlx.title')));
+      console.log(chalk.gray(t('providers.wizard.mlx.description')));
+      console.log(chalk.gray(t('providers.wizard.mlx.ensureRunning') + '\n'));
 
       // Try to fetch available models from MLX server
       const mlxUrl = 'http://localhost:8080';
@@ -376,7 +377,7 @@ export class ProviderConfigManager {
           availableModels = data.data?.map((m: any) => m.id) || [];
         }
       } catch {
-        console.log(chalk.yellow('⚠ Could not connect to MLX server. Make sure it\'s running.\n'));
+        console.log(chalk.yellow('⚠ ' + t('providers.wizard.mlx.cannotConnect') + '\n'));
       }
 
       let model: string | null;
@@ -386,19 +387,19 @@ export class ProviderConfigManager {
           value: name
         }));
         const result = await showModal({
-          title: 'Select a model',
+          title: t('providers.config.selectModel'),
           options
         });
         model = result?.value as string | null;
       } else {
         model = await showInput({
-          title: 'Enter model name (e.g., mlx-community/Llama-3.2-3B-Instruct-4bit)',
+          title: t('providers.wizard.mlx.enterModelName'),
           defaultValue: 'mlx-community/Llama-3.2-3B-Instruct-4bit'
         });
       }
 
       if (!model) {
-        console.log(chalk.gray('\nConfiguration cancelled.'));
+        console.log(chalk.gray('\n' + t('providers.config.cancelled')));
         return;
       }
 
@@ -412,7 +413,7 @@ export class ProviderConfigManager {
       await saveConfig(this.runtime.config);
       this.resetLlmClient('mlx', model);
 
-      console.log(chalk.green('\n✓ MLX configured successfully!'));
+      console.log(chalk.green('\n✓ ' + t('providers.config.configuredSuccessfully', { provider: t('providers.mlx') })));
     } catch (error) {
       // Cancellation is now handled inline
       throw error;
@@ -424,15 +425,15 @@ export class ProviderConfigManager {
    */
   private async configureLLMGateway(): Promise<void> {
     try {
-      console.log(chalk.cyan('LLM Gateway Configuration'));
-      console.log(chalk.gray('Get your API key at: https://llmgateway.io/dashboard\n'));
+      console.log(chalk.cyan(t('providers.wizard.llmgateway.title')));
+      console.log(chalk.gray(t('providers.config.apiKeyUrl', { url: t('providers.wizard.llmgateway.apiKeyUrl') }) + '\n'));
 
       const apiKey = await showPassword({
-        title: 'Enter your LLM Gateway API key'
+        title: t('providers.config.enterApiKey', { provider: t('providers.llmgateway') })
       });
 
       if (!apiKey) {
-        console.log(chalk.gray('\nConfiguration cancelled.'));
+        console.log(chalk.gray('\n' + t('providers.config.cancelled')));
         return;
       }
 
@@ -446,12 +447,12 @@ export class ProviderConfigManager {
       ];
 
       const result = await showModal({
-        title: 'Select a model',
+        title: t('providers.config.selectModel'),
         options: modelChoices
       });
 
       if (!result) {
-        console.log(chalk.gray('\nConfiguration cancelled.'));
+        console.log(chalk.gray('\n' + t('providers.config.cancelled')));
         return;
       }
 
@@ -468,7 +469,7 @@ export class ProviderConfigManager {
       await saveConfig(this.runtime.config);
       this.resetLlmClient('llmgateway', model);
 
-      console.log(chalk.green('\n✓ LLM Gateway configured successfully!'));
+      console.log(chalk.green('\n✓ ' + t('providers.config.configuredSuccessfully', { provider: t('providers.llmgateway') })));
     } catch (error) {
       // Cancellation is now handled inline
       throw error;
@@ -480,23 +481,30 @@ export class ProviderConfigManager {
    */
   private async configureAzure(): Promise<void> {
     try {
-      console.log(chalk.cyan('Azure OpenAI Configuration'));
-      console.log(chalk.gray('Get started at: https://ai.azure.com\n'));
+      console.log(chalk.cyan(t('providers.wizard.azure.title')));
+      console.log(chalk.gray(t('providers.wizard.azure.getStarted') + '\n'));
+
+      console.log(chalk.yellow(`\n${t('providers.wizard.azure.setupSteps.title')}`));
+      console.log(chalk.gray(`  ${t('providers.wizard.azure.setupSteps.step1')}`));
+      console.log(chalk.gray(`  ${t('providers.wizard.azure.setupSteps.step2')}`));
+      console.log(chalk.gray(`  ${t('providers.wizard.azure.setupSteps.step3')}`));
+      console.log(chalk.gray(`  ${t('providers.wizard.azure.setupSteps.step4')}`));
+      console.log();
 
       // Step 1: Choose auth method
       const authChoices: ModalOption[] = [
-        { label: 'API Key', value: 'api-key' },
-        { label: 'Entra ID (Azure AD)', value: 'entra-id' },
-        { label: 'Managed Identity', value: 'managed-identity' }
+        { label: t('providers.wizard.azure.authApiKey'), value: 'api-key' },
+        { label: t('providers.wizard.azure.authEntraId'), value: 'entra-id' },
+        { label: t('providers.wizard.azure.authManagedIdentity'), value: 'managed-identity' }
       ];
 
       const authResult = await showModal({
-        title: 'Select authentication method',
+        title: t('providers.wizard.azure.selectAuthMethod'),
         options: authChoices
       });
 
       if (!authResult) {
-        console.log(chalk.gray('\nConfiguration cancelled.'));
+        console.log(chalk.gray('\n' + t('providers.config.cancelled')));
         return;
       }
 
@@ -508,60 +516,70 @@ export class ProviderConfigManager {
 
       // Step 2: Auth-specific prompts
       if (authMethod === 'api-key') {
-        console.log(chalk.gray('\nFind your key in Azure Portal > Your Resource > Keys and Endpoint\n'));
-        apiKey = await showPassword({ title: 'Enter your Azure API key' }) ?? undefined;
-        if (!apiKey) { console.log(chalk.gray('\nConfiguration cancelled.')); return; }
+        console.log(chalk.gray('\n' + t('providers.wizard.azure.apiKeyLocation') + '\n'));
+        apiKey = await showPassword({ title: t('providers.wizard.azure.enterAzureApiKey') }) ?? undefined;
+        if (!apiKey) { console.log(chalk.gray('\n' + t('providers.config.cancelled'))); return; }
       } else if (authMethod === 'entra-id') {
-        console.log(chalk.gray('\nEntra ID uses OAuth2 client credentials. Create an App Registration in Azure Portal.'));
-        console.log(chalk.gray('Docs: https://learn.microsoft.com/en-us/entra/identity/\n'));
+        console.log(chalk.gray('\n' + t('providers.wizard.azure.entraIdDescription')));
+        console.log(chalk.gray(t('providers.wizard.azure.entraIdDocs') + '\n'));
 
-        tenantId = await showInput({ title: 'Enter your Azure Tenant ID' }) ?? undefined;
-        if (!tenantId) { console.log(chalk.gray('\nConfiguration cancelled.')); return; }
+        tenantId = await showInput({ title: t('providers.wizard.azure.enterTenantId') }) ?? undefined;
+        if (!tenantId) { console.log(chalk.gray('\n' + t('providers.config.cancelled'))); return; }
 
-        clientId = await showInput({ title: 'Enter your Client ID (Application ID)' }) ?? undefined;
-        if (!clientId) { console.log(chalk.gray('\nConfiguration cancelled.')); return; }
+        clientId = await showInput({ title: t('providers.wizard.azure.enterClientId') }) ?? undefined;
+        if (!clientId) { console.log(chalk.gray('\n' + t('providers.config.cancelled'))); return; }
 
-        clientSecret = await showPassword({ title: 'Enter your Client Secret' }) ?? undefined;
-        if (!clientSecret) { console.log(chalk.gray('\nConfiguration cancelled.')); return; }
+        clientSecret = await showPassword({ title: t('providers.wizard.azure.enterClientSecret') }) ?? undefined;
+        if (!clientSecret) { console.log(chalk.gray('\n' + t('providers.config.cancelled'))); return; }
       } else {
-        console.log(chalk.gray('\nManaged Identity will be used automatically when running inside Azure.'));
-        console.log(chalk.gray('Docs: https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/\n'));
+        console.log(chalk.gray('\n' + t('providers.wizard.azure.managedIdentityDescription')));
+        console.log(chalk.gray(t('providers.wizard.azure.managedIdentityDocs') + '\n'));
       }
 
       // Step 3: Resource configuration
       const endpointChoice = await showModal({
-        title: 'How do you want to specify your Azure endpoint?',
+        title: t('providers.wizard.azure.endpointChoice'),
         options: [
-          { label: 'Resource name + deployment (recommended)', value: 'structured' },
-          { label: 'Full endpoint URL', value: 'url' }
+          { label: t('providers.wizard.azure.endpointStructured'), value: 'structured' },
+          { label: t('providers.wizard.azure.endpointUrl'), value: 'url' }
         ]
       });
 
-      if (!endpointChoice) { console.log(chalk.gray('\nConfiguration cancelled.')); return; }
+      if (!endpointChoice) { console.log(chalk.gray('\n' + t('providers.config.cancelled'))); return; }
 
       let resourceName: string | undefined;
       let deploymentName: string | undefined;
       let baseUrl: string | undefined;
 
       if (endpointChoice.value === 'structured') {
-        resourceName = await showInput({ title: 'Enter your Azure resource name' }) ?? undefined;
-        if (!resourceName) { console.log(chalk.gray('\nConfiguration cancelled.')); return; }
+        console.log(chalk.gray(t('providers.wizard.azure.endpointUrlHint')));
+        console.log(chalk.gray(t('providers.wizard.azure.endpointUrlExample') + '\n'));
+        resourceName = await showInput({ title: t('providers.wizard.azure.enterEndpointOrResource') }) ?? undefined;
+        if (!resourceName) { console.log(chalk.gray('\n' + t('providers.config.cancelled'))); return; }
 
-        deploymentName = await showInput({ title: 'Enter your deployment name', defaultValue: 'gpt-4o' }) ?? undefined;
-        if (!deploymentName) { console.log(chalk.gray('\nConfiguration cancelled.')); return; }
+        console.log(chalk.gray('\n' + t('providers.wizard.azure.deploymentHint')));
+        console.log(chalk.gray(t('providers.wizard.azure.deploymentNotUrl') + '\n'));
+        deploymentName = await showInput({ title: t('providers.wizard.azure.enterDeploymentName'), defaultValue: 'gpt-5.3-codex' }) ?? undefined;
+        if (!deploymentName) { console.log(chalk.gray('\n' + t('providers.config.cancelled'))); return; }
+        if (deploymentName.startsWith('http://') || deploymentName.startsWith('https://')) {
+          console.log(chalk.red('\n✗ ' + t('providers.wizard.azure.deploymentUrlError')));
+          console.log(chalk.gray('  ' + t('providers.wizard.azure.deploymentUrlErrorHint')));
+          console.log(chalk.gray('  ' + t('providers.wizard.azure.deploymentUrlErrorLocation') + '\n'));
+          return;
+        }
       } else {
         baseUrl = await showInput({
-          title: 'Enter your full Azure endpoint URL',
-          defaultValue: 'https://your-resource.openai.azure.com/openai/deployments/gpt-4o'
+          title: t('providers.wizard.azure.enterFullEndpointUrl'),
+          defaultValue: 'https://your-resource.openai.azure.com/openai/deployments/gpt-5.3-codex'
         }) ?? undefined;
-        if (!baseUrl) { console.log(chalk.gray('\nConfiguration cancelled.')); return; }
+        if (!baseUrl) { console.log(chalk.gray('\n' + t('providers.config.cancelled'))); return; }
       }
 
       // Step 4: API version
-      const apiVersion = await showInput({ title: 'Azure API version', defaultValue: '2024-10-21' }) ?? undefined;
-      if (!apiVersion) { console.log(chalk.gray('\nConfiguration cancelled.')); return; }
+      const apiVersion = await showInput({ title: t('providers.wizard.azure.apiVersion'), defaultValue: '2024-10-21' }) ?? undefined;
+      if (!apiVersion) { console.log(chalk.gray('\n' + t('providers.config.cancelled'))); return; }
 
-      const model = deploymentName ?? 'gpt-4o';
+      const model = deploymentName ?? 'gpt-5.3-codex';
 
       const azureConfig: AzureSettings = {
         model,
@@ -582,9 +600,9 @@ export class ProviderConfigManager {
       await saveConfig(this.runtime.config);
       this.resetLlmClient('azure', model);
 
-      console.log(chalk.green('\n✓ Azure OpenAI configured successfully!'));
-      console.log(chalk.gray(`  Auth: ${authMethod}`));
-      console.log(chalk.gray(`  Model: ${model}`));
+      console.log(chalk.green('\n✓ ' + t('providers.config.configuredSuccessfully', { provider: t('providers.azure') })));
+      console.log(chalk.gray('  ' + t('providers.wizard.azure.authLabel', { method: authMethod })));
+      console.log(chalk.gray('  ' + t('providers.config.modelLabel', { model })));
     } catch (error) {
       throw error;
     }
@@ -618,13 +636,13 @@ export class ProviderConfigManager {
               }));
               const currentIndex = models.indexOf(currentModel);
               const result = await showModal({
-                title: 'Select a model',
+                title: t('providers.config.selectModel'),
                 options,
                 initialIndex: currentIndex >= 0 ? currentIndex : 0
               });
 
               if (!result) {
-                console.log(chalk.gray('\nModel change cancelled.'));
+                console.log(chalk.gray('\n' + t('providers.config.modelChangeCancelled')));
                 return;
               }
 
@@ -639,12 +657,12 @@ export class ProviderConfigManager {
 
       // For other providers, manual input
       const model = await showInput({
-        title: 'Enter the model ID to use',
+        title: t('providers.config.enterModelIdToUse'),
         defaultValue: currentModel
       });
 
       if (!model) {
-        console.log(chalk.gray('\nModel change cancelled.'));
+        console.log(chalk.gray('\n' + t('providers.config.modelChangeCancelled')));
         return;
       }
 
@@ -663,34 +681,28 @@ export class ProviderConfigManager {
     currentModel: string,
     currentSettings: { apiKey?: string; baseUrl?: string; model?: string } | null
   ): Promise<void> {
-    const providerNameMap = {
-      openai: 'OpenAI',
-      openrouter: 'OpenRouter',
-      llmgateway: 'LLM Gateway',
-      azure: 'Azure OpenAI'
-    };
-    const providerName = providerNameMap[provider];
+    const providerName = t(`providers.${provider}`);
     const maskedKey = currentSettings?.apiKey
       ? `...${currentSettings.apiKey.slice(-4)}`
-      : 'not set';
+      : t('providers.config.notSet');
 
-    console.log(chalk.cyan(`\n${providerName} Settings`));
-    console.log(chalk.gray(`Current model: ${currentModel || 'not set'}`));
-    console.log(chalk.gray(`Current API key: ${maskedKey}\n`));
+    console.log(chalk.cyan('\n' + t('providers.config.settingsTitle', { provider: providerName })));
+    console.log(chalk.gray(t('providers.config.currentModel', { model: currentModel || t('providers.config.notSet') })));
+    console.log(chalk.gray(t('providers.config.currentApiKey', { key: maskedKey }) + '\n'));
 
     const actionOptions: ModalOption[] = [
-      { label: 'Change model only', value: 'model' },
-      { label: 'Change API key only', value: 'apiKey' },
-      { label: 'Change both model and API key', value: 'both' }
+      { label: t('providers.config.changeModelOnly'), value: 'model' },
+      { label: t('providers.config.changeApiKeyOnly'), value: 'apiKey' },
+      { label: t('providers.config.changeBoth'), value: 'both' }
     ];
 
     const actionResult = await showModal({
-      title: 'What would you like to change?',
+      title: t('providers.config.whatToChange'),
       options: actionOptions
     });
 
     if (!actionResult) {
-      console.log(chalk.gray('\nSettings change cancelled.'));
+      console.log(chalk.gray('\n' + t('providers.config.settingsChangeCancelled')));
       return;
     }
 
@@ -708,24 +720,24 @@ export class ProviderConfigManager {
         azure: 'https://ai.azure.com'
       };
       const keyUrl = keyUrlMap[provider];
-      console.log(chalk.gray(`\nGet your API key at: ${keyUrl}\n`));
+      console.log(chalk.gray('\n' + t('providers.config.apiKeyUrl', { url: keyUrl }) + '\n'));
 
       const apiKey = await showPassword({
-        title: `Enter your ${providerName} API key`,
+        title: t('providers.config.enterApiKey', { provider: providerName }),
         validate: (val: string) => {
-          if (!val?.trim()) return 'API key is required';
-          if (val.length < 10) return 'API key seems too short';
+          if (!val?.trim()) return t('providers.config.apiKeyRequired');
+          if (val.length < 10) return t('providers.config.apiKeyTooShort');
           return true;
         }
       });
 
       if (!apiKey) {
-        console.log(chalk.gray('\nSettings change cancelled.'));
+        console.log(chalk.gray('\n' + t('providers.config.settingsChangeCancelled')));
         return;
       }
 
       // Validate the API key
-      console.log(chalk.gray('\nValidating API key...'));
+      console.log(chalk.gray('\n' + t('providers.config.validatingApiKey')));
       const validationResult = await this.validateApiKey(provider, apiKey.trim());
 
       if (!validationResult.valid) {
@@ -734,7 +746,7 @@ export class ProviderConfigManager {
         return;
       }
 
-      console.log(chalk.green('✓ API key is valid\n'));
+      console.log(chalk.green('✓ ' + t('providers.config.apiKeyValid') + '\n'));
       newApiKey = apiKey.trim();
     }
 
@@ -748,13 +760,13 @@ export class ProviderConfigManager {
         }));
         const currentIndex = Math.max(0, models.indexOf(currentModel));
         const result = await showModal({
-          title: 'Select a model',
+          title: t('providers.config.selectModel'),
           options: modelOptions,
           initialIndex: currentIndex
         });
 
         if (!result) {
-          console.log(chalk.gray('\nSettings change cancelled.'));
+          console.log(chalk.gray('\n' + t('providers.config.settingsChangeCancelled')));
           return;
         }
 
@@ -768,36 +780,45 @@ export class ProviderConfigManager {
         }));
         const currentIndex = Math.max(0, models.indexOf(currentModel));
         const result = await showModal({
-          title: 'Select a model',
+          title: t('providers.config.selectModel'),
           options: modelOptions,
           initialIndex: currentIndex
         });
 
         if (!result) {
-          console.log(chalk.gray('\nSettings change cancelled.'));
+          console.log(chalk.gray('\n' + t('providers.config.settingsChangeCancelled')));
           return;
         }
 
         newModel = result.value as string;
       } else if (provider === 'azure') {
+        console.log(chalk.gray(t('providers.wizard.azure.deploymentChangeHint')));
+        console.log(chalk.gray(t('providers.wizard.azure.deploymentChangeExample') + '\n'));
         const model = await showInput({
-          title: 'Enter the deployment/model name',
-          defaultValue: currentModel || 'gpt-4o'
+          title: t('providers.wizard.azure.enterDeploymentNameChange'),
+          defaultValue: currentModel || 'gpt-5.3-codex'
         });
         if (!model) {
-          console.log(chalk.gray('\nSettings change cancelled.'));
+          console.log(chalk.gray('\n' + t('providers.config.settingsChangeCancelled')));
           return;
         }
-        newModel = model.trim();
+        const trimmed = model.trim();
+        if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+          console.log(chalk.red('\n✗ ' + t('providers.wizard.azure.deploymentUrlError')));
+          console.log(chalk.gray('  ' + t('providers.wizard.azure.deploymentUrlErrorHint')));
+          console.log(chalk.gray('  ' + t('providers.wizard.azure.deploymentUrlErrorLocation') + '\n'));
+          return;
+        }
+        newModel = trimmed;
       } else {
         // OpenRouter - allow custom model input
         const model = await showInput({
-          title: 'Enter the model ID',
+          title: t('providers.config.enterModelId'),
           defaultValue: currentModel || 'anthropic/claude-sonnet-4-20250514'
         });
 
         if (!model) {
-          console.log(chalk.gray('\nSettings change cancelled.'));
+          console.log(chalk.gray('\n' + t('providers.config.settingsChangeCancelled')));
           return;
         }
         newModel = model.trim();
@@ -806,11 +827,12 @@ export class ProviderConfigManager {
 
     // Save the changes
     if (provider === 'azure') {
-      // Azure: preserve existing config, just update model and key
+      // Azure: preserve existing config, update model, deploymentName, and key
       const existing = this.runtime.config.azure ?? { model: newModel, authMethod: 'api-key' as const };
       this.runtime.config.azure = {
         ...existing,
         model: newModel,
+        deploymentName: newModel,
         ...(newApiKey && { apiKey: newApiKey }),
       };
     } else {
@@ -836,9 +858,9 @@ export class ProviderConfigManager {
     this.resetContextPercent();
     this.emitStatus();
 
-    console.log(chalk.green(`\n✓ ${providerName} settings updated successfully!`));
-    console.log(chalk.gray(`  Provider: ${provider}`));
-    console.log(chalk.gray(`  Model: ${newModel}`));
+    console.log(chalk.green('\n✓ ' + t('providers.config.settingsUpdated', { provider: providerName })));
+    console.log(chalk.gray('  ' + t('providers.config.providerLabel', { provider })));
+    console.log(chalk.gray('  ' + t('providers.config.modelLabel', { model: newModel })));
   }
 
   /**
@@ -887,53 +909,54 @@ export class ProviderConfigManager {
         // Ignore JSON parse errors
       }
 
+      const keyUrlMap = {
+        openai: 'https://platform.openai.com/api-keys',
+        openrouter: 'https://openrouter.ai/keys',
+        llmgateway: 'https://llmgateway.io/dashboard'
+      };
+
       if (status === 401) {
-        const hintMap = {
-          openai: 'Check that your API key is correct at https://platform.openai.com/api-keys',
-          openrouter: 'Check that your API key is correct at https://openrouter.ai/keys',
-          llmgateway: 'Check that your API key is correct at https://llmgateway.io/dashboard'
-        };
         return {
           valid: false,
-          error: 'Invalid API key',
-          hint: hintMap[provider]
+          error: t('providers.config.invalidApiKey'),
+          hint: t('providers.config.invalidApiKeyHint', { url: keyUrlMap[provider] })
         };
       }
 
       if (status === 403) {
         return {
           valid: false,
-          error: 'API key does not have permission',
-          hint: 'Your API key may have restricted permissions or your account may need to add a payment method.'
+          error: t('providers.config.apiKeyNoPermission'),
+          hint: t('providers.config.apiKeyNoPermissionHint')
         };
       }
 
       if (status === 429) {
         return {
           valid: false,
-          error: 'Rate limited or quota exceeded',
-          hint: 'You may have exceeded your API quota. Check your usage and billing settings.'
+          error: t('providers.config.rateLimited'),
+          hint: t('providers.config.rateLimitedHint')
         };
       }
 
       return {
         valid: false,
-        error: errorData?.error?.message || `API returned status ${status}`,
-        hint: 'Please verify your API key and try again.'
+        error: errorData?.error?.message || t('providers.config.apiReturnedStatus', { status: String(status) }),
+        hint: t('providers.config.verifyApiKeyHint')
       };
     } catch (error) {
       const err = error as Error;
       if (err.message?.includes('fetch') || err.message?.includes('network')) {
         return {
           valid: false,
-          error: 'Network error - could not reach the API',
-          hint: 'Check your internet connection and try again.'
+          error: t('providers.config.networkError'),
+          hint: t('providers.config.networkErrorHint')
         };
       }
       return {
         valid: false,
-        error: `Validation failed: ${err.message}`,
-        hint: 'Please try again or check your network connection.'
+        error: t('providers.config.validationFailed', { error: err.message }),
+        hint: t('providers.config.validationFailedHint')
       };
     }
   }
@@ -943,7 +966,7 @@ export class ProviderConfigManager {
    */
   private async applyModelChange(provider: ProviderName, newModel: string, currentModel: string): Promise<void> {
     if (!newModel || (newModel === currentModel && provider === this.getActiveProvider())) {
-      console.log(chalk.gray('Model unchanged.'));
+      console.log(chalk.gray(t('providers.config.modelUnchanged')));
       return;
     }
 
@@ -964,7 +987,7 @@ export class ProviderConfigManager {
       provider
     });
 
-    console.log(chalk.green(`✓ Using ${provider} model ${newModel}`));
+    console.log(chalk.green('✓ ' + t('providers.config.usingModel', { provider, model: newModel })));
   }
 
   /**
