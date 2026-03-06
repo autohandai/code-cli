@@ -320,6 +320,8 @@ export interface AcpSessionState {
   workspaceRoot: string;
   createdAt: number;
   abortController: AbortController;
+  /** Number of prompts processed in this session (used for title generation). */
+  promptCount: number;
 }
 
 // ============================================================================
