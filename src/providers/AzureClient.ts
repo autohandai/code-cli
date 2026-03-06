@@ -8,7 +8,6 @@ import type {
   LLMResponse,
   LLMToolCall,
   LLMUsage,
-  AzureSettings,
   AzureAuthMethod,
   NetworkSettings,
   FunctionDefinition,
@@ -118,6 +117,13 @@ export class AzureClient {
    * If baseUrl is provided:
    *   {baseUrl}/chat/completions?api-version={apiVersion}
    *
+   * If resourceName is a full URL (starts with https://):
+   *   {origin}/openai/deployments/{deploymentName}/chat/completions?api-version={apiVersion}
+   *   Supports all Azure endpoint domains:
+   *     - *.openai.azure.com (Azure OpenAI)
+   *     - *.services.ai.azure.com (Microsoft Foundry)
+   *     - *.cognitiveservices.azure.com (Azure AI Services)
+   *
    * Otherwise, from resourceName + deploymentName:
    *   https://{resourceName}.openai.azure.com/openai/deployments/{deploymentName}/chat/completions?api-version={apiVersion}
    */
@@ -133,6 +139,16 @@ export class AzureClient {
       throw new Error(
         "Azure OpenAI requires either baseUrl or both resourceName and deploymentName in ~/.autohand/config.json.",
       );
+    }
+
+    // If resourceName is a full URL, extract just the origin (protocol + host)
+    if (resourceName.startsWith("http://") || resourceName.startsWith("https://")) {
+      try {
+        const parsed = new URL(resourceName);
+        return `${parsed.origin}/openai/deployments/${deploymentName}/chat/completions?api-version=${apiVersion}`;
+      } catch {
+        // Fall through to default construction if URL parsing fails
+      }
     }
 
     return `https://${resourceName}.openai.azure.com/openai/deployments/${deploymentName}/chat/completions?api-version=${apiVersion}`;

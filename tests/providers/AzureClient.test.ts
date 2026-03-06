@@ -6,7 +6,6 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { AzureClient } from '../../src/providers/AzureClient';
-import type { LLMRequest } from '../../src/types';
 
 describe('AzureClient', () => {
   afterEach(() => {
@@ -55,6 +54,137 @@ describe('AzureClient', () => {
 
       expect(fetchSpy).toHaveBeenCalledWith(
         'https://my-proxy.example.com/openai/deployments/gpt-4o/chat/completions?api-version=2024-10-21',
+        expect.anything()
+      );
+    });
+
+    it('should handle resourceName that is a full URL (Microsoft Foundry format)', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'test-id', created: 123,
+          choices: [{ message: { content: 'hello' }, finish_reason: 'stop' }]
+        })
+      } as Response);
+
+      const client = new AzureClient({
+        model: 'gpt-4o',
+        resourceName: 'https://hello-world-from-autoha-resource.services.ai.azure.com',
+        deploymentName: 'gpt-4o',
+        apiVersion: '2024-10-21',
+        apiKey: 'test-key',
+        authMethod: 'api-key'
+      });
+
+      await client.complete({ messages: [{ role: 'user', content: 'hi' }] });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://hello-world-from-autoha-resource.services.ai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2024-10-21',
+        expect.anything()
+      );
+    });
+
+    it('should handle resourceName that is a full URL with trailing slash', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'test-id', created: 123,
+          choices: [{ message: { content: 'hello' }, finish_reason: 'stop' }]
+        })
+      } as Response);
+
+      const client = new AzureClient({
+        model: 'gpt-4o',
+        resourceName: 'https://my-resource.services.ai.azure.com/',
+        deploymentName: 'my-deploy',
+        apiVersion: '2024-10-21',
+        apiKey: 'test-key',
+        authMethod: 'api-key'
+      });
+
+      await client.complete({ messages: [{ role: 'user', content: 'hi' }] });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://my-resource.services.ai.azure.com/openai/deployments/my-deploy/chat/completions?api-version=2024-10-21',
+        expect.anything()
+      );
+    });
+
+    it('should handle resourceName that is a full URL with path components', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'test-id', created: 123,
+          choices: [{ message: { content: 'hello' }, finish_reason: 'stop' }]
+        })
+      } as Response);
+
+      const client = new AzureClient({
+        model: 'gpt-4o',
+        resourceName: 'https://hello-world-from-autoha-resource.services.ai.azure.com/api/projects/hello-world-from-autohand-code',
+        deploymentName: 'hello-world-from-autohand-code',
+        apiVersion: '2024-10-21',
+        apiKey: 'test-key',
+        authMethod: 'api-key'
+      });
+
+      await client.complete({ messages: [{ role: 'user', content: 'hi' }] });
+
+      // Should extract just the origin (protocol+host) and use standard path
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://hello-world-from-autoha-resource.services.ai.azure.com/openai/deployments/hello-world-from-autohand-code/chat/completions?api-version=2024-10-21',
+        expect.anything()
+      );
+    });
+
+    it('should handle resourceName that is a cognitiveservices.azure.com URL', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'test-id', created: 123,
+          choices: [{ message: { content: 'hello' }, finish_reason: 'stop' }]
+        })
+      } as Response);
+
+      const client = new AzureClient({
+        model: 'gpt-4o',
+        resourceName: 'https://hello-world-from-autoha-resource.cognitiveservices.azure.com/',
+        deploymentName: 'gpt-4o',
+        apiVersion: '2024-10-21',
+        apiKey: 'test-key',
+        authMethod: 'api-key'
+      });
+
+      await client.complete({ messages: [{ role: 'user', content: 'hi' }] });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://hello-world-from-autoha-resource.cognitiveservices.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2024-10-21',
+        expect.anything()
+      );
+    });
+
+    it('should handle resourceName that is an openai.azure.com URL', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'test-id', created: 123,
+          choices: [{ message: { content: 'hello' }, finish_reason: 'stop' }]
+        })
+      } as Response);
+
+      const client = new AzureClient({
+        model: 'gpt-4o',
+        resourceName: 'https://my-resource.openai.azure.com',
+        deploymentName: 'gpt-4o',
+        apiVersion: '2024-10-21',
+        apiKey: 'test-key',
+        authMethod: 'api-key'
+      });
+
+      await client.complete({ messages: [{ role: 'user', content: 'hi' }] });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://my-resource.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2024-10-21',
         expect.anything()
       );
     });
