@@ -5,11 +5,12 @@
  */
 
 import chalk from 'chalk';
+import { t } from '../i18n/index.js';
 import { showModal, showInput, showPassword, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 import fse from 'fs-extra';
 import { join } from 'path';
 
-import type { AutohandConfig, LoadedConfig, ProviderName } from '../types.js';
+import type { AutohandConfig, LoadedConfig, ProviderName, AzureSettings, AzureAuthMethod } from '../types.js';
 import { getProviderConfig } from '../config.js';
 import { ProviderFactory } from '../providers/ProviderFactory.js';
 import { ProjectAnalyzer } from './projectAnalyzer.js';
@@ -44,6 +45,7 @@ interface OnboardingState {
     autoConfirm?: boolean;
     checkForUpdates?: boolean;
   };
+  azureConfig?: AzureSettings;
   agentsFileCreated?: boolean;
   skipped: OnboardingStep[];
   completed: boolean;
@@ -123,15 +125,21 @@ export class SetupWizard {
       const provider = await this.promptProvider();
       if (!provider) return this.cancelled();
 
-      // Step 3: API key (for cloud providers)
-      if (this.requiresApiKey(provider)) {
-        const apiKey = await this.promptApiKey(provider);
-        if (apiKey === null) return this.cancelled();
-      }
+      // Step 3 & 4: Provider-specific configuration
+      if (provider === 'azure') {
+        // Azure has its own full config flow (auth, endpoint, deployment)
+        const azureResult = await this.promptAzureConfig();
+        if (!azureResult) return this.cancelled();
+      } else {
+        // Standard flow: API key + model
+        if (this.requiresApiKey(provider)) {
+          const apiKey = await this.promptApiKey(provider);
+          if (apiKey === null) return this.cancelled();
+        }
 
-      // Step 4: Model selection
-      const model = await this.promptModel(provider);
-      if (!model) return this.cancelled();
+        const model = await this.promptModel(provider);
+        if (!model) return this.cancelled();
+      }
 
       // Step 5: Telemetry opt-in/opt-out
       await this.promptTelemetry();
@@ -223,7 +231,7 @@ export class SetupWizard {
     }
 
     const result = await showModal({
-      title: 'Which LLM provider would you like to use?',
+      title: t('providers.config.chooseProvider'),
       options,
       initialIndex: initialIndex >= 0 ? initialIndex : 0
     });
@@ -275,13 +283,13 @@ export class SetupWizard {
     }
 
     // Show help link
-    console.log(chalk.gray(`\n  Get your API key at: ${this.getApiKeyUrl(provider)}\n`));
+    console.log(chalk.gray('\n  ' + t('providers.config.apiKeyUrl', { url: this.getApiKeyUrl(provider) }) + '\n'));
 
     const apiKey = await showPassword({
-      title: `Enter your ${this.getProviderDisplayName(provider)} API key`,
+      title: t('providers.config.enterApiKey', { provider: this.getProviderDisplayName(provider) }),
       validate: (val: string) => {
-        if (!val?.trim()) return 'API key is required';
-        if (val.length < 10) return 'API key seems too short';
+        if (!val?.trim()) return t('providers.config.apiKeyRequired');
+        if (val.length < 10) return t('providers.config.apiKeyTooShort');
         return true;
       }
     });
@@ -305,7 +313,7 @@ export class SetupWizard {
     // For simplicity, just use input with default
     // In a full implementation, we'd fetch available models
     const model = await showInput({
-      title: 'Enter model ID',
+      title: t('providers.config.enterModelId'),
       defaultValue: defaultModel,
       validate: (val: string) => {
         return val?.trim() ? true : 'Model is required';
@@ -423,10 +431,10 @@ export class SetupWizard {
       tui: 'New Zealand inspired colors'
     };
 
-    const themeOptions: ModalOption[] = themes.map(t => ({
-      label: t,
-      value: t,
-      description: themeDescriptions[t]
+    const themeOptions: ModalOption[] = themes.map(themeName => ({
+      label: themeName,
+      value: themeName,
+      description: themeDescriptions[themeName]
     }));
 
     const themeResult = await showModal({
@@ -542,7 +550,9 @@ export class SetupWizard {
 
     // Set provider-specific config
     if (this.state.provider) {
-      if (this.requiresApiKey(this.state.provider)) {
+      if (this.state.provider === 'azure' && this.state.azureConfig) {
+        config.azure = this.state.azureConfig;
+      } else if (this.requiresApiKey(this.state.provider)) {
         (config as any)[this.state.provider] = {
           apiKey: this.state.apiKey,
           model: this.state.model,
@@ -623,6 +633,136 @@ export class SetupWizard {
     };
   }
 
+  /**
+   * Full Azure OpenAI configuration flow
+   * Shows prerequisites, collects auth method, endpoint, deployment, and API version
+   */
+  private async promptAzureConfig(): Promise<boolean> {
+    this.state.currentStep = 'apiKey';
+
+    // Show title and prerequisites
+    console.log(chalk.cyan('\n' + t('providers.wizard.azure.title')));
+    console.log(chalk.gray(t('providers.wizard.azure.getStarted') + '\n'));
+
+    console.log(chalk.yellow(t('providers.wizard.azure.setupSteps.title')));
+    console.log(chalk.gray('  ' + t('providers.wizard.azure.setupSteps.step1')));
+    console.log(chalk.gray('  ' + t('providers.wizard.azure.setupSteps.step2')));
+    console.log(chalk.gray('  ' + t('providers.wizard.azure.setupSteps.step3')));
+    console.log(chalk.gray('  ' + t('providers.wizard.azure.setupSteps.step4')));
+    console.log();
+
+    // Step 1: Auth method
+    const authChoices: ModalOption[] = [
+      { label: t('providers.wizard.azure.authApiKey'), value: 'api-key' },
+      { label: t('providers.wizard.azure.authEntraId'), value: 'entra-id' },
+      { label: t('providers.wizard.azure.authManagedIdentity'), value: 'managed-identity' }
+    ];
+
+    const authResult = await showModal({
+      title: t('providers.wizard.azure.selectAuthMethod'),
+      options: authChoices
+    });
+
+    if (!authResult) return false;
+
+    const authMethod = authResult.value as AzureAuthMethod;
+    let apiKey: string | undefined;
+    let tenantId: string | undefined;
+    let clientId: string | undefined;
+    let clientSecret: string | undefined;
+
+    // Step 2: Auth-specific prompts
+    if (authMethod === 'api-key') {
+      console.log(chalk.gray('\n' + t('providers.wizard.azure.apiKeyLocation') + '\n'));
+      apiKey = await showPassword({ title: t('providers.wizard.azure.enterAzureApiKey') }) ?? undefined;
+      if (!apiKey) return false;
+    } else if (authMethod === 'entra-id') {
+      console.log(chalk.gray('\n' + t('providers.wizard.azure.entraIdDescription')));
+      console.log(chalk.gray(t('providers.wizard.azure.entraIdDocs') + '\n'));
+
+      tenantId = await showInput({ title: t('providers.wizard.azure.enterTenantId') }) ?? undefined;
+      if (!tenantId) return false;
+
+      clientId = await showInput({ title: t('providers.wizard.azure.enterClientId') }) ?? undefined;
+      if (!clientId) return false;
+
+      clientSecret = await showPassword({ title: t('providers.wizard.azure.enterClientSecret') }) ?? undefined;
+      if (!clientSecret) return false;
+    } else {
+      console.log(chalk.gray('\n' + t('providers.wizard.azure.managedIdentityDescription')));
+      console.log(chalk.gray(t('providers.wizard.azure.managedIdentityDocs') + '\n'));
+    }
+
+    // Step 3: Endpoint configuration
+    const endpointChoice = await showModal({
+      title: t('providers.wizard.azure.endpointChoice'),
+      options: [
+        { label: t('providers.wizard.azure.endpointStructured'), value: 'structured' },
+        { label: t('providers.wizard.azure.endpointUrl'), value: 'url' }
+      ]
+    });
+
+    if (!endpointChoice) return false;
+
+    let resourceName: string | undefined;
+    let deploymentName: string | undefined;
+    let baseUrl: string | undefined;
+
+    if (endpointChoice.value === 'structured') {
+      console.log(chalk.gray(t('providers.wizard.azure.endpointUrlHint')));
+      console.log(chalk.gray(t('providers.wizard.azure.endpointUrlExample') + '\n'));
+      resourceName = await showInput({ title: t('providers.wizard.azure.enterEndpointOrResource') }) ?? undefined;
+      if (!resourceName) return false;
+
+      console.log(chalk.gray('\n' + t('providers.wizard.azure.deploymentHint')));
+      console.log(chalk.gray(t('providers.wizard.azure.deploymentNotUrl') + '\n'));
+      deploymentName = await showInput({ title: t('providers.wizard.azure.enterDeploymentName'), defaultValue: 'gpt-5.3-codex' }) ?? undefined;
+      if (!deploymentName) return false;
+      if (deploymentName.startsWith('http://') || deploymentName.startsWith('https://')) {
+        console.log(chalk.red('\n✗ ' + t('providers.wizard.azure.deploymentUrlError')));
+        console.log(chalk.gray('  ' + t('providers.wizard.azure.deploymentUrlErrorHint')));
+        console.log(chalk.gray('  ' + t('providers.wizard.azure.deploymentUrlErrorLocation') + '\n'));
+        return false;
+      }
+    } else {
+      baseUrl = await showInput({
+        title: t('providers.wizard.azure.enterFullEndpointUrl'),
+        defaultValue: 'https://your-resource.openai.azure.com/openai/deployments/gpt-5.3-codex'
+      }) ?? undefined;
+      if (!baseUrl) return false;
+    }
+
+    // Step 4: API version
+    const apiVersion = await showInput({ title: t('providers.wizard.azure.apiVersion'), defaultValue: '2024-10-21' }) ?? undefined;
+    if (!apiVersion) return false;
+
+    const model = deploymentName ?? 'gpt-5.3-codex';
+
+    // Build and store Azure config
+    const azureConfig: AzureSettings = {
+      model,
+      authMethod,
+      apiVersion,
+      ...(apiKey && { apiKey }),
+      ...(tenantId && { tenantId }),
+      ...(clientId && { clientId }),
+      ...(clientSecret && { clientSecret }),
+      ...(resourceName && { resourceName }),
+      ...(deploymentName && { deploymentName }),
+      ...(baseUrl && { baseUrl }),
+    };
+
+    this.state.azureConfig = azureConfig;
+    this.state.model = model;
+
+    console.log(chalk.green('\n✓ ' + t('providers.config.configuredSuccessfully', { provider: t('providers.azure') })));
+    console.log(chalk.gray('  ' + t('providers.wizard.azure.authLabel', { method: authMethod })));
+    console.log(chalk.gray('  ' + t('providers.config.modelLabel', { model })));
+    console.log();
+
+    return true;
+  }
+
   // Helper methods
 
   private requiresApiKey(provider: ProviderName): boolean {
@@ -630,36 +770,18 @@ export class SetupWizard {
   }
 
   private getProviderDisplayName(provider: ProviderName): string {
-    const names: Record<ProviderName, string> = {
-      openrouter: 'OpenRouter',
-      openai: 'OpenAI',
-      ollama: 'Ollama',
-      llamacpp: 'llama.cpp',
-      mlx: 'MLX (Apple Silicon)',
-      llmgateway: 'LLM Gateway',
-      azure: 'Azure OpenAI'
-    };
-    return names[provider] || provider;
+    return t(`providers.${provider}`);
   }
 
   private getProviderHint(provider: ProviderName): string {
-    const hints: Record<ProviderName, string> = {
-      openrouter: 'Cloud - Access to 100+ models (Claude, GPT-4, etc.)',
-      openai: 'Cloud - Official OpenAI models (GPT-4o, o1, etc.)',
-      ollama: 'Local - Run models on your machine (free)',
-      llamacpp: 'Local - Fast inference with GGUF models',
-      mlx: 'Local - Optimized for Apple Silicon Macs',
-      llmgateway: 'Cloud - Unified API for multiple LLM providers',
-      azure: 'Cloud - Azure OpenAI Service (enterprise)'
-    };
-    return hints[provider] || '';
+    return t(`providers.hints.${provider}`);
   }
 
   private getApiKeyUrl(provider: ProviderName): string {
     const urls: Record<string, string> = {
-      openrouter: 'https://openrouter.ai/keys',
-      openai: 'https://platform.openai.com/api-keys',
-      llmgateway: 'https://llmgateway.io/dashboard'
+      openrouter: t('providers.wizard.openrouter.apiKeyUrl'),
+      openai: t('providers.wizard.openai.apiKeyUrl'),
+      llmgateway: t('providers.wizard.llmgateway.apiKeyUrl')
     };
     return urls[provider] || '';
   }
@@ -672,7 +794,7 @@ export class SetupWizard {
       llamacpp: 'default',
       mlx: 'mlx-community/Llama-3.2-3B-Instruct-4bit',
       llmgateway: 'gpt-4o',
-      azure: 'gpt-4o'
+      azure: 'gpt-5.3-codex'
     };
     return defaults[provider] || '';
   }
