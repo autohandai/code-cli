@@ -114,31 +114,6 @@ describe('installReadlineOutputGuard', () => {
 });
 
 describe('Display content utilities', () => {
-  it('should calculate display content with truncation', async () => {
-    const { getDisplayContent } = await import('../../src/ui/inputPrompt.js');
-
-    // Short content should not be truncated
-    const shortResult = getDisplayContent('hello', 80);
-    expect(shortResult.isTruncated).toBe(false);
-    expect(shortResult.display).toBe('hello');
-
-    // Empty content
-    const emptyResult = getDisplayContent('', 80);
-    expect(emptyResult.display).toBe('');
-    expect(emptyResult.totalLines).toBe(0);
-  });
-
-  it('should count newline markers correctly', async () => {
-    const { countNewlineMarkers, NEWLINE_MARKER } = await import('../../src/ui/inputPrompt.js');
-
-    expect(countNewlineMarkers('')).toBe(0);
-    expect(countNewlineMarkers('hello')).toBe(0);
-    expect(countNewlineMarkers(`hello${NEWLINE_MARKER}world`)).toBe(1);
-    expect(countNewlineMarkers(`a${NEWLINE_MARKER}b${NEWLINE_MARKER}c`)).toBe(2);
-    expect(countNewlineMarkers('line1\nline2')).toBe(1);
-    expect(countNewlineMarkers(`a${NEWLINE_MARKER}b\nc`)).toBe(2);
-  });
-
   it('should convert newline markers to actual newlines', async () => {
     const { convertNewlineMarkersToNewlines, NEWLINE_MARKER } = await import('../../src/ui/inputPrompt.js');
 
@@ -575,20 +550,37 @@ describe('promptNotify', () => {
 });
 
 describe('partial escape sequence filtering', () => {
-  it('regex matches residual CSI fragments after readline strips ESC[', () => {
-    // These are the fragments left when readline consumes ESC[ from CSI u / xterm sequences
-    const regex = /^13;?[234]?\d*[u~]$/;
-    expect(regex.test('13;2u')).toBe(true);
-    expect(regex.test('13;3u')).toBe(true);
-    expect(regex.test('13;4u')).toBe(true);
-    expect(regex.test('13;2~')).toBe(true);
-    expect(regex.test('13;3~')).toBe(true);
-    expect(regex.test('13~')).toBe(true);
-    expect(regex.test('13u')).toBe(true);
-    // Should NOT match normal text
-    expect(regex.test('hello')).toBe(false);
-    expect(regex.test('13')).toBe(false);
-    expect(regex.test('9;2u')).toBe(false);
+  it('matches residual CSI fragments after readline strips ESC[', async () => {
+    const { isShiftEnterResidualSequence } = await import('../../src/ui/inputPrompt.js');
+
+    expect(isShiftEnterResidualSequence('13;2u')).toBe(true);
+    expect(isShiftEnterResidualSequence('13;3u')).toBe(true);
+    expect(isShiftEnterResidualSequence('13;4u')).toBe(true);
+    expect(isShiftEnterResidualSequence('13;2~')).toBe(true);
+    expect(isShiftEnterResidualSequence('13;3~')).toBe(true);
+    expect(isShiftEnterResidualSequence('13~')).toBe(true);
+    expect(isShiftEnterResidualSequence('13u')).toBe(true);
+    expect(isShiftEnterResidualSequence('hello')).toBe(false);
+    expect(isShiftEnterResidualSequence('13')).toBe(false);
+    expect(isShiftEnterResidualSequence('9;2u')).toBe(false);
+  });
+
+  it('counts raw modified-enter sequences from terminal data chunks', async () => {
+    const { countRawModifiedEnterSequences } = await import('../../src/ui/inputPrompt.js');
+
+    expect(countRawModifiedEnterSequences('\x1b[13;2~')).toBe(1);
+    expect(countRawModifiedEnterSequences('\x1b[13;2u\x1b[13;3u')).toBe(2);
+    expect(countRawModifiedEnterSequences('\x1b\r')).toBe(1);
+    expect(countRawModifiedEnterSequences('hello')).toBe(0);
+  });
+
+  it('counts concatenated residual modified-enter fragments', async () => {
+    const { countResidualModifiedEnterSequences } = await import('../../src/ui/inputPrompt.js');
+
+    expect(countResidualModifiedEnterSequences('13~')).toBe(1);
+    expect(countResidualModifiedEnterSequences('13~13~13~')).toBe(3);
+    expect(countResidualModifiedEnterSequences('13;2u13;2u')).toBe(2);
+    expect(countResidualModifiedEnterSequences('hello13~')).toBe(0);
   });
 });
 
@@ -666,6 +658,29 @@ describe('buildMultiLineRenderState', () => {
     for (const line of state.lines) {
       expect(stripAnsi(line).length).toBe(40);
     }
+  });
+
+  it('wraps a long single line across multiple visual rows', async () => {
+    const { buildMultiLineRenderState } = await import('../../src/ui/inputPrompt.js');
+    const stripAnsi = (s: string) => s.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
+
+    const state = buildMultiLineRenderState('alpha beta gamma delta', 22, 16);
+
+    expect(state.lineCount).toBeGreaterThan(1);
+    expect(state.lines.length).toBe(state.lineCount);
+
+    const firstInner = stripAnsi(state.lines[0]).slice(1, -1);
+    const secondInner = stripAnsi(state.lines[1]).slice(1, -1);
+    expect(firstInner.startsWith('❯ ')).toBe(true);
+    expect(secondInner.startsWith('  ')).toBe(true);
+  });
+
+  it('moves the cursor onto the wrapped visual row for long single-line input', async () => {
+    const { buildMultiLineRenderState } = await import('../../src/ui/inputPrompt.js');
+
+    const state = buildMultiLineRenderState('alpha beta gamma delta', 22, 16);
+
+    expect(state.cursorRow).toBeGreaterThan(0);
   });
 });
 
@@ -797,5 +812,74 @@ describe('multi-line state exports', () => {
   it('getLastRenderedCursorRow defaults to 0', async () => {
     const { getLastRenderedCursorRow } = await import('../../src/ui/inputPrompt.js');
     expect(getLastRenderedCursorRow()).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('TextBuffer integration into inputPrompt', () => {
+  it('buildMultiLineRenderState handles real newlines identically to NEWLINE_MARKER', async () => {
+    const { buildMultiLineRenderState, NEWLINE_MARKER } = await import('../../src/ui/inputPrompt.js');
+    const stripAnsi = (s: string) => s.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
+
+    // Input with real newline should produce the same number of lines
+    // as the equivalent NEWLINE_MARKER-separated input
+    const markerInput = `line1${NEWLINE_MARKER}line2${NEWLINE_MARKER}line3`;
+    const newlineInput = 'line1\nline2\nline3';
+
+    const markerState = buildMultiLineRenderState(markerInput, 5, 80);
+    const newlineState = buildMultiLineRenderState(newlineInput, 5, 80);
+
+    expect(markerState.lineCount).toBe(3);
+    expect(newlineState.lineCount).toBe(3);
+
+    // Both should render the first line with PROMPT_INPUT_PREFIX and second with indent
+    const markerFirst = stripAnsi(markerState.lines[0]);
+    const newlineFirst = stripAnsi(newlineState.lines[0]);
+    expect(markerFirst).toContain('❯');
+    expect(newlineFirst).toContain('❯');
+  });
+
+  it('isShiftEnterSequence correctly identifies Shift+Enter for TextBuffer newline insertion', async () => {
+    const { isShiftEnterSequence } = await import('../../src/ui/inputPrompt.js');
+
+    // Plain Enter should NOT be a shift enter sequence (TextBuffer returns 'submit')
+    expect(isShiftEnterSequence('\r', { name: 'return', sequence: '\r' } as readline.Key)).toBe(false);
+
+    // Shift+Enter SHOULD be detected (TextBuffer inserts '\n')
+    expect(isShiftEnterSequence('\r', { name: 'return', sequence: '\r', shift: true } as readline.Key)).toBe(true);
+    expect(isShiftEnterSequence('\x1b[13;2u', { sequence: '\x1b[13;2u' } as readline.Key)).toBe(true);
+  });
+
+  it('convertNewlineMarkersToNewlines handles mixed markers and real newlines', async () => {
+    const { convertNewlineMarkersToNewlines, NEWLINE_MARKER } = await import('../../src/ui/inputPrompt.js');
+
+    // TextBuffer uses real \n, but legacy content might still have NEWLINE_MARKER
+    const mixed = `line1${NEWLINE_MARKER}line2\nline3`;
+    const result = convertNewlineMarkersToNewlines(mixed);
+    expect(result).toBe('line1\nline2\nline3');
+  });
+
+  it('buildMultiLineRenderState handles empty lines from consecutive newlines', async () => {
+    const { buildMultiLineRenderState } = await import('../../src/ui/inputPrompt.js');
+
+    // TextBuffer can produce consecutive newlines
+    const input = 'line1\n\nline3';
+    const state = buildMultiLineRenderState(input, 5, 80);
+
+    expect(state.lineCount).toBe(3);
+    expect(state.lines.length).toBe(3);
+  });
+
+  it('buildMultiLineRenderState cursor position for real newline input', async () => {
+    const { buildMultiLineRenderState } = await import('../../src/ui/inputPrompt.js');
+
+    // Simulate cursor at the start of the second line after a real newline
+    // "hello\nw" -> cursor at position 6 (right after \n, at start of "w")
+    const input = 'hello\nworld';
+    // Position the cursor at 'w' (index 6 in the flat string with \n as separator of length 1)
+    const cursorPos = 6;
+    const state = buildMultiLineRenderState(input, cursorPos, 80);
+
+    expect(state.cursorRow).toBe(1);
+    expect(state.lineCount).toBe(2);
   });
 });

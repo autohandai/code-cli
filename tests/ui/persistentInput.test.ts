@@ -58,7 +58,7 @@ function pressEnter(mockStdin: EventEmitter) {
 }
 
 describe('PersistentInput Shift+Enter handling', () => {
-  it('handleKeypress inserts newline marker for Shift+Enter CSI/u and parsed variants', async () => {
+  it('Shift+Enter inserts real newlines via TextBuffer', async () => {
     const mockStdin = createMockStdin();
     const mockStdout = createMockStdout();
 
@@ -69,32 +69,221 @@ describe('PersistentInput Shift+Enter handling', () => {
 
     try {
       const { PersistentInput } = await import('../../src/ui/persistentInput.js');
-      const { NEWLINE_MARKER } = await import('../../src/ui/inputPrompt.js');
 
       const input = new PersistentInput({ silentMode: true });
       input.start();
 
-      // Simulate Shift+Enter (CSI u protocol: ESC[13;2u)
-      emitKey(mockStdin, '\x1b[13;2u', { sequence: '\x1b[13;2u' });
+      // Simulate Shift+Enter via readline parsed (shift: true)
+      emitKey(mockStdin, '\r', { name: 'return', sequence: '\r', shift: true });
+
+      // Should insert a real newline (TextBuffer handles this)
+      expect(input.getCurrentInput()).toBe('\n');
 
       // Also simulate Alt+Enter (ESC[13;3u)
       emitKey(mockStdin, '\x1b[13;3u', { sequence: '\x1b[13;3u' });
 
-      // Also simulate Shift+Enter via readline parsed (shift: true)
-      emitKey(mockStdin, '\r', { name: 'return', sequence: '\r', shift: true });
+      // Two newlines now
+      expect(input.getCurrentInput()).toBe('\n\n');
 
-      // Three newline markers should have been inserted
-      expect(input.getCurrentInput()).toBe(`${NEWLINE_MARKER}${NEWLINE_MARKER}${NEWLINE_MARKER}`);
+      // Also simulate Shift+Enter (CSI u protocol: ESC[13;2u)
+      emitKey(mockStdin, '\x1b[13;2u', { sequence: '\x1b[13;2u' });
 
-      // Now verify normal typing still works
+      // Three newlines
+      expect(input.getCurrentInput()).toBe('\n\n\n');
+
+      // Now verify normal typing still works after newlines
       emitKey(mockStdin, 'a', { name: 'a' });
-      expect(input.getCurrentInput()).toBe(`${NEWLINE_MARKER}${NEWLINE_MARKER}${NEWLINE_MARKER}a`);
+      expect(input.getCurrentInput()).toBe('\n\n\na');
 
       input.stop();
     } finally {
       Object.defineProperty(process, 'stdin', { value: origStdin, writable: true, configurable: true });
       Object.defineProperty(process, 'stdout', { value: origStdout, writable: true, configurable: true });
     }
+  });
+});
+
+// ── TextBuffer integration ───────────────────────────────────────────
+
+describe('PersistentInput TextBuffer integration', () => {
+  let mockStdin: ReturnType<typeof createMockStdin>;
+  let mockStdout: ReturnType<typeof createMockStdout>;
+  let origStdin: NodeJS.ReadStream;
+  let origStdout: NodeJS.WriteStream;
+
+  beforeEach(() => {
+    mockStdin = createMockStdin();
+    mockStdout = createMockStdout();
+    origStdin = process.stdin;
+    origStdout = process.stdout;
+    Object.defineProperty(process, 'stdin', { value: mockStdin, writable: true, configurable: true });
+    Object.defineProperty(process, 'stdout', { value: mockStdout, writable: true, configurable: true });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process, 'stdin', { value: origStdin, writable: true, configurable: true });
+    Object.defineProperty(process, 'stdout', { value: origStdout, writable: true, configurable: true });
+  });
+
+  it('uses TextBuffer for input state — typing accumulates text', async () => {
+    const { PersistentInput } = await import('../../src/ui/persistentInput.js');
+    const input = new PersistentInput({ silentMode: true });
+    input.start();
+
+    typeString(mockStdin, 'hello');
+    expect(input.getCurrentInput()).toBe('hello');
+
+    input.stop();
+  });
+
+  it('backspace deletes one character at a time', async () => {
+    const { PersistentInput } = await import('../../src/ui/persistentInput.js');
+    const input = new PersistentInput({ silentMode: true });
+    input.start();
+
+    typeString(mockStdin, 'abc');
+    emitKey(mockStdin, '', { name: 'backspace' });
+    expect(input.getCurrentInput()).toBe('ab');
+
+    emitKey(mockStdin, '', { name: 'backspace' });
+    expect(input.getCurrentInput()).toBe('a');
+
+    input.stop();
+  });
+
+  it('backspace at line start merges lines (multi-line)', async () => {
+    const { PersistentInput } = await import('../../src/ui/persistentInput.js');
+    const input = new PersistentInput({ silentMode: true });
+    input.start();
+
+    // Type "hello", then Shift+Enter for newline, then "world"
+    typeString(mockStdin, 'hello');
+    emitKey(mockStdin, '\r', { name: 'return', shift: true });
+    typeString(mockStdin, 'world');
+
+    expect(input.getCurrentInput()).toBe('hello\nworld');
+
+    // Move cursor to start of "world" line — use Home key
+    emitKey(mockStdin, '', { name: 'home' });
+
+    // Now backspace should merge "world" with "hello"
+    emitKey(mockStdin, '', { name: 'backspace' });
+    expect(input.getCurrentInput()).toBe('helloworld');
+
+    input.stop();
+  });
+
+  it('setCurrentInput replaces text via TextBuffer', async () => {
+    const { PersistentInput } = await import('../../src/ui/persistentInput.js');
+    const input = new PersistentInput({ silentMode: true });
+    input.start();
+
+    typeString(mockStdin, 'original');
+    input.setCurrentInput('replaced');
+    expect(input.getCurrentInput()).toBe('replaced');
+
+    input.stop();
+  });
+
+  it('emits input-change event with TextBuffer content', async () => {
+    const { PersistentInput } = await import('../../src/ui/persistentInput.js');
+    const input = new PersistentInput({ silentMode: true });
+    input.start();
+
+    const changes: string[] = [];
+    input.on('input-change', (text: string) => { changes.push(text); });
+
+    typeString(mockStdin, 'hi');
+    // Each character emits a change
+    expect(changes).toEqual(['h', 'hi']);
+
+    input.stop();
+  });
+
+  it('stop() clears input via TextBuffer', async () => {
+    const { PersistentInput } = await import('../../src/ui/persistentInput.js');
+    const input = new PersistentInput({ silentMode: true });
+    input.start();
+
+    typeString(mockStdin, 'data');
+    expect(input.getCurrentInput()).toBe('data');
+
+    input.stop();
+    expect(input.getCurrentInput()).toBe('');
+  });
+
+  it('? shortcut shows help when input is empty (via TextBuffer)', async () => {
+    const { PersistentInput } = await import('../../src/ui/persistentInput.js');
+    const input = new PersistentInput({ silentMode: false });
+    input.start();
+
+    // ? on empty input shows help, does NOT insert ?
+    emitKey(mockStdin, '?', { name: '?' });
+    expect(input.getCurrentInput()).toBe('');
+
+    input.stop();
+  });
+
+  it('? inserts character when input is non-empty', async () => {
+    const { PersistentInput } = await import('../../src/ui/persistentInput.js');
+    const input = new PersistentInput({ silentMode: true });
+    input.start();
+
+    typeString(mockStdin, 'test');
+    emitKey(mockStdin, '?', { name: '?' });
+    expect(input.getCurrentInput()).toBe('test?');
+
+    input.stop();
+  });
+
+  it('Enter submits multi-line text with actual newlines', async () => {
+    vi.useFakeTimers();
+    try {
+      const { PersistentInput } = await import('../../src/ui/persistentInput.js');
+      const input = new PersistentInput({ silentMode: true });
+      input.start();
+
+      const queuedMessages: string[] = [];
+      input.on('queued', (text: string) => { queuedMessages.push(text); });
+
+      // Build multi-line input
+      typeString(mockStdin, 'line1');
+      emitKey(mockStdin, '\r', { name: 'return', shift: true });
+      typeString(mockStdin, 'line2');
+
+      expect(input.getCurrentInput()).toBe('line1\nline2');
+
+      // Submit with Enter
+      pressEnter(mockStdin);
+      vi.advanceTimersByTime(100);
+
+      expect(queuedMessages).toHaveLength(1);
+      expect(queuedMessages[0]).toBe('line1\nline2');
+
+      // Input should be cleared after submit
+      expect(input.getCurrentInput()).toBe('');
+
+      input.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('arrow keys navigate within TextBuffer', async () => {
+    const { PersistentInput } = await import('../../src/ui/persistentInput.js');
+    const input = new PersistentInput({ silentMode: true });
+    input.start();
+
+    typeString(mockStdin, 'abc');
+
+    // Move left twice, then type 'X'
+    emitKey(mockStdin, '', { name: 'left' });
+    emitKey(mockStdin, '', { name: 'left' });
+    emitKey(mockStdin, 'X', { name: 'X' });
+
+    expect(input.getCurrentInput()).toBe('aXbc');
+
+    input.stop();
   });
 });
 

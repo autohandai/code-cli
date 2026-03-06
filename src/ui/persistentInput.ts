@@ -11,13 +11,13 @@ import readline from 'node:readline';
 import EventEmitter from 'node:events';
 import { TerminalRegions, createTerminalRegions } from './terminalRegions.js';
 import {
-  NEWLINE_MARKER,
-  convertNewlineMarkersToNewlines,
-  countNewlineMarkers,
   safeEmitKeypressEvents,
   isPlainTabShortcut,
-  isShiftEnterSequence
+  isShiftEnterSequence,
+  isShiftEnterResidualSequence
 } from './inputPrompt.js';
+import { TextBuffer } from './textBuffer.js';
+import { handleTextBufferKey } from './textBufferKeyHandler.js';
 import { safeSetRawMode } from './rawMode.js';
 import { getPrimaryShellCommandSuggestion, isImmediateCommand } from './shellCommand.js';
 import { getPlanModeManager } from '../commands/plan.js';
@@ -66,11 +66,9 @@ const PASTE_END = '\x1b[201~';
 /** How long to wait after a rapid Enter before treating it as a real submit (ms) */
 const RAPID_ENTER_DEBOUNCE_MS = 50;
 const MAX_PERSISTENT_NEWLINES = 9;
-const SHIFT_ENTER_RESIDUAL_PATTERN = /^13;?[234]?\d*[u~]$/;
-
 export class PersistentInput extends EventEmitter {
   private queue: QueuedMessage[] = [];
-  private currentInput = '';
+  private textBuffer: TextBuffer;
   private isActive = false;
   private maxQueueSize: number;
   private statusLine: string | { left: string; right: string };
@@ -102,6 +100,12 @@ export class PersistentInput extends EventEmitter {
     this.workspaceRoot = options.workspaceRoot ?? process.cwd();
     this.resolveShellSuggestion = options.resolveShellSuggestion;
     this.regions = createTerminalRegions(this.output);
+    this.textBuffer = new TextBuffer(80, 5);
+  }
+
+  /** Compatibility getter: returns the full text content from TextBuffer. */
+  get currentInput(): string {
+    return this.textBuffer.getText();
   }
 
   /**
@@ -129,8 +133,13 @@ export class PersistentInput extends EventEmitter {
     }
 
     this.isActive = true;
-    this.currentInput = '';
+    this.textBuffer.setText('');
     this.isPaused = false;
+
+    // Resize TextBuffer to match terminal width
+    const width = this.output.columns ?? 80;
+    this.textBuffer.setViewport(Math.max(10, width - 3), 5);
+
     try {
       this.input.resume();
     } catch {
@@ -198,7 +207,7 @@ export class PersistentInput extends EventEmitter {
       }
     }
 
-    this.currentInput = '';
+    this.textBuffer.setText('');
     this.queueShortcutSelectionIndex = null;
   }
 
@@ -311,26 +320,26 @@ export class PersistentInput extends EventEmitter {
    * Get current input (for external display)
    */
   getCurrentInput(): string {
-    return this.currentInput;
+    return this.textBuffer.getText();
   }
 
   /**
    * Replace the current draft input text.
    */
   setCurrentInput(value: string): void {
-    this.currentInput = value;
+    this.textBuffer.setText(value);
     if (this.isActive && !this.isPaused && !this.silentMode) {
-      this.regions.updateInput(this.currentInput);
+      this.regions.updateInput(this.textBuffer.getText());
     }
     this.emitInputChange();
   }
 
   private emitInputChange(): void {
-    this.emit('input-change', this.currentInput);
+    this.emit('input-change', this.textBuffer.getText());
   }
 
   /**
-   * Handle keypress events
+   * Handle keypress events — routes through TextBuffer key handler.
    */
   private handleKeypress = (_str: string, key: readline.Key): void => {
     if (!this.isActive || this.isPaused) {
@@ -383,45 +392,41 @@ export class PersistentInput extends EventEmitter {
     }
 
     // Show shortcut help when user types "?" on an empty draft.
-    if (_str === '?' && !key?.ctrl && !key?.meta && this.currentInput.trim().length === 0) {
+    if (_str === '?' && !key?.ctrl && !key?.meta && this.textBuffer.getText().trim().length === 0) {
       this.showShortcutHelp();
       return;
     }
 
     if (isPlainTabShortcut(_str, key)) {
-      const currentInput = this.currentInput;
-      if (currentInput.trim().startsWith('!') && this.resolveShellSuggestion) {
+      const currentText = this.textBuffer.getText();
+      if (currentText.trim().startsWith('!') && this.resolveShellSuggestion) {
         const requestId = ++this.shellSuggestionRequestId;
-        const immediateFallback = getPrimaryShellCommandSuggestion(currentInput, {
+        const immediateFallback = getPrimaryShellCommandSuggestion(currentText, {
           cwd: this.workspaceRoot,
         });
-        let expectedInputAtResponse = currentInput;
+        let expectedInputAtResponse = currentText;
 
         if (immediateFallback) {
-          this.currentInput = immediateFallback;
+          this.textBuffer.setText(immediateFallback);
           expectedInputAtResponse = immediateFallback;
-          if (!this.silentMode) {
-            this.regions.updateInput(this.currentInput);
-          }
+          this.updateDisplay();
           this.emitInputChange();
         }
 
-        this.resolveShellSuggestion(currentInput)
+        this.resolveShellSuggestion(currentText)
           .then((llmSuggestion) => {
             if (!this.isActive || this.isPaused || requestId !== this.shellSuggestionRequestId) {
               return;
             }
-            if (this.currentInput !== expectedInputAtResponse) {
+            if (this.textBuffer.getText() !== expectedInputAtResponse) {
               return;
             }
 
             if (llmSuggestion) {
-              this.currentInput = llmSuggestion;
+              this.textBuffer.setText(llmSuggestion);
             }
 
-            if (!this.silentMode) {
-              this.regions.updateInput(this.currentInput);
-            }
+            this.updateDisplay();
             this.emitInputChange();
           })
           .catch(() => {
@@ -430,86 +435,14 @@ export class PersistentInput extends EventEmitter {
         return;
       }
 
-      const suggestion = getPrimaryShellCommandSuggestion(this.currentInput, {
+      const suggestion = getPrimaryShellCommandSuggestion(this.textBuffer.getText(), {
         cwd: this.workspaceRoot,
       });
       if (suggestion) {
-        this.currentInput = suggestion;
-        if (!this.silentMode) {
-          this.regions.updateInput(this.currentInput);
-        }
+        this.textBuffer.setText(suggestion);
+        this.updateDisplay();
         this.emitInputChange();
       }
-      return;
-    }
-
-    // Shift+Enter / Alt+Enter insert visible newline marker; converted on submit.
-    // Also catch residual "13~" fragments when ESC[ is stripped by terminal/readline.
-    const rawSeq = key?.sequence ?? _str ?? '';
-    if (isShiftEnterSequence(_str, key) || SHIFT_ENTER_RESIDUAL_PATTERN.test(rawSeq)) {
-      if (countNewlineMarkers(this.currentInput) < MAX_PERSISTENT_NEWLINES) {
-        this.currentInput += NEWLINE_MARKER;
-        if (!this.silentMode) {
-          this.regions.updateInput(this.currentInput);
-        }
-        this.emitInputChange();
-      }
-      return;
-    }
-
-    // Handle Enter - execute immediate commands or submit to queue
-    if (key?.name === 'return' || key?.name === 'enter') {
-      const text = convertNewlineMarkersToNewlines(this.currentInput).trim();
-      if (text) {
-
-        // Shell commands (!) and slash commands (/) execute immediately, never queued
-        if (isImmediateCommand(text)) {
-          this.currentInput = '';
-          if (!this.silentMode) {
-            this.regions.updateInput('');
-          }
-          this.emitInputChange();
-          this.emit('immediate-command', text);
-          return;
-        }
-
-        // Rapid-Enter debounce: coalesce fast consecutive Enters (raw paste fallback)
-        this.rapidEnterLines.push(text);
-        this.currentInput = '';
-        if (!this.silentMode) {
-          this.regions.updateInput('');
-        }
-        this.emitInputChange();
-        this.scheduleRapidEnterFlush();
-      }
-      return;
-    }
-
-    // Handle Backspace
-    if (key?.name === 'backspace') {
-      if (this.currentInput.length > 0) {
-        if (this.currentInput.endsWith(NEWLINE_MARKER)) {
-          this.currentInput = this.currentInput.slice(0, -NEWLINE_MARKER.length);
-        } else {
-          this.currentInput = this.currentInput.slice(0, -1);
-        }
-        if (!this.silentMode) {
-          this.regions.updateInput(this.currentInput);
-        }
-        this.emitInputChange();
-      }
-      return;
-    }
-
-    // Handle Escape - emit for agent to handle cancellation
-    if (key?.name === 'escape') {
-      this.emit('escape');
-      return;
-    }
-
-    // Handle Ctrl+C
-    if (key?.name === 'c' && key.ctrl) {
-      this.emit('ctrl-c');
       return;
     }
 
@@ -519,23 +452,70 @@ export class PersistentInput extends EventEmitter {
       return;
     }
 
-    // Ignore other control keys
-    if (key?.ctrl || key?.meta) {
+    // Shift+Enter / Alt+Enter inserts a real newline via TextBuffer.
+    // The key handler handles the standard readline-parsed case
+    // (key.name='return' + shift/meta), but modern terminals using CSI u
+    // protocol send raw ESC[13;Xu sequences that readline doesn't parse.
+    // We also catch residual fragments where readline strips the ESC[ prefix.
+    const rawSeq = key?.sequence ?? _str ?? '';
+    if (isShiftEnterSequence(_str, key) || isShiftEnterResidualSequence(rawSeq)) {
+      if (this.textBuffer.getLineCount() - 1 < MAX_PERSISTENT_NEWLINES) {
+        this.textBuffer.insert('\n');
+        this.updateDisplay();
+        this.emitInputChange();
+      }
       return;
     }
 
-    // Add printable characters
-    if (_str) {
-      const printable = _str.replace(/[\x00-\x1F\x7F]/g, '');
-      if (printable) {
-        this.currentInput += printable;
-        if (!this.silentMode) {
-          this.regions.updateInput(this.currentInput);
+    // Route through TextBuffer key handler for all standard editing keys
+    const result = handleTextBufferKey(this.textBuffer, _str, key);
+
+    if (result === 'submit') {
+      const text = this.textBuffer.getText().trim();
+      if (text) {
+        // Shell commands (!) and slash commands (/) execute immediately, never queued
+        if (isImmediateCommand(text)) {
+          this.textBuffer.setText('');
+          this.updateDisplay();
+          this.emitInputChange();
+          this.emit('immediate-command', text);
+          return;
         }
+
+        // Rapid-Enter debounce: coalesce fast consecutive Enters (raw paste fallback)
+        this.rapidEnterLines.push(text);
+        this.textBuffer.setText('');
+        this.updateDisplay();
         this.emitInputChange();
+        this.scheduleRapidEnterFlush();
       }
+      return;
+    }
+
+    if (result === 'handled') {
+      this.updateDisplay();
+      this.emitInputChange();
+      return;
+    }
+
+    // 'unhandled' — Escape, Ctrl+C, etc.
+    if (key?.name === 'escape') {
+      this.emit('escape');
+      return;
+    }
+    if (key?.name === 'c' && key.ctrl) {
+      this.emit('ctrl-c');
+      return;
     }
   };
+
+  // ── Display helpers ──
+
+  private updateDisplay(): void {
+    if (!this.silentMode) {
+      this.regions.updateInput(this.textBuffer.getText());
+    }
+  }
 
   // ── Paste helpers ──
 
@@ -561,11 +541,9 @@ export class PersistentInput extends EventEmitter {
     if (lines.length === 0) return;
 
     if (lines.length === 1) {
-      // Single-line paste: append to currentInput (user may want to edit before submitting)
-      this.currentInput += lines[0];
-      if (!this.silentMode) {
-        this.regions.updateInput(this.currentInput);
-      }
+      // Single-line paste: insert into TextBuffer (user may want to edit before submitting)
+      this.textBuffer.insert(lines[0]!);
+      this.updateDisplay();
       this.emitInputChange();
     } else {
       // Multi-line paste: coalesce into a single queue entry
@@ -720,11 +698,11 @@ export class PersistentInput extends EventEmitter {
     }
 
     const pulledPreview = this.getQueuePreview(pulled.text);
-    this.currentInput = pulled.text;
+    this.textBuffer.setText(pulled.text);
     if (!this.silentMode) {
       this.regions.writeAbove(chalk.cyan(`\nPulled #${selectedIndex + 1} for edit: "${pulledPreview}"\n`));
       this.regions.writeAbove(chalk.gray('Press Enter to re-queue after editing.\n'));
-      this.regions.updateInput(this.currentInput);
+      this.regions.updateInput(this.textBuffer.getText());
       this.regions.updateStatus(this.getStatusText(), this.queue.length);
     }
     this.emitInputChange();
@@ -839,7 +817,7 @@ export class PersistentInput extends EventEmitter {
     }
 
     this.regions.renderFixedRegion(
-      this.currentInput,
+      this.textBuffer.getText(),
       this.queue.length,
       this.getStatusText(),
       this.activityLine
