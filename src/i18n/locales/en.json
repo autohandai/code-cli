@@ -460,7 +460,95 @@
     "configFile": "~/.autohand/config.json (your settings)",
     "agentsFile": "AGENTS.md (project instructions for Autohand)",
     "nextSteps": "Next steps:",
-    "tryCommand": "Try: autohand"
+    "tryCommand": "Try: autohand",
+    "language": {
+      "title": "Language Selection",
+      "description": "Choose the display language for Autohand.",
+      "prompt": "Select your preferred language:",
+      "detected": "Detected language: {{language}}",
+      "changed": "Language changed to {{language}}"
+    },
+    "apiKeyValidation": {
+      "validating": "Validating API key...",
+      "success": "API key is valid!",
+      "failed": "API key validation failed: {{error}}",
+      "hint": "Check that your API key is correct and has the right permissions.",
+      "skipped": "API key validation skipped."
+    },
+    "connectionTest": {
+      "testing": "Testing connection to {{provider}}...",
+      "success": "Successfully connected to {{provider}}!",
+      "failed": "Could not connect to {{provider}}: {{error}}",
+      "hintOllama": "Make sure Ollama is running: ollama serve",
+      "hintLlamacpp": "Make sure llama.cpp server is running: ./server -m model.gguf",
+      "hintMlx": "Make sure MLX server is running: mlx_lm.server --model <model-name>",
+      "continueAnyway": "Continue without a working connection?"
+    },
+    "permissions": {
+      "title": "Permission Mode",
+      "description": "Control how Autohand handles tool permissions.",
+      "interactive": "Interactive — ask before risky actions (recommended)",
+      "unrestricted": "Unrestricted — auto-approve everything",
+      "restricted": "Restricted — deny all dangerous operations",
+      "rememberPrompt": "Remember permission decisions for each session?",
+      "set": "Permission mode set to {{mode}}.",
+      "warning": "Unrestricted mode allows all actions without confirmation. Use with caution."
+    },
+    "workspaceSafety": {
+      "checking": "Checking workspace safety...",
+      "safe": "Workspace is safe.",
+      "unsafe": "This workspace may be unsafe: {{reason}}",
+      "continueUnsafe": "Continue in this directory anyway?"
+    },
+    "notifications": {
+      "title": "Notifications",
+      "description": "Get notified when Autohand finishes a task.",
+      "enablePrompt": "Enable desktop notifications?",
+      "soundPrompt": "Play a sound with notifications?"
+    },
+    "network": {
+      "title": "Network Settings",
+      "description": "Configure retry and timeout behavior for API requests.",
+      "needCustom": "Configure custom network settings? (retries, timeouts)",
+      "maxRetries": "Maximum retry attempts (1-5):",
+      "timeout": "Request timeout in milliseconds (5000-120000):"
+    },
+    "search": {
+      "title": "Web Search Provider",
+      "description": "Choose a web search provider for the /search tool.",
+      "prompt": "Select a search provider:",
+      "braveKeyPrompt": "Enter your Brave Search API key:",
+      "parallelKeyPrompt": "Enter your Parallel.ai API key:"
+    },
+    "mcp": {
+      "title": "MCP (Model Context Protocol)",
+      "description": "MCP lets Autohand connect to external tool servers for extended capabilities.",
+      "enablePrompt": "Enable MCP support?",
+      "enabled": "MCP support enabled. Configure servers in /settings or config.json."
+    },
+    "agent": {
+      "title": "Agent Behavior",
+      "maxIterationsPrompt": "Max iterations per request (10-500):",
+      "debugPrompt": "Enable debug mode? (verbose logging)",
+      "set": "Agent settings configured."
+    },
+    "review": {
+      "title": "Review Your Settings",
+      "provider": "Provider: {{provider}}",
+      "model": "Model: {{model}}",
+      "confirm": "Save these settings and finish setup?",
+      "goBack": "Restarting setup..."
+    },
+    "communitySkills": {
+      "title": "Community Skills",
+      "description": "Community skills extend Autohand with project-specific capabilities shared by the community.",
+      "enablePrompt": "Enable community skills?"
+    },
+    "advanced": {
+      "title": "Advanced Settings",
+      "description": "Configure notifications, network, search, MCP, agent behavior, and community skills.",
+      "prompt": "Would you like to configure advanced settings?"
+    }
   },
   "errors": {
     "generic": "An error occurred: {{message}}",

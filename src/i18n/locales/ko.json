@@ -10,10 +10,10 @@
     "no": "아니오",
     "done": "완료",
     "loading": "로딩 중...",
-    "pressEnter": "Enter를 눌러 계속하세요...",
-    "pressEscToCancel": "Esc를 눌러 취소",
+    "pressEnter": "계속하려면 Enter 키를 누르세요...",
+    "pressEscToCancel": "취소하려면 Esc 키를 누르세요",
     "or": "또는",
-    "and": "및",
+    "and": "그리고",
     "unknown": "알 수 없음",
     "none": "없음",
     "default": "기본값",
@@ -28,88 +28,88 @@
   "cli": {
     "description": "자율 LLM 기반 코딩 에이전트 CLI",
     "options": {
-      "prompt": "명령 모드로 단일 지시를 실행합니다",
-      "path": "작업할 작업 공간 경로",
-      "yes": "위험한 작업을 자동 확인합니다",
-      "dryRun": "변경 사항을 적용하지 않고 미리보기합니다",
-      "debug": "디버그 출력을 활성화합니다 (상세 로깅)",
-      "model": "구성된 LLM 모델을 재정의합니다",
-      "config": "구성 파일 경로 (기본값 ~/.autohand/config.json)",
+      "prompt": "명령 모드에서 단일 명령어 실행",
+      "path": "작업할 워크스페이스 경로",
+      "yes": "위험한 작업 자동 확인",
+      "dryRun": "변경사항 적용 없이 미리보기",
+      "debug": "디버그 출력 활성화 (자세한 로깅)",
+      "model": "설정된 LLM 모델 재정의",
+      "config": "설정 파일 경로 (기본값 ~/.autohand/config.json)",
       "temperature": "샘플링 온도",
-      "displayLanguage": "표시 언어를 설정합니다 (예: en, zh-cn, fr, de)",
-      "autoCommit": "LLM이 생성한 메시지로 자동 커밋합니다",
-      "unrestricted": "승인 요청 없이 실행합니다",
-      "restricted": "위험한 작업을 자동으로 거부합니다",
-      "autoSkill": "프로젝트 분석을 기반으로 스킬을 자동 생성합니다",
-      "skillInstall": "커뮤니티 스킬을 설치합니다",
-      "project": "프로젝트 수준으로 스킬을 설치합니다",
-      "permissions": "현재 권한 설정을 표시하고 종료합니다",
-      "login": "Autohand 계정에 로그인합니다",
-      "logout": "Autohand 계정에서 로그아웃합니다",
-      "syncSettings": "설정 동기화를 활성화/비활성화합니다",
-      "patch": "변경 사항을 적용하지 않고 git 패치를 생성합니다",
+      "displayLanguage": "표시 언어 설정 (예: en, zh-cn, fr, de)",
+      "autoCommit": "LLM 생성 메시지로 자동 커밋",
+      "unrestricted": "모든 승인 프롬프트 없이 실행",
+      "restricted": "모든 위험한 작업을 자동으로 거부",
+      "autoSkill": "프로젝트 분석 기반 스킬 자동 생성",
+      "skillInstall": "커뮤니티 스킬 설치",
+      "project": "프로젝트 레벨에 스킬 설치",
+      "permissions": "현재 권한 설정 표시 후 종료",
+      "login": "Autohand 계정에 로그인",
+      "logout": "Autohand 계정에서 로그아웃",
+      "syncSettings": "설정 동기화 활성화/비활성화",
+      "patch": "변경사항 적용 없이 git 패치 생성",
       "output": "패치 출력 파일 (기본값: stdout)",
-      "autoMode": "자율 개발 루프를 시작합니다",
-      "maxIterations": "자동 모드 최대 반복 횟수 (기본값: 50)",
+      "autoMode": "자율 개발 루프 시작",
+      "maxIterations": "최대 자동 모드 반복 횟수 (기본값: 50)",
       "completionPromise": "완료 표시 텍스트 (기본값: DONE)",
-      "noWorktree": "자동 모드에서 git worktree 격리를 비활성화합니다",
-      "checkpointInterval": "N번 반복마다 git 커밋 (기본값: 5)",
-      "maxRuntime": "최대 실행 시간(분) (기본값: 120)",
-      "maxCost": "최대 API 비용(달러) (기본값: 10)",
-      "setup": "설정 마법사를 실행합니다",
-      "addDir": "작업 공간 범위에 추가 디렉토리를 추가합니다",
-      "thinking": "Set thinking/reasoning depth (none, normal, extended)",
-      "yolo": "Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)",
-      "timeout": "Timeout in seconds for auto-approve mode"
+      "noWorktree": "자동 모드에서 git worktree 격리 비활성화",
+      "checkpointInterval": "N회 반복마다 git 커밋 (기본값: 5)",
+      "maxRuntime": "최대 실행 시간 (분) (기본값: 120)",
+      "maxCost": "최대 API 비용 (달러) (기본값: 10)",
+      "setup": "설정 마법사 실행",
+      "addDir": "워크스페이스 범위에 추가 디렉토리 추가",
+      "thinking": "사고/추론 깊이 설정 (none, normal, extended)",
+      "yolo": "패턴과 일치하는 도구 호출 자동 승인 (예: allow:read,write 또는 deny:delete)",
+      "timeout": "자동 승인 모드의 제한 시간 (초)"
     },
     "thinking": {
-      "enabled": "Extended thinking enabled",
-      "level": "Thinking level: {{level}}"
+      "enabled": "확장 사고 활성화",
+      "level": "사고 수준: {{level}}"
     },
     "stdin": {
-      "reading": "Reading piped input...",
-      "timeout": "Stdin read timeout",
-      "empty": "No input received from pipe"
+      "reading": "파이프 입력 읽는 중...",
+      "timeout": "stdin 읽기 제한 시간",
+      "empty": "파이프에서 입력 수신 없음"
     }
   },
   "welcome": {
     "banner": "Autohand에 오신 것을 환영합니다!",
     "subtitle": "초고속 AI 코딩 에이전트",
     "version": "v{{version}}",
-    "updateAvailable": "업데이트 가능: {{current}} -> {{latest}}. 'npm i -g autohand'을 실행하여 업데이트하세요.",
-    "loggedInAs": "{{email}}으로 로그인됨",
+    "updateAvailable": "업데이트 가능: {{current}} -> {{latest}}. 'npm i -g autohand'를 실행하여 업데이트하세요.",
+    "loggedInAs": "{{email}}로 로그인됨",
     "notLoggedIn": "로그인되지 않음",
     "modelLine": "모델: {{model}}",
     "directoryLine": "디렉토리: {{directory}}",
     "tips": {
-      "title": "시작하려면 작업을 설명하거나 다음 명령을 시도해 보세요:",
-      "init": "/init - Autohand을 위한 지시 사항이 담긴 AGENTS.md 파일을 생성합니다",
-      "help": "/help - 사용 가능한 모든 명령을 표시합니다",
-      "model": "/model - AI 모델을 변경합니다",
-      "language": "/language - 표시 언어를 변경합니다"
+      "title": "시작하려면 작업을 설명하거나 다음 명령어 중 하나를 시도해보세요:",
+      "init": "/init - Autohand용 지침이 포함된 AGENTS.md 파일 생성",
+      "help": "/help - 모든 사용 가능한 명령어 표시",
+      "model": "/model - AI 모델 변경",
+      "language": "/language - 표시 언어 변경"
     },
     "shortcuts": {
-      "title": "키보드 단축키:",
-      "mention": "@ - 컨텍스트에 파일을 멘션합니다",
-      "arrows": "화살표 키 - 제안 항목을 탐색합니다",
+      "title": "단축키:",
+      "mention": "@ - 컨텍스트를 위해 파일 언급",
+      "arrows": "화살표 키 - 제안 사항 탐색",
       "tab": "Tab - 자동 완성",
-      "escape": "Esc - 현재 작업을 취소합니다",
+      "escape": "Esc - 현재 작업 취소",
       "ctrlC": "Ctrl+C - 종료"
     }
   },
   "commands": {
     "help": {
-      "title": "사용 가능한 명령:",
-      "command": "명령",
+      "title": "사용 가능한 명령어:",
+      "command": "명령어",
       "description": "설명",
       "tips": {
         "title": "팁:",
-        "mention": "@ 을 입력하여 AI에게 파일을 멘션하세요",
-        "arrows": "화살표 키로 파일 제안을 탐색하세요",
-        "tab": "Tab을 눌러 파일 경로를 자동 완성하세요",
-        "escape": "Esc를 눌러 현재 작업을 취소하세요"
+        "mention": "AI에게 파일 언급하려면 @를 입력하세요",
+        "arrows": "파일 제안 사항을 탐색하려면 화살표 키를 사용하세요",
+        "tab": "파일 경로 자동 완성을 위해 Tab 키를 누르세요",
+        "escape": "현재 작업을 취소하려면 Esc 키를 누르세요"
       },
-      "docsLink": "자세한 내용은 {{link}}을 방문하세요"
+      "docsLink": "자세한 내용은 {{link}}를 방문하세요"
     },
     "about": {
       "title": "Autohand",
@@ -121,60 +121,168 @@
       "feedback": "피드백 보내기",
       "submitPR": "PR 제출",
       "reportIssues": "이슈 보고",
-      "pressKey": "ESC 또는 아무 키를 눌러 돌아가기..."
+      "pressKey": "돌아가려면 ESC 또는 아무 키나 누르세요..."
     },
     "model": {
-      "description": "사용할 모델과 추론 노력을 선택합니다",
+      "description": "사용할 모델과 추론 노력 선택",
       "title": "모델 선택",
       "currentModel": "현재 모델: {{model}}",
-      "selectPrompt": "모델을 선택하세요:",
-      "changed": "모델이 {{model}}로 변경되었습니다",
-      "noChange": "변경 사항이 없습니다."
+      "selectPrompt": "모델 선택:",
+      "changed": "모델이 {{model}}로 변경됨",
+      "noChange": "변경 사항 없음."
     },
     "theme": {
-      "description": "터미널 색상 테마를 변경합니다",
+      "description": "터미널 색상 테마 변경",
       "title": "테마 선택",
       "currentTheme": "현재 테마: {{theme}}",
-      "selectPrompt": "테마를 선택하세요:",
-      "changed": "테마가 '{{theme}}'로 변경되었습니다",
-      "noChange": "변경 사항이 없습니다."
+      "selectPrompt": "테마 선택:",
+      "changed": "'{{theme}}' 테마로 변경됨",
+      "noChange": "변경 사항 없음."
     },
     "language": {
-      "description": "표시 언어를 변경합니다",
+      "description": "표시 언어 변경",
       "title": "언어 선택",
       "currentLanguage": "현재 언어: {{language}}",
-      "selectPrompt": "언어를 선택하세요:",
-      "changed": "언어가 {{language}}로 변경되었습니다",
-      "noChange": "변경 사항이 없습니다.",
-      "restartHint": "일부 변경 사항은 CLI를 다시 시작해야 완전히 적용될 수 있습니다."
+      "selectPrompt": "언어 선택:",
+      "changed": "언어가 {{language}}로 변경됨",
+      "noChange": "변경 사항 없음.",
+      "restartHint": "일부 변경사항은 CLI를 재시작해야 전체 효과가 나타날 수 있습니다."
     },
     "quit": {
-      "description": "Autohand를 종료합니다",
+      "description": "Autohand 종료",
       "goodbye": "안녕히 가세요!"
     },
     "init": {
-      "description": "AGENTS.md 파일을 생성합니다",
-      "created": "{{path}}에 AGENTS.md를 생성했습니다",
-      "alreadyExists": "{{path}}에 AGENTS.md가 이미 존재합니다",
-      "overwritePrompt": "기존 AGENTS.md를 덮어쓰시겠습니까?"
+      "description": "AGENTS.md 파일 생성",
+      "created": "{{path}}에 AGENTS.md 생성됨",
+      "alreadyExists": "{{path}}에 AGENTS.md 파일이 이미 존재함",
+      "overwritePrompt": "기존 AGENTS.md 파일을 덮어쓰시겠습니까?"
     },
     "undo": {
-      "description": "마지막 파일 변경을 되돌립니다",
-      "success": "{{file}}의 변경 사항을 되돌렸습니다",
-      "noChanges": "되돌릴 변경 사항이 없습니다.",
+      "description": "마지막 파일 변경사항 되돌리기",
+      "success": "{{file}}의 변경사항이 되돌려졌습니다",
+      "noChanges": "되돌릴 변경사항이 없습니다.",
       "failed": "되돌리기 실패: {{error}}"
     },
     "new": {
-      "description": "새 대화를 시작합니다",
-      "cleared": "대화가 초기화되었습니다. 새로 시작합니다."
+      "description": "새 대화 시작",
+      "cleared": "대화가  cleared되었습니다. 새로 시작합니다."
+    },
+    "clear": {
+      "description": "자동 메모리 추출과 함께 대화 지우기",
+      "savedMemories": "{{count}}개의 메모리 저장됨 ({{details}}). 새 세션을 시작합니다.",
+      "noMemories": "패턴이 감지되지 않았습니다. 새 세션을 시작합니다."
+    },
+    "settings": {
+      "description": "autohand 설정 구성",
+      "title": "설정",
+      "selectCategory": "카테고리 선택:",
+      "selectSetting": "변경할 설정 선택:",
+      "saved": "설정 저장됨.",
+      "cancelled": "취소됨.",
+      "redirect": "이 설정을 변경하려면 {{command}}를 사용하세요.",
+      "back": "뒤로",
+      "on": "켜짐",
+      "off": "꺼짐",
+      "currentValue": "현재값: {{value}}",
+      "categories": {
+        "ui": "UI & 표시",
+        "agent": "에이전트 동작",
+        "permissions": "권한",
+        "network": "네트워크",
+        "telemetry": "원격 분석 & 보고",
+        "automode": "자동 모드",
+        "teams": "팀",
+        "search": "검색"
+      },
+      "ui": {
+        "theme": "테마",
+        "locale": "언어",
+        "autoConfirm": "작업 자동 확인",
+        "autoConfirmDesc": "도구 작업에 대한 확인 프롬프트 건너뛰기",
+        "showThinking": "LLM 사고 표시",
+        "showThinkingDesc": "모델 추론 과정 표시",
+        "terminalBell": "터미널 벨",
+        "terminalBellDesc": "작업 완료 시 벨 울리기",
+        "checkForUpdates": "업데이트 확인",
+        "checkForUpdatesDesc": "시작 시 CLI 업데이트 확인",
+        "showCompletionNotification": "완료 알림",
+        "showCompletionNotificationDesc": "작업 완료 시 OS 알림 표시",
+        "promptSuggestions": "프롬프트 제안",
+        "promptSuggestionsDesc": "LLM 생성 다음 단계 제안 표시",
+        "activitySymbol": "활동 기호",
+        "activitySymbolDesc": "활동 동사 앞에 표시되는 기호",
+        "updateCheckInterval": "업데이트 확인 간격 (시간)",
+        "updateCheckIntervalDesc": "업데이트 확인 간격 (시간)"
+      },
+      "agent": {
+        "maxIterations": "최대 반복 횟수",
+        "maxIterationsDesc": "요청당 최대 도구 반복 횟수",
+        "enableRequestQueue": "요청 대기열",
+        "enableRequestQueueDesc": "에이전트 작업 중에도 입력 가능",
+        "sessionRetryLimit": "세션 재시도 제한",
+        "sessionRetryLimitDesc": "포기하기 전 최대 재시도 횟수",
+        "sessionRetryDelay": "재시도 지연 (ms)",
+        "sessionRetryDelayDesc": "재시도 간 지연 시간 (밀리초)",
+        "debug": "디버그 모드",
+        "debugDesc": "디버그 출력 활성화"
+      },
+      "permissions": {
+        "mode": "권한 모드",
+        "modeDesc": "도구 권한 처리 방식",
+        "rememberSession": "세션 결정 기억",
+        "rememberSessionDesc": "이 세션의 권한 선택 기억"
+      },
+      "network": {
+        "maxRetries": "최대 재시도 횟수",
+        "maxRetriesDesc": "실패한 요청의 최대 재시도 횟수",
+        "timeout": "제한 시간 (ms)",
+        "timeoutDesc": "요청 제한 시간 (밀리초)",
+        "retryDelay": "재시도 지연 (ms)",
+        "retryDelayDesc": "재시도 간 지연 시간 (밀리초)"
+      },
+      "telemetry": {
+        "enabled": "원격 분석",
+        "enabledDesc": "익명 사용 데이터 전송",
+        "autoReportEnabled": "자동 오류 보고",
+        "autoReportEnabledDesc": "GitHub에 오류 자동 보고"
+      },
+      "automode": {
+        "maxIterations": "최대 반복 횟수",
+        "maxIterationsDesc": "자동 모드의 기본 최대 반복 횟수",
+        "maxRuntime": "최대 실행 시간 (분)",
+        "maxRuntimeDesc": "기본 최대 실행 시간 (분)",
+        "maxCost": "최대 비용 ($)",
+        "maxCostDesc": "기본 최대 비용 (달러)",
+        "checkpointInterval": "체크포인트 간격",
+        "checkpointIntervalDesc": "git 체크포인트 간 반복 횟수",
+        "useWorktree": "worktree 사용",
+        "useWorktreeDesc": "기본적으로 git worktree 사용"
+      },
+      "teams": {
+        "enabled": "팀 활성화",
+        "enabledDesc": "팀 조정 기능 활성화",
+        "teammateMode": "팀원 모드",
+        "teammateModeDesc": "팀원용 표시 모드",
+        "maxTeammates": "최대 팀원 수",
+        "maxTeammatesDesc": "동시 최대 팀원 수"
+      },
+      "search": {
+        "provider": "검색 제공자",
+        "providerDesc": "활성 웹 검색 제공자",
+        "braveApiKey": "Brave API 키",
+        "braveApiKeyDesc": "Brave Search용 API 키",
+        "parallelApiKey": "Parallel API 키",
+        "parallelApiKeyDesc": "Parallel.ai용 API 키"
+      }
     },
     "status": {
-      "description": "현재 상태를 표시합니다",
+      "description": "현재 상태 표시",
       "title": "Autohand 상태",
       "version": "버전",
       "sessionId": "세션 ID",
       "cwd": "현재 디렉토리",
-      "provider": "공급자",
+      "provider": "제공자",
       "model": "모델",
       "locale": "언어",
       "apiStatus": "API 상태",
@@ -184,30 +292,30 @@
       "total": "총 {{count}}개"
     },
     "sessions": {
-      "description": "저장된 세션 목록을 표시합니다",
+      "description": "저장된 세션 목록",
       "title": "저장된 세션",
       "noSessions": "저장된 세션이 없습니다.",
-      "selectPrompt": "재개할 세션을 선택하세요:",
+      "selectPrompt": "재개할 세션 선택:",
       "sessionInfo": "{{name}} - {{date}}"
     },
     "resume": {
-      "description": "이전 세션을 재개합니다",
+      "description": "이전 세션 재개",
       "resuming": "세션 {{id}} 재개 중...",
       "notFound": "세션을 찾을 수 없음: {{id}}",
       "failed": "세션 재개 실패: {{error}}"
     },
     "memory": {
-      "description": "프로젝트 및 사용자 메모리를 관리합니다",
+      "description": "프로젝트 및 사용자 메모리 관리",
       "title": "메모리 관리",
       "projectMemory": "프로젝트 메모리",
       "userMemory": "사용자 메모리",
-      "noMemory": "저장된 메모리가 없습니다.",
-      "addPrompt": "새 메모리를 추가하세요:",
-      "added": "메모리가 추가되었습니다.",
-      "cleared": "메모리가 초기화되었습니다."
+      "noMemory": "저장된 메모리 없음.",
+      "addPrompt": "새 메모리 추가:",
+      "added": "메모리 추가됨.",
+      "cleared": "메모리 지워짐."
     },
     "permissions": {
-      "description": "현재 권한 설정을 표시합니다",
+      "description": "현재 권한 설정 표시",
       "title": "권한 설정",
       "mode": "모드: {{mode}}",
       "allowed": "허용된 작업:",
@@ -215,105 +323,105 @@
       "pending": "승인 대기 중:"
     },
     "login": {
-      "description": "Autohand 계정에 로그인합니다",
+      "description": "Autohand 계정에 로그인",
       "prompt": "로그인 코드를 입력하세요:",
-      "success": "{{email}}로 로그인되었습니다",
+      "success": "{{email}}로 성공적으로 로그인됨",
       "failed": "로그인 실패: {{error}}",
-      "cancelled": "로그인이 취소되었습니다."
+      "cancelled": "로그인 취소됨."
     },
     "logout": {
-      "description": "Autohand 계정에서 로그아웃합니다",
+      "description": "Autohand 계정에서 로그아웃",
       "confirm": "{{email}}에서 로그아웃하시겠습니까?",
-      "success": "로그아웃되었습니다.",
-      "cancelled": "로그아웃이 취소되었습니다."
+      "success": "성공적으로 로그아웃됨.",
+      "cancelled": "로그아웃 취소됨."
     },
     "sync": {
-      "description": "설정 동기화를 관리합니다",
-      "enabled": "설정 동기화가 활성화되었습니다.",
-      "disabled": "설정 동기화가 비활성화되었습니다.",
+      "description": "설정 동기화 관리",
+      "enabled": "설정 동기화 활성화됨.",
+      "disabled": "설정 동기화 비활성화됨.",
       "status": "동기화 상태: {{status}}",
       "lastSync": "마지막 동기화: {{date}}"
     },
     "feedback": {
-      "description": "CLI에 대한 피드백을 제출합니다",
+      "description": "CLI에 대한 피드백 제출",
       "prompt": "피드백을 입력하세요:",
-      "success": "피드백을 보내주셔서 감사합니다!",
+      "success": "피드백 감사합니다!",
       "failed": "피드백 제출 실패: {{error}}"
     },
     "hooks": {
-      "description": "git 훅을 관리합니다",
+      "description": "git 훅 관리",
       "title": "Git 훅",
       "installed": "설치된 훅:",
       "available": "사용 가능한 훅:",
-      "noHooks": "구성된 훅이 없습니다."
+      "noHooks": "구성된 훅 없음."
     },
     "skills": {
-      "description": "스킬을 목록 표시하고 관리합니다",
+      "description": "스킬 목록 및 관리",
       "title": "스킬",
       "installed": "설치된 스킬:",
       "available": "사용 가능한 스킬:",
-      "noSkills": "설치된 스킬이 없습니다."
+      "noSkills": "설치된 스킬 없음."
     },
     "mcp": {
       "title": "MCP 서버",
-      "description": "MCP (Model Context Protocol) 서버를 관리합니다",
-      "installDescription": "커뮤니티 MCP 서버를 탐색하고 설치합니다",
-      "noServers": "구성된 MCP 서버가 없습니다",
+      "description": "MCP (Model Context Protocol) 서버 관리",
+      "installDescription": "커뮤니티 MCP 서버 찾아보기 및 설치",
+      "noServers": "구성된 MCP 서버 없음",
       "connected": "연결됨",
-      "disconnected": "연결 해제됨",
+      "disconnected": "연결 끊김",
       "error": "오류",
       "tools": "도구",
       "connecting": "MCP 서버에 연결 중...",
-      "installed": "MCP 서버가 성공적으로 설치되었습니다"
+      "installed": "MCP 서버가 성공적으로 설치됨"
     },
     "export": {
-      "description": "세션 데이터를 내보냅니다",
-      "success": "{{path}}로 내보냈습니다",
+      "description": "세션 데이터 내보내기",
+      "success": "{{path}}로 내보내기 완료",
       "failed": "내보내기 실패: {{error}}"
     },
     "agents": {
-      "description": "하위 에이전트를 관리합니다",
+      "description": "하위 에이전트 관리",
       "title": "하위 에이전트",
-      "noAgents": "구성된 하위 에이전트가 없습니다."
+      "noAgents": "구성된 하위 에이전트 없음."
     },
     "automode": {
-      "description": "자율 모드를 관리합니다",
+      "description": "자율 모드 관리",
       "starting": "자동 모드 시작 중...",
-      "stopping": "자동 모드 정지 중...",
-      "iteration": "반복 {{current}} / {{max}}",
-      "completed": "자동 모드가 완료되었습니다.",
-      "aborted": "자동 모드가 중단되었습니다."
+      "stopping": "자동 모드 중지 중...",
+      "iteration": "{{current}} / {{max}} 반복",
+      "completed": "자동 모드 완료.",
+      "aborted": "자동 모드 중단됨."
     },
     "share": {
-      "description": "세션을 공유합니다",
+      "description": "세션 공유",
       "generating": "공유 링크 생성 중...",
       "success": "공유 링크: {{url}}",
       "failed": "공유 링크 생성 실패: {{error}}"
     },
     "addDir": {
-      "description": "작업 공간 범위에 디렉토리를 추가합니다",
-      "added": "디렉토리가 추가되었습니다: {{path}}",
-      "alreadyAdded": "이미 추가된 디렉토리입니다: {{path}}",
-      "notFound": "디렉토리를 찾을 수 없습니다: {{path}}"
+      "description": "워크스페이스 범위에 디렉토리 추가",
+      "added": "디렉토리 추가됨: {{path}}",
+      "alreadyAdded": "디렉토리가 이미 추가됨: {{path}}",
+      "notFound": "디렉토리를 찾을 수 없음: {{path}}"
     },
     "ide": {
-      "description": "실행 중인 IDE에 연결합니다",
+      "description": "실행 중인 IDE에 연결",
       "title": "IDE 선택",
-      "connectDescription": "통합 개발 기능을 위해 IDE에 연결합니다.",
-      "noIdesDetected": "실행 중인 IDE가 감지되지 않았습니다. VS Code, VS Code Insiders, Cursor, Zed 또는 Antigravity 중 하나를 시작하세요.",
-      "noMatchingIdes": "사용 가능한 IDE가 감지되지 않았습니다. IDE에 Autohand 확장 또는 플러그인이 설치되어 있고 실행 중인지 확인하세요.",
-      "foundMatching": "현재 디렉토리와 일치하는 IDE {{count}}개를 찾았습니다:",
-      "otherNotMatching": "다른 실행 중인 IDE {{count}}개를 찾았습니다. 그러나 해당 작업 공간/프로젝트 디렉토리가 현재 작업 디렉토리와 일치하지 않습니다.",
-      "selectPrompt": "연결할 IDE를 선택하세요:",
-      "connected": "{{ide}}에 연결되었습니다",
-      "extensionHint": "더 깊은 통합을 위해 확장 프로그램을 설치하세요:",
+      "connectDescription": "통합 개발 기능을 위해 IDE에 연결하세요.",
+      "noIdesDetected": "실행 중인 IDE가 없습니다. 다음 중 하나를 시작하세요: VS Code, VS Code Insiders, Cursor, Zed, 또는 Antigravity.",
+      "noMatchingIdes": "사용 가능한 IDE가 감지되지 않았습니다. Autohand 확장 프로그램 또는 플러그인이 설치되고 실행 중인지 확인하세요.",
+      "foundMatching": "현재 디렉토리와 일치하는 {{count}}개의 IDE가 발견됨:",
+      "otherNotMatching": "다른 {{count}}개의 실행 중인 IDE가 발견되었습니다. 그러나 그들의 작업 공간/프로젝트 디렉토리가 현재 cwd와 일치하지 않습니다.",
+      "selectPrompt": "연결할 IDE 선택:",
+      "connected": "{{ide}}에 연결됨",
+      "extensionHint": "더 깊은 통합을 위해 확장 프로그램 설치:",
       "startIde": "이 디렉토리에서 IDE를 시작하여 연결하세요."
     },
     "history": {
-      "title": "Session History",
-      "empty": "No sessions found",
-      "showing": "Page {{page}} of {{total}} ({{count}} sessions)",
-      "resumeHint": "Use /resume <session-id> to resume a session"
+      "title": "세션 기록",
+      "empty": "세션을 찾을 수 없음",
+      "showing": "{{total}}개 중 {{page}}페이지 ({{count}}개 세션)",
+      "resumeHint": "세션 재개하려면 /resume <session-id> 사용"
     },
     "import": {
       "description": "다른 코딩 에이전트에서 데이터 가져오기"
@@ -322,62 +430,62 @@
   "setup": {
     "welcome": "Autohand에 오신 것을 환영합니다!",
     "subtitle": "초고속 AI 코딩 에이전트",
-    "letsStart": "몇 가지 단계로 설정을 시작하겠습니다.",
-    "providerSelect": "어떤 LLM 공급자를 사용하시겠습니까?",
+    "letsStart": "몇 단계만으로 설정을 완료해 보겠습니다.",
+    "providerSelect": "어떤 LLM 제공자를 사용하고 싶으신가요?",
     "apiKeyPrompt": "{{provider}} API 키를 입력하세요:",
-    "apiKeyHelp": "API 키를 얻으려면: {{url}}",
-    "apiKeyHint": "API 키는 ~/.autohand/config.json에 로컬로 저장됩니다",
-    "modelPrompt": "모델 ID를 입력하세요 (또는 Enter를 눌러 기본값 사용):",
+    "apiKeyHelp": "API 키 받기: {{url}}",
+    "apiKeyHint": "API 키는 로컬에 ~/.autohand/config.json에 저장됩니다",
+    "modelPrompt": "모델 ID 입력 (또는 Enter로 기본값):",
     "modelDefault": "기본값: {{model}}",
     "testingConnection": "연결 테스트 중...",
     "connectionSuccess": "연결 성공!",
     "connectionFailed": "연결 실패: {{error}}",
     "telemetry": {
-      "title": "Autohand 개선에 도움을 주세요",
-      "description": "Autohand의 사용 방식을 파악하기 위해 익명 사용 데이터를 수집합니다.",
-      "whatWeCollect": "수집하는 정보:",
-      "collectItem1": "명령 사용량 (어떤 기능이 많이 사용되는지)",
-      "collectItem2": "오류율 (버그를 더 빨리 수정하기 위해)",
-      "collectItem3": "성능 지표 (속도를 높이기 위해)",
-      "whatWeNeverCollect": "절대 수집하지 않는 정보:",
-      "neverItem1": "코드 또는 파일 내용",
-      "neverItem2": "API 키 또는 자격 증명",
+      "title": "Autohand 개선을 도와주세요",
+      "description": "Autohand가 어떻게 사용되는지 이해하기 위해 익명 사용 데이터를 수집합니다.",
+      "whatWeCollect": "수집하는 항목:",
+      "collectItem1": "명령어 사용 (인기 기능)",
+      "collectItem2": "오류율 (버그 더 빨리 수정)",
+      "collectItem3": "성능 지표 (속도 개선)",
+      "whatWeNeverCollect": "절대 수집하지 않는 항목:",
+      "neverItem1": "코드나 파일 내용",
+      "neverItem2": "API 키나 자격 증명",
       "neverItem3": "개인 정보",
-      "prompt": "Autohand 개선을 위해 익명 사용 데이터를 공유하시겠습니까?",
-      "thanks": "Autohand 개선에 도움을 주셔서 감사합니다!",
-      "declined": "괜찮습니다! 설정에서 언제든지 변경할 수 있습니다."
+      "prompt": "Autohand 개선을 위해 익명 사용 데이터 공유하시겠습니까?",
+      "thanks": "Autohand 개선에 도움 주셔서 감사합니다!",
+      "declined": "괜찮습니다! 언제든지 설정에서 변경할 수 있습니다."
     },
     "complete": "설정 완료!",
     "created": "생성된 항목:",
-    "configFile": "~/.autohand/config.json (설정 파일)",
-    "agentsFile": "AGENTS.md (Autohand을 위한 프로젝트 지시 사항)",
+    "configFile": "~/.autohand/config.json (설정)",
+    "agentsFile": "AGENTS.md (Autohand용 프로젝트 지침)",
     "nextSteps": "다음 단계:",
-    "tryCommand": "시도해 보세요: autohand"
+    "tryCommand": "시도해보세요: autohand"
   },
   "errors": {
-    "generic": "오류가 발생했습니다: {{message}}",
-    "invalidLocale": "잘못된 로케일: {{locale}}. 지원 로케일: {{supported}}",
-    "configParseFailed": "{{path}}의 구성 파일 파싱 실패: {{error}}",
-    "configSaveFailed": "구성 저장 실패: {{error}}",
+    "generic": "오류 발생: {{message}}",
+    "invalidLocale": "잘못된 로케일: {{locale}}. 지원되는 로케일: {{supported}}",
+    "configParseFailed": "{{path}}의 설정 파싱 실패: {{error}}",
+    "configSaveFailed": "설정 저장 실패: {{error}}",
     "apiKeyRequired": "API 키가 필요합니다",
-    "apiKeyTooShort": "API 키가 너무 짧은 것 같습니다",
-    "apiKeyInvalid": "잘못된 API 키 형식입니다",
-    "directoryNotExist": "디렉토리가 존재하지 않습니다: {{path}}",
+    "apiKeyTooShort": "API 키가 너무 짧아 보입니다",
+    "apiKeyInvalid": "잘못된 API 키 형식",
+    "directoryNotExist": "디렉토리가 존재하지 않음: {{path}}",
     "unsafeDirectory": "안전하지 않은 디렉토리: {{path}}. 시스템 디렉토리에서는 작업할 수 없습니다.",
-    "fileNotFound": "파일을 찾을 수 없습니다: {{path}}",
-    "permissionDenied": "권한이 거부되었습니다: {{path}}",
-    "patchRequiresPrompt": "--patch는 지시를 지정하기 위해 --prompt가 필요합니다",
+    "fileNotFound": "파일을 찾을 수 없음: {{path}}",
+    "permissionDenied": "권한 거부됨: {{path}}",
+    "patchRequiresPrompt": "--patch는 명령어를 지정하기 위해 --prompt가 필요합니다",
     "autoModeRequiresPrompt": "--auto-mode는 작업 프롬프트가 필요합니다",
-    "noProviderConfigured": "아직 공급자가 구성되지 않았습니다. 다음으로 설정을 실행하세요: autohand --setup",
-    "modelNotFound": "모델을 찾을 수 없습니다: {{model}}",
-    "rateLimited": "요청 횟수 제한에 도달했습니다. 잠시 후 다시 시도해 주세요.",
+    "noProviderConfigured": "제공자가 아직 구성되지 않았습니다. 설정하려면: autohand --setup",
+    "modelNotFound": "모델을 찾을 수 없음: {{model}}",
+    "rateLimited": "제한됨. 잠시 후 다시 시도하세요.",
     "networkError": "네트워크 오류: {{message}}",
-    "timeout": "요청 시간이 초과되었습니다. 다시 시도해 주세요.",
-    "contextTooLong": "컨텍스트가 너무 깁니다. /new로 새로 시작하거나 /undo로 최근 턴을 제거해 보세요.",
-    "authFailed": "인증에 실패했습니다. API 키를 확인해 주세요.",
-    "paymentRequired": "결제가 필요합니다. 계정 잔액을 확인해 주세요.",
-    "serverError": "서버 오류입니다. 나중에 다시 시도해 주세요.",
-    "cancelled": "사용자에 의해 작업이 취소되었습니다."
+    "timeout": "요청 시간 초과. 다시 시도하세요.",
+    "contextTooLong": "컨텍스트가 너무 깁니다. /new로 새로 시작하거나 /undo로 최근 턴 제거하세요.",
+    "authFailed": "인증 실패. API 키를 확인하세요.",
+    "paymentRequired": "결제 필요. 계정 잔액을 확인하세요.",
+    "serverError": "서버 오류. 나중에 다시 시도하세요.",
+    "cancelled": "사용자에 의해 작업 취소됨."
   },
   "agent": {
     "thinking": "생각 중...",
@@ -385,17 +493,17 @@
     "reading": "{{file}} 읽는 중...",
     "writing": "{{file}} 쓰는 중...",
     "searching": "검색 중...",
-    "toolSuccess": "{{tool}}이(가) 성공적으로 완료되었습니다",
+    "toolSuccess": "{{tool}} 성공적으로 완료됨",
     "toolFailed": "{{tool}} 실패: {{error}}",
     "taskComplete": "작업 완료",
-    "noChanges": "변경 사항이 없습니다.",
-    "changesApplied": "변경 사항이 성공적으로 적용되었습니다.",
+    "noChanges": "변경사항이 없었습니다.",
+    "changesApplied": "변경사항이 성공적으로 적용됨",
     "awaitingApproval": "승인 대기 중...",
     "approved": "승인됨",
     "denied": "거부됨",
     "skipped": "건너뜀",
     "exploring": "탐색 중...",
-    "exploredFiles": "파일 {{count}}개를 탐색했습니다"
+    "exploredFiles": "{{count}}개의 파일 탐색됨"
   },
   "providers": {
     "openrouter": "OpenRouter",
@@ -403,39 +511,164 @@
     "ollama": "Ollama",
     "llamacpp": "llama.cpp",
     "mlx": "MLX (Apple Silicon)",
+    "llmgateway": "LLM Gateway",
+    "azure": "Azure OpenAI",
     "hints": {
-      "openrouter": "클라우드 - 100개 이상의 모델 접근 (Claude, GPT-4 등)",
+      "openrouter": "클라우드 - 100+개 모델 접근 (Claude, GPT-4 등)",
       "openai": "클라우드 - 공식 OpenAI 모델 (GPT-4o, o1 등)",
-      "ollama": "로컬 - 내 컴퓨터에서 모델 실행 (무료)",
+      "ollama": "로컬 - 머신에서 모델 실행 (무료)",
       "llamacpp": "로컬 - GGUF 모델로 빠른 추론",
-      "mlx": "로컬 - Apple Silicon Mac에 최적화"
+      "mlx": "로컬 - Apple Silicon 최적화",
+      "llmgateway": "클라우드 - 다중 LLM 제공자 통합 API",
+      "azure": "클라우드 - Azure OpenAI Service (엔터프라이즈)"
+    },
+    "config": {
+      "chooseProvider": "LLM 제공자 선택",
+      "cancelled": "설정 취소됨.",
+      "notConfigured": "{{provider}}가 아직 구성되지 않았습니다. 설정해 보겠습니다!",
+      "configuredSuccessfully": "{{provider}} 설정 완료!",
+      "selectModel": "모델 선택",
+      "enterModelId": "모델 ID 입력",
+      "enterApiKey": "{{provider}} API 키 입력",
+      "apiKeyUrl": "API 키 받기: {{url}}",
+      "modelChangeCancelled": "모델 변경 취소됨.",
+      "modelUnchanged": "모델 변경 없음.",
+      "settingsChangeCancelled": "설정 변경 취소됨.",
+      "settingsUpdated": "{{provider}} 설정 업데이트 완료!",
+      "currentModel": "현재 모델: {{model}}",
+      "currentApiKey": "현재 API 키: {{key}}",
+      "whatToChange": "무엇을 변경하시겠습니까?",
+      "changeModelOnly": "모델만 변경",
+      "changeApiKeyOnly": "API 키만 변경",
+      "changeBoth": "모델과 API 키 모두 변경",
+      "validatingApiKey": "API 키 유효성 검사 중...",
+      "apiKeyValid": "API 키 유효함",
+      "apiKeyRequired": "API 키가 필요합니다",
+      "apiKeyTooShort": "API 키가 너무 짧아 보입니다",
+      "invalidApiKey": "잘못된 API 키",
+      "invalidApiKeyHint": "https://{{url}}에서 API 키가 올바른지 확인하세요",
+      "apiKeyNoPermission": "API 키에 권한이 없음",
+      "apiKeyNoPermissionHint": "API 키에 제한된 권한이 있거나 계정에 결제 방법을 추가해야 할 수 있습니다.",
+      "rateLimited": "제한되거나 할당량 초과됨",
+      "rateLimitedHint": "API 할당량을 초과했을 수 있습니다. 사용량과 결제 설정을 확인하세요.",
+      "networkError": "네트워크 오류 - API에 연결할 수 없음",
+      "networkErrorHint": "인터넷 연결을 확인하고 다시 시도하세요.",
+      "validationFailed": "유효성 검사 실패: {{error}}",
+      "validationFailedHint": "다시 시도하거나 네트워크 연결을 확인하세요.",
+      "verifyApiKeyHint": "API 키를 확인하고 다시 시도하세요.",
+      "usingModel": "{{provider}} 모델 {{model}} 사용 중",
+      "providerLabel": "제공자: {{provider}}",
+      "modelLabel": "모델: {{model}}",
+      "appleSilicon": "Apple Silicon",
+      "hosted": "호스팅",
+      "current": "현재",
+      "enterModelIdToUse": "사용할 모델 ID 입력",
+      "settingsTitle": "{{provider}} 설정",
+      "notSet": "설정되지 않음",
+      "apiReturnedStatus": "API가 {{status}} 상태를 반환함"
+    },
+    "wizard": {
+      "openrouter": {
+        "title": "OpenRouter 설정",
+        "apiKeyUrl": "https://openrouter.ai/keys"
+      },
+      "openai": {
+        "title": "OpenAI 설정",
+        "apiKeyUrl": "https://platform.openai.com/api-keys"
+      },
+      "ollama": {
+        "title": "Ollama 설정",
+        "ensureRunning": "Ollama가 실행 중인지 확인하세요: ollama serve",
+        "cannotConnect": "Ollama에 연결할 수 없습니다. 실행 중인지 확인하세요.",
+        "foundModels": "{{count}}개의 모델 발견됨",
+        "enterModelName": "모델 이름 입력 (예: llama3.2:latest)"
+      },
+      "llamacpp": {
+        "title": "llama.cpp 설정",
+        "ensureRunning": "llama.cpp 서버가 실행 중인지 확인하세요: ./server -m model.gguf",
+        "serverPort": "서버 포트",
+        "modelNameDesc": "모델 이름/설명"
+      },
+      "mlx": {
+        "title": "MLX 설정 (Apple Silicon)",
+        "description": "MLX는 Apple Silicon용 로컬 LLM 추론을 제공합니다.",
+        "ensureRunning": "mlx-lm 서버가 실행 중인지 확인하세요: mlx_lm.server --model <model-name>",
+        "cannotConnect": "MLX 서버에 연결할 수 없습니다. 실행 중인지 확인하세요.",
+        "enterModelName": "모델 이름 입력 (예: mlx-community/Llama-3.2-3B-Instruct-4bit)"
+      },
+      "llmgateway": {
+        "title": "LLM Gateway 설정",
+        "apiKeyUrl": "https://llmgateway.io/dashboard"
+      },
+      "azure": {
+        "title": "Azure OpenAI 설정",
+        "getStarted": "시작하기: https://ai.azure.com",
+        "setupSteps": {
+          "title": "시작하기 전에 다음이 필요합니다:",
+          "step1": "1. 활성 구독이 있는 Azure 계정",
+          "step2": "2. https://ai.azure.com에서 생성된 Azure OpenAI 리소스",
+          "step3": "3. 배포된 최소 하나의 모델 (예: gpt-4o)",
+          "step4": "4. 키 및 엔드포인트 페이지에서 엔드포인트 URL과 API 키"
+        },
+        "selectAuthMethod": "인증 방법 선택",
+        "authApiKey": "API 키",
+        "authEntraId": "Entra ID (Azure AD)",
+        "authManagedIdentity": "관리 ID",
+        "apiKeyLocation": "Azure Portal > 리소스 > 키 및 엔드포인트에서 키 찾기",
+        "enterAzureApiKey": "Azure API 키 입력",
+        "entraIdDescription": "Entra ID는 OAuth2 클라이언트 자격 증명을 사용합니다. Azure Portal에서 App Registration을 생성하세요.",
+        "entraIdDocs": "문서: https://learn.microsoft.com/en-us/entra/identity/",
+        "enterTenantId": "Azure Tenant ID 입력",
+        "enterClientId": "클라이언트 ID (애플리케이션 ID) 입력",
+        "enterClientSecret": "클라이언트 시크릿 입력",
+        "managedIdentityDescription": "관리 ID는 Azure 내부에서 자동으로 사용됩니다.",
+        "managedIdentityDocs": "문서: https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/",
+        "endpointChoice": "Azure 엔드포인트를 지정하는 방법:",
+        "endpointStructured": "리소스 이름 + 배포 (권장)",
+        "endpointUrl": "전체 엔드포인트 URL",
+        "endpointUrlHint": "Azure Portal > 엔드포인트 및 키에서 엔드포인트 URL 붙여넣기",
+        "endpointUrlExample": "예: https://my-resource.openai.azure.com 또는 https://my-resource.services.ai.azure.com",
+        "enterEndpointOrResource": "Azure 엔드포인트 URL 또는 리소스 이름 입력",
+        "deploymentHint": "배포는 Azure AI Foundry > 배포에서 찾을 수 있습니다 (예: gpt-4o, gpt-4o-mini)",
+        "deploymentNotUrl": "URL이 아닙니다 — 배포된 모델의 짧은 이름입니다.",
+        "enterDeploymentName": "모델 배포 이름 입력",
+        "deploymentUrlError": "URL처럼 보입니다. 배포 이름이 아닙니다.",
+        "deploymentUrlErrorHint": "배포 이름은 \"gpt-4o\"나 \"gpt-4o-mini\" 같은 짧은 이름입니다.",
+        "deploymentUrlErrorLocation": "Azure AI Foundry > 프로젝트 > 배포에서 찾을 수 있습니다.",
+        "enterFullEndpointUrl": "전체 Azure 엔드포인트 URL 입력",
+        "apiVersion": "Azure API 버전",
+        "authLabel": "인증: {{method}}",
+        "enterDeploymentNameChange": "배포 이름 입력",
+        "deploymentChangeHint": "Azure AI Foundry > 배포에서 배포된 모델 이름 입력",
+        "deploymentChangeExample": "예: gpt-4o, gpt-4o-mini, gpt-4-turbo (URL 아님)"
+      }
     }
   },
   "startup": {
-    "checkingTools": "필수 도구 확인 중...",
+    "checkingTools": "필요한 도구 확인 중...",
     "toolFound": "{{tool}} 발견됨",
     "toolMissing": "{{tool}} 없음",
-    "installHint": "다음으로 설치: {{command}}",
+    "installHint": "설치: {{command}}",
     "allToolsReady": "모든 도구 준비 완료!",
     "someToolsMissing": "일부 도구가 없습니다. 일부 기능이 작동하지 않을 수 있습니다."
   },
   "confirmation": {
-    "proceed": "계속하시겠습니까?",
-    "areYouSure": "확실합니까?",
-    "thisWillDelete": "{{item}}이(가) 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
+    "proceed": "진행하시겠습니까?",
+    "areYouSure": "정말로 하시겠습니까?",
+    "thisWillDelete": "이 작업은 {{item}}을 삭제합니다. 이 작업은 되돌릴 수 없습니다.",
     "confirm": "확인",
     "cancel": "취소",
-    "yesDelete": "예, 삭제합니다",
-    "noDontDelete": "아니오, 유지합니다"
+    "yesDelete": "예, 삭제",
+    "noDontDelete": "아니오, 유지"
   },
   "diff": {
-    "title": "{{file}}의 변경 사항",
+    "title": "{{file}}의 변경사항",
     "additions": "{{count}}개 추가",
     "deletions": "{{count}}개 삭제",
-    "noChanges": "변경 사항 없음",
-    "apply": "변경 사항을 적용하시겠습니까?",
-    "applied": "변경 사항이 적용되었습니다.",
-    "discarded": "변경 사항이 취소되었습니다."
+    "noChanges": "변경사항 없음",
+    "apply": "변경사항 적용?",
+    "applied": "변경사항 적용됨.",
+    "discarded": "변경사항 버려짐."
   },
   "ui": {
     "escToCancel": "esc를 눌러 취소",
@@ -445,59 +678,59 @@
     "selectFile": "파일을 선택하세요",
     "noMatchingFiles": "일치하는 파일이 없습니다. 계속 입력하세요…",
     "thinking": "생각 중",
-    "planModeActive": "계획 모드 활성화 - 도구는 읽기 전용입니다",
+    "planModeActive": "계획 모드 활성화 - 도구는 읽기 전용",
     "planModeExecuting": "계획 실행 중",
     "typeToFilter": "필터",
-    "navigateHint": "입력하여 필터 · ↑/↓ 탐색 · Enter 실행 · Esc 취소",
-    "fileNavigateHint": "입력하여 필터 · ↑/↓ 탐색 · Enter 선택 · Esc 취소",
+    "navigateHint": "필터링하려면 입력 · 이동하려면 ↑/↓ · 실행하려면 Enter · 취소하려면 Esc",
+    "fileNavigateHint": "필터링하려면 입력 · 이동하려면 ↑/↓ · 선택하려면 Enter · 취소하려면 Esc",
     "questionPrompt": "❓",
     "questionOther": "기타 (직접 입력)",
-    "questionYourAnswer": "▸ 답변 입력",
-    "questionCustomHint": "↵ 제출 · ESC 뒤로",
-    "questionSelectHint": "↑↓ 탐색 · ↵ 선택 · 1-9 단축키 · ESC 취소",
-    "noOptionsAvailable": "사용 가능한 옵션이 없습니다",
-    "planRevise": "아니요, 계획을 수정합니다",
+    "questionYourAnswer": "▸ 답변",
+    "questionCustomHint": "제출하려면 ↵ · 뒤로가려면 ESC",
+    "questionSelectHint": "이동하려면 ↑↓ · 선택하려면 ↵ · 1-9 단축키 · 취소하려면 ESC",
+    "noOptionsAvailable": "사용 가능한 옵션 없음",
+    "planRevise": "아니요, 계획 수정",
     "planEditHint": "VS Code에서 편집하려면 ctrl-g",
     "confirmYes": "예",
     "confirmNo": "아니오",
-    "inputHint": "Enter로 제출, ESC로 취소",
-    "inputPlaceholder": "답변을 입력하세요...",
-    "passwordPlaceholder": "비밀번호를 입력하세요...",
+    "inputHint": "제출하려면 Enter, 취소하려면 ESC",
+    "inputPlaceholder": "답변 입력...",
+    "passwordPlaceholder": "비밀번호 입력...",
     "validationError": "잘못된 입력"
   },
   "homebrew": {
-    "formulaGenerated": "Homebrew formula generated at {{path}}"
+    "formulaGenerated": "Homebrew 공식이 {{path}}에 생성됨"
   },
   "yolo": {
-    "enabled": "Auto-approve enabled: {{pattern}}",
-    "expired": "Auto-approve timeout expired",
-    "denied": "Tool {{tool}} denied by yolo pattern",
-    "remaining": "Auto-approve: {{seconds}}s remaining"
+    "enabled": "자동 승인 활성화: {{pattern}}",
+    "expired": "자동 승인 제한 시간 만료",
+    "denied": "도구 {{tool}}이 yolo 패턴에 의해 거부됨",
+    "remaining": "자동 승인: {{seconds}}초 남음"
   },
   "pipe": {
-    "reading": "Reading piped input...",
-    "processing": "Processing with {{model}}...",
-    "complete": "Task completed",
-    "error": "Pipe mode error: {{message}}",
-    "timeout": "Pipe mode timeout after {{seconds}}s",
-    "noPrompt": "No prompt provided. Usage: echo 'code' | autohand 'explain'"
+    "reading": "파이프 입력 읽는 중...",
+    "processing": "{{model}}으로 처리 중...",
+    "complete": "작업 완료",
+    "error": "파이프 모드 오류: {{message}}",
+    "timeout": "{{seconds}}초 후 파이프 모드 제한 시간",
+    "noPrompt": "프롬프트가 제공되지 않음. 사용법: echo 'code' | autohand 'explain'"
   },
   "mcp": {
-    "connecting": "Connecting to MCP server: {{name}}...",
-    "connected": "Connected to MCP server: {{name}} ({{toolCount}} tools)",
-    "disconnected": "Disconnected from MCP server: {{name}}",
-    "error": "MCP server error ({{name}}): {{message}}",
-    "toolRegistered": "Registered MCP tool: {{tool}}",
-    "noServers": "No MCP servers configured"
+    "connecting": "MCP 서버에 연결 중: {{name}}...",
+    "connected": "MCP 서버에 연결됨: {{name}} ({{toolCount}}개 도구)",
+    "disconnected": "MCP 서버에서 연결 끊김: {{name}}",
+    "error": "MCP 서버 오류 ({{name}}): {{message}}",
+    "toolRegistered": "MCP 도구 등록됨: {{tool}}",
+    "noServers": "구성된 MCP 서버 없음"
   },
   "acp": {
-    "description": "에디터 통합을 위한 네이티브 Agent Client Protocol 모드",
-    "connected": "ACP 연결이 설정되었습니다",
-    "sessionStarted": "ACP 세션이 시작되었습니다: {{sessionId}}",
-    "modeChanged": "ACP 세션 모드가 변경되었습니다: {{mode}}",
-    "modelChanged": "ACP 세션 모델이 변경되었습니다: {{model}}",
-    "sessionClosed": "ACP 세션이 종료되었습니다",
-    "permissionRequested": "권한이 요청되었습니다: {{action}}",
+    "description": "에디터 통합을 위한 네이티브 에이전트 클라이언트 프로토콜 모드",
+    "connected": "ACP 연결 설정됨",
+    "sessionStarted": "ACP 세션 시작됨: {{sessionId}}",
+    "modeChanged": "ACP 세션 모드 변경됨: {{mode}}",
+    "modelChanged": "ACP 세션 모델 변경됨: {{model}}",
+    "sessionClosed": "ACP 세션 종료됨",
+    "permissionRequested": "권한 요청됨: {{action}}",
     "error": "ACP 오류: {{message}}"
   },
   "languages": {
