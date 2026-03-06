@@ -6,7 +6,7 @@
  *
  * Environment variables:
  *   OPENROUTER_API_KEY - Required for API access
- *   TRANSLATION_MODEL - Optional, defaults to anthropic/claude-sonnet-4-20250514
+ *   TRANSLATION_MODEL - Optional, defaults to autohandai/fantail-pro
  *
  * @license
  * Copyright 2025 Autohand AI LLC
@@ -15,14 +15,36 @@
 
 import fs from 'fs-extra';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+/**
+ * Resolve OpenRouter API key: env var first, then ~/.autohand/config.json fallback
+ */
+function resolveApiKey(): string | undefined {
+  if (process.env.OPENROUTER_API_KEY) return process.env.OPENROUTER_API_KEY;
+
+  try {
+    const configPath = path.join(os.homedir(), '.autohand', 'config.json');
+    if (fs.pathExistsSync(configPath)) {
+      const config = fs.readJsonSync(configPath);
+      if (config?.openrouter?.apiKey) {
+        console.log('  Using API key from ~/.autohand/config.json');
+        return config.openrouter.apiKey;
+      }
+    }
+  } catch {
+    // Silently fall through to error below
+  }
+  return undefined;
+}
+
+const OPENROUTER_API_KEY = resolveApiKey();
 const BASE_URL = 'https://openrouter.ai/api/v1';
-const MODEL = process.env.TRANSLATION_MODEL || 'anthropic/claude-sonnet-4-20250514';
+const MODEL = process.env.TRANSLATION_MODEL || 'autohandai/fantail-pro';
 
 const SOURCE_LOCALE = 'en';
 const TARGET_LOCALES = [
