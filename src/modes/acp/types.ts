@@ -257,6 +257,7 @@ export const DEFAULT_ACP_COMMANDS: AcpCommand[] = [
   { name: 'search', description: 'Configure web search' },
   { name: 'login', description: 'Sign in to Autohand account' },
   { name: 'logout', description: 'Sign out of Autohand account' },
+  { name: 'learn',         description: 'Search and install community skills' },
 ];
 
 // ============================================================================
