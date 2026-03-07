@@ -408,6 +408,9 @@ export type HookEvent =
   | 'automode:cancel'   // Auto-mode loop cancelled (trigger to cancel)
   | 'automode:complete' // Auto-mode loop completed successfully
   | 'automode:error'    // Auto-mode error occurred
+  // Learn events
+  | 'pre-learn'          // Fires before a learn operation begins
+  | 'post-learn'         // Fires after a learn operation completes
   // Team events
   | 'team-created'       // Lead creates a team
   | 'teammate-spawned'   // Teammate process started
@@ -992,6 +995,8 @@ export interface GitHubCommunitySkill {
   author?: string;
   /** Allowed tools for this skill */
   allowedTools?: string;
+  /** Security score for the skill (0-100, higher is safer) */
+  securityScore?: number;
 }
 
 /** Registry index fetched from GitHub */
