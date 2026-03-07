@@ -118,6 +118,12 @@ export const RPC_METHODS = {
   MCP_SET_VSCODE_TOOLS: 'autohand.mcp.setVscodeTools',
   MCP_INVOKE_RESPONSE: 'autohand.mcp.invokeResponse',
   MCP_GET_SERVER_CONFIGS: 'autohand.mcp.getServerConfigs',
+  LEARN_SEARCH: 'autohand.learn.search',
+  LEARN_INSTALL: 'autohand.learn.install',
+  LEARN_LIST: 'autohand.learn.list',
+  LEARN_UPDATE: 'autohand.learn.update',
+  LEARN_REMOVE: 'autohand.learn.remove',
+  LEARN_TRENDING: 'autohand.learn.trending',
 } as const;
 
 export type RpcMethod = (typeof RPC_METHODS)[keyof typeof RPC_METHODS];
@@ -171,6 +177,8 @@ export const RPC_NOTIFICATIONS = {
   // MCP bridge notifications (Server -> Client)
   MCP_INVOKE_REQUEST: 'autohand.mcp.invokeRequest',
   MCP_TOOLS_CHANGED: 'autohand.mcp.toolsChanged',
+  LEARN_INSTALL_COMPLETE: 'autohand.learn.installComplete',
+  LEARN_SECURITY_WARNING: 'autohand.learn.securityWarning',
 } as const;
 
 export type RpcNotification = (typeof RPC_NOTIFICATIONS)[keyof typeof RPC_NOTIFICATIONS];
