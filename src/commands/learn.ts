@@ -469,7 +469,7 @@ async function handleRemove(
   }
 }
 
-function handleFeedback(slug: string | undefined, rating: number | undefined, comment: string | undefined): string {
+function handleFeedback(slug: string | undefined, rating: number | undefined, _comment: string | undefined): string {
   if (!slug) {
     return 'Usage: /learn feedback <skill-slug> <1-5> [comment]';
   }
