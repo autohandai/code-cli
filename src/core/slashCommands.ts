@@ -31,6 +31,7 @@ import * as permissions from '../commands/permissions.js';
 import * as hooks from '../commands/hooks.js';
 import * as skills from '../commands/skills.js';
 import * as skillsNew from '../commands/skills-new.js';
+import * as learn from '../commands/learn.js';
 import * as theme from '../commands/theme.js';
 import * as automode from '../commands/automode.js';
 import * as share from '../commands/share.js';
@@ -82,6 +83,7 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   skills.useMetadata,
   skills.installMetadata,
   skillsNew.metadata,
+  learn.metadata,
   theme.metadata,
   automode.metadata,
   share.metadata,
