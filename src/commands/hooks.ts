@@ -35,6 +35,9 @@ const HOOK_EVENTS: HookEvent[] = [
   'automode:cancel',
   'automode:complete',
   'automode:error',
+  // Learn events
+  'pre-learn',
+  'post-learn',
   // Team events
   'team-created',
   'teammate-spawned',
@@ -68,6 +71,9 @@ const EVENT_DESCRIPTIONS: Record<HookEvent, string> = {
   'automode:cancel': 'When auto-mode is cancelled',
   'automode:complete': 'When auto-mode completes',
   'automode:error': 'When auto-mode encounters an error',
+  // Learn events
+  'pre-learn': 'Before a learn operation begins',
+  'post-learn': 'After a learn operation completes',
   // Team events
   'team-created': 'When a team is created',
   'teammate-spawned': 'When a teammate process starts',

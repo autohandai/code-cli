@@ -317,6 +317,18 @@ export class SlashCommandHandler {
             workspaceRoot: this.ctx.workspaceRoot,
           }, ['use', ...args]);
         }
+        case '/learn': {
+          const { learn } = await import('../commands/learn.js');
+          if (!this.ctx.skillsRegistry) {
+            return 'Skills registry not available.';
+          }
+          return learn({
+            skillsRegistry: this.ctx.skillsRegistry,
+            workspaceRoot: this.ctx.workspaceRoot,
+            hookManager: this.ctx.hookManager,
+            isNonInteractive: this.ctx.isNonInteractive,
+          }, args);
+        }
         case '/team': {
           const { team } = await import('../commands/team.js');
           return team({ teamManager: this.ctx.teamManager }, args);
