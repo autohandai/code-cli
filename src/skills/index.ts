@@ -61,3 +61,11 @@ export type {
   BackupEntry,
   SkillSubmission,
 } from './CommunitySkillsClient.js';
+
+// Learn client
+export { LearnClient } from './LearnClient.js';
+export type { LearnSearchResult, SkillUpdateInfo } from './LearnClient.js';
+
+// Security scanner
+export { SkillSecurityScanner } from './SkillSecurityScanner.js';
+export type { SecurityScanResult, ThreatMatch, ThreatCategory } from './SkillSecurityScanner.js';

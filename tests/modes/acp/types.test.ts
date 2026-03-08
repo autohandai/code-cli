@@ -125,8 +125,8 @@ describe('TOOL_DISPLAY_NAMES', () => {
 // ===========================================================================
 
 describe('DEFAULT_ACP_COMMANDS', () => {
-  it('has exactly 31 commands', () => {
-    expect(DEFAULT_ACP_COMMANDS).toHaveLength(31);
+  it('has exactly 32 commands', () => {
+    expect(DEFAULT_ACP_COMMANDS).toHaveLength(32);
   });
 
   it('each command has name and description strings', () => {
@@ -157,6 +157,7 @@ describe('DEFAULT_ACP_COMMANDS', () => {
     expect(names).toContain('history');
     expect(names).toContain('login');
     expect(names).toContain('logout');
+    expect(names).toContain('learn');
   });
 });
 
