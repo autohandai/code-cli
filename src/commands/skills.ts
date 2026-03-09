@@ -549,3 +549,21 @@ export const installMetadata = {
   description: 'browse and install community skills',
   implemented: true,
 };
+
+export const searchMetadata = {
+  command: '/skills search',
+  description: 'search community skills',
+  implemented: true,
+};
+
+export const trendingMetadata = {
+  command: '/skills trending',
+  description: 'show trending community skills',
+  implemented: true,
+};
+
+export const removeMetadata = {
+  command: '/skills remove',
+  description: 'remove an installed skill',
+  implemented: true,
+};
