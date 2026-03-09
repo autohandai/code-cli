@@ -203,7 +203,8 @@ export class TelemetryManager {
     await this.trackEvent('skill_use', {
       skillName: data.skillName,
       source: data.source,
-      activationType: data.activationType
+      activationType: data.activationType,
+      action: data.action,
     });
   }
 

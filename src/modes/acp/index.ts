@@ -10,6 +10,7 @@ import { Readable, Writable } from 'node:stream';
 import { AgentSideConnection, ndJsonStream } from '@agentclientprotocol/sdk';
 import { AutohandAcpAdapter } from './adapter.js';
 import type { CLIOptions } from '../../types.js';
+import { installProcessErrorHandlers } from '../../reporting/processErrorReporting.js';
 
 /**
  * Redirect all console methods to stderr.
@@ -43,14 +44,9 @@ export async function runAcpMode(options: CLIOptions): Promise<void> {
 
   process.stderr.write('[ACP] Starting native ACP mode...\n');
 
-  // Error handlers
-  process.on('unhandledRejection', (reason, promise) => {
-    process.stderr.write(`[ACP] Unhandled Rejection at: ${promise}, reason: ${reason}\n`);
-  });
-
-  process.on('uncaughtException', (error) => {
-    process.stderr.write(`[ACP] Uncaught Exception: ${error.message}\n${error.stack}\n`);
-  });
+  // The main CLI entrypoint already installs process-level handlers.
+  // Keep ACP safe when invoked directly in tests or alternate entrypoints.
+  installProcessErrorHandlers();
 
   // Create Web stream wrappers for Node stdio
   // ACP SDK expects Web Streams (ReadableStream/WritableStream)
