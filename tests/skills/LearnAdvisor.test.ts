@@ -9,10 +9,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { LLMProvider } from '../../src/providers/LLMProvider.js';
 import type { ProjectAnalysis } from '../../src/skills/autoSkill.js';
 import type { SkillDefinition } from '../../src/skills/types.js';
-import type {
-  GitHubCommunitySkill,
-  LearnRecommendation,
-} from '../../src/types.js';
+import type { GitHubCommunitySkill } from '../../src/types.js';
 import { LearnAdvisor } from '../../src/skills/LearnAdvisor.js';
 
 /* ── Helpers ─────────────────────────────────────────────── */
