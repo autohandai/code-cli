@@ -493,7 +493,7 @@ Juga dapat diatur melalui variabel lingkungan:
 | Perintah | Deskripsi |
 |----------|-----------|
 | `/learn` | Analisis proyek dan rekomendasikan skill (pemindaian cepat) |
-| `/learn --deep` | Pemindaian mendalam (membaca file sumber) untuk hasil lebih akurat |
+| `/learn deep` | Pemindaian mendalam (membaca file sumber) untuk hasil lebih akurat |
 | `/learn update` | Analisis ulang proyek dan regenerasi skill LLM yang sudah usang |
 
 `/learn` menggunakan alur LLM dua fase:

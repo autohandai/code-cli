@@ -29,15 +29,21 @@ describe('learn command', () => {
       expect(result.subcommand).toBe('update');
     });
 
-    it('parses --deep flag with empty args', () => {
-      const result = parseLearnArgs(['--deep']);
+    it('parses "deep" subcommand as recommend with deep flag', () => {
+      const result = parseLearnArgs(['deep']);
       expect(result.subcommand).toBe('recommend');
       expect(result.deep).toBe(true);
     });
 
-    it('parses "update --deep" with both fields', () => {
-      const result = parseLearnArgs(['update', '--deep']);
+    it('parses "update deep" with both fields', () => {
+      const result = parseLearnArgs(['update', 'deep']);
       expect(result.subcommand).toBe('update');
+      expect(result.deep).toBe(true);
+    });
+
+    it('supports legacy --deep flag for backwards compat', () => {
+      const result = parseLearnArgs(['--deep']);
+      expect(result.subcommand).toBe('recommend');
       expect(result.deep).toBe(true);
     });
 

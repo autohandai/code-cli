@@ -20,7 +20,7 @@ import {
 import { showModal, showConfirm } from '../ui/ink/components/Modal.js';
 import type { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import type { HookManager } from '../core/HookManager.js';
-import type { CommunitySkillsRegistry } from '../types.js';
+
 
 export interface SkillsCommandContext {
   skillsRegistry: SkillsRegistry;

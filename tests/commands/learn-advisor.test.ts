@@ -96,8 +96,8 @@ describe('parseLearnArgs (updated)', () => {
     expect(parseLearnArgs([]).deep).toBeFalsy();
   });
 
-  it('--deep sets deep flag', () => {
-    const result = parseLearnArgs(['--deep']);
+  it('"deep" subcommand sets deep flag', () => {
+    const result = parseLearnArgs(['deep']);
     expect(result.subcommand).toBe('recommend');
     expect(result.deep).toBe(true);
   });
@@ -106,8 +106,8 @@ describe('parseLearnArgs (updated)', () => {
     expect(parseLearnArgs(['update']).subcommand).toBe('update');
   });
 
-  it('update --deep sets both', () => {
-    const result = parseLearnArgs(['update', '--deep']);
+  it('update deep sets both', () => {
+    const result = parseLearnArgs(['update', 'deep']);
     expect(result.subcommand).toBe('update');
     expect(result.deep).toBe(true);
   });
@@ -120,7 +120,7 @@ describe('parseLearnArgs (updated)', () => {
     expect(parseLearnArgs(['foo', 'bar']).subcommand).toBe('recommend');
   });
 
-  it('--deep alone (only flag) returns recommend with deep', () => {
+  it('legacy --deep flag still works for backwards compat', () => {
     const result = parseLearnArgs(['--deep']);
     expect(result.subcommand).toBe('recommend');
     expect(result.deep).toBe(true);
