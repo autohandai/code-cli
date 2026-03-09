@@ -317,6 +317,39 @@ export class SlashCommandHandler {
             workspaceRoot: this.ctx.workspaceRoot,
           }, ['use', ...args]);
         }
+        case '/skills search': {
+          const { skills } = await import('../commands/skills.js');
+          if (!this.ctx.skillsRegistry) {
+            return 'Skills registry not available.';
+          }
+          return skills({
+            skillsRegistry: this.ctx.skillsRegistry,
+            workspaceRoot: this.ctx.workspaceRoot,
+            hookManager: this.ctx.hookManager,
+            isNonInteractive: this.ctx.isNonInteractive,
+          }, ['search', ...args]);
+        }
+        case '/skills trending': {
+          const { skills } = await import('../commands/skills.js');
+          if (!this.ctx.skillsRegistry) {
+            return 'Skills registry not available.';
+          }
+          return skills({
+            skillsRegistry: this.ctx.skillsRegistry,
+            workspaceRoot: this.ctx.workspaceRoot,
+          }, ['trending', ...args]);
+        }
+        case '/skills remove': {
+          const { skills } = await import('../commands/skills.js');
+          if (!this.ctx.skillsRegistry) {
+            return 'Skills registry not available.';
+          }
+          return skills({
+            skillsRegistry: this.ctx.skillsRegistry,
+            workspaceRoot: this.ctx.workspaceRoot,
+            isNonInteractive: this.ctx.isNonInteractive,
+          }, ['remove', ...args]);
+        }
         case '/learn': {
           const { learn } = await import('../commands/learn.js');
           if (!this.ctx.skillsRegistry) {
@@ -327,6 +360,7 @@ export class SlashCommandHandler {
             workspaceRoot: this.ctx.workspaceRoot,
             hookManager: this.ctx.hookManager,
             isNonInteractive: this.ctx.isNonInteractive,
+            llm: this.ctx.llm,
           }, args);
         }
         case '/team': {

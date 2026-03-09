@@ -426,7 +426,7 @@ export class ProjectAnalyzer {
 /**
  * Build the comprehensive skill generation prompt
  */
-function buildSkillGenerationPrompt(analysis: ProjectAnalysis): string {
+export function buildSkillGenerationPrompt(analysis: ProjectAnalysis): string {
   const parts: string[] = [];
 
   parts.push(`# Project Analysis for Skill Generation`);
@@ -587,40 +587,11 @@ export async function generateAutoSkills(
 }
 
 /**
- * Save a generated skill to the project skills directory
- */
-async function saveSkill(
-  skill: GeneratedSkill,
-  skillsDir: string
-): Promise<boolean> {
-  const skillDir = path.join(skillsDir, skill.name);
-  const skillPath = path.join(skillDir, 'SKILL.md');
-
-  try {
-    await fs.ensureDir(skillDir);
-
-    // Build frontmatter with optional allowed-tools
-    let frontmatter = `---
-name: ${skill.name}
-description: ${skill.description}`;
-
-    if (skill.allowedTools && skill.allowedTools.length > 0) {
-      frontmatter += `\nallowed-tools: ${skill.allowedTools.join(' ')}`;
-    }
-
-    frontmatter += `\n---\n\n`;
-
-    const content = frontmatter + skill.body + '\n';
-
-    await fs.writeFile(skillPath, content, 'utf-8');
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Main entry point for auto-skill generation
+ * Main entry point for auto-skill generation.
+ *
+ * Uses LearnAdvisor for targeted single-skill generation with proper
+ * metadata tracking (project-hash, llm-generated source) so skills
+ * can be updated later via `/learn update`.
  */
 export async function runAutoSkillGeneration(
   workspaceRoot: string,
@@ -655,37 +626,58 @@ export async function runAutoSkillGeneration(
   const detected = [...analysis.languages, ...analysis.frameworks, ...analysis.patterns].join(', ');
   console.log(chalk.gray(`Detected: ${detected}`));
   console.log(chalk.gray(`Platform: ${analysis.platform}`));
-  console.log(chalk.cyan('Generating skills...'));
+  console.log(chalk.cyan('Generating targeted skill via LearnAdvisor...'));
 
-  // Generate skills using LLM
-  const skills = await generateAutoSkills(analysis, llm);
+  // Use LearnAdvisor for targeted single-skill generation
+  const { LearnAdvisor } = await import('./LearnAdvisor.js');
+  const { computeProjectHash, injectGeneratedMetadata } = await import('./communityInstaller.js');
 
-  if (skills.length === 0) {
+  const advisor = new LearnAdvisor(llm);
+  const generated = await advisor.generateSkill(analysis, null, []);
+
+  if (!generated) {
     console.log(chalk.yellow('No skills generated.'));
     result.error = 'No skills generated';
     return result;
   }
 
-  // Save skills to project .autohand/skills directory
+  // Save skill with metadata tracking
   const skillsDir = path.join(workspaceRoot, PROJECT_DIR_NAME, 'skills');
+  const projectHash = computeProjectHash(analysis);
 
-  for (const skill of skills) {
-    const saved = await saveSkill(skill, skillsDir);
-    if (saved) {
-      result.skillsGenerated++;
-      result.skills.push(skill.name);
-      console.log(chalk.green(`  ✓ ${skill.name}`));
-      if (skill.allowedTools && skill.allowedTools.length > 0) {
-        console.log(chalk.gray(`    Tools: ${skill.allowedTools.slice(0, 5).join(', ')}${skill.allowedTools.length > 5 ? '...' : ''}`));
-      }
+  // Build SKILL.md content with frontmatter
+  let frontmatter = `---\nname: ${generated.name}\ndescription: ${generated.description}`;
+  if (generated.allowedTools.length > 0) {
+    frontmatter += `\nallowed-tools: ${generated.allowedTools.join(' ')}`;
+  }
+  frontmatter += `\n---\n\n`;
+  let content = frontmatter + generated.body + '\n';
+
+  // Inject LLM-generated metadata for /learn update tracking
+  content = injectGeneratedMetadata(content, generated.name, projectHash);
+
+  const skillDir = path.join(skillsDir, generated.name);
+  const skillPath = path.join(skillDir, 'SKILL.md');
+
+  try {
+    await fs.ensureDir(skillDir);
+    await fs.writeFile(skillPath, content, 'utf-8');
+    result.skillsGenerated = 1;
+    result.skills.push(generated.name);
+    console.log(chalk.green(`  ✓ ${generated.name}`));
+    if (generated.allowedTools.length > 0) {
+      console.log(chalk.gray(`    Tools: ${generated.allowedTools.slice(0, 5).join(', ')}${generated.allowedTools.length > 5 ? '...' : ''}`));
     }
+    console.log(chalk.gray(`    Project hash: ${projectHash}`));
+  } catch {
+    result.error = 'Failed to save generated skill';
+    return result;
   }
 
-  if (result.skillsGenerated > 0) {
-    result.success = true;
-    console.log(chalk.green(`\n✓ Generated ${result.skillsGenerated} skills in ${skillsDir}`));
-    console.log(chalk.gray(`  Use "/skills" to view and "/skills use <name>" to activate`));
-  }
+  result.success = true;
+  console.log(chalk.green(`\n✓ Generated 1 targeted skill in ${skillsDir}`));
+  console.log(chalk.gray(`  Use "/skills" to view and "/skills use <name>" to activate`));
+  console.log(chalk.gray(`  Use "/learn update" to regenerate when your project evolves`));
 
   return result;
 }

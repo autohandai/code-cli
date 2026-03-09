@@ -1050,6 +1050,40 @@ export interface SkillsCacheConfig {
 /** Skill install scope */
 export type SkillInstallScope = 'user' | 'project';
 
+/**
+ * LLM-powered /learn analysis types
+ */
+
+/** A ranked skill recommendation from the registry catalog */
+export interface LearnRecommendation {
+  slug: string;
+  score: number;
+  reason: string;
+}
+
+/** An existing skill flagged as redundant, outdated, or conflicting */
+export interface LearnAuditEntry {
+  skill: string;
+  status: 'redundant' | 'outdated' | 'conflicting';
+  reason: string;
+}
+
+/** Full Phase 1 LLM response: analyze + rank + audit */
+export interface LearnAnalysisResponse {
+  projectSummary: string;
+  audit: LearnAuditEntry[];
+  recommendations: LearnRecommendation[];
+  gapAnalysis: string | null;
+}
+
+/** Phase 2 LLM response: custom skill generation */
+export interface LearnGeneratedSkill {
+  name: string;
+  description: string;
+  allowedTools: string[];
+  body: string;
+}
+
 /** Browser tab type */
 export type SkillsBrowserTab = 'featured' | 'categories' | 'search';
 

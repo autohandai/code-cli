@@ -16,6 +16,7 @@ import type {
 } from './types.js';
 import { PROJECT_DIR_NAME } from '../constants.js';
 import type { TelemetryManager } from '../telemetry/TelemetryManager.js';
+import type { SkillUseData } from '../telemetry/types.js';
 import type { CommunitySkillsClient, CommunitySkillPackage, BackupPayload } from './CommunitySkillsClient.js';
 
 const SIMILARITY_THRESHOLD = 0.3;
@@ -456,6 +457,14 @@ export class SkillsRegistry {
   }
 
   /**
+   * Track a skill event via the telemetry manager.
+   * Safe to call even without a telemetry manager configured.
+   */
+  trackSkillEvent(data: SkillUseData): void {
+    this.telemetryManager?.trackSkillUse(data).catch(() => {});
+  }
+
+  /**
    * Activate a skill by name
    */
   activateSkill(name: string): boolean {
@@ -465,6 +474,12 @@ export class SkillsRegistry {
     }
 
     skill.isActive = true;
+    this.trackSkillEvent({
+      skillName: name,
+      source: skill.source,
+      activationType: 'explicit',
+      action: 'activate',
+    });
     return true;
   }
 

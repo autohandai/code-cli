@@ -5,4 +5,5 @@
  */
 export { AutoReportClient } from './AutoReportClient.js';
 export { AutoReportManager } from './AutoReportManager.js';
+export { installProcessErrorHandlers, reportProcessError } from './processErrorReporting.js';
 export type { ErrorReport, ErrorReportPayload, ReportResponse } from './types.js';

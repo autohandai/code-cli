@@ -18,19 +18,10 @@ describe('learn command', () => {
   });
 
   describe('parseLearnArgs', () => {
-    it('parses empty args as recommendations subcommand', () => {
+    it('parses empty args as recommend subcommand', () => {
       const result = parseLearnArgs([]);
-      expect(result.subcommand).toBe('recommendations');
-    });
-
-    it('parses "trending" subcommand', () => {
-      const result = parseLearnArgs(['trending']);
-      expect(result.subcommand).toBe('trending');
-    });
-
-    it('parses "list" subcommand', () => {
-      const result = parseLearnArgs(['list']);
-      expect(result.subcommand).toBe('list');
+      expect(result.subcommand).toBe('recommend');
+      expect(result.deep).toBeFalsy();
     });
 
     it('parses "update" subcommand', () => {
@@ -38,36 +29,55 @@ describe('learn command', () => {
       expect(result.subcommand).toBe('update');
     });
 
-    it('parses "remove <slug>" subcommand', () => {
+    it('parses --deep flag with empty args', () => {
+      const result = parseLearnArgs(['--deep']);
+      expect(result.subcommand).toBe('recommend');
+      expect(result.deep).toBe(true);
+    });
+
+    it('parses "update --deep" with both fields', () => {
+      const result = parseLearnArgs(['update', '--deep']);
+      expect(result.subcommand).toBe('update');
+      expect(result.deep).toBe(true);
+    });
+
+    // Previously recognized subcommands (search, install, list, trending,
+    // remove, feedback) have been migrated to /skills.
+    // They now fall through to 'recommend'.
+
+    it('treats "trending" as recommend (migrated to /skills)', () => {
+      const result = parseLearnArgs(['trending']);
+      expect(result.subcommand).toBe('recommend');
+    });
+
+    it('treats "remove" as recommend (migrated to /skills)', () => {
       const result = parseLearnArgs(['remove', 'seo-optimizer']);
-      expect(result.subcommand).toBe('remove');
-      expect(result.slug).toBe('seo-optimizer');
+      expect(result.subcommand).toBe('recommend');
     });
 
-    it('parses "feedback <slug> <rating>" subcommand', () => {
+    it('treats "feedback" as recommend (migrated to /skills)', () => {
       const result = parseLearnArgs(['feedback', 'seo-optimizer', '5', 'Great skill']);
-      expect(result.subcommand).toBe('feedback');
-      expect(result.slug).toBe('seo-optimizer');
-      expect(result.rating).toBe(5);
-      expect(result.comment).toBe('Great skill');
+      expect(result.subcommand).toBe('recommend');
     });
 
-    it('parses "@owner/name" as direct install', () => {
+    it('treats "@owner/name" as recommend (install migrated to /skills)', () => {
       const result = parseLearnArgs(['@anthropic/seo-optimizer']);
-      expect(result.subcommand).toBe('install');
-      expect(result.slug).toBe('@anthropic/seo-optimizer');
+      expect(result.subcommand).toBe('recommend');
     });
 
-    it('parses plain keyword as search', () => {
+    it('treats plain keyword as recommend (search migrated to /skills)', () => {
       const result = parseLearnArgs(['seo']);
-      expect(result.subcommand).toBe('search');
-      expect(result.query).toBe('seo');
+      expect(result.subcommand).toBe('recommend');
     });
 
-    it('parses multi-word keyword as search', () => {
+    it('treats multi-word keyword as recommend (search migrated to /skills)', () => {
       const result = parseLearnArgs(['react', 'hooks']);
-      expect(result.subcommand).toBe('search');
-      expect(result.query).toBe('react hooks');
+      expect(result.subcommand).toBe('recommend');
+    });
+
+    it('parses "list" as recommend (list migrated to /skills)', () => {
+      const result = parseLearnArgs(['list']);
+      expect(result.subcommand).toBe('recommend');
     });
   });
 });
