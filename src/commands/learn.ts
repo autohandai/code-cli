@@ -3,23 +3,33 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  *
- * /learn command - Search and install community skills with security scanning
+ * /learn command — LLM-powered project analysis, skill recommendation,
+ * auditing of installed skills, and custom skill generation.
  */
+import path from 'node:path';
 import chalk from 'chalk';
+import fse from 'fs-extra';
 import { t } from '../i18n/index.js';
-import { LearnClient } from '../skills/LearnClient.js';
+import { LearnAdvisor } from '../skills/LearnAdvisor.js';
+import { ProjectAnalyzer } from '../skills/autoSkill.js';
 import {
   fetchRegistryWithFallback,
-  installSkillWithSecurity,
-  injectLearnMetadata,
+  injectGeneratedMetadata,
+  computeProjectHash,
 } from '../skills/communityInstaller.js';
 import { GitHubRegistryFetcher } from '../skills/GitHubRegistryFetcher.js';
 import { CommunitySkillsCache } from '../skills/CommunitySkillsCache.js';
-import { AUTOHAND_PATHS } from '../constants.js';
-import { showConfirm } from '../ui/ink/components/Modal.js';
+import { AUTOHAND_PATHS, PROJECT_DIR_NAME } from '../constants.js';
+import { showConfirm, showModal } from '../ui/ink/components/Modal.js';
+import type { LLMProvider } from '../providers/LLMProvider.js';
 import type { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import type { HookManager } from '../core/HookManager.js';
-import type { CommunitySkillsRegistry } from '../types.js';
+import type {
+  CommunitySkillsRegistry,
+  LearnAnalysisResponse,
+  SkillInstallScope,
+} from '../types.js';
+import type { ProjectAnalysis } from '../skills/autoSkill.js';
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -28,188 +38,177 @@ export interface LearnCommandContext {
   workspaceRoot: string;
   hookManager?: HookManager;
   isNonInteractive?: boolean;
+  llm: LLMProvider;
 }
 
 export interface ParsedLearnArgs {
-  subcommand: 'search' | 'install' | 'list' | 'update' | 'recommendations';
-  query?: string;
-  slug?: string;
+  subcommand: 'recommend' | 'update';
+  deep?: boolean;
 }
 
 // ─── Arg Parser ──────────────────────────────────────────────────────
 
-const KNOWN_SUBCOMMANDS = new Set(['list', 'update']);
-
 export function parseLearnArgs(args: string[]): ParsedLearnArgs {
-  if (args.length === 0) {
-    return { subcommand: 'recommendations' };
+  if (args.length === 0 || args.every((a) => a === '--deep')) {
+    return { subcommand: 'recommend', deep: args.includes('--deep') };
   }
 
-  const first = args[0];
-
-  // Known subcommands
-  if (KNOWN_SUBCOMMANDS.has(first)) {
-    return { subcommand: first as ParsedLearnArgs['subcommand'] };
+  if (args[0] === 'update') {
+    return { subcommand: 'update', deep: args.includes('--deep') };
   }
 
-  // @owner/name → direct install
-  if (first.startsWith('@') && first.includes('/')) {
-    return { subcommand: 'install', slug: first };
-  }
-
-  // Anything else is a search query
-  return { subcommand: 'search', query: args.join(' ') };
+  // Default to recommend for any unrecognized args
+  return { subcommand: 'recommend', deep: args.includes('--deep') };
 }
 
 // ─── Sub-handlers ────────────────────────────────────────────────────
 
-async function handleInstall(
+async function handleLearnRecommend(
   ctx: LearnCommandContext,
-  slug: string,
-  registry: CommunitySkillsRegistry,
-  cache: CommunitySkillsCache,
-  fetcher: GitHubRegistryFetcher,
+  deep?: boolean,
 ): Promise<string> {
-  const client = new LearnClient();
-  const skill = client.findBySlug(registry, slug);
+  const { skillsRegistry, workspaceRoot, llm, isNonInteractive } = ctx;
 
-  if (!skill) {
-    return t('commands.learn.noResults', { query: slug });
+  console.log(chalk.cyan(deep ? 'Deep-analyzing your project...' : 'Analyzing your project...'));
+
+  // 1. Analyze project
+  const analyzer = new ProjectAnalyzer(workspaceRoot);
+  const analysis = await analyzer.analyze();
+
+  // 2. Fetch registry
+  const cache = new CommunitySkillsCache();
+  const fetcher = new GitHubRegistryFetcher();
+  let registry: CommunitySkillsRegistry | null = null;
+  try {
+    registry = await fetchRegistryWithFallback(cache, fetcher);
+  } catch {
+    // Registry unavailable — continue with empty
   }
 
-  // Interactive confirmation
-  if (!ctx.isNonInteractive) {
-    const confirmed = await showConfirm({
-      title: t('commands.learn.confirmInstall', { name: skill.name }),
-      defaultValue: true,
-    });
-    if (!confirmed) return null as unknown as string;
-  }
+  // 3. Collect installed skills
+  const installedSkills = skillsRegistry.listSkills();
+  const registrySkills = registry?.skills ?? [];
 
-  return installSkillWithSecurity(ctx, skill, cache, fetcher);
-}
+  // 4. Call LLM advisor
+  const advisor = new LearnAdvisor(llm);
+  const result = await advisor.analyze(analysis, installedSkills, registrySkills);
 
-function handleList(ctx: LearnCommandContext): string {
-  const client = new LearnClient();
-  const allSkills = ctx.skillsRegistry.listSkills();
-  const learnedSkills = client.filterLearnedSkills(allSkills);
-
-  if (learnedSkills.length === 0) {
-    return t('commands.learn.listEmpty');
-  }
-
+  // 5. Format output
   const lines: string[] = [];
   lines.push('');
-  lines.push(chalk.bold(t('commands.learn.listTitle')));
-  lines.push('');
 
-  for (const skill of learnedSkills) {
-    const slug = skill.metadata?.['agentskill-slug'] ?? skill.name;
-    const status = skill.isActive ? chalk.green('[active]') : chalk.gray('[inactive]');
-    lines.push(`  ${chalk.cyan(skill.name)} ${status}`);
-    lines.push(`    ${skill.description}`);
-    lines.push(`    {{action:Remove|/skills remove ${slug}}} {{action:Info|/skills info ${skill.name}}}`);
+  // Project summary
+  if (result.projectSummary) {
+    lines.push(chalk.bold(`Project: ${result.projectSummary}`));
     lines.push('');
   }
 
-  return lines.join('\n');
-}
-
-async function handleUpdate(
-  ctx: LearnCommandContext,
-  registry: CommunitySkillsRegistry,
-  cache: CommunitySkillsCache,
-  fetcher: GitHubRegistryFetcher,
-): Promise<string> {
-  const client = new LearnClient();
-  const allSkills = ctx.skillsRegistry.listSkills();
-  const learnedSkills = client.filterLearnedSkills(allSkills);
-
-  if (learnedSkills.length === 0) {
-    return t('commands.learn.listEmpty');
+  // Audit findings
+  if (result.audit.length > 0) {
+    lines.push(chalk.yellow.bold('Skill Audit'));
+    for (const entry of result.audit) {
+      const icon =
+        entry.status === 'redundant' ? '\u26A0' : entry.status === 'outdated' ? '\u23F0' : '\u26A1';
+      lines.push(`  ${icon} **${entry.skill}** — ${entry.status}: ${entry.reason}`);
+    }
+    lines.push('');
   }
 
-  // Check for updates using content SHA comparison
-  const updates = client.checkUpdates(
-    learnedSkills,
-    registry,
-    (skillId: string) => {
-      // Compute SHA from cached content if available
-      // This is a simplified version — in production we'd compare against registry checksums
-      const skill = registry.skills.find((s) => s.id === skillId);
-      return skill ? skill.version ?? null : null;
-    },
-  );
+  // Recommendations
+  const goodMatches = result.recommendations
+    .filter((r) => r.score >= 60)
+    .sort((a, b) => b.score - a.score);
 
-  if (updates.length === 0) {
-    return chalk.green(t('commands.learn.upToDate'));
+  if (goodMatches.length > 0) {
+    lines.push(chalk.green.bold('Recommended Skills'));
+    for (const rec of goodMatches.slice(0, 5)) {
+      lines.push(`  ${chalk.green('\u25CF')} **${rec.slug}** (${rec.score}%) — ${rec.reason}`);
+      lines.push(`    {{action:Install|/skills install @${rec.slug}}}`);
+    }
+    lines.push('');
+  } else {
+    lines.push(chalk.yellow('No strong matches found in the community registry.'));
+    if (result.gapAnalysis) {
+      lines.push(chalk.gray(`Gap: ${result.gapAnalysis}`));
+    }
+    lines.push('');
   }
 
-  // Re-install each updated skill
-  let updatedCount = 0;
-  for (const update of updates) {
-    const skill = registry.skills.find((s) => s.id === update.slug || s.name === update.slug);
-    if (!skill) continue;
-
-    // Fetch fresh files
-    try {
-      const files = await fetcher.fetchSkillDirectory(skill);
-      await cache.setSkillDirectory(skill.id, files);
-
-      const enrichedFiles = new Map(files);
-      const skillMd = enrichedFiles.get('SKILL.md');
-      if (skillMd) {
-        enrichedFiles.set('SKILL.md', injectLearnMetadata(skillMd, skill));
-      }
-
-      const targetDir = AUTOHAND_PATHS.skills;
-      await ctx.skillsRegistry.importCommunitySkillDirectory(
-        skill.id,
-        enrichedFiles,
-        targetDir,
-        true, // force overwrite
-      );
-
-      // Track update telemetry
-      ctx.skillsRegistry.trackSkillEvent({
-        skillName: skill.name,
-        source: 'community',
-        activationType: 'explicit',
-        action: 'update',
-      });
-
-      updatedCount++;
-    } catch {
-      // Skip failed updates silently
+  // 6. Offer generation if no good matches
+  if (goodMatches.length === 0 && !isNonInteractive) {
+    const wantGenerate = await showConfirm({
+      title: 'Want me to generate a custom skill for your project?',
+    });
+    if (wantGenerate) {
+      return await handleGeneration(ctx, analysis, result);
     }
   }
 
-  return chalk.green(t('commands.learn.updated', { count: String(updatedCount) }));
+  return lines.join('\n');
 }
 
-async function handleRecommendations(
+async function handleGeneration(
   ctx: LearnCommandContext,
-  registry: CommunitySkillsRegistry,
+  analysis: ProjectAnalysis,
+  analysisResult: LearnAnalysisResponse,
 ): Promise<string> {
-  const client = new LearnClient();
-  const trending = client.trending(registry, 5);
+  console.log(chalk.cyan('Generating a custom skill...'));
 
-  const lines: string[] = [];
-  lines.push('');
-  lines.push(chalk.bold(t('commands.learn.recommendationsTitle')));
-  lines.push('');
+  const advisor = new LearnAdvisor(ctx.llm);
+  const lowScoring = analysisResult.recommendations
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
 
-  for (const skill of trending) {
-    const name = chalk.cyan(skill.name);
-    const featured = skill.isFeatured ? chalk.yellow(' [featured]') : '';
-    lines.push(`  ${name}${featured} - ${skill.description}`);
-    lines.push(`  {{action:Install|/learn @${skill.author ?? 'community'}/${skill.id}}} {{action:Details|/learn ${skill.id}}}`);
-    lines.push('');
+  const generated = await advisor.generateSkill(analysis, analysisResult.gapAnalysis, lowScoring);
+
+  if (!generated) {
+    return chalk.red('Failed to generate a custom skill. Try again later.');
   }
 
-  lines.push(chalk.gray('Use /skills search <keyword> to search or /skills trending for more'));
+  // Ask scope
+  const scopeChoice = await showModal({
+    title: 'Where should this skill be installed?',
+    options: [
+      { label: `Project (.autohand/skills/)`, value: 'project' },
+      { label: `User (~/.autohand/skills/)`, value: 'user' },
+    ],
+  });
 
-  return lines.join('\n');
+  const scope: SkillInstallScope =
+    scopeChoice?.value === 'project' ? 'project' : 'user';
+
+  // Build SKILL.md content
+  let frontmatter = `---\nname: ${generated.name}\ndescription: ${generated.description}\n`;
+  if (generated.allowedTools.length > 0) {
+    frontmatter += `allowed-tools: ${generated.allowedTools.join(' ')}\n`;
+  }
+  frontmatter += `---\n\n`;
+  let skillContent = frontmatter + generated.body + '\n';
+
+  // Inject generated metadata
+  const projectHash = computeProjectHash(analysis);
+  skillContent = injectGeneratedMetadata(skillContent, generated.name, projectHash);
+
+  // Save
+  const targetDir =
+    scope === 'project'
+      ? path.join(ctx.workspaceRoot, PROJECT_DIR_NAME, 'skills')
+      : AUTOHAND_PATHS.skills;
+
+  const skillDir = path.join(targetDir, generated.name);
+  await fse.ensureDir(skillDir);
+  await fse.writeFile(path.join(skillDir, 'SKILL.md'), skillContent, 'utf-8');
+
+  return (
+    chalk.green(`Generated and installed skill: ${generated.name}\n`) +
+    chalk.gray(`  Location: ${skillDir}/SKILL.md\n`) +
+    chalk.gray(`  Use "/skills use ${generated.name}" to activate it.`)
+  );
+}
+
+async function handleLearnUpdate(_ctx: LearnCommandContext): Promise<string> {
+  // Stub — will be implemented in Task 11
+  return chalk.yellow('The /learn update command will be available soon. Use /skills for now.');
 }
 
 // ─── Main Entry Point ────────────────────────────────────────────────
@@ -221,41 +220,13 @@ export async function learn(ctx: LearnCommandContext, args: string[]): Promise<s
 
   const parsed = parseLearnArgs(args);
 
-  // Initialize services
-  const cache = new CommunitySkillsCache();
-  const fetcher = new GitHubRegistryFetcher();
-
-  // For subcommands that need the registry, fetch it
-  const needsRegistry = new Set(['search', 'install', 'update', 'recommendations']);
-
-  let registry: CommunitySkillsRegistry | null = null;
-  if (needsRegistry.has(parsed.subcommand)) {
-    console.log(chalk.gray(t('commands.learn.searching', { query: parsed.query ?? parsed.slug ?? '...' })));
-    registry = await fetchRegistryWithFallback(cache, fetcher);
-    if (!registry) {
-      return chalk.red('Unable to fetch community skills registry. Check your network connection.');
-    }
-  }
-
   switch (parsed.subcommand) {
-    case 'install':
-      return handleInstall(ctx, parsed.slug!, registry!, cache, fetcher);
-
-    case 'list':
-      return handleList(ctx);
-
+    case 'recommend':
+      return handleLearnRecommend(ctx, parsed.deep);
     case 'update':
-      return handleUpdate(ctx, registry!, cache, fetcher);
-
-    case 'recommendations':
-      return handleRecommendations(ctx, registry!);
-
-    case 'search':
-      // Search has been migrated to /skills — redirect users
-      return 'Search has moved to /skills search. Use: /skills search ' + (parsed.query ?? '');
-
+      return handleLearnUpdate(ctx);
     default:
-      return null;
+      return handleLearnRecommend(ctx, false);
   }
 }
 
