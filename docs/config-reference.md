@@ -819,7 +819,7 @@ Autohand supports special prefixes in the input prompt:
 | Command | Description |
 |---------|-------------|
 | `/learn` | Analyze project and recommend skills (quick scan) |
-| `/learn --deep` | Deep-scan project (reads source files) for more targeted results |
+| `/learn deep` | Deep-scan project (reads source files) for more targeted results |
 | `/learn update` | Re-analyze project and regenerate outdated LLM-generated skills |
 
 `/learn` uses a two-phase LLM flow:
@@ -1464,6 +1464,8 @@ These flags override config file settings:
 | `--patch` | Generate git patch without applying changes |
 | `--output <file>` | Output file for patch (used with --patch) |
 | `--auto-skill` | Auto-generate skills based on project analysis (see also `/learn` for interactive advisor) |
+| `--learn` | Run `/learn` skill advisor non-interactively (analyze and install recommended skills) |
+| `--learn-update` | Re-analyze project and regenerate outdated LLM-generated skills non-interactively |
 | `-c, --auto-commit` | Auto-commit changes after completing tasks |
 | `--login` | Sign in to your Autohand account |
 | `--logout` | Sign out of your Autohand account |

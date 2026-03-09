@@ -493,7 +493,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 | 命令 | 描述 |
 |------|------|
 | `/learn` | 分析项目并推荐技能（快速扫描） |
-| `/learn --deep` | 深度扫描项目（读取源文件）以获得更精准的结果 |
+| `/learn deep` | 深度扫描项目（读取源文件）以获得更精准的结果 |
 | `/learn update` | 重新分析项目并重新生成过时的 LLM 生成技能 |
 
 `/learn` 使用两阶段 LLM 流程：

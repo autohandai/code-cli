@@ -504,7 +504,7 @@ Também pode ser definido via variáveis de ambiente:
 | Comando | Descrição |
 |---------|-----------|
 | `/learn` | Analisar projeto e recomendar skills (escaneamento rápido) |
-| `/learn --deep` | Escaneamento profundo do projeto (lê arquivos fonte) para resultados mais precisos |
+| `/learn deep` | Escaneamento profundo do projeto (lê arquivos fonte) para resultados mais precisos |
 | `/learn update` | Re-analisar projeto e regenerar skills LLM gerados desatualizados |
 
 `/learn` utiliza um fluxo LLM em duas fases:

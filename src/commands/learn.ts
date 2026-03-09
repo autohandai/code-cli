@@ -49,16 +49,25 @@ export interface ParsedLearnArgs {
 // ─── Arg Parser ──────────────────────────────────────────────────────
 
 export function parseLearnArgs(args: string[]): ParsedLearnArgs {
-  if (args.length === 0 || args.every((a) => a === '--deep')) {
-    return { subcommand: 'recommend', deep: args.includes('--deep') };
+  if (args.length === 0) {
+    return { subcommand: 'recommend', deep: false };
+  }
+
+  if (args[0] === 'deep') {
+    return { subcommand: 'recommend', deep: true };
   }
 
   if (args[0] === 'update') {
-    return { subcommand: 'update', deep: args.includes('--deep') };
+    return { subcommand: 'update', deep: args.includes('deep') };
+  }
+
+  // Legacy: support --deep flag for backwards compat
+  if (args.every((a) => a === '--deep')) {
+    return { subcommand: 'recommend', deep: true };
   }
 
   // Default to recommend for any unrecognized args
-  return { subcommand: 'recommend', deep: args.includes('--deep') };
+  return { subcommand: 'recommend', deep: args.includes('deep') || args.includes('--deep') };
 }
 
 // ─── Sub-handlers ────────────────────────────────────────────────────

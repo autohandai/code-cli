@@ -493,7 +493,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 | 명령어 | 설명 |
 |--------|------|
 | `/learn` | 프로젝트 분석 및 스킬 추천 (빠른 스캔) |
-| `/learn --deep` | 더 정확한 결과를 위한 딥스캔 (소스 파일 읽기) |
+| `/learn deep` | 더 정확한 결과를 위한 딥스캔 (소스 파일 읽기) |
 | `/learn update` | 프로젝트 재분석 및 오래된 LLM 생성 스킬 재생성 |
 
 `/learn`은 2단계 LLM 플로우를 사용합니다:

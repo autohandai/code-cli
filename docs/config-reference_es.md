@@ -492,7 +492,7 @@ También se puede configurar mediante variables de entorno:
 | Comando | Descripción |
 |---------|-------------|
 | `/learn` | Analizar proyecto y recomendar skills (escaneo rápido) |
-| `/learn --deep` | Escaneo profundo del proyecto (lee archivos fuente) para resultados más precisos |
+| `/learn deep` | Escaneo profundo del proyecto (lee archivos fuente) para resultados más precisos |
 | `/learn update` | Re-analizar proyecto y regenerar skills LLM generados obsoletos |
 
 `/learn` utiliza un flujo LLM de dos fases:

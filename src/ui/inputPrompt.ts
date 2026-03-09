@@ -1562,12 +1562,6 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     const onPromptNotify = (msg: string) => showPromptMessage(msg);
     promptEvents.on('notify', onPromptNotify);
 
-    const insertAtCursor = (text: string) => {
-      textBuffer.insert(text);
-      syncReadlineFromBuffer();
-      renderActivePrompt();
-    };
-
     const refreshLine = () => {
       renderActivePrompt();
     };
@@ -1600,7 +1594,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     const rlTtyWrite = rl as readline.Interface & { _ttyWrite?: (s: string, key: readline.Key) => void };
     const originalTtyWrite = rlTtyWrite._ttyWrite?.bind(rl);
     if (originalTtyWrite) {
-      rlTtyWrite._ttyWrite = (s: string, key: readline.Key) => {
+      rlTtyWrite._ttyWrite = (s: string, _key: readline.Key) => {
         // During paste, suppress ALL readline processing. Without this,
         // readline processes each pasted character including newlines that
         // fire 'line' events and trigger individual submissions.

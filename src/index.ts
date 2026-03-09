@@ -189,6 +189,8 @@ program
   .option('--unrestricted', 'Run without any approval prompts (use with caution)', false)
   .option('--restricted', 'Deny all dangerous operations automatically', false)
   .option('--auto-skill', 'Auto-generate skills based on project analysis', false)
+  .option('--learn', 'Run /learn skill advisor non-interactively (analyze and install recommended skills)', false)
+  .option('--learn-update', 'Re-analyze project and regenerate outdated LLM-generated skills', false)
   .option('--skill-install [skill-name]', 'Install a community skill (opens browser if no name)')
   .option('--project', 'Install skill to project level (with --skill-install)', false)
   .option('--permissions', 'Display current permission settings and exit', false)
@@ -221,7 +223,7 @@ program
   .option('--append-sys-prompt <value>', 'Append to system prompt (inline string or file path)')
   .option('--yolo [pattern]', 'Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)')
   .option('--timeout <seconds>', 'Timeout in seconds for auto-approve mode', parseInt)
-  .action(async (positionalPrompt: string | undefined, opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean | string; tmux?: boolean; setup?: boolean; about?: boolean; syncSettings?: string | boolean; cc?: boolean; searchEngine?: string }) => {
+  .action(async (positionalPrompt: string | undefined, opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean | string; tmux?: boolean; setup?: boolean; about?: boolean; syncSettings?: string | boolean; cc?: boolean; searchEngine?: string; learn?: boolean; learnUpdate?: boolean }) => {
     // When -p is passed without a value, Commander sets opts.prompt to true (boolean).
     // Normalize to undefined so downstream code can detect "flag present, no text".
     if ((opts as Record<string, unknown>).prompt === true) {
@@ -254,6 +256,18 @@ program
     // Handle --skill-install flag
     if (opts.skillInstall !== undefined) {
       await runSkillInstall(opts);
+      return;
+    }
+
+    // Handle --learn flag (non-interactive /learn)
+    if (opts.learn) {
+      await runLearnNonInteractive(opts, 'recommend');
+      return;
+    }
+
+    // Handle --learn-update flag (non-interactive /learn update)
+    if (opts.learnUpdate) {
+      await runLearnNonInteractive(opts, 'update');
       return;
     }
 
@@ -1134,6 +1148,51 @@ async function runSkillInstall(opts: CLIOptions & { skillInstall?: string | bool
     skillsRegistry,
     workspaceRoot,
   }, skillName);
+}
+
+/**
+ * Handle --learn and --learn-update flags for non-interactive /learn
+ */
+async function runLearnNonInteractive(opts: CLIOptions, subcommand: 'recommend' | 'update'): Promise<void> {
+  const config = await loadConfig(opts.config);
+  const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
+
+  // Check for dangerous workspace directories
+  const safetyCheck = checkWorkspaceSafety(workspaceRoot);
+  if (!safetyCheck.safe) {
+    printDangerousWorkspaceWarning(workspaceRoot, safetyCheck);
+    process.exit(1);
+  }
+
+  // Import learn command and dependencies
+  const { learn } = await import('./commands/learn.js');
+  const { SkillsRegistry } = await import('./skills/SkillsRegistry.js');
+  const { AUTOHAND_PATHS } = await import('./constants.js');
+  const { HookManager } = await import('./core/HookManager.js');
+
+  // Initialize skills registry
+  const skillsRegistry = new SkillsRegistry(AUTOHAND_PATHS.skills);
+  await skillsRegistry.initialize();
+  await skillsRegistry.setWorkspace(workspaceRoot);
+
+  // Initialize LLM provider
+  const llmProvider = ProviderFactory.create(config);
+
+  // Initialize hook manager
+  const hookManager = new HookManager({ workspaceRoot });
+
+  const args = subcommand === 'update' ? ['update'] : [];
+  const result = await learn({
+    skillsRegistry,
+    workspaceRoot,
+    hookManager,
+    isNonInteractive: true,
+    llm: llmProvider,
+  }, args);
+
+  if (result) {
+    console.log(result);
+  }
 }
 
 /**
