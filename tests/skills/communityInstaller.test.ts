@@ -8,6 +8,8 @@ import {
   fetchRegistryWithFallback,
   installSkillWithSecurity,
   injectLearnMetadata,
+  computeProjectHash,
+  injectGeneratedMetadata,
 } from '../../src/skills/communityInstaller.js';
 import type { CommunitySkillsRegistry, GitHubCommunitySkill } from '../../src/types.js';
 
@@ -329,5 +331,163 @@ describe('installSkillWithSecurity', () => {
       tool: 'learn',
       success: true,
     }));
+  });
+});
+
+// ─── computeProjectHash ───────────────────────────────────────────────
+
+describe('computeProjectHash', () => {
+  it('returns a 7-character hex string', () => {
+    const analysis = {
+      projectName: 'test',
+      languages: ['typescript'],
+      frameworks: ['react'],
+      patterns: ['testing'],
+      dependencies: [],
+      filePatterns: [],
+      platform: 'darwin' as const,
+      hasGit: true,
+      hasTests: true,
+      hasCI: false,
+      packageManager: 'bun' as const,
+    };
+    const hash = computeProjectHash(analysis);
+    expect(hash).toHaveLength(7);
+    expect(hash).toMatch(/^[a-f0-9]+$/);
+  });
+
+  it('produces same hash regardless of array order', () => {
+    const analysis1 = {
+      projectName: 'test', languages: ['typescript', 'javascript'],
+      frameworks: ['react', 'express'], patterns: ['testing', 'api'],
+      dependencies: [], filePatterns: [], platform: 'darwin' as const,
+      hasGit: true, hasTests: true, hasCI: false, packageManager: 'bun' as const,
+    };
+    const analysis2 = {
+      projectName: 'test', languages: ['javascript', 'typescript'],
+      frameworks: ['express', 'react'], patterns: ['api', 'testing'],
+      dependencies: [], filePatterns: [], platform: 'darwin' as const,
+      hasGit: true, hasTests: true, hasCI: false, packageManager: 'bun' as const,
+    };
+    expect(computeProjectHash(analysis1)).toBe(computeProjectHash(analysis2));
+  });
+
+  it('changes hash when languages change', () => {
+    const base = {
+      projectName: 'test', languages: ['typescript'],
+      frameworks: [], patterns: [], dependencies: [], filePatterns: [],
+      platform: 'darwin' as const, hasGit: true, hasTests: false,
+      hasCI: false, packageManager: 'bun' as const,
+    };
+    const changed = { ...base, languages: ['typescript', 'python'] };
+    expect(computeProjectHash(base)).not.toBe(computeProjectHash(changed));
+  });
+
+  it('ignores non-structural fields like projectName and hasGit', () => {
+    const a1 = {
+      projectName: 'app1', languages: ['typescript'],
+      frameworks: [], patterns: [], dependencies: ['dep1'], filePatterns: [],
+      platform: 'darwin' as const, hasGit: true, hasTests: true,
+      hasCI: true, packageManager: 'bun' as const,
+    };
+    const a2 = {
+      projectName: 'app2', languages: ['typescript'],
+      frameworks: [], patterns: [], dependencies: ['dep2'], filePatterns: [],
+      platform: 'linux' as const, hasGit: false, hasTests: false,
+      hasCI: false, packageManager: 'bun' as const,
+    };
+    expect(computeProjectHash(a1)).toBe(computeProjectHash(a2));
+  });
+
+  it('changes hash when frameworks change', () => {
+    const base = {
+      projectName: 'test', languages: ['typescript'],
+      frameworks: ['react'], patterns: [], dependencies: [], filePatterns: [],
+      platform: 'darwin' as const, hasGit: true, hasTests: false,
+      hasCI: false, packageManager: 'bun' as const,
+    };
+    const changed = { ...base, frameworks: ['vue'] };
+    expect(computeProjectHash(base)).not.toBe(computeProjectHash(changed));
+  });
+
+  it('changes hash when packageManager changes', () => {
+    const base = {
+      projectName: 'test', languages: ['typescript'],
+      frameworks: [], patterns: [], dependencies: [], filePatterns: [],
+      platform: 'darwin' as const, hasGit: true, hasTests: false,
+      hasCI: false, packageManager: 'bun' as const,
+    };
+    const changed = { ...base, packageManager: 'npm' as const };
+    expect(computeProjectHash(base)).not.toBe(computeProjectHash(changed));
+  });
+
+  it('is deterministic across multiple calls', () => {
+    const analysis = {
+      projectName: 'test', languages: ['typescript'],
+      frameworks: ['react'], patterns: ['testing'],
+      dependencies: [], filePatterns: [], platform: 'darwin' as const,
+      hasGit: true, hasTests: true, hasCI: false, packageManager: 'bun' as const,
+    };
+    const hash1 = computeProjectHash(analysis);
+    const hash2 = computeProjectHash(analysis);
+    const hash3 = computeProjectHash(analysis);
+    expect(hash1).toBe(hash2);
+    expect(hash2).toBe(hash3);
+  });
+});
+
+// ─── injectGeneratedMetadata ──────────────────────────────────────────
+
+describe('injectGeneratedMetadata', () => {
+  it('injects llm-generated source and project-hash', () => {
+    const content = '---\nname: test\n---\n\n# Test';
+    const result = injectGeneratedMetadata(content, 'my-skill', 'abc1234');
+    expect(result).toContain('agentskill-source: llm-generated');
+    expect(result).toContain('agentskill-project-hash: abc1234');
+    expect(result).toContain('agentskill-slug: my-skill');
+    expect(result).toContain('agentskill-generated-at:');
+  });
+
+  it('creates frontmatter if none exists', () => {
+    const content = '# Test Skill\n\nContent here.';
+    const result = injectGeneratedMetadata(content, 'my-skill', 'abc1234');
+    expect(result).toContain('---');
+    expect(result).toContain('name: my-skill');
+    expect(result).toContain('agentskill-source: llm-generated');
+    expect(result).toContain('# Test Skill');
+  });
+
+  it('merges with existing metadata block', () => {
+    const content = '---\nname: test\nmetadata:\n  existing-key: value\n---\n\n# Test';
+    const result = injectGeneratedMetadata(content, 'my-skill', 'abc1234');
+    expect(result).toContain('existing-key: value');
+    expect(result).toContain('agentskill-source: llm-generated');
+  });
+
+  it('includes an ISO 8601 generated-at timestamp', () => {
+    const content = '---\nname: test\n---\n\n# Test';
+    const result = injectGeneratedMetadata(content, 'my-skill', 'abc1234');
+    const tsMatch = result.match(/agentskill-generated-at: (.+)/);
+    expect(tsMatch).not.toBeNull();
+    const parsed = new Date(tsMatch![1]);
+    expect(parsed.getTime()).not.toBeNaN();
+  });
+
+  it('preserves original content after frontmatter', () => {
+    const content = '# My Skill\n\nThis is the body.\n\n## Section 2\n\nMore content.';
+    const result = injectGeneratedMetadata(content, 'my-skill', 'abc1234');
+    expect(result).toContain('# My Skill');
+    expect(result).toContain('This is the body.');
+    expect(result).toContain('## Section 2');
+    expect(result).toContain('More content.');
+  });
+
+  it('always includes all four metadata keys', () => {
+    const content = '---\nname: test\n---\n\n# Test';
+    const result = injectGeneratedMetadata(content, 'skill-name', 'hash123');
+    expect(result).toContain('agentskill-slug: skill-name');
+    expect(result).toContain('agentskill-source: llm-generated');
+    expect(result).toContain('agentskill-generated-at:');
+    expect(result).toContain('agentskill-project-hash: hash123');
   });
 });

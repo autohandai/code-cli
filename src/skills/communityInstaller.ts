@@ -6,6 +6,7 @@
  * Shared community skill install utilities.
  * Used by both /skills (registry install) and /learn (LLM-generated install).
  */
+import crypto from 'node:crypto';
 import path from 'node:path';
 import chalk from 'chalk';
 import { t } from '../i18n/index.js';
@@ -18,6 +19,7 @@ import { showConfirm } from '../ui/ink/components/Modal.js';
 import type { SkillsRegistry } from './SkillsRegistry.js';
 import type { HookManager } from '../core/HookManager.js';
 import type { CommunitySkillsRegistry, GitHubCommunitySkill, SkillInstallScope } from '../types.js';
+import type { ProjectAnalysis } from './autoSkill.js';
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -207,4 +209,54 @@ export function injectLearnMetadata(
   // No frontmatter: add one
   const metadataBlock = '---\nmetadata:\n' + metadataEntries.map((e) => `  ${e}`).join('\n') + '\n---\n';
   return metadataBlock + skillMd;
+}
+
+// ─── Project Hash & Generated Metadata ──────────────────────────────
+
+/**
+ * Compute a hash of the project analysis for change detection.
+ * Only hashes the structural fields (languages, frameworks, patterns, packageManager)
+ * so minor dependency changes don't trigger regeneration.
+ */
+export function computeProjectHash(analysis: ProjectAnalysis): string {
+  const serialized = JSON.stringify({
+    languages: analysis.languages.slice().sort(),
+    frameworks: analysis.frameworks.slice().sort(),
+    patterns: analysis.patterns.slice().sort(),
+    packageManager: analysis.packageManager,
+  });
+  return crypto.createHash('sha256').update(serialized).digest('hex').slice(0, 7);
+}
+
+/**
+ * Inject LLM-generated metadata into SKILL.md frontmatter.
+ * Used for skills created by /learn (not registry installs).
+ */
+export function injectGeneratedMetadata(
+  content: string,
+  skillName: string,
+  projectHash: string,
+): string {
+  const metadataLines = [
+    `  agentskill-slug: ${skillName}`,
+    `  agentskill-source: llm-generated`,
+    `  agentskill-generated-at: ${new Date().toISOString()}`,
+    `  agentskill-project-hash: ${projectHash}`,
+  ].join('\n');
+
+  // Check if frontmatter exists
+  if (content.startsWith('---')) {
+    // Check for existing metadata block
+    if (content.includes('metadata:')) {
+      return content.replace(/metadata:/, `metadata:\n${metadataLines}`);
+    }
+    // Add metadata before closing ---
+    const endIndex = content.indexOf('---', 3);
+    if (endIndex !== -1) {
+      return content.slice(0, endIndex) + `metadata:\n${metadataLines}\n` + content.slice(endIndex);
+    }
+  }
+
+  // Create frontmatter if none exists
+  return `---\nname: ${skillName}\nmetadata:\n${metadataLines}\n---\n\n${content}`;
 }
