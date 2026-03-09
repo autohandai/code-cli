@@ -82,6 +82,7 @@ export interface SkillUseData {
   skillName: string;
   source: SkillSource;
   activationType: SkillActivationType;
+  action?: 'activate' | 'install' | 'remove' | 'update';
 }
 
 /**

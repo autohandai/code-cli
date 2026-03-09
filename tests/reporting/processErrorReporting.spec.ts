@@ -1,0 +1,183 @@
+/**
+ * @license
+ * Copyright 2025 Autohand AI LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { EventEmitter } from 'node:events';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { loadConfigMock, managerCtorMock, reportErrorMock } = vi.hoisted(() => ({
+  loadConfigMock: vi.fn(),
+  managerCtorMock: vi.fn(),
+  reportErrorMock: vi.fn(),
+}));
+
+vi.mock('../../package.json', () => ({
+  default: { version: '0.8.0' },
+}));
+
+vi.mock('../../src/config.js', () => ({
+  loadConfig: loadConfigMock,
+}));
+
+vi.mock('../../src/reporting/AutoReportManager.js', () => ({
+  AutoReportManager: class AutoReportManager {
+    constructor(config: unknown, version: string) {
+      managerCtorMock(config, version);
+    }
+
+    reportError = reportErrorMock;
+  }
+}));
+
+import {
+  installProcessErrorHandlers,
+  reportProcessError,
+  resetProcessErrorReportingForTests,
+} from '../../src/reporting/processErrorReporting.js';
+
+type FakeProcess = EventEmitter & {
+  argv: string[];
+  env: Record<string, string | undefined>;
+  exit: ReturnType<typeof vi.fn>;
+  stdin: { fd: number };
+};
+
+function createFakeProcess(argv: string[] = ['node', 'autohand']): FakeProcess {
+  const emitter = new EventEmitter() as FakeProcess;
+  emitter.argv = argv;
+  emitter.env = {};
+  emitter.exit = vi.fn();
+  emitter.stdin = { fd: 0 };
+  return emitter;
+}
+
+describe('processErrorReporting', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetProcessErrorReportingForTests();
+    loadConfigMock.mockResolvedValue({
+      provider: 'openrouter',
+      autoReport: { enabled: true },
+      configPath: '/tmp/autohand.json',
+      isNewConfig: false,
+    });
+    reportErrorMock.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    delete (globalThis as { __autohandLastError?: unknown }).__autohandLastError;
+  });
+
+  it('reports unhandled rejections with argv-derived config and client metadata', async () => {
+    const fakeProcess = createFakeProcess([
+      'node',
+      'autohand',
+      '--mode',
+      'acp',
+      '--config',
+      '/tmp/custom.json',
+    ]);
+    const logError = vi.fn();
+
+    installProcessErrorHandlers({ processRef: fakeProcess, logError });
+    fakeProcess.emit('unhandledRejection', new Error('boom'), Promise.resolve());
+
+    await vi.waitFor(() => {
+      expect(loadConfigMock).toHaveBeenCalledWith('/tmp/custom.json');
+      expect(reportErrorMock).toHaveBeenCalledTimes(1);
+    });
+
+    const [error, context] = reportErrorMock.mock.calls[0];
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe('boom');
+    expect(context).toMatchObject({
+      context: {
+        source: 'process',
+        handler: 'unhandledRejection',
+        clientName: 'acp',
+        fatal: false,
+        rawType: 'object',
+      }
+    });
+    expect((globalThis as { __autohandLastError?: unknown }).__autohandLastError).toBeInstanceOf(Error);
+  });
+
+  it('waits for reporting before exiting on uncaught exceptions', async () => {
+    const fakeProcess = createFakeProcess();
+    const exitMock = vi.fn();
+    const logError = vi.fn();
+
+    installProcessErrorHandlers({
+      processRef: fakeProcess,
+      exit: exitMock,
+      logError,
+    });
+    fakeProcess.emit('uncaughtException', new TypeError('fatal crash'));
+
+    await vi.waitFor(() => {
+      expect(reportErrorMock).toHaveBeenCalledTimes(1);
+      expect(exitMock).toHaveBeenCalledWith(1);
+    });
+
+    const [error, context] = reportErrorMock.mock.calls[0];
+    expect((error as Error).name).toBe('TypeError');
+    expect(context).toMatchObject({
+      context: {
+        handler: 'uncaughtException',
+        fatal: true,
+        clientName: 'cli',
+      }
+    });
+  });
+
+  it('ignores readline-close rejections and duplicate installs on the same process', async () => {
+    const fakeProcess = createFakeProcess();
+
+    installProcessErrorHandlers({ processRef: fakeProcess });
+    installProcessErrorHandlers({ processRef: fakeProcess });
+    fakeProcess.emit('unhandledRejection', { code: 'ERR_USE_AFTER_CLOSE' }, Promise.resolve());
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(reportErrorMock).not.toHaveBeenCalled();
+    expect(loadConfigMock).not.toHaveBeenCalled();
+  });
+
+  it('falls back to an in-memory config when loading the user config fails', async () => {
+    const fakeProcess = createFakeProcess();
+    fakeProcess.env.AUTOHAND_API_URL = 'https://api.example.com';
+    loadConfigMock.mockRejectedValue(new Error('broken config'));
+
+    await reportProcessError('string failure', {
+      handler: 'unhandledRejection',
+      processRef: fakeProcess,
+      configPath: '/tmp/bad-config.json',
+    });
+
+    expect(managerCtorMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'openrouter',
+        configPath: '/tmp/bad-config.json',
+        isNewConfig: false,
+        autoReport: { enabled: true },
+        api: {
+          baseUrl: 'https://api.example.com',
+          companySecret: '',
+        },
+      }),
+      '0.8.0',
+    );
+
+    const [error, context] = reportErrorMock.mock.calls[0];
+    expect((error as Error).message).toBe('string failure');
+    expect((error as Error).name).toBe('NonErrorProcessFault');
+    expect(context).toMatchObject({
+      context: {
+        handler: 'unhandledRejection',
+        clientName: 'cli',
+      }
+    });
+  });
+});
