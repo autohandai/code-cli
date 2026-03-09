@@ -426,7 +426,7 @@ export class ProjectAnalyzer {
 /**
  * Build the comprehensive skill generation prompt
  */
-function buildSkillGenerationPrompt(analysis: ProjectAnalysis): string {
+export function buildSkillGenerationPrompt(analysis: ProjectAnalysis): string {
   const parts: string[] = [];
 
   parts.push(`# Project Analysis for Skill Generation`);
