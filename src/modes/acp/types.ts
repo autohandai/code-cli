@@ -257,7 +257,10 @@ export const DEFAULT_ACP_COMMANDS: AcpCommand[] = [
   { name: 'search', description: 'Configure web search' },
   { name: 'login', description: 'Sign in to Autohand account' },
   { name: 'logout', description: 'Sign out of Autohand account' },
-  { name: 'learn',         description: 'Search and install community skills' },
+  { name: 'learn',         description: 'Analyze project and recommend skills' },
+  { name: 'skills search', description: 'Search community skills' },
+  { name: 'skills trending', description: 'Show trending community skills' },
+  { name: 'skills remove', description: 'Remove an installed skill' },
 ];
 
 // ============================================================================

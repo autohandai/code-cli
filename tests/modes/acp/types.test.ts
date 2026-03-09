@@ -125,8 +125,8 @@ describe('TOOL_DISPLAY_NAMES', () => {
 // ===========================================================================
 
 describe('DEFAULT_ACP_COMMANDS', () => {
-  it('has exactly 32 commands', () => {
-    expect(DEFAULT_ACP_COMMANDS).toHaveLength(32);
+  it('has exactly 35 commands', () => {
+    expect(DEFAULT_ACP_COMMANDS).toHaveLength(35);
   });
 
   it('each command has name and description strings', () => {
@@ -158,6 +158,9 @@ describe('DEFAULT_ACP_COMMANDS', () => {
     expect(names).toContain('login');
     expect(names).toContain('logout');
     expect(names).toContain('learn');
+    expect(names).toContain('skills search');
+    expect(names).toContain('skills trending');
+    expect(names).toContain('skills remove');
   });
 });
 
