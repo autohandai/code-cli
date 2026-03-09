@@ -118,12 +118,12 @@ export const RPC_METHODS = {
   MCP_SET_VSCODE_TOOLS: 'autohand.mcp.setVscodeTools',
   MCP_INVOKE_RESPONSE: 'autohand.mcp.invokeResponse',
   MCP_GET_SERVER_CONFIGS: 'autohand.mcp.getServerConfigs',
-  LEARN_SEARCH: 'autohand.learn.search',
-  LEARN_INSTALL: 'autohand.learn.install',
-  LEARN_LIST: 'autohand.learn.list',
+  LEARN_RECOMMEND: 'autohand.learn.recommend',
   LEARN_UPDATE: 'autohand.learn.update',
-  LEARN_REMOVE: 'autohand.learn.remove',
-  LEARN_TRENDING: 'autohand.learn.trending',
+  SKILLS_SEARCH: 'autohand.skills.search',
+  SKILLS_TRENDING: 'autohand.skills.trending',
+  SKILLS_REMOVE: 'autohand.skills.remove',
+  SKILLS_INSTALL: 'autohand.skills.install',
 } as const;
 
 export type RpcMethod = (typeof RPC_METHODS)[keyof typeof RPC_METHODS];

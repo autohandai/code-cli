@@ -798,17 +798,40 @@ Autohand supports special prefixes in the input prompt:
 
 ### Slash Commands
 
+#### `/skills` — Package Manager
+
 | Command | Description |
 |---------|-------------|
 | `/skills` | List all available skills |
 | `/skills use <name>` | Activate a skill for the current session |
 | `/skills deactivate <name>` | Deactivate a skill |
 | `/skills info <name>` | Show detailed skill information |
+| `/skills install` | Browse and install from community registry |
+| `/skills install @<slug>` | Install a community skill by slug |
+| `/skills search <query>` | Search the community skills registry |
+| `/skills trending` | Show trending community skills |
+| `/skills remove <slug>` | Uninstall a community skill |
 | `/skills new` | Create a new skill interactively |
+| `/skills feedback <slug> <1-5>` | Rate a community skill |
 
-### Auto-Skill Generation
+#### `/learn` — LLM-Powered Skill Advisor
 
-The `--auto-skill` flag analyzes your project and generates relevant skills:
+| Command | Description |
+|---------|-------------|
+| `/learn` | Analyze project and recommend skills (quick scan) |
+| `/learn --deep` | Deep-scan project (reads source files) for more targeted results |
+| `/learn update` | Re-analyze project and regenerate outdated LLM-generated skills |
+
+`/learn` uses a two-phase LLM flow:
+
+1. **Phase 1 — Analyze + Rank + Audit**: Scans your project structure, audits installed skills for redundancy/conflicts, and ranks community skills by relevance (0-100).
+2. **Phase 2 — Generate** (conditional): If no community skill scores above 60, offers to generate a custom skill tailored to your project.
+
+Generated skills include metadata (`agentskill-source: llm-generated`, `agentskill-project-hash`) so `/learn update` can detect when your codebase changes and regenerate stale skills.
+
+### Auto-Skill Generation (`--auto-skill`)
+
+The `--auto-skill` CLI flag generates skills without the interactive advisor flow:
 
 ```bash
 autohand --auto-skill
@@ -817,8 +840,10 @@ autohand --auto-skill
 This will:
 1. Analyze your project structure (package.json, requirements.txt, etc.)
 2. Detect languages, frameworks, and patterns
-3. Generate 3-5 relevant skills using LLM
+3. Generate 3 relevant skills using LLM
 4. Save skills to `<project>/.autohand/skills/`
+
+For a more targeted, interactive experience, use `/learn` inside a session instead.
 
 Detected patterns include:
 - **Languages**: TypeScript, JavaScript, Python, Rust, Go
@@ -1438,7 +1463,7 @@ These flags override config file settings:
 | `--permissions` | Display current permission settings and exit |
 | `--patch` | Generate git patch without applying changes |
 | `--output <file>` | Output file for patch (used with --patch) |
-| `--auto-skill` | Auto-generate skills based on project analysis |
+| `--auto-skill` | Auto-generate skills based on project analysis (see also `/learn` for interactive advisor) |
 | `-c, --auto-commit` | Auto-commit changes after completing tasks |
 | `--login` | Sign in to your Autohand account |
 | `--logout` | Sign out of your Autohand account |

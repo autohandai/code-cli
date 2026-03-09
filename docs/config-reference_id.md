@@ -15,6 +15,7 @@ Referensi lengkap untuk semua opsi konfigurasi di `~/.autohand/config.json` (ata
 - [Pengaturan Telemetri](#pengaturan-telemetri)
 - [Agent Eksternal](#agent-eksternal)
 - [Pengaturan API](#pengaturan-api)
+- [Sistem Skill](#sistem-skill)
 - [Contoh Lengkap](#contoh-lengkap)
 
 ---
@@ -467,6 +468,57 @@ Juga dapat diatur melalui variabel lingkungan:
 
 ---
 
+## Sistem Skill
+
+### Perintah Slash
+
+#### `/skills` — Manajer Paket
+
+| Perintah | Deskripsi |
+|----------|-----------|
+| `/skills` | Daftar semua skill yang tersedia |
+| `/skills use <nama>` | Aktifkan skill untuk sesi saat ini |
+| `/skills deactivate <nama>` | Nonaktifkan skill |
+| `/skills info <nama>` | Tampilkan informasi detail skill |
+| `/skills install` | Jelajahi dan instal dari registri komunitas |
+| `/skills install @<slug>` | Instal skill komunitas berdasarkan slug |
+| `/skills search <kueri>` | Cari di registri skill komunitas |
+| `/skills trending` | Tampilkan skill komunitas yang sedang tren |
+| `/skills remove <slug>` | Hapus instalasi skill komunitas |
+| `/skills new` | Buat skill baru secara interaktif |
+| `/skills feedback <slug> <1-5>` | Beri rating skill komunitas |
+
+#### `/learn` — Penasihat Skill Berbasis LLM
+
+| Perintah | Deskripsi |
+|----------|-----------|
+| `/learn` | Analisis proyek dan rekomendasikan skill (pemindaian cepat) |
+| `/learn --deep` | Pemindaian mendalam (membaca file sumber) untuk hasil lebih akurat |
+| `/learn update` | Analisis ulang proyek dan regenerasi skill LLM yang sudah usang |
+
+`/learn` menggunakan alur LLM dua fase:
+
+1. **Fase 1 — Analisis + Peringkat + Audit**: Memindai struktur proyek, mengaudit skill terinstal untuk redundansi/konflik, dan memberi peringkat skill komunitas berdasarkan relevansi (0-100).
+2. **Fase 2 — Generasi** (kondisional): Jika tidak ada skill komunitas yang mendapat skor di atas 60, menawarkan untuk menghasilkan skill kustom yang disesuaikan dengan proyek Anda.
+
+### Generasi Skill Otomatis (`--auto-skill`)
+
+Flag `--auto-skill` menghasilkan skill tanpa alur penasihat interaktif:
+
+```bash
+autohand --auto-skill
+```
+
+Ini akan:
+1. Menganalisis struktur proyek (package.json, requirements.txt, dll.)
+2. Mendeteksi bahasa, framework, dan pola
+3. Menghasilkan 3 skill relevan menggunakan LLM
+4. Menyimpan skill ke `<proyek>/.autohand/skills/`
+
+Untuk pengalaman interaktif yang lebih tepat, gunakan `/learn` dalam sesi.
+
+---
+
 ## Contoh Lengkap
 
 ### Format JSON (`~/.autohand/config.json`)
@@ -643,6 +695,7 @@ Flag-flag ini mengganti pengaturan file konfigurasi:
 | `--setup` | Jalankan wizard setup untuk mengkonfigurasi atau mengkonfigurasi ulang Autohand |
 | `--sys-prompt <nilai>` | Ganti seluruh system prompt (string inline atau path file) |
 | `--append-sys-prompt <nilai>` | Tambahkan ke system prompt (string inline atau path file) |
+| `--auto-skill` | Otomatis menghasilkan skill berdasarkan analisis proyek (lihat juga `/learn` untuk penasihat interaktif) |
 
 ---
 

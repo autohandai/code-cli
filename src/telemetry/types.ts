@@ -108,6 +108,7 @@ export interface SkillUseData {
   skillName: string;
   source: string;
   activationType: 'auto' | 'explicit';
+  action?: 'activate' | 'install' | 'remove' | 'update';
 }
 
 export interface SessionFailureBugData {
