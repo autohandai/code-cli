@@ -15,6 +15,7 @@ Referência completa de todas as opções de configuração em `~/.autohand/conf
 - [Configurações de Telemetria](#configurações-de-telemetria)
 - [Agentes Externos](#agentes-externos)
 - [Configurações da API](#configurações-da-api)
+- [Sistema de Skills](#sistema-de-skills)
 - [Exemplo Completo](#exemplo-completo)
 
 ---
@@ -478,6 +479,59 @@ Também pode ser definido via variáveis de ambiente:
 
 ---
 
+## Sistema de Skills
+
+### Comandos Slash
+
+#### `/skills` — Gerenciador de Pacotes
+
+| Comando | Descrição |
+|---------|-----------|
+| `/skills` | Listar todos os skills disponíveis |
+| `/skills use <nome>` | Ativar um skill para a sessão atual |
+| `/skills deactivate <nome>` | Desativar um skill |
+| `/skills info <nome>` | Mostrar informações detalhadas do skill |
+| `/skills install` | Explorar e instalar do registro comunitário |
+| `/skills install @<slug>` | Instalar um skill comunitário por slug |
+| `/skills search <consulta>` | Pesquisar no registro de skills comunitários |
+| `/skills trending` | Mostrar skills comunitários em tendência |
+| `/skills remove <slug>` | Desinstalar um skill comunitário |
+| `/skills new` | Criar um novo skill interativamente |
+| `/skills feedback <slug> <1-5>` | Avaliar um skill comunitário |
+
+#### `/learn` — Consultor de Skills com LLM
+
+| Comando | Descrição |
+|---------|-----------|
+| `/learn` | Analisar projeto e recomendar skills (escaneamento rápido) |
+| `/learn --deep` | Escaneamento profundo do projeto (lê arquivos fonte) para resultados mais precisos |
+| `/learn update` | Re-analisar projeto e regenerar skills LLM gerados desatualizados |
+
+`/learn` utiliza um fluxo LLM em duas fases:
+
+1. **Fase 1 — Análise + Ranking + Auditoria**: Escaneia a estrutura do projeto, audita skills instalados buscando redundâncias/conflitos, e classifica skills comunitários por relevância (0-100).
+2. **Fase 2 — Geração** (condicional): Se nenhum skill comunitário pontuar acima de 60, oferece gerar um skill personalizado adaptado ao seu projeto.
+
+Os skills gerados incluem metadados (`agentskill-source: llm-generated`, `agentskill-project-hash`) para que `/learn update` possa detectar mudanças no código e regenerar skills desatualizados.
+
+### Geração Automática de Skills (`--auto-skill`)
+
+O flag `--auto-skill` gera skills sem o fluxo interativo do consultor:
+
+```bash
+autohand --auto-skill
+```
+
+Isso irá:
+1. Analisar a estrutura do projeto (package.json, requirements.txt, etc.)
+2. Detectar linguagens, frameworks e padrões
+3. Gerar 3 skills relevantes usando LLM
+4. Salvar skills em `<projeto>/.autohand/skills/`
+
+Para uma experiência interativa mais precisa, use `/learn` dentro de uma sessão.
+
+---
+
 ## Exemplo Completo
 
 ### Formato JSON (`~/.autohand/config.json`)
@@ -651,6 +705,7 @@ Estas flags sobrescrevem as configurações do arquivo:
 | `--dry-run` | Visualizar sem executar |
 | `--unrestricted` | Sem prompts de aprovação |
 | `--restricted` | Negar operações perigosas |
+| `--auto-skill` | Gerar skills automaticamente com base na análise do projeto (veja também `/learn` para consultor interativo) |
 | `--setup` | Executar o assistente de configuração para configurar ou reconfigurar o Autohand |
 | `--about` | Mostrar informações sobre o Autohand (versão, links, informações de contribuição) |
 | `--sys-prompt <valor>` | Substituir completamente o prompt do sistema (string inline ou caminho de arquivo) |

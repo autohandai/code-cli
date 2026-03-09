@@ -15,6 +15,7 @@
 - [遥测设置](#遥测设置)
 - [外部代理](#外部代理)
 - [API 设置](#api-设置)
+- [技能系统](#技能系统)
 - [完整示例](#完整示例)
 
 ---
@@ -467,6 +468,57 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 
 ---
 
+## 技能系统
+
+### 斜杠命令
+
+#### `/skills` — 包管理器
+
+| 命令 | 描述 |
+|------|------|
+| `/skills` | 列出所有可用技能 |
+| `/skills use <名称>` | 为当前会话激活技能 |
+| `/skills deactivate <名称>` | 停用技能 |
+| `/skills info <名称>` | 显示技能详细信息 |
+| `/skills install` | 浏览并从社区注册表安装 |
+| `/skills install @<slug>` | 通过 slug 安装社区技能 |
+| `/skills search <查询>` | 搜索社区技能注册表 |
+| `/skills trending` | 显示热门社区技能 |
+| `/skills remove <slug>` | 卸载社区技能 |
+| `/skills new` | 交互式创建新技能 |
+| `/skills feedback <slug> <1-5>` | 为社区技能评分 |
+
+#### `/learn` — LLM 驱动的技能顾问
+
+| 命令 | 描述 |
+|------|------|
+| `/learn` | 分析项目并推荐技能（快速扫描） |
+| `/learn --deep` | 深度扫描项目（读取源文件）以获得更精准的结果 |
+| `/learn update` | 重新分析项目并重新生成过时的 LLM 生成技能 |
+
+`/learn` 使用两阶段 LLM 流程：
+
+1. **阶段 1 — 分析 + 排名 + 审计**：扫描项目结构，审计已安装技能的冗余/冲突，并按相关性（0-100）对社区技能进行排名。
+2. **阶段 2 — 生成**（有条件的）：如果没有社区技能得分超过 60 分，则提议生成一个为您的项目定制的自定义技能。
+
+### 自动技能生成（`--auto-skill`）
+
+`--auto-skill` CLI 标志在没有交互式顾问流程的情况下生成技能：
+
+```bash
+autohand --auto-skill
+```
+
+这将：
+1. 分析项目结构（package.json、requirements.txt 等）
+2. 检测语言、框架和模式
+3. 使用 LLM 生成 3 个相关技能
+4. 将技能保存到 `<项目>/.autohand/skills/`
+
+如需更精准的交互式体验，请在会话中使用 `/learn`。
+
+---
+
 ## 完整示例
 
 ### JSON 格式 (`~/.autohand/config.json`)
@@ -644,6 +696,7 @@ Autohand 将数据存储在 `~/.autohand/`（或 `$AUTOHAND_HOME`）：
 | `--about` | 显示 Autohand 信息（版本、链接、贡献信息） |
 | `--sys-prompt <值>` | 完全替换系统提示（内联字符串或文件路径） |
 | `--append-sys-prompt <值>` | 附加到系统提示（内联字符串或文件路径） |
+| `--auto-skill` | 基于项目分析自动生成技能（交互式请参见 `/learn`） |
 
 ---
 

@@ -467,6 +467,59 @@ También se puede configurar mediante variables de entorno:
 
 ---
 
+## Sistema de Skills
+
+### Comandos Slash
+
+#### `/skills` — Gestor de Paquetes
+
+| Comando | Descripción |
+|---------|-------------|
+| `/skills` | Listar todos los skills disponibles |
+| `/skills use <nombre>` | Activar un skill para la sesión actual |
+| `/skills deactivate <nombre>` | Desactivar un skill |
+| `/skills info <nombre>` | Mostrar información detallada del skill |
+| `/skills install` | Explorar e instalar del registro comunitario |
+| `/skills install @<slug>` | Instalar un skill comunitario por slug |
+| `/skills search <consulta>` | Buscar en el registro de skills comunitarios |
+| `/skills trending` | Mostrar skills comunitarios en tendencia |
+| `/skills remove <slug>` | Desinstalar un skill comunitario |
+| `/skills new` | Crear un nuevo skill interactivamente |
+| `/skills feedback <slug> <1-5>` | Calificar un skill comunitario |
+
+#### `/learn` — Asesor de Skills con LLM
+
+| Comando | Descripción |
+|---------|-------------|
+| `/learn` | Analizar proyecto y recomendar skills (escaneo rápido) |
+| `/learn --deep` | Escaneo profundo del proyecto (lee archivos fuente) para resultados más precisos |
+| `/learn update` | Re-analizar proyecto y regenerar skills LLM generados obsoletos |
+
+`/learn` utiliza un flujo LLM de dos fases:
+
+1. **Fase 1 — Análisis + Ranking + Auditoría**: Escanea la estructura del proyecto, audita skills instalados buscando redundancias/conflictos, y clasifica skills comunitarios por relevancia (0-100).
+2. **Fase 2 — Generación** (condicional): Si ningún skill comunitario obtiene más de 60 puntos, ofrece generar un skill personalizado adaptado a su proyecto.
+
+Los skills generados incluyen metadatos (`agentskill-source: llm-generated`, `agentskill-project-hash`) para que `/learn update` pueda detectar cambios en el código y regenerar skills obsoletos.
+
+### Generación Automática de Skills (`--auto-skill`)
+
+El flag `--auto-skill` genera skills sin el flujo interactivo del asesor:
+
+```bash
+autohand --auto-skill
+```
+
+Esto hará:
+1. Analizar la estructura del proyecto (package.json, requirements.txt, etc.)
+2. Detectar lenguajes, frameworks y patrones
+3. Generar 3 skills relevantes usando LLM
+4. Guardar skills en `<proyecto>/.autohand/skills/`
+
+Para una experiencia interactiva más precisa, use `/learn` dentro de una sesión.
+
+---
+
 ## Ejemplo Completo
 
 ### Formato JSON (`~/.autohand/config.json`)
@@ -640,6 +693,7 @@ Estos flags sobrescriben la configuración del archivo:
 | `--dry-run` | Vista previa sin ejecutar |
 | `--unrestricted` | Sin solicitudes de aprobación |
 | `--restricted` | Denegar operaciones peligrosas |
+| `--auto-skill` | Auto-generar skills basado en análisis del proyecto (ver también `/learn` para asesor interactivo) |
 | `--setup` | Ejecutar el asistente de configuración para configurar o reconfigurar Autohand |
 | `--about` | Mostrar información sobre Autohand (versión, enlaces, información de contribución) |
 | `--sys-prompt <valor>` | Reemplazar completamente el prompt del sistema (cadena en línea o ruta de archivo) |

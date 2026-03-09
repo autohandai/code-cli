@@ -463,7 +463,7 @@ describe('runAutoSkillGeneration', () => {
     await fs.remove(tempRoot);
   });
 
-  it('saves generated skills to project .autohand/skills folder', async () => {
+  it('saves generated skill with LLM-generated metadata', async () => {
     const projectDir = path.join(tempRoot, 'save-skills-project');
     await fs.ensureDir(projectDir);
     await fs.writeJson(path.join(projectDir, 'package.json'), {
@@ -471,25 +471,30 @@ describe('runAutoSkillGeneration', () => {
       devDependencies: { typescript: '^5.0.0' }
     });
 
+    // LearnAdvisor.generateSkill() expects a single JSON object, not an array
     const mockResponse = {
-      content: JSON.stringify([
-        {
-          name: 'generated-skill',
-          description: 'A generated skill',
-          body: '# Generated Skill\n\nThis skill was auto-generated.',
-          allowedTools: ['read_file', 'write_file', 'git_status']
-        }
-      ])
+      id: '1', created: Date.now(), finishReason: 'stop' as const, raw: null,
+      content: JSON.stringify({
+        name: 'generated-skill',
+        description: 'A generated skill',
+        body: '# Generated Skill\n\nThis skill was auto-generated.',
+        allowedTools: ['read_file', 'write_file', 'git_status']
+      })
     };
 
     const mockLLM = {
-      complete: vi.fn().mockResolvedValue(mockResponse)
+      getName: () => 'mock',
+      complete: vi.fn().mockResolvedValue(mockResponse),
+      listModels: vi.fn(async () => []),
+      isAvailable: vi.fn(async () => true),
+      setModel: vi.fn(),
     };
 
     const result = await runAutoSkillGeneration(projectDir, mockLLM as any);
 
     expect(result.success).toBe(true);
     expect(result.skillsGenerated).toBe(1);
+    expect(result.skills).toContain('generated-skill');
 
     // Verify skill was saved
     const skillPath = path.join(projectDir, '.autohand', 'skills', 'generated-skill', 'SKILL.md');
@@ -499,15 +504,25 @@ describe('runAutoSkillGeneration', () => {
     expect(content).toContain('name: generated-skill');
     expect(content).toContain('A generated skill');
     expect(content).toContain('allowed-tools: read_file write_file git_status');
+    // Verify LLM-generated metadata for /learn update tracking
+    expect(content).toContain('agentskill-source: llm-generated');
+    expect(content).toContain('agentskill-project-hash:');
   });
 
-  it('returns failure when no skills generated', async () => {
+  it('returns failure when LearnAdvisor returns null', async () => {
     const projectDir = path.join(tempRoot, 'no-skills-project');
     await fs.ensureDir(projectDir);
     await fs.writeJson(path.join(projectDir, 'package.json'), { name: 'empty' });
 
+    // Return invalid JSON so LearnAdvisor.generateSkill() returns null
     const mockLLM = {
-      complete: vi.fn().mockResolvedValue({ content: '[]' })
+      getName: () => 'mock',
+      complete: vi.fn().mockResolvedValue({
+        id: '1', created: Date.now(), content: 'not valid json', finishReason: 'stop' as const, raw: null,
+      }),
+      listModels: vi.fn(async () => []),
+      isAvailable: vi.fn(async () => true),
+      setModel: vi.fn(),
     };
 
     const result = await runAutoSkillGeneration(projectDir, mockLLM as any);
@@ -521,7 +536,13 @@ describe('runAutoSkillGeneration', () => {
     // Don't create the directory - analysis should fail
 
     const mockLLM = {
-      complete: vi.fn().mockResolvedValue({ content: '[]' })
+      getName: () => 'mock',
+      complete: vi.fn().mockResolvedValue({
+        id: '1', created: Date.now(), content: '{}', finishReason: 'stop' as const, raw: null,
+      }),
+      listModels: vi.fn(async () => []),
+      isAvailable: vi.fn(async () => true),
+      setModel: vi.fn(),
     };
 
     const result = await runAutoSkillGeneration(projectDir, mockLLM as any);
