@@ -891,7 +891,8 @@ export class ProviderConfigManager {
           'Content-Type': 'application/json',
           ...(provider === 'openrouter' && {
             'HTTP-Referer': 'https://autohand.dev',
-            'X-Title': 'Autohand CLI'
+            'X-OpenRouter-Title': 'Autohand Code CLI',
+            'X-OpenRouter-Categories': 'cli-agent'
           })
         }
       });

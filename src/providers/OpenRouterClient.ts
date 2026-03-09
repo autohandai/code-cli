@@ -150,8 +150,9 @@ export class OpenRouterClient {
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      "HTTP-Referer": "https://github.com/autohandai/code-cli",
-      "X-Title": "autohand-code-cli",
+      "HTTP-Referer": "https://autohand.dev",
+      "X-OpenRouter-Title": "Autohand Code CLI",
+      "X-OpenRouter-Categories": "cli-agent",
     };
     if (this.apiKey) {
       headers.Authorization = `Bearer ${this.apiKey}`;
