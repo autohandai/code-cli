@@ -23,11 +23,6 @@ describe('learn command', () => {
       expect(result.subcommand).toBe('recommendations');
     });
 
-    it('parses "trending" subcommand', () => {
-      const result = parseLearnArgs(['trending']);
-      expect(result.subcommand).toBe('trending');
-    });
-
     it('parses "list" subcommand', () => {
       const result = parseLearnArgs(['list']);
       expect(result.subcommand).toBe('list');
@@ -38,18 +33,24 @@ describe('learn command', () => {
       expect(result.subcommand).toBe('update');
     });
 
-    it('parses "remove <slug>" subcommand', () => {
-      const result = parseLearnArgs(['remove', 'seo-optimizer']);
-      expect(result.subcommand).toBe('remove');
-      expect(result.slug).toBe('seo-optimizer');
+    // trending, remove, feedback have been migrated to /skills
+    // They are no longer recognized by parseLearnArgs and fall through to search
+    it('treats "trending" as search query (migrated to /skills)', () => {
+      const result = parseLearnArgs(['trending']);
+      expect(result.subcommand).toBe('search');
+      expect(result.query).toBe('trending');
     });
 
-    it('parses "feedback <slug> <rating>" subcommand', () => {
+    it('treats "remove" as search query (migrated to /skills)', () => {
+      const result = parseLearnArgs(['remove', 'seo-optimizer']);
+      expect(result.subcommand).toBe('search');
+      expect(result.query).toBe('remove seo-optimizer');
+    });
+
+    it('treats "feedback" as search query (migrated to /skills)', () => {
       const result = parseLearnArgs(['feedback', 'seo-optimizer', '5', 'Great skill']);
-      expect(result.subcommand).toBe('feedback');
-      expect(result.slug).toBe('seo-optimizer');
-      expect(result.rating).toBe(5);
-      expect(result.comment).toBe('Great skill');
+      expect(result.subcommand).toBe('search');
+      expect(result.query).toBe('feedback seo-optimizer 5 Great skill');
     });
 
     it('parses "@owner/name" as direct install', () => {

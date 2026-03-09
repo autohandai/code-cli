@@ -4,13 +4,29 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Skills command - List and manage available skills
+ * Also handles package-management subcommands: search, trending, remove, feedback
  */
+import path from 'node:path';
+import fse from 'fs-extra';
+import chalk from 'chalk';
 import { t } from '../i18n/index.js';
+import { LearnClient } from '../skills/LearnClient.js';
+import { CommunitySkillsCache } from '../skills/CommunitySkillsCache.js';
+import { GitHubRegistryFetcher } from '../skills/GitHubRegistryFetcher.js';
+import {
+  fetchRegistryWithFallback,
+  installSkillWithSecurity,
+} from '../skills/communityInstaller.js';
+import { showModal, showConfirm } from '../ui/ink/components/Modal.js';
 import type { SkillsRegistry } from '../skills/SkillsRegistry.js';
+import type { HookManager } from '../core/HookManager.js';
+import type { CommunitySkillsRegistry } from '../types.js';
 
 export interface SkillsCommandContext {
   skillsRegistry: SkillsRegistry;
   workspaceRoot?: string;
+  hookManager?: HookManager;
+  isNonInteractive?: boolean;
 }
 
 /**
@@ -34,6 +50,20 @@ export async function skills(ctx: SkillsCommandContext, args: string[] = []): Pr
     case 'get':
     case 'add':
       return handleSkillsInstall(ctx, skillName);
+
+    case 'search':
+      return handleSkillsSearch(ctx, args.slice(1).join(' '));
+
+    case 'trending':
+      return handleSkillsTrending();
+
+    case 'remove':
+    case 'uninstall':
+      return handleSkillsRemove(ctx, skillName);
+
+    case 'feedback':
+    case 'rate':
+      return handleSkillsFeedback(args[1], Number(args[2]), args.slice(3).join(' '));
 
     case 'use':
     case 'activate':
@@ -333,6 +363,173 @@ async function handleSkillsInstall(
   );
 
   return result ?? 'Skills install completed.';
+}
+
+// ─── Migrated Handlers (from /learn) ─────────────────────────────────
+
+/**
+ * Handle /skills search <query> — search the community registry
+ */
+async function handleSkillsSearch(
+  ctx: SkillsCommandContext,
+  query: string,
+): Promise<string> {
+  const cache = new CommunitySkillsCache();
+  const fetcher = new GitHubRegistryFetcher();
+  const registry = await fetchRegistryWithFallback(cache, fetcher);
+
+  if (!registry) {
+    return chalk.red('Unable to fetch community skills registry. Check your network connection.');
+  }
+
+  const client = new LearnClient();
+  const results = client.search(registry, query);
+
+  if (results.length === 0) {
+    return t('commands.learn.noResults', { query });
+  }
+
+  // Non-interactive: return as formatted text
+  if (ctx.isNonInteractive) {
+    const lines = [t('commands.learn.found', { count: String(results.length) })];
+    for (const skill of results) {
+      const stars = skill.rating ? ` (${skill.rating.toFixed(1)}/5)` : '';
+      lines.push(`  ${chalk.cyan(skill.name)} - ${skill.description}${stars}`);
+    }
+    return lines.join('\n');
+  }
+
+  // Interactive: show modal picker
+  const options = results.map((s) => ({
+    label: `${s.name} - ${s.description}`,
+    value: s.id,
+  }));
+
+  const selected = await showModal({
+    title: t('commands.learn.selectPrompt'),
+    options,
+  });
+
+  if (!selected) {
+    return t('commands.learn.noResults', { query });
+  }
+
+  const skill = results.find((s) => s.id === selected.value);
+  if (!skill) return t('commands.learn.noResults', { query });
+
+  if (!ctx.workspaceRoot) {
+    return 'Workspace root not available for install.';
+  }
+
+  return installSkillWithSecurity(
+    { skillsRegistry: ctx.skillsRegistry, workspaceRoot: ctx.workspaceRoot, hookManager: ctx.hookManager, isNonInteractive: ctx.isNonInteractive },
+    skill, cache, fetcher,
+  );
+}
+
+/**
+ * Handle /skills trending — show popular community skills
+ */
+async function handleSkillsTrending(): Promise<string> {
+  const cache = new CommunitySkillsCache();
+  const fetcher = new GitHubRegistryFetcher();
+  const registry = await fetchRegistryWithFallback(cache, fetcher);
+
+  if (!registry) {
+    return chalk.red('Unable to fetch community skills registry. Check your network connection.');
+  }
+
+  const client = new LearnClient();
+  const trending = client.trending(registry);
+
+  const lines: string[] = [];
+  lines.push('');
+  lines.push(chalk.bold(t('commands.learn.trendingTitle')));
+  lines.push('');
+
+  for (let i = 0; i < trending.length; i++) {
+    const skill = trending[i];
+    const idx = chalk.gray(`${i + 1}.`);
+    const name = chalk.cyan(skill.name);
+    const featured = skill.isFeatured ? chalk.yellow(' [featured]') : '';
+    const downloads = skill.downloadCount ? chalk.gray(` (${skill.downloadCount} installs)`) : '';
+    lines.push(`${idx} ${name}${featured}${downloads}`);
+    lines.push(`   ${skill.description}`);
+    lines.push(`   {{action:Install|/skills install @${skill.author ?? 'community'}/${skill.id}}}`);
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Handle /skills remove <slug> — remove an installed community skill
+ */
+async function handleSkillsRemove(
+  ctx: SkillsCommandContext,
+  slug: string | undefined,
+): Promise<string> {
+  if (!slug) {
+    return 'Usage: /skills remove <skill-slug>';
+  }
+
+  // Find the installed skill by slug metadata
+  const allSkills = ctx.skillsRegistry.listSkills();
+  const target = allSkills.find(
+    (s) => s.metadata?.['agentskill-slug'] === slug || s.name === slug,
+  );
+
+  if (!target) {
+    return t('commands.learn.removeNotFound', { name: slug });
+  }
+
+  // Interactive confirmation
+  if (!ctx.isNonInteractive) {
+    const confirmed = await showConfirm({
+      title: t('commands.learn.confirmRemove', { name: target.name }),
+      defaultValue: false,
+    });
+    if (!confirmed) return null as unknown as string;
+  }
+
+  // Delete the skill directory
+  const skillDir = path.dirname(target.path);
+  try {
+    await fse.remove(skillDir);
+
+    // Track remove telemetry
+    ctx.skillsRegistry.trackSkillEvent({
+      skillName: target.name,
+      source: target.source,
+      activationType: 'explicit',
+      action: 'remove',
+    });
+
+    return chalk.green(t('commands.learn.removed', { name: target.name }));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    return chalk.red(`Failed to remove skill: ${msg}`);
+  }
+}
+
+/**
+ * Handle /skills feedback <slug> <rating> [comment] — submit skill feedback
+ */
+function handleSkillsFeedback(
+  slug: string | undefined,
+  rating: number | undefined,
+  _comment: string | undefined,
+): string {
+  if (!slug) {
+    return 'Usage: /skills feedback <skill-slug> <1-5> [comment]';
+  }
+
+  if (rating === undefined || isNaN(rating) || rating < 1 || rating > 5) {
+    return t('commands.learn.feedbackInvalid');
+  }
+
+  // Acknowledge locally (future: send to API)
+  return t('commands.learn.feedbackThanks', { name: slug });
 }
 
 export const metadata = {

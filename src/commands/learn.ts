@@ -5,8 +5,6 @@
  *
  * /learn command - Search and install community skills with security scanning
  */
-import path from 'node:path';
-import fse from 'fs-extra';
 import chalk from 'chalk';
 import { t } from '../i18n/index.js';
 import { LearnClient } from '../skills/LearnClient.js';
@@ -18,10 +16,10 @@ import {
 import { GitHubRegistryFetcher } from '../skills/GitHubRegistryFetcher.js';
 import { CommunitySkillsCache } from '../skills/CommunitySkillsCache.js';
 import { AUTOHAND_PATHS } from '../constants.js';
-import { showModal, showConfirm } from '../ui/ink/components/Modal.js';
+import { showConfirm } from '../ui/ink/components/Modal.js';
 import type { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import type { HookManager } from '../core/HookManager.js';
-import type { CommunitySkillsRegistry, GitHubCommunitySkill } from '../types.js';
+import type { CommunitySkillsRegistry } from '../types.js';
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -33,16 +31,14 @@ export interface LearnCommandContext {
 }
 
 export interface ParsedLearnArgs {
-  subcommand: 'search' | 'install' | 'trending' | 'list' | 'update' | 'remove' | 'feedback' | 'recommendations';
+  subcommand: 'search' | 'install' | 'list' | 'update' | 'recommendations';
   query?: string;
   slug?: string;
-  rating?: number;
-  comment?: string;
 }
 
 // ─── Arg Parser ──────────────────────────────────────────────────────
 
-const KNOWN_SUBCOMMANDS = new Set(['trending', 'list', 'update', 'remove', 'feedback']);
+const KNOWN_SUBCOMMANDS = new Set(['list', 'update']);
 
 export function parseLearnArgs(args: string[]): ParsedLearnArgs {
   if (args.length === 0) {
@@ -53,17 +49,6 @@ export function parseLearnArgs(args: string[]): ParsedLearnArgs {
 
   // Known subcommands
   if (KNOWN_SUBCOMMANDS.has(first)) {
-    if (first === 'remove') {
-      return { subcommand: 'remove', slug: args[1] };
-    }
-    if (first === 'feedback') {
-      return {
-        subcommand: 'feedback',
-        slug: args[1],
-        rating: args[2] ? Number(args[2]) : undefined,
-        comment: args.slice(3).join(' ') || undefined,
-      };
-    }
     return { subcommand: first as ParsedLearnArgs['subcommand'] };
   }
 
@@ -77,51 +62,6 @@ export function parseLearnArgs(args: string[]): ParsedLearnArgs {
 }
 
 // ─── Sub-handlers ────────────────────────────────────────────────────
-
-async function handleSearch(
-  ctx: LearnCommandContext,
-  query: string,
-  registry: CommunitySkillsRegistry,
-  cache: CommunitySkillsCache,
-  fetcher: GitHubRegistryFetcher,
-): Promise<string> {
-  const client = new LearnClient();
-  const results = client.search(registry, query);
-
-  if (results.length === 0) {
-    return t('commands.learn.noResults', { query });
-  }
-
-  // Non-interactive: return as formatted text
-  if (ctx.isNonInteractive) {
-    const lines = [t('commands.learn.found', { count: String(results.length) })];
-    for (const skill of results) {
-      const stars = skill.rating ? ` (${skill.rating.toFixed(1)}/5)` : '';
-      lines.push(`  ${chalk.cyan(skill.name)} - ${skill.description}${stars}`);
-    }
-    return lines.join('\n');
-  }
-
-  // Interactive: show modal picker
-  const options = results.map((s) => ({
-    label: `${s.name} - ${s.description}`,
-    value: s.id,
-  }));
-
-  const selected = await showModal({
-    title: t('commands.learn.selectPrompt'),
-    options,
-  });
-
-  if (!selected) {
-    return null as unknown as string;
-  }
-
-  const skill = results.find((s) => s.id === selected.value);
-  if (!skill) return null as unknown as string;
-
-  return installSkillWithSecurity(ctx, skill, cache, fetcher);
-}
 
 async function handleInstall(
   ctx: LearnCommandContext,
@@ -149,30 +89,6 @@ async function handleInstall(
   return installSkillWithSecurity(ctx, skill, cache, fetcher);
 }
 
-function handleTrending(registry: CommunitySkillsRegistry): string {
-  const client = new LearnClient();
-  const trending = client.trending(registry);
-
-  const lines: string[] = [];
-  lines.push('');
-  lines.push(chalk.bold(t('commands.learn.trendingTitle')));
-  lines.push('');
-
-  for (let i = 0; i < trending.length; i++) {
-    const skill = trending[i];
-    const idx = chalk.gray(`${i + 1}.`);
-    const name = chalk.cyan(skill.name);
-    const featured = skill.isFeatured ? chalk.yellow(' [featured]') : '';
-    const downloads = skill.downloadCount ? chalk.gray(` (${skill.downloadCount} installs)`) : '';
-    lines.push(`${idx} ${name}${featured}${downloads}`);
-    lines.push(`   ${skill.description}`);
-    lines.push(`   {{action:Install|/learn @${skill.author ?? 'community'}/${skill.id}}}`);
-    lines.push('');
-  }
-
-  return lines.join('\n');
-}
-
 function handleList(ctx: LearnCommandContext): string {
   const client = new LearnClient();
   const allSkills = ctx.skillsRegistry.listSkills();
@@ -192,7 +108,7 @@ function handleList(ctx: LearnCommandContext): string {
     const status = skill.isActive ? chalk.green('[active]') : chalk.gray('[inactive]');
     lines.push(`  ${chalk.cyan(skill.name)} ${status}`);
     lines.push(`    ${skill.description}`);
-    lines.push(`    {{action:Remove|/learn remove ${slug}}} {{action:Info|/skills info ${skill.name}}}`);
+    lines.push(`    {{action:Remove|/skills remove ${slug}}} {{action:Info|/skills info ${skill.name}}}`);
     lines.push('');
   }
 
@@ -271,66 +187,6 @@ async function handleUpdate(
   return chalk.green(t('commands.learn.updated', { count: String(updatedCount) }));
 }
 
-async function handleRemove(
-  ctx: LearnCommandContext,
-  slug: string,
-): Promise<string> {
-  if (!slug) {
-    return 'Usage: /learn remove <skill-slug>';
-  }
-
-  // Find the installed skill by slug metadata
-  const allSkills = ctx.skillsRegistry.listSkills();
-  const target = allSkills.find(
-    (s) => s.metadata?.['agentskill-slug'] === slug || s.name === slug,
-  );
-
-  if (!target) {
-    return t('commands.learn.removeNotFound', { name: slug });
-  }
-
-  // Interactive confirmation
-  if (!ctx.isNonInteractive) {
-    const confirmed = await showConfirm({
-      title: t('commands.learn.confirmRemove', { name: target.name }),
-      defaultValue: false,
-    });
-    if (!confirmed) return null as unknown as string;
-  }
-
-  // Delete the skill directory
-  const skillDir = path.dirname(target.path);
-  try {
-    await fse.remove(skillDir);
-
-    // Track remove telemetry
-    ctx.skillsRegistry.trackSkillEvent({
-      skillName: target.name,
-      source: target.source,
-      activationType: 'explicit',
-      action: 'remove',
-    });
-
-    return chalk.green(t('commands.learn.removed', { name: target.name }));
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Unknown error';
-    return chalk.red(`Failed to remove skill: ${msg}`);
-  }
-}
-
-function handleFeedback(slug: string | undefined, rating: number | undefined, _comment: string | undefined): string {
-  if (!slug) {
-    return 'Usage: /learn feedback <skill-slug> <1-5> [comment]';
-  }
-
-  if (rating === undefined || isNaN(rating) || rating < 1 || rating > 5) {
-    return t('commands.learn.feedbackInvalid');
-  }
-
-  // Acknowledge locally (future: send to API)
-  return t('commands.learn.feedbackThanks', { name: slug });
-}
-
 async function handleRecommendations(
   ctx: LearnCommandContext,
   registry: CommunitySkillsRegistry,
@@ -351,7 +207,7 @@ async function handleRecommendations(
     lines.push('');
   }
 
-  lines.push(chalk.gray('Use /learn <keyword> to search or /learn trending for more'));
+  lines.push(chalk.gray('Use /skills search <keyword> to search or /skills trending for more'));
 
   return lines.join('\n');
 }
@@ -370,7 +226,7 @@ export async function learn(ctx: LearnCommandContext, args: string[]): Promise<s
   const fetcher = new GitHubRegistryFetcher();
 
   // For subcommands that need the registry, fetch it
-  const needsRegistry = new Set(['search', 'install', 'trending', 'update', 'recommendations']);
+  const needsRegistry = new Set(['search', 'install', 'update', 'recommendations']);
 
   let registry: CommunitySkillsRegistry | null = null;
   if (needsRegistry.has(parsed.subcommand)) {
@@ -382,14 +238,8 @@ export async function learn(ctx: LearnCommandContext, args: string[]): Promise<s
   }
 
   switch (parsed.subcommand) {
-    case 'search':
-      return handleSearch(ctx, parsed.query!, registry!, cache, fetcher);
-
     case 'install':
       return handleInstall(ctx, parsed.slug!, registry!, cache, fetcher);
-
-    case 'trending':
-      return handleTrending(registry!);
 
     case 'list':
       return handleList(ctx);
@@ -397,14 +247,12 @@ export async function learn(ctx: LearnCommandContext, args: string[]): Promise<s
     case 'update':
       return handleUpdate(ctx, registry!, cache, fetcher);
 
-    case 'remove':
-      return handleRemove(ctx, parsed.slug!);
-
-    case 'feedback':
-      return handleFeedback(parsed.slug, parsed.rating, parsed.comment);
-
     case 'recommendations':
       return handleRecommendations(ctx, registry!);
+
+    case 'search':
+      // Search has been migrated to /skills — redirect users
+      return 'Search has moved to /skills search. Use: /skills search ' + (parsed.query ?? '');
 
     default:
       return null;
