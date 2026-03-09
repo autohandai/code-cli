@@ -69,3 +69,6 @@ export type { LearnSearchResult, SkillUpdateInfo } from './LearnClient.js';
 // Security scanner
 export { SkillSecurityScanner } from './SkillSecurityScanner.js';
 export type { SecurityScanResult, ThreatMatch, ThreatCategory } from './SkillSecurityScanner.js';
+
+// Learn advisor
+export { LearnAdvisor } from './LearnAdvisor.js';
