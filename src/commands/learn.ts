@@ -206,9 +206,81 @@ async function handleGeneration(
   );
 }
 
-async function handleLearnUpdate(_ctx: LearnCommandContext): Promise<string> {
-  // Stub — will be implemented in Task 11
-  return chalk.yellow('The /learn update command will be available soon. Use /skills for now.');
+async function handleLearnUpdate(ctx: LearnCommandContext): Promise<string> {
+  const { skillsRegistry, workspaceRoot, llm } = ctx;
+
+  console.log(chalk.cyan('Checking for skill updates...'));
+
+  // 1. Analyze current project
+  const analyzer = new ProjectAnalyzer(workspaceRoot);
+  const analysis = await analyzer.analyze();
+  const currentHash = computeProjectHash(analysis);
+
+  // 2. Find LLM-generated skills
+  const allSkills = skillsRegistry.listSkills();
+  const generatedSkills = allSkills.filter(
+    (s) => s.metadata?.['agentskill-source'] === 'llm-generated',
+  );
+
+  if (generatedSkills.length === 0) {
+    return 'No LLM-generated skills found. Use /learn to generate skills first.';
+  }
+
+  // 3. Compare hashes and regenerate stale skills
+  const advisor = new LearnAdvisor(llm);
+  let updated = 0;
+  let unchanged = 0;
+  const lines: string[] = [];
+
+  for (const skill of generatedSkills) {
+    const storedHash = skill.metadata?.['agentskill-project-hash'];
+
+    if (storedHash === currentHash) {
+      unchanged++;
+      continue;
+    }
+
+    // Project changed — regenerate this skill
+    console.log(chalk.gray(`  Regenerating ${skill.name}...`));
+
+    const generated = await advisor.generateSkill(analysis, null, []);
+
+    if (!generated) {
+      lines.push(chalk.yellow(`  Failed to regenerate ${skill.name}`));
+      continue;
+    }
+
+    // Build new SKILL.md with frontmatter + body
+    let frontmatter = `---\nname: ${generated.name}\ndescription: ${generated.description}\n`;
+    if (generated.allowedTools.length > 0) {
+      frontmatter += `allowed-tools: ${generated.allowedTools.join(' ')}\n`;
+    }
+    frontmatter += `---\n\n`;
+    let content = frontmatter + generated.body + '\n';
+
+    // Inject updated generated metadata (source, hash, timestamp)
+    content = injectGeneratedMetadata(content, skill.name, currentHash);
+
+    // Write to the skill's existing path
+    try {
+      await fse.writeFile(skill.path, content, 'utf-8');
+      updated++;
+      lines.push(chalk.green(`  Regenerated ${skill.name}`));
+    } catch {
+      lines.push(chalk.yellow(`  Failed to write ${skill.name}`));
+    }
+  }
+
+  // 4. Report results
+  lines.push('');
+  if (updated > 0) {
+    lines.push(chalk.green(`Updated ${updated} skill${updated !== 1 ? 's' : ''}.`));
+  }
+  if (unchanged > 0) {
+    lines.push(chalk.gray(`${unchanged} skill${unchanged !== 1 ? 's' : ''} already up to date.`));
+  }
+
+  return lines.join('\n');
 }
 
 // ─── Main Entry Point ────────────────────────────────────────────────
