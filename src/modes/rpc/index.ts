@@ -33,6 +33,8 @@ import type {
   McpListToolsParams,
   McpSetVscodeToolsParams,
   McpInvokeResponseParams,
+  LearnRecommendParams,
+  LearnGenerateParams,
 } from './types.js';
 import {
   RPC_METHODS,
@@ -526,6 +528,34 @@ async function handleSingleRequest(
 
       case RPC_METHODS.MCP_GET_SERVER_CONFIGS: {
         result = adapter.handleMcpGetServerConfigs(id!);
+        break;
+      }
+
+      // Learn command methods
+      case RPC_METHODS.LEARN_RECOMMEND: {
+        const learnParams = params as LearnRecommendParams | undefined;
+        result = await adapter.handleLearnRecommend(id!, learnParams);
+        break;
+      }
+
+      case RPC_METHODS.LEARN_UPDATE: {
+        result = await adapter.handleLearnUpdate(id!);
+        break;
+      }
+
+      case RPC_METHODS.LEARN_GENERATE: {
+        const generateParams = params as LearnGenerateParams | undefined;
+        if (!generateParams?.scope) {
+          if (shouldRespond) {
+            return createErrorResponse(
+              id!,
+              JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+              'Missing required parameter: scope'
+            );
+          }
+          return null;
+        }
+        result = await adapter.handleLearnGenerate(id!, generateParams);
         break;
       }
 
