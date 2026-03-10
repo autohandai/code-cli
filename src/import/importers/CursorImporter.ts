@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
 import fse from 'fs-extra';
 import type {
   ImportSource,
@@ -442,7 +441,7 @@ export class CursorImporter extends BaseImporter {
       });
 
       try {
-        const sessionData = this.readCursorSession(dbPath);
+        const sessionData = await this.readCursorSession(dbPath);
 
         if (!sessionData || sessionData.messages.length === 0) {
           skipped++;
@@ -484,14 +483,16 @@ export class CursorImporter extends BaseImporter {
    * Reads a single Cursor session from its SQLite store.db.
    * Returns extracted metadata and converted messages, or null if unreadable.
    */
-  private readCursorSession(dbPath: string): {
+  private async readCursorSession(dbPath: string): Promise<{
     agentId: string;
     name: string;
     model: string;
     createdAt: string;
     projectPath: string;
     messages: SessionMessage[];
-  } | null {
+  } | null> {
+    // Lazy-load node:sqlite so the binary doesn't crash on runtimes that lack it (e.g. Bun)
+    const { DatabaseSync } = await import('node:sqlite');
     const db = new DatabaseSync(dbPath, { readOnly: true } as Record<string, unknown>);
 
     try {
