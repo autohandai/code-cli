@@ -60,6 +60,10 @@ export interface SlashCommandContext {
     isContextCompactionEnabled?: () => boolean;
     /** Whether running in non-interactive mode (RPC/ACP) where stdin is not a TTY */
     isNonInteractive?: boolean;
+    /** Called before /learn shows a modal (pause persistent input) */
+    onBeforeModal?: () => void;
+    /** Called after /learn modal closes (resume persistent input) */
+    onAfterModal?: () => void;
     /** Team manager for /team and /tasks commands */
     teamManager?: TeamManager;
 }

@@ -361,6 +361,8 @@ export class SlashCommandHandler {
             hookManager: this.ctx.hookManager,
             isNonInteractive: this.ctx.isNonInteractive,
             llm: this.ctx.llm,
+            onBeforeModal: this.ctx.onBeforeModal,
+            onAfterModal: this.ctx.onAfterModal,
           }, args);
         }
         case '/team': {
