@@ -915,7 +915,21 @@ Examples:
       },
       required: ['repo', 'operation']
     }
-  }
+  },
+  // Skills Discovery
+  {
+    name: 'find_agent_skills',
+    description: 'Search the community skills registry for agent skills that match a query. Returns skills with name, description, category, languages, and frameworks. Use this to discover skills that could help with the current task or project.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search terms — skill name, language, framework, or use-case (e.g. "react testing", "python api", "docker deployment")' },
+        category: { type: 'string', description: 'Optional category filter (e.g. "languages", "frameworks", "workflows", "testing")' },
+        limit: { type: 'number', description: 'Maximum results to return (default: 10, max: 20)' },
+      },
+      required: ['query'],
+    },
+  },
 ];
 
 export class ToolManager {
