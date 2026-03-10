@@ -163,8 +163,14 @@ describe('/learn progress logging', () => {
 // ─── Modal Interaction Tests ────────────────────────────────────────
 
 describe('/learn modal interaction', () => {
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
-    vi.spyOn(console, 'log').mockImplementation(() => {});
+    consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
   });
 
   it('calls onBeforeModal/onAfterModal around showConfirm when no good matches', async () => {
