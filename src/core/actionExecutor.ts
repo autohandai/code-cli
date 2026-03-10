@@ -1446,6 +1446,19 @@ export class ActionExecutor {
         console.log(chalk.gray(previewResult + (formattedResult.length > 500 ? '\n   ... (truncated)' : '')));
         return formattedResult;
       }
+      // Skills Discovery
+      case 'find_agent_skills': {
+        const query = action.query ?? '';
+        console.log(chalk.cyan(`\nSearching skills: "${query}"${action.category ? ` [${action.category}]` : ''}...`));
+        const { searchCommunitySkills } = await import('../actions/skills.js');
+        const result = await searchCommunitySkills(query, {
+          category: action.category,
+          limit: action.limit,
+        });
+        console.log(chalk.gray(result.split('\n').slice(0, 15).join('\n')));
+        return result;
+      }
+
       // User interaction
       case 'ask_followup_question': {
         if (!action.question) {
