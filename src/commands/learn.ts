@@ -40,11 +40,22 @@ export interface LearnCommandContext {
   isNonInteractive?: boolean;
   llm: LLMProvider;
   onProgress?: (message: string) => void;
+  onBeforeModal?: () => void;
+  onAfterModal?: () => void;
 }
 
 function logProgress(ctx: LearnCommandContext, message: string): void {
   ctx.onProgress?.(message);
   console.log(chalk.cyan(message));
+}
+
+async function withModalPause<T>(ctx: LearnCommandContext, fn: () => Promise<T>): Promise<T> {
+  ctx.onBeforeModal?.();
+  try {
+    return await fn();
+  } finally {
+    ctx.onAfterModal?.();
+  }
 }
 
 export interface ParsedLearnArgs {
@@ -153,9 +164,9 @@ async function handleLearnRecommend(
 
   // 6. Offer generation if no good matches
   if (goodMatches.length === 0 && !isNonInteractive) {
-    const wantGenerate = await showConfirm({
-      title: 'Want me to generate a custom skill for your project?',
-    });
+    const wantGenerate = await withModalPause(ctx, () =>
+      showConfirm({ title: 'Want me to generate a custom skill for your project?' }),
+    );
     if (wantGenerate) {
       return await handleGeneration(ctx, analysis, result);
     }
@@ -183,13 +194,15 @@ async function handleGeneration(
   }
 
   // Ask scope
-  const scopeChoice = await showModal({
-    title: 'Where should this skill be installed?',
-    options: [
-      { label: `Project (.autohand/skills/)`, value: 'project' },
-      { label: `User (~/.autohand/skills/)`, value: 'user' },
-    ],
-  });
+  const scopeChoice = await withModalPause(ctx, () =>
+    showModal({
+      title: 'Where should this skill be installed?',
+      options: [
+        { label: `Project (.autohand/skills/)`, value: 'project' },
+        { label: `User (~/.autohand/skills/)`, value: 'user' },
+      ],
+    }),
+  );
 
   const scope: SkillInstallScope =
     scopeChoice?.value === 'project' ? 'project' : 'user';
