@@ -819,6 +819,16 @@ export class AutohandAgent {
       isContextCompactionEnabled: () => this.isContextCompactionEnabled(),
       // Non-interactive mode (RPC/ACP) - guards interactive commands
       isNonInteractive: runtime.isRpcMode === true,
+      onBeforeModal: () => {
+        if (this.persistentInputActiveTurn) {
+          this.persistentInput.pause();
+        }
+      },
+      onAfterModal: () => {
+        if (this.persistentInputActiveTurn) {
+          this.persistentInput.resume();
+        }
+      },
       // Team manager for /team, /tasks, /message commands
       teamManager: this.teamManager,
     };
