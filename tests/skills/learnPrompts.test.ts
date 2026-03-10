@@ -230,7 +230,7 @@ describe('learnPrompts', () => {
 
       const prompt = buildLearnUserPrompt(analysis, [], skills);
       expect(prompt).toContain('ts-skill');
-      // ruby-skill should not appear in matching section
+      expect(prompt).not.toContain('ruby-skill');
     });
 
     it('includes registry count summary', () => {
