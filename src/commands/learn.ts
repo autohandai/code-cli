@@ -39,6 +39,12 @@ export interface LearnCommandContext {
   hookManager?: HookManager;
   isNonInteractive?: boolean;
   llm: LLMProvider;
+  onProgress?: (message: string) => void;
+}
+
+function logProgress(ctx: LearnCommandContext, message: string): void {
+  ctx.onProgress?.(message);
+  console.log(chalk.cyan(message));
 }
 
 export interface ParsedLearnArgs {
@@ -78,7 +84,7 @@ async function handleLearnRecommend(
 ): Promise<string> {
   const { skillsRegistry, workspaceRoot, llm, isNonInteractive } = ctx;
 
-  console.log(chalk.cyan(deep ? 'Deep-analyzing your project...' : 'Analyzing your project...'));
+  logProgress(ctx, deep ? 'Deep-analyzing your project...' : 'Analyzing your project...');
 
   // 1. Analyze project
   const analyzer = new ProjectAnalyzer(workspaceRoot);
@@ -87,6 +93,7 @@ async function handleLearnRecommend(
   // 2. Fetch registry
   const cache = new CommunitySkillsCache();
   const fetcher = new GitHubRegistryFetcher();
+  logProgress(ctx, 'Loading community skills...');
   let registry: CommunitySkillsRegistry | null = null;
   try {
     registry = await fetchRegistryWithFallback(cache, fetcher);
@@ -99,6 +106,7 @@ async function handleLearnRecommend(
   const registrySkills = registry?.skills ?? [];
 
   // 4. Call LLM advisor
+  logProgress(ctx, 'Evaluating skill matches...');
   const advisor = new LearnAdvisor(llm);
   const result = await advisor.analyze(analysis, installedSkills, registrySkills);
 
@@ -161,7 +169,7 @@ async function handleGeneration(
   analysis: ProjectAnalysis,
   analysisResult: LearnAnalysisResponse,
 ): Promise<string> {
-  console.log(chalk.cyan('Generating a custom skill...'));
+  logProgress(ctx, 'Generating a custom skill...');
 
   const advisor = new LearnAdvisor(ctx.llm);
   const lowScoring = analysisResult.recommendations
@@ -218,7 +226,7 @@ async function handleGeneration(
 async function handleLearnUpdate(ctx: LearnCommandContext): Promise<string> {
   const { skillsRegistry, workspaceRoot, llm } = ctx;
 
-  console.log(chalk.cyan('Checking for skill updates...'));
+  logProgress(ctx, 'Checking for skill updates...');
 
   // 1. Analyze current project
   const analyzer = new ProjectAnalyzer(workspaceRoot);
@@ -250,7 +258,7 @@ async function handleLearnUpdate(ctx: LearnCommandContext): Promise<string> {
     }
 
     // Project changed — regenerate this skill
-    console.log(chalk.gray(`  Regenerating ${skill.name}...`));
+    logProgress(ctx, `Regenerating ${skill.name}...`);
 
     const generated = await advisor.generateSkill(analysis, null, []);
 
