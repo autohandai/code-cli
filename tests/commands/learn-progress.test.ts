@@ -159,3 +159,48 @@ describe('/learn progress logging', () => {
     expect(messages.some((m: string) => m.includes('Evaluating'))).toBe(true);
   });
 });
+
+// ─── Modal Interaction Tests ────────────────────────────────────────
+
+describe('/learn modal interaction', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  it('calls onBeforeModal/onAfterModal around showConfirm when no good matches', async () => {
+    const beforeModal = vi.fn();
+    const afterModal = vi.fn();
+
+    // LLM returns low-scoring recommendations so showConfirm gets triggered
+    const llm = createMockLLM(
+      JSON.stringify({
+        projectSummary: 'Test project',
+        audit: [],
+        recommendations: [{ slug: 'low-match', score: 30, reason: 'Poor fit' }],
+        gapAnalysis: 'Needs custom skill',
+      }),
+    );
+
+    await learn(
+      {
+        skillsRegistry: createMockRegistry() as any,
+        workspaceRoot: '/tmp/test-project',
+        llm,
+        isNonInteractive: false,
+        onBeforeModal: beforeModal,
+        onAfterModal: afterModal,
+      },
+      [],
+    );
+
+    // showConfirm should have been called (mocked to return false)
+    const { showConfirm } = await import('../../src/ui/ink/components/Modal.js');
+    expect(showConfirm).toHaveBeenCalled();
+    expect(beforeModal).toHaveBeenCalled();
+    expect(afterModal).toHaveBeenCalled();
+    // onAfterModal called after onBeforeModal (finally block)
+    expect(afterModal.mock.invocationCallOrder[0]).toBeGreaterThan(
+      beforeModal.mock.invocationCallOrder[0],
+    );
+  });
+});
