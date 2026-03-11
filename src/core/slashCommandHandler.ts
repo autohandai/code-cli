@@ -363,6 +363,7 @@ export class SlashCommandHandler {
             llm: this.ctx.llm,
             onBeforeModal: this.ctx.onBeforeModal,
             onAfterModal: this.ctx.onAfterModal,
+            onTopRecommendation: this.ctx.onTopRecommendation,
           }, args);
         }
         case '/team': {

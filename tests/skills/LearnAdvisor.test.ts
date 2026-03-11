@@ -245,7 +245,7 @@ describe('LearnAdvisor', () => {
       // Verify LLM was called with correct parameters
       expect(llm.complete).toHaveBeenCalledOnce();
       const callArgs = (llm.complete as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(callArgs.maxTokens).toBe(4000);
+      expect(callArgs.maxTokens).toBe(6000);
       expect(callArgs.temperature).toBe(0.3);
     });
 
@@ -262,24 +262,63 @@ describe('LearnAdvisor', () => {
       expect(result).toBeNull();
     });
 
-    it('validates name matches kebab-case pattern', async () => {
-      const badNameResponse = JSON.stringify({
+    it('normalizes non-kebab-case names to kebab-case', async () => {
+      const spacedName = JSON.stringify({
         name: 'Invalid Name With Spaces',
         description: 'A valid description',
         allowedTools: ['Bash'],
         body: '# Content here',
       });
 
-      const llm = createMockLLM([badNameResponse]);
+      const llm1 = createMockLLM([spacedName]);
+      const advisor1 = new LearnAdvisor(llm1);
+      const result1 = await advisor1.generateSkill(makeAnalysis(), 'Gap', []);
+      expect(result1).not.toBeNull();
+      expect(result1!.name).toBe('invalid-name-with-spaces');
+    });
+
+    it('normalizes camelCase and underscore names to kebab-case', async () => {
+      const camelName = JSON.stringify({
+        name: 'TypeScript_Testing',
+        description: 'Testing helper',
+        allowedTools: [],
+        body: '# Testing',
+      });
+
+      const llm = createMockLLM([camelName]);
       const advisor = new LearnAdvisor(llm);
+      const result = await advisor.generateSkill(makeAnalysis(), null, []);
+      expect(result).not.toBeNull();
+      expect(result!.name).toBe('type-script-testing');
+    });
 
-      const result = await advisor.generateSkill(
-        makeAnalysis(),
-        'Gap detected',
-        [],
-      );
+    it('returns null when name normalizes to empty string', async () => {
+      const symbolsOnly = JSON.stringify({
+        name: '!!!',
+        description: 'A description',
+        allowedTools: [],
+        body: '# Body',
+      });
 
+      const llm = createMockLLM([symbolsOnly]);
+      const advisor = new LearnAdvisor(llm);
+      const result = await advisor.generateSkill(makeAnalysis(), null, []);
       expect(result).toBeNull();
+    });
+
+    it('preserves already-kebab-case names', async () => {
+      const goodName = JSON.stringify({
+        name: 'already-kebab-case',
+        description: 'Good name',
+        allowedTools: ['Bash'],
+        body: '# Already good',
+      });
+
+      const llm = createMockLLM([goodName]);
+      const advisor = new LearnAdvisor(llm);
+      const result = await advisor.generateSkill(makeAnalysis(), null, []);
+      expect(result).not.toBeNull();
+      expect(result!.name).toBe('already-kebab-case');
     });
 
     it('returns null when missing required fields (name, description, body)', async () => {
