@@ -145,6 +145,65 @@ describe('processErrorReporting', () => {
     expect(loadConfigMock).not.toHaveBeenCalled();
   });
 
+  it('ignores EIO read errors on stdin (fd 0) as uncaught exceptions', async () => {
+    const fakeProcess = createFakeProcess();
+    const logError = vi.fn();
+    const exitMock = vi.fn();
+
+    installProcessErrorHandlers({ processRef: fakeProcess, logError, exit: exitMock });
+
+    const eioError = Object.assign(new Error('EIO'), {
+      code: 'EIO',
+      syscall: 'read',
+      fd: 0,
+    });
+    fakeProcess.emit('uncaughtException', eioError);
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(reportErrorMock).not.toHaveBeenCalled();
+    expect(exitMock).not.toHaveBeenCalled();
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it('ignores EIO read errors on non-stdin fds (e.g. Ink modal fd 6)', async () => {
+    const fakeProcess = createFakeProcess();
+    const logError = vi.fn();
+    const exitMock = vi.fn();
+
+    installProcessErrorHandlers({ processRef: fakeProcess, logError, exit: exitMock });
+
+    const eioError = Object.assign(new Error('EIO'), {
+      code: 'EIO',
+      syscall: 'read',
+      fd: 6,
+    });
+    fakeProcess.emit('uncaughtException', eioError);
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(reportErrorMock).not.toHaveBeenCalled();
+    expect(exitMock).not.toHaveBeenCalled();
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it('ignores EIO read errors as unhandled rejections regardless of fd', async () => {
+    const fakeProcess = createFakeProcess();
+
+    installProcessErrorHandlers({ processRef: fakeProcess });
+
+    const eioError = Object.assign(new Error('EIO'), {
+      code: 'EIO',
+      syscall: 'read',
+      fd: 6,
+    });
+    fakeProcess.emit('unhandledRejection', eioError, Promise.resolve());
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(reportErrorMock).not.toHaveBeenCalled();
+  });
+
   it('falls back to an in-memory config when loading the user config fails', async () => {
     const fakeProcess = createFakeProcess();
     fakeProcess.env.AUTOHAND_API_URL = 'https://api.example.com';
