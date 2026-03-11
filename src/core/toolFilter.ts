@@ -418,6 +418,7 @@ const RELEVANCE_CATEGORIES: Record<string, RelevanceCategory> = {
   team_status: 'meta',
   send_team_message: 'meta',
   ask_followup_question: 'always', // User interaction should always be available when in interactive mode
+  find_agent_skills: 'always', // Skill search should always be available so the LLM can explore community skills
 };
 
 /**

@@ -5,6 +5,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DEFAULT_TOOL_DEFINITIONS } from '../../src/core/toolManager.js';
+import { filterToolsByRelevance } from '../../src/core/toolFilter.js';
+import type { LLMMessage } from '../../src/types.js';
 
 vi.mock('../../src/skills/CommunitySkillsCache.js', () => ({
   CommunitySkillsCache: vi.fn().mockImplementation(() => ({
@@ -94,6 +96,15 @@ describe('find_agent_skills tool', () => {
     it('does not require approval', () => {
       const def = DEFAULT_TOOL_DEFINITIONS.find((t) => t.name === 'find_agent_skills');
       expect(def!.requiresApproval).toBeUndefined();
+    });
+
+    it('survives relevance filtering — always available to LLM regardless of context', () => {
+      // Use a minimal message that triggers no special categories
+      const messages: LLMMessage[] = [{ role: 'user', content: 'hello' }];
+      const toolDef = DEFAULT_TOOL_DEFINITIONS.find((t) => t.name === 'find_agent_skills')!;
+      const filtered = filterToolsByRelevance([toolDef], messages);
+      expect(filtered).toHaveLength(1);
+      expect(filtered[0].name).toBe('find_agent_skills');
     });
   });
 

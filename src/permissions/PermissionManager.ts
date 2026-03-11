@@ -9,6 +9,7 @@ import type {
   PermissionMode,
   PermissionRule
 } from './types.js';
+import path from 'node:path';
 import {
   loadLocalProjectSettings,
   addToLocalWhitelist,
@@ -267,10 +268,20 @@ export class PermissionManager {
     // Build pattern for whitelist/blacklist
     const pattern = this.contextToPattern(context);
 
+    // For path-based approvals, also generate a directory wildcard so future
+    // writes in the same directory are auto-approved (trust the directory).
+    // Only for approvals — denials stay exact to avoid over-blocking.
+    const dirPattern = allowed && context.path
+      ? this.buildDirectoryWildcard(context)
+      : null;
+
     // Save to LOCAL project settings (approve once, don't ask again for this project)
     if (allowed && this.workspaceRoot) {
       try {
-        await addToLocalWhitelist(this.workspaceRoot, pattern);
+        const patterns = dirPattern ? [pattern, dirPattern] : [pattern];
+        for (const p of patterns) {
+          await addToLocalWhitelist(this.workspaceRoot, p);
+        }
         // Also update local cache
         if (!this.localSettings) {
           this.localSettings = { whitelist: [] };
@@ -278,18 +289,22 @@ export class PermissionManager {
         if (!this.localSettings.whitelist) {
           this.localSettings.whitelist = [];
         }
-        if (!this.localSettings.whitelist.includes(pattern)) {
-          this.localSettings.whitelist.push(pattern);
+        for (const p of patterns) {
+          if (!this.localSettings.whitelist.includes(p)) {
+            this.localSettings.whitelist.push(p);
+          }
         }
       } catch {
         // If local save fails, fall back to global
         this.addToWhitelist(pattern);
+        if (dirPattern) this.addToWhitelist(dirPattern);
       }
     } else if (allowed) {
       // No workspace root - save to global
       this.addToWhitelist(pattern);
+      if (dirPattern) this.addToWhitelist(dirPattern);
     } else {
-      // Denied - add to global blacklist
+      // Denied - add exact path only to blacklist (no directory wildcards for denials)
       this.addToBlacklist(pattern);
     }
 
@@ -319,6 +334,19 @@ export class PermissionManager {
     }
 
     return `${tool}:${value}`;
+  }
+
+  /**
+   * Build a directory-level wildcard pattern for path-based approvals.
+   * E.g., write_file:/project/tests/foo.ts → write_file:/project/tests/*
+   * This allows future writes in the same directory to be auto-approved.
+   */
+  private buildDirectoryWildcard(context: PermissionContext): string | null {
+    if (!context.path) return null;
+    const dir = path.dirname(context.path);
+    // Don't create wildcards for root-level paths
+    if (dir === '.' || dir === '/') return null;
+    return `${context.tool}:${dir}/*`;
   }
 
   /**
