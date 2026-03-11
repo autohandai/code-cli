@@ -286,6 +286,8 @@ describe('PersistentInput immediate command handling', () => {
       disable: vi.fn(),
       focusScrollBottom: vi.fn(),
       writeAbove: vi.fn(),
+      renderOverlay: vi.fn().mockReturnValue(0),
+      clearOverlay: vi.fn(),
     };
 
     pi.resume();
@@ -440,11 +442,14 @@ describe('PersistentInput immediate command handling', () => {
       { text: 'second item', timestamp: 2 },
     ];
 
-    const writeAbove = vi.fn();
+    const renderOverlay = vi.fn().mockReturnValue(8);
+    const clearOverlay = vi.fn();
     const updateInput = vi.fn();
     const updateStatus = vi.fn();
     (pi as any).regions = {
-      writeAbove,
+      writeAbove: vi.fn(),
+      renderOverlay,
+      clearOverlay,
       updateInput,
       updateStatus,
       renderFixedRegion: vi.fn(),
@@ -457,8 +462,9 @@ describe('PersistentInput immediate command handling', () => {
     const handler = (pi as any).handleKeypress;
     handler('', { name: 'q', ctrl: true, sequence: '\x11' });
 
-    expect(writeAbove).toHaveBeenCalledTimes(1);
-    const output = String(writeAbove.mock.calls[0]?.[0] ?? '');
+    expect(renderOverlay).toHaveBeenCalledTimes(1);
+    const lines = renderOverlay.mock.calls[0]?.[0] as string[];
+    const output = lines.join('\n');
     expect(output).toContain('Queued requests (2)');
     expect(output).toContain('1. "first item"');
     expect(output).toContain('2. "second item"');
@@ -534,6 +540,8 @@ describe('PersistentInput immediate command handling', () => {
       disable: vi.fn(),
       focusScrollBottom: vi.fn(),
       enable: vi.fn(),
+      renderOverlay: vi.fn().mockReturnValue(0),
+      clearOverlay: vi.fn(),
     };
 
     const handler = (pi as any).handleKeypress;
