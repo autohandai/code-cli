@@ -42,6 +42,8 @@ export interface LearnCommandContext {
   onProgress?: (message: string) => void;
   onBeforeModal?: () => void;
   onAfterModal?: () => void;
+  /** Called with the top recommended skill slug for install hint in the composer */
+  onTopRecommendation?: (slug: string) => void;
 }
 
 function logProgress(ctx: LearnCommandContext, message: string): void {
@@ -154,6 +156,8 @@ async function handleLearnRecommend(
       lines.push(`    {{action:Install|/skills install @${rec.slug}}}`);
     }
     lines.push('');
+    // Notify caller of the top recommendation for composer hint
+    ctx.onTopRecommendation?.(goodMatches[0].slug);
   } else {
     lines.push(chalk.yellow('No strong matches found in the community registry.'));
     if (result.gapAnalysis) {
@@ -164,12 +168,24 @@ async function handleLearnRecommend(
 
   // 6. Offer generation if no good matches
   if (goodMatches.length === 0 && !isNonInteractive) {
+    // Show context so the user knows what will be generated
+    const gapDesc = result.gapAnalysis
+      ? `Based on gap analysis: ${result.gapAnalysis}`
+      : `A custom skill tailored for your ${analysis.frameworks.join('/') || analysis.languages.join('/')} project.`;
+    lines.push(chalk.cyan(gapDesc));
+
+    // Print accumulated output now (before the confirm dialog) so user sees
+    // the analysis results. We return only the post-dialog result to avoid
+    // the caller printing this text a second time.
+    console.log(lines.join('\n'));
+
     const wantGenerate = await withModalPause(ctx, () =>
-      showConfirm({ title: 'Want me to generate a custom skill for your project?' }),
+      showConfirm({ title: 'Generate a custom skill to fill this gap?' }),
     );
     if (wantGenerate) {
       return await handleGeneration(ctx, analysis, result);
     }
+    return '';
   }
 
   return lines.join('\n');
@@ -180,7 +196,10 @@ async function handleGeneration(
   analysis: ProjectAnalysis,
   analysisResult: LearnAnalysisResponse,
 ): Promise<string> {
-  logProgress(ctx, 'Generating a custom skill...');
+  const gapHint = analysisResult.gapAnalysis
+    ? ` for: ${analysisResult.gapAnalysis}`
+    : '';
+  logProgress(ctx, `Generating a custom skill${gapHint}...`);
 
   const advisor = new LearnAdvisor(ctx.llm);
   const lowScoring = analysisResult.recommendations
@@ -190,7 +209,18 @@ async function handleGeneration(
   const generated = await advisor.generateSkill(analysis, analysisResult.gapAnalysis, lowScoring);
 
   if (!generated) {
-    return chalk.red('Failed to generate a custom skill. Try again later.');
+    return (
+      chalk.red('Failed to generate a custom skill.\n') +
+      chalk.gray('  The LLM may have returned an invalid response. Check your provider is configured and try again.\n') +
+      chalk.gray('  Run with DEBUG=1 for detailed error output.')
+    );
+  }
+
+  // Show what was generated before asking where to install
+  console.log(chalk.green(`\nGenerated: ${chalk.bold(generated.name)}`));
+  console.log(chalk.gray(`  ${generated.description}`));
+  if (generated.allowedTools.length > 0) {
+    console.log(chalk.gray(`  Tools: ${generated.allowedTools.join(', ')}`));
   }
 
   // Ask scope
@@ -338,4 +368,8 @@ export const metadata = {
   command: '/learn',
   description: t('commands.learn.description'),
   implemented: true,
+  subcommands: [
+    { name: 'deep', description: 'Deep-analyze project for better skill matching' },
+    { name: 'update', description: 'Regenerate stale LLM-generated skills' },
+  ],
 };
