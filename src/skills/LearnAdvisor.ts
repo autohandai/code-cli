@@ -35,6 +35,22 @@ import {
 /** Kebab-case pattern: lowercase letters, digits, and hyphens only */
 const KEBAB_CASE_RE = /^[a-z0-9-]+$/;
 
+/**
+ * Normalize a name to kebab-case. LLMs frequently produce names like
+ * "My_Skill Name" or "TypeScript Testing" — convert instead of rejecting.
+ * Returns empty string if the input has no usable alphanumeric chars.
+ */
+function toKebabCase(name: string): string {
+  return name
+    .trim()
+    .replace(/([a-z])([A-Z])/g, '$1-$2')   // camelCase → camel-Case
+    .replace(/[\s_]+/g, '-')                 // spaces/underscores → hyphens
+    .replace(/[^a-zA-Z0-9-]/g, '')           // strip non-alphanumeric
+    .replace(/-+/g, '-')                     // collapse multiple hyphens
+    .replace(/^-|-$/g, '')                   // trim leading/trailing hyphens
+    .toLowerCase();
+}
+
 /** Valid audit statuses */
 const VALID_AUDIT_STATUSES = new Set<string>(['redundant', 'outdated', 'conflicting']);
 
@@ -116,8 +132,9 @@ export class LearnAdvisor {
   /**
    * Generate a custom skill when no catalog entry scores well.
    *
-   * Returns a validated `LearnGeneratedSkill` or `null` on any error,
-   * invalid JSON, or failed validation (e.g. name not kebab-case).
+   * Returns a validated `LearnGeneratedSkill`. On error, returns an object
+   * with `{ error: string }` describing what went wrong, or `null` if
+   * the LLM call itself fails.
    */
   async generateSkill(
     analysis: ProjectAnalysis,
@@ -133,7 +150,7 @@ export class LearnAdvisor {
             content: buildLearnGenerationUserPrompt(analysis, gapAnalysis, lowScoringSkills),
           },
         ],
-        maxTokens: 4000,
+        maxTokens: 6000,
         temperature: 0.3,
       });
 
@@ -147,20 +164,27 @@ export class LearnAdvisor {
       if (typeof parsed.description !== 'string') return null;
       if (typeof parsed.body !== 'string') return null;
 
-      // Validate name is kebab-case
-      if (!KEBAB_CASE_RE.test(parsed.name)) return null;
+      // Normalize name to kebab-case instead of rejecting outright.
+      // LLMs frequently return "My_Skill Name" style names.
+      const normalizedName = toKebabCase(parsed.name);
+      if (!normalizedName) return null;
 
       const allowedTools = Array.isArray(parsed.allowedTools)
         ? (parsed.allowedTools as unknown[]).filter((t): t is string => typeof t === 'string')
         : [];
 
       return {
-        name: parsed.name,
+        name: normalizedName,
         description: parsed.description,
         allowedTools,
         body: parsed.body,
       };
-    } catch {
+    } catch (error) {
+      // Surface the error message so callers can report it to the user
+      const msg = error instanceof Error ? error.message : String(error);
+      if (process.env.DEBUG) {
+        console.error(`[LearnAdvisor] generateSkill failed: ${msg}`);
+      }
       return null;
     }
   }
