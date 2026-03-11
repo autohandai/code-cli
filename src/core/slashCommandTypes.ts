@@ -64,8 +64,15 @@ export interface SlashCommandContext {
     onBeforeModal?: () => void;
     /** Called after /learn modal closes (resume persistent input) */
     onAfterModal?: () => void;
+    /** Called with the top recommended skill slug from /learn for install hint */
+    onTopRecommendation?: (slug: string) => void;
     /** Team manager for /team and /tasks commands */
     teamManager?: TeamManager;
+}
+
+export interface SlashCommandSubcommand {
+  name: string;
+  description: string;
 }
 
 export interface SlashCommand {
@@ -73,4 +80,6 @@ export interface SlashCommand {
   description: string;
   implemented: boolean;
   prd?: string;
+  /** Optional subcommands for slash commands that support them (e.g. /learn deep) */
+  subcommands?: SlashCommandSubcommand[];
 }

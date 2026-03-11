@@ -22,6 +22,12 @@ export const metadata: SlashCommand = {
   command: '/automode',
   description: t('commands.automode.description'),
   implemented: true,
+  subcommands: [
+    { name: 'status', description: 'Show current loop state' },
+    { name: 'pause', description: 'Pause the active loop' },
+    { name: 'resume', description: 'Resume paused loop' },
+    { name: 'cancel', description: 'Cancel the active loop' },
+  ],
 };
 
 /**

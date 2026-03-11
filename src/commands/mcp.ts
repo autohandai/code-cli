@@ -564,6 +564,13 @@ export const metadata = {
   command: '/mcp',
   description: t('commands.mcp.description'),
   implemented: true,
+  subcommands: [
+    { name: 'connect', description: 'Connect to a configured MCP server' },
+    { name: 'disconnect', description: 'Disconnect from a server' },
+    { name: 'list', description: 'List available tools from servers' },
+    { name: 'add', description: 'Add a server to config' },
+    { name: 'remove', description: 'Remove a server from config' },
+  ],
 };
 
 export const installMetadata = {
