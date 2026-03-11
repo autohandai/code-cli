@@ -829,6 +829,10 @@ export class AutohandAgent {
           this.persistentInput.resume();
         }
       },
+      // After /learn recommends a skill, seed the next prompt with the install command
+      onTopRecommendation: (slug: string) => {
+        this.promptSeedInput = `/skills install @${slug}`;
+      },
       // Team manager for /team, /tasks, /message commands
       teamManager: this.teamManager,
     };
@@ -1572,7 +1576,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
           return command;
         }
 
-        const handled = await this.handleSlashCommand(command, args);
+        const handled = await this.runSlashCommandWithInput(command, args);
         if (handled !== null) {
           // Slash command returned display output - print it, don't send to LLM
           console.log(handled);
@@ -2091,8 +2095,18 @@ If lint or tests fail, report the issues but do NOT commit.`;
       this.updateContextUsage(this.conversation.history());
       await this.runReactLoop(abortController);
 
-      // Run quality pipeline after file modifications in implementation mode
+      // Run quality pipeline after file modifications in implementation mode.
+      // Stop PersistentInput FIRST so quality output goes to raw stdout
+      // instead of being routed through writeAbove in scroll regions
+      // (which gets torn down in the finally block, making output invisible).
       if (this.lastIntent === 'implementation' && this.filesModifiedThisSession) {
+        if (this.persistentInputActiveTurn) {
+          this.promptSeedInput = this.persistentInput.getCurrentInput();
+          this.persistentInput.stop();
+          this.persistentInputActiveTurn = false;
+        }
+        cleanupConsoleBridge();
+        cleanupConsoleBridge = () => {}; // Prevent double-cleanup in finally
         await this.runQualityPipeline();
       }
     } catch (error) {
@@ -5154,6 +5168,56 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
     await this.mcpManager.connectAll(configs);
     this.syncMcpTools();
+  }
+
+  /**
+   * Run a slash command with PersistentInput active so the user can type
+   * while long-running commands like /learn execute. This prevents blocking
+   * the composer during commands that involve LLM calls or network requests.
+   */
+  private async runSlashCommandWithInput(command: string, args: string[]): Promise<string | null> {
+    const queueEnabled = this.runtime.config.agent?.enableRequestQueue !== false;
+    const canUsePersistentInput =
+      process.stdout.isTTY && process.stdin.isTTY && queueEnabled && !this.inkRenderer;
+
+    let cleanupConsoleBridge: () => void = () => {};
+
+    if (canUsePersistentInput) {
+      this.persistentInput.start();
+      this.persistentInputActiveTurn = true;
+      // Install console bridge so console.log output from slash commands
+      // (e.g. /learn progress messages) routes through writeAbove() into
+      // the scroll region instead of landing on the fixed-region status line.
+      cleanupConsoleBridge = this.installPersistentConsoleBridge();
+    }
+
+    try {
+      const result = await this.handleSlashCommand(command, args);
+      return result;
+    } finally {
+      if (this.persistentInputActiveTurn) {
+        // Preserve any text the user typed while the slash command ran.
+        // Prefer current input; if empty, take the first queued item as seed
+        // so the user can review before submitting. Do NOT auto-process
+        // queued items from a slash command context.
+        const typed = this.persistentInput.getCurrentInput();
+        if (typed.trim()) {
+          this.promptSeedInput = typed;
+        } else if (this.persistentInput.hasQueued()) {
+          const first = this.persistentInput.dequeue();
+          if (first) {
+            this.promptSeedInput = first.text;
+          }
+        }
+        // Drain remaining queued items — they should not be auto-processed
+        while (this.persistentInput.hasQueued()) {
+          this.persistentInput.dequeue();
+        }
+        this.persistentInput.stop();
+        this.persistentInputActiveTurn = false;
+      }
+      cleanupConsoleBridge();
+    }
   }
 
   /**

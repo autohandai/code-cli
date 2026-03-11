@@ -82,6 +82,7 @@ export class PersistentInput extends EventEmitter {
   private resolveShellSuggestion?: (input: string) => Promise<string | null>;
   private shellSuggestionRequestId = 0;
   private queueShortcutSelectionIndex: number | null = null;
+  private queueOverlayLineCount = 0;
 
   // ── Paste state ──
   private isInPaste = false;
@@ -690,6 +691,11 @@ export class PersistentInput extends EventEmitter {
       this.closeQueueShortcut(false);
       return;
     }
+    // Clear overlay before modifying queue
+    if (this.queueOverlayLineCount > 0) {
+      this.regions.clearOverlay(this.queueOverlayLineCount);
+      this.queueOverlayLineCount = 0;
+    }
     const selectedIndex = this.clampQueueSelection(this.queueShortcutSelectionIndex ?? (this.queue.length - 1));
     const [pulled] = this.queue.splice(selectedIndex, 1);
     this.queueShortcutSelectionIndex = null;
@@ -717,6 +723,11 @@ export class PersistentInput extends EventEmitter {
     if (this.queue.length === 0) {
       this.closeQueueShortcut(false);
       return;
+    }
+    // Clear overlay before modifying queue
+    if (this.queueOverlayLineCount > 0) {
+      this.regions.clearOverlay(this.queueOverlayLineCount);
+      this.queueOverlayLineCount = 0;
     }
     const selectedIndex = this.clampQueueSelection(this.queueShortcutSelectionIndex ?? (this.queue.length - 1));
     const [removed] = this.queue.splice(selectedIndex, 1);
@@ -750,6 +761,11 @@ export class PersistentInput extends EventEmitter {
       return;
     }
     this.queueShortcutSelectionIndex = null;
+    // Clear the in-place overlay before closing
+    if (this.queueOverlayLineCount > 0) {
+      this.regions.clearOverlay(this.queueOverlayLineCount);
+      this.queueOverlayLineCount = 0;
+    }
     if (announce && !this.silentMode) {
       this.regions.writeAbove(chalk.gray('\nQueue browser closed.\n'));
     }
@@ -764,7 +780,7 @@ export class PersistentInput extends EventEmitter {
     const start = Math.max(0, selectedIndex - (maxVisible - 1));
     const end = Math.min(this.queue.length, start + maxVisible);
     const lines: string[] = [];
-    lines.push(chalk.cyan(`\nQueued requests (${this.queue.length})`));
+    lines.push(chalk.cyan(`Queued requests (${this.queue.length})`));
     if (start > 0) {
       lines.push(chalk.gray(`  ... ${start} older request(s)`));
     }
@@ -778,7 +794,12 @@ export class PersistentInput extends EventEmitter {
       lines.push(chalk.gray(`  ... ${this.queue.length - end} newer request(s)`));
     }
     lines.push(chalk.gray('Up/Down to select · Enter to edit · Backspace to remove · Esc to close'));
-    this.regions.writeAbove(`${lines.join('\n')}\n`);
+
+    // Clear previous overlay before rendering new one (prevents stacking)
+    if (this.queueOverlayLineCount > 0) {
+      this.regions.clearOverlay(this.queueOverlayLineCount);
+    }
+    this.queueOverlayLineCount = this.regions.renderOverlay(lines);
   }
 
   private clampQueueSelection(index: number): number {
