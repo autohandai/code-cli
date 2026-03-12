@@ -52,6 +52,14 @@ export function promptNotify(message: string): void {
   promptEvents.emit('notify', message);
 }
 
+/**
+ * Interrupt the active prompt, causing readInstruction to resolve with the given value.
+ * Used by repeat jobs to inject instructions while the prompt is blocking the loop.
+ */
+export function promptInterrupt(value: string): void {
+  promptEvents.emit('interrupt', value);
+}
+
 export const PROMPT_PREFIX = `${chalk.gray('›')} `;
 // Visible length of the prompt prefix (ANSI codes not counted)
 export const PROMPT_VISIBLE_LENGTH = 2;
@@ -63,7 +71,7 @@ export const PROMPT_LINES_BELOW_INPUT = 1;
 export const PROMPT_BLOCK_LINE_COUNT = PROMPT_LINES_ABOVE_INPUT + 1 + PROMPT_LINES_BELOW_INPUT;
 export const PROMPT_PLACEHOLDER = 'Plan, search, build anything';
 export const PROMPT_INPUT_PREFIX = '❯ ';
-export const SHIFT_ENTER_RESIDUAL_PATTERN = /^13;?[234]?\d*[u~]$/;
+export const SHIFT_ENTER_RESIDUAL_PATTERN = /^(?:13;?[234]?\d*[u~]|27;[234];13~)$/;
 
 export type SlashCommandHint = SlashCommand;
 
@@ -375,6 +383,10 @@ export function isShiftEnterSequence(str: string, key: readline.Key | undefined)
   if (/^\x1b\[13;[234]\d*[u~]$/.test(seq)) {
     return true;
   }
+  // xterm modifyOtherKeys level 2: ESC[27;modifier;13~
+  if (/^\x1b\[27;[234];13~$/.test(seq)) {
+    return true;
+  }
   // Alt+Enter: ESC followed by carriage return
   if (seq === '\x1b\r' || seq === '\x1b\n') {
     return true;
@@ -391,7 +403,7 @@ export function countResidualModifiedEnterSequences(chunk: string): number {
     return 0;
   }
 
-  const matches = chunk.match(/13;?[234]?\d*[u~]/g);
+  const matches = chunk.match(/(?:13;?[234]?\d*[u~]|27;[234];13~)/g);
   if (!matches || matches.length === 0) {
     return 0;
   }
@@ -404,7 +416,7 @@ export function countRawModifiedEnterSequences(chunk: string): number {
     return 0;
   }
 
-  const matches = chunk.match(/\x1b(?:\[13;[234]\d*[u~]|\r|\n)/g);
+  const matches = chunk.match(/\x1b(?:\[13;[234]\d*[u~]|\[27;[234];13~|\r|\n)/g);
   return matches?.length ?? 0;
 }
 
@@ -725,7 +737,7 @@ function splitMultilineSegments(value: string): MultilineSegments {
   return { segments, separatorLengths };
 }
 
-function formatPromptStatusRow(
+export function formatPromptStatusRow(
   statusLine: string | { left: string; right: string } | undefined,
   width: number
 ): string {
@@ -739,7 +751,14 @@ function formatPromptStatusRow(
   }
 
   const plainLeft = stripAnsiCodes(left);
-  const plainRight = right ? stripAnsiCodes(right) : '';
+  let plainRight = right ? stripAnsiCodes(right) : '';
+
+  // Truncate right part if it alone exceeds width — prevents terminal wrapping
+  // which breaks cursor positioning (moveUp assumes exactly 1 status row).
+  if (plainRight.length > width) {
+    plainRight = truncatePlainText(plainRight, width);
+  }
+
   const minGap = plainRight ? 2 : 0;
   const availableForLeft = Math.max(0, width - plainRight.length - minGap);
   const clippedLeft = truncatePlainText(plainLeft, availableForLeft);
@@ -1532,6 +1551,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       mentionPreview.dispose();
       resizeWatcher.dispose();
       promptEvents.off('notify', onPromptNotify);
+      promptEvents.off('interrupt', onPromptInterrupt);
       input.off('keypress', handleKeypress);
       input.off('data', handleInputData);
       if (originalRefreshLine) {
@@ -1561,6 +1581,20 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     // Subscribe to external notifications so they render above the composer
     const onPromptNotify = (msg: string) => showPromptMessage(msg);
     promptEvents.on('notify', onPromptNotify);
+
+    // Subscribe to external interrupts (e.g. repeat job triggers).
+    // Mirrors the normal rl 'line' submit path so terminal state is clean.
+    const onPromptInterrupt = (value: string) => {
+      if (closed) return;
+      mentionPreview.reset();
+      if (contextualHelpVisible) {
+        setContextualHelpVisible(false);
+      }
+      leavePromptSurface(stdOutput, STATUS_LINE_COUNT);
+      cleanup();
+      resolve({ kind: 'submit', value });
+    };
+    promptEvents.on('interrupt', onPromptInterrupt);
 
     const refreshLine = () => {
       renderActivePrompt();
@@ -1602,10 +1636,9 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         if (pasteState.isInPaste) {
           return;
         }
-        // Catch residual CSI u fragments that readline passes as literal text.
-        // These never fire keypress events, so TextBuffer can't handle them.
-        // Insert a real newline into the TextBuffer.
-        if (/^13;?[234]?\d*[u~]$/.test(s)) {
+        // Catch residual CSI u / modifyOtherKeys fragments that readline
+        // passes as literal text. Insert a real newline into the TextBuffer.
+        if (/^(?:13;?[234]?\d*[u~]|27;[234];13~)$/.test(s)) {
           textBuffer.insert('\n');
           syncReadlineFromBuffer();
           renderActivePrompt();
@@ -1768,7 +1801,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         if (
           isShiftEnterSequence(_str, key) ||
           isShiftEnterResidualSequence(rawSeq) ||
-          (_str.length > 0 && /^[13;~u]+$/.test(_str))
+          (_str.length > 0 && /^[\d;~u]+$/.test(_str))
         ) {
           return;
         }
