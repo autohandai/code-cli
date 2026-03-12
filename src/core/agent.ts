@@ -47,6 +47,7 @@ import { ContextManager } from './contextManager.js';
 import { ToolManager } from './toolManager.js';
 import { ActionExecutor } from './actionExecutor.js';
 import { SlashCommandHandler } from './slashCommandHandler.js';
+import { routeOutput } from './immediateCommandRouter.js';
 import { SessionManager } from '../session/SessionManager.js';
 import { ProjectManager } from '../session/ProjectManager.js';
 import { ToolsRegistry } from './toolsRegistry.js';
@@ -730,27 +731,35 @@ export class AutohandAgent {
       }
     });
 
-    // Handle immediate commands (! shell, / slash) from PersistentInput - bypass queue
+    // Handle immediate commands (! shell, / slash) from PersistentInput - bypass queue.
+    // Route output through writeAbove() when terminal regions are active so it
+    // appears in the scroll region above the fixed input box (not on top of it).
     this.persistentInput.on('immediate-command', (text: string) => {
+      const routeOpts = {
+        persistentInputActiveTurn: this.persistentInputActiveTurn,
+        terminalRegionsDisabled: process.env.AUTOHAND_TERMINAL_REGIONS === '0',
+        writeAbove: (t: string) => this.persistentInput.writeAbove(t),
+      };
+
       if (isShellCommand(text)) {
         const cmd = parseShellCommand(text);
-        console.log(chalk.gray(`\n$ ${cmd}`));
+        routeOutput(chalk.gray(`\n$ ${cmd}`), routeOpts);
         const result = executeShellCommand(cmd, this.runtime.workspaceRoot);
         if (result.success) {
-          if (result.output) console.log(result.output);
+          if (result.output) routeOutput(result.output, routeOpts);
         } else {
-          console.log(chalk.red(result.error || 'Command failed'));
+          routeOutput(chalk.red(result.error || 'Command failed'), routeOpts);
         }
       } else if (text.startsWith('/')) {
         const { command, args } = this.parseSlashCommand(text);
         this.handleSlashCommand(command, args)
           .then((handled) => {
             if (handled !== null) {
-              console.log(handled);
+              routeOutput(handled, routeOpts);
             }
           })
           .catch((err: Error) => {
-            console.log(chalk.red(`\nCommand error: ${err.message}`));
+            routeOutput(chalk.red(`\nCommand error: ${err.message}`), routeOpts);
         });
       }
     });
@@ -4428,27 +4437,34 @@ If lint or tests fail, report the issues but do NOT commit.`;
       const text = this.queueInput.trim();
       this.queueInput = '';
 
-      // Shell commands (!) and slash commands (/) execute immediately, never queued
+      // Shell commands (!) and slash commands (/) execute immediately, never queued.
+      // Route output through writeAbove() when terminal regions are active.
       if (isImmediateCommand(text)) {
+        const routeOpts = {
+          persistentInputActiveTurn: this.persistentInputActiveTurn,
+          terminalRegionsDisabled: process.env.AUTOHAND_TERMINAL_REGIONS === '0',
+          writeAbove: (t: string) => this.persistentInput.writeAbove(t),
+        };
+
         if (isShellCommand(text)) {
           const cmd = parseShellCommand(text);
-          console.log(chalk.gray(`\n$ ${cmd}`));
+          routeOutput(chalk.gray(`\n$ ${cmd}`), routeOpts);
           const result = executeShellCommand(cmd, this.runtime.workspaceRoot);
           if (result.success) {
-            if (result.output) console.log(result.output);
+            if (result.output) routeOutput(result.output, routeOpts);
           } else {
-            console.log(chalk.red(result.error || 'Command failed'));
+            routeOutput(chalk.red(result.error || 'Command failed'), routeOpts);
           }
         } else if (text.startsWith('/')) {
           const { command, args } = this.parseSlashCommand(text);
           this.handleSlashCommand(command, args)
             .then((handled) => {
               if (handled !== null) {
-                console.log(handled);
+                routeOutput(handled, routeOpts);
               }
             })
             .catch((err: Error) => {
-              console.log(chalk.red(`\nCommand error: ${err.message}`));
+              routeOutput(chalk.red(`\nCommand error: ${err.message}`), routeOpts);
             });
         }
         this.updateInputLine();
