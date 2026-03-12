@@ -144,6 +144,20 @@ export function runCommand(
 }
 
 /**
+ * Detect whether a command string contains shell operators that
+ * require `shell: true` to execute correctly (pipes, redirections,
+ * chaining, globs, variable expansion, etc.).
+ *
+ * Only inspects the command string itself. Separate args are always
+ * passed as literals by the caller, so shell syntax in args is
+ * intentional quoting (e.g., commit messages with `$variable` text).
+ */
+const SHELL_PATTERN = /[|><;&`]|\$[({A-Za-z_]|&&|\|\||[*?](?![\w./-]*$)/;
+export function needsShell(cmd: string): boolean {
+  return SHELL_PATTERN.test(cmd);
+}
+
+/**
  * Execute a command in shell mode (enables piping and shell features)
  * Convenience wrapper around runCommand with shell: true
  */

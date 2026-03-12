@@ -9,7 +9,7 @@ import { diffLines } from 'diff';
 import { highlightLine, detectLanguage } from '../ui/syntaxHighlight.js';
 import { getTheme, isThemeInitialized, hexToRgb } from '../ui/theme/index.js';
 import { addDependency, removeDependency } from '../actions/dependencies.js';
-import { runCommand } from '../actions/command.js';
+import { runCommand, needsShell } from '../actions/command.js';
 import { listDirectoryTree, fileStats as getFileStats, checksumFile } from '../actions/metadata.js';
 import {
   diffFile,
@@ -671,14 +671,22 @@ export class ActionExecutor {
         const cmdStr = `${action.command} ${(action.args ?? []).join(' ')}`.trim();
 
         let result: Awaited<ReturnType<typeof runCommand>>;
+        // Auto-detect shell syntax (pipes, redirections, globs, chaining)
+        // and route through shell so operators are interpreted correctly.
+        const useShell = needsShell(action.command);
+        const shellCmd = useShell
+          ? `${action.command} ${(action.args ?? []).join(' ')}`.trim()
+          : action.command;
+        const shellArgs = useShell ? [] : (action.args ?? []);
         try {
           result = await runCommand(
-            action.command,
-            action.args ?? [],
+            shellCmd,
+            shellArgs,
             this.runtime.workspaceRoot,
             {
               directory: action.directory,
               background: action.background,
+              shell: useShell,
               onStdout: (chunk) => emitOutput('stdout', chunk),
               onStderr: (chunk) => emitOutput('stderr', chunk),
             }

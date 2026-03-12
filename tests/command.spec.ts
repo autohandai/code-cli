@@ -134,3 +134,48 @@ describe('runShellCommand', () => {
     expect(result.stdout.trim()).toBe('nested content');
   });
 });
+
+describe('needsShell', () => {
+  let needsShell: (cmd: string) => boolean;
+
+  beforeAll(async () => {
+    const mod = await import('../src/actions/command.js');
+    needsShell = mod.needsShell;
+  });
+
+  it('detects pipe operators', () => {
+    expect(needsShell('find . -type f 2>/dev/null | head -20')).toBe(true);
+    expect(needsShell('echo hello | grep hello')).toBe(true);
+  });
+
+  it('detects redirections', () => {
+    expect(needsShell('echo hello > file.txt')).toBe(true);
+    expect(needsShell('cat < input.txt')).toBe(true);
+    expect(needsShell('cmd 2>/dev/null')).toBe(true);
+  });
+
+  it('detects command chaining', () => {
+    expect(needsShell('echo a && echo b')).toBe(true);
+    expect(needsShell('echo a || echo b')).toBe(true);
+    expect(needsShell('echo a ; echo b')).toBe(true);
+  });
+
+  it('detects shell expansions', () => {
+    expect(needsShell('echo $HOME')).toBe(true);
+    expect(needsShell('echo $(date)')).toBe(true);
+  });
+
+  it('returns false for simple commands', () => {
+    expect(needsShell('ls')).toBe(false);
+    expect(needsShell('git')).toBe(false);
+    expect(needsShell('echo')).toBe(false);
+    expect(needsShell('npm')).toBe(false);
+    expect(needsShell('find')).toBe(false);
+  });
+
+  it('does not trigger on literal $ in args-style strings', () => {
+    // Args are NOT checked — only the command string
+    // A commit message like 'fix: handle $variables' should not trigger
+    expect(needsShell('git')).toBe(false);
+  });
+});
