@@ -120,6 +120,7 @@ export const RPC_METHODS = {
   MCP_GET_SERVER_CONFIGS: 'autohand.mcp.getServerConfigs',
   LEARN_RECOMMEND: 'autohand.learn.recommend',
   LEARN_UPDATE: 'autohand.learn.update',
+  LEARN_GENERATE: 'autohand.learn.generate',
   SKILLS_SEARCH: 'autohand.skills.search',
   SKILLS_TRENDING: 'autohand.skills.trending',
   SKILLS_REMOVE: 'autohand.skills.remove',
@@ -179,6 +180,7 @@ export const RPC_NOTIFICATIONS = {
   MCP_TOOLS_CHANGED: 'autohand.mcp.toolsChanged',
   LEARN_INSTALL_COMPLETE: 'autohand.learn.installComplete',
   LEARN_SECURITY_WARNING: 'autohand.learn.securityWarning',
+  LEARN_PROGRESS: 'autohand.learn.progress',
 } as const;
 
 export type RpcNotification = (typeof RPC_NOTIFICATIONS)[keyof typeof RPC_NOTIFICATIONS];
@@ -388,6 +390,62 @@ export interface InstallSkillResult {
   skillName?: string;
   path?: string;
   error?: string;
+}
+
+// ============================================================================
+// Learn Command Types (RPC Mode)
+// ============================================================================
+
+export interface LearnRecommendParams {
+  deep?: boolean;
+}
+
+export interface LearnRecommendResult {
+  success: boolean;
+  projectSummary: string;
+  audit: Array<{
+    skill: string;
+    status: 'redundant' | 'outdated' | 'conflicting';
+    reason: string;
+  }>;
+  recommendations: Array<{
+    slug: string;
+    score: number;
+    reason: string;
+  }>;
+  gapAnalysis: string | null;
+  error?: string;
+}
+
+export interface LearnUpdateParams {
+  // No params needed
+}
+
+export interface LearnUpdateResult {
+  success: boolean;
+  updated: number;
+  unchanged: number;
+  results: Array<{
+    name: string;
+    status: 'updated' | 'unchanged' | 'failed';
+  }>;
+  error?: string;
+}
+
+export interface LearnGenerateParams {
+  scope: 'project' | 'user';
+}
+
+export interface LearnGenerateResult {
+  success: boolean;
+  skillName?: string;
+  skillPath?: string;
+  error?: string;
+}
+
+export interface LearnProgressNotificationParams {
+  status: 'analyzing' | 'loading-registry' | 'evaluating' | 'generating' | 'updating';
+  timestamp: string;
 }
 
 // ============================================================================

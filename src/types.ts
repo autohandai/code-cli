@@ -906,6 +906,8 @@ export type AgentAction =
   | { type: 'fetch_url'; url: string; selector?: string; max_length?: number }
   | { type: 'package_info'; package_name: string; registry?: 'npm' | 'pypi' | 'crates' | 'go' | 'rubygems'; version?: string }
   | { type: 'web_repo'; repo: string; operation: 'info' | 'list' | 'fetch'; path?: string; branch?: string }
+  // Skills Discovery
+  | { type: 'find_agent_skills'; query: string; category?: string; limit?: number }
   // User interaction
   | { type: 'ask_followup_question'; question: string; suggested_answers?: string[] };
 

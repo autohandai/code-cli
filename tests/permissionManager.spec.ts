@@ -246,6 +246,104 @@ describe('PermissionManager', () => {
     });
   });
 
+  describe('directory trust — approve once for a directory', () => {
+    it('approving a file write also whitelists the parent directory', async () => {
+      const onPersist = vi.fn();
+      const manager = new PermissionManager({
+        settings: {},
+        onPersist,
+      });
+
+      // User approves writing tests/foo.test.ts
+      await manager.recordDecision(
+        { tool: 'write_file', path: '/project/tests/foo.test.ts' },
+        true,
+      );
+
+      // Now a different file in the same directory should be auto-approved
+      const result = manager.checkPermission({
+        tool: 'write_file',
+        path: '/project/tests/bar.test.ts',
+      });
+
+      expect(result.allowed).toBe(true);
+      expect(result.reason).toBe('whitelisted');
+    });
+
+    it('directory trust does NOT extend to parent directories', async () => {
+      const manager = new PermissionManager({ settings: {} });
+
+      await manager.recordDecision(
+        { tool: 'write_file', path: '/project/tests/unit/foo.test.ts' },
+        true,
+      );
+
+      // Sibling directory should NOT be auto-approved
+      const result = manager.checkPermission({
+        tool: 'write_file',
+        path: '/project/src/index.ts',
+      });
+
+      expect(result.allowed).toBe(false);
+    });
+
+    it('directory trust does NOT apply to denied decisions', async () => {
+      const manager = new PermissionManager({ settings: {} });
+
+      await manager.recordDecision(
+        { tool: 'write_file', path: '/project/tests/foo.test.ts' },
+        false,
+      );
+
+      // Same directory, different file — should NOT be auto-denied at directory level
+      // (only the exact file is blacklisted)
+      const result = manager.checkPermission({
+        tool: 'write_file',
+        path: '/project/tests/bar.test.ts',
+      });
+
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toBe('default'); // Not blacklisted, just not whitelisted
+    });
+
+    it('directory trust does NOT apply to command-based tools', async () => {
+      const manager = new PermissionManager({ settings: {} });
+
+      await manager.recordDecision(
+        { tool: 'run_command', command: 'npm', args: ['test'] },
+        true,
+      );
+
+      // Different npm command should NOT be auto-approved via directory wildcard
+      const result = manager.checkPermission({
+        tool: 'run_command',
+        command: 'npm',
+        args: ['install', 'malicious-pkg'],
+      });
+
+      // Exact match fails because args differ — should fall through to default
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toBe('default');
+    });
+
+    it('directory trust scopes to the same tool type', async () => {
+      const manager = new PermissionManager({ settings: {} });
+
+      await manager.recordDecision(
+        { tool: 'write_file', path: '/project/tests/foo.test.ts' },
+        true,
+      );
+
+      // delete_path in the same directory should NOT be auto-approved
+      const result = manager.checkPermission({
+        tool: 'delete_path',
+        path: '/project/tests/bar.test.ts',
+      });
+
+      expect(result.allowed).toBe(false);
+    });
+  });
+
   describe('getters', () => {
     it('returns copy of whitelist', () => {
       const manager = new PermissionManager({

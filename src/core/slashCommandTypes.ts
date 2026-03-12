@@ -61,10 +61,21 @@ export interface SlashCommandContext {
     isContextCompactionEnabled?: () => boolean;
     /** Whether running in non-interactive mode (RPC/ACP) where stdin is not a TTY */
     isNonInteractive?: boolean;
+    /** Called before /learn shows a modal (pause persistent input) */
+    onBeforeModal?: () => void;
+    /** Called after /learn modal closes (resume persistent input) */
+    onAfterModal?: () => void;
+    /** Called with the top recommended skill slug from /learn for install hint */
+    onTopRecommendation?: (slug: string) => void;
     /** Team manager for /team and /tasks commands */
     teamManager?: TeamManager;
     /** Repeat manager for /repeat recurring prompt scheduling */
     repeatManager?: RepeatManager;
+}
+
+export interface SlashCommandSubcommand {
+  name: string;
+  description: string;
 }
 
 export interface SlashCommand {
@@ -72,4 +83,6 @@ export interface SlashCommand {
   description: string;
   implemented: boolean;
   prd?: string;
+  /** Optional subcommands for slash commands that support them (e.g. /learn deep) */
+  subcommands?: SlashCommandSubcommand[];
 }

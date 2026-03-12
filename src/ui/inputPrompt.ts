@@ -157,6 +157,29 @@ export function buildPromptHotTips(
   }
 
   if (trimmed.startsWith('/')) {
+    // Use left-trimmed input to preserve trailing space for subcommand detection
+    const slashInput = currentLine.replace(/^\s+/, '');
+    const spaceIdx = slashInput.indexOf(' ');
+    if (spaceIdx !== -1) {
+      const cmdPart = slashInput.slice(0, spaceIdx).toLowerCase();
+      const subSeed = slashInput.slice(spaceIdx + 1).toLowerCase().trim();
+      const parent = slashCommands.find((cmd) => cmd.command.toLowerCase() === cmdPart);
+
+      if (parent?.subcommands && parent.subcommands.length > 0) {
+        const subMatches = parent.subcommands
+          .filter((sub) =>
+            subSeed === '' ? true : sub.name.toLowerCase().startsWith(subSeed)
+          )
+          .slice(0, HOT_TIP_LIMIT)
+          .map((sub) => ({
+            label: `Tab -> ${parent.command} ${sub.name} (${sub.description})`
+          }));
+        if (subMatches.length > 0) {
+          return subMatches;
+        }
+      }
+    }
+
     const seed = trimmed.slice(1).toLowerCase();
     const matches = slashCommands
       .filter((cmd) => cmd.command.slice(1).toLowerCase().includes(seed))
@@ -220,6 +243,26 @@ export function getPrimaryHotTipSuggestion(
   }
 
   if (trimmed.startsWith('/')) {
+    // Use left-trimmed input to preserve trailing space for subcommand detection
+    const slashInput = currentLine.replace(/^\s+/, '');
+    const spaceIdx = slashInput.indexOf(' ');
+    if (spaceIdx !== -1) {
+      const cmdPart = slashInput.slice(0, spaceIdx).toLowerCase();
+      const subSeed = slashInput.slice(spaceIdx + 1).toLowerCase().trim();
+      const parent = slashCommands.find((cmd) => cmd.command.toLowerCase() === cmdPart);
+
+      if (parent?.subcommands && parent.subcommands.length > 0) {
+        const subMatch = parent.subcommands.find(
+          (sub) => subSeed === '' ? true : sub.name.toLowerCase().startsWith(subSeed)
+        );
+        if (subMatch) {
+          const line = `${parent.command} ${subMatch.name} `;
+          return { line, cursor: line.length };
+        }
+      }
+      return null;
+    }
+
     const seed = trimmed.slice(1).toLowerCase();
     const match = slashCommands.find((cmd) =>
       cmd.command.slice(1).toLowerCase().includes(seed)
@@ -327,6 +370,124 @@ export function buildContextualPromptStatusLine(
   const tips = buildPromptHotTips(currentLine, files, slashCommands);
   const primaryTip = tips[0]?.label ?? 'Tab -> /help';
   return `hot tip: ${primaryTip}`;
+}
+
+/**
+ * Build styled lines for the slash command suggestion dropdown.
+ *
+ * When the user types `/` followed by optional characters, this returns a
+ * compact list of matching commands with their descriptions — rendered
+ * below the status line with a dark background, similar to IDE autocomplete.
+ *
+ * When a full command is matched and the user types a space (e.g. `/learn `),
+ * the dropdown switches to showing that command's subcommands.
+ *
+ * Returns empty array when the input does not start with `/`.
+ */
+export function buildSlashSuggestionLines(
+  currentLine: string,
+  width: number,
+  slashCommands: SlashCommandHint[]
+): string[] {
+  // Only trim leading whitespace — trailing space signals subcommand mode
+  const input = currentLine.replace(/^\s+/, '');
+  if (!input.startsWith('/')) {
+    return [];
+  }
+
+  const panelWidth = Math.max(20, width);
+
+  // Check if the user has typed a full command + space (subcommand mode)
+  const subcommandResult = buildSubcommandSuggestions(input, panelWidth, slashCommands);
+  if (subcommandResult !== null) {
+    return subcommandResult;
+  }
+
+  // Top-level command matching
+  const seed = input.slice(1).toLowerCase();
+  const matches = slashCommands
+    .filter((cmd) => cmd.command.slice(1).toLowerCase().includes(seed))
+    .slice(0, HOT_TIP_LIMIT);
+
+  if (matches.length === 0) {
+    return [];
+  }
+
+  return formatSuggestionLines(
+    matches.map((m) => ({ name: m.command, description: m.description ?? '' })),
+    panelWidth
+  );
+}
+
+/**
+ * Check if input matches a known command + space, then show its subcommands.
+ * Returns null if not in subcommand mode, empty array if in subcommand mode
+ * but no matches.
+ */
+function buildSubcommandSuggestions(
+  input: string,
+  panelWidth: number,
+  slashCommands: SlashCommandHint[]
+): string[] | null {
+  // Match pattern: /command <optional-subcommand-seed>
+  const spaceIdx = input.indexOf(' ');
+  if (spaceIdx === -1) {
+    return null;
+  }
+
+  const cmdPart = input.slice(0, spaceIdx).toLowerCase();
+  const subSeed = input.slice(spaceIdx + 1).toLowerCase().trim();
+
+  // Find the parent command
+  const parent = slashCommands.find(
+    (cmd) => cmd.command.toLowerCase() === cmdPart
+  );
+
+  if (!parent) {
+    return null;
+  }
+
+  // Command found but has no subcommands — signal "handled" with empty result
+  if (!parent.subcommands || parent.subcommands.length === 0) {
+    return [];
+  }
+
+  const matches = parent.subcommands
+    .filter((sub) =>
+      subSeed === '' ? true : sub.name.toLowerCase().startsWith(subSeed)
+    )
+    .slice(0, HOT_TIP_LIMIT);
+
+  if (matches.length === 0) {
+    return [];
+  }
+
+  return formatSuggestionLines(
+    matches.map((m) => ({ name: `${parent.command} ${m.name}`, description: m.description })),
+    panelWidth
+  );
+}
+
+/**
+ * Format suggestion entries into styled terminal lines.
+ */
+function formatSuggestionLines(
+  entries: Array<{ name: string; description: string }>,
+  panelWidth: number
+): string[] {
+  const maxNameLen = Math.min(
+    24,
+    Math.max(...entries.map((e) => e.name.length))
+  );
+
+  return entries.map((entry, i) => {
+    const prefix = i === 0 ? ' ▸ ' : '   ';
+    const namePadded = entry.name.padEnd(maxNameLen + 1);
+    const content = `${prefix}${namePadded}${entry.description}`;
+    return chalk.bgHex('#1e1e2e').hex('#cdd6f4')(
+      truncatePlainText(content, panelWidth).padEnd(panelWidth, ' ')
+    );
+  });
 }
 
 const PASTED_REFERENCE_PATTERN = /\[Text pasted:\s*\d+\s+lines\]/;
@@ -1365,6 +1526,12 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     suggestionText,
     resolveShellSuggestion,
   } = options;
+
+  // Reset module-level render state so stale values from the previous
+  // promptOnce() invocation don't cause the clearing logic to miscalculate
+  // row positions — which manifests as ghost/duplicate prompt boxes.
+  resetPromptRenderState();
+
   const { rl, input, supportsRawMode } = createReadline(stdInput, stdOutput);
 
   // Create TextBuffer as the source of truth for input content.
@@ -1444,6 +1611,16 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     return buildContextualHelpPanelLines(getCurrentText(), width, files, slashCommands);
   };
 
+  const getSlashSuggestionLines = (): string[] | undefined => {
+    // Don't show slash suggestions when contextual help panel is visible
+    if (contextualHelpVisible) {
+      return undefined;
+    }
+    const width = getPromptBlockWidth(stdOutput.columns);
+    const lines = buildSlashSuggestionLines(getCurrentText(), width, slashCommands);
+    return lines.length > 0 ? lines : undefined;
+  };
+
   const renderPromptSurface = (isResize = false, hasExistingPromptBlock = true): void => {
     renderPromptLine(
       rl,
@@ -1453,7 +1630,8 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       hasExistingPromptBlock,
       suggestionText,
       getInlineGhostSuffix(),
-      getHelpPanelLines()
+      getHelpPanelLines(),
+      getSlashSuggestionLines()
     );
   };
 
@@ -2256,6 +2434,20 @@ export function getLastRenderedCursorRow(): number {
 // width changes (resize) and compute reflow line counts for clearing.
 let lastRenderedPromptWidth = 0;
 let lastRenderedHelpLines = 0;
+let lastRenderedSlashLines = 0;
+
+/**
+ * Reset module-level render state between promptOnce() invocations.
+ * Prevents stale values from the previous prompt affecting the clearing
+ * logic of the new prompt's initial render.
+ */
+export function resetPromptRenderState(): void {
+  lastRenderedContentLines = 1;
+  lastRenderedCursorRow = 0;
+  lastRenderedPromptWidth = 0;
+  lastRenderedHelpLines = 0;
+  lastRenderedSlashLines = 0;
+}
 
 function renderPromptLine(
   rl: readline.Interface,
@@ -2265,7 +2457,8 @@ function renderPromptLine(
   hasExistingPromptBlock = true,
   suggestionText?: string,
   inlineGhostSuffix?: string,
-  helpPanelLines?: string[]
+  helpPanelLines?: string[],
+  slashSuggestionLines?: string[]
 ): void {
   // Invalidate color cache once per render frame
   invalidateBoxColorCache();
@@ -2329,7 +2522,7 @@ function renderPromptLine(
     const oldWidth = lastRenderedPromptWidth || width;
     const prevContentLines = lastRenderedContentLines;
     const prevCursorRow = lastRenderedCursorRow;
-    const logicalLines = PROMPT_LINES_ABOVE_INPUT + prevContentLines + PROMPT_LINES_BELOW_INPUT + lastRenderedHelpLines + STATUS_LINE_COUNT;
+    const logicalLines = PROMPT_LINES_ABOVE_INPUT + prevContentLines + PROMPT_LINES_BELOW_INPUT + lastRenderedHelpLines + STATUS_LINE_COUNT + lastRenderedSlashLines;
     // Use actual terminal columns (not prompt width) since that's what
     // the terminal uses for reflow calculations.
     const rowsPerOldLine = Math.max(1, Math.ceil(oldWidth / Math.max(1, termCols)));
@@ -2365,8 +2558,8 @@ function renderPromptLine(
       readline.clearLine(output, 0);
     }
 
-    // Move down, clearing remaining content + below + help panel + status
-    const downCount = prevContentLines + PROMPT_LINES_BELOW_INPUT + lastRenderedHelpLines + STATUS_LINE_COUNT;
+    // Move down, clearing remaining content + below + help panel + status + slash suggestions
+    const downCount = prevContentLines + PROMPT_LINES_BELOW_INPUT + lastRenderedHelpLines + STATUS_LINE_COUNT + lastRenderedSlashLines;
     for (let i = 0; i < downCount; i++) {
       readline.moveCursor(output, 0, 1);
       readline.clearLine(output, 0);
@@ -2378,13 +2571,26 @@ function renderPromptLine(
     }
     readline.cursorTo(output, 0);
   } else {
-    // Initial render: defensively clear current line before drawing.
+    // Initial render: clear current line AND the rows below where the
+    // prompt block will be drawn.  PersistentInput's fixed region may
+    // have left remnants (❯ prefix, borders) on these rows after
+    // regions.disable().  Without this, ghost duplicate prompts appear.
     readline.cursorTo(output, 0);
-    readline.clearLine(output, 0);
+    const blockSize = PROMPT_LINES_ABOVE_INPUT + state.lineCount + PROMPT_LINES_BELOW_INPUT + (helpPanelLines?.length ?? 0) + STATUS_LINE_COUNT + (slashSuggestionLines?.length ?? 0);
+    for (let i = 0; i < blockSize; i++) {
+      readline.clearLine(output, 0);
+      if (i < blockSize - 1) {
+        readline.moveCursor(output, 0, 1);
+      }
+    }
+    // Return to starting row
+    readline.moveCursor(output, 0, -(blockSize - 1));
+    readline.cursorTo(output, 0);
   }
 
   // Batch all prompt content into a single write to minimize syscalls.
   const helpLines = helpPanelLines ?? [];
+  const slashLines = slashSuggestionLines ?? [];
   let buf = `${topBorder}\n`;
   for (const line of state.lines) {
     buf += `${line}\n`;
@@ -2394,10 +2600,14 @@ function renderPromptLine(
     buf += `${hl}\n`;
   }
   buf += statusRow;
+  // Slash command suggestions appear below the status line
+  for (const sl of slashLines) {
+    buf += `\n${sl}`;
+  }
   output.write(buf);
 
-  // Move cursor from status row to the cursor's content row.
-  const moveUp = PROMPT_LINES_BELOW_INPUT + helpLines.length + STATUS_LINE_COUNT + (state.lineCount - 1 - state.cursorRow);
+  // Move cursor from the last rendered row back to the cursor's content row.
+  const moveUp = PROMPT_LINES_BELOW_INPUT + helpLines.length + STATUS_LINE_COUNT + slashLines.length + (state.lineCount - 1 - state.cursorRow);
   readline.moveCursor(output, 0, -moveUp);
   readline.cursorTo(output, state.cursorColumn);
 
@@ -2408,4 +2618,5 @@ function renderPromptLine(
   lastRenderedCursorRow = state.cursorRow;
   lastRenderedPromptWidth = width;
   lastRenderedHelpLines = helpLines.length;
+  lastRenderedSlashLines = slashLines.length;
 }

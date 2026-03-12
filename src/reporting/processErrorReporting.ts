@@ -125,7 +125,7 @@ async function getAutoReportManager(processRef: ProcessLike, explicitConfigPath?
   return managerPromise;
 }
 
-function isIgnorableStdinReadError(err: unknown, processRef: ProcessLike): boolean {
+function isIgnorableStdinReadError(err: unknown, _processRef: ProcessLike): boolean {
   if (!err || typeof err !== 'object') {
     return false;
   }
@@ -135,8 +135,10 @@ function isIgnorableStdinReadError(err: unknown, processRef: ProcessLike): boole
     syscall?: string;
     fd?: number;
   };
-  const stdinFd = typeof processRef.stdin?.fd === 'number' ? processRef.stdin.fd : 0;
-  return maybeError.code === 'EIO' && maybeError.syscall === 'read' && maybeError.fd === stdinFd;
+  // EIO on read syscall means the pty/terminal was torn down (e.g. Ctrl+C during
+  // an Ink modal). This is safe to ignore regardless of which fd — Ink may use
+  // duplicated file descriptors (fd 6, etc.) rather than stdin's fd 0.
+  return maybeError.code === 'EIO' && maybeError.syscall === 'read';
 }
 
 function isIgnorableUnhandledRejection(reason: unknown, processRef: ProcessLike): boolean {

@@ -12,6 +12,11 @@ export const metadata: SlashCommand = {
   command: '/team',
   description: 'Manage agent teams (create, status, shutdown)',
   implemented: true,
+  subcommands: [
+    { name: 'create', description: 'Create a new team' },
+    { name: 'status', description: 'Show team status' },
+    { name: 'shutdown', description: 'Shut down all teammates' },
+  ],
 };
 
 interface TeamCommandContext {

@@ -46,6 +46,7 @@ import { loadConfig } from '../../config.js';
 import type { AgentOutputEvent, AgentRuntime, CLIOptions, LoadedConfig, LLMToolCall } from '../../types.js';
 import type { McpServerConfig } from '../../mcp/types.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from '../../utils/sessionWorktree.js';
+import { ApiError, classifyApiError, type ApiErrorCode } from '../../providers/errors.js';
 import type { SessionMessage } from '../../session/types.js';
 
 import {
@@ -577,15 +578,15 @@ export class AutohandAcpAdapter implements Agent {
       if (session.abortController.signal.aborted || this.cancelledSessions.has(params.sessionId)) {
         return { stopReason: 'cancelled' };
       }
-      const errMsg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[ACP] Prompt error: ${errMsg}\n`);
-      this.emitHookSessionError(params.sessionId, errMsg);
+      const classified = this.classifyAndFormatError(err);
+      process.stderr.write(`[ACP] Prompt error (${classified.code}): ${classified.message}\n`);
+      this.emitHookSessionError(params.sessionId, classified.message, classified.code);
 
       await this.connection.sessionUpdate({
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
-          content: { type: 'text', text: `Error: ${errMsg}` },
+          content: { type: 'text', text: `Error (${classified.code}): ${classified.message}` },
         },
       });
       return { stopReason: 'end_turn' };
@@ -1023,19 +1024,20 @@ export class AutohandAcpAdapter implements Agent {
 
         case 'error':
           if (event.content) {
+            const classified = this.classifyAndFormatError(event.content);
             await this.connection.sessionUpdate({
               sessionId,
               update: {
                 sessionUpdate: 'agent_message_chunk',
                 content: {
                   type: 'text',
-                  text: `Error: ${event.content}`,
+                  text: `Error (${classified.code}): ${classified.message}`,
                 },
               },
             });
 
-            // Hook: emit session error notification
-            this.emitHookSessionError(sessionId, event.content);
+            // Hook: emit session error notification with classification
+            this.emitHookSessionError(sessionId, classified.message, classified.code);
           }
           break;
       }
@@ -1045,5 +1047,27 @@ export class AutohandAcpAdapter implements Agent {
         `[ACP] Failed to send session update: ${err instanceof Error ? err.message : String(err)}\n`
       );
     }
+  }
+
+  /**
+   * Classify an error and return a structured result for ACP consumers.
+   * Accepts either an Error instance (including ApiError), a string, or an unknown.
+   */
+  private classifyAndFormatError(error: unknown): { message: string; code: ApiErrorCode; recoverable: boolean } {
+    if (error instanceof ApiError) {
+      return {
+        message: error.rawDetail || error.message,
+        code: error.code,
+        recoverable: error.retryable,
+      };
+    }
+
+    const message = error instanceof Error ? error.message : String(error);
+    const classified = classifyApiError(0, message);
+    return {
+      message,
+      code: classified.code,
+      recoverable: classified.retryable,
+    };
   }
 }

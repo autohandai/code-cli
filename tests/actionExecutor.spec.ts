@@ -2697,5 +2697,100 @@ describe('ActionExecutor', () => {
       expect(result).toBeDefined();
       runCommandSpy.mockRestore();
     });
+
+    // ENOENT / spawn error handling (Issue #10)
+    it('returns friendly error when command is not found (ENOENT)', async () => {
+      const enoentError = new Error('Command not found: frobnicator');
+      (enoentError as NodeJS.ErrnoException).code = 'ENOENT';
+      const runCommandSpy = vi.spyOn(commandActions, 'runCommand').mockRejectedValue(enoentError);
+      const executor = createExecutor();
+
+      const result = await executor.execute({
+        type: 'run_command',
+        command: 'frobnicator',
+        args: ['--help']
+      } as any);
+
+      expect(typeof result).toBe('string');
+      expect(result).toContain('frobnicator');
+      expect(result).toContain('PATH');
+      runCommandSpy.mockRestore();
+    });
+
+    it('error message contains the command name on ENOENT', async () => {
+      const enoentError = new Error('Command not found: my-special-tool');
+      (enoentError as NodeJS.ErrnoException).code = 'ENOENT';
+      const runCommandSpy = vi.spyOn(commandActions, 'runCommand').mockRejectedValue(enoentError);
+      const executor = createExecutor();
+
+      const result = await executor.execute({
+        type: 'run_command',
+        command: 'my-special-tool'
+      } as any);
+
+      expect(result).toContain('my-special-tool');
+      runCommandSpy.mockRestore();
+    });
+
+    it('does not throw on ENOENT — returns string so agent loop continues', async () => {
+      const enoentError = new Error('Command not found: ghost-cmd');
+      (enoentError as NodeJS.ErrnoException).code = 'ENOENT';
+      vi.spyOn(commandActions, 'runCommand').mockRejectedValue(enoentError);
+      const executor = createExecutor();
+
+      await expect(
+        executor.execute({ type: 'run_command', command: 'ghost-cmd' } as any)
+      ).resolves.toEqual(expect.any(String));
+    });
+
+    it('returns friendly error for "Command not found" message without ENOENT code', async () => {
+      const spawnError = new Error('Command not found: missing-bin');
+      const runCommandSpy = vi.spyOn(commandActions, 'runCommand').mockRejectedValue(spawnError);
+      const executor = createExecutor();
+
+      const result = await executor.execute({
+        type: 'run_command',
+        command: 'missing-bin'
+      } as any);
+
+      expect(typeof result).toBe('string');
+      expect(result).toContain('missing-bin');
+      runCommandSpy.mockRestore();
+    });
+
+    it('returns generic error string for other spawn errors', async () => {
+      const permError = new Error('EACCES: permission denied');
+      (permError as NodeJS.ErrnoException).code = 'EACCES';
+      const runCommandSpy = vi.spyOn(commandActions, 'runCommand').mockRejectedValue(permError);
+      const executor = createExecutor();
+
+      const result = await executor.execute({
+        type: 'run_command',
+        command: 'restricted-tool'
+      } as any);
+
+      expect(typeof result).toBe('string');
+      expect(result).toContain('Error');
+      expect(result).toContain('restricted-tool');
+      runCommandSpy.mockRestore();
+    });
+
+    it('still returns output for commands that succeed', async () => {
+      const runCommandSpy = vi.spyOn(commandActions, 'runCommand').mockResolvedValue({
+        stdout: 'Hello, world!',
+        stderr: '',
+        exitCode: 0
+      });
+      const executor = createExecutor();
+
+      const result = await executor.execute({
+        type: 'run_command',
+        command: 'echo',
+        args: ['Hello, world!']
+      } as any);
+
+      expect(result).toContain('Hello, world!');
+      runCommandSpy.mockRestore();
+    });
   });
 });

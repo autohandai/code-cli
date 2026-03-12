@@ -536,6 +536,14 @@ export const metadata = {
   command: '/skills',
   description: t('commands.skills.description'),
   implemented: true,
+  subcommands: [
+    { name: 'use', description: 'Activate a skill' },
+    { name: 'install', description: 'Browse and install community skills' },
+    { name: 'search', description: 'Search community skills' },
+    { name: 'trending', description: 'Show trending community skills' },
+    { name: 'remove', description: 'Remove an installed skill' },
+    { name: 'info', description: 'Show detailed skill info' },
+  ],
 };
 
 export const useMetadata = {

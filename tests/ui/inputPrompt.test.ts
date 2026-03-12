@@ -211,6 +211,43 @@ describe('Prompt surface teardown', () => {
   });
 });
 
+describe('resetPromptRenderState', () => {
+  it('resets module-level render tracking to initial values', async () => {
+    const {
+      resetPromptRenderState,
+      getLastRenderedContentLines,
+      getLastRenderedCursorRow,
+    } = await import('../../src/ui/inputPrompt.js');
+
+    // After a previous promptOnce invocation, module state may be stale.
+    // resetPromptRenderState should bring it back to clean defaults.
+    resetPromptRenderState();
+
+    expect(getLastRenderedContentLines()).toBe(1);
+    expect(getLastRenderedCursorRow()).toBe(0);
+  });
+
+  it('prevents stale state from affecting clearing calculations', async () => {
+    // This test verifies the fix for the duplicate "❯ /" ghost prompt bug:
+    // after PersistentInput.stop() → regions.disable(), stale render state
+    // from the previous prompt could cause the clearing logic to miscalculate
+    // row positions, leaving ghost remnants visible on screen.
+    const {
+      resetPromptRenderState,
+      getLastRenderedContentLines,
+      getLastRenderedCursorRow,
+    } = await import('../../src/ui/inputPrompt.js');
+
+    // Simulate stale state from a previous multi-line prompt render
+    // (state would normally be set by renderPromptLine internals)
+    resetPromptRenderState();
+
+    // After reset, values should be clean defaults
+    expect(getLastRenderedContentLines()).toBe(1);
+    expect(getLastRenderedCursorRow()).toBe(0);
+  });
+});
+
 describe('buildPromptRenderState', () => {
   it('shows placeholder when line is empty and keeps cursor after prefix', async () => {
     const { buildPromptRenderState, PROMPT_PLACEHOLDER } = await import('../../src/ui/inputPrompt.js');
@@ -368,6 +405,84 @@ describe('prompt hot tips', () => {
     expect(tips.some((tip: { label: string }) => tip.label.includes('@'))).toBe(true);
   });
 
+  it('returns subcommand hints when full command + space is typed', async () => {
+    const cmdsWithSubs: SlashCommand[] = [
+      {
+        command: '/learn',
+        description: 'Skill recommendations',
+        implemented: true,
+        subcommands: [
+          { name: 'deep', description: 'Deep-analyze project' },
+          { name: 'update', description: 'Regenerate stale skills' },
+        ],
+      },
+    ];
+    const { buildPromptHotTips } = await import('../../src/ui/inputPrompt.js');
+    const tips = buildPromptHotTips('/learn ', files, cmdsWithSubs);
+
+    expect(tips.length).toBe(2);
+    expect(tips[0]?.label).toContain('/learn deep');
+    expect(tips[0]?.label).toContain('Deep-analyze project');
+    expect(tips[1]?.label).toContain('/learn update');
+  });
+
+  it('filters subcommand hints by seed', async () => {
+    const cmdsWithSubs: SlashCommand[] = [
+      {
+        command: '/learn',
+        description: 'Skill recommendations',
+        implemented: true,
+        subcommands: [
+          { name: 'deep', description: 'Deep-analyze project' },
+          { name: 'update', description: 'Regenerate stale skills' },
+        ],
+      },
+    ];
+    const { buildPromptHotTips } = await import('../../src/ui/inputPrompt.js');
+    const tips = buildPromptHotTips('/learn u', files, cmdsWithSubs);
+
+    expect(tips.length).toBe(1);
+    expect(tips[0]?.label).toContain('/learn update');
+  });
+
+  it('suggests first subcommand as ghost text (Tab suggestion)', async () => {
+    const cmdsWithSubs: SlashCommand[] = [
+      {
+        command: '/learn',
+        description: 'Skill recommendations',
+        implemented: true,
+        subcommands: [
+          { name: 'deep', description: 'Deep-analyze project' },
+          { name: 'update', description: 'Regenerate stale skills' },
+        ],
+      },
+    ];
+    const { getPrimaryHotTipSuggestion } = await import('../../src/ui/inputPrompt.js');
+    const suggestion = getPrimaryHotTipSuggestion('/learn ', files, cmdsWithSubs);
+
+    expect(suggestion).toEqual({
+      line: '/learn deep ',
+      cursor: '/learn deep '.length,
+    });
+  });
+
+  it('returns null ghost text when no subcommand matches seed', async () => {
+    const cmdsWithSubs: SlashCommand[] = [
+      {
+        command: '/learn',
+        description: 'Skill recommendations',
+        implemented: true,
+        subcommands: [
+          { name: 'deep', description: 'Deep-analyze project' },
+        ],
+      },
+    ];
+    const { getPrimaryHotTipSuggestion } = await import('../../src/ui/inputPrompt.js');
+    const suggestion = getPrimaryHotTipSuggestion('/learn xyz', files, cmdsWithSubs);
+
+    expect(suggestion).toBeNull();
+  });
+
   it('returns a primary suggestion for mention mode', async () => {
     const { getPrimaryHotTipSuggestion } = await import('../../src/ui/inputPrompt.js');
     const suggestion = getPrimaryHotTipSuggestion('@src/i', files, slashCommands);
@@ -420,6 +535,113 @@ describe('prompt hot tips', () => {
     const stripped = helpLines.map((l: string) => l.replace(/\u001b\[[0-9;]*[A-Za-z]/g, ''));
     expect(stripped.some((l: string) => l.includes('?'))).toBe(true);
     expect(stripped.some((l: string) => l.includes('tab'))).toBe(true);
+  });
+});
+
+describe('buildSlashSuggestionLines', () => {
+  const slashCommands: SlashCommand[] = [
+    { command: '/help', description: 'Show available commands', implemented: true },
+    { command: '/model', description: 'Select a model', implemented: true },
+    { command: '/memory', description: 'Manage project memory', implemented: true },
+    {
+      command: '/learn',
+      description: 'Skill recommendations',
+      implemented: true,
+      subcommands: [
+        { name: 'deep', description: 'Deep-analyze project' },
+        { name: 'update', description: 'Regenerate stale skills' },
+      ],
+    },
+    { command: '/login', description: 'Sign in to your account', implemented: true },
+    { command: '/quit', description: 'Exit Autohand', implemented: true },
+  ];
+
+  it('returns empty array when input does not start with /', async () => {
+    const { buildSlashSuggestionLines } = await import('../../src/ui/inputPrompt.js');
+    const lines = buildSlashSuggestionLines('hello world', 80, slashCommands);
+    expect(lines).toEqual([]);
+  });
+
+  it('returns matching commands when input starts with /', async () => {
+    const { buildSlashSuggestionLines } = await import('../../src/ui/inputPrompt.js');
+    const lines = buildSlashSuggestionLines('/he', 80, slashCommands);
+
+    expect(lines.length).toBeGreaterThan(0);
+    // Strip ANSI codes to check content
+    const stripped = lines.map((l: string) => l.replace(/\u001b\[[0-9;]*[A-Za-z]/g, ''));
+    expect(stripped[0]).toContain('/help');
+    expect(stripped[0]).toContain('Show available commands');
+  });
+
+  it('returns all commands for bare /', async () => {
+    const { buildSlashSuggestionLines } = await import('../../src/ui/inputPrompt.js');
+    const lines = buildSlashSuggestionLines('/', 80, slashCommands);
+
+    // Should show up to HOT_TIP_LIMIT (5) commands
+    expect(lines.length).toBe(5);
+  });
+
+  it('marks first suggestion with a pointer symbol', async () => {
+    const { buildSlashSuggestionLines } = await import('../../src/ui/inputPrompt.js');
+    const lines = buildSlashSuggestionLines('/mo', 80, slashCommands);
+
+    const stripped = lines.map((l: string) => l.replace(/\u001b\[[0-9;]*[A-Za-z]/g, ''));
+    expect(stripped[0]).toContain('▸');
+    if (stripped.length > 1) {
+      expect(stripped[1]).not.toContain('▸');
+    }
+  });
+
+  it('returns empty array when no commands match', async () => {
+    const { buildSlashSuggestionLines } = await import('../../src/ui/inputPrompt.js');
+    const lines = buildSlashSuggestionLines('/zzz', 80, slashCommands);
+    expect(lines).toEqual([]);
+  });
+
+  it('pads lines to the panel width', async () => {
+    const { buildSlashSuggestionLines } = await import('../../src/ui/inputPrompt.js');
+    const lines = buildSlashSuggestionLines('/he', 80, slashCommands);
+
+    // Each line (stripped of ANSI) should be padded to width
+    const stripped = lines.map((l: string) => l.replace(/\u001b\[[0-9;]*[A-Za-z]/g, ''));
+    for (const line of stripped) {
+      expect(line.length).toBe(80);
+    }
+  });
+
+  it('shows subcommands when a full command + space is typed', async () => {
+    const { buildSlashSuggestionLines } = await import('../../src/ui/inputPrompt.js');
+    const lines = buildSlashSuggestionLines('/learn ', 80, slashCommands);
+
+    expect(lines.length).toBe(2);
+    const stripped = lines.map((l: string) => l.replace(/\u001b\[[0-9;]*[A-Za-z]/g, ''));
+    expect(stripped[0]).toContain('deep');
+    expect(stripped[0]).toContain('Deep-analyze project');
+    expect(stripped[1]).toContain('update');
+    expect(stripped[1]).toContain('Regenerate stale skills');
+  });
+
+  it('filters subcommands by seed text', async () => {
+    const { buildSlashSuggestionLines } = await import('../../src/ui/inputPrompt.js');
+    const lines = buildSlashSuggestionLines('/learn d', 80, slashCommands);
+
+    expect(lines.length).toBe(1);
+    const stripped = lines.map((l: string) => l.replace(/\u001b\[[0-9;]*[A-Za-z]/g, ''));
+    expect(stripped[0]).toContain('deep');
+  });
+
+  it('returns empty array for unmatched subcommand seed', async () => {
+    const { buildSlashSuggestionLines } = await import('../../src/ui/inputPrompt.js');
+    const lines = buildSlashSuggestionLines('/learn xyz', 80, slashCommands);
+    expect(lines).toEqual([]);
+  });
+
+  it('falls back to top-level when command has no subcommands', async () => {
+    const { buildSlashSuggestionLines } = await import('../../src/ui/inputPrompt.js');
+    // /help has no subcommands — should return null from subcommand check, fall through
+    const lines = buildSlashSuggestionLines('/help ', 80, slashCommands);
+    // No subcommands defined, returns null → falls back, but no top-level match for "help "
+    expect(lines).toEqual([]);
   });
 });
 

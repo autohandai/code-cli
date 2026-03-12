@@ -5,7 +5,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import type { ProviderSettings, LLMRequest } from '../../src/types';
+import type { ProviderSettings, LLMRequest, NetworkSettings } from '../../src/types';
+import { ApiError } from '../../src/providers/errors';
 
 // Use vi.hoisted to ensure the mock is created before vi.mock hoists
 const { mockIsMLXSupported } = vi.hoisted(() => ({
@@ -102,7 +103,11 @@ describe('MLXProvider', () => {
             const models = await provider.listModels();
 
             expect(models).toEqual(['model-1', 'model-2']);
-            expect(fetch).toHaveBeenCalledWith('http://localhost:8080/v1/models');
+            // listModels now passes an AbortSignal (5s timeout) — check URL only
+            expect(fetch).toHaveBeenCalledWith(
+                'http://localhost:8080/v1/models',
+                expect.objectContaining({ signal: expect.any(AbortSignal) })
+            );
         });
 
         it('should return configured model if API fails', async () => {
@@ -159,7 +164,11 @@ describe('MLXProvider', () => {
             const available = await provider.isAvailable();
 
             expect(available).toBe(true);
-            expect(fetch).toHaveBeenCalledWith('http://localhost:8080/v1/models');
+            // isAvailable now passes an AbortSignal (5s timeout) — check URL only
+            expect(fetch).toHaveBeenCalledWith(
+                'http://localhost:8080/v1/models',
+                expect.objectContaining({ signal: expect.any(AbortSignal) })
+            );
         });
 
         it('should return false if MLX server is not running', async () => {
@@ -332,17 +341,21 @@ describe('MLXProvider', () => {
             expect(response.finishReason).toBe('tool_calls');
         });
 
-        it('should throw on API error', async () => {
+        it('should throw ApiError with friendly message on API error', async () => {
             mockIsMLXSupported.mockReturnValue(true);
             global.fetch = vi.fn().mockResolvedValue({
                 ok: false,
                 status: 500,
-                statusText: 'Internal Server Error'
+                statusText: 'Internal Server Error',
+                json: async () => ({ error: { message: 'Internal Server Error' } })
             });
 
-            await expect(provider.complete({
+            const err = await provider.complete({
                 messages: [{ role: 'user', content: 'Hello' }]
-            })).rejects.toThrow('MLX API error: 500 Internal Server Error');
+            }).catch((e: unknown) => e);
+            expect(err).toBeInstanceOf(ApiError);
+            expect((err as ApiError).code).toBe('server_error');
+            expect((err as ApiError).httpStatus).toBe(500);
         });
 
         it('should use default values when not provided', async () => {
@@ -420,7 +433,7 @@ describe('MLXProvider', () => {
             expect(response.created).toBeGreaterThan(0);
         });
 
-        it('should pass signal for request cancellation', async () => {
+        it('should pass a signal for request cancellation (combined with timeout)', async () => {
             mockIsMLXSupported.mockReturnValue(true);
             const controller = new AbortController();
             global.fetch = vi.fn().mockResolvedValue({
@@ -442,10 +455,11 @@ describe('MLXProvider', () => {
                 signal: controller.signal
             });
 
+            // After our fix, a combined signal (user + timeout) is passed — just verify a signal is present
             expect(fetch).toHaveBeenCalledWith(
                 expect.any(String),
                 expect.objectContaining({
-                    signal: controller.signal
+                    signal: expect.objectContaining({ aborted: false })
                 })
             );
         });
@@ -481,6 +495,213 @@ describe('MLXProvider', () => {
             expect(callBody.messages[1].role).toBe('user');
             expect(callBody.messages[2].role).toBe('assistant');
             expect(callBody.messages[3].role).toBe('user');
+        });
+
+        // -----------------------------------------------------------------------
+        // Error handling tests (TDD — these fail before the fix is implemented)
+        // -----------------------------------------------------------------------
+
+        it('throws friendly ApiError on ECONNREFUSED (server down)', async () => {
+            mockIsMLXSupported.mockReturnValue(true);
+            const connRefused = new Error('connect ECONNREFUSED 127.0.0.1:8080');
+            connRefused.name = 'Error';
+            global.fetch = vi.fn().mockRejectedValue(connRefused);
+
+            const err = await provider.complete({
+                messages: [{ role: 'user', content: 'Hello' }]
+            }).catch((e: unknown) => e);
+
+            expect(err).toBeInstanceOf(ApiError);
+            const apiErr = err as ApiError;
+            expect(apiErr.message).toMatch(/MLX server/i);
+            expect(apiErr.message).toMatch(/running/i);
+            expect(apiErr.code).toBe('network_error');
+        });
+
+        it('throws friendly ApiError on timeout (server not responding)', async () => {
+            mockIsMLXSupported.mockReturnValue(true);
+            const timeoutErr = new Error('The operation was aborted due to timeout');
+            timeoutErr.name = 'AbortError';
+            global.fetch = vi.fn().mockRejectedValue(timeoutErr);
+
+            const err = await provider.complete({
+                messages: [{ role: 'user', content: 'Hello' }]
+            }).catch((e: unknown) => e);
+
+            expect(err).toBeInstanceOf(ApiError);
+            const apiErr = err as ApiError;
+            expect(apiErr.code).toBe('timeout');
+            expect(apiErr.message.toLowerCase()).toMatch(/timed? out|timeout/i);
+        });
+
+        it('does not retry when user cancels (signal.aborted = true)', async () => {
+            mockIsMLXSupported.mockReturnValue(true);
+            const controller = new AbortController();
+            controller.abort();
+
+            const abortErr = new Error('The user aborted a request.');
+            abortErr.name = 'AbortError';
+            global.fetch = vi.fn().mockRejectedValue(abortErr);
+
+            const err = await provider.complete({
+                messages: [{ role: 'user', content: 'Hello' }],
+                signal: controller.signal
+            }).catch((e: unknown) => e);
+
+            expect(err).toBeInstanceOf(ApiError);
+            const apiErr = err as ApiError;
+            expect(apiErr.code).toBe('cancelled');
+            // Should have been called only once — no retries after user cancel
+            expect(global.fetch).toHaveBeenCalledTimes(1);
+        });
+
+        it('retries on transient 500 errors (at least 1 retry attempt)', async () => {
+            mockIsMLXSupported.mockReturnValue(true);
+            const successResponse = {
+                ok: true,
+                json: async () => ({
+                    id: 'mlx-retry',
+                    choices: [{
+                        index: 0,
+                        message: { role: 'assistant', content: 'Recovered' },
+                        finish_reason: 'stop'
+                    }]
+                })
+            };
+            // First call fails with 500, second succeeds
+            global.fetch = vi.fn()
+                .mockResolvedValueOnce({
+                    ok: false,
+                    status: 500,
+                    statusText: 'Internal Server Error',
+                    json: async () => ({ error: { message: 'Internal Server Error' } })
+                })
+                .mockResolvedValueOnce(successResponse);
+
+            const response = await provider.complete({
+                messages: [{ role: 'user', content: 'Hello' }]
+            });
+
+            expect(response.content).toBe('Recovered');
+            // fetch should have been called twice (original + 1 retry)
+            expect(global.fetch).toHaveBeenCalledTimes(2);
+        });
+
+        it('does not retry on 400 errors (non-retryable)', async () => {
+            mockIsMLXSupported.mockReturnValue(true);
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: false,
+                status: 400,
+                statusText: 'Bad Request',
+                json: async () => ({ error: { message: 'Bad request body' } })
+            });
+
+            const err = await provider.complete({
+                messages: [{ role: 'user', content: 'Hello' }]
+            }).catch((e: unknown) => e);
+
+            expect(err).toBeInstanceOf(ApiError);
+            const apiErr = err as ApiError;
+            expect(apiErr.retryable).toBe(false);
+            // fetch called exactly once — no retries
+            expect(global.fetch).toHaveBeenCalledTimes(1);
+        });
+
+        it('returns friendly message for 400 invalid request', async () => {
+            mockIsMLXSupported.mockReturnValue(true);
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: false,
+                status: 400,
+                statusText: 'Bad Request',
+                json: async () => ({ error: { message: 'invalid request format' } })
+            });
+
+            const err = await provider.complete({
+                messages: [{ role: 'user', content: 'Hello' }]
+            }).catch((e: unknown) => e);
+
+            expect(err).toBeInstanceOf(ApiError);
+            expect((err as ApiError).httpStatus).toBe(400);
+        });
+
+        it('returns friendly message for 404 model not found', async () => {
+            mockIsMLXSupported.mockReturnValue(true);
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: false,
+                status: 404,
+                statusText: 'Not Found',
+                json: async () => ({ error: { message: 'model not found' } })
+            });
+
+            const err = await provider.complete({
+                messages: [{ role: 'user', content: 'Hello' }]
+            }).catch((e: unknown) => e);
+
+            expect(err).toBeInstanceOf(ApiError);
+            const apiErr = err as ApiError;
+            expect(apiErr.code).toBe('model_not_found');
+            expect(apiErr.httpStatus).toBe(404);
+        });
+
+        it('returns friendly message for 503 service unavailable', async () => {
+            mockIsMLXSupported.mockReturnValue(true);
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: false,
+                status: 503,
+                statusText: 'Service Unavailable',
+                json: async () => ({ error: { message: 'service unavailable' } })
+            });
+
+            const err = await provider.complete({
+                messages: [{ role: 'user', content: 'Hello' }]
+            }).catch((e: unknown) => e);
+
+            expect(err).toBeInstanceOf(ApiError);
+            const apiErr = err as ApiError;
+            expect(apiErr.code).toBe('server_error');
+            expect(apiErr.httpStatus).toBe(503);
+        });
+
+        it('respects configured timeout', async () => {
+            mockIsMLXSupported.mockReturnValue(true);
+            const networkSettings: NetworkSettings = { timeout: 100, maxRetries: 0 };
+            const fastTimeoutProvider = new MLXProvider(config, networkSettings);
+
+            // fetch hangs until signal is aborted
+            global.fetch = vi.fn().mockImplementation((_url: string, opts: RequestInit) => {
+                return new Promise((_resolve, reject) => {
+                    opts.signal?.addEventListener('abort', () => {
+                        const err = new Error('The operation was aborted.');
+                        err.name = 'AbortError';
+                        reject(err);
+                    });
+                });
+            });
+
+            const err = await fastTimeoutProvider.complete({
+                messages: [{ role: 'user', content: 'Hello' }]
+            }).catch((e: unknown) => e);
+
+            expect(err).toBeInstanceOf(ApiError);
+            const apiErr = err as ApiError;
+            expect(apiErr.code).toBe('timeout');
+        });
+    });
+
+    describe('constructor with network settings', () => {
+        it('accepts NetworkSettings as second constructor param', () => {
+            const networkSettings: NetworkSettings = {
+                timeout: 120_000,
+                maxRetries: 2,
+                retryDelay: 500
+            };
+            const p = new MLXProvider(config, networkSettings);
+            expect(p.getName()).toBe('mlx');
+        });
+
+        it('uses default timeout when network settings not provided', () => {
+            const p = new MLXProvider(config);
+            expect(p.getName()).toBe('mlx');
         });
     });
 });

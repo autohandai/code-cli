@@ -668,20 +668,33 @@ export class ActionExecutor {
           });
         };
 
-        const result = await runCommand(
-          action.command,
-          action.args ?? [],
-          this.runtime.workspaceRoot,
-          {
-            directory: action.directory,
-            background: action.background,
-            onStdout: (chunk) => emitOutput('stdout', chunk),
-            onStderr: (chunk) => emitOutput('stderr', chunk),
+        const cmdStr = `${action.command} ${(action.args ?? []).join(' ')}`.trim();
+
+        let result: Awaited<ReturnType<typeof runCommand>>;
+        try {
+          result = await runCommand(
+            action.command,
+            action.args ?? [],
+            this.runtime.workspaceRoot,
+            {
+              directory: action.directory,
+              background: action.background,
+              onStdout: (chunk) => emitOutput('stdout', chunk),
+              onStderr: (chunk) => emitOutput('stderr', chunk),
+            }
+          );
+        } catch (err) {
+          const error = err as NodeJS.ErrnoException;
+          if (
+            error.code === 'ENOENT' ||
+            error.message.includes('Command not found')
+          ) {
+            return `Error: Command not found: "${action.command}". Make sure it is installed and available on your PATH.`;
           }
-        );
+          return `Error running "${cmdStr}": ${error.message}`;
+        }
 
         // Build output header with description if provided
-        const cmdStr = `${action.command} ${(action.args ?? []).join(' ')}`.trim();
         const header = action.description
           ? `$ ${action.description}\n> ${cmdStr}`
           : `$ ${cmdStr}`;
@@ -1446,6 +1459,19 @@ export class ActionExecutor {
         console.log(chalk.gray(previewResult + (formattedResult.length > 500 ? '\n   ... (truncated)' : '')));
         return formattedResult;
       }
+      // Skills Discovery
+      case 'find_agent_skills': {
+        const query = action.query ?? '';
+        console.log(chalk.cyan(`\nSearching skills: "${query}"${action.category ? ` [${action.category}]` : ''}...`));
+        const { searchCommunitySkills } = await import('../actions/skills.js');
+        const result = await searchCommunitySkills(query, {
+          category: action.category,
+          limit: action.limit,
+        });
+        console.log(chalk.gray(result.split('\n').slice(0, 15).join('\n')));
+        return result;
+      }
+
       // User interaction
       case 'ask_followup_question': {
         if (!action.question) {
