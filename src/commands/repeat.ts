@@ -19,6 +19,11 @@ export const metadata: SlashCommand = {
   command: '/repeat',
   description: 'Schedule a recurring prompt at a fixed interval',
   implemented: true,
+  subcommands: [
+    { name: 'list', description: 'Show all active recurring jobs' },
+    { name: 'cancel', description: 'Cancel a recurring job by ID' },
+    { name: 'help', description: 'Show usage and examples' },
+  ],
 };
 
 export interface RepeatCommandContext {
