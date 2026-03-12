@@ -13,6 +13,7 @@ import type {
   FunctionDefinition,
   LLMMessage,
 } from "../types.js";
+import { ApiError, classifyApiError } from "./errors.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -55,19 +56,7 @@ const MAX_ALLOWED_RETRIES = 5;
 const DEFAULT_RETRY_DELAY = 1000;
 const DEFAULT_TIMEOUT = 30000;
 
-/** User-friendly error messages that hide raw provider errors */
-const FRIENDLY_ERRORS: Record<number, string> = {
-  400: "The request was malformed. This often happens when the context is too long. Try /undo to remove recent turns or /new to start fresh.",
-  401: "Authentication failed. Please verify your API key in ~/.autohand/config.json.",
-  402: "Payment required. Please check your account balance or billing settings.",
-  403: "Access denied. Your API key may not have permission for this model.",
-  404: "The requested model was not found. Use /model to select a different one.",
-  429: "Rate limit exceeded. Please wait a moment and try again, or choose a different model.",
-  500: "The AI service encountered an internal error. Please try again later.",
-  502: "The AI service is temporarily unavailable. Please try again in a few moments.",
-  503: "The AI service is currently overloaded. Please try again later.",
-  504: "The request timed out. The AI service may be experiencing high load.",
-};
+// FRIENDLY_ERRORS removed — now centralized in ./errors.ts (FRIENDLY_MESSAGES)
 
 export class OpenRouterClient {
   private readonly apiKey: string;
@@ -165,10 +154,13 @@ export class OpenRouterClient {
 
     if (payloadSizeBytes > maxPayloadSize) {
       const sizeMB = (payloadSizeBytes / (1024 * 1024)).toFixed(2);
-      throw new Error(
+      throw new ApiError(
         `Request payload too large (${sizeMB}MB). ` +
           `This usually happens when the conversation history grows too long. ` +
-          `Try using /undo to remove recent turns or /new to start fresh.`
+          `Try using /undo to remove recent turns or /new to start fresh.`,
+        'context_overflow',
+        400,
+        true,
       );
     }
 
@@ -242,24 +234,26 @@ export class OpenRouterClient {
 
       // User cancelled
       if (err.name === "AbortError" && signal?.aborted) {
-        throw new Error("Request cancelled.");
+        throw new ApiError("Request cancelled.", 'cancelled', 0, false);
       }
 
       // Timeout
       if (err.name === "AbortError") {
-        throw new Error(
-          "Request timed out. The AI service may be experiencing high load."
+        throw new ApiError(
+          "Request timed out. The AI service may be experiencing high load.",
+          'timeout', 0, true,
         );
       }
 
       // Network error - friendly message
-      throw new Error(
-        "Unable to connect to the AI service. Please check your internet connection."
+      throw new ApiError(
+        "Unable to connect to the AI service. Please check your internet connection.",
+        'network_error', 0, true,
       );
     }
 
     if (!response.ok) {
-      throw new Error(await this.buildFriendlyError(response));
+      throw await this.buildApiError(response);
     }
 
     const json = (await response.json()) as any;
@@ -304,7 +298,7 @@ export class OpenRouterClient {
     };
   }
 
-  private async buildFriendlyError(response: Response): Promise<string> {
+  private async buildApiError(response: Response): Promise<ApiError> {
     const status = response.status;
 
     // Try to get the actual error message from the response
@@ -324,56 +318,21 @@ export class OpenRouterClient {
       }
     }
 
-    // Return user-friendly message with details when available
-    const friendlyMessage = FRIENDLY_ERRORS[status];
-    if (friendlyMessage) {
-      return errorDetail
-        ? `${friendlyMessage}\n${errorDetail}`
-        : friendlyMessage;
-    }
-
-    // For unknown errors, include status and details
-    if (status >= 500) {
-      const base =
-        "The AI service is temporarily unavailable. Please try again later.";
-      return errorDetail ? `${base}\n(${status}: ${errorDetail})` : base;
-    }
-
-    if (status >= 400) {
-      const base = "The request could not be processed.";
-      return errorDetail
-        ? `${base} (${status}: ${errorDetail})`
-        : `${base} (HTTP ${status}) Please try again or adjust your prompt.`;
-    }
-
-    return errorDetail
-      ? `An unexpected error occurred: ${errorDetail}`
-      : "An unexpected error occurred. Please try again.";
+    return classifyApiError(status, errorDetail, response.headers);
   }
 
   private isNonRetryableError(error: Error): boolean {
+    // Prefer structured ApiError when available
+    if (error instanceof ApiError) {
+      return !error.retryable;
+    }
+
+    // Fallback: heuristic string matching for non-ApiError errors
     const message = error.message.toLowerCase();
-
-    // Don't retry on user cancellation
-    if (message.includes("cancelled") || message.includes("aborted")) {
-      return true;
-    }
-
-    // Don't retry auth errors
-    if (message.includes("authentication") || message.includes("api key")) {
-      return true;
-    }
-
-    // Don't retry payment/access errors
-    if (message.includes("payment") || message.includes("access denied")) {
-      return true;
-    }
-
-    // Don't retry model not found
-    if (message.includes("not found")) {
-      return true;
-    }
-
+    if (message.includes("cancelled") || message.includes("aborted")) return true;
+    if (message.includes("authentication") || message.includes("api key")) return true;
+    if (message.includes("payment") || message.includes("access denied")) return true;
+    if (message.includes("model not found") || message.includes("model does not exist")) return true;
     return false;
   }
 

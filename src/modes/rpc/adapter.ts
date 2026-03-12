@@ -5,6 +5,7 @@
 
 import type { AutohandAgent } from '../../core/agent.js';
 import { McpClientManager } from '../../mcp/McpClientManager.js';
+import { classifyApiError, type ApiErrorCode } from '../../providers/errors.js';
 import type { ConversationManager } from '../../core/conversationManager.js';
 import type {
   LLMMessage,
@@ -61,6 +62,54 @@ import {
 } from './types.js';
 import { writeNotification, createTimestamp, generateId } from './protocol.js';
 import { ImageManager, type ImageMimeType, supportsVision } from '../../core/ImageManager.js';
+
+// ---------------------------------------------------------------------------
+// ApiErrorCode → RPC-specific error shape mapping
+// ---------------------------------------------------------------------------
+const RPC_ERROR_TYPE_MAP: Record<ApiErrorCode, string> = {
+  context_overflow: 'context',
+  model_not_found: 'model',
+  invalid_request: 'context',
+  auth_failed: 'auth',
+  payment_required: 'payment',
+  access_denied: 'model',
+  rate_limited: 'rate_limit',
+  server_error: 'server',
+  network_error: 'network',
+  timeout: 'network',
+  cancelled: 'unknown',
+  unknown: 'unknown',
+};
+
+const RPC_ERROR_CODE_MAP: Record<ApiErrorCode, number> = {
+  context_overflow: 400,
+  model_not_found: 404,
+  invalid_request: 400,
+  auth_failed: 401,
+  payment_required: 402,
+  access_denied: 403,
+  rate_limited: 429,
+  server_error: 500,
+  network_error: 504,
+  timeout: 504,
+  cancelled: -32000,
+  unknown: -32000,
+};
+
+const RPC_ERROR_ICON_MAP: Record<ApiErrorCode, string> = {
+  context_overflow: '\uD83D\uDCE6',  // 📦
+  model_not_found: '\uD83E\uDD16',   // 🤖
+  invalid_request: '\uD83D\uDCE6',   // 📦
+  auth_failed: '\uD83D\uDD10',       // 🔐
+  payment_required: '\uD83D\uDCB3',  // 💳
+  access_denied: '\uD83E\uDD16',     // 🤖
+  rate_limited: '\u23F1\uFE0F',      // ⏱️
+  server_error: '\uD83D\uDD27',      // 🔧
+  network_error: '\uD83C\uDF10',     // 🌐
+  timeout: '\uD83C\uDF10',           // 🌐
+  cancelled: '\u26A0\uFE0F',         // ⚠️
+  unknown: '\u26A0\uFE0F',           // ⚠️
+};
 
 /**
  * Descriptor for a VS Code MCP tool registered by the extension
@@ -1932,7 +1981,9 @@ export class RPCAdapter {
   }
 
   /**
-   * Classify error messages for appropriate UI treatment
+   * Classify error messages for appropriate UI treatment.
+   * Delegates to the shared classifyApiError() and maps the result
+   * to the RPC-specific shape (type, code, icon, recoverable).
    */
   private classifyError(message: string): {
     type: string;
@@ -1940,80 +1991,13 @@ export class RPCAdapter {
     icon: string;
     recoverable: boolean;
   } {
-    const lowerMessage = message.toLowerCase();
-
-    // Payment/billing errors
-    if (
-      lowerMessage.includes('payment required') ||
-      lowerMessage.includes('insufficient') ||
-      lowerMessage.includes('balance') ||
-      lowerMessage.includes('billing') ||
-      lowerMessage.includes("can only afford")
-    ) {
-      return { type: 'payment', code: 402, icon: '💳', recoverable: false };
-    }
-
-    // Authentication errors
-    if (
-      lowerMessage.includes('authentication') ||
-      lowerMessage.includes('unauthorized') ||
-      lowerMessage.includes('invalid api key') ||
-      lowerMessage.includes('api key')
-    ) {
-      return { type: 'auth', code: 401, icon: '🔐', recoverable: false };
-    }
-
-    // Rate limiting
-    if (
-      lowerMessage.includes('rate limit') ||
-      lowerMessage.includes('too many requests') ||
-      lowerMessage.includes('quota')
-    ) {
-      return { type: 'rate_limit', code: 429, icon: '⏱️', recoverable: true };
-    }
-
-    // Model/access errors
-    if (
-      lowerMessage.includes('model not found') ||
-      lowerMessage.includes('access denied') ||
-      lowerMessage.includes('permission')
-    ) {
-      return { type: 'model', code: 403, icon: '🤖', recoverable: true };
-    }
-
-    // Context/payload too large
-    if (
-      lowerMessage.includes('too large') ||
-      lowerMessage.includes('context') ||
-      lowerMessage.includes('payload') ||
-      lowerMessage.includes('malformed')
-    ) {
-      return { type: 'context', code: 400, icon: '📦', recoverable: true };
-    }
-
-    // Network/timeout errors
-    if (
-      lowerMessage.includes('timeout') ||
-      lowerMessage.includes('network') ||
-      lowerMessage.includes('connection') ||
-      lowerMessage.includes('econnrefused') ||
-      lowerMessage.includes('enotfound')
-    ) {
-      return { type: 'network', code: 504, icon: '🌐', recoverable: true };
-    }
-
-    // Server errors
-    if (
-      lowerMessage.includes('internal error') ||
-      lowerMessage.includes('server error') ||
-      lowerMessage.includes('unavailable') ||
-      lowerMessage.includes('overloaded')
-    ) {
-      return { type: 'server', code: 500, icon: '🔧', recoverable: true };
-    }
-
-    // Default: generic error
-    return { type: 'unknown', code: -32000, icon: '⚠️', recoverable: true };
+    const classified = classifyApiError(0, message);
+    return {
+      type: RPC_ERROR_TYPE_MAP[classified.code] ?? 'unknown',
+      code: RPC_ERROR_CODE_MAP[classified.code] ?? -32000,
+      icon: RPC_ERROR_ICON_MAP[classified.code] ?? '\u26A0\uFE0F',
+      recoverable: classified.retryable,
+    };
   }
 
   /**
