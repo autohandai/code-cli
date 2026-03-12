@@ -68,7 +68,7 @@ export class ProviderFactory {
                 if (!config.ollama) {
                     return new UnconfiguredProvider('ollama');
                 }
-                return new OllamaProvider(config.ollama);
+                return new OllamaProvider(config.ollama, config.network);
 
             case 'openai':
                 if (!config.openai) {
