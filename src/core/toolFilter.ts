@@ -102,6 +102,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   git_log: 'git_read',
   git_worktree_list: 'git_read',
   git_worktree_status_all: 'git_read',
+  project_tracker: 'git_read',
 
   // Git write operations
   git_checkout: 'git_write',
@@ -161,7 +162,8 @@ export const CONTEXT_POLICIES: Record<ClientContext, ToolPolicy> = {
       'custom_command',      // No shell access
       'file_stats',          // Don't expose file metadata
       'checksum',            // Don't expose file checksums
-      'ask_followup_question' // Requires interactive terminal
+      'ask_followup_question', // Requires interactive terminal
+      'project_tracker'      // Requires gh CLI binary
     ]
   },
 
@@ -329,7 +331,8 @@ export type RelevanceCategory =
   | 'git_advanced'// Advanced git (worktree, rebase, cherry-pick)
   | 'search'      // Search operations
   | 'dependencies'// Package management
-  | 'meta';       // Planning, memory, delegation
+  | 'meta'             // Planning, memory, delegation
+  | 'project_tracking'; // Issue/PR tracking
 
 /**
  * Map tools to relevance categories
@@ -423,6 +426,9 @@ const RELEVANCE_CATEGORIES: Record<string, RelevanceCategory> = {
   find_agent_skills: 'always', // Skill search should always be available so the LLM can explore community skills
   list_schedules: 'meta',
   cancel_schedule: 'meta',
+
+  // Project tracking
+  project_tracker: 'project_tracking',
 };
 
 /**
@@ -437,6 +443,7 @@ const CATEGORY_TRIGGERS: Record<RelevanceCategory, string[]> = {
   dependencies: ['dependency', 'dependencies', 'package', 'npm', 'install', 'yarn', 'bun add'],
   meta: ['tool', 'delegate', 'agent', 'remember', 'memory', 'recall',
          'team', 'teammate', 'together', 'engineers', 'crew', 'collaborate'],
+  project_tracking: ['issue', 'issues', 'pr', 'pull request', 'assigned', 'tracker', 'bug', 'feature request', 'milestone', 'review'],
 };
 
 /**

@@ -916,6 +916,39 @@ Examples:
       required: ['repo', 'operation']
     }
   },
+  // Project Tracker
+  {
+    name: 'project_tracker',
+    description: `Query issues and pull requests for the current project via gh CLI.
+Requires gh CLI installed and authenticated (https://cli.github.com).
+If a GitHub MCP server is connected with equivalent tools, prefer those instead.
+
+Actions:
+- list_issues: List issues (filter by state, assignee, labels)
+- get_issue: Get full issue details with comments
+- list_prs: List pull requests (filter by state, author, base branch)
+- get_pr: Get full PR details with checks and review status
+- get_user: Get the authenticated GitHub username`,
+    parameters: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          description: 'The operation to perform',
+          enum: ['list_issues', 'get_issue', 'list_prs', 'get_pr', 'get_user']
+        },
+        number: { type: 'number', description: 'Issue or PR number (required for get_issue, get_pr). Must be a positive integer.' },
+        state: { type: 'string', description: 'Filter by state (default: open). "merged" is only valid for list_prs.', enum: ['open', 'closed', 'merged', 'all'] },
+        assignee: { type: 'string', description: 'Filter issues by assignee username. Use @me for the authenticated user.' },
+        author: { type: 'string', description: 'Filter PRs by author username' },
+        labels: { type: 'string', description: 'Comma-separated label names to filter by' },
+        base: { type: 'string', description: 'Filter PRs by base branch' },
+        limit: { type: 'number', description: 'Max results to return (default: 20)' },
+        repo: { type: 'string', description: 'owner/repo override (default: detected from git remote)' }
+      },
+      required: ['action']
+    }
+  },
   // Skills Discovery
   {
     name: 'find_agent_skills',

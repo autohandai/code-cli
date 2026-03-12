@@ -906,6 +906,19 @@ export type AgentAction =
   | { type: 'fetch_url'; url: string; selector?: string; max_length?: number }
   | { type: 'package_info'; package_name: string; registry?: 'npm' | 'pypi' | 'crates' | 'go' | 'rubygems'; version?: string }
   | { type: 'web_repo'; repo: string; operation: 'info' | 'list' | 'fetch'; path?: string; branch?: string }
+  // Project Tracker
+  | {
+      type: 'project_tracker';
+      action: 'list_issues' | 'get_issue' | 'list_prs' | 'get_pr' | 'get_user';
+      number?: number;
+      state?: 'open' | 'closed' | 'merged' | 'all';
+      assignee?: string;
+      author?: string;
+      labels?: string;
+      base?: string;
+      limit?: number;
+      repo?: string;
+    }
   // Skills Discovery
   | { type: 'find_agent_skills'; query: string; category?: string; limit?: number }
   // User interaction

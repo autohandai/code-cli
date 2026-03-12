@@ -60,6 +60,7 @@ import { applyFormatter } from '../actions/formatters.js';
 import { loadCustomCommand, saveCustomCommand } from './customCommands.js';
 import { webSearch, fetchUrl, getPackageInfo, formatSearchResults, formatPackageInfo } from '../actions/web.js';
 import { webRepo, formatRepoInfo, formatRepoDir } from '../actions/webRepo.js';
+import { projectTracker } from '../actions/projectTracker.js';
 import { PermissionManager } from '../permissions/PermissionManager.js';
 import type { PermissionContext } from '../permissions/types.js';
 import type { ProjectManager } from '../session/ProjectManager.js';
@@ -1466,6 +1467,17 @@ export class ActionExecutor {
         const previewResult = formattedResult.slice(0, 500);
         console.log(chalk.gray(previewResult + (formattedResult.length > 500 ? '\n   ... (truncated)' : '')));
         return formattedResult;
+      }
+      // Project Tracker
+      case 'project_tracker': {
+        if (!action.action) {
+          throw new Error('project_tracker requires an "action" parameter.');
+        }
+        console.log(chalk.cyan(`\n🔍 project_tracker: ${action.action}${action.number ? ` #${action.number}` : ''}...`));
+        const trackerResult = await projectTracker(action);
+        const trackerPreview = trackerResult.slice(0, 500);
+        console.log(chalk.gray(trackerPreview + (trackerResult.length > 500 ? '\n   ... (truncated)' : '')));
+        return trackerResult;
       }
       // Skills Discovery
       case 'find_agent_skills': {
