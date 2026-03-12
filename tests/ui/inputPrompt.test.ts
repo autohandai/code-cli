@@ -804,6 +804,36 @@ describe('partial escape sequence filtering', () => {
     expect(countResidualModifiedEnterSequences('13;2u13;2u')).toBe(2);
     expect(countResidualModifiedEnterSequences('hello13~')).toBe(0);
   });
+
+  // ─── BUG 3: xterm modifyOtherKeys format ──────────────────────────────
+
+  it('detects xterm modifyOtherKeys Shift+Enter: ESC[27;2;13~', async () => {
+    const { isShiftEnterSequence } = await import('../../src/ui/inputPrompt.js');
+
+    // xterm modifyOtherKeys level 2: ESC[27;modifier;keycode~
+    // modifier 2=Shift, 3=Alt, 4=Shift+Alt
+    expect(isShiftEnterSequence('\x1b[27;2;13~', { sequence: '\x1b[27;2;13~' } as readline.Key)).toBe(true);
+    expect(isShiftEnterSequence('\x1b[27;3;13~', { sequence: '\x1b[27;3;13~' } as readline.Key)).toBe(true);
+    expect(isShiftEnterSequence('\x1b[27;4;13~', { sequence: '\x1b[27;4;13~' } as readline.Key)).toBe(true);
+  });
+
+  it('counts raw xterm modifyOtherKeys Shift+Enter sequences', async () => {
+    const { countRawModifiedEnterSequences } = await import('../../src/ui/inputPrompt.js');
+
+    expect(countRawModifiedEnterSequences('\x1b[27;2;13~')).toBe(1);
+    expect(countRawModifiedEnterSequences('\x1b[27;3;13~')).toBe(1);
+  });
+
+  it('detects residual xterm modifyOtherKeys fragments', async () => {
+    const { isShiftEnterResidualSequence } = await import('../../src/ui/inputPrompt.js');
+
+    // After readline strips ESC[, residual would be "27;2;13~"
+    expect(isShiftEnterResidualSequence('27;2;13~')).toBe(true);
+    expect(isShiftEnterResidualSequence('27;3;13~')).toBe(true);
+    expect(isShiftEnterResidualSequence('27;4;13~')).toBe(true);
+    // Should NOT match non-Enter keycodes
+    expect(isShiftEnterResidualSequence('27;2;9~')).toBe(false);
+  });
 });
 
 describe('buildMultiLineRenderState', () => {
@@ -1103,5 +1133,47 @@ describe('TextBuffer integration into inputPrompt', () => {
 
     expect(state.cursorRow).toBe(1);
     expect(state.lineCount).toBe(2);
+  });
+});
+
+describe('formatPromptStatusRow', () => {
+  const stripAnsi = (s: string) => s.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
+
+  it('truncates right part when it exceeds width on narrow terminals', async () => {
+    const { formatPromptStatusRow } = await import('../../src/ui/inputPrompt.js');
+
+    // Simulate a narrow terminal (width 60) with a long "Update available!" right side
+    const longRight = 'Update available! Run: curl -fsSL https://autohand.ai/install.sh | sh';
+    const statusLine = { left: '93% context left', right: longRight };
+    const width = 60;
+
+    const row = formatPromptStatusRow(statusLine, width);
+    const plainRow = stripAnsi(row);
+
+    // The visible row must NEVER exceed the given width — overflow causes
+    // terminal wrapping which breaks cursor positioning
+    expect(plainRow.length).toBeLessThanOrEqual(width);
+  });
+
+  it('status row fits width when right part is shorter than width', async () => {
+    const { formatPromptStatusRow } = await import('../../src/ui/inputPrompt.js');
+
+    const statusLine = { left: '93% context left', right: 'v1.2.3' };
+    const width = 80;
+
+    const row = formatPromptStatusRow(statusLine, width);
+    const plainRow = stripAnsi(row);
+
+    expect(plainRow.length).toBeLessThanOrEqual(width);
+    expect(plainRow).toContain('v1.2.3');
+  });
+
+  it('status row handles string-only status line', async () => {
+    const { formatPromptStatusRow } = await import('../../src/ui/inputPrompt.js');
+
+    const row = formatPromptStatusRow('plan:off · 93% context left', 60);
+    const plainRow = stripAnsi(row);
+
+    expect(plainRow.length).toBeLessThanOrEqual(60);
   });
 });
