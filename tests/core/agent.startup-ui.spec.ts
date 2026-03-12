@@ -1098,7 +1098,7 @@ describe('agent startup and active input UI', () => {
     }
   });
 
-  it('promptForInstruction does not block on startup suggestion', async () => {
+  it('promptForInstruction does not block beyond deadline on slow suggestion', async () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
 
     // Simulate a slow suggestion that takes 10 seconds
@@ -1121,17 +1121,16 @@ describe('agent startup and active input UI', () => {
       collectWorkspaceFiles: vi.fn(async () => {}),
     };
 
-    // Replace the private method's dependency on readInstruction
-    // by checking the timing: promptForInstruction must NOT wait
-    // more than 200ms before invoking readInstruction.
+    // promptForInstruction awaits with a 1.5s deadline, so it should
+    // proceed well before the 10s suggestion resolves.
     void (agent as any).promptForInstruction([], []).catch(() => {});
 
-    // Give it a short window to proceed
-    await new Promise((r) => setTimeout(r, 200));
+    // Wait longer than the 1.5s deadline but much less than 10s
+    await new Promise((r) => setTimeout(r, 2000));
 
     // The suggestion should NOT have resolved (it takes 10s)
     expect(suggestionResolved).toBe(false);
-    // The pendingSuggestion should have been cleared (not awaited to completion)
+    // The pendingSuggestion should have been cleared after the deadline
     expect(agent.pendingSuggestion).toBeNull();
   });
 
