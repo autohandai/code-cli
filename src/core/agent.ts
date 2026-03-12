@@ -39,7 +39,7 @@ import {
 } from '../utils/context.js';
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
 import { getAutoCommitInfo } from '../actions/git.js';
-import { filterToolsByRelevance } from './toolFilter.js';
+import { filterToolsByRelevance, createToolFilter } from './toolFilter.js';
 import { isSearchConfigured } from '../actions/web.js';
 import { SLASH_COMMANDS } from './slashCommands.js';
 import { ConversationManager } from './conversationManager.js';
@@ -216,10 +216,19 @@ export class AutohandAgent {
     this.conversation = ConversationManager.getInstance();
 
     // Initialize suggestion engine if enabled in config.
-    // Pass the list of available tool names so suggestions stay within
-    // the user's permissions allowlist.
+    // Derive allowed tools from the user's permission config so suggestions
+    // only propose actions the user can actually execute.
     if (runtime.config.ui?.promptSuggestions !== false) {
-      const toolNames = DEFAULT_TOOL_DEFINITIONS.map(t => t.name);
+      const permMode = runtime.config.permissions?.mode ?? 'interactive';
+      const context = permMode === 'restricted' ? 'restricted' as const : 'cli' as const;
+      const toolFilter = createToolFilter(context);
+      const blacklist = runtime.config.permissions?.blacklist ?? [];
+      const fullyBlockedTools = new Set(
+        blacklist.filter(e => !e.includes(':')).map(e => e.trim())
+      );
+      const toolNames = DEFAULT_TOOL_DEFINITIONS
+        .map(t => t.name)
+        .filter(name => toolFilter.isAllowed(name) && !fullyBlockedTools.has(name));
       this.suggestionEngine = new SuggestionEngine(this.llm, { allowedTools: toolNames });
     }
 
