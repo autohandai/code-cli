@@ -86,7 +86,7 @@ export class ProviderFactory {
                 if (!config.mlx) {
                     return new UnconfiguredProvider('mlx');
                 }
-                return new MLXProvider(config.mlx);
+                return new MLXProvider(config.mlx, config.network);
 
             case 'llmgateway':
                 if (!config.llmgateway) {
