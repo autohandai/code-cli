@@ -1,7 +1,7 @@
 # Project Tracker Tool — Design Spec
 
 **Date**: 2026-03-13
-**Status**: Draft
+**Status**: Reviewed
 **Scope**: Read-only issue/PR querying via `gh` CLI
 
 ---
@@ -70,13 +70,13 @@ Actions:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `action` | string (enum) | Yes | One of: `list_issues`, `get_issue`, `list_prs`, `get_pr`, `get_user` |
-| `number` | number | No | Issue or PR number (required for `get_issue`, `get_pr`) |
-| `state` | string (enum) | No | `open`, `closed`, or `all` (default: `open`) |
+| `number` | integer | No | Issue or PR number (required for `get_issue`, `get_pr`). Must be a positive integer. |
+| `state` | string (enum) | No | `open`, `closed`, `merged` (list_prs only), or `all` (default: `open`) |
 | `assignee` | string | No | Filter by assignee username. Use `@me` for the authenticated user |
 | `author` | string | No | Filter by author username |
 | `labels` | string | No | Comma-separated label names to filter by |
 | `base` | string | No | Filter PRs by base branch |
-| `limit` | number | No | Maximum results to return (default: 20) |
+| `limit` | number | No | Maximum results to return (default: 20, overrides gh's default of 30) |
 | `repo` | string | No | `owner/repo` override (default: detected from git remote) |
 
 ### Parameter validation by action
@@ -102,12 +102,14 @@ Responsibilities:
 #### gh CLI commands per action
 
 ```
-list_issues  → gh issue list --json number,title,state,assignees,labels,createdAt,updatedAt --limit {limit} [--state {state}] [--assignee {assignee}] [--label {labels}] [-R {repo}]
-get_issue    → gh issue view {number} --json number,title,state,body,assignees,labels,comments,createdAt,updatedAt,milestone,author [-R {repo}]
-list_prs     → gh pr list --json number,title,state,author,baseRefName,headRefName,labels,createdAt,updatedAt,isDraft --limit {limit} [--state {state}] [--author {author}] [--base {base}] [--label {labels}] [-R {repo}]
-get_pr       → gh pr view {number} --json number,title,state,body,author,baseRefName,headRefName,labels,comments,reviews,statusCheckRollup,mergeable,additions,deletions,createdAt,updatedAt,isDraft [-R {repo}]
+list_issues  → gh issue list --json number,title,state,assignees,labels,createdAt,url --limit {limit} [--state {state}] [--assignee {assignee}] [--label {labels}] [-R {repo}]
+get_issue    → gh issue view {number} --json number,title,state,body,assignees,labels,comments,createdAt,milestone,author,url [-R {repo}]
+list_prs     → gh pr list --json number,title,state,author,baseRefName,headRefName,labels,createdAt,isDraft,url --limit {limit} [--state {state}] [--author {author}] [--base {base}] [--label {labels}] [-R {repo}]
+get_pr       → gh pr view {number} --json number,title,state,body,author,baseRefName,headRefName,labels,comments,latestReviews,statusCheckRollup,mergeable,additions,deletions,createdAt,isDraft,url [-R {repo}]
 get_user     → gh api user --jq '.login'
 ```
+
+Note: `updatedAt` is not available in `gh issue` JSON fields. `latestReviews` is used instead of `reviews` for `get_pr` to get current review status without pulling full review history (smaller payload).
 
 #### Error handling
 
@@ -116,7 +118,10 @@ get_user     → gh api user --jq '.login'
 | `gh` not found | `gh CLI is not installed. Install it from https://cli.github.com` |
 | Not authenticated | `gh CLI is not authenticated. Run 'gh auth login' first.` |
 | Missing `number` for get_issue/get_pr | `The 'number' parameter is required for {action}` |
+| `number` is not a positive integer | `The 'number' parameter must be a positive integer` |
+| `state: 'merged'` used with `list_issues` | `The 'merged' state is only valid for list_prs` |
 | Invalid action | `Unknown action: {action}. Valid actions: list_issues, get_issue, list_prs, get_pr, get_user` |
+| `get_user` API failure (401/network) | `Failed to get GitHub user. Ensure gh is authenticated: run 'gh auth status'` |
 | gh command fails | Pass through the gh stderr message |
 
 #### Output formatting
@@ -132,7 +137,7 @@ Add to `AgentAction` union:
     type: 'project_tracker';
     action: 'list_issues' | 'get_issue' | 'list_prs' | 'get_pr' | 'get_user';
     number?: number;
-    state?: 'open' | 'closed' | 'all';
+    state?: 'open' | 'closed' | 'merged' | 'all';
     assignee?: string;
     author?: string;
     labels?: string;
@@ -149,13 +154,27 @@ Add to `DEFAULT_TOOL_DEFINITIONS` array (after `web_repo`).
 ### Tool categories: `src/core/toolFilter.ts`
 
 ```typescript
-// In TOOL_CATEGORIES
+// 1. Add to RelevanceCategory union type:
+export type RelevanceCategory =
+  | 'always'
+  | 'filesystem'
+  | 'git_basic'
+  | 'git_advanced'
+  | 'search'
+  | 'dependencies'
+  | 'meta'
+  | 'project_tracking';  // NEW
+
+// 2. Add to TOOL_CATEGORIES
 project_tracker: 'git_read',  // Read-only, related to the git project
+// Note: git_read is excluded from 'slack' context (no gh binary available)
+// and included in 'restricted' context. This is correct since the tool
+// is read-only but requires shell access to gh CLI.
 
-// In RELEVANCE_CATEGORIES
-project_tracker: 'project_tracking',  // New relevance category
+// 3. Add to RELEVANCE_CATEGORIES
+project_tracker: 'project_tracking',
 
-// In CATEGORY_TRIGGERS
+// 4. Add to CATEGORY_TRIGGERS
 project_tracking: ['issue', 'issues', 'pr', 'pull request', 'assigned', 'tracker', 'bug', 'feature request', 'milestone', 'review'],
 ```
 
@@ -186,6 +205,6 @@ case 'project_tracker':
 | `src/actions/projectTracker.ts` | **New** — full implementation |
 | `src/types.ts` | Add `project_tracker` to `AgentAction` union |
 | `src/core/toolManager.ts` | Add tool definition to `DEFAULT_TOOL_DEFINITIONS` |
-| `src/core/toolFilter.ts` | Add to `TOOL_CATEGORIES`, `RELEVANCE_CATEGORIES`, `CATEGORY_TRIGGERS` |
+| `src/core/toolFilter.ts` | Add `'project_tracking'` to `RelevanceCategory` union, add to `TOOL_CATEGORIES`, `RELEVANCE_CATEGORIES`, `CATEGORY_TRIGGERS` |
 | `src/core/actionExecutor.ts` | Add case for `project_tracker` |
 | `tests/actions/projectTracker.test.ts` | **New** — unit tests |
