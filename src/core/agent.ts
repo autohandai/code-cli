@@ -1486,6 +1486,23 @@ If lint or tests fail, report the issues but do NOT commit.`;
           continue;
         }
 
+        // TTY/IO errors (errno 5 = EIO, setRawMode failures) are unrecoverable.
+        // Exit immediately instead of retrying — the terminal is gone.
+        const isTTYError = /setRawMode|errno:\s*\d+|EIO|EPERM/.test(errorObj.message ?? '');
+        if (isTTYError) {
+          await this.errorLogger.log(error as Error, {
+            context: 'Interactive loop (TTY failure)',
+            workspace: this.runtime.workspaceRoot
+          });
+          const session = this.sessionManager.getCurrentSession();
+          if (session) {
+            session.metadata.status = 'completed';
+            await session.save();
+          }
+          await this.telemetryManager.endSession('completed');
+          return;
+        }
+
         const errorMessage = (error as Error).message || 'Unknown error occurred';
 
         // Track consecutive identical errors to prevent infinite telemetry spam
