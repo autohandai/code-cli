@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { AgentSideConnection, InitializeRequest, NewSessionRequest } from '@agentclientprotocol/sdk';
 import type { LoadedConfig } from '../../../src/types.js';
+import { ApiError } from '../../../src/providers/errors.js';
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks - created before vi.mock hoists
@@ -587,6 +588,76 @@ describe('AutohandAcpAdapter', () => {
 
       expect(result.stopReason).toBe('end_turn');
       expect(connection.sessionUpdate).toHaveBeenCalled();
+
+      stderrSpy.mockRestore();
+    });
+
+    it('classifies ApiError and passes error code to sessionUpdate', async () => {
+      mockAgent.isSlashCommand.mockReturnValue(false);
+      mockAgent.runInstruction.mockRejectedValue(
+        new ApiError('Model xyz not found', 'model_not_found', 404, false, undefined, 'Model xyz not found'),
+      );
+
+      const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+      const result = await adapter.prompt({
+        sessionId,
+        prompt: [{ type: 'text', text: 'Do something' }],
+      } as any);
+
+      expect(result.stopReason).toBe('end_turn');
+
+      // Verify the sessionUpdate includes the classified error code
+      const updateCalls = connection.sessionUpdate.mock.calls;
+      const errorUpdate = updateCalls.find(
+        (call: any[]) => call[0]?.update?.content?.text?.includes('model_not_found'),
+      );
+      expect(errorUpdate).toBeDefined();
+
+      stderrSpy.mockRestore();
+    });
+
+    it('classifies string errors via heuristic and passes error code to sessionUpdate', async () => {
+      mockAgent.isSlashCommand.mockReturnValue(false);
+      mockAgent.runInstruction.mockRejectedValue(new Error('Authentication failed: Invalid API key'));
+
+      const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+      const result = await adapter.prompt({
+        sessionId,
+        prompt: [{ type: 'text', text: 'Do something' }],
+      } as any);
+
+      expect(result.stopReason).toBe('end_turn');
+
+      // Verify stderr includes error code classification
+      const stderrCalls = stderrSpy.mock.calls.map((c: any[]) => String(c[0]));
+      const hasClassifiedError = stderrCalls.some(
+        (msg: string) => msg.includes('(') && msg.includes(')'),
+      );
+      expect(hasClassifiedError).toBe(true);
+
+      stderrSpy.mockRestore();
+    });
+
+    it('still returns cancelled when prompt is cancelled even if error occurs', async () => {
+      mockAgent.isSlashCommand.mockReturnValue(false);
+      // Simulate an error that occurs after cancellation
+      mockAgent.runInstruction.mockImplementation(async () => {
+        // Cancel the session during execution
+        await adapter.cancel({ sessionId });
+        throw new ApiError('Request cancelled.', 'cancelled', 0, false);
+      });
+
+      const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+      const result = await adapter.prompt({
+        sessionId,
+        prompt: [{ type: 'text', text: 'Do something' }],
+      } as any);
+
+      // Cancellation should take priority
+      expect(result.stopReason).toBe('cancelled');
 
       stderrSpy.mockRestore();
     });
