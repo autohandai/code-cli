@@ -1098,16 +1098,12 @@ describe('agent startup and active input UI', () => {
     }
   });
 
-  it('promptForInstruction does not block beyond deadline on slow suggestion', async () => {
+  it('promptForInstruction does not block on startup suggestion', async () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
 
-    // Simulate a slow suggestion that takes 10 seconds
-    let suggestionResolved = false;
+    // Simulate a slow startup suggestion that takes 10 seconds
     agent.pendingSuggestion = new Promise<void>((resolve) => {
-      setTimeout(() => {
-        suggestionResolved = true;
-        resolve();
-      }, 10_000);
+      setTimeout(resolve, 10_000);
     });
     agent.isStartupSuggestion = true;
     agent.suggestionEngine = {
@@ -1121,16 +1117,50 @@ describe('agent startup and active input UI', () => {
       collectWorkspaceFiles: vi.fn(async () => {}),
     };
 
-    // promptForInstruction awaits with a 1.5s deadline, so it should
-    // proceed well before the 10s suggestion resolves.
+    // Startup suggestion should NOT block the prompt at all.
+    // The prompt must appear instantly (within one tick).
     void (agent as any).promptForInstruction([], []).catch(() => {});
 
-    // Wait longer than the 1.5s deadline but much less than 10s
-    await new Promise((r) => setTimeout(r, 2000));
+    // After a single tick, pendingSuggestion should already be cleared
+    // because startup skips the await entirely.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(agent.pendingSuggestion).toBeNull();
+    expect(agent.isStartupSuggestion).toBe(false);
+  });
 
-    // The suggestion should NOT have resolved (it takes 10s)
+  it('promptForInstruction uses 3s deadline for turn suggestion', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+
+    // Simulate a slow turn suggestion that takes 10 seconds
+    let suggestionResolved = false;
+    agent.pendingSuggestion = new Promise<void>((resolve) => {
+      setTimeout(() => {
+        suggestionResolved = true;
+        resolve();
+      }, 10_000);
+    });
+    agent.isStartupSuggestion = false; // turn, not startup
+    agent.suggestionEngine = {
+      getSuggestion: () => null,
+      clear: vi.fn(),
+    };
+    agent.formatStatusLine = vi.fn(() => ({ left: '', right: '' }));
+    agent.promptSeedInput = '';
+    agent.workspaceFileCollector = {
+      getCachedFiles: () => [],
+      collectWorkspaceFiles: vi.fn(async () => {}),
+    };
+
+    // Turn uses a 3s deadline; after 1.5s it should still be waiting.
+    void (agent as any).promptForInstruction([], []).catch(() => {});
+
+    // At 1.5s: still within 3s turn deadline — pendingSuggestion NOT cleared yet
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(agent.pendingSuggestion).not.toBeNull();
+
+    // At 4s: past the 3s turn deadline — pendingSuggestion should be cleared
+    await new Promise((r) => setTimeout(r, 2500));
     expect(suggestionResolved).toBe(false);
-    // The pendingSuggestion should have been cleared after the deadline
     expect(agent.pendingSuggestion).toBeNull();
   });
 
