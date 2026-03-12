@@ -215,9 +215,12 @@ export class AutohandAgent {
     this.workspaceFileCollector = new WorkspaceFileCollector(runtime.workspaceRoot, this.ignoreFilter);
     this.conversation = ConversationManager.getInstance();
 
-    // Initialize suggestion engine if enabled in config
+    // Initialize suggestion engine if enabled in config.
+    // Pass the list of available tool names so suggestions stay within
+    // the user's permissions allowlist.
     if (runtime.config.ui?.promptSuggestions !== false) {
-      this.suggestionEngine = new SuggestionEngine(this.llm);
+      const toolNames = DEFAULT_TOOL_DEFINITIONS.map(t => t.name);
+      this.suggestionEngine = new SuggestionEngine(this.llm, { allowedTools: toolNames });
     }
 
     this.toolsRegistry = new ToolsRegistry();
@@ -1546,12 +1549,13 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const statusLine = this.formatStatusLine();
     const initialValue = this.promptSeedInput;
     this.promptSeedInput = '';
-    // Check for a ready suggestion without blocking the prompt.
-    // On startup the LLM call may still be in-flight; grab any result that
-    // resolved early but never wait — the prompt must render instantly.
-    // For subsequent prompts the suggestion ran during the previous turn
-    // and is usually ready; if not, the default placeholder is shown.
+    // Wait for the pending suggestion LLM call to finish (max 1.5s).
+    // The call was started right after the previous turn completed and runs
+    // concurrently with hooks/notifications, so it's usually already done.
+    // If it doesn't resolve in time, the default placeholder is shown.
     if (this.pendingSuggestion) {
+      const deadline = new Promise<void>((r) => setTimeout(r, 1500));
+      await Promise.race([this.pendingSuggestion, deadline]).catch(() => {});
       this.isStartupSuggestion = false;
       this.pendingSuggestion = null;
     }
