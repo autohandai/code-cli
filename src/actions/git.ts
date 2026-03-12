@@ -67,7 +67,11 @@ export function checkoutFile(cwd: string, file: string): void {
 export function gitStatus(cwd: string): string {
   const result = spawnSync('git', ['status', '-sb'], { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
-    throw new Error(result.stderr || 'git status failed');
+    const stderr = (result.stderr || '').trim();
+    if (stderr.includes('not a git repository')) {
+      return 'This directory is not a git repository. You should call run_command with `git init` to initialize one, then retry.';
+    }
+    throw new Error(stderr || 'git status failed');
   }
   return result.stdout || 'clean';
 }
@@ -75,7 +79,11 @@ export function gitStatus(cwd: string): string {
 export function gitListUntracked(cwd: string): string {
   const result = spawnSync('git', ['ls-files', '--others', '--exclude-standard'], { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
-    throw new Error(result.stderr || 'git ls-files failed');
+    const stderr = (result.stderr || '').trim();
+    if (stderr.includes('not a git repository')) {
+      return 'This directory is not a git repository. You should call run_command with `git init` to initialize one, then retry.';
+    }
+    throw new Error(stderr || 'git ls-files failed');
   }
   return result.stdout || '';
 }
