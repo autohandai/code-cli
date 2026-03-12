@@ -1389,15 +1389,30 @@ function createReadline(
     // Ignore if already resumed
   }
 
-  const rl = readline.createInterface({
-    input: stdInput,
-    output: stdOutput,
-    prompt: PROMPT_PREFIX,
-    terminal: true,
-    crlfDelay: Infinity,
-    historySize: 100,
-    tabSize: 2
-  });
+  let rl: readline.Interface;
+  try {
+    rl = readline.createInterface({
+      input: stdInput,
+      output: stdOutput,
+      prompt: PROMPT_PREFIX,
+      terminal: true,
+      crlfDelay: Infinity,
+      historySize: 100,
+      tabSize: 2
+    });
+  } catch {
+    // readline.createInterface calls setRawMode internally when terminal: true.
+    // If the TTY is dead (errno 5 = EIO), fall back to non-terminal mode.
+    rl = readline.createInterface({
+      input: stdInput,
+      output: stdOutput,
+      prompt: PROMPT_PREFIX,
+      terminal: false,
+      crlfDelay: Infinity,
+      historySize: 100,
+      tabSize: 2
+    });
+  }
 
   disableReadlineTabBehavior(rl);
 
