@@ -31,11 +31,26 @@ const MAX_SUGGESTION_LENGTH = 80;
 const MAX_HISTORY_MESSAGES = 6; // 3 user+assistant pairs → 7 messages total sent to LLM
 const SUGGESTION_TIMEOUT_MS = 3000;
 
+export interface SuggestionEngineOptions {
+  /** When provided, constrains suggestions to only actions achievable with these tools. */
+  allowedTools?: string[];
+}
+
 export class SuggestionEngine {
   private suggestion: string | null = null;
   private abortController: AbortController | null = null;
+  private readonly toolConstraint: string;
 
-  constructor(private readonly llm: LLMProvider) {}
+  constructor(
+    private readonly llm: LLMProvider,
+    options?: SuggestionEngineOptions,
+  ) {
+    if (options?.allowedTools?.length) {
+      this.toolConstraint = `\n\nIMPORTANT: ONLY suggest actions achievable with these tools: ${options.allowedTools.join(', ')}. Do not suggest actions requiring tools the user cannot use.`;
+    } else {
+      this.toolConstraint = '';
+    }
+  }
 
   async generateFromProjectContext(context: {
     gitStatus?: string;
@@ -59,7 +74,7 @@ export class SuggestionEngine {
     }
 
     await this.executeWithTimeout([
-      { role: 'system', content: STARTUP_SUGGESTION_PROMPT },
+      { role: 'system', content: STARTUP_SUGGESTION_PROMPT + this.toolConstraint },
       { role: 'user', content: contextParts.join('\n\n') },
     ]);
   }
@@ -67,7 +82,7 @@ export class SuggestionEngine {
   async generate(history: LLMMessage[]): Promise<void> {
     const recentHistory = history.slice(-MAX_HISTORY_MESSAGES);
     await this.executeWithTimeout([
-      { role: 'system', content: SUGGESTION_SYSTEM_PROMPT },
+      { role: 'system', content: SUGGESTION_SYSTEM_PROMPT + this.toolConstraint },
       ...recentHistory,
     ]);
   }

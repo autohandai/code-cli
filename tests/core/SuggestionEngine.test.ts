@@ -115,6 +115,40 @@ describe('SuggestionEngine', () => {
     expect(call.messages.length).toBeLessThanOrEqual(7);
   });
 
+  describe('allowed tools constraint', () => {
+    it('should include allowed tools in the system prompt when provided', async () => {
+      const constrainedEngine = new SuggestionEngine(provider, {
+        allowedTools: ['read_file', 'list_files', 'web_search'],
+      });
+      await constrainedEngine.generate([{ role: 'user', content: 'test' }]);
+      const call = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const systemMessage = call.messages[0].content;
+      expect(systemMessage).toContain('read_file');
+      expect(systemMessage).toContain('list_files');
+      expect(systemMessage).toContain('web_search');
+    });
+
+    it('should NOT include tool constraints when no allowedTools provided', async () => {
+      await engine.generate([{ role: 'user', content: 'test' }]);
+      const call = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const systemMessage = call.messages[0].content;
+      expect(systemMessage).not.toContain('ONLY suggest actions');
+    });
+
+    it('should include allowed tools in startup suggestions too', async () => {
+      const constrainedEngine = new SuggestionEngine(provider, {
+        allowedTools: ['read_file'],
+      });
+      await constrainedEngine.generateFromProjectContext({
+        gitStatus: '## main\n M src/index.ts',
+        recentFiles: ['src/index.ts'],
+      });
+      const call = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const systemMessage = call.messages[0].content;
+      expect(systemMessage).toContain('read_file');
+    });
+  });
+
   describe('generateFromProjectContext', () => {
     it('should generate a suggestion from git status and recent files', async () => {
       const contextProvider = createMockProvider('Review the 3 uncommitted files');
