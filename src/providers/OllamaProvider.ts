@@ -463,8 +463,8 @@ export class OllamaProvider implements LLMProvider {
     private combineSignals(signal1: AbortSignal, signal2: AbortSignal): AbortSignal {
         const controller = new AbortController();
         const abort = () => controller.abort();
-        signal1.addEventListener('abort', abort);
-        signal2.addEventListener('abort', abort);
+        signal1.addEventListener('abort', abort, { once: true });
+        signal2.addEventListener('abort', abort, { once: true });
         if (signal1.aborted || signal2.aborted) {
             controller.abort();
         }
