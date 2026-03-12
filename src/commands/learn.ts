@@ -39,6 +39,25 @@ export interface LearnCommandContext {
   hookManager?: HookManager;
   isNonInteractive?: boolean;
   llm: LLMProvider;
+  onProgress?: (message: string) => void;
+  onBeforeModal?: () => void;
+  onAfterModal?: () => void;
+  /** Called with the top recommended skill slug for install hint in the composer */
+  onTopRecommendation?: (slug: string) => void;
+}
+
+function logProgress(ctx: LearnCommandContext, message: string): void {
+  ctx.onProgress?.(message);
+  console.log(chalk.cyan(message));
+}
+
+async function withModalPause<T>(ctx: LearnCommandContext, fn: () => Promise<T>): Promise<T> {
+  ctx.onBeforeModal?.();
+  try {
+    return await fn();
+  } finally {
+    ctx.onAfterModal?.();
+  }
 }
 
 export interface ParsedLearnArgs {
@@ -78,7 +97,7 @@ async function handleLearnRecommend(
 ): Promise<string> {
   const { skillsRegistry, workspaceRoot, llm, isNonInteractive } = ctx;
 
-  console.log(chalk.cyan(deep ? 'Deep-analyzing your project...' : 'Analyzing your project...'));
+  logProgress(ctx, deep ? 'Deep-analyzing your project...' : 'Analyzing your project...');
 
   // 1. Analyze project
   const analyzer = new ProjectAnalyzer(workspaceRoot);
@@ -87,6 +106,7 @@ async function handleLearnRecommend(
   // 2. Fetch registry
   const cache = new CommunitySkillsCache();
   const fetcher = new GitHubRegistryFetcher();
+  logProgress(ctx, 'Loading community skills...');
   let registry: CommunitySkillsRegistry | null = null;
   try {
     registry = await fetchRegistryWithFallback(cache, fetcher);
@@ -99,6 +119,7 @@ async function handleLearnRecommend(
   const registrySkills = registry?.skills ?? [];
 
   // 4. Call LLM advisor
+  logProgress(ctx, 'Evaluating skill matches...');
   const advisor = new LearnAdvisor(llm);
   const result = await advisor.analyze(analysis, installedSkills, registrySkills);
 
@@ -135,6 +156,8 @@ async function handleLearnRecommend(
       lines.push(`    {{action:Install|/skills install @${rec.slug}}}`);
     }
     lines.push('');
+    // Notify caller of the top recommendation for composer hint
+    ctx.onTopRecommendation?.(goodMatches[0].slug);
   } else {
     lines.push(chalk.yellow('No strong matches found in the community registry.'));
     if (result.gapAnalysis) {
@@ -145,12 +168,24 @@ async function handleLearnRecommend(
 
   // 6. Offer generation if no good matches
   if (goodMatches.length === 0 && !isNonInteractive) {
-    const wantGenerate = await showConfirm({
-      title: 'Want me to generate a custom skill for your project?',
-    });
+    // Show context so the user knows what will be generated
+    const gapDesc = result.gapAnalysis
+      ? `Based on gap analysis: ${result.gapAnalysis}`
+      : `A custom skill tailored for your ${analysis.frameworks.join('/') || analysis.languages.join('/')} project.`;
+    lines.push(chalk.cyan(gapDesc));
+
+    // Print accumulated output now (before the confirm dialog) so user sees
+    // the analysis results. We return only the post-dialog result to avoid
+    // the caller printing this text a second time.
+    console.log(lines.join('\n'));
+
+    const wantGenerate = await withModalPause(ctx, () =>
+      showConfirm({ title: 'Generate a custom skill to fill this gap?' }),
+    );
     if (wantGenerate) {
       return await handleGeneration(ctx, analysis, result);
     }
+    return '';
   }
 
   return lines.join('\n');
@@ -161,7 +196,10 @@ async function handleGeneration(
   analysis: ProjectAnalysis,
   analysisResult: LearnAnalysisResponse,
 ): Promise<string> {
-  console.log(chalk.cyan('Generating a custom skill...'));
+  const gapHint = analysisResult.gapAnalysis
+    ? ` for: ${analysisResult.gapAnalysis}`
+    : '';
+  logProgress(ctx, `Generating a custom skill${gapHint}...`);
 
   const advisor = new LearnAdvisor(ctx.llm);
   const lowScoring = analysisResult.recommendations
@@ -171,17 +209,30 @@ async function handleGeneration(
   const generated = await advisor.generateSkill(analysis, analysisResult.gapAnalysis, lowScoring);
 
   if (!generated) {
-    return chalk.red('Failed to generate a custom skill. Try again later.');
+    return (
+      chalk.red('Failed to generate a custom skill.\n') +
+      chalk.gray('  The LLM may have returned an invalid response. Check your provider is configured and try again.\n') +
+      chalk.gray('  Run with DEBUG=1 for detailed error output.')
+    );
+  }
+
+  // Show what was generated before asking where to install
+  console.log(chalk.green(`\nGenerated: ${chalk.bold(generated.name)}`));
+  console.log(chalk.gray(`  ${generated.description}`));
+  if (generated.allowedTools.length > 0) {
+    console.log(chalk.gray(`  Tools: ${generated.allowedTools.join(', ')}`));
   }
 
   // Ask scope
-  const scopeChoice = await showModal({
-    title: 'Where should this skill be installed?',
-    options: [
-      { label: `Project (.autohand/skills/)`, value: 'project' },
-      { label: `User (~/.autohand/skills/)`, value: 'user' },
-    ],
-  });
+  const scopeChoice = await withModalPause(ctx, () =>
+    showModal({
+      title: 'Where should this skill be installed?',
+      options: [
+        { label: `Project (.autohand/skills/)`, value: 'project' },
+        { label: `User (~/.autohand/skills/)`, value: 'user' },
+      ],
+    }),
+  );
 
   const scope: SkillInstallScope =
     scopeChoice?.value === 'project' ? 'project' : 'user';
@@ -218,7 +269,7 @@ async function handleGeneration(
 async function handleLearnUpdate(ctx: LearnCommandContext): Promise<string> {
   const { skillsRegistry, workspaceRoot, llm } = ctx;
 
-  console.log(chalk.cyan('Checking for skill updates...'));
+  logProgress(ctx, 'Checking for skill updates...');
 
   // 1. Analyze current project
   const analyzer = new ProjectAnalyzer(workspaceRoot);
@@ -250,7 +301,7 @@ async function handleLearnUpdate(ctx: LearnCommandContext): Promise<string> {
     }
 
     // Project changed — regenerate this skill
-    console.log(chalk.gray(`  Regenerating ${skill.name}...`));
+    logProgress(ctx, `Regenerating ${skill.name}...`);
 
     const generated = await advisor.generateSkill(analysis, null, []);
 
@@ -317,4 +368,8 @@ export const metadata = {
   command: '/learn',
   description: t('commands.learn.description'),
   implemented: true,
+  subcommands: [
+    { name: 'deep', description: 'Deep-analyze project for better skill matching' },
+    { name: 'update', description: 'Regenerate stale LLM-generated skills' },
+  ],
 };

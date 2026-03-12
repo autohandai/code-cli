@@ -5,8 +5,9 @@
  */
 
 import type { LLMProvider } from './LLMProvider.js';
-import type { LLMRequest, LLMResponse, LLMToolCall, LLMUsage, ProviderSettings, FunctionDefinition } from '../types.js';
+import type { LLMRequest, LLMResponse, LLMToolCall, LLMUsage, ProviderSettings, NetworkSettings, FunctionDefinition } from '../types.js';
 import { isMLXSupported } from '../utils/platform.js';
+import { ApiError, classifyApiError } from './errors.js';
 
 interface MLXToolCall {
     id: string;
@@ -38,19 +39,33 @@ interface MLXChatResponse {
     };
 }
 
+const DEFAULT_TIMEOUT = 60_000;   // 60 s — local inference can be slow
+const DEFAULT_MAX_RETRIES = 2;
+const MAX_ALLOWED_RETRIES = 5;
+const DEFAULT_RETRY_DELAY = 1_000;
+const AVAILABILITY_TIMEOUT = 5_000; // 5 s for listModels / isAvailable
+
 /**
  * MLX Provider for Apple Silicon optimized local inference.
  * Uses OpenAI-compatible API format (mlx-lm server).
  * Only available on macOS with Apple Silicon (M1, M2, M3, etc.).
  */
 export class MLXProvider implements LLMProvider {
-    private baseUrl: string;
+    private readonly baseUrl: string;
     private model: string;
+    private readonly maxRetries: number;
+    private readonly retryDelay: number;
+    private readonly timeout: number;
 
-    constructor(config: ProviderSettings) {
+    constructor(config: ProviderSettings, networkSettings?: NetworkSettings) {
         const port = config.port || 8080;
         this.baseUrl = config.baseUrl || `http://localhost:${port}`;
         this.model = config.model || 'mlx-model';
+
+        const configuredRetries = networkSettings?.maxRetries ?? DEFAULT_MAX_RETRIES;
+        this.maxRetries = Math.min(Math.max(0, configuredRetries), MAX_ALLOWED_RETRIES);
+        this.retryDelay = networkSettings?.retryDelay ?? DEFAULT_RETRY_DELAY;
+        this.timeout = networkSettings?.timeout ?? DEFAULT_TIMEOUT;
     }
 
     getName(): string {
@@ -62,39 +77,52 @@ export class MLXProvider implements LLMProvider {
     }
 
     async listModels(): Promise<string[]> {
-        // MLX is only available on Apple Silicon
         if (!isMLXSupported()) {
             return [];
         }
 
         try {
-            const response = await fetch(`${this.baseUrl}/v1/models`);
-            if (!response.ok) {
-                return this.model ? [this.model] : [];
+            const controller = new AbortController();
+            const timerId = setTimeout(() => controller.abort(), AVAILABILITY_TIMEOUT);
+            try {
+                const response = await fetch(`${this.baseUrl}/v1/models`, {
+                    signal: controller.signal,
+                });
+                if (!response.ok) {
+                    return this.model ? [this.model] : [];
+                }
+                const data = await response.json();
+                return data.data?.map((m: { id: string }) => m.id) ?? (this.model ? [this.model] : []);
+            } finally {
+                clearTimeout(timerId);
             }
-            const data = await response.json();
-            return data.data?.map((m: { id: string }) => m.id) ?? (this.model ? [this.model] : []);
         } catch {
             return this.model ? [this.model] : [];
         }
     }
 
     async isAvailable(): Promise<boolean> {
-        // MLX is only available on Apple Silicon
         if (!isMLXSupported()) {
             return false;
         }
 
         try {
-            const response = await fetch(`${this.baseUrl}/v1/models`);
-            return response.ok;
+            const controller = new AbortController();
+            const timerId = setTimeout(() => controller.abort(), AVAILABILITY_TIMEOUT);
+            try {
+                const response = await fetch(`${this.baseUrl}/v1/models`, {
+                    signal: controller.signal,
+                });
+                return response.ok;
+            } finally {
+                clearTimeout(timerId);
+            }
         } catch {
             return false;
         }
     }
 
     async complete(request: LLMRequest): Promise<LLMResponse> {
-        // MLX is only available on Apple Silicon
         if (!isMLXSupported()) {
             throw new Error('MLX is only supported on macOS with Apple Silicon');
         }
@@ -127,17 +155,89 @@ export class MLXProvider implements LLMProvider {
             }));
         }
 
-        const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(body),
-            signal: request.signal
-        });
+        let lastError: Error | null = null;
+
+        for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+            try {
+                return await this.makeRequest(body, request.signal);
+            } catch (error) {
+                lastError = error as Error;
+
+                if (this.isNonRetryableError(error as Error)) {
+                    throw error;
+                }
+
+                if (attempt < this.maxRetries) {
+                    const delay = this.retryDelay * Math.pow(2, attempt);
+                    await this.sleep(delay);
+                }
+            }
+        }
+
+        throw lastError ?? new ApiError(
+            'Failed to communicate with the MLX server. Please try again.',
+            'network_error',
+            0,
+            true,
+        );
+    }
+
+    private async makeRequest(
+        body: Record<string, unknown>,
+        userSignal?: AbortSignal,
+    ): Promise<LLMResponse> {
+        let response: Response;
+
+        try {
+            const timeoutController = new AbortController();
+            const timerId = setTimeout(() => timeoutController.abort(), this.timeout);
+
+            const combinedSignal = userSignal
+                ? this.combineSignals(userSignal, timeoutController.signal)
+                : timeoutController.signal;
+
+            try {
+                response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(body),
+                    signal: combinedSignal,
+                });
+            } finally {
+                clearTimeout(timerId);
+            }
+        } catch (error) {
+            const err = error as Error;
+
+            // User cancelled
+            if (err.name === 'AbortError' && userSignal?.aborted) {
+                throw new ApiError('Request cancelled.', 'cancelled', 0, false);
+            }
+
+            // Timeout (timeout controller fired, not user abort)
+            if (err.name === 'AbortError') {
+                throw new ApiError(
+                    `MLX server request timed out after ${this.timeout / 1000}s. ` +
+                    'Local inference can be slow — consider increasing the timeout in your config.',
+                    'timeout',
+                    0,
+                    true,
+                );
+            }
+
+            // Network error (ECONNREFUSED, ENOTFOUND, etc.)
+            throw new ApiError(
+                `Cannot connect to MLX server at ${this.baseUrl}. Make sure it is running.`,
+                'network_error',
+                0,
+                true,
+            );
+        }
 
         if (!response.ok) {
-            throw new Error(`MLX API error: ${response.status} ${response.statusText}`);
+            throw await this.buildApiError(response);
         }
 
         const data: MLXChatResponse = await response.json();
@@ -179,5 +279,54 @@ export class MLXProvider implements LLMProvider {
             usage,
             raw: data
         };
+    }
+
+    private async buildApiError(response: Response): Promise<ApiError> {
+        let errorDetail = '';
+        try {
+            const body = (await response.json()) as Record<string, unknown>;
+            const maybeError = body?.error;
+            if (maybeError && typeof maybeError === 'object') {
+                errorDetail = (maybeError as Record<string, unknown>)?.message as string ?? '';
+            } else if (typeof maybeError === 'string') {
+                errorDetail = maybeError;
+            } else if (typeof body?.message === 'string') {
+                errorDetail = body.message;
+            }
+            if (typeof errorDetail === 'object') {
+                errorDetail = JSON.stringify(errorDetail);
+            }
+        } catch {
+            try {
+                errorDetail = await response.text();
+            } catch {
+                // Ignore
+            }
+        }
+
+        return classifyApiError(response.status, errorDetail, response.headers);
+    }
+
+    private isNonRetryableError(error: Error): boolean {
+        if (error instanceof ApiError) {
+            return !error.retryable;
+        }
+        const classified = classifyApiError(0, error.message);
+        return !classified.retryable;
+    }
+
+    private combineSignals(signal1: AbortSignal, signal2: AbortSignal): AbortSignal {
+        const controller = new AbortController();
+        const abort = () => controller.abort();
+        signal1.addEventListener('abort', abort, { once: true });
+        signal2.addEventListener('abort', abort, { once: true });
+        if (signal1.aborted || signal2.aborted) {
+            controller.abort();
+        }
+        return controller.signal;
+    }
+
+    private sleep(ms: number): Promise<void> {
+        return new Promise((resolve) => setTimeout(resolve, ms));
     }
 }

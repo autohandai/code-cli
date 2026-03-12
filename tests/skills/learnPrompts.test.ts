@@ -198,6 +198,58 @@ describe('learnPrompts', () => {
     });
   });
 
+  describe('buildLearnUserPrompt registry handling', () => {
+    it('does not dump full registry when skills exceed threshold', () => {
+      const analysis = makeAnalysis({ languages: ['typescript'], frameworks: ['react'] });
+
+      // Generate a large registry with no language/framework match
+      const manySkills = Array.from({ length: 50 }, (_, i) =>
+        makeRegistrySkill({
+          id: `skill-${i}`,
+          name: `Skill ${i}`,
+          description: `Description for skill ${i}`,
+          languages: ['ruby'],
+          frameworks: ['rails'],
+        }),
+      );
+
+      const prompt = buildLearnUserPrompt(analysis, [], manySkills);
+
+      // Should mention find_agent_skills, not list all 50
+      expect(prompt).toContain('find_agent_skills');
+      expect(prompt).not.toContain('skill-49');
+    });
+
+    it('shows matching skills filtered by project stack', () => {
+      const analysis = makeAnalysis({ languages: ['typescript'], frameworks: ['react'] });
+
+      const skills = [
+        makeRegistrySkill({ id: 'ts-skill', languages: ['typescript'], frameworks: [] }),
+        makeRegistrySkill({ id: 'ruby-skill', languages: ['ruby'], frameworks: ['rails'] }),
+      ];
+
+      const prompt = buildLearnUserPrompt(analysis, [], skills);
+      expect(prompt).toContain('ts-skill');
+      expect(prompt).not.toContain('ruby-skill');
+    });
+
+    it('includes registry count summary', () => {
+      const analysis = makeAnalysis();
+      const skills = [makeRegistrySkill()];
+
+      const prompt = buildLearnUserPrompt(analysis, [], skills);
+      expect(prompt).toMatch(/1 community skill/);
+    });
+
+    it('mentions find_agent_skills tool when registry has skills', () => {
+      const analysis = makeAnalysis();
+      const skills = [makeRegistrySkill()];
+
+      const prompt = buildLearnUserPrompt(analysis, [], skills);
+      expect(prompt).toContain('find_agent_skills');
+    });
+  });
+
   describe('buildLearnGenerationSystemPrompt', () => {
     it('returns string with "exactly 1", "JSON", "name", "allowedTools", "body"', () => {
       const prompt = buildLearnGenerationSystemPrompt();

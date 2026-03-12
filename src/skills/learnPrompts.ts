@@ -98,14 +98,40 @@ export function buildLearnUserPrompt(
   if (registrySkills.length === 0) {
     parts.push('No community skills available in the catalog.');
   } else {
-    for (const skill of registrySkills) {
-      const tags = skill.tags?.join(', ') ?? '';
-      const languages = skill.languages?.join(', ') ?? '';
-      const frameworks = skill.frameworks?.join(', ') ?? '';
-      parts.push(
-        `- **${skill.id}**: ${skill.description} [category: ${skill.category}] [tags: ${tags}] [languages: ${languages}] [frameworks: ${frameworks}]`,
+    const skillWord = registrySkills.length === 1 ? 'community skill' : 'community skills';
+    parts.push(`${registrySkills.length} ${skillWord} available.`);
+
+    // Show only skills that match the project's languages/frameworks
+    const projectLanguages = new Set(analysis.languages.map((l) => l.toLowerCase()));
+    const projectFrameworks = new Set(analysis.frameworks.map((f) => f.toLowerCase()));
+
+    const relevant = registrySkills.filter((skill) => {
+      const skillLangs = (skill.languages ?? []).map((l) => l.toLowerCase());
+      const skillFw = (skill.frameworks ?? []).map((f) => f.toLowerCase());
+      return (
+        skillLangs.some((l) => projectLanguages.has(l)) ||
+        skillFw.some((f) => projectFrameworks.has(f))
       );
+    });
+
+    if (relevant.length > 0) {
+      parts.push('');
+      parts.push(`## Matching Skills (${relevant.length} match project stack)`);
+      for (const skill of relevant.slice(0, 15)) {
+        const tags = skill.tags?.join(', ') ?? '';
+        const languages = skill.languages?.join(', ') ?? '';
+        const frameworks = skill.frameworks?.join(', ') ?? '';
+        parts.push(
+          `- **${skill.id}**: ${skill.description} [category: ${skill.category}] [tags: ${tags}] [languages: ${languages}] [frameworks: ${frameworks}]`,
+        );
+      }
+      if (relevant.length > 15) {
+        parts.push(`  ... and ${relevant.length - 15} more matching skills`);
+      }
     }
+
+    parts.push('');
+    parts.push('Use the `find_agent_skills` tool to search for additional skills by keyword, category, or framework.');
   }
 
   parts.push('');

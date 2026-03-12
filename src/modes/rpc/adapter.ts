@@ -5,6 +5,7 @@
 
 import type { AutohandAgent } from '../../core/agent.js';
 import { McpClientManager } from '../../mcp/McpClientManager.js';
+import { classifyApiError, type ApiErrorCode } from '../../providers/errors.js';
 import type { ConversationManager } from '../../core/conversationManager.js';
 import type {
   LLMMessage,
@@ -47,6 +48,12 @@ import type {
   McpSetVscodeToolsParams,
   McpInvokeResponseParams,
   McpGetServerConfigsResult,
+  LearnRecommendParams,
+  LearnRecommendResult,
+  LearnUpdateParams,
+  LearnUpdateResult,
+  LearnGenerateParams,
+  LearnGenerateResult,
 } from './types.js';
 import {
   RPC_NOTIFICATIONS,
@@ -55,6 +62,54 @@ import {
 } from './types.js';
 import { writeNotification, createTimestamp, generateId } from './protocol.js';
 import { ImageManager, type ImageMimeType, supportsVision } from '../../core/ImageManager.js';
+
+// ---------------------------------------------------------------------------
+// ApiErrorCode → RPC-specific error shape mapping
+// ---------------------------------------------------------------------------
+const RPC_ERROR_TYPE_MAP: Record<ApiErrorCode, string> = {
+  context_overflow: 'context',
+  model_not_found: 'model',
+  invalid_request: 'context',
+  auth_failed: 'auth',
+  payment_required: 'payment',
+  access_denied: 'model',
+  rate_limited: 'rate_limit',
+  server_error: 'server',
+  network_error: 'network',
+  timeout: 'network',
+  cancelled: 'unknown',
+  unknown: 'unknown',
+};
+
+const RPC_ERROR_CODE_MAP: Record<ApiErrorCode, number> = {
+  context_overflow: 400,
+  model_not_found: 404,
+  invalid_request: 400,
+  auth_failed: 401,
+  payment_required: 402,
+  access_denied: 403,
+  rate_limited: 429,
+  server_error: 500,
+  network_error: 504,
+  timeout: 504,
+  cancelled: -32000,
+  unknown: -32000,
+};
+
+const RPC_ERROR_ICON_MAP: Record<ApiErrorCode, string> = {
+  context_overflow: '\uD83D\uDCE6',  // 📦
+  model_not_found: '\uD83E\uDD16',   // 🤖
+  invalid_request: '\uD83D\uDCE6',   // 📦
+  auth_failed: '\uD83D\uDD10',       // 🔐
+  payment_required: '\uD83D\uDCB3',  // 💳
+  access_denied: '\uD83E\uDD16',     // 🤖
+  rate_limited: '\u23F1\uFE0F',      // ⏱️
+  server_error: '\uD83D\uDD27',      // 🔧
+  network_error: '\uD83C\uDF10',     // 🌐
+  timeout: '\uD83C\uDF10',           // 🌐
+  cancelled: '\u26A0\uFE0F',         // ⚠️
+  unknown: '\u26A0\uFE0F',           // ⚠️
+};
 
 /**
  * Descriptor for a VS Code MCP tool registered by the extension
@@ -1251,6 +1306,255 @@ export class RPCAdapter {
   }
 
   // ============================================================================
+  // Learn Command Methods (RPC Mode)
+  // ============================================================================
+
+  /**
+   * Handle /learn recommend - analyze project and recommend skills
+   */
+  async handleLearnRecommend(
+    requestId: JsonRpcId,
+    params?: LearnRecommendParams
+  ): Promise<LearnRecommendResult> {
+    try {
+      const { ProjectAnalyzer } = await import('../../skills/autoSkill.js');
+      const { CommunitySkillsCache } = await import('../../skills/CommunitySkillsCache.js');
+      const { GitHubRegistryFetcher } = await import('../../skills/GitHubRegistryFetcher.js');
+      const { fetchRegistryWithFallback } = await import('../../skills/communityInstaller.js');
+      const { LearnAdvisor } = await import('../../skills/LearnAdvisor.js');
+
+      const workspace = this.workspace || process.cwd();
+      const deep = params?.deep ?? false;
+
+      // Emit progress: analyzing
+      writeNotification(RPC_NOTIFICATIONS.LEARN_PROGRESS, {
+        status: 'analyzing',
+        timestamp: createTimestamp(),
+      });
+
+      process.stderr.write(`[RPC] Learn recommend: analyzing project (deep=${deep})\n`);
+      const analyzer = new ProjectAnalyzer(workspace);
+      const analysis = await analyzer.analyze();
+
+      // Emit progress: loading-registry
+      writeNotification(RPC_NOTIFICATIONS.LEARN_PROGRESS, {
+        status: 'loading-registry',
+        timestamp: createTimestamp(),
+      });
+
+      const cache = new CommunitySkillsCache();
+      const fetcher = new GitHubRegistryFetcher();
+      let registry;
+      try {
+        registry = await fetchRegistryWithFallback(cache, fetcher);
+      } catch {
+        // Registry unavailable - continue with empty
+      }
+
+      const skillsRegistry = this.agent?.getSkillsRegistry?.();
+      const installedSkills = skillsRegistry?.listSkills() ?? [];
+      const registrySkills = registry?.skills ?? [];
+
+      // Emit progress: evaluating
+      writeNotification(RPC_NOTIFICATIONS.LEARN_PROGRESS, {
+        status: 'evaluating',
+        timestamp: createTimestamp(),
+      });
+
+      const llm = this.agent?.getLlmProvider?.();
+      if (!llm) {
+        return {
+          success: false,
+          projectSummary: '',
+          audit: [],
+          recommendations: [],
+          gapAnalysis: null,
+          error: 'LLM provider not available',
+        };
+      }
+
+      const advisor = new LearnAdvisor(llm);
+      const result = await advisor.analyze(analysis, installedSkills, registrySkills);
+
+      return {
+        success: true,
+        projectSummary: result.projectSummary,
+        audit: result.audit,
+        recommendations: result.recommendations,
+        gapAnalysis: result.gapAnalysis,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      process.stderr.write(`[RPC] Learn recommend failed: ${message}\n`);
+      return {
+        success: false,
+        projectSummary: '',
+        audit: [],
+        recommendations: [],
+        gapAnalysis: null,
+        error: message,
+      };
+    }
+  }
+
+  /**
+   * Handle /learn update - regenerate stale LLM-generated skills
+   */
+  async handleLearnUpdate(
+    requestId: JsonRpcId,
+    params?: LearnUpdateParams
+  ): Promise<LearnUpdateResult> {
+    try {
+      const { ProjectAnalyzer } = await import('../../skills/autoSkill.js');
+      const { computeProjectHash, injectGeneratedMetadata } = await import('../../skills/communityInstaller.js');
+      const { LearnAdvisor } = await import('../../skills/LearnAdvisor.js');
+      const fse = await import('fs-extra');
+
+      const workspace = this.workspace || process.cwd();
+
+      writeNotification(RPC_NOTIFICATIONS.LEARN_PROGRESS, {
+        status: 'updating',
+        timestamp: createTimestamp(),
+      });
+
+      process.stderr.write('[RPC] Learn update: checking for stale skills\n');
+      const analyzer = new ProjectAnalyzer(workspace);
+      const analysis = await analyzer.analyze();
+      const currentHash = computeProjectHash(analysis);
+
+      const skillsRegistry = this.agent?.getSkillsRegistry?.();
+      if (!skillsRegistry) {
+        return { success: false, updated: 0, unchanged: 0, results: [], error: 'Skills registry not available' };
+      }
+
+      const allSkills = skillsRegistry.listSkills();
+      const generatedSkills = allSkills.filter(
+        (s: { metadata?: Record<string, unknown> }) => s.metadata?.['agentskill-source'] === 'llm-generated',
+      );
+
+      if (generatedSkills.length === 0) {
+        return { success: true, updated: 0, unchanged: 0, results: [] };
+      }
+
+      const llm = this.agent?.getLlmProvider?.();
+      if (!llm) {
+        return { success: false, updated: 0, unchanged: 0, results: [], error: 'LLM provider not available' };
+      }
+
+      const advisor = new LearnAdvisor(llm);
+      let updated = 0;
+      let unchanged = 0;
+      const results: Array<{ name: string; status: 'updated' | 'unchanged' | 'failed' }> = [];
+
+      for (const skill of generatedSkills) {
+        const storedHash = skill.metadata?.['agentskill-project-hash'];
+
+        if (storedHash === currentHash) {
+          unchanged++;
+          results.push({ name: skill.name, status: 'unchanged' });
+          continue;
+        }
+
+        const generated = await advisor.generateSkill(analysis, null, []);
+
+        if (!generated) {
+          results.push({ name: skill.name, status: 'failed' });
+          continue;
+        }
+
+        let frontmatter = `---\nname: ${generated.name}\ndescription: ${generated.description}\n`;
+        if (generated.allowedTools.length > 0) {
+          frontmatter += `allowed-tools: ${generated.allowedTools.join(' ')}\n`;
+        }
+        frontmatter += `---\n\n`;
+        let content = frontmatter + generated.body + '\n';
+        content = injectGeneratedMetadata(content, skill.name, currentHash);
+
+        try {
+          await fse.writeFile(skill.path, content, 'utf-8');
+          updated++;
+          results.push({ name: skill.name, status: 'updated' });
+        } catch {
+          results.push({ name: skill.name, status: 'failed' });
+        }
+      }
+
+      return { success: true, updated, unchanged, results };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      process.stderr.write(`[RPC] Learn update failed: ${message}\n`);
+      return { success: false, updated: 0, unchanged: 0, results: [], error: message };
+    }
+  }
+
+  /**
+   * Handle /learn generate - generate a custom skill for the project
+   */
+  async handleLearnGenerate(
+    requestId: JsonRpcId,
+    params: LearnGenerateParams
+  ): Promise<LearnGenerateResult> {
+    try {
+      const { ProjectAnalyzer } = await import('../../skills/autoSkill.js');
+      const { computeProjectHash, injectGeneratedMetadata } = await import('../../skills/communityInstaller.js');
+      const { LearnAdvisor } = await import('../../skills/LearnAdvisor.js');
+      const { AUTOHAND_PATHS, PROJECT_DIR_NAME } = await import('../../constants.js');
+      const fse = await import('fs-extra');
+      const path = await import('node:path');
+
+      const workspace = this.workspace || process.cwd();
+      const scope = params.scope;
+
+      writeNotification(RPC_NOTIFICATIONS.LEARN_PROGRESS, {
+        status: 'generating',
+        timestamp: createTimestamp(),
+      });
+
+      process.stderr.write(`[RPC] Learn generate: scope=${scope}\n`);
+
+      const llm = this.agent?.getLlmProvider?.();
+      if (!llm) {
+        return { success: false, error: 'LLM provider not available' };
+      }
+
+      const analyzer = new ProjectAnalyzer(workspace);
+      const analysis = await analyzer.analyze();
+      const projectHash = computeProjectHash(analysis);
+
+      const advisor = new LearnAdvisor(llm);
+      const generated = await advisor.generateSkill(analysis, null, []);
+
+      if (!generated) {
+        return { success: false, error: 'Failed to generate a custom skill' };
+      }
+
+      let frontmatter = `---\nname: ${generated.name}\ndescription: ${generated.description}\n`;
+      if (generated.allowedTools.length > 0) {
+        frontmatter += `allowed-tools: ${generated.allowedTools.join(' ')}\n`;
+      }
+      frontmatter += `---\n\n`;
+      let skillContent = frontmatter + generated.body + '\n';
+      skillContent = injectGeneratedMetadata(skillContent, generated.name, projectHash);
+
+      const targetDir =
+        scope === 'project'
+          ? path.join(workspace, PROJECT_DIR_NAME, 'skills')
+          : AUTOHAND_PATHS.skills;
+
+      const skillDir = path.join(targetDir, generated.name);
+      await fse.ensureDir(skillDir);
+      const skillPath = path.join(skillDir, 'SKILL.md');
+      await fse.writeFile(skillPath, skillContent, 'utf-8');
+
+      return { success: true, skillName: generated.name, skillPath };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      process.stderr.write(`[RPC] Learn generate failed: ${message}\n`);
+      return { success: false, error: message };
+    }
+  }
+
+  // ============================================================================
   // Session History, YOLO, and MCP Handlers
   // ============================================================================
 
@@ -1677,7 +1981,9 @@ export class RPCAdapter {
   }
 
   /**
-   * Classify error messages for appropriate UI treatment
+   * Classify error messages for appropriate UI treatment.
+   * Delegates to the shared classifyApiError() and maps the result
+   * to the RPC-specific shape (type, code, icon, recoverable).
    */
   private classifyError(message: string): {
     type: string;
@@ -1685,80 +1991,13 @@ export class RPCAdapter {
     icon: string;
     recoverable: boolean;
   } {
-    const lowerMessage = message.toLowerCase();
-
-    // Payment/billing errors
-    if (
-      lowerMessage.includes('payment required') ||
-      lowerMessage.includes('insufficient') ||
-      lowerMessage.includes('balance') ||
-      lowerMessage.includes('billing') ||
-      lowerMessage.includes("can only afford")
-    ) {
-      return { type: 'payment', code: 402, icon: '💳', recoverable: false };
-    }
-
-    // Authentication errors
-    if (
-      lowerMessage.includes('authentication') ||
-      lowerMessage.includes('unauthorized') ||
-      lowerMessage.includes('invalid api key') ||
-      lowerMessage.includes('api key')
-    ) {
-      return { type: 'auth', code: 401, icon: '🔐', recoverable: false };
-    }
-
-    // Rate limiting
-    if (
-      lowerMessage.includes('rate limit') ||
-      lowerMessage.includes('too many requests') ||
-      lowerMessage.includes('quota')
-    ) {
-      return { type: 'rate_limit', code: 429, icon: '⏱️', recoverable: true };
-    }
-
-    // Model/access errors
-    if (
-      lowerMessage.includes('model not found') ||
-      lowerMessage.includes('access denied') ||
-      lowerMessage.includes('permission')
-    ) {
-      return { type: 'model', code: 403, icon: '🤖', recoverable: true };
-    }
-
-    // Context/payload too large
-    if (
-      lowerMessage.includes('too large') ||
-      lowerMessage.includes('context') ||
-      lowerMessage.includes('payload') ||
-      lowerMessage.includes('malformed')
-    ) {
-      return { type: 'context', code: 400, icon: '📦', recoverable: true };
-    }
-
-    // Network/timeout errors
-    if (
-      lowerMessage.includes('timeout') ||
-      lowerMessage.includes('network') ||
-      lowerMessage.includes('connection') ||
-      lowerMessage.includes('econnrefused') ||
-      lowerMessage.includes('enotfound')
-    ) {
-      return { type: 'network', code: 504, icon: '🌐', recoverable: true };
-    }
-
-    // Server errors
-    if (
-      lowerMessage.includes('internal error') ||
-      lowerMessage.includes('server error') ||
-      lowerMessage.includes('unavailable') ||
-      lowerMessage.includes('overloaded')
-    ) {
-      return { type: 'server', code: 500, icon: '🔧', recoverable: true };
-    }
-
-    // Default: generic error
-    return { type: 'unknown', code: -32000, icon: '⚠️', recoverable: true };
+    const classified = classifyApiError(0, message);
+    return {
+      type: RPC_ERROR_TYPE_MAP[classified.code] ?? 'unknown',
+      code: RPC_ERROR_CODE_MAP[classified.code] ?? -32000,
+      icon: RPC_ERROR_ICON_MAP[classified.code] ?? '\u26A0\uFE0F',
+      recoverable: classified.retryable,
+    };
   }
 
   /**

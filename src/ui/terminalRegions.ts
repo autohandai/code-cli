@@ -414,6 +414,51 @@ export class TerminalRegions {
   }
 
   /**
+   * Render an overlay at the bottom of the scroll region, overwriting in-place.
+   * Unlike writeAbove, this does NOT scroll — it positions the cursor at
+   * specific rows and overwrites them. Returns the number of lines rendered.
+   * Use clearOverlay() with the returned count to erase when done.
+   */
+  renderOverlay(lines: string[]): number {
+    if (!this.isActive || lines.length === 0) return 0;
+
+    const { height } = this.getDimensions();
+    const scrollEnd = height - this.fixedLines;
+    const count = Math.min(lines.length, scrollEnd); // Don't exceed scroll region
+    const startRow = scrollEnd - count + 1;
+
+    // Save cursor, render each line at a fixed absolute row, restore cursor
+    this.output.write(`${CSI}s`);
+    for (let i = 0; i < count; i++) {
+      this.output.write(`${CSI}${startRow + i};1H`);
+      this.output.write(`${CSI}K`); // erase line
+      this.output.write(lines[i]);
+    }
+    this.output.write(`${CSI}u`);
+    this.focusInputCursor();
+    return count;
+  }
+
+  /**
+   * Clear a previously rendered overlay at the bottom of the scroll region.
+   */
+  clearOverlay(lineCount: number): void {
+    if (!this.isActive || lineCount <= 0) return;
+
+    const { height } = this.getDimensions();
+    const scrollEnd = height - this.fixedLines;
+    const startRow = scrollEnd - lineCount + 1;
+
+    this.output.write(`${CSI}s`);
+    for (let i = 0; i < lineCount; i++) {
+      this.output.write(`${CSI}${startRow + i};1H`);
+      this.output.write(`${CSI}K`);
+    }
+    this.output.write(`${CSI}u`);
+    this.focusInputCursor();
+  }
+
+  /**
    * Write a message that appears above the fixed region (in scroll area)
    * This is useful for showing queued confirmations
    */

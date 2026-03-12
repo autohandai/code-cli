@@ -18,6 +18,7 @@ import { FileActionManager } from '../actions/filesystem.js';
 import { saveConfig, getProviderConfig } from '../config.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import { ProviderNotConfiguredError } from '../providers/ProviderFactory.js';
+import { ApiError, classifyApiError } from '../providers/errors.js';
 import {
   getPromptBlockWidth,
   promptInterrupt,
@@ -837,6 +838,20 @@ export class AutohandAgent {
       isContextCompactionEnabled: () => this.isContextCompactionEnabled(),
       // Non-interactive mode (RPC/ACP) - guards interactive commands
       isNonInteractive: runtime.isRpcMode === true,
+      onBeforeModal: () => {
+        if (this.persistentInputActiveTurn) {
+          this.persistentInput.pause();
+        }
+      },
+      onAfterModal: () => {
+        if (this.persistentInputActiveTurn) {
+          this.persistentInput.resume();
+        }
+      },
+      // After /learn recommends a skill, seed the next prompt with the install command
+      onTopRecommendation: (slug: string) => {
+        this.promptSeedInput = `/skills install @${slug}`;
+      },
       // Team manager for /team, /tasks, /message commands
       teamManager: this.teamManager,
       // Repeat manager for /repeat recurring prompt scheduling
@@ -1585,7 +1600,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         // Echo the user's slash command to the chat log so it's visible
         console.log(chalk.white(`\n› ${normalized}`));
 
-        const handled = await this.handleSlashCommand(command, args);
+        const handled = await this.runSlashCommandWithInput(command, args);
         if (handled !== null) {
           // Slash command returned display output - print it, don't send to LLM
           console.log(handled);
@@ -2104,8 +2119,18 @@ If lint or tests fail, report the issues but do NOT commit.`;
       this.updateContextUsage(this.conversation.history());
       await this.runReactLoop(abortController);
 
-      // Run quality pipeline after file modifications in implementation mode
+      // Run quality pipeline after file modifications in implementation mode.
+      // Stop PersistentInput FIRST so quality output goes to raw stdout
+      // instead of being routed through writeAbove in scroll regions
+      // (which gets torn down in the finally block, making output invisible).
       if (this.lastIntent === 'implementation' && this.filesModifiedThisSession) {
+        if (this.persistentInputActiveTurn) {
+          this.promptSeedInput = this.persistentInput.getCurrentInput();
+          this.persistentInput.stop();
+          this.persistentInputActiveTurn = false;
+        }
+        cleanupConsoleBridge();
+        cleanupConsoleBridge = () => {}; // Prevent double-cleanup in finally
         await this.runQualityPipeline();
       }
     } catch (error) {
@@ -2528,7 +2553,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         if (debugMode) process.stderr.write(`[AGENT DEBUG] LLM STACK: ${errStack}\n`);
 
         // Detect context overflow (400 from API) and auto-compact before retrying
-        if (this.isContextOverflowError(errMsg)) {
+        if (this.isContextOverflowError(llmError instanceof Error ? llmError : errMsg)) {
           // Auto-report context overflow (fire-and-forget)
           this.autoReportManager.reportError(
             llmError instanceof Error ? llmError : new Error(errMsg),
@@ -4680,14 +4705,16 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Detect context-overflow errors from API 400 responses.
    * These are recoverable via auto-compaction and retry.
    */
-  private isContextOverflowError(message: string): boolean {
-    const lower = message.toLowerCase();
-    return (
-      (lower.includes('context') && lower.includes('too long')) ||
-      lower.includes('maximum context length') ||
-      lower.includes('prompt is too long') ||
-      lower.includes('reduce the length')
-    );
+  private isContextOverflowError(errorOrMessage: Error | string): boolean {
+    // Prefer structured ApiError when available
+    if (errorOrMessage instanceof ApiError) {
+      return errorOrMessage.code === 'context_overflow';
+    }
+
+    // String fallback for non-ApiError providers — use the shared classifier
+    const message = typeof errorOrMessage === 'string' ? errorOrMessage : errorOrMessage.message;
+    const classified = classifyApiError(0, message);
+    return classified.code === 'context_overflow';
   }
 
   /**
@@ -4695,94 +4722,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Returns true if the error is retryable.
    */
   private isRetryableSessionError(error: Error): boolean {
-    const message = error.message.toLowerCase();
-
-    // NON-RETRYABLE ERRORS (should fail immediately):
-
-    // Authentication/authorization errors
-    if (message.includes('authentication') ||
-        message.includes('api key') ||
-        message.includes('unauthorized') ||
-        message.includes('forbidden') ||
-        message.includes('access denied')) {
-      return false;
-    }
-
-    // Payment/billing errors
-    if (message.includes('payment required') ||
-        message.includes('billing') ||
-        message.includes('quota exceeded')) {
-      return false;
-    }
-
-    // Model not found
-    if (message.includes('model not found') ||
-        message.includes('model does not exist')) {
-      return false;
-    }
-
-    // User cancellation
-    if (message.includes('cancelled') ||
-        message.includes('canceled') ||
-        message.includes('aborted') ||
-        message.includes('user force closed')) {
-      return false;
-    }
-
-    // Context/payload overflow - retryable (auto-compaction handles recovery)
-    if (message.includes('payload too large') ||
-        (message.includes('context') && message.includes('too long')) ||
-        message.includes('maximum context length') ||
-        message.includes('prompt is too long')) {
-      return true;
-    }
-
-    // Other malformed errors remain non-retryable
-    if (message.includes('malformed')) {
-      return false;
-    }
-
-    // RETRYABLE ERRORS (transient failures):
-
-    // Network/connection issues
-    if (message.includes('network') ||
-        message.includes('connection') ||
-        message.includes('econnreset') ||
-        message.includes('enotfound') ||
-        message.includes('etimedout')) {
-      return true;
-    }
-
-    // Server-side errors (5xx)
-    if (message.includes('internal error') ||
-        message.includes('service unavailable') ||
-        message.includes('bad gateway') ||
-        message.includes('gateway timeout') ||
-        message.includes('overloaded')) {
-      return true;
-    }
-
-    // Rate limiting (worth retrying after delay)
-    if (message.includes('rate limit') ||
-        message.includes('too many requests')) {
-      return true;
-    }
-
-    // Timeout errors
-    if (message.includes('timed out') ||
-        message.includes('timeout')) {
-      return true;
-    }
-
-    // JSON parsing errors (LLM returned malformed response)
-    if (message.includes('json') ||
-        message.includes('parse') ||
-        message.includes('unexpected token')) {
-      return true;
-    }
-
-    // Generic/unknown errors - default to retry
-    return true;
+    if (error instanceof ApiError) return error.retryable;
+    const classified = classifyApiError(0, error.message);
+    return classified.retryable;
   }
 
   /**
@@ -5167,6 +5109,56 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
     await this.mcpManager.connectAll(configs);
     this.syncMcpTools();
+  }
+
+  /**
+   * Run a slash command with PersistentInput active so the user can type
+   * while long-running commands like /learn execute. This prevents blocking
+   * the composer during commands that involve LLM calls or network requests.
+   */
+  private async runSlashCommandWithInput(command: string, args: string[]): Promise<string | null> {
+    const queueEnabled = this.runtime.config.agent?.enableRequestQueue !== false;
+    const canUsePersistentInput =
+      process.stdout.isTTY && process.stdin.isTTY && queueEnabled && !this.inkRenderer;
+
+    let cleanupConsoleBridge: () => void = () => {};
+
+    if (canUsePersistentInput) {
+      this.persistentInput.start();
+      this.persistentInputActiveTurn = true;
+      // Install console bridge so console.log output from slash commands
+      // (e.g. /learn progress messages) routes through writeAbove() into
+      // the scroll region instead of landing on the fixed-region status line.
+      cleanupConsoleBridge = this.installPersistentConsoleBridge();
+    }
+
+    try {
+      const result = await this.handleSlashCommand(command, args);
+      return result;
+    } finally {
+      if (this.persistentInputActiveTurn) {
+        // Preserve any text the user typed while the slash command ran.
+        // Prefer current input; if empty, take the first queued item as seed
+        // so the user can review before submitting. Do NOT auto-process
+        // queued items from a slash command context.
+        const typed = this.persistentInput.getCurrentInput();
+        if (typed.trim()) {
+          this.promptSeedInput = typed;
+        } else if (this.persistentInput.hasQueued()) {
+          const first = this.persistentInput.dequeue();
+          if (first) {
+            this.promptSeedInput = first.text;
+          }
+        }
+        // Drain remaining queued items — they should not be auto-processed
+        while (this.persistentInput.hasQueued()) {
+          this.persistentInput.dequeue();
+        }
+        this.persistentInput.stop();
+        this.persistentInputActiveTurn = false;
+      }
+      cleanupConsoleBridge();
+    }
   }
 
   /**
