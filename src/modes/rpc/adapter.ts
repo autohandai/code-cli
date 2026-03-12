@@ -1401,8 +1401,8 @@ export class RPCAdapter {
    * Handle /learn update - regenerate stale LLM-generated skills
    */
   async handleLearnUpdate(
-    requestId: JsonRpcId,
-    params?: LearnUpdateParams
+    _requestId: JsonRpcId,
+    _params?: LearnUpdateParams
   ): Promise<LearnUpdateResult> {
     try {
       const { ProjectAnalyzer } = await import('../../skills/autoSkill.js');
