@@ -147,9 +147,13 @@ export class AuthClient {
         authenticated: true,
         user: data.user || data,
       };
-    } catch {
+    } catch (error) {
       clearTimeout(timeoutId);
-      return { authenticated: false };
+      // Re-throw network/timeout errors so callers can distinguish
+      // "server confirmed invalid" from "couldn't reach server".
+      // Without this, validateAuthOnStartup silently wipes credentials
+      // on any transient network failure.
+      throw error;
     }
   }
 
