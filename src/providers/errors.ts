@@ -119,6 +119,7 @@ const MODEL_NOT_FOUND_PATTERNS = [
 const CONTEXT_OVERFLOW_PATTERNS = [
   'maximum context length',
   'context length exceeded',
+  'context is too long',
   'prompt is too long',
   'reduce the length',
   'payload too large',

@@ -4699,46 +4699,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Returns true if the error is retryable.
    */
   private isRetryableSessionError(error: Error): boolean {
-    // Prefer structured ApiError when available
-    if (error instanceof ApiError) {
-      return error.retryable;
-    }
-
-    // Fallback: heuristic string matching for non-ApiError providers
-    const message = error.message.toLowerCase();
-
-    // NON-RETRYABLE ERRORS (should fail immediately):
-    if (message.includes('authentication') ||
-        message.includes('api key') ||
-        message.includes('unauthorized') ||
-        message.includes('forbidden') ||
-        message.includes('access denied')) {
-      return false;
-    }
-    if (message.includes('payment required') ||
-        message.includes('billing') ||
-        message.includes('quota exceeded')) {
-      return false;
-    }
-    if (message.includes('model not found') ||
-        message.includes('model does not exist') ||
-        message.includes('invalid model')) {
-      return false;
-    }
-    if (message.includes('cancelled') ||
-        message.includes('canceled') ||
-        message.includes('aborted') ||
-        message.includes('user force closed')) {
-      return false;
-    }
-    if (message.includes('malformed')) {
-      return false;
-    }
-
-    // RETRYABLE ERRORS:
-    // Context overflow, network, server, rate-limit, timeout, JSON parse
-    // all default to retry
-    return true;
+    if (error instanceof ApiError) return error.retryable;
+    const classified = classifyApiError(0, error.message);
+    return classified.retryable;
   }
 
   /**
