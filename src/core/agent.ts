@@ -1575,13 +1575,17 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const statusLine = this.formatStatusLine();
     const initialValue = this.promptSeedInput;
     this.promptSeedInput = '';
-    // Wait for the pending suggestion LLM call to finish (max 1.5s).
-    // The call was started right after the previous turn completed and runs
-    // concurrently with hooks/notifications, so it's usually already done.
-    // If it doesn't resolve in time, the default placeholder is shown.
+    // Wait for the pending suggestion LLM call to finish.
+    // Startup: don't block — show the prompt instantly. The user wants to
+    // start typing immediately. If the suggestion resolved already, great;
+    // otherwise the default placeholder is shown.
+    // Turns: wait up to 3s. The user is still reading output so a brief
+    // wait for contextual ghost text is acceptable.
     if (this.pendingSuggestion) {
-      const deadline = new Promise<void>((r) => setTimeout(r, 1500));
-      await Promise.race([this.pendingSuggestion, deadline]).catch(() => {});
+      if (!this.isStartupSuggestion) {
+        const deadline = new Promise<void>((r) => setTimeout(r, 3000));
+        await Promise.race([this.pendingSuggestion, deadline]).catch(() => {});
+      }
       this.isStartupSuggestion = false;
       this.pendingSuggestion = null;
     }
