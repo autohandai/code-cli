@@ -3296,14 +3296,30 @@ If lint or tests fail, report the issues but do NOT commit.`;
         'response' in parsed;
 
       if (hasExpectedFields) {
-        // Standard structured response format
+        // Standard structured response format — also check for inline single tool call
+        // e.g. {"thought": "...", "tool": "write_file", "args": {...}}
+        const inlineToolCall = this.extractSingleToolCall(parsed);
+        const toolCalls = this.normalizeToolCalls(parsed.toolCalls);
+        if (inlineToolCall && !toolCalls.length) {
+          toolCalls.push(inlineToolCall);
+        }
         return {
           thought: typeof parsed.thought === 'string' ? parsed.thought : undefined,
-          toolCalls: this.normalizeToolCalls(parsed.toolCalls),
+          toolCalls,
           finalResponse:
             (typeof parsed.finalResponse === 'string' ? parsed.finalResponse : undefined) ??
             (typeof parsed.response === 'string' ? parsed.response : undefined),
           response: typeof parsed.response === 'string' ? parsed.response : undefined
+        };
+      }
+
+      // Single tool call format: {"tool": "write_file", "args": {"path": "...", "contents": "..."}}
+      // Some models omit the wrapping toolCalls array and return a bare tool call object.
+      const singleToolCall = this.extractSingleToolCall(parsed);
+      if (singleToolCall) {
+        return {
+          thought: typeof parsed.thought === 'string' ? parsed.thought : undefined,
+          toolCalls: [singleToolCall],
         };
       }
 
@@ -3416,6 +3432,18 @@ If lint or tests fail, report the issues but do NOT commit.`;
       tool: entry.tool as AgentAction['type'],
       args
     };
+  }
+
+  /**
+   * Detect a single bare tool call in a parsed JSON object.
+   * Handles: {"tool": "write_file", "args": {...}} or flat-args variant.
+   * Returns null if the object doesn't look like a valid tool call.
+   */
+  private extractSingleToolCall(parsed: Record<string, unknown>): ToolCallRequest | null {
+    if (typeof parsed.tool !== 'string' || !parsed.tool.trim()) {
+      return null;
+    }
+    return this.toToolCall(parsed);
   }
 
   private async handleSmartContextCrop(call: ToolCallRequest): Promise<string> {
