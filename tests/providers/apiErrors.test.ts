@@ -232,6 +232,57 @@ describe('classifyApiError', () => {
   });
 
   // =========================================================================
+  // 400 — "context is too long" regression (Issue 2: missing pattern)
+  // =========================================================================
+  describe('400 — context is too long (regression)', () => {
+    it('classifies "context is too long" as context_overflow', () => {
+      const err = classifyApiError(400, 'The context is too long for this model');
+      expect(err.code).toBe('context_overflow');
+      expect(err.retryable).toBe(true);
+    });
+
+    it('classifies "context is too long" case-insensitively', () => {
+      const err = classifyApiError(400, 'ERROR: Context Is Too Long');
+      expect(err.code).toBe('context_overflow');
+      expect(err.retryable).toBe(true);
+    });
+  });
+
+  // =========================================================================
+  // classifyApiError delegation for non-ApiError errors (Issue 1 regression)
+  // =========================================================================
+  describe('classifyApiError delegation for non-ApiError errors', () => {
+    it('classifies retryable errors correctly via classifyApiError when status is 0', () => {
+      // Simulate what isRetryableSessionError should do for non-ApiError:
+      // delegate to classifyApiError(0, error.message)
+      const classified = classifyApiError(0, 'fetch failed: ECONNREFUSED');
+      expect(classified.retryable).toBe(true);
+      expect(classified.code).toBe('network_error');
+    });
+
+    it('classifies non-retryable cancellation via classifyApiError when status is 0', () => {
+      const classified = classifyApiError(0, 'Request cancelled.');
+      expect(classified.retryable).toBe(false);
+      expect(classified.code).toBe('cancelled');
+    });
+
+    it('classifies unknown errors as retryable via classifyApiError when status is 0', () => {
+      // Generic errors should be retryable (unknown defaults to retryable)
+      const classified = classifyApiError(0, 'some random error');
+      expect(classified.retryable).toBe(true);
+      expect(classified.code).toBe('unknown');
+    });
+
+    it('classifies auth-like messages via body pattern when status is 0', () => {
+      // When there's no HTTP status, the body alone can't identify auth errors
+      // since there's no 401 status — this should fall through to unknown
+      const classified = classifyApiError(0, 'authentication failed');
+      // Without 401 status, the classifier should treat this as unknown
+      expect(classified.code).toBe('unknown');
+    });
+  });
+
+  // =========================================================================
   // FALSE-POSITIVE REGRESSION TESTS (the actual bugs)
   // =========================================================================
   describe('false-positive regressions', () => {
