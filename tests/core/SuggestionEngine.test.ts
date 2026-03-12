@@ -149,6 +149,45 @@ describe('SuggestionEngine', () => {
     });
   });
 
+  describe('permission-aware tool filtering', () => {
+    it('should exclude blacklisted tools from suggestion constraint', async () => {
+      // Simulate the agent's filtering logic: start with all tools,
+      // remove fully-blacklisted ones, pass the rest to SuggestionEngine.
+      const allTools = ['read_file', 'write_file', 'run_command', 'delete_path', 'search'];
+      const blacklist = ['delete_path', 'run_command:rm -rf *']; // delete_path = full block, run_command = pattern only
+      const fullyBlocked = new Set(
+        blacklist.filter(e => !e.includes(':')).map(e => e.trim())
+      );
+      const filtered = allTools.filter(name => !fullyBlocked.has(name));
+
+      // delete_path should be removed (fully blocked)
+      expect(filtered).not.toContain('delete_path');
+      // run_command should remain (only pattern-blocked, not fully blocked)
+      expect(filtered).toContain('run_command');
+      expect(filtered).toContain('read_file');
+
+      const constrainedEngine = new SuggestionEngine(provider, { allowedTools: filtered });
+      await constrainedEngine.generate([{ role: 'user', content: 'test' }]);
+      const call = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const systemMessage = call.messages[0].content;
+      expect(systemMessage).toContain('run_command');
+      expect(systemMessage).not.toContain('delete_path');
+    });
+
+    it('should restrict to read-only tools in restricted permission mode', async () => {
+      // In restricted mode, only read/git_read/meta categories are allowed
+      const readOnlyTools = ['read_file', 'search', 'git_status'];
+      const constrainedEngine = new SuggestionEngine(provider, { allowedTools: readOnlyTools });
+      await constrainedEngine.generate([{ role: 'user', content: 'test' }]);
+      const call = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const systemMessage = call.messages[0].content;
+      expect(systemMessage).toContain('read_file');
+      expect(systemMessage).toContain('search');
+      expect(systemMessage).not.toContain('write_file');
+      expect(systemMessage).not.toContain('delete_path');
+    });
+  });
+
   describe('generateFromProjectContext', () => {
     it('should generate a suggestion from git status and recent files', async () => {
       const contextProvider = createMockProvider('Review the 3 uncommitted files');
