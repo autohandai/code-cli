@@ -322,18 +322,15 @@ export class OpenRouterClient {
   }
 
   private isNonRetryableError(error: Error): boolean {
-    // Prefer structured ApiError when available
+    // OpenRouterClient always throws ApiError from makeRequest/buildApiError,
+    // so the only path here is the ApiError branch. The string-matching fallback
+    // was dead code and has been removed.
     if (error instanceof ApiError) {
       return !error.retryable;
     }
-
-    // Fallback: heuristic string matching for non-ApiError errors
-    const message = error.message.toLowerCase();
-    if (message.includes("cancelled") || message.includes("aborted")) return true;
-    if (message.includes("authentication") || message.includes("api key")) return true;
-    if (message.includes("payment") || message.includes("access denied")) return true;
-    if (message.includes("model not found") || message.includes("model does not exist")) return true;
-    return false;
+    // Defensive: delegate to the centralized classifier for unexpected errors
+    const classified = classifyApiError(0, error.message);
+    return !classified.retryable;
   }
 
   private combineSignals(
