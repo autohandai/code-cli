@@ -74,7 +74,14 @@ async function parseConfigFile(configPath: string): Promise<AutohandConfig | Leg
   const content = await fs.readFile(configPath, 'utf8');
 
   if (isYamlFile(configPath)) {
-    return YAML.parse(content) as AutohandConfig | LegacyConfigShape;
+    const parsed = YAML.parse(content) as AutohandConfig | LegacyConfigShape | null;
+    if (parsed === null || parsed === undefined) {
+      throw new Error(
+        `Config file is empty or contains no valid data. ` +
+        `You can fix this by editing ${configPath}, or delete it and run 'autohand --setup' to recreate.`
+      );
+    }
+    return parsed;
   }
 
   return JSON.parse(content) as AutohandConfig | LegacyConfigShape;
@@ -120,7 +127,14 @@ export async function loadConfig(customPath?: string): Promise<LoadedConfig> {
   try {
     parsed = await parseConfigFile(configPath);
   } catch (error) {
-    throw new Error(`Failed to parse config at ${configPath}: ${(error as Error).message}`);
+    const originalMessage = (error as Error).message;
+    // If the error already contains a recovery suggestion (e.g. from null-YAML guard),
+    // surface it directly so the path context is still prepended.
+    const alreadyHasSuggestion = originalMessage.includes('autohand --setup');
+    const suggestion = alreadyHasSuggestion
+      ? ''
+      : ` You can fix this by editing ${configPath}, or delete it and run 'autohand --setup' to recreate.`;
+    throw new Error(`Failed to parse config at ${configPath}: ${originalMessage}${suggestion}`);
   }
   const normalized = normalizeConfig(parsed);
 
@@ -181,6 +195,13 @@ function mergeEnvVariables(config: AutohandConfig): AutohandConfig {
 }
 
 function normalizeConfig(config: AutohandConfig | LegacyConfigShape): AutohandConfig {
+  if (config === null || config === undefined || typeof config !== 'object') {
+    throw new Error(
+      `Config file produced an invalid value (got ${config === null ? 'null' : typeof config}). ` +
+      `Delete the config file and run 'autohand --setup' to recreate it.`
+    );
+  }
+
   if (isModernConfig(config)) {
     const provider = config.provider ?? 'openrouter';
     return { provider, ...config };
