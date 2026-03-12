@@ -382,6 +382,10 @@ export class SlashCommandHandler {
           const { execute } = await import('../commands/import.js');
           return execute(args);
         }
+        case '/repeat': {
+          const { repeat } = await import('../commands/repeat.js');
+          return repeat({ repeatManager: this.ctx.repeatManager, llm: this.ctx.llm }, args);
+        }
         default:
           this.printUnsupported(command);
           return null;

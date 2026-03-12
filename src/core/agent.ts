@@ -21,6 +21,7 @@ import { ProviderNotConfiguredError } from '../providers/ProviderFactory.js';
 import { ApiError, classifyApiError } from '../providers/errors.js';
 import {
   getPromptBlockWidth,
+  promptInterrupt,
   promptNotify,
   readInstruction,
   safeEmitKeypressEvents
@@ -85,6 +86,7 @@ type InkRenderer = any;
 import { PermissionManager } from '../permissions/PermissionManager.js';
 import { HookManager } from './HookManager.js';
 import { TeamManager } from './teams/TeamManager.js';
+import { RepeatManager } from './RepeatManager.js';
 import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
 import { ActivityIndicator } from '../ui/activityIndicator.js';
 import { NotificationService } from '../utils/notification.js';
@@ -157,6 +159,7 @@ export class AutohandAgent {
   private notificationService: NotificationService;
   private versionCheckResult?: VersionCheckResult;
   private teamManager: TeamManager;
+  private repeatManager: RepeatManager;
   private suggestionEngine: SuggestionEngine | null = null;
   private pendingSuggestion: Promise<void> | null = null;
   private isStartupSuggestion = false;
@@ -287,6 +290,21 @@ export class AutohandAgent {
           promptNotify(chalk.yellow(`[hook:${result.hook.event}] ${result.stderr}`));
         }
       }
+    });
+
+    // Initialize repeat manager for /repeat recurring prompts
+    this.repeatManager = new RepeatManager();
+    this.repeatManager.onTrigger((job) => {
+      // If the agent is busy processing an instruction, queue for later.
+      // The main loop will pick it up when the current turn finishes.
+      if (this.isInstructionActive) {
+        this.pendingInkInstructions.push(job.prompt);
+        return;
+      }
+
+      // Agent is idle — interrupt the blocking prompt so the main loop
+      // can process the instruction through the normal flow.
+      promptInterrupt(job.prompt);
     });
 
     // Initialize team manager for /team, /tasks, /message commands
@@ -836,6 +854,8 @@ export class AutohandAgent {
       },
       // Team manager for /team, /tasks, /message commands
       teamManager: this.teamManager,
+      // Repeat manager for /repeat recurring prompt scheduling
+      repeatManager: this.repeatManager,
     };
     this.slashHandler = new SlashCommandHandler(slashContext, SLASH_COMMANDS);
   }
@@ -1576,6 +1596,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
         if (command === '/quit' || command === '/exit') {
           return command;
         }
+
+        // Echo the user's slash command to the chat log so it's visible
+        console.log(chalk.white(`\n› ${normalized}`));
 
         const handled = await this.runSlashCommandWithInput(command, args);
         if (handled !== null) {
