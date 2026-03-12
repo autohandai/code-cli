@@ -32,9 +32,6 @@ import {
   buildLearnGenerationUserPrompt,
 } from './learnPrompts.js';
 
-/** Kebab-case pattern: lowercase letters, digits, and hyphens only */
-const KEBAB_CASE_RE = /^[a-z0-9-]+$/;
-
 /**
  * Normalize a name to kebab-case. LLMs frequently produce names like
  * "My_Skill Name" or "TypeScript Testing" — convert instead of rejecting.

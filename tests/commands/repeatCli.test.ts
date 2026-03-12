@@ -7,8 +7,8 @@
  * Validates parsing, scheduling, execution, and edge cases for
  * `autohand --repeat "<schedule>" "<prompt>"`.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { parseRepeatFlag, type RepeatFlagOptions } from '../../src/commands/repeatCli.js';
+import { describe, it, expect } from 'vitest';
+import { parseRepeatFlag } from '../../src/commands/repeatCli.js';
 
 // ─── parseRepeatFlag tests ──────────────────────────────────────────────────
 
