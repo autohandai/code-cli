@@ -18,6 +18,7 @@ import { FileActionManager } from '../actions/filesystem.js';
 import { saveConfig, getProviderConfig } from '../config.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import { ProviderNotConfiguredError } from '../providers/ProviderFactory.js';
+import { ApiError, classifyApiError } from '../providers/errors.js';
 import {
   getPromptBlockWidth,
   promptNotify,
@@ -2529,7 +2530,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         if (debugMode) process.stderr.write(`[AGENT DEBUG] LLM STACK: ${errStack}\n`);
 
         // Detect context overflow (400 from API) and auto-compact before retrying
-        if (this.isContextOverflowError(errMsg)) {
+        if (this.isContextOverflowError(llmError instanceof Error ? llmError : errMsg)) {
           // Auto-report context overflow (fire-and-forget)
           this.autoReportManager.reportError(
             llmError instanceof Error ? llmError : new Error(errMsg),
@@ -4681,14 +4682,16 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Detect context-overflow errors from API 400 responses.
    * These are recoverable via auto-compaction and retry.
    */
-  private isContextOverflowError(message: string): boolean {
-    const lower = message.toLowerCase();
-    return (
-      (lower.includes('context') && lower.includes('too long')) ||
-      lower.includes('maximum context length') ||
-      lower.includes('prompt is too long') ||
-      lower.includes('reduce the length')
-    );
+  private isContextOverflowError(errorOrMessage: Error | string): boolean {
+    // Prefer structured ApiError when available
+    if (errorOrMessage instanceof ApiError) {
+      return errorOrMessage.code === 'context_overflow';
+    }
+
+    // String fallback for non-ApiError providers — use the shared classifier
+    const message = typeof errorOrMessage === 'string' ? errorOrMessage : errorOrMessage.message;
+    const classified = classifyApiError(0, message);
+    return classified.code === 'context_overflow';
   }
 
   /**
@@ -4696,11 +4699,15 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Returns true if the error is retryable.
    */
   private isRetryableSessionError(error: Error): boolean {
+    // Prefer structured ApiError when available
+    if (error instanceof ApiError) {
+      return error.retryable;
+    }
+
+    // Fallback: heuristic string matching for non-ApiError providers
     const message = error.message.toLowerCase();
 
     // NON-RETRYABLE ERRORS (should fail immediately):
-
-    // Authentication/authorization errors
     if (message.includes('authentication') ||
         message.includes('api key') ||
         message.includes('unauthorized') ||
@@ -4708,81 +4715,29 @@ If lint or tests fail, report the issues but do NOT commit.`;
         message.includes('access denied')) {
       return false;
     }
-
-    // Payment/billing errors
     if (message.includes('payment required') ||
         message.includes('billing') ||
         message.includes('quota exceeded')) {
       return false;
     }
-
-    // Model not found
     if (message.includes('model not found') ||
-        message.includes('model does not exist')) {
+        message.includes('model does not exist') ||
+        message.includes('invalid model')) {
       return false;
     }
-
-    // User cancellation
     if (message.includes('cancelled') ||
         message.includes('canceled') ||
         message.includes('aborted') ||
         message.includes('user force closed')) {
       return false;
     }
-
-    // Context/payload overflow - retryable (auto-compaction handles recovery)
-    if (message.includes('payload too large') ||
-        (message.includes('context') && message.includes('too long')) ||
-        message.includes('maximum context length') ||
-        message.includes('prompt is too long')) {
-      return true;
-    }
-
-    // Other malformed errors remain non-retryable
     if (message.includes('malformed')) {
       return false;
     }
 
-    // RETRYABLE ERRORS (transient failures):
-
-    // Network/connection issues
-    if (message.includes('network') ||
-        message.includes('connection') ||
-        message.includes('econnreset') ||
-        message.includes('enotfound') ||
-        message.includes('etimedout')) {
-      return true;
-    }
-
-    // Server-side errors (5xx)
-    if (message.includes('internal error') ||
-        message.includes('service unavailable') ||
-        message.includes('bad gateway') ||
-        message.includes('gateway timeout') ||
-        message.includes('overloaded')) {
-      return true;
-    }
-
-    // Rate limiting (worth retrying after delay)
-    if (message.includes('rate limit') ||
-        message.includes('too many requests')) {
-      return true;
-    }
-
-    // Timeout errors
-    if (message.includes('timed out') ||
-        message.includes('timeout')) {
-      return true;
-    }
-
-    // JSON parsing errors (LLM returned malformed response)
-    if (message.includes('json') ||
-        message.includes('parse') ||
-        message.includes('unexpected token')) {
-      return true;
-    }
-
-    // Generic/unknown errors - default to retry
+    // RETRYABLE ERRORS:
+    // Context overflow, network, server, rate-limit, timeout, JSON parse
+    // all default to retry
     return true;
   }
 
