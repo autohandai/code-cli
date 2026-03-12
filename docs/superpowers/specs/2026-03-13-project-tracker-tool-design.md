@@ -207,4 +207,4 @@ case 'project_tracker':
 | `src/core/toolManager.ts` | Add tool definition to `DEFAULT_TOOL_DEFINITIONS` |
 | `src/core/toolFilter.ts` | Add `'project_tracking'` to `RelevanceCategory` union, add to `TOOL_CATEGORIES`, `RELEVANCE_CATEGORIES`, `CATEGORY_TRIGGERS` |
 | `src/core/actionExecutor.ts` | Add case for `project_tracker` |
-| `tests/actions/projectTracker.test.ts` | **New** — unit tests |
+| `tests/tools/project-tracker.test.ts` | **New** — unit tests (follows `tests/tools/` convention) |
