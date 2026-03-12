@@ -161,3 +161,50 @@ describe('cleanupModelResponse does not mangle thought text', () => {
     expect(cleaned).not.toContain('list_files');
   });
 });
+
+describe('parseAssistantReactPayload single tool call format', () => {
+  it('wraps {"tool": "...", "args": {...}} into toolCalls array', () => {
+    const agent = createMinimalAgent();
+    const raw = '{"tool": "write_file", "args": {"path": "blog/post.md", "contents": "# Hello"}}';
+    const result = agent.parseAssistantReactPayload(raw);
+
+    expect(result.toolCalls).toBeDefined();
+    expect(result.toolCalls!.length).toBe(1);
+    expect(result.toolCalls![0].tool).toBe('write_file');
+    expect(result.toolCalls![0].args).toEqual({ path: 'blog/post.md', contents: '# Hello' });
+    // Must NOT be treated as finalResponse text
+    expect(result.finalResponse).toBeUndefined();
+  });
+
+  it('wraps single tool call with flat args into toolCalls array', () => {
+    const agent = createMinimalAgent();
+    const raw = '{"tool": "read_file", "path": "/src/index.ts"}';
+    const result = agent.parseAssistantReactPayload(raw);
+
+    expect(result.toolCalls).toBeDefined();
+    expect(result.toolCalls!.length).toBe(1);
+    expect(result.toolCalls![0].tool).toBe('read_file');
+    expect(result.toolCalls![0].args).toEqual({ path: '/src/index.ts' });
+  });
+
+  it('wraps single tool call with thought into toolCalls', () => {
+    const agent = createMinimalAgent();
+    const raw = '{"thought": "Creating blog post", "tool": "write_file", "args": {"path": "blog/post.md", "contents": "content"}}';
+    const result = agent.parseAssistantReactPayload(raw);
+
+    // thought should be extracted AND tool call recognized
+    expect(result.thought).toBe('Creating blog post');
+    expect(result.toolCalls).toBeDefined();
+    expect(result.toolCalls!.length).toBe(1);
+    expect(result.toolCalls![0].tool).toBe('write_file');
+  });
+
+  it('does not treat random JSON with "tool" string value as tool call', () => {
+    const agent = createMinimalAgent();
+    // "tool" is present but not a tool name pattern — this is just data
+    const raw = '{"message": "Use the tool panel", "tool": ""}';
+    const result = agent.parseAssistantReactPayload(raw);
+
+    expect(result.toolCalls?.length ?? 0).toBe(0);
+  });
+});
