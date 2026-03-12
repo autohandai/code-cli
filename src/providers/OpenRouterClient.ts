@@ -194,7 +194,7 @@ export class OpenRouterClient {
     // All retries exhausted
     throw (
       lastError ??
-      new Error("Failed to communicate with the AI service. Please try again.")
+      new ApiError("Failed to communicate with the AI service. Please try again.", 'network_error', 0, true)
     );
   }
 
@@ -340,8 +340,8 @@ export class OpenRouterClient {
     const controller = new AbortController();
 
     const abort = () => controller.abort();
-    signal1.addEventListener("abort", abort);
-    signal2.addEventListener("abort", abort);
+    signal1.addEventListener("abort", abort, { once: true });
+    signal2.addEventListener("abort", abort, { once: true });
 
     if (signal1.aborted || signal2.aborted) {
       controller.abort();
