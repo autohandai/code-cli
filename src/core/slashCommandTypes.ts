@@ -14,6 +14,7 @@ import type { AutomodeManager } from './AutomodeManager.js';
 import type { FileActionManager } from '../actions/filesystem.js';
 import type { McpClientManager } from '../mcp/McpClientManager.js';
 import type { TeamManager } from './teams/TeamManager.js';
+import type { RepeatManager } from './RepeatManager.js';
 import type { LoadedConfig, ProviderName } from '../types.js';
 
 export interface SlashCommandContext {
@@ -68,6 +69,8 @@ export interface SlashCommandContext {
     onTopRecommendation?: (slug: string) => void;
     /** Team manager for /team and /tasks commands */
     teamManager?: TeamManager;
+    /** Repeat manager for /repeat recurring prompt scheduling */
+    repeatManager?: RepeatManager;
 }
 
 export interface SlashCommandSubcommand {
