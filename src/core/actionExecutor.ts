@@ -668,20 +668,33 @@ export class ActionExecutor {
           });
         };
 
-        const result = await runCommand(
-          action.command,
-          action.args ?? [],
-          this.runtime.workspaceRoot,
-          {
-            directory: action.directory,
-            background: action.background,
-            onStdout: (chunk) => emitOutput('stdout', chunk),
-            onStderr: (chunk) => emitOutput('stderr', chunk),
+        const cmdStr = `${action.command} ${(action.args ?? []).join(' ')}`.trim();
+
+        let result: Awaited<ReturnType<typeof runCommand>>;
+        try {
+          result = await runCommand(
+            action.command,
+            action.args ?? [],
+            this.runtime.workspaceRoot,
+            {
+              directory: action.directory,
+              background: action.background,
+              onStdout: (chunk) => emitOutput('stdout', chunk),
+              onStderr: (chunk) => emitOutput('stderr', chunk),
+            }
+          );
+        } catch (err) {
+          const error = err as NodeJS.ErrnoException;
+          if (
+            error.code === 'ENOENT' ||
+            error.message.includes('Command not found')
+          ) {
+            return `Error: Command not found: "${action.command}". Make sure it is installed and available on your PATH.`;
           }
-        );
+          return `Error running "${cmdStr}": ${error.message}`;
+        }
 
         // Build output header with description if provided
-        const cmdStr = `${action.command} ${(action.args ?? []).join(' ')}`.trim();
         const header = action.description
           ? `$ ${action.description}\n> ${cmdStr}`
           : `$ ${cmdStr}`;
