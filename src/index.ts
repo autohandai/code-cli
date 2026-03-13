@@ -200,6 +200,7 @@ program
   .option('--patch', 'Generate git patch without applying changes (requires --prompt)', false)
   .option('--output <file>', 'Output file for patch (default: stdout, used with --patch)')
   .option('--mode <mode>', 'Run mode: interactive (default), rpc, or acp', 'interactive')
+  .option('--acp', 'Shorthand for --mode acp (Agent Client Protocol over stdio)', false)
   .option('--teammate-mode <mode>', 'Team display mode: auto, in-process, or tmux')
   .option('--worktree [name]', 'Run session in isolated git worktree (optional name)')
   .option('--tmux', 'Launch in a dedicated tmux session (implies --worktree)')
@@ -234,6 +235,11 @@ program
     // -p/--prompt flag takes precedence if both are provided
     if (positionalPrompt && !opts.prompt) {
       opts.prompt = positionalPrompt;
+    }
+
+    // --acp is shorthand for --mode acp
+    if ((opts as any).acp) {
+      opts.mode = 'acp';
     }
 
     // tmux sessions are intended to run with isolated worktrees by default.
