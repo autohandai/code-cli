@@ -293,7 +293,8 @@ export function getInlineGhostCompletionSuffix(
   llmSuggestion?: string | null
 ): string | null {
   const trimmed = currentLine.trim();
-  if (!trimmed.startsWith('!')) {
+  // Only show ghost completions for actionable prefixes: / (commands), @ (mentions), ! (shell)
+  if (!trimmed.startsWith('/') && !trimmed.startsWith('@') && !trimmed.startsWith('!')) {
     return null;
   }
 
