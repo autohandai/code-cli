@@ -33,6 +33,14 @@ interface KeyInfo {
 const CONTROL_CHAR_RE = /^[\x00-\x1f\x7f]/;
 
 /**
+ * Regex matching CSI escape sequence residuals for modified Enter keys.
+ * When a terminal sends e.g. ESC[13;2~ for Shift+Enter, readline may consume
+ * the ESC[ prefix and pass the remainder ("13;2~", "13~", "13;2u", etc.) as
+ * literal text. We must NOT insert these as printable input.
+ */
+const CSI_ENTER_RESIDUAL_RE = /^(?:13;?[234]?\d*[u~]|27;[234];13~)$/;
+
+/**
  * Maps a readline keypress event to a {@link TextBuffer} mutation.
  *
  * The function interprets the raw `str` and parsed `key` info from Node's
@@ -143,7 +151,10 @@ export function handleTextBufferKey(
   // Ctrl/Meta combos that reach here are intentionally skipped (they fall
   // through to 'unhandled' below) because their `str` is either empty or
   // starts with a control byte.
-  if (str && !CONTROL_CHAR_RE.test(str)) {
+  // Also reject CSI residual fragments (e.g. "13~", "13;2u") that leak
+  // through when readline consumes the ESC[ prefix of a modified-Enter
+  // sequence but passes the tail as literal text.
+  if (str && !CONTROL_CHAR_RE.test(str) && !CSI_ENTER_RESIDUAL_RE.test(str)) {
     buffer.insert(str);
     return 'handled';
   }

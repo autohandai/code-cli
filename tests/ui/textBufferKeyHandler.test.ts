@@ -350,4 +350,33 @@ describe('handleTextBufferKey', () => {
       expect(buf.getCursorRow()).toBe(0);
     });
   });
+
+  describe('CSI residual filtering', () => {
+    it('does NOT insert bare "13~" residual as printable text', () => {
+      const buf = new TextBuffer(80, 10);
+      const result = handleTextBufferKey(buf, '13~', makeKey('undefined'));
+      expect(result).toBe('unhandled');
+      expect(buf.getText()).toBe('');
+    });
+
+    it('does NOT insert "13;2~" residual as printable text', () => {
+      const buf = new TextBuffer(80, 10);
+      const result = handleTextBufferKey(buf, '13;2~', makeKey('undefined'));
+      expect(result).toBe('unhandled');
+      expect(buf.getText()).toBe('');
+    });
+
+    it('does NOT insert "13;2u" residual as printable text', () => {
+      const buf = new TextBuffer(80, 10);
+      const result = handleTextBufferKey(buf, '13;2u', makeKey('undefined'));
+      expect(result).toBe('unhandled');
+      expect(buf.getText()).toBe('');
+    });
+
+    it('still inserts normal text that happens to contain digits', () => {
+      const buf = new TextBuffer(80, 10);
+      handleTextBufferKey(buf, '42', makeKey('4'));
+      expect(buf.getText()).toBe('42');
+    });
+  });
 });
