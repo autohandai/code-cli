@@ -541,7 +541,8 @@ export function isShiftEnterSequence(str: string, key: readline.Key | undefined)
   // CSI u protocol (kitty keyboard): ESC[13;Xu  (u terminator)
   // xterm modified key format:       ESC[13;X~  (~ terminator)
   // Modifier X: 2=Shift, 3=Alt, 4=Shift+Alt
-  if (/^\x1b\[13;[234]\d*[u~]$/.test(seq)) {
+  // Some terminals send bare ESC[13~ (no modifier) for Shift+Enter.
+  if (/^\x1b\[13;?[234]?\d*[u~]$/.test(seq)) {
     return true;
   }
   // xterm modifyOtherKeys level 2: ESC[27;modifier;13~
@@ -577,7 +578,7 @@ export function countRawModifiedEnterSequences(chunk: string): number {
     return 0;
   }
 
-  const matches = chunk.match(/\x1b(?:\[13;[234]\d*[u~]|\[27;[234];13~|\r|\n)/g);
+  const matches = chunk.match(/\x1b(?:\[13;?[234]?\d*[u~]|\[27;[234];13~|\r|\n)/g);
   return matches?.length ?? 0;
 }
 
@@ -1965,7 +1966,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         for (let i = 0; i < modifiedEnterCount; i++) {
           textBuffer.insert('\n');
         }
-        suppressResidualShiftEnterCharsUntil = Date.now() + 80;
+        suppressResidualShiftEnterCharsUntil = Date.now() + 200;
         syncReadlineFromBuffer();
         renderActivePrompt();
         return;
@@ -1975,7 +1976,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         for (let i = 0; i < residualModifiedEnterCount; i++) {
           textBuffer.insert('\n');
         }
-        suppressResidualShiftEnterCharsUntil = Date.now() + 80;
+        suppressResidualShiftEnterCharsUntil = Date.now() + 200;
         syncReadlineFromBuffer();
         renderActivePrompt();
         return;
@@ -1990,14 +1991,28 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       if (closed) return;
       const rawSeq = key?.sequence ?? _str ?? '';
 
+      // Suppress residual chars from modified-Enter CSI sequences.
+      // The timer is set by handleInputData (which runs as a prepended
+      // data listener, before readline emits keypresses).
       if (Date.now() < suppressResidualShiftEnterCharsUntil) {
         if (
           isShiftEnterSequence(_str, key) ||
           isShiftEnterResidualSequence(rawSeq) ||
-          (_str.length > 0 && /^[\d;~u]+$/.test(_str))
+          (_str && _str.length > 0 && /^[\d;~u]+$/.test(_str))
         ) {
           return;
         }
+      }
+
+      // Fallback: if the key originated from a CSI 13~ sequence (bare Enter
+      // keycode) but the timer wasn't set (e.g., emitKeypressEvents ran before
+      // our data handler), catch it by checking key.sequence directly.
+      if (key?.sequence === '\x1b[13~') {
+        textBuffer.insert('\n');
+        suppressResidualShiftEnterCharsUntil = Date.now() + 200;
+        syncReadlineFromBuffer();
+        renderActivePrompt();
+        return;
       }
 
       // ── Bracketed paste start ─────────────────────────────────────────
@@ -2306,8 +2321,14 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       scheduleRender();
     };
 
+    // IMPORTANT: handleInputData MUST run before readline's emitKeypressEvents
+    // handler. When a bare ESC[13~ arrives, handleInputData detects it and sets
+    // suppressResidualShiftEnterCharsUntil. If this runs AFTER readline parses
+    // the data into individual keypress events, those events would reach
+    // handleTextBufferKey and insert "13~" as literal text before the timer
+    // is set. prependListener ensures our handler fires first.
+    input.prependListener('data', handleInputData);
     input.on('keypress', handleKeypress);
-    input.on('data', handleInputData);
 
     rl.on('line', (value) => {
       // Ignore line events during paste mode - we're buffering
