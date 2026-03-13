@@ -732,6 +732,31 @@ describe('isShiftEnterSequence', () => {
     expect(isShiftEnterSequence('\x1b[13;2u', undefined)).toBe(true);
     expect(isShiftEnterSequence('\x1b[13;3u', {} as readline.Key)).toBe(true);
   });
+
+  it('detects bare ESC[13~ (no modifier) sent by some terminals for Shift+Enter', async () => {
+    const { isShiftEnterSequence } = await import('../../src/ui/inputPrompt.js');
+
+    // Some terminals send ESC[13~ (Enter keycode 13, tilde terminator, no modifier)
+    expect(isShiftEnterSequence('\x1b[13~', { sequence: '\x1b[13~' } as readline.Key)).toBe(true);
+    // Also match when Node parses it as F3 but sequence is available
+    expect(isShiftEnterSequence('', { name: 'f3', sequence: '\x1b[13~' } as readline.Key)).toBe(true);
+  });
+
+  it('catches bare 13~ residual as shift-enter residual', async () => {
+    const { isShiftEnterResidualSequence } = await import('../../src/ui/inputPrompt.js');
+
+    // When ESC[ is consumed by readline, '13~' remains as residual text
+    expect(isShiftEnterResidualSequence('13~')).toBe(true);
+  });
+
+  it('countRawModifiedEnterSequences matches bare ESC[13~', async () => {
+    const { countRawModifiedEnterSequences } = await import('../../src/ui/inputPrompt.js');
+
+    expect(countRawModifiedEnterSequences('\x1b[13~')).toBe(1);
+    // Still matches with modifier
+    expect(countRawModifiedEnterSequences('\x1b[13;2~')).toBe(1);
+    expect(countRawModifiedEnterSequences('\x1b[13;2u')).toBe(1);
+  });
 });
 
 describe('getPromptBlockWidth', () => {
