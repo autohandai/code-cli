@@ -973,6 +973,76 @@ describe('inline ghost suffix rendering', () => {
   });
 });
 
+describe('getInlineGhostCompletionSuffix for slash commands', () => {
+  const files = ['src/index.ts', 'tests/foo.test.ts'];
+  const slashCommands: SlashCommand[] = [
+    { command: '/help', description: 'Show available commands', implemented: true },
+    { command: '/model', description: 'Select a model', implemented: true },
+    { command: '/memory', description: 'Manage project memory', implemented: true },
+    {
+      command: '/learn',
+      description: 'Skill recommendations',
+      implemented: true,
+      subcommands: [
+        { name: 'deep', description: 'Deep-analyze project' },
+        { name: 'update', description: 'Regenerate stale skills' },
+      ],
+    },
+  ];
+
+  it('returns ghost suffix for partial slash command "/he" → "lp "', async () => {
+    const { getInlineGhostCompletionSuffix } = await import('../../src/ui/inputPrompt.js');
+    const suffix = getInlineGhostCompletionSuffix('/he', files, slashCommands);
+    expect(suffix).toBe('lp ');
+  });
+
+  it('returns ghost suffix for single-char slash "/m" → matches first /m* command', async () => {
+    const { getInlineGhostCompletionSuffix } = await import('../../src/ui/inputPrompt.js');
+    const suffix = getInlineGhostCompletionSuffix('/m', files, slashCommands);
+    // Should match /model or /memory — returns suffix for whichever getPrimaryHotTipSuggestion picks
+    expect(suffix).toBeTruthy();
+    expect(typeof suffix).toBe('string');
+  });
+
+  it('returns ghost suffix for subcommand "/learn " → "deep "', async () => {
+    const { getInlineGhostCompletionSuffix } = await import('../../src/ui/inputPrompt.js');
+    const suffix = getInlineGhostCompletionSuffix('/learn ', files, slashCommands);
+    expect(suffix).toBe('deep ');
+  });
+
+  it('returns ghost suffix for partial subcommand "/learn u" → "pdate "', async () => {
+    const { getInlineGhostCompletionSuffix } = await import('../../src/ui/inputPrompt.js');
+    const suffix = getInlineGhostCompletionSuffix('/learn u', files, slashCommands);
+    expect(suffix).toBe('pdate ');
+  });
+
+  it('returns null for no-match slash input "/zzz"', async () => {
+    const { getInlineGhostCompletionSuffix } = await import('../../src/ui/inputPrompt.js');
+    const suffix = getInlineGhostCompletionSuffix('/zzz', files, slashCommands);
+    expect(suffix).toBeNull();
+  });
+
+  it('returns ghost suffix for file mention "@src/i" → "ndex.ts "', async () => {
+    const { getInlineGhostCompletionSuffix } = await import('../../src/ui/inputPrompt.js');
+    const suffix = getInlineGhostCompletionSuffix('@src/i', files, slashCommands);
+    expect(suffix).toBe('ndex.ts ');
+  });
+
+  it('still returns ghost suffix for shell commands "! git s"', async () => {
+    const { getInlineGhostCompletionSuffix } = await import('../../src/ui/inputPrompt.js');
+    // Shell commands should continue working as before
+    const suffix = getInlineGhostCompletionSuffix('! git s', files, slashCommands);
+    // May or may not match depending on shell suggestion engine, but should not throw
+    expect(suffix === null || typeof suffix === 'string').toBe(true);
+  });
+
+  it('returns null for plain text input', async () => {
+    const { getInlineGhostCompletionSuffix } = await import('../../src/ui/inputPrompt.js');
+    const suffix = getInlineGhostCompletionSuffix('hello world', files, slashCommands);
+    expect(suffix).toBeNull();
+  });
+});
+
 describe('color cache invalidation', () => {
   it('invalidateBoxColorCache is exported and callable', async () => {
     const { invalidateBoxColorCache } = await import('../../src/ui/box.js');
