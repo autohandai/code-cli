@@ -70,6 +70,8 @@ export interface ToolManagerOptions {
   clientContext?: ClientContext;
   /** Custom policy to override default context policy */
   customPolicy?: Partial<ToolPolicy>;
+  /** Max concurrent tool executions (default: 5) */
+  maxConcurrency?: number;
 }
 
 export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -986,11 +988,13 @@ export class ToolManager {
   private readonly executor: ToolManagerOptions['executor'];
   private readonly confirmApproval: ToolManagerOptions['confirmApproval'];
   private readonly toolFilter: ToolFilter;
+  private readonly maxConcurrency: number;
 
   constructor(options: ToolManagerOptions) {
     this.executor = options.executor;
     this.confirmApproval = options.confirmApproval;
     this.toolFilter = new ToolFilter(options.clientContext ?? 'cli', options.customPolicy);
+    this.maxConcurrency = options.maxConcurrency ?? 5;
     const defs = options.definitions ?? DEFAULT_TOOL_DEFINITIONS;
     for (const def of defs) {
       this.register(def);
@@ -1149,32 +1153,45 @@ export class ToolManager {
     );
   }
 
-  async execute(toolCalls: ToolCallRequest[]): Promise<ToolExecutionResult[]> {
-    const results: ToolExecutionResult[] = [];
+  async execute(
+    toolCalls: ToolCallRequest[],
+    onToolComplete?: (index: number, result: ToolExecutionResult) => void
+  ): Promise<ToolExecutionResult[]> {
+    const results = new Map<number, ToolExecutionResult>();
 
     // Get plan mode manager to check read-only enforcement
     const planModeManager = getPlanModeManager();
     const isInPlanningPhase = planModeManager.isEnabled() && planModeManager.getPhase() === 'planning';
     const readOnlyTools = isInPlanningPhase ? new Set(planModeManager.getReadOnlyTools()) : null;
 
-    for (const call of toolCalls) {
+    // Phase 1: Pre-flight + Approval (sequential)
+    // Categorize each call as rejected, denied, or ready-to-execute
+    const readyToExecute: Array<{ call: ToolCallRequest; index: number }> = [];
+
+    for (let i = 0; i < toolCalls.length; i++) {
+      const call = toolCalls[i];
+
       // Check if tool is allowed in current context
       if (!this.toolFilter.isAllowed(call.tool)) {
-        results.push({
+        const result: ToolExecutionResult = {
           tool: call.tool,
           success: false,
           error: `Tool '${call.tool}' is not available in the current context (${this.toolFilter.getContext()})`
-        });
+        };
+        results.set(i, result);
+        onToolComplete?.(i, result);
         continue;
       }
 
       // Check plan mode restrictions - only read-only tools allowed during planning phase
       if (readOnlyTools && !readOnlyTools.has(call.tool)) {
-        results.push({
+        const result: ToolExecutionResult = {
           tool: call.tool,
           success: false,
           error: `Tool '${call.tool}' is not available in plan mode. Only read-only tools are allowed during planning. Use 'plan' tool to create a plan, then accept it to execute write operations.`
-        });
+        };
+        results.set(i, result);
+        onToolComplete?.(i, result);
         continue;
       }
 
@@ -1209,31 +1226,73 @@ export class ToolManager {
 
         const confirmed = await this.confirmApproval(message, permContext);
         if (!confirmed) {
-          results.push({
+          const result: ToolExecutionResult = {
             tool: call.tool,
             success: false,
             output: 'Tool execution skipped by user.'
-          });
+          };
+          results.set(i, result);
+          onToolComplete?.(i, result);
           continue;
         }
       }
 
-      try {
-        const action = this.toAction(call);
-        const output = await this.executor(action, { toolCallId: call.id, tool: call.tool });
-        results.push({
-          tool: call.tool,
-          success: true,
-          output
-        });
-      } catch (error) {
-        results.push({
-          tool: call.tool,
-          success: false,
-          error: error instanceof Error ? error.message : String(error)
-        });
+      readyToExecute.push({ call, index: i });
+    }
+
+    // Phase 2: Parallel execution of approved calls
+    if (readyToExecute.length > 0) {
+      const execResults = await this.executeWithConcurrency(
+        readyToExecute,
+        this.maxConcurrency,
+        onToolComplete
+      );
+      for (const [index, result] of execResults) {
+        results.set(index, result);
       }
     }
+
+    // Phase 3: Reassemble in original input order
+    return toolCalls.map((_, i) => results.get(i)!);
+  }
+
+  /**
+   * Execute tool calls with a concurrency limit using a worker-pool pattern.
+   */
+  private async executeWithConcurrency(
+    tasks: Array<{ call: ToolCallRequest; index: number }>,
+    maxConcurrency: number,
+    onToolComplete?: (index: number, result: ToolExecutionResult) => void
+  ): Promise<Map<number, ToolExecutionResult>> {
+    const results = new Map<number, ToolExecutionResult>();
+    let cursor = 0;
+
+    const runNext = async (): Promise<void> => {
+      while (cursor < tasks.length) {
+        const taskIndex = cursor++;
+        const { call, index } = tasks[taskIndex];
+        let result: ToolExecutionResult;
+        try {
+          const action = this.toAction(call);
+          const output = await this.executor(action, { toolCallId: call.id, tool: call.tool });
+          result = { tool: call.tool, success: true, output };
+        } catch (error) {
+          result = {
+            tool: call.tool,
+            success: false,
+            error: error instanceof Error ? error.message : String(error)
+          };
+        }
+        results.set(index, result);
+        onToolComplete?.(index, result);
+      }
+    };
+
+    const workers = Array.from(
+      { length: Math.min(maxConcurrency, tasks.length) },
+      () => runNext()
+    );
+    await Promise.all(workers);
     return results;
   }
 
