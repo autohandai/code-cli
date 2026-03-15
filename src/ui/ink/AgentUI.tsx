@@ -6,7 +6,7 @@
 import React, { useState, useEffect, memo, useMemo, useRef, useCallback } from 'react';
 import { Box, Text, useInput, useApp, Static, type Key as InkKey } from 'ink';
 import { StatusLine } from './StatusLine.js';
-import { ToolOutputStatic, type ToolOutputEntry } from './ToolOutput.js';
+import { ToolOutputStatic, ToolOutputBatchStatic, type ToolOutputEntry, type ToolOutputBatchEntry, type ToolOutputItem } from './ToolOutput.js';
 import { InputLine } from './InputLine.js';
 import { ThinkingOutput } from './ThinkingOutput.js';
 import { useTheme } from '../theme/ThemeContext.js';
@@ -21,7 +21,7 @@ export interface AgentUIState {
   status: string;
   elapsed: string;
   tokens: string;
-  toolOutputs: ToolOutputEntry[];
+  toolOutputs: ToolOutputItem[];
   thinking: string | null;
   queuedInstructions: string[];
   currentInput: string;
@@ -277,8 +277,10 @@ export function AgentUI({
 
       {/* Static tool outputs - these never re-render once displayed */}
       <Static items={toolOutputItems}>
-        {(entry: ToolOutputEntry) => (
-          <ToolOutputStatic key={entry.id} entry={entry} />
+        {(item: ToolOutputItem) => (
+          item.type === 'batch'
+            ? <ToolOutputBatchStatic key={item.id} entry={item as ToolOutputBatchEntry} />
+            : <ToolOutputStatic key={item.id} entry={item as ToolOutputEntry} />
         )}
       </Static>
 
