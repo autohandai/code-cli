@@ -625,6 +625,23 @@ export class AutohandAgent {
           } else if (action.type === 'send_team_message') {
             this.teamManager.sendMessageTo(action.to, 'lead', action.content);
             result = `Message sent to ${action.to}.`;
+          } else if (action.type === 'list_schedules') {
+            const jobs = this.repeatManager.list();
+            if (jobs.length === 0) {
+              result = 'No active scheduled jobs.';
+            } else {
+              result = jobs.map(j =>
+                `[${j.id}] "${j.prompt}" — ${j.humanInterval} (runs: ${j.runCount}${j.maxRuns ? '/' + j.maxRuns : ''}, expires: ${new Date(j.expiresAt).toLocaleString()})`
+              ).join('\n');
+            }
+          } else if (action.type === 'cancel_schedule') {
+            const id = (action as { schedule_id: string }).schedule_id;
+            if (!id) {
+              result = 'Error: schedule_id is required.';
+            } else {
+              const cancelled = this.repeatManager.cancel(id);
+              result = cancelled ? `Cancelled schedule ${id}.` : `No active schedule found with ID "${id}".`;
+            }
           } else if (McpClientManager.isMcpTool(action.type)) {
             // Ensure MCP servers have finished connecting before dispatching
             if (this.mcpReady) await this.mcpReady;
