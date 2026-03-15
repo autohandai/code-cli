@@ -1952,6 +1952,14 @@ export class RPCAdapter {
         }
         break;
 
+      case 'schedule_triggered':
+        writeNotification(RPC_NOTIFICATIONS.SCHEDULE_TRIGGERED, {
+          prompt: event.content,
+          scheduleId: event.scheduleId,
+          timestamp: createTimestamp(),
+        });
+        break;
+
       case 'error':
         if (event.content) {
           process.stderr.write(`[RPC DEBUG] Emitting error: ${event.content.substring(0, 100)}...\n`);

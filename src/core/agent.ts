@@ -307,7 +307,10 @@ export class AutohandAgent {
 
     // Initialize repeat manager for /repeat recurring prompts
     this.repeatManager = new RepeatManager();
-    this.repeatManager.onTrigger((job) => {
+    this.repeatManager.onTrigger(async (job) => {
+      // Emit schedule_triggered event for ACP/RPC clients
+      this.emitOutput({ type: 'schedule_triggered', content: job.prompt, scheduleId: job.id });
+
       // If the agent is busy processing an instruction, queue for later.
       // The main loop will pick it up when the current turn finishes.
       if (this.isInstructionActive) {
