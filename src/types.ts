@@ -120,6 +120,8 @@ export interface AgentSettings {
   sessionRetryDelay?: number;
   /** Enable debug output (default: false) */
   debug?: boolean;
+  /** Max tool calls to execute in parallel per iteration (default: 5, set 1 for sequential) */
+  parallelToolConcurrency?: number;
 }
 
 export interface TelemetrySettings {
