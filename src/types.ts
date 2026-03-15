@@ -970,7 +970,7 @@ export interface AgentStatusSnapshot {
 }
 
 export interface AgentOutputEvent {
-  type: 'message' | 'thinking' | 'tool_start' | 'tool_end' | 'error';
+  type: 'message' | 'thinking' | 'tool_start' | 'tool_end' | 'error' | 'schedule_triggered';
   content?: string;
   thought?: string;
   toolName?: string;
@@ -978,6 +978,7 @@ export interface AgentOutputEvent {
   toolArgs?: Record<string, unknown>;
   toolOutput?: string;
   toolSuccess?: boolean;
+  scheduleId?: string;
 }
 
 // ============ Community Skills Marketplace Types ============

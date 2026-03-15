@@ -181,6 +181,7 @@ export const RPC_NOTIFICATIONS = {
   LEARN_INSTALL_COMPLETE: 'autohand.learn.installComplete',
   LEARN_SECURITY_WARNING: 'autohand.learn.securityWarning',
   LEARN_PROGRESS: 'autohand.learn.progress',
+  SCHEDULE_TRIGGERED: 'autohand.schedule.triggered',
 } as const;
 
 export type RpcNotification = (typeof RPC_NOTIFICATIONS)[keyof typeof RPC_NOTIFICATIONS];
