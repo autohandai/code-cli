@@ -24,6 +24,8 @@ export interface SubAgentOptions {
     depth: number;
     /** Maximum delegation depth */
     maxDepth: number;
+    /** Max concurrent tool executions (passed from parent agent) */
+    maxConcurrency?: number;
 }
 
 /** Tool definitions for delegation (added only if sub-agent can delegate further) */
@@ -97,6 +99,13 @@ export class SubAgent {
             });
         }
 
+        // Scale down concurrency at deeper delegation levels to prevent cascading parallelism
+        const scaledConcurrency = options.depth === 0
+            ? (options.maxConcurrency ?? 5)
+            : options.depth === 1
+                ? Math.min(3, options.maxConcurrency ?? 5)
+                : 1; // depth 2+ = sequential
+
         this.toolManager = new ToolManager({
             executor: async (action, context) => {
                 // Handle delegation actions
@@ -113,7 +122,8 @@ export class SubAgent {
             },
             confirmApproval: async () => true, // Sub-agents auto-approve (inherit from main agent in future)
             definitions,
-            clientContext: options.clientContext
+            clientContext: options.clientContext,
+            maxConcurrency: scaledConcurrency
         });
 
         // Build enhanced system prompt with tool signatures
@@ -135,6 +145,10 @@ export class SubAgent {
             'You have access to the following tools. Use them when needed:',
             '',
             toolSignatures,
+            '',
+            '### Parallel Tool Calling',
+            'When performing multiple independent operations, include all tool calls in a single toolCalls array.',
+            'They will execute in parallel for faster results.',
             '',
             '## Response Format',
             'Always respond with structured JSON:',
