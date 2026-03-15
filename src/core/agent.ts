@@ -318,8 +318,14 @@ export class AutohandAgent {
         return;
       }
 
-      // Agent is idle — interrupt the blocking prompt so the main loop
-      // can process the instruction through the normal flow.
+      // In non-interactive modes (RPC/ACP), run the instruction directly
+      if (this.runtime.isRpcMode) {
+        await this.runInstruction(job.prompt);
+        return;
+      }
+
+      // Agent is idle in interactive mode — interrupt the blocking prompt
+      // so the main loop can process the instruction through the normal flow.
       promptInterrupt(job.prompt);
     });
 
