@@ -930,6 +930,22 @@ Examples:
       required: ['query'],
     },
   },
+  // Schedule Management
+  {
+    name: 'list_schedules',
+    description: 'List all active recurring scheduled jobs. Returns job IDs, prompts, intervals, run counts, and expiry times.',
+  },
+  {
+    name: 'cancel_schedule',
+    description: 'Cancel an active recurring scheduled job by its ID.',
+    parameters: {
+      type: 'object',
+      properties: {
+        schedule_id: { type: 'string', description: 'The job ID to cancel (from list_schedules)' },
+      },
+      required: ['schedule_id'],
+    },
+  },
 ];
 
 export class ToolManager {
