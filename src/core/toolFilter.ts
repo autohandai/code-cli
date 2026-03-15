@@ -62,6 +62,8 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   team_status: 'meta',
   send_team_message: 'meta',
   ask_followup_question: 'meta',
+  list_schedules: 'meta',
+  cancel_schedule: 'meta',
 
   // Read operations
   read_file: 'read',
@@ -419,6 +421,8 @@ const RELEVANCE_CATEGORIES: Record<string, RelevanceCategory> = {
   send_team_message: 'meta',
   ask_followup_question: 'always', // User interaction should always be available when in interactive mode
   find_agent_skills: 'always', // Skill search should always be available so the LLM can explore community skills
+  list_schedules: 'meta',
+  cancel_schedule: 'meta',
 };
 
 /**
