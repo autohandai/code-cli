@@ -13,7 +13,7 @@
 import React, { useState, useImperativeHandle, forwardRef, useCallback, useRef } from 'react';
 import { render, type Instance } from 'ink';
 import { AgentUI, createInitialUIState, type AgentUIState } from './AgentUI.js';
-import type { ToolOutputEntry } from './ToolOutput.js';
+import type { ToolOutputEntry, ToolOutputBatchEntry, ToolOutputItem, BatchToolItem } from './ToolOutput.js';
 import { ThemeProvider } from '../theme/ThemeContext.js';
 import { I18nProvider } from '../i18n/index.js';
 import { safeSetRawMode } from '../rawMode.js';
@@ -252,6 +252,40 @@ export class InkRenderer {
     }));
     this.updateState({
       toolOutputs: [...this.state.toolOutputs, ...entries]
+    });
+  }
+
+  /**
+   * Add a grouped batch of parallel tool results, grouped by tool type.
+   */
+  addToolOutputBatch(
+    items: BatchToolItem[],
+    thought?: string
+  ): void {
+    // Group items by tool type
+    const groupMap = new Map<string, BatchToolItem[]>();
+    for (const item of items) {
+      const existing = groupMap.get(item.tool) ?? [];
+      existing.push(item);
+      groupMap.set(item.tool, existing);
+    }
+
+    const groups = Array.from(groupMap.entries()).map(([tool, groupItems]) => ({
+      tool,
+      items: groupItems
+    }));
+
+    const entry: ToolOutputBatchEntry = {
+      id: `tool-batch-${++this.toolIdCounter}`,
+      type: 'batch' as const,
+      thought,
+      groups,
+      allSuccess: items.every(i => i.success),
+      timestamp: Date.now()
+    };
+
+    this.updateState({
+      toolOutputs: [...this.state.toolOutputs, entry]
     });
   }
 
