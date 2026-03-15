@@ -547,6 +547,7 @@ export class AutohandAgent {
     } : undefined;
 
     this.toolManager = new ToolManager({
+      maxConcurrency: runtime.config.agent?.parallelToolConcurrency ?? 5,
       executor: async (action, context) => {
         const startTime = Date.now();
         const toolId = `tool_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -2808,10 +2809,58 @@ If lint or tests fail, report the issues but do NOT commit.`;
         // Execute other tools
         let results: Array<{ tool: AgentAction['type']; success: boolean; output?: string; error?: string }> = [];
         if (otherCalls.length) {
-          // Execute all tools (spinner stays running during execution)
-          results = await this.toolManager.execute(otherCalls);
+          let completedCount = 0;
+          const totalTools = otherCalls.length;
+          const charLimit = this.runtime.config.ui?.readFileCharLimit ?? 300;
 
-          // Add tool messages to conversation first (no output yet)
+          // Execute all tools with progress callback
+          results = await this.toolManager.execute(otherCalls, (_index, _result) => {
+            completedCount++;
+            // Update spinner with progress count for parallel execution
+            if (totalTools > 1) {
+              this.setSpinnerStatus(`Running tools (${completedCount}/${totalTools})...`);
+            }
+          });
+
+          // Render tool outputs
+          if (this.inkRenderer) {
+            if (results.length > 1) {
+              // Grouped batch rendering for parallel tool calls
+              const batchItems = results.map((r, i) => {
+                const call = otherCalls[i];
+                return {
+                  tool: r.tool,
+                  label: this.getToolCallLabel(call),
+                  detail: r.success
+                    ? formatToolOutputForDisplay({ tool: r.tool, content: r.output ?? '', charLimit, filePath: call?.args?.path as string | undefined, command: call?.args?.command as string | undefined, commandArgs: call?.args?.args as string[] | undefined }).output
+                    : r.error ?? r.output ?? 'Tool failed',
+                  success: r.success
+                };
+              });
+              this.inkRenderer.addToolOutputBatch(batchItems, thought);
+            } else if (results.length === 1) {
+              // Single tool — use standard rendering
+              const r = results[0];
+              const call = otherCalls[0];
+              const filePath = call?.args?.path as string | undefined;
+              const command = call?.args?.command as string | undefined;
+              const commandArgs = call?.args?.args as string[] | undefined;
+              this.inkRenderer.addToolOutput(
+                r.tool,
+                r.success,
+                r.success
+                  ? formatToolOutputForDisplay({ tool: r.tool, content: r.output ?? '', charLimit, filePath, command, commandArgs }).output
+                  : r.error ?? r.output ?? 'Tool failed',
+                thought
+              );
+            }
+          } else {
+            // Ora mode: batch output
+            this.runtime.spinner?.stop();
+            outputLines.push(formatToolResultsBatch(results, charLimit, otherCalls, thought));
+          }
+
+          // Add tool messages to conversation after ALL tools complete (needs full ordered results)
           for (let i = 0; i < results.length; i++) {
             const result = results[i];
             const content = result.success
@@ -2826,10 +2875,6 @@ If lint or tests fail, report the issues but do NOT commit.`;
             await this.saveToolMessage(result.tool, content, otherCalls[i]?.id);
           }
           this.updateContextUsage(this.conversation.history(), tools);
-
-          // Add batched tool output (with thought shown before tools)
-          const charLimit = this.runtime.config.ui?.readFileCharLimit ?? 300;
-          outputLines.push(formatToolResultsBatch(results, charLimit, otherCalls, thought));
 
           // Detect when ALL tool calls were denied by the user
           const allDenied = results.length > 0 && results.every(r =>
@@ -2895,35 +2940,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
           }
         }
 
-        // Output tool results
-        if (this.inkRenderer) {
-          // InkRenderer: add tool outputs to the UI with thought
-          // parseAssistantReactPayload already extracted thought from JSON
-          const thought = showThinking && payload.thought
-            ? payload.thought
-            : undefined;
-
-          if (results.length > 0) {
-            const charLimit = this.runtime.config.ui?.readFileCharLimit ?? 300;
-            this.addUIToolOutputs(results.map((r, i) => {
-              // Extract args from tool call
-              const call = otherCalls[i];
-              const filePath = call?.args?.path as string | undefined;
-              const command = call?.args?.command as string | undefined;
-              const commandArgs = call?.args?.args as string[] | undefined;
-              return {
-                tool: r.tool,
-                success: r.success,
-                output: r.success
-                  ? formatToolOutputForDisplay({ tool: r.tool, content: r.output ?? '', charLimit, filePath, command, commandArgs }).output
-                  : r.error ?? r.output ?? 'Tool failed',
-                thought // Pass thought to be displayed before tool
-              };
-            }));
-          }
-        } else {
-          // Ora mode: stop spinner, batch output, continue
-          this.runtime.spinner?.stop();
+        // Output remaining items for Ora mode
+        if (!this.inkRenderer) {
           if (outputLines.length > 0) {
             console.log('\n' + outputLines.join('\n'));
           }
@@ -3704,6 +3722,14 @@ If lint or tests fail, report the issues but do NOT commit.`;
       '- Never include markdown fences (```json) around the JSON.',
       '- Never hallucinate tools that do not exist.',
       '',
+      '### Parallel Tool Calling',
+      'When you need multiple independent operations (reading several files, running multiple searches,',
+      'checking git status while reading a file), include ALL of them in a single toolCalls array.',
+      'You can include up to 5 tool calls per response. The system executes them in parallel.',
+      '',
+      'DO batch (independent): reading different files, multiple searches, git_status + read_file',
+      'DO NOT batch (dependent): read then edit same file, write A then write B that imports A',
+      '',
       '### Tool Failure Handling',
       'When a tool fails, do NOT retry the same tool with different arguments. Instead:',
       '1. If the task is simple (jokes, general knowledge, explanations, opinions) — answer directly from your own knowledge without tools.',
@@ -4144,6 +4170,33 @@ If lint or tests fail, report the issues but do NOT commit.`;
       })
       .sort()
       .join('|');
+  }
+
+  /**
+   * Extract a short label from a tool call's args for grouped display.
+   * e.g., read_file({path: "src/index.ts"}) → "src/index.ts"
+   */
+  private getToolCallLabel(call: { tool: string; args?: Record<string, unknown> }): string {
+    const args = call.args ?? {};
+    // File operations → path
+    if (args.path) return String(args.path);
+    if (args.file_path) return String(args.file_path);
+    // Commands → command + args
+    if (args.command) {
+      const cmd = String(args.command);
+      const cmdArgs = Array.isArray(args.args) ? args.args.join(' ') : '';
+      return cmdArgs ? `${cmd} ${cmdArgs}` : cmd;
+    }
+    // Search → query/pattern
+    if (args.query) return String(args.query);
+    if (args.pattern) return String(args.pattern);
+    // Delegation → task
+    if (args.task) return String(args.task).slice(0, 60);
+    // Fallback → first string arg
+    for (const val of Object.values(args)) {
+      if (typeof val === 'string' && val.length > 0) return val.slice(0, 80);
+    }
+    return call.tool;
   }
 
   private buildToolLoopResultSignature(
