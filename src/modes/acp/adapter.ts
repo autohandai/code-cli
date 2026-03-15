@@ -1022,6 +1022,18 @@ export class AutohandAcpAdapter implements Agent {
           }
           break;
 
+        case 'schedule_triggered':
+          if (event.content) {
+            await this.connection.sessionUpdate({
+              sessionId,
+              update: {
+                sessionUpdate: 'agent_message_chunk',
+                content: { type: 'text', text: `[Scheduled job triggered] ${event.content}` },
+              },
+            });
+          }
+          break;
+
         case 'error':
           if (event.content) {
             const classified = this.classifyAndFormatError(event.content);
