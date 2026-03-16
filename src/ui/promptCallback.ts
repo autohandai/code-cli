@@ -4,7 +4,6 @@
  * @license Apache-2.0
  */
 import { showModal, showInput, type ModalOption } from './ink/components/Modal.js';
-import { safePrompt } from '../utils/prompt.js';
 import type {
   ExternalPromptRequest,
   ExternalPromptResponse,
@@ -21,14 +20,14 @@ export function isExternalCallbackEnabled(): boolean {
 /**
  * Get the callback URL from environment
  */
-export function getCallbackUrl(): string | undefined {
+function getCallbackUrl(): string | undefined {
   return process.env.AUTOHAND_PERMISSION_CALLBACK_URL;
 }
 
 /**
  * Get callback timeout from environment (default: 30 seconds)
  */
-export function getCallbackTimeout(): number {
+function getCallbackTimeout(): number {
   const timeout = process.env.AUTOHAND_PERMISSION_CALLBACK_TIMEOUT;
   return timeout ? parseInt(timeout, 10) : 30000;
 }
@@ -138,144 +137,3 @@ export async function confirm(
   return false;
 }
 
-/**
- * Select prompt - returns the chosen option name
- * Falls back to Modal if no callback URL is set
- */
-export async function select<T extends string = string>(
-  message: string,
-  choices: Array<{ name: T; message: string }>,
-  context?: PermissionContext
-): Promise<T | null> {
-  // External callback mode
-  if (isExternalCallbackEnabled()) {
-    try {
-      const response = await sendExternalRequest({
-        type: 'select',
-        message,
-        choices,
-        context
-      });
-      if (response.allowed && response.choice) {
-        return response.choice as T;
-      }
-      return null;
-    } catch (error) {
-      console.error('External callback failed:', error);
-      return null;
-    }
-  }
-
-  // Interactive mode - use Modal
-  const options: ModalOption[] = choices.map(choice => ({
-    label: choice.message,
-    value: choice.name
-  }));
-
-  const result = await showModal({
-    title: message,
-    options
-  });
-
-  return result ? (result.value as T) : null;
-}
-
-/**
- * Input prompt - returns the entered value
- * Falls back to Modal if no callback URL is set
- */
-export async function input(
-  message: string,
-  initial?: string,
-  context?: PermissionContext
-): Promise<string | null> {
-  // External callback mode
-  if (isExternalCallbackEnabled()) {
-    try {
-      const response = await sendExternalRequest({
-        type: 'input',
-        message,
-        initial,
-        context
-      });
-      if (response.allowed && response.value !== undefined) {
-        return response.value;
-      }
-      return null;
-    } catch (error) {
-      console.error('External callback failed:', error);
-      return null;
-    }
-  }
-
-  // Interactive mode - use Modal
-  return await showInput({
-    title: message,
-    defaultValue: initial
-  });
-}
-
-/**
- * Prompt for multiple inputs at once
- * Falls back to Modal if no callback URL is set
- */
-export async function prompt<T extends Record<string, unknown>>(
-  questions: Array<{
-    type: 'input' | 'select' | 'confirm';
-    name: keyof T;
-    message: string;
-    initial?: string | boolean;
-    choices?: Array<{ name: string; message: string }>;
-  }>
-): Promise<T | null> {
-  // External callback mode - process each question sequentially
-  if (isExternalCallbackEnabled()) {
-    const result: Record<string, unknown> = {};
-
-    for (const question of questions) {
-      const request: ExternalPromptRequest = {
-        type: question.type,
-        message: question.message,
-        initial: question.initial as string,
-        choices: question.choices
-      };
-
-      try {
-        const response = await sendExternalRequest(request);
-        if (!response.allowed) {
-          return null;
-        }
-
-        if (question.type === 'confirm') {
-          result[question.name as string] = response.allowed;
-        } else if (question.type === 'select') {
-          result[question.name as string] = response.choice;
-        } else {
-          result[question.name as string] = response.value;
-        }
-      } catch (error) {
-        console.error('External callback failed:', error);
-        return null;
-      }
-    }
-
-    return result as T;
-  }
-
-  // Interactive mode - use safePrompt (Modal-based)
-  return await safePrompt<T>(questions as any);
-}
-
-/**
- * Wrap existing Modal prompts to support external callbacks
- * This is useful for migrating existing code gradually
- */
-export function createPromptWrapper() {
-  return {
-    confirm,
-    select,
-    input,
-    prompt,
-    isExternalCallbackEnabled
-  };
-}
