@@ -16,7 +16,7 @@ import path from 'node:path';
 /**
  * Default timeout for shell commands (30 seconds)
  */
-export const DEFAULT_SHELL_TIMEOUT = 30000;
+const DEFAULT_SHELL_TIMEOUT = 30000;
 
 const SHELL_HOT_TIP_SUGGESTIONS = [
   'git status',
@@ -75,7 +75,7 @@ const DIRECTORY_ONLY_PATH_COMMANDS = new Set(['cd']);
 const DIR_ENTRIES_CACHE_TTL_MS = 750;
 const dirEntriesCache = new Map<string, { expiresAt: number; entries: Dirent[] }>();
 
-export interface ShellSuggestionOptions {
+interface ShellSuggestionOptions {
   cwd?: string;
   limit?: number;
 }
@@ -271,7 +271,7 @@ export function getPrimaryShellCommandSuggestion(
 /**
  * Result of executing a shell command
  */
-export interface ShellCommandResult {
+interface ShellCommandResult {
   /** Whether the command executed successfully */
   success: boolean;
   /** Command output (stdout) */
