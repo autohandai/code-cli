@@ -640,9 +640,10 @@ export class AutohandAgent {
             if (jobs.length === 0) {
               result = 'No active scheduled jobs.';
             } else {
-              result = jobs.map(j =>
+              const lines = jobs.map(j =>
                 `[${j.id}] "${j.prompt}" — ${j.humanInterval} (runs: ${j.runCount}${j.maxRuns ? '/' + j.maxRuns : ''}, expires: ${new Date(j.expiresAt).toLocaleString()})`
               ).join('\n');
+              result = `${lines}\n\nTo cancel a job, tell the user to run: /repeat cancel <job-id>`;
             }
           } else if (action.type === 'cancel_schedule') {
             const id = (action as { schedule_id: string }).schedule_id;
@@ -753,9 +754,7 @@ export class AutohandAgent {
 
     this.persistentInput.on('queued', (text: string, count: number) => {
       const preview = text.length > 30 ? text.slice(0, 27) + '...' : text;
-      const usingTerminalRegions = this.persistentInputActiveTurn &&
-        process.env.AUTOHAND_TERMINAL_REGIONS !== '0' &&
-        !this.useInkRenderer;
+      const usingTerminalRegions = this.isUsingTerminalRegionsForActiveTurn();
       if (this.inkRenderer) {
         this.inkRenderer.addQueuedInstruction(text);
       } else if (usingTerminalRegions) {
@@ -811,9 +810,7 @@ export class AutohandAgent {
         ? `${chalk.bgCyan.black.bold(' PLAN ')} ${chalk.cyan('Plan mode ON - read-only tools')}`
         : `${chalk.gray('Plan mode')} ${chalk.red('OFF')}`;
 
-      const usingTerminalRegions = this.persistentInputActiveTurn &&
-        process.env.AUTOHAND_TERMINAL_REGIONS !== '0' &&
-        !this.useInkRenderer;
+      const usingTerminalRegions = this.isUsingTerminalRegionsForActiveTurn();
       if (usingTerminalRegions) {
         this.persistentInput.render();
       }
@@ -1022,6 +1019,21 @@ export class AutohandAgent {
   }
 
   /**
+   * Shared parallel initialization for all managers + workspace file collection.
+   * Used by performBackgroundInit, initializeForRPC, and resumeSession.
+   */
+  private async initializeManagers(): Promise<void> {
+    await Promise.all([
+      this.sessionManager.initialize(),
+      this.projectManager.initialize(),
+      this.memoryManager.initialize(),
+      this.skillsRegistry.initialize(),
+      this.hookManager.initialize(),
+      this.workspaceFileCollector.collectWorkspaceFiles(),
+    ]);
+  }
+
+  /**
    * Background initialization - runs while prompt is visible.
    * Everything here happens concurrently with the user reading/typing.
    * NOTE: Must NOT write to stdout - the prompt is already rendering.
@@ -1029,14 +1041,7 @@ export class AutohandAgent {
   private async performBackgroundInit(): Promise<void> {
     try {
       // Phase 1: Parallel manager initialization
-      await Promise.all([
-        this.sessionManager.initialize(),
-        this.projectManager.initialize(),
-        this.memoryManager.initialize(),
-        this.skillsRegistry.initialize(),
-        this.hookManager.initialize(),
-        this.workspaceFileCollector.collectWorkspaceFiles(),
-      ]);
+      await this.initializeManagers();
 
       // Fire MCP connections in background (non-blocking, like Claude Code).
       // Servers connect asynchronously; tools become available once ready.
@@ -1106,15 +1111,7 @@ export class AutohandAgent {
    */
   async initializeForRPC(): Promise<void> {
     // Initialize managers in parallel for faster startup
-    await Promise.all([
-      this.sessionManager.initialize(),
-      this.projectManager.initialize(),
-      this.memoryManager.initialize(),
-      this.skillsRegistry.initialize(),
-      this.hookManager.initialize(),
-      // Pre-load workspace files in background for file mentions
-      this.workspaceFileCollector.collectWorkspaceFiles(),
-    ]);
+    await this.initializeManagers();
     // Fire MCP connections in background (non-blocking)
     if (this.runtime.config.mcp?.enabled !== false) {
       this.mcpReady = this.mcpManager
@@ -1255,13 +1252,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
   async resumeSession(sessionId: string): Promise<void> {
     // Initialize managers and pre-load files in parallel
-    await Promise.all([
-      this.sessionManager.initialize(),
-      this.projectManager.initialize(),
-      this.memoryManager.initialize(),
-      // Pre-load workspace files in background so prompt appears instantly
-      this.workspaceFileCollector.collectWorkspaceFiles(),
-    ]);
+    await this.initializeManagers();
 
     try {
       const session = await this.sessionManager.loadSession(sessionId);
@@ -1336,9 +1327,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const preview = `${instruction.slice(0, 50)}${instruction.length > 50 ? '...' : ''}`;
     const headline = chalk.cyan(`▶ Processing queued request: "${preview}"`);
     const detail = remaining > 0 ? chalk.gray(`  ${remaining} more request(s) queued`) : '';
-    const usingTerminalRegions = this.persistentInputActiveTurn &&
-      process.env.AUTOHAND_TERMINAL_REGIONS !== '0' &&
-      !this.useInkRenderer;
+    const usingTerminalRegions = this.isUsingTerminalRegionsForActiveTurn();
 
     if (usingTerminalRegions) {
       this.persistentInput.writeAbove(`${headline}\n`);
@@ -4312,13 +4301,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
           this.initFallbackSpinner();
         }
       }
-    } else if (process.stdout.isTTY && !suppressSpinner) {
-      // Use ora spinner (only in TTY mode)
-      const spinner = ora({
-        text: 'Gathering context...',
-        spinner: 'dots'
-      }).start();
-      this.runtime.spinner = spinner;
+    } else if (!suppressSpinner) {
+      this.initFallbackSpinner();
     }
     // In non-TTY mode (RPC), skip spinner entirely
   }
@@ -5624,6 +5608,42 @@ If lint or tests fail, report the issues but do NOT commit.`;
     this.runtime.spinner.start();
   }
 
+  /**
+   * Pause all UI (status updates, spinner, persistent input, ink renderer),
+   * execute a callback, then restore everything. Used by confirmAction,
+   * executeAskFollowupQuestion, and handlePlanCreated.
+   */
+  private async withModalPause<T>(fn: () => Promise<T>): Promise<T> {
+    this.stopStatusUpdates();
+
+    const spinnerWasSpinning = this.runtime.spinner?.isSpinning;
+    if (spinnerWasSpinning) {
+      this.runtime.spinner?.stop();
+    }
+
+    this.persistentInput.pause();
+
+    if (this.inkRenderer) {
+      this.inkRenderer.pause();
+    }
+
+    try {
+      return await fn();
+    } finally {
+      if (this.inkRenderer) {
+        this.inkRenderer.resume();
+      }
+
+      this.persistentInput.resume();
+
+      if (spinnerWasSpinning && this.runtime.spinner) {
+        this.resumeSpinnerAfterModalPause();
+      }
+
+      this.startStatusUpdates();
+    }
+  }
+
   private updateContextUsage(messages: LLMMessage[], tools?: any[]): void {
     if (!this.contextWindow) {
       return;
@@ -5897,40 +5917,14 @@ If lint or tests fail, report the issues but do NOT commit.`;
       this.getNotificationGuards()
     ).catch(() => {});
 
-    this.stopStatusUpdates();
-
-    const spinnerWasSpinning = this.runtime.spinner?.isSpinning;
-    if (spinnerWasSpinning) {
-      this.runtime.spinner?.stop();
-    }
-
-    this.persistentInput.pause();
-
-    if (this.inkRenderer) {
-      this.inkRenderer.pause();
-    }
-
-    // Reset stdin to cooked mode for Modal prompts
-    const wasRaw = process.stdin.isTTY && (process.stdin as any).isRaw;
-    if (wasRaw) {
-      safeSetRawMode(process.stdin as NodeJS.ReadStream, false);
-    }
-
-    try {
-      return await unifiedConfirm(message);
-    } finally {
-      if (this.inkRenderer) {
-        this.inkRenderer.resume();
+    return this.withModalPause(async () => {
+      // Reset stdin to cooked mode for Modal prompts
+      const wasRaw = process.stdin.isTTY && (process.stdin as any).isRaw;
+      if (wasRaw) {
+        safeSetRawMode(process.stdin as NodeJS.ReadStream, false);
       }
-
-      this.persistentInput.resume();
-
-      if (spinnerWasSpinning && this.runtime.spinner) {
-        this.resumeSpinnerAfterModalPause();
-      }
-
-      this.startStatusUpdates();
-    }
+      return unifiedConfirm(message);
+    });
   }
 
   /**
@@ -5960,24 +5954,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       this.getNotificationGuards()
     ).catch(() => {});
 
-    this.stopStatusUpdates();
-
-    const spinnerWasSpinning = this.runtime.spinner?.isSpinning;
-    if (spinnerWasSpinning) {
-      this.runtime.spinner?.stop();
-    }
-
-    this.persistentInput.pause();
-
-    if (this.inkRenderer) {
-      this.inkRenderer.pause();
-    }
-
-    // Let Ink manage its own stdin mode - don't manipulate it manually
-
-    try {
-      // showQuestionModal is statically imported at the top of this file
-
+    return this.withModalPause(async () => {
       const answer = await showQuestionModal({
         question,
         suggestedAnswers
@@ -5992,19 +5969,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       this.consecutiveCancellations = 0;
       console.log(chalk.green(`\n✓ Answer: ${answer}\n`));
       return `<answer>${answer}</answer>`;
-    } finally {
-      if (this.inkRenderer) {
-        this.inkRenderer.resume();
-      }
-
-      this.persistentInput.resume();
-
-      if (spinnerWasSpinning && this.runtime.spinner) {
-        this.resumeSpinnerAfterModalPause();
-      }
-
-      this.startStatusUpdates();
-    }
+    });
   }
 
   /**
@@ -6040,23 +6005,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     // Get acceptance options from PlanModeManager
     const acceptOptions = planManager.getAcceptOptions();
 
-    // Stop status updates and spinner before showing modal (same pattern as executeAskFollowupQuestion)
-    this.stopStatusUpdates();
-
-    const spinnerWasSpinning = this.runtime.spinner?.isSpinning;
-    if (spinnerWasSpinning) {
-      this.runtime.spinner?.stop();
-    }
-
-    // Pause persistent input to prevent conflicts with modal
-    this.persistentInput.pause();
-    if (this.inkRenderer) {
-      this.inkRenderer.pause();
-    }
-
-    try {
-      // showPlanAcceptModal is statically imported at the top of this file
-
+    return this.withModalPause(async () => {
       const result = await showPlanAcceptModal({
         planFilePath: filePath,
         options: acceptOptions.map(opt => ({
@@ -6100,18 +6049,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       console.log(chalk.green('\n✓ Plan accepted with manual approval for edits.\n'));
 
       return `Plan accepted. Starting execution with manual edit approval.\n\nSteps:\n${plan.steps.map(s => `${s.number}. ${s.description}`).join('\n')}`;
-    } finally {
-      if (this.inkRenderer) {
-        this.inkRenderer.resume();
-      }
-      this.persistentInput.resume();
-
-      if (spinnerWasSpinning && this.runtime.spinner) {
-        this.resumeSpinnerAfterModalPause();
-      }
-
-      this.startStatusUpdates();
-    }
+    });
   }
 
   private resolveWorkspacePath(relativePath: string): string {
