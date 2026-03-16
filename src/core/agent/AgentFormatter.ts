@@ -59,7 +59,7 @@ const MAX_VISIBLE_PER_GROUP = 4;
  * Extract a short label from a tool call's args for grouped display.
  */
 function getToolCallLabel(call?: ToolCallRequest): string {
-  if (!call) return call?.tool ?? '';
+  if (!call) return '';
   const args = call.args ?? {};
   if (args.path) return String(args.path);
   if (args.file_path) return String(args.file_path);
