@@ -13,8 +13,8 @@ import {
   drawInputTopBorder,
   type InputBorderStyle
 } from './box.js';
-import { getTheme, isThemeInitialized } from './theme/index.js';
-import type { ColorToken } from './theme/types.js';
+import { themedFg } from './theme/index.js';
+import { stripAnsiCodes } from './displayUtils.js';
 import { getPlanModeManager } from '../commands/plan.js';
 
 // ANSI escape sequences
@@ -23,22 +23,8 @@ const CSI = `${ESC}[`;
 const PROMPT_PLACEHOLDER = 'Build anything';
 const PROMPT_INPUT_PREFIX = '❯ ';
 const CONTINUATION_PREFIX = '  ';
-const ANSI_PATTERN = /\u001b\[[0-9;]*m/g;
-
 /** Maximum number of visible input lines in the fixed region. */
 const MAX_VISIBLE_INPUT_LINES = 5;
-
-function themedFg(token: ColorToken, text: string, fallback: (value: string) => string): string {
-  if (!isThemeInitialized()) {
-    return fallback(text);
-  }
-
-  try {
-    return getTheme().fg(token, text);
-  } catch {
-    return fallback(text);
-  }
-}
 
 /**
  * TerminalRegions manages split terminal regions:
@@ -348,7 +334,7 @@ export class TerminalRegions {
     const baseStatus = status || defaultStatus;
     const hasQueuedText = /\bqueued\b/i.test(baseStatus);
     const queueSuffix = queueCount > 0 && !hasQueuedText ? ` · ${queueCount} queued` : '';
-    const plain = `${baseStatus}${queueSuffix}`.replace(ANSI_PATTERN, '');
+    const plain = stripAnsiCodes(`${baseStatus}${queueSuffix}`);
     if (plain.length <= width) {
       return themedFg('muted', plain.padEnd(width), (value) => chalk.gray(value));
     }
@@ -357,7 +343,7 @@ export class TerminalRegions {
   }
 
   private formatActivityLine(activity: string, width: number): string {
-    const plain = (activity || '').replace(ANSI_PATTERN, '');
+    const plain = stripAnsiCodes(activity || '');
     if (!plain) {
       return ''.padEnd(width);
     }
