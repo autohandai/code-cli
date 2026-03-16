@@ -49,7 +49,7 @@ describe('MentionPreview slash filtering', () => {
     const output = createMockOutput();
     const rl = readline.createInterface({ input, output, terminal: true });
 
-    const preview = new MentionPreview(rl, [], SAMPLE_COMMANDS, output);
+    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output);
 
     // Access private method for unit testing
     const filterSlash = (preview as any).filterSlash.bind(preview);
@@ -68,7 +68,7 @@ describe('MentionPreview slash filtering', () => {
     const output = createMockOutput();
     const rl = readline.createInterface({ input, output, terminal: true });
 
-    const preview = new MentionPreview(rl, [], SAMPLE_COMMANDS, output);
+    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output);
     const filterSlash = (preview as any).filterSlash.bind(preview);
 
     // 'ag' should match /agents and /agents-new (prefix match), NOT /search (substring)
@@ -89,7 +89,7 @@ describe('MentionPreview slash filtering', () => {
     const output = createMockOutput();
     const rl = readline.createInterface({ input, output, terminal: true });
 
-    const preview = new MentionPreview(rl, [], SAMPLE_COMMANDS, output);
+    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output);
     const filterSlash = (preview as any).filterSlash.bind(preview);
 
     const results = filterSlash('a');
@@ -115,7 +115,7 @@ describe('MentionPreview slash filtering', () => {
     const output = createMockOutput();
     const rl = readline.createInterface({ input, output, terminal: true });
 
-    const preview = new MentionPreview(rl, [], SAMPLE_COMMANDS, output);
+    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output);
     const filterSlash = (preview as any).filterSlash.bind(preview);
 
     // 'ent' doesn't start any command, but is in /agents (ag-ent-s)
@@ -135,7 +135,7 @@ describe('MentionPreview slash filtering', () => {
     const output = createMockOutput();
     const rl = readline.createInterface({ input, output, terminal: true });
 
-    const preview = new MentionPreview(rl, [], SAMPLE_COMMANDS, output);
+    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output);
     const renderSpy = vi.spyOn(preview as any, 'render');
 
     // Simulate rl.line already containing '/a' (after readline processes the keystroke)
@@ -161,6 +161,63 @@ describe('MentionPreview slash filtering', () => {
         expect(cmd.startsWith('a')).toBe(true);
       }
     }
+
+    preview.dispose();
+    rl.close();
+  });
+});
+
+describe('MentionPreview lazy filesProvider', () => {
+  it('returns file suggestions even when provider is initially empty and populates later', async () => {
+    const { MentionPreview } = await import('../../src/ui/mentionPreview.js');
+    const input = new Readable({ read() {} });
+    (input as any).setRawMode = vi.fn();
+    const output = createMockOutput();
+    const rl = readline.createInterface({ input, output, terminal: true });
+
+    // Simulate the race condition: provider starts empty (files not yet collected)
+    const fileStore: string[] = [];
+    const preview = new MentionPreview(rl, () => fileStore, SAMPLE_COMMANDS, output);
+
+    // Access private filter method
+    const filter = (preview as any).filter.bind(preview);
+
+    // Initially empty — no files collected yet
+    expect(filter('')).toEqual([]);
+
+    // Simulate background file collection completing
+    fileStore.push('src/index.ts', 'src/core/agent.ts', 'package.json');
+
+    // Now the same getter should return results without recreating MentionPreview
+    const results = filter('');
+    expect(results.length).toBeGreaterThan(0);
+    expect(results).toContain('src/index.ts');
+
+    preview.dispose();
+    rl.close();
+  });
+
+  it('reflects updated file list on every filter call', async () => {
+    const { MentionPreview } = await import('../../src/ui/mentionPreview.js');
+    const input = new Readable({ read() {} });
+    (input as any).setRawMode = vi.fn();
+    const output = createMockOutput();
+    const rl = readline.createInterface({ input, output, terminal: true });
+
+    const fileStore: string[] = ['README.md'];
+    const preview = new MentionPreview(rl, () => fileStore, SAMPLE_COMMANDS, output);
+    const filter = (preview as any).filter.bind(preview);
+
+    // First call sees only README.md
+    expect(filter('READ')).toEqual(['README.md']);
+
+    // New file added to store (e.g. cache refreshed)
+    fileStore.push('src/README-dev.md');
+
+    // Filter should now see both files
+    const results = filter('READ');
+    expect(results).toContain('README.md');
+    expect(results).toContain('src/README-dev.md');
 
     preview.dispose();
     rl.close();

@@ -47,7 +47,7 @@ import { ContextManager } from './contextManager.js';
 import { ToolManager } from './toolManager.js';
 import { ActionExecutor } from './actionExecutor.js';
 import { SlashCommandHandler } from './slashCommandHandler.js';
-import { routeOutput } from './immediateCommandRouter.js';
+import { routeOutput, renderTerminalMarkdown } from './immediateCommandRouter.js';
 import { SessionManager } from '../session/SessionManager.js';
 import { ProjectManager } from '../session/ProjectManager.js';
 import { ToolsRegistry } from './toolsRegistry.js';
@@ -1597,7 +1597,6 @@ If lint or tests fail, report the issues but do NOT commit.`;
     // Use cached workspace files for instant prompt display.
     // Files are pre-loaded during runInteractive() init and cached for 30s.
     // Trigger a background refresh without blocking the prompt.
-    const workspaceFiles = this.workspaceFileCollector.getCachedFiles();
     this.workspaceFileCollector.collectWorkspaceFiles().catch(() => {});
     const statusLine = this.formatStatusLine();
     const initialValue = this.promptSeedInput;
@@ -1619,7 +1618,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const suggestionText = this.suggestionEngine?.getSuggestion() ?? undefined;
     this.suggestionEngine?.clear();
     const input = await readInstruction(
-      workspaceFiles,
+      () => this.workspaceFileCollector.getCachedFiles(),
       SLASH_COMMANDS,
       statusLine,
       {}, // default IO
@@ -1673,7 +1672,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
         const handled = await this.runSlashCommandWithInput(command, args);
         if (handled !== null) {
           // Slash command returned display output - print it, don't send to LLM
-          console.log(handled);
+          // Convert markdown formatting (**bold**, _italic_) to ANSI terminal codes
+          console.log(renderTerminalMarkdown(handled));
         }
         return null;
       }
