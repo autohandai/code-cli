@@ -199,10 +199,10 @@ describe('learnPrompts', () => {
   });
 
   describe('buildLearnUserPrompt registry handling', () => {
-    it('does not dump full registry when skills exceed threshold', () => {
+    it('caps skills at 30 and mentions overflow', () => {
       const analysis = makeAnalysis({ languages: ['typescript'], frameworks: ['react'] });
 
-      // Generate a large registry with no language/framework match
+      // Generate a large registry
       const manySkills = Array.from({ length: 50 }, (_, i) =>
         makeRegistrySkill({
           id: `skill-${i}`,
@@ -215,22 +215,29 @@ describe('learnPrompts', () => {
 
       const prompt = buildLearnUserPrompt(analysis, [], manySkills);
 
-      // Should mention find_agent_skills, not list all 50
+      // Should cap at 30 and mention overflow
       expect(prompt).toContain('find_agent_skills');
-      expect(prompt).not.toContain('skill-49');
+      expect(prompt).toContain('skill-0');
+      expect(prompt).toContain('skill-29');
+      expect(prompt).not.toContain('skill-30');
     });
 
-    it('shows matching skills filtered by project stack', () => {
+    it('lists matching skills first, then others', () => {
       const analysis = makeAnalysis({ languages: ['typescript'], frameworks: ['react'] });
 
       const skills = [
-        makeRegistrySkill({ id: 'ts-skill', languages: ['typescript'], frameworks: [] }),
         makeRegistrySkill({ id: 'ruby-skill', languages: ['ruby'], frameworks: ['rails'] }),
+        makeRegistrySkill({ id: 'ts-skill', languages: ['typescript'], frameworks: [] }),
       ];
 
       const prompt = buildLearnUserPrompt(analysis, [], skills);
+      // Both should be visible to the LLM
       expect(prompt).toContain('ts-skill');
-      expect(prompt).not.toContain('ruby-skill');
+      expect(prompt).toContain('ruby-skill');
+      // Matching skill should appear before non-matching (in "Matching Skills" section)
+      const tsIdx = prompt.indexOf('ts-skill');
+      const rubyIdx = prompt.indexOf('ruby-skill');
+      expect(tsIdx).toBeLessThan(rubyIdx);
     });
 
     it('includes registry count summary', () => {
@@ -247,6 +254,36 @@ describe('learnPrompts', () => {
 
       const prompt = buildLearnUserPrompt(analysis, [], skills);
       expect(prompt).toContain('find_agent_skills');
+    });
+
+    it('includes skills with empty languages/frameworks (no metadata)', () => {
+      const analysis = makeAnalysis({ languages: ['typescript'], frameworks: ['react'] });
+
+      const skills = [
+        makeRegistrySkill({ id: 'error-handling', description: 'Error patterns', languages: [], frameworks: [], tags: ['patterns'] }),
+        makeRegistrySkill({ id: 'ts-skill', languages: ['typescript'], frameworks: [] }),
+      ];
+
+      const prompt = buildLearnUserPrompt(analysis, [], skills);
+      // Skills with no metadata should still appear — the LLM should decide relevance
+      expect(prompt).toContain('error-handling');
+      expect(prompt).toContain('ts-skill');
+    });
+
+    it('includes all skills when total count is within the limit', () => {
+      const analysis = makeAnalysis({ languages: ['typescript'], frameworks: ['react'] });
+
+      const skills = [
+        makeRegistrySkill({ id: 'ts-skill', languages: ['typescript'], frameworks: [] }),
+        makeRegistrySkill({ id: 'go-skill', languages: ['go'], frameworks: [] }),
+        makeRegistrySkill({ id: 'generic-skill', languages: [], frameworks: [] }),
+      ];
+
+      const prompt = buildLearnUserPrompt(analysis, [], skills);
+      // All 3 skills should be visible to the LLM for ranking
+      expect(prompt).toContain('ts-skill');
+      expect(prompt).toContain('go-skill');
+      expect(prompt).toContain('generic-skill');
     });
   });
 
