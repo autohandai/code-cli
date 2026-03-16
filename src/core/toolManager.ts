@@ -972,7 +972,7 @@ Actions:
   },
   {
     name: 'cancel_schedule',
-    description: 'Cancel an active recurring scheduled job by its ID.',
+    description: 'Cancel an active recurring scheduled job by its ID. When reporting the result to the user, tell them they can also cancel jobs with the slash command: /repeat cancel <job-id>',
     parameters: {
       type: 'object',
       properties: {
