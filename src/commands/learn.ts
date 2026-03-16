@@ -12,6 +12,7 @@ import fse from 'fs-extra';
 import { t } from '../i18n/index.js';
 import { LearnAdvisor } from '../skills/LearnAdvisor.js';
 import { ProjectAnalyzer } from '../skills/autoSkill.js';
+import { StepProgress } from '../ui/stepProgress.js';
 import {
   fetchRegistryWithFallback,
   injectGeneratedMetadata,
@@ -46,9 +47,20 @@ export interface LearnCommandContext {
   onTopRecommendation?: (slug: string) => void;
 }
 
-function logProgress(ctx: LearnCommandContext, message: string): void {
+/**
+ * Whether to use animated step progress (TTY interactive) or plain console.log.
+ */
+function useAnimatedProgress(ctx: LearnCommandContext): boolean {
+  return !ctx.isNonInteractive && process.stdout.isTTY === true;
+}
+
+function logProgress(ctx: LearnCommandContext, message: string, progress?: StepProgress): void {
   ctx.onProgress?.(message);
-  console.log(chalk.cyan(message));
+  if (!progress) {
+    // Fallback for non-interactive or when no StepProgress is provided
+    console.log(chalk.cyan(message));
+  }
+  // When progress is provided, StepProgress handles rendering via start/advance
 }
 
 async function withModalPause<T>(ctx: LearnCommandContext, fn: () => Promise<T>): Promise<T> {
@@ -97,7 +109,12 @@ async function handleLearnRecommend(
 ): Promise<string> {
   const { skillsRegistry, workspaceRoot, llm, isNonInteractive } = ctx;
 
-  logProgress(ctx, deep ? 'Deep-analyzing your project...' : 'Analyzing your project...');
+  const animated = useAnimatedProgress(ctx);
+  const progress = animated ? new StepProgress() : undefined;
+
+  const analyzeLabel = deep ? 'Deep-analyzing your project...' : 'Analyzing your project...';
+  logProgress(ctx, analyzeLabel, progress);
+  progress?.start(analyzeLabel);
 
   // 1. Analyze project
   const analyzer = new ProjectAnalyzer(workspaceRoot);
@@ -106,7 +123,9 @@ async function handleLearnRecommend(
   // 2. Fetch registry
   const cache = new CommunitySkillsCache();
   const fetcher = new GitHubRegistryFetcher();
-  logProgress(ctx, 'Loading community skills...');
+  const loadLabel = 'Loading community skills...';
+  logProgress(ctx, loadLabel, progress);
+  progress?.advance(loadLabel);
   let registry: CommunitySkillsRegistry | null = null;
   try {
     registry = await fetchRegistryWithFallback(cache, fetcher);
@@ -119,9 +138,13 @@ async function handleLearnRecommend(
   const registrySkills = registry?.skills ?? [];
 
   // 4. Call LLM advisor
-  logProgress(ctx, 'Evaluating skill matches...');
+  const evalLabel = 'Evaluating skill matches...';
+  logProgress(ctx, evalLabel, progress);
+  progress?.advance(evalLabel);
   const advisor = new LearnAdvisor(llm);
   const result = await advisor.analyze(analysis, installedSkills, registrySkills);
+
+  progress?.finish();
 
   // 5. Format output
   const lines: string[] = [];
@@ -177,7 +200,8 @@ async function handleLearnRecommend(
     // Print accumulated output now (before the confirm dialog) so user sees
     // the analysis results. We return only the post-dialog result to avoid
     // the caller printing this text a second time.
-    console.log(lines.join('\n'));
+    const { renderTerminalMarkdown } = await import('../core/immediateCommandRouter.js');
+    console.log(renderTerminalMarkdown(lines.join('\n')));
 
     const wantGenerate = await withModalPause(ctx, () =>
       showConfirm({ title: 'Generate a custom skill to fill this gap?' }),
@@ -199,7 +223,11 @@ async function handleGeneration(
   const gapHint = analysisResult.gapAnalysis
     ? ` for: ${analysisResult.gapAnalysis}`
     : '';
-  logProgress(ctx, `Generating a custom skill${gapHint}...`);
+  const genLabel = `Generating a custom skill${gapHint}...`;
+  const animated = useAnimatedProgress(ctx);
+  const genProgress = animated ? new StepProgress() : undefined;
+  logProgress(ctx, genLabel, genProgress);
+  genProgress?.start(genLabel);
 
   const advisor = new LearnAdvisor(ctx.llm);
   const lowScoring = analysisResult.recommendations
@@ -207,6 +235,8 @@ async function handleGeneration(
     .slice(0, 3);
 
   const generated = await advisor.generateSkill(analysis, analysisResult.gapAnalysis, lowScoring);
+
+  genProgress?.finish();
 
   if (!generated) {
     return (
@@ -269,7 +299,12 @@ async function handleGeneration(
 async function handleLearnUpdate(ctx: LearnCommandContext): Promise<string> {
   const { skillsRegistry, workspaceRoot, llm } = ctx;
 
-  logProgress(ctx, 'Checking for skill updates...');
+  const animated = useAnimatedProgress(ctx);
+  const progress = animated ? new StepProgress() : undefined;
+
+  const checkLabel = 'Checking for skill updates...';
+  logProgress(ctx, checkLabel, progress);
+  progress?.start(checkLabel);
 
   // 1. Analyze current project
   const analyzer = new ProjectAnalyzer(workspaceRoot);
@@ -301,7 +336,9 @@ async function handleLearnUpdate(ctx: LearnCommandContext): Promise<string> {
     }
 
     // Project changed — regenerate this skill
-    logProgress(ctx, `Regenerating ${skill.name}...`);
+    const regenLabel = `Regenerating ${skill.name}...`;
+    logProgress(ctx, regenLabel, progress);
+    progress?.advance(regenLabel);
 
     const generated = await advisor.generateSkill(analysis, null, []);
 
@@ -330,6 +367,8 @@ async function handleLearnUpdate(ctx: LearnCommandContext): Promise<string> {
       lines.push(chalk.yellow(`  Failed to write ${skill.name}`));
     }
   }
+
+  progress?.finish();
 
   // 4. Report results
   lines.push('');
