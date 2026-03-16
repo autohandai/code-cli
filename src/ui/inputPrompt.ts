@@ -35,8 +35,8 @@ import {
   type InputBorderStyle
 } from './box.js';
 import { buildFileMentionSuggestions } from './mentionFilter.js';
-import { getTheme, isThemeInitialized } from './theme/index.js';
-import type { ColorToken } from './theme/types.js';
+import { themedFg } from './theme/index.js';
+import { stripAnsiCodes, enableBracketedPaste, disableBracketedPaste } from './displayUtils.js';
 import { TextBuffer } from './textBuffer.js';
 import { handleTextBufferKey } from './textBufferKeyHandler.js';
 import { calculateLayout, logicalToVisual } from './textBufferLayout.js';
@@ -60,20 +60,15 @@ export function promptInterrupt(value: string): void {
   promptEvents.emit('interrupt', value);
 }
 
-export const PROMPT_PREFIX = `${chalk.gray('›')} `;
-// Visible length of the prompt prefix (ANSI codes not counted)
-export const PROMPT_VISIBLE_LENGTH = 2;
+const PROMPT_PREFIX = `${chalk.gray('›')} `;
 // Number of fixed status lines we render beneath the prompt
 export const STATUS_LINE_COUNT = 1;
 // Composer block structure relative to input line.
 export const PROMPT_LINES_ABOVE_INPUT = 1;
 export const PROMPT_LINES_BELOW_INPUT = 1;
-export const PROMPT_BLOCK_LINE_COUNT = PROMPT_LINES_ABOVE_INPUT + 1 + PROMPT_LINES_BELOW_INPUT;
 export const PROMPT_PLACEHOLDER = 'Plan, search, build anything';
 export const PROMPT_INPUT_PREFIX = '❯ ';
-export const SHIFT_ENTER_RESIDUAL_PATTERN = /^(?:13;?[234]?\d*[u~]|27;[234];13~)$/;
-
-export type SlashCommandHint = SlashCommand;
+const SHIFT_ENTER_RESIDUAL_PATTERN = /^(?:13;?[234]?\d*[u~]|27;[234];13~)$/;
 
 export interface PromptRenderState {
   lineText: string;
@@ -87,7 +82,7 @@ export interface MultiLineRenderState {
   lineCount: number;      // total content lines
 }
 
-export interface PromptHotTip {
+interface PromptHotTip {
   label: string;
 }
 
@@ -107,22 +102,6 @@ const CONTEXTUAL_HELP_ROWS: Array<{ left: string; right: string }> = [
   { left: 'esc interrupts active turn', right: 'type /, @, or ! to switch mode' },
 ];
 
-function themedFg(token: ColorToken, text: string, fallback: (value: string) => string): string {
-  if (!isThemeInitialized()) {
-    return fallback(text);
-  }
-
-  try {
-    return getTheme().fg(token, text);
-  } catch {
-    return fallback(text);
-  }
-}
-
-function stripAnsiCodes(value: string): string {
-  return value.replace(/\u001b\[[0-9;]*m/g, '');
-}
-
 function truncatePlainText(value: string, width: number): string {
   if (width <= 0) {
     return '';
@@ -139,7 +118,7 @@ function truncatePlainText(value: string, width: number): string {
 export function buildPromptHotTips(
   currentLine: string,
   files: string[],
-  slashCommands: SlashCommandHint[],
+  slashCommands: SlashCommand[],
   workspaceRoot?: string
 ): PromptHotTip[] {
   const trimmed = currentLine.trim();
@@ -218,7 +197,7 @@ export function buildPromptHotTips(
 export function getPrimaryHotTipSuggestion(
   currentLine: string,
   files: string[],
-  slashCommands: SlashCommandHint[],
+  slashCommands: SlashCommand[],
   suggestionText?: string,
   workspaceRoot?: string
 ): PromptSuggestion | null {
@@ -288,7 +267,7 @@ export function getPrimaryHotTipSuggestion(
 export function getInlineGhostCompletionSuffix(
   currentLine: string,
   files: string[],
-  slashCommands: SlashCommandHint[],
+  slashCommands: SlashCommand[],
   workspaceRoot?: string,
   llmSuggestion?: string | null
 ): string | null {
@@ -329,7 +308,7 @@ export function buildContextualHelpPanelLines(
   currentLine: string,
   width: number,
   files: string[],
-  slashCommands: SlashCommandHint[]
+  slashCommands: SlashCommand[]
 ): string[] {
   const panelWidth = Math.max(20, width);
   const gap = 3;
@@ -366,7 +345,7 @@ export function buildContextualHelpPanelLines(
 export function buildContextualPromptStatusLine(
   currentLine: string,
   files: string[],
-  slashCommands: SlashCommandHint[]
+  slashCommands: SlashCommand[]
 ): string {
   const tips = buildPromptHotTips(currentLine, files, slashCommands);
   const primaryTip = tips[0]?.label ?? 'Tab -> /help';
@@ -388,7 +367,7 @@ export function buildContextualPromptStatusLine(
 export function buildSlashSuggestionLines(
   currentLine: string,
   width: number,
-  slashCommands: SlashCommandHint[]
+  slashCommands: SlashCommand[]
 ): string[] {
   // Only trim leading whitespace — trailing space signals subcommand mode
   const input = currentLine.replace(/^\s+/, '');
@@ -428,7 +407,7 @@ export function buildSlashSuggestionLines(
 function buildSubcommandSuggestions(
   input: string,
   panelWidth: number,
-  slashCommands: SlashCommandHint[]
+  slashCommands: SlashCommand[]
 ): string[] | null {
   // Match pattern: /command <optional-subcommand-seed>
   const spaceIdx = input.indexOf(' ');
@@ -937,13 +916,13 @@ export function formatPromptStatusRow(
  * @param filename - Optional original filename
  * @returns Image ID from ImageManager
  */
-export type ImageDetectedCallback = (
+type ImageDetectedCallback = (
   data: Buffer,
   mimeType: ImageMimeType,
   filename?: string
 ) => number;
 
-export interface PromptIO {
+interface PromptIO {
   input?: NodeJS.ReadStream;
   output?: NodeJS.WriteStream;
 }
@@ -1257,7 +1236,7 @@ export function convertNewlineMarkersToNewlines(text: string): string {
 
 export async function readInstruction(
   filesProvider: () => string[],
-  slashCommands: SlashCommandHint[],
+  slashCommands: SlashCommand[],
   statusLine?: string | { left: string; right: string },
   io: PromptIO = {},
   onImageDetected?: ImageDetectedCallback,
@@ -1304,7 +1283,7 @@ export async function readInstruction(
 
 interface PromptOnceOptions {
   filesProvider: () => string[];
-  slashCommands: SlashCommandHint[];
+  slashCommands: SlashCommand[];
   statusLine?: string | { left: string; right: string };
   initialValue?: string;
   stdInput: NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void };
@@ -1313,32 +1292,6 @@ interface PromptOnceOptions {
   workspaceRoot?: string;
   suggestionText?: string;
   resolveShellSuggestion?: (input: string) => Promise<string | null>;
-}
-
-/**
- * Enable bracketed paste mode in terminal.
- * Terminal will send escape sequences around pasted content.
- */
-function enableBracketedPaste(output: NodeJS.WriteStream): void {
-  try {
-    output.write('\x1b[?2004h');
-  } catch (error) {
-    // Terminal doesn't support bracketed paste, continue without it
-    if (process.env.DEBUG_PASTE) {
-      output.write(`[DEBUG] Failed to enable bracketed paste: ${error}\n`);
-    }
-  }
-}
-
-/**
- * Disable bracketed paste mode in terminal.
- */
-function disableBracketedPaste(output: NodeJS.WriteStream): void {
-  try {
-    output.write('\x1b[?2004l');
-  } catch {
-    // Ignore errors during cleanup
-  }
 }
 
 /**
