@@ -7,7 +7,7 @@
  * and the schedule_triggered event type.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { RepeatManager } from '../src/core/repeatManager.js';
+import { RepeatManager } from '../src/core/RepeatManager.js';
 import { DEFAULT_TOOL_DEFINITIONS } from '../src/core/toolManager.js';
 import { getToolCategory } from '../src/core/toolFilter.js';
 import type { AgentOutputEvent } from '../src/types.js';
