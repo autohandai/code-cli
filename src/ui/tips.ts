@@ -3,6 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { shuffleInPlace } from './displayUtils.js';
 
 const DEFAULT_TIPS: string[] = [
   'Use @filename to give the agent context about specific files',
@@ -46,11 +47,7 @@ export class TipsBag {
   next(): string {
     if (this.remaining.length === 0) {
       this.remaining = [...this.pool];
-      // Fisher-Yates shuffle
-      for (let i = this.remaining.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [this.remaining[i], this.remaining[j]] = [this.remaining[j], this.remaining[i]];
-      }
+      shuffleInPlace(this.remaining);
     }
     return this.remaining.pop()!;
   }
