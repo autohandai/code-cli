@@ -15,6 +15,8 @@ import {
   addToLocalWhitelist,
   mergePermissions
 } from './localProjectPermissions.js';
+import { matchesToolPattern } from './toolPatterns.js';
+import type { ToolPattern } from './toolPatterns.js';
 
 /**
  * Default security blacklist - always blocked patterns for sensitive files and dangerous commands.
@@ -213,6 +215,12 @@ export class PermissionManager {
       return { allowed: false, reason: 'blacklisted' };
     }
 
+    // Pattern-based checks (AFTER security blacklist, BEFORE session cache)
+    const patternDecision = this.checkPatterns(context);
+    if (patternDecision) {
+      return patternDecision;
+    }
+
     const cacheKey = this.getCacheKey(context);
 
     // Check session cache
@@ -347,6 +355,71 @@ export class PermissionManager {
     // Don't create wildcards for root-level paths
     if (dir === '.' || dir === '/') return null;
     return `${context.tool}:${dir}/*`;
+  }
+
+  /**
+   * Convert a PermissionContext to the { kind, target } shape used by matchesToolPattern.
+   */
+  private contextToCall(context: PermissionContext): { kind: string; target: string } {
+    return { kind: context.tool, target: this.getFullCommand(context) };
+  }
+
+  /**
+   * Check pattern-based allow/deny rules (denyPatterns, availableTools, excludedTools,
+   * allowPatterns, allPathsAllowed, allUrlsAllowed).
+   * Returns a decision when a pattern fires, or null to continue with normal flow.
+   */
+  private checkPatterns(context: PermissionContext): PermissionDecision | null {
+    const settings = this.getMergedSettings();
+    const call = this.contextToCall(context);
+
+    // 1. denyPatterns – always denied
+    if (settings.denyPatterns?.length) {
+      for (const p of settings.denyPatterns) {
+        if (matchesToolPattern(p, call)) {
+          return { allowed: false, reason: 'pattern_denied' };
+        }
+      }
+    }
+
+    // 2. availableTools – if non-empty, tool must appear in the list
+    if (settings.availableTools?.length) {
+      const inAvailable = settings.availableTools.some(p => matchesToolPattern(p, call));
+      if (!inAvailable) {
+        return { allowed: false, reason: 'not_in_available' };
+      }
+    }
+
+    // 3. excludedTools – always denied
+    if (settings.excludedTools?.length) {
+      for (const p of settings.excludedTools) {
+        if (matchesToolPattern(p, call)) {
+          return { allowed: false, reason: 'excluded' };
+        }
+      }
+    }
+
+    // 4. allowPatterns – explicitly allowed
+    if (settings.allowPatterns?.length) {
+      for (const p of settings.allowPatterns) {
+        if (matchesToolPattern(p, call)) {
+          return { allowed: true, reason: 'pattern_allowed' };
+        }
+      }
+    }
+
+    // 5. allPathsAllowed – allow any file-path tool
+    const fileTools = new Set(['read_file', 'write_file', 'list_dir', 'delete_path', 'move_path', 'copy_path']);
+    if (settings.allPathsAllowed && fileTools.has(context.tool)) {
+      return { allowed: true, reason: 'all_paths_allowed' };
+    }
+
+    // 6. allUrlsAllowed – allow url tool
+    if (settings.allUrlsAllowed && context.tool === 'url') {
+      return { allowed: true, reason: 'all_urls_allowed' };
+    }
+
+    return null;
   }
 
   /**

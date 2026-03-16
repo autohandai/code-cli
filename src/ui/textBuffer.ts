@@ -408,6 +408,95 @@ export class TextBuffer {
   }
 
   /**
+   * Deletes from cursor to end of current line.
+   * If cursor is already at end of line, merges with the next line (like Delete at EOL).
+   */
+  deleteToEnd(): void {
+    this.preferredCol = null;
+    this.layoutDirty = true;
+    const line = this.lines[this.cursorRow]!;
+    const lineLen = cpLen(line);
+
+    if (this.cursorCol < lineLen) {
+      // Delete from cursor to end of line
+      this.lines[this.cursorRow] = cpSlice(line, 0, this.cursorCol);
+    } else if (this.cursorRow < this.lines.length - 1) {
+      // At end of line — merge with next line
+      this.lines[this.cursorRow] = line + this.lines[this.cursorRow + 1]!;
+      this.lines.splice(this.cursorRow + 1, 1);
+    }
+
+    this.ensureCursorVisible();
+  }
+
+  /**
+   * Deletes from cursor to start of current line.
+   * Cursor moves to column 0.
+   */
+  deleteToStart(): void {
+    this.preferredCol = null;
+    this.layoutDirty = true;
+    const line = this.lines[this.cursorRow]!;
+
+    if (this.cursorCol > 0) {
+      this.lines[this.cursorRow] = cpSlice(line, this.cursorCol);
+      this.cursorCol = 0;
+    }
+
+    this.ensureCursorVisible();
+  }
+
+  /**
+   * Deletes the previous word before the cursor.
+   * Skips trailing spaces, then skips non-space characters.
+   * Uses code-point-safe string indexing.
+   */
+  deletePreviousWord(): void {
+    this.preferredCol = null;
+    this.layoutDirty = true;
+
+    if (this.cursorCol === 0) return;
+
+    const line = this.lines[this.cursorRow]!;
+    const beforeCursor = cpSlice(line, 0, this.cursorCol);
+    const chars = Array.from(beforeCursor);
+
+    let i = chars.length;
+
+    // Skip trailing spaces
+    while (i > 0 && chars[i - 1] === ' ') {
+      i--;
+    }
+    // Skip non-space characters (the word itself)
+    while (i > 0 && chars[i - 1] !== ' ') {
+      i--;
+    }
+
+    const after = cpSlice(line, this.cursorCol);
+    this.lines[this.cursorRow] = chars.slice(0, i).join('') + after;
+    this.cursorCol = i;
+
+    this.ensureCursorVisible();
+  }
+
+  /**
+   * Sets cursor to (row, col) with bounds clamping.
+   * Row is clamped to [0, lineCount-1]. Col is clamped to [0, lineLen].
+   */
+  setCursorPosition(row: number, col: number): void {
+    // Clamp row
+    row = Math.max(0, Math.min(row, this.lines.length - 1));
+    // Clamp col to the length of the target line
+    const lineLen = cpLen(this.lines[row]!);
+    col = Math.max(0, Math.min(col, lineLen));
+
+    this.cursorRow = row;
+    this.cursorCol = col;
+    this.preferredCol = null;
+    this.ensureCursorVisible();
+  }
+
+  /**
    * Replaces all buffer content and moves the cursor to the end.
    */
   setText(text: string): void {

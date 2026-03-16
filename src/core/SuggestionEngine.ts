@@ -29,7 +29,14 @@ Examples of good startup suggestions:
 const MAX_SUGGESTION_LENGTH = 80;
 /** Max conversation messages included in the suggestion prompt (system prompt added on top). */
 const MAX_HISTORY_MESSAGES = 6; // 3 user+assistant pairs → 7 messages total sent to LLM
-const SUGGESTION_TIMEOUT_MS = 3000;
+/** Max characters per message to keep the suggestion prompt small and fast. */
+const MAX_MESSAGE_CONTENT_LENGTH = 500;
+/**
+ * Internal timeout for the background LLM call. Set higher than the user-facing
+ * deadline in promptForInstruction (3s) so the request can finish in the background
+ * and be available for the next prompt cycle.
+ */
+const SUGGESTION_TIMEOUT_MS = 10_000;
 
 export interface SuggestionEngineOptions {
   /** When provided, constrains suggestions to only actions achievable with these tools. */
@@ -80,7 +87,24 @@ export class SuggestionEngine {
   }
 
   async generate(history: LLMMessage[]): Promise<void> {
-    const recentHistory = history.slice(-MAX_HISTORY_MESSAGES);
+    // Clear stale suggestion from previous turn immediately so that a lazy
+    // provider (e.g., `() => engine.getSuggestion()`) won't return outdated text
+    // while the new LLM call is in flight.
+    this.suggestion = null;
+
+    // Strip tool messages, empty assistant messages (tool-call-only turns),
+    // and internal metadata (tool_calls, priority, etc.) to avoid breaking
+    // the LLM API with orphaned tool responses or invalid sequences.
+    const cleanHistory = history
+      .filter(m => (m.role === 'user' || m.role === 'assistant') &&
+                   typeof m.content === 'string' && m.content.trim().length > 0)
+      .map(m => ({
+        role: m.role,
+        content: m.content.length > MAX_MESSAGE_CONTENT_LENGTH
+          ? m.content.slice(0, MAX_MESSAGE_CONTENT_LENGTH) + '…'
+          : m.content,
+      }));
+    const recentHistory = cleanHistory.slice(-MAX_HISTORY_MESSAGES);
     await this.executeWithTimeout([
       { role: 'system', content: SUGGESTION_SYSTEM_PROMPT + this.toolConstraint },
       ...recentHistory,
@@ -107,8 +131,10 @@ export class SuggestionEngine {
 
     const controller = new AbortController();
     this.abortController = controller;
+    const debug = process.env.AUTOHAND_DEBUG === '1';
 
     const timeout = setTimeout(() => controller.abort(), SUGGESTION_TIMEOUT_MS);
+    const startTime = Date.now();
 
     try {
       const response = await this.llm.complete({
@@ -119,19 +145,26 @@ export class SuggestionEngine {
       });
 
       if (controller.signal.aborted) {
+        if (debug) process.stderr.write(`[SUGGESTION] Aborted after ${Date.now() - startTime}ms\n`);
         return;
       }
 
       const raw = (response.content ?? '').trim();
       if (!raw) {
         this.suggestion = null;
+        if (debug) process.stderr.write(`[SUGGESTION] Empty response after ${Date.now() - startTime}ms\n`);
         return;
       }
 
       this.suggestion = sanitizeSuggestion(raw);
-    } catch {
+      if (debug) process.stderr.write(`[SUGGESTION] Generated "${this.suggestion}" in ${Date.now() - startTime}ms\n`);
+    } catch (err) {
       if (!controller.signal.aborted) {
         this.suggestion = null;
+      }
+      if (debug) {
+        const msg = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`[SUGGESTION] Error after ${Date.now() - startTime}ms: ${msg}\n`);
       }
     } finally {
       clearTimeout(timeout);
