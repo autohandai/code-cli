@@ -5,6 +5,7 @@
  */
 import chalk from 'chalk';
 import { TipsBag } from './tips.js';
+import { shuffleInPlace } from './displayUtils.js';
 
 const DEFAULT_VERBS: string[] = [
   // 70s computer geek
@@ -97,11 +98,7 @@ export class ActivityIndicator {
     }
     if (this.shuffledVerbs.length === 0) {
       this.shuffledVerbs = [...this.verbs];
-      // Fisher-Yates shuffle
-      for (let i = this.shuffledVerbs.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [this.shuffledVerbs[i], this.shuffledVerbs[j]] = [this.shuffledVerbs[j], this.shuffledVerbs[i]];
-      }
+      shuffleInPlace(this.shuffledVerbs);
     }
     return this.shuffledVerbs.pop()!;
   }
