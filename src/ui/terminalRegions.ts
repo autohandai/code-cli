@@ -40,6 +40,7 @@ export class TerminalRegions {
   private currentQueueCount = 0;
   private currentStatus = '';
   private currentActivity = '';
+  private currentSuggestion: string | undefined;
   private lastHeight = 0;
   private lastWidth = 0;
 
@@ -143,7 +144,13 @@ export class TerminalRegions {
     this.lastWidth = width;
 
     // 5. Re-render the fixed region at the new dimensions
-    this.renderFixedRegion(this.currentInput, this.currentQueueCount, this.currentStatus, this.currentActivity);
+    this.renderFixedRegion(
+      this.currentInput,
+      this.currentQueueCount,
+      this.currentStatus,
+      this.currentActivity,
+      this.currentSuggestion
+    );
   }
 
   /**
@@ -151,13 +158,14 @@ export class TerminalRegions {
    * Supports multi-line input by splitting on `\n` and rendering
    * each visible line as a separate boxed row.
    */
-  renderFixedRegion(input = '', queueCount = 0, status = '', activity = ''): void {
+  renderFixedRegion(input = '', queueCount = 0, status = '', activity = '', suggestionText?: string): void {
     if (!this.isActive) return;
 
     this.currentInput = input;
     this.currentQueueCount = queueCount;
     this.currentStatus = status;
     this.currentActivity = activity;
+    this.currentSuggestion = suggestionText;
 
     const inputLines = input ? input.split('\n') : [''];
     const visibleLines = Math.min(inputLines.length, MAX_VISIBLE_INPUT_LINES);
@@ -182,7 +190,7 @@ export class TerminalRegions {
       const row = height - this.fixedLines + 3 + i;
       const lineContent = inputLines[i] ?? '';
       const content = i === 0
-        ? this.getInputContent(lineContent)
+        ? this.getInputContent(lineContent, suggestionText)
         : this.getContinuationContent(lineContent);
       this.output.write(`${CSI}${row};1H`);
       this.output.write(`${CSI}K`);
@@ -206,10 +214,11 @@ export class TerminalRegions {
    * Handles multi-line input by adjusting the fixed region size and
    * re-rendering all input rows with borders.
    */
-  updateInput(input: string): void {
+  updateInput(input: string, suggestionText?: string): void {
     if (!this.isActive) return;
 
     this.currentInput = input;
+    this.currentSuggestion = suggestionText;
 
     const inputLines = input ? input.split('\n') : [''];
     const visibleLines = Math.min(inputLines.length, MAX_VISIBLE_INPUT_LINES);
@@ -218,7 +227,7 @@ export class TerminalRegions {
 
     // If fixedLines changed, do a full render to reposition everything
     if (oldFixed !== this.fixedLines) {
-      this.renderFixedRegion(input, this.currentQueueCount, this.currentStatus, this.currentActivity);
+      this.renderFixedRegion(input, this.currentQueueCount, this.currentStatus, this.currentActivity, suggestionText);
       return;
     }
 
@@ -236,7 +245,7 @@ export class TerminalRegions {
       const row = height - this.fixedLines + 3 + i;
       const lineContent = inputLines[i] ?? '';
       const content = i === 0
-        ? this.getInputContent(lineContent)
+        ? this.getInputContent(lineContent, suggestionText)
         : this.getContinuationContent(lineContent);
       this.output.write(`${CSI}${row};1H`);
       this.output.write(`${CSI}K`);
@@ -301,11 +310,12 @@ export class TerminalRegions {
     }
   }
 
-  private getInputContent(input: string): string {
+  private getInputContent(input: string, suggestionText?: string): string {
     if (!input) {
+      const placeholder = suggestionText?.trim() ? suggestionText : PROMPT_PLACEHOLDER;
       return themedFg(
         'muted',
-        `${PROMPT_INPUT_PREFIX}${PROMPT_PLACEHOLDER}`,
+        `${PROMPT_INPUT_PREFIX}${placeholder}`,
         (value) => chalk.gray(value)
       );
     }

@@ -1242,8 +1242,9 @@ export async function readInstruction(
   onImageDetected?: ImageDetectedCallback,
   workspaceRoot?: string,
   initialValue = '',
-  suggestionText?: string,
-  resolveShellSuggestion?: (input: string) => Promise<string | null>
+  suggestionProvider?: () => string | undefined,
+  resolveShellSuggestion?: (input: string) => Promise<string | null>,
+  pendingSuggestion?: Promise<void>
 ): Promise<string | null> {
   const stdInput = (io.input ?? process.stdin) as NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void };
   const stdOutput = (io.output ?? process.stdout) as NodeJS.WriteStream;
@@ -1266,8 +1267,9 @@ export async function readInstruction(
         stdOutput,
         onImageDetected,
         workspaceRoot,
-        suggestionText,
-        resolveShellSuggestion
+        suggestionProvider,
+        resolveShellSuggestion,
+        pendingSuggestion,
       });
 
       if (result.kind === 'abort') {
@@ -1290,8 +1292,11 @@ interface PromptOnceOptions {
   stdOutput: NodeJS.WriteStream;
   onImageDetected?: ImageDetectedCallback;
   workspaceRoot?: string;
-  suggestionText?: string;
+  /** Lazy provider for suggestion text. Called on each render to get the latest value. */
+  suggestionProvider?: () => string | undefined;
   resolveShellSuggestion?: (input: string) => Promise<string | null>;
+  /** Promise that resolves when a pending suggestion arrives, triggering a re-render. */
+  pendingSuggestion?: Promise<void>;
 }
 
 /**
@@ -1493,8 +1498,9 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     stdOutput,
     onImageDetected,
     workspaceRoot,
-    suggestionText,
+    suggestionProvider,
     resolveShellSuggestion,
+    pendingSuggestion,
   } = options;
 
   // Reset module-level render state so stale values from the previous
@@ -1518,6 +1524,10 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
   const pasteState = createPasteState();
   let contextualHelpVisible = false;
   let llmInlineShellSuggestion: string | null = null;
+
+  // Chord state for Ctrl+X sequences
+  let chordState: 'none' | 'ctrl-x' = 'none';
+  let chordTimeout: NodeJS.Timeout | null = null;
 
   const applyPlanModePrefix = (line: string): string => {
     const planPrefix = getPlanModeManager().isEnabled() ? 'plan:on' : 'plan:off';
@@ -1598,7 +1608,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       stdOutput,
       isResize,
       hasExistingPromptBlock,
-      suggestionText,
+      suggestionProvider?.(),
       getInlineGhostSuffix(),
       getHelpPanelLines(),
       getSlashSuggestionLines()
@@ -1670,6 +1680,17 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
           renderActivePrompt();
         }
       });
+    }
+
+    // When a background suggestion LLM call finishes, re-render the prompt
+    // so the ghost text placeholder updates from "Build anything" to the
+    // actual suggestion — but only if the user hasn't started typing yet.
+    if (pendingSuggestion) {
+      pendingSuggestion.then(() => {
+        if (!closed && getCurrentText() === '' && suggestionProvider?.()) {
+          scheduleRender();
+        }
+      }).catch(() => {});
     }
 
     const cleanup = () => {
@@ -1945,6 +1966,20 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       if (closed) return;
       const rawSeq = key?.sequence ?? _str ?? '';
 
+      // ── Ctrl+X chord: handle second key ───────────────────────────────
+      if (chordState === 'ctrl-x') {
+        chordState = 'none';
+        if (chordTimeout) { clearTimeout(chordTimeout); chordTimeout = null; }
+        if (_str === '/') {
+          const currentText = textBuffer.getText();
+          textBuffer.setText('/' + currentText);
+          textBuffer.setCursorPosition(0, 1);
+          syncReadlineFromBuffer();
+          renderActivePrompt();
+          return;
+        }
+      }
+
       // Suppress residual chars from modified-Enter CSI sequences.
       // The timer is set by handleInputData (which runs as a prepended
       // data listener, before readline emits keypresses).
@@ -2148,7 +2183,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
             currentInput,
             filesProvider(),
             slashCommands,
-            suggestionText,
+            suggestionProvider?.(),
             workspaceRoot
           );
           let expectedInputAtResponse = currentInput;
@@ -2190,7 +2225,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
           currentInput,
           filesProvider(),
           slashCommands,
-          suggestionText,
+          suggestionProvider?.(),
           workspaceRoot
         );
         if (suggestion) {
@@ -2236,6 +2271,104 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         renderActivePrompt();
         scheduleInlineImageScan();
         scheduleInlineShellSuggestion();
+        return;
+      }
+
+      // ── Ctrl+K: Delete to end of line ─────────────────────────────────
+      if (key?.name === 'k' && key.ctrl) {
+        textBuffer.deleteToEnd();
+        syncReadlineFromBuffer();
+        renderActivePrompt();
+        return;
+      }
+
+      // ── Ctrl+U: Delete to start of line ───────────────────────────────
+      if (key?.name === 'u' && key.ctrl) {
+        textBuffer.deleteToStart();
+        syncReadlineFromBuffer();
+        renderActivePrompt();
+        return;
+      }
+
+      // ── Ctrl+W: Delete previous word ──────────────────────────────────
+      if (key?.name === 'w' && key.ctrl) {
+        textBuffer.deletePreviousWord();
+        syncReadlineFromBuffer();
+        renderActivePrompt();
+        return;
+      }
+
+      // ── Ctrl+D: Delete char at cursor, or shutdown if buffer empty ─────
+      if (key?.name === 'd' && key.ctrl) {
+        if (textBuffer.getText().length === 0) {
+          process.emit('SIGTERM');
+          return;
+        }
+        textBuffer.delete();
+        syncReadlineFromBuffer();
+        renderActivePrompt();
+        return;
+      }
+
+      // ── Ctrl+L: Clear screen and re-render ────────────────────────────
+      if (key?.name === 'l' && key.ctrl) {
+        process.stdout.write('\x1b[2J\x1b[H');
+        renderActivePrompt();
+        return;
+      }
+
+      // ── Ctrl+B: Move cursor left ───────────────────────────────────────
+      if (key?.name === 'b' && key.ctrl) {
+        handleTextBufferKey(textBuffer, '', { name: 'left' });
+        syncReadlineFromBuffer();
+        renderActivePrompt();
+        return;
+      }
+
+      // ── Ctrl+F: Move cursor right ──────────────────────────────────────
+      if (key?.name === 'f' && key.ctrl) {
+        handleTextBufferKey(textBuffer, '', { name: 'right' });
+        syncReadlineFromBuffer();
+        renderActivePrompt();
+        return;
+      }
+
+      // ── Ctrl+H: Delete previous character (backspace alias) ───────────
+      if (key?.name === 'h' && key.ctrl) {
+        textBuffer.backspace();
+        syncReadlineFromBuffer();
+        renderActivePrompt();
+        return;
+      }
+
+      // ── Ctrl+G: Open external editor ──────────────────────────────────
+      if (key?.name === 'g' && key.ctrl) {
+        const { writeFileSync, unlinkSync } = require('node:fs') as typeof import('node:fs');
+        const { spawnSync } = require('node:child_process') as typeof import('node:child_process');
+        const { tmpdir } = require('node:os') as typeof import('node:os');
+        const { join } = require('node:path') as typeof import('node:path');
+
+        const tmpFile = join(tmpdir(), `autohand-edit-${Date.now()}.txt`);
+        writeFileSync(tmpFile, textBuffer.getText());
+
+        const editor = process.env.VISUAL || process.env.EDITOR || 'vi';
+        spawnSync(editor, [tmpFile], { stdio: 'inherit' });
+
+        try {
+          const content = readFileSync(tmpFile, 'utf-8');
+          textBuffer.setText(content.trimEnd());
+          unlinkSync(tmpFile);
+        } catch { /* editor cancelled */ }
+
+        syncReadlineFromBuffer();
+        renderActivePrompt();
+        return;
+      }
+
+      // ── Ctrl+X: start chord ───────────────────────────────────────────
+      if (key?.name === 'x' && key.ctrl) {
+        chordState = 'ctrl-x';
+        chordTimeout = setTimeout(() => { chordState = 'none'; chordTimeout = null; }, 1000);
         return;
       }
 
@@ -2328,7 +2461,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         textBuffer.setText('');
         syncReadlineFromBuffer();
         stdOutput.write('\n');
-        renderPromptLine(rl, getActiveStatusLine(), stdOutput, false, false, suggestionText);
+        renderPromptLine(rl, getActiveStatusLine(), stdOutput, false, false, suggestionProvider?.());
         return;
       }
 

@@ -38,6 +38,8 @@ export interface PersistentInputOptions {
   workspaceRoot?: string;
   /** Optional async LLM resolver for ! command suggestions. */
   resolveShellSuggestion?: (input: string) => Promise<string | null>;
+  /** Lazy provider for the current next-step suggestion shown as ghost text. */
+  suggestionProvider?: () => string | undefined;
 }
 
 function isCtrlQShortcut(str: string, key: readline.Key | undefined): boolean {
@@ -73,7 +75,9 @@ export class PersistentInput extends EventEmitter {
   private activityLine = '';
   private workspaceRoot: string;
   private resolveShellSuggestion?: (input: string) => Promise<string | null>;
+  private suggestionProvider?: () => string | undefined;
   private shellSuggestionRequestId = 0;
+  private pendingSuggestionId = 0;
   private queueShortcutSelectionIndex: number | null = null;
   private queueOverlayLineCount = 0;
 
@@ -93,6 +97,7 @@ export class PersistentInput extends EventEmitter {
     this.silentMode = options.silentMode ?? false;
     this.workspaceRoot = options.workspaceRoot ?? process.cwd();
     this.resolveShellSuggestion = options.resolveShellSuggestion;
+    this.suggestionProvider = options.suggestionProvider;
     this.regions = createTerminalRegions(this.output);
     this.textBuffer = new TextBuffer(80, 5);
   }
@@ -323,9 +328,31 @@ export class PersistentInput extends EventEmitter {
   setCurrentInput(value: string): void {
     this.textBuffer.setText(value);
     if (this.isActive && !this.isPaused && !this.silentMode) {
-      this.regions.updateInput(this.textBuffer.getText());
+      this.regions.updateInput(this.textBuffer.getText(), this.suggestionProvider?.());
     }
     this.emitInputChange();
+  }
+
+  setPendingSuggestion(pendingSuggestion?: Promise<void>): void {
+    const pendingId = ++this.pendingSuggestionId;
+    if (!pendingSuggestion) {
+      return;
+    }
+
+    pendingSuggestion.then(() => {
+      if (
+        pendingId !== this.pendingSuggestionId ||
+        !this.isActive ||
+        this.isPaused ||
+        this.silentMode ||
+        this.textBuffer.getText() !== '' ||
+        !this.suggestionProvider?.()
+      ) {
+        return;
+      }
+
+      this.render();
+    }).catch(() => {});
   }
 
   private emitInputChange(): void {
@@ -393,6 +420,16 @@ export class PersistentInput extends EventEmitter {
 
     if (isPlainTabShortcut(_str, key)) {
       const currentText = this.textBuffer.getText();
+      if (currentText.trim().length === 0) {
+        const suggestion = this.suggestionProvider?.();
+        if (suggestion) {
+          this.textBuffer.setText(suggestion);
+          this.updateDisplay();
+          this.emitInputChange();
+          return;
+        }
+      }
+
       if (currentText.trim().startsWith('!') && this.resolveShellSuggestion) {
         const requestId = ++this.shellSuggestionRequestId;
         const immediateFallback = getPrimaryShellCommandSuggestion(currentText, {
@@ -507,7 +544,7 @@ export class PersistentInput extends EventEmitter {
 
   private updateDisplay(): void {
     if (!this.silentMode) {
-      this.regions.updateInput(this.textBuffer.getText());
+      this.regions.updateInput(this.textBuffer.getText(), this.suggestionProvider?.());
     }
   }
 
@@ -826,7 +863,8 @@ export class PersistentInput extends EventEmitter {
       this.textBuffer.getText(),
       this.queue.length,
       this.getStatusText(),
-      this.activityLine
+      this.activityLine,
+      this.suggestionProvider?.()
     );
   }
 

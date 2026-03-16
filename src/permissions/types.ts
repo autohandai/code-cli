@@ -2,6 +2,7 @@
  * Permission System Types
  * @license Apache-2.0
  */
+import type { ToolPattern } from './toolPatterns.js';
 
 export type PermissionMode = 'interactive' | 'unrestricted' | 'restricted' | 'external';
 
@@ -25,6 +26,18 @@ export interface PermissionSettings {
   rules?: PermissionRule[];
   /** Remember user decisions for this session */
   rememberSession?: boolean;
+  /** Patterns that are always denied (checked before allowPatterns) */
+  denyPatterns?: ToolPattern[];
+  /** Patterns that are always allowed (checked after denyPatterns) */
+  allowPatterns?: ToolPattern[];
+  /** If non-empty, only tools matching these patterns are allowed */
+  availableTools?: ToolPattern[];
+  /** Tools matching these patterns are always excluded/denied */
+  excludedTools?: ToolPattern[];
+  /** If true, all file-path tools are allowed without prompting */
+  allPathsAllowed?: boolean;
+  /** If true, all URL-fetching tools are allowed without prompting */
+  allUrlsAllowed?: boolean;
 }
 
 export interface PermissionDecision {
@@ -32,7 +45,9 @@ export interface PermissionDecision {
   reason:
     | 'whitelisted' | 'blacklisted' | 'rule_match' | 'user_approved' | 'user_denied'
     | 'mode_unrestricted' | 'mode_restricted' | 'default'
-    | 'external_approved' | 'external_denied' | 'external_error';
+    | 'external_approved' | 'external_denied' | 'external_error'
+    | 'pattern_denied' | 'pattern_allowed' | 'not_in_available' | 'excluded'
+    | 'all_paths_allowed' | 'all_urls_allowed';
   cached?: boolean;
 }
 
