@@ -1256,7 +1256,7 @@ export function convertNewlineMarkersToNewlines(text: string): string {
 }
 
 export async function readInstruction(
-  files: string[],
+  filesProvider: () => string[],
   slashCommands: SlashCommandHint[],
   statusLine?: string | { left: string; right: string },
   io: PromptIO = {},
@@ -1279,7 +1279,7 @@ export async function readInstruction(
       await new Promise(resolve => process.nextTick(resolve));
 
       const result = await promptOnce({
-        files,
+        filesProvider,
         slashCommands,
         statusLine,
         initialValue,
@@ -1303,7 +1303,7 @@ export async function readInstruction(
 }
 
 interface PromptOnceOptions {
-  files: string[];
+  filesProvider: () => string[];
   slashCommands: SlashCommandHint[];
   statusLine?: string | { left: string; right: string };
   initialValue?: string;
@@ -1532,7 +1532,7 @@ function handlePasteComplete(
 
 async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
   const {
-    files,
+    filesProvider,
     slashCommands,
     statusLine,
     initialValue,
@@ -1559,7 +1559,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
   const textBuffer = new TextBuffer(tbWidth, tbMaxVisibleLines, initialLine || undefined);
   activeTextBuffer = textBuffer;
 
-  const mentionPreview = new MentionPreview(rl, files, slashCommands, stdOutput);
+  const mentionPreview = new MentionPreview(rl, filesProvider, slashCommands, stdOutput);
 
   // Initialize paste state for bracketed paste detection
   const pasteState = createPasteState();
@@ -1613,7 +1613,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     }
     return getInlineGhostCompletionSuffix(
       currentText,
-      files,
+      filesProvider(),
       slashCommands,
       workspaceRoot,
       llmInlineShellSuggestion
@@ -1625,7 +1625,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       return undefined;
     }
     const width = getPromptBlockWidth(stdOutput.columns);
-    return buildContextualHelpPanelLines(getCurrentText(), width, files, slashCommands);
+    return buildContextualHelpPanelLines(getCurrentText(), width, filesProvider(), slashCommands);
   };
 
   const getSlashSuggestionLines = (): string[] | undefined => {
@@ -2193,7 +2193,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
           const requestId = ++shellSuggestionRequestId;
           const immediateFallback = getPrimaryHotTipSuggestion(
             currentInput,
-            files,
+            filesProvider(),
             slashCommands,
             suggestionText,
             workspaceRoot
@@ -2235,7 +2235,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
 
         const suggestion = getPrimaryHotTipSuggestion(
           currentInput,
-          files,
+          filesProvider(),
           slashCommands,
           suggestionText,
           workspaceRoot

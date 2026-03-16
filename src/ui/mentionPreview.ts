@@ -40,7 +40,7 @@ export class MentionPreview {
 
   constructor(
     private readonly rl: readline.Interface,
-    private readonly files: string[],
+    private readonly filesProvider: () => string[],
     private readonly slashCommands: SlashCommand[],
     private readonly output: NodeJS.WriteStream
   ) {
@@ -172,7 +172,7 @@ export class MentionPreview {
   }
 
   private filter(seed: string): string[] {
-    return buildFileMentionSuggestions(this.files, seed, MENTION_SUGGESTION_LIMIT);
+    return buildFileMentionSuggestions(this.filesProvider(), seed, MENTION_SUGGESTION_LIMIT);
   }
 
   private matchMention(beforeCursor: string): RegExpExecArray | null {
