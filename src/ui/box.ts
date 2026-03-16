@@ -5,6 +5,7 @@
  */
 import { getTheme, isThemeInitialized, hexToRgb } from './theme/index.js';
 import type { ColorToken } from './theme/types.js';
+import { stripAnsiCodes } from './displayUtils.js';
 
 const DEFAULT_BORDER_COLOR = '#8a8a8a';
 const PLAN_BORDER_COLOR = '#ff9d3f';
@@ -129,11 +130,10 @@ export function drawInputBottomBorder(width: number, style: InputBorderStyle = '
   return resolveBoxBg() + resolveBorderFg(style) + border + RESET_ALL + CLEAR_TO_EOL;
 }
 
-const ANSI_PATTERN = /\u001b\[[0-9;]*m/g;
 const ANSI_OR_CHAR_PATTERN = /(?:\u001b\[[0-9;]*m)|[\s\S]/g;
 
 function getVisibleLength(value: string): number {
-  return value.replace(ANSI_PATTERN, '').length;
+  return stripAnsiCodes(value).length;
 }
 
 function truncateVisible(value: string, maxVisible: number): string {
