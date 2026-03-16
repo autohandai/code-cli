@@ -101,32 +101,51 @@ export function buildLearnUserPrompt(
     const skillWord = registrySkills.length === 1 ? 'community skill' : 'community skills';
     parts.push(`${registrySkills.length} ${skillWord} available.`);
 
-    // Show only skills that match the project's languages/frameworks
+    // Show all skills to the LLM so it can discover cross-domain relevance.
+    // Matching skills are listed first so the LLM prioritizes them.
     const projectLanguages = new Set(analysis.languages.map((l) => l.toLowerCase()));
     const projectFrameworks = new Set(analysis.frameworks.map((f) => f.toLowerCase()));
 
-    const relevant = registrySkills.filter((skill) => {
+    const matching: typeof registrySkills = [];
+    const other: typeof registrySkills = [];
+    for (const skill of registrySkills) {
       const skillLangs = (skill.languages ?? []).map((l) => l.toLowerCase());
       const skillFw = (skill.frameworks ?? []).map((f) => f.toLowerCase());
-      return (
+      const isMatch =
         skillLangs.some((l) => projectLanguages.has(l)) ||
-        skillFw.some((f) => projectFrameworks.has(f))
-      );
-    });
+        skillFw.some((f) => projectFrameworks.has(f));
+      (isMatch ? matching : other).push(skill);
+    }
 
-    if (relevant.length > 0) {
+    // Combine: matching skills first, then others, capped at 30 total
+    const MAX_SKILLS = 30;
+    const combined = [...matching, ...other].slice(0, MAX_SKILLS);
+
+    const formatSkill = (skill: GitHubCommunitySkill): string => {
+      const tags = skill.tags?.join(', ') ?? '';
+      const languages = skill.languages?.join(', ') ?? '';
+      const frameworks = skill.frameworks?.join(', ') ?? '';
+      return `- **${skill.id}**: ${skill.description} [category: ${skill.category}] [tags: ${tags}] [languages: ${languages}] [frameworks: ${frameworks}]`;
+    };
+
+    if (combined.length > 0) {
       parts.push('');
-      parts.push(`## Matching Skills (${relevant.length} match project stack)`);
-      for (const skill of relevant.slice(0, 15)) {
-        const tags = skill.tags?.join(', ') ?? '';
-        const languages = skill.languages?.join(', ') ?? '';
-        const frameworks = skill.frameworks?.join(', ') ?? '';
-        parts.push(
-          `- **${skill.id}**: ${skill.description} [category: ${skill.category}] [tags: ${tags}] [languages: ${languages}] [frameworks: ${frameworks}]`,
-        );
+      if (matching.length > 0) {
+        parts.push(`## Matching Skills (${matching.length} match project stack)`);
+        for (const skill of matching.slice(0, MAX_SKILLS)) {
+          parts.push(formatSkill(skill));
+        }
       }
-      if (relevant.length > 15) {
-        parts.push(`  ... and ${relevant.length - 15} more matching skills`);
+      const otherToShow = combined.length - matching.length;
+      if (otherToShow > 0) {
+        parts.push('');
+        parts.push('## Other Skills');
+        for (const skill of other.slice(0, otherToShow)) {
+          parts.push(formatSkill(skill));
+        }
+      }
+      if (registrySkills.length > MAX_SKILLS) {
+        parts.push(`  ... and ${registrySkills.length - MAX_SKILLS} more skills`);
       }
     }
 
