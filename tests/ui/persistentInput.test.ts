@@ -285,6 +285,20 @@ describe('PersistentInput TextBuffer integration', () => {
 
     input.stop();
   });
+
+  it('Tab accepts the lazy suggestion when the composer is empty', async () => {
+    const { PersistentInput } = await import('../../src/ui/persistentInput.js');
+    const input = new PersistentInput({
+      silentMode: true,
+      suggestionProvider: () => 'Run the test suite',
+    });
+    input.start();
+
+    emitKey(mockStdin, '\t', { name: 'tab', sequence: '\t' });
+
+    expect(input.getCurrentInput()).toBe('Run the test suite');
+    input.stop();
+  });
 });
 
 // ── Bracketed paste handling ─────────────────────────────────────────

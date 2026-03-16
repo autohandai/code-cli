@@ -276,4 +276,78 @@ describe('agent.ts deduplication', () => {
       expect((agent as any).isUsingTerminalRegionsForActiveTurn()).toBe(false);
     });
   });
+
+  // =========================================================================
+  // setUIStatus — routes to persistent input when terminal regions active
+  // =========================================================================
+  describe('setUIStatus() terminal regions routing', () => {
+    let originalEnv: string | undefined;
+
+    afterEach(() => {
+      if (originalEnv === undefined) {
+        delete process.env.AUTOHAND_TERMINAL_REGIONS;
+      } else {
+        process.env.AUTOHAND_TERMINAL_REGIONS = originalEnv;
+      }
+    });
+
+    it('routes status to persistent input activity line when regions active', () => {
+      originalEnv = process.env.AUTOHAND_TERMINAL_REGIONS;
+      process.env.AUTOHAND_TERMINAL_REGIONS = '1';
+
+      const agent = Object.create(AutohandAgent.prototype) as any;
+      agent.persistentInputActiveTurn = true;
+      agent.useInkRenderer = false;
+      agent.inkRenderer = null;
+      agent.runtime = { spinner: null };
+      agent.persistentInput = {
+        setActivityLine: vi.fn(),
+      };
+
+      (agent as any).setUIStatus('Reasoning with the AI...');
+
+      expect(agent.persistentInput.setActivityLine).toHaveBeenCalledWith(
+        'Reasoning with the AI...'
+      );
+    });
+
+    it('does NOT route to persistent input when regions are disabled', () => {
+      originalEnv = process.env.AUTOHAND_TERMINAL_REGIONS;
+      process.env.AUTOHAND_TERMINAL_REGIONS = '0';
+
+      const agent = Object.create(AutohandAgent.prototype) as any;
+      agent.persistentInputActiveTurn = true;
+      agent.useInkRenderer = false;
+      agent.inkRenderer = null;
+      agent.runtime = { spinner: null };
+      agent.persistentInput = {
+        setActivityLine: vi.fn(),
+      };
+
+      (agent as any).setUIStatus('Reasoning...');
+
+      expect(agent.persistentInput.setActivityLine).not.toHaveBeenCalled();
+    });
+
+    it('prefers ink renderer over persistent input', () => {
+      originalEnv = process.env.AUTOHAND_TERMINAL_REGIONS;
+      process.env.AUTOHAND_TERMINAL_REGIONS = '1';
+
+      const agent = Object.create(AutohandAgent.prototype) as any;
+      agent.persistentInputActiveTurn = true;
+      agent.useInkRenderer = false;
+      agent.inkRenderer = {
+        setStatus: vi.fn(),
+      };
+      agent.runtime = { spinner: null };
+      agent.persistentInput = {
+        setActivityLine: vi.fn(),
+      };
+
+      (agent as any).setUIStatus('Working...');
+
+      expect(agent.inkRenderer.setStatus).toHaveBeenCalledWith('Working...');
+      expect(agent.persistentInput.setActivityLine).not.toHaveBeenCalled();
+    });
+  });
 });

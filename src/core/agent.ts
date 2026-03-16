@@ -749,7 +749,8 @@ export class AutohandAgent {
       maxQueueSize: 10,
       silentMode: disableTerminalRegions,
       workspaceRoot: this.runtime.workspaceRoot,
-      resolveShellSuggestion: (input) => this.resolveLlmShellSuggestion(input)
+      resolveShellSuggestion: (input) => this.resolveLlmShellSuggestion(input),
+      suggestionProvider: () => this.suggestionEngine?.getSuggestion() ?? undefined,
     });
 
     this.persistentInput.on('queued', (text: string, count: number) => {
@@ -1012,6 +1013,7 @@ export class AutohandAgent {
           recentFiles,
         });
       })();
+      this.persistentInput.setPendingSuggestion(this.pendingSuggestion);
     }
 
     // Show prompt immediately - don't wait for init
@@ -1444,6 +1446,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         // so the LLM call runs concurrently with hooks/notifications below.
         if (this.suggestionEngine) {
           this.pendingSuggestion = this.suggestionEngine.generate(this.conversation.history());
+          this.persistentInput.setPendingSuggestion(this.pendingSuggestion);
         }
 
         // Fire stop hook after turn completes (non-blocking)
@@ -1596,16 +1599,23 @@ If lint or tests fail, report the issues but do NOT commit.`;
     // otherwise the default placeholder is shown.
     // Turns: wait up to 3s. The user is still reading output so a brief
     // wait for contextual ghost text is acceptable.
-    if (this.pendingSuggestion) {
-      if (!this.isStartupSuggestion) {
-        const deadline = new Promise<void>((r) => setTimeout(r, 3000));
-        await Promise.race([this.pendingSuggestion, deadline]).catch(() => {});
-      }
-      this.isStartupSuggestion = false;
-      this.pendingSuggestion = null;
+    // Suggestion uses a lazy provider: each render cycle in the prompt reads
+    // the latest value via getSuggestion(). This eliminates the race condition
+    // where the LLM takes >3s and the static snapshot was always undefined.
+    // The pendingSuggestion promise triggers a re-render when it resolves,
+    // so the ghost text appears as soon as the LLM responds — even if the
+    // prompt is already displayed.
+    const pendingSuggestion = this.pendingSuggestion;
+    this.isStartupSuggestion = false;
+    this.pendingSuggestion = null;
+
+    const debugSuggestion = process.env.AUTOHAND_DEBUG === '1';
+    if (debugSuggestion) {
+      const state = pendingSuggestion ? 'pending' : 'none';
+      process.stderr.write(`[SUGGESTION] Provider mode — pending=${state}, engine=${this.suggestionEngine ? 'exists' : 'null'}\n`);
     }
-    const suggestionText = this.suggestionEngine?.getSuggestion() ?? undefined;
-    this.suggestionEngine?.clear();
+
+    const engine = this.suggestionEngine;
     const input = await readInstruction(
       () => this.workspaceFileCollector.getCachedFiles(),
       SLASH_COMMANDS,
@@ -1614,8 +1624,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
       (data, mimeType, filename) => this.imageManager.add(data, mimeType, filename),
       this.runtime.workspaceRoot,
       initialValue,
-      suggestionText,
-      (line) => this.resolveLlmShellSuggestion(line)
+      () => engine?.getSuggestion() ?? undefined,
+      (line) => this.resolveLlmShellSuggestion(line),
+      pendingSuggestion ?? undefined
     );
     // Only exit on explicit ABORT (double Ctrl+C). Palette cancel or dismiss should continue.
     if (input === 'ABORT') { // double Ctrl+C from prompt
@@ -4327,7 +4338,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
     if (this.inkRenderer) {
       this.inkRenderer.setStatus(status);
     } else if (this.runtime.spinner) {
+      // setSpinnerStatus already handles terminal regions internally
       this.setSpinnerStatus(status);
+    } else if (this.isUsingTerminalRegionsForActiveTurn()) {
+      // No spinner (suppressed when persistent input is used) — route directly
+      this.setPersistentInputActivityLine(status);
     }
   }
 
@@ -4821,6 +4836,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
         this.inkRenderer.setElapsed(elapsed);
       } else if (this.runtime.spinner) {
         this.setSpinnerStatus(status);
+      } else if (this.isUsingTerminalRegionsForActiveTurn()) {
+        this.setPersistentInputActivityLine(status);
       }
     };
     update();

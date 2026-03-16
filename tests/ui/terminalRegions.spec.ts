@@ -64,6 +64,20 @@ describe('TerminalRegions', () => {
     expect(output.writes.join('')).not.toContain('\x1b[1;1H');
   });
 
+  it('renders lazy suggestion text in place of the default placeholder', () => {
+    const output = createMockOutput();
+    const regions = new TerminalRegions(output);
+
+    regions.enable();
+    output.writes = [];
+
+    regions.renderFixedRegion('', 0, 'status', '', 'Run the test suite');
+
+    const plain = stripAnsi(output.writes.join(''));
+    expect(plain).toContain('❯ Run the test suite');
+    expect(plain).not.toContain('❯ Build anything');
+  });
+
   it('updates input inside the boxed composer line', () => {
     const output = createMockOutput();
     const regions = new TerminalRegions(output);

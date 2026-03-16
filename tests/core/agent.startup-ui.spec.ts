@@ -1128,16 +1128,13 @@ describe('agent startup and active input UI', () => {
     expect(agent.isStartupSuggestion).toBe(false);
   });
 
-  it('promptForInstruction uses 3s deadline for turn suggestion', async () => {
+  it('promptForInstruction clears pendingSuggestion immediately (lazy provider pattern)', async () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
 
-    // Simulate a slow turn suggestion that takes 10 seconds
-    let suggestionResolved = false;
+    // Simulate a slow turn suggestion (10s) — with lazy provider,
+    // the prompt doesn't block waiting for it.
     agent.pendingSuggestion = new Promise<void>((resolve) => {
-      setTimeout(() => {
-        suggestionResolved = true;
-        resolve();
-      }, 10_000);
+      setTimeout(() => resolve(), 10_000);
     });
     agent.isStartupSuggestion = false; // turn, not startup
     agent.suggestionEngine = {
@@ -1151,17 +1148,16 @@ describe('agent startup and active input UI', () => {
       collectWorkspaceFiles: vi.fn(async () => {}),
     };
 
-    // Turn uses a 3s deadline; after 1.5s it should still be waiting.
+    // Start promptForInstruction — it captures pendingSuggestion and clears it immediately
     void (agent as any).promptForInstruction([], []).catch(() => {});
 
-    // At 1.5s: still within 3s turn deadline — pendingSuggestion NOT cleared yet
-    await new Promise((r) => setTimeout(r, 1500));
-    expect(agent.pendingSuggestion).not.toBeNull();
-
-    // At 4s: past the 3s turn deadline — pendingSuggestion should be cleared
-    await new Promise((r) => setTimeout(r, 2500));
-    expect(suggestionResolved).toBe(false);
+    // pendingSuggestion should be nulled right away (no 3s wait)
+    await new Promise((r) => setImmediate(r));
     expect(agent.pendingSuggestion).toBeNull();
+
+    // The suggestion engine should NOT be eagerly cleared — the lazy provider
+    // reads getSuggestion() on each render cycle, so clear() is not called here.
+    expect(agent.suggestionEngine.clear).not.toHaveBeenCalled();
   });
 
   it('routes completion summary through writeAbove when persistent input is kept for next turn', () => {
