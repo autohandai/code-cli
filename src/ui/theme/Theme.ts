@@ -341,3 +341,19 @@ export function setTheme(theme: Theme): void {
 export function isThemeInitialized(): boolean {
   return globalTheme !== null;
 }
+
+/**
+ * Apply a themed foreground color with a chalk fallback.
+ * Safe to call before the theme is initialized — returns the fallback in that case.
+ */
+export function themedFg(token: ColorToken, text: string, fallback: (value: string) => string): string {
+  if (!isThemeInitialized()) {
+    return fallback(text);
+  }
+
+  try {
+    return getTheme().fg(token, text);
+  } catch {
+    return fallback(text);
+  }
+}

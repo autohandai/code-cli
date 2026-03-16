@@ -71,6 +71,7 @@ export {
   getTheme,
   setTheme,
   isThemeInitialized,
+  themedFg,
   detectColorMode,
   hexToRgb,
   rgbTo256,
