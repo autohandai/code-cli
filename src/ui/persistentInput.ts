@@ -13,9 +13,11 @@ import { TerminalRegions, createTerminalRegions } from './terminalRegions.js';
 import {
   safeEmitKeypressEvents,
   isPlainTabShortcut,
+  isShiftTabShortcut,
   isShiftEnterSequence,
   isShiftEnterResidualSequence
 } from './inputPrompt.js';
+import { enableBracketedPaste, disableBracketedPaste } from './displayUtils.js';
 import { TextBuffer } from './textBuffer.js';
 import { handleTextBufferKey } from './textBufferKeyHandler.js';
 import { safeSetRawMode } from './rawMode.js';
@@ -36,15 +38,6 @@ export interface PersistentInputOptions {
   workspaceRoot?: string;
   /** Optional async LLM resolver for ! command suggestions. */
   resolveShellSuggestion?: (input: string) => Promise<string | null>;
-}
-
-function isShiftTabShortcut(str: string, key: readline.Key | undefined): boolean {
-  return (
-    key?.name === 'backtab' ||
-    (key?.name === 'tab' && key.shift === true) ||
-    key?.sequence === '\u001b[Z' ||
-    str === '\u001b[Z'
-  );
 }
 
 function isCtrlQShortcut(str: string, key: readline.Key | undefined): boolean {
@@ -148,7 +141,7 @@ export class PersistentInput extends EventEmitter {
     }
 
     // Enable bracketed paste so multi-line pastes are detected
-    this.enableBracketedPaste();
+    enableBracketedPaste(this.output);
 
     if (this.silentMode) {
       // Silent mode: use readline keypress events (same as ESC listener)
@@ -187,7 +180,7 @@ export class PersistentInput extends EventEmitter {
     }
 
     this.isActive = false;
-    this.disableBracketedPaste();
+    disableBracketedPaste(this.output);
     this.clearRapidEnterTimer();
 
     this.input.off('keypress', this.handleKeypress);
@@ -519,14 +512,6 @@ export class PersistentInput extends EventEmitter {
   }
 
   // ── Paste helpers ──
-
-  private enableBracketedPaste(): void {
-    try { this.output.write('\x1b[?2004h'); } catch { /* best effort */ }
-  }
-
-  private disableBracketedPaste(): void {
-    try { this.output.write('\x1b[?2004l'); } catch { /* best effort */ }
-  }
 
   private finalizePaste(): void {
     // Push the last line being accumulated
