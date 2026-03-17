@@ -83,11 +83,16 @@ export class OpenAIProvider implements LLMProvider {
     async complete(request: LLMRequest): Promise<LLMResponse> {
         const body: Record<string, unknown> = {
             model: request.model || this.model,
-            messages: request.messages.map((msg: { role: string; content: string; name?: string; tool_call_id?: string }) => {
+            messages: request.messages.map((msg: { role: string; content: string; name?: string; tool_call_id?: string; tool_calls?: LLMToolCall[] }) => {
                 const mapped: Record<string, unknown> = {
                     role: msg.role === 'system' ? 'system' : msg.role === 'user' ? 'user' : msg.role === 'tool' ? 'tool' : 'assistant',
                     content: msg.content
                 };
+                // Include tool_calls on assistant messages so the API can match
+                // subsequent role:"tool" results to the calls that triggered them
+                if (msg.role === 'assistant' && msg.tool_calls?.length) {
+                    mapped.tool_calls = msg.tool_calls;
+                }
                 // Add tool call ID for tool response messages
                 if (msg.role === 'tool' && msg.tool_call_id) {
                     mapped.tool_call_id = msg.tool_call_id;

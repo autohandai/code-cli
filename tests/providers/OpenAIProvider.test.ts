@@ -107,4 +107,135 @@ describe('OpenAIProvider', () => {
       ).rejects.toMatchObject({ code: 'cancelled' });
     });
   });
+
+  describe('message serialization', () => {
+    it('should include tool_calls on assistant messages in request body', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          id: 'resp-1',
+          created: 1234567890,
+          choices: [{
+            message: { role: 'assistant', content: 'Done.' },
+            finish_reason: 'stop',
+          }],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+      );
+
+      await provider.complete({
+        messages: [
+          { role: 'user', content: 'create a cv in html' },
+          {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{
+              id: 'call_1',
+              type: 'function',
+              function: {
+                name: 'write_file',
+                arguments: JSON.stringify({ path: 'cv.html', content: 'body {font-family: Arial}' }),
+              },
+            }],
+          },
+          {
+            role: 'tool',
+            content: 'File written successfully',
+            tool_call_id: 'call_1',
+          },
+          { role: 'user', content: 'looks good' },
+        ],
+      });
+
+      const sentBody = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+      const assistantMsg = sentBody.messages.find((m: Record<string, unknown>) => m.role === 'assistant');
+      expect(assistantMsg.tool_calls).toBeDefined();
+      expect(assistantMsg.tool_calls).toHaveLength(1);
+      expect(assistantMsg.tool_calls[0].id).toBe('call_1');
+      expect(assistantMsg.tool_calls[0].function.name).toBe('write_file');
+    });
+
+    it('should include tool_call_id on tool role messages', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          id: 'resp-2',
+          created: 1234567890,
+          choices: [{
+            message: { role: 'assistant', content: 'OK' },
+            finish_reason: 'stop',
+          }],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+      );
+
+      await provider.complete({
+        messages: [
+          { role: 'user', content: 'hi' },
+          {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{
+              id: 'call_2',
+              type: 'function',
+              function: { name: 'search', arguments: '{"query":"test"}' },
+            }],
+          },
+          {
+            role: 'tool',
+            content: 'search results here',
+            tool_call_id: 'call_2',
+            name: 'search',
+          },
+        ],
+      });
+
+      const sentBody = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+      const toolMsg = sentBody.messages.find((m: Record<string, unknown>) => m.role === 'tool');
+      expect(toolMsg.tool_call_id).toBe('call_2');
+      expect(toolMsg.name).toBe('search');
+    });
+
+    it('should handle tool_calls with HTML/CSS content containing curly braces', async () => {
+      const htmlContent = '<!DOCTYPE html><html><head><style>body { font-family: Arial; } .header { color: #333; }</style></head></html>';
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          id: 'resp-3',
+          created: 1234567890,
+          choices: [{
+            message: { role: 'assistant', content: 'Created.' },
+            finish_reason: 'stop',
+          }],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+      );
+
+      await provider.complete({
+        messages: [
+          { role: 'user', content: 'create html cv' },
+          {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{
+              id: 'call_3',
+              type: 'function',
+              function: {
+                name: 'write_file',
+                arguments: JSON.stringify({ path: 'cv.html', content: htmlContent }),
+              },
+            }],
+          },
+          {
+            role: 'tool',
+            content: 'File written: cv.html',
+            tool_call_id: 'call_3',
+          },
+        ],
+      });
+
+      // Verify the request body is valid JSON (no parsing issues with curly braces)
+      const rawBody = fetchSpy.mock.calls[0][1]?.body as string;
+      expect(() => JSON.parse(rawBody)).not.toThrow();
+
+      const sentBody = JSON.parse(rawBody);
+      const assistantMsg = sentBody.messages.find((m: Record<string, unknown>) => m.role === 'assistant');
+      expect(assistantMsg.tool_calls).toBeDefined();
+      expect(assistantMsg.tool_calls[0].function.arguments).toContain('font-family');
+    });
+  });
 });
