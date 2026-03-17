@@ -376,6 +376,7 @@ export class SetupWizard {
 
     const apiKey = await showPassword({
       title: t('providers.config.enterApiKey', { provider: this.getProviderDisplayName(provider) }),
+      placeholder: t('ui.apiKeyPlaceholder'),
       validate: (val: string) => {
         if (!val?.trim()) return t('providers.config.apiKeyRequired');
         if (val.length < 10) return t('providers.config.apiKeyTooShort');
@@ -804,7 +805,7 @@ export class SetupWizard {
     // Step 2: Auth-specific prompts
     if (authMethod === 'api-key') {
       console.log(chalk.gray('\n' + t('providers.wizard.azure.apiKeyLocation') + '\n'));
-      apiKey = await showPassword({ title: t('providers.wizard.azure.enterAzureApiKey') }) ?? undefined;
+      apiKey = await showPassword({ title: t('providers.wizard.azure.enterAzureApiKey'), placeholder: t('ui.apiKeyPlaceholder') }) ?? undefined;
       if (!apiKey) return false;
     } else if (authMethod === 'entra-id') {
       console.log(chalk.gray('\n' + t('providers.wizard.azure.entraIdDescription')));
@@ -1166,10 +1167,10 @@ export class SetupWizard {
     const searchState: OnboardingState['search'] = { provider };
 
     if (provider === 'brave') {
-      const key = await showPassword({ title: t('setup.search.braveKeyPrompt') });
+      const key = await showPassword({ title: t('setup.search.braveKeyPrompt'), placeholder: t('ui.apiKeyPlaceholder') });
       if (key) searchState.braveApiKey = key;
     } else if (provider === 'parallel') {
-      const key = await showPassword({ title: t('setup.search.parallelKeyPrompt') });
+      const key = await showPassword({ title: t('setup.search.parallelKeyPrompt'), placeholder: t('ui.apiKeyPlaceholder') });
       if (key) searchState.parallelApiKey = key;
     }
 
