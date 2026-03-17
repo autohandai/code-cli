@@ -324,6 +324,20 @@ export class OllamaProvider implements LLMProvider {
             return null; // sentinel: caller should retry
         }
 
+        // For 400, augment with Ollama-specific context about malformed requests
+        if (response.status === 400) {
+            const baseError = classifyApiError(response.status, errorBody, response.headers);
+            return new ApiError(
+                `Ollama rejected the request. This can happen when message content ` +
+                `confuses the model's parser. Try simplifying your prompt or using a different model.\n${errorBody}`,
+                baseError.code,
+                baseError.httpStatus,
+                baseError.retryable,
+                baseError.retryAfterMs,
+                errorBody,
+            );
+        }
+
         // For 404, augment the message with an Ollama-specific suggestion
         if (response.status === 404) {
             const baseError = classifyApiError(response.status, errorBody, response.headers);

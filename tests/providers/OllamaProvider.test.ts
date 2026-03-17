@@ -573,4 +573,31 @@ describe('OllamaProvider', () => {
             expect(response.finishReason).toBe('length');
         });
     });
+
+    describe('400 — malformed request body', () => {
+        it('classifies Ollama JSON parsing error as invalid_request with friendly hint (GH #18)', async () => {
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: false,
+                status: 400,
+                headers: new Headers(),
+                text: vi.fn().mockResolvedValue(
+                    '{"error":"Value looks like object, but can\'t find closing \'}\' symbol"}'
+                ),
+            });
+
+            await expect(
+                provider.complete({ messages: [{ role: 'user', content: 'Hello' }] })
+            ).rejects.toThrow(ApiError);
+
+            try {
+                await provider.complete({ messages: [{ role: 'user', content: 'Hello' }] });
+            } catch (err) {
+                expect(err).toBeInstanceOf(ApiError);
+                const apiErr = err as ApiError;
+                expect(apiErr.code).toBe('invalid_request');
+                // Should include Ollama-specific hint
+                expect(apiErr.message).toContain('Ollama');
+            }
+        });
+    });
 });
