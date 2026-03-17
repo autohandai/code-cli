@@ -321,6 +321,30 @@ describe('classifyApiError', () => {
       expect(err.code).not.toBe('model_not_found');
       expect(err.code).toBe('invalid_request');
     });
+
+    it('400 + "is not a valid model ID" must be model_not_found, not context_overflow (GH #29)', () => {
+      const err = classifyApiError(400, 'anthropic/claude-sonnet-4.6 is not a valid model ID');
+      expect(err.code).toBe('model_not_found');
+      expect(err.retryable).toBe(false);
+    });
+
+    it('400 + "is not a valid model ID" with bracketed paste remnants (GH #29)', () => {
+      const err = classifyApiError(400, '[200~anthropic/claude-sonnet-4.6[201~ is not a valid model ID');
+      expect(err.code).toBe('model_not_found');
+      expect(err.retryable).toBe(false);
+    });
+
+    it('400 + model without provider prefix "is not a valid model ID" (GH #23, #25, #28)', () => {
+      const err = classifyApiError(400, 'qwen3-coder:free is not a valid model ID');
+      expect(err.code).toBe('model_not_found');
+      expect(err.retryable).toBe(false);
+    });
+
+    it('400 + natural language as model ID (GH #17)', () => {
+      const err = classifyApiError(400, 'list all models is not a valid model ID');
+      expect(err.code).toBe('model_not_found');
+      expect(err.retryable).toBe(false);
+    });
   });
 
   // =========================================================================
