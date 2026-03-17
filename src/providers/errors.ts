@@ -106,6 +106,8 @@ const MODEL_NOT_FOUND_PATTERNS = [
   'model not found',
   'no endpoints found for model',
   'does not exist or you do not have access',
+  // OpenRouter returns "X is not a valid model ID" for bad model names
+  'is not a valid model',
   // Catch "model 'xyz' not found" where 'not found' is separate from 'model'
   "' not found",
   "\" not found",
