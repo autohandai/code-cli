@@ -6,6 +6,7 @@
 
 import type { LLMProvider } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, LLMToolCall, LLMUsage, ProviderSettings, FunctionDefinition } from '../types.js';
+import { ApiError, classifyApiError } from './errors.js';
 
 interface OpenAIToolCall {
     id: string;
@@ -117,19 +118,43 @@ export class OpenAIProvider implements LLMProvider {
             }
         }
 
-        const response = await fetch(`${this.baseUrl}/chat/completions`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${this.apiKey}`
-            },
-            body: JSON.stringify(body),
-            signal: request.signal
-        });
+        let response: Response;
+
+        try {
+            response = await fetch(`${this.baseUrl}/chat/completions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.apiKey}`
+                },
+                body: JSON.stringify(body),
+                signal: request.signal
+            });
+        } catch (error) {
+            const err = error as Error;
+
+            // User cancelled
+            if (err.name === 'AbortError' && request.signal?.aborted) {
+                throw new ApiError('Request cancelled.', 'cancelled', 0, false);
+            }
+
+            // Timeout
+            if (err.name === 'AbortError') {
+                throw new ApiError(
+                    'Request timed out. The AI service may be experiencing high load.',
+                    'timeout', 0, true,
+                );
+            }
+
+            // Network error
+            throw new ApiError(
+                `Unable to connect to ${this.baseUrl}. Please check the URL and your internet connection.`,
+                'network_error', 0, true,
+            );
+        }
 
         if (!response.ok) {
-            const error = await response.text();
-            throw new Error(`OpenAI API error: ${response.status} ${error}`);
+            throw await this.buildApiError(response);
         }
 
         const data: OpenAIChatResponse = await response.json();
@@ -168,5 +193,25 @@ export class OpenAIProvider implements LLMProvider {
             usage,
             raw: data
         };
+    }
+
+    private async buildApiError(response: Response): Promise<ApiError> {
+        let errorDetail = '';
+        try {
+            const body = (await response.json()) as Record<string, unknown>;
+            const errObj = body?.error as Record<string, unknown> | undefined;
+            errorDetail = (errObj?.message ?? body?.detail ?? body?.error ?? '') as string;
+            if (typeof errorDetail === 'object') {
+                errorDetail = JSON.stringify(errorDetail);
+            }
+        } catch {
+            try {
+                errorDetail = await response.text();
+            } catch {
+                // Ignore
+            }
+        }
+
+        return classifyApiError(response.status, errorDetail, response.headers);
     }
 }
