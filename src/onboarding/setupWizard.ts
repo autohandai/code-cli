@@ -17,6 +17,8 @@ import { ProviderFactory } from '../providers/ProviderFactory.js';
 import { ProjectAnalyzer } from './projectAnalyzer.js';
 import { AgentsGenerator } from './agentsGenerator.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from '../startup/workspaceSafety.js';
+import { getAuthClient } from '../auth/index.js';
+import { AUTH_CONFIG } from '../constants.js';
 
 /**
  * Steps in the onboarding wizard
@@ -41,6 +43,7 @@ export type OnboardingStep =
   | 'agentBehavior'
   | 'communitySkills'
   | 'agentsFile'
+  | 'registration'
   | 'reviewSummary'
   | 'complete';
 
@@ -83,6 +86,8 @@ interface OnboardingState {
   };
   communitySkillsEnabled?: boolean;
   agentsFileCreated?: boolean;
+  authToken?: string;
+  authUser?: { id: string; email: string; name: string };
   skipped: OnboardingStep[];
   completed: boolean;
 }
@@ -146,7 +151,7 @@ export class SetupWizard {
       return {
         success: true,
         config: {},
-        skippedSteps: ['welcome', 'language', 'workspaceSafety', 'provider', 'apiKey', 'model', 'permissions', 'telemetry', 'preferences', 'advanced', 'agentsFile', 'reviewSummary'],
+        skippedSteps: ['welcome', 'language', 'workspaceSafety', 'provider', 'apiKey', 'model', 'permissions', 'telemetry', 'preferences', 'advanced', 'agentsFile', 'registration', 'reviewSummary'],
         cancelled: false
       };
     }
@@ -236,7 +241,14 @@ export class SetupWizard {
       // Step 13: Create AGENTS.md
       await this.promptAgentsFile();
 
-      // Step 14: Review summary (skip in quickSetup)
+      // Step 14: Autohand account registration (optional, skip in quickSetup)
+      if (!options?.quickSetup) {
+        await this.promptRegistration();
+      } else {
+        this.state.skipped.push('registration');
+      }
+
+      // Step 15: Review summary (skip in quickSetup)
       if (!options?.quickSetup) {
         const confirmed = await this.promptReviewConfirm();
         if (!confirmed) {
@@ -628,6 +640,115 @@ export class SetupWizard {
   }
 
   /**
+   * Prompt user to create an Autohand account using device-flow auth.
+   * Reuses the same flow as /login command.
+   */
+  private async promptRegistration(): Promise<void> {
+    this.state.currentStep = 'registration';
+
+    console.log();
+    console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
+    console.log(chalk.white.bold('  ' + t('setup.registration.title')));
+    console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
+    console.log();
+    console.log(chalk.gray('  ' + t('setup.registration.description')));
+    console.log();
+
+    const wantsAccount = await showConfirm({
+      title: t('setup.registration.prompt'),
+      defaultValue: false
+    });
+
+    if (!wantsAccount) {
+      this.state.skipped.push('registration');
+      console.log(chalk.gray('  ' + t('setup.registration.skipped')));
+      return;
+    }
+
+    // Run device-flow auth (same as /login)
+    const authClient = getAuthClient();
+
+    console.log(chalk.gray('  ' + t('setup.registration.initiating')));
+    const initResult = await authClient.initiateDeviceAuth();
+
+    if (!initResult.success || !initResult.deviceCode || !initResult.userCode) {
+      console.log(chalk.yellow('  ' + t('setup.registration.failed', { error: initResult.error || 'Unknown error' })));
+      console.log(chalk.gray('  ' + t('setup.registration.tryLater')));
+      return;
+    }
+
+    // Display user code and open browser
+    const authUrl = initResult.verificationUriComplete || `${AUTH_CONFIG.authorizationUrl}?code=${initResult.userCode}`;
+    console.log();
+    console.log(chalk.white('  ' + t('setup.registration.visit')));
+    console.log(chalk.cyan(  '  ' + authUrl));
+    console.log();
+    console.log(chalk.gray('  ' + t('setup.registration.code')));
+    console.log(chalk.bold.yellow(`  ${initResult.userCode}`));
+    console.log();
+
+    // Try to open browser
+    try {
+      const open = await import('open').then(m => m.default).catch(() => null);
+      if (open) {
+        await open(authUrl);
+        console.log(chalk.gray('  ' + t('setup.registration.browserOpened')));
+      } else {
+        console.log(chalk.yellow('  ' + t('setup.registration.openManually')));
+      }
+    } catch {
+      console.log(chalk.yellow('  ' + t('setup.registration.openManually')));
+    }
+
+    console.log();
+    console.log(chalk.gray('  ' + t('setup.registration.waiting')));
+
+    // Poll for authorization (shorter timeout for onboarding — 3 minutes)
+    const startTime = Date.now();
+    const timeout = 3 * 60 * 1000;
+    const pollInterval = initResult.interval ? initResult.interval * 1000 : AUTH_CONFIG.pollInterval;
+
+    let dots = 0;
+    const maxDots = 3;
+
+    while (Date.now() - startTime < timeout) {
+      process.stdout.write(`\r  ${chalk.gray('Waiting' + '.'.repeat(dots + 1) + ' '.repeat(maxDots - dots))}`);
+      dots = (dots + 1) % (maxDots + 1);
+
+      await this.sleep(pollInterval);
+
+      const pollResult = await authClient.pollDeviceAuth(initResult.deviceCode);
+
+      if (pollResult.status === 'authorized' && pollResult.token && pollResult.user) {
+        process.stdout.write('\r' + ' '.repeat(20) + '\r');
+
+        this.state.authToken = pollResult.token;
+        this.state.authUser = pollResult.user;
+
+        console.log();
+        console.log(chalk.green('  ' + t('setup.registration.success', { name: pollResult.user.name || pollResult.user.email })));
+        return;
+      }
+
+      if (pollResult.status === 'expired') {
+        process.stdout.write('\r' + ' '.repeat(20) + '\r');
+        console.log(chalk.yellow('  ' + t('setup.registration.expired')));
+        console.log(chalk.gray('  ' + t('setup.registration.tryLater')));
+        return;
+      }
+    }
+
+    // Timeout
+    process.stdout.write('\r' + ' '.repeat(20) + '\r');
+    console.log(chalk.yellow('  ' + t('setup.registration.timeout')));
+    console.log(chalk.gray('  ' + t('setup.registration.tryLater')));
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
    * Build final config and return success
    */
   private complete(): OnboardingResult {
@@ -714,6 +835,14 @@ export class SetupWizard {
     // Set community skills settings
     if (this.state.communitySkillsEnabled !== undefined) {
       config.communitySkills = { enabled: this.state.communitySkillsEnabled };
+    }
+
+    // Set auth if registered during onboarding
+    if (this.state.authToken && this.state.authUser) {
+      config.auth = {
+        token: this.state.authToken,
+        user: this.state.authUser,
+      };
     }
 
     // Show completion message
@@ -1281,6 +1410,9 @@ export class SetupWizard {
     }
     if (this.state.mcpEnabled !== undefined) {
       console.log(chalk.white(`  MCP: ${this.state.mcpEnabled ? 'enabled' : 'disabled'}`));
+    }
+    if (this.state.authUser) {
+      console.log(chalk.white(`  Account: ${this.state.authUser.email}`));
     }
     console.log();
 
