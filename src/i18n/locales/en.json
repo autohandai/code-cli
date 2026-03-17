@@ -823,6 +823,7 @@
     "inputHint": "Enter to submit, ESC to cancel",
     "inputPlaceholder": "Type your answer...",
     "passwordPlaceholder": "Enter password...",
+    "apiKeyPlaceholder": "Paste your API key...",
     "validationError": "Invalid input"
   },
   "homebrew": {

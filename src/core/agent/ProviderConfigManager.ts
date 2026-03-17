@@ -155,7 +155,8 @@ export class ProviderConfigManager {
       console.log(chalk.gray(t('providers.config.apiKeyUrl', { url: t('providers.wizard.openrouter.apiKeyUrl') }) + '\n'));
 
       const apiKey = await showPassword({
-        title: t('providers.config.enterApiKey', { provider: t('providers.openrouter') })
+        title: t('providers.config.enterApiKey', { provider: t('providers.openrouter') }),
+        placeholder: t('ui.apiKeyPlaceholder')
       });
 
       if (!apiKey) {
@@ -312,7 +313,8 @@ export class ProviderConfigManager {
       console.log(chalk.gray(t('providers.config.apiKeyUrl', { url: t('providers.wizard.openai.apiKeyUrl') }) + '\n'));
 
       const apiKey = await showPassword({
-        title: t('providers.config.enterApiKey', { provider: t('providers.openai') })
+        title: t('providers.config.enterApiKey', { provider: t('providers.openai') }),
+        placeholder: t('ui.apiKeyPlaceholder')
       });
 
       if (!apiKey) {
@@ -430,7 +432,8 @@ export class ProviderConfigManager {
       console.log(chalk.gray(t('providers.config.apiKeyUrl', { url: t('providers.wizard.llmgateway.apiKeyUrl') }) + '\n'));
 
       const apiKey = await showPassword({
-        title: t('providers.config.enterApiKey', { provider: t('providers.llmgateway') })
+        title: t('providers.config.enterApiKey', { provider: t('providers.llmgateway') }),
+        placeholder: t('ui.apiKeyPlaceholder')
       });
 
       if (!apiKey) {
@@ -518,7 +521,7 @@ export class ProviderConfigManager {
       // Step 2: Auth-specific prompts
       if (authMethod === 'api-key') {
         console.log(chalk.gray('\n' + t('providers.wizard.azure.apiKeyLocation') + '\n'));
-        apiKey = await showPassword({ title: t('providers.wizard.azure.enterAzureApiKey') }) ?? undefined;
+        apiKey = await showPassword({ title: t('providers.wizard.azure.enterAzureApiKey'), placeholder: t('ui.apiKeyPlaceholder') }) ?? undefined;
         if (!apiKey) { console.log(chalk.gray('\n' + t('providers.config.cancelled'))); return; }
       } else if (authMethod === 'entra-id') {
         console.log(chalk.gray('\n' + t('providers.wizard.azure.entraIdDescription')));
@@ -725,6 +728,7 @@ export class ProviderConfigManager {
 
       const apiKey = await showPassword({
         title: t('providers.config.enterApiKey', { provider: providerName }),
+        placeholder: t('ui.apiKeyPlaceholder'),
         validate: (val: string) => {
           if (!val?.trim()) return t('providers.config.apiKeyRequired');
           if (val.length < 10) return t('providers.config.apiKeyTooShort');
