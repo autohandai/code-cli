@@ -285,6 +285,24 @@ function makeError(
 }
 
 /**
+ * Sanitize a model ID entered by the user.
+ *
+ * Strips bracketed-paste escape remnants (`[200~` / `[201~`), ESC prefixes,
+ * control characters, and leading/trailing whitespace so that pasted model
+ * IDs are clean before they hit the API.
+ */
+export function sanitizeModelId(raw: string): string {
+  return raw
+    // Strip ESC-prefixed bracketed paste markers (\x1b[200~ and \x1b[201~)
+    .replace(/\x1b\[20[01]~/g, '')
+    // Strip bare bracketed paste markers ([200~ and [201~)
+    .replace(/\[20[01]~/g, '')
+    // Strip remaining control characters (C0 range except printable)
+    .replace(/[\x00-\x1f\x7f]/g, '')
+    .trim();
+}
+
+/**
  * Parse the `Retry-After` header which can be either a number of seconds
  * or an HTTP date string.
  */

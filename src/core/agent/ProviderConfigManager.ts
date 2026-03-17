@@ -8,6 +8,7 @@ import chalk from 'chalk';
 import { t } from '../../i18n/index.js';
 import { showModal, showInput, showPassword, type ModalOption } from '../../ui/ink/components/Modal.js';
 import { ProviderFactory } from '../../providers/ProviderFactory.js';
+import { sanitizeModelId } from '../../providers/errors.js';
 import { saveConfig, getProviderConfig } from '../../config.js';
 import { getContextWindow } from '../../utils/context.js';
 import type { AgentRuntime, ProviderName, AzureSettings, AzureAuthMethod } from '../../types.js';
@@ -175,7 +176,7 @@ export class ProviderConfigManager {
       this.runtime.config.openrouter = {
         apiKey,
         baseUrl: 'https://openrouter.ai/api/v1',
-        model
+        model: sanitizeModelId(model)
       };
 
       this.runtime.config.provider = 'openrouter';
@@ -966,6 +967,9 @@ export class ProviderConfigManager {
    * Apply a model change and update all relevant state
    */
   private async applyModelChange(provider: ProviderName, newModel: string, currentModel: string): Promise<void> {
+    // Strip bracketed paste markers and control characters that can leak from terminal input
+    newModel = sanitizeModelId(newModel);
+
     if (!newModel || (newModel === currentModel && provider === this.getActiveProvider())) {
       console.log(chalk.gray(t('providers.config.modelUnchanged')));
       return;
