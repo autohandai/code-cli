@@ -587,6 +587,23 @@
       "title": "Advanced Settings",
       "description": "Configure notifications, network, search, MCP, agent behavior, and community skills.",
       "prompt": "Would you like to configure advanced settings?"
+    },
+    "registration": {
+      "title": "Autohand Account",
+      "description": "Create a free Autohand account to unlock cloud sync, team features, and usage analytics.",
+      "prompt": "Create an Autohand account? (Sign up with Google, GitHub, or email)",
+      "skipped": "You can create an account later with /login",
+      "initiating": "Starting authentication...",
+      "failed": "Could not start authentication: {{error}}",
+      "tryLater": "You can try again later with /login",
+      "visit": "To sign up or sign in, visit:",
+      "code": "Or enter this code manually:",
+      "browserOpened": "Browser opened. Complete the sign up in your browser.",
+      "openManually": "Could not open browser automatically. Please visit the URL above.",
+      "waiting": "Waiting for authorization... (Press Ctrl+C to cancel)",
+      "success": "Welcome, {{name}}! Your account is connected.",
+      "expired": "Authorization code expired.",
+      "timeout": "Authorization timed out."
     }
   },
   "errors": {

@@ -77,6 +77,19 @@ vi.mock('../../src/i18n/index.js', () => ({
   }
 }));
 
+// Mock auth client (registration step uses device-flow auth)
+vi.mock('../../src/auth/index.js', () => ({
+  getAuthClient: () => ({
+    initiateDeviceAuth: vi.fn().mockResolvedValue({ success: false, error: 'not configured' }),
+    pollDeviceAuth: vi.fn().mockResolvedValue({ success: false, status: 'pending' }),
+  }),
+}));
+
+// Mock 'open' package for browser opening
+vi.mock('open', () => ({
+  default: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Mock chalk (to avoid terminal color issues in tests)
 vi.mock('chalk', () => ({
   default: {
@@ -137,7 +150,7 @@ function setupCloudProviderMocks(provider: string, apiKey: string, model: string
   // showInput: model
   mockShowInput.mockResolvedValueOnce(model);
 
-  // showConfirm calls: remember, telemetry, autoReport, prefs, advanced, agents, review
+  // showConfirm calls: remember, telemetry, autoReport, prefs, advanced, agents, registration, review
   mockShowConfirm
     .mockResolvedValueOnce(true)   // remember session
     .mockResolvedValueOnce(true)   // telemetry
@@ -145,6 +158,7 @@ function setupCloudProviderMocks(provider: string, apiKey: string, model: string
     .mockResolvedValueOnce(false)  // preferences (skip)
     .mockResolvedValueOnce(false)  // advanced (skip)
     .mockResolvedValueOnce(false)  // agents (skip)
+    .mockResolvedValueOnce(false)  // registration (skip)
     .mockResolvedValueOnce(true);  // review confirm
 }
 
@@ -158,7 +172,7 @@ function setupLocalProviderMocks(provider: string, model: string) {
   // showInput: model
   mockShowInput.mockResolvedValueOnce(model);
 
-  // showConfirm calls: remember, telemetry, autoReport, prefs, advanced, agents, review
+  // showConfirm calls: remember, telemetry, autoReport, prefs, advanced, agents, registration, review
   mockShowConfirm
     .mockResolvedValueOnce(true)   // remember session
     .mockResolvedValueOnce(true)   // telemetry
@@ -166,6 +180,7 @@ function setupLocalProviderMocks(provider: string, model: string) {
     .mockResolvedValueOnce(false)  // preferences (skip)
     .mockResolvedValueOnce(false)  // advanced (skip)
     .mockResolvedValueOnce(false)  // agents (skip)
+    .mockResolvedValueOnce(false)  // registration (skip)
     .mockResolvedValueOnce(true);  // review confirm
 }
 
@@ -314,7 +329,7 @@ describe('SetupWizard', () => {
       mockShowInput.mockResolvedValueOnce('anthropic/claude-3.5-sonnet');
       // Permissions modal
       mockShowModal.mockResolvedValueOnce({ value: 'interactive' });
-      // Remember, telemetry, autoReport, prefs, advanced, agents, review
+      // Remember, telemetry, autoReport, prefs, advanced, agents, registration, review
       mockShowConfirm
         .mockResolvedValueOnce(true)   // remember
         .mockResolvedValueOnce(true)   // telemetry
@@ -322,6 +337,7 @@ describe('SetupWizard', () => {
         .mockResolvedValueOnce(false)  // prefs
         .mockResolvedValueOnce(false)  // advanced
         .mockResolvedValueOnce(false)  // agents
+        .mockResolvedValueOnce(false)  // registration (skip)
         .mockResolvedValueOnce(true);  // review
 
       const result = await wizard.run({ skipWelcome: true });
@@ -422,7 +438,7 @@ describe('SetupWizard', () => {
       mockShowInput.mockResolvedValueOnce('anthropic/claude-3.5-sonnet');
       // Permissions
       mockShowModal.mockResolvedValueOnce({ value: 'interactive' });
-      // Remember, telemetry, autoReport, prefs, advanced, agents, review
+      // Remember, telemetry, autoReport, prefs, advanced, agents, registration, review
       mockShowConfirm
         .mockResolvedValueOnce(true)   // remember
         .mockResolvedValueOnce(true)   // telemetry
@@ -430,6 +446,7 @@ describe('SetupWizard', () => {
         .mockResolvedValueOnce(false)  // prefs
         .mockResolvedValueOnce(false)  // advanced
         .mockResolvedValueOnce(false)  // agents
+        .mockResolvedValueOnce(false)  // registration (skip)
         .mockResolvedValueOnce(true);  // review
 
       const result = await wizard.run({ skipWelcome: true, force: true });
@@ -474,6 +491,7 @@ describe('SetupWizard', () => {
         .mockResolvedValueOnce(false)  // prefs
         .mockResolvedValueOnce(false)  // advanced
         .mockResolvedValueOnce(false)  // agents
+        .mockResolvedValueOnce(false)  // registration (skip)
         .mockResolvedValueOnce(true);  // review
 
       const result = await wizard.run({ skipWelcome: true });
@@ -513,6 +531,7 @@ describe('SetupWizard', () => {
         .mockResolvedValueOnce(false)  // checkForUpdates
         .mockResolvedValueOnce(false)  // advanced
         .mockResolvedValueOnce(false)  // agents
+        .mockResolvedValueOnce(false)  // registration (skip)
         .mockResolvedValueOnce(true);  // review
 
       const result = await wizard.run({ skipWelcome: true });
@@ -558,6 +577,7 @@ describe('SetupWizard', () => {
         .mockResolvedValueOnce(false)  // prefs
         .mockResolvedValueOnce(false)  // advanced
         .mockResolvedValueOnce(true)   // agents - CREATE
+        .mockResolvedValueOnce(false)  // registration (skip)
         .mockResolvedValueOnce(true);  // review
 
       const result = await wizard.run({ skipWelcome: true });
@@ -600,6 +620,7 @@ describe('SetupWizard', () => {
         .mockResolvedValueOnce(false)  // prefs
         .mockResolvedValueOnce(false)  // advanced
         .mockResolvedValueOnce(false)  // Don't overwrite AGENTS.md
+        .mockResolvedValueOnce(false)  // registration (skip)
         .mockResolvedValueOnce(true);  // review
 
       const result = await wizard.run({ skipWelcome: true });
@@ -708,6 +729,7 @@ describe('SetupWizard', () => {
         .mockResolvedValueOnce(false)  // prefs
         .mockResolvedValueOnce(false)  // advanced
         .mockResolvedValueOnce(false)  // agents
+        .mockResolvedValueOnce(false)  // registration (skip)
         .mockResolvedValueOnce(true);  // review
 
       const result = await wizard.run({ skipWelcome: true });
@@ -743,6 +765,7 @@ describe('SetupWizard', () => {
         .mockResolvedValueOnce(false)  // prefs
         .mockResolvedValueOnce(false)  // advanced
         .mockResolvedValueOnce(false)  // agents
+        .mockResolvedValueOnce(false)  // registration (skip)
         .mockResolvedValueOnce(true);  // review
 
       const result = await wizard.run({ skipWelcome: true });
@@ -862,6 +885,7 @@ describe('SetupWizard', () => {
         .mockResolvedValueOnce(false)  // prefs
         .mockResolvedValueOnce(false)  // advanced
         .mockResolvedValueOnce(false)  // agents
+        .mockResolvedValueOnce(false)  // registration (skip)
         .mockResolvedValueOnce(true);  // review
 
       const result = await wizard.run({ skipWelcome: true });
@@ -927,6 +951,7 @@ describe('SetupWizard', () => {
         .mockResolvedValueOnce(false)  // prefs
         .mockResolvedValueOnce(false)  // advanced
         .mockResolvedValueOnce(false)  // agents
+        .mockResolvedValueOnce(false)  // registration (skip)
         .mockResolvedValueOnce(true);  // review
 
       const result = await wizard.run({ skipWelcome: true });
@@ -950,6 +975,7 @@ describe('SetupWizard', () => {
         .mockResolvedValueOnce(false)  // prefs
         .mockResolvedValueOnce(false)  // advanced
         .mockResolvedValueOnce(false)  // agents
+        .mockResolvedValueOnce(false)  // registration (skip)
         .mockResolvedValueOnce(true);  // review
 
       const result = await wizard.run({ skipWelcome: true });
@@ -995,6 +1021,7 @@ describe('SetupWizard', () => {
         .mockResolvedValueOnce(false)  // prefs
         .mockResolvedValueOnce(false)  // advanced
         .mockResolvedValueOnce(false)  // agents
+        .mockResolvedValueOnce(false)  // registration (skip)
         .mockResolvedValueOnce(true);  // review
 
       const result = await wizard.run({ skipWelcome: true });
@@ -1078,6 +1105,9 @@ describe('SetupWizard', () => {
       // Agents.md
       mockShowConfirm.mockResolvedValueOnce(false); // skip agents
 
+      // Registration
+      mockShowConfirm.mockResolvedValueOnce(false); // registration (skip)
+
       // Review
       mockShowConfirm.mockResolvedValueOnce(true);
 
@@ -1136,6 +1166,8 @@ describe('SetupWizard', () => {
       mockShowConfirm.mockResolvedValueOnce(false);
       // Agents.md
       mockShowConfirm.mockResolvedValueOnce(false);
+      // Registration
+      mockShowConfirm.mockResolvedValueOnce(false); // registration (skip)
       // Review
       mockShowConfirm.mockResolvedValueOnce(true);
 
@@ -1179,6 +1211,8 @@ describe('SetupWizard', () => {
       mockShowConfirm.mockResolvedValueOnce(false);
       // Agents
       mockShowConfirm.mockResolvedValueOnce(false);
+      // Registration
+      mockShowConfirm.mockResolvedValueOnce(false); // registration (skip)
       // Review
       mockShowConfirm.mockResolvedValueOnce(true);
 
@@ -1242,6 +1276,8 @@ describe('SetupWizard', () => {
       mockShowConfirm.mockResolvedValueOnce(true);
       // Agents
       mockShowConfirm.mockResolvedValueOnce(false);
+      // Registration
+      mockShowConfirm.mockResolvedValueOnce(false); // registration (skip)
       // Review
       mockShowConfirm.mockResolvedValueOnce(true);
 
