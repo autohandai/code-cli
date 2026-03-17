@@ -1327,7 +1327,7 @@ export class SetupWizard {
 
   private getDefaultModel(provider: ProviderName): string {
     const defaults: Record<ProviderName, string> = {
-      openrouter: 'anthropic/claude-sonnet-4-20250514',
+      openrouter: 'nvidia/nemotron-3-super-120b-a12b:free',
       openai: 'gpt-4o',
       ollama: 'llama3.2:latest',
       llamacpp: 'default',
