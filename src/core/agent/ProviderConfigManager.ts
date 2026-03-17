@@ -166,7 +166,7 @@ export class ProviderConfigManager {
 
       const model = await showInput({
         title: t('providers.config.enterModelId'),
-        defaultValue: 'anthropic/claude-3.5-sonnet'
+        defaultValue: 'nvidia/nemotron-3-super-120b-a12b:free'
       });
 
       if (!model) {
