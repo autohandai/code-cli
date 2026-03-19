@@ -23,34 +23,34 @@ type LoginContext = Pick<SlashCommandContext, 'config'>;
 
 /**
  * Open URL in the default browser
- * Uses dynamic import for 'open' package, falls back to platform-specific commands
+ * Uses platform-specific commands with existence checks for Linux.
  */
 async function openBrowser(url: string): Promise<boolean> {
   try {
-    // Try to use the 'open' package if available
-    const open = await import('open').then(m => m.default).catch(() => null);
-    if (open) {
-      await open(url);
+    const { exec, execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const execAsync = promisify(exec);
+    const execFileAsync = promisify(execFile);
+
+    const platform = process.platform;
+
+    if (platform === 'darwin') {
+      await execFileAsync('open', [url]);
       return true;
     }
 
-    // Fallback to platform-specific commands
-    const { exec } = await import('node:child_process');
-    const { promisify } = await import('node:util');
-    const execAsync = promisify(exec);
-
-    const platform = process.platform;
-    let command: string;
-
-    if (platform === 'darwin') {
-      command = `open "${url}"`;
-    } else if (platform === 'win32') {
-      command = `start "" "${url}"`;
-    } else {
-      command = `xdg-open "${url}"`;
+    if (platform === 'win32') {
+      await execAsync(`start "" "${url}"`);
+      return true;
     }
 
-    await execAsync(command);
+    try {
+      await execAsync('command -v xdg-open');
+    } catch {
+      return false;
+    }
+
+    await execFileAsync('xdg-open', [url]);
     return true;
   } catch {
     return false;
