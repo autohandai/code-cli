@@ -409,6 +409,10 @@
       "ollama": "Локально - Запуск моделей на вашем компьютере (бесплатно)",
       "llamacpp": "Локально - Быстрый вывод с моделями GGUF",
       "mlx": "Локально - Оптимизировано для Mac на Apple Silicon"
+    },
+    "config": {
+      "selectReasoningEffort": "Выберите уровень рассуждения",
+      "reasoningEffortLabel": "Уровень рассуждения: {{level}}"
     }
   },
   "startup": {

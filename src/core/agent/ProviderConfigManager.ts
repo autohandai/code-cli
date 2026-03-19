@@ -8,10 +8,11 @@ import chalk from 'chalk';
 import { t } from '../../i18n/index.js';
 import { showModal, showInput, showPassword, type ModalOption } from '../../ui/ink/components/Modal.js';
 import { ProviderFactory } from '../../providers/ProviderFactory.js';
+import { OPENAI_MODELS } from '../../providers/OpenAIProvider.js';
 import { sanitizeModelId } from '../../providers/errors.js';
 import { saveConfig, getProviderConfig } from '../../config.js';
 import { getContextWindow } from '../../utils/context.js';
-import type { AgentRuntime, ProviderName, AzureSettings, AzureAuthMethod } from '../../types.js';
+import type { AgentRuntime, ProviderName, AzureSettings, AzureAuthMethod, ReasoningEffort } from '../../types.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
 import type { TelemetryManager } from '../../telemetry/TelemetryManager.js';
 import { AgentDelegator } from '../agents/AgentDelegator.js';
@@ -322,13 +323,10 @@ export class ProviderConfigManager {
         return;
       }
 
-      const modelChoices: ModalOption[] = [
-        { label: 'gpt-4o', value: 'gpt-4o' },
-        { label: 'gpt-4o-mini', value: 'gpt-4o-mini' },
-        { label: 'gpt-4-turbo', value: 'gpt-4-turbo' },
-        { label: 'gpt-4', value: 'gpt-4' },
-        { label: 'gpt-3.5-turbo', value: 'gpt-3.5-turbo' }
-      ];
+      const modelChoices: ModalOption[] = OPENAI_MODELS.map(name => ({
+        label: name,
+        value: name,
+      }));
 
       const result = await showModal({
         title: t('providers.config.selectModel'),
@@ -342,10 +340,14 @@ export class ProviderConfigManager {
 
       const model = result.value as string;
 
+      // Prompt for reasoning effort level
+      const reasoningEffort = await this.promptReasoningEffort();
+
       this.runtime.config.openai = {
         apiKey,
         baseUrl: 'https://api.openai.com/v1',
-        model
+        model,
+        ...(reasoningEffort !== undefined && { reasoningEffort })
       };
 
       this.runtime.config.provider = 'openai';
@@ -758,7 +760,7 @@ export class ProviderConfigManager {
     // Handle model change
     if (action === 'model' || action === 'both') {
       if (provider === 'openai') {
-        const models = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo', 'o1', 'o1-mini'];
+        const models: string[] = [...OPENAI_MODELS];
         const modelOptions: ModalOption[] = models.map(name => ({
           label: name,
           value: name
@@ -830,6 +832,12 @@ export class ProviderConfigManager {
       }
     }
 
+    // Prompt for reasoning effort when changing OpenAI model
+    let reasoningEffort: ReasoningEffort | undefined;
+    if (provider === 'openai' && (action === 'model' || action === 'both')) {
+      reasoningEffort = await this.promptReasoningEffort();
+    }
+
     // Save the changes
     if (provider === 'azure') {
       // Azure: preserve existing config, update model, deploymentName, and key
@@ -851,7 +859,8 @@ export class ProviderConfigManager {
       this.runtime.config[provider] = {
         apiKey: newApiKey,
         baseUrl,
-        model: newModel
+        model: newModel,
+        ...(reasoningEffort !== undefined && { reasoningEffort })
       };
     }
 
@@ -866,6 +875,28 @@ export class ProviderConfigManager {
     console.log(chalk.green('\n✓ ' + t('providers.config.settingsUpdated', { provider: providerName })));
     console.log(chalk.gray('  ' + t('providers.config.providerLabel', { provider })));
     console.log(chalk.gray('  ' + t('providers.config.modelLabel', { model: newModel })));
+  }
+
+  /**
+   * Prompt user to select reasoning effort level for OpenAI models
+   */
+  private async promptReasoningEffort(): Promise<ReasoningEffort | undefined> {
+    const options: ModalOption[] = [
+      { label: 'none', value: 'none', description: 'No extended reasoning' },
+      { label: 'low', value: 'low', description: 'Faster responses, minimal reasoning' },
+      { label: 'medium', value: 'medium', description: 'Balanced speed and reasoning' },
+      { label: 'high', value: 'high', description: 'Thorough reasoning (recommended)' },
+      { label: 'xhigh', value: 'xhigh', description: 'Maximum reasoning depth' },
+    ];
+
+    const result = await showModal({
+      title: t('providers.config.selectReasoningEffort'),
+      options,
+      initialIndex: 3, // default to 'high'
+    });
+
+    if (!result) return undefined;
+    return result.value as ReasoningEffort;
   }
 
   /**

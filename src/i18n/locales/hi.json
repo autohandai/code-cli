@@ -409,6 +409,10 @@
       "ollama": "स्थानीय - अपनी मशीन पर मॉडल चलाएँ (मुफ़्त)",
       "llamacpp": "स्थानीय - GGUF मॉडल के साथ तेज़ इन्फ़रेंस",
       "mlx": "स्थानीय - Apple Silicon Mac के लिए अनुकूलित"
+    },
+    "config": {
+      "selectReasoningEffort": "तर्क स्तर चुनें",
+      "reasoningEffortLabel": "तर्क स्तर: {{level}}"
     }
   },
   "startup": {

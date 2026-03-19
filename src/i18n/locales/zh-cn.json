@@ -528,6 +528,8 @@
       "notConfigured": "{{provider}} 尚未配置。让我们设置它！",
       "configuredSuccessfully": "{{provider}} 配置成功！",
       "selectModel": "选择一个模型",
+      "selectReasoningEffort": "选择推理深度级别",
+      "reasoningEffortLabel": "推理深度：{{level}}",
       "enterModelId": "输入模型 ID",
       "enterApiKey": "输入你的 {{provider}} API 密钥",
       "apiKeyUrl": "获取你的 API 密钥：{{url}}",

@@ -528,6 +528,8 @@
       "notConfigured": "{{provider}} henüz yapılandırılmamış. Şimdi kurulum yapalım!",
       "configuredSuccessfully": "{{provider}} başarıyla yapılandırıldı!",
       "selectModel": "Bir model seçin",
+      "selectReasoningEffort": "Akıl yürütme düzeyini seçin",
+      "reasoningEffortLabel": "Akıl yürütme düzeyi: {{level}}",
       "enterModelId": "Model ID girin",
       "enterApiKey": " {{provider}} API anahtarınızı girin",
       "apiKeyUrl": "API anahtarınızı alın: {{url}}",
