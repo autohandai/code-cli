@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs-extra';
 import path from 'path';
 import os from 'os';
-import { runStartupChecks } from '../src/startup/checks.js';
+import { runStartupChecks, validateWorkspacePath } from '../src/startup/checks.js';
 
 describe('Git Auto-Init for Empty Directories', () => {
   let tempDir: string;
@@ -134,6 +134,23 @@ describe('Git Auto-Init for Empty Directories', () => {
       // Run again and check branch detection
       const result = await runStartupChecks(tempDir);
       expect(result.workspace.branch).toBeDefined();
+    });
+  });
+
+  describe('workspace path validation', () => {
+    it('rejects a missing workspace path early', async () => {
+      const result = await validateWorkspacePath(path.join(tempDir, 'missing-project'));
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain('does not exist');
+    });
+
+    it('rejects a non-directory workspace path early', async () => {
+      const filePath = path.join(tempDir, 'file.txt');
+      await fs.writeFile(filePath, 'hello');
+
+      const result = await validateWorkspacePath(filePath);
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain('not a directory');
     });
   });
 });
