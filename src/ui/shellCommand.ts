@@ -9,7 +9,7 @@
  * in the interactive prompt.
  */
 
-import { execSync } from 'node:child_process';
+import { exec, execSync } from 'node:child_process';
 import { readdirSync, type Dirent } from 'node:fs';
 import path from 'node:path';
 
@@ -280,6 +280,10 @@ interface ShellCommandResult {
   error?: string;
 }
 
+type ExecAsyncError = Error & {
+  stderr?: string | Buffer;
+};
+
 /**
  * Check if the input is a shell command (starts with !)
  * @param input - The user input string
@@ -368,4 +372,35 @@ export function executeShellCommand(
       error: execError.message || 'Unknown error'
     };
   }
+}
+
+export async function executeShellCommandAsync(
+  command: string,
+  cwd?: string,
+  timeout: number = DEFAULT_SHELL_TIMEOUT
+): Promise<ShellCommandResult> {
+  const trimmedCommand = command.trim();
+
+  return new Promise((resolve) => {
+    exec(trimmedCommand, {
+      encoding: 'utf-8',
+      cwd: cwd ?? process.cwd(),
+      timeout,
+      maxBuffer: 10 * 1024 * 1024,
+    }, (error, stdout, stderr) => {
+      if (error) {
+        const execError = error as ExecAsyncError;
+        resolve({
+          success: false,
+          error: stderr || execError.stderr?.toString() || error.message || 'Unknown error'
+        });
+        return;
+      }
+
+      resolve({
+        success: true,
+        output: stdout || ''
+      });
+    });
+  });
 }
