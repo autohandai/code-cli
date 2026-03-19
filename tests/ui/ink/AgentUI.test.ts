@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import type { Key as InkKey } from 'ink';
 import { TextBuffer } from '../../../src/ui/textBuffer.js';
 import {
+  getComposerHelpLine,
   getTextBufferCursorOffset,
   handleInkTextBufferInput,
 } from '../../../src/ui/ink/AgentUI.js';
@@ -68,5 +69,14 @@ describe('AgentUI TextBuffer integration helpers', () => {
 
     expect(result).toBe('submit');
     expect(buffer.getText()).toBe('line1');
+  });
+});
+
+describe('AgentUI layout stability', () => {
+  it('keeps a placeholder help row while the first prompt is working', () => {
+    expect(getComposerHelpLine(false, '70% context left', '? shortcuts · / commands')).toBe(
+      '70% context left · ? shortcuts · / commands'
+    );
+    expect(getComposerHelpLine(true, '70% context left', '? shortcuts · / commands')).toBe(' ');
   });
 });

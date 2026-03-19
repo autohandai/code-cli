@@ -342,7 +342,7 @@ describe('PersistentInput bracketed paste handling', () => {
     expect(disableCall).toBeTruthy();
   });
 
-  it('coalesces multi-line paste into a single queue entry', async () => {
+  it('keeps multi-line paste in the draft buffer until Enter', async () => {
     const { PersistentInput } = await import('../../src/ui/persistentInput.js');
     const input = new PersistentInput({ silentMode: true });
     input.start();
@@ -367,12 +367,9 @@ describe('PersistentInput bracketed paste handling', () => {
     // Paste end
     emitKey(mockStdin, '\x1b[201~', { sequence: '\x1b[201~' });
 
-    // Should produce exactly ONE queue entry
-    expect(queuedMessages).toHaveLength(1);
-    expect(queuedMessages[0]).toContain('[Pasted: 3 lines]');
-    expect(queuedMessages[0]).toContain('line one');
-    expect(queuedMessages[0]).toContain('line two');
-    expect(queuedMessages[0]).toContain('line three');
+    // Paste should stay in the draft, not auto-queue.
+    expect(queuedMessages).toHaveLength(0);
+    expect(input.getCurrentInput()).toBe('line one\nline two\nline three');
 
     input.stop();
   });
@@ -398,8 +395,10 @@ describe('PersistentInput bracketed paste handling', () => {
     // Should NOT have triggered queue-full
     expect(queueFullEvents).toHaveLength(0);
 
-    // Should have exactly one queued entry
-    expect(input.getQueueLength()).toBe(1);
+    // Paste should remain in the draft buffer.
+    expect(input.getQueueLength()).toBe(0);
+    expect(input.getCurrentInput()).toContain('line 1');
+    expect(input.getCurrentInput()).toContain('line 15');
 
     input.stop();
   });
@@ -457,6 +456,7 @@ describe('PersistentInput bracketed paste handling', () => {
   });
 
   it('handles rapid paste without bracketed paste markers via debounce', async () => {
+    vi.useFakeTimers();
     const { PersistentInput } = await import('../../src/ui/persistentInput.js');
     const input = new PersistentInput({ silentMode: true });
     input.start();
@@ -474,18 +474,13 @@ describe('PersistentInput bracketed paste handling', () => {
     typeString(mockStdin, 'raw line 3');
     emitKey(mockStdin, '\r', { name: 'return' });
 
-    // Without bracketed paste, the fallback is rapid Enter debounce.
-    // Each Enter arrives synchronously, so they should be coalesced
-    // into fewer queue entries than 3.
-    // This test documents the expected behavior - implementation should
-    // coalesce rapid Enters into a single paste entry.
+    vi.advanceTimersByTime(100);
 
-    // For now, with synchronous event emission in tests, the debounce
-    // timer hasn't expired between Enters, so all should be coalesced.
-    // We'll verify the queue doesn't have 3 separate entries.
-    expect(queuedMessages.length).toBeLessThanOrEqual(1);
+    expect(queuedMessages).toHaveLength(0);
+    expect(input.getCurrentInput()).toBe('raw line 1\nraw line 2\nraw line 3');
 
     input.stop();
+    vi.useRealTimers();
   });
 
   it('can rebind streams after stdin source changes (pipe -> tty)', async () => {

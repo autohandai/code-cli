@@ -619,10 +619,10 @@ export class PersistentInput extends EventEmitter {
       this.updateDisplay();
       this.emitInputChange();
     } else {
-      // Multi-line paste: coalesce into a single queue entry
-      const content = lines.join('\n');
-      const entry = `[Pasted: ${lines.length} lines]\n${content}`;
-      this.addToQueue(entry);
+      // Multi-line paste stays in the draft buffer until the user explicitly submits it.
+      this.textBuffer.insert(lines.join('\n'));
+      this.updateDisplay();
+      this.emitInputChange();
     }
   }
 
@@ -644,10 +644,11 @@ export class PersistentInput extends EventEmitter {
       // Single Enter — normal queue behavior
       this.addToQueue(lines[0]);
     } else {
-      // Multiple rapid Enters — coalesce (likely raw paste without bracketed paste)
-      const content = lines.join('\n');
-      const entry = `[Pasted: ${lines.length} lines]\n${content}`;
-      this.addToQueue(entry);
+      // Multiple rapid Enters are likely a raw paste without bracketed-paste markers.
+      // Keep the pasted content in the draft so Enter is still the explicit queue action.
+      this.textBuffer.insert(lines.join('\n'));
+      this.updateDisplay();
+      this.emitInputChange();
     }
   }
 

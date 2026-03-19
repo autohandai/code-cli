@@ -15,6 +15,7 @@ import { getPlanModeManager } from '../../commands/plan.js';
 import { TextBuffer } from '../textBuffer.js';
 import { handleTextBufferKey, type KeyHandlerResult } from '../textBufferKeyHandler.js';
 import { getPromptBlockWidth, isShiftEnterResidualSequence } from '../inputPrompt.js';
+import { renderTerminalMarkdown } from '../../core/immediateCommandRouter.js';
 
 export interface AgentUIState {
   isWorking: boolean;
@@ -116,6 +117,18 @@ export function handleInkTextBufferInput(
   }
 
   return handleTextBufferKey(buffer, input, mapInkKeyToTextBufferKey(input, key));
+}
+
+export function getComposerHelpLine(
+  isWorking: boolean,
+  contextDisplay: string,
+  commandHint: string
+): string {
+  if (isWorking) {
+    return ' ';
+  }
+
+  return `${contextDisplay}${contextDisplay ? ' · ' : ''}${commandHint}`;
 }
 
 export function AgentUI({
@@ -331,7 +344,7 @@ const DynamicContent = memo(function DynamicContent({
       {/* Final response (when not working) */}
       {finalResponse && !isWorking && (
         <Box marginTop={1}>
-          <Text>{finalResponse}</Text>
+          <Text>{renderTerminalMarkdown(finalResponse)}</Text>
         </Box>
       )}
     </>
@@ -425,14 +438,12 @@ const FixedBottom = memo(function FixedBottom({
         />
       )}
 
-      {/* Help line - keep it out of the active transcript while the agent is working */}
-      {!isWorking && (
-        <Box>
-          <Text color={colors.dim}>
-            {contextDisplay}{contextDisplay ? ' · ' : ''}{t('ui.commandHint')}
-          </Text>
-        </Box>
-      )}
+      {/* Help line - reserve a stable row even while working to avoid first-send layout jumps */}
+      <Box>
+        <Text color={colors.dim}>
+          {getComposerHelpLine(isWorking, contextDisplay, t('ui.commandHint'))}
+        </Text>
+      </Box>
 
       {/* Ctrl+C warning - renders in stable position */}
       {ctrlCCount === 1 && (
