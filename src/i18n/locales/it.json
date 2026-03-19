@@ -409,6 +409,10 @@
       "ollama": "Locale - Esegui modelli sulla tua macchina (gratuito)",
       "llamacpp": "Locale - Inferenza veloce con modelli GGUF",
       "mlx": "Locale - Ottimizzato per Mac con Apple Silicon"
+    },
+    "config": {
+      "selectReasoningEffort": "Seleziona il livello di ragionamento",
+      "reasoningEffortLabel": "Livello di ragionamento: {{level}}"
     }
   },
   "startup": {

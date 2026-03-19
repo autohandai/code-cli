@@ -672,6 +672,8 @@
       "notConfigured": "{{provider}} is not configured yet. Let's set it up!",
       "configuredSuccessfully": "{{provider}} configured successfully!",
       "selectModel": "Select a model",
+      "selectReasoningEffort": "Select reasoning effort level",
+      "reasoningEffortLabel": "Reasoning effort: {{level}}",
       "enterModelId": "Enter the model ID",
       "enterApiKey": "Enter your {{provider}} API key",
       "apiKeyUrl": "Get your API key at: {{url}}",

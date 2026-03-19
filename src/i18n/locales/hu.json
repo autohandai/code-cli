@@ -528,6 +528,8 @@
       "notConfigured": "{{provider}} még nincs konfigurálva. Állítsuk be!",
       "configuredSuccessfully": "{{provider}} sikeresen konfigurálva!",
       "selectModel": "Válasszon egy modellt",
+      "selectReasoningEffort": "Gondolkodási szint kiválasztása",
+      "reasoningEffortLabel": "Gondolkodási szint: {{level}}",
       "enterModelId": "Írja be a modell AZONOSÍTÓJÁT",
       "enterApiKey": "Írja be a {{provider}} API kulcsát",
       "apiKeyUrl": "Szerezze be az API kulcsát itt: {{url}}",

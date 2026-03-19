@@ -5,7 +5,7 @@
  */
 
 import type { LLMProvider } from './LLMProvider.js';
-import type { LLMRequest, LLMResponse, LLMToolCall, LLMUsage, ProviderSettings, FunctionDefinition } from '../types.js';
+import type { LLMRequest, LLMResponse, LLMToolCall, LLMUsage, ProviderSettings, FunctionDefinition, ReasoningEffort } from '../types.js';
 import { ApiError, classifyApiError } from './errors.js';
 
 interface OpenAIToolCall {
@@ -37,15 +37,30 @@ interface OpenAIChatResponse {
     };
 }
 
+/** Canonical list of supported OpenAI models — single source of truth. */
+export const OPENAI_MODELS = [
+    'gpt-5.4',
+    'gpt-5.4-pro',
+    'gpt-5.4-mini',
+    'gpt-5.4-nano',
+    'gpt-5.3-codex',
+    'gpt-5.1-codex-max',
+] as const;
+
+/** Valid reasoning effort levels for runtime validation. */
+const VALID_REASONING_EFFORTS = new Set<string>(['none', 'low', 'medium', 'high', 'xhigh']);
+
 export class OpenAIProvider implements LLMProvider {
     private baseUrl: string;
     private apiKey: string;
     private model: string;
+    private reasoningEffort?: ReasoningEffort;
 
     constructor(config: ProviderSettings) {
         this.baseUrl = config.baseUrl || 'https://api.openai.com/v1';
         this.apiKey = config.apiKey || '';
-        this.model = config.model || 'gpt-4o';
+        this.model = config.model || 'gpt-5.4';
+        this.reasoningEffort = config.reasoningEffort;
     }
 
     getName(): string {
@@ -57,14 +72,7 @@ export class OpenAIProvider implements LLMProvider {
     }
 
     async listModels(): Promise<string[]> {
-        // Commonly used OpenAI models
-        return [
-            'gpt-4o',
-            'gpt-4o-mini',
-            'gpt-4-turbo',
-            'gpt-4',
-            'gpt-3.5-turbo'
-        ];
+        return [...OPENAI_MODELS];
     }
 
     async isAvailable(): Promise<boolean> {
@@ -105,6 +113,11 @@ export class OpenAIProvider implements LLMProvider {
             temperature: request.temperature || 0.7,
             max_tokens: request.maxTokens
         };
+
+        // Add reasoning effort when configured (with runtime validation)
+        if (this.reasoningEffort && VALID_REASONING_EFFORTS.has(this.reasoningEffort)) {
+            body.reasoning_effort = this.reasoningEffort;
+        }
 
         // Add function calling support if tools are provided
         if (request.tools && request.tools.length > 0) {

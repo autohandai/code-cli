@@ -11,7 +11,7 @@ import { showModal, showInput, showPassword, showConfirm, type ModalOption } fro
 import fse from 'fs-extra';
 import { join } from 'path';
 
-import type { AutohandConfig, LoadedConfig, ProviderName, AzureSettings, AzureAuthMethod, PermissionMode, SearchProvider } from '../types.js';
+import type { AutohandConfig, LoadedConfig, ProviderName, AzureSettings, AzureAuthMethod, PermissionMode, SearchProvider, ReasoningEffort } from '../types.js';
 import { getProviderConfig } from '../config.js';
 import { ProviderFactory } from '../providers/ProviderFactory.js';
 import { ProjectAnalyzer } from './projectAnalyzer.js';
@@ -86,6 +86,7 @@ interface OnboardingState {
   };
   communitySkillsEnabled?: boolean;
   agentsFileCreated?: boolean;
+  reasoningEffort?: ReasoningEffort;
   authToken?: string;
   authUser?: { id: string; email: string; name: string };
   skipped: OnboardingStep[];
@@ -187,6 +188,11 @@ export class SetupWizard {
 
         const model = await this.promptModel(provider);
         if (!model) return this.cancelled();
+
+        // Step 6b: Reasoning effort for OpenAI
+        if (provider === 'openai') {
+          await this.promptReasoningEffort();
+        }
       }
 
       // Step 7: Connection test for local providers
@@ -428,6 +434,29 @@ export class SetupWizard {
 
     this.state.model = model.trim();
     return this.state.model;
+  }
+
+  /**
+   * Prompt for reasoning effort level (OpenAI only)
+   */
+  private async promptReasoningEffort(): Promise<void> {
+    const options: ModalOption[] = [
+      { label: 'none', value: 'none', description: 'No extended reasoning' },
+      { label: 'low', value: 'low', description: 'Faster responses, minimal reasoning' },
+      { label: 'medium', value: 'medium', description: 'Balanced speed and reasoning' },
+      { label: 'high', value: 'high', description: 'Thorough reasoning (recommended)' },
+      { label: 'xhigh', value: 'xhigh', description: 'Maximum reasoning depth' },
+    ];
+
+    const result = await showModal({
+      title: t('providers.config.selectReasoningEffort'),
+      options,
+      initialIndex: 3, // default to 'high'
+    });
+
+    if (result) {
+      this.state.reasoningEffort = result.value as ReasoningEffort;
+    }
   }
 
   /**
@@ -767,7 +796,8 @@ export class SetupWizard {
         (config as any)[this.state.provider] = {
           apiKey: this.state.apiKey,
           model: this.state.model,
-          baseUrl: this.getDefaultBaseUrl(this.state.provider)
+          baseUrl: this.getDefaultBaseUrl(this.state.provider),
+          ...(this.state.reasoningEffort !== undefined && { reasoningEffort: this.state.reasoningEffort })
         };
       } else {
         (config as any)[this.state.provider] = {
@@ -1396,6 +1426,9 @@ export class SetupWizard {
     if (this.state.model) {
       console.log(chalk.white('  ' + t('setup.review.model', { model: this.state.model })));
     }
+    if (this.state.reasoningEffort) {
+      console.log(chalk.white('  ' + t('providers.config.reasoningEffortLabel', { level: this.state.reasoningEffort })));
+    }
     if (this.state.permissionMode) {
       console.log(chalk.white(`  Permissions: ${this.state.permissionMode}`));
     }
@@ -1460,7 +1493,7 @@ export class SetupWizard {
   private getDefaultModel(provider: ProviderName): string {
     const defaults: Record<ProviderName, string> = {
       openrouter: 'nvidia/nemotron-3-super-120b-a12b:free',
-      openai: 'gpt-4o',
+      openai: 'gpt-5.4',
       ollama: 'llama3.2:latest',
       llamacpp: 'default',
       mlx: 'mlx-community/Llama-3.2-3B-Instruct-4bit',
