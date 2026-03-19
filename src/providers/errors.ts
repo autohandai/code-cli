@@ -247,12 +247,14 @@ export function classifyApiError(
 
   // Try to infer from body if status is unknown
   if (httpStatus === 0 || httpStatus === undefined) {
+    // Check model-not-found patterns before overflow. Some providers prepend
+    // stale or generic friendly text ahead of the real "invalid model ID" body.
+    if (matchesAny(lower, MODEL_NOT_FOUND_PATTERNS)) {
+      return makeError('model_not_found', httpStatus, false, errorBody, headers);
+    }
     // Check for context-overflow patterns even without a status code
     if (matchesAny(lower, CONTEXT_OVERFLOW_PATTERNS)) {
       return makeError('context_overflow', httpStatus, true, errorBody, headers);
-    }
-    if (matchesAny(lower, MODEL_NOT_FOUND_PATTERNS)) {
-      return makeError('model_not_found', httpStatus, false, errorBody, headers);
     }
   }
 
@@ -279,9 +281,33 @@ function makeError(
     ? `${friendlyMessage}\n${rawBody}`
     : friendlyMessage;
 
-  const retryAfterMs = parseRetryAfter(headers);
+  const retryAfterMs = parseRetryAfter(headers) ?? inferRetryAfterFromBody(code, rawBody);
 
   return new ApiError(message, code, httpStatus, retryable, retryAfterMs, rawBody);
+}
+
+function inferRetryAfterFromBody(code: ApiErrorCode, rawBody: string): number | undefined {
+  if (code !== 'rate_limited') {
+    return undefined;
+  }
+
+  const rpmMatch = rawBody.match(/limited to\s+(\d+)\s+requests?\s+per\s+minute/i);
+  if (rpmMatch) {
+    const rpm = Number(rpmMatch[1]);
+    if (Number.isFinite(rpm) && rpm > 0) {
+      return Math.ceil(60_000 / rpm);
+    }
+  }
+
+  const secondsMatch = rawBody.match(/retry (?:after|in)\s+(\d+)\s+seconds?/i);
+  if (secondsMatch) {
+    const seconds = Number(secondsMatch[1]);
+    if (Number.isFinite(seconds) && seconds > 0) {
+      return seconds * 1000;
+    }
+  }
+
+  return undefined;
 }
 
 /**
