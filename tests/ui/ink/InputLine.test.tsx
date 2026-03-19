@@ -58,4 +58,15 @@ describe('InputLine', () => {
     expect(output).toContain('gamma');
     expect(output.split('\n').length).toBeGreaterThanOrEqual(4);
   });
+
+  it('renders plain box characters without leaking ANSI control brackets', () => {
+    const { lastFrame } = renderInputLine('');
+    const output = stripAnsi(lastFrame());
+
+    expect(output).toContain('┌');
+    expect(output).toContain('┐');
+    expect(output).toContain('└');
+    expect(output).toContain('┘');
+    expect(output).not.toContain('[K');
+  });
 });

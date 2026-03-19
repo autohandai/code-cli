@@ -21,8 +21,8 @@ describe('formatToolOutputForDisplay', () => {
     expect(result.output).toContain('3 lines');
   });
 
-  it('shows file summary for write_file with path', () => {
-    const content = 'const x = 1;';
+  it('preserves write_file diff output instead of collapsing to a file summary', () => {
+    const content = '  Added 1 line, removed 0 lines\n  1 + const x = 1;';
     const result = formatToolOutputForDisplay({
       tool: 'write_file',
       content,
@@ -31,8 +31,20 @@ describe('formatToolOutputForDisplay', () => {
     });
 
     expect(result.truncated).toBe(false);
-    expect(result.output).toContain('utils/helper.js');
-    expect(result.output).toContain('1 lines');
+    expect(result.output).toBe(content);
+  });
+
+  it('preserves search_replace diff output instead of collapsing to a file summary', () => {
+    const content = '  Added 1 line, removed 1 line\n  3 - old\n  3 + new';
+    const result = formatToolOutputForDisplay({
+      tool: 'search_replace',
+      content,
+      charLimit: 4,
+      filePath: '/project/utils/helper.js'
+    });
+
+    expect(result.truncated).toBe(false);
+    expect(result.output).toBe(content);
   });
 
   it('truncates search output', () => {

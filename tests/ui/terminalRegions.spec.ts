@@ -372,18 +372,18 @@ describe('TerminalRegions', () => {
       expect(regions.getFixedLines()).toBe(5);
     });
 
-    it('caps input lines at MAX_VISIBLE_INPUT_LINES', () => {
+    it('renders large pasted drafts as a single compact indicator line', () => {
       const output = createMockOutput();
       const regions = new TerminalRegions(output);
       regions.enable();
       output.writes = [];
 
-      // Send input with 10 lines — should be capped at 5 visible
+      // Large pastes collapse to a compact indicator instead of expanding the prompt.
       const tenLines = Array.from({ length: 10 }, (_, i) => `line${i + 1}`).join('\n');
       regions.renderFixedRegion(tenLines, 0, 'status');
 
-      // Max 5 lines: activity + top + 5 input + bottom + status = 9
-      expect(regions.getFixedLines()).toBe(9);
+      expect(regions.getFixedLines()).toBe(5);
+      expect(output.writes.join('')).toContain('[Text pasted: 10 lines]');
     });
 
     it('renders all visible input lines with border decoration', () => {

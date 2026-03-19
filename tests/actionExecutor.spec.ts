@@ -12,6 +12,7 @@ import * as commandActions from '../src/actions/command.js';
 import * as modalComponents from '../src/ui/ink/components/Modal.js';
 import type { ToolDefinition } from '../src/core/toolManager.js';
 import { execSync } from 'node:child_process';
+import { PlanFileStorage } from '../src/modes/planMode/PlanFileStorage.js';
 
 // Mock execSync for security scanner tests
 vi.mock('node:child_process', async () => {
@@ -162,7 +163,8 @@ describe('ActionExecutor', () => {
 
       expect(writeFile).toHaveBeenCalledWith('README.md', 'new content');
       expect(onFileModified).toHaveBeenCalledWith('README.md');
-      expect(result).toContain('Updated');
+      expect(result).toContain('Added');
+      expect(result).toContain('removed');
     });
 
     it('passes file path to onFileModified callback for new files', async () => {
@@ -206,6 +208,19 @@ describe('ActionExecutor', () => {
       await executor.execute({ type: 'apply_patch', path: 'src/index.ts', diff: '@@ diff @@' } as any);
 
       expect(applyPatch).toHaveBeenCalledWith('src/index.ts', '@@ diff @@');
+    });
+
+    it('returns diff preview for append_file', async () => {
+      const appendFile = vi.fn().mockResolvedValue(undefined);
+      const executor = createExecutor({
+        readFile: vi.fn().mockResolvedValue('old'),
+        appendFile
+      });
+
+      const result = await executor.execute({ type: 'append_file', path: 'README.md', content: '\nMore' } as any);
+
+      expect(result).toContain('Added');
+      expect(result).toContain('removed');
     });
 
     it('creates directories', async () => {
@@ -565,7 +580,8 @@ describe('ActionExecutor', () => {
       const writtenContent = writeFile.mock.calls[0][1];
       expect(writtenContent).toContain('const a = 10;');
       expect(writtenContent).toContain('const b = 20;');
-      expect(result).toContain('Applied 2 edit(s)');
+      expect(result).toContain('Added');
+      expect(result).toContain('removed');
     });
 
     it('applies replace_all edits', async () => {
@@ -1734,6 +1750,8 @@ describe('ActionExecutor', () => {
     });
 
     it('allows plan action in dry-run mode', async () => {
+      vi.spyOn(PlanFileStorage.prototype, 'listPlans').mockResolvedValue([]);
+      vi.spyOn(PlanFileStorage.prototype, 'savePlan').mockResolvedValue('/tmp/plan-123.md');
       const executor = createExecutor(
         {},
         { runtime: { options: { dryRun: true } } as any }

@@ -45,9 +45,11 @@ hello
 goodbye
 >>>>>>> REPLACE`;
 
-    await executor.execute({ type: 'search_replace', path: 'test.txt', blocks });
+    const result = await executor.execute({ type: 'search_replace', path: 'test.txt', blocks });
 
     expect(files.writeFile).toHaveBeenCalledWith('test.txt', 'goodbye world');
+    expect(result).toContain('Added');
+    expect(result).toContain('removed');
   });
 
   it('applies multiple blocks in sequence', async () => {
