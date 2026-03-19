@@ -5,13 +5,14 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
-import { execSync } from 'node:child_process';
+import { exec, execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 // Mock child_process
 vi.mock('node:child_process', () => ({
+  exec: vi.fn(),
   execSync: vi.fn()
 }));
 
@@ -30,6 +31,7 @@ vi.mock('chalk', () => ({
 
 describe('Shell Command Feature', () => {
   const mockedExecSync = execSync as Mock;
+  const mockedExec = exec as Mock;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -130,6 +132,38 @@ describe('Shell Command Feature', () => {
         cwd: process.cwd(),
         timeout: 60000
       });
+    });
+  });
+
+  describe('executeShellCommandAsync', () => {
+    let executeShellCommandAsync: typeof import('../../src/ui/shellCommand.js').executeShellCommandAsync;
+
+    beforeEach(async () => {
+      const module = await import('../../src/ui/shellCommand.js');
+      executeShellCommandAsync = module.executeShellCommandAsync;
+    });
+
+    it('should execute asynchronously and return stdout', async () => {
+      mockedExec.mockImplementation((_cmd, _opts, cb) => cb(null, 'async output\n', ''));
+
+      const result = await executeShellCommandAsync('ls -la');
+
+      expect(mockedExec).toHaveBeenCalledWith('ls -la', {
+        encoding: 'utf-8',
+        cwd: process.cwd(),
+        timeout: 30000,
+        maxBuffer: 10 * 1024 * 1024,
+      }, expect.any(Function));
+      expect(result).toEqual({ success: true, output: 'async output\n' });
+    });
+
+    it('should return stderr when async command fails', async () => {
+      mockedExec.mockImplementation((_cmd, _opts, cb) => cb(new Error('boom'), '', 'serve failed'));
+
+      const result = await executeShellCommandAsync('npx serve .');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('serve failed');
     });
   });
 

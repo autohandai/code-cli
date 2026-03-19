@@ -13,7 +13,7 @@ import { TerminalResizeWatcher } from './terminalResize.js';
 import {
   isShellCommand,
   parseShellCommand,
-  executeShellCommand,
+  executeShellCommandAsync,
   getPrimaryShellCommandSuggestion,
   getShellCommandSuggestions
 } from './shellCommand.js';
@@ -2448,20 +2448,28 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         const shellCmd = parseShellCommand(finalValue);
         mentionPreview.reset();
         leavePromptSurface(stdOutput, STATUS_LINE_COUNT, true);
-        const result = executeShellCommand(shellCmd, workspaceRoot);
-        if (result.success && result.output) {
-          stdOutput.write(result.output);
-          if (!result.output.endsWith('\n')) {
+        executeShellCommandAsync(shellCmd, workspaceRoot)
+          .then((result) => {
+            if (result.success && result.output) {
+              stdOutput.write(result.output);
+              if (!result.output.endsWith('\n')) {
+                stdOutput.write('\n');
+              }
+            } else if (!result.success && result.error) {
+              stdOutput.write(chalk.red(`Error: ${result.error}\n`));
+            }
+            // Re-prompt without sending to LLM — reset TextBuffer for fresh input
+            textBuffer.setText('');
+            syncReadlineFromBuffer();
             stdOutput.write('\n');
-          }
-        } else if (!result.success && result.error) {
-          stdOutput.write(chalk.red(`Error: ${result.error}\n`));
-        }
-        // Re-prompt without sending to LLM — reset TextBuffer for fresh input
-        textBuffer.setText('');
-        syncReadlineFromBuffer();
-        stdOutput.write('\n');
-        renderPromptLine(rl, getActiveStatusLine(), stdOutput, false, false, suggestionProvider?.());
+            renderPromptLine(rl, getActiveStatusLine(), stdOutput, false, false, suggestionProvider?.());
+          })
+          .catch((error: Error) => {
+            stdOutput.write(chalk.red(`Error: ${error.message}\n\n`));
+            textBuffer.setText('');
+            syncReadlineFromBuffer();
+            renderPromptLine(rl, getActiveStatusLine(), stdOutput, false, false, suggestionProvider?.());
+          });
         return;
       }
 

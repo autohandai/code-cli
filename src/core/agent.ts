@@ -27,7 +27,7 @@ import {
   safeEmitKeypressEvents
 } from '../ui/inputPrompt.js';
 import { safeSetRawMode } from '../ui/rawMode.js';
-import { isShellCommand, isImmediateCommand, parseShellCommand, executeShellCommand } from '../ui/shellCommand.js';
+import { isShellCommand, isImmediateCommand, parseShellCommand, executeShellCommandAsync } from '../ui/shellCommand.js';
 import { showFilePalette } from '../ui/filePalette.js';
 import { createInkRenderer } from '../ui/ink/InkRenderer.js';
 import { showQuestionModal } from '../ui/questionModal.js';
@@ -784,12 +784,17 @@ export class AutohandAgent {
       if (isShellCommand(text)) {
         const cmd = parseShellCommand(text);
         routeOutput(chalk.gray(`\n$ ${cmd}`), routeOpts);
-        const result = executeShellCommand(cmd, this.runtime.workspaceRoot);
-        if (result.success) {
-          if (result.output) routeOutput(result.output, routeOpts);
-        } else {
-          routeOutput(chalk.red(result.error || 'Command failed'), routeOpts);
-        }
+        executeShellCommandAsync(cmd, this.runtime.workspaceRoot)
+          .then((result) => {
+            if (result.success) {
+              if (result.output) routeOutput(result.output, routeOpts);
+            } else {
+              routeOutput(chalk.red(result.error || 'Command failed'), routeOpts);
+            }
+          })
+          .catch((error: Error) => {
+            routeOutput(chalk.red(error.message || 'Command failed'), routeOpts);
+          });
       } else if (text.startsWith('/')) {
         const { command, args } = this.parseSlashCommand(text);
         this.handleSlashCommand(command, args)
@@ -1403,7 +1408,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         if (isShellCommand(instruction)) {
           const shellCmd = parseShellCommand(instruction);
           console.log(chalk.gray(`\n$ ${shellCmd}`));
-          const result = executeShellCommand(shellCmd, this.runtime.workspaceRoot);
+          const result = await executeShellCommandAsync(shellCmd, this.runtime.workspaceRoot);
           if (result.success) {
             if (result.output) console.log(result.output);
           } else {
@@ -4593,12 +4598,17 @@ If lint or tests fail, report the issues but do NOT commit.`;
         if (isShellCommand(text)) {
           const cmd = parseShellCommand(text);
           routeOutput(chalk.gray(`\n$ ${cmd}`), routeOpts);
-          const result = executeShellCommand(cmd, this.runtime.workspaceRoot);
-          if (result.success) {
-            if (result.output) routeOutput(result.output, routeOpts);
-          } else {
-            routeOutput(chalk.red(result.error || 'Command failed'), routeOpts);
-          }
+          executeShellCommandAsync(cmd, this.runtime.workspaceRoot)
+            .then((result) => {
+              if (result.success) {
+                if (result.output) routeOutput(result.output, routeOpts);
+              } else {
+                routeOutput(chalk.red(result.error || 'Command failed'), routeOpts);
+              }
+            })
+            .catch((error: Error) => {
+              routeOutput(chalk.red(error.message || 'Command failed'), routeOpts);
+            });
         } else if (text.startsWith('/')) {
           const { command, args } = this.parseSlashCommand(text);
           this.handleSlashCommand(command, args)
