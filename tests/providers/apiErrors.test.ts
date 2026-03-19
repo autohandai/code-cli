@@ -345,6 +345,24 @@ describe('classifyApiError', () => {
       expect(err.code).toBe('model_not_found');
       expect(err.retryable).toBe(false);
     });
+
+    it('status 0 with stale overflow text plus invalid model ID still classifies as model_not_found', () => {
+      const err = classifyApiError(
+        0,
+        'The request was malformed. This often happens when the context is too long.\ngrok-4-1-fast-non-reasoning is not a valid model ID'
+      );
+      expect(err.code).toBe('model_not_found');
+      expect(err.retryable).toBe(false);
+    });
+
+    it('infers retryAfterMs from OpenRouter rpm rate-limit messages', () => {
+      const err = classifyApiError(
+        429,
+        'Rate limit exceeded: limited to 8 requests per minute. Please retry shortly.'
+      );
+      expect(err.code).toBe('rate_limited');
+      expect(err.retryAfterMs).toBe(7500);
+    });
   });
 
   // =========================================================================

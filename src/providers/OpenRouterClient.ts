@@ -185,7 +185,11 @@ export class OpenRouterClient {
 
         // If we have more attempts left, wait before retrying
         if (attempt < this.maxRetries) {
-          const delay = this.retryDelay * Math.pow(2, attempt); // Exponential backoff
+          const retryAfterMs = error instanceof ApiError ? error.retryAfterMs : undefined;
+          const delay = Math.max(
+            this.retryDelay * Math.pow(2, attempt),
+            retryAfterMs ?? 0
+          );
           await this.sleep(delay);
         }
       }
