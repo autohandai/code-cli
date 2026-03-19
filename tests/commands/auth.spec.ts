@@ -38,19 +38,21 @@ vi.mock('../../src/utils/prompt.js', () => ({
   safePrompt: vi.fn(),
 }));
 
-// Mock open package (browser opener)
-vi.mock('open', () => ({
-  default: vi.fn().mockResolvedValue(undefined),
+vi.mock('node:child_process', () => ({
+  exec: vi.fn(),
+  execFile: vi.fn(),
 }));
 
 import { saveConfig } from '../../src/config.js';
 import { getAuthClient } from '../../src/auth/index.js';
 import { safePrompt } from '../../src/utils/prompt.js';
+import { exec, execFile } from 'node:child_process';
 import type { LoadedConfig } from '../../src/types.js';
 
 describe('login command', () => {
   let consoleOutput: string[];
   let originalConsoleLog: typeof console.log;
+  const originalPlatform = process.platform;
 
   beforeEach(() => {
     consoleOutput = [];
@@ -59,10 +61,13 @@ describe('login command', () => {
       consoleOutput.push(args.join(' '));
     };
     vi.clearAllMocks();
+    (exec as ReturnType<typeof vi.fn>).mockImplementation((_cmd, cb) => cb?.(null, '', ''));
+    (execFile as ReturnType<typeof vi.fn>).mockImplementation((_file, _args, cb) => cb?.(null, '', ''));
   });
 
   afterEach(() => {
     console.log = originalConsoleLog;
+    Object.defineProperty(process, 'platform', { value: originalPlatform });
   });
 
   it('exports login function and metadata', async () => {
@@ -144,6 +149,39 @@ describe('login command', () => {
     expect(result).toBeNull();
     expect(consoleOutput.some((line) => line.toLowerCase().includes('failed'))).toBe(true);
   });
+
+  it('falls back to manual browser instructions when xdg-open is unavailable', async () => {
+    Object.defineProperty(process, 'platform', { value: 'linux' });
+
+    const mockConfig: LoadedConfig = {
+      configPath: '/home/user/.autohand/config.json',
+    };
+
+    const mockAuthClient = {
+      initiateDeviceAuth: vi.fn().mockResolvedValue({
+        success: true,
+        deviceCode: 'device-123',
+        userCode: 'ABC-123',
+        verificationUriComplete: 'https://auth.autohand.ai/device?code=ABC-123',
+        interval: 0.01,
+      }),
+      pollDeviceAuth: vi.fn().mockResolvedValue({
+        status: 'authorized',
+        token: 'new-token',
+        user: { id: 'user-1', email: 'new@example.com', name: 'New User' },
+      }),
+    };
+
+    (getAuthClient as ReturnType<typeof vi.fn>).mockReturnValue(mockAuthClient);
+    (saveConfig as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    (exec as ReturnType<typeof vi.fn>).mockImplementation((_cmd, cb) => cb?.(new Error('missing xdg-open')));
+    (execFile as ReturnType<typeof vi.fn>).mockImplementation((_file, _args, cb) => cb?.(new Error('missing xdg-open')));
+
+    const { login } = await import('../../src/commands/login.js');
+    await login({ config: mockConfig });
+
+    expect(consoleOutput.some((line) => line.includes('Could not open browser automatically'))).toBe(true);
+  }, 10000);
 });
 
 describe('logout command', () => {
