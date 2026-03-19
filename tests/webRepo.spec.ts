@@ -3,10 +3,129 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { EventEmitter } from 'node:events';
 import { parseRepoUrl, fetchRepoInfo, listRepoDir, fetchRepoFile, webRepo, formatRepoInfo, formatRepoDir, formatBytes, type RepoInfo, type RepoFile } from '../src/actions/webRepo.js';
+import { get as httpsGet } from 'node:https';
+
+vi.mock('node:https', () => ({
+  get: vi.fn(),
+}));
+
+function installHttpsFixture(): void {
+  vi.mocked(httpsGet).mockImplementation(((url: string | URL, options: unknown, callback?: (res: any) => void) => {
+    const request = new EventEmitter() as EventEmitter & { destroy: () => void };
+    request.destroy = () => {};
+
+    const target = typeof url === 'string' ? url : url.toString();
+    const onResponse = typeof options === 'function' ? options : callback;
+
+    process.nextTick(() => {
+      const response = new EventEmitter() as EventEmitter & {
+        statusCode?: number;
+        statusMessage?: string;
+        headers: Record<string, string>;
+      };
+      response.headers = {};
+
+      const send = (statusCode: number, body: string, statusMessage = 'OK') => {
+        response.statusCode = statusCode;
+        response.statusMessage = statusMessage;
+        onResponse?.(response);
+        if (statusCode < 400) {
+          response.emit('data', Buffer.from(body));
+        }
+        response.emit('end');
+      };
+
+      if (target === 'https://api.github.com/repos/octocat/Hello-World') {
+        send(200, JSON.stringify({
+          name: 'Hello-World',
+          full_name: 'octocat/Hello-World',
+          description: 'Mock GitHub repo',
+          stargazers_count: 42,
+          language: 'Ruby',
+          default_branch: 'main',
+          license: { spdx_id: 'MIT' }
+        }));
+        return;
+      }
+
+      if (target === 'https://api.github.com/repos/nonexistent-user-12345/nonexistent-repo-67890') {
+        send(404, '', 'Not Found');
+        return;
+      }
+
+      if (target === 'https://api.github.com/repos/octocat/Hello-World/contents/') {
+        send(200, JSON.stringify([
+          { name: 'README', path: 'README', type: 'file', size: 13 },
+          { name: 'src', path: 'src', type: 'dir', size: 0 }
+        ]));
+        return;
+      }
+
+      if (target === 'https://api.github.com/repos/octocat/Hello-World/contents/nonexistent-path-12345') {
+        send(404, '', 'Not Found');
+        return;
+      }
+
+      if (target === 'https://gitlab.com/api/v4/projects/gitlab-org%2Fgitlab-runner') {
+        send(200, JSON.stringify({
+          name: 'gitlab-runner',
+          path_with_namespace: 'gitlab-org/gitlab-runner',
+          description: 'Mock GitLab repo',
+          star_count: 101,
+          default_branch: 'main'
+        }));
+        return;
+      }
+
+      if (target === 'https://gitlab.com/api/v4/projects/gitlab-org%2Fgitlab-runner/repository/tree?per_page=100') {
+        send(200, JSON.stringify([
+          { name: 'README.md', path: 'README.md', type: 'blob' },
+          { name: 'docs', path: 'docs', type: 'tree' }
+        ]));
+        return;
+      }
+
+      if (target === 'https://gitlab.com/api/v4/projects/gitlab-org%2Fgitlab-runner/repository/tree?per_page=100&path=docs') {
+        send(200, JSON.stringify([
+          { name: 'index.md', path: 'docs/index.md', type: 'blob' }
+        ]));
+        return;
+      }
+
+      if (target === 'https://raw.githubusercontent.com/octocat/Hello-World/HEAD/README') {
+        send(200, 'Hello World\n');
+        return;
+      }
+
+      if (target === 'https://raw.githubusercontent.com/octocat/Hello-World/HEAD/nonexistent-file.txt') {
+        send(404, '', 'Not Found');
+        return;
+      }
+
+      if (target === 'https://gitlab.com/api/v4/projects/gitlab-org%2Fgitlab-runner/repository/files/README.md/raw?ref=HEAD') {
+        send(200, '# GitLab Runner\n');
+        return;
+      }
+
+      send(500, '', `Unhandled fixture URL: ${target}`);
+    });
+
+    return request as any;
+  }) as typeof httpsGet);
+}
 
 describe('webRepo', () => {
+  beforeEach(() => {
+    installHttpsFixture();
+  });
+
+  afterEach(() => {
+    vi.mocked(httpsGet).mockReset();
+  });
+
   describe('parseRepoUrl', () => {
     it('parses GitHub full URL', () => {
       const result = parseRepoUrl('https://github.com/openai/codex');
@@ -59,7 +178,6 @@ describe('webRepo', () => {
 
   describe('fetchRepoInfo', () => {
     it('fetches GitHub repo info', async () => {
-      // This is an integration test - will hit real API
       const info = await fetchRepoInfo({ platform: 'github', owner: 'octocat', repo: 'Hello-World' });
       expect(info.platform).toBe('github');
       expect(info.name).toBe('Hello-World');

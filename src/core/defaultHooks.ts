@@ -202,25 +202,30 @@ EXT="\${FILE_PATH##*.}"
 # Check for formatters and run them
 format_file() {
   local file="$1"
+  local has_package_json="false"
+
+  if [ -f "package.json" ]; then
+    has_package_json="true"
+  fi
 
   # Try prettier first (most common)
-  if command -v npx &>/dev/null && [ -f "package.json" ]; then
-    if npx prettier --check "$file" &>/dev/null 2>&1; then
+  if command -v npx &>/dev/null && [ "$has_package_json" = "true" ]; then
+    if npx --no-install prettier --check "$file" &>/dev/null 2>&1; then
       # Prettier is available, format the file
-      npx prettier --write "$file" 2>/dev/null && return 0
+      npx --no-install prettier --write "$file" 2>/dev/null && return 0
     fi
   fi
 
   # Try eslint --fix for JS/TS files
   if [[ "$EXT" =~ ^(js|jsx|ts|tsx)$ ]]; then
-    if command -v npx &>/dev/null && [ -f "package.json" ]; then
-      npx eslint --fix "$file" 2>/dev/null && return 0
+    if command -v npx &>/dev/null && [ "$has_package_json" = "true" ]; then
+      npx --no-install eslint --fix "$file" 2>/dev/null && return 0
     fi
   fi
 
   # Try biome for supported files
-  if command -v npx &>/dev/null; then
-    npx @biomejs/biome format --write "$file" 2>/dev/null && return 0
+  if command -v npx &>/dev/null && [ "$has_package_json" = "true" ]; then
+    npx --no-install @biomejs/biome format --write "$file" 2>/dev/null && return 0
   fi
 
   return 1
@@ -569,7 +574,7 @@ function Format-File {
     # Try prettier first
     if (Test-Path "package.json") {
         try {
-            npx prettier --write $File 2>$null
+            npx --no-install prettier --write $File 2>$null
             if ($LASTEXITCODE -eq 0) { return $true }
         } catch {}
     }
@@ -578,7 +583,16 @@ function Format-File {
     if ($Ext -match "^(js|jsx|ts|tsx)$") {
         if (Test-Path "package.json") {
             try {
-                npx eslint --fix $File 2>$null
+                npx --no-install eslint --fix $File 2>$null
+                if ($LASTEXITCODE -eq 0) { return $true }
+            } catch {}
+        }
+    }
+
+    # Try biome for supported files
+    if (Test-Path "package.json") {
+        try {
+            npx --no-install @biomejs/biome format --write $File 2>$null
                 if ($LASTEXITCODE -eq 0) { return $true }
             } catch {}
         }
