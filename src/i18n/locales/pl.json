@@ -528,6 +528,8 @@
       "notConfigured": "{{provider}} nie jest jeszcze skonfigurowany. Skonfigurujmy go!",
       "configuredSuccessfully": "{{provider}} skonfigurowany pomyślnie!",
       "selectModel": "Wybierz model",
+      "selectReasoningEffort": "Wybierz poziom rozumowania",
+      "reasoningEffortLabel": "Poziom rozumowania: {{level}}",
       "enterModelId": "Wprowadź ID modelu",
       "enterApiKey": "Wprowadź swój klucz API {{provider}}",
       "apiKeyUrl": "Uzyskaj swój klucz API na stronie: {{url}}",

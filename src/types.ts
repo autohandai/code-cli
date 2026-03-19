@@ -33,11 +33,15 @@ export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'ml
 
 export type AzureAuthMethod = 'api-key' | 'entra-id' | 'managed-identity';
 
+export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
+
 export interface ProviderSettings {
   apiKey?: string;
   baseUrl?: string;
   port?: number;
   model: string;
+  /** Reasoning effort level for reasoning-capable models (e.g., OpenAI) */
+  reasoningEffort?: ReasoningEffort;
 }
 
 export interface OpenRouterSettings extends ProviderSettings {

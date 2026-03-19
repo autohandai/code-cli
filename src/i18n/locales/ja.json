@@ -528,6 +528,8 @@
       "notConfigured": "{{provider}}はまだ設定されていません。設定しましょう！",
       "configuredSuccessfully": "{{provider}}の設定に成功しました！",
       "selectModel": "モデルを選択",
+      "selectReasoningEffort": "推論レベルを選択",
+      "reasoningEffortLabel": "推論レベル: {{level}}",
       "enterModelId": "モデルIDを入力してください",
       "enterApiKey": "{{provider}}のAPIキーを入力してください",
       "apiKeyUrl": "APIキーはこちらで取得できます: {{url}}",

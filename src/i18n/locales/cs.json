@@ -528,6 +528,8 @@
       "notConfigured": "{{provider}} není nakonfigurován ještě. Nastavme to!",
       "configuredSuccessfully": "{{provider}} úspěšně nakonfigurován!",
       "selectModel": "Vyberte model",
+      "selectReasoningEffort": "Vyberte úroveň úsilí pro uvažování",
+      "reasoningEffortLabel": "Úsilí pro uvažování: {{level}}",
       "enterModelId": "Zadejte ID modelu",
       "enterApiKey": "Zadejte váš API klíč {{provider}}",
       "apiKeyUrl": "Získejte váš API klíč na: {{url}}",

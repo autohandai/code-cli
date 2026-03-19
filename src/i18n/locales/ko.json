@@ -528,6 +528,8 @@
       "notConfigured": "{{provider}}가 아직 구성되지 않았습니다. 설정해 보겠습니다!",
       "configuredSuccessfully": "{{provider}} 설정 완료!",
       "selectModel": "모델 선택",
+      "selectReasoningEffort": "추론 수준 선택",
+      "reasoningEffortLabel": "추론 수준: {{level}}",
       "enterModelId": "모델 ID 입력",
       "enterApiKey": "{{provider}} API 키 입력",
       "apiKeyUrl": "API 키 받기: {{url}}",
