@@ -6,6 +6,7 @@
  * Startup checks - validates required tools and environment
  */
 import { spawn } from 'node:child_process';
+import { constants as fsConstants } from 'node:fs';
 import os from 'node:os';
 import chalk from 'chalk';
 import fs from 'fs-extra';
@@ -182,6 +183,35 @@ async function checkWorkspaceWritable(workspaceRoot: string): Promise<{ writable
     return {
       writable: false,
       error: `Cannot write to workspace: ${(error as Error).message}`
+    };
+  }
+}
+
+export async function validateWorkspacePath(
+  workspaceRoot: string
+): Promise<{ valid: boolean; error?: string }> {
+  try {
+    if (!(await fs.pathExists(workspaceRoot))) {
+      return {
+        valid: false,
+        error: `Workspace path does not exist: ${workspaceRoot}`,
+      };
+    }
+
+    const stats = await fs.stat(workspaceRoot);
+    if (!stats.isDirectory()) {
+      return {
+        valid: false,
+        error: `Workspace path is not a directory: ${workspaceRoot}`,
+      };
+    }
+
+    await fs.access(workspaceRoot, fsConstants.R_OK | fsConstants.W_OK);
+    return { valid: true };
+  } catch (error) {
+    return {
+      valid: false,
+      error: `Cannot access workspace: ${(error as Error).message}`,
     };
   }
 }

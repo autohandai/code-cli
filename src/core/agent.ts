@@ -48,6 +48,7 @@ import { ToolManager } from './toolManager.js';
 import { ActionExecutor } from './actionExecutor.js';
 import { SlashCommandHandler } from './slashCommandHandler.js';
 import { routeOutput, renderTerminalMarkdown } from './immediateCommandRouter.js';
+import { isToolAllowedByYolo, normalizeYoloInput, parseYoloPattern } from '../permissions/yoloMode.js';
 import { SessionManager } from '../session/SessionManager.js';
 import { ProjectManager } from '../session/ProjectManager.js';
 import { ToolsRegistry } from './toolsRegistry.js';
@@ -2234,7 +2235,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
         console.log(chalk.cyan(`  Attempting recovery (${this.sessionRetryCount}/${maxRetries})...`));
 
         // Wait with exponential backoff (1.5x multiplier)
-        const delay = baseDelay * Math.pow(1.5, this.sessionRetryCount - 1);
+        const delay = Math.max(
+          baseDelay * Math.pow(1.5, this.sessionRetryCount - 1),
+          err instanceof ApiError ? err.retryAfterMs ?? 0 : 0
+        );
         await this.sleep(delay);
 
         // Inject continuation message into conversation
@@ -5916,6 +5920,18 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async confirmDangerousAction(message: string, context?: { tool?: string; path?: string; command?: string }): Promise<boolean> {
+    const normalizedYolo = normalizeYoloInput(this.runtime.options.yolo as string | boolean | undefined);
+    if (normalizedYolo && context?.tool) {
+      try {
+        const pattern = parseYoloPattern(normalizedYolo);
+        if (isToolAllowedByYolo(context.tool, pattern)) {
+          return true;
+        }
+      } catch {
+        // Ignore malformed runtime YOLO values here; CLI validation handles normal entrypoints.
+      }
+    }
+
     if (this.runtime.options.yes || this.runtime.config.ui?.autoConfirm) {
       return true;
     }

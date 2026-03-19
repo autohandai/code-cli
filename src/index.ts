@@ -8,7 +8,7 @@ import path from 'node:path';
 import { execSync, spawnSync } from 'node:child_process';
 import packageJson from '../package.json' with { type: 'json' };
 import { getProviderConfig, loadConfig, resolveWorkspaceRoot, saveConfig } from './config.js';
-import { runStartupChecks, printStartupCheckResults } from './startup/checks.js';
+import { runStartupChecks, printStartupCheckResults, validateWorkspacePath } from './startup/checks.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from './startup/workspaceSafety.js';
 import { getAuthClient } from './auth/index.js';
 import type { AuthUser, LoadedConfig } from './types.js';
@@ -104,6 +104,11 @@ import { normalizeMcpCommandForConfig } from './mcp/commandNormalization.js';
 import { SetupWizard } from './onboarding/index.js';
 import type { CLIOptions, AgentRuntime } from './types.js';
 import { safeSetRawMode } from './ui/rawMode.js';
+import {
+  buildPermissionSettingsFromYolo,
+  normalizeYoloInput,
+  parseYoloPattern,
+} from './permissions/yoloMode.js';
 
 /**
  * Validate auth token on startup
@@ -757,6 +762,21 @@ async function runCLI(options: CLIOptions): Promise<void> {
     });
     await initI18n(detectedLocale);
 
+    const normalizedYolo = normalizeYoloInput(options.yolo as string | boolean | undefined);
+    if (normalizedYolo) {
+      try {
+        const yoloPattern = parseYoloPattern(normalizedYolo);
+        options.yolo = normalizedYolo;
+        config.permissions = {
+          ...config.permissions,
+          ...buildPermissionSettingsFromYolo(yoloPattern),
+        };
+      } catch (error) {
+        console.error(chalk.red(error instanceof Error ? error.message : String(error)));
+        process.exit(1);
+      }
+    }
+
     // Check if API key is missing and run setup wizard
     const providerName = config.provider ?? 'openrouter';
     const providerConfig = getProviderConfig(config, providerName);
@@ -780,6 +800,12 @@ async function runCLI(options: CLIOptions): Promise<void> {
     }
 
     // Check for dangerous workspace directories (home, root, system dirs)
+    const workspacePathValidation = await validateWorkspacePath(originalWorkspaceRoot);
+    if (!workspacePathValidation.valid) {
+      console.error(chalk.red(`Error: ${workspacePathValidation.error}`));
+      process.exit(1);
+    }
+
     const safetyCheck = checkWorkspaceSafety(originalWorkspaceRoot);
     if (!safetyCheck.safe) {
       printDangerousWorkspaceWarning(originalWorkspaceRoot, safetyCheck);
@@ -1312,6 +1338,12 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
   let workspaceRoot = originalWorkspaceRoot;
 
   // Check for dangerous workspace directories
+  const workspacePathValidation = await validateWorkspacePath(originalWorkspaceRoot);
+  if (!workspacePathValidation.valid) {
+    console.error(chalk.red(`Error: ${workspacePathValidation.error}`));
+    process.exit(1);
+  }
+
   const safetyCheck = checkWorkspaceSafety(originalWorkspaceRoot);
   if (!safetyCheck.safe) {
     printDangerousWorkspaceWarning(originalWorkspaceRoot, safetyCheck);
@@ -1451,6 +1483,12 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
   const originalWorkspaceRoot = resolveWorkspaceRoot(config, opts.path);
 
   // Check for dangerous workspace directories
+  const workspacePathValidation = await validateWorkspacePath(originalWorkspaceRoot);
+  if (!workspacePathValidation.valid) {
+    console.error(chalk.red(`Error: ${workspacePathValidation.error}`));
+    process.exit(1);
+  }
+
   const safetyCheck = checkWorkspaceSafety(originalWorkspaceRoot);
   if (!safetyCheck.safe) {
     printDangerousWorkspaceWarning(originalWorkspaceRoot, safetyCheck);

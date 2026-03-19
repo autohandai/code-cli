@@ -5,6 +5,9 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+  buildPermissionSettingsFromYolo,
+  getDefaultYoloPattern,
+  normalizeYoloInput,
   parseYoloPattern,
   isToolAllowedByYolo,
   YoloTimer,
@@ -16,6 +19,13 @@ describe('YOLO Mode', () => {
   // parseYoloPattern
   // ========================================================================
   describe('parseYoloPattern', () => {
+    it('uses file-tool defaults for bare --yolo mode', () => {
+      expect(getDefaultYoloPattern()).toBe(
+        'allow:read_file,write_file,multi_file_edit,list_dir,file_search,grep_search,move_path,copy_path'
+      );
+      expect(normalizeYoloInput(true)).toBe(getDefaultYoloPattern());
+    });
+
     it('parses "allow:*" as allow-all wildcard', () => {
       const result = parseYoloPattern('allow:*');
       expect(result).toEqual({ mode: 'allow', tools: ['*'] });
@@ -88,6 +98,25 @@ describe('YOLO Mode', () => {
       const pattern: YoloPattern = { mode: 'deny', tools: ['*'] };
       expect(isToolAllowedByYolo('read_file', pattern)).toBe(false);
       expect(isToolAllowedByYolo('write_file', pattern)).toBe(false);
+    });
+  });
+
+  describe('buildPermissionSettingsFromYolo', () => {
+    it('maps bare file-tool allowlists to allPathsAllowed', () => {
+      const settings = buildPermissionSettingsFromYolo(
+        parseYoloPattern(getDefaultYoloPattern())
+      );
+
+      expect(settings.allPathsAllowed).toBe(true);
+      expect(settings.allowPatterns).toEqual(
+        expect.arrayContaining([{ kind: 'read_file' }, { kind: 'write_file' }, { kind: 'multi_file_edit' }])
+      );
+    });
+
+    it('maps allow:* to unrestricted permission mode', () => {
+      expect(buildPermissionSettingsFromYolo(parseYoloPattern('allow:*'))).toEqual({
+        mode: 'unrestricted',
+      });
     });
   });
 
