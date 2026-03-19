@@ -310,7 +310,7 @@ describe('TerminalRegions', () => {
     });
   });
 
-  it('uses light gray border color when input starts with ! even in plan mode', () => {
+  it('uses shell colors when input starts with ! even in plan mode', () => {
     const theme = new Theme(
       'test-shell',
       createMockColors({
@@ -330,7 +330,8 @@ describe('TerminalRegions', () => {
 
       regions.updateInput('! git status');
       const joined = output.writes.join('');
-      expect(joined).toContain('\x1b[38;2;192;192;192m');
+      expect(joined).toContain('\x1b[48;2;255;255;255m');
+      expect(joined).toContain('\x1b[38;2;0;0;0m');
       expect(joined).not.toContain('\x1b[38;2;255;136;0m');
     } finally {
       setTheme(null as unknown as Theme);

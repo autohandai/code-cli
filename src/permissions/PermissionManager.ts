@@ -16,7 +16,6 @@ import {
   mergePermissions
 } from './localProjectPermissions.js';
 import { matchesToolPattern } from './toolPatterns.js';
-import type { ToolPattern } from './toolPatterns.js';
 
 /**
  * Default security blacklist - always blocked patterns for sensitive files and dangerous commands.

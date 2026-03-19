@@ -9,7 +9,9 @@ import { stripAnsiCodes } from './displayUtils.js';
 
 const DEFAULT_BORDER_COLOR = '#8a8a8a';
 const PLAN_BORDER_COLOR = '#ff9d3f';
-const SHELL_BORDER_COLOR = '#c8c8c8';
+const SHELL_BORDER_COLOR = '#000000';
+const SHELL_BOX_BG = '#ffffff';
+const SHELL_BOX_FG = '#000000';
 
 // Fallback colors used when theme is not initialized
 const FALLBACK_BOX_BG = '#2b2b2b';
@@ -20,6 +22,8 @@ export type InputBorderStyle = 'default' | 'plan' | 'shell';
 // Frame-level color cache — invalidated per render frame and on theme change.
 let cachedBoxBg: string | null = null;
 let cachedBoxFg: string | null = null;
+let cachedShellBoxBg: string | null = null;
+let cachedShellBoxFg: string | null = null;
 const cachedBorderFg = new Map<InputBorderStyle, string>();
 let cachedThemeRef: unknown = null;
 
@@ -28,6 +32,8 @@ function ensureCacheValid(): void {
   if (currentTheme !== cachedThemeRef) {
     cachedBoxBg = null;
     cachedBoxFg = null;
+    cachedShellBoxBg = null;
+    cachedShellBoxFg = null;
     cachedBorderFg.clear();
     cachedThemeRef = currentTheme;
   }
@@ -36,6 +42,8 @@ function ensureCacheValid(): void {
 export function invalidateBoxColorCache(): void {
   cachedBoxBg = null;
   cachedBoxFg = null;
+  cachedShellBoxBg = null;
+  cachedShellBoxFg = null;
   cachedBorderFg.clear();
 }
 
@@ -66,7 +74,13 @@ function hexToAnsiRgb(hex: string, type: 'fg' | 'bg'): string {
   return `\x1b[${base};2;${rgb.r};${rgb.g};${rgb.b}m`;
 }
 
-function resolveBoxBg(): string {
+function resolveBoxBg(style: InputBorderStyle = 'default'): string {
+  if (style === 'shell') {
+    if (cachedShellBoxBg !== null) return cachedShellBoxBg;
+    const result = hexToAnsiRgb(SHELL_BOX_BG, 'bg');
+    cachedShellBoxBg = result;
+    return result;
+  }
   ensureCacheValid();
   if (cachedBoxBg !== null) return cachedBoxBg;
   if (isThemeInitialized()) {
@@ -83,7 +97,13 @@ function resolveBoxBg(): string {
   return result;
 }
 
-function resolveBoxFg(): string {
+function resolveBoxFg(style: InputBorderStyle = 'default'): string {
+  if (style === 'shell') {
+    if (cachedShellBoxFg !== null) return cachedShellBoxFg;
+    const result = hexToAnsiRgb(SHELL_BOX_FG, 'fg');
+    cachedShellBoxFg = result;
+    return result;
+  }
   ensureCacheValid();
   if (cachedBoxFg !== null) return cachedBoxFg;
   if (isThemeInitialized()) {
@@ -101,6 +121,13 @@ function resolveBoxFg(): string {
 }
 
 function resolveBorderFg(style: InputBorderStyle): string {
+  if (style === 'shell') {
+    const cached = cachedBorderFg.get(style);
+    if (cached !== undefined) return cached;
+    const result = hexToAnsiRgb(SHELL_BORDER_COLOR, 'fg');
+    cachedBorderFg.set(style, result);
+    return result;
+  }
   ensureCacheValid();
   const cached = cachedBorderFg.get(style);
   if (cached !== undefined) return cached;
@@ -121,13 +148,13 @@ function resolveBorderFg(style: InputBorderStyle): string {
 export function drawInputTopBorder(width: number, style: InputBorderStyle = 'default'): string {
   const innerWidth = Math.max(0, width - 2);
   const border = `┌${'─'.repeat(innerWidth)}┐`;
-  return resolveBoxBg() + resolveBorderFg(style) + border + RESET_ALL + CLEAR_TO_EOL;
+  return resolveBoxBg(style) + resolveBorderFg(style) + border + RESET_ALL + CLEAR_TO_EOL;
 }
 
 export function drawInputBottomBorder(width: number, style: InputBorderStyle = 'default'): string {
   const innerWidth = Math.max(0, width - 2);
   const border = `└${'─'.repeat(innerWidth)}┘`;
-  return resolveBoxBg() + resolveBorderFg(style) + border + RESET_ALL + CLEAR_TO_EOL;
+  return resolveBoxBg(style) + resolveBorderFg(style) + border + RESET_ALL + CLEAR_TO_EOL;
 }
 
 const ANSI_OR_CHAR_PATTERN = /(?:\u001b\[[0-9;]*m)|[\s\S]/g;
@@ -178,37 +205,39 @@ function stabilizeBoxAnsi(text: string, bg: string, fg: string): string {
 }
 
 export function drawInputBox(left: string, width: number, right?: string, style: InputBorderStyle = 'default'): string {
-  const bg = resolveBoxBg();
-  const fg = resolveBoxFg();
+  const normalizedLeft = style === 'shell' ? stripAnsiCodes(left) : left;
+  const normalizedRight = style === 'shell' && right ? stripAnsiCodes(right) : right;
+  const bg = resolveBoxBg(style);
+  const fg = resolveBoxFg(style);
   const borderFg = resolveBorderFg(style);
   const base = bg + fg;
   const innerWidth = Math.max(0, width - 2);
-  const visLeft = getVisibleLength(left);
+  const visLeft = getVisibleLength(normalizedLeft);
   const lBorder = borderFg + '│' + fg;
   const rBorder = borderFg + '│';
 
   const END = RESET_ALL + CLEAR_TO_EOL;
 
-  if (!right) {
+  if (!normalizedRight) {
     const pad = Math.max(0, innerWidth - visLeft);
-    return base + lBorder + stabilizeBoxAnsi(left, bg, fg) + ' '.repeat(pad) + rBorder + END;
+    return base + lBorder + stabilizeBoxAnsi(normalizedLeft, bg, fg) + ' '.repeat(pad) + rBorder + END;
   }
 
-  const visRight = getVisibleLength(right);
+  const visRight = getVisibleLength(normalizedRight);
   const minGap = 2;
   const available = innerWidth - visLeft - minGap;
 
   if (available <= 0) {
     const pad = Math.max(0, innerWidth - visLeft);
-    return base + lBorder + stabilizeBoxAnsi(left, bg, fg) + ' '.repeat(pad) + rBorder + END;
+    return base + lBorder + stabilizeBoxAnsi(normalizedLeft, bg, fg) + ' '.repeat(pad) + rBorder + END;
   }
 
   const clippedRight = visRight > available
-    ? truncateVisible(right, available)
-    : right;
+    ? truncateVisible(normalizedRight, available)
+    : normalizedRight;
   const clippedRightVis = getVisibleLength(clippedRight);
   const gap = Math.max(0, innerWidth - visLeft - clippedRightVis);
-  const line = stabilizeBoxAnsi(left, bg, fg) + ' '.repeat(gap) + stabilizeBoxAnsi(clippedRight, bg, fg);
+  const line = stabilizeBoxAnsi(normalizedLeft, bg, fg) + ' '.repeat(gap) + stabilizeBoxAnsi(clippedRight, bg, fg);
 
   return base + lBorder + line + rBorder + END;
 }

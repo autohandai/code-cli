@@ -3,7 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { looksLikeFilePath, resolvePromptValue, validatePromptContent, SysPromptError } from '../src/utils/sysPrompt.js';
 import fs from 'fs-extra';
 import path from 'node:path';
@@ -203,14 +203,15 @@ describe('sysPrompt utility', () => {
 
     describe('home directory expansion', () => {
       it('expands ~ to home directory', async () => {
-        // Create a file in the home directory for testing
-        const homeFile = path.join(os.homedir(), '.autohand-test-prompt.txt');
+        const homeDirSpy = vi.spyOn(os, 'homedir').mockReturnValue(tempDir);
+        const homeFile = path.join(tempDir, '.autohand-test-prompt.txt');
 
         try {
           await fs.writeFile(homeFile, 'Home directory content');
           const result = await resolvePromptValue('~/.autohand-test-prompt.txt');
           expect(result).toBe('Home directory content');
         } finally {
+          homeDirSpy.mockRestore();
           await fs.remove(homeFile);
         }
       });
