@@ -30,6 +30,10 @@ export interface SerializeOptions {
   provider?: string;
   /** Total tokens used (if available from context) */
   totalTokens?: number;
+  /** Actual input tokens used (if tracked) */
+  inputTokens?: number;
+  /** Actual output tokens used (if tracked) */
+  outputTokens?: number;
   /** Visibility setting */
   visibility: ShareVisibility;
   /** Device ID for anonymous tracking */
@@ -205,9 +209,13 @@ export function serializeSession(
   // Calculate usage stats
   let usage: ShareUsageStats;
   if (options.totalTokens && options.totalTokens > 0) {
-    // Use provided token count, estimate input/output split (assume 30/70)
-    const inputTokens = Math.floor(options.totalTokens * 0.3);
-    const outputTokens = options.totalTokens - inputTokens;
+    // Use real input/output counts if available, otherwise estimate 30/70 split
+    const inputTokens = (options.inputTokens && options.inputTokens > 0)
+      ? options.inputTokens
+      : Math.floor(options.totalTokens * 0.3);
+    const outputTokens = (options.outputTokens && options.outputTokens > 0)
+      ? options.outputTokens
+      : options.totalTokens - inputTokens;
     usage = {
       totalTokens: options.totalTokens,
       inputTokens,
