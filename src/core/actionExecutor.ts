@@ -436,6 +436,8 @@ export class ActionExecutor {
         const oldContent = exists ? await this.files.readFile(action.path) : '';
         const newContent = this.pickText(action.contents, action.content) ?? '';
 
+        let resultOutput: string | null = null;
+
         if (!exists) {
           // NEW FILE CREATION - check permission system
           const permContext: PermissionContext = {
@@ -495,6 +497,7 @@ export class ActionExecutor {
               }
             }
           }
+          resultOutput = this.formatDiffPreview('', newContent, action.path);
         } else if (oldContent === newContent) {
           // EXISTING FILE with identical content - skip write entirely
           return `No changes needed for ${action.path} (content identical)`;
@@ -502,11 +505,12 @@ export class ActionExecutor {
           // EXISTING FILE - show diff
           console.log(chalk.cyan(`\n📝 ${action.path}:`));
           this.showDiff(oldContent, newContent, action.path);
+          resultOutput = this.formatDiffPreview(oldContent, newContent, action.path);
         }
 
         await this.files.writeFile(action.path, newContent);
         this.onFileModified?.(action.path);
-        return exists ? `Updated ${action.path}` : `Created ${action.path}`;
+        return resultOutput ?? (exists ? `Updated ${action.path}` : `Created ${action.path}`);
       }
       case 'append_file': {
         if (!action.path) {
@@ -521,7 +525,7 @@ export class ActionExecutor {
 
         await this.files.appendFile(action.path, addition);
         this.onFileModified?.(action.path);
-        return `Appended to ${action.path}`;
+        return this.formatDiffPreview(oldContent, newContent, action.path);
       }
       case 'apply_patch': {
         if (!action.path) {
@@ -542,7 +546,7 @@ export class ActionExecutor {
         this.showDiff(oldContent, newContent, action.path);
         this.onFileModified?.(action.path);
 
-        return `Patched ${action.path}`;
+        return this.formatDiffPreview(oldContent, newContent, action.path);
       }
       case 'tools_registry': {
         const tools = await this.toolsRegistry.listTools(this.getRegisteredTools());
@@ -636,8 +640,9 @@ export class ActionExecutor {
           this.showDiff(content, result, action.path);
           await this.files.writeFile(action.path, result);
           this.onFileModified?.(action.path);
+          return this.formatDiffPreview(content, result, action.path);
         }
-        return `Updated ${action.path}`;
+        return `No changes needed for ${action.path} (content identical)`;
       }
       case 'format_file': {
         if (!action.path) {
@@ -1225,9 +1230,10 @@ export class ActionExecutor {
           this.showDiff(oldContent, newContent, action.file_path);
           await this.files.writeFile(action.file_path, newContent);
           this.onFileModified?.(action.file_path);
+          return this.formatDiffPreview(oldContent, newContent, action.file_path);
         }
 
-        return `Applied ${action.edits.length} edit(s) to ${action.file_path}`;
+        return `No changes needed for ${action.file_path} (content identical)`;
       }
       case 'todo_write': {
         const todoPath = '.autohand/agents/tasks/todos.json';
@@ -2062,6 +2068,11 @@ export class ActionExecutor {
   }
 
   private showDiff(oldContent: string, newContent: string, filePath?: string): void {
+    console.log(this.formatDiffPreview(oldContent, newContent, filePath));
+    console.log();
+  }
+
+  private formatDiffPreview(oldContent: string, newContent: string, filePath?: string): string {
     const diff = diffLines(oldContent, newContent);
     const contextLines = 3;
 
@@ -2087,10 +2098,11 @@ export class ActionExecutor {
     // Header with stats using theme colors
     const addText = additions === 1 ? '1 line' : `${additions} lines`;
     const delText = deletions === 1 ? '1 line' : `${deletions} lines`;
+    const outputLines: string[] = [];
     if (theme) {
-      console.log(theme.fg('muted', `  Added ${theme.fg('diffAdded', addText)}, removed ${theme.fg('diffRemoved', delText)}`));
+      outputLines.push(theme.fg('muted', `  Added ${theme.fg('diffAdded', addText)}, removed ${theme.fg('diffRemoved', delText)}`));
     } else {
-      console.log(chalk.gray(`  Added ${chalk.green(addText)}, removed ${chalk.red(delText)}`));
+      outputLines.push(chalk.gray(`  Added ${chalk.green(addText)}, removed ${chalk.red(delText)}`));
     }
 
     interface DiffHunk {
@@ -2199,7 +2211,7 @@ export class ActionExecutor {
             const bgB = addedRgb ? Math.floor(addedRgb.b * 0.15) : 30;
             const prefix = chalk.bgHex(addedColor).black(` ${lineNumStr} + `);
             const content = chalk.bgRgb(bgR, bgG, bgB)(` ${highlighted} `.padEnd(Math.max(termWidth - 10, change.line.length + 2)));
-            console.log(prefix + content);
+            outputLines.push(prefix + content);
           } else if (change.type === 'remove') {
             // Red prefix + dim red background for content
             const removedRgb = hexToRgb(removedColor);
@@ -2208,28 +2220,28 @@ export class ActionExecutor {
             const bgB = removedRgb ? Math.floor(removedRgb.b * 0.15) : 30;
             const prefix = chalk.bgHex(removedColor).white(` ${lineNumStr} - `);
             const content = chalk.bgRgb(bgR, bgG, bgB)(` ${highlighted} `.padEnd(Math.max(termWidth - 10, change.line.length + 2)));
-            console.log(prefix + content);
+            outputLines.push(prefix + content);
           } else {
             // Context lines
-            console.log(chalk.hex(contextColor)(` ${lineNumStr}   `) + ` ${highlighted}`);
+            outputLines.push(chalk.hex(contextColor)(` ${lineNumStr}   `) + ` ${highlighted}`);
           }
         } else {
           // Fallback to hardcoded chalk colors
           if (change.type === 'add') {
             const prefix = chalk.bgGreen.black(` ${lineNumStr} + `);
             const content = chalk.bgRgb(30, 50, 30)(` ${highlighted} `.padEnd(Math.max(termWidth - 10, change.line.length + 2)));
-            console.log(prefix + content);
+            outputLines.push(prefix + content);
           } else if (change.type === 'remove') {
             const prefix = chalk.bgRed.white(` ${lineNumStr} - `);
             const content = chalk.bgRgb(60, 30, 30)(` ${highlighted} `.padEnd(Math.max(termWidth - 10, change.line.length + 2)));
-            console.log(prefix + content);
+            outputLines.push(prefix + content);
           } else {
-            console.log(chalk.gray(` ${lineNumStr}   `) + ` ${highlighted}`);
+            outputLines.push(chalk.gray(` ${lineNumStr}   `) + ` ${highlighted}`);
           }
         }
       }
     }
 
-    console.log();
+    return outputLines.join('\n');
   }
 }

@@ -15,6 +15,7 @@ import {
 } from './box.js';
 import { themedFg } from './theme/index.js';
 import { stripAnsiCodes } from './displayUtils.js';
+import { getContentDisplay } from './displayUtils.js';
 import { getPlanModeManager } from '../commands/plan.js';
 
 // ANSI escape sequences
@@ -184,7 +185,8 @@ export class TerminalRegions {
     this.currentActivity = activity;
     this.currentSuggestion = suggestionText;
 
-    const inputLines = input ? input.split('\n') : [''];
+    const displayedInput = input ? getContentDisplay(input).visual : '';
+    const inputLines = displayedInput ? displayedInput.split('\n') : [''];
     const visibleLines = Math.min(inputLines.length, MAX_VISIBLE_INPUT_LINES);
     this.updateFixedLines(visibleLines);
 

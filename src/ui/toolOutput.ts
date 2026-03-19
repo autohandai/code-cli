@@ -9,11 +9,6 @@ import * as path from 'path';
 /** Tools that should show file summary instead of content */
 const FILE_SUMMARY_TOOLS = new Set<AgentAction['type']>([
   'read_file',
-  'write_file',
-  'append_file',
-  'apply_patch',
-  'search_replace',
-  'multi_file_edit'
 ]);
 
 /** Tools that should show truncated content */

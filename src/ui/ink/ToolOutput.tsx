@@ -6,6 +6,7 @@
 import React, { memo } from 'react';
 import { Box, Text } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
+import { renderTerminalMarkdown } from '../../core/immediateCommandRouter.js';
 
 export interface ToolOutputEntry {
   id: string;
@@ -52,12 +53,14 @@ function ToolOutputComponent({ entry }: ToolOutputProps) {
 
   // Clean thought - skip if it looks like JSON
   const cleanThought = thought && !thought.trim().startsWith('{') ? thought : undefined;
+  const renderedThought = cleanThought ? renderTerminalMarkdown(cleanThought) : undefined;
+  const renderedOutput = output ? renderTerminalMarkdown(output) : '';
 
   return (
     <Box flexDirection="column" marginBottom={1}>
       {/* Show thought/reasoning before tool if present */}
-      {cleanThought && (
-        <Text color={colors.text}>{cleanThought}</Text>
+      {renderedThought && (
+        <Text color={colors.text}>{renderedThought}</Text>
       )}
       <Box>
         <Text color={success ? colors.success : colors.error}>{success ? '✔' : '✖'}</Text>
@@ -65,11 +68,11 @@ function ToolOutputComponent({ entry }: ToolOutputProps) {
       </Box>
       {output && (
         success ? (
-          <Text color={colors.toolOutput}>{output}</Text>
+          <Text color={colors.toolOutput}>{renderedOutput}</Text>
         ) : (
           <Box flexDirection="column">
             <Text color={colors.error}>┌─ Error ─────────────────────────────────</Text>
-            <Text><Text color={colors.error}>│ </Text>{output}</Text>
+            <Text><Text color={colors.error}>│ </Text>{renderedOutput}</Text>
             <Text color={colors.error}>└─────────────────────────────────────────</Text>
           </Box>
         )
@@ -98,11 +101,13 @@ export function ToolOutputStatic({ entry }: ToolOutputProps) {
 
   // Clean thought - skip if it looks like JSON
   const cleanThought = thought && !thought.trim().startsWith('{') ? thought : undefined;
+  const renderedThought = cleanThought ? renderTerminalMarkdown(cleanThought) : undefined;
+  const renderedOutput = output ? renderTerminalMarkdown(output) : '';
 
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {cleanThought && (
-        <Text color={colors.text}>{cleanThought}</Text>
+      {renderedThought && (
+        <Text color={colors.text}>{renderedThought}</Text>
       )}
       <Box>
         <Text color={success ? colors.success : colors.error}>{success ? '✔' : '✖'}</Text>
@@ -110,11 +115,11 @@ export function ToolOutputStatic({ entry }: ToolOutputProps) {
       </Box>
       {output && (
         success ? (
-          <Text color={colors.toolOutput}>{output}</Text>
+          <Text color={colors.toolOutput}>{renderedOutput}</Text>
         ) : (
           <Box flexDirection="column">
             <Text color={colors.error}>┌─ Error ─────────────────────────────────</Text>
-            <Text><Text color={colors.error}>│ </Text>{output}</Text>
+            <Text><Text color={colors.error}>│ </Text>{renderedOutput}</Text>
             <Text color={colors.error}>└─────────────────────────────────────────</Text>
           </Box>
         )
@@ -135,12 +140,13 @@ export function ToolOutputBatchStatic({ entry }: { entry: ToolOutputBatchEntry }
   const { thought, groups } = entry;
 
   const cleanThought = thought && !thought.trim().startsWith('{') ? thought : undefined;
+  const renderedThought = cleanThought ? renderTerminalMarkdown(cleanThought) : undefined;
   const totalItems = groups.reduce((sum, g) => sum + g.items.length, 0);
 
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {cleanThought && (
-        <Text color={colors.text}>{cleanThought}</Text>
+      {renderedThought && (
+        <Text color={colors.text}>{renderedThought}</Text>
       )}
 
       {groups.map((group, gi) => {
@@ -169,10 +175,10 @@ export function ToolOutputBatchStatic({ entry }: { entry: ToolOutputBatchEntry }
                 <Box key={`${item.label}-${ii}`}>
                   <Text color={colors.muted}>{connector}</Text>
                   <Text color={item.success ? colors.toolOutput : colors.error}>
-                    {item.label}
+                    {renderTerminalMarkdown(item.label)}
                   </Text>
                   {item.detail && (
-                    <Text color={colors.muted}> — {item.detail}</Text>
+                    <Text color={colors.muted}> — {renderTerminalMarkdown(item.detail)}</Text>
                   )}
                 </Box>
               );
