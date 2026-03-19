@@ -7,6 +7,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import type { PermissionSettings } from './types.js';
 
 // ============================================================================
 // Types
@@ -16,6 +17,34 @@
 export interface YoloPattern {
   mode: 'allow' | 'deny';
   tools: string[];
+}
+
+const DEFAULT_YOLO_FILE_TOOLS = [
+  'read_file',
+  'write_file',
+  'multi_file_edit',
+  'list_dir',
+  'file_search',
+  'grep_search',
+  'move_path',
+  'copy_path',
+];
+
+export function getDefaultYoloPattern(): string {
+  return `allow:${DEFAULT_YOLO_FILE_TOOLS.join(',')}`;
+}
+
+export function normalizeYoloInput(pattern: string | boolean | undefined): string | undefined {
+  if (pattern === undefined || pattern === false) {
+    return undefined;
+  }
+
+  if (pattern === true) {
+    return getDefaultYoloPattern();
+  }
+
+  const trimmed = pattern.trim();
+  return trimmed.length > 0 ? trimmed : getDefaultYoloPattern();
 }
 
 // ============================================================================
@@ -102,6 +131,27 @@ export function isToolAllowedByYolo(
     return false;
   }
   return !isListed;
+}
+
+export function buildPermissionSettingsFromYolo(pattern: YoloPattern): Partial<PermissionSettings> {
+  if (pattern.mode === 'allow' && pattern.tools.includes('*')) {
+    return { mode: 'unrestricted' };
+  }
+
+  if (pattern.mode === 'allow') {
+    const allowPatterns = pattern.tools.map((tool) => ({ kind: tool }));
+    const fileTools = new Set(DEFAULT_YOLO_FILE_TOOLS);
+    const allRequestedToolsAreFileTools = pattern.tools.every((tool) => fileTools.has(tool));
+
+    return {
+      allowPatterns,
+      allPathsAllowed: allRequestedToolsAreFileTools,
+    };
+  }
+
+  return {
+    denyPatterns: pattern.tools.map((tool) => ({ kind: tool })),
+  };
 }
 
 // ============================================================================
