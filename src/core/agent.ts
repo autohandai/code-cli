@@ -886,12 +886,12 @@ export class AutohandAgent {
       isNonInteractive: runtime.isRpcMode === true,
       onBeforeModal: () => {
         if (this.persistentInputActiveTurn) {
-          this.persistentInput.pause();
+          this.persistentInput.pauseForModal();
         }
       },
       onAfterModal: () => {
         if (this.persistentInputActiveTurn) {
-          this.persistentInput.resume();
+          this.persistentInput.resumeFromModal();
         }
       },
       // After /learn recommends a skill, seed the next prompt with the install command

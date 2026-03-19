@@ -113,6 +113,23 @@ export class TerminalRegions {
   }
 
   /**
+   * Mark regions inactive without writing any ANSI sequences.
+   * Used when another renderer needs to take over the terminal immediately.
+   */
+  deactivate(): void {
+    if (!this.isActive) {
+      return;
+    }
+
+    if (this.resizeHandler) {
+      this.output.off('resize', this.resizeHandler);
+      this.resizeHandler = null;
+    }
+
+    this.isActive = false;
+  }
+
+  /**
    * Handle terminal resize - update scroll region
    */
   private handleResize(): void {
@@ -407,6 +424,29 @@ export class TerminalRegions {
       this.output.write(`${CSI}K`);
     }
     this.output.write(`${CSI}u`);
+  }
+
+  /**
+   * Clear the fixed region and park the cursor at the bottom of the scroll area
+   * so Ink modals can render on a clean terminal.
+   */
+  clearFixedRegionForModal(): void {
+    if (!this.isActive) {
+      return;
+    }
+
+    const { height } = this.getDimensions();
+    const scrollEnd = Math.max(1, height - this.fixedLines);
+    const fixedRegionStart = scrollEnd + 1;
+
+    this.output.write(`${CSI}r`);
+    for (let row = fixedRegionStart; row <= height; row++) {
+      this.output.write(`${CSI}${row};1H`);
+      this.output.write(`${CSI}K`);
+    }
+    this.output.write(`${CSI}${scrollEnd};1H`);
+
+    this.deactivate();
   }
 
   /**

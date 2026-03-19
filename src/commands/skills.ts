@@ -27,6 +27,17 @@ export interface SkillsCommandContext {
   workspaceRoot?: string;
   hookManager?: HookManager;
   isNonInteractive?: boolean;
+  onBeforeModal?: () => void;
+  onAfterModal?: () => void;
+}
+
+async function withModalPause<T>(ctx: SkillsCommandContext, fn: () => Promise<T>): Promise<T> {
+  ctx.onBeforeModal?.();
+  try {
+    return await fn();
+  } finally {
+    ctx.onAfterModal?.();
+  }
 }
 
 /**
@@ -405,10 +416,10 @@ async function handleSkillsSearch(
     value: s.id,
   }));
 
-  const selected = await showModal({
+  const selected = await withModalPause(ctx, () => showModal({
     title: t('commands.learn.selectPrompt'),
     options,
-  });
+  }));
 
   if (!selected) {
     return t('commands.learn.noResults', { query });
@@ -485,10 +496,10 @@ async function handleSkillsRemove(
 
   // Interactive confirmation
   if (!ctx.isNonInteractive) {
-    const confirmed = await showConfirm({
+    const confirmed = await withModalPause(ctx, () => showConfirm({
       title: t('commands.learn.confirmRemove', { name: target.name }),
       defaultValue: false,
-    });
+    }));
     if (!confirmed) return null as unknown as string;
   }
 

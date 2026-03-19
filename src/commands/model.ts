@@ -9,9 +9,18 @@ import { t } from '../i18n/index.js';
 /**
  * Model selection command - prompts user to select model
  */
-export async function model(ctx: { promptModelSelection: () => Promise<void> }): Promise<string | null> {
+export async function model(ctx: {
+  promptModelSelection: () => Promise<void>;
+  onBeforeModal?: () => void;
+  onAfterModal?: () => void;
+}): Promise<string | null> {
+  ctx.onBeforeModal?.();
+  try {
     await ctx.promptModelSelection();
     return null;
+  } finally {
+    ctx.onAfterModal?.();
+  }
 }
 
 export const metadata = {
