@@ -8,6 +8,7 @@
  */
 
 import chalk from 'chalk';
+import { spawnSync } from 'node:child_process';
 import { t } from '../i18n/index.js';
 import { showModal, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 import ora from 'ora';
@@ -53,6 +54,8 @@ interface ShareContext {
   provider?: ProviderName;
   config?: LoadedConfig;
   getTotalTokensUsed?: () => number;
+  getInputTokensUsed?: () => number;
+  getOutputTokensUsed?: () => number;
   workspaceRoot: string;
 }
 
@@ -139,6 +142,26 @@ export async function execute(
     return;
   }
 
+  // Collect git diff
+  let gitDiffContent: string | undefined;
+  try {
+    const result = spawnSync('git', ['diff', 'HEAD'], {
+      cwd: context.workspaceRoot,
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+    if (result.status === 0 && result.stdout.trim()) {
+      gitDiffContent = result.stdout;
+    }
+  } catch { /* not a git repo or git not available */ }
+
+  // Get authenticated user ID
+  const userId = context.config?.auth?.user?.id;
+
+  // Get actual input/output token counts
+  const inputTokens = context.getInputTokensUsed?.() ?? 0;
+  const outputTokens = context.getOutputTokensUsed?.() ?? 0;
+
   // Serialize and upload
   console.log();
   const spinner = ora(t('commands.share.generating')).start();
@@ -148,8 +171,12 @@ export async function execute(
       model: context.model,
       provider: context.provider,
       totalTokens,
+      inputTokens,
+      outputTokens,
       visibility,
       deviceId,
+      gitDiff: gitDiffContent,
+      userId,
     });
 
     const response = await client.createShare(payload);
