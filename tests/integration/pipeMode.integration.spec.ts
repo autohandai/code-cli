@@ -61,7 +61,7 @@ describe('Pipe mode integration', () => {
     const diffContent = 'diff --git a/file.ts\\n-old\\n+new';
 
     const result = execSync(
-      `printf '${diffContent}' | npx tsx "${scriptPath}"`,
+      `printf '${diffContent}' | bun "${scriptPath}"`,
       { cwd: ROOT, encoding: 'utf-8', timeout: 15_000 },
     );
 
@@ -76,7 +76,7 @@ describe('Pipe mode integration', () => {
 
   it('handles empty piped input gracefully', () => {
     const result = execSync(
-      `echo '' | npx tsx "${scriptPath}"`,
+      `echo '' | bun "${scriptPath}"`,
       { cwd: ROOT, encoding: 'utf-8', timeout: 15_000 },
     );
 
@@ -89,7 +89,7 @@ describe('Pipe mode integration', () => {
     const multiLine = 'commit abc123\\nauthor: test\\ndate: today\\n\\nfix: resolved the issue';
 
     const result = execSync(
-      `printf '${multiLine}' | npx tsx "${scriptPath}"`,
+      `printf '${multiLine}' | bun "${scriptPath}"`,
       { cwd: ROOT, encoding: 'utf-8', timeout: 15_000 },
     );
 
