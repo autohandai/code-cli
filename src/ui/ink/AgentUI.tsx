@@ -393,6 +393,7 @@ const FixedBottom = memo(function FixedBottom({
         elapsed={elapsed}
         tokens={tokens}
         queueCount={queuedInstructions.length}
+        contextPercent={contextPercent}
       />
 
       {/* Info section - either queue or completion stats, stable position */}
@@ -424,12 +425,14 @@ const FixedBottom = memo(function FixedBottom({
         />
       )}
 
-      {/* Help line - always visible */}
-      <Box>
-        <Text color={colors.dim}>
-          {contextDisplay}{contextDisplay ? ' · ' : ''}{isWorking ? t('ui.escToCancel') : t('ui.commandHint')}
-        </Text>
-      </Box>
+      {/* Help line - keep it out of the active transcript while the agent is working */}
+      {!isWorking && (
+        <Box>
+          <Text color={colors.dim}>
+            {contextDisplay}{contextDisplay ? ' · ' : ''}{t('ui.commandHint')}
+          </Text>
+        </Box>
+      )}
 
       {/* Ctrl+C warning - renders in stable position */}
       {ctrlCCount === 1 && (

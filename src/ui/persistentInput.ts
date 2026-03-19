@@ -232,6 +232,27 @@ export class PersistentInput extends EventEmitter {
   }
 
   /**
+   * Pause the persistent composer for Ink modals without leaving the fixed
+   * region painted behind the next renderer.
+   */
+  pauseForModal(): void {
+    if (!this.isActive) {
+      return;
+    }
+
+    this.isPaused = true;
+
+    if (!this.silentMode) {
+      this.regions.clearFixedRegionForModal();
+    }
+
+    const supportsRaw = (this as any)._supportsRaw;
+    if (supportsRaw && this.input.isTTY) {
+      safeSetRawMode(this.input, false);
+    }
+  }
+
+  /**
    * Resume input handling after confirmations
    */
   resume(): void {
@@ -250,6 +271,35 @@ export class PersistentInput extends EventEmitter {
     }
 
     // Re-enable raw mode
+    const supportsRaw = (this as any)._supportsRaw;
+    if (supportsRaw && this.input.isTTY) {
+      safeSetRawMode(this.input, true);
+    }
+
+    if (!this.silentMode) {
+      this.render();
+    }
+  }
+
+  /**
+   * Resume the persistent composer after an Ink modal has released the terminal.
+   */
+  resumeFromModal(): void {
+    if (!this.isActive) {
+      return;
+    }
+
+    this.isPaused = false;
+    try {
+      this.input.resume();
+    } catch {
+      // Best effort only.
+    }
+
+    if (!this.silentMode) {
+      this.regions.enable();
+    }
+
     const supportsRaw = (this as any)._supportsRaw;
     if (supportsRaw && this.input.isTTY) {
       safeSetRawMode(this.input, true);

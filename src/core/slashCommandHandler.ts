@@ -215,6 +215,10 @@ export class SlashCommandHandler {
           return skills({
             skillsRegistry: this.ctx.skillsRegistry,
             workspaceRoot: this.ctx.workspaceRoot,
+            hookManager: this.ctx.hookManager,
+            isNonInteractive: this.ctx.isNonInteractive,
+            onBeforeModal: this.ctx.onBeforeModal,
+            onAfterModal: this.ctx.onAfterModal,
           }, args);
         }
         case '/skills install': {
