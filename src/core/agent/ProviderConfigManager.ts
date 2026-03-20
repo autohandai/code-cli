@@ -925,6 +925,9 @@ export class ProviderConfigManager {
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
+          ...(provider === 'llmgateway' && {
+            'x-source': 'Autohand Code CLI'
+          }),
           ...(provider === 'openrouter' && {
             'HTTP-Referer': 'https://autohand.dev',
             'X-OpenRouter-Title': 'Autohand Code CLI',

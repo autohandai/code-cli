@@ -125,6 +125,7 @@ export class LLMGatewayClient {
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
+      "x-source": "Autohand Code CLI",
     };
     if (this.apiKey) {
       headers.Authorization = `Bearer ${this.apiKey}`;
