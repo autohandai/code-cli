@@ -18,6 +18,8 @@ import {
 
 interface LanguageContext {
   config: LoadedConfig;
+  onBeforeModal?: () => void;
+  onAfterModal?: () => void;
 }
 
 /**
@@ -38,11 +40,18 @@ export async function language(ctx: LanguageContext): Promise<string | null> {
     value: locale,
   }));
 
-  const result = await showModal({
-    title: t('commands.language.selectPrompt'),
-    options,
-    initialIndex: SUPPORTED_LOCALES.indexOf(currentLocale)
-  });
+  ctx.onBeforeModal?.();
+  const result = await (async () => {
+    try {
+      return await showModal({
+        title: t('commands.language.selectPrompt'),
+        options,
+        initialIndex: SUPPORTED_LOCALES.indexOf(currentLocale)
+      });
+    } finally {
+      ctx.onAfterModal?.();
+    }
+  })();
 
   if (!result) {
     console.log(chalk.gray('\nLanguage selection cancelled.'));
