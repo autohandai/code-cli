@@ -190,7 +190,8 @@ describe('LLMGatewayClient', () => {
         expect.objectContaining({
           headers: expect.objectContaining({
             'Authorization': 'Bearer my-secret-key',
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'x-source': 'Autohand Code CLI'
           })
         })
       );
