@@ -13,6 +13,8 @@ import { saveConfig } from '../config.js';
 
 interface ThemeContext {
   config: LoadedConfig;
+  onBeforeModal?: () => void;
+  onAfterModal?: () => void;
 }
 
 /**
@@ -63,11 +65,18 @@ export async function theme(ctx: ThemeContext): Promise<string | null> {
     return { label, value: name, description };
   });
 
-  const result = await showModal({
-    title: t('commands.theme.selectPrompt'),
-    options,
-    initialIndex: themes.indexOf(currentTheme)
-  });
+  ctx.onBeforeModal?.();
+  const result = await (async () => {
+    try {
+      return await showModal({
+        title: t('commands.theme.selectPrompt'),
+        options,
+        initialIndex: themes.indexOf(currentTheme)
+      });
+    } finally {
+      ctx.onAfterModal?.();
+    }
+  })();
 
   if (!result) {
     console.log(chalk.gray('\nTheme selection cancelled.'));
