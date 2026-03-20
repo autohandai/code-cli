@@ -57,6 +57,54 @@ describe('/model command modal lifecycle', () => {
   });
 });
 
+describe('/theme command modal lifecycle', () => {
+  it('calls onBeforeModal before showModal and onAfterModal after completion', async () => {
+    const callOrder: string[] = [];
+    const showModal = vi.fn(async () => {
+      callOrder.push('modal');
+      return null;
+    });
+
+    vi.doMock('../../src/ui/ink/components/Modal.js', () => ({ showModal }));
+
+    const ctx = {
+      config: { ui: { theme: 'dark' } },
+      onBeforeModal: vi.fn(() => { callOrder.push('before'); }),
+      onAfterModal: vi.fn(() => { callOrder.push('after'); }),
+    };
+
+    const { theme } = await import('../../src/commands/theme.js');
+    await theme(ctx as any);
+
+    expect(callOrder).toEqual(['before', 'modal', 'after']);
+    vi.doUnmock('../../src/ui/ink/components/Modal.js');
+  });
+});
+
+describe('/language command modal lifecycle', () => {
+  it('calls onBeforeModal before showModal and onAfterModal after completion', async () => {
+    const callOrder: string[] = [];
+    const showModal = vi.fn(async () => {
+      callOrder.push('modal');
+      return null;
+    });
+
+    vi.doMock('../../src/ui/ink/components/Modal.js', () => ({ showModal }));
+
+    const ctx = {
+      config: { ui: { locale: 'en' } },
+      onBeforeModal: vi.fn(() => { callOrder.push('before'); }),
+      onAfterModal: vi.fn(() => { callOrder.push('after'); }),
+    };
+
+    const { language } = await import('../../src/commands/language.js');
+    await language(ctx as any);
+
+    expect(callOrder).toEqual(['before', 'modal', 'after']);
+    vi.doUnmock('../../src/ui/ink/components/Modal.js');
+  });
+});
+
 describe('PersistentInput pauseForModal/resumeFromModal', () => {
   it('pauseForModal sets isPaused and resets scroll region without cursor manipulation', async () => {
     // This tests the contract: pauseForModal writes ONLY \x1B[r (reset scroll region)

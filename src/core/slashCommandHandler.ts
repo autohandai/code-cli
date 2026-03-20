@@ -250,7 +250,11 @@ export class SlashCommandHandler {
             console.log(chalk.yellow('Config not available for theme selection.'));
             return null;
           }
-          return theme({ config: this.ctx.config });
+          return theme({
+            config: this.ctx.config,
+            onBeforeModal: this.ctx.onBeforeModal,
+            onAfterModal: this.ctx.onAfterModal,
+          });
         }
         case '/automode': {
           const { automode } = await import('../commands/automode.js');
@@ -282,7 +286,11 @@ export class SlashCommandHandler {
             console.log(chalk.yellow('Config not available for language selection.'));
             return null;
           }
-          return language({ config: this.ctx.config });
+          return language({
+            config: this.ctx.config,
+            onBeforeModal: this.ctx.onBeforeModal,
+            onAfterModal: this.ctx.onAfterModal,
+          });
         }
         case '/plan': {
           const { plan } = await import('../commands/plan.js');
