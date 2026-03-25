@@ -229,4 +229,29 @@ describe('configParser – error handling (Issue #3)', () => {
     const result = await loadConfig(configPath);
     expect(result.provider).toBe('openrouter');
   });
+
+  // ─── EACCES / EEXIST handling ─────────────────────────────────────────────
+
+  it('throws a clear error when config dir is not writable (EACCES)', async () => {
+    // Create a read-only dir and point config at a subdir
+    const readonlyDir = path.join(testDir, 'readonly');
+    await fse.ensureDir(readonlyDir);
+    await fse.chmod(readonlyDir, 0o444);
+
+    const configPath = path.join(readonlyDir, 'subdir', 'config.json');
+    const loadConfig = await importLoadConfig();
+
+    let caughtError: Error | null = null;
+    try {
+      await loadConfig(configPath);
+    } catch (e) {
+      caughtError = e as Error;
+    }
+
+    // Restore permissions for cleanup
+    await fse.chmod(readonlyDir, 0o755);
+
+    expect(caughtError).not.toBeNull();
+    expect(caughtError!.message).toMatch(/permission denied|EACCES|Cannot create/i);
+  });
 });
