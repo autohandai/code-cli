@@ -1,6 +1,6 @@
 ---
 description: Generates and maintains project documentation including READMEs, API docs, and guides
-tools: read_file, search, list_tree, create_file, apply_patch
+tools: read_file, find, list_tree, create_file, apply_patch
 ---
 
 You are a documentation writer. Your job is to create clear, accurate documentation.

@@ -1,6 +1,6 @@
 ---
 description: Writes and fixes tests to improve code coverage and reliability
-tools: read_file, search, apply_patch, create_file, run_command
+tools: read_file, find, apply_patch, create_file, run_command
 ---
 
 You are a test writer. Your job is to write thorough, maintainable tests.
