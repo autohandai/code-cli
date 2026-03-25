@@ -350,6 +350,47 @@ describe('classifyApiError', () => {
   });
 
   // =========================================================================
+  // HTML stripping in error messages (Issue #48)
+  // =========================================================================
+  describe('HTML stripping in error bodies', () => {
+    it('strips HTML tags from 502 Bad Gateway response', () => {
+      const htmlBody = '<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>nginx</center>\r\n</body>\r\n</html>\r\n';
+      const err = classifyApiError(502, htmlBody);
+      expect(err.code).toBe('server_error');
+      expect(err.message).not.toContain('<html>');
+      expect(err.message).not.toContain('<head>');
+      expect(err.message).not.toContain('</h1>');
+      expect(err.message).toContain('502 Bad Gateway');
+    });
+
+    it('strips HTML from 503 Service Unavailable response', () => {
+      const htmlBody = '<html><body><h1>503 Service Temporarily Unavailable</h1></body></html>';
+      const err = classifyApiError(503, htmlBody);
+      expect(err.message).not.toContain('<html>');
+      expect(err.message).toContain('503 Service Temporarily Unavailable');
+    });
+
+    it('preserves JSON error bodies as-is', () => {
+      const jsonBody = '{"error":"model requires more system memory (9.9 GiB) than is available (3.7 GiB)"}';
+      const err = classifyApiError(500, jsonBody);
+      expect(err.message).toContain('model requires more system memory');
+    });
+
+    it('preserves plain text error bodies as-is', () => {
+      const textBody = 'Rate limit exceeded for model gpt-4o';
+      const err = classifyApiError(429, textBody);
+      expect(err.message).toContain('Rate limit exceeded for model gpt-4o');
+    });
+
+    it('preserves rawDetail with original HTML for debugging', () => {
+      const htmlBody = '<html><body>502 Bad Gateway</body></html>';
+      const err = classifyApiError(502, htmlBody);
+      // rawDetail should still have the original for debugging
+      expect(err.rawDetail).toBe(htmlBody);
+    });
+  });
+
+  // =========================================================================
   // FRIENDLY_MESSAGES
   // =========================================================================
   describe('FRIENDLY_MESSAGES', () => {
