@@ -251,30 +251,112 @@ jobs:
           find artifacts -type f -exec cp {} release-binaries/ \;
           ls -lh release-binaries/
 
-      - name: Create archives for ACP registry
+      - name: Create bundled archives for installers and ACP registry
         run: |
+          set -euo pipefail
           cd release-binaries
 
-          # Create tar.gz for Unix platforms
-          for binary in autohand-macos-arm64 autohand-macos-x64 autohand-linux-x64 autohand-linux-arm64; do
-            if [ -f "$binary" ]; then
-              chmod +x "$binary"
-              cp "$binary" autohand
-              tar -czvf "${binary}.tar.gz" autohand
-              rm autohand
-              echo "Created ${binary}.tar.gz"
-            fi
-          done
+          RIPGREP_REPO="BurntSushi/ripgrep"
+          RIPGREP_VERSION=$(python3 - <<'PY'
+          import json, urllib.request
+          with urllib.request.urlopen("https://api.github.com/repos/BurntSushi/ripgrep/releases/latest") as response:
+              data = json.load(response)
+          print(data["tag_name"].lstrip("v"))
+          PY
+          )
 
-          # Create zip for Windows
-          if [ -f "autohand-windows-x64.exe" ]; then
-            cp autohand-windows-x64.exe autohand.exe
-            zip autohand-windows-x64.zip autohand.exe
-            rm autohand.exe
-            echo "Created autohand-windows-x64.zip"
+          echo "Using ripgrep ${RIPGREP_VERSION}"
+
+          verify_checksum() {
+            local archive="$1"
+            local checksum_file="$2"
+            local expected
+            local actual
+            expected=$(awk '{print $1}' "$checksum_file")
+            actual=$(sha256sum "$archive" | awk '{print $1}')
+            if [ "$expected" != "$actual" ]; then
+              echo "Checksum verification failed for $archive" >&2
+              exit 1
+            fi
+          }
+
+          bundle_unix() {
+            local binary="$1"
+            local rg_target="$2"
+            local temp_dir
+            temp_dir=$(mktemp -d)
+            local rg_archive="ripgrep-${RIPGREP_VERSION}-${rg_target}.tar.gz"
+            local rg_url="https://github.com/${RIPGREP_REPO}/releases/download/${RIPGREP_VERSION}/${rg_archive}"
+
+            curl -fsSL "$rg_url" -o "${temp_dir}/${rg_archive}"
+            curl -fsSL "${rg_url}.sha256" -o "${temp_dir}/${rg_archive}.sha256"
+            verify_checksum "${temp_dir}/${rg_archive}" "${temp_dir}/${rg_archive}.sha256"
+
+            tar -xzf "${temp_dir}/${rg_archive}" -C "$temp_dir"
+
+            mkdir -p "${temp_dir}/bundle"
+            cp "$binary" "${temp_dir}/bundle/autohand"
+            cp "${temp_dir}/ripgrep-${RIPGREP_VERSION}-${rg_target}/rg" "${temp_dir}/bundle/rg"
+            chmod +x "${temp_dir}/bundle/autohand" "${temp_dir}/bundle/rg"
+
+            tar -czf "${binary}.tar.gz" -C "${temp_dir}/bundle" autohand rg
+            sha256sum "${binary}.tar.gz" > "${binary}.tar.gz.sha256"
+            rm -rf "$temp_dir"
+            echo "Created ${binary}.tar.gz"
+          }
+
+          bundle_windows() {
+            local binary="$1"
+            local rg_target="$2"
+            local archive_name="$3"
+            local output_path="${PWD}/${archive_name}"
+            local temp_dir
+            temp_dir=$(mktemp -d)
+            local rg_archive="ripgrep-${RIPGREP_VERSION}-${rg_target}.zip"
+            local rg_url="https://github.com/${RIPGREP_REPO}/releases/download/${RIPGREP_VERSION}/${rg_archive}"
+
+            curl -fsSL "$rg_url" -o "${temp_dir}/${rg_archive}"
+            curl -fsSL "${rg_url}.sha256" -o "${temp_dir}/${rg_archive}.sha256"
+            verify_checksum "${temp_dir}/${rg_archive}" "${temp_dir}/${rg_archive}.sha256"
+
+            unzip -q "${temp_dir}/${rg_archive}" -d "$temp_dir"
+            mkdir -p "${temp_dir}/bundle"
+            cp "$binary" "${temp_dir}/bundle/autohand.exe"
+            cp "${temp_dir}/ripgrep-${RIPGREP_VERSION}-${rg_target}/rg.exe" "${temp_dir}/bundle/rg.exe"
+
+            (
+              cd "${temp_dir}/bundle"
+              zip -q "$output_path" autohand.exe rg.exe
+            )
+            sha256sum "${archive_name}" > "${archive_name}.sha256"
+            rm -rf "$temp_dir"
+            echo "Created ${archive_name}"
+          }
+
+          # Create tar.gz bundles for Unix platforms
+          if [ -f "autohand-macos-arm64" ]; then
+            chmod +x autohand-macos-arm64
+            bundle_unix "autohand-macos-arm64" "aarch64-apple-darwin"
+          fi
+          if [ -f "autohand-macos-x64" ]; then
+            chmod +x autohand-macos-x64
+            bundle_unix "autohand-macos-x64" "x86_64-apple-darwin"
+          fi
+          if [ -f "autohand-linux-x64" ]; then
+            chmod +x autohand-linux-x64
+            bundle_unix "autohand-linux-x64" "x86_64-unknown-linux-musl"
+          fi
+          if [ -f "autohand-linux-arm64" ]; then
+            chmod +x autohand-linux-arm64
+            bundle_unix "autohand-linux-arm64" "aarch64-unknown-linux-musl"
           fi
 
-          ls -lh *.tar.gz *.zip 2>/dev/null || true
+          # Create bundled zip for Windows
+          if [ -f "autohand-windows-x64.exe" ]; then
+            bundle_windows "autohand-windows-x64.exe" "x86_64-pc-windows-msvc" "autohand-windows-x64.zip"
+          fi
+
+          ls -lh *.tar.gz *.tar.gz.sha256 *.zip *.zip.sha256 2>/dev/null || true
 
       - name: Generate changelog
         id: changelog
@@ -431,6 +513,7 @@ jobs:
           files: |
             release-binaries/*
             install.sh
+            install.ps1
           draft: false
           prerelease: ${{ needs.prepare.outputs.channel != 'release' }}
         env:
