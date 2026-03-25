@@ -265,6 +265,21 @@ function matchesAny(lower: string, patterns: readonly string[]): boolean {
   return patterns.some((p) => lower.includes(p));
 }
 
+/**
+ * Strip HTML tags from error bodies (e.g. nginx 502 Bad Gateway pages).
+ * Returns the original string if it doesn't look like HTML.
+ */
+function stripHtmlFromBody(body: string): string {
+  if (!/<[a-z/][\s\S]*>/i.test(body)) {
+    return body;
+  }
+  // Remove tags, collapse whitespace, trim
+  return body
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function makeError(
   code: ApiErrorCode,
   httpStatus: number,
@@ -273,8 +288,9 @@ function makeError(
   headers?: Headers,
 ): ApiError {
   const friendlyMessage = FRIENDLY_MESSAGES[code];
-  const message = rawBody
-    ? `${friendlyMessage}\n${rawBody}`
+  const displayBody = rawBody ? stripHtmlFromBody(rawBody) : '';
+  const message = displayBody
+    ? `${friendlyMessage}\n${displayBody}`
     : friendlyMessage;
 
   const retryAfterMs = parseRetryAfter(headers);
