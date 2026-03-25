@@ -154,7 +154,7 @@ Generating skills...
   ✓ nextjs-component-creator
     Tools: read_file, write_file, run_command
   ✓ typescript-test-generator
-    Tools: read_file, write_file, run_command, search
+    Tools: read_file, write_file, run_command, find
   ✓ changelog-generator
     Tools: git_log, git_diff_range, read_file, write_file
 
@@ -176,10 +176,11 @@ Skills can specify which tools they need via the `allowed-tools` field. Availabl
 | `write_file` | Write/create files |
 | `append_file` | Append to existing files |
 | `apply_patch` | Apply unified diff patches |
-| `search` | Search for text patterns |
+| `find` | Canonical code discovery tool for exact, contextual, and semantic search |
+| `search` | Legacy alias for `find` exact search |
 | `search_replace` | Search and replace in files |
-| `search_with_context` | Search with surrounding context |
-| `semantic_search` | AI-powered semantic search |
+| `search_with_context` | Legacy alias for `find` with surrounding context |
+| `semantic_search` | Legacy alias for `find` semantic mode |
 | `list_tree` | List directory structure |
 | `file_stats` | Get file metadata |
 | `create_directory` | Create directories |
@@ -409,7 +410,7 @@ What changed between v1.0.0 and v2.0.0?
 ---
 name: typescript-refactoring
 description: Guides TypeScript refactoring with type-safe patterns and best practices.
-allowed-tools: read_file write_file search apply_patch run_command
+allowed-tools: read_file write_file find apply_patch run_command
 ---
 
 # TypeScript Refactoring Guide
@@ -493,7 +494,7 @@ function isUser(value: unknown): value is User {
 ---
 name: skill-creator
 description: Helps create new Autohand skills with proper structure and best practices.
-allowed-tools: read_file write_file create_directory search
+allowed-tools: read_file write_file create_directory find
 ---
 
 # Skill Creator
