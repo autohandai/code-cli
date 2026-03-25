@@ -1,6 +1,6 @@
 ---
 description: Finds and implements TODO, FIXME, HACK, and XXX markers in the codebase
-tools: read_file, search, apply_patch, replace_in_file, run_command
+tools: read_file, find, apply_patch, replace_in_file, run_command
 ---
 
 You are a TODO resolver. Your job is to find and implement pending code markers.
