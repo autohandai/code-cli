@@ -141,12 +141,43 @@ function isIgnorableStdinReadError(err: unknown, _processRef: ProcessLike): bool
   return maybeError.code === 'EIO' && maybeError.syscall === 'read';
 }
 
+/**
+ * Filesystem errors that are expected operational conditions:
+ * - EACCES on mkdir: user running CLI in a directory they can't write to
+ * - EEXIST on mkdir: race condition when multiple processes create the same dir
+ */
+function isIgnorableFilesystemError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const maybeError = err as { code?: string; syscall?: string };
+  if (maybeError.syscall !== 'mkdir') return false;
+  return maybeError.code === 'EACCES' || maybeError.code === 'EEXIST';
+}
+
+/**
+ * Terminal/IO errors that are expected during shutdown or in non-standard terminals:
+ * - setRawMode errno: TTY is dead (bad file descriptor during component unmount)
+ * - Generator is executing: concurrent readline/shell operations (harmless race)
+ * - node:sqlite resolution: runtime doesn't support node:sqlite (e.g. Bun)
+ */
+function isIgnorableTerminalOrRuntimeError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const message = (err as Error).message ?? '';
+  if (/setRawMode.*errno/i.test(message)) return true;
+  if (message === 'Generator is executing') return true;
+  if (message.includes('node:sqlite')) return true;
+  return false;
+}
+
 function isIgnorableUnhandledRejection(reason: unknown, processRef: ProcessLike): boolean {
   if (reason && typeof reason === 'object' && (reason as { code?: string }).code === 'ERR_USE_AFTER_CLOSE') {
     return true;
   }
 
-  return isIgnorableStdinReadError(reason, processRef);
+  if (isIgnorableStdinReadError(reason, processRef)) return true;
+  if (isIgnorableFilesystemError(reason)) return true;
+  if (isIgnorableTerminalOrRuntimeError(reason)) return true;
+
+  return false;
 }
 
 function toReportableError(reason: unknown): Error {
@@ -198,7 +229,8 @@ export async function reportProcessError(reason: unknown, options: ProcessErrorC
   if (options.handler === 'unhandledRejection' && isIgnorableUnhandledRejection(reason, processRef)) {
     return;
   }
-  if (options.handler === 'uncaughtException' && isIgnorableStdinReadError(reason, processRef)) {
+  if (options.handler === 'uncaughtException' &&
+    (isIgnorableStdinReadError(reason, processRef) || isIgnorableTerminalOrRuntimeError(reason))) {
     return;
   }
 
@@ -238,6 +270,9 @@ export function installProcessErrorHandlers(options: InstallProcessErrorHandlers
 
   processRef.on('uncaughtException', (error) => {
     if (isIgnorableStdinReadError(error, processRef)) {
+      return;
+    }
+    if (isIgnorableTerminalOrRuntimeError(error)) {
       return;
     }
 
