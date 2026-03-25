@@ -10,6 +10,54 @@ import { AutohandAgent } from '../../src/core/agent.js';
 import { getPlanModeManager } from '../../src/commands/plan.js';
 
 describe('agent startup and active input UI', () => {
+  it('syncInteractiveAutomodePermissions enables unrestricted approvals when interactive auto-mode is on', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+
+    agent.runtime = {
+      options: {
+        yes: false,
+        unrestricted: false,
+        restricted: false,
+      },
+    };
+    agent.permissionManager = {
+      setMode: vi.fn(),
+    };
+    agent.basePermissionMode = 'interactive';
+    agent.interactiveAutomodeEnabled = true;
+
+    (agent as any).syncInteractiveAutomodePermissions();
+
+    expect(agent.runtime.options.yes).toBe(true);
+    expect(agent.runtime.options.unrestricted).toBe(true);
+    expect(agent.runtime.options.restricted).toBe(false);
+    expect(agent.permissionManager.setMode).toHaveBeenCalledWith('unrestricted');
+  });
+
+  it('syncInteractiveAutomodePermissions restores the baseline mode when interactive auto-mode is turned off', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+
+    agent.runtime = {
+      options: {
+        yes: true,
+        unrestricted: true,
+        restricted: false,
+      },
+    };
+    agent.permissionManager = {
+      setMode: vi.fn(),
+    };
+    agent.basePermissionMode = 'interactive';
+    agent.interactiveAutomodeEnabled = false;
+
+    (agent as any).syncInteractiveAutomodePermissions();
+
+    expect(agent.runtime.options.yes).toBe(false);
+    expect(agent.runtime.options.unrestricted).toBe(false);
+    expect(agent.runtime.options.restricted).toBe(false);
+    expect(agent.permissionManager.setMode).toHaveBeenCalledWith('interactive');
+  });
+
   it('ensureInitComplete does not block on unresolved mcpReady', async () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
 
@@ -167,6 +215,37 @@ describe('agent startup and active input UI', () => {
       } else {
         process.env.AUTOHAND_TERMINAL_REGIONS = originalTerminalRegions;
       }
+    }
+  });
+
+  it('reportInteractiveLoopError emits the error and exits the active menu surface', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const stop = vi.fn();
+    const getCurrentInput = vi.fn(() => '/model');
+    const outputListener = vi.fn();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    agent.outputListener = outputListener;
+    agent.persistentInputActiveTurn = true;
+    agent.promptSeedInput = '';
+    agent.persistentInput = {
+      getCurrentInput,
+      stop,
+    };
+
+    try {
+      (agent as any).reportInteractiveLoopError('Device authorization is unknown. Please try again.');
+
+      expect(outputListener).toHaveBeenCalledWith({
+        type: 'error',
+        content: 'Device authorization is unknown. Please try again.',
+      });
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(agent.persistentInputActiveTurn).toBe(false);
+      expect(agent.promptSeedInput).toBe('/model');
+      expect(errorSpy).toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
     }
   });
 
@@ -662,6 +741,103 @@ describe('agent startup and active input UI', () => {
     }
   });
 
+  it('writeDebugLine pauses the composer and writes debug output to stderr scrollback while active', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const originalTerminalRegions = process.env.AUTOHAND_TERMINAL_REGIONS;
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const pause = vi.fn();
+    const resume = vi.fn();
+
+    process.env.AUTOHAND_TERMINAL_REGIONS = '1';
+    agent.persistentInputActiveTurn = true;
+    agent.persistentInput = { pause, resume };
+
+    try {
+      (agent as any).writeDebugLine('[SUGGESTION] debug line');
+      expect(pause).toHaveBeenCalledTimes(1);
+      expect(stderrSpy).toHaveBeenCalledWith('[SUGGESTION] debug line\n');
+      expect(resume).toHaveBeenCalledTimes(1);
+    } finally {
+      stderrSpy.mockRestore();
+      if (originalTerminalRegions === undefined) {
+        delete process.env.AUTOHAND_TERMINAL_REGIONS;
+      } else {
+        process.env.AUTOHAND_TERMINAL_REGIONS = originalTerminalRegions;
+      }
+    }
+  });
+
+  it('writeDebugLine falls back to stderr when composer is inactive', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    agent.persistentInputActiveTurn = false;
+    agent.readlinePromptActive = false;
+    agent.deferredDebugLines = [];
+    agent.persistentInput = { writeAbove: vi.fn() };
+
+    try {
+      (agent as any).writeDebugLine('[AGENT DEBUG] line');
+      expect(stderrSpy).toHaveBeenCalledWith('[AGENT DEBUG] line\n');
+    } finally {
+      stderrSpy.mockRestore();
+    }
+  });
+
+  it('writeDebugLine defers output while readline prompt is active', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    agent.persistentInputActiveTurn = false;
+    agent.readlinePromptActive = true;
+    agent.deferredDebugLines = [];
+    agent.persistentInput = { pause: vi.fn(), resume: vi.fn() };
+
+    try {
+      (agent as any).writeDebugLine('[SUGGESTION] Generated "test" in 500ms');
+      // Should NOT write to stderr immediately
+      expect(stderrSpy).not.toHaveBeenCalled();
+      // Should buffer the line instead
+      expect(agent.deferredDebugLines).toEqual(['[SUGGESTION] Generated "test" in 500ms\n']);
+    } finally {
+      stderrSpy.mockRestore();
+    }
+  });
+
+  it('flushDeferredDebugLines writes buffered debug lines to stderr', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    agent.deferredDebugLines = [
+      '[SUGGESTION] line one\n',
+      '[SUGGESTION] line two\n',
+    ];
+
+    try {
+      (agent as any).flushDeferredDebugLines();
+      expect(stderrSpy).toHaveBeenCalledTimes(2);
+      expect(stderrSpy).toHaveBeenNthCalledWith(1, '[SUGGESTION] line one\n');
+      expect(stderrSpy).toHaveBeenNthCalledWith(2, '[SUGGESTION] line two\n');
+      expect(agent.deferredDebugLines).toEqual([]);
+    } finally {
+      stderrSpy.mockRestore();
+    }
+  });
+
+  it('writeDebugLine writes immediately when readline prompt is not active and composer is off', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    agent.persistentInputActiveTurn = false;
+    agent.readlinePromptActive = false;
+    agent.deferredDebugLines = [];
+    agent.persistentInput = { pause: vi.fn(), resume: vi.fn() };
+
+    try {
+      (agent as any).writeDebugLine('[AGENT DEBUG] immediate');
+      expect(stderrSpy).toHaveBeenCalledWith('[AGENT DEBUG] immediate\n');
+      expect(agent.deferredDebugLines).toEqual([]);
+    } finally {
+      stderrSpy.mockRestore();
+    }
+  });
+
   it('installs console bridge after persistent input activation in runInstruction', async () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
 
@@ -1004,6 +1180,49 @@ describe('agent startup and active input UI', () => {
       { id: '1', tool: 'git_log', args: { oneline: true, max_count: 1 } },
     ]);
     expect(first).toBe(second);
+  });
+
+  it('buildSystemPrompt prefers find as the canonical code discovery tool', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+
+    agent.runtime = {
+      options: {},
+      workspaceRoot: process.cwd(),
+      config: {},
+    };
+    agent.toolManager = {
+      listDefinitions: vi.fn(() => [{
+        name: 'find',
+        description: 'Find code, symbols, and matching context in the workspace',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Text or pattern to find' },
+          },
+          required: ['query']
+        }
+      }]),
+    };
+    agent.memoryManager = {
+      getContextMemories: vi.fn(async () => ''),
+    };
+    agent.loadInstructionFiles = vi.fn(async () => []);
+    agent.skillsRegistry = {
+      listSkills: vi.fn(() => []),
+      getActiveSkills: vi.fn(() => []),
+    };
+    agent.teamManager = {
+      getTeam: vi.fn(() => null),
+    };
+
+    const prompt = await (agent as any).buildSystemPrompt();
+
+    expect(prompt).toContain('Use `find` as the default code discovery tool.');
+    expect(prompt).toContain('Use `read_file` after `find` identifies the exact file or region you need.');
+    expect(prompt).toContain('The legacy tools `search`, `search_with_context`, and `semantic_search` are compatibility aliases');
+    expect(prompt).toContain('Exact: `find(query="parallelToolConcurrency|maxConcurrency", mode="exact")`');
+    expect(prompt).toContain('Context: `find(query="buildSystemPrompt", context=8, mode="context")`');
+    expect(prompt).toContain('Semantic: `find(query="code discovery and tool selection", mode="semantic")`');
   });
 
   it('runReactLoop breaks repeated identical tool loops and emits fallback response', async () => {

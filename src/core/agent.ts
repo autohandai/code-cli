@@ -86,6 +86,7 @@ import { formatToolOutputForDisplay } from '../ui/toolOutput.js';
 // The actual type comes from dynamic import at runtime
 type InkRenderer = any;
 import { PermissionManager } from '../permissions/PermissionManager.js';
+import type { PermissionMode } from '../permissions/types.js';
 import { HookManager } from './HookManager.js';
 import { TeamManager } from './teams/TeamManager.js';
 import { RepeatManager } from './RepeatManager.js';
@@ -95,6 +96,7 @@ import { NotificationService } from '../utils/notification.js';
 import { getPlanModeManager } from '../commands/plan.js';
 import type { VersionCheckResult } from '../utils/versionCheck.js';
 import { getInstallHint } from '../utils/versionCheck.js';
+import { runWithConcurrency, type ParallelTaskSpec } from '../utils/parallel.js';
 import packageJson from '../../package.json' with { type: 'json' };
 // New feature modules
 import { ImageManager } from './ImageManager.js';
@@ -179,8 +181,12 @@ export class AutohandAgent {
   private pendingInkInstructions: string[] = [];
   private persistentInput: PersistentInput;
   private persistentInputActiveTurn = false;
+  private readlinePromptActive = false;
+  private deferredDebugLines: string[] = [];
   private queueInput = '';
   private promptSeedInput = '';
+  private interactiveAutomodeEnabled = false;
+  private basePermissionMode: PermissionMode = 'interactive';
   private lastRenderedStatus = '';
   private activityIndicator: ActivityIndicator;
   private lastAssistantResponseForNotification = '';
@@ -212,6 +218,7 @@ export class AutohandAgent {
     const providerSettings = getProviderConfig(runtime.config, initialProvider);
     const model = runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
     this.contextWindow = getContextWindow(model);
+    this.interactiveAutomodeEnabled = runtime.options.interactiveAutoMode === true;
     this.ignoreFilter = new GitIgnoreParser(runtime.workspaceRoot, []);
     this.workspaceFileCollector = new WorkspaceFileCollector(runtime.workspaceRoot, this.ignoreFilter);
     this.conversation = ConversationManager.getInstance();
@@ -230,7 +237,10 @@ export class AutohandAgent {
       const toolNames = DEFAULT_TOOL_DEFINITIONS
         .map(t => t.name)
         .filter(name => toolFilter.isAllowed(name) && !fullyBlockedTools.has(name));
-      this.suggestionEngine = new SuggestionEngine(this.llm, { allowedTools: toolNames });
+      this.suggestionEngine = new SuggestionEngine(this.llm, {
+        allowedTools: toolNames,
+        debugLogger: (message: string) => this.writeDebugLine(message),
+      });
     }
 
     this.toolsRegistry = new ToolsRegistry();
@@ -275,6 +285,8 @@ export class AutohandAgent {
         await saveConfig(runtime.config);
       }
     });
+    this.basePermissionMode = this.permissionManager.getMode();
+    this.syncInteractiveAutomodePermissions();
 
     // Initialize local project settings (async, but non-blocking)
     this.permissionManager.initLocalSettings().catch(() => {
@@ -867,6 +879,8 @@ export class AutohandAgent {
       config: runtime.config,
       getContextPercentLeft: () => this.contextPercentLeft,
       getTotalTokensUsed: () => this.totalTokensUsed,
+      isInteractiveAutomodeEnabled: () => this.interactiveAutomodeEnabled,
+      setInteractiveAutomodeEnabled: (enabled: boolean) => this.setInteractiveAutomodeEnabled(enabled),
       // Share command needs current session - use getter for dynamic access
       get currentSession() {
         return sessionMgr.getCurrentSession() ?? undefined;
@@ -959,6 +973,10 @@ export class AutohandAgent {
   private mcpStartupConnectStartedAt: number | null = null;
   private mcpStartupSummaryPrinted = false;
   private mcpStartupSummaryPending = false;
+
+  private getParallelismLimit(): number {
+    return this.runtime?.config?.agent?.parallelToolConcurrency ?? 5;
+  }
   private persistentConsoleBridgeCleanup: (() => void) | null = null;
 
   rebindInteractiveStreams(
@@ -1008,10 +1026,16 @@ export class AutohandAgent {
       const collector = this.workspaceFileCollector;
       this.isStartupSuggestion = true;
       this.pendingSuggestion = (async () => {
-        const [gitStatusResult, gitLogResult] = await Promise.all([
-          execFileAsync('git', ['status', '-sb'], { cwd: workspaceRoot, encoding: 'utf8' }).catch(() => null),
-          execFileAsync('git', ['log', '--oneline', '-5'], { cwd: workspaceRoot, encoding: 'utf8' }).catch(() => null),
-        ]);
+        const [gitStatusResult, gitLogResult] = await runWithConcurrency([
+          {
+            label: 'git_status',
+            run: async () => execFileAsync('git', ['status', '-sb'], { cwd: workspaceRoot, encoding: 'utf8' }).catch(() => null),
+          },
+          {
+            label: 'git_log',
+            run: async () => execFileAsync('git', ['log', '--oneline', '-5'], { cwd: workspaceRoot, encoding: 'utf8' }).catch(() => null),
+          },
+        ], this.getParallelismLimit());
         const recentFiles = collector.getCachedFiles().slice(0, 20);
         await engine.generateFromProjectContext({
           gitStatus: gitStatusResult?.stdout.trim() || undefined,
@@ -1031,14 +1055,19 @@ export class AutohandAgent {
    * Used by performBackgroundInit, initializeForRPC, and resumeSession.
    */
   private async initializeManagers(): Promise<void> {
-    await Promise.all([
-      this.sessionManager.initialize(),
-      this.projectManager.initialize(),
-      this.memoryManager.initialize(),
-      this.skillsRegistry.initialize(),
-      this.hookManager.initialize(),
-      this.workspaceFileCollector.collectWorkspaceFiles(),
-    ]);
+    await runWithConcurrency([
+      { label: 'session_manager', run: async () => this.sessionManager.initialize() },
+      { label: 'project_manager', run: async () => this.projectManager.initialize() },
+      { label: 'memory_manager', run: async () => this.memoryManager.initialize() },
+      { label: 'skills_registry', run: async () => this.skillsRegistry.initialize() },
+      { label: 'hook_manager', run: async () => this.hookManager.initialize() },
+      {
+        label: 'workspace_files',
+        run: async () => {
+          await this.workspaceFileCollector.collectWorkspaceFiles();
+        },
+      },
+    ], this.getParallelismLimit());
   }
 
   /**
@@ -1068,14 +1097,15 @@ export class AutohandAgent {
       // Phase 2: Sequential setup that depends on phase 1
 
       await this.skillsRegistry.setWorkspace(this.runtime.workspaceRoot);
-      await this.resetConversationContext();
       this.feedbackManager.startSession();
       const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
       const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
-      await this.sessionManager.createSession(this.runtime.workspaceRoot, model);
+      const [, session] = await Promise.all([
+        this.resetConversationContext(),
+        this.sessionManager.createSession(this.runtime.workspaceRoot, model),
+      ]);
 
       // Phase 3: Telemetry (no stdout output)
-      const session = this.sessionManager.getCurrentSession();
       if (session) {
         await this.telemetryManager.startSession(
           session.metadata.sessionId,
@@ -1132,14 +1162,14 @@ export class AutohandAgent {
     }
     // These must run sequentially after the parallel init
     await this.skillsRegistry.setWorkspace(this.runtime.workspaceRoot);
-    await this.resetConversationContext();
-
     const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
     const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
-    await this.sessionManager.createSession(this.runtime.workspaceRoot, model);
+    const [, session] = await Promise.all([
+      this.resetConversationContext(),
+      this.sessionManager.createSession(this.runtime.workspaceRoot, model),
+    ]);
 
     // Start telemetry session
-    const session = this.sessionManager.getCurrentSession();
     if (session) {
       await this.telemetryManager.startSession(
         session.metadata.sessionId,
@@ -1258,49 +1288,69 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
   }
 
+  private async restoreSessionState(sessionId: string) {
+    const session = await this.sessionManager.loadSession(sessionId);
+
+    await this.resetConversationContext();
+    const messages = session.getMessages();
+    for (const msg of messages) {
+      if (msg.role === 'system') {
+        if (!msg.content.startsWith('You are Autohand')) {
+          this.conversation.addSystemNote(msg.content);
+        }
+      } else {
+        let convertedToolCalls: LLMToolCall[] | undefined;
+        const sessionToolCalls = (msg as any).toolCalls;
+        if (sessionToolCalls && Array.isArray(sessionToolCalls)) {
+          convertedToolCalls = sessionToolCalls.map((tc: any) => ({
+            id: tc.id,
+            type: 'function' as const,
+            function: {
+              name: tc.tool || tc.function?.name || 'unknown',
+              arguments: typeof tc.args === 'string' ? tc.args : JSON.stringify(tc.args || {})
+            }
+          }));
+        }
+
+        this.conversation.addMessage({
+          role: msg.role,
+          content: msg.content,
+          name: msg.name,
+          tool_calls: convertedToolCalls,
+          tool_call_id: (msg as any).tool_call_id
+        });
+      }
+    }
+
+    await this.injectProjectKnowledge();
+    this.updateContextUsage(this.conversation.history());
+    return session;
+  }
+
+  async attachSession(sessionId: string): Promise<{ sessionId: string; model: string; workspaceRoot: string; messageCount: number }> {
+    await this.initializeManagers();
+    const session = await this.restoreSessionState(sessionId);
+
+    await this.telemetryManager.startSession(
+      sessionId,
+      session.metadata.model,
+      this.activeProvider
+    );
+
+    return {
+      sessionId: session.metadata.sessionId,
+      model: session.metadata.model,
+      workspaceRoot: session.metadata.projectPath,
+      messageCount: session.getMessages().length,
+    };
+  }
+
   async resumeSession(sessionId: string): Promise<void> {
     // Initialize managers and pre-load files in parallel
     await this.initializeManagers();
 
     try {
-      const session = await this.sessionManager.loadSession(sessionId);
-
-      // Restore context
-      await this.resetConversationContext();
-      const messages = session.getMessages();
-      for (const msg of messages) {
-        if (msg.role === 'system') {
-          if (!msg.content.startsWith('You are Autohand')) {
-            this.conversation.addSystemNote(msg.content);
-          }
-        } else {
-          // Convert session toolCalls format to LLMToolCall format
-          // Session stores: {id, tool, args} but LLMToolCall expects {id, type, function: {name, arguments}}
-          let convertedToolCalls: LLMToolCall[] | undefined;
-          const sessionToolCalls = (msg as any).toolCalls;
-          if (sessionToolCalls && Array.isArray(sessionToolCalls)) {
-            convertedToolCalls = sessionToolCalls.map((tc: any) => ({
-              id: tc.id,
-              type: 'function' as const,
-              function: {
-                name: tc.tool || tc.function?.name || 'unknown',
-                arguments: typeof tc.args === 'string' ? tc.args : JSON.stringify(tc.args || {})
-              }
-            }));
-          }
-
-          this.conversation.addMessage({
-            role: msg.role,
-            content: msg.content,
-            name: msg.name,
-            tool_calls: convertedToolCalls,
-            tool_call_id: (msg as any).tool_call_id
-          });
-        }
-      }
-
-      await this.injectProjectKnowledge();
-      this.updateContextUsage(this.conversation.history());
+      const session = await this.restoreSessionState(sessionId);
 
       console.log(chalk.cyan(`\n📂 Resumed session ${sessionId}`));
 
@@ -1528,7 +1578,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
           return;
         }
 
-        const errorMessage = (error as Error).message || 'Unknown error occurred';
+        const errorMessage = this.getDisplayErrorMessage(error);
 
         // Track consecutive identical errors to prevent infinite telemetry spam
         if (errorMessage === this.lastErrorMessage) {
@@ -1582,8 +1632,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
           await session.save();
         }
 
-        console.error(chalk.red('\nAn error occurred:'));
-        console.error(chalk.red(errorMessage));
+        this.reportInteractiveLoopError(errorMessage);
         console.error(chalk.gray(`Error logged to: ${this.errorLogger.getLogPath()}\n`));
 
         continue;
@@ -1618,22 +1667,29 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const debugSuggestion = process.env.AUTOHAND_DEBUG === '1';
     if (debugSuggestion) {
       const state = pendingSuggestion ? 'pending' : 'none';
-      process.stderr.write(`[SUGGESTION] Provider mode — pending=${state}, engine=${this.suggestionEngine ? 'exists' : 'null'}\n`);
+      this.writeDebugLine(`[SUGGESTION] Provider mode — pending=${state}, engine=${this.suggestionEngine ? 'exists' : 'null'}`);
     }
 
     const engine = this.suggestionEngine;
-    const input = await readInstruction(
-      () => this.workspaceFileCollector.getCachedFiles(),
-      SLASH_COMMANDS,
-      statusLine,
-      {}, // default IO
-      (data, mimeType, filename) => this.imageManager.add(data, mimeType, filename),
-      this.runtime.workspaceRoot,
-      initialValue,
-      () => engine?.getSuggestion() ?? undefined,
-      (line) => this.resolveLlmShellSuggestion(line),
-      pendingSuggestion ?? undefined
-    );
+    this.readlinePromptActive = true;
+    let input: string | null;
+    try {
+      input = await readInstruction(
+        () => this.workspaceFileCollector.getCachedFiles(),
+        SLASH_COMMANDS,
+        statusLine,
+        {}, // default IO
+        (data, mimeType, filename) => this.imageManager.add(data, mimeType, filename),
+        this.runtime.workspaceRoot,
+        initialValue,
+        () => engine?.getSuggestion() ?? undefined,
+        (line) => this.resolveLlmShellSuggestion(line),
+        pendingSuggestion ?? undefined
+      );
+    } finally {
+      this.readlinePromptActive = false;
+      this.flushDeferredDebugLines();
+    }
     // Only exit on explicit ABORT (double Ctrl+C). Palette cancel or dismiss should continue.
     if (input === 'ABORT') { // double Ctrl+C from prompt
       return '/exit';
@@ -1715,10 +1771,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const timeout = setTimeout(() => controller.abort(), 1800);
 
     try {
-      const [packageContext, gitStatus] = await Promise.all([
-        this.getShellSuggestionPackageContext(),
-        this.getShellSuggestionGitStatus(),
-      ]);
+      const [packageContext, gitStatus] = await runWithConcurrency([
+        { label: 'package_context', run: async () => this.getShellSuggestionPackageContext() },
+        { label: 'git_status', run: async () => this.getShellSuggestionGitStatus() },
+      ], this.getParallelismLimit());
 
       const recentHistory = this.conversation
         .history()
@@ -1829,17 +1885,30 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
     const root = this.runtime.workspaceRoot;
     const lines: string[] = [];
-    const managers: string[] = [];
+    const existenceChecks = [
+      { label: 'bun.lockb', paths: ['bun.lockb', 'bun.lock'], manager: 'bun' },
+      { label: 'pnpm-lock.yaml', paths: ['pnpm-lock.yaml'], manager: 'pnpm' },
+      { label: 'yarn.lock', paths: ['yarn.lock'], manager: 'yarn' },
+      { label: 'package-lock.json', paths: ['package-lock.json'], manager: 'npm' },
+      { label: 'python-lockfiles', paths: ['pyproject.toml', 'requirements.txt', 'Pipfile'], manager: 'python' },
+      { label: 'Cargo.toml', paths: ['Cargo.toml'], manager: 'cargo' },
+      { label: 'go.mod', paths: ['go.mod'], manager: 'go' },
+    ] as const;
 
-    const has = async (rel: string): Promise<boolean> => fs.pathExists(path.join(root, rel));
+    const managerChecks = await runWithConcurrency(
+      existenceChecks.map(({ label, paths, manager }) => ({
+        label,
+        run: async () => ({
+          manager,
+          present: (await Promise.all(paths.map((rel) => fs.pathExists(path.join(root, rel))))).some(Boolean),
+        }),
+      })),
+      this.getParallelismLimit(),
+    );
 
-    if (await has('bun.lockb') || await has('bun.lock')) managers.push('bun');
-    if (await has('pnpm-lock.yaml')) managers.push('pnpm');
-    if (await has('yarn.lock')) managers.push('yarn');
-    if (await has('package-lock.json')) managers.push('npm');
-    if (await has('pyproject.toml') || await has('requirements.txt') || await has('Pipfile')) managers.push('python');
-    if (await has('Cargo.toml')) managers.push('cargo');
-    if (await has('go.mod')) managers.push('go');
+    const managers = managerChecks
+      .filter((entry) => entry.present)
+      .map((entry) => entry.manager);
 
     if (managers.length > 0) {
       lines.push(`Detected package managers: ${Array.from(new Set(managers)).join(', ')}`);
@@ -2276,12 +2345,12 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
       this.stopUI(true, 'Session failed');
       // Emit error for RPC mode
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = this.getDisplayErrorMessage(error);
       this.emitOutput({ type: 'error', content: errorMessage });
       if (error instanceof Error) {
-        console.error(chalk.red(error.message));
+        console.error(chalk.red(errorMessage));
       } else {
-        console.error(error);
+        console.error(errorMessage);
       }
     } finally {
       // IMPORTANT: Keep the console bridge active until AFTER terminal regions
@@ -2476,7 +2545,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     this.consecutiveCancellations = 0;
 
     const debugMode = this.runtime.config.agent?.debug === true || process.env.AUTOHAND_DEBUG === '1';
-    if (debugMode) process.stderr.write(`[AGENT DEBUG] runReactLoop started\n`);
+    if (debugMode) this.writeDebugLine('[AGENT DEBUG] runReactLoop started');
 
     // Check if we're executing an accepted plan - bypass iteration limit
     const planModeManager = getPlanModeManager();
@@ -2500,7 +2569,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       allTools = allTools.filter(t => !WEB_TOOLS.has(t.name));
     }
 
-    if (debugMode) process.stderr.write(`[AGENT DEBUG] Loaded ${allTools.length} tools, maxIterations=${maxIterations}\n`);
+    if (debugMode) this.writeDebugLine(`[AGENT DEBUG] Loaded ${allTools.length} tools, maxIterations=${maxIterations}`);
 
     // Start status updates for the main loop
     this.startStatusUpdates();
@@ -2522,7 +2591,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
       // Check for abort at the start of each iteration
       if (abortController.signal.aborted) {
-        if (debugMode) process.stderr.write('[AGENT DEBUG] Abort detected at loop start, breaking\n');
+        if (debugMode) this.writeDebugLine('[AGENT DEBUG] Abort detected at loop start, breaking');
         break;
       }
 
@@ -2536,7 +2605,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         const readOnlyTools = new Set(planModeManager.getReadOnlyTools());
         tools = tools.filter(t => readOnlyTools.has(t.name));
         if (debugMode) {
-          process.stderr.write(`[AGENT DEBUG] Plan mode active: filtered to ${tools.length} read-only tools\n`);
+          this.writeDebugLine(`[AGENT DEBUG] Plan mode active: filtered to ${tools.length} read-only tools`);
         }
       }
 
@@ -2602,7 +2671,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       // Get messages with images included for multimodal support
       const messagesWithImages = this.getMessagesWithImages();
 
-      if (debugMode) process.stderr.write(`[AGENT DEBUG] Calling LLM with ${messagesWithImages.length} messages, ${tools.length} tools\n`);
+      if (debugMode) this.writeDebugLine(`[AGENT DEBUG] Calling LLM with ${messagesWithImages.length} messages, ${tools.length} tools`);
 
       let completion;
       try {
@@ -2624,12 +2693,12 @@ If lint or tests fail, report the issues but do NOT commit.`;
           maxTokens: 16000,  // Allow large outputs for file generation
           thinkingLevel,
         });
-        if (debugMode) process.stderr.write(`[AGENT DEBUG] LLM returned: content length=${completion.content?.length ?? 0}, toolCalls=${completion.toolCalls?.length ?? 0}\n`);
+        if (debugMode) this.writeDebugLine(`[AGENT DEBUG] LLM returned: content length=${completion.content?.length ?? 0}, toolCalls=${completion.toolCalls?.length ?? 0}`);
       } catch (llmError) {
         const errMsg = llmError instanceof Error ? llmError.message : String(llmError);
         const errStack = llmError instanceof Error ? llmError.stack : '';
-        if (debugMode) process.stderr.write(`[AGENT DEBUG] LLM ERROR: ${errMsg}\n`);
-        if (debugMode) process.stderr.write(`[AGENT DEBUG] LLM STACK: ${errStack}\n`);
+        if (debugMode) this.writeDebugLine(`[AGENT DEBUG] LLM ERROR: ${errMsg}`);
+        if (debugMode) this.writeDebugLine(`[AGENT DEBUG] LLM STACK: ${errStack}`);
 
         // Detect context overflow (400 from API) and auto-compact before retrying
         if (this.isContextOverflowError(llmError instanceof Error ? llmError : errMsg)) {
@@ -2675,7 +2744,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       }
 
       const payload = this.parseAssistantResponse(completion);
-      if (debugMode) process.stderr.write(`[AGENT DEBUG] Parsed payload: finalResponse=${!!payload.finalResponse}, thought=${!!payload.thought}, toolCalls=${payload.toolCalls?.length ?? 0}\n`);
+      if (debugMode) this.writeDebugLine(`[AGENT DEBUG] Parsed payload: finalResponse=${!!payload.finalResponse}, thought=${!!payload.thought}, toolCalls=${payload.toolCalls?.length ?? 0}`);
       const assistantMessage: LLMMessage = { role: 'assistant', content: completion.content };
       if (completion.toolCalls?.length) {
         assistantMessage.tool_calls = completion.toolCalls;
@@ -2696,7 +2765,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
       // Detect truncated responses - some models silently cut off at max_tokens
       if (completion.finishReason === 'length' && !payload.finalResponse) {
-        if (debugMode) process.stderr.write(`[AGENT DEBUG] Response truncated (finishReason=length), asking model to continue\n`);
+        if (debugMode) this.writeDebugLine('[AGENT DEBUG] Response truncated (finishReason=length), asking model to continue');
         this.conversation.addSystemNote(
           '[System] Your previous response was truncated due to output length limits. ' +
           'Please continue from where you left off. If you were making a tool call, retry it.'
@@ -2995,7 +3064,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         }
 
         // Search-specific throttling to prevent excessive sequential searches
-        const searchTools = ['search', 'search_with_context', 'semantic_search'];
+        const searchTools = ['find', 'search', 'search_with_context', 'semantic_search'];
         const searchCallsThisIteration = otherCalls.filter(call => searchTools.includes(call.tool));
 
         // Track search queries for this iteration
@@ -3021,7 +3090,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
         // Check for abort after tool execution before continuing
         if (abortController.signal.aborted) {
-          if (debugMode) process.stderr.write('[AGENT DEBUG] Abort detected after tools, breaking\n');
+          if (debugMode) this.writeDebugLine('[AGENT DEBUG] Abort detected after tools, breaking');
           break;
         }
 
@@ -3090,7 +3159,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
         if (consecutiveEmpty >= 3) {
           // After 3 retries, force a fallback and break out
-          if (debugMode) process.stderr.write(`[AGENT DEBUG] Exiting after 3 consecutive empty responses\n`);
+          if (debugMode) this.writeDebugLine('[AGENT DEBUG] Exiting after 3 consecutive empty responses');
           console.log(chalk.yellow('\n⚠ Model not providing response after multiple attempts. Showing available context.'));
           const fallback = payload.thought || 'The model did not provide a clear response. Please try rephrasing your question.';
           this.lastAssistantResponseForNotification = fallback;
@@ -3613,8 +3682,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const toolDefs = this.toolManager?.listDefinitions() ?? [];
     const toolSignatures = toolDefs.map(def => formatToolSignature(def)).join('\n');
 
-    const memories = await this.memoryManager.getContextMemories();
-    const instructions = await this.loadInstructionFiles();
+    const [memories, instructions] = await Promise.all([
+      this.memoryManager.getContextMemories(),
+      this.loadInstructionFiles(),
+    ]);
 
     const authUser = this.runtime.config.auth?.user;
 
@@ -3660,15 +3731,24 @@ If lint or tests fail, report the issues but do NOT commit.`;
       'Skip this phase for diagnostic-only tasks.',
       '',
       '### Phase 2: Discovery & Planning',
-      '1. Read ALL relevant files before planning. Use `read_file`, `search`, or `semantic_search`.',
+      '1. Read ALL relevant files before planning. Use `find` as the default code discovery tool, then `read_file` once you know the exact file or region to inspect.',
       '2. For multi-step tasks, use `todo_write` to create a structured plan. Mark tasks as "in_progress" or "completed" as you go.',
       '3. Identify outputs, success criteria, edge cases, and potential blockers.',
       '',
       '#### Search Optimization',
+      '- Use `find` as the default code discovery tool.',
+      '- Use `find` with exact matching for literals, identifiers, filenames, imports, and regex patterns.',
+      '- Use `find` with surrounding context when you need nearby code, not a separate follow-up search.',
+      '- Use `find` in semantic mode only for broader concept lookup when exact matching is not enough.',
+      '- Use `read_file` after `find` identifies the exact file or region you need.',
       '- Combine related searches into a single regex pattern (e.g., `pattern1|pattern2`) instead of separate searches.',
-      '- Use `search_with_context` when you need surrounding code context.',
-      '- Limit searches to 2-3 per task. Analyze results before searching again.',
+      '- Limit discovery searches to 2-3 per task. Analyze results before searching again.',
       '- If a search returns no results, broaden the pattern rather than trying variations.',
+      '- The legacy tools `search`, `search_with_context`, and `semantic_search` are compatibility aliases. Prefer `find` for new tool calls.',
+      '- Examples:',
+      '  - Exact: `find(query="parallelToolConcurrency|maxConcurrency", mode="exact")`',
+      '  - Context: `find(query="buildSystemPrompt", context=8, mode="context")`',
+      '  - Semantic: `find(query="code discovery and tool selection", mode="semantic")`',
       '',
       '### Phase 3: Implementation',
       '1. Write code using `write_file`, `search_replace`, `apply_patch`, or `multi_file_edit`.',
@@ -4473,13 +4553,15 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async collectContextSummary(): Promise<{ workspaceRoot: string; gitStatus?: string; recentFiles: string[] }> {
-    const git = spawnSync('git', ['status', '-sb'], {
-      cwd: this.runtime.workspaceRoot,
-      encoding: 'utf8'
-    });
-
-    const gitStatus = git.status === 0 ? git.stdout.trim() : undefined;
-    const entries = await fs.readdir(this.runtime.workspaceRoot);
+    const [gitStatus, entries] = await Promise.all([
+      execFileAsync('git', ['status', '-sb'], {
+        cwd: this.runtime.workspaceRoot,
+        encoding: 'utf8',
+      })
+        .then(({ stdout }) => String(stdout || '').trim() || undefined)
+        .catch(() => undefined),
+      fs.readdir(this.runtime.workspaceRoot),
+    ]);
     const recentFiles = entries
       .filter((entry) => !this.ignoreFilter.isIgnored(entry))
       .slice(0, 20);
@@ -4492,30 +4574,42 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async loadInstructionFiles(): Promise<string[]> {
-    const instructions: string[] = [];
     const workspace = this.runtime.workspaceRoot;
-
     const agentsPath = path.join(workspace, 'AGENTS.md');
-    if (await fs.pathExists(agentsPath)) {
-      const content = await fs.readFile(agentsPath, 'utf-8');
-      instructions.push(`## Project Instructions (AGENTS.md)\n${content}`);
-    }
-
     const providerFile = this.activeProvider.includes('anthropic') || this.activeProvider === 'openrouter'
       ? 'CLAUDE.md'
       : this.activeProvider.includes('google')
         ? 'GEMINI.md'
         : null;
+    const tasks: ParallelTaskSpec<string | null>[] = [
+      {
+        label: 'agents_instructions',
+        run: async () => {
+          if (!(await fs.pathExists(agentsPath))) {
+            return null;
+          }
+          const content = await fs.readFile(agentsPath, 'utf-8');
+          return `## Project Instructions (AGENTS.md)\n${content}`;
+        },
+      },
+    ];
 
     if (providerFile) {
       const providerPath = path.join(workspace, providerFile);
-      if (await fs.pathExists(providerPath)) {
-        const content = await fs.readFile(providerPath, 'utf-8');
-        instructions.push(`## Provider Instructions (${providerFile})\n${content}`);
-      }
+      tasks.push({
+        label: 'provider_instructions',
+        run: async () => {
+          if (!(await fs.pathExists(providerPath))) {
+            return null;
+          }
+          const content = await fs.readFile(providerPath, 'utf-8');
+          return `## Provider Instructions (${providerFile})\n${content}`;
+        },
+      });
     }
 
-    return instructions;
+    const instructions = await runWithConcurrency(tasks, this.getParallelismLimit());
+    return instructions.filter((instruction): instruction is string => Boolean(instruction));
   }
 
   private async injectProjectKnowledge(): Promise<void> {
@@ -5229,6 +5323,42 @@ If lint or tests fail, report the issues but do NOT commit.`;
       this.permissionManager.setMode('unrestricted');
       return;
     }
+    this.permissionManager.setMode('interactive');
+  }
+
+  private setInteractiveAutomodeEnabled(enabled: boolean): void {
+    this.interactiveAutomodeEnabled = enabled;
+    this.syncInteractiveAutomodePermissions();
+  }
+
+  private syncInteractiveAutomodePermissions(): void {
+    if (this.interactiveAutomodeEnabled) {
+      this.runtime.options.yes = true;
+      this.runtime.options.unrestricted = true;
+      this.runtime.options.restricted = false;
+      this.permissionManager.setMode('unrestricted');
+      return;
+    }
+
+    if (this.basePermissionMode === 'restricted') {
+      this.runtime.options.yes = false;
+      this.runtime.options.unrestricted = false;
+      this.runtime.options.restricted = true;
+      this.permissionManager.setMode('restricted');
+      return;
+    }
+
+    if (this.basePermissionMode === 'unrestricted') {
+      this.runtime.options.yes = true;
+      this.runtime.options.unrestricted = true;
+      this.runtime.options.restricted = false;
+      this.permissionManager.setMode('unrestricted');
+      return;
+    }
+
+    this.runtime.options.yes = false;
+    this.runtime.options.unrestricted = false;
+    this.runtime.options.restricted = false;
     this.permissionManager.setMode('interactive');
   }
 
@@ -6123,6 +6253,62 @@ If lint or tests fail, report the issues but do NOT commit.`;
    */
   setConfirmationCallback(callback: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<boolean>): void {
     this.confirmationCallback = callback;
+  }
+
+  private getDisplayErrorMessage(error: unknown): string {
+    if (error instanceof Error && error.message.trim()) {
+      return error.message;
+    }
+
+    const fallback = String(error ?? '').trim();
+    return fallback || 'Unknown error occurred';
+  }
+
+  private reportInteractiveLoopError(errorMessage: string): void {
+    this.emitOutput({ type: 'error', content: errorMessage });
+
+    if (this.persistentInputActiveTurn) {
+      this.promptSeedInput = this.persistentInput.getCurrentInput();
+      this.persistentInput.stop();
+      this.persistentInputActiveTurn = false;
+    }
+
+    console.error(chalk.red('\nAn error occurred:'));
+    console.error(chalk.red(errorMessage));
+  }
+
+  private writeDebugLine(message: string): void {
+    const line = message.endsWith('\n') ? message : `${message}\n`;
+
+    // Defer debug output while the readline prompt is active so async
+    // callbacks (e.g. SuggestionEngine) don't corrupt the prompt box.
+    if (this.readlinePromptActive && !this.persistentInputActiveTurn) {
+      this.deferredDebugLines.push(line);
+      return;
+    }
+
+    if (
+      this.persistentInputActiveTurn &&
+      process.env.AUTOHAND_TERMINAL_REGIONS !== '0'
+    ) {
+      this.persistentInput.pause();
+      try {
+        process.stderr.write(line);
+      } finally {
+        this.persistentInput.resume();
+      }
+      return;
+    }
+
+    process.stderr.write(line);
+  }
+
+  private flushDeferredDebugLines(): void {
+    if (this.deferredDebugLines.length === 0) return;
+    const lines = this.deferredDebugLines.splice(0);
+    for (const line of lines) {
+      process.stderr.write(line);
+    }
   }
 
   private emitOutput(event: AgentOutputEvent): void {
