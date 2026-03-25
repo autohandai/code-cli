@@ -97,15 +97,30 @@ Direct access to OpenAI's API for GPT-4o, o1, and other OpenAI models.
 
 **Setup:**
 
-1. Get your API key at [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
-2. Configure Autohand:
+1. Choose one of these authentication methods:
+2. API key: get your key at [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+3. ChatGPT subscription: sign in through Autohand's built-in OpenAI device login flow when prompted
+4. Configure Autohand:
 
 ```json
 {
   "provider": "openai",
   "openai": {
+    "authMode": "api-key",
     "apiKey": "sk-your-openai-key",
-    "model": "gpt-4o"
+    "model": "gpt-5.4"
+  }
+}
+```
+
+Or use ChatGPT auth:
+
+```json
+{
+  "provider": "openai",
+  "openai": {
+    "authMode": "chatgpt",
+    "model": "gpt-5.4"
   }
 }
 ```
@@ -301,6 +316,8 @@ Use the `/model` command to switch providers or models:
 /model gpt-4o                    # Switch to GPT-4o
 /model anthropic/claude-3-opus   # Switch to Claude Opus
 ```
+
+When you pick `openai`, Autohand now lets you choose between `API key` and `ChatGPT account` authentication.
 
 ### CLI Flag
 
