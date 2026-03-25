@@ -112,7 +112,7 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
     if (isTTY) {
       readline.emitKeypressEvents(input);
       if (!wasRaw && typeof input.setRawMode === 'function') {
-        input.setRawMode(true);
+        try { input.setRawMode(true); } catch { /* TTY may be gone */ }
       }
       if (typeof input.setEncoding === 'function') {
         input.setEncoding('utf8');
@@ -198,7 +198,7 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
     const cleanup = () => {
       input.off('keypress', handler as any);
       if (isTTY && !wasRaw && typeof input.setRawMode === 'function') {
-        input.setRawMode(false);
+        try { input.setRawMode(false); } catch { /* TTY may be gone */ }
       }
       if (wasPaused && typeof input.pause === 'function') {
         input.pause();

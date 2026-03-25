@@ -441,7 +441,7 @@ export class FeedbackManager {
       const stdin = process.stdin;
       const wasRaw = stdin.isRaw;
 
-      stdin.setRawMode(true);
+      try { stdin.setRawMode(true); } catch { /* TTY may be gone */ }
       stdin.resume();
       stdin.setEncoding('utf8');
 
@@ -452,7 +452,7 @@ export class FeedbackManager {
 
       const cleanup = () => {
         clearTimeout(timeout);
-        stdin.setRawMode(wasRaw ?? false);
+        try { stdin.setRawMode(wasRaw ?? false); } catch { /* TTY may be gone */ }
         stdin.removeListener('data', onData);
       };
 
