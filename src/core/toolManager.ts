@@ -1116,6 +1116,38 @@ Actions:
       required: ['selector'],
     },
   },
+  {
+    name: 'browser_read_network',
+    description: 'Read captured network requests from the current browser page. Shows URLs, methods, status codes, sizes. Requires debugger to be attached first. Only available when the Chrome extension is connected.',
+    parameters: {
+      type: 'object',
+      properties: {
+        urlPattern: { type: 'string', description: 'Filter requests by URL substring' },
+        method: { type: 'string', description: 'Filter by HTTP method (GET, POST, etc.)' },
+        status: { type: 'string', description: 'Filter by status code prefix (e.g. "4" for 4xx errors)' },
+        limit: { type: 'number', description: 'Max requests to return (default: 50)' },
+      },
+    },
+  },
+  {
+    name: 'browser_get_tabs',
+    description: 'List all open browser tabs with their titles, URLs, and tab group IDs. Only available when the Chrome extension is connected.',
+  },
+  {
+    name: 'browser_get_tab_groups',
+    description: 'List all tab groups with their titles, colors, and member tabs. Only available when the Chrome extension is connected.',
+  },
+  {
+    name: 'browser_read_console',
+    description: 'Read captured console log messages from the current browser page. Includes errors, warnings, and info messages. Useful for debugging. Only available when the Chrome extension is connected.',
+    parameters: {
+      type: 'object',
+      properties: {
+        level: { type: 'string', description: 'Filter by level', enum: ['error', 'warn', 'log', 'info', 'debug'] },
+        limit: { type: 'number', description: 'Max messages to return (default: 50)' },
+      },
+    },
+  },
 ];
 
 export class ToolManager {
