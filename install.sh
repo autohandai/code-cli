@@ -10,6 +10,18 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+info() {
+    printf "${BLUE}%s${NC}\n" "$1"
+}
+
+success() {
+    printf "${GREEN}%s${NC}\n" "$1"
+}
+
+warn() {
+    printf "${YELLOW}%s${NC}\n" "$1"
+}
+
 main() {
     printf "${BLUE}"
     cat << 'EOF'
@@ -46,7 +58,9 @@ EOF
     local _arch="$RETVAL"
 
     local _version="${AUTOHAND_VERSION:-latest}"
+    local _asset_name="autohand-${_arch}.tar.gz"
     local _url
+    local _checksum_url
 
     if [ "$_channel" = "alpha" ]; then
         # Alpha: fetch the latest prerelease tag from GitHub API
@@ -59,17 +73,13 @@ EOF
             exit 1
         fi
         _version=$(echo "$_alpha_tag" | sed 's/^v//')
-        _url="https://github.com/${REPO}/releases/download/${_alpha_tag}/autohand-${_arch}"
+        _url="https://github.com/${REPO}/releases/download/${_alpha_tag}/${_asset_name}"
     elif [ "$_version" = "latest" ]; then
-        _url="https://github.com/${REPO}/releases/latest/download/autohand-${_arch}"
+        _url="https://github.com/${REPO}/releases/latest/download/${_asset_name}"
     else
-        _url="https://github.com/${REPO}/releases/download/v${_version}/autohand-${_arch}"
+        _url="https://github.com/${REPO}/releases/download/v${_version}/${_asset_name}"
     fi
-
-    if [ "$_arch" = "windows-x64" ]; then
-        _url="${_url}.exe"
-        BINARY_NAME="autohand.exe"
-    fi
+    _checksum_url="${_url}.sha256"
 
     local _dir
     if [ -n "${AUTOHAND_INSTALL_DIR:-}" ]; then
@@ -90,30 +100,59 @@ EOF
     echo "  Target:   $_dir/$BINARY_NAME"
     echo ""
 
-    local _tmp
-    _tmp=$(mktemp)
+    need_cmd tar
 
-    if ! curl -fsSL "$_url" -o "$_tmp" 2>/dev/null; then
+    local _tmp_dir
+    _tmp_dir=$(mktemp -d)
+    local _archive_path="${_tmp_dir}/${_asset_name}"
+    local _checksum_path="${_archive_path}.sha256"
+
+    if ! curl -fsSL "$_url" -o "$_archive_path" 2>/dev/null; then
         printf "${RED}Error: Failed to download from $_url${NC}\n"
         printf "${YELLOW}Hint: Check if the version exists at https://github.com/${REPO}/releases${NC}\n"
-        rm -f "$_tmp"
+        rm -rf "$_tmp_dir"
         exit 1
     fi
 
-    if [ ! -s "$_tmp" ]; then
+    if ! curl -fsSL "$_checksum_url" -o "$_checksum_path" 2>/dev/null; then
+        printf "${RED}Error: Failed to download checksum from $_checksum_url${NC}\n"
+        rm -rf "$_tmp_dir"
+        exit 1
+    fi
+
+    if [ ! -s "$_archive_path" ]; then
         printf "${RED}Error: Downloaded file is empty${NC}\n"
-        rm -f "$_tmp"
+        rm -rf "$_tmp_dir"
         exit 1
     fi
 
-    chmod +x "$_tmp"
+    verify_checksum "$_archive_path" "$_checksum_path"
 
-    if [ -w "$_dir" ]; then
-        mv "$_tmp" "$_dir/$BINARY_NAME"
-    else
-        printf "${YELLOW}Elevated permissions required to install to $_dir${NC}\n"
-        sudo mv "$_tmp" "$_dir/$BINARY_NAME"
+    tar -xzf "$_archive_path" -C "$_tmp_dir"
+
+    if [ ! -f "${_tmp_dir}/autohand" ]; then
+        printf "${RED}Error: Bundle does not contain autohand${NC}\n"
+        rm -rf "$_tmp_dir"
+        exit 1
     fi
+
+    chmod +x "${_tmp_dir}/autohand"
+
+    install_file "${_tmp_dir}/autohand" "$_dir/$BINARY_NAME"
+
+    if [ "${AUTOHAND_SKIP_RIPGREP:-0}" = "1" ]; then
+        warn "Skipping ripgrep install because AUTOHAND_SKIP_RIPGREP=1"
+    elif command -v rg > /dev/null 2>&1; then
+        info "ripgrep already installed, skipping bundled install"
+    elif [ -f "${_tmp_dir}/rg" ]; then
+        chmod +x "${_tmp_dir}/rg"
+        install_file "${_tmp_dir}/rg" "$_dir/rg"
+        success "ripgrep installed successfully to $_dir/rg"
+    else
+        warn "Bundle did not contain ripgrep, skipping"
+    fi
+
+    rm -rf "$_tmp_dir"
 
     if ! echo "$PATH" | tr ':' '\n' | grep -qx "$_dir"; then
         echo ""
@@ -159,6 +198,58 @@ EOF
     fi
 
     echo ""
+}
+
+compute_sha256() {
+    local _file="$1"
+
+    if command -v sha256sum > /dev/null 2>&1; then
+        sha256sum "$_file" | awk '{print $1}'
+        return 0
+    fi
+
+    if command -v shasum > /dev/null 2>&1; then
+        shasum -a 256 "$_file" | awk '{print $1}'
+        return 0
+    fi
+
+    return 1
+}
+
+verify_checksum() {
+    local _file="$1"
+    local _checksum_file="$2"
+    local _expected _actual
+
+    _expected=$(awk '{print $1}' "$_checksum_file")
+    if [ -z "$_expected" ]; then
+        printf "${RED}Error: Checksum file is empty${NC}\n"
+        exit 1
+    fi
+
+    if ! _actual=$(compute_sha256 "$_file"); then
+        printf "${RED}Error: No SHA-256 tool available (need sha256sum or shasum)${NC}\n"
+        exit 1
+    fi
+
+    if [ "$_expected" != "$_actual" ]; then
+        printf "${RED}Error: Checksum verification failed${NC}\n"
+        exit 1
+    fi
+
+    success "Checksum verification passed"
+}
+
+install_file() {
+    local _source="$1"
+    local _dest="$2"
+
+    if [ -w "$(dirname "$_dest")" ]; then
+        cp "$_source" "$_dest"
+    else
+        printf "${YELLOW}Elevated permissions required to install to $(dirname "$_dest")${NC}\n"
+        sudo cp "$_source" "$_dest"
+    fi
 }
 
 get_latest_alpha_tag() {

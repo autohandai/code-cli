@@ -180,6 +180,15 @@ function Get-LatestAlphaVersion {
     }
 }
 
+function Get-ArchiveAssetName {
+    param([string]$Architecture)
+
+    switch ($Architecture) {
+        "windows-x64" { return "autohand-windows-x64.zip" }
+        default { throw "Unsupported installer architecture: $Architecture" }
+    }
+}
+
 function Remove-ExistingInstallation {
     Write-Step "Cleaning up existing installation..."
 
@@ -268,8 +277,10 @@ function Install-Autohand {
         Write-Host ""
     }
 
-    # Construct download URL
-    $downloadUrl = "https://github.com/$REPO/releases/download/v$targetVersion/autohand-$arch.exe"
+    # Construct bundle download URL
+    $archiveName = Get-ArchiveAssetName -Architecture $arch
+    $downloadUrl = "https://github.com/$REPO/releases/download/v$targetVersion/$archiveName"
+    $checksumUrl = "$downloadUrl.sha256"
 
     # Determine installation directory
     $installPath = $InstallDir
@@ -286,6 +297,11 @@ function Install-Autohand {
     }
 
     $binaryPath = Join-Path $installPath $BINARY_NAME
+    $rgPath = Join-Path $installPath "rg.exe"
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("autohand-install-" + [System.Guid]::NewGuid().ToString("N"))
+    $archivePath = Join-Path $tempRoot $archiveName
+    $checksumPath = "$archivePath.sha256"
+    $extractPath = Join-Path $tempRoot "extract"
 
     Write-Step "Downloading Autohand CLI..."
     Write-Host "  Channel:  $channel"
@@ -294,31 +310,74 @@ function Install-Autohand {
     Write-Host "  Target:   $binaryPath"
     Write-Host ""
 
-    # Download binary
-    try {
-        $webClient = New-Object System.Net.WebClient
+    New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+    New-Item -ItemType Directory -Path $extractPath -Force | Out-Null
 
-        if ($NoCache) {
-            $webClient.Headers.Add("Cache-Control", "no-cache, no-store")
-            $webClient.Headers.Add("Pragma", "no-cache")
+    try {
+        # Download archive + checksum
+        try {
+            $headers = @{}
+            if ($NoCache) {
+                $headers["Cache-Control"] = "no-cache, no-store"
+                $headers["Pragma"] = "no-cache"
+            }
+
+            Invoke-WebRequest -Uri $downloadUrl -OutFile $archivePath -Headers $headers -UseBasicParsing
+            Invoke-WebRequest -Uri $checksumUrl -OutFile $checksumPath -Headers $headers -UseBasicParsing
+        }
+        catch {
+            Write-Error-Custom "Failed to download from $downloadUrl"
+            Write-Host "Hint: Check if the version exists at https://github.com/$REPO/releases" -ForegroundColor Yellow
+            throw $_
         }
 
-        $webClient.DownloadFile($downloadUrl, $binaryPath)
+        if (-not (Test-Path $archivePath) -or (Get-Item $archivePath).Length -eq 0) {
+            throw "Downloaded archive is empty or missing"
+        }
+
+        $expectedHash = (Get-Content $checksumPath -TotalCount 1).Split(" ", [System.StringSplitOptions]::RemoveEmptyEntries)[0]
+        if (-not $expectedHash) {
+            throw "Checksum file is empty"
+        }
+
+        $actualHash = (Get-FileHash -Path $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($expectedHash.ToLowerInvariant() -ne $actualHash) {
+            throw "Checksum verification failed"
+        }
+
+        Write-Success "Checksum verification passed"
+
+        Expand-Archive -Path $archivePath -DestinationPath $extractPath -Force
+
+        $extractedAutohand = Get-ChildItem -Path $extractPath -Filter "autohand.exe" -Recurse | Select-Object -First 1 -ExpandProperty FullName
+        if (-not $extractedAutohand) {
+            throw "Bundle does not contain autohand.exe"
+        }
+
+        Copy-Item -Path $extractedAutohand -Destination $binaryPath -Force
+        Write-Success "Installed to $binaryPath"
+
+        if ($env:AUTOHAND_SKIP_RIPGREP -eq "1") {
+            Write-Host "Skipping ripgrep install because AUTOHAND_SKIP_RIPGREP=1" -ForegroundColor Yellow
+        } elseif (Get-Command rg -ErrorAction SilentlyContinue) {
+            Write-Step "ripgrep already installed, skipping bundled install"
+        } else {
+            $extractedRipgrep = Get-ChildItem -Path $extractPath -Filter "rg.exe" -Recurse | Select-Object -First 1 -ExpandProperty FullName
+            if ($extractedRipgrep) {
+                Copy-Item -Path $extractedRipgrep -Destination $rgPath -Force
+                Write-Success "ripgrep installed to $rgPath"
+            } else {
+                Write-Host "Bundle did not contain ripgrep, skipping" -ForegroundColor Yellow
+            }
+        }
     }
-    catch {
-        Write-Error-Custom "Failed to download from $downloadUrl"
-        Write-Host "Hint: Check if the version exists at https://github.com/$REPO/releases" -ForegroundColor Yellow
-        throw $_
+    finally {
+        if (Test-Path $tempRoot) {
+            Remove-Item -Path $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 
-    # Verify download
-    if (-not (Test-Path $binaryPath) -or (Get-Item $binaryPath).Length -eq 0) {
-        throw "Downloaded file is empty or missing"
-    }
-
-    Write-Success "Download complete"
     Write-Step "Installing to $installPath"
-    Write-Success "Installed to $binaryPath"
 
     # Add to PATH if not already present
     $currentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
