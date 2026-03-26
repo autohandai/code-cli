@@ -334,6 +334,57 @@ describe('ActionExecutor', () => {
   });
 
   describe('Search Operations', () => {
+    it('executes find as the canonical search tool', async () => {
+      const search = vi.fn().mockReturnValue([
+        { file: 'src/index.ts', line: 10, text: 'console.log("hello")' },
+      ]);
+      const executor = createExecutor({ search });
+
+      const result = await executor.execute({ type: 'find', query: 'console.log' } as any);
+
+      expect(search).toHaveBeenCalledWith('console.log', undefined);
+      expect(result).toContain('src/index.ts:10');
+    });
+
+    it('executes find with context when requested', async () => {
+      const searchWithContext = vi.fn().mockReturnValue('matched context');
+      const executor = createExecutor({ searchWithContext });
+
+      const result = await executor.execute({
+        type: 'find',
+        query: 'function',
+        context: 3,
+        limit: 5,
+      } as any);
+
+      expect(searchWithContext).toHaveBeenCalledWith('function', {
+        limit: 5,
+        context: 3,
+        relativePath: undefined
+      });
+      expect(result).toBe('matched context');
+    });
+
+    it('executes find in semantic mode when requested', async () => {
+      const semanticSearch = vi.fn().mockReturnValue([
+        { file: 'src/auth.ts', snippet: 'login function' }
+      ]);
+      const executor = createExecutor({ semanticSearch });
+
+      const result = await executor.execute({
+        type: 'find',
+        query: 'authentication',
+        mode: 'semantic'
+      } as any);
+
+      expect(semanticSearch).toHaveBeenCalledWith('authentication', {
+        limit: undefined,
+        window: undefined,
+        relativePath: undefined
+      });
+      expect(result).toContain('src/auth.ts');
+    });
+
     it('executes search and returns results', async () => {
       const search = vi.fn().mockReturnValue([
         { file: 'src/index.ts', line: 10, text: 'console.log("hello")' },
@@ -379,6 +430,44 @@ describe('ActionExecutor', () => {
       } as any);
 
       expect(semanticSearch).toHaveBeenCalled();
+      expect(result).toContain('src/auth.ts');
+    });
+
+    it('treats search_with_context as a compatibility alias for find with context', async () => {
+      const searchWithContext = vi.fn().mockReturnValue('matched context');
+      const executor = createExecutor({ searchWithContext });
+
+      const result = await executor.execute({
+        type: 'search_with_context',
+        query: 'function',
+        limit: 5,
+        context: 3
+      } as any);
+
+      expect(searchWithContext).toHaveBeenCalledWith('function', {
+        limit: 5,
+        context: 3,
+        relativePath: undefined
+      });
+      expect(result).toBe('matched context');
+    });
+
+    it('treats semantic_search as a compatibility alias for find semantic mode', async () => {
+      const semanticSearch = vi.fn().mockReturnValue([
+        { file: 'src/auth.ts', snippet: 'login function' }
+      ]);
+      const executor = createExecutor({ semanticSearch });
+
+      const result = await executor.execute({
+        type: 'semantic_search',
+        query: 'authentication'
+      } as any);
+
+      expect(semanticSearch).toHaveBeenCalledWith('authentication', {
+        limit: undefined,
+        window: undefined,
+        relativePath: undefined
+      });
       expect(result).toContain('src/auth.ts');
     });
   });

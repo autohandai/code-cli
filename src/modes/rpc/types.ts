@@ -92,6 +92,9 @@ export const RPC_METHODS = {
   RESET: 'autohand.reset',
   GET_STATE: 'autohand.getState',
   GET_MESSAGES: 'autohand.getMessages',
+  BROWSER_HANDOFF_CREATE: 'autohand.browserHandoff.create',
+  BROWSER_HANDOFF_ATTACH: 'autohand.browserHandoff.attach',
+  BROWSER_HANDOFF_ATTACH_LATEST: 'autohand.browserHandoff.attachLatest',
   PERMISSION_RESPONSE: 'autohand.permissionResponse',
   PERMISSION_ACKNOWLEDGED: 'autohand.permissionAcknowledged',
   // Multi-file change preview
@@ -261,6 +264,35 @@ export interface GetStateParams {
 
 export interface GetMessagesParams {
   limit?: number;
+}
+
+export interface BrowserHandoffCreateParams {
+  extensionId?: string;
+  installUrl?: string;
+}
+
+export interface BrowserHandoffCreateResult {
+  token: string;
+  sessionId: string;
+  workspaceRoot: string;
+  createdAt: string;
+  expiresAt: string;
+  url: string;
+}
+
+export interface BrowserHandoffAttachParams {
+  token: string;
+}
+
+export interface BrowserHandoffAttachResult {
+  success: boolean;
+  sessionId?: string;
+  workspaceRoot?: string;
+  messageCount?: number;
+}
+
+export interface BrowserHandoffAttachLatestParams {
+  // No params needed
 }
 
 export interface PermissionResponseParams {

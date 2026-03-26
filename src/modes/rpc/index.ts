@@ -19,6 +19,9 @@ import type {
   JsonRpcResponse,
   PromptParams,
   GetMessagesParams,
+  BrowserHandoffCreateParams,
+  BrowserHandoffAttachParams,
+  BrowserHandoffAttachLatestParams,
   PermissionResponseParams,
   PermissionAcknowledgedParams,
   ChangesDecisionParams,
@@ -203,12 +206,17 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
       } catch (error) {
         // Stream closed or fatal error
         if (error instanceof Error && error.message === 'Stream closed') {
+          process.stderr.write('[RPC] Extension disconnected (stdin closed). Shutting down gracefully.\n');
           break;
         }
         const message = error instanceof Error ? error.message : String(error);
         writeInternalError(null, message);
       }
     }
+
+    // Extension/native host disconnected — clean up session and exit.
+    adapter?.shutdown('disconnected');
+    process.exit(0);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     writeErrorResponse(null, JSON_RPC_ERROR_CODES.INTERNAL_ERROR, `Initialization error: ${message}`);
@@ -321,6 +329,34 @@ async function handleSingleRequest(
       case RPC_METHODS.GET_MESSAGES: {
         const messagesParams = params as GetMessagesParams | undefined;
         result = adapter.handleGetMessages(id!, messagesParams?.limit);
+        break;
+      }
+
+      case RPC_METHODS.BROWSER_HANDOFF_CREATE: {
+        const handoffCreateParams = params as BrowserHandoffCreateParams | undefined;
+        result = await adapter.handleBrowserHandoffCreate(id!, handoffCreateParams);
+        break;
+      }
+
+      case RPC_METHODS.BROWSER_HANDOFF_ATTACH: {
+        const handoffAttachParams = params as BrowserHandoffAttachParams | undefined;
+        if (!handoffAttachParams?.token) {
+          if (shouldRespond) {
+            return createErrorResponse(
+              id!,
+              JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+              'Missing required parameter: token'
+            );
+          }
+          return null;
+        }
+        result = await adapter.handleBrowserHandoffAttach(id!, handoffAttachParams);
+        break;
+      }
+
+      case RPC_METHODS.BROWSER_HANDOFF_ATTACH_LATEST: {
+        const handoffAttachLatestParams = params as BrowserHandoffAttachLatestParams | undefined;
+        result = await adapter.handleBrowserHandoffAttachLatest(id!, handoffAttachLatestParams);
         break;
       }
 
@@ -522,6 +558,22 @@ async function handleSingleRequest(
           }
           return null;
         }
+
+        // Check if this is a browser tool response first
+        if (invokeParams.requestId.startsWith('browser_')) {
+          const { resolveBrowserToolResponse } = await import('../../browser/browserToolBridge.js');
+          const handled = resolveBrowserToolResponse(
+            invokeParams.requestId,
+            invokeParams.success,
+            typeof invokeParams.result === 'string' ? invokeParams.result : JSON.stringify(invokeParams.result),
+            invokeParams.error,
+          );
+          if (handled) {
+            result = { success: true };
+            break;
+          }
+        }
+
         result = adapter.handleMcpInvokeResponse(id!, invokeParams);
         break;
       }

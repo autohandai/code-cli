@@ -67,6 +67,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
 
   // Read operations
   read_file: 'read',
+  find: 'read',
   search: 'read',
   search_with_context: 'read',
   semantic_search: 'read',
@@ -155,6 +156,7 @@ export const CONTEXT_POLICIES: Record<ClientContext, ToolPolicy> = {
     allowedCategories: ['meta', 'git_read'],
     blockedTools: [
       'list_tree',           // Don't expose directory structure
+      'find',                // Don't allow broad searches
       'search',              // Don't allow broad searches
       'search_with_context', // Don't allow broad searches
       'semantic_search',     // Don't allow broad searches
@@ -341,6 +343,7 @@ const RELEVANCE_CATEGORIES: Record<string, RelevanceCategory> = {
   // Always include
   read_file: 'always',
   write_file: 'always',
+  find: 'always',
   search: 'always',
   list_tree: 'always',
   plan: 'always',

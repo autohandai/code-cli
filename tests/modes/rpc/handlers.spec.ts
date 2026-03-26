@@ -6,59 +6,55 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// ---------------------------------------------------------------------------
-// Hoisted mocks
-// ---------------------------------------------------------------------------
+var mockCreateBrowserHandoff: ReturnType<typeof vi.fn>;
+var mockAttachBrowserHandoff: ReturnType<typeof vi.fn>;
+var mockAttachLatestBrowserHandoff: ReturnType<typeof vi.fn>;
 
-const {
-  mockAgent,
-  mockConversation,
-  mockSessionManager,
-  mockMcpManager,
-  mockPermissionManager,
-} = vi.hoisted(() => {
-  const mockSessionManager = {
-    listSessions: vi.fn<() => Promise<any[]>>(),
-  };
+const mockSessionManager = {
+  listSessions: vi.fn<() => Promise<any[]>>(),
+};
 
-  const mockMcpManager = {
-    getServers: vi.fn<() => any[]>(),
-    getAllTools: vi.fn<() => any[]>(),
-    getToolsForServer: vi.fn<() => any[]>(),
-  };
+const mockMcpManager = {
+  getServers: vi.fn<() => any[]>(),
+  getAllTools: vi.fn<() => any[]>(),
+  getToolsForServer: vi.fn<() => any[]>(),
+};
 
-  const mockPermissionManager = {
-    setMode: vi.fn(),
-    getMode: vi.fn().mockReturnValue('interactive'),
-  };
+const mockPermissionManager = {
+  setMode: vi.fn(),
+  getMode: vi.fn().mockReturnValue('interactive'),
+};
 
-  const mockAgent = {
-    getSessionManager: vi.fn().mockReturnValue(mockSessionManager),
-    getMcpManager: vi.fn().mockReturnValue(mockMcpManager),
-    getPermissionManager: vi.fn().mockReturnValue(mockPermissionManager),
-    getFileManager: vi.fn(),
-    getHookManager: vi.fn(),
-    getSkillsRegistry: vi.fn(),
-    getAutomodeManager: vi.fn(),
-    getImageManager: vi.fn().mockReturnValue({ clear: vi.fn() }),
-    getStatusSnapshot: vi.fn().mockReturnValue({ tokensUsed: 0, contextPercent: 0, model: 'test' }),
-    setStatusListener: vi.fn(),
-    setOutputListener: vi.fn(),
-    setConfirmationCallback: vi.fn(),
-    isSlashCommand: vi.fn().mockReturnValue(false),
-    isSlashCommandSupported: vi.fn().mockReturnValue(false),
-    handleSlashCommand: vi.fn(),
-    parseSlashCommand: vi.fn(),
-    runInstruction: vi.fn().mockResolvedValue(true),
-  };
+const mockAgent = {
+  getSessionManager: vi.fn().mockReturnValue(mockSessionManager),
+  attachSession: vi.fn().mockResolvedValue({
+    sessionId: 'attached-session',
+    model: 'claude-3.7-sonnet',
+    workspaceRoot: '/attached/workspace',
+    messageCount: 12,
+  }),
+  getMcpManager: vi.fn().mockReturnValue(mockMcpManager),
+  getPermissionManager: vi.fn().mockReturnValue(mockPermissionManager),
+  getFileManager: vi.fn(),
+  getHookManager: vi.fn(),
+  getSkillsRegistry: vi.fn(),
+  getAutomodeManager: vi.fn(),
+  getImageManager: vi.fn().mockReturnValue({ clear: vi.fn() }),
+  getStatusSnapshot: vi.fn().mockReturnValue({ tokensUsed: 0, contextPercent: 0, model: 'test' }),
+  setStatusListener: vi.fn(),
+  setOutputListener: vi.fn(),
+  setConfirmationCallback: vi.fn(),
+  isSlashCommand: vi.fn().mockReturnValue(false),
+  isSlashCommandSupported: vi.fn().mockReturnValue(false),
+  handleSlashCommand: vi.fn(),
+  parseSlashCommand: vi.fn(),
+  runInstruction: vi.fn().mockResolvedValue(true),
+};
 
-  const mockConversation = {
-    history: vi.fn().mockReturnValue([]),
-    reset: vi.fn(),
-  };
-
-  return { mockAgent, mockConversation, mockSessionManager, mockMcpManager, mockPermissionManager };
-});
+const mockConversation = {
+  history: vi.fn().mockReturnValue([]),
+  reset: vi.fn(),
+};
 
 // Mock protocol.js to suppress stdout writes
 vi.mock('../../../src/modes/rpc/protocol.js', () => ({
@@ -67,9 +63,14 @@ vi.mock('../../../src/modes/rpc/protocol.js', () => ({
   generateId: (prefix: string) => `${prefix}_test123`,
 }));
 
+vi.mock('../../../src/browser/chrome.js', () => ({
+  createBrowserHandoff: (mockCreateBrowserHandoff = vi.fn()),
+  attachBrowserHandoff: (mockAttachBrowserHandoff = vi.fn()),
+  attachLatestBrowserHandoff: (mockAttachLatestBrowserHandoff = vi.fn()),
+}));
+
 // Import after mocks
 import { RPCAdapter } from '../../../src/modes/rpc/adapter.js';
-
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -303,6 +304,94 @@ describe('RPC Adapter - P2 Handlers', () => {
       const result = adapter.handleMcpListTools('req_1');
 
       expect(result.tools[0].serverName).toBe('my_server');
+    });
+  });
+});
+
+
+describe('RPC Adapter - Browser handoff', () => {
+  let adapter: RPCAdapter;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAgent.getSessionManager.mockReturnValue({
+      ...mockSessionManager,
+      getCurrentSession: vi.fn().mockReturnValue({
+        metadata: {
+          sessionId: 'session-current',
+          projectPath: '/workspace',
+        },
+      }),
+    });
+    adapter = new RPCAdapter();
+    adapter.initialize(
+      mockAgent as any,
+      mockConversation as any,
+      'test-model',
+      '/test/workspace'
+    );
+  });
+
+  it('creates a browser handoff from the active session', async () => {
+    mockCreateBrowserHandoff.mockResolvedValue({
+      token: 'token-1',
+      sessionId: 'session-current',
+      workspaceRoot: '/workspace',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      expiresAt: '2026-01-01T00:10:00.000Z',
+      url: 'chrome-extension://ext/sidepanel.html?handoff=token-1',
+    });
+
+    const result = await adapter.handleBrowserHandoffCreate('req_1', { extensionId: 'ext' });
+
+    expect(mockCreateBrowserHandoff).toHaveBeenCalledWith({
+      sessionId: 'session-current',
+      workspaceRoot: '/workspace',
+      extensionId: 'ext',
+      installUrl: undefined,
+    });
+    expect(result.token).toBe('token-1');
+  });
+
+  it('attaches a browser handoff into the current agent session', async () => {
+    mockAttachBrowserHandoff.mockResolvedValue({
+      token: 'token-1',
+      sessionId: 'session-current',
+      workspaceRoot: '/workspace',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      expiresAt: '2026-01-01T00:10:00.000Z',
+    });
+
+    const result = await adapter.handleBrowserHandoffAttach('req_1', { token: 'token-1' });
+
+    expect(mockAttachBrowserHandoff).toHaveBeenCalledWith('token-1');
+    expect(mockAgent.attachSession).toHaveBeenCalledWith('session-current');
+    expect(result).toEqual({
+      success: true,
+      sessionId: 'attached-session',
+      workspaceRoot: '/attached/workspace',
+      messageCount: 12,
+    });
+  });
+
+  it('attaches the latest available browser handoff when no token is provided', async () => {
+    mockAttachLatestBrowserHandoff.mockResolvedValue({
+      token: 'token-latest',
+      sessionId: 'session-current',
+      workspaceRoot: '/workspace',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      expiresAt: '2026-01-01T00:10:00.000Z',
+    });
+
+    const result = await adapter.handleBrowserHandoffAttachLatest('req_1');
+
+    expect(mockAttachLatestBrowserHandoff).toHaveBeenCalledWith();
+    expect(mockAgent.attachSession).toHaveBeenCalledWith('session-current');
+    expect(result).toEqual({
+      success: true,
+      sessionId: 'attached-session',
+      workspaceRoot: '/attached/workspace',
+      messageCount: 12,
     });
   });
 });
