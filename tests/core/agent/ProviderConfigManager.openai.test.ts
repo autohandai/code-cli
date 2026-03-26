@@ -48,7 +48,9 @@ vi.mock('chalk', () => ({
   },
 }));
 
-import { ProviderConfigManager } from '../../../src/core/agent/ProviderConfigManager.js';
+// Dynamic import ensures mocks are applied even when the module cache
+// has been populated by other test files in the same Bun process.
+const { ProviderConfigManager } = await import('../../../src/core/agent/ProviderConfigManager.js');
 
 describe('ProviderConfigManager openai auth mode', () => {
   let runtime: any;
