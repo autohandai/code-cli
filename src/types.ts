@@ -987,7 +987,8 @@ export type AgentAction =
   | { type: 'browser_read_console'; level?: 'error' | 'warn' | 'log' | 'info' | 'debug'; limit?: number }
   | { type: 'browser_read_network'; urlPattern?: string; method?: string; status?: string; limit?: number }
   | { type: 'browser_get_tabs' }
-  | { type: 'browser_get_tab_groups' };
+  | { type: 'browser_get_tab_groups' }
+  | { type: 'browser_execute_js'; code: string };
 
 export type ExplorationEvent = { kind: 'read' | 'list' | 'search'; target: string };
 

@@ -1138,6 +1138,17 @@ Actions:
     description: 'List all tab groups with their titles, colors, and member tabs. Only available when the Chrome extension is connected.',
   },
   {
+    name: 'browser_execute_js',
+    description: 'Execute JavaScript code in the current browser page context. Use for DOM queries, data extraction, or page manipulation that other tools cannot achieve. Only available when the Chrome extension is connected.',
+    parameters: {
+      type: 'object',
+      properties: {
+        code: { type: 'string', description: 'JavaScript code to execute in the page context. Use return statements for values.' },
+      },
+      required: ['code'],
+    },
+  },
+  {
     name: 'browser_read_console',
     description: 'Read captured console log messages from the current browser page. Includes errors, warnings, and info messages. Useful for debugging. Only available when the Chrome extension is connected.',
     parameters: {
