@@ -32,6 +32,7 @@ export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure';
 
 export type AzureAuthMethod = 'api-key' | 'entra-id' | 'managed-identity';
+export type OpenAIAuthMode = 'api-key' | 'chatgpt';
 
 export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
 
@@ -50,6 +51,20 @@ export interface OpenRouterSettings extends ProviderSettings {
 
 export interface LLMGatewaySettings extends ProviderSettings {
   apiKey: string;
+}
+
+export interface OpenAIChatGPTAuth {
+  accessToken: string;
+  refreshToken?: string;
+  idToken?: string;
+  accountId: string;
+  expiresAt?: string;
+  lastRefresh?: string;
+}
+
+export interface OpenAISettings extends ProviderSettings {
+  authMode?: OpenAIAuthMode;
+  chatgptAuth?: OpenAIChatGPTAuth;
 }
 
 export interface AzureSettings extends ProviderSettings {
@@ -87,7 +102,7 @@ export interface UISettings {
   /** Theme name: 'dark', 'light', or custom theme from ~/.autohand/themes/*.json */
   theme?: string;
   autoConfirm?: boolean;
-  /** Max characters to display from read/search tool output (full content still sent to the model) */
+  /** Max characters to display from read/find tool output (full content still sent to the model) */
   readFileCharLimit?: number;
   /** Show notification when work is completed (default: true) */
   showCompletionNotification?: boolean;
@@ -506,12 +521,25 @@ export interface TeamSettings {
   maxTeammates?: number;
 }
 
+export interface ChromeConfigSettings {
+  /** Installed extension id used for direct handoff into the Chrome extension UI */
+  extensionId?: string;
+  /** Preferred Chromium browser for `/chrome` launches */
+  browser?: 'auto' | 'chrome' | 'chromium' | 'brave' | 'edge';
+  /** Browser user data root used to target the correct installed profile */
+  userDataDir?: string;
+  /** Browser profile directory name, such as "Default" or "Profile 1" */
+  profileDirectory?: string;
+  /** Fallback install/continue URL when the extension id is not configured */
+  installUrl?: string;
+}
+
 export interface AutohandConfig {
   provider?: ProviderName;
   openrouter?: OpenRouterSettings;
   ollama?: ProviderSettings;
   llamacpp?: ProviderSettings;
-  openai?: ProviderSettings;
+  openai?: OpenAISettings;
   mlx?: ProviderSettings;
   llmgateway?: LLMGatewaySettings;
   /** Azure OpenAI settings */
@@ -547,6 +575,8 @@ export interface AutohandConfig {
   mcp?: McpSettings;
   /** Team coordination settings */
   teams?: TeamSettings;
+  /** Browser extension integration settings */
+  chrome?: ChromeConfigSettings;
 }
 
 /** Supported web search providers */
@@ -606,8 +636,10 @@ export interface CLIOptions {
   /** Launch in dedicated tmux session */
   tmux?: boolean;
   // Auto-mode options
-  /** Enable auto-mode autonomous loop */
+  /** Inline task prompt for standalone auto-mode loop */
   autoMode?: string;
+  /** Enable interactive auto-mode state for the current session */
+  interactiveAutoMode?: boolean;
   /** Max iterations for auto-mode (default: 50) */
   maxIterations?: number;
   /** Completion promise text to detect (default: "DONE") */
@@ -811,6 +843,15 @@ export type AgentAction =
   | { type: 'append_file'; path: string; contents?: string; content?: string }
   | { type: 'apply_patch'; path: string; patch?: string; diff?: string }
   | { type: 'tools_registry' }
+  | {
+      type: 'find';
+      query: string;
+      path?: string;
+      context?: number;
+      limit?: number;
+      window?: number;
+      mode?: 'auto' | 'exact' | 'context' | 'semantic';
+    }
   | { type: 'search'; query: string; path?: string }
   | { type: 'create_directory'; path: string }
   | { type: 'delete_path'; path: string }
@@ -931,7 +972,18 @@ export type AgentAction =
   | { type: 'ask_followup_question'; question: string; suggested_answers?: string[] }
   // Schedule management
   | { type: 'list_schedules' }
-  | { type: 'cancel_schedule'; schedule_id: string };
+  | { type: 'cancel_schedule'; schedule_id: string }
+  // Browser tools (available when Chrome extension is connected via /chrome)
+  | { type: 'browser_screenshot'; format?: 'png' | 'jpeg'; quality?: number }
+  | { type: 'browser_click'; selector: string }
+  | { type: 'browser_type'; selector: string; text: string; clear?: boolean }
+  | { type: 'browser_navigate'; url: string }
+  | { type: 'browser_scroll'; direction?: 'up' | 'down' | 'left' | 'right'; amount?: number; selector?: string }
+  | { type: 'browser_find_element'; selector?: string; text?: string; role?: string }
+  | { type: 'browser_press_key'; key: string; modifiers?: { ctrl?: boolean; shift?: boolean; alt?: boolean; meta?: boolean } }
+  | { type: 'browser_get_page_context'; max_chars?: number }
+  | { type: 'browser_get_element'; selector: string }
+  | { type: 'browser_wait_for_element'; selector: string; timeout?: number };
 
 export type ExplorationEvent = { kind: 'read' | 'list' | 'search'; target: string };
 

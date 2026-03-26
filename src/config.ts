@@ -6,7 +6,7 @@
 import fs from 'fs-extra';
 import path from 'node:path';
 import YAML from 'yaml';
-import type { AutohandConfig, LoadedConfig, ProviderName, ProviderSettings, AzureSettings } from './types.js';
+import type { AutohandConfig, LoadedConfig, ProviderName, ProviderSettings, AzureSettings, OpenAISettings } from './types.js';
 import { AUTOHAND_FILES } from './constants.js';
 import { autoInitTheme, themeExists } from './ui/theme/index.js';
 
@@ -341,8 +341,22 @@ export function getProviderConfig(config: AutohandConfig, provider?: ProviderNam
     return null;
   }
 
-  // Validate providers that require API keys
-  if (chosen === 'openrouter' || chosen === 'llmgateway') {
+  if (chosen === 'openai') {
+    const openAIEntry = entry as OpenAISettings;
+    if (!openAIEntry.model) {
+      return null;
+    }
+
+    if (openAIEntry.authMode === 'chatgpt') {
+      if (!openAIEntry.chatgptAuth?.accessToken || !openAIEntry.chatgptAuth?.accountId) {
+        return null;
+      }
+    } else {
+      if (!openAIEntry.apiKey || openAIEntry.apiKey === 'replace-me') {
+        return null;
+      }
+    }
+  } else if (chosen === 'openrouter' || chosen === 'llmgateway') {
     const { apiKey, model } = entry as ProviderSettings;
     if (!apiKey || apiKey === 'replace-me' || !model) {
       return null; // Incomplete config
