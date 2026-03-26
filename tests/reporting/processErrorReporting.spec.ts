@@ -204,6 +204,73 @@ describe('processErrorReporting', () => {
     expect(reportErrorMock).not.toHaveBeenCalled();
   });
 
+  it('ignores EACCES mkdir errors as unhandled rejections', async () => {
+    const fakeProcess = createFakeProcess();
+    installProcessErrorHandlers({ processRef: fakeProcess });
+
+    const eaccesError = Object.assign(new Error("EACCES: permission denied, mkdir '/storage/68CB-F07A/projects'"), {
+      code: 'EACCES',
+      syscall: 'mkdir',
+    });
+    fakeProcess.emit('unhandledRejection', eaccesError, Promise.resolve());
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(reportErrorMock).not.toHaveBeenCalled();
+  });
+
+  it('ignores EEXIST mkdir errors as unhandled rejections', async () => {
+    const fakeProcess = createFakeProcess();
+    installProcessErrorHandlers({ processRef: fakeProcess });
+
+    const eexistError = Object.assign(new Error("EEXIST: file already exists, mkdir '~/.autohand/memory'"), {
+      code: 'EEXIST',
+      syscall: 'mkdir',
+    });
+    fakeProcess.emit('unhandledRejection', eexistError, Promise.resolve());
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(reportErrorMock).not.toHaveBeenCalled();
+  });
+
+  it('ignores setRawMode errno errors as uncaught exceptions', async () => {
+    const fakeProcess = createFakeProcess();
+    const logError = vi.fn();
+    const exitMock = vi.fn();
+    installProcessErrorHandlers({ processRef: fakeProcess, logError, exit: exitMock });
+
+    const rawModeError = new Error('setRawMode failed with errno: 9');
+    fakeProcess.emit('uncaughtException', rawModeError);
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(reportErrorMock).not.toHaveBeenCalled();
+    expect(exitMock).not.toHaveBeenCalled();
+  });
+
+  it('ignores Generator is executing errors as uncaught exceptions', async () => {
+    const fakeProcess = createFakeProcess();
+    const logError = vi.fn();
+    const exitMock = vi.fn();
+    installProcessErrorHandlers({ processRef: fakeProcess, logError, exit: exitMock });
+
+    const genError = new TypeError('Generator is executing');
+    fakeProcess.emit('uncaughtException', genError);
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(reportErrorMock).not.toHaveBeenCalled();
+    expect(exitMock).not.toHaveBeenCalled();
+  });
+
+  it('ignores node:sqlite resolution errors as unhandled rejections', async () => {
+    const fakeProcess = createFakeProcess();
+    installProcessErrorHandlers({ processRef: fakeProcess });
+
+    const sqliteError = new Error('Could not resolve: "node:sqlite". Maybe you need to "bun install"?');
+    fakeProcess.emit('unhandledRejection', sqliteError, Promise.resolve());
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(reportErrorMock).not.toHaveBeenCalled();
+  });
+
   it('falls back to an in-memory config when loading the user config fails', async () => {
     const fakeProcess = createFakeProcess();
     fakeProcess.env.AUTOHAND_API_URL = 'https://api.example.com';
