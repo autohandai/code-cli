@@ -12,11 +12,12 @@ import { OPENAI_MODELS } from '../../providers/OpenAIProvider.js';
 import { sanitizeModelId } from '../../providers/errors.js';
 import { saveConfig, getProviderConfig } from '../../config.js';
 import { getContextWindow } from '../../utils/context.js';
-import type { AgentRuntime, ProviderName, AzureSettings, AzureAuthMethod, ReasoningEffort } from '../../types.js';
+import type { AgentRuntime, ProviderName, AzureSettings, AzureAuthMethod, ReasoningEffort, OpenAIAuthMode, OpenAISettings } from '../../types.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
 import type { TelemetryManager } from '../../telemetry/TelemetryManager.js';
 import { AgentDelegator } from '../agents/AgentDelegator.js';
 import type { ActionExecutor } from '../actionExecutor.js';
+import { authenticateOpenAIChatGPT } from '../../providers/openaiAuth.js';
 
 /**
  * ProviderConfigManager module
@@ -110,7 +111,15 @@ export class ProviderConfigManager {
     }
 
     // For cloud providers, check API key
-    if (provider === 'openrouter' || provider === 'openai' || provider === 'llmgateway') {
+    if (provider === 'openai') {
+      const openAIConfig = config as OpenAISettings;
+      if (openAIConfig.authMode === 'chatgpt') {
+        return !!openAIConfig.chatgptAuth?.accessToken && !!openAIConfig.chatgptAuth?.accountId;
+      }
+      return !!openAIConfig.apiKey && openAIConfig.apiKey !== 'replace-me';
+    }
+
+    if (provider === 'openrouter' || provider === 'llmgateway') {
       return !!config.apiKey && config.apiKey !== 'replace-me';
     }
 
@@ -311,16 +320,43 @@ export class ProviderConfigManager {
   private async configureOpenAI(): Promise<void> {
     try {
       console.log(chalk.cyan(t('providers.wizard.openai.title')));
-      console.log(chalk.gray(t('providers.config.apiKeyUrl', { url: t('providers.wizard.openai.apiKeyUrl') }) + '\n'));
 
-      const apiKey = await showPassword({
-        title: t('providers.config.enterApiKey', { provider: t('providers.openai') }),
-        placeholder: t('ui.apiKeyPlaceholder')
-      });
-
-      if (!apiKey) {
+      const authMode = await this.promptOpenAIAuthMode();
+      if (!authMode) {
         console.log(chalk.gray('\n' + t('providers.config.cancelled')));
         return;
+      }
+
+      let apiKey = '';
+      let chatgptAuth;
+      if (authMode === 'chatgpt') {
+        try {
+          console.log(chalk.gray(`\n${t('providers.openaiAuth.starting')}`));
+          chatgptAuth = await authenticateOpenAIChatGPT({
+            onPrompt: ({ authorizationUrl, browserOpened }) => {
+              console.log(chalk.gray(`${t('providers.openaiAuth.browserPrompt')}\n`));
+              console.log(chalk.white(authorizationUrl));
+              console.log(chalk.gray(t(browserOpened ? 'providers.openaiAuth.browserOpened' : 'providers.openaiAuth.openManually')));
+              console.log(chalk.gray(t('providers.openaiAuth.waiting') + '\n'));
+            },
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.log(chalk.red(`\n${t('providers.openaiAuth.failed', { message })}`));
+          throw error;
+        }
+      } else {
+        console.log(chalk.gray(t('providers.config.apiKeyUrl', { url: t('providers.wizard.openai.apiKeyUrl') }) + '\n'));
+
+        apiKey = await showPassword({
+          title: t('providers.config.enterApiKey', { provider: t('providers.openai') }),
+          placeholder: t('ui.apiKeyPlaceholder')
+        }) ?? '';
+
+        if (!apiKey) {
+          console.log(chalk.gray('\n' + t('providers.config.cancelled')));
+          return;
+        }
       }
 
       const modelChoices: ModalOption[] = OPENAI_MODELS.map(name => ({
@@ -344,8 +380,10 @@ export class ProviderConfigManager {
       const reasoningEffort = await this.promptReasoningEffort();
 
       this.runtime.config.openai = {
-        apiKey,
-        baseUrl: 'https://api.openai.com/v1',
+        authMode,
+        ...(authMode === 'api-key' && { apiKey }),
+        ...(authMode === 'chatgpt' && { chatgptAuth }),
+        baseUrl: authMode === 'chatgpt' ? 'https://chatgpt.com/backend-api/codex' : 'https://api.openai.com/v1',
         model,
         ...(reasoningEffort !== undefined && { reasoningEffort })
       };
@@ -688,19 +726,28 @@ export class ProviderConfigManager {
     currentSettings: { apiKey?: string; baseUrl?: string; model?: string } | null
   ): Promise<void> {
     const providerName = t(`providers.${provider}`);
-    const maskedKey = currentSettings?.apiKey
-      ? `...${currentSettings.apiKey.slice(-4)}`
-      : t('providers.config.notSet');
+    const openAISettings = provider === 'openai' ? this.runtime.config.openai : undefined;
+    const maskedKey = provider === 'openai' && openAISettings?.authMode === 'chatgpt'
+      ? 'ChatGPT account'
+      : currentSettings?.apiKey
+        ? `...${currentSettings.apiKey.slice(-4)}`
+        : t('providers.config.notSet');
 
     console.log(chalk.cyan('\n' + t('providers.config.settingsTitle', { provider: providerName })));
     console.log(chalk.gray(t('providers.config.currentModel', { model: currentModel || t('providers.config.notSet') })));
     console.log(chalk.gray(t('providers.config.currentApiKey', { key: maskedKey }) + '\n'));
 
-    const actionOptions: ModalOption[] = [
-      { label: t('providers.config.changeModelOnly'), value: 'model' },
-      { label: t('providers.config.changeApiKeyOnly'), value: 'apiKey' },
-      { label: t('providers.config.changeBoth'), value: 'both' }
-    ];
+    const actionOptions: ModalOption[] = provider === 'openai'
+      ? [
+        { label: t('providers.config.changeModelOnly'), value: 'model' },
+        { label: t('providers.openaiAuth.changeAuthOnly'), value: 'auth' },
+        { label: t('providers.openaiAuth.changeModelAndAuth'), value: 'both' }
+      ]
+      : [
+        { label: t('providers.config.changeModelOnly'), value: 'model' },
+        { label: t('providers.config.changeApiKeyOnly'), value: 'apiKey' },
+        { label: t('providers.config.changeBoth'), value: 'both' }
+      ];
 
     const actionResult = await showModal({
       title: t('providers.config.whatToChange'),
@@ -716,9 +763,37 @@ export class ProviderConfigManager {
 
     let newModel = currentModel;
     let newApiKey = currentSettings?.apiKey || '';
+    let authMode: OpenAIAuthMode | undefined = provider === 'openai'
+      ? (this.runtime.config.openai?.authMode === 'chatgpt' ? 'chatgpt' : 'api-key')
+      : undefined;
+    let chatgptAuth = provider === 'openai' ? this.runtime.config.openai?.chatgptAuth : undefined;
 
     // Handle API key change
-    if (action === 'apiKey' || action === 'both') {
+    if (provider === 'openai' && (action === 'auth' || action === 'both')) {
+      const selectedAuthMode = await this.promptOpenAIAuthMode(authMode);
+      if (!selectedAuthMode) {
+        console.log(chalk.gray('\n' + t('providers.config.settingsChangeCancelled')));
+        return;
+      }
+
+      authMode = selectedAuthMode;
+      if (authMode === 'chatgpt') {
+        console.log(chalk.gray('\n' + t('providers.openaiAuth.starting')));
+        chatgptAuth = await authenticateOpenAIChatGPT({
+          onPrompt: ({ authorizationUrl, browserOpened }) => {
+            console.log(chalk.gray(t('providers.openaiAuth.browserPrompt') + '\n'));
+            console.log(chalk.white(authorizationUrl));
+            console.log(chalk.gray(t(browserOpened ? 'providers.openaiAuth.browserOpened' : 'providers.openaiAuth.openManually')));
+            console.log(chalk.gray(t('providers.openaiAuth.waiting') + '\n'));
+          },
+        });
+        newApiKey = '';
+      } else {
+        chatgptAuth = undefined;
+      }
+    }
+
+    if ((provider !== 'openai' && (action === 'apiKey' || action === 'both')) || (provider === 'openai' && (authMode === 'api-key') && (action === 'auth' || action === 'both'))) {
       const keyUrlMap = {
         openai: 'https://platform.openai.com/api-keys',
         openrouter: 'https://openrouter.ai/keys',
@@ -850,18 +925,33 @@ export class ProviderConfigManager {
       };
     } else {
       const baseUrlMap = {
-        openai: 'https://api.openai.com/v1',
+        openai: authMode === 'chatgpt' ? 'https://chatgpt.com/backend-api/codex' : 'https://api.openai.com/v1',
         openrouter: 'https://openrouter.ai/api/v1',
         llmgateway: 'https://api.llmgateway.io/v1'
       };
       const baseUrl = baseUrlMap[provider];
 
-      this.runtime.config[provider] = {
-        apiKey: newApiKey,
-        baseUrl,
-        model: newModel,
-        ...(reasoningEffort !== undefined && { reasoningEffort })
-      };
+      if (provider === 'openai') {
+        this.runtime.config.openai = {
+          authMode,
+          ...(authMode === 'chatgpt' ? { chatgptAuth } : { apiKey: newApiKey }),
+          baseUrl,
+          model: newModel,
+          ...(reasoningEffort !== undefined && { reasoningEffort })
+        };
+      } else if (provider === 'openrouter') {
+        this.runtime.config.openrouter = {
+          apiKey: newApiKey,
+          baseUrl,
+          model: newModel
+        };
+      } else {
+        this.runtime.config.llmgateway = {
+          apiKey: newApiKey,
+          baseUrl,
+          model: newModel
+        };
+      }
     }
 
     this.runtime.config.provider = provider;
@@ -1041,13 +1131,34 @@ export class ProviderConfigManager {
       openrouter: this.runtime.config.openrouter ?? (this.runtime.config.openrouter = { apiKey: '', model }),
       ollama: this.runtime.config.ollama ?? (this.runtime.config.ollama = { model }),
       llamacpp: this.runtime.config.llamacpp ?? (this.runtime.config.llamacpp = { model }),
-      openai: this.runtime.config.openai ?? (this.runtime.config.openai = { model }),
+      openai: this.runtime.config.openai ?? (this.runtime.config.openai = { authMode: 'api-key', apiKey: '', model }),
       mlx: this.runtime.config.mlx ?? (this.runtime.config.mlx = { model }),
       llmgateway: this.runtime.config.llmgateway ?? (this.runtime.config.llmgateway = { apiKey: '', model }),
       azure: this.runtime.config.azure ?? (this.runtime.config.azure = { model, authMethod: 'api-key' })
     };
     cfgMap[provider].model = model;
     this.setActiveProvider(provider);
+  }
+
+  private async promptOpenAIAuthMode(currentMode: OpenAIAuthMode = 'api-key'): Promise<OpenAIAuthMode | null> {
+    const result = await showModal({
+      title: t('providers.openaiAuth.chooseTitle'),
+      options: [
+        {
+          label: t('providers.openaiAuth.apiKeyLabel'),
+          value: 'api-key',
+          description: t('providers.openaiAuth.apiKeyDescription')
+        },
+        {
+          label: t('providers.openaiAuth.chatgptLabel'),
+          value: 'chatgpt',
+          description: t('providers.openaiAuth.chatgptDescription')
+        }
+      ],
+      initialIndex: currentMode === 'chatgpt' ? 1 : 0
+    });
+
+    return (result?.value as OpenAIAuthMode | undefined) ?? null;
   }
 
   /**
