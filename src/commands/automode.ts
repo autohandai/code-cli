@@ -12,6 +12,8 @@ import type { SlashCommand } from '../core/slashCommandTypes.js';
 
 export interface AutomodeCommandContext {
   automodeManager?: AutomodeManager;
+  isInteractiveAutomodeEnabled?: () => boolean;
+  setInteractiveAutomodeEnabled?: (enabled: boolean) => void;
   workspaceRoot?: string;
 }
 
@@ -23,6 +25,8 @@ export const metadata: SlashCommand = {
   description: t('commands.automode.description'),
   implemented: true,
   subcommands: [
+    { name: 'on', description: 'Enable interactive auto-mode for this session' },
+    { name: 'off', description: 'Disable interactive auto-mode for this session' },
     { name: 'status', description: 'Show current loop state' },
     { name: 'pause', description: 'Pause the active loop' },
     { name: 'resume', description: 'Resume paused loop' },
@@ -44,6 +48,10 @@ function parseArgs(args: string[]): {
   // Check for subcommand
   const firstArg = args[0]?.toLowerCase();
   if (['status', 'pause', 'resume', 'cancel', 'help'].includes(firstArg)) {
+    result.subcommand = firstArg;
+    args = args.slice(1);
+  }
+  if (['on', 'off'].includes(firstArg)) {
     result.subcommand = firstArg;
     args = args.slice(1);
   }
@@ -79,33 +87,56 @@ export async function automode(
   args: string[] = []
 ): Promise<string | null> {
   const { automodeManager } = ctx;
+  const parsed = parseArgs(args);
+  const interactiveAutomodeEnabled = ctx.isInteractiveAutomodeEnabled?.() === true;
+  const canToggleInteractiveAutomode = typeof ctx.setInteractiveAutomodeEnabled === 'function';
 
-  if (!automodeManager) {
+  if (!automodeManager && !canToggleInteractiveAutomode && parsed.subcommand !== 'status') {
     return 'Auto-mode manager not available. Please restart autohand.';
   }
 
-  const parsed = parseArgs(args);
-
   switch (parsed.subcommand) {
     case 'status':
-      return handleStatus(automodeManager);
+      return handleStatus(automodeManager, interactiveAutomodeEnabled);
+
+    case 'on':
+      return handleInteractiveToggle(ctx, true);
+
+    case 'off':
+      return handleInteractiveToggle(ctx, false);
 
     case 'pause':
+      if (!automodeManager) {
+        return 'No auto-mode session is currently running.';
+      }
       return handlePause(automodeManager);
 
     case 'resume':
+      if (!automodeManager) {
+        return 'No auto-mode session to resume.';
+      }
       return handleResume(automodeManager);
 
     case 'cancel':
+      if (!automodeManager) {
+        return 'No auto-mode session to cancel.';
+      }
       return handleCancel(automodeManager);
 
     case 'help':
       return showHelp();
 
     default:
+      if (!parsed.prompt && canToggleInteractiveAutomode) {
+        return handleInteractiveToggle(ctx, !interactiveAutomodeEnabled);
+      }
+
       // Start auto-mode with prompt
       if (!parsed.prompt) {
         return showHelp();
+      }
+      if (!automodeManager) {
+        return 'Standalone auto-mode loops are only available from the CLI flag today. Use `autohand --auto-mode "<task>"`.';
       }
       return handleStart(automodeManager, parsed);
   }
@@ -141,11 +172,15 @@ async function handleStart(
 /**
  * Handle status command
  */
-function handleStatus(manager: AutomodeManager): string {
-  const state = manager.getState();
+function handleStatus(manager: AutomodeManager | undefined, interactiveEnabled: boolean): string {
+  const state = manager?.getState();
+  const lines = [
+    `Interactive auto-mode: ${interactiveEnabled ? 'enabled' : 'disabled'}`,
+  ];
 
   if (!state) {
-    return 'No auto-mode session is currently active.';
+    lines.push('No auto-mode session is currently active.');
+    return lines.join('\n');
   }
 
   const statusEmoji: Record<string, string> = {
@@ -156,7 +191,7 @@ function handleStatus(manager: AutomodeManager): string {
     failed: '❌',
   };
 
-  const lines = [
+  lines.push(
     '',
     `${statusEmoji[state.status] ?? '❓'} Auto-Mode Status`,
     '',
@@ -165,7 +200,7 @@ function handleStatus(manager: AutomodeManager): string {
     `  ${t('commands.automode.iteration', { current: String(state.currentIteration), max: String(state.maxIterations) })}`,
     `  Files created: ${state.filesCreated}`,
     `  Files modified: ${state.filesModified}`,
-  ];
+  );
 
   if (state.branch) {
     lines.push(`  Branch: ${state.branch}`);
@@ -177,6 +212,18 @@ function handleStatus(manager: AutomodeManager): string {
 
   lines.push('');
   return lines.join('\n');
+}
+
+function handleInteractiveToggle(
+  ctx: AutomodeCommandContext,
+  enabled: boolean
+): string {
+  if (!ctx.setInteractiveAutomodeEnabled) {
+    return 'Interactive auto-mode is not available in this session.';
+  }
+
+  ctx.setInteractiveAutomodeEnabled(enabled);
+  return `Interactive auto-mode ${enabled ? 'enabled' : 'disabled'}.`;
 }
 
 /**
@@ -234,6 +281,9 @@ Auto-mode lets autohand work autonomously on tasks through
 iterative improvement cycles-inspired by the Ralph technique.
 
 ${chalk.yellow('Usage:')}
+  /automode                      Toggle interactive auto-mode on or off
+  /automode on                   Enable interactive auto-mode
+  /automode off                  Disable interactive auto-mode
   /automode <prompt>              Start auto-mode with a task
   /automode status                Show current loop state
   /automode pause                 Pause the loop

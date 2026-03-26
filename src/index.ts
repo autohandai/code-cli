@@ -19,10 +19,12 @@ import { initPingService, startPingService, stopPingService } from './telemetry/
 import { detectStdinType, readPipedStdin } from './utils/stdinDetector.js';
 import { buildPipePrompt } from './modes/pipeMode.js';
 import { shouldUseInteractivePipeHandoff } from './modes/pipeRouting.js';
+import { resolveAutoModeLaunchMode } from './modes/autoModeRouting.js';
 import { PROJECT_DIR_NAME } from './constants.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessionWorktree.js';
 import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './utils/tmux.js';
 import { promptNotify } from './ui/inputPrompt.js';
+import { registerChromeCommand } from './browser/cliCommand.js';
 
 /**
  * Get git commit hash (short)
@@ -175,6 +177,7 @@ const ASCII_FRIEND = [
 ].join('\n');
 
 const program = new Command();
+registerChromeCommand(program);
 
 program
   .name('autohand')
@@ -210,7 +213,7 @@ program
   .option('--worktree [name]', 'Run session in isolated git worktree (optional name)')
   .option('--tmux', 'Launch in a dedicated tmux session (implies --worktree)')
   // Auto-mode options
-  .option('--auto-mode <prompt>', 'Start autonomous development loop with the given task')
+  .option('--auto-mode [prompt]', 'Enable interactive auto-mode, or start a standalone loop with an inline task')
   .option('--max-iterations <n>', 'Max auto-mode iterations (default: 50)', parseInt)
   .option('--completion-promise <text>', 'Completion marker text (default: "DONE")')
   .option('--no-worktree', 'Disable git worktree isolation in auto-mode')
@@ -234,6 +237,9 @@ program
     // Normalize to undefined so downstream code can detect "flag present, no text".
     if ((opts as Record<string, unknown>).prompt === true) {
       opts.prompt = undefined;
+    }
+    if ((opts as Record<string, unknown>).autoMode === true) {
+      opts.autoMode = undefined;
     }
 
     // Positional argument acts as prompt (e.g. autohand 'explain this')
@@ -381,12 +387,29 @@ program
       return;
     }
 
-    // Handle --auto-mode flag (standalone CLI mode only, not RPC)
-    if (opts.autoMode) {
+    const hasAutoModeFlag = process.argv.some(arg => arg === '--auto-mode');
+    const autoModeLaunchMode = resolveAutoModeLaunchMode({
+      hasAutoModeFlag,
+      autoModeTask: opts.autoMode,
+      prompt: opts.prompt,
+      stdinIsTTY: Boolean(process.stdin.isTTY),
+    });
+
+    if (autoModeLaunchMode === 'unavailable') {
+      console.error(chalk.red('Interactive auto-mode requires a terminal (TTY). Use `autohand --auto-mode "<task>"` for standalone loops.'));
+      process.exit(1);
+    }
+
+    // Handle standalone --auto-mode loops
+    if (autoModeLaunchMode === 'standalone') {
       // Commander's --no-worktree sets opts.worktree to false
       opts.noWorktree = opts.worktree === false;
       await runAutoMode(opts);
       return;
+    }
+
+    if (autoModeLaunchMode === 'interactive') {
+      opts.interactiveAutoMode = true;
     }
 
     await runCLI(opts);
