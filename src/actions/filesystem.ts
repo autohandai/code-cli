@@ -8,6 +8,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { applyPatch as applyUnifiedPatch } from 'diff';
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
+import { resolveRipgrepCommand } from '../utils/ripgrep.js';
 
 /**
  * Resource limits to prevent DoS and resource exhaustion
@@ -372,7 +373,7 @@ export class FileActionManager {
   search(query: string, relativePath?: string): SearchHit[] {
     const searchDir = this.resolvePath(relativePath ?? '.');
     // Exclude binary files and common non-text files to avoid wasting tokens
-    const rgResult = spawnSync('rg', [
+    const rgResult = spawnSync(resolveRipgrepCommand(), [
       '--line-number',
       '--color', 'never',
       '--no-binary',  // Skip binary files

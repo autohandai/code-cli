@@ -21,6 +21,7 @@ export const AVAILABLE_TOOLS = {
     'write_file',
     'append_file',
     'apply_patch',
+    'find',
     'search',
     'search_replace',
     'search_with_context',

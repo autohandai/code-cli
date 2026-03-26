@@ -41,17 +41,21 @@ const SUGGESTION_TIMEOUT_MS = 10_000;
 export interface SuggestionEngineOptions {
   /** When provided, constrains suggestions to only actions achievable with these tools. */
   allowedTools?: string[];
+  /** Optional sink for debug lines so interactive UIs can render above composers. */
+  debugLogger?: (message: string) => void;
 }
 
 export class SuggestionEngine {
   private suggestion: string | null = null;
   private abortController: AbortController | null = null;
   private readonly toolConstraint: string;
+  private readonly debugLogger?: (message: string) => void;
 
   constructor(
     private readonly llm: LLMProvider,
     options?: SuggestionEngineOptions,
   ) {
+    this.debugLogger = options?.debugLogger;
     if (options?.allowedTools?.length) {
       this.toolConstraint = `\n\nIMPORTANT: ONLY suggest actions achievable with these tools: ${options.allowedTools.join(', ')}. Do not suggest actions requiring tools the user cannot use.`;
     } else {
@@ -145,26 +149,26 @@ export class SuggestionEngine {
       });
 
       if (controller.signal.aborted) {
-        if (debug) process.stderr.write(`[SUGGESTION] Aborted after ${Date.now() - startTime}ms\n`);
+        if (debug) this.debugLogger?.(`[SUGGESTION] Aborted after ${Date.now() - startTime}ms`);
         return;
       }
 
       const raw = (response.content ?? '').trim();
       if (!raw) {
         this.suggestion = null;
-        if (debug) process.stderr.write(`[SUGGESTION] Empty response after ${Date.now() - startTime}ms\n`);
+        if (debug) this.debugLogger?.(`[SUGGESTION] Empty response after ${Date.now() - startTime}ms`);
         return;
       }
 
       this.suggestion = sanitizeSuggestion(raw);
-      if (debug) process.stderr.write(`[SUGGESTION] Generated "${this.suggestion}" in ${Date.now() - startTime}ms\n`);
+      if (debug) this.debugLogger?.(`[SUGGESTION] Generated "${this.suggestion}" in ${Date.now() - startTime}ms`);
     } catch (err) {
       if (!controller.signal.aborted) {
         this.suggestion = null;
       }
       if (debug) {
         const msg = err instanceof Error ? err.message : String(err);
-        process.stderr.write(`[SUGGESTION] Error after ${Date.now() - startTime}ms: ${msg}\n`);
+        this.debugLogger?.(`[SUGGESTION] Error after ${Date.now() - startTime}ms: ${msg}`);
       }
     } finally {
       clearTimeout(timeout);

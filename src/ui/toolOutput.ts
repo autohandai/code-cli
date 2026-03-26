@@ -13,6 +13,7 @@ const FILE_SUMMARY_TOOLS = new Set<AgentAction['type']>([
 
 /** Tools that should show truncated content */
 const TRUNCATED_TOOLS = new Set<AgentAction['type']>([
+  'find',
   'search',
   'search_with_context',
   'semantic_search'
@@ -59,7 +60,7 @@ function countLines(content: string): number {
 }
 
 /**
- * Format tool output for display - shows file summary for file ops, truncates for search
+ * Format tool output for display - shows file summary for file ops, truncates for find/search
  */
 export function formatToolOutputForDisplay(options: FileToolOutputOptions): ToolOutputDisplay {
   const { tool, content, charLimit, filePath, command, commandArgs } = options;
@@ -113,7 +114,7 @@ export function formatToolOutputForDisplay(options: FileToolOutputOptions): Tool
     }
   }
 
-  // For search tools, show truncated content
+  // For find/search tools, show truncated content
   if (TRUNCATED_TOOLS.has(tool) && charLimit > 0 && totalChars > charLimit) {
     return {
       output: `${content.slice(0, charLimit)}\n... (truncated, ${totalChars} total characters)`,

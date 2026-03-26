@@ -48,6 +48,7 @@ export const TOOL_KIND_MAP: Record<string, ToolKind> = {
   file_info: 'read',
 
   // Search operations
+  find: 'search',
   search: 'search',
   search_files: 'search',
   search_with_context: 'search',
@@ -117,6 +118,7 @@ export const TOOL_DISPLAY_NAMES: Record<string, string> = {
   file_info: 'Info',
 
   // Search operations
+  find: 'Search',
   search: 'Search',
   search_files: 'Search',
   search_with_context: 'Search',
