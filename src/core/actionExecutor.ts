@@ -188,7 +188,7 @@ export class ActionExecutor {
   }
 
   async execute(action: AgentAction, context?: ToolExecutionContext): Promise<string | undefined> {
-    if (this.runtime.options.dryRun && action.type !== 'search' && action.type !== 'plan') {
+    if (this.runtime.options.dryRun && !['find', 'search', 'search_with_context', 'semantic_search', 'plan'].includes(action.type)) {
       return 'Dry-run mode: skipped mutation';
     }
 
@@ -552,54 +552,28 @@ export class ActionExecutor {
         const tools = await this.toolsRegistry.listTools(this.getRegisteredTools());
         return JSON.stringify(tools, null, 2);
       }
-      case 'search': {
-        const cacheKey = `search:${action.query}:${action.path || ''}`;
-        if (this.searchCache.has(cacheKey)) {
-          return `[Cached] ${this.searchCache.get(cacheKey)}`;
-        }
-        const hits = this.files.search(action.query, action.path);
-        this.recordExploration('search', action.query);
-        const result = hits
-          .slice(0, 10)
-          .map((hit) => `${hit.file}:${hit.line}: ${hit.text}`)
-          .join('\n');
-        this.searchCache.set(cacheKey, result);
-        return result;
-      }
-      case 'search_with_context': {
-        const cacheKey = `search_ctx:${action.query}:${action.path || ''}:${action.limit || ''}:${action.context || ''}`;
-        if (this.searchCache.has(cacheKey)) {
-          return `[Cached] ${this.searchCache.get(cacheKey)}`;
-        }
-        this.recordExploration('search', action.query);
-        const result = this.files.searchWithContext(action.query, {
+      case 'find':
+        return this.executeFind(action);
+      case 'search':
+        return this.executeFind({ type: 'find', query: action.query, path: action.path, mode: 'exact' });
+      case 'search_with_context':
+        return this.executeFind({
+          type: 'find',
+          query: action.query,
+          path: action.path,
           limit: action.limit,
           context: action.context,
-          relativePath: action.path
+          mode: 'context'
         });
-        this.searchCache.set(cacheKey, result);
-        return result;
-      }
-      case 'semantic_search': {
-        const cacheKey = `semantic:${action.query}:${action.path || ''}:${action.limit || ''}:${action.window || ''}`;
-        if (this.searchCache.has(cacheKey)) {
-          return `[Cached] ${this.searchCache.get(cacheKey)}`;
-        }
-        const results = this.files.semanticSearch(action.query, {
+      case 'semantic_search':
+        return this.executeFind({
+          type: 'find',
+          query: action.query,
+          path: action.path,
           limit: action.limit,
           window: action.window,
-          relativePath: action.path
+          mode: 'semantic'
         });
-        if (!results.length) {
-          this.searchCache.set(cacheKey, 'No matches found.');
-          return 'No matches found.';
-        }
-        const result = results
-          .map((hit) => `${chalk.cyan(hit.file)}\n${hit.snippet}`)
-          .join('\n\n');
-        this.searchCache.set(cacheKey, result);
-        return result;
-      }
       case 'create_directory': {
         await this.files.createDirectory(action.path);
         return `Created directory ${action.path}`;
@@ -1565,6 +1539,19 @@ export class ActionExecutor {
           return `<answer>${finalAnswer}</answer>`;
         }
       }
+      // Browser tools — forwarded to Chrome extension via RPC
+      case 'browser_screenshot':
+      case 'browser_click':
+      case 'browser_type':
+      case 'browser_navigate':
+      case 'browser_scroll':
+      case 'browser_find_element':
+      case 'browser_press_key':
+      case 'browser_get_page_context':
+      case 'browser_get_element':
+      case 'browser_wait_for_element': {
+        return this.executeBrowserTool(action);
+      }
       default: {
         // Check if this is a dynamic meta-tool
         const actionType = (action as AgentAction).type;
@@ -1577,6 +1564,13 @@ export class ActionExecutor {
         throw new Error(`Unsupported action type ${actionType}`);
       }
     }
+  }
+
+  private async executeBrowserTool(action: AgentAction): Promise<string> {
+    const { type, ...params } = action as Record<string, unknown>;
+    const toolName = type as string;
+    const { invokeBrowserTool } = await import('../browser/browserToolBridge.js');
+    return invokeBrowserTool(toolName, params as Record<string, unknown>);
   }
 
   private pickText(...values: Array<unknown>): string | undefined {
@@ -1692,6 +1686,51 @@ export class ActionExecutor {
     }
 
     return result.length > 0 ? result.join('\n') : 'No structure detected';
+  }
+
+  private executeFind(action: Extract<AgentAction, { type: 'find' }>): string {
+    const mode = action.mode ?? (action.context && action.context > 0 ? 'context' : 'exact');
+    const cacheKey = `find:${mode}:${action.query}:${action.path || ''}:${action.limit || ''}:${action.context || ''}:${action.window || ''}`;
+    if (this.searchCache.has(cacheKey)) {
+      return `[Cached] ${this.searchCache.get(cacheKey)}`;
+    }
+
+    this.recordExploration('search', action.query);
+
+    if (mode === 'semantic') {
+      const results = this.files.semanticSearch(action.query, {
+        limit: action.limit,
+        window: action.window,
+        relativePath: action.path
+      });
+      if (!results.length) {
+        this.searchCache.set(cacheKey, 'No matches found.');
+        return 'No matches found.';
+      }
+      const result = results
+        .map((hit) => `${chalk.cyan(hit.file)}\n${hit.snippet}`)
+        .join('\n\n');
+      this.searchCache.set(cacheKey, result);
+      return result;
+    }
+
+    if (mode === 'context') {
+      const result = this.files.searchWithContext(action.query, {
+        limit: action.limit,
+        context: action.context,
+        relativePath: action.path
+      });
+      this.searchCache.set(cacheKey, result);
+      return result;
+    }
+
+    const hits = this.files.search(action.query, action.path);
+    const result = hits
+      .slice(0, action.limit ?? 10)
+      .map((hit) => `${hit.file}:${hit.line}: ${hit.text}`)
+      .join('\n');
+    this.searchCache.set(cacheKey, result);
+    return result;
   }
 
   private recordExploration(kind: ExplorationEvent['kind'], target?: string | null): void {

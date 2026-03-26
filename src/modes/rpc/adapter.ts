@@ -62,6 +62,7 @@ import {
 } from './types.js';
 import { writeNotification, createTimestamp, generateId } from './protocol.js';
 import { ImageManager, type ImageMimeType, supportsVision } from '../../core/ImageManager.js';
+import { attachBrowserHandoff, attachLatestBrowserHandoff, createBrowserHandoff } from '../../browser/chrome.js';
 
 // ---------------------------------------------------------------------------
 // ApiErrorCode → RPC-specific error shape mapping
@@ -670,6 +671,77 @@ export class RPCAdapter {
   handleGetMessages(requestId: JsonRpcId, limit?: number): GetMessagesResult {
     const messages = this.getMessages(limit);
     return { messages };
+  }
+
+  async handleBrowserHandoffCreate(
+    _requestId: JsonRpcId,
+    params?: { extensionId?: string; installUrl?: string }
+  ) {
+    const session = this.agent?.getSessionManager?.().getCurrentSession?.();
+    if (!session) {
+      throw new Error('No active session available for browser handoff.');
+    }
+
+    return createBrowserHandoff({
+      sessionId: session.metadata.sessionId,
+      workspaceRoot: session.metadata.projectPath,
+      extensionId: params?.extensionId,
+      installUrl: params?.installUrl,
+    });
+  }
+
+  async handleBrowserHandoffAttach(
+    _requestId: JsonRpcId,
+    params: { token: string }
+  ) {
+    const handoff = await attachBrowserHandoff(params.token);
+    if (!handoff) {
+      return { success: false };
+    }
+
+    if (!this.agent) {
+      throw new Error('Agent not initialized');
+    }
+
+    const attached = await this.agent.attachSession(handoff.sessionId);
+    this.sessionId = attached.sessionId;
+    this.workspace = attached.workspaceRoot;
+    this.model = attached.model;
+    this.status = 'idle';
+
+    return {
+      success: true,
+      sessionId: attached.sessionId,
+      workspaceRoot: attached.workspaceRoot,
+      messageCount: attached.messageCount,
+    };
+  }
+
+  async handleBrowserHandoffAttachLatest(
+    _requestId: JsonRpcId,
+    _params?: unknown,
+  ) {
+    const handoff = await attachLatestBrowserHandoff();
+    if (!handoff) {
+      return { success: false };
+    }
+
+    if (!this.agent) {
+      throw new Error('Agent not initialized');
+    }
+
+    const attached = await this.agent.attachSession(handoff.sessionId);
+    this.sessionId = attached.sessionId;
+    this.workspace = attached.workspaceRoot;
+    this.model = attached.model;
+    this.status = 'idle';
+
+    return {
+      success: true,
+      sessionId: attached.sessionId,
+      workspaceRoot: attached.workspaceRoot,
+      messageCount: attached.messageCount,
+    };
   }
 
   /**
@@ -1868,7 +1940,7 @@ export class RPCAdapter {
   /**
    * Shutdown the adapter
    */
-  shutdown(reason: 'completed' | 'aborted' | 'error' = 'completed'): void {
+  shutdown(reason: 'completed' | 'aborted' | 'error' | 'disconnected' = 'completed'): void {
     // Cancel any pending permissions
     for (const [, pending] of this.pendingPermissions) {
       if (pending.ackTimeout) {

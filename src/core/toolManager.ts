@@ -159,8 +159,24 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
+    name: 'find',
+    description: 'Find code, functions, variables, symbols, and surrounding context in the workspace. Use this as the default discovery tool. mode=exact uses ripgrep, mode=context returns surrounding lines, mode=semantic does broader fuzzy retrieval, and mode=auto picks the best strategy.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Text, regex, symbol name, or concept to find' },
+        path: { type: 'string', description: 'Optional relative path to search in' },
+        mode: { type: 'string', description: 'Search strategy: auto, exact, context, or semantic', enum: ['auto', 'exact', 'context', 'semantic'] },
+        context: { type: 'number', description: 'Number of surrounding lines to include when you want nearby code context' },
+        limit: { type: 'number', description: 'Maximum number of results to return' },
+        window: { type: 'number', description: 'Snippet window size for semantic mode (default 400)' }
+      },
+      required: ['query']
+    }
+  },
+  {
     name: 'search',
-    description: 'Search workspace text',
+    description: 'Legacy alias for `find` in exact mode. Prefer `find` for new tool calls.',
     parameters: {
       type: 'object',
       properties: {
@@ -172,7 +188,7 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'search_with_context',
-    description: 'Search workspace text with surrounding context',
+    description: 'Legacy alias for `find` with context. Prefer `find` with the `context` argument for new tool calls.',
     parameters: {
       type: 'object',
       properties: {
@@ -186,7 +202,7 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'semantic_search',
-    description: 'Search workspace text semantically with gitignore awareness',
+    description: 'Legacy alias for `find` in semantic mode. Prefer `find` with `mode: "semantic"` for new tool calls.',
     parameters: {
       type: 'object',
       properties: {
@@ -259,7 +275,7 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'run_command',
-    description: 'Execute shell commands with optional directory, background mode, and description. Prefer dedicated tools: read_file over cat, search over grep, search_replace over sed.',
+    description: 'Execute shell commands with optional directory, background mode, and description. Prefer dedicated tools: read_file over cat, find over grep, search_replace over sed.',
     parameters: {
       type: 'object',
       properties: {
@@ -979,6 +995,125 @@ Actions:
         schedule_id: { type: 'string', description: 'The job ID to cancel (from list_schedules)' },
       },
       required: ['schedule_id'],
+    },
+  },
+  // ── Browser tools (available when Chrome extension is connected via /chrome) ──
+  {
+    name: 'browser_screenshot',
+    description: 'Capture a screenshot of the page currently visible in the Chrome browser tab. Returns a base64 PNG image. Only available when the Chrome extension is connected.',
+    parameters: {
+      type: 'object',
+      properties: {
+        format: { type: 'string', description: 'Image format', enum: ['png', 'jpeg'] },
+        quality: { type: 'number', description: 'JPEG quality 0-100 (default: 80)' },
+      },
+    },
+  },
+  {
+    name: 'browser_click',
+    description: 'Click an element on the current browser page by CSS selector. Scrolls the element into view first. Only available when the Chrome extension is connected.',
+    parameters: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'CSS selector of the element to click' },
+      },
+      required: ['selector'],
+    },
+  },
+  {
+    name: 'browser_type',
+    description: 'Type text into an input, textarea, or contenteditable element on the current browser page. Only available when the Chrome extension is connected.',
+    parameters: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'CSS selector of the input element' },
+        text: { type: 'string', description: 'Text to type' },
+        clear: { type: 'boolean', description: 'Clear the field before typing (default: false)' },
+      },
+      required: ['selector', 'text'],
+    },
+  },
+  {
+    name: 'browser_navigate',
+    description: 'Navigate the active Chrome browser tab to a URL. Only available when the Chrome extension is connected.',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'URL to navigate to' },
+      },
+      required: ['url'],
+    },
+  },
+  {
+    name: 'browser_scroll',
+    description: 'Scroll the browser page in a direction, or scroll a specific element into view. Only available when the Chrome extension is connected.',
+    parameters: {
+      type: 'object',
+      properties: {
+        direction: { type: 'string', description: 'Scroll direction', enum: ['up', 'down', 'left', 'right'] },
+        amount: { type: 'number', description: 'Pixels to scroll (default: 500)' },
+        selector: { type: 'string', description: 'CSS selector to scroll into view (overrides direction)' },
+      },
+    },
+  },
+  {
+    name: 'browser_find_element',
+    description: 'Find elements on the current browser page by CSS selector, visible text content, or ARIA role. Returns up to 20 matches with their selectors. Only available when the Chrome extension is connected.',
+    parameters: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'CSS selector to match' },
+        text: { type: 'string', description: 'Text content to search for' },
+        role: { type: 'string', description: 'ARIA role to match' },
+      },
+    },
+  },
+  {
+    name: 'browser_press_key',
+    description: 'Press a keyboard key on the current browser page. For modifier combos use ctrl/shift/alt/meta params. Only available when the Chrome extension is connected.',
+    parameters: {
+      type: 'object',
+      properties: {
+        key: { type: 'string', description: 'Key name (e.g. Enter, Escape, Tab, a, 1)' },
+        ctrl: { type: 'string', description: 'Hold Ctrl (true/false)', enum: ['true', 'false'] },
+        shift: { type: 'string', description: 'Hold Shift (true/false)', enum: ['true', 'false'] },
+        alt: { type: 'string', description: 'Hold Alt (true/false)', enum: ['true', 'false'] },
+        meta: { type: 'string', description: 'Hold Cmd/Meta (true/false)', enum: ['true', 'false'] },
+      },
+      required: ['key'],
+    },
+  },
+  {
+    name: 'browser_get_page_context',
+    description: 'Extract the current browser page title, URL, headings, metadata, and body text content. Only available when the Chrome extension is connected.',
+    parameters: {
+      type: 'object',
+      properties: {
+        max_chars: { type: 'number', description: 'Max body text characters (default: 7000, max: 12000)' },
+      },
+    },
+  },
+  {
+    name: 'browser_get_element',
+    description: 'Get detailed properties of a DOM element on the current browser page: bounding rect, computed styles, attributes, value, disabled state. Only available when the Chrome extension is connected.',
+    parameters: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'CSS selector of the element' },
+      },
+      required: ['selector'],
+    },
+  },
+  {
+    name: 'browser_wait_for_element',
+    description: 'Wait for an element matching a CSS selector to appear on the current browser page. Only available when the Chrome extension is connected.',
+    parameters: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'CSS selector to wait for' },
+        timeout: { type: 'number', description: 'Max wait time in ms (default: 5000)' },
+      },
+      required: ['selector'],
     },
   },
 ];
