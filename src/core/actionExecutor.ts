@@ -1553,7 +1553,8 @@ export class ActionExecutor {
       case 'browser_read_network':
       case 'browser_read_console':
       case 'browser_get_tabs':
-      case 'browser_get_tab_groups': {
+      case 'browser_get_tab_groups':
+      case 'browser_execute_js': {
         return this.executeBrowserTool(action);
       }
       default: {
