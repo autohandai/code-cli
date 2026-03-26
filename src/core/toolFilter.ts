@@ -198,7 +198,7 @@ export const CONTEXT_POLICIES: Record<ClientContext, ToolPolicy> = {
       'browser_scroll', 'browser_find_element', 'browser_press_key',
       'browser_get_page_context', 'browser_get_element', 'browser_wait_for_element',
       'browser_read_console', 'browser_read_network', 'browser_get_tabs',
-      'browser_get_tab_groups',
+      'browser_get_tab_groups', 'browser_execute_js',
       // Basic file ops — restricted scope
       'read_file', 'write_file', 'find', 'search', 'list_tree',
       // Web
