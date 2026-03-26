@@ -89,7 +89,7 @@ function renderStatusUI(data: StatusData): Promise<void> {
             // Ensure we receive raw byte sequences (works even if readline keypress events are unavailable)
             readline.emitKeypressEvents(input);
             if (!wasRaw && typeof input.setRawMode === 'function') {
-                input.setRawMode(true);
+                try { input.setRawMode(true); } catch { /* TTY may be gone */ }
             }
             if (typeof input.setEncoding === 'function') {
                 input.setEncoding('utf8');
@@ -175,7 +175,7 @@ function renderStatusUI(data: StatusData): Promise<void> {
         const cleanup = () => {
             input.off('data', handler);
             if (isTTY && !wasRaw && typeof input.setRawMode === 'function') {
-                input.setRawMode(false);
+                try { input.setRawMode(false); } catch { /* TTY may be gone */ }
             }
             if (wasPaused && typeof input.pause === 'function') {
                 input.pause();

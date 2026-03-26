@@ -10,6 +10,8 @@ import crypto from 'node:crypto';
 import type { AutohandConfig } from '../types.js';
 import type { ErrorReport } from './types.js';
 import { AutoReportClient } from './AutoReportClient.js';
+import { ApiError } from '../providers/errors.js';
+import type { ApiErrorCode } from '../providers/errors.js';
 
 const isDebug = () => process.env.AUTOHAND_DEBUG === '1';
 
@@ -32,6 +34,33 @@ export class AutoReportManager {
   }
 
   /**
+   * API error codes that represent expected operational conditions, NOT bugs.
+   * These should never be auto-reported as GitHub issues.
+   */
+  private static readonly OPERATIONAL_API_ERROR_CODES: ReadonlySet<ApiErrorCode> = new Set([
+    'rate_limited',     // User hit rate limits — expected, handled by retry
+    'cancelled',        // User cancelled the request
+    'timeout',          // Provider too slow — expected for local inference
+    'network_error',    // Can't reach provider — user's network
+    'server_error',     // Provider is down — not our bug
+    'auth_failed',      // Bad API key — user config issue
+    'payment_required', // Account billing issue
+    'access_denied',    // API key lacks permissions
+    'model_not_found',  // Wrong model name — user config issue
+  ]);
+
+  /**
+   * Check if an error represents an expected operational condition
+   * that should NOT be auto-reported as a bug.
+   */
+  isOperationalError(error: Error): boolean {
+    if (error instanceof ApiError) {
+      return AutoReportManager.OPERATIONAL_API_ERROR_CODES.has(error.code);
+    }
+    return false;
+  }
+
+  /**
    * Compute a simple hash from error name + message for in-session deduplication
    */
   computeHash(error: Error): string {
@@ -46,6 +75,14 @@ export class AutoReportManager {
   async reportError(error: Error, context?: Partial<ErrorReport>): Promise<void> {
     try {
       if (!this.enabled) return;
+
+      // Skip expected operational errors — they are not bugs
+      if (this.isOperationalError(error)) {
+        if (isDebug()) {
+          process.stderr.write(`[autohand:report] Skipping operational error: ${(error as ApiError).code}\n`);
+        }
+        return;
+      }
 
       const hash = this.computeHash(error);
       if (this.reportedHashes.has(hash)) {

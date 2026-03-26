@@ -492,7 +492,13 @@ export class CursorImporter extends BaseImporter {
     messages: SessionMessage[];
   } | null> {
     // Lazy-load node:sqlite so the binary doesn't crash on runtimes that lack it (e.g. Bun)
-    const { DatabaseSync } = await import('node:sqlite');
+    let DatabaseSync: typeof import('node:sqlite').DatabaseSync;
+    try {
+      ({ DatabaseSync } = await import('node:sqlite'));
+    } catch {
+      // node:sqlite is unavailable on this runtime (e.g. Bun) — skip SQLite-based import
+      return null;
+    }
     const db = new DatabaseSync(dbPath, { readOnly: true } as Record<string, unknown>);
 
     try {

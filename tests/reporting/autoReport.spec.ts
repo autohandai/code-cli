@@ -56,6 +56,7 @@ vi.stubGlobal('fetch', mockFetch);
 
 import { AutoReportClient } from '../../src/reporting/AutoReportClient.js';
 import { AutoReportManager } from '../../src/reporting/AutoReportManager.js';
+import { ApiError } from '../../src/providers/errors.js';
 import type { AutohandConfig } from '../../src/types.js';
 
 // Helpers
@@ -502,6 +503,107 @@ describe('AutoReportManager', () => {
 
       const [url] = mockFetch.mock.calls[0];
       expect(url).toBe('https://custom.api.com/v1/reports');
+    });
+  });
+
+  describe('operational error filtering (should NOT report)', () => {
+    it('skips ApiError with rate_limited code', async () => {
+      mockFetch.mockResolvedValue(okResponse({ success: true }));
+      const mgr = new AutoReportManager(makeConfig(), '0.7.14');
+      const err = new ApiError('Rate limit exceeded', 'rate_limited', 429, true);
+
+      await mgr.reportError(err);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('skips ApiError with cancelled code', async () => {
+      mockFetch.mockResolvedValue(okResponse({ success: true }));
+      const mgr = new AutoReportManager(makeConfig(), '0.7.14');
+      const err = new ApiError('Request cancelled.', 'cancelled', 0, false);
+
+      await mgr.reportError(err);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('skips ApiError with timeout code', async () => {
+      mockFetch.mockResolvedValue(okResponse({ success: true }));
+      const mgr = new AutoReportManager(makeConfig(), '0.7.14');
+      const err = new ApiError('Ollama request timed out', 'timeout', 0, true);
+
+      await mgr.reportError(err);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('skips ApiError with network_error code', async () => {
+      mockFetch.mockResolvedValue(okResponse({ success: true }));
+      const mgr = new AutoReportManager(makeConfig(), '0.7.14');
+      const err = new ApiError('Cannot connect to Ollama', 'network_error', 0, true);
+
+      await mgr.reportError(err);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('skips ApiError with server_error code', async () => {
+      mockFetch.mockResolvedValue(okResponse({ success: true }));
+      const mgr = new AutoReportManager(makeConfig(), '0.7.14');
+      const err = new ApiError('Internal server error', 'server_error', 500, true);
+
+      await mgr.reportError(err);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('skips ApiError with auth_failed code', async () => {
+      mockFetch.mockResolvedValue(okResponse({ success: true }));
+      const mgr = new AutoReportManager(makeConfig(), '0.7.14');
+      const err = new ApiError('Authentication failed', 'auth_failed', 401, false);
+
+      await mgr.reportError(err);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('skips ApiError with payment_required code', async () => {
+      mockFetch.mockResolvedValue(okResponse({ success: true }));
+      const mgr = new AutoReportManager(makeConfig(), '0.7.14');
+      const err = new ApiError('Payment required', 'payment_required', 402, false);
+
+      await mgr.reportError(err);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('skips ApiError with access_denied code', async () => {
+      mockFetch.mockResolvedValue(okResponse({ success: true }));
+      const mgr = new AutoReportManager(makeConfig(), '0.7.14');
+      const err = new ApiError('Access denied', 'access_denied', 403, false);
+
+      await mgr.reportError(err);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('skips ApiError with model_not_found code', async () => {
+      mockFetch.mockResolvedValue(okResponse({ success: true }));
+      const mgr = new AutoReportManager(makeConfig(), '0.7.14');
+      const err = new ApiError('Model not found', 'model_not_found', 404, false);
+
+      await mgr.reportError(err);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('still reports ApiError with unknown code (genuine bugs)', async () => {
+      mockFetch.mockResolvedValue(okResponse({ success: true }));
+      const mgr = new AutoReportManager(makeConfig(), '0.7.14');
+      const err = new ApiError('Unexpected', 'unknown', 0, true);
+
+      await mgr.reportError(err);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('still reports ApiError with context_overflow code', async () => {
+      mockFetch.mockResolvedValue(okResponse({ success: true }));
+      const mgr = new AutoReportManager(makeConfig(), '0.7.14');
+      const err = new ApiError('Context overflow', 'context_overflow', 400, true);
+
+      await mgr.reportError(err);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
     });
   });
 });

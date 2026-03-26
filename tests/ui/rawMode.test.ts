@@ -47,5 +47,16 @@ describe('safeSetRawMode', () => {
     expect(safeSetRawMode(stream, false)).toBe(false);
     expect(stream.setRawMode).toHaveBeenCalledWith(false);
   });
+
+  it('swallows errno 9 (bad file descriptor) during component unmount', () => {
+    const stream = {
+      isTTY: true,
+      setRawMode: vi.fn(() => {
+        throw new Error('setRawMode failed with errno: 9');
+      }),
+    } as unknown as NodeJS.ReadStream & { setRawMode: (mode: boolean) => void };
+
+    expect(safeSetRawMode(stream, false)).toBe(false);
+  });
 });
 
