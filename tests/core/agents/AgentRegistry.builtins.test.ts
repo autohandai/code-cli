@@ -39,7 +39,7 @@ describe('AgentRegistry built-in agents', () => {
     expect(researcher).toBeDefined();
     expect(researcher!.description).toContain('searching and understanding');
     expect(researcher!.tools).toContain('read_file');
-    expect(researcher!.tools).toContain('search');
+    expect(researcher!.tools).toContain('find');
     expect(researcher!.source).toBe('builtin');
   });
 

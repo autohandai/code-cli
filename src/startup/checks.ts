@@ -10,6 +10,7 @@ import { constants as fsConstants } from 'node:fs';
 import os from 'node:os';
 import chalk from 'chalk';
 import fs from 'fs-extra';
+import { resolveRipgrepCommand } from '../utils/ripgrep.js';
 
 export interface ToolCheck {
   name: string;
@@ -101,10 +102,11 @@ const OPTIONAL_TOOLS: ToolCheck[] = [
 function checkTool(tool: ToolCheck): Promise<CheckResult> {
   const platform = os.platform() as 'darwin' | 'linux' | 'win32';
   const installHint = tool.installHints[platform] || tool.installHints.linux;
+  const command = tool.command === 'rg' ? resolveRipgrepCommand() : tool.command;
 
   return new Promise<CheckResult>((resolve) => {
     try {
-      const proc = spawn(tool.command, [tool.versionFlag], {
+      const proc = spawn(command, [tool.versionFlag], {
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 

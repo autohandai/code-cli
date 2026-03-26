@@ -87,6 +87,27 @@ describe('SuggestionEngine', () => {
     expect(errorEngine.getSuggestion()).toBeNull();
   });
 
+  it('routes debug lines through the injected logger when AUTOHAND_DEBUG=1', async () => {
+    const errorProvider = createMockProvider();
+    (errorProvider.complete as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('API down'));
+    const debugLogger = vi.fn();
+    const originalDebug = process.env.AUTOHAND_DEBUG;
+    process.env.AUTOHAND_DEBUG = '1';
+
+    try {
+      const errorEngine = new SuggestionEngine(errorProvider, { debugLogger });
+      await errorEngine.generate([{ role: 'user', content: 'test' }]);
+      expect(debugLogger).toHaveBeenCalledWith(expect.stringContaining('[SUGGESTION] Error after'));
+      expect(debugLogger).toHaveBeenCalledWith(expect.stringContaining('API down'));
+    } finally {
+      if (originalDebug === undefined) {
+        delete process.env.AUTOHAND_DEBUG;
+      } else {
+        process.env.AUTOHAND_DEBUG = originalDebug;
+      }
+    }
+  });
+
   it('should truncate suggestions longer than 80 characters', async () => {
     const longProvider = createMockProvider(
       'This is a really long suggestion that goes way beyond eighty characters and should be truncated to fit the prompt'
