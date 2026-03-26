@@ -45,7 +45,21 @@ vi.mock('../../src/startup/workspaceSafety.js', () => ({
   printDangerousWorkspaceWarning: mockPrintDangerousWorkspaceWarning
 }));
 
-// Mock i18n
+// Mock i18n — must also mock localeDetector since index.ts re-exports from it
+vi.mock('../../src/i18n/localeDetector.js', () => ({
+  detectLocale: mockDetectLocale,
+  normalizeLocale: vi.fn((l: string) => l),
+  isValidLocale: vi.fn(() => true),
+  SUPPORTED_LOCALES: ['en', 'fr', 'de', 'es', 'ja'],
+  LANGUAGE_DISPLAY_NAMES: {
+    en: 'English',
+    fr: 'Français (French)',
+    de: 'Deutsch (German)',
+    es: 'Español (Spanish)',
+    ja: '日本語 (Japanese)'
+  }
+}));
+
 vi.mock('../../src/i18n/index.js', () => ({
   t: (key: string, opts?: Record<string, string | number>) => {
     if (opts) {
@@ -112,8 +126,9 @@ vi.spyOn(process.stdin, 'once').mockImplementation((event: any, callback: any) =
   return process.stdin;
 });
 
-// Import after mocking
-import { SetupWizard } from '../../src/onboarding/setupWizard';
+// Import after mocking — use dynamic import to ensure mocks are applied
+// even when other test files have already loaded the real modules.
+const { SetupWizard } = await import('../../src/onboarding/setupWizard');
 
 /**
  * Set up mock sequence for OpenAI cloud provider flow with reasoning effort.
