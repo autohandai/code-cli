@@ -159,18 +159,38 @@ OpenAI API configuration.
 ```json
 {
   "openai": {
+    "authMode": "api-key",
     "apiKey": "sk-xxx",
     "baseUrl": "https://api.openai.com/v1",
-    "model": "gpt-4o"
+    "model": "gpt-5.4"
+  }
+}
+```
+
+OpenAI can also use your ChatGPT subscription via Autohand's built-in OpenAI sign-in flow:
+
+```json
+{
+  "openai": {
+    "authMode": "chatgpt",
+    "baseUrl": "https://api.openai.com/v1",
+    "model": "gpt-5.4",
+    "chatgptAuth": {
+      "accessToken": "...",
+      "refreshToken": "...",
+      "accountId": "..."
+    }
   }
 }
 ```
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `apiKey` | string | Yes | - | OpenAI API key |
+| `authMode` | string | No | `api-key` | Authentication mode: `api-key` or `chatgpt` |
+| `apiKey` | string | Yes for `api-key` mode | - | OpenAI API key |
 | `baseUrl` | string | No | `https://api.openai.com/v1` | API endpoint |
-| `model` | string | Yes | - | Model name (e.g., `gpt-4o`, `gpt-4o-mini`) |
+| `model` | string | Yes | - | Model name (e.g., `gpt-5.4`, `gpt-5.4-mini`) |
+| `chatgptAuth` | object | Yes for `chatgpt` mode | - | Stored ChatGPT/Codex auth tokens and account id |
 
 ### `mlx`
 MLX provider for Apple Silicon Macs (local inference).
@@ -283,7 +303,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 |-------|------|---------|-------------|
 | `theme` | `"dark"` | `"light"` | `"dark"` | Color theme for terminal output |
 | `autoConfirm` | boolean | `false` | Skip confirmation prompts for safe operations |
-| `readFileCharLimit` | number | `300` | Max characters to display from read/search tool output (full content is still sent to the model) |
+| `readFileCharLimit` | number | `300` | Max characters to display from read/find tool output (full content is still sent to the model) |
 | `showCompletionNotification` | boolean | `true` | Show system notification when task completes |
 | `showThinking` | boolean | `true` | Display LLM's reasoning/thought process |
 | `useInkRenderer` | boolean | `false` | Use Ink-based renderer for flicker-free UI (experimental) |
@@ -291,7 +311,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `checkForUpdates` | boolean | `true` | Check for CLI updates on startup |
 | `updateCheckInterval` | number | `24` | Hours between update checks (uses cached result within interval) |
 
-Note: `readFileCharLimit` only affects terminal display for `read_file`, `search`, and `search_with_context`. Full content is still sent to the model and stored in tool messages.
+Note: `readFileCharLimit` only affects terminal display for `read_file`, `find`, and the legacy aliases `search` and `search_with_context`. Full content is still sent to the model and stored in tool messages.
 
 ### Terminal Bell
 

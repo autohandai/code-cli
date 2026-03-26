@@ -657,6 +657,23 @@
     "mlx": "MLX (Apple Silicon)",
     "llmgateway": "LLM Gateway",
     "azure": "Azure OpenAI",
+    "openaiAuth": {
+      "chooseTitle": "Choose how to connect OpenAI",
+      "apiKeyLabel": "Use API key",
+      "apiKeyDescription": "Pay-per-use billing with your OpenAI API key",
+      "chatgptLabel": "Use ChatGPT account",
+      "chatgptDescription": "Use your ChatGPT subscription with OpenAI sign-in",
+      "starting": "Starting OpenAI sign-in...",
+      "browserPrompt": "Finish OpenAI sign-in in your browser:",
+      "browserOpened": "Browser opened. Complete the sign-in to continue.",
+      "openManually": "Could not open your browser automatically. Visit the URL above.",
+      "waiting": "Waiting for the browser sign-in to finish...",
+      "devicePrompt": "Sign in with your OpenAI account to continue:",
+      "deviceCodeLabel": "Enter this code: {{code}}",
+      "failed": "OpenAI sign-in failed: {{message}}",
+      "changeAuthOnly": "Change authentication only",
+      "changeModelAndAuth": "Change model and authentication"
+    },
     "hints": {
       "openrouter": "Cloud - Access to 100+ models (Claude, GPT-4, etc.)",
       "openai": "Cloud - Official OpenAI models (GPT-4o, o1, etc.)",
