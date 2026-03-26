@@ -1549,7 +1549,11 @@ export class ActionExecutor {
       case 'browser_press_key':
       case 'browser_get_page_context':
       case 'browser_get_element':
-      case 'browser_wait_for_element': {
+      case 'browser_wait_for_element':
+      case 'browser_read_network':
+      case 'browser_read_console':
+      case 'browser_get_tabs':
+      case 'browser_get_tab_groups': {
         return this.executeBrowserTool(action);
       }
       default: {

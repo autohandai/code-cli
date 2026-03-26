@@ -983,7 +983,11 @@ export type AgentAction =
   | { type: 'browser_press_key'; key: string; modifiers?: { ctrl?: boolean; shift?: boolean; alt?: boolean; meta?: boolean } }
   | { type: 'browser_get_page_context'; max_chars?: number }
   | { type: 'browser_get_element'; selector: string }
-  | { type: 'browser_wait_for_element'; selector: string; timeout?: number };
+  | { type: 'browser_wait_for_element'; selector: string; timeout?: number }
+  | { type: 'browser_read_console'; level?: 'error' | 'warn' | 'log' | 'info' | 'debug'; limit?: number }
+  | { type: 'browser_read_network'; urlPattern?: string; method?: string; status?: string; limit?: number }
+  | { type: 'browser_get_tabs' }
+  | { type: 'browser_get_tab_groups' };
 
 export type ExplorationEvent = { kind: 'read' | 'list' | 'search'; target: string };
 
