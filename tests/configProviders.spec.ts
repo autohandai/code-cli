@@ -77,4 +77,42 @@ describe('getProviderConfig', () => {
     const result = getProviderConfig(cfg);
     expect(result).toBeNull();
   });
+
+  it('returns openai chatgpt settings when configured with oauth tokens', () => {
+    const cfg: AutohandConfig = {
+      provider: 'openai',
+      openai: {
+        authMode: 'chatgpt',
+        model: 'gpt-5.4',
+        chatgptAuth: {
+          accessToken: 'chatgpt-access-token',
+          refreshToken: 'chatgpt-refresh-token',
+          accountId: 'account-123'
+        }
+      }
+    };
+
+    const result = getProviderConfig(cfg);
+    expect(result).not.toBeNull();
+    expect(result!.baseUrl).toBe('https://api.openai.com/v1');
+    expect(result!.model).toBe('gpt-5.4');
+    expect((result as AutohandConfig['openai'])?.authMode).toBe('chatgpt');
+    expect((result as AutohandConfig['openai'])?.chatgptAuth?.accountId).toBe('account-123');
+  });
+
+  it('returns null when openai chatgpt settings are missing account id', () => {
+    const cfg: AutohandConfig = {
+      provider: 'openai',
+      openai: {
+        authMode: 'chatgpt',
+        model: 'gpt-5.4',
+        chatgptAuth: {
+          accessToken: 'chatgpt-access-token'
+        }
+      }
+    };
+
+    const result = getProviderConfig(cfg);
+    expect(result).toBeNull();
+  });
 });
