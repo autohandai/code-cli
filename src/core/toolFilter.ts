@@ -188,12 +188,42 @@ export const CONTEXT_POLICIES: Record<ClientContext, ToolPolicy> = {
     ]
   },
 
+  // Chrome: Browser-first, limited file access
+  // Only browser_* tools + basic read/write for Downloads
+  chrome: {
+    allowedCategories: ['read', 'write', 'meta'],
+    allowedTools: [
+      // Browser tools — ALWAYS available, highest priority
+      'browser_screenshot', 'browser_click', 'browser_type', 'browser_navigate',
+      'browser_scroll', 'browser_find_element', 'browser_press_key',
+      'browser_get_page_context', 'browser_get_element', 'browser_wait_for_element',
+      'browser_read_console', 'browser_read_network', 'browser_get_tabs',
+      'browser_get_tab_groups',
+      // Basic file ops — restricted scope
+      'read_file', 'write_file', 'find', 'search', 'list_tree',
+      // Web
+      'web_search', 'fetch_url',
+      // Communication
+      'plan', 'ask_followup_question', 'todo_write',
+      'save_memory', 'recall_memory',
+      'tools_registry',
+    ],
+    blockedTools: [
+      'run_command', 'custom_command',
+      'git_push', 'git_reset', 'git_rebase', 'git_merge',
+      'git_cherry_pick', 'auto_commit', 'delete_path',
+      'create_directory', 'rename_path', 'copy_path',
+      'git_worktree_add', 'git_worktree_remove',
+      'delegate_task', 'delegate_parallel',
+    ],
+  },
+
   // Restricted: Read-only mode
   restricted: {
     allowedCategories: ['read', 'git_read', 'meta'],
     blockedTools: [
-      'list_tree',           // Even in read mode, don't expose full structure
-      'ask_followup_question' // Requires interactive terminal (may be running in restricted non-interactive mode)
+      'list_tree',
+      'ask_followup_question'
     ]
   }
 };

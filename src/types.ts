@@ -599,7 +599,7 @@ export interface LoadedConfig extends AutohandConfig {
 }
 
 /** Client context determines which tools are available */
-export type ClientContext = 'cli' | 'slack' | 'api' | 'restricted';
+export type ClientContext = 'cli' | 'chrome' | 'slack' | 'api' | 'restricted';
 
 export interface CLIOptions {
   prompt?: string;
