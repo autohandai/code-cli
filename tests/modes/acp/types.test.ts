@@ -52,6 +52,7 @@ describe('TOOL_KIND_MAP', () => {
   });
 
   it('contains expected search tools with ToolKind "search"', () => {
+    expect(TOOL_KIND_MAP['find']).toBe('search');
     expect(TOOL_KIND_MAP['search']).toBe('search');
     expect(TOOL_KIND_MAP['search_files']).toBe('search');
     expect(TOOL_KIND_MAP['search_with_context']).toBe('search');
@@ -204,6 +205,7 @@ describe('DEFAULT_ACP_MODES', () => {
 describe('resolveToolKind()', () => {
   it('returns correct kind for known tools', () => {
     expect(resolveToolKind('read_file')).toBe('read');
+    expect(resolveToolKind('find')).toBe('search');
     expect(resolveToolKind('search')).toBe('search');
     expect(resolveToolKind('write_file')).toBe('edit');
     expect(resolveToolKind('rename_path')).toBe('move');
