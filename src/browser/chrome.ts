@@ -645,6 +645,23 @@ export async function createBrowserHandoff(options: {
   };
 }
 
+/**
+ * Check if any non-expired handoff token exists (read-only, does not consume).
+ */
+export async function hasActiveHandoff(homeDir = AUTOHAND_HOME): Promise<boolean> {
+  const handoffDir = getHandoffDir(homeDir);
+  if (!(await pathExists(handoffDir))) return false;
+  const entries = await fs.readdir(handoffDir);
+  for (const entry of entries) {
+    if (!entry.endsWith('.json')) continue;
+    try {
+      const record = await readJson(path.join(handoffDir, entry)) as BrowserHandoffRecord;
+      if (new Date(record.expiresAt).getTime() > Date.now()) return true;
+    } catch { /* skip malformed */ }
+  }
+  return false;
+}
+
 export async function attachBrowserHandoff(token: string, homeDir = AUTOHAND_HOME): Promise<BrowserHandoffRecord | null> {
   const handoffPath = path.join(getHandoffDir(homeDir), `${token}.json`);
   if (!(await pathExists(handoffPath))) {
