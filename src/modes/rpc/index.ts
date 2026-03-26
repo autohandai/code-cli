@@ -143,15 +143,17 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
     }
 
     // Create runtime - permission mode is handled via RPC, not auto-approve
+    // clientContext 'chrome' restricts tools to browser_* + basic file ops
     const runtime: AgentRuntime = {
       config,
       workspaceRoot,
       options: {
         ...options,
+        clientContext: 'chrome',
         // Do NOT set yes: true - permissions are handled via RPC
       },
       additionalDirs: additionalDirs.length > 0 ? additionalDirs : undefined,
-      isRpcMode: true, // Indicates stdout must only contain JSON-RPC messages
+      isRpcMode: true,
     };
 
     // Create LLM provider
@@ -171,6 +173,15 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
 
     // Get conversation manager
     const conversation = ConversationManager.getInstance();
+
+    // Inject Chrome browser automation skill into the conversation
+    // This tells the LLM to prioritize browser_* tools over file/CLI tools
+    try {
+      const { CHROME_AUTOMATION_SYSTEM_PROMPT } = await import('../../browser/chromeSkill.js');
+      conversation.addSystemNote(CHROME_AUTOMATION_SYSTEM_PROMPT);
+    } catch {
+      // chromeSkill not available — continue without
+    }
 
     // Create RPC adapter
     adapter = new RPCAdapter();
