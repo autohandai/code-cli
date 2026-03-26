@@ -11,9 +11,10 @@ import { showModal, showInput, showPassword, showConfirm, type ModalOption } fro
 import fse from 'fs-extra';
 import { join } from 'path';
 
-import type { AutohandConfig, LoadedConfig, ProviderName, AzureSettings, AzureAuthMethod, PermissionMode, SearchProvider, ReasoningEffort } from '../types.js';
+import type { AutohandConfig, LoadedConfig, ProviderName, AzureSettings, AzureAuthMethod, PermissionMode, SearchProvider, ReasoningEffort, OpenAIAuthMode, OpenAIChatGPTAuth, OpenAISettings } from '../types.js';
 import { getProviderConfig } from '../config.js';
 import { ProviderFactory } from '../providers/ProviderFactory.js';
+import { authenticateOpenAIChatGPT, isChatGPTAuthExpired } from '../providers/openaiAuth.js';
 import { ProjectAnalyzer } from './projectAnalyzer.js';
 import { AgentsGenerator } from './agentsGenerator.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from '../startup/workspaceSafety.js';
@@ -87,6 +88,8 @@ interface OnboardingState {
   communitySkillsEnabled?: boolean;
   agentsFileCreated?: boolean;
   reasoningEffort?: ReasoningEffort;
+  openAIAuthMode?: OpenAIAuthMode;
+  openAIChatGPTAuth?: OpenAIChatGPTAuth;
   authToken?: string;
   authUser?: { id: string; email: string; name: string };
   skipped: OnboardingStep[];
@@ -179,7 +182,21 @@ export class SetupWizard {
         const azureResult = await this.promptAzureConfig();
         if (!azureResult) return this.cancelled();
       } else {
-        if (this.requiresApiKey(provider)) {
+        if (provider === 'openai') {
+          const authMode = await this.promptOpenAIAuthMode();
+          if (!authMode) return this.cancelled();
+          this.state.openAIAuthMode = authMode;
+
+          if (authMode === 'chatgpt') {
+            const chatgptAuth = await this.promptOpenAIChatGPTAuth();
+            if (!chatgptAuth) return this.cancelled();
+            this.state.openAIChatGPTAuth = chatgptAuth;
+          } else {
+            const apiKey = await this.promptApiKey(provider);
+            if (apiKey === null) return this.cancelled();
+            await this.validateApiKeyDuringSetup();
+          }
+        } else if (this.requiresApiKey(provider)) {
           const apiKey = await this.promptApiKey(provider);
           if (apiKey === null) return this.cancelled();
           // Validate API key for cloud providers
@@ -289,6 +306,10 @@ export class SetupWizard {
     if (!providerConfig) return false;
 
     // For providers that require an API key, check if it's set and valid
+    if (provider === 'openai') {
+      return this.isOpenAIConfigured(providerConfig as OpenAISettings);
+    }
+
     if (this.requiresApiKey(provider)) {
       const apiKey = (providerConfig as any).apiKey;
       if (!apiKey || apiKey === 'replace-me' || apiKey.length < 10) {
@@ -361,6 +382,10 @@ export class SetupWizard {
     if (!providerConfig) return false;
 
     // For providers that require an API key, check if it's set and valid
+    if (provider === 'openai') {
+      return this.isOpenAIConfigured(providerConfig as OpenAISettings);
+    }
+
     if (this.requiresApiKey(provider)) {
       const apiKey = (providerConfig as any).apiKey;
       return apiKey && apiKey !== 'replace-me' && apiKey.length >= 10;
@@ -408,6 +433,53 @@ export class SetupWizard {
 
     this.state.apiKey = apiKey.trim();
     return this.state.apiKey;
+  }
+
+  private async promptOpenAIAuthMode(): Promise<OpenAIAuthMode | null> {
+    const result = await showModal({
+      title: t('providers.openaiAuth.chooseTitle'),
+      options: [
+        {
+          label: t('providers.openaiAuth.apiKeyLabel'),
+          value: 'api-key',
+          description: t('providers.openaiAuth.apiKeyDescription')
+        },
+        {
+          label: t('providers.openaiAuth.chatgptLabel'),
+          value: 'chatgpt',
+          description: t('providers.openaiAuth.chatgptDescription')
+        }
+      ],
+      initialIndex: this.getExistingOpenAIAuthMode() === 'chatgpt' ? 1 : 0
+    });
+
+    return (result?.value as OpenAIAuthMode | undefined) ?? null;
+  }
+
+  private async promptOpenAIChatGPTAuth(): Promise<OpenAIChatGPTAuth | null> {
+    const existing = this.getExistingOpenAIChatGPTAuth();
+    if (existing && !isChatGPTAuthExpired(existing)) {
+      this.state.openAIChatGPTAuth = existing;
+      return existing;
+    }
+
+    try {
+      console.log(chalk.gray(`\n  ${t('providers.openaiAuth.starting')}`));
+      const auth = await authenticateOpenAIChatGPT({
+        onPrompt: ({ authorizationUrl, browserOpened }) => {
+          console.log(chalk.gray(`\n  ${t('providers.openaiAuth.browserPrompt')}`));
+          console.log(chalk.white(`  ${authorizationUrl}`));
+          console.log(chalk.gray(`  ${browserOpened ? t('providers.openaiAuth.browserOpened') : t('providers.openaiAuth.openManually')}`));
+          console.log(chalk.gray(`  ${t('providers.openaiAuth.waiting')}\n`));
+        },
+      });
+      this.state.openAIChatGPTAuth = auth;
+      return auth;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.log(chalk.red(`\n  ${t('providers.openaiAuth.failed', { message })}`));
+      throw error;
+    }
   }
 
   /**
@@ -792,6 +864,22 @@ export class SetupWizard {
     if (this.state.provider) {
       if (this.state.provider === 'azure' && this.state.azureConfig) {
         config.azure = this.state.azureConfig;
+      } else if (this.state.provider === 'openai' && this.state.openAIAuthMode === 'chatgpt') {
+        config.openai = {
+          authMode: 'chatgpt',
+          chatgptAuth: this.state.openAIChatGPTAuth,
+          model: this.state.model ?? this.getDefaultModel('openai'),
+          baseUrl: 'https://chatgpt.com/backend-api/codex',
+          ...(this.state.reasoningEffort !== undefined && { reasoningEffort: this.state.reasoningEffort })
+        };
+      } else if (this.state.provider === 'openai') {
+        config.openai = {
+          authMode: 'api-key',
+          apiKey: this.state.apiKey,
+          model: this.state.model ?? this.getDefaultModel('openai'),
+          baseUrl: this.getDefaultBaseUrl('openai'),
+          ...(this.state.reasoningEffort !== undefined && { reasoningEffort: this.state.reasoningEffort })
+        };
       } else if (this.requiresApiKey(this.state.provider)) {
         (config as any)[this.state.provider] = {
           apiKey: this.state.apiKey,
@@ -1470,7 +1558,7 @@ export class SetupWizard {
   // Helper methods
 
   private requiresApiKey(provider: ProviderName): boolean {
-    return provider === 'openrouter' || provider === 'openai' || provider === 'llmgateway';
+    return provider === 'openrouter' || provider === 'llmgateway';
   }
 
   private getProviderDisplayName(provider: ProviderName): string {
@@ -1520,6 +1608,24 @@ export class SetupWizard {
     if (!this.existingConfig) return null;
     const config = (this.existingConfig as any)[provider];
     return config?.apiKey || null;
+  }
+
+  private getExistingOpenAIAuthMode(): OpenAIAuthMode {
+    const config = this.existingConfig?.openai;
+    return config?.authMode === 'chatgpt' ? 'chatgpt' : 'api-key';
+  }
+
+  private getExistingOpenAIChatGPTAuth(): OpenAIChatGPTAuth | null {
+    const auth = this.existingConfig?.openai?.chatgptAuth;
+    return auth && auth.accessToken && auth.accountId ? auth : null;
+  }
+
+  private isOpenAIConfigured(config: OpenAISettings): boolean {
+    if (config.authMode === 'chatgpt') {
+      return !!config.chatgptAuth?.accessToken && !!config.chatgptAuth?.accountId;
+    }
+
+    return !!config.apiKey && config.apiKey !== 'replace-me' && config.apiKey.length >= 10;
   }
 
   private isCancellation(error: unknown): boolean {

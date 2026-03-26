@@ -6,27 +6,20 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// Use vi.hoisted() to ensure mock functions are available when vi.mock is hoisted
-const {
-  mockShowModal, mockShowInput, mockShowPassword, mockShowConfirm,
-  mockPathExists, mockReadJson, mockReadFile, mockWriteFile,
-  mockCheckWorkspaceSafety, mockPrintDangerousWorkspaceWarning,
-  mockChangeLanguage, mockDetectLocale, mockFetch
-} = vi.hoisted(() => ({
-  mockShowModal: vi.fn(),
-  mockShowInput: vi.fn(),
-  mockShowPassword: vi.fn(),
-  mockShowConfirm: vi.fn(),
-  mockPathExists: vi.fn(),
-  mockReadJson: vi.fn(),
-  mockReadFile: vi.fn(),
-  mockWriteFile: vi.fn(),
-  mockCheckWorkspaceSafety: vi.fn(),
-  mockPrintDangerousWorkspaceWarning: vi.fn(),
-  mockChangeLanguage: vi.fn(),
-  mockDetectLocale: vi.fn(),
-  mockFetch: vi.fn()
-}));
+var mockShowModal = vi.fn();
+var mockShowInput = vi.fn();
+var mockShowPassword = vi.fn();
+var mockShowConfirm = vi.fn();
+var mockPathExists = vi.fn();
+var mockReadJson = vi.fn();
+var mockReadFile = vi.fn();
+var mockWriteFile = vi.fn();
+var mockCheckWorkspaceSafety = vi.fn();
+var mockPrintDangerousWorkspaceWarning = vi.fn();
+var mockChangeLanguage = vi.fn();
+var mockDetectLocale = vi.fn();
+var mockFetch = vi.fn();
+var mockAuthenticateOpenAIChatGPT = vi.fn();
 
 // Mock Modal components
 vi.mock('../../src/ui/ink/components/Modal.js', () => ({
@@ -82,6 +75,11 @@ vi.mock('../../src/auth/index.js', () => ({
     initiateDeviceAuth: vi.fn().mockResolvedValue({ success: false, error: 'not configured' }),
     pollDeviceAuth: vi.fn().mockResolvedValue({ success: false, status: 'pending' }),
   }),
+}));
+
+vi.mock('../../src/providers/openaiAuth.js', () => ({
+  authenticateOpenAIChatGPT: mockAuthenticateOpenAIChatGPT,
+  isChatGPTAuthExpired: vi.fn(() => false),
 }));
 
 // Mock 'open' package
@@ -140,10 +138,11 @@ function setupOpenAIWithReasoningEffort(opts: {
   model: string;
   reasoningEffort: string;
 }) {
-  // showModal calls: language, provider, reasoning effort, permissions
+  // showModal calls: language, provider, auth mode, reasoning effort, permissions
   mockShowModal
     .mockResolvedValueOnce({ value: 'en' })                     // language
     .mockResolvedValueOnce({ value: 'openai' })                  // provider
+    .mockResolvedValueOnce({ value: 'api-key' })                 // auth mode
     .mockResolvedValueOnce({ value: opts.reasoningEffort })      // reasoning effort
     .mockResolvedValueOnce({ value: 'interactive' });            // permissions
 
@@ -208,7 +207,7 @@ describe('SetupWizard — Reasoning Effort', () => {
     mockDetectLocale.mockReturnValue({ locale: 'en', source: 'fallback' });
     mockChangeLanguage.mockResolvedValue(undefined);
     mockFetch.mockResolvedValue({ ok: true, status: 200 });
-    vi.stubGlobal('fetch', mockFetch);
+    (globalThis as Record<string, unknown>).fetch = mockFetch;
   });
 
   it('should prompt for reasoning effort when provider is OpenAI', async () => {
@@ -221,8 +220,7 @@ describe('SetupWizard — Reasoning Effort', () => {
     const result = await wizard.run({ skipWelcome: true });
 
     expect(result.success).toBe(true);
-    // Verify reasoning effort modal was shown (3rd showModal call after language and provider)
-    expect(mockShowModal).toHaveBeenCalledTimes(4); // language, provider, reasoning, permissions
+    expect(mockShowModal).toHaveBeenCalledTimes(5);
   });
 
   it('should include reasoningEffort in final config for OpenAI', async () => {
@@ -295,5 +293,93 @@ describe('SetupWizard — Reasoning Effort', () => {
 
     expect(result.success).toBe(true);
     expect((result.config?.openai as any)?.model).toBe('gpt-5.4');
+  });
+
+  it('should allow openai chatgpt auth mode during onboarding', async () => {
+    mockAuthenticateOpenAIChatGPT.mockResolvedValue({
+      accessToken: 'chatgpt-access-token',
+      refreshToken: 'chatgpt-refresh-token',
+      accountId: 'chatgpt-account-123',
+    });
+
+    mockShowModal
+      .mockResolvedValueOnce({ value: 'en' })
+      .mockResolvedValueOnce({ value: 'openai' })
+      .mockResolvedValueOnce({ value: 'chatgpt' })
+      .mockResolvedValueOnce({ value: 'high' })
+      .mockResolvedValueOnce({ value: 'interactive' });
+
+    mockShowInput.mockResolvedValueOnce('gpt-5.4');
+
+    mockShowConfirm
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+
+    const wizard = new SetupWizard(testWorkspace);
+    const result = await wizard.run({ skipWelcome: true });
+
+    expect(result.success).toBe(true);
+    expect(mockAuthenticateOpenAIChatGPT).toHaveBeenCalledOnce();
+    expect(result.config.openai?.authMode).toBe('chatgpt');
+    expect(result.config.openai?.chatgptAuth?.accountId).toBe('chatgpt-account-123');
+  });
+
+  it('prints a visible sign-in status before requesting chatgpt auth', async () => {
+    mockAuthenticateOpenAIChatGPT.mockResolvedValue({
+      accessToken: 'chatgpt-access-token',
+      refreshToken: 'chatgpt-refresh-token',
+      accountId: 'chatgpt-account-123',
+    });
+
+    mockShowModal
+      .mockResolvedValueOnce({ value: 'en' })
+      .mockResolvedValueOnce({ value: 'openai' })
+      .mockResolvedValueOnce({ value: 'chatgpt' })
+      .mockResolvedValueOnce({ value: 'high' })
+      .mockResolvedValueOnce({ value: 'interactive' });
+
+    mockShowInput.mockResolvedValueOnce('gpt-5.4');
+
+    mockShowConfirm
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+
+    const wizard = new SetupWizard(testWorkspace);
+    await wizard.run({ skipWelcome: true });
+
+    const logCalls = (console.log as any).mock.calls.map((c: any[]) => c[0]).filter(Boolean);
+    expect(logCalls.some((msg: string) =>
+      typeof msg === 'string' && msg.includes('providers.openaiAuth.starting')
+    )).toBe(true);
+  });
+
+  it('should print the auth error message when chatgpt sign-in fails', async () => {
+    mockAuthenticateOpenAIChatGPT.mockRejectedValueOnce(new Error('device auth forbidden'));
+
+    mockShowModal
+      .mockResolvedValueOnce({ value: 'en' })
+      .mockResolvedValueOnce({ value: 'openai' })
+      .mockResolvedValueOnce({ value: 'chatgpt' });
+
+    const wizard = new SetupWizard(testWorkspace);
+
+    await expect(wizard.run({ skipWelcome: true })).rejects.toThrow('device auth forbidden');
+
+    const logCalls = (console.log as any).mock.calls.map((c: any[]) => c[0]).filter(Boolean);
+    expect(logCalls.some((msg: string) =>
+      typeof msg === 'string' && msg.includes('providers.openaiAuth.failed')
+    )).toBe(true);
   });
 });
