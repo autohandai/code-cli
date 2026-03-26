@@ -93,7 +93,13 @@ export class SlashCommandHandler {
         }
         case '/resume': {
           const { resume } = await import('../commands/resume.js');
-          return resume({ sessionManager: this.ctx.sessionManager, args, workspaceRoot: this.ctx.workspaceRoot });
+          return resume({
+            sessionManager: this.ctx.sessionManager,
+            args,
+            workspaceRoot: this.ctx.workspaceRoot,
+            onBeforeModal: this.ctx.onBeforeModal,
+            onAfterModal: this.ctx.onAfterModal,
+          });
         }
         case '/sessions': {
           const { sessions } = await import('../commands/sessions.js');
@@ -184,6 +190,10 @@ export class SlashCommandHandler {
           });
           return null;
         }
+        case '/chrome': {
+          const { chrome } = await import('../commands/chrome.js');
+          return chrome(this.ctx);
+        }
         case '/status': {
           const { status } = await import('../commands/status.js');
           return status(this.ctx);
@@ -260,6 +270,8 @@ export class SlashCommandHandler {
           const { automode } = await import('../commands/automode.js');
           return automode({
             automodeManager: this.ctx.automodeManager,
+            isInteractiveAutomodeEnabled: this.ctx.isInteractiveAutomodeEnabled,
+            setInteractiveAutomodeEnabled: this.ctx.setInteractiveAutomodeEnabled,
             workspaceRoot: this.ctx.workspaceRoot,
           }, args);
         }

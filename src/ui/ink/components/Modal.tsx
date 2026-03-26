@@ -7,6 +7,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { Box, Text, useInput, render, type Instance } from 'ink';
 import { I18nProvider, useTranslation } from '../../i18n/index.js';
+import { disableBracketedPaste, enableBracketedPaste } from '../../displayUtils.js';
 
 /**
  * Represents an option in the modal.
@@ -131,6 +132,8 @@ function unmountAndResolve<T>(
   resolve: (value: T) => void
 ): void {
   instance.unmount();
+  // Re-enable bracketed paste after the modal releases the terminal.
+  enableBracketedPaste(process.stdout);
   // Give Ink one tick to fully release terminal control before the next UI mounts.
   process.nextTick(() => resolve(value));
 }
@@ -218,6 +221,12 @@ function Modal(props: ModalProps) {
     }
     return '';
   });
+  const [inputCursor, setInputCursor] = useState<number>(() => {
+    if (mode === 'input' && 'defaultValue' in props && typeof props.defaultValue === 'string') {
+      return props.defaultValue.length;
+    }
+    return 0;
+  });
   const [validationError, setValidationError] = useState<string | null>(null);
 
   // Build choices for select/confirm modes
@@ -298,14 +307,44 @@ function Modal(props: ModalProps) {
         return;
       }
 
-      if (key.backspace || key.delete) {
-        setInputValue((prev: string) => prev.slice(0, -1));
-        setValidationError(null);
+      // Cursor movement
+      if (key.leftArrow) {
+        setInputCursor((prev) => Math.max(0, prev - 1));
+        return;
+      }
+      if (key.rightArrow) {
+        setInputCursor((prev) => Math.min(inputValue.length, prev + 1));
+        return;
+      }
+      // Home / Ctrl+A
+      if ((char === 'a' && key.ctrl) || key.meta && key.leftArrow) {
+        setInputCursor(0);
+        return;
+      }
+      // End / Ctrl+E
+      if ((char === 'e' && key.ctrl) || key.meta && key.rightArrow) {
+        setInputCursor(inputValue.length);
         return;
       }
 
+      // Backspace: delete character before cursor
+      if (key.backspace || key.delete) {
+        if (inputCursor > 0) {
+          setInputValue((prev: string) =>
+            prev.slice(0, inputCursor - 1) + prev.slice(inputCursor)
+          );
+          setInputCursor((prev) => prev - 1);
+          setValidationError(null);
+        }
+        return;
+      }
+
+      // Insert character at cursor position
       if (char && !key.ctrl && !key.meta) {
-        setInputValue((prev: string) => prev + char);
+        setInputValue((prev: string) =>
+          prev.slice(0, inputCursor) + char + prev.slice(inputCursor)
+        );
+        setInputCursor((prev) => prev + char.length);
         setValidationError(null);
       }
       return;
@@ -411,12 +450,24 @@ function Modal(props: ModalProps) {
       const placeholderText = ('placeholder' in props && props.placeholder) ||
         (mode === 'password' ? t('ui.passwordPlaceholder') : t('ui.inputPlaceholder'));
 
+      // Render text with cursor indicator at the correct position
+      const beforeCursor = displayValue.slice(0, inputCursor);
+      const atCursor = displayValue[inputCursor] ?? ' ';
+      const afterCursor = displayValue.slice(inputCursor + 1);
+
       return (
         <>
           <Box>
             <Text color="yellow">&gt; </Text>
-            <Text>{displayValue || <Text color="gray">{placeholderText}</Text>}</Text>
-            <Text color="gray">█</Text>
+            {displayValue ? (
+              <Text>
+                {beforeCursor}
+                <Text inverse>{atCursor}</Text>
+                {afterCursor}
+              </Text>
+            ) : (
+              <Text color="gray">{placeholderText}<Text inverse>{' '}</Text></Text>
+            )}
           </Box>
           {validationError && (
             <Box marginTop={1}>
@@ -568,6 +619,9 @@ export async function showModal(
     return null;
   }
 
+  // Disable bracketed paste so escape sequences don't leak into Ink's useInput.
+  disableBracketedPaste(process.stdout);
+
   return new Promise((resolve) => {
     let completed = false;
 
@@ -623,6 +677,8 @@ export async function showConfirm(options: {
   if (!process.stdout.isTTY) {
     return false;
   }
+
+  disableBracketedPaste(process.stdout);
 
   return new Promise((resolve) => {
     let completed = false;
@@ -681,6 +737,8 @@ export async function showInput(options: {
     return null;
   }
 
+  disableBracketedPaste(process.stdout);
+
   return new Promise((resolve) => {
     let completed = false;
 
@@ -734,6 +792,8 @@ export async function showPassword(options: {
   if (!process.stdout.isTTY) {
     return null;
   }
+
+  disableBracketedPaste(process.stdout);
 
   return new Promise((resolve) => {
     let completed = false;
