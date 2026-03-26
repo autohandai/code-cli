@@ -24,6 +24,7 @@ Complete reference for all configuration options in `~/.autohand/config.json` (o
 - [Settings Sync](#settings-sync)
 - [Hooks Settings](#hooks-settings)
 - [MCP Settings](#mcp-settings)
+- [Chrome Extension Settings](#chrome-extension-settings)
 - [Complete Example](#complete-example)
 
 ---
@@ -1248,6 +1249,48 @@ When hooks execute, these environment variables are available:
 | `HOOK_SUCCESS` | true/false (post-tool) |
 | `HOOK_PATH` | File path (file-modified) |
 | `HOOK_TOKENS` | Tokens used (post-response) |
+
+---
+
+## Chrome Extension Settings
+
+Control the Autohand Chrome extension integration. See the full guide at [Autohand in Chrome](./autohand-in-chrome.md).
+
+```json
+{
+  "chrome": {
+    "extensionId": "your-extension-id",
+    "enabledByDefault": false,
+    "browser": "auto",
+    "userDataDir": "/path/to/chrome/user-data",
+    "profileDirectory": "Default",
+    "installUrl": "https://autohand.ai/chrome"
+  }
+}
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `extensionId` | `string` | — | Installed Chrome extension ID for direct handoff |
+| `enabledByDefault` | `boolean` | `false` | Start browser bridge automatically with the CLI |
+| `browser` | `string` | `"auto"` | Preferred Chromium browser: `auto`, `chrome`, `chromium`, `brave`, `edge` |
+| `userDataDir` | `string` | — | Browser user data directory to target the correct profile |
+| `profileDirectory` | `string` | — | Browser profile directory name (e.g., `"Default"`, `"Profile 1"`) |
+| `installUrl` | `string` | — | Fallback URL when the extension ID is not configured |
+
+### CLI Flags
+
+```bash
+autohand --chrome          # Start with browser bridge enabled
+autohand --no-chrome       # Start with browser bridge disabled
+```
+
+### Slash Commands
+
+```
+/chrome                    # Open Chrome integration panel
+/chrome disconnect         # Close the browser bridge connection
+```
 
 ---
 
