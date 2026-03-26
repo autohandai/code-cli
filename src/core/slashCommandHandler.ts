@@ -192,7 +192,7 @@ export class SlashCommandHandler {
         }
         case '/chrome': {
           const { chrome } = await import('../commands/chrome.js');
-          return chrome(this.ctx);
+          return chrome(this.ctx, args);
         }
         case '/status': {
           const { status } = await import('../commands/status.js');
