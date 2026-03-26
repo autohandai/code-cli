@@ -48,6 +48,7 @@ import * as tasksCmd from '../commands/tasks.js';
 import * as messageCmd from '../commands/message.js';
 import * as importCmd from '../commands/import.js';
 import * as repeatCmd from '../commands/repeat.js';
+import * as chromeCmd from '../commands/chrome.js';
 
 import type { SlashCommand } from './slashCommandTypes.js';
 export type { SlashCommand } from './slashCommandTypes.js';
@@ -105,4 +106,5 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   messageCmd.metadata,
   importCmd.metadata,
   repeatCmd.metadata,
+  chromeCmd.metadata,
 ] as (SlashCommand | undefined)[]).filter((cmd): cmd is SlashCommand => cmd != null && typeof cmd.command === 'string');

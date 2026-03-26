@@ -47,6 +47,10 @@ export interface SlashCommandContext {
     skillsRegistry?: SkillsRegistry;
     /** Auto-mode manager for /automode commands */
     automodeManager?: AutomodeManager;
+    /** Interactive auto-mode toggle state for /automode commands */
+    isInteractiveAutomodeEnabled?: () => boolean;
+    /** Toggle interactive auto-mode state for /automode commands */
+    setInteractiveAutomodeEnabled?: (enabled: boolean) => void;
     /** MCP client manager for /mcp commands */
     mcpManager?: McpClientManager;
     /** File action manager for /add-dir commands */
