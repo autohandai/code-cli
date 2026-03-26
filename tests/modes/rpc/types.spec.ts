@@ -270,6 +270,9 @@ describe('JSON-RPC 2.0 Types', () => {
       expect(RPC_METHODS.RESET).toBe('autohand.reset');
       expect(RPC_METHODS.GET_STATE).toBe('autohand.getState');
       expect(RPC_METHODS.GET_MESSAGES).toBe('autohand.getMessages');
+      expect(RPC_METHODS.BROWSER_HANDOFF_CREATE).toBe('autohand.browserHandoff.create');
+      expect(RPC_METHODS.BROWSER_HANDOFF_ATTACH).toBe('autohand.browserHandoff.attach');
+      expect(RPC_METHODS.BROWSER_HANDOFF_ATTACH_LATEST).toBe('autohand.browserHandoff.attachLatest');
       expect(RPC_METHODS.PERMISSION_RESPONSE).toBe('autohand.permissionResponse');
     });
   });
