@@ -101,6 +101,8 @@ export async function resume(ctx: {
     sessionManager: SessionManager;
     args: string[];
     workspaceRoot?: string;
+    onBeforeModal?: () => void;
+    onAfterModal?: () => void;
 }): Promise<string | null> {
     const sessionId = ctx.args[0];
 
@@ -155,10 +157,17 @@ export async function resume(ctx: {
             description: choice.hint
         }));
 
-        const result = await showModal({
-            title: 'Choose a session',
-            options
-        });
+        ctx.onBeforeModal?.();
+        const result = await (async () => {
+            try {
+                return await showModal({
+                    title: 'Choose a session',
+                    options
+                });
+            } finally {
+                ctx.onAfterModal?.();
+            }
+        })();
 
         if (!result) {
             console.log(chalk.gray('\nResume cancelled.'));
