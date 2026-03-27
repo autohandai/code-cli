@@ -75,6 +75,8 @@ export interface SlashCommandContext {
     teamManager?: TeamManager;
     /** Repeat manager for /repeat recurring prompt scheduling */
     repeatManager?: RepeatManager;
+    /** Queue an instruction to be sent to the LLM on the next turn (not displayed to user) */
+    queueInstruction?: (instruction: string) => void;
 }
 
 export interface SlashCommandSubcommand {

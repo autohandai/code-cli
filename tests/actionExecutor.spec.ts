@@ -496,6 +496,31 @@ describe('ActionExecutor', () => {
       diffSpy.mockRestore();
     });
 
+    it('executes git_diff without path to show all uncommitted changes', async () => {
+      const diffAllSpy = vi.spyOn(gitActions, 'diffWorkspace').mockReturnValue('workspace diff output');
+      const executor = createExecutor();
+
+      // path is omitted — should NOT throw and should call diffWorkspace
+      const result = await executor.execute({ type: 'git_diff' } as any);
+
+      expect(diffAllSpy).toHaveBeenCalledWith('/repo');
+      expect(result).toContain('workspace diff output');
+      diffAllSpy.mockRestore();
+    });
+
+    it('executes git_diff without path in dry-run mode', async () => {
+      const diffAllSpy = vi.spyOn(gitActions, 'diffWorkspace').mockReturnValue('workspace diff output');
+      const executor = createExecutor(
+        {},
+        { runtime: { options: { dryRun: true } } as any }
+      );
+
+      const result = await executor.execute({ type: 'git_diff' } as any);
+
+      expect(result).toBeDefined();
+      diffAllSpy.mockRestore();
+    });
+
     it('accepts diff alias for git_apply_patch', async () => {
       const patchSpy = vi.spyOn(gitActions, 'applyGitPatch').mockImplementation(() => 'ok');
       const executor = createExecutor();
