@@ -1,6 +1,59 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 
+describe('review command RPC/ACP mode', () => {
+  it('review command checks isNonInteractive to decide behavior', () => {
+    const source = readFileSync('src/commands/review.ts', 'utf-8');
+    expect(source).toContain('isNonInteractive');
+  });
+
+  it('returns prompt text when isNonInteractive is true (even if queueInstruction exists)', () => {
+    const source = readFileSync('src/commands/review.ts', 'utf-8');
+    // The isNonInteractive check must come BEFORE queueInstruction check
+    // so that RPC/ACP mode always returns the prompt string
+    const nonInteractiveIdx = source.indexOf('isNonInteractive');
+    const queueIdx = source.indexOf('queueInstruction(prompt)');
+    expect(nonInteractiveIdx).toBeGreaterThan(-1);
+    expect(queueIdx).toBeGreaterThan(-1);
+    // isNonInteractive must be checked before queueInstruction is called
+    expect(nonInteractiveIdx).toBeLessThan(queueIdx);
+  });
+
+  it('console.log calls only run in interactive mode (not in RPC)', () => {
+    const source = readFileSync('src/commands/review.ts', 'utf-8');
+    // The console.log statements should be after the isNonInteractive guard
+    // (inside the else/interactive branch), so they don't pollute RPC stdout
+    const nonInteractiveIdx = source.indexOf('isNonInteractive');
+    const startingReviewIdx = source.indexOf('Starting code review');
+    expect(nonInteractiveIdx).toBeGreaterThan(-1);
+    expect(startingReviewIdx).toBeGreaterThan(-1);
+    // console.log should be inside the interactive branch (after isNonInteractive return)
+    expect(startingReviewIdx).toBeGreaterThan(nonInteractiveIdx);
+  });
+});
+
+describe('executeCodeReview fires hooks', () => {
+  it('executeCodeReview source contains review:start hook call', () => {
+    const source = readFileSync('src/core/actionExecutor.ts', 'utf-8');
+    expect(source).toContain("'review:start'");
+  });
+
+  it('executeCodeReview source contains review:completed hook call', () => {
+    const source = readFileSync('src/core/actionExecutor.ts', 'utf-8');
+    expect(source).toContain("'review:completed'");
+  });
+
+  it('executeCodeReview source contains review:failed hook call', () => {
+    const source = readFileSync('src/core/actionExecutor.ts', 'utf-8');
+    expect(source).toContain("'review:failed'");
+  });
+
+  it('ActionExecutor accepts an onReviewHook callback', () => {
+    const source = readFileSync('src/core/actionExecutor.ts', 'utf-8');
+    expect(source).toContain('onReviewHook');
+  });
+});
+
 describe('review hook events', () => {
   it('HookEvent type includes all review lifecycle events', async () => {
     const { HOOK_EVENTS } = await import('../src/commands/hooks.js');

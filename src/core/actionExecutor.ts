@@ -13,6 +13,7 @@ import { runCommand, needsShell } from '../actions/command.js';
 import { listDirectoryTree, fileStats as getFileStats, checksumFile } from '../actions/metadata.js';
 import {
   diffFile,
+  diffWorkspace,
   checkoutFile,
   gitStatus,
   gitListUntracked,
@@ -111,6 +112,13 @@ export interface ActionExecutorOptions {
     command?: string;
     args?: Record<string, unknown>;
   }) => Promise<PermissionHookResponse | undefined>;
+  /** Callback to fire review lifecycle hook events (review:start, review:completed, review:failed) */
+  onReviewHook?: (event: string, context: {
+    reviewPath?: string;
+    reviewScope?: string;
+    reviewInstructions?: string;
+    reviewError?: string;
+  }) => Promise<void>;
 }
 
 type AgentExecutorDeps = ActionExecutorOptions;
@@ -132,6 +140,7 @@ export class ActionExecutor {
   private readonly onAskFollowup?: AgentExecutorDeps['onAskFollowup'];
   private readonly onPlanCreated?: AgentExecutorDeps['onPlanCreated'];
   private readonly onPermissionRequest?: AgentExecutorDeps['onPermissionRequest'];
+  private readonly onReviewHook?: AgentExecutorDeps['onReviewHook'];
   private readonly securityScanner: SecurityScanner;
   private readonly searchCache: Map<string, string> = new Map();
 
@@ -152,6 +161,7 @@ export class ActionExecutor {
     this.onAskFollowup = deps.onAskFollowup;
     this.onPlanCreated = deps.onPlanCreated;
     this.onPermissionRequest = deps.onPermissionRequest;
+    this.onReviewHook = deps.onReviewHook;
     this.securityScanner = new SecurityScanner();
   }
 
@@ -738,11 +748,9 @@ export class ActionExecutor {
         return `${action.algorithm ?? 'sha256'} ${action.path}: ${sum}`;
       }
       case 'git_diff': {
-        if (!action.path) {
-          throw new Error('git_diff requires a "path" argument.');
-        }
-        this.resolveWorkspacePath(action.path);
-        const rawDiff = diffFile(this.runtime.workspaceRoot, action.path);
+        const rawDiff = action.path
+          ? (this.resolveWorkspacePath(action.path), diffFile(this.runtime.workspaceRoot, action.path))
+          : diffWorkspace(this.runtime.workspaceRoot);
         // Return colorized diff for display
         return this.colorizeGitDiff(rawDiff);
       }
@@ -1588,6 +1596,13 @@ export class ActionExecutor {
       : this.runtime.workspaceRoot;
     const scope = action.scope || 'full';
 
+    // Fire 'review:start' hook
+    await this.onReviewHook?.('review:start', {
+      reviewPath: targetPath,
+      reviewScope: scope,
+      reviewInstructions: action.instructions,
+    });
+
     try {
       let context = '';
 
@@ -1619,7 +1634,7 @@ export class ActionExecutor {
         context = tree?.stdout || '';
       }
 
-      return [
+      const result = [
         `Code review initiated for: ${targetPath}`,
         `Scope: ${scope}`,
         action.instructions ? `Focus: ${action.instructions}` : '',
@@ -1627,8 +1642,26 @@ export class ActionExecutor {
         'Project structure:',
         context.slice(0, 5000),
       ].filter(Boolean).join('\n');
+
+      // Fire 'review:completed' hook
+      await this.onReviewHook?.('review:completed', {
+        reviewPath: targetPath,
+        reviewScope: scope,
+        reviewInstructions: action.instructions,
+      });
+
+      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+
+      // Fire 'review:failed' hook
+      await this.onReviewHook?.('review:failed', {
+        reviewPath: targetPath,
+        reviewScope: scope,
+        reviewInstructions: action.instructions,
+        reviewError: message,
+      });
+
       return `Review failed: ${message}`;
     }
   }

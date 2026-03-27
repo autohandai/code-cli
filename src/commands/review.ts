@@ -3,6 +3,7 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import chalk from 'chalk';
 import path from 'node:path';
 import fse from 'fs-extra';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
@@ -53,5 +54,19 @@ export async function review(ctx: ReviewCommandContext, args: string[] = []): Pr
     'Start the review now. Use the available tools (read_file, find, list_tree, git_status, git_diff) to gather context, then deliver your 10-dimension review.',
   );
 
-  return parts.join('\n');
+  const prompt = parts.join('\n');
+
+  // In RPC/ACP mode, return the prompt as text for the adapter to process.
+  // In interactive mode, queue silently so it doesn't flood the terminal.
+  if (ctx.isNonInteractive || !ctx.queueInstruction) {
+    return prompt;
+  }
+
+  ctx.queueInstruction(prompt);
+  console.log(chalk.cyan('\n  Starting code review...'));
+  if (userInstructions) {
+    console.log(chalk.gray(`  Focus: ${userInstructions}`));
+  }
+  console.log(chalk.gray('  Analyzing 10 dimensions: architecture, security, performance, and more.\n'));
+  return null;
 }
