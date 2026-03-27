@@ -105,6 +105,16 @@ export interface HookContext {
   /** Additional workspace directories (from --add-dir or /add-dir) */
   additionalWorkspaces?: string[];
 
+  // Review hooks
+  /** Review target path (for review events) */
+  reviewPath?: string;
+  /** Review scope (for review events) */
+  reviewScope?: string;
+  /** Review instructions/focus (for review events) */
+  reviewInstructions?: string;
+  /** Review error message (for review:failed) */
+  reviewError?: string;
+
   // Team hooks
   /** Team name (for team events) */
   teamName?: string;
@@ -514,6 +524,14 @@ export class HookManager {
     if (context.automodeCheckpointCommit) env.HOOK_AUTOMODE_CHECKPOINT = context.automodeCheckpointCommit;
     if (context.automodeTotalCost !== undefined) env.HOOK_AUTOMODE_COST = String(context.automodeTotalCost);
 
+    // Review hooks
+    if (context.event.startsWith('review:')) {
+      if (context.reviewPath) env.HOOK_REVIEW_PATH = context.reviewPath;
+      if (context.reviewScope) env.HOOK_REVIEW_SCOPE = context.reviewScope;
+      if (context.reviewError) env.HOOK_REVIEW_ERROR = context.reviewError;
+      if (context.reviewInstructions) env.HOOK_REVIEW_INSTRUCTIONS = context.reviewInstructions;
+    }
+
     // Multi-directory support
     if (context.additionalWorkspaces && context.additionalWorkspaces.length > 0) {
       env.HOOK_ADDITIONAL_WORKSPACES = JSON.stringify(context.additionalWorkspaces);
@@ -577,6 +595,11 @@ export class HookManager {
       automode_cancel_reason: context.automodeCancelReason,
       automode_checkpoint_commit: context.automodeCheckpointCommit,
       automode_total_cost: context.automodeTotalCost,
+      // Review context
+      review_path: context.reviewPath,
+      review_scope: context.reviewScope,
+      review_instructions: context.reviewInstructions,
+      review_error: context.reviewError,
       // Multi-directory support
       additional_workspaces: context.additionalWorkspaces,
     });
@@ -813,6 +836,12 @@ export class HookManager {
       'automode:cancel',
       'automode:complete',
       'automode:error',
+      // Review events
+      'review:start',
+      'review:end',
+      'review:paused',
+      'review:failed',
+      'review:completed',
       // Team events
       'team-created',
       'teammate-spawned',

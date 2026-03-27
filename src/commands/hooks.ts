@@ -221,6 +221,12 @@ function displayHooksList(allHooks: HookDefinition[]): void {
     'permission-request': '🔐',
     'notification': '🔔',
     'session-error': '❌',
+    // Review events
+    'review:start': '🔍',
+    'review:end': '📋',
+    'review:paused': '⏸️',
+    'review:failed': '❌',
+    'review:completed': '✅',
   };
 
   // Display each event group
