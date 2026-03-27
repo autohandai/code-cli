@@ -997,6 +997,23 @@ Actions:
       required: ['schedule_id'],
     },
   },
+  // ── Code review ──
+  {
+    name: 'code_review',
+    description: 'Perform a staff-engineer-level code review. Analyzes code quality, architecture, security, performance, and maintainability. Returns 10 prioritized actionable findings with specific file paths, line numbers, and suggested fixes. Use when the user asks to review code, audit quality, or find improvements.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'File or directory to review. Defaults to workspace root.' },
+        scope: {
+          type: 'string',
+          description: 'Review scope: "full" analyzes the entire path, "diff" reviews only uncommitted changes, "file" reviews a single file.',
+          enum: ['full', 'diff', 'file'],
+        },
+        instructions: { type: 'string', description: 'Additional review focus areas from the user (e.g., "focus on error handling", "check for memory leaks").' },
+      },
+    },
+  },
   // ── Browser tools (available when Chrome extension is connected via /chrome) ──
   {
     name: 'browser_screenshot',
