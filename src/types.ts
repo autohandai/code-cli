@@ -883,7 +883,7 @@ export type AgentAction =
   | { type: 'list_tree'; path?: string; depth?: number }
   | { type: 'file_stats'; path: string }
   | { type: 'checksum'; path: string; algorithm?: string }
-  | { type: 'git_diff'; path: string }
+  | { type: 'git_diff'; path?: string }
   | { type: 'git_checkout'; path: string }
   | { type: 'git_status' }
   | { type: 'git_list_untracked' }

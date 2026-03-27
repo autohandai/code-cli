@@ -57,6 +57,17 @@ export function diffFile(cwd: string, file: string): string {
   return result.stdout || 'No diff';
 }
 
+/**
+ * Show all uncommitted changes in the workspace (equivalent to `git diff` with no path).
+ */
+export function diffWorkspace(cwd: string): string {
+  const result = spawnSync('git', ['diff'], { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || 'git diff failed');
+  }
+  return result.stdout || 'No diff';
+}
+
 export function checkoutFile(cwd: string, file: string): void {
   const result = spawnSync('git', ['checkout', '--', file], { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
