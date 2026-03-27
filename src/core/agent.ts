@@ -1728,6 +1728,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
           return command;
         }
 
+        // Clear any residual status line content from the readline prompt
+        // before rendering the slash command output. The readline status
+        // row can leave artefacts when the terminal wraps or resizes.
+        process.stdout.write('\x1b[0J');
+
         // Echo the user's slash command to the chat log so it's visible
         console.log(chalk.white(`\n› ${normalized}`));
 
@@ -5418,10 +5423,21 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * while long-running commands like /learn execute. This prevents blocking
    * the composer during commands that involve LLM calls or network requests.
    */
+  // Commands that show their own interactive UI (modals, prompts).
+  // These must NOT have the persistent input active — it conflicts with
+  // their own terminal rendering and leaves the status line on screen.
+  private static readonly INTERACTIVE_SLASH_COMMANDS = new Set([
+    '/chrome', '/hooks', '/feedback', '/permissions', '/login', '/logout',
+    '/agents-new', '/agents new', '/resume', '/theme', '/language',
+    '/model', '/skills', '/skills install', '/skills-install',
+    '/skills new', '/skills-new', '/mcp', '/mcp install', '/mcp-install',
+  ]);
+
   private async runSlashCommandWithInput(command: string, args: string[]): Promise<string | null> {
     const queueEnabled = this.runtime.config.agent?.enableRequestQueue !== false;
+    const isInteractive = AutohandAgent.INTERACTIVE_SLASH_COMMANDS.has(command);
     const canUsePersistentInput =
-      process.stdout.isTTY && process.stdin.isTTY && queueEnabled && !this.inkRenderer;
+      process.stdout.isTTY && process.stdin.isTTY && queueEnabled && !this.inkRenderer && !isInteractive;
 
     let cleanupConsoleBridge: () => void = () => {};
 
