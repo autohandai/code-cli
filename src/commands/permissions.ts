@@ -24,13 +24,15 @@ export async function permissions(ctx: PermissionsCommandContext): Promise<strin
   console.log(chalk.bold.cyan(t('commands.permissions.title')));
   console.log(chalk.gray('─'.repeat(50)));
   console.log(chalk.gray(t('commands.permissions.mode', { mode: settings.mode || 'interactive' })));
+  console.log(chalk.gray(`Remember session decisions: ${settings.rememberSession !== false ? 'Yes' : 'No'}`));
   console.log();
 
   if (whitelist.length === 0 && blacklist.length === 0) {
-    console.log(chalk.gray('No saved permissions yet.'));
+    console.log(chalk.gray('  No saved permissions yet.'));
     console.log();
-    console.log(chalk.gray('When you approve or deny a tool/command, it will be saved here.'));
-    console.log(chalk.gray('Approved items are auto-allowed; denied items are auto-blocked.'));
+    console.log(chalk.gray('  When you approve or deny a tool/command, it will be saved here.'));
+    console.log(chalk.gray('  Approved items are auto-allowed; denied items are auto-blocked.'));
+    console.log();
     return null;
   }
 
