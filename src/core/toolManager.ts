@@ -363,13 +363,12 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'git_diff',
-    description: 'Show git diff for a file',
+    description: 'Show git diff. When path is provided, shows diff for that file only. When omitted, shows all uncommitted changes in the workspace.',
     parameters: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Relative path to the file' }
-      },
-      required: ['path']
+        path: { type: 'string', description: 'Relative path to a specific file (optional). Omit to diff the entire workspace.' }
+      }
     }
   },
   {
