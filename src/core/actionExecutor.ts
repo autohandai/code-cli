@@ -1539,6 +1539,10 @@ export class ActionExecutor {
           return `<answer>${finalAnswer}</answer>`;
         }
       }
+      // Code review tool
+      case 'code_review': {
+        return this.executeCodeReview(action as { type: 'code_review'; path?: string; scope?: string; instructions?: string });
+      }
       // Browser tools — forwarded to Chrome extension via RPC
       case 'browser_screenshot':
       case 'browser_click':
@@ -1576,6 +1580,57 @@ export class ActionExecutor {
     const toolName = type as string;
     const { invokeBrowserTool } = await import('../browser/browserToolBridge.js');
     return invokeBrowserTool(toolName, params as Record<string, unknown>);
+  }
+
+  private async executeCodeReview(action: { type: 'code_review'; path?: string; scope?: string; instructions?: string }): Promise<string> {
+    const targetPath = action.path
+      ? this.resolveWorkspacePath(action.path)
+      : this.runtime.workspaceRoot;
+    const scope = action.scope || 'full';
+
+    try {
+      let context = '';
+
+      if (scope === 'diff') {
+        const { execFile } = await import('node:child_process');
+        const { promisify } = await import('node:util');
+        const execFileAsync = promisify(execFile);
+        const result = await execFileAsync('git', ['diff', '--stat'], {
+          cwd: this.runtime.workspaceRoot,
+          encoding: 'utf8',
+        }).catch(() => null);
+        context = result?.stdout || 'No uncommitted changes found.';
+      } else if (scope === 'file' && action.path) {
+        const fse = (await import('fs-extra')).default;
+        context = await fse.readFile(targetPath, 'utf-8').catch(() => `Could not read ${targetPath}`);
+      } else {
+        // Full scope: list project structure
+        const { execFile } = await import('node:child_process');
+        const { promisify } = await import('node:util');
+        const execFileAsync = promisify(execFile);
+        const tree = await execFileAsync('find', [
+          targetPath, '-maxdepth', '3', '-type', 'f',
+          '-not', '-path', '*/node_modules/*',
+          '-not', '-path', '*/.git/*',
+        ], {
+          cwd: this.runtime.workspaceRoot,
+          encoding: 'utf8',
+        }).catch(() => null);
+        context = tree?.stdout || '';
+      }
+
+      return [
+        `Code review initiated for: ${targetPath}`,
+        `Scope: ${scope}`,
+        action.instructions ? `Focus: ${action.instructions}` : '',
+        '',
+        'Project structure:',
+        context.slice(0, 5000),
+      ].filter(Boolean).join('\n');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return `Review failed: ${message}`;
+    }
   }
 
   private pickText(...values: Array<unknown>): string | undefined {
