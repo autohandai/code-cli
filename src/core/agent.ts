@@ -388,7 +388,15 @@ export class AutohandAgent {
           }
         }
         return undefined; // No decision from hooks
-      }
+      },
+      onReviewHook: async (event, context) => {
+        await this.hookManager.executeHooks(event as any, {
+          reviewPath: context.reviewPath,
+          reviewScope: context.reviewScope,
+          reviewInstructions: context.reviewInstructions,
+          reviewError: context.reviewError,
+        });
+      },
     });
 
     this.activeProvider = runtime.config.provider ?? 'openrouter';
@@ -922,6 +930,10 @@ export class AutohandAgent {
       teamManager: this.teamManager,
       // Repeat manager for /repeat recurring prompt scheduling
       repeatManager: this.repeatManager,
+      // Queue an instruction to be sent to the LLM silently (e.g. /review)
+      queueInstruction: (instruction: string) => {
+        this.pendingInkInstructions.push(instruction);
+      },
     };
     this.slashHandler = new SlashCommandHandler(slashContext, SLASH_COMMANDS);
   }
