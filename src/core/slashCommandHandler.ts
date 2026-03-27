@@ -85,11 +85,21 @@ export class SlashCommandHandler {
         case '/agents new':
         case '/agents-new': {
           const { createAgent } = await import('../commands/agents-new.js');
-          return createAgent(this.ctx);
+          this.ctx.onBeforeModal?.();
+          try {
+            return await createAgent(this.ctx);
+          } finally {
+            this.ctx.onAfterModal?.();
+          }
         }
         case '/feedback': {
           const { feedback } = await import('../commands/feedback.js');
-          return feedback(this.ctx);
+          this.ctx.onBeforeModal?.();
+          try {
+            return await feedback(this.ctx);
+          } finally {
+            this.ctx.onAfterModal?.();
+          }
         }
         case '/resume': {
           const { resume } = await import('../commands/resume.js');
@@ -194,28 +204,52 @@ export class SlashCommandHandler {
           const { chrome } = await import('../commands/chrome.js');
           return chrome(this.ctx, args);
         }
+        case '/review': {
+          const { review } = await import('../commands/review.js');
+          return review(this.ctx, args);
+        }
         case '/status': {
           const { status } = await import('../commands/status.js');
           return status(this.ctx);
         }
         case '/login': {
           const { login } = await import('../commands/login.js');
-          return login({ config: this.ctx.config });
+          this.ctx.onBeforeModal?.();
+          try {
+            return await login({ config: this.ctx.config });
+          } finally {
+            this.ctx.onAfterModal?.();
+          }
         }
         case '/logout': {
           const { logout } = await import('../commands/logout.js');
-          return logout({ config: this.ctx.config });
+          this.ctx.onBeforeModal?.();
+          try {
+            return await logout({ config: this.ctx.config });
+          } finally {
+            this.ctx.onAfterModal?.();
+          }
         }
         case '/permissions': {
           const { permissions } = await import('../commands/permissions.js');
-          return permissions({ permissionManager: this.ctx.permissionManager });
+          this.ctx.onBeforeModal?.();
+          try {
+            return await permissions({ permissionManager: this.ctx.permissionManager });
+          } finally {
+            this.ctx.onAfterModal?.();
+          }
         }
         case '/hooks': {
           const { hooks } = await import('../commands/hooks.js');
           if (!this.ctx.hookManager) {
             return 'Hook manager not available.';
           }
-          return hooks({ hookManager: this.ctx.hookManager });
+          this.ctx.onBeforeModal?.();
+          try {
+            return await hooks({ hookManager: this.ctx.hookManager });
+          } finally {
+            this.ctx.onAfterModal?.();
+          }
         }
         case '/skills': {
           const { skills } = await import('../commands/skills.js');

@@ -12,14 +12,13 @@ describe('slash commands registry', () => {
     const expected = [
       '/quit', '/model', '/session', '/sessions', '/resume', '/init',
       '/agents', '/agents new', '/feedback', '/help', '/?',
-      '/undo', '/new', '/memory', '/chrome'
+      '/undo', '/new', '/memory', '/chrome', '/review'
     ];
     expected.forEach((cmd) => expect(commands).toContain(cmd));
     // These commands were documented but never implemented
     expect(commands).not.toContain('/ls');
     expect(commands).not.toContain('/diff');
     expect(commands).not.toContain('/approvals');
-    expect(commands).not.toContain('/review');
     expect(commands).not.toContain('/compact');
   });
 });
