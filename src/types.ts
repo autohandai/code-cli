@@ -457,7 +457,13 @@ export type HookEvent =
   | 'teammate-idle'      // Teammate finished task and is idle
   | 'task-assigned'      // Task assigned to a teammate
   | 'task-completed'     // Task marked as done
-  | 'team-shutdown';     // Team cleanup completed
+  | 'team-shutdown'       // Team cleanup completed
+  // Review events
+  | 'review:start'
+  | 'review:end'
+  | 'review:paused'
+  | 'review:failed'
+  | 'review:completed';
 
 /** Filter to limit when a hook fires */
 export interface HookFilter {
@@ -988,7 +994,8 @@ export type AgentAction =
   | { type: 'browser_read_network'; urlPattern?: string; method?: string; status?: string; limit?: number }
   | { type: 'browser_get_tabs' }
   | { type: 'browser_get_tab_groups' }
-  | { type: 'browser_execute_js'; code: string };
+  | { type: 'browser_execute_js'; code: string }
+  | { type: 'code_review'; path?: string; scope?: 'full' | 'diff' | 'file'; instructions?: string };
 
 export type ExplorationEvent = { kind: 'read' | 'list' | 'search'; target: string };
 

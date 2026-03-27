@@ -6,6 +6,7 @@
 import chalk from 'chalk';
 import { t } from '../i18n/index.js';
 import { safePrompt } from '../utils/prompt.js';
+import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import type { HookManager } from '../core/HookManager.js';
 import type { HookEvent, HookDefinition } from '../types.js';
 
@@ -13,7 +14,7 @@ export interface HooksCommandContext {
   hookManager: HookManager;
 }
 
-const HOOK_EVENTS: HookEvent[] = [
+export const HOOK_EVENTS: HookEvent[] = [
   'session-start',
   'session-end',
   'pre-clear',
@@ -45,6 +46,12 @@ const HOOK_EVENTS: HookEvent[] = [
   'task-assigned',
   'task-completed',
   'team-shutdown',
+  // Review events
+  'review:start',
+  'review:end',
+  'review:paused',
+  'review:failed',
+  'review:completed',
 ];
 
 // Event descriptions for better UX
@@ -81,6 +88,12 @@ const EVENT_DESCRIPTIONS: Record<HookEvent, string> = {
   'task-assigned': 'When a task is assigned to a teammate',
   'task-completed': 'When a task is marked as done',
   'team-shutdown': 'When team cleanup completes',
+  // Review events
+  'review:start': 'When a code review begins',
+  'review:end': 'When a code review session ends',
+  'review:paused': 'When a code review is paused',
+  'review:failed': 'When a code review encounters an error',
+  'review:completed': 'When a code review finishes successfully',
 };
 
 // Icons for built-in hooks (matched by script name or description keywords)
@@ -311,40 +324,39 @@ export async function hooks(ctx: HooksCommandContext): Promise<string | null> {
 }
 
 /**
- * Toggle multiple hooks with a multi-select checkbox UI
+ * Toggle hooks with a multi-select checkbox UI.
+ * Spacebar toggles each hook on/off; Enter confirms and exits.
  */
 async function toggleHooksMulti(manager: HookManager, allHooks: HookDefinition[]): Promise<void> {
-  // Build choices with current state
-  const choices = allHooks.map((h, i) => {
-    const eventTag = chalk.dim(`[${h.event}]`);
+  const options: ModalOption[] = allHooks.map((h, i) => {
+    const eventTag = `[${h.event}]`;
     const desc = h.description || getShortCommand(h.command);
     return {
-      name: String(i),
-      message: `${eventTag} ${desc}`,
+      label: `${eventTag} ${desc}`,
       value: String(i),
-      enabled: h.enabled !== false,
+      checked: h.enabled !== false,
     };
   });
 
-  const result = await safePrompt<{ selected: number }>({
-    type: 'select',
-    name: 'selected',
-    message: 'Toggle hooks (select to enable/disable)',
-    choices,
-    initial: 0,
+  let toggleCount = 0;
+
+  await showModal({
+    title: 'Toggle hooks — spacebar to enable/disable',
+    options,
+    multiSelect: true,
+    onToggle: async (option, _checked) => {
+      const idx = parseInt(option.value, 10);
+      const hook = allHooks[idx];
+      if (!hook) return;
+      const eventHooks = allHooks.filter(h => h.event === hook.event);
+      const eventIndex = eventHooks.indexOf(hook);
+      await manager.toggleHook(hook.event, eventIndex);
+      toggleCount++;
+    },
   });
 
-  if (!result) return;
-
-  const selectedIndex = Number(result.selected);
-  const hook = allHooks[selectedIndex];
-
-  if (hook) {
-    const eventHooks = allHooks.filter(h => h.event === hook.event);
-    const eventIndex = eventHooks.indexOf(hook);
-    await manager.toggleHook(hook.event, eventIndex);
-    const newState = hook.enabled === false ? 'enabled' : 'disabled';
-    console.log(chalk.green(`  ✓ Hook ${newState}: ${hook.event}`));
+  if (toggleCount > 0) {
+    console.log(chalk.green(`  ✓ Toggled ${toggleCount} hook${toggleCount > 1 ? 's' : ''}`));
   } else {
     console.log(chalk.gray('  No changes made'));
   }
