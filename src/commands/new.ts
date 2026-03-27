@@ -56,7 +56,10 @@ export async function newConversation(ctx: NewCommandContext): Promise<string | 
     // 6. Create a new session
     await ctx.sessionManager.createSession(ctx.workspaceRoot, ctx.model);
 
-    // 7. Print summary
+    // 7. Clear the terminal screen so the chat log starts fresh
+    process.stdout.write('\x1b[2J\x1b[H');
+
+    // 8. Print summary
     console.log();
     if (saved.length > 0) {
         console.log(

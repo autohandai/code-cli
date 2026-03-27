@@ -19,6 +19,8 @@ export interface ModalOption {
   value: string;
   /** Optional description shown below the label */
   description?: string;
+  /** Initial checked state for multiSelect mode */
+  checked?: boolean;
   /** Whether the option is disabled (cannot be selected) */
   disabled?: boolean;
 }
@@ -48,11 +50,10 @@ export interface SelectModalProps extends BaseModalProps {
   initialIndex?: number;
   /** Max visible items before scrolling (default: 10) */
   maxVisible?: number;
-  /**
-   * Multi-select mode (stub for future implementation).
-   * @remarks Currently not implemented - accepts prop but has no effect.
-   */
+  /** Enable spacebar toggling — items show ☑/☐ and spacebar flips state. */
   multiSelect?: boolean;
+  /** Called each time an item is toggled via spacebar in multiSelect mode. */
+  onToggle?: (option: ModalOption, checked: boolean) => void;
 }
 
 /**
@@ -214,6 +215,15 @@ function Modal(props: ModalProps) {
   const [customInput, setCustomInput] = useState('');
   const [isCustomMode, setIsCustomMode] = useState(false);
 
+  // Multi-select: track which values are checked
+  const isMultiSelect = mode === 'select' && 'multiSelect' in props && props.multiSelect;
+  const [checkedSet, setCheckedSet] = useState<Set<string>>(() => {
+    if (!isMultiSelect || !('options' in props)) return new Set();
+    return new Set(
+      props.options.filter((o) => o.checked).map((o) => o.value)
+    );
+  });
+
   // State for input/password modes
   const [inputValue, setInputValue] = useState<string>(() => {
     if (mode === 'input' && 'defaultValue' in props && typeof props.defaultValue === 'string') {
@@ -371,6 +381,25 @@ function Modal(props: ModalProps) {
       return;
     }
 
+    // Multi-select: spacebar toggles the current item
+    if (isMultiSelect && char === ' ' && 'onToggle' in props) {
+      const selected = choices[cursor];
+      if (selected && !selected.disabled) {
+        setCheckedSet((prev) => {
+          const next = new Set(prev);
+          const nowChecked = !next.has(selected.value);
+          if (nowChecked) {
+            next.add(selected.value);
+          } else {
+            next.delete(selected.value);
+          }
+          (props as SelectModalProps).onToggle?.(selected, nowChecked);
+          return next;
+        });
+      }
+      return;
+    }
+
     // Handle select/confirm modes - selection
     if (key.return) {
       const selected = choices[cursor];
@@ -517,11 +546,15 @@ function Modal(props: ModalProps) {
         color = 'green';
       }
 
+      const checkbox = isMultiSelect
+        ? (checkedSet.has(choice.value) ? '\u2611 ' : '\u2610 ')
+        : '';
+
       return (
         <Box key={`${choice.value}-${i}`} flexDirection="column">
           <Text color={color}>
             {isSelected ? '\u25b8 ' : '  '}
-            {i + 1}. {choice.label}
+            {checkbox}{i + 1}. {choice.label}
             {isDisabled ? ' (disabled)' : ''}
           </Text>
           {choice.description && (
@@ -555,6 +588,9 @@ function Modal(props: ModalProps) {
     if (mode === 'select' && isCustomMode) {
       return t('ui.questionCustomHint');
     }
+    if (isMultiSelect) {
+      return 'Space toggle \u00b7 Enter confirm \u00b7 ESC cancel';
+    }
     return t('ui.questionSelectHint');
   };
 
@@ -583,11 +619,10 @@ export interface ShowModalOptions {
   initialIndex?: number;
   /** Max visible items before scrolling (default: 10) */
   maxVisible?: number;
-  /**
-   * Multi-select mode (stub for future implementation).
-   * @remarks Currently not implemented.
-   */
+  /** Enable spacebar toggling with ☑/☐ checkboxes. */
   multiSelect?: boolean;
+  /** Called each time spacebar toggles an item in multiSelect mode. */
+  onToggle?: (option: ModalOption, checked: boolean) => void;
 }
 
 /**
@@ -612,7 +647,7 @@ export interface ShowModalOptions {
 export async function showModal(
   options: ShowModalOptions
 ): Promise<ModalOption | null> {
-  const { title, options: modalOptions, allowCustomInput, multiSelect, maxVisible } = options;
+  const { title, options: modalOptions, allowCustomInput, multiSelect, maxVisible, onToggle } = options;
 
   // Non-interactive fallback
   if (!process.stdout.isTTY) {
@@ -633,6 +668,7 @@ export async function showModal(
           allowCustomInput={allowCustomInput}
           multiSelect={multiSelect}
           maxVisible={maxVisible}
+          onToggle={onToggle}
           onSelect={(option) => {
             if (completed) return;
             completed = true;

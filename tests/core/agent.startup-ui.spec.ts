@@ -838,6 +838,27 @@ describe('agent startup and active input UI', () => {
     }
   });
 
+  it('does not start persistent input for interactive slash commands', () => {
+    // Regression: interactive commands like /permissions, /hooks, /chrome
+    // must NOT activate the persistent input because it renders a status line
+    // that conflicts with the command's own interactive UI.
+    const interactiveCommands = (AutohandAgent as any).INTERACTIVE_SLASH_COMMANDS as Set<string>;
+
+    expect(interactiveCommands).toBeInstanceOf(Set);
+    expect(interactiveCommands.has('/permissions')).toBe(true);
+    expect(interactiveCommands.has('/hooks')).toBe(true);
+    expect(interactiveCommands.has('/chrome')).toBe(true);
+    expect(interactiveCommands.has('/theme')).toBe(true);
+    expect(interactiveCommands.has('/model')).toBe(true);
+    expect(interactiveCommands.has('/resume')).toBe(true);
+    expect(interactiveCommands.has('/feedback')).toBe(true);
+
+    // Non-interactive commands should NOT be in the set
+    expect(interactiveCommands.has('/diff')).toBe(false);
+    expect(interactiveCommands.has('/status')).toBe(false);
+    expect(interactiveCommands.has('/help')).toBe(false);
+  });
+
   it('installs console bridge after persistent input activation in runInstruction', async () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
 

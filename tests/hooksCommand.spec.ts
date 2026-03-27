@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { hooks, metadata } from '../src/commands/hooks.js';
+const { hooks, metadata } = await import('../src/commands/hooks.js');
 import { HookManager } from '../src/core/HookManager.js';
 import { EventEmitter } from 'node:events';
 
@@ -40,7 +40,15 @@ vi.mock('../src/utils/prompt.js', () => ({
   safePrompt: vi.fn(),
 }));
 
-import { safePrompt } from '../src/utils/prompt.js';
+// Mock showModal for toggle multiselect.
+// Use a forwarding function so the mock reference is captured at factory time
+// but we can swap behavior via mockShowModal in tests.
+var mockShowModal = vi.fn();
+vi.mock('../src/ui/ink/components/Modal.js', () => ({
+  showModal: (...args: unknown[]) => mockShowModal(...args),
+}));
+
+const { safePrompt } = await import('../src/utils/prompt.js');
 
 describe('/hooks command', () => {
   let manager: HookManager;
@@ -55,6 +63,8 @@ describe('/hooks command', () => {
 
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     mockSafePrompt.mockReset();
+    mockShowModal.mockReset();
+    mockShowModal.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -162,32 +172,60 @@ describe('/hooks command', () => {
   });
 
   describe('toggle hook', () => {
-    it('toggles hook enabled status via multiselect', async () => {
+    it('toggles hook via spacebar in multiselect modal', async () => {
       await manager.addHook({ event: 'pre-tool', command: 'echo test', enabled: true, description: 'Test hook' });
 
-      // Toggle action now uses multiselect - deselect hook 0 to disable it
-      mockSafePrompt
-        .mockResolvedValueOnce({ action: 'toggle' })
-        .mockResolvedValueOnce({ selected: [] }); // Empty selection disables all
+      // safePrompt selects 'toggle' action, then showModal handles the multiselect
+      mockSafePrompt.mockResolvedValueOnce({ action: 'toggle' });
+
+      // showModal calls onToggle for each spacebar press, then resolves on Enter/ESC
+      mockShowModal.mockImplementation(async (opts: { onToggle?: (opt: { value: string }, checked: boolean) => void }) => {
+        // Simulate spacebar toggle on first item (disable it)
+        opts.onToggle?.({ value: '0' }, false);
+        return null; // ESC to exit
+      });
 
       await hooks({ hookManager: manager });
 
       expect(manager.getHooks()[0].enabled).toBe(false);
     });
 
-    it('enables a hook via select', async () => {
+    it('enables a disabled hook via spacebar toggle', async () => {
       await manager.addHook({ event: 'pre-tool', command: 'echo test1', enabled: false, description: 'Hook 1' });
       await manager.addHook({ event: 'pre-tool', command: 'echo test2', enabled: false, description: 'Hook 2' });
 
-      // Select first hook to toggle it
-      mockSafePrompt
-        .mockResolvedValueOnce({ action: 'toggle' })
-        .mockResolvedValueOnce({ selected: 0 });
+      mockSafePrompt.mockResolvedValueOnce({ action: 'toggle' });
+
+      mockShowModal.mockImplementation(async (opts: { onToggle?: (opt: { value: string }, checked: boolean) => void }) => {
+        // Simulate spacebar on first hook only
+        opts.onToggle?.({ value: '0' }, true);
+        return null;
+      });
 
       await hooks({ hookManager: manager });
 
       expect(manager.getHooks()[0].enabled).toBe(true);
       expect(manager.getHooks()[1].enabled).toBe(false);
+    });
+
+    it('passes multiSelect and checked state to showModal', async () => {
+      await manager.addHook({ event: 'pre-tool', command: 'echo on', enabled: true, description: 'On hook' });
+      await manager.addHook({ event: 'post-tool', command: 'echo off', enabled: false, description: 'Off hook' });
+
+      mockSafePrompt.mockResolvedValueOnce({ action: 'toggle' });
+      mockShowModal.mockResolvedValue(null);
+
+      await hooks({ hookManager: manager });
+
+      expect(mockShowModal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          multiSelect: true,
+          options: expect.arrayContaining([
+            expect.objectContaining({ checked: true }),
+            expect.objectContaining({ checked: false }),
+          ]),
+        }),
+      );
     });
   });
 
