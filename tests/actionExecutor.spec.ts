@@ -1097,7 +1097,7 @@ describe('ActionExecutor', () => {
         args: ['hello']
       } as any);
 
-      expect(runCommandSpy).toHaveBeenCalledWith('echo', ['hello'], '/repo', expect.any(Object));
+      expect(runCommandSpy).toHaveBeenCalledWith('echo hello', [], '/repo', expect.objectContaining({ shell: true }));
       expect(result).toContain('output');
       runCommandSpy.mockRestore();
     });
@@ -1220,7 +1220,7 @@ describe('ActionExecutor', () => {
         args: ['commit', '-m', 'message', '--amend']
       } as any);
 
-      expect(runCommandSpy).toHaveBeenCalledWith('git', ['commit', '-m', 'message', '--amend'], '/repo', expect.any(Object));
+      expect(runCommandSpy).toHaveBeenCalledWith('git commit -m message --amend', [], '/repo', expect.objectContaining({ shell: true }));
       runCommandSpy.mockRestore();
     });
 
@@ -1278,7 +1278,8 @@ describe('ActionExecutor', () => {
       } as any);
 
       expect(result).toContain('packages/core');
-      expect(runCommandSpy).toHaveBeenCalledWith('npm', ['test'], '/repo', expect.objectContaining({
+      expect(runCommandSpy).toHaveBeenCalledWith('npm test', [], '/repo', expect.objectContaining({
+        shell: true,
         directory: 'packages/core'
       }));
       runCommandSpy.mockRestore();
@@ -1320,7 +1321,8 @@ describe('ActionExecutor', () => {
         background: true
       } as any);
 
-      expect(runCommandSpy).toHaveBeenCalledWith('sleep', ['60'], '/repo', expect.objectContaining({
+      expect(runCommandSpy).toHaveBeenCalledWith('sleep 60', [], '/repo', expect.objectContaining({
+        shell: true,
         background: true
       }));
       runCommandSpy.mockRestore();
@@ -1340,7 +1342,7 @@ describe('ActionExecutor', () => {
         args: ['commit', '-m', 'fix: handle "quotes" and $variables']
       } as any);
 
-      expect(runCommandSpy).toHaveBeenCalledWith('git', ['commit', '-m', 'fix: handle "quotes" and $variables'], '/repo', expect.any(Object));
+      expect(runCommandSpy).toHaveBeenCalledWith('git commit -m fix: handle "quotes" and $variables', [], '/repo', expect.objectContaining({ shell: true }));
       runCommandSpy.mockRestore();
     });
 
@@ -2922,6 +2924,197 @@ describe('ActionExecutor', () => {
       } as any);
 
       expect(result).toContain('Hello, world!');
+      runCommandSpy.mockRestore();
+    });
+  });
+
+  describe('run_command always uses shell execution', () => {
+    it('always passes shell: true even for simple commands without shell operators', async () => {
+      const runCommandSpy = vi.spyOn(commandActions, 'runCommand').mockResolvedValue({
+        stdout: 'ok',
+        stderr: '',
+        exitCode: 0
+      });
+      const executor = createExecutor();
+
+      await executor.execute({
+        type: 'run_command',
+        command: 'echo',
+        args: ['hello']
+      } as any);
+
+      expect(runCommandSpy).toHaveBeenCalledWith(
+        'echo hello',
+        [],
+        '/repo',
+        expect.objectContaining({ shell: true })
+      );
+      runCommandSpy.mockRestore();
+    });
+
+    it('joins command and args into a single shell string', async () => {
+      const runCommandSpy = vi.spyOn(commandActions, 'runCommand').mockResolvedValue({
+        stdout: 'ok',
+        stderr: '',
+        exitCode: 0
+      });
+      const executor = createExecutor();
+
+      await executor.execute({
+        type: 'run_command',
+        command: 'git',
+        args: ['commit', '-m', 'fix something']
+      } as any);
+
+      expect(runCommandSpy).toHaveBeenCalledWith(
+        'git commit -m fix something',
+        [],
+        '/repo',
+        expect.objectContaining({ shell: true })
+      );
+      runCommandSpy.mockRestore();
+    });
+
+    it('passes command as-is when no args provided', async () => {
+      const runCommandSpy = vi.spyOn(commandActions, 'runCommand').mockResolvedValue({
+        stdout: 'ok',
+        stderr: '',
+        exitCode: 0
+      });
+      const executor = createExecutor();
+
+      await executor.execute({
+        type: 'run_command',
+        command: 'ls'
+      } as any);
+
+      expect(runCommandSpy).toHaveBeenCalledWith(
+        'ls',
+        [],
+        '/repo',
+        expect.objectContaining({ shell: true })
+      );
+      runCommandSpy.mockRestore();
+    });
+
+    it('uses shell for piped commands in command field', async () => {
+      const runCommandSpy = vi.spyOn(commandActions, 'runCommand').mockResolvedValue({
+        stdout: 'HELLO',
+        stderr: '',
+        exitCode: 0
+      });
+      const executor = createExecutor();
+
+      await executor.execute({
+        type: 'run_command',
+        command: 'echo hello | tr a-z A-Z'
+      } as any);
+
+      expect(runCommandSpy).toHaveBeenCalledWith(
+        'echo hello | tr a-z A-Z',
+        [],
+        '/repo',
+        expect.objectContaining({ shell: true })
+      );
+      runCommandSpy.mockRestore();
+    });
+
+    it('uses shell for env var expansion in args', async () => {
+      const runCommandSpy = vi.spyOn(commandActions, 'runCommand').mockResolvedValue({
+        stdout: '/home/user',
+        stderr: '',
+        exitCode: 0
+      });
+      const executor = createExecutor();
+
+      await executor.execute({
+        type: 'run_command',
+        command: 'echo',
+        args: ['$HOME']
+      } as any);
+
+      expect(runCommandSpy).toHaveBeenCalledWith(
+        'echo $HOME',
+        [],
+        '/repo',
+        expect.objectContaining({ shell: true })
+      );
+      runCommandSpy.mockRestore();
+    });
+
+    it('uses shell for redirect operators in args', async () => {
+      const runCommandSpy = vi.spyOn(commandActions, 'runCommand').mockResolvedValue({
+        stdout: '',
+        stderr: '',
+        exitCode: 0
+      });
+      const executor = createExecutor();
+
+      await executor.execute({
+        type: 'run_command',
+        command: 'echo',
+        args: ['hello', '>', 'output.txt']
+      } as any);
+
+      expect(runCommandSpy).toHaveBeenCalledWith(
+        'echo hello > output.txt',
+        [],
+        '/repo',
+        expect.objectContaining({ shell: true })
+      );
+      runCommandSpy.mockRestore();
+    });
+
+    it('uses shell for glob patterns in args', async () => {
+      const runCommandSpy = vi.spyOn(commandActions, 'runCommand').mockResolvedValue({
+        stdout: 'file1.ts file2.ts',
+        stderr: '',
+        exitCode: 0
+      });
+      const executor = createExecutor();
+
+      await executor.execute({
+        type: 'run_command',
+        command: 'ls',
+        args: ['*.ts']
+      } as any);
+
+      expect(runCommandSpy).toHaveBeenCalledWith(
+        'ls *.ts',
+        [],
+        '/repo',
+        expect.objectContaining({ shell: true })
+      );
+      runCommandSpy.mockRestore();
+    });
+
+    it('preserves directory, background, and streaming options', async () => {
+      const runCommandSpy = vi.spyOn(commandActions, 'runCommand').mockResolvedValue({
+        stdout: '',
+        stderr: '',
+        exitCode: null,
+        backgroundPid: 42
+      });
+      const executor = createExecutor();
+
+      await executor.execute({
+        type: 'run_command',
+        command: 'node',
+        args: ['server.js'],
+        directory: 'packages/api',
+        background: true
+      } as any);
+
+      expect(runCommandSpy).toHaveBeenCalledWith(
+        'node server.js',
+        [],
+        '/repo',
+        expect.objectContaining({
+          shell: true,
+          directory: 'packages/api',
+          background: true
+        })
+      );
       runCommandSpy.mockRestore();
     });
   });

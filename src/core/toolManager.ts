@@ -215,6 +215,23 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
+    name: 'glob',
+    description: 'Fast cross-platform file pattern matching powered by ripgrep. Returns file paths matching glob patterns. Use for finding files by extension, name pattern, or directory structure. Much faster than find for large repos.',
+    parameters: {
+      type: 'object',
+      properties: {
+        pattern: { type: 'string', description: 'Glob pattern to match (e.g., "**/*.ts", "src/**/*.test.ts", "*.json")' },
+        patterns: {
+          type: 'array',
+          description: 'Multiple glob patterns to match simultaneously',
+          items: { type: 'string' }
+        },
+        path: { type: 'string', description: 'Directory to search in. Defaults to workspace root.' },
+        limit: { type: 'number', description: 'Maximum number of results to return (default: 100)' },
+      },
+    },
+  },
+  {
     name: 'create_directory',
     description: 'Create a directory',
     parameters: {
@@ -275,12 +292,12 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'run_command',
-    description: 'Execute shell commands with optional directory, background mode, and description. Prefer dedicated tools: read_file over cat, find over grep, search_replace over sed.',
+    description: 'Execute a shell command in the user\'s shell with full pipe, redirect, and environment variable support. Cross-platform (bash/zsh on macOS/Linux, cmd/PowerShell on Windows). Prefer dedicated tools for file operations (read_file, write_file, find).',
     parameters: {
       type: 'object',
       properties: {
-        command: { type: 'string', description: 'Command to execute' },
-        args: { type: 'array', description: 'Command arguments', items: { type: 'string', description: 'Single argument' } },
+        command: { type: 'string', description: 'Command to execute. Supports pipes (|), redirects (>), env vars ($HOME), globs (*), and chaining (&&).' },
+        args: { type: 'array', description: 'Command arguments. Joined with the command into a single shell string. For complex commands with pipes/redirects, put everything in the command field instead.', items: { type: 'string', description: 'Single argument' } },
         directory: { type: 'string', description: 'Directory relative to workspace root to execute in' },
         description: { type: 'string', description: 'Brief description of what this command does (shown to user)' },
         background: { type: 'boolean', description: 'Run process in background (returns PID, useful for dev servers)' }
