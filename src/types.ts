@@ -880,6 +880,7 @@ export type AgentAction =
   | { type: 'format_file'; path: string; formatter: string }
   | { type: 'search_with_context'; query: string; limit?: number; context?: number; path?: string }
   | { type: 'semantic_search'; query: string; limit?: number; window?: number; path?: string }
+  | { type: 'glob'; pattern?: string; patterns?: string[]; path?: string; limit?: number }
   | { type: 'list_tree'; path?: string; depth?: number }
   | { type: 'file_stats'; path: string }
   | { type: 'checksum'; path: string; algorithm?: string }
