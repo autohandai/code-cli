@@ -68,6 +68,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   // Read operations
   read_file: 'read',
   find: 'read',
+  glob: 'read',
   search: 'read',
   search_with_context: 'read',
   semantic_search: 'read',
@@ -374,6 +375,7 @@ const RELEVANCE_CATEGORIES: Record<string, RelevanceCategory> = {
   read_file: 'always',
   write_file: 'always',
   find: 'always',
+  glob: 'always',
   search: 'always',
   list_tree: 'always',
   plan: 'always',

@@ -14,6 +14,7 @@ const FILE_SUMMARY_TOOLS = new Set<AgentAction['type']>([
 /** Tools that should show truncated content */
 const TRUNCATED_TOOLS = new Set<AgentAction['type']>([
   'find',
+  'glob',
   'search',
   'search_with_context',
   'semantic_search'
