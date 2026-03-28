@@ -135,6 +135,94 @@ describe('runShellCommand', () => {
   });
 });
 
+describe('runCommand with shell: true (always-shell mode)', () => {
+  const testDir = join(tmpdir(), 'autohand-shell-always-test-' + Date.now());
+
+  beforeAll(() => {
+    mkdirSync(testDir, { recursive: true });
+    writeFileSync(join(testDir, 'data.txt'), 'hello\nworld\nfoo');
+  });
+
+  afterAll(() => {
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  it('supports piped commands when command+args are joined into shell string', async () => {
+    // Simulate how actionExecutor will call: joined command, empty args, shell: true
+    const result = await runCommand('echo hello | tr a-z A-Z', [], testDir, { shell: true });
+    expect(result.stdout.trim()).toBe('HELLO');
+    expect(result.code).toBe(0);
+  });
+
+  it('supports environment variable expansion in joined command', async () => {
+    const result = await runCommand('echo $HOME', [], testDir, { shell: true });
+    expect(result.stdout.trim()).not.toBe('$HOME');
+    expect(result.stdout.trim().length).toBeGreaterThan(0);
+    expect(result.code).toBe(0);
+  });
+
+  it('supports command chaining with && in joined command', async () => {
+    const result = await runCommand('echo first && echo second', [], testDir, { shell: true });
+    expect(result.stdout).toContain('first');
+    expect(result.stdout).toContain('second');
+  });
+
+  it('supports redirect operators in joined command', async () => {
+    const outFile = join(testDir, 'redirect-out.txt');
+    const result = await runCommand(`echo redirected > ${outFile}`, [], testDir, { shell: true });
+    expect(result.code).toBe(0);
+    // Verify the file was actually written
+    const { readFileSync } = await import('node:fs');
+    expect(readFileSync(outFile, 'utf8').trim()).toBe('redirected');
+  });
+
+  it('supports glob expansion in joined command', async () => {
+    writeFileSync(join(testDir, 'a.txt'), 'a');
+    writeFileSync(join(testDir, 'b.txt'), 'b');
+    const result = await runCommand('ls *.txt', [], testDir, { shell: true });
+    expect(result.stdout).toContain('a.txt');
+    expect(result.stdout).toContain('b.txt');
+    expect(result.code).toBe(0);
+  });
+
+  it('supports simple commands without shell operators', async () => {
+    const result = await runCommand('echo hello world', [], testDir, { shell: true });
+    expect(result.stdout.trim()).toBe('hello world');
+    expect(result.code).toBe(0);
+  });
+
+  it('preserves directory option with shell: true', async () => {
+    const sub = join(testDir, 'sub');
+    mkdirSync(sub, { recursive: true });
+    writeFileSync(join(sub, 'file.txt'), 'in sub');
+    const result = await runCommand('cat file.txt', [], testDir, {
+      shell: true,
+      directory: 'sub'
+    });
+    expect(result.stdout.trim()).toBe('in sub');
+  });
+
+  it('preserves timeout option with shell: true', async () => {
+    const result = await runCommand('sleep 10', [], testDir, {
+      shell: true,
+      timeout: 100
+    });
+    expect(result.signal).toBe('SIGTERM');
+  });
+
+  it('preserves background option with shell: true', async () => {
+    const result = await runCommand('sleep 10', [], testDir, {
+      shell: true,
+      background: true
+    });
+    expect(result.backgroundPid).toBeDefined();
+    expect(typeof result.backgroundPid).toBe('number');
+    if (result.backgroundPid) {
+      try { process.kill(result.backgroundPid, 'SIGTERM'); } catch { /* may already be gone */ }
+    }
+  });
+});
+
 describe('needsShell', () => {
   let needsShell: (cmd: string) => boolean;
 
