@@ -9,7 +9,7 @@ import { diffLines } from 'diff';
 import { highlightLine, detectLanguage } from '../ui/syntaxHighlight.js';
 import { getTheme, isThemeInitialized, hexToRgb } from '../ui/theme/index.js';
 import { addDependency, removeDependency } from '../actions/dependencies.js';
-import { runCommand, needsShell } from '../actions/command.js';
+import { runCommand } from '../actions/command.js';
 import { listDirectoryTree, fileStats as getFileStats, checksumFile } from '../actions/metadata.js';
 import {
   diffFile,
@@ -198,7 +198,7 @@ export class ActionExecutor {
   }
 
   async execute(action: AgentAction, context?: ToolExecutionContext): Promise<string | undefined> {
-    if (this.runtime.options.dryRun && !['find', 'search', 'search_with_context', 'semantic_search', 'plan'].includes(action.type)) {
+    if (this.runtime.options.dryRun && !['find', 'search', 'search_with_context', 'semantic_search', 'glob', 'plan'].includes(action.type)) {
       return 'Dry-run mode: skipped mutation';
     }
 
@@ -584,6 +584,8 @@ export class ActionExecutor {
           window: action.window,
           mode: 'semantic'
         });
+      case 'glob':
+        return this.executeGlob(action);
       case 'create_directory': {
         await this.files.createDirectory(action.path);
         return `Created directory ${action.path}`;
@@ -661,22 +663,21 @@ export class ActionExecutor {
         const cmdStr = `${action.command} ${(action.args ?? []).join(' ')}`.trim();
 
         let result: Awaited<ReturnType<typeof runCommand>>;
-        // Auto-detect shell syntax (pipes, redirections, globs, chaining)
-        // and route through shell so operators are interpreted correctly.
-        const useShell = needsShell(action.command);
-        const shellCmd = useShell
-          ? `${action.command} ${(action.args ?? []).join(' ')}`.trim()
-          : action.command;
-        const shellArgs = useShell ? [] : (action.args ?? []);
+        // Always execute through the user's shell so pipes, redirects,
+        // env-var expansion, globs, and builtins work out of the box.
+        // Node's spawn with shell: true uses /bin/sh on Unix, cmd.exe
+        // on Windows — matching the behavior of Claude Code and Gemini CLI.
+        // Command + args are joined into a single shell string.
+        const shellCmd = cmdStr;
         try {
           result = await runCommand(
             shellCmd,
-            shellArgs,
+            [],
             this.runtime.workspaceRoot,
             {
               directory: action.directory,
               background: action.background,
-              shell: useShell,
+              shell: true,
               onStdout: (chunk) => emitOutput('stdout', chunk),
               onStderr: (chunk) => emitOutput('stderr', chunk),
             }
@@ -1824,6 +1825,75 @@ export class ActionExecutor {
       .join('\n');
     this.searchCache.set(cacheKey, result);
     return result;
+  }
+
+  private async executeGlob(action: Extract<AgentAction, { type: 'glob' }>): Promise<string> {
+    const { resolveRipgrepCommand } = await import('../utils/ripgrep.js');
+    const rgPath = resolveRipgrepCommand();
+
+    const searchPath = action.path
+      ? this.resolveWorkspacePath(action.path)
+      : this.runtime.workspaceRoot;
+
+    const limit = action.limit ?? 100;
+
+    // Build rg args
+    const args = ['--files'];
+
+    // Add glob patterns
+    const patterns = action.patterns ?? (action.pattern ? [action.pattern] : ['**/*']);
+    for (const p of patterns) {
+      args.push('--glob', p);
+    }
+
+    args.push(searchPath);
+
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const execFileAsync = promisify(execFile);
+
+    try {
+      const result = await execFileAsync(rgPath, args, {
+        cwd: this.runtime.workspaceRoot,
+        encoding: 'utf8',
+        maxBuffer: 10 * 1024 * 1024,
+      });
+
+      const files = result.stdout.trim().split('\n').filter(Boolean);
+
+      if (files.length === 0) {
+        return 'No files found matching the pattern.';
+      }
+
+      // Sort by modification time (most recent first) using stat
+      const fse = (await import('fs-extra')).default;
+      const withStats = await Promise.all(
+        files.map(async (f) => {
+          try {
+            const stat = await fse.stat(f);
+            return { file: f, mtime: stat.mtimeMs };
+          } catch {
+            return { file: f, mtime: 0 };
+          }
+        }),
+      );
+      withStats.sort((a, b) => b.mtime - a.mtime);
+
+      const sorted = withStats.map((s) => s.file);
+      const limited = sorted.slice(0, limit);
+      const header = `Found ${files.length} file${files.length === 1 ? '' : 's'}${files.length > limit ? ` (showing first ${limit})` : ''}`;
+
+      this.recordExploration('list', action.pattern ?? action.patterns?.join(', ') ?? '*');
+
+      return `${header}\n${limited.join('\n')}`;
+    } catch (error) {
+      // rg exits with code 1 when no matches found
+      const exitCode = (error as { code?: number | string })?.code;
+      if (exitCode === 1 || exitCode === '1') {
+        return 'No files found matching the pattern.';
+      }
+      throw error;
+    }
   }
 
   private recordExploration(kind: ExplorationEvent['kind'], target?: string | null): void {
