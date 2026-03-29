@@ -10,7 +10,7 @@ import packageJson from '../package.json' with { type: 'json' };
 import { getProviderConfig, loadConfig, resolveWorkspaceRoot, saveConfig } from './config.js';
 import { runStartupChecks, printStartupCheckResults, validateWorkspacePath } from './startup/checks.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from './startup/workspaceSafety.js';
-import { getAuthClient } from './auth/index.js';
+import { getAuthClient, ensureAuthenticated } from './auth/index.js';
 import type { AuthUser, LoadedConfig } from './types.js';
 import { installProcessErrorHandlers } from './reporting/processErrorReporting.js';
 import { checkForUpdates, getInstallHint, type VersionCheckResult } from './utils/versionCheck.js';
@@ -340,6 +340,17 @@ program
       process.exit(0);
     }
 
+    // ── Mandatory authentication gate ──
+    // Everything below requires a valid login. --login, --logout, --setup,
+    // --about, --permissions, --skill-install, and --learn* are exempt above.
+    {
+      let authConfig = await loadConfig(opts.config);
+      authConfig = await ensureAuthenticated(authConfig);
+      // Propagate refreshed auth into the options so downstream code sees
+      // the updated token (e.g. runCLI, runRpcMode, runAutoMode).
+      (opts as any)._authConfig = authConfig;
+    }
+
     // Handle --patch flag
     if (opts.patch) {
       await runPatchMode(opts);
@@ -421,6 +432,11 @@ program
   .option('--path <path>', 'Workspace path to operate in')
   .option('--model <model>', 'Override the configured LLM model')
   .action(async (sessionId: string, opts: CLIOptions) => {
+    // Mandatory auth gate for resume
+    let authConfig = await loadConfig(opts.config);
+    authConfig = await ensureAuthenticated(authConfig);
+    (opts as any)._authConfig = authConfig;
+
     await runCLI({ ...opts, resumeSessionId: sessionId });
   });
 
