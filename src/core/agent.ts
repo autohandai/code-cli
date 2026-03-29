@@ -366,7 +366,7 @@ export class AutohandAgent {
       getRegisteredTools: () => this.toolManager?.listDefinitions() ?? [],
       memoryManager: this.memoryManager,
       permissionManager: this.permissionManager,
-      onFileModified: (filePath?: string) => this.markFilesModified(filePath),
+      onFileModified: (filePath?: string, changeType?: 'create' | 'modify' | 'delete') => this.markFilesModified(filePath, changeType),
       onAskFollowup: (question, suggestedAnswers) => this.executeAskFollowupQuestion(question, suggestedAnswers),
       onPlanCreated: (plan, filePath) => this.handlePlanCreated(plan, filePath),
       onPermissionRequest: async (context) => {
@@ -5201,11 +5201,18 @@ If lint or tests fail, report the issues but do NOT commit.`;
   /**
    * Mark that files were modified during this session (called by action executor)
    */
-  markFilesModified(filePath?: string): void {
+  markFilesModified(filePath?: string, changeType?: 'create' | 'modify' | 'delete'): void {
     this.filesModifiedThisSession = true;
     this.fileModCount++;
     if (filePath) {
       this.modifiedFilePaths.add(filePath);
+    }
+    // Fire file-modified hook for automation/notifications
+    if (filePath && this.hookManager) {
+      this.hookManager.executeHooks('file-modified', {
+        path: filePath,
+        changeType: changeType || 'modify',
+      }).catch(() => {}); // Non-blocking
     }
   }
 

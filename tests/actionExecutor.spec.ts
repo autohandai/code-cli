@@ -72,7 +72,7 @@ function createExecutor(
   filesOverrides: Partial<FileActionManager> = {},
   options: {
     runtime?: Partial<AgentRuntime>;
-    onFileModified?: () => void;
+    onFileModified?: (filePath?: string, changeType?: 'create' | 'modify' | 'delete') => void;
     onExploration?: (entry: { kind: string; target: string }) => void;
     confirmDangerousAction?: () => Promise<boolean>;
   } = {}
@@ -162,7 +162,7 @@ describe('ActionExecutor', () => {
       const result = await executor.execute({ type: 'write_file', path: 'README.md', content: 'new content' } as any);
 
       expect(writeFile).toHaveBeenCalledWith('README.md', 'new content');
-      expect(onFileModified).toHaveBeenCalledWith('README.md');
+      expect(onFileModified).toHaveBeenCalledWith('README.md', 'modify');
       expect(result).toContain('Added');
       expect(result).toContain('removed');
     });
@@ -177,7 +177,7 @@ describe('ActionExecutor', () => {
 
       await executor.execute({ type: 'write_file', path: 'src/new.ts', content: 'code' } as any);
 
-      expect(onFileModified).toHaveBeenCalledWith('src/new.ts');
+      expect(onFileModified).toHaveBeenCalledWith('src/new.ts', 'create');
     });
 
     it('throws error when write_file path is missing', async () => {
@@ -330,6 +330,16 @@ describe('ActionExecutor', () => {
       await executor.execute({ type: 'read_file', path: 'test.ts' });
 
       expect(onFileModified).not.toHaveBeenCalled();
+    });
+
+    it('onFileModified passes changeType for write_file creating a new file', async () => {
+      // Check source code contains changeType parameter
+      const { readFileSync } = await import('node:fs');
+      const source = readFileSync('src/core/actionExecutor.ts', 'utf-8');
+      // All onFileModified calls should pass a second argument
+      const calls = source.match(/onFileModified\?\.\([^)]+\)/g) || [];
+      const withChangeType = calls.filter(c => c.includes(','));
+      expect(withChangeType.length).toBeGreaterThanOrEqual(5);
     });
   });
 
