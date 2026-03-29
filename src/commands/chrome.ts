@@ -162,6 +162,11 @@ export async function chrome(ctx: ChromeCommandContext, args: string[] = []): Pr
 
     case 'reconnect': {
       await nativeHostReady;
+      await openChromeContinuation(
+        buildChromeOpenUrl({ extensionId, installUrl: ctx.config?.chrome?.installUrl }),
+        ctx.config?.chrome?.browser ?? 'auto',
+        { userDataDir: ctx.config?.chrome?.userDataDir, profileDirectory: ctx.config?.chrome?.profileDirectory },
+      );
       return `${chalk.green('✓')} Native messaging host reinstalled.`;
     }
   }
