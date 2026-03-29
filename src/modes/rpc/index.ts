@@ -11,6 +11,7 @@ import { ConversationManager } from '../../core/conversationManager.js';
 import { FileActionManager } from '../../actions/filesystem.js';
 import { ProviderFactory } from '../../providers/ProviderFactory.js';
 import { loadConfig } from '../../config.js';
+import { checkAuthenticated } from '../../auth/index.js';
 import { checkWorkspaceSafety } from '../../startup/workspaceSafety.js';
 import type { CLIOptions, AgentRuntime } from '../../types.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from '../../utils/sessionWorktree.js';
@@ -101,6 +102,17 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
   try {
     // Load configuration
     const config = await loadConfig(options.config);
+
+    // Non-interactive auth check — RPC mode cannot prompt for login
+    const isAuthed = await checkAuthenticated(config);
+    if (!isAuthed) {
+      writeErrorResponse(
+        null,
+        JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+        'Authentication required. Run `autohand login` first.'
+      );
+      process.exit(1);
+    }
 
     // Disable Ink renderer for RPC mode (stdin is not a TTY)
     if (!config.ui) {
