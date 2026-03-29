@@ -100,7 +100,7 @@ export interface ActionExecutorOptions {
   permissionManager?: PermissionManager;
   memoryManager?: MemoryManager;
   onToolOutput?: (chunk: ToolOutputChunk) => void;
-  onFileModified?: (filePath?: string) => void;
+  onFileModified?: (filePath?: string, changeType?: 'create' | 'modify' | 'delete') => void;
   /** Callback to handle ask_followup_question tool - delegates to agent for TUI coordination */
   onAskFollowup?: (question: string, suggestedAnswers?: string[]) => Promise<string>;
   /** Callback when a plan is created - allows agent to store plan and ask for acceptance */
@@ -136,7 +136,7 @@ export class ActionExecutor {
   private readonly permissionManager: PermissionManager;
   private readonly memoryManager?: MemoryManager;
   private readonly onToolOutput?: (chunk: ToolOutputChunk) => void;
-  private readonly onFileModified?: (filePath?: string) => void;
+  private readonly onFileModified?: (filePath?: string, changeType?: 'create' | 'modify' | 'delete') => void;
   private readonly onAskFollowup?: AgentExecutorDeps['onAskFollowup'];
   private readonly onPlanCreated?: AgentExecutorDeps['onPlanCreated'];
   private readonly onPermissionRequest?: AgentExecutorDeps['onPermissionRequest'];
@@ -519,7 +519,7 @@ export class ActionExecutor {
         }
 
         await this.files.writeFile(action.path, newContent);
-        this.onFileModified?.(action.path);
+        this.onFileModified?.(action.path, exists ? 'modify' : 'create');
         return resultOutput ?? (exists ? `Updated ${action.path}` : `Created ${action.path}`);
       }
       case 'append_file': {
@@ -534,7 +534,7 @@ export class ActionExecutor {
         this.showDiff(oldContent, newContent, action.path);
 
         await this.files.appendFile(action.path, addition);
-        this.onFileModified?.(action.path);
+        this.onFileModified?.(action.path, 'modify');
         return this.formatDiffPreview(oldContent, newContent, action.path);
       }
       case 'apply_patch': {
@@ -554,7 +554,7 @@ export class ActionExecutor {
 
         const newContent = await this.files.readFile(action.path);
         this.showDiff(oldContent, newContent, action.path);
-        this.onFileModified?.(action.path);
+        this.onFileModified?.(action.path, 'modify');
 
         return this.formatDiffPreview(oldContent, newContent, action.path);
       }
@@ -625,7 +625,7 @@ export class ActionExecutor {
           console.log(chalk.cyan(`\n🔄 ${action.path}:`));
           this.showDiff(content, result, action.path);
           await this.files.writeFile(action.path, result);
-          this.onFileModified?.(action.path);
+          this.onFileModified?.(action.path, 'modify');
           return this.formatDiffPreview(content, result, action.path);
         }
         return `No changes needed for ${action.path} (content identical)`;
@@ -1212,7 +1212,7 @@ export class ActionExecutor {
         if (oldContent !== newContent) {
           this.showDiff(oldContent, newContent, action.file_path);
           await this.files.writeFile(action.file_path, newContent);
-          this.onFileModified?.(action.file_path);
+          this.onFileModified?.(action.file_path, 'modify');
           return this.formatDiffPreview(oldContent, newContent, action.file_path);
         }
 
