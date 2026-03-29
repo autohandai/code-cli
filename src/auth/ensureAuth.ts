@@ -8,7 +8,14 @@
 import chalk from 'chalk';
 import { AuthClient } from './AuthClient.js';
 import { loadConfig } from '../config.js';
+import { showModal } from '../ui/ink/components/Modal.js';
+import packageJson from '../../package.json' with { type: 'json' };
 import type { LoadedConfig } from '../types.js';
+
+const AUTOHAND_LOGO = [
+  '  ◎ ◎ ◎ ◎   ▄▀█ █ █ ▀█▀ █▀█ █ █ ▄▀█ █▄ █ █▀▄   ▄▀█ █',
+  '  ◎ ◎ ◎ ◎   █▀█ █▄█  █  █▄█ █▀█ █▀█ █ ▀█ █▄▀   █▀█ █',
+].join('\n');
 
 /**
  * Ensure the user is authenticated before proceeding.
@@ -94,9 +101,40 @@ function isTokenExpiredLocally(config: LoadedConfig): boolean {
  * Reloads config after login. Exits if login fails.
  */
 async function promptLogin(config: LoadedConfig): Promise<LoadedConfig> {
-  console.log(
-    chalk.yellow('\nAuthentication required. Please sign in to continue.\n')
-  );
+  // Show full-screen welcome before login — like Cursor's splash screen
+  if (process.stdout.isTTY) {
+    const rows = process.stdout.rows || 24;
+    const version = `v${packageJson.version}`;
+
+    // Clear screen and position content vertically centered
+    process.stdout.write('\x1b[2J\x1b[H');
+
+    // The art block: logo + tagline + version + prompt = ~8 lines
+    const contentHeight = 8;
+    const topPadding = Math.max(0, Math.floor((rows - contentHeight) / 2));
+
+    process.stdout.write('\n'.repeat(topPadding));
+    console.log(chalk.white(AUTOHAND_LOGO));
+    console.log();
+    console.log(chalk.gray('  Your AI-powered coding agent for the terminal'));
+    console.log(chalk.gray(`  ${version}`));
+    console.log();
+
+    const selected = await showModal({
+      title: chalk.white('Please sign in to continue.'),
+      options: [
+        { label: 'Login', value: 'login' },
+        { label: 'Exit', value: 'exit' },
+      ],
+    });
+
+    // Clear the splash before proceeding
+    process.stdout.write('\x1b[2J\x1b[H');
+
+    if (!selected || selected.value === 'exit') {
+      process.exit(0);
+    }
+  }
 
   const { login } = await import('../commands/login.js');
   await login({ config });

@@ -53,11 +53,15 @@ describe('browser/chrome', () => {
   });
 
   it('builds a local-safe fallback URL when extension id is missing', () => {
-    expect(buildChromeLaunchUrl({ token: 'abc' })).toBe('about:blank');
+    const url = buildChromeLaunchUrl({ token: 'abc' });
+    expect(url).toContain('https://autohand.ai/chrome/installed');
+    expect(url).toContain('handoff=abc');
   });
 
   it('keeps local-safe URLs unchanged for web fallback', () => {
-    expect(buildChromeLaunchUrl({ token: 'abc', installUrl: 'about:blank' })).toBe('about:blank');
+    const url = buildChromeLaunchUrl({ token: 'abc', installUrl: 'https://autohand.ai/chrome/installed' });
+    expect(url).toContain('https://autohand.ai/chrome/installed');
+    expect(url).toContain('handoff=abc');
   });
 
   it('builds a direct extension open URL when extension id is configured', () => {
@@ -67,7 +71,7 @@ describe('browser/chrome', () => {
   });
 
   it('builds a fallback local-safe URL when extension id is missing for direct open', () => {
-    expect(buildChromeOpenUrl({})).toBe('about:blank');
+    expect(buildChromeOpenUrl({})).toBe('https://autohand.ai/chrome/installed');
   });
 
   it('builds a native host manifest with allowed origins', () => {

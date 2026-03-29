@@ -15,7 +15,7 @@ import { AUTOHAND_HOME } from '../constants.js';
 const { chmod, ensureDir, pathExists, readFile, readJson, remove, writeFile, writeJson } = fs;
 
 export const CHROME_NATIVE_HOST_NAME = 'ai.autohand.rpc';
-export const DEFAULT_CHROME_INSTALL_URL = 'about:blank';
+export const DEFAULT_CHROME_INSTALL_URL = 'https://autohand.ai/chrome/installed';
 export const DEFAULT_HANDOFF_TTL_MS = 10 * 60 * 1000;
 
 export type ChromiumBrowser = 'chrome' | 'chromium' | 'brave' | 'edge';
