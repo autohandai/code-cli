@@ -1034,6 +1034,17 @@ export class AutohandAcpAdapter implements Agent {
           }
           break;
 
+        case 'file_modified':
+          if (event.filePath) {
+            this.emitHookFileModified(
+              sessionId,
+              event.filePath,
+              event.changeType ?? 'modify',
+              event.toolId ?? '',
+            );
+          }
+          break;
+
         case 'error':
           if (event.content) {
             const classified = this.classifyAndFormatError(event.content);

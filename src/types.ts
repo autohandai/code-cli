@@ -1054,7 +1054,7 @@ export interface AgentStatusSnapshot {
 }
 
 export interface AgentOutputEvent {
-  type: 'message' | 'thinking' | 'tool_start' | 'tool_end' | 'error' | 'schedule_triggered';
+  type: 'message' | 'thinking' | 'tool_start' | 'tool_end' | 'error' | 'schedule_triggered' | 'file_modified';
   content?: string;
   thought?: string;
   toolName?: string;
@@ -1063,6 +1063,10 @@ export interface AgentOutputEvent {
   toolOutput?: string;
   toolSuccess?: boolean;
   scheduleId?: string;
+  /** File path for file_modified events */
+  filePath?: string;
+  /** Change type for file_modified events */
+  changeType?: 'create' | 'modify' | 'delete';
 }
 
 // ============ Community Skills Marketplace Types ============
