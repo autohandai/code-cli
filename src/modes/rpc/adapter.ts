@@ -2032,6 +2032,17 @@ export class RPCAdapter {
         });
         break;
 
+      case 'file_modified':
+        if (event.filePath) {
+          writeNotification(RPC_NOTIFICATIONS.HOOK_FILE_MODIFIED, {
+            filePath: event.filePath,
+            changeType: event.changeType ?? 'modify',
+            toolId: event.toolId ?? '',
+            timestamp: createTimestamp(),
+          });
+        }
+        break;
+
       case 'error':
         if (event.content) {
           process.stderr.write(`[RPC DEBUG] Emitting error: ${event.content.substring(0, 100)}...\n`);

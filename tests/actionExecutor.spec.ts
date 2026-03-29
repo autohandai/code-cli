@@ -274,12 +274,31 @@ describe('ActionExecutor', () => {
     it('deletes paths when confirmed', async () => {
       const deletePath = vi.fn().mockResolvedValue(undefined);
       const confirmDangerousAction = vi.fn().mockResolvedValue(true);
-      const executor = createExecutor({ deletePath }, { confirmDangerousAction });
+      const onFileModified = vi.fn();
+      const executor = createExecutor({ deletePath }, { confirmDangerousAction, onFileModified });
 
       const result = await executor.execute({ type: 'delete_path', path: 'dist' });
 
       expect(deletePath).toHaveBeenCalledWith('dist');
-      expect(result).toContain('Deleted');
+      expect(onFileModified).toHaveBeenCalledWith('dist', 'delete');
+      // File deletions now show diff preview with removal stats
+      expect(result).toContain('removed');
+    });
+
+    it('deletes directories when readFile fails (directory)', async () => {
+      const deletePath = vi.fn().mockResolvedValue(undefined);
+      const confirmDangerousAction = vi.fn().mockResolvedValue(true);
+      const onFileModified = vi.fn();
+      const executor = createExecutor(
+        { deletePath, readFile: vi.fn().mockRejectedValue(new Error('EISDIR')) },
+        { confirmDangerousAction, onFileModified }
+      );
+
+      const result = await executor.execute({ type: 'delete_path', path: 'dist' });
+
+      expect(deletePath).toHaveBeenCalledWith('dist');
+      expect(onFileModified).toHaveBeenCalledWith('dist', 'delete');
+      expect(result).toContain('Deleted directory');
     });
   });
 

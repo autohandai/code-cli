@@ -5214,6 +5214,15 @@ If lint or tests fail, report the issues but do NOT commit.`;
         changeType: changeType || 'modify',
       }).catch(() => {}); // Non-blocking
     }
+
+    // Emit file_modified output event for RPC/ACP forwarding
+    if (filePath) {
+      this.emitOutput({
+        type: 'file_modified',
+        filePath,
+        changeType: changeType || 'modify',
+      });
+    }
   }
 
   /**
