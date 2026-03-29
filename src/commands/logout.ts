@@ -5,7 +5,7 @@
  */
 import chalk from 'chalk';
 import { t } from '../i18n/index.js';
-import { safePrompt } from '../utils/prompt.js';
+import { showModal } from '../ui/ink/components/Modal.js';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import { getAuthClient } from '../auth/index.js';
 import { saveConfig } from '../config.js';
@@ -32,14 +32,15 @@ export async function logout(ctx: LogoutContext): Promise<string | null> {
   const userName = config.auth.user?.name || config.auth.user?.email || 'user';
 
   // Confirm logout
-  const result = await safePrompt<{ confirm: boolean }>({
-    type: 'confirm',
-    name: 'confirm',
-    message: `Log out from ${chalk.cyan(userName)}?`,
-    initial: true,
+  const selected = await showModal({
+    title: `Log out from ${chalk.cyan(userName)}?`,
+    options: [
+      { label: 'Yes', value: 'yes' },
+      { label: 'No', value: 'no' },
+    ],
   });
 
-  if (!result || !result.confirm) {
+  if (!selected || selected.value === 'no') {
     console.log(chalk.gray(t('commands.logout.cancelled')));
     return null;
   }

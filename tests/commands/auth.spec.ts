@@ -38,6 +38,12 @@ vi.mock('../../src/utils/prompt.js', () => ({
   safePrompt: vi.fn(),
 }));
 
+// Mock Modal (logout uses showModal instead of safePrompt)
+var mockShowModal = vi.fn();
+vi.mock('../../src/ui/ink/components/Modal.js', () => ({
+  showModal: (...args: unknown[]) => mockShowModal(...args),
+}));
+
 vi.mock('node:child_process', () => ({
   exec: vi.fn(),
   execFile: vi.fn(),
@@ -229,13 +235,13 @@ describe('logout command', () => {
       },
     };
 
-    (safePrompt as ReturnType<typeof vi.fn>).mockResolvedValue({ confirm: false });
+    mockShowModal.mockResolvedValue({ value: 'no' });
 
     const { logout } = await import('../../src/commands/logout.js');
     const result = await logout({ config: mockConfig });
 
     expect(result).toBeNull();
-    expect(safePrompt).toHaveBeenCalled();
+    expect(mockShowModal).toHaveBeenCalled();
     expect(consoleOutput.some((line) => line.includes('cancelled'))).toBe(true);
   });
 
@@ -252,7 +258,7 @@ describe('logout command', () => {
       logout: vi.fn().mockResolvedValue(undefined),
     };
 
-    (safePrompt as ReturnType<typeof vi.fn>).mockResolvedValue({ confirm: true });
+    mockShowModal.mockResolvedValue({ value: 'yes' });
     (getAuthClient as ReturnType<typeof vi.fn>).mockReturnValue(mockAuthClient);
     (saveConfig as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
 
@@ -281,7 +287,7 @@ describe('logout command', () => {
       logout: vi.fn().mockRejectedValue(new Error('Network error')),
     };
 
-    (safePrompt as ReturnType<typeof vi.fn>).mockResolvedValue({ confirm: true });
+    mockShowModal.mockResolvedValue({ value: 'yes' });
     (getAuthClient as ReturnType<typeof vi.fn>).mockReturnValue(mockAuthClient);
     (saveConfig as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
 
