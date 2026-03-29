@@ -601,14 +601,23 @@ export class ActionExecutor {
         if (!confirmed) {
           return `Skipped deleting ${action.path}`;
         }
+        const oldDeleteContent = await this.files.readFile(action.path).catch(() => null);
         await this.files.deletePath(action.path);
-        return `Deleted ${action.path}`;
+        if (oldDeleteContent !== null) {
+          console.log(chalk.cyan(`\n🗑️ ${action.path}:`));
+          this.showDiff(oldDeleteContent, '', action.path);
+          this.onFileModified?.(action.path, 'delete');
+          return this.formatDiffPreview(oldDeleteContent, '', action.path);
+        }
+        this.onFileModified?.(action.path, 'delete');
+        return `Deleted directory ${action.path}`;
       }
       case 'rename_path': {
         if (!action.from || !action.to) {
           throw new Error('rename_path requires "from" and "to" arguments.');
         }
         await this.files.renamePath(action.from, action.to);
+        this.onFileModified?.(action.to, 'create');
         return `Renamed ${action.from} -> ${action.to}`;
       }
       case 'copy_path': {
@@ -616,6 +625,7 @@ export class ActionExecutor {
           throw new Error('copy_path requires "from" and "to" arguments.');
         }
         await this.files.copyPath(action.from, action.to);
+        this.onFileModified?.(action.to, 'create');
         return `Copied ${action.from} -> ${action.to}`;
       }
       case 'search_replace': {
@@ -634,8 +644,16 @@ export class ActionExecutor {
         if (!action.path) {
           throw new Error('format_file requires a "path" argument.');
         }
+        const oldFormatContent = await this.files.readFile(action.path).catch(() => '');
         await this.files.formatFile(action.path, (contents, file) => applyFormatter(action.formatter, contents, file));
-        return `Formatted ${action.path} (${action.formatter})`;
+        const newFormatContent = await this.files.readFile(action.path).catch(() => '');
+        if (oldFormatContent !== newFormatContent) {
+          console.log(chalk.cyan(`\n🎨 ${action.path}:`));
+          this.showDiff(oldFormatContent, newFormatContent, action.path);
+          this.onFileModified?.(action.path, 'modify');
+          return this.formatDiffPreview(oldFormatContent, newFormatContent, action.path);
+        }
+        return `No changes needed (already formatted): ${action.path}`;
       }
       case 'run_command': {
         if (!action.command || typeof action.command !== 'string') {
@@ -716,11 +734,31 @@ export class ActionExecutor {
         return parts.join('\n');
       }
       case 'add_dependency': {
+        const fseAdd = (await import('fs-extra')).default;
+        const pkgPathAdd = `${this.runtime.workspaceRoot}/package.json`;
+        const oldPkgAdd = await fseAdd.readFile(pkgPathAdd, 'utf-8').catch(() => '');
         await addDependency(this.runtime.workspaceRoot, action.name, action.version, { dev: action.dev });
+        const newPkgAdd = await fseAdd.readFile(pkgPathAdd, 'utf-8').catch(() => '');
+        if (oldPkgAdd !== newPkgAdd) {
+          console.log(chalk.cyan(`\n📦 package.json:`));
+          this.showDiff(oldPkgAdd, newPkgAdd, 'package.json');
+          this.onFileModified?.('package.json', 'modify');
+          return this.formatDiffPreview(oldPkgAdd, newPkgAdd, 'package.json');
+        }
         return `Added dependency ${action.name}@${action.version}${action.dev ? ' (dev)' : ''}`;
       }
       case 'remove_dependency': {
+        const fseRm = (await import('fs-extra')).default;
+        const pkgPathRm = `${this.runtime.workspaceRoot}/package.json`;
+        const oldPkgRm = await fseRm.readFile(pkgPathRm, 'utf-8').catch(() => '');
         await removeDependency(this.runtime.workspaceRoot, action.name, { dev: action.dev });
+        const newPkgRm = await fseRm.readFile(pkgPathRm, 'utf-8').catch(() => '');
+        if (oldPkgRm !== newPkgRm) {
+          console.log(chalk.cyan(`\n📦 package.json:`));
+          this.showDiff(oldPkgRm, newPkgRm, 'package.json');
+          this.onFileModified?.('package.json', 'modify');
+          return this.formatDiffPreview(oldPkgRm, newPkgRm, 'package.json');
+        }
         return `Removed dependency ${action.name}${action.dev ? ' (dev)' : ''}`;
       }
       case 'list_tree': {
@@ -760,8 +798,16 @@ export class ActionExecutor {
           throw new Error('git_checkout requires a "path" argument.');
         }
         this.resolveWorkspacePath(action.path);
+        const oldCheckoutContent = await this.files.readFile(action.path).catch(() => '');
         checkoutFile(this.runtime.workspaceRoot, action.path);
-        return `Restored ${action.path} from git.`;
+        const newCheckoutContent = await this.files.readFile(action.path).catch(() => '');
+        if (oldCheckoutContent !== newCheckoutContent) {
+          console.log(chalk.cyan(`\n↩️ ${action.path}:`));
+          this.showDiff(oldCheckoutContent, newCheckoutContent, action.path);
+          this.onFileModified?.(action.path, 'modify');
+          return this.formatDiffPreview(oldCheckoutContent, newCheckoutContent, action.path);
+        }
+        return `Restored ${action.path} from git (no changes).`;
       }
       case 'git_status':
         return gitStatus(this.runtime.workspaceRoot);
@@ -1259,6 +1305,7 @@ export class ActionExecutor {
 
         // Write back
         await this.files.writeFile(todoPath, JSON.stringify(allTodos, null, 2));
+        this.onFileModified?.(todoPath, 'modify');
 
         // Display summary with progress bar
         console.log(chalk.cyan('\n📋 Task Progress:'));
