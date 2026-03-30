@@ -135,6 +135,7 @@ autohand -p "refactor database queries" --dry-run
 | `--yes`                 | `-y`  | Auto-confirm risky actions                      |
 | `--auto-commit`         | `-c`  | Auto-commit changes after completing tasks      |
 | `--dry-run`             |       | Preview actions without applying mutations      |
+| `--debug`               | `-d`  | Enable debug output (verbose logging)           |
 | `--model <model>`       |       | Override the configured LLM model               |
 | `--path <path>`         |       | Workspace path to operate in                    |
 | `--auto-skill`          |       | Auto-generate skills based on project analysis  |
@@ -142,8 +143,41 @@ autohand -p "refactor database queries" --dry-run
 | `--restricted`          |       | Deny all dangerous operations automatically     |
 | `--config <path>`       |       | Path to config file                             |
 | `--temperature <value>` |       | Sampling temperature for LLM                    |
+| `--thinking [level]`    |       | Set thinking/reasoning depth (none, normal, extended) |
+| `--learn`               |       | Run skill advisor non-interactively             |
+| `--learn-update`        |       | Re-analyze project and regenerate skills        |
+| `--skill-install [name]`|       | Install a community skill                       |
+| `--project`             |       | Install skill to project level (with --skill-install) |
+| `--permissions`         |       | Display current permission settings and exit    |
 | `--login`               |       | Sign in to your Autohand account                |
 | `--logout`              |       | Sign out of your Autohand account               |
+| `--sync-settings [bool]`|       | Enable/disable settings sync (default: true for logged users) |
+| `--patch`               |       | Generate git patch without applying changes     |
+| `--output <file>`       |       | Output file for patch (default: stdout)         |
+| `--mode <mode>`         |       | Run mode: interactive (default), rpc, or acp   |
+| `--acp`                 |       | Shorthand for --mode acp (Agent Client Protocol over stdio) |
+| `--teammate-mode <mode>`|       | Team display mode: auto, in-process, or tmux    |
+| `--worktree [name]`     |       | Run session in isolated git worktree (optional name) |
+| `--tmux`                |       | Launch in a dedicated tmux session (implies --worktree) |
+| `--auto-mode [prompt]`  |       | Enable interactive auto-mode, or start standalone loop with inline task |
+| `--max-iterations <n>`  |       | Max auto-mode iterations (default: 50)          |
+| `--completion-promise <text>` | | Completion marker text (default: "DONE")     |
+| `--no-worktree`         |       | Disable git worktree isolation in auto-mode    |
+| `--checkpoint-interval <n>` |  | Git commit every N iterations (default: 5)      |
+| `--max-runtime <m>`     |       | Max runtime in minutes (default: 120)          |
+| `--max-cost <d>`        |       | Max API cost in dollars (default: 10)          |
+| `--interactive-on-complete` | | After auto-mode ends, hand off to interactive mode (TTY only) |
+| `--setup`               |       | Run the setup wizard to configure or reconfigure Autohand |
+| `--about`               |       | Show information about Autohand                |
+| `--add-dir <path...>`   |       | Add additional directories to workspace scope (can be used multiple times) |
+| `--display-language <locale>` | | Set display language (e.g., en, zh-cn, fr, de, ja) |
+| `--cc, --context-compact` |    | Enable context compaction (default: on)        |
+| `--no-cc, --no-context-compact` | | Disable context compaction                   |
+| `--search-engine <provider>` | | Set web search provider (google, brave, duckduckgo, parallel) |
+| `--sys-prompt <value>`  |       | Replace entire system prompt (inline string or file path) |
+| `--append-sys-prompt <value>` | | Append to system prompt (inline string or file path) |
+| `--yolo [pattern]`      |       | Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete) |
+| `--timeout <seconds>`   |       | Timeout in seconds for auto-approve mode       |
 
 ## Agent Skills
 
@@ -195,9 +229,11 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | Command        | Description                          |
 | -------------- | ------------------------------------ |
 | `/help`        | Display available commands           |
+| `/?`           | Alias for /help                      |
 | `/quit`        | Exit the session                     |
 | `/model`       | Switch LLM models                    |
 | `/new`         | Start fresh conversation             |
+| `/clear`       | Clear conversation history           |
 | `/undo`        | Revert last changes                  |
 | `/session`     | Show current session details         |
 | `/sessions`    | List past sessions                   |
@@ -208,15 +244,43 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/agents-new`  | Create new agent via wizard          |
 | `/skills`      | List and manage skills               |
 | `/skills new`  | Create a new skill                   |
+| `/skills use`  | Activate a skill                     |
+| `/skills install` | Install a community skill         |
+| `/skills search` | Search for skills                  |
+| `/skills trending` | List trending skills             |
+| `/skills remove` | Remove an installed skill         |
+| `/learn`       | Get skill recommendations            |
 | `/feedback`    | Send feedback                        |
 | `/formatters`  | List code formatters                 |
 | `/lint`        | List code linters                    |
-| `/completion`  | Generate shell completion scripts    |
+| `/completion`  | Generate shell completion scripts   |
 | `/export`      | Export session to markdown/JSON/HTML |
 | `/status`      | Show workspace status                |
 | `/login`       | Authenticate with Autohand API       |
 | `/logout`      | Sign out                             |
 | `/permissions` | Manage tool permissions              |
+| `/hooks`       | Manage git hooks                     |
+| `/settings`    | View configuration settings          |
+| `/theme`       | Change UI theme                      |
+| `/language`    | Change display language              |
+| `/cc`          | Toggle context compaction            |
+| `/search`      | Search the web                       |
+| `/automode`    | Manage auto-mode                     |
+| `/sync`        | Sync settings across devices         |
+| `/add-dir`     | Add additional workspace directory   |
+| `/plan`        | Create a task plan                   |
+| `/about`       | Show information about Autohand      |
+| `/ide`         | Open in IDE                          |
+| `/history`     | View command history                 |
+| `/mcp`         | Manage MCP servers                   |
+| `/mcp install` | Install community MCP servers        |
+| `/team`        | Manage team collaboration            |
+| `/tasks`       | List team tasks                      |
+| `/message`     | Send team message                    |
+| `/import`      | Import data from other agents        |
+| `/repeat`      | Repeat previous actions             |
+| `/chrome`      | Chrome browser integration           |
+| `/review`      | Code review                          |
 
 ## Tool System
 
