@@ -96,6 +96,10 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
   // Suppress console output - all communication via JSON-RPC
   suppressConsole();
 
+  // In RPC mode, stdout IS the communication channel — wire the browser bridge
+  const { setBrowserBridgeOutput } = await import('../../browser/browserToolBridge.js');
+  setBrowserBridgeOutput(process.stdout);
+
   let adapter: RPCAdapter | null = null;
   let agent: AutohandAgent | null = null;
 

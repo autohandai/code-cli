@@ -23,6 +23,7 @@ export type ToolCategory =
   | 'git_read'   // Git status, diff, log (read-only)
   | 'git_write'  // Git commit, push, merge (mutating)
   | 'shell'      // Run arbitrary shell commands
+  | 'browser'    // Browser automation (Chrome extension only)
   | 'meta';      // Planning, todos, tool registry
 
 /**
@@ -139,7 +140,24 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
 
   // Shell operations
   run_command: 'shell',
-  custom_command: 'shell'
+  custom_command: 'shell',
+
+  // Browser operations (Chrome extension bridge only)
+  browser_screenshot: 'browser',
+  browser_click: 'browser',
+  browser_type: 'browser',
+  browser_navigate: 'browser',
+  browser_scroll: 'browser',
+  browser_find_element: 'browser',
+  browser_press_key: 'browser',
+  browser_get_page_context: 'browser',
+  browser_get_element: 'browser',
+  browser_wait_for_element: 'browser',
+  browser_read_console: 'browser',
+  browser_read_network: 'browser',
+  browser_get_tabs: 'browser',
+  browser_get_tab_groups: 'browser',
+  browser_execute_js: 'browser',
 };
 
 /**
@@ -192,7 +210,7 @@ export const CONTEXT_POLICIES: Record<ClientContext, ToolPolicy> = {
   // Chrome: Browser-first, limited file access
   // Only browser_* tools + basic read/write for Downloads
   chrome: {
-    allowedCategories: ['read', 'write', 'meta'],
+    allowedCategories: ['read', 'write', 'browser', 'meta'],
     allowedTools: [
       // Browser tools — ALWAYS available, highest priority
       'browser_screenshot', 'browser_click', 'browser_type', 'browser_navigate',
