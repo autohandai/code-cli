@@ -245,7 +245,42 @@ describe('logout command', () => {
     expect(consoleOutput.some((line) => line.includes('cancelled'))).toBe(true);
   });
 
-  it('clears auth on confirmed logout', async () => {
+  it('clears auth, saves session, and exits on confirmed logout', async () => {
+    const mockConfig: LoadedConfig = {
+      configPath: '/home/user/.autohand/config.json',
+      auth: {
+        token: 'existing-token',
+        user: { id: 'user-1', email: 'test@example.com', name: 'Test User' },
+      },
+    };
+
+    const mockSession = { save: vi.fn().mockResolvedValue(undefined) };
+    const mockAuthClient = {
+      logout: vi.fn().mockResolvedValue(undefined),
+    };
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+
+    mockShowModal.mockResolvedValue({ value: 'yes' });
+    (getAuthClient as ReturnType<typeof vi.fn>).mockReturnValue(mockAuthClient);
+    (saveConfig as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
+    const { logout } = await import('../../src/commands/logout.js');
+    await logout({ config: mockConfig, currentSession: mockSession as any });
+
+    expect(mockAuthClient.logout).toHaveBeenCalledWith('existing-token');
+    expect(mockSession.save).toHaveBeenCalled();
+    expect(saveConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        auth: undefined,
+      })
+    );
+    expect(consoleOutput.some((line) => line.includes('Successfully logged out'))).toBe(true);
+    expect(exitSpy).toHaveBeenCalledWith(0);
+
+    exitSpy.mockRestore();
+  });
+
+  it('exits even without an active session', async () => {
     const mockConfig: LoadedConfig = {
       configPath: '/home/user/.autohand/config.json',
       auth: {
@@ -257,6 +292,7 @@ describe('logout command', () => {
     const mockAuthClient = {
       logout: vi.fn().mockResolvedValue(undefined),
     };
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
 
     mockShowModal.mockResolvedValue({ value: 'yes' });
     (getAuthClient as ReturnType<typeof vi.fn>).mockReturnValue(mockAuthClient);
@@ -265,16 +301,15 @@ describe('logout command', () => {
     const { logout } = await import('../../src/commands/logout.js');
     await logout({ config: mockConfig });
 
-    expect(mockAuthClient.logout).toHaveBeenCalledWith('existing-token');
     expect(saveConfig).toHaveBeenCalledWith(
-      expect.objectContaining({
-        auth: undefined,
-      })
+      expect.objectContaining({ auth: undefined })
     );
-    expect(consoleOutput.some((line) => line.includes('Successfully logged out'))).toBe(true);
+    expect(exitSpy).toHaveBeenCalledWith(0);
+
+    exitSpy.mockRestore();
   });
 
-  it('clears local auth even if server logout fails', async () => {
+  it('clears local auth and exits even if server logout fails', async () => {
     const mockConfig: LoadedConfig = {
       configPath: '/home/user/.autohand/config.json',
       auth: {
@@ -286,6 +321,7 @@ describe('logout command', () => {
     const mockAuthClient = {
       logout: vi.fn().mockRejectedValue(new Error('Network error')),
     };
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
 
     mockShowModal.mockResolvedValue({ value: 'yes' });
     (getAuthClient as ReturnType<typeof vi.fn>).mockReturnValue(mockAuthClient);
@@ -301,6 +337,9 @@ describe('logout command', () => {
       })
     );
     expect(consoleOutput.some((line) => line.includes('Successfully logged out'))).toBe(true);
+    expect(exitSpy).toHaveBeenCalledWith(0);
+
+    exitSpy.mockRestore();
   });
 });
 

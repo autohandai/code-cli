@@ -17,7 +17,7 @@ export const metadata = {
   implemented: true,
 };
 
-type LogoutContext = Pick<SlashCommandContext, 'config'>;
+type LogoutContext = Pick<SlashCommandContext, 'config' | 'currentSession'>;
 
 export async function logout(ctx: LogoutContext): Promise<string | null> {
   const config = ctx.config as LoadedConfig;
@@ -53,6 +53,11 @@ export async function logout(ctx: LogoutContext): Promise<string | null> {
     // Server logout failed, but we still clear local token
   }
 
+  // Save current session before clearing auth
+  if (ctx.currentSession) {
+    await ctx.currentSession.save();
+  }
+
   // Clear auth from config
   const updatedConfig: LoadedConfig = {
     ...config,
@@ -66,5 +71,6 @@ export async function logout(ctx: LogoutContext): Promise<string | null> {
   console.log(chalk.gray('Your local session has been cleared.'));
   console.log();
 
-  return null;
+  // Login is enforced — exit the app after logout
+  process.exit(0);
 }
