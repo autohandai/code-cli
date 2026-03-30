@@ -12,7 +12,8 @@ const {
   mockShowModal, mockShowInput, mockShowPassword, mockShowConfirm,
   mockPathExists, mockReadJson, mockReadFile, mockWriteFile,
   mockCheckWorkspaceSafety, mockPrintDangerousWorkspaceWarning,
-  mockChangeLanguage, mockDetectLocale, mockFetch
+  mockChangeLanguage, mockDetectLocale, mockFetch,
+  mockProbeLlamaCppEnvironment, mockInstallLlamaCpp
 } = vi.hoisted(() => ({
   mockShowModal: vi.fn(),
   mockShowInput: vi.fn(),
@@ -26,7 +27,9 @@ const {
   mockPrintDangerousWorkspaceWarning: vi.fn(),
   mockChangeLanguage: vi.fn(),
   mockDetectLocale: vi.fn(),
-  mockFetch: vi.fn()
+  mockFetch: vi.fn(),
+  mockProbeLlamaCppEnvironment: vi.fn(),
+  mockInstallLlamaCpp: vi.fn()
 }));
 
 // Mock Modal components
@@ -83,6 +86,11 @@ vi.mock('../../src/auth/index.js', () => ({
     initiateDeviceAuth: vi.fn().mockResolvedValue({ success: false, error: 'not configured' }),
     pollDeviceAuth: vi.fn().mockResolvedValue({ success: false, status: 'pending' }),
   }),
+}));
+
+vi.mock('../../src/providers/llamaCppSetup.js', () => ({
+  probeLlamaCppEnvironment: mockProbeLlamaCppEnvironment,
+  installLlamaCpp: mockInstallLlamaCpp
 }));
 
 // Mock 'open' package for browser opening
@@ -222,6 +230,14 @@ describe('SetupWizard', () => {
     // Default: fetch succeeds (for API validation + connection tests)
     mockFetch.mockResolvedValue({ ok: true, status: 200 });
     vi.stubGlobal('fetch', mockFetch);
+    mockProbeLlamaCppEnvironment.mockResolvedValue({
+      installed: true,
+      running: false
+    });
+    mockInstallLlamaCpp.mockResolvedValue({
+      ok: true,
+      output: ''
+    });
   });
 
   describe('isAlreadyConfigured', () => {
@@ -830,6 +846,42 @@ describe('SetupWizard', () => {
   });
 
   describe('Connection Test (Local Providers)', () => {
+    it('should not prompt for a model name for llama.cpp', async () => {
+      const wizard = new SetupWizard(testWorkspace);
+
+      mockShowModal
+        .mockResolvedValueOnce({ value: 'en' })
+        .mockResolvedValueOnce({ value: 'llamacpp' })
+        .mockResolvedValueOnce({ value: 'interactive' });
+
+      mockProbeLlamaCppEnvironment.mockResolvedValue({
+        installed: true,
+        running: true,
+        port: 80,
+        baseUrl: 'http://127.0.0.1:80'
+      });
+
+      mockShowInput.mockResolvedValueOnce('80');
+
+      mockShowConfirm
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+
+      await wizard.run({ skipWelcome: true });
+
+      expect(mockShowInput).toHaveBeenCalledTimes(1);
+      expect(mockShowInput).toHaveBeenCalledWith(expect.objectContaining({
+        title: 'providers.wizard.llamacpp.serverPort',
+        defaultValue: '80'
+      }));
+    });
+
     it('should test Ollama connection', async () => {
       const wizard = new SetupWizard(testWorkspace);
       setupLocalProviderMocks('ollama', 'llama3.2:latest');
@@ -844,13 +896,83 @@ describe('SetupWizard', () => {
 
     it('should test llama.cpp connection', async () => {
       const wizard = new SetupWizard(testWorkspace);
-      setupLocalProviderMocks('llamacpp', 'default');
+      mockProbeLlamaCppEnvironment.mockResolvedValue({
+        installed: true,
+        running: true,
+        port: 80,
+        baseUrl: 'http://127.0.0.1:80'
+      });
+
+      mockShowModal
+        .mockResolvedValueOnce({ value: 'en' })
+        .mockResolvedValueOnce({ value: 'llamacpp' })
+        .mockResolvedValueOnce({ value: 'interactive' });
+
+      mockShowInput.mockResolvedValueOnce('80');
+
+      mockShowConfirm
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
 
       await wizard.run({ skipWelcome: true });
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:8080/health',
+        'http://localhost:80/health',
         expect.objectContaining({ signal: expect.any(AbortSignal) })
+      );
+    });
+
+    it('should install llama.cpp when missing and the user accepts installation', async () => {
+      mockProbeLlamaCppEnvironment
+        .mockResolvedValueOnce({
+          installed: false,
+          running: false,
+          installPlan: {
+            command: 'brew',
+            args: ['install', 'llama.cpp'],
+            label: 'brew install llama.cpp'
+          }
+        })
+        .mockResolvedValueOnce({
+          installed: true,
+          running: false
+        });
+
+      const wizard = new SetupWizard(testWorkspace);
+
+      mockShowModal
+        .mockResolvedValueOnce({ value: 'en' })
+        .mockResolvedValueOnce({ value: 'llamacpp' })
+        .mockResolvedValueOnce({ value: 'interactive' });
+
+      mockShowInput.mockResolvedValueOnce('80');
+
+      mockShowConfirm
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+
+      await wizard.run({ skipWelcome: true });
+
+      expect(mockInstallLlamaCpp).toHaveBeenCalledWith(
+        {
+          command: 'brew',
+          args: ['install', 'llama.cpp'],
+          label: 'brew install llama.cpp'
+        },
+        testWorkspace
       );
     });
 

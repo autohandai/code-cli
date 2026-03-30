@@ -15,6 +15,7 @@ import type { AutohandConfig, LoadedConfig, ProviderName, AzureSettings, AzureAu
 import { getProviderConfig } from '../config.js';
 import { ProviderFactory } from '../providers/ProviderFactory.js';
 import { authenticateOpenAIChatGPT, isChatGPTAuthExpired } from '../providers/openaiAuth.js';
+import { installLlamaCpp, probeLlamaCppEnvironment } from '../providers/llamaCppSetup.js';
 import { ProjectAnalyzer } from './projectAnalyzer.js';
 import { AgentsGenerator } from './agentsGenerator.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from '../startup/workspaceSafety.js';
@@ -57,6 +58,7 @@ interface OnboardingState {
   provider?: ProviderName;
   apiKey?: string;
   model?: string;
+  providerBaseUrl?: string;
   telemetryEnabled?: boolean;
   autoReportEnabled?: boolean;
   preferences?: {
@@ -182,6 +184,11 @@ export class SetupWizard {
         const azureResult = await this.promptAzureConfig();
         if (!azureResult) return this.cancelled();
       } else {
+        if (provider === 'llamacpp') {
+          const ready = await this.prepareLlamaCpp();
+          if (!ready) return this.cancelled();
+        }
+
         if (provider === 'openai') {
           const authMode = await this.promptOpenAIAuthMode();
           if (!authMode) return this.cancelled();
@@ -489,6 +496,11 @@ export class SetupWizard {
     this.state.currentStep = 'model';
 
     const defaultModel = this.getDefaultModel(provider);
+
+    if (provider === 'llamacpp') {
+      this.state.model = defaultModel;
+      return this.state.model;
+    }
 
     // For simplicity, just use input with default
     // In a full implementation, we'd fetch available models
@@ -890,7 +902,7 @@ export class SetupWizard {
       } else {
         (config as any)[this.state.provider] = {
           model: this.state.model,
-          baseUrl: this.getDefaultBaseUrl(this.state.provider)
+          baseUrl: this.state.providerBaseUrl ?? this.getDefaultBaseUrl(this.state.provider)
         };
       }
     }
@@ -1212,7 +1224,7 @@ export class SetupWizard {
 
     this.state.currentStep = 'connectionTest';
     const provider = this.state.provider;
-    const baseUrl = this.getDefaultBaseUrl(provider);
+    const baseUrl = this.state.providerBaseUrl ?? this.getDefaultBaseUrl(provider);
 
     const endpoints: Record<string, string> = {
       ollama: `${baseUrl}/api/tags`,
@@ -1250,6 +1262,63 @@ export class SetupWizard {
 
       return continueAnyway;
     }
+  }
+
+  private async prepareLlamaCpp(): Promise<boolean> {
+    const probe = await probeLlamaCppEnvironment(this.workspaceRoot);
+    let detectedPort = probe.port;
+
+    if (probe.baseUrl) {
+      this.state.providerBaseUrl = probe.baseUrl;
+      console.log(chalk.green(`  Detected llama.cpp server at ${probe.baseUrl}`));
+    } else if (probe.installed) {
+      console.log(chalk.gray('  llama.cpp is installed but no running server was detected.'));
+    } else if (!probe.installPlan) {
+      console.log(chalk.yellow('  llama.cpp is not installed and no supported package manager was detected.'));
+    } else {
+      console.log(chalk.yellow(`  llama.cpp is not installed. Autohand can install it with: ${probe.installPlan.label}`));
+      const shouldInstall = await showConfirm({
+        title: 'Install llama.cpp now?',
+        defaultValue: true
+      });
+
+      if (shouldInstall) {
+        console.log(chalk.gray(`  Installing llama.cpp with ${probe.installPlan.label}...`));
+        const install = await installLlamaCpp(probe.installPlan, this.workspaceRoot);
+
+        if (!install.ok) {
+          console.log(chalk.red('  llama.cpp installation failed.'));
+          if (install.output) {
+            console.log(chalk.gray(`  ${install.output}`));
+          }
+          return false;
+        }
+
+        console.log(chalk.green('  llama.cpp installation completed.'));
+
+        const refreshed = await probeLlamaCppEnvironment(this.workspaceRoot);
+        detectedPort = refreshed.port;
+        if (refreshed.baseUrl) {
+          this.state.providerBaseUrl = refreshed.baseUrl;
+          console.log(chalk.green(`  Detected llama.cpp server at ${refreshed.baseUrl}`));
+        } else {
+          console.log(chalk.gray('  Start llama-server with your model, then Autohand will connect on the detected port.'));
+        }
+      }
+    }
+
+    const port = await showInput({
+      title: t('providers.wizard.llamacpp.serverPort'),
+      defaultValue: String(detectedPort ?? 80)
+    });
+
+    if (!port) {
+      return false;
+    }
+
+    this.state.providerBaseUrl = `http://localhost:${port}`;
+
+    return true;
   }
 
   /**
@@ -1583,7 +1652,7 @@ export class SetupWizard {
       openrouter: 'nvidia/nemotron-3-super-120b-a12b:free',
       openai: 'gpt-5.4',
       ollama: 'llama3.2:latest',
-      llamacpp: 'default',
+      llamacpp: 'local',
       mlx: 'mlx-community/Llama-3.2-3B-Instruct-4bit',
       llmgateway: 'gpt-4o',
       azure: 'gpt-5.3-codex'

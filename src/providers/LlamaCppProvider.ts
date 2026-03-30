@@ -6,6 +6,7 @@
 
 import type { LLMProvider } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, LLMToolCall, LLMUsage, ProviderSettings, FunctionDefinition } from '../types.js';
+import { ApiError, classifyApiError } from './errors.js';
 
 interface LlamaCppToolCall {
     id: string;
@@ -41,10 +42,12 @@ export class LlamaCppProvider implements LLMProvider {
     private baseUrl: string;
     private model: string;
 
+    private static readonly DEFAULT_MODEL = 'local';
+
     constructor(config: ProviderSettings) {
         const port = config.port || 8080;
         this.baseUrl = config.baseUrl || `http://localhost:${port}`;
-        this.model = config.model || 'llama-model';
+        this.model = config.model || LlamaCppProvider.DEFAULT_MODEL;
     }
 
     getName(): string {
@@ -79,7 +82,7 @@ export class LlamaCppProvider implements LLMProvider {
 
     async complete(request: LLMRequest): Promise<LLMResponse> {
         const body: Record<string, unknown> = {
-            model: request.model || this.model,
+            model: request.model || this.model || LlamaCppProvider.DEFAULT_MODEL,
             messages: request.messages.map((msg) => {
                 const mapped: Record<string, unknown> = {
                     role: msg.role,
@@ -116,7 +119,7 @@ export class LlamaCppProvider implements LLMProvider {
         });
 
         if (!response.ok) {
-            throw new Error(`llama.cpp API error: ${response.status} ${response.statusText}`);
+            throw await this.buildApiError(response, body);
         }
 
         const data: LlamaCppChatResponse = await response.json();
@@ -158,5 +161,41 @@ export class LlamaCppProvider implements LLMProvider {
             usage,
             raw: data
         };
+    }
+
+    private async buildApiError(response: Response, body: Record<string, unknown>): Promise<ApiError> {
+        let errorBody = '';
+        try {
+            errorBody = await response.text();
+        } catch {
+            // Ignore error reading body
+        }
+
+        const lowerBody = errorBody.toLowerCase();
+        if (body.tools && response.status === 400 && (
+            lowerBody.includes('tool') ||
+            lowerBody.includes('function') ||
+            lowerBody.includes('schema')
+        )) {
+            return new ApiError(
+                `llama.cpp rejected tool-enabled requests. If you want tool support, start llama-server with function-calling settings such as ` +
+                `'--jinja -fa' and, if needed, '--chat-template chatml' or '--chat-template-file /path/to/tool_use.jinja'.\n${errorBody}`,
+                'invalid_request',
+                response.status,
+                false,
+                undefined,
+                errorBody,
+            );
+        }
+
+        const baseError = classifyApiError(response.status, errorBody, response.headers);
+        return new ApiError(
+            `llama.cpp API error: ${response.status} ${response.statusText}${errorBody ? `\n${errorBody}` : ''}`,
+            baseError.code,
+            baseError.httpStatus,
+            baseError.retryable,
+            baseError.retryAfterMs,
+            errorBody,
+        );
     }
 }
