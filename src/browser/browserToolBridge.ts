@@ -4,8 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Bridge for browser tool invocations. The action executor sends a
- * request to the Chrome extension via stdout; this bridge holds the
- * pending promise until the extension responds via stdin.
+ * JSON-RPC request; this bridge holds the pending promise until the
+ * extension responds.
+ *
+ * IMPORTANT: output defaults to a no-op. Call setBrowserBridgeOutput()
+ * to direct messages to the correct transport (native host stdout,
+ * RPC channel, etc.). Writing raw JSON to process.stdout in interactive
+ * mode corrupts the terminal display.
  */
 
 interface PendingRequest {
@@ -17,6 +22,17 @@ interface PendingRequest {
 const pending = new Map<string, PendingRequest>();
 const TIMEOUT_MS = 30_000;
 
+/** Configurable output stream — defaults to no-op to avoid stdout corruption. */
+let bridgeOutput: { write: (data: string) => boolean | void } | null = null;
+
+/**
+ * Set the output stream for browser bridge JSON-RPC messages.
+ * Must be called before invoking browser tools (e.g. during chrome setup).
+ */
+export function setBrowserBridgeOutput(output: { write: (data: string) => boolean | void }): void {
+  bridgeOutput = output;
+}
+
 /**
  * Send a browser tool invoke request and wait for the response.
  */
@@ -26,13 +42,15 @@ export function invokeBrowserTool(
 ): Promise<string> {
   const requestId = `browser_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-  // Write the invoke request to stdout (native host forwards to extension)
   const notification = {
     jsonrpc: '2.0',
     method: 'autohand.mcp.invokeRequest',
     params: { requestId, toolName, input },
   };
-  process.stdout.write(JSON.stringify(notification) + '\n');
+
+  if (bridgeOutput) {
+    bridgeOutput.write(JSON.stringify(notification) + '\n');
+  }
 
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
