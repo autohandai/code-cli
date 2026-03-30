@@ -157,8 +157,10 @@ export async function login(ctx: LoginContext): Promise<string | null> {
       console.log(chalk.green(t('commands.login.success', { email: pollResult.user.name || pollResult.user.email })));
       console.log();
 
-      // Check for cloud sync data and offer to restore
-      await checkAndRestoreSyncData(pollResult.token, pollResult.user.id, updatedConfig);
+      // Only prompt for sync restore in interactive terminal sessions.
+      if (process.stdin.isTTY && process.stdout.isTTY) {
+        await checkAndRestoreSyncData(pollResult.token, pollResult.user.id, updatedConfig);
+      }
 
       return null;
     }
