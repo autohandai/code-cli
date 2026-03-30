@@ -225,7 +225,7 @@ export class SlashCommandHandler {
           const { logout } = await import('../commands/logout.js');
           this.ctx.onBeforeModal?.();
           try {
-            return await logout({ config: this.ctx.config });
+            return await logout({ config: this.ctx.config, currentSession: this.ctx.currentSession });
           } finally {
             this.ctx.onAfterModal?.();
           }

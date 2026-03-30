@@ -2689,8 +2689,11 @@ function renderPromptLine(
       readline.clearLine(output, 0);
     }
 
-    // Move down, clearing remaining content + below + help panel + status + slash suggestions
-    const downCount = prevContentLines + PROMPT_LINES_BELOW_INPUT + lastRenderedHelpLines + STATUS_LINE_COUNT + lastRenderedSlashLines;
+    // Move down, clearing remaining content + below + help panel + status + slash suggestions.
+    // Use the larger of old/new line counts so shrinking (e.g. backspace reducing
+    // wrapped lines) still clears the full previous footprint.
+    const clearContentLines = Math.max(prevContentLines, state.lineCount);
+    const downCount = clearContentLines + PROMPT_LINES_BELOW_INPUT + lastRenderedHelpLines + STATUS_LINE_COUNT + lastRenderedSlashLines;
     for (let i = 0; i < downCount; i++) {
       readline.moveCursor(output, 0, 1);
       readline.clearLine(output, 0);
