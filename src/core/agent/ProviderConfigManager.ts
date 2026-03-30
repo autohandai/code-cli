@@ -6,9 +6,10 @@
 
 import chalk from 'chalk';
 import { t } from '../../i18n/index.js';
-import { showModal, showInput, showPassword, type ModalOption } from '../../ui/ink/components/Modal.js';
+import { showConfirm, showModal, showInput, showPassword, type ModalOption } from '../../ui/ink/components/Modal.js';
 import { ProviderFactory } from '../../providers/ProviderFactory.js';
 import { OPENAI_MODELS } from '../../providers/OpenAIProvider.js';
+import { installLlamaCpp, probeLlamaCppEnvironment } from '../../providers/llamaCppSetup.js';
 import { sanitizeModelId } from '../../providers/errors.js';
 import { saveConfig, getProviderConfig } from '../../config.js';
 import { getContextWindow } from '../../utils/context.js';
@@ -269,16 +270,44 @@ export class ProviderConfigManager {
   }
 
   /**
-   * Configure llama.cpp provider (port + model)
+   * Configure llama.cpp provider (port only)
    */
   private async configureLlamaCpp(): Promise<void> {
     try {
       console.log(chalk.cyan(t('providers.wizard.llamacpp.title')));
       console.log(chalk.gray(t('providers.wizard.llamacpp.ensureRunning') + '\n'));
 
+      const probe = await probeLlamaCppEnvironment(this.runtime.workspaceRoot);
+
+      if (!probe.installed && probe.installPlan) {
+        console.log(chalk.yellow(`llama.cpp is not installed. Autohand can install it with: ${probe.installPlan.label}`));
+        const shouldInstall = await showConfirm({
+          title: 'Install llama.cpp now?',
+          defaultValue: true
+        });
+
+        if (shouldInstall) {
+          console.log(chalk.gray(`Installing llama.cpp with ${probe.installPlan.label}...`));
+          const install = await installLlamaCpp(probe.installPlan, this.runtime.workspaceRoot);
+          if (!install.ok) {
+            console.log(chalk.red('llama.cpp installation failed.'));
+            if (install.output) {
+              console.log(chalk.gray(install.output));
+            }
+            return;
+          }
+          console.log(chalk.green('llama.cpp installation completed.'));
+        }
+      }
+
+      const refreshed = await probeLlamaCppEnvironment(this.runtime.workspaceRoot);
+      if (refreshed.baseUrl) {
+        console.log(chalk.green(`\n✓ Detected llama.cpp server at ${refreshed.baseUrl}`));
+      }
+
       const port = await showInput({
         title: t('providers.wizard.llamacpp.serverPort'),
-        defaultValue: '8080'
+        defaultValue: String(refreshed.port ?? 80)
       });
 
       if (!port) {
@@ -286,15 +315,7 @@ export class ProviderConfigManager {
         return;
       }
 
-      const model = await showInput({
-        title: t('providers.wizard.llamacpp.modelNameDesc'),
-        defaultValue: 'llama-model'
-      });
-
-      if (!model) {
-        console.log(chalk.gray('\n' + t('providers.config.cancelled')));
-        return;
-      }
+      const model = 'local';
 
       this.runtime.config.llamacpp = {
         baseUrl: `http://localhost:${port}`,
@@ -663,6 +684,11 @@ export class ProviderConfigManager {
       // For cloud providers (openai, openrouter, llmgateway, azure), offer to change API key as well
       if (provider === 'openai' || provider === 'openrouter' || provider === 'llmgateway' || provider === 'azure') {
         await this.changeCloudProviderSettings(provider, currentModel, currentSettings);
+        return;
+      }
+
+      if (provider === 'llamacpp') {
+        await this.configureLlamaCpp();
         return;
       }
 
