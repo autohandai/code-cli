@@ -362,6 +362,14 @@ export function getProviderConfig(config: AutohandConfig, provider?: ProviderNam
       return null; // Incomplete config
     }
   } else {
+    if (chosen === 'llamacpp') {
+      return {
+        ...entry,
+        model: entry.model ?? 'local',
+        baseUrl: entry.baseUrl ?? defaultBaseUrlFor(chosen, entry.port)
+      };
+    }
+
     // Validate other providers
     if (!entry.model) {
       return null; // Incomplete config
