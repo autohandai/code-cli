@@ -12,48 +12,35 @@ import { showModal } from '../ui/ink/components/Modal.js';
 import packageJson from '../../package.json' with { type: 'json' };
 import type { LoadedConfig } from '../types.js';
 
-// Large FIGlet ASCII art — circles on left (lines 1-2), "Autohand Code" fills all lines
+// ASCII logo + ANSI Regular FIGlet "Autohand" — side-by-side, cross-platform
+const GAP = '     ';
 const LOGO_LINES = [
-  '◎ ◎ ◎ ◎      ___         __        __                    __   ______          __',
-  '◎ ◎ ◎ ◎     /   | __  __/ /_____  / /_  ____ _____  ____/ /  / ____/___  ____/ /__',
-  '            / /| |/ / / / __/ __ \\/ __ \\/ __ `/ __ \\/ __  /  / /   / __ \\/ __  / _ \\',
-  '           / ___ / /_/ / /_/ /_/ / / / / /_/ / / / / /_/ /  / /___/ /_/ / /_/ /  __/',
-  '          /_/  |_\\__,_/\\__/\\____/_/ /_/\\__,_/_/ /_/\\__,_/   \\____/\\____/\\__,_/\\___/',
+  '(@) (@) (@) (@)' + GAP + ' █████  ██    ██ ████████  ██████  ██   ██  █████  ███    ██ ██████',
+  '(@) (@) (@) (@)' + GAP + '██   ██ ██    ██    ██    ██    ██ ██   ██ ██   ██ ████   ██ ██   ██',
+  '               ' + GAP + '███████ ██    ██    ██    ██    ██ ███████ ███████ ██ ██  ██ ██   ██',
+  '               ' + GAP + '██   ██ ██    ██    ██    ██    ██ ██   ██ ██   ██ ██  ██ ██ ██   ██',
+  '               ' + GAP + '██   ██  ██████     ██     ██████  ██   ██ ██   ██ ██   ████ ██████',
 ];
 
+/** Total number of rendered lines. */
+const WELCOME_HEIGHT = LOGO_LINES.length;
+
 /**
- * Typewriter: circles appear column by column on both rows,
- * then the full FIGlet text reveals line by line.
+ * Typewriter: renders the logo line by line, horizontally centered.
  */
 async function typewriteWelcome(startRow: number): Promise<void> {
-  const hide = '\x1b[?25l';
-  const show = '\x1b[?25h';
-  const moveTo = (r: number, c: number) => `\x1b[${r};${c}H`;
+  const cols = process.stdout.columns || 80;
+  const maxWidth = Math.max(...LOGO_LINES.map(l => l.length));
+  const leftPad = Math.max(0, Math.floor((cols - maxWidth) / 2));
+  const pad = ' '.repeat(leftPad);
 
-  process.stdout.write(hide);
-
-  // Phase 1: Type circles column by column (both rows at once)
-  for (let col = 0; col < 4; col++) {
-    const x = 1 + col * 2; // column position (◎ + space = 2 chars)
-    process.stdout.write(moveTo(startRow, x) + chalk.white('◎'));
-    process.stdout.write(moveTo(startRow + 1, x) + chalk.white('◎'));
-    await new Promise(r => setTimeout(r, 100));
-  }
-
-  await new Promise(r => setTimeout(r, 150));
-
-  // Phase 2: Reveal the text portion of each line
+  process.stdout.write('\x1b[?25l'); // hide cursor
   for (let i = 0; i < LOGO_LINES.length; i++) {
-    const line = LOGO_LINES[i];
-    // For circle lines (0,1), only write the text part after the circles
-    const textStart = i < 2 ? 9 : 0; // circles take 9 chars "◎ ◎ ◎ ◎ "
-    const text = i < 2 ? line.slice(textStart) : line;
-    const col = i < 2 ? 10 : 1;
-    process.stdout.write(moveTo(startRow + i, col) + chalk.white(text));
-    await new Promise(r => setTimeout(r, 60));
+    process.stdout.write(`\x1b[${startRow + i};1H\x1b[2K`);
+    process.stdout.write(chalk.white(pad + LOGO_LINES[i]));
+    await new Promise(r => setTimeout(r, 70));
   }
-
-  process.stdout.write(show);
+  process.stdout.write('\x1b[?25h'); // show cursor
 }
 
 /**
@@ -148,19 +135,22 @@ async function promptLogin(config: LoadedConfig): Promise<LoadedConfig> {
     // Clear screen and position content vertically centered
     process.stdout.write('\x1b[2J\x1b[H');
 
-    // Layout: logo (5 lines) + blank + version + blank + modal (~12 lines)
-    const logoHeight = LOGO_LINES.length;
-    const contentHeight = logoHeight + 6;
+    // Layout: logo (8 lines) + blank + version + blank + modal (~12)
+    const contentHeight = WELCOME_HEIGHT + 6;
     const topPadding = Math.max(0, Math.floor((rows - contentHeight) / 2));
     const logoRow = topPadding + 1; // 1-based terminal row
 
-    // Typewriter the circles, then reveal the FIGlet text
+    // Typewriter: icon + FIGlet side-by-side
     await typewriteWelcome(logoRow);
 
-    // Position cursor below the logo for version + modal
-    process.stdout.write(`\x1b[${logoRow + logoHeight};1H`);
+    // Position cursor below the art for version + modal
+    process.stdout.write(`\x1b[${logoRow + WELCOME_HEIGHT};1H`);
+    const cols = process.stdout.columns || 80;
+    const maxWidth = Math.max(...LOGO_LINES.map(l => l.length));
+    const leftPad = Math.max(0, Math.floor((cols - maxWidth) / 2));
+    const versionPad = ' '.repeat(leftPad + Math.floor((maxWidth - version.length) / 2));
     console.log();
-    console.log(chalk.gray(`          ${version}`));
+    console.log(chalk.gray(`${versionPad}${version}`));
     console.log();
 
     const selected = await showModal({
