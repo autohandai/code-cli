@@ -257,13 +257,7 @@ jobs:
           cd release-binaries
 
           RIPGREP_REPO="BurntSushi/ripgrep"
-          RIPGREP_VERSION=$(python3 - <<'PY'
-          import json, urllib.request
-          with urllib.request.urlopen("https://api.github.com/repos/BurntSushi/ripgrep/releases/latest") as response:
-              data = json.load(response)
-          print(data["tag_name"].lstrip("v"))
-          PY
-          )
+          RIPGREP_VERSION=15.1.0
 
           echo "Using ripgrep ${RIPGREP_VERSION}"
 
