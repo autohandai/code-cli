@@ -71,6 +71,53 @@ describe('TaskManager', () => {
     expect(tm.getTask(task.id)?.owner).toBeUndefined();
   });
 
+  it('should update task fields without changing task identity', () => {
+    const task = tm.createTask({ subject: 'A', description: 'old' });
+    const updated = tm.updateTask(task.id, {
+      subject: 'B',
+      description: 'new',
+      blockedBy: ['task-99'],
+    });
+
+    expect(updated.id).toBe(task.id);
+    expect(updated.subject).toBe('B');
+    expect(updated.description).toBe('new');
+    expect(updated.blockedBy).toEqual(['task-99']);
+    expect(updated.status).toBe('pending');
+  });
+
+  it('should mark a task completed when updateTask sets completed status', () => {
+    const task = tm.createTask({ subject: 'A', description: '' });
+    tm.assignTask(task.id, 'worker');
+
+    const updated = tm.updateTask(task.id, { status: 'completed' });
+
+    expect(updated.status).toBe('completed');
+    expect(updated.completedAt).toBeDefined();
+  });
+
+  it('should stop an in-progress task and return it to pending', () => {
+    const task = tm.createTask({ subject: 'A', description: '' });
+    tm.assignTask(task.id, 'worker');
+
+    const stopped = tm.stopTask(task.id);
+
+    expect(stopped.status).toBe('pending');
+    expect(stopped.owner).toBeUndefined();
+    expect(stopped.completedAt).toBeUndefined();
+  });
+
+  it('should store task output without changing task status', () => {
+    const task = tm.createTask({ subject: 'A', description: '' });
+    tm.assignTask(task.id, 'worker');
+
+    const updated = tm.setTaskOutput(task.id, 'Step 1 complete');
+
+    expect(updated.output).toBe('Step 1 complete');
+    expect(updated.status).toBe('in_progress');
+    expect(updated.owner).toBe('worker');
+  });
+
   it('should serialize and deserialize state', () => {
     tm.createTask({ subject: 'A', description: 'desc' });
     const json = tm.serialize();

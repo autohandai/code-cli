@@ -539,6 +539,71 @@ export class AutohandAgent {
         requiresApproval: false
       },
       {
+        name: 'task_get',
+        description: 'Get a task from the active team by ID.',
+        parameters: {
+          type: 'object',
+          properties: {
+            task_id: { type: 'string', description: 'Task ID to retrieve' }
+          },
+          required: ['task_id']
+        },
+        requiresApproval: false
+      },
+      {
+        name: 'task_list',
+        description: 'List tasks from the active team, optionally filtered by status or owner.',
+        parameters: {
+          type: 'object',
+          properties: {
+            status: { type: 'string', description: 'Optional status filter', enum: ['pending', 'in_progress', 'completed'] },
+            owner: { type: 'string', description: 'Optional owner filter' }
+          }
+        },
+        requiresApproval: false
+      },
+      {
+        name: 'task_update',
+        description: 'Update an existing team task.',
+        parameters: {
+          type: 'object',
+          properties: {
+            task_id: { type: 'string', description: 'Task ID to update' },
+            subject: { type: 'string', description: 'Updated task title' },
+            description: { type: 'string', description: 'Updated task description' },
+            blocked_by: { type: 'array', description: 'Updated dependency task IDs', items: { type: 'string' } },
+            status: { type: 'string', description: 'Updated task status', enum: ['pending', 'in_progress', 'completed'] }
+          },
+          required: ['task_id']
+        },
+        requiresApproval: false
+      },
+      {
+        name: 'task_stop',
+        description: 'Stop an active team task and return it to pending.',
+        parameters: {
+          type: 'object',
+          properties: {
+            task_id: { type: 'string', description: 'Task ID to stop' }
+          },
+          required: ['task_id']
+        },
+        requiresApproval: false
+      },
+      {
+        name: 'task_output',
+        description: 'Store the latest progress note or output for a team task.',
+        parameters: {
+          type: 'object',
+          properties: {
+            task_id: { type: 'string', description: 'Task ID to update' },
+            output: { type: 'string', description: 'Latest progress note, result, or output summary' }
+          },
+          required: ['task_id', 'output']
+        },
+        requiresApproval: false
+      },
+      {
         name: 'team_status',
         description: 'Get current team status: members, tasks, progress, available agents.',
         requiresApproval: false
@@ -638,6 +703,48 @@ export class AutohandAgent {
             // Auto-assign to idle teammates
             this.teamManager.tryAssignIdleTeammate();
             result = `Task ${task.id}: "${task.subject}" created (status: ${task.status})`;
+          } else if (action.type === 'task_get') {
+            const task = this.teamManager.tasks.getTask(action.task_id);
+            result = task
+              ? JSON.stringify(task, null, 2)
+              : `Task "${action.task_id}" not found.`;
+          } else if (action.type === 'task_list') {
+            const filtered = this.teamManager.tasks
+              .listTasks()
+              .filter((task) => !action.status || task.status === action.status)
+              .filter((task) => !action.owner || task.owner === action.owner);
+            result = JSON.stringify(filtered, null, 2);
+          } else if (action.type === 'task_update') {
+            const task = this.teamManager.tasks.updateTask(action.task_id, {
+              subject: action.subject,
+              description: action.description,
+              blockedBy: action.blocked_by,
+              status: action.status,
+            });
+            result = `Task ${task.id} updated.\n${JSON.stringify(task, null, 2)}`;
+          } else if (action.type === 'task_stop') {
+            const existingTask = this.teamManager.tasks.getTask(action.task_id);
+            if (!existingTask) {
+              result = `Task "${action.task_id}" not found.`;
+            } else {
+              const previousOwner = existingTask.owner;
+              const task = this.teamManager.tasks.stopTask(action.task_id);
+              if (previousOwner) {
+                try {
+                  this.teamManager.sendMessageTo(
+                    previousOwner,
+                    'lead',
+                    `Stop working on ${task.id} (${task.subject}) and return to idle.`,
+                  );
+                } catch {
+                  // Best-effort notification only; task state update is authoritative.
+                }
+              }
+              result = `Task ${task.id} stopped and returned to pending.\n${JSON.stringify(task, null, 2)}`;
+            }
+          } else if (action.type === 'task_output') {
+            const task = this.teamManager.tasks.setTaskOutput(action.task_id, action.output);
+            result = `Task ${task.id} output updated.\n${JSON.stringify(task, null, 2)}`;
           } else if (action.type === 'team_status') {
             const team = this.teamManager.getTeam();
             if (!team) {

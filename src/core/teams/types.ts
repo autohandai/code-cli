@@ -49,6 +49,7 @@ export const TeamTaskSchema = z.object({
   blockedBy: z.array(z.string()),
   createdAt: z.string(),
   completedAt: z.string().optional(),
+  output: z.string().optional(),
 });
 export type TeamTask = z.infer<typeof TeamTaskSchema>;
 

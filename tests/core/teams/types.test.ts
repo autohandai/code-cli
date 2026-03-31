@@ -53,6 +53,7 @@ describe('Team types', () => {
       status: 'pending',
       blockedBy: ['task-000'],
       createdAt: new Date().toISOString(),
+      output: 'Searching for unused exports',
     };
     expect(() => TeamTaskSchema.parse(task)).not.toThrow();
   });

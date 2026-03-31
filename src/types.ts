@@ -954,6 +954,11 @@ export type AgentAction =
   | { type: 'create_team'; name: string }
   | { type: 'add_teammate'; name: string; agent_name: string; model?: string }
   | { type: 'create_task'; subject: string; description: string; blocked_by?: string[] }
+  | { type: 'task_get'; task_id: string }
+  | { type: 'task_list'; status?: 'pending' | 'in_progress' | 'completed'; owner?: string }
+  | { type: 'task_update'; task_id: string; subject?: string; description?: string; blocked_by?: string[]; status?: 'pending' | 'in_progress' | 'completed' }
+  | { type: 'task_stop'; task_id: string }
+  | { type: 'task_output'; task_id: string; output: string }
   | { type: 'team_status' }
   | { type: 'send_team_message'; to: string; content: string }
   // Web Search Operations
