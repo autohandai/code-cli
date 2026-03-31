@@ -961,6 +961,8 @@ export type AgentAction =
   | { type: 'task_output'; task_id: string; output: string }
   | { type: 'team_status' }
   | { type: 'send_team_message'; to: string; content: string }
+  | { type: 'enter_worktree'; name?: string }
+  | { type: 'exit_worktree'; keep?: boolean }
   // Web Search Operations
   | { type: 'web_search'; query: string; max_results?: number; search_type?: 'general' | 'packages' | 'docs' | 'changelog' }
   | { type: 'fetch_url'; url: string; selector?: string; max_length?: number }

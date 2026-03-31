@@ -181,6 +181,10 @@ export class HookManager {
     this.onHookOutput = options.onHookOutput;
   }
 
+  setWorkspaceRoot(workspaceRoot: string): void {
+    this.workspaceRoot = workspaceRoot;
+  }
+
   /**
    * Initialize hooks - set up default hooks if none exist
    */

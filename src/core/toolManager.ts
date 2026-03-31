@@ -1038,6 +1038,26 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
+    name: 'enter_worktree',
+    description: 'Create and enter an isolated git worktree for the current session. Subsequent file, git, and command tools operate in that worktree until exit_worktree is called.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Optional branch/worktree name to use for the new session worktree' }
+      }
+    }
+  },
+  {
+    name: 'exit_worktree',
+    description: 'Exit the current session worktree and return to the original workspace. Optionally keep the worktree on disk for inspection.',
+    parameters: {
+      type: 'object',
+      properties: {
+        keep: { type: 'boolean', description: 'When true, keep the worktree and branch instead of removing them' }
+      }
+    }
+  },
+  {
     name: 'team_status',
     description: 'Show the active team, teammate statuses, and current task queue.'
   },

@@ -28,6 +28,13 @@ export class WorkspaceFileCollector {
     private ignoreFilter: GitIgnoreParser
   ) {}
 
+  setWorkspace(workspaceRoot: string, ignoreFilter: GitIgnoreParser): void {
+    this.workspaceRoot = workspaceRoot;
+    this.ignoreFilter = ignoreFilter;
+    this.workspaceFiles = [];
+    this.workspaceFilesCachedAt = 0;
+  }
+
   /**
    * Return cached workspace files immediately (no I/O).
    * Used by promptForInstruction to avoid blocking the prompt.
