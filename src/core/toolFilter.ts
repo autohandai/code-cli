@@ -66,6 +66,8 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   task_update: 'meta',
   task_stop: 'meta',
   task_output: 'meta',
+  enter_worktree: 'meta',
+  exit_worktree: 'meta',
   team_status: 'meta',
   send_team_message: 'meta',
   ask_followup_question: 'meta',
@@ -487,6 +489,8 @@ const RELEVANCE_CATEGORIES: Record<string, RelevanceCategory> = {
   task_update: 'meta',
   task_stop: 'meta',
   task_output: 'meta',
+  enter_worktree: 'meta',
+  exit_worktree: 'meta',
   team_status: 'meta',
   send_team_message: 'meta',
   ask_followup_question: 'always', // User interaction should always be available when in interactive mode

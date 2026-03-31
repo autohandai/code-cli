@@ -123,6 +123,10 @@ export class PersistentInput extends EventEmitter {
     this.regions = createTerminalRegions(this.output);
   }
 
+  setWorkspaceRoot(workspaceRoot: string): void {
+    this.workspaceRoot = workspaceRoot;
+  }
+
   /**
    * Start the persistent input (call when agent starts working)
    */
