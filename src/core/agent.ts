@@ -608,6 +608,32 @@ export class AutohandAgent {
         requiresApproval: false
       },
       {
+        name: 'skill',
+        description: 'List, inspect, activate, or deactivate loaded skills. Activated skills are added to the session prompt.',
+        parameters: {
+          type: 'object',
+          properties: {
+            command: { type: 'string', description: 'Skill operation to perform', enum: ['list', 'info', 'activate', 'deactivate'] },
+            name: { type: 'string', description: 'Skill name for info, activate, or deactivate' }
+          },
+          required: ['command']
+        },
+        requiresApproval: false
+      },
+      {
+        name: 'sleep',
+        description: 'Pause execution briefly while waiting for another system or process to settle.',
+        parameters: {
+          type: 'object',
+          properties: {
+            seconds: { type: 'number', description: 'Seconds to wait (maximum 300)' },
+            reason: { type: 'string', description: 'Optional short reason for the wait' }
+          },
+          required: ['seconds']
+        },
+        requiresApproval: false
+      },
+      {
         name: 'team_status',
         description: 'Get current team status: members, tasks, progress, available agents.',
         requiresApproval: false
@@ -749,6 +775,10 @@ export class AutohandAgent {
           } else if (action.type === 'task_output') {
             const task = this.teamManager.tasks.setTaskOutput(action.task_id, action.output);
             result = `Task ${task.id} output updated.\n${JSON.stringify(task, null, 2)}`;
+          } else if (action.type === 'skill') {
+            result = this.handleSkillTool(action);
+          } else if (action.type === 'sleep') {
+            result = await this.executeSleepTool(action.seconds, action.reason);
           } else if (action.type === 'team_status') {
             const team = this.teamManager.getTeam();
             if (!team) {
@@ -6517,6 +6547,84 @@ If lint or tests fail, report the issues but do NOT commit.`;
       `Branch: ${info.branchName}${info.createdBranch ? ' (new)' : ''}`,
       `Original workspace: ${originalWorkspaceRoot}`,
     ].join('\n');
+  }
+
+  private handleSkillTool(
+    action: Extract<AgentAction, { type: 'skill' }>
+  ): string {
+    if (action.command === 'list') {
+      const skills = this.skillsRegistry.listSkills().map((skill) => ({
+        name: skill.name,
+        description: skill.description,
+        source: skill.source,
+        active: skill.isActive,
+      }));
+      return JSON.stringify(skills, null, 2);
+    }
+
+    if (!action.name?.trim()) {
+      throw new Error(`skill ${action.command} requires a "name" argument.`);
+    }
+
+    const name = action.name.trim();
+    const skill = this.skillsRegistry.getSkill(name);
+    if (!skill) {
+      const similar = this.skillsRegistry.findSimilar(name, 0.2)
+        .slice(0, 3)
+        .map((match) => match.skill.name);
+      const suggestion = similar.length > 0
+        ? `\nDid you mean: ${similar.join(', ')}`
+        : '';
+      return `Skill "${name}" not found.${suggestion}`;
+    }
+
+    if (action.command === 'info') {
+      return JSON.stringify({
+        name: skill.name,
+        description: skill.description,
+        source: skill.source,
+        path: skill.path,
+        active: skill.isActive,
+        allowedTools: skill['allowed-tools'] ?? null,
+      }, null, 2);
+    }
+
+    if (action.command === 'activate') {
+      if (skill.isActive) {
+        return `Skill "${name}" is already active.`;
+      }
+      const success = this.skillsRegistry.activateSkill(name);
+      return success
+        ? `Activated skill: ${name}\n${skill.description}`
+        : `Failed to activate skill: ${name}`;
+    }
+
+    if (action.command === 'deactivate') {
+      if (!skill.isActive) {
+        return `Skill "${name}" is not active.`;
+      }
+      const success = this.skillsRegistry.deactivateSkill(name);
+      return success
+        ? `Deactivated skill: ${name}`
+        : `Failed to deactivate skill: ${name}`;
+    }
+
+    throw new Error(`Unsupported skill command: ${action.command}`);
+  }
+
+  private async executeSleepTool(seconds: number, reason?: string): Promise<string> {
+    if (!Number.isFinite(seconds) || seconds < 0) {
+      throw new Error('sleep requires a non-negative "seconds" argument.');
+    }
+    if (seconds > 300) {
+      throw new Error('sleep cannot exceed 300 seconds.');
+    }
+
+    await this.sleep(seconds * 1000);
+    const units = seconds === 1 ? 'second' : 'seconds';
+    return reason
+      ? `Slept for ${seconds} ${units}.\nReason: ${reason}`
+      : `Slept for ${seconds} ${units}.`;
   }
 
   private async exitSessionWorktree(keep = false): Promise<string> {

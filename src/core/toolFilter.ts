@@ -66,6 +66,8 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   task_update: 'meta',
   task_stop: 'meta',
   task_output: 'meta',
+  skill: 'meta',
+  sleep: 'meta',
   enter_worktree: 'meta',
   exit_worktree: 'meta',
   team_status: 'meta',
