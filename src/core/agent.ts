@@ -27,7 +27,7 @@ import {
   safeEmitKeypressEvents
 } from '../ui/inputPrompt.js';
 import { safeSetRawMode } from '../ui/rawMode.js';
-import { isShellCommand, isImmediateCommand, parseShellCommand, executeShellCommandAsync } from '../ui/shellCommand.js';
+import { isShellCommand, isImmediateCommand, parseShellCommand, executeShellCommandAsync, executeStreamingShellCommand } from '../ui/shellCommand.js';
 import { showFilePalette } from '../ui/filePalette.js';
 import { createInkRenderer } from '../ui/ink/InkRenderer.js';
 import { showQuestionModal } from '../ui/questionModal.js';
@@ -47,7 +47,7 @@ import { ContextManager } from './contextManager.js';
 import { ToolManager } from './toolManager.js';
 import { ActionExecutor } from './actionExecutor.js';
 import { SlashCommandHandler } from './slashCommandHandler.js';
-import { routeOutput, renderTerminalMarkdown } from './immediateCommandRouter.js';
+import { routeOutput, renderTerminalMarkdown, createImmediateShellCommandBlockWriter, formatImmediateShellCommandHeader } from './immediateCommandRouter.js';
 import { isToolAllowedByYolo, normalizeYoloInput, parseYoloPattern } from '../permissions/yoloMode.js';
 import { SessionManager } from '../session/SessionManager.js';
 import { ProjectManager } from '../session/ProjectManager.js';
@@ -803,12 +803,9 @@ export class AutohandAgent {
 
       if (isShellCommand(text)) {
         const cmd = parseShellCommand(text);
-        routeOutput(chalk.gray(`\n$ ${cmd}`), routeOpts);
-        executeShellCommandAsync(cmd, this.runtime.workspaceRoot)
+        this.executeImmediateShellCommandForComposer(cmd, routeOpts)
           .then((result) => {
-            if (result.success) {
-              if (result.output) routeOutput(result.output, routeOpts);
-            } else {
+            if (!result.success) {
               routeOutput(chalk.red(result.error || 'Command failed'), routeOpts);
             }
           })
@@ -1469,13 +1466,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         // Handle ! shell commands locally (never send to LLM)
         if (isShellCommand(instruction)) {
           const shellCmd = parseShellCommand(instruction);
-          console.log(chalk.gray(`\n$ ${shellCmd}`));
-          const result = await executeShellCommandAsync(shellCmd, this.runtime.workspaceRoot);
-          if (result.success) {
-            if (result.output) console.log(result.output);
-          } else {
-            console.log(chalk.red(result.error || 'Command failed'));
-          }
+          await this.executeImmediateShellCommand(shellCmd);
           continue;
         }
 
@@ -4391,10 +4382,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       try {
         // Create and start InkRenderer (only in TTY mode)
         this.inkRenderer = createInkRenderer({
-          onInstruction: (text: string) => {
-            // Queue the instruction in InkRenderer (it manages its own queue)
-            this.inkRenderer?.addQueuedInstruction(text);
-          },
+          onInstruction: (text: string) => { void this.handleInkSubmittedInstruction(text); },
           onEscape: () => {
             // ESC cancels the current operation
             if (abortController && !abortController.signal.aborted) {
@@ -4569,6 +4557,73 @@ If lint or tests fail, report the issues but do NOT commit.`;
     // For ora mode, we use console.log (handled separately)
   }
 
+  private async handleInkSubmittedInstruction(text: string): Promise<void> {
+    if (isShellCommand(text)) {
+      await this.executeImmediateShellCommand(parseShellCommand(text));
+      return;
+    }
+
+    this.inkRenderer?.addQueuedInstruction(text);
+  }
+
+  private shouldPreferPtyForImmediateShellCommands(): boolean {
+    return Boolean(this.inkRenderer);
+  }
+
+  private async executeImmediateShellCommand(
+    shellCmd: string,
+    routeOpts?: { persistentInputActiveTurn: boolean; terminalRegionsDisabled: boolean; writeAbove: (text: string) => void }
+  ): Promise<{ success: boolean; output?: string; error?: string }> {
+    if (this.inkRenderer) {
+      return this.executeImmediateShellCommandForInk(shellCmd);
+    }
+
+    return this.executeImmediateShellCommandForComposer(shellCmd, routeOpts);
+  }
+
+  private async executeImmediateShellCommandForComposer(
+    shellCmd: string,
+    routeOpts?: { persistentInputActiveTurn: boolean; terminalRegionsDisabled: boolean; writeAbove: (text: string) => void }
+  ): Promise<{ success: boolean; output?: string; error?: string }> {
+    if (routeOpts) {
+      const writer = createImmediateShellCommandBlockWriter(shellCmd, routeOpts);
+      const result = await executeShellCommandAsync(shellCmd, this.runtime.workspaceRoot, undefined, {
+        onStdout: (chunk) => writer.pushStdout(chunk),
+        onStderr: (chunk) => writer.pushStderr(chunk),
+      });
+      writer.flush();
+      return result;
+    }
+
+    console.log(chalk.cyan(formatImmediateShellCommandHeader(shellCmd)));
+    const result = await executeShellCommandAsync(shellCmd, this.runtime.workspaceRoot, undefined, {
+      onStdout: (chunk) => process.stdout.write(chunk),
+      onStderr: (chunk) => process.stderr.write(chunk),
+    });
+    if (!result.success) {
+      console.log(chalk.red(result.error || 'Command failed'));
+    }
+    console.log();
+    return result;
+  }
+
+  private async executeImmediateShellCommandForInk(shellCmd: string): Promise<{ success: boolean; output?: string; error?: string }> {
+    if (!this.inkRenderer) {
+      return { success: false, error: 'Ink renderer is unavailable' };
+    }
+
+    const commandId = this.inkRenderer.startLiveCommand(`! ${shellCmd}`);
+    const result = await executeStreamingShellCommand(shellCmd, this.runtime.workspaceRoot, {
+      onStdout: (chunk) => this.inkRenderer?.appendLiveCommandOutput(commandId, 'stdout', chunk),
+      onStderr: (chunk) => this.inkRenderer?.appendLiveCommandOutput(commandId, 'stderr', chunk),
+      preferPty: this.shouldPreferPtyForImmediateShellCommands(),
+      columns: process.stdout.columns,
+      rows: process.stdout.rows,
+    });
+    this.inkRenderer.finishLiveCommand(commandId, result.success, result.error);
+    return result;
+  }
+
   private async collectContextSummary(): Promise<{ workspaceRoot: string; gitStatus?: string; recentFiles: string[] }> {
     const [gitStatus, entries] = await Promise.all([
       execFileAsync('git', ['status', '-sb'], {
@@ -4708,12 +4763,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
         if (isShellCommand(text)) {
           const cmd = parseShellCommand(text);
-          routeOutput(chalk.gray(`\n$ ${cmd}`), routeOpts);
-          executeShellCommandAsync(cmd, this.runtime.workspaceRoot)
+          this.executeImmediateShellCommandForComposer(cmd, routeOpts)
             .then((result) => {
-              if (result.success) {
-                if (result.output) routeOutput(result.output, routeOpts);
-              } else {
+              if (!result.success) {
                 routeOutput(chalk.red(result.error || 'Command failed'), routeOpts);
               }
             })

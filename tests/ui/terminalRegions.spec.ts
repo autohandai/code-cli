@@ -185,8 +185,9 @@ describe('TerminalRegions', () => {
 
     const joined = output.writes.join('');
     expect(joined).toContain('\x1b[19;1H');
-    // Empty input: cursor is hidden rather than positioned on the placeholder
-    expect(joined).toContain('\x1b[?25l');
+    // Empty input keeps the cursor visible so the composer still looks editable.
+    expect(joined).toContain('\x1b[?25h');
+    expect(joined).toContain('\x1b[22;3H');
     expect(joined).not.toContain('\x1b[s');
     expect(joined).not.toContain('\x1b[u');
   });
@@ -201,8 +202,8 @@ describe('TerminalRegions', () => {
 
     const joined = output.writes.join('');
     expect(joined).toContain('\x1b[24;1H');
-    // Empty input: cursor hidden instead of positioned
-    expect(joined).toContain('\x1b[?25l');
+    expect(joined).toContain('\x1b[?25h');
+    expect(joined).toContain('\x1b[22;3H');
   });
 
   it('prefers getWindowSize dimensions when stream rows are stale', () => {

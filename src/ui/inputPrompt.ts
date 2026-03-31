@@ -60,6 +60,64 @@ export function promptInterrupt(value: string): void {
   promptEvents.emit('interrupt', value);
 }
 
+function writePromptShellCommandHeader(output: NodeJS.WriteStream, command: string): void {
+  output.write(`${chalk.cyan(`You ran ${command}`)}\n`);
+}
+
+function createPromptShellCommandBlockWriter(
+  output: NodeJS.WriteStream
+): {
+  pushStdout: (chunk: string) => void;
+  pushStderr: (chunk: string) => void;
+  flush: () => void;
+} {
+  let pending = '';
+  let pendingStream: 'stdout' | 'stderr' = 'stdout';
+  let lineIndex = 0;
+
+  const flushLine = (line: string, stream: 'stdout' | 'stderr'): void => {
+    const prefix = lineIndex === 0 ? '  └ ' : '    ';
+    output.write(`${prefix}${stream === 'stderr' ? chalk.red(line) : line}\n`);
+    lineIndex += 1;
+  };
+
+  const push = (chunk: string, stream: 'stdout' | 'stderr'): void => {
+    pendingStream = stream;
+    pending += chunk;
+
+    while (true) {
+      const newlineIndex = pending.indexOf('\n');
+      const carriageIndex = pending.indexOf('\r');
+      const boundaryCandidates = [newlineIndex, carriageIndex].filter((value) => value >= 0);
+      if (boundaryCandidates.length === 0) {
+        break;
+      }
+
+      const boundaryIndex = Math.min(...boundaryCandidates);
+      const boundaryWidth = pending[boundaryIndex] === '\r' && pending[boundaryIndex + 1] === '\n' ? 2 : 1;
+      const line = pending.slice(0, boundaryIndex);
+      pending = pending.slice(boundaryIndex + boundaryWidth);
+      flushLine(line, stream);
+    }
+  };
+
+  return {
+    pushStdout(chunk: string): void {
+      push(chunk, 'stdout');
+    },
+    pushStderr(chunk: string): void {
+      push(chunk, 'stderr');
+    },
+    flush(): void {
+      if (!pending) {
+        return;
+      }
+      flushLine(pending, pendingStream);
+      pending = '';
+    },
+  };
+}
+
 const PROMPT_PREFIX = `${chalk.gray('›')} `;
 // Number of fixed status lines we render beneath the prompt
 export const STATUS_LINE_COUNT = 1;
@@ -1518,7 +1576,17 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
   const textBuffer = new TextBuffer(tbWidth, tbMaxVisibleLines, initialLine || undefined);
   activeTextBuffer = textBuffer;
 
-  const mentionPreview = new MentionPreview(rl, filesProvider, slashCommands, stdOutput);
+  const mentionPreview = new MentionPreview(
+    rl,
+    filesProvider,
+    slashCommands,
+    stdOutput,
+    (line: string, cursorPos: number) => {
+      textBuffer.setText(line);
+      textBuffer.setCursorPosition(0, cursorPos);
+      syncReadlineFromBuffer();
+    },
+  );
 
   // Initialize paste state for bracketed paste detection
   const pasteState = createPasteState();
@@ -2163,6 +2231,10 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
 
       // ── Tab: accept suggestion ────────────────────────────────────────
       if (isPlainTabShortcut(_str, key)) {
+        if (mentionPreview.consumeHandledTab()) {
+          return;
+        }
+
         const currentInput = getCurrentText();
         const trimmedInput = currentInput.trim();
 
@@ -2448,15 +2520,16 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         const shellCmd = parseShellCommand(finalValue);
         mentionPreview.reset();
         leavePromptSurface(stdOutput, STATUS_LINE_COUNT, true);
-        executeShellCommandAsync(shellCmd, workspaceRoot)
+        writePromptShellCommandHeader(stdOutput, shellCmd);
+        const writer = createPromptShellCommandBlockWriter(stdOutput);
+        executeShellCommandAsync(shellCmd, workspaceRoot, undefined, {
+          onStdout: (chunk) => writer.pushStdout(chunk),
+          onStderr: (chunk) => writer.pushStderr(chunk),
+        })
           .then((result) => {
-            if (result.success && result.output) {
-              stdOutput.write(result.output);
-              if (!result.output.endsWith('\n')) {
-                stdOutput.write('\n');
-              }
-            } else if (!result.success && result.error) {
-              stdOutput.write(chalk.red(`Error: ${result.error}\n`));
+            writer.flush();
+            if (!result.success && result.error && !result.output) {
+              stdOutput.write(`  └ ${chalk.red(result.error)}\n`);
             }
             // Re-prompt without sending to LLM — reset TextBuffer for fresh input
             textBuffer.setText('');
@@ -2465,7 +2538,8 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
             renderPromptLine(rl, getActiveStatusLine(), stdOutput, false, false, suggestionProvider?.());
           })
           .catch((error: Error) => {
-            stdOutput.write(chalk.red(`Error: ${error.message}\n\n`));
+            writer.flush();
+            stdOutput.write(`  └ ${chalk.red(error.message)}\n\n`);
             textBuffer.setText('');
             syncReadlineFromBuffer();
             renderPromptLine(rl, getActiveStatusLine(), stdOutput, false, false, suggestionProvider?.());

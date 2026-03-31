@@ -392,8 +392,12 @@ export class TerminalRegions {
     const promptWidth = this.getPromptWidth(width);
 
     if (!this.currentInput) {
-      // No input — hide cursor so it doesn't blink over the placeholder
-      this.output.write(`${CSI}?25l`);
+      // Keep the cursor visible on the empty prompt so the composer never
+      // looks frozen while background shell output is streaming above it.
+      const cursorColumn = Math.max(1, Math.min(promptWidth, 1 + PROMPT_INPUT_PREFIX.length));
+      const cursorRow = height - this.fixedLines + 3;
+      this.output.write(`${CSI}?25h`);
+      this.output.write(`${CSI}${cursorRow};${cursorColumn}H`);
       return;
     }
 

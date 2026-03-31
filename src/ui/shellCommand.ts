@@ -9,7 +9,7 @@
  * in the interactive prompt.
  */
 
-import { exec, execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { readdirSync, type Dirent } from 'node:fs';
 import path from 'node:path';
 
@@ -284,6 +284,51 @@ type ExecAsyncError = Error & {
   stderr?: string | Buffer;
 };
 
+interface ExecuteShellCommandAsyncOptions {
+  onStdout?: (chunk: string) => void;
+  onStderr?: (chunk: string) => void;
+}
+
+export interface ExecuteStreamingShellCommandOptions extends ExecuteShellCommandAsyncOptions {
+  preferPty?: boolean;
+  columns?: number;
+  rows?: number;
+}
+
+interface PtyDisposable {
+  dispose(): void;
+}
+
+interface PtyProcess {
+  onData(handler: (data: string) => void): PtyDisposable;
+  onExit(handler: (event: { exitCode: number; signal?: number }) => void): PtyDisposable;
+  kill(): void;
+}
+
+interface NodePtyModule {
+  spawn(
+    file: string,
+    args?: string[],
+    options?: {
+      name?: string;
+      cols?: number;
+      rows?: number;
+      cwd?: string;
+      env?: NodeJS.ProcessEnv;
+    }
+  ): PtyProcess;
+}
+
+async function defaultNodePtyLoader(): Promise<NodePtyModule | null> {
+  try {
+    return await import('node-pty') as unknown as NodePtyModule;
+  } catch {
+    return null;
+  }
+}
+
+let nodePtyLoader: () => Promise<NodePtyModule | null> = defaultNodePtyLoader;
+
 /**
  * Check if the input is a shell command (starts with !)
  * @param input - The user input string
@@ -377,29 +422,211 @@ export function executeShellCommand(
 export async function executeShellCommandAsync(
   command: string,
   cwd?: string,
-  timeout: number = DEFAULT_SHELL_TIMEOUT
+  timeout: number = DEFAULT_SHELL_TIMEOUT,
+  options: ExecuteShellCommandAsyncOptions = {}
 ): Promise<ShellCommandResult> {
   const trimmedCommand = command.trim();
 
   return new Promise((resolve) => {
-    exec(trimmedCommand, {
-      encoding: 'utf-8',
+    let stdout = '';
+    let stderr = '';
+    let resolved = false;
+    let timedOut = false;
+    let timeoutId: NodeJS.Timeout | undefined;
+
+    const finish = (result: ShellCommandResult): void => {
+      if (resolved) {
+        return;
+      }
+      resolved = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      resolve(result);
+    };
+
+    let child;
+    try {
+      child = spawn(trimmedCommand, {
+        cwd: cwd ?? process.cwd(),
+        shell: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (error) {
+      const execError = error as ExecAsyncError;
+      finish({
+        success: false,
+        error: execError.stderr?.toString() || execError.message || 'Unknown error'
+      });
+      return;
+    }
+
+    if (timeout > 0) {
+      timeoutId = setTimeout(() => {
+        timedOut = true;
+        child.kill('SIGTERM');
+      }, timeout);
+    }
+
+    child.stdout?.on('data', (chunk: Buffer | string) => {
+      const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      stdout += text;
+      options.onStdout?.(text);
+    });
+
+    child.stderr?.on('data', (chunk: Buffer | string) => {
+      const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      stderr += text;
+      options.onStderr?.(text);
+    });
+
+    child.once('error', (error: ExecAsyncError) => {
+      finish({
+        success: false,
+        error: stderr || error.stderr?.toString() || error.message || 'Unknown error'
+      });
+    });
+
+    child.once('close', (code, signal) => {
+      if (code === 0) {
+        finish({
+          success: true,
+          output: stdout
+        });
+        return;
+      }
+
+      const errorMessage = timedOut
+        ? `Command timed out after ${timeout}ms`
+        : stderr || (signal ? `Command terminated by ${signal}` : `Command failed with exit code ${code ?? 'unknown'}`);
+
+      finish({
+        success: false,
+        error: errorMessage
+      });
+    });
+  });
+}
+
+export async function executeInteractiveShellCommand(
+  command: string,
+  cwd?: string
+): Promise<ShellCommandResult> {
+  const trimmedCommand = command.trim();
+
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(trimmedCommand, {
+        cwd: cwd ?? process.cwd(),
+        shell: true,
+        stdio: 'inherit',
+      });
+    } catch (error) {
+      const execError = error as ExecAsyncError;
+      resolve({
+        success: false,
+        error: execError.stderr?.toString() || execError.message || 'Unknown error'
+      });
+      return;
+    }
+
+    child.once('error', (error: ExecAsyncError) => {
+      resolve({
+        success: false,
+        error: error.stderr?.toString() || error.message || 'Unknown error'
+      });
+    });
+
+    child.once('close', (code, signal) => {
+      if (code === 0) {
+        resolve({ success: true, output: '' });
+        return;
+      }
+
+      resolve({
+        success: false,
+        error: signal ? `Command terminated by ${signal}` : `Command failed with exit code ${code ?? 'unknown'}`
+      });
+    });
+  });
+}
+
+export async function loadNodePty(): Promise<NodePtyModule | null> {
+  return nodePtyLoader();
+}
+
+export function setNodePtyLoaderForTests(loader?: () => Promise<NodePtyModule | null>): void {
+  nodePtyLoader = loader ?? defaultNodePtyLoader;
+}
+
+function getPtyShellLaunch(command: string): { file: string; args: string[] } {
+  if (process.platform === 'win32') {
+    const comspec = process.env.ComSpec || 'cmd.exe';
+    return {
+      file: comspec,
+      args: ['/d', '/s', '/c', command],
+    };
+  }
+
+  const shell = process.env.SHELL || '/bin/sh';
+  return {
+    file: shell,
+    args: ['-lc', command],
+  };
+}
+
+export async function executeStreamingShellCommand(
+  command: string,
+  cwd?: string,
+  options: ExecuteStreamingShellCommandOptions = {}
+): Promise<ShellCommandResult> {
+  const trimmedCommand = command.trim();
+  const shouldUsePty = options.preferPty === true && process.stdin.isTTY && process.stdout.isTTY;
+
+  if (!shouldUsePty) {
+    return executeShellCommandAsync(trimmedCommand, cwd, DEFAULT_SHELL_TIMEOUT, options);
+  }
+
+  const nodePty = await loadNodePty();
+  if (!nodePty) {
+    return executeShellCommandAsync(trimmedCommand, cwd, DEFAULT_SHELL_TIMEOUT, options);
+  }
+
+  return new Promise((resolve) => {
+    const { file, args } = getPtyShellLaunch(trimmedCommand);
+    const ptyProcess = nodePty.spawn(file, args, {
+      name: process.env.TERM || 'xterm-256color',
+      cols: Math.max(20, options.columns ?? process.stdout.columns ?? 80),
+      rows: Math.max(10, options.rows ?? process.stdout.rows ?? 24),
       cwd: cwd ?? process.cwd(),
-      timeout,
-      maxBuffer: 10 * 1024 * 1024,
-    }, (error, stdout, stderr) => {
-      if (error) {
-        const execError = error as ExecAsyncError;
+      env: {
+        ...process.env,
+        AUTOHAND_CLI: '1',
+      },
+    });
+
+    let output = '';
+    const dataDisposable = ptyProcess.onData((data) => {
+      output += data;
+      options.onStdout?.(data);
+    });
+    const exitDisposable = ptyProcess.onExit((event) => {
+      dataDisposable.dispose();
+      exitDisposable.dispose();
+
+      const normalized = output.replace(/\r\n/g, '\n');
+      if (event.exitCode === 0) {
         resolve({
-          success: false,
-          error: stderr || execError.stderr?.toString() || error.message || 'Unknown error'
+          success: true,
+          output: normalized,
         });
         return;
       }
 
       resolve({
-        success: true,
-        output: stdout || ''
+        success: false,
+        error: normalized || `Command failed with exit code ${event.exitCode}`,
       });
     });
   });

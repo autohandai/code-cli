@@ -19,7 +19,13 @@ import chalk from 'chalk';
  */
 
 // Import the routing helper we'll extract from agent.ts
-import { routeOutput, renderTerminalMarkdown } from '../../src/core/immediateCommandRouter.js';
+import {
+  routeOutput,
+  renderTerminalMarkdown,
+  createBufferedRouteOutput,
+  createImmediateShellCommandBlockWriter,
+  formatImmediateShellCommandHeader,
+} from '../../src/core/immediateCommandRouter.js';
 
 describe('immediateCommandRouter — routeOutput', () => {
   let originalConsoleLog: typeof console.log;
@@ -146,6 +152,75 @@ describe('immediateCommandRouter — routeOutput', () => {
     expect(writeAboveCalls).toHaveLength(1);
     expect(writeAboveCalls[0]).not.toContain('**');
     expect(writeAboveCalls[0]).toContain(chalk.bold('Skills Library'));
+  });
+
+  it('buffers partial shell chunks until a full line is available', () => {
+    const writer = createBufferedRouteOutput({
+      persistentInputActiveTurn: true,
+      terminalRegionsDisabled: false,
+      writeAbove,
+    });
+
+    writer.push('bun ');
+    writer.push('run ');
+    writer.push('proof\nnext');
+
+    expect(writeAboveCalls).toHaveLength(1);
+    expect(writeAboveCalls[0]).toContain('bun run proof');
+
+    writer.flush();
+
+    expect(writeAboveCalls).toHaveLength(2);
+    expect(writeAboveCalls[1]).toContain('next');
+  });
+
+  it('flushes carriage-return shell chunks as visible updates', () => {
+    const writer = createBufferedRouteOutput({
+      persistentInputActiveTurn: true,
+      terminalRegionsDisabled: false,
+      writeAbove,
+    });
+
+    writer.push('running 10%\r');
+    writer.push('running 20%\r');
+
+    expect(writeAboveCalls).toHaveLength(2);
+    expect(writeAboveCalls[0]).toContain('running 10%');
+    expect(writeAboveCalls[1]).toContain('running 20%');
+  });
+
+  it('formats shell command headers in a user-facing way', () => {
+    expect(formatImmediateShellCommandHeader('bun run build')).toBe('You ran bun run build');
+  });
+
+  it('renders shell output as a structured command block', () => {
+    const writer = createImmediateShellCommandBlockWriter('bun run build', {
+      persistentInputActiveTurn: true,
+      terminalRegionsDisabled: false,
+      writeAbove,
+    });
+
+    writer.pushStdout('vite v8.0.3 building\n');
+    writer.pushStdout('transforming...\nrendering chunks...\n');
+
+    expect(writeAboveCalls[0]).toContain('You ran bun run build');
+    expect(writeAboveCalls[1]).toContain('└ vite v8.0.3 building');
+    expect(writeAboveCalls[2]).toContain('  transforming...');
+    expect(writeAboveCalls[3]).toContain('  rendering chunks...');
+  });
+
+  it('keeps stdout/stderr lines in one shell block sequence', () => {
+    const writer = createImmediateShellCommandBlockWriter('bun run build', {
+      persistentInputActiveTurn: true,
+      terminalRegionsDisabled: false,
+      writeAbove,
+    });
+
+    writer.pushStdout('first line\n');
+    writer.pushStderr('warning line\n');
+
+    expect(writeAboveCalls[1]).toContain('└ first line');
+    expect(writeAboveCalls[2]).toContain('  warning line');
   });
 });
 

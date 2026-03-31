@@ -1190,6 +1190,78 @@ describe('agent startup and active input UI', () => {
     }
   });
 
+  it('handleInkSubmittedInstruction executes shell commands immediately instead of queueing them', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    agent.inkRenderer = {
+      addQueuedInstruction: vi.fn(),
+    };
+    agent.executeImmediateShellCommandForInk = vi.fn(async () => {});
+
+    await (agent as any).handleInkSubmittedInstruction('!bun run proof');
+
+    expect(agent.executeImmediateShellCommandForInk).toHaveBeenCalledWith('bun run proof');
+    expect(agent.inkRenderer.addQueuedInstruction).not.toHaveBeenCalled();
+  });
+
+  it('handleInkSubmittedInstruction still queues normal text', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    agent.inkRenderer = {
+      addQueuedInstruction: vi.fn(),
+    };
+    agent.executeImmediateShellCommandForInk = vi.fn(async () => {});
+
+    await (agent as any).handleInkSubmittedInstruction('regular task');
+
+    expect(agent.inkRenderer.addQueuedInstruction).toHaveBeenCalledWith('regular task');
+    expect(agent.executeImmediateShellCommandForInk).not.toHaveBeenCalled();
+  });
+
+  it('prefers PTY only when rendering shell output through the Ink live command block', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+
+    agent.inkRenderer = null;
+    expect((agent as any).shouldPreferPtyForImmediateShellCommands()).toBe(false);
+
+    agent.inkRenderer = {
+      startLiveCommand: vi.fn(),
+      appendLiveCommandOutput: vi.fn(),
+      finishLiveCommand: vi.fn(),
+    };
+    expect((agent as any).shouldPreferPtyForImmediateShellCommands()).toBe(true);
+  });
+
+  it('routes immediate shell commands to the composer executor when Ink is disabled', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    agent.inkRenderer = null;
+    agent.executeImmediateShellCommandForComposer = vi.fn(async () => {});
+    agent.executeImmediateShellCommandForInk = vi.fn(async () => {});
+
+    await (agent as any).executeImmediateShellCommand('git status', {
+      persistentInputActiveTurn: true,
+      terminalRegionsDisabled: false,
+      writeAbove: vi.fn(),
+    });
+
+    expect(agent.executeImmediateShellCommandForComposer).toHaveBeenCalledWith('git status', expect.any(Object));
+    expect(agent.executeImmediateShellCommandForInk).not.toHaveBeenCalled();
+  });
+
+  it('routes immediate shell commands to the Ink live block when Ink is enabled', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    agent.inkRenderer = {
+      startLiveCommand: vi.fn(),
+      appendLiveCommandOutput: vi.fn(),
+      finishLiveCommand: vi.fn(),
+    };
+    agent.executeImmediateShellCommandForComposer = vi.fn(async () => {});
+    agent.executeImmediateShellCommandForInk = vi.fn(async () => {});
+
+    await (agent as any).executeImmediateShellCommand('git status');
+
+    expect(agent.executeImmediateShellCommandForInk).toHaveBeenCalledWith('git status');
+    expect(agent.executeImmediateShellCommandForComposer).not.toHaveBeenCalled();
+  });
+
   it('buildToolLoopCallSignature is stable for key and call ordering', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const first = (agent as any).buildToolLoopCallSignature([

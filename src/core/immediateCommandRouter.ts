@@ -54,3 +54,104 @@ export function routeOutput(text: string, opts: RouteOutputOptions): void {
     console.log(rendered);
   }
 }
+
+export function createBufferedRouteOutput(
+  opts: RouteOutputOptions,
+  transform: (text: string) => string = (text) => text
+): { push: (chunk: string) => void; flush: () => void } {
+  let pending = '';
+
+  const flushLine = (line: string): void => {
+    routeOutput(transform(line), opts);
+  };
+
+  return {
+    push(chunk: string): void {
+      pending += chunk;
+
+      while (true) {
+        const newlineIndex = pending.indexOf('\n');
+        const carriageIndex = pending.indexOf('\r');
+        const boundaryCandidates = [newlineIndex, carriageIndex].filter((value) => value >= 0);
+        if (boundaryCandidates.length === 0) {
+          break;
+        }
+
+        const boundaryIndex = Math.min(...boundaryCandidates);
+        const boundaryWidth = pending[boundaryIndex] === '\r' && pending[boundaryIndex + 1] === '\n' ? 2 : 1;
+        const line = pending.slice(0, boundaryIndex);
+        pending = pending.slice(boundaryIndex + boundaryWidth);
+        flushLine(line);
+      }
+    },
+    flush(): void {
+      if (!pending) {
+        return;
+      }
+      flushLine(pending);
+      pending = '';
+    }
+  };
+}
+
+export function formatImmediateShellCommandHeader(command: string): string {
+  return `You ran ${command}`;
+}
+
+export function createImmediateShellCommandBlockWriter(
+  command: string,
+  opts: RouteOutputOptions
+): {
+  pushStdout: (chunk: string) => void;
+  pushStderr: (chunk: string) => void;
+  flush: () => void;
+} {
+  let pending = '';
+  let pendingStream: 'stdout' | 'stderr' = 'stdout';
+  let lineIndex = 0;
+
+  routeOutput(chalk.cyan(formatImmediateShellCommandHeader(command)), opts);
+
+  const flushLine = (line: string, stream: 'stdout' | 'stderr'): void => {
+    const prefix = lineIndex === 0 ? '  └ ' : '    ';
+    const content = stream === 'stderr' ? chalk.red(line) : line;
+    routeOutput(`${prefix}${content}`, opts);
+    lineIndex += 1;
+  };
+
+  const push = (chunk: string, stream: 'stdout' | 'stderr'): void => {
+    pendingStream = stream;
+    pending += chunk;
+
+    while (true) {
+      const newlineIndex = pending.indexOf('\n');
+      const carriageIndex = pending.indexOf('\r');
+      const boundaryCandidates = [newlineIndex, carriageIndex].filter((value) => value >= 0);
+      if (boundaryCandidates.length === 0) {
+        break;
+      }
+
+      const boundaryIndex = Math.min(...boundaryCandidates);
+      const boundaryWidth = pending[boundaryIndex] === '\r' && pending[boundaryIndex + 1] === '\n' ? 2 : 1;
+      const line = pending.slice(0, boundaryIndex);
+      pending = pending.slice(boundaryIndex + boundaryWidth);
+      flushLine(line, stream);
+    }
+  };
+
+  return {
+    pushStdout(chunk: string): void {
+      push(chunk, 'stdout');
+    },
+    pushStderr(chunk: string): void {
+      push(chunk, 'stderr');
+    },
+    flush(): void {
+      if (!pending) {
+        return;
+      }
+      flushLine(pending, pendingStream);
+      pending = '';
+    },
+  };
+}

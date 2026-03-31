@@ -22,6 +22,7 @@ function createMockOutput(): NodeJS.WriteStream {
   (stream as any).columns = 120;
   (stream as any).rows = 40;
   (stream as any).isTTY = true;
+  (stream as any)._chunks = chunks;
   (stream as any).getWindowSize = () => [120, 40];
   (stream as any).clearLine = vi.fn();
   (stream as any).cursorTo = vi.fn();
@@ -218,6 +219,104 @@ describe('MentionPreview lazy filesProvider', () => {
     const results = filter('READ');
     expect(results).toContain('README.md');
     expect(results).toContain('src/README-dev.md');
+
+    preview.dispose();
+    rl.close();
+  });
+});
+
+describe('MentionPreview file rendering', () => {
+  it('renders file suggestions as filename and path in separate aligned columns', async () => {
+    const { MentionPreview } = await import('../../src/ui/mentionPreview.js');
+    const input = new Readable({ read() {} });
+    (input as any).setRawMode = vi.fn();
+    const output = createMockOutput();
+    const rl = readline.createInterface({ input, output, terminal: true });
+
+    const preview = new MentionPreview(
+      rl,
+      () => ['src/styleguide/java/nullaway.md', 'src/media/base/null_video_sink.h'],
+      SAMPLE_COMMANDS,
+      output
+    );
+
+    (preview as any).mode = 'file';
+    (preview as any).activeIndex = 0;
+    (preview as any).render(['src/styleguide/java/nullaway.md', 'src/media/base/null_video_sink.h']);
+
+    const rendered = Buffer.concat((output as any)._chunks).toString('utf8');
+    const plain = rendered.replace(/\u001b\[[0-9;]*m/g, '');
+
+    expect(plain).toContain('▸ nullaway.md');
+    expect(plain).toContain('src/styleguide/java');
+    expect(plain).toContain('  null_video_sink.h');
+    expect(plain).toContain('src/media/base');
+    expect(plain).not.toContain('src/styleguide/java/nullaway.md');
+    expect(plain).toMatch(/nullaway\.md {2,12}src\/styleguide\/java/);
+
+    preview.dispose();
+    rl.close();
+  });
+});
+
+describe('MentionPreview file selection', () => {
+  it('keeps the selected file when suggestions refresh before tab completion', async () => {
+    const { MentionPreview } = await import('../../src/ui/mentionPreview.js');
+    const input = new Readable({ read() {} });
+    (input as any).setRawMode = vi.fn();
+    const output = createMockOutput();
+    const rl = readline.createInterface({ input, output, terminal: true });
+
+    const preview = new MentionPreview(
+      rl,
+      () => ['tests/commands/ide.test.ts', 'tests/ui/ink/InkRenderer.test.ts', 'tests/ui/ink/LiveCommandBlock.test.tsx'],
+      SAMPLE_COMMANDS,
+      output
+    );
+
+    (rl as any).line = '@tests/';
+    (rl as any).cursor = '@tests/'.length;
+
+    (preview as any).mode = 'file';
+    (preview as any).fileSuggestions = ['tests/commands/ide.test.ts', 'tests/ui/ink/InkRenderer.test.ts', 'tests/ui/ink/LiveCommandBlock.test.tsx'];
+    (preview as any).lastSuggestions = ['tests/commands/ide.test.ts', 'tests/ui/ink/InkRenderer.test.ts', 'tests/ui/ink/LiveCommandBlock.test.tsx'];
+    (preview as any).activeIndex = 1;
+
+    (preview as any).updateSuggestions();
+    input.emit('keypress', '\t', { name: 'tab', sequence: '\t' });
+
+    expect((rl as any).line).toContain('@tests/ui/ink/InkRenderer.test.ts ');
+
+    preview.dispose();
+    rl.close();
+  });
+
+  it('uses the third selected file when tab falls back to refreshed suggestions', async () => {
+    const { MentionPreview } = await import('../../src/ui/mentionPreview.js');
+    const input = new Readable({ read() {} });
+    (input as any).setRawMode = vi.fn();
+    const output = createMockOutput();
+    const rl = readline.createInterface({ input, output, terminal: true });
+
+    const files = [
+      'tests/commands/ide.test.ts',
+      'tests/ui/ink/InkRenderer.test.ts',
+      'tests/ui/ink/LiveCommandBlock.test.tsx',
+    ];
+
+    const preview = new MentionPreview(rl, () => files, SAMPLE_COMMANDS, output);
+
+    (rl as any).line = '@tests/';
+    (rl as any).cursor = '@tests/'.length;
+
+    (preview as any).mode = null;
+    (preview as any).fileSuggestions = [];
+    (preview as any).lastSuggestions = files;
+    (preview as any).activeIndex = 2;
+
+    input.emit('keypress', '\t', { name: 'tab', sequence: '\t' });
+
+    expect((rl as any).line).toContain('@tests/ui/ink/LiveCommandBlock.test.tsx ');
 
     preview.dispose();
     rl.close();
