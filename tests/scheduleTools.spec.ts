@@ -17,6 +17,25 @@ describe('Schedule Tools', () => {
   // Tool Definitions
   // =========================================================================
   describe('tool definitions', () => {
+    it('includes cron_create in DEFAULT_TOOL_DEFINITIONS', () => {
+      const def = DEFAULT_TOOL_DEFINITIONS.find(d => d.name === 'cron_create');
+      expect(def).toBeDefined();
+      expect(def!.description).toContain('schedule');
+      expect(def!.parameters).toBeDefined();
+      expect(def!.parameters!.properties).toHaveProperty('prompt');
+      expect(def!.parameters!.properties).toHaveProperty('interval');
+      expect(def!.parameters!.required).toEqual(expect.arrayContaining(['prompt', 'interval']));
+    });
+
+    it('includes cron_delete in DEFAULT_TOOL_DEFINITIONS', () => {
+      const def = DEFAULT_TOOL_DEFINITIONS.find(d => d.name === 'cron_delete');
+      expect(def).toBeDefined();
+      expect(def!.description).toContain('Cancel');
+      expect(def!.parameters).toBeDefined();
+      expect(def!.parameters!.properties).toHaveProperty('schedule_id');
+      expect(def!.parameters!.required).toContain('schedule_id');
+    });
+
     it('includes list_schedules in DEFAULT_TOOL_DEFINITIONS', () => {
       const def = DEFAULT_TOOL_DEFINITIONS.find(d => d.name === 'list_schedules');
       expect(def).toBeDefined();
@@ -39,6 +58,14 @@ describe('Schedule Tools', () => {
   // Tool Categories
   // =========================================================================
   describe('tool categories', () => {
+    it('categorizes cron_create as meta', () => {
+      expect(getToolCategory('cron_create')).toBe('meta');
+    });
+
+    it('categorizes cron_delete as meta', () => {
+      expect(getToolCategory('cron_delete')).toBe('meta');
+    });
+
     it('categorizes list_schedules as meta', () => {
       expect(getToolCategory('list_schedules')).toBe('meta');
     });
@@ -139,6 +166,54 @@ describe('Schedule Tools', () => {
       rm.cancel(job.id);
       const secondCancel = rm.cancel(job.id);
       expect(secondCancel).toBe(false);
+    });
+  });
+
+  describe('cron_create alias behavior', () => {
+    let rm: RepeatManager;
+
+    beforeEach(() => {
+      rm = new RepeatManager();
+    });
+
+    afterEach(() => {
+      rm.shutdown();
+    });
+
+    it('creates a scheduled job with interval, limit, and expiry', async () => {
+      const { intervalToCron } = await import('../src/commands/repeat.js');
+      const cron = intervalToCron('5m');
+
+      const job = rm.schedule('run tests', cron.intervalMs, cron.cronExpression, cron.humanReadable, {
+        maxRuns: 3,
+        expiresInMs: 60 * 60 * 1000,
+      });
+
+      expect(job.prompt).toBe('run tests');
+      expect(job.humanInterval).toBe('every 5 minutes');
+      expect(job.maxRuns).toBe(3);
+      expect(rm.list()).toHaveLength(1);
+    });
+  });
+
+  describe('cron_delete alias behavior', () => {
+    let rm: RepeatManager;
+
+    beforeEach(() => {
+      rm = new RepeatManager();
+    });
+
+    afterEach(() => {
+      rm.shutdown();
+    });
+
+    it('cancels an existing schedule by id', () => {
+      const job = rm.schedule('ping', 60_000, '*/1 * * * *', 'every 1 minute');
+
+      const cancelled = rm.cancel(job.id);
+
+      expect(cancelled).toBe(true);
+      expect(rm.list()).toHaveLength(0);
     });
   });
 
