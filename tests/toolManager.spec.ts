@@ -36,6 +36,11 @@ describe('ToolManager', () => {
     expect(names.has('create_team')).toBe(true);
     expect(names.has('add_teammate')).toBe(true);
     expect(names.has('create_task')).toBe(true);
+    expect(names.has('task_get')).toBe(true);
+    expect(names.has('task_list')).toBe(true);
+    expect(names.has('task_update')).toBe(true);
+    expect(names.has('task_stop')).toBe(true);
+    expect(names.has('task_output')).toBe(true);
     expect(names.has('team_status')).toBe(true);
     expect(names.has('send_team_message')).toBe(true);
   });

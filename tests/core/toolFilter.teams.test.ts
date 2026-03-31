@@ -11,7 +11,7 @@ import {
 import type { LLMMessage } from '../../src/types.js';
 
 describe('ToolFilter team tools', () => {
-  const teamTools = ['create_team', 'add_teammate', 'create_task', 'team_status', 'send_team_message'];
+  const teamTools = ['create_team', 'add_teammate', 'create_task', 'task_get', 'task_list', 'task_update', 'task_stop', 'task_output', 'team_status', 'send_team_message'];
 
   describe('getToolCategory', () => {
     it('classifies all team tools as meta', () => {

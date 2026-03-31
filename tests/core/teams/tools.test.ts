@@ -138,6 +138,68 @@ describe('Team tool execution paths', () => {
     });
   });
 
+  describe('task primitives', () => {
+    it('gets a task by id from the team task list', () => {
+      manager.createTeam('test');
+      const task = manager.tasks.createTask({ subject: 'Inspect logs', description: 'Read runtime logs' });
+
+      const fetched = manager.tasks.getTask(task.id);
+
+      expect(fetched?.id).toBe(task.id);
+      expect(fetched?.subject).toBe('Inspect logs');
+    });
+
+    it('lists tasks with their latest state', () => {
+      manager.createTeam('test');
+      manager.tasks.createTask({ subject: 'A', description: '' });
+      const task = manager.tasks.createTask({ subject: 'B', description: '' });
+      manager.tasks.assignTask(task.id, 'worker');
+
+      const tasks = manager.tasks.listTasks();
+
+      expect(tasks).toHaveLength(2);
+      expect(tasks.find((item) => item.id === task.id)?.status).toBe('in_progress');
+    });
+
+    it('updates a task fields and status', () => {
+      manager.createTeam('test');
+      const task = manager.tasks.createTask({ subject: 'Old', description: 'old desc' });
+
+      const updated = manager.tasks.updateTask(task.id, {
+        subject: 'New',
+        description: 'new desc',
+        status: 'completed',
+      });
+
+      expect(updated.subject).toBe('New');
+      expect(updated.description).toBe('new desc');
+      expect(updated.status).toBe('completed');
+      expect(updated.completedAt).toBeDefined();
+    });
+
+    it('stops an assigned task and returns it to pending', () => {
+      manager.createTeam('test');
+      const task = manager.tasks.createTask({ subject: 'Long run', description: '' });
+      manager.tasks.assignTask(task.id, 'worker');
+
+      const stopped = manager.tasks.stopTask(task.id);
+
+      expect(stopped.status).toBe('pending');
+      expect(stopped.owner).toBeUndefined();
+    });
+
+    it('stores task output for later inspection', () => {
+      manager.createTeam('test');
+      const task = manager.tasks.createTask({ subject: 'Inspect logs', description: '' });
+      manager.tasks.assignTask(task.id, 'worker');
+
+      const updated = manager.tasks.setTaskOutput(task.id, 'Found stack trace in auth flow');
+
+      expect(updated.output).toBe('Found stack trace in auth flow');
+      expect(updated.status).toBe('in_progress');
+    });
+  });
+
   describe('team_status', () => {
     it('returns null when no team', () => {
       expect(manager.getTeam()).toBeNull();

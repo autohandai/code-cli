@@ -118,7 +118,10 @@ export class TeamManager {
         break;
 
       case 'team.taskUpdate': {
-        const { taskId, status } = msg.params as { taskId: string; status: string };
+        const { taskId, status, result } = msg.params as { taskId: string; status: string; result?: string };
+        if (typeof result === 'string' && result.length > 0) {
+          this._tasks.setTaskOutput(taskId, result);
+        }
         if (status === 'completed') {
           this._tasks.completeTask(taskId);
           tp?.setStatus('idle');
