@@ -93,6 +93,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   write_file: 'write',
   append_file: 'write',
   apply_patch: 'write',
+  notebook_edit: 'write',
   search_replace: 'write',
   format_file: 'write',
   multi_file_edit: 'write',

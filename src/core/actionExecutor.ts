@@ -58,6 +58,7 @@ import {
 } from '../actions/git.js';
 import { WorktreeManager } from '../actions/worktree.js';
 import { applyFormatter } from '../actions/formatters.js';
+import { applyNotebookEdit } from '../actions/notebook.js';
 import { loadCustomCommand, saveCustomCommand } from './customCommands.js';
 import { webSearch, fetchUrl, getPackageInfo, formatSearchResults, formatPackageInfo } from '../actions/web.js';
 import { webRepo, formatRepoInfo, formatRepoDir } from '../actions/webRepo.js';
@@ -557,6 +558,17 @@ export class ActionExecutor {
         this.onFileModified?.(action.path, 'modify');
 
         return this.formatDiffPreview(oldContent, newContent, action.path);
+      }
+      case 'notebook_edit': {
+        if (!action.path) {
+          throw new Error('notebook_edit requires a "path" argument.');
+        }
+
+        const current = await this.files.readFile(action.path);
+        const { updated, summary } = applyNotebookEdit(current, action);
+        await this.files.writeFile(action.path, updated);
+        this.onFileModified?.(action.path, 'modify');
+        return summary;
       }
       case 'tools_registry': {
         const tools = await this.toolsRegistry.listTools(this.getRegisteredTools());

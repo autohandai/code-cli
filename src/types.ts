@@ -848,6 +848,15 @@ export type AgentAction =
   | { type: 'write_file'; path: string; contents?: string; content?: string }
   | { type: 'append_file'; path: string; contents?: string; content?: string }
   | { type: 'apply_patch'; path: string; patch?: string; diff?: string }
+  | {
+      type: 'notebook_edit';
+      path: string;
+      cell_index?: number;
+      cell_id?: string;
+      new_source?: string;
+      cell_type?: 'code' | 'markdown';
+      edit_mode?: 'replace' | 'insert' | 'delete';
+    }
   | { type: 'tools_registry' }
   | { type: 'tool_search'; query: string; limit?: number }
   | {
