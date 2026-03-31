@@ -41,6 +41,7 @@ const READ_ONLY_TOOLS = [
   'recall_memory',
   // Meta
   'tools_registry',
+  'tool_search',
   'plan',
   'ask_followup_question',
 ];

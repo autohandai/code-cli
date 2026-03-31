@@ -562,6 +562,37 @@ export class ActionExecutor {
         const tools = await this.toolsRegistry.listTools(this.getRegisteredTools());
         return JSON.stringify(tools, null, 2);
       }
+      case 'tool_search': {
+        const query = action.query?.trim();
+        if (!query) {
+          throw new Error('tool_search requires a non-empty "query" argument.');
+        }
+        const limit = Math.max(1, action.limit ?? 10);
+        const tools = await this.toolsRegistry.listTools(this.getRegisteredTools());
+        const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+        const scored = tools
+          .map((tool) => {
+            const haystack = `${tool.name} ${tool.description}`.toLowerCase();
+            let score = 0;
+            for (const term of terms) {
+              if (tool.name.toLowerCase() === term) {
+                score += 10;
+              } else if (tool.name.toLowerCase().includes(term)) {
+                score += 6;
+              }
+              if (haystack.includes(term)) {
+                score += 2;
+              }
+            }
+            return { tool, score };
+          })
+          .filter((entry) => entry.score > 0)
+          .sort((a, b) => b.score - a.score || a.tool.name.localeCompare(b.tool.name))
+          .slice(0, limit)
+          .map((entry) => entry.tool);
+
+        return JSON.stringify(scored, null, 2);
+      }
       case 'find':
         return this.executeFind(action);
       case 'search':

@@ -99,6 +99,7 @@ export const TOOL_KIND_MAP: Record<string, ToolKind> = {
   save_memory: 'other',
   recall_memory: 'other',
   tools_registry: 'other',
+  tool_search: 'other',
   project_info: 'read',
   workspace_info: 'read',
 
@@ -113,6 +114,7 @@ export const TOOL_DISPLAY_NAMES: Record<string, string> = {
   // Read operations
   read_file: 'Read',
   list_tree: 'List',
+  tool_search: 'Search tools',
   list_directory: 'List',
   file_stats: 'Stats',
   file_info: 'Info',

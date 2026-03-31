@@ -849,6 +849,7 @@ export type AgentAction =
   | { type: 'append_file'; path: string; contents?: string; content?: string }
   | { type: 'apply_patch'; path: string; patch?: string; diff?: string }
   | { type: 'tools_registry' }
+  | { type: 'tool_search'; query: string; limit?: number }
   | {
       type: 'find';
       query: string;

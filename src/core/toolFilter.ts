@@ -49,6 +49,7 @@ export interface CategorizedToolDefinition extends ToolDefinition {
 const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   // Meta tools
   tools_registry: 'meta',
+  tool_search: 'meta',
   plan: 'meta',
   todo_write: 'meta',
   smart_context_cropper: 'meta',
@@ -463,6 +464,7 @@ const RELEVANCE_CATEGORIES: Record<string, RelevanceCategory> = {
 
   // Meta
   tools_registry: 'meta',
+  tool_search: 'meta',
   save_memory: 'meta',
   recall_memory: 'meta',
   smart_context_cropper: 'meta',
