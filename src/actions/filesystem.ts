@@ -64,7 +64,7 @@ export interface SearchOptions {
 
 export class FileActionManager {
   private undoStack: UndoEntry[] = [];
-  private readonly workspaceRoot: string;
+  private workspaceRoot: string;
   private readonly additionalDirs: string[];
 
   // Preview mode state
@@ -276,6 +276,15 @@ export class FileActionManager {
 
   get root(): string {
     return this.workspaceRoot;
+  }
+
+  setWorkspaceRoot(workspaceRoot: string): void {
+    const resolvedRoot = path.resolve(workspaceRoot);
+    try {
+      this.workspaceRoot = fs.realpathSync(resolvedRoot);
+    } catch {
+      this.workspaceRoot = resolvedRoot;
+    }
   }
 
   async readFile(target: string): Promise<string> {

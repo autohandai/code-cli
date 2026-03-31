@@ -91,6 +91,8 @@ import { HookManager } from './HookManager.js';
 import { TeamManager } from './teams/TeamManager.js';
 import { RepeatManager } from './RepeatManager.js';
 import { intervalToCron, shorthandToHuman, shorthandToMs } from '../commands/repeat.js';
+import { prepareSessionWorktree, type SessionWorktreeInfo } from '../utils/sessionWorktree.js';
+import { WorktreeManager } from '../actions/worktree.js';
 import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
 import { ActivityIndicator } from '../ui/activityIndicator.js';
 import { NotificationService } from '../utils/notification.js';
@@ -165,6 +167,7 @@ export class AutohandAgent {
   private versionCheckResult?: VersionCheckResult;
   private teamManager: TeamManager;
   private repeatManager: RepeatManager;
+  private sessionWorktreeState: (SessionWorktreeInfo & { originalWorkspaceRoot: string }) | null = null;
   private suggestionEngine: SuggestionEngine | null = null;
   private pendingSuggestion: Promise<void> | null = null;
   private isStartupSuggestion = false;
@@ -764,6 +767,10 @@ export class AutohandAgent {
           } else if (action.type === 'send_team_message') {
             this.teamManager.sendMessageTo(action.to, 'lead', action.content);
             result = `Message sent to ${action.to}.`;
+          } else if (action.type === 'enter_worktree') {
+            result = await this.enterSessionWorktree(action.name);
+          } else if (action.type === 'exit_worktree') {
+            result = await this.exitSessionWorktree(action.keep);
           } else if (action.type === 'cron_create') {
             const cron = intervalToCron(action.interval);
             const expiresInMs = action.expires_in ? shorthandToMs(action.expires_in) : undefined;
@@ -6473,6 +6480,65 @@ If lint or tests fail, report the issues but do NOT commit.`;
       throw new Error(`Path ${relativePath} escapes workspace root.`);
     }
     return resolved;
+  }
+
+  private async switchWorkspaceContext(workspaceRoot: string): Promise<void> {
+    this.runtime.workspaceRoot = workspaceRoot;
+    this.memoryManager.setWorkspace(workspaceRoot);
+    this.hookManager.setWorkspaceRoot(workspaceRoot);
+    this.files.setWorkspaceRoot(workspaceRoot);
+    this.persistentInput.setWorkspaceRoot(workspaceRoot);
+    this.ignoreFilter = new GitIgnoreParser(workspaceRoot, []);
+    this.workspaceFileCollector.setWorkspace(workspaceRoot, this.ignoreFilter);
+    await this.skillsRegistry.setWorkspace(workspaceRoot);
+  }
+
+  private async enterSessionWorktree(name?: string): Promise<string> {
+    if (this.sessionWorktreeState) {
+      return `Already inside worktree ${this.sessionWorktreeState.worktreePath} (${this.sessionWorktreeState.branchName}). Exit it first with exit_worktree.`;
+    }
+
+    const originalWorkspaceRoot = this.runtime.workspaceRoot;
+    const info = prepareSessionWorktree({
+      cwd: originalWorkspaceRoot,
+      worktree: name ?? true,
+      mode: 'cli',
+    });
+
+    this.sessionWorktreeState = {
+      ...info,
+      originalWorkspaceRoot,
+    };
+
+    await this.switchWorkspaceContext(info.worktreePath);
+
+    return [
+      `Entered worktree ${info.worktreePath}.`,
+      `Branch: ${info.branchName}${info.createdBranch ? ' (new)' : ''}`,
+      `Original workspace: ${originalWorkspaceRoot}`,
+    ].join('\n');
+  }
+
+  private async exitSessionWorktree(keep = false): Promise<string> {
+    const state = this.sessionWorktreeState;
+    if (!state) {
+      return 'No active session worktree.';
+    }
+
+    if (!keep) {
+      const manager = new WorktreeManager(state.repoRoot);
+      await manager.remove(state.worktreePath, {
+        force: true,
+        deleteBranch: state.createdBranch,
+      });
+    }
+
+    await this.switchWorkspaceContext(state.originalWorkspaceRoot);
+    this.sessionWorktreeState = null;
+
+    return keep
+      ? `Exited worktree ${state.worktreePath} and returned to ${state.originalWorkspaceRoot}. Worktree kept on disk.`
+      : `Exited worktree ${state.worktreePath} and returned to ${state.originalWorkspaceRoot}.`;
   }
 
   private isDestructiveCommand(command: string): boolean {
