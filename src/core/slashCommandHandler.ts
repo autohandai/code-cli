@@ -208,6 +208,10 @@ export class SlashCommandHandler {
           const { review } = await import('../commands/review.js');
           return review(this.ctx, args);
         }
+        case '/pr-review': {
+          const { prReview } = await import('../commands/pr-review.js');
+          return prReview(this.ctx, args);
+        }
         case '/status': {
           const { status } = await import('../commands/status.js');
           return status(this.ctx);
