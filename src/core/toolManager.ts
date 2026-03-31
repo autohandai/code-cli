@@ -1038,6 +1038,30 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
+    name: 'skill',
+    description: 'List, inspect, activate, or deactivate a loaded skill. Activating a skill adds its instructions to the active session prompt.',
+    parameters: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', description: 'Skill operation to perform', enum: ['list', 'info', 'activate', 'deactivate'] },
+        name: { type: 'string', description: 'Skill name for info, activate, or deactivate' }
+      },
+      required: ['command']
+    }
+  },
+  {
+    name: 'sleep',
+    description: 'Pause execution for a short time when waiting for another system or process to settle. Use sparingly and prefer explicit polling when possible.',
+    parameters: {
+      type: 'object',
+      properties: {
+        seconds: { type: 'number', description: 'Number of seconds to wait (maximum 300)' },
+        reason: { type: 'string', description: 'Optional short reason for the wait' }
+      },
+      required: ['seconds']
+    }
+  },
+  {
     name: 'enter_worktree',
     description: 'Create and enter an isolated git worktree for the current session. Subsequent file, git, and command tools operate in that worktree until exit_worktree is called.',
     parameters: {
