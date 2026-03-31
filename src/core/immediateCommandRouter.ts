@@ -114,8 +114,8 @@ export function createImmediateShellCommandBlockWriter(
 
   const flushLine = (line: string, stream: 'stdout' | 'stderr'): void => {
     const prefix = lineIndex === 0 ? '  └ ' : '    ';
-    const content = stream === 'stderr' ? chalk.red(line) : line;
-    routeOutput(`${prefix}${content}`, opts);
+    const renderedLine = `${prefix}${line}`;
+    routeOutput(stream === 'stderr' ? chalk.red(renderedLine) : renderedLine, opts);
     lineIndex += 1;
   };
 
