@@ -31,6 +31,7 @@ describe('ToolManager', () => {
     const names = new Set(DEFAULT_TOOL_DEFINITIONS.map((tool) => tool.name));
 
     expect(names.has('tool_search')).toBe(true);
+    expect(names.has('notebook_edit')).toBe(true);
     expect(names.has('delegate_task')).toBe(true);
     expect(names.has('delegate_parallel')).toBe(true);
     expect(names.has('create_team')).toBe(true);

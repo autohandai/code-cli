@@ -210,6 +210,81 @@ describe('ActionExecutor', () => {
       expect(applyPatch).toHaveBeenCalledWith('src/index.ts', '@@ diff @@');
     });
 
+    it('edits a notebook cell by index with notebook_edit', async () => {
+      const notebook = JSON.stringify({
+        nbformat: 4,
+        nbformat_minor: 5,
+        metadata: { language_info: { name: 'python' } },
+        cells: [
+          { id: 'cell-1', cell_type: 'markdown', source: ['# Title\n'] },
+          { id: 'cell-2', cell_type: 'code', source: ['print("old")\n'], outputs: [] },
+        ],
+      });
+      const writeFile = vi.fn().mockResolvedValue(undefined);
+      const onFileModified = vi.fn();
+      const executor = createExecutor(
+        { readFile: vi.fn().mockResolvedValue(notebook), writeFile },
+        { onFileModified }
+      );
+
+      const result = await executor.execute({
+        type: 'notebook_edit',
+        path: 'analysis.ipynb',
+        cell_index: 1,
+        new_source: 'print("new")\n',
+        edit_mode: 'replace',
+      } as any);
+
+      expect(writeFile).toHaveBeenCalledTimes(1);
+      const [, updatedContent] = writeFile.mock.calls[0];
+      const parsed = JSON.parse(updatedContent);
+      expect(parsed.cells[1].source).toBe('print("new")\n');
+      expect(onFileModified).toHaveBeenCalledWith('analysis.ipynb', 'modify');
+      expect(result).toContain('Updated notebook cell');
+    });
+
+    it('inserts a new notebook cell with notebook_edit', async () => {
+      const notebook = JSON.stringify({
+        nbformat: 4,
+        nbformat_minor: 5,
+        metadata: {},
+        cells: [
+          { id: 'cell-1', cell_type: 'markdown', source: ['# Title\n'] },
+        ],
+      });
+      const writeFile = vi.fn().mockResolvedValue(undefined);
+      const executor = createExecutor({
+        readFile: vi.fn().mockResolvedValue(notebook),
+        writeFile
+      });
+
+      await executor.execute({
+        type: 'notebook_edit',
+        path: 'analysis.ipynb',
+        cell_index: 0,
+        new_source: 'print("hello")\n',
+        cell_type: 'code',
+        edit_mode: 'insert',
+      } as any);
+
+      const [, updatedContent] = writeFile.mock.calls[0];
+      const parsed = JSON.parse(updatedContent);
+      expect(parsed.cells).toHaveLength(2);
+      expect(parsed.cells[1].cell_type).toBe('code');
+      expect(parsed.cells[1].source).toBe('print("hello")\n');
+    });
+
+    it('rejects notebook_edit for non-ipynb paths', async () => {
+      const executor = createExecutor();
+
+      await expect(executor.execute({
+        type: 'notebook_edit',
+        path: 'analysis.py',
+        cell_index: 0,
+        new_source: 'print("x")',
+      } as any)).rejects.toThrow('.ipynb');
+    });
+
     it('returns diff preview for append_file', async () => {
       const appendFile = vi.fn().mockResolvedValue(undefined);
       const executor = createExecutor({

@@ -136,6 +136,7 @@ export const TOOL_DISPLAY_NAMES: Record<string, string> = {
   write_file: 'Write',
   append_file: 'Append',
   apply_patch: 'Patch',
+  notebook_edit: 'Notebook',
   format_file: 'Format',
   replace_in_file: 'Replace',
   search_replace: 'Replace',

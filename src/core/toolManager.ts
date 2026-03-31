@@ -147,6 +147,22 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
+    name: 'notebook_edit',
+    description: 'Edit a Jupyter notebook cell without treating the .ipynb file as plain text. Supports replace, insert, and delete by cell index or cell ID.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Relative path to the .ipynb notebook file' },
+        cell_index: { type: 'number', description: '0-based cell index to target. For insert, inserts after this index; omit to append.' },
+        cell_id: { type: 'string', description: 'Optional cell ID to target instead of cell_index' },
+        new_source: { type: 'string', description: 'New source for replace or insert operations' },
+        cell_type: { type: 'string', description: 'Cell type for insert operations', enum: ['code', 'markdown'] },
+        edit_mode: { type: 'string', description: 'Notebook edit mode', enum: ['replace', 'insert', 'delete'] }
+      },
+      required: ['path']
+    }
+  },
+  {
     name: 'append_file',
     description: 'Append text to a file',
     parameters: {
