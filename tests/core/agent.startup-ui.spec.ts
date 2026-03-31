@@ -1316,6 +1316,9 @@ describe('agent startup and active input UI', () => {
     expect(prompt).toContain('Exact: `find(query="parallelToolConcurrency|maxConcurrency", mode="exact")`');
     expect(prompt).toContain('Context: `find(query="buildSystemPrompt", context=8, mode="context")`');
     expect(prompt).toContain('Semantic: `find(query="code discovery and tool selection", mode="semantic")`');
+    expect(prompt).toContain('Prefer dedicated tools over `run_command` whenever a dedicated tool exists.');
+    expect(prompt).toContain('If independent tool calls do not depend on each other, batch them in the same response.');
+    expect(prompt).toContain('If the user needs to run an interactive shell command themselves, tell them to use `! <command>`');
   });
 
   it('runReactLoop breaks repeated identical tool loops and emits fallback response', async () => {

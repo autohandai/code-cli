@@ -80,6 +80,18 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
     description: 'List all available tools (built-in and meta)'
   },
   {
+    name: 'tool_search',
+    description: 'Search available tools by capability, name, or description. Use this when you need to discover the best built-in or meta tool for a task instead of guessing.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search terms for the capability or tool you need (e.g. "delegate agent", "git worktree", "browser screenshot")' },
+        limit: { type: 'number', description: 'Maximum matching tools to return (default: 10)' }
+      },
+      required: ['query']
+    }
+  },
+  {
     name: 'plan',
     description: 'Create a structured implementation plan with detailed numbered steps before executing a task. Always break the task into concrete, actionable steps (e.g. "1. Read existing auth code\\n2. Create JWT utility module\\n3. Add login endpoint"). Each step should be a single clear action. Aim for 3-10 steps depending on complexity.',
     parameters: {
@@ -884,6 +896,97 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
         handler: { type: 'string', description: 'Shell command template with {{param}} placeholders (e.g., "grep -E {{pattern}} {{path}}")' }
       },
       required: ['name', 'description', 'parameters', 'handler']
+    }
+  },
+  {
+    name: 'delegate_task',
+    description: 'Delegate a focused task to a specialized sub-agent. Use for broader exploration, verification, or work you want to keep out of the main context.',
+    parameters: {
+      type: 'object',
+      properties: {
+        agent_name: { type: 'string', description: 'Registered agent name to delegate to' },
+        task: { type: 'string', description: 'Concrete task for the delegated agent' }
+      },
+      required: ['agent_name', 'task']
+    }
+  },
+  {
+    name: 'delegate_parallel',
+    description: 'Delegate multiple independent tasks to specialized sub-agents in parallel.',
+    parameters: {
+      type: 'object',
+      properties: {
+        tasks: {
+          type: 'array',
+          description: 'Independent agent tasks to run in parallel',
+          items: {
+            type: 'object',
+            properties: {
+              agent_name: { type: 'string', description: 'Registered agent name to delegate to' },
+              task: { type: 'string', description: 'Concrete task for that agent' }
+            },
+            required: ['agent_name', 'task']
+          }
+        }
+      },
+      required: ['tasks']
+    }
+  },
+  {
+    name: 'create_team',
+    description: 'Create or reuse a teammate coordination group for multi-agent work.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Team name' }
+      },
+      required: ['name']
+    }
+  },
+  {
+    name: 'add_teammate',
+    description: 'Add a teammate process to the active team using a registered agent.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Human-readable teammate name' },
+        agent_name: { type: 'string', description: 'Registered agent name to run' },
+        model: { type: 'string', description: 'Optional model override for that teammate' }
+      },
+      required: ['name', 'agent_name']
+    }
+  },
+  {
+    name: 'create_task',
+    description: 'Create a team task that can be assigned to an idle teammate.',
+    parameters: {
+      type: 'object',
+      properties: {
+        subject: { type: 'string', description: 'Short task title' },
+        description: { type: 'string', description: 'Detailed task description' },
+        blocked_by: {
+          type: 'array',
+          description: 'Optional prerequisite task IDs that must complete first',
+          items: { type: 'string', description: 'Task ID' }
+        }
+      },
+      required: ['subject', 'description']
+    }
+  },
+  {
+    name: 'team_status',
+    description: 'Show the active team, teammate statuses, and current task queue.'
+  },
+  {
+    name: 'send_team_message',
+    description: 'Send a direct message from the lead agent to a teammate.',
+    parameters: {
+      type: 'object',
+      properties: {
+        to: { type: 'string', description: 'Teammate name' },
+        content: { type: 'string', description: 'Message content' }
+      },
+      required: ['to', 'content']
     }
   },
   // Web Search Operations

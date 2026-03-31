@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, it, expect, vi } from 'vitest';
-import { ToolManager } from '../src/core/toolManager.js';
+import { DEFAULT_TOOL_DEFINITIONS, ToolManager } from '../src/core/toolManager.js';
 
 const noopDefinitions = [
   { name: 'read_file', description: 'read file' },
@@ -27,6 +27,19 @@ function createDelayedExecutor(delayMs: number, tracker?: { current: number; max
 }
 
 describe('ToolManager', () => {
+  it('exposes delegation, team coordination, and tool discovery tools by default', () => {
+    const names = new Set(DEFAULT_TOOL_DEFINITIONS.map((tool) => tool.name));
+
+    expect(names.has('tool_search')).toBe(true);
+    expect(names.has('delegate_task')).toBe(true);
+    expect(names.has('delegate_parallel')).toBe(true);
+    expect(names.has('create_team')).toBe(true);
+    expect(names.has('add_teammate')).toBe(true);
+    expect(names.has('create_task')).toBe(true);
+    expect(names.has('team_status')).toBe(true);
+    expect(names.has('send_team_message')).toBe(true);
+  });
+
   it('executes tool calls via the provided executor', async () => {
     const executor = vi.fn().mockResolvedValue('file contents');
     const confirm = vi.fn().mockResolvedValue(true);
