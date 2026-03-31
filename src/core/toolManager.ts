@@ -1166,6 +1166,31 @@ Actions:
   },
   // Schedule Management
   {
+    name: 'cron_create',
+    description: 'Create a recurring scheduled job using an explicit interval and prompt. Use this for structured schedule creation instead of natural-language slash command parsing.',
+    parameters: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: 'The prompt/instruction to run on each schedule trigger' },
+        interval: { type: 'string', description: 'Repeat interval shorthand like 5m, 2h, 1d, or 30s' },
+        max_runs: { type: 'number', description: 'Optional maximum number of times to trigger before auto-cancel' },
+        expires_in: { type: 'string', description: 'Optional expiry duration shorthand like 7d, 2h, or 30m' },
+      },
+      required: ['prompt', 'interval']
+    }
+  },
+  {
+    name: 'cron_delete',
+    description: 'Cancel an active recurring scheduled job by its ID.',
+    parameters: {
+      type: 'object',
+      properties: {
+        schedule_id: { type: 'string', description: 'The job ID to cancel' },
+      },
+      required: ['schedule_id']
+    }
+  },
+  {
     name: 'list_schedules',
     description: 'List all active recurring scheduled jobs. Returns job IDs, prompts, intervals, run counts, and expiry times.',
   },
