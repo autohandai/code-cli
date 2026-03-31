@@ -2381,6 +2381,37 @@ describe('ActionExecutor', () => {
       expect(parsed[0].description).toBe('Full description');
       expect(parsed[0].source).toBe('builtin');
     });
+
+    it('searches tools by name and description with tool_search', async () => {
+      const tools: ToolDefinition[] = [
+        { name: 'read_file', description: 'Read files from the workspace' } as ToolDefinition,
+        { name: 'delegate_task', description: 'Delegate work to a specialized agent' } as ToolDefinition,
+        { name: 'send_team_message', description: 'Send a message to a teammate' } as ToolDefinition,
+      ];
+      const registry = {
+        listTools: vi.fn().mockResolvedValue([
+          { name: 'read_file', description: 'Read files from the workspace', source: 'builtin' },
+          { name: 'delegate_task', description: 'Delegate work to a specialized agent', source: 'builtin' },
+          { name: 'send_team_message', description: 'Send a message to a teammate', source: 'builtin' },
+        ]),
+        getMetaTool: vi.fn().mockReturnValue(undefined)
+      };
+      const executor = new ActionExecutor({
+        runtime: createRuntime(),
+        files: createFiles() as FileActionManager,
+        resolveWorkspacePath: (rel) => `/repo/${rel}`,
+        confirmDangerousAction: vi.fn().mockResolvedValue(true),
+        toolsRegistry: registry as any,
+        getRegisteredTools: () => tools
+      });
+
+      const result = await executor.execute({ type: 'tool_search', query: 'delegate agent' } as any);
+      const parsed = JSON.parse(result ?? '[]');
+
+      expect(registry.listTools).toHaveBeenCalledWith(tools);
+      expect(parsed).toHaveLength(1);
+      expect(parsed[0]).toMatchObject({ name: 'delegate_task' });
+    });
   });
 
   describe('Unsupported Actions', () => {
