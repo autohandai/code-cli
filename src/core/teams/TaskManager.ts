@@ -4,12 +4,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { TeamTask } from './types.js';
+import type { TaskStatus, TeamTask } from './types.js';
 
 interface CreateTaskInput {
   subject: string;
   description: string;
   blockedBy?: string[];
+}
+
+interface UpdateTaskInput {
+  subject?: string;
+  description?: string;
+  blockedBy?: string[];
+  status?: TaskStatus;
+  output?: string;
 }
 
 export class TaskManager {
@@ -67,6 +75,53 @@ export class TaskManager {
     if (!task) throw new Error(`Task ${id} not found`);
     task.status = 'pending';
     task.owner = undefined;
+    task.completedAt = undefined;
+  }
+
+  updateTask(id: string, updates: UpdateTaskInput): TeamTask {
+    const task = this.tasks.get(id);
+    if (!task) throw new Error(`Task ${id} not found`);
+
+    if (updates.subject !== undefined) {
+      task.subject = updates.subject;
+    }
+    if (updates.description !== undefined) {
+      task.description = updates.description;
+    }
+    if (updates.blockedBy !== undefined) {
+      task.blockedBy = [...updates.blockedBy];
+    }
+    if (updates.output !== undefined) {
+      task.output = updates.output;
+    }
+
+    if (updates.status === 'completed') {
+      task.status = 'completed';
+      task.completedAt = new Date().toISOString();
+    } else if (updates.status === 'pending') {
+      task.status = 'pending';
+      task.owner = undefined;
+      task.completedAt = undefined;
+    } else if (updates.status === 'in_progress') {
+      task.status = 'in_progress';
+      task.completedAt = undefined;
+    }
+
+    return task;
+  }
+
+  stopTask(id: string): TeamTask {
+    const task = this.tasks.get(id);
+    if (!task) throw new Error(`Task ${id} not found`);
+    this.releaseTask(id);
+    return this.tasks.get(id)!;
+  }
+
+  setTaskOutput(id: string, output: string): TeamTask {
+    const task = this.tasks.get(id);
+    if (!task) throw new Error(`Task ${id} not found`);
+    task.output = output;
+    return task;
   }
 
   serialize(): string {

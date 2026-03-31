@@ -974,6 +974,70 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
+    name: 'task_get',
+    description: 'Get a single team task by ID from the active team task list.',
+    parameters: {
+      type: 'object',
+      properties: {
+        task_id: { type: 'string', description: 'Task ID to retrieve' }
+      },
+      required: ['task_id']
+    }
+  },
+  {
+    name: 'task_list',
+    description: 'List tasks from the active team task list, optionally filtered by status or owner.',
+    parameters: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', description: 'Optional status filter', enum: ['pending', 'in_progress', 'completed'] },
+        owner: { type: 'string', description: 'Optional owner filter' }
+      }
+    }
+  },
+  {
+    name: 'task_update',
+    description: 'Update a task in the active team task list.',
+    parameters: {
+      type: 'object',
+      properties: {
+        task_id: { type: 'string', description: 'Task ID to update' },
+        subject: { type: 'string', description: 'Updated short task title' },
+        description: { type: 'string', description: 'Updated task description' },
+        blocked_by: {
+          type: 'array',
+          description: 'Updated prerequisite task IDs',
+          items: { type: 'string', description: 'Task ID' }
+        },
+        status: { type: 'string', description: 'Updated task status', enum: ['pending', 'in_progress', 'completed'] }
+      },
+      required: ['task_id']
+    }
+  },
+  {
+    name: 'task_stop',
+    description: 'Stop an active or queued team task and return it to pending state.',
+    parameters: {
+      type: 'object',
+      properties: {
+        task_id: { type: 'string', description: 'Task ID to stop' }
+      },
+      required: ['task_id']
+    }
+  },
+  {
+    name: 'task_output',
+    description: 'Store or update the latest output/progress note for a task in the active team task list.',
+    parameters: {
+      type: 'object',
+      properties: {
+        task_id: { type: 'string', description: 'Task ID to update' },
+        output: { type: 'string', description: 'Latest progress note, result, or output summary for the task' }
+      },
+      required: ['task_id', 'output']
+    }
+  },
+  {
     name: 'team_status',
     description: 'Show the active team, teammate statuses, and current task queue.'
   },
