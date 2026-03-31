@@ -13,7 +13,7 @@
 import React, { useState, useImperativeHandle, forwardRef, useCallback, useRef } from 'react';
 import { render, type Instance } from 'ink';
 import { AgentUI, createInitialUIState, type AgentUIState } from './AgentUI.js';
-import type { ToolOutputEntry, ToolOutputBatchEntry, ToolOutputItem, BatchToolItem } from './ToolOutput.js';
+import type { LiveCommandEntry, ToolOutputEntry, ToolOutputBatchEntry, ToolOutputItem, BatchToolItem } from './ToolOutput.js';
 import { ThemeProvider } from '../theme/ThemeContext.js';
 import { I18nProvider } from '../i18n/index.js';
 import { safeSetRawMode } from '../rawMode.js';
@@ -38,6 +38,7 @@ interface AgentUIWrapperProps {
   onInstruction: (text: string) => void;
   onEscape: () => void;
   onCtrlC: () => void;
+  onToggleLiveCommandExpanded: () => void;
   onInputChange: (input: string) => void;
   enableQueueInput?: boolean;
 }
@@ -53,6 +54,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       onInstruction,
       onEscape,
       onCtrlC,
+      onToggleLiveCommandExpanded,
       onInputChange,
       enableQueueInput
     } = props;
@@ -83,6 +85,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         onInstruction={onInstruction}
         onEscape={onEscape}
         onCtrlC={onCtrlC}
+        onToggleLiveCommandExpanded={onToggleLiveCommandExpanded}
         onInputChange={handleInputChange}
         enableQueueInput={enableQueueInput}
       />
@@ -103,6 +106,12 @@ export class InkRenderer {
   private options: InkRendererOptions;
   private toolIdCounter = 0;
   private wrapperRef: React.RefObject<AgentUIWrapperHandle>;
+  /** Pending live command output buffers (accumulated between flushes) */
+  private pendingLiveOutput = new Map<string, { stdout: string; stderr: string }>();
+  /** Timer for throttling live command output flushes */
+  private liveOutputFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Flush interval in ms - batches rapid output to prevent flickering */
+  private static readonly LIVE_OUTPUT_FLUSH_INTERVAL_MS = 100;
 
   constructor(options: InkRendererOptions) {
     this.options = options;
@@ -134,6 +143,7 @@ export class InkRenderer {
             onInstruction={this.options.onInstruction}
             onEscape={this.options.onEscape}
             onCtrlC={this.options.onCtrlC}
+            onToggleLiveCommandExpanded={() => this.toggleActiveLiveCommandExpanded()}
             onInputChange={this.handleInputChange}
             enableQueueInput={this.options.enableQueueInput}
           />
@@ -296,6 +306,147 @@ export class InkRenderer {
     this.updateState({ toolOutputs: [] });
   }
 
+  startLiveCommand(command: string): string {
+    const id = `live-command-${++this.toolIdCounter}`;
+    const entry: LiveCommandEntry = {
+      id,
+      command,
+      stdout: '',
+      stderr: '',
+      startedAt: Date.now(),
+      isExpanded: false,
+    };
+    this.updateState({
+      liveCommands: [...this.state.liveCommands, entry]
+    });
+    return id;
+  }
+
+  /**
+   * Append output to a live command.
+   * Output is buffered and flushed periodically to prevent flickering
+   * from rapid React state updates during streaming.
+   */
+  appendLiveCommandOutput(id: string, stream: 'stdout' | 'stderr', chunk: string): void {
+    // Accumulate output in a buffer instead of triggering a React update on every chunk.
+    // This prevents flickering by batching rapid output into periodic flushes.
+    let pending = this.pendingLiveOutput.get(id);
+    if (!pending) {
+      pending = { stdout: '', stderr: '' };
+      this.pendingLiveOutput.set(id, pending);
+    }
+    if (stream === 'stdout') {
+      pending.stdout += chunk;
+    } else {
+      pending.stderr += chunk;
+    }
+
+    // Schedule a flush if not already pending
+    if (!this.liveOutputFlushTimer) {
+      this.liveOutputFlushTimer = setTimeout(
+        () => this.flushLiveCommandOutput(),
+        InkRenderer.LIVE_OUTPUT_FLUSH_INTERVAL_MS
+      );
+    }
+  }
+
+  /** Flush accumulated live command output buffers to React state */
+  private flushLiveCommandOutput(): void {
+    this.liveOutputFlushTimer = null;
+
+    if (this.pendingLiveOutput.size === 0) {
+      return;
+    }
+
+    this.updateState({
+      liveCommands: this.state.liveCommands.map((entry) => {
+        const pending = this.pendingLiveOutput.get(entry.id);
+        if (!pending) {
+          return entry;
+        }
+
+        return {
+          ...entry,
+          stdout: entry.stdout + pending.stdout,
+          stderr: entry.stderr + pending.stderr,
+        };
+      })
+    });
+
+    // Clear pending buffers
+    this.pendingLiveOutput.clear();
+  }
+
+  finishLiveCommand(id: string, success: boolean, error?: string): void {
+    // Flush any pending output for this command before finalizing
+    if (this.pendingLiveOutput.has(id)) {
+      // Apply pending output directly to the entry without going through React
+      const pending = this.pendingLiveOutput.get(id)!;
+      this.state = {
+        ...this.state,
+        liveCommands: this.state.liveCommands.map((e) => {
+          if (e.id !== id) return e;
+          return {
+            ...e,
+            stdout: e.stdout + pending.stdout,
+            stderr: e.stderr + pending.stderr,
+          };
+        })
+      };
+      this.pendingLiveOutput.delete(id);
+    }
+
+    // Cancel any pending flush timer if this was the last pending command
+    if (this.pendingLiveOutput.size === 0 && this.liveOutputFlushTimer) {
+      clearTimeout(this.liveOutputFlushTimer);
+      this.liveOutputFlushTimer = null;
+    }
+
+    const entry = this.state.liveCommands.find((item) => item.id === id);
+    if (!entry) {
+      return;
+    }
+
+    const lines = [`$ ${entry.command}`];
+    if (entry.stdout.trim()) {
+      lines.push(entry.stdout.trimEnd());
+    }
+    if (entry.stderr.trim()) {
+      lines.push(entry.stderr.trimEnd());
+    }
+    if (!success && error && !lines.includes(error)) {
+      lines.push(error);
+    }
+
+    const finalizedEntry: ToolOutputEntry = {
+      id: `tool-${++this.toolIdCounter}`,
+      tool: 'shell',
+      success,
+      output: lines.join('\n'),
+      timestamp: Date.now(),
+    };
+
+    this.updateState({
+      liveCommands: this.state.liveCommands.filter((item) => item.id !== id),
+      toolOutputs: [...this.state.toolOutputs, finalizedEntry]
+    });
+  }
+
+  toggleActiveLiveCommandExpanded(): void {
+    const active = this.state.liveCommands[this.state.liveCommands.length - 1];
+    if (!active) {
+      return;
+    }
+
+    this.updateState({
+      liveCommands: this.state.liveCommands.map((entry) =>
+        entry.id === active.id
+          ? { ...entry, isExpanded: !entry.isExpanded }
+          : entry
+      )
+    });
+  }
+
   /**
    * Set thinking output
    */
@@ -351,6 +502,7 @@ export class InkRenderer {
               onInstruction={this.options.onInstruction}
               onEscape={this.options.onEscape}
               onCtrlC={this.options.onCtrlC}
+              onToggleLiveCommandExpanded={() => this.toggleActiveLiveCommandExpanded()}
               onInputChange={this.handleInputChange}
               enableQueueInput={this.options.enableQueueInput}
             />

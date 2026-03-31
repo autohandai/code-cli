@@ -5,15 +5,16 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
-import { exec, execSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
+import { execSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 // Mock child_process
 vi.mock('node:child_process', () => ({
-  exec: vi.fn(),
-  execSync: vi.fn()
+  execSync: vi.fn(),
+  spawn: vi.fn()
 }));
 
 // Mock chalk to avoid ANSI codes in tests
@@ -31,7 +32,7 @@ vi.mock('chalk', () => ({
 
 describe('Shell Command Feature', () => {
   const mockedExecSync = execSync as Mock;
-  const mockedExec = exec as Mock;
+  const mockedSpawn = spawn as Mock;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -144,26 +145,211 @@ describe('Shell Command Feature', () => {
     });
 
     it('should execute asynchronously and return stdout', async () => {
-      mockedExec.mockImplementation((_cmd, _opts, cb) => cb(null, 'async output\n', ''));
+      const child = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stderr: EventEmitter;
+        kill: Mock;
+      };
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = vi.fn();
 
-      const result = await executeShellCommandAsync('ls -la');
+      mockedSpawn.mockReturnValue(child);
 
-      expect(mockedExec).toHaveBeenCalledWith('ls -la', {
-        encoding: 'utf-8',
+      const promise = executeShellCommandAsync('ls -la');
+      child.stdout.emit('data', Buffer.from('async output\n'));
+      child.emit('close', 0, null);
+
+      const result = await promise;
+
+      expect(mockedSpawn).toHaveBeenCalledWith('ls -la', {
         cwd: process.cwd(),
-        timeout: 30000,
-        maxBuffer: 10 * 1024 * 1024,
-      }, expect.any(Function));
+        shell: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
       expect(result).toEqual({ success: true, output: 'async output\n' });
     });
 
     it('should return stderr when async command fails', async () => {
-      mockedExec.mockImplementation((_cmd, _opts, cb) => cb(new Error('boom'), '', 'serve failed'));
+      const child = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stderr: EventEmitter;
+        kill: Mock;
+      };
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = vi.fn();
 
-      const result = await executeShellCommandAsync('npx serve .');
+      mockedSpawn.mockReturnValue(child);
+
+      const promise = executeShellCommandAsync('npx serve .');
+      child.stderr.emit('data', Buffer.from('serve failed'));
+      child.emit('close', 1, null);
+
+      const result = await promise;
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('serve failed');
+    });
+
+    it('streams stdout and stderr chunks while the command is running', async () => {
+      const child = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stderr: EventEmitter;
+        kill: Mock;
+      };
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = vi.fn();
+
+      mockedSpawn.mockReturnValue(child);
+
+      const stdoutChunks: string[] = [];
+      const stderrChunks: string[] = [];
+      const promise = executeShellCommandAsync('bun run proof', undefined, undefined, {
+        onStdout: (chunk) => stdoutChunks.push(chunk),
+        onStderr: (chunk) => stderrChunks.push(chunk),
+      });
+
+      child.stdout.emit('data', Buffer.from('step 1\n'));
+      child.stderr.emit('data', Buffer.from('warn\n'));
+      child.stdout.emit('data', Buffer.from('step 2\n'));
+      child.emit('close', 0, null);
+
+      const result = await promise;
+
+      expect(stdoutChunks).toEqual(['step 1\n', 'step 2\n']);
+      expect(stderrChunks).toEqual(['warn\n']);
+      expect(result).toEqual({ success: true, output: 'step 1\nstep 2\n' });
+    });
+  });
+
+  describe('executeInteractiveShellCommand', () => {
+    let executeInteractiveShellCommand: typeof import('../../src/ui/shellCommand.js').executeInteractiveShellCommand;
+
+    beforeEach(async () => {
+      const module = await import('../../src/ui/shellCommand.js');
+      executeInteractiveShellCommand = module.executeInteractiveShellCommand;
+    });
+
+    it('runs with inherited stdio for interactive terminal handoff', async () => {
+      const child = new EventEmitter() as EventEmitter & {
+        once: EventEmitter['once'];
+      };
+      mockedSpawn.mockReturnValue(child);
+
+      const promise = executeInteractiveShellCommand('bun run typecheck');
+      child.emit('close', 0, null);
+
+      const result = await promise;
+
+      expect(mockedSpawn).toHaveBeenCalledWith('bun run typecheck', {
+        cwd: process.cwd(),
+        shell: true,
+        stdio: 'inherit',
+      });
+      expect(result).toEqual({ success: true, output: '' });
+    });
+
+    it('returns non-zero exit codes as errors', async () => {
+      const child = new EventEmitter();
+      mockedSpawn.mockReturnValue(child);
+
+      const promise = executeInteractiveShellCommand('bun run lint');
+      child.emit('close', 2, null);
+
+      const result = await promise;
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Command failed with exit code 2');
+    });
+  });
+
+  describe('executeStreamingShellCommand', () => {
+    let shellCommandModule: typeof import('../../src/ui/shellCommand.js');
+    const originalStdoutIsTTY = process.stdout.isTTY;
+    const originalStdinIsTTY = process.stdin.isTTY;
+
+    beforeEach(async () => {
+      shellCommandModule = await import('../../src/ui/shellCommand.js');
+      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    });
+
+    afterEach(() => {
+      shellCommandModule.setNodePtyLoaderForTests();
+      Object.defineProperty(process.stdout, 'isTTY', { value: originalStdoutIsTTY, configurable: true });
+      Object.defineProperty(process.stdin, 'isTTY', { value: originalStdinIsTTY, configurable: true });
+    });
+
+    it('prefers a PTY when available and streams PTY output', async () => {
+      let dataHandler: ((data: string) => void) | undefined;
+      let exitHandler: ((event: { exitCode: number }) => void) | undefined;
+      const ptyProcess = {
+        onData: (handler: (data: string) => void) => {
+          dataHandler = handler;
+          return { dispose: vi.fn() };
+        },
+        onExit: (handler: (event: { exitCode: number }) => void) => {
+          exitHandler = handler;
+          return { dispose: vi.fn() };
+        },
+        kill: vi.fn(),
+      };
+
+      const loadSpy = vi.fn().mockResolvedValue({
+        spawn: vi.fn().mockReturnValue(ptyProcess),
+      } as any);
+      shellCommandModule.setNodePtyLoaderForTests(loadSpy);
+
+      const promise = shellCommandModule.executeStreamingShellCommand('bun run proof', process.cwd(), {
+        onStdout: vi.fn(),
+        onStderr: vi.fn(),
+        preferPty: true,
+        columns: 120,
+        rows: 40,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      dataHandler?.('line 1\r\nline 2\r\n');
+      exitHandler?.({ exitCode: 0 });
+
+      const result = await promise;
+
+      expect(loadSpy).toHaveBeenCalledTimes(1);
+      expect(result.success).toBe(true);
+      expect(result.output).toContain('line 1');
+      expect(result.output).toContain('line 2');
+    });
+
+    it('falls back to async shell execution when PTY is unavailable', async () => {
+      const child = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stderr: EventEmitter;
+        kill: Mock;
+      };
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = vi.fn();
+
+      mockedSpawn.mockReturnValue(child);
+
+      const loadSpy = vi.fn().mockResolvedValue(null);
+      shellCommandModule.setNodePtyLoaderForTests(loadSpy);
+
+      const promise = shellCommandModule.executeStreamingShellCommand('bun run lint', process.cwd(), {
+        preferPty: true,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      child.stdout.emit('data', Buffer.from('fallback\n'));
+      child.emit('close', 0, null);
+
+      const result = await promise;
+
+      expect(loadSpy).toHaveBeenCalledTimes(1);
+      expect(mockedSpawn).toHaveBeenCalled();
+      expect(result).toEqual({ success: true, output: 'fallback\n' });
     });
   });
 
