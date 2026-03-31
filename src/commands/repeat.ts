@@ -261,7 +261,7 @@ function nearestDivisor(n: number, max: number): number {
 /**
  * Convert shorthand duration (e.g. "7d", "2h") to milliseconds.
  */
-function shorthandToMs(shorthand: string): number {
+export function shorthandToMs(shorthand: string): number {
   const match = shorthand.match(/^(\d+)([smhd])$/);
   if (!match) return 3 * 24 * 60 * 60 * 1000; // fallback 3 days
   const n = parseInt(match[1], 10);
@@ -278,7 +278,7 @@ function shorthandToMs(shorthand: string): number {
 /**
  * Convert shorthand duration to human-readable string.
  */
-function shorthandToHuman(shorthand: string): string {
+export function shorthandToHuman(shorthand: string): string {
   const match = shorthand.match(/^(\d+)([smhd])$/);
   if (!match) return shorthand;
   const n = parseInt(match[1], 10);

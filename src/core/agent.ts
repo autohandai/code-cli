@@ -90,6 +90,7 @@ import type { PermissionMode } from '../permissions/types.js';
 import { HookManager } from './HookManager.js';
 import { TeamManager } from './teams/TeamManager.js';
 import { RepeatManager } from './RepeatManager.js';
+import { intervalToCron, shorthandToHuman, shorthandToMs } from '../commands/repeat.js';
 import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
 import { ActivityIndicator } from '../ui/activityIndicator.js';
 import { NotificationService } from '../utils/notification.js';
@@ -763,6 +764,40 @@ export class AutohandAgent {
           } else if (action.type === 'send_team_message') {
             this.teamManager.sendMessageTo(action.to, 'lead', action.content);
             result = `Message sent to ${action.to}.`;
+          } else if (action.type === 'cron_create') {
+            const cron = intervalToCron(action.interval);
+            const expiresInMs = action.expires_in ? shorthandToMs(action.expires_in) : undefined;
+            const expiryLabel = action.expires_in ? shorthandToHuman(action.expires_in) : '3 days';
+            const job = this.repeatManager.schedule(
+              action.prompt,
+              cron.intervalMs,
+              cron.cronExpression,
+              cron.humanReadable,
+              {
+                maxRuns: action.max_runs,
+                expiresInMs,
+              },
+            );
+            const lines = [
+              'Recurring job scheduled.',
+              `Job ID: ${job.id}`,
+              `Prompt: ${job.prompt}`,
+              `Cadence: ${cron.humanReadable}`,
+              `Cron: ${cron.cronExpression}`,
+            ];
+            if (action.max_runs !== undefined) {
+              lines.push(`Limit: ${action.max_runs} runs`);
+            }
+            if (cron.roundedNote) {
+              lines.push(`Note: ${cron.roundedNote}`);
+            }
+            lines.push(`Expires: ${expiryLabel}`);
+            result = lines.join('\n');
+          } else if (action.type === 'cron_delete') {
+            const cancelled = this.repeatManager.cancel(action.schedule_id);
+            result = cancelled
+              ? `Cancelled schedule ${action.schedule_id}.`
+              : `No active schedule found with ID "${action.schedule_id}".`;
           } else if (action.type === 'list_schedules') {
             const jobs = this.repeatManager.list();
             if (jobs.length === 0) {

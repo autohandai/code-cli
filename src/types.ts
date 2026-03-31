@@ -984,6 +984,8 @@ export type AgentAction =
   // User interaction
   | { type: 'ask_followup_question'; question: string; suggested_answers?: string[] }
   // Schedule management
+  | { type: 'cron_create'; prompt: string; interval: string; max_runs?: number; expires_in?: string }
+  | { type: 'cron_delete'; schedule_id: string }
   | { type: 'list_schedules' }
   | { type: 'cancel_schedule'; schedule_id: string }
   // Browser tools (available when Chrome extension is connected via /chrome)
