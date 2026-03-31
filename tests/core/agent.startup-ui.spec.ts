@@ -1275,7 +1275,7 @@ describe('agent startup and active input UI', () => {
     expect(first).toBe(second);
   });
 
-  it('buildSystemPrompt prefers find as the canonical code discovery tool', async () => {
+  it('buildSystemPrompt teaches the right tool-choice rubric for discovery and shell usage', async () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
 
     agent.runtime = {
@@ -1310,13 +1310,20 @@ describe('agent startup and active input UI', () => {
 
     const prompt = await (agent as any).buildSystemPrompt();
 
+    expect(prompt).toContain('Use `glob` first when you need file path discovery by filename, extension, or directory pattern.');
     expect(prompt).toContain('Use `find` as the default code discovery tool.');
+    expect(prompt).toContain('Use `find` for content, symbol, import, regex, and semantic lookup inside files.');
     expect(prompt).toContain('Use `read_file` after `find` identifies the exact file or region you need.');
+    expect(prompt).toContain('Prefer `glob`, `find`, `read_file`, `git_status`, and `git_diff` over `run_command` whenever they can accomplish the task.');
     expect(prompt).toContain('The legacy tools `search`, `search_with_context`, and `semantic_search` are compatibility aliases');
+    expect(prompt).toContain('Glob: `glob(pattern="**/*.test.ts")`');
     expect(prompt).toContain('Exact: `find(query="parallelToolConcurrency|maxConcurrency", mode="exact")`');
     expect(prompt).toContain('Context: `find(query="buildSystemPrompt", context=8, mode="context")`');
     expect(prompt).toContain('Semantic: `find(query="code discovery and tool selection", mode="semantic")`');
     expect(prompt).toContain('Prefer dedicated tools over `run_command` whenever a dedicated tool exists.');
+    expect(prompt).toContain('{"tool": "run_command", "args": {"command": "npm test"}}');
+    expect(prompt).toContain('{"tool": "run_command", "args": {"command": "bun run build"}}');
+    expect(prompt).toContain('{"tool": "run_command", "args": {"command": "git status"}}');
     expect(prompt).toContain('If independent tool calls do not depend on each other, batch them in the same response.');
     expect(prompt).toContain('If the user needs to run an interactive shell command themselves, tell them to use `! <command>`');
   });
