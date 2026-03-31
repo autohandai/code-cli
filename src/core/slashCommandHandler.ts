@@ -344,7 +344,11 @@ export class SlashCommandHandler {
         }
         case '/ide': {
           const { ide } = await import('../commands/ide.js');
-          return ide({ workspaceRoot: this.ctx.workspaceRoot });
+          return ide({
+            workspaceRoot: this.ctx.workspaceRoot,
+            onBeforeModal: this.ctx.onBeforeModal,
+            onAfterModal: this.ctx.onAfterModal,
+          });
         }
         case '/history': {
           const { history } = await import('../commands/history.js');

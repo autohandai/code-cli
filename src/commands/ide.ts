@@ -14,6 +14,8 @@ import { t } from '../i18n/index.js';
 
 interface IDEContext {
   workspaceRoot: string;
+  onBeforeModal?: () => void;
+  onAfterModal?: () => void;
 }
 
 /**
@@ -97,10 +99,16 @@ export async function ide(ctx: IDEContext): Promise<string | null> {
     value: ide.kind,
   }));
 
-  const result = await showModal({
-    title: t('commands.ide.selectPrompt'),
-    options,
-  });
+  ctx.onBeforeModal?.();
+  let result: ModalOption | null;
+  try {
+    result = await showModal({
+      title: t('commands.ide.selectPrompt'),
+      options,
+    });
+  } finally {
+    ctx.onAfterModal?.();
+  }
 
   if (!result) {
     console.log(chalk.gray(`\n${t('common.cancelled')}`));

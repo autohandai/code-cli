@@ -1272,3 +1272,281 @@ describe('formatPromptStatusRow', () => {
     expect(plainRow.length).toBeLessThanOrEqual(60);
   });
 });
+
+describe('idle prompt shell commands', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('prints the new shell command block header in the idle composer and keeps the prompt session alive', async () => {
+    const writes: string[] = [];
+    const stdOutput = new EventEmitter() as NodeJS.WriteStream & { columns: number; write: (chunk: string | Buffer) => boolean };
+    stdOutput.columns = 80;
+    stdOutput.write = (chunk: string | Buffer) => {
+      writes.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
+      return true;
+    };
+
+    const stdInput = new EventEmitter() as NodeJS.ReadStream & {
+      isTTY: boolean;
+      setRawMode: (mode: boolean) => void;
+      setEncoding: (encoding: string) => void;
+      resume: () => void;
+      pause: () => void;
+      read: () => null;
+    };
+    stdInput.isTTY = true;
+    stdInput.setRawMode = vi.fn();
+    stdInput.setEncoding = vi.fn();
+    stdInput.resume = vi.fn();
+    stdInput.pause = vi.fn();
+    stdInput.read = vi.fn(() => null);
+
+    const rl = new EventEmitter() as readline.Interface & {
+      line: string;
+      cursor: number;
+      input: NodeJS.ReadStream;
+      output: NodeJS.WriteStream;
+      close: () => void;
+      pause: () => void;
+      resume: () => void;
+      prompt: () => void;
+      setPrompt: (prompt: string) => void;
+      _refreshLine?: () => void;
+      _moveCursor?: () => void;
+    };
+    rl.line = '';
+    rl.cursor = 0;
+    rl.input = stdInput;
+    rl.output = stdOutput;
+    rl.close = vi.fn();
+    rl.pause = vi.fn();
+    rl.resume = vi.fn();
+    rl.prompt = vi.fn();
+    rl.setPrompt = vi.fn();
+    rl._refreshLine = vi.fn();
+    rl._moveCursor = vi.fn();
+
+    vi.spyOn(readline, 'createInterface').mockReturnValue(rl);
+    vi.spyOn(readline, 'emitKeypressEvents').mockImplementation(() => undefined);
+    vi.spyOn(readline, 'cursorTo').mockImplementation(() => true as any);
+    vi.spyOn(readline, 'clearLine').mockImplementation(() => true as any);
+    vi.spyOn(readline, 'moveCursor').mockImplementation(() => true as any);
+
+    const { readInstruction, promptInterrupt } = await import('../../src/ui/inputPrompt.js');
+
+    const promptPromise = readInstruction(() => [], [], undefined, { input: stdInput, output: stdOutput });
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    rl.emit('line', '! echo main');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(writes.join('')).toContain('You ran echo main');
+    expect(writes.join('')).not.toContain('$ echo main');
+    expect(writes.join('')).toContain('main');
+
+    promptInterrupt('done');
+    await expect(promptPromise).resolves.toBe('done');
+  });
+});
+
+describe('idle prompt mention selection', () => {
+  it('keeps the third @ file selection when tab is pressed after arrow navigation', async () => {
+    const writes: string[] = [];
+    const stdOutput = new EventEmitter() as NodeJS.WriteStream & { columns: number; write: (chunk: string | Buffer) => boolean };
+    stdOutput.columns = 120;
+    stdOutput.write = (chunk: string | Buffer) => {
+      writes.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
+      return true;
+    };
+
+    const stdInput = new EventEmitter() as NodeJS.ReadStream & {
+      isTTY: boolean;
+      setRawMode: (mode: boolean) => void;
+      setEncoding: (encoding: string) => void;
+      resume: () => void;
+      pause: () => void;
+      read: () => null;
+    };
+    stdInput.isTTY = true;
+    stdInput.setRawMode = vi.fn();
+    stdInput.setEncoding = vi.fn();
+    stdInput.resume = vi.fn();
+    stdInput.pause = vi.fn();
+    stdInput.read = vi.fn(() => null);
+
+    const rl = new EventEmitter() as readline.Interface & {
+      line: string;
+      cursor: number;
+      input: NodeJS.ReadStream;
+      output: NodeJS.WriteStream;
+      close: () => void;
+      pause: () => void;
+      resume: () => void;
+      prompt: () => void;
+      setPrompt: (prompt: string) => void;
+      write: (chunk: string) => void;
+      _refreshLine?: () => void;
+      _moveCursor?: () => void;
+    };
+    rl.line = '';
+    rl.cursor = 0;
+    rl.input = stdInput;
+    rl.output = stdOutput;
+    rl.close = vi.fn();
+    rl.pause = vi.fn();
+    rl.resume = vi.fn();
+    rl.prompt = vi.fn();
+    rl.setPrompt = vi.fn();
+    rl.write = vi.fn((chunk: string) => {
+      rl.line += chunk;
+      rl.cursor = rl.line.length;
+      return true as any;
+    });
+    rl._refreshLine = vi.fn();
+    rl._moveCursor = vi.fn();
+
+    vi.spyOn(readline, 'createInterface').mockReturnValue(rl);
+    vi.spyOn(readline, 'emitKeypressEvents').mockImplementation(() => undefined);
+    vi.spyOn(readline, 'cursorTo').mockImplementation(() => true as any);
+    vi.spyOn(readline, 'clearLine').mockImplementation(() => true as any);
+    vi.spyOn(readline, 'moveCursor').mockImplementation(() => true as any);
+
+    const { readInstruction, promptInterrupt } = await import('../../src/ui/inputPrompt.js');
+
+    const promptPromise = readInstruction(
+      () => [
+        'tests/commands/ide.test.ts',
+        'tests/ui/ink/InkRenderer.test.ts',
+        'tests/ui/ink/LiveCommandBlock.test.tsx',
+      ],
+      [],
+      undefined,
+      { input: stdInput, output: stdOutput }
+    );
+
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const emitKey = (str: string, key: Partial<readline.Key>) => {
+      stdInput.emit('keypress', str, key);
+    };
+
+    emitKey('@', { sequence: '@' });
+    emitKey('t', { sequence: 't', name: 't' });
+    emitKey('e', { sequence: 'e', name: 'e' });
+    emitKey('s', { sequence: 's', name: 's' });
+    emitKey('t', { sequence: 't', name: 't' });
+    emitKey('s', { sequence: 's', name: 's' });
+    emitKey('/', { sequence: '/', name: '/' as any });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    emitKey('', { name: 'down', sequence: '\u001b[B' });
+    emitKey('', { name: 'down', sequence: '\u001b[B' });
+    emitKey('\t', { name: 'tab', sequence: '\t' });
+
+    expect(rl.line).toContain('@tests/ui/ink/LiveCommandBlock.test.tsx ');
+
+    promptInterrupt('done');
+    await expect(promptPromise).resolves.toBe('done');
+  });
+
+  it('submits the selected @ file after tab completion instead of the stale buffer value', async () => {
+    const writes: string[] = [];
+    const stdOutput = new EventEmitter() as NodeJS.WriteStream & { columns: number; write: (chunk: string | Buffer) => boolean };
+    stdOutput.columns = 120;
+    stdOutput.write = (chunk: string | Buffer) => {
+      writes.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
+      return true;
+    };
+
+    const stdInput = new EventEmitter() as NodeJS.ReadStream & {
+      isTTY: boolean;
+      setRawMode: (mode: boolean) => void;
+      setEncoding: (encoding: string) => void;
+      resume: () => void;
+      pause: () => void;
+      read: () => null;
+    };
+    stdInput.isTTY = true;
+    stdInput.setRawMode = vi.fn();
+    stdInput.setEncoding = vi.fn();
+    stdInput.resume = vi.fn();
+    stdInput.pause = vi.fn();
+    stdInput.read = vi.fn(() => null);
+
+    const rl = new EventEmitter() as readline.Interface & {
+      line: string;
+      cursor: number;
+      input: NodeJS.ReadStream;
+      output: NodeJS.WriteStream;
+      close: () => void;
+      pause: () => void;
+      resume: () => void;
+      prompt: () => void;
+      setPrompt: (prompt: string) => void;
+      write: (chunk: string) => void;
+      _refreshLine?: () => void;
+      _moveCursor?: () => void;
+    };
+    rl.line = '';
+    rl.cursor = 0;
+    rl.input = stdInput;
+    rl.output = stdOutput;
+    rl.close = vi.fn();
+    rl.pause = vi.fn();
+    rl.resume = vi.fn();
+    rl.prompt = vi.fn();
+    rl.setPrompt = vi.fn();
+    rl.write = vi.fn((chunk: string) => {
+      rl.line += chunk;
+      rl.cursor = rl.line.length;
+      return true as any;
+    });
+    rl._refreshLine = vi.fn();
+    rl._moveCursor = vi.fn();
+
+    vi.spyOn(readline, 'createInterface').mockReturnValue(rl);
+    vi.spyOn(readline, 'emitKeypressEvents').mockImplementation(() => undefined);
+    vi.spyOn(readline, 'cursorTo').mockImplementation(() => true as any);
+    vi.spyOn(readline, 'clearLine').mockImplementation(() => true as any);
+    vi.spyOn(readline, 'moveCursor').mockImplementation(() => true as any);
+
+    const { readInstruction } = await import('../../src/ui/inputPrompt.js');
+
+    const promptPromise = readInstruction(
+      () => [
+        'tests/commands/ide.test.ts',
+        'tests/ui/ink/InkRenderer.test.ts',
+        'tests/ui/ink/LiveCommandBlock.test.tsx',
+      ],
+      [],
+      undefined,
+      { input: stdInput, output: stdOutput }
+    );
+
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const emitKey = (str: string, key: Partial<readline.Key>) => {
+      stdInput.emit('keypress', str, key);
+    };
+
+    emitKey('@', { sequence: '@' });
+    emitKey('t', { sequence: 't', name: 't' });
+    emitKey('e', { sequence: 'e', name: 'e' });
+    emitKey('s', { sequence: 's', name: 's' });
+    emitKey('t', { sequence: 't', name: 't' });
+    emitKey('s', { sequence: 's', name: 's' });
+    emitKey('/', { sequence: '/', name: '/' as any });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    emitKey('', { name: 'down', sequence: '\u001b[B' });
+    emitKey('', { name: 'down', sequence: '\u001b[B' });
+    emitKey('\t', { name: 'tab', sequence: '\t' });
+    emitKey('\r', { name: 'return', sequence: '\r' });
+
+    await expect(promptPromise).resolves.toBe('@tests/ui/ink/LiveCommandBlock.test.tsx');
+  });
+});

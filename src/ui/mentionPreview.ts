@@ -18,6 +18,61 @@ import {
 } from './inputPrompt.js';
 
 type Mode = 'file' | 'slash' | null;
+type FileSuggestionAcceptHandler = (line: string, cursorPos: number) => void;
+
+function padVisibleRight(text: string, width: number): string {
+  if (width <= 0) {
+    return '';
+  }
+  const visibleLength = text.replace(/\u001b\[[0-9;]*m/g, '').length;
+  if (visibleLength >= width) {
+    return text;
+  }
+  return `${text}${' '.repeat(width - visibleLength)}`;
+}
+
+function truncateVisible(text: string, width: number): string {
+  if (width <= 0) {
+    return '';
+  }
+  const plain = text.replace(/\u001b\[[0-9;]*m/g, '');
+  if (plain.length <= width) {
+    return text;
+  }
+  if (width === 1) {
+    return '…';
+  }
+  return `${plain.slice(0, width - 1)}…`;
+}
+
+function getFilenameColumnWidth(entries: string[], width: number): number {
+  const longestFilename = entries.reduce((max, entry) => {
+    const normalized = entry.replace(/\\/g, '/');
+    const filename = normalized.split('/').pop() || normalized;
+    return Math.max(max, filename.length);
+  }, 0);
+
+  const availableWidth = Math.max(12, width - 2);
+  return Math.max(12, Math.min(longestFilename, Math.floor(availableWidth * 0.32), 24));
+}
+
+function formatFileSuggestionLine(entry: string, isSelected: boolean, width: number, filenameColumnWidth: number): string {
+  const normalized = entry.replace(/\\/g, '/');
+  const parts = normalized.split('/');
+  const filename = parts.pop() || normalized;
+  const dir = parts.join('/');
+  const pointer = isSelected ? chalk.cyan('▸') : ' ';
+  const basePrefix = `${pointer} `;
+  const gap = '  ';
+  const availableWidth = Math.max(12, width - basePrefix.length);
+  const filenameWidth = Math.min(filenameColumnWidth, Math.max(1, availableWidth - gap.length));
+  const pathWidth = Math.max(0, availableWidth - gap.length - filenameWidth);
+  const visibleFilename = truncateVisible(filename, filenameWidth);
+  const visiblePath = truncateVisible(dir, pathWidth);
+  const styledFilename = isSelected ? chalk.cyan(visibleFilename) : chalk.white(visibleFilename);
+  const styledPath = visiblePath ? chalk.gray(visiblePath) : '';
+  return `${basePrefix}${padVisibleRight(styledFilename, filenameWidth)}${styledPath ? `${gap}${styledPath}` : ''}`;
+}
 
 export class MentionPreview {
   private suggestionLines = 0;
@@ -29,6 +84,7 @@ export class MentionPreview {
   private disposed = false;
   private suspended = false;
   private lastSuggestions: string[] = [];
+  private tabJustHandled = false;
 
   // Dynamic offset from cursor to suggestion area, accounting for multi-line content
   private get suggestionOffset(): number {
@@ -42,7 +98,8 @@ export class MentionPreview {
     private readonly rl: readline.Interface,
     private readonly filesProvider: () => string[],
     private readonly slashCommands: SlashCommand[],
-    private readonly output: NodeJS.WriteStream
+    private readonly output: NodeJS.WriteStream,
+    private readonly onFileSuggestionAccepted?: FileSuggestionAcceptHandler,
   ) {
     const input = (rl as readline.Interface & { input: NodeJS.ReadStream }).input;
     // Use safe emit to prevent duplicate listener registration
@@ -64,6 +121,7 @@ export class MentionPreview {
 
   reset(): void {
     this.clear();
+    this.tabJustHandled = false;
     // Don't re-render status line here - let renderPromptLine handle it
     // This prevents double-rendering of the status line
   }
@@ -95,10 +153,12 @@ export class MentionPreview {
     // Tab and arrow keys must be handled synchronously (before readline processes them)
     if (this.isTabKey(_str, key)) {
       if (this.mode === 'file' && this.fileSuggestions.length) {
+        this.tabJustHandled = true;
         this.insertFileSuggestion(beforeCursor, this.fileSuggestions[this.activeIndex]);
         return;
       }
       if (this.mode === 'slash' && this.slashMatches.length) {
+        this.tabJustHandled = true;
         this.insertSlashSuggestion(beforeCursor, this.slashMatches[this.activeIndex]);
         return;
       }
@@ -110,8 +170,13 @@ export class MentionPreview {
         if (suggestions.length) {
           this.mode = 'file';
           this.fileSuggestions = suggestions;
-          this.activeIndex = 0;
-          this.insertFileSuggestion(beforeCursor, suggestions[0]);
+          this.activeIndex = this.getPreservedSelectionIndex(
+            this.lastSuggestions,
+            suggestions,
+            this.activeIndex,
+          );
+          this.tabJustHandled = true;
+          this.insertFileSuggestion(beforeCursor, suggestions[this.activeIndex] ?? suggestions[0]);
         }
       }
       return;
@@ -141,7 +206,11 @@ export class MentionPreview {
       const slashSuggestions = this.filterSlash(seed);
       if (slashSuggestions.length) {
         this.mode = 'slash';
-        this.activeIndex = 0;
+        this.activeIndex = this.getPreservedSelectionIndex(
+          this.lastSuggestions,
+          slashSuggestions,
+          this.activeIndex,
+        );
       } else {
         this.mode = null;
       }
@@ -163,7 +232,11 @@ export class MentionPreview {
     if (suggestions.length) {
       this.mode = 'file';
       this.fileSuggestions = suggestions;
-      this.activeIndex = 0;
+      this.activeIndex = this.getPreservedSelectionIndex(
+        this.lastSuggestions,
+        suggestions,
+        this.activeIndex,
+      );
     } else {
       this.mode = null;
       this.fileSuggestions = [];
@@ -173,6 +246,34 @@ export class MentionPreview {
 
   private filter(seed: string): string[] {
     return buildFileMentionSuggestions(this.filesProvider(), seed, MENTION_SUGGESTION_LIMIT);
+  }
+
+  consumeHandledTab(): boolean {
+    const handled = this.tabJustHandled;
+    this.tabJustHandled = false;
+    return handled;
+  }
+
+  private getPreservedSelectionIndex(
+    previousSuggestions: string[],
+    nextSuggestions: string[],
+    previousIndex: number,
+  ): number {
+    if (!nextSuggestions.length) {
+      return 0;
+    }
+
+    const previousSelection = previousSuggestions[previousIndex];
+    if (!previousSelection) {
+      return 0;
+    }
+
+    const nextIndex = nextSuggestions.indexOf(previousSelection);
+    if (nextIndex >= 0) {
+      return nextIndex;
+    }
+
+    return Math.min(previousIndex, nextSuggestions.length - 1);
   }
 
   private matchMention(beforeCursor: string): RegExpExecArray | null {
@@ -219,25 +320,23 @@ export class MentionPreview {
       return;
     }
 
+    const filenameColumnWidth = this.mode === 'file'
+      ? getFilenameColumnWidth(suggestions, getPromptBlockWidth(this.output.columns))
+      : 0;
+
     const suggestionLines = suggestions.map((entry, idx) => {
       const isSelected = this.mode && idx === this.activeIndex;
-      const pointer = isSelected ? chalk.cyan('▸') : ' ';
 
       if (this.mode === 'file') {
-        const parts = entry.split('/');
-        const filename = parts.pop() || entry;
-        const dir = parts.length ? parts.join('/') + '/' : '';
-
-        if (isSelected) {
-          const highlighted = chalk.cyan(filename);
-          const path = dir ? chalk.gray(dir) : '';
-          return `${pointer} ${path}${highlighted}`;
-        }
-        const dimmedFilename = chalk.white(filename);
-        const path = dir ? chalk.gray(dir) : '';
-        return `${pointer} ${path}${dimmedFilename}`;
+        return formatFileSuggestionLine(
+          entry,
+          Boolean(isSelected),
+          getPromptBlockWidth(this.output.columns),
+          filenameColumnWidth,
+        );
       }
 
+      const pointer = isSelected ? chalk.cyan('▸') : ' ';
       const text = isSelected ? chalk.cyan(entry) : entry;
       return `${pointer} ${text}`;
     });
@@ -305,8 +404,12 @@ export class MentionPreview {
     const newLine = prefix + replacement + afterCursor;
     const newCursorPos = prefix.length + replacement.length;
 
-    (this.rl as any).line = newLine;
-    (this.rl as any).cursor = newCursorPos;
+    if (this.onFileSuggestionAccepted) {
+      this.onFileSuggestionAccepted(newLine, newCursorPos);
+    } else {
+      (this.rl as any).line = newLine;
+      (this.rl as any).cursor = newCursorPos;
+    }
 
     this.mode = null;
     this.fileSuggestions = [];

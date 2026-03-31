@@ -19,6 +19,34 @@ export interface ToolOutputEntry {
   thought?: string;
 }
 
+export interface LiveCommandEntry {
+  id: string;
+  command: string;
+  stdout: string;
+  stderr: string;
+  startedAt: number;
+  isExpanded: boolean;
+}
+
+const LIVE_COMMAND_COLLAPSED_LINES = 12;
+
+function getVisibleTail(text: string, maxLines: number): { lines: string[]; hiddenLineCount: number } {
+  const normalized = text.trimEnd();
+  if (!normalized) {
+    return { lines: [], hiddenLineCount: 0 };
+  }
+
+  const lines = normalized.split('\n');
+  if (lines.length <= maxLines) {
+    return { lines, hiddenLineCount: 0 };
+  }
+
+  return {
+    lines: lines.slice(-maxLines),
+    hiddenLineCount: lines.length - maxLines,
+  };
+}
+
 /** A single tool call within a batch group */
 export interface BatchToolItem {
   tool: string;
@@ -213,6 +241,41 @@ export function ToolOutputList({ entries, maxVisible = 50 }: ToolOutputListProps
       {visible.map((entry) => (
         <ToolOutput key={entry.id} entry={entry} />
       ))}
+    </Box>
+  );
+}
+
+export function LiveCommandBlock({ entry }: { entry: LiveCommandEntry }) {
+  const { colors } = useTheme();
+  const stdoutView = entry.isExpanded
+    ? { lines: entry.stdout.trimEnd() ? entry.stdout.trimEnd().split('\n') : [], hiddenLineCount: 0 }
+    : getVisibleTail(entry.stdout, LIVE_COMMAND_COLLAPSED_LINES);
+  const stderrView = entry.isExpanded
+    ? { lines: entry.stderr.trimEnd() ? entry.stderr.trimEnd().split('\n') : [], hiddenLineCount: 0 }
+    : getVisibleTail(entry.stderr, Math.max(4, Math.floor(LIVE_COMMAND_COLLAPSED_LINES / 3)));
+  const hiddenLineCount = stdoutView.hiddenLineCount + stderrView.hiddenLineCount;
+  const hint = entry.isExpanded ? 'Ctrl+O collapse' : 'Ctrl+O expand';
+
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      <Box>
+        <Text color={colors.accent}>●</Text>
+        <Text bold> Running {entry.command}</Text>
+      </Box>
+      {hiddenLineCount > 0 ? (
+        <Text color={colors.muted}>showing last {stdoutView.lines.length + stderrView.lines.length} lines · {hint}</Text>
+      ) : (
+        <Text color={colors.muted}>{hint}</Text>
+      )}
+      {stdoutView.lines.length > 0 ? (
+        <Text color={colors.toolOutput}>{renderTerminalMarkdown(stdoutView.lines.join('\n'))}</Text>
+      ) : null}
+      {stderrView.lines.length > 0 ? (
+        <Box flexDirection="column">
+          <Text color={colors.error}>stderr</Text>
+          <Text color={colors.error}>{renderTerminalMarkdown(stderrView.lines.join('\n'))}</Text>
+        </Box>
+      ) : null}
     </Box>
   );
 }

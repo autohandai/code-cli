@@ -6,7 +6,7 @@
 import React, { useState, useEffect, memo, useMemo, useRef, useCallback } from 'react';
 import { Box, Text, useInput, useApp, Static, type Key as InkKey } from 'ink';
 import { StatusLine } from './StatusLine.js';
-import { ToolOutputStatic, ToolOutputBatchStatic, type ToolOutputEntry, type ToolOutputBatchEntry, type ToolOutputItem } from './ToolOutput.js';
+import { LiveCommandBlock, ToolOutputStatic, ToolOutputBatchStatic, type LiveCommandEntry, type ToolOutputEntry, type ToolOutputBatchEntry, type ToolOutputItem } from './ToolOutput.js';
 import { InputLine } from './InputLine.js';
 import { ThinkingOutput } from './ThinkingOutput.js';
 import { useTheme } from '../theme/ThemeContext.js';
@@ -23,6 +23,7 @@ export interface AgentUIState {
   elapsed: string;
   tokens: string;
   toolOutputs: ToolOutputItem[];
+  liveCommands: LiveCommandEntry[];
   thinking: string | null;
   queuedInstructions: string[];
   currentInput: string;
@@ -40,6 +41,7 @@ export interface AgentUIProps {
   onInstruction: (text: string) => void;
   onEscape: () => void;
   onCtrlC: () => void;
+  onToggleLiveCommandExpanded?: () => void;
   onInputChange?: (input: string) => void;
   enableQueueInput?: boolean;
 }
@@ -136,6 +138,7 @@ export function AgentUI({
   onInstruction,
   onEscape,
   onCtrlC,
+  onToggleLiveCommandExpanded,
   onInputChange,
   enableQueueInput = true
 }: AgentUIProps) {
@@ -195,9 +198,10 @@ export function AgentUI({
     onInputChange?.(input);
   }, [input, onInputChange]);
 
+  // Sync viewport only when terminal width changes, not on every render
   useEffect(() => {
     syncBufferViewport();
-  });
+  }, [syncBufferViewport]);
 
   useEffect(() => {
     const buffer = textBufferRef.current;
@@ -242,6 +246,11 @@ export function AgentUI({
       return;
     }
 
+    if (key.ctrl && char === 'o' && state.liveCommands.length > 0) {
+      onToggleLiveCommandExpanded?.();
+      return;
+    }
+
     // Only handle input when working and queue input is enabled
     if (!state.isWorking || !enableQueueInput) {
       return;
@@ -277,6 +286,10 @@ export function AgentUI({
     state.toolOutputs.slice(-50), // Limit to last 50 for performance
     [state.toolOutputs]
   );
+  const liveCommandItems = useMemo(() =>
+    state.liveCommands.slice(-3),
+    [state.liveCommands]
+  );
 
   return (
     <Box flexDirection="column">
@@ -287,6 +300,10 @@ export function AgentUI({
           <Text color={colors.muted}> {t(planModeStatusKey)}</Text>
         </Box>
       )}
+
+      {liveCommandItems.map((item) => (
+        <LiveCommandBlock key={item.id} entry={item} />
+      ))}
 
       {/* Static tool outputs - these never re-render once displayed */}
       <Static items={toolOutputItems}>
@@ -465,6 +482,7 @@ export function createInitialUIState(): AgentUIState {
     elapsed: '',
     tokens: '',
     toolOutputs: [],
+    liveCommands: [],
     thinking: null,
     queuedInstructions: [],
     currentInput: '',

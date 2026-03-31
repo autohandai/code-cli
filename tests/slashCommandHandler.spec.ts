@@ -7,10 +7,18 @@ import { describe, it, expect, vi } from 'vitest';
 import { SlashCommandHandler } from '../src/core/slashCommandHandler.js';
 import type { SlashCommand } from '../src/core/slashCommands.js';
 
+const mockIde = vi.fn();
+vi.mock('../src/commands/ide.js', () => ({
+  ide: mockIde,
+}));
+
 function createContext() {
   return {
     promptModelSelection: vi.fn().mockResolvedValue(undefined),
     createAgentsFile: vi.fn().mockResolvedValue(undefined),
+    workspaceRoot: '/tmp/workspace',
+    onBeforeModal: vi.fn(),
+    onAfterModal: vi.fn(),
     llm: {
       complete: vi.fn().mockResolvedValue({ id: 'test', created: Date.now(), content: '', raw: {} }),
       setDefaultModel: vi.fn()
@@ -20,7 +28,8 @@ function createContext() {
 
 const DEFAULT_COMMANDS: SlashCommand[] = [
   { command: '/model', description: 'choose model', implemented: true },
-  { command: '/init', description: 'init agents', implemented: true }
+  { command: '/init', description: 'init agents', implemented: true },
+  { command: '/ide', description: 'connect ide', implemented: true },
 ];
 
 describe('SlashCommandHandler', () => {
@@ -71,5 +80,20 @@ describe('SlashCommandHandler', () => {
     expect(spy).toHaveBeenCalledWith(expect.stringContaining('not implemented'));
     expect(spy).toHaveBeenCalledWith(expect.stringContaining('docs/prd/slash-help.md'));
     spy.mockRestore();
+  });
+
+  it('passes modal lifecycle hooks through to /ide', async () => {
+    const ctx = createContext();
+    mockIde.mockResolvedValueOnce(null);
+    const handler = new SlashCommandHandler(ctx as any, DEFAULT_COMMANDS);
+
+    const result = await handler.handle('/ide');
+
+    expect(result).toBeNull();
+    expect(mockIde).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceRoot: '/tmp/workspace',
+      onBeforeModal: ctx.onBeforeModal,
+      onAfterModal: ctx.onAfterModal,
+    }));
   });
 });
