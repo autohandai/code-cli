@@ -390,7 +390,7 @@ jobs:
           fi
           if [ -f "autohand-linux-arm64" ]; then
             chmod +x autohand-linux-arm64
-            bundle_unix "autohand-linux-arm64" "aarch64-unknown-linux-musl"
+            bundle_unix "autohand-linux-arm64" "aarch64-unknown-linux-gnu"
           fi
 
           # Create bundled zip for Windows

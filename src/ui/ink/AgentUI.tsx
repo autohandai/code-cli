@@ -14,7 +14,7 @@ import { useTranslation } from '../i18n/index.js';
 import { getPlanModeManager } from '../../commands/plan.js';
 import { TextBuffer } from '../textBuffer.js';
 import { handleTextBufferKey, type KeyHandlerResult } from '../textBufferKeyHandler.js';
-import { getPromptBlockWidth, isShiftEnterResidualSequence } from '../inputPrompt.js';
+import { getPromptBlockWidth, isShiftEnterResidualSequence, processImagesInText } from '../inputPrompt.js';
 import { renderTerminalMarkdown } from '../../core/immediateCommandRouter.js';
 
 export interface AgentUIState {
@@ -44,6 +44,8 @@ export interface AgentUIProps {
   onToggleLiveCommandExpanded?: () => void;
   onInputChange?: (input: string) => void;
   enableQueueInput?: boolean;
+  /** Called when a dragged/dropped image is detected in the input */
+  onImageDetected?: (data: Buffer, mimeType: string, filename?: string) => number;
 }
 
 interface TextBufferKeyInfo {
@@ -55,6 +57,8 @@ interface TextBufferKeyInfo {
 }
 
 const INK_TEXTBUFFER_VIEWPORT_HEIGHT = 10;
+/** Debounce delay for image detection after input changes (ms) */
+const INK_IMAGE_SCAN_DELAY_MS = 150;
 
 function getInkTextBufferViewportWidth(columns: number | undefined): number {
   return Math.max(1, getPromptBlockWidth(columns) - 4);
@@ -133,6 +137,22 @@ export function getComposerHelpLine(
   return `${contextDisplay}${contextDisplay ? ' · ' : ''}${commandHint}`;
 }
 
+/**
+ * Check if text potentially contains an image path (quick heuristic).
+ * Mirrors the logic from inputPrompt.ts.
+ */
+function hasPotentialImagePath(text: string): boolean {
+  const imageExtPattern = /\.(png|jpg|jpeg|gif|webp)$/i;
+  // Check for quoted paths, escaped paths, or simple paths
+  if (imageExtPattern.test(text)) {
+    return true;
+  }
+  if (/["'].*\.(png|jpg|jpeg|gif|webp)["']/i.test(text)) {
+    return true;
+  }
+  return false;
+}
+
 export function AgentUI({
   state,
   onInstruction,
@@ -140,7 +160,8 @@ export function AgentUI({
   onCtrlC,
   onToggleLiveCommandExpanded,
   onInputChange,
-  enableQueueInput = true
+  enableQueueInput = true,
+  onImageDetected,
 }: AgentUIProps) {
   const { exit } = useApp();
   const { colors } = useTheme();
@@ -157,6 +178,11 @@ export function AgentUI({
       state.currentInput || undefined
     )
   );
+
+  // Track the last processed input to avoid re-processing the same text
+  const lastProcessedInputRef = useRef<string>('');
+  // Debounce timer for image scanning
+  const imageScanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const syncInputFromBuffer = useCallback(() => {
     const buffer = textBufferRef.current;
@@ -218,6 +244,57 @@ export function AgentUI({
       return () => clearTimeout(timer);
     }
   }, [ctrlCCount]);
+
+  // Debounced image detection: when input changes and contains potential image paths,
+  // process them through processImagesInText and update the input with [Image #N] placeholders.
+  useEffect(() => {
+    if (!onImageDetected) {
+      return;
+    }
+
+    // Clear any pending scan
+    if (imageScanTimerRef.current) {
+      clearTimeout(imageScanTimerRef.current);
+      imageScanTimerRef.current = null;
+    }
+
+    // Skip if already processed (e.g., after a replacement)
+    if (input === lastProcessedInputRef.current) {
+      return;
+    }
+
+    // Quick heuristic check before scheduling the scan
+    if (!hasPotentialImagePath(input)) {
+      lastProcessedInputRef.current = input;
+      return;
+    }
+
+    // Debounce: wait for typing to settle before scanning
+    imageScanTimerRef.current = setTimeout(() => {
+      imageScanTimerRef.current = null;
+
+      const processed = processImagesInText(input, onImageDetected, {
+        announce: false,
+      });
+
+      if (processed !== input) {
+        // Image was detected and replaced with [Image #N]
+        lastProcessedInputRef.current = processed;
+        const buffer = textBufferRef.current;
+        buffer.setText(processed);
+        syncInputFromBuffer();
+      } else {
+        lastProcessedInputRef.current = input;
+      }
+    }, INK_IMAGE_SCAN_DELAY_MS);
+
+    return () => {
+      if (imageScanTimerRef.current) {
+        clearTimeout(imageScanTimerRef.current);
+        imageScanTimerRef.current = null;
+      }
+    };
+  }, [input, onImageDetected, syncInputFromBuffer]);
 
   useInput((char, key) => {
     syncBufferViewport();
