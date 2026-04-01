@@ -60,7 +60,7 @@ export async function skillsInstall(
       registry = await fetcher.fetchRegistry();
       await cache.setRegistry(registry);
     }
-  } catch (error) {
+  } catch {
     // Try offline fallback
     const stale = await cache.getRegistryIgnoreTTL();
     if (stale) {
@@ -341,7 +341,7 @@ async function installSkill(
 /**
  * Format download count for display
  */
-function formatDownloads(count: number): string {
+export function formatDownloads(count: number): string {
   if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
   if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
   return String(count);

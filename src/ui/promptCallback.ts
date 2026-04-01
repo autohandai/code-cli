@@ -7,8 +7,12 @@ import { showModal, showInput, type ModalOption } from './ink/components/Modal.j
 import type {
   ExternalPromptRequest,
   ExternalPromptResponse,
-  PermissionContext
+  PermissionContext,
+  PermissionPromptResult,
+  PermissionPromptResponse,
 } from '../permissions/types.js';
+import { normalizePermissionPromptResponse } from '../permissions/types.js';
+import { t } from '../i18n/index.js';
 
 /**
  * Check if external callback mode is enabled
@@ -76,7 +80,7 @@ async function sendExternalRequest(request: ExternalPromptRequest): Promise<Exte
 export async function confirm(
   message: string,
   context?: PermissionContext
-): Promise<boolean> {
+): Promise<PermissionPromptResult> {
   // External callback mode
   if (isExternalCallbackEnabled()) {
     try {
@@ -85,11 +89,14 @@ export async function confirm(
         message,
         context
       });
-      return response.allowed;
+      const structured: PermissionPromptResponse = response.decision
+        ? { decision: response.decision, alternative: response.alternative ?? response.value }
+        : response.allowed;
+      return normalizePermissionPromptResponse(structured);
     } catch (error) {
       // If callback fails, deny by default for safety
       console.error('External callback failed:', error);
-      return false;
+      return { decision: 'deny_once' };
     }
   }
 
@@ -97,14 +104,18 @@ export async function confirm(
   if (process.env.AUTOHAND_NON_INTERACTIVE === '1' ||
       process.env.CI === '1' ||
       process.env.AUTOHAND_YES === '1') {
-    return true;
+    return { decision: 'allow_once' };
   }
 
   // Interactive mode - use Modal
   const options: ModalOption[] = [
-    { label: 'Yes', value: 'yes' },
-    { label: 'No', value: 'no' },
-    { label: 'Enter alternative...', value: 'alternative' }
+    { label: t('commands.permissions.prompt.yes'), value: 'allow_once' },
+    { label: t('commands.permissions.prompt.no'), value: 'deny_once' },
+    { label: t('commands.permissions.prompt.allowOnce'), value: 'allow_session' },
+    { label: t('commands.permissions.prompt.denyOnce'), value: 'deny_session' },
+    { label: t('commands.permissions.prompt.allowAlways'), value: 'allow_always' },
+    { label: t('commands.permissions.prompt.denyAlways'), value: 'deny_always' },
+    { label: t('commands.permissions.prompt.alternative'), value: 'alternative' }
   ];
 
   const result = await showModal({
@@ -114,26 +125,39 @@ export async function confirm(
   });
 
   if (!result) {
-    return false;
+    return { decision: 'deny_once' };
   }
 
-  if (result.value === 'yes') {
-    return true;
+  if (result.value === 'allow_always' || result.value === 'deny_always') {
+    const scope = await showModal({
+      title: t('commands.permissions.prompt.scopeTitle'),
+      options: [
+        { label: t('commands.permissions.prompt.scopeProject'), value: 'project' },
+        { label: t('commands.permissions.prompt.scopeUser'), value: 'user' },
+        { label: t('commands.permissions.prompt.scopeCancel'), value: 'cancel' },
+      ],
+      initialIndex: 0,
+    });
+
+    if (!scope || scope.value === 'cancel') {
+      return { decision: 'deny_once' };
+    }
+
+    return {
+      decision: `${result.value}_${scope.value}` as PermissionPromptResult['decision'],
+    };
   }
 
   if (result.value === 'alternative') {
     const altAnswer = await showInput({
-      title: 'Enter alternative action (or empty to cancel)'
+      title: t('commands.permissions.prompt.alternativeTitle')
     });
 
     if (altAnswer?.trim()) {
-      // Return the alternative as a special value that can be handled upstream
-      (confirm as any).lastAlternative = altAnswer.trim();
-      return 'alternative' as any;
+      return { decision: 'alternative', alternative: altAnswer.trim() };
     }
-    return false;
+    return { decision: 'deny_once' };
   }
 
-  return false;
+  return { decision: result.value as PermissionPromptResult['decision'] };
 }
-

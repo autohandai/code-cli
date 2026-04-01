@@ -297,7 +297,9 @@ export interface BrowserHandoffAttachLatestParams {
 
 export interface PermissionResponseParams {
   requestId: string;
-  allowed: boolean;
+  decision?: PermissionPromptDecision;
+  allowed?: boolean;
+  alternative?: string;
   remember?: boolean;
 }
 
@@ -562,6 +564,7 @@ export interface PermissionRequestParams {
     path?: string;
     args?: string[];
   };
+  options?: PermissionPromptDecision[];
   timestamp: string;
 }
 
@@ -751,7 +754,7 @@ export interface RpcMessage {
 
 export interface PendingPermission {
   requestId: string;
-  resolve: (allowed: boolean) => void;
+  resolve: (decision: PermissionPromptResult) => void;
   reject: (error: Error) => void;
   /** Short timeout for acknowledgment (30s) - cleared when ack received */
   ackTimeout: NodeJS.Timeout | null;
@@ -1155,3 +1158,4 @@ export interface McpToolsChangedNotificationParams {
   tools: Array<{ name: string; description: string; serverName: string }>;
   timestamp: string;
 }
+import type { PermissionPromptDecision, PermissionPromptResult } from '../../permissions/types.js';

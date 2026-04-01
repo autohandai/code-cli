@@ -169,8 +169,12 @@ export interface PermissionSettings {
   /** Permission mode: interactive (default), unrestricted (no prompts), restricted (deny all dangerous), external (callback) */
   mode?: PermissionMode;
   /** Commands/tools that never require approval (e.g., "run_command:npm *") */
-  whitelist?: string[];
+  allowList?: string[];
   /** Commands/tools that are always blocked (e.g., "run_command:rm -rf *") */
+  denyList?: string[];
+  /** @deprecated legacy alias for allowList */
+  whitelist?: string[];
+  /** @deprecated legacy alias for denyList */
   blacklist?: string[];
   /** Custom rules for fine-grained control */
   rules?: PermissionRule[];
