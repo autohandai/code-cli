@@ -9,6 +9,7 @@ import path from 'node:path';
 import fs from 'fs-extra';
 import { spawn, spawnSync } from 'node:child_process';
 import open from 'open';
+import { execSync } from 'node:child_process';
 import type { LoadedConfig } from '../types.js';
 import { AUTOHAND_HOME } from '../constants.js';
 
@@ -302,7 +303,9 @@ export function resolveCliLaunchSpec(cliPath?: string): { command: string; args:
   }
 
   const argv1 = process.argv[1];
-  if (argv1 && path.isAbsolute(argv1)) {
+  // Filter out Bun virtual filesystem paths (e.g. /$bunfs/root/...)
+  // These are not real filesystem paths and will break the native host.
+  if (argv1 && path.isAbsolute(argv1) && !argv1.includes("$bunfs")) {
     return {
       command: process.execPath,
       args: [argv1],
@@ -387,9 +390,12 @@ export function buildNativeHostManifest(options: {
 }
 
 function resolveNodePath(): string {
-  // Don't use bun as the shebang — Chrome native messaging needs node.
+  // Don't use bun or the compiled autohand binary as the shebang —
+  // Chrome native messaging host scripts must use Node.js because they
+  // use require("node:child_process") and other Node APIs.
   const execPath = process.execPath;
-  if (!execPath.includes('bun')) {
+  const execBase = path.basename(execPath).toLowerCase();
+  if (!execBase.includes('bun') && !execBase.includes('autohand')) {
     return execPath;
   }
   // Find node in common locations
@@ -587,9 +593,12 @@ export async function ensureNativeHostInstalled(options?: {
     try {
       const manifest = await readJson(chromeManifest.manifestPath) as { path?: string };
       if (manifest.path && await pathExists(manifest.path)) {
-        // Check shebang isn't bun (Chrome can't run bun)
+        // Check shebang is a valid Node.js interpreter (not bun, not the autohand binary itself)
         const firstLine = (await readFile(manifest.path, 'utf8')).split('\n')[0] ?? '';
-        if (!firstLine.includes('bun')) {
+        const shebangPath = firstLine.replace(/^#!/, '').trim();
+        const shebangBase = shebangPath.split('/').pop()?.toLowerCase() ?? '';
+        const isValidShebang = shebangBase === 'node' || shebangBase === 'env';
+        if (isValidShebang) {
           return; // Already installed with valid host
         }
       }
