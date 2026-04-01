@@ -232,6 +232,8 @@ program
   .option('--append-sys-prompt <value>', 'Append to system prompt (inline string or file path)')
   .option('--yolo [pattern]', 'Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)')
   .option('--timeout <seconds>', 'Timeout in seconds for auto-approve mode', parseInt)
+  .option('--chrome', 'Enable Chrome browser integration (same as /chrome)')
+  .option('--no-chrome', 'Disable Chrome browser integration')
   .action(async (positionalPrompt: string | undefined, opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean | string; tmux?: boolean; setup?: boolean; about?: boolean; syncSettings?: string | boolean; cc?: boolean; searchEngine?: string; learn?: boolean; learnUpdate?: boolean }) => {
     // When -p is passed without a value, Commander sets opts.prompt to true (boolean).
     // Normalize to undefined so downstream code can detect "flag present, no text".
@@ -361,6 +363,18 @@ program
     // Commander uses 'cc' for the flag name, we map it to 'contextCompact' for consistency
     if (opts.cc !== undefined) {
       opts.contextCompact = opts.cc;
+    }
+
+
+    // Handle --no-chrome flag (disable chrome bridge in config)
+    if (opts.noChrome) {
+      const config = await loadConfig(opts.config);
+      if (config.chrome) {
+        config.chrome.enabledByDefault = false;
+        await saveConfig(config);
+        console.log(chalk.green("\u2713 Chrome browser integration disabled."));
+      }
+      // Continue to normal CLI flow --chrome is not set, so normal mode
     }
 
     // Map --search-engine flag to searchEngine option
@@ -1049,6 +1063,47 @@ async function runCLI(options: CLIOptions): Promise<void> {
     const agent = new AutohandAgent(llmProvider, files, runtime);
     agentHolder.current = agent;
 
+
+    // Handle --chrome flag: trigger Chrome handoff before entering interactive mode
+    if (options.chrome) {
+      // Ensure native host is installed
+      const { ensureNativeHostInstalled, createBrowserHandoff, buildChromeOpenUrl, openChromeContinuation, getManifestTarget, detectExtensionProfile } = await import('./browser/chrome.js');
+      const nativeHostInstalled = await fs.pathExists(getManifestTarget('chrome').manifestPath);
+      if (!nativeHostInstalled) {
+        const extensionId = config.chrome?.extensionId;
+        await ensureNativeHostInstalled({ extensionId }).catch(() => {});
+      }
+
+      // Create a session eagerly so we have a valid sessionId for the handoff
+      const sessionManager = agent.getSessionManager();
+      await sessionManager.initialize();
+      let currentSession = sessionManager.getCurrentSession();
+      if (!currentSession) {
+        const providerName = config.provider ?? 'openrouter';
+        const modelName = options.model ?? (config as any)[providerName]?.model ?? 'unknown';
+        currentSession = await sessionManager.createSession(workspaceRoot, modelName);
+      }
+      const sessionId = currentSession.metadata.sessionId;
+
+      // Create browser handoff
+      const extensionId = config.chrome?.extensionId;
+      const handoff = await createBrowserHandoff({
+        sessionId,
+        workspaceRoot,
+        extensionId,
+        installUrl: config.chrome?.installUrl,
+      });
+
+      // Open Chrome with the handoff URL
+      await openChromeContinuation(
+        buildChromeOpenUrl({ extensionId, installUrl: config.chrome?.installUrl }),
+        config.chrome?.browser ?? 'auto',
+        { userDataDir: config.chrome?.userDataDir, profileDirectory: config.chrome?.profileDirectory },
+      );
+
+      console.log(chalk.green('\n✓ Opened Chrome. Side panel (Cmd+E) to continue.'));
+      console.log(chalk.gray(`  Session: ${sessionId}\n`));
+    }
     // Pipe mode: read stdin once if piped, then compose with prompt text (if any).
     // Supports: echo "data" | autohand -p "explain"  (stdin + prompt → command mode)
     //           echo "data" | autohand -p             (stdin only → command mode)
