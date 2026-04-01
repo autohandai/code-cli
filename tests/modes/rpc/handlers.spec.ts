@@ -100,6 +100,40 @@ describe('RPC Adapter - P2 Handlers', () => {
   });
 
   // -------------------------------------------------------------------------
+  // permission handling
+  // -------------------------------------------------------------------------
+
+  describe('permission handling', () => {
+    it('resolves structured permission decisions from the client', async () => {
+      const promise = adapter.requestPermission(
+        'run_command',
+        'Run this command?',
+        { command: 'git status' }
+      );
+
+      const result = adapter.handlePermissionResponse('req_1', 'perm_test123', {
+        decision: 'allow_session',
+      });
+
+      await expect(promise).resolves.toEqual({ decision: 'allow_session' });
+      expect(result).toEqual({ success: true });
+    });
+
+    it('falls back to boolean permission responses for older clients', async () => {
+      const promise = adapter.requestPermission(
+        'run_command',
+        'Run this command?',
+        { command: 'git status' }
+      );
+
+      const result = adapter.handlePermissionResponse('req_1', 'perm_test123', false);
+
+      await expect(promise).resolves.toEqual({ decision: 'deny_once' });
+      expect(result).toEqual({ success: true });
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // handleGetHistory()
   // -------------------------------------------------------------------------
 

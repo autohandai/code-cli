@@ -274,7 +274,7 @@ describe('--chrome CLI flag', () => {
     });
 
     const ctx = makeCtx();
-    const result = await chrome(ctx as any);
+    await chrome(ctx as any);
 
     // When native host is not installed, ensureNativeHostInstalled should be called
     expect(mockEnsureNativeHostInstalled).toHaveBeenCalled();

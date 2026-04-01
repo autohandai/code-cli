@@ -1067,7 +1067,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
     // Handle --chrome flag: trigger Chrome handoff before entering interactive mode
     if (options.chrome) {
       // Ensure native host is installed
-      const { ensureNativeHostInstalled, createBrowserHandoff, buildChromeOpenUrl, openChromeContinuation, getManifestTarget, detectExtensionProfile } = await import('./browser/chrome.js');
+      const { ensureNativeHostInstalled, createBrowserHandoff, buildChromeOpenUrl, openChromeContinuation, getManifestTarget } = await import('./browser/chrome.js');
       const nativeHostInstalled = await fs.pathExists(getManifestTarget('chrome').manifestPath);
       if (!nativeHostInstalled) {
         const extensionId = config.chrome?.extensionId;
@@ -1087,7 +1087,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
 
       // Create browser handoff
       const extensionId = config.chrome?.extensionId;
-      const handoff = await createBrowserHandoff({
+      await createBrowserHandoff({
         sessionId,
         workspaceRoot,
         extensionId,
@@ -1324,7 +1324,32 @@ async function runLearnNonInteractive(opts: CLIOptions, subcommand: 'recommend' 
 /**
  * Handle --permissions flag to display current permission settings
  */
-async function displayPermissions(opts: CLIOptions): Promise<void> {
+function renderPermissionScope(title: string, pathLabel: string, allowList: string[], denyList: string[]): void {
+  console.log(chalk.bold(title));
+  console.log(chalk.gray(pathLabel));
+
+  if (allowList.length === 0) {
+    console.log(chalk.gray('  No AllowList entries'));
+  } else {
+    console.log(chalk.green('  AllowList'));
+    allowList.forEach((pattern, index) => {
+      console.log(chalk.green(`    ${index + 1}. ${pattern}`));
+    });
+  }
+
+  if (denyList.length === 0) {
+    console.log(chalk.gray('  No DenyList entries'));
+  } else {
+    console.log(chalk.red('  DenyList'));
+    denyList.forEach((pattern, index) => {
+      console.log(chalk.red(`    ${index + 1}. ${pattern}`));
+    });
+  }
+
+  console.log();
+}
+
+export async function displayPermissions(opts: CLIOptions): Promise<void> {
   const config = await loadConfig(opts.config);
   const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
 
@@ -1335,34 +1360,13 @@ async function displayPermissions(opts: CLIOptions): Promise<void> {
     process.exit(1);
   }
 
-  // Import permission manager
   const { PermissionManager } = await import('./permissions/PermissionManager.js');
-  const { loadLocalProjectSettings } = await import('./permissions/localProjectPermissions.js');
-
-  // Load local project permissions
-  const localSettings = await loadLocalProjectSettings(workspaceRoot);
-
-  // Merge global and local settings
-  const mergedSettings = {
-    mode: localSettings?.permissions?.mode ?? config.permissions?.mode ?? 'interactive',
-    whitelist: [
-      ...(config.permissions?.whitelist ?? []),
-      ...(localSettings?.permissions?.whitelist ?? [])
-    ],
-    blacklist: [
-      ...(config.permissions?.blacklist ?? []),
-      ...(localSettings?.permissions?.blacklist ?? [])
-    ],
-    rules: [
-      ...(config.permissions?.rules ?? []),
-      ...(localSettings?.permissions?.rules ?? [])
-    ]
-  };
-
-  const manager = new PermissionManager({ settings: mergedSettings });
-  const whitelist = manager.getWhitelist();
-  const blacklist = manager.getBlacklist();
-  const settings = manager.getSettings();
+  const manager = new PermissionManager({
+    settings: config.permissions,
+    workspaceRoot,
+  });
+  await manager.initLocalSettings();
+  const snapshot = manager.getPermissionSnapshot(config.configPath);
 
   console.log();
   console.log(chalk.bold.cyan('Autohand Permissions'));
@@ -1370,7 +1374,7 @@ async function displayPermissions(opts: CLIOptions): Promise<void> {
   console.log();
 
   // Mode
-  console.log(chalk.bold('Mode:'), chalk.cyan(settings.mode || 'interactive'));
+  console.log(chalk.bold('Mode:'), chalk.cyan(snapshot.mode || 'interactive'));
   console.log();
 
   // Workspace
@@ -1378,35 +1382,21 @@ async function displayPermissions(opts: CLIOptions): Promise<void> {
   console.log(chalk.bold('Config:'), chalk.gray(config.configPath));
   console.log();
 
-  // Whitelist (Approved)
-  console.log(chalk.bold.green('Approved (Whitelist)'));
-  if (whitelist.length === 0) {
-    console.log(chalk.gray('  No approved patterns'));
-  } else {
-    whitelist.forEach((pattern, index) => {
-      console.log(chalk.green(`  ${index + 1}. ${pattern}`));
-    });
-  }
-  console.log();
-
-  // Blacklist (Denied)
-  console.log(chalk.bold.red('Denied (Blacklist)'));
-  if (blacklist.length === 0) {
-    console.log(chalk.gray('  No denied patterns'));
-  } else {
-    blacklist.forEach((pattern, index) => {
-      console.log(chalk.red(`  ${index + 1}. ${pattern}`));
-    });
-  }
-  console.log();
+  renderPermissionScope('Session', snapshot.session.path, snapshot.session.allowList, snapshot.session.denyList);
+  renderPermissionScope('Project', snapshot.project.path, snapshot.project.allowList, snapshot.project.denyList);
+  renderPermissionScope('User', snapshot.user.path, snapshot.user.allowList, snapshot.user.denyList);
+  renderPermissionScope('Effective', snapshot.effective.path, snapshot.effective.allowList, snapshot.effective.denyList);
 
   // Summary
   console.log(chalk.gray('─'.repeat(60)));
-  console.log(chalk.bold('Summary:'), `${whitelist.length} approved, ${blacklist.length} denied`);
+  console.log(
+    chalk.bold('Summary:'),
+    `${snapshot.effective.allowList.length} allowed, ${snapshot.effective.denyList.length} denied`
+  );
   console.log();
 
   // Help text
-  console.log(chalk.gray('Use /permissions in interactive mode to manage permissions.'));
+  console.log(chalk.gray('Use /permissions in interactive mode to inspect permissions.'));
   console.log(chalk.gray('Use --unrestricted to skip all approval prompts.'));
   console.log(chalk.gray('Use --restricted to deny all dangerous operations.'));
   console.log();

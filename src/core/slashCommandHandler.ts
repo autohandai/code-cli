@@ -238,7 +238,10 @@ export class SlashCommandHandler {
           const { permissions } = await import('../commands/permissions.js');
           this.ctx.onBeforeModal?.();
           try {
-            return await permissions({ permissionManager: this.ctx.permissionManager });
+            return await permissions({
+              permissionManager: this.ctx.permissionManager,
+              configPath: this.ctx.config?.configPath,
+            });
           } finally {
             this.ctx.onAfterModal?.();
           }

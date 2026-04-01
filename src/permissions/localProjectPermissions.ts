@@ -16,6 +16,23 @@ export interface LocalProjectSettings {
   version?: number;
 }
 
+function normalizePermissionSettings(settings: PermissionSettings | undefined): PermissionSettings | undefined {
+  if (!settings) {
+    return settings;
+  }
+
+  const allowList = settings.allowList ?? settings.whitelist ?? [];
+  const denyList = settings.denyList ?? settings.blacklist ?? [];
+
+  return {
+    ...settings,
+    allowList,
+    denyList,
+    whitelist: undefined,
+    blacklist: undefined,
+  };
+}
+
 /**
  * Get the path to the local project settings file
  */
@@ -33,7 +50,11 @@ export async function loadLocalProjectSettings(workspaceRoot: string): Promise<L
   try {
     if (await fs.pathExists(settingsPath)) {
       const content = await fs.readFile(settingsPath, 'utf8');
-      return JSON.parse(content) as LocalProjectSettings;
+      const parsed = JSON.parse(content) as LocalProjectSettings;
+      return {
+        ...parsed,
+        permissions: normalizePermissionSettings(parsed.permissions),
+      };
     }
   } catch (error) {
     // Log but don't throw - invalid settings file shouldn't break the app
@@ -68,47 +89,55 @@ export async function saveLocalProjectSettings(
 /**
  * Add a pattern to the local project whitelist
  */
-export async function addToLocalWhitelist(
+export async function addToLocalAllowList(
   workspaceRoot: string,
   pattern: string
 ): Promise<void> {
   const current = await loadLocalProjectSettings(workspaceRoot) || {};
-  const permissions = current.permissions || {};
-  const whitelist = permissions.whitelist || [];
+  const permissions = normalizePermissionSettings(current.permissions) || {};
+  const allowList = permissions.allowList || [];
 
-  if (!whitelist.includes(pattern)) {
-    whitelist.push(pattern);
+  if (!allowList.includes(pattern)) {
+    allowList.push(pattern);
     await saveLocalProjectSettings(workspaceRoot, {
       ...current,
       permissions: {
         ...permissions,
-        whitelist
+        allowList
       }
     });
   }
 }
 
 /**
- * Add a pattern to the local project blacklist
+ * Add a pattern to the local project denyList
  */
-export async function addToLocalBlacklist(
+export async function addToLocalDenyList(
   workspaceRoot: string,
   pattern: string
 ): Promise<void> {
   const current = await loadLocalProjectSettings(workspaceRoot) || {};
-  const permissions = current.permissions || {};
-  const blacklist = permissions.blacklist || [];
+  const permissions = normalizePermissionSettings(current.permissions) || {};
+  const denyList = permissions.denyList || [];
 
-  if (!blacklist.includes(pattern)) {
-    blacklist.push(pattern);
+  if (!denyList.includes(pattern)) {
+    denyList.push(pattern);
     await saveLocalProjectSettings(workspaceRoot, {
       ...current,
       permissions: {
         ...permissions,
-        blacklist
+        denyList
       }
     });
   }
+}
+
+export async function addToLocalWhitelist(workspaceRoot: string, pattern: string): Promise<void> {
+  await addToLocalAllowList(workspaceRoot, pattern);
+}
+
+export async function addToLocalBlacklist(workspaceRoot: string, pattern: string): Promise<void> {
+  await addToLocalDenyList(workspaceRoot, pattern);
 }
 
 /**
@@ -119,31 +148,50 @@ export function mergePermissions(
   globalSettings: PermissionSettings,
   localSettings: PermissionSettings | undefined
 ): PermissionSettings {
-  if (!localSettings) {
-    return globalSettings;
+  const normalizedGlobal = normalizePermissionSettings(globalSettings) ?? {};
+  const normalizedLocal = normalizePermissionSettings(localSettings);
+
+  if (!normalizedLocal) {
+    return normalizedGlobal;
   }
 
   return {
     // Global settings as base
-    ...globalSettings,
+    ...normalizedGlobal,
     // Local mode overrides global if set
-    mode: localSettings.mode || globalSettings.mode,
-    // Merge whitelists (deduplicated)
-    whitelist: [
-      ...(globalSettings.whitelist || []),
-      ...(localSettings.whitelist || [])
+    mode: normalizedLocal.mode || normalizedGlobal.mode,
+    allowList: [
+      ...(normalizedGlobal.allowList || []),
+      ...(normalizedLocal.allowList || [])
     ].filter((v, i, a) => a.indexOf(v) === i),
-    // Merge blacklists (deduplicated)
-    blacklist: [
-      ...(globalSettings.blacklist || []),
-      ...(localSettings.blacklist || [])
+    denyList: [
+      ...(normalizedGlobal.denyList || []),
+      ...(normalizedLocal.denyList || [])
     ].filter((v, i, a) => a.indexOf(v) === i),
     // Merge rules (local rules checked first)
     rules: [
-      ...(localSettings.rules || []),
-      ...(globalSettings.rules || [])
+      ...(normalizedLocal.rules || []),
+      ...(normalizedGlobal.rules || [])
     ],
     // Use local rememberSession if set, otherwise global
-    rememberSession: localSettings.rememberSession ?? globalSettings.rememberSession
+    rememberSession: normalizedLocal.rememberSession ?? normalizedGlobal.rememberSession,
+    allowPatterns: [
+      ...(normalizedGlobal.allowPatterns || []),
+      ...(normalizedLocal.allowPatterns || [])
+    ],
+    denyPatterns: [
+      ...(normalizedGlobal.denyPatterns || []),
+      ...(normalizedLocal.denyPatterns || [])
+    ],
+    availableTools: [
+      ...(normalizedGlobal.availableTools || []),
+      ...(normalizedLocal.availableTools || [])
+    ],
+    excludedTools: [
+      ...(normalizedGlobal.excludedTools || []),
+      ...(normalizedLocal.excludedTools || [])
+    ],
+    allPathsAllowed: normalizedLocal.allPathsAllowed ?? normalizedGlobal.allPathsAllowed,
+    allUrlsAllowed: normalizedLocal.allUrlsAllowed ?? normalizedGlobal.allUrlsAllowed,
   };
 }

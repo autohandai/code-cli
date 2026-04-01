@@ -1,5 +1,5 @@
 /**
- * Permission Manager - Handles tool/command approval with whitelist/blacklist
+ * Permission Manager - Handles tool/command approval with allow/deny lists
  * @license Apache-2.0
  */
 import type {
@@ -7,19 +7,29 @@ import type {
   PermissionDecision,
   PermissionContext,
   PermissionMode,
-  PermissionRule
+  PermissionRule,
+  PermissionPromptResult,
+  PermissionSnapshot,
 } from './types.js';
 import path from 'node:path';
 import {
   loadLocalProjectSettings,
-  addToLocalWhitelist,
+  addToLocalAllowList,
+  addToLocalDenyList,
   mergePermissions
 } from './localProjectPermissions.js';
 import { matchesToolPattern } from './toolPatterns.js';
+import {
+  addToSessionAllowList,
+  addToSessionDenyList,
+  getSessionPermissionsPath,
+  loadSessionProjectPermissions,
+  type SessionProjectPermissions,
+} from './sessionProjectPermissions.js';
 
 /**
  * Default security blacklist - always blocked patterns for sensitive files and dangerous commands.
- * These are merged with user settings and cannot be overridden by whitelist.
+ * These are merged with user settings and cannot be overridden by allowLists.
  */
 export const DEFAULT_SECURITY_BLACKLIST: string[] = [
   // === Sensitive Files (read/write blocked) ===
@@ -138,11 +148,28 @@ export interface PermissionManagerOptions {
 export class PermissionManager {
   private settings: PermissionSettings;
   private localSettings: PermissionSettings | undefined;
+  private sessionProjectSettings: SessionProjectPermissions | undefined;
   private sessionCache: Map<string, boolean> = new Map();
   private mode: PermissionMode;
   private onPersist?: (settings: PermissionSettings) => Promise<void>;
   private workspaceRoot?: string;
   private localSettingsLoaded = false;
+
+  private normalizeSettings(settings: PermissionSettings | undefined): PermissionSettings {
+    return {
+      mode: 'interactive',
+      allowList: [...(settings?.allowList ?? settings?.whitelist ?? [])],
+      denyList: [...(settings?.denyList ?? settings?.blacklist ?? [])],
+      rules: [...(settings?.rules ?? [])],
+      rememberSession: settings?.rememberSession ?? true,
+      allowPatterns: [...(settings?.allowPatterns ?? [])],
+      denyPatterns: [...(settings?.denyPatterns ?? [])],
+      availableTools: [...(settings?.availableTools ?? [])],
+      excludedTools: [...(settings?.excludedTools ?? [])],
+      allPathsAllowed: settings?.allPathsAllowed,
+      allUrlsAllowed: settings?.allUrlsAllowed,
+    };
+  }
 
   constructor(options: PermissionManagerOptions | PermissionSettings = {}) {
     // Support both old (PermissionSettings) and new (PermissionManagerOptions) signatures
@@ -151,18 +178,7 @@ export class PermissionManager {
     this.onPersist = isOptions ? (options as PermissionManagerOptions).onPersist : undefined;
     this.workspaceRoot = isOptions ? (options as PermissionManagerOptions).workspaceRoot : undefined;
 
-    // Keep user blacklist separate from security blacklist
-    // Security blacklist is checked separately via isSecurityBlacklisted()
-    const userBlacklist = settings.blacklist ?? [];
-
-    this.settings = {
-      mode: 'interactive',
-      whitelist: [],
-      blacklist: userBlacklist,
-      rules: [],
-      rememberSession: true,
-      ...settings
-    };
+    this.settings = this.normalizeSettings(settings);
     this.mode = this.settings.mode || 'interactive';
   }
 
@@ -176,7 +192,15 @@ export class PermissionManager {
     try {
       const localSettings = await loadLocalProjectSettings(this.workspaceRoot);
       if (localSettings?.permissions) {
-        this.localSettings = localSettings.permissions;
+        this.localSettings = this.normalizeSettings(localSettings.permissions);
+      }
+      const sessionSettings = await loadSessionProjectPermissions(this.workspaceRoot);
+      if (sessionSettings) {
+        this.sessionProjectSettings = {
+          allowList: [...(sessionSettings.allowList ?? [])],
+          denyList: [...(sessionSettings.denyList ?? [])],
+          version: sessionSettings.version,
+        };
       }
       this.localSettingsLoaded = true;
     } catch {
@@ -211,7 +235,7 @@ export class PermissionManager {
   checkPermission(context: PermissionContext): PermissionDecision {
     // SECURITY: Always check security blacklist FIRST - cannot be bypassed by any mode
     if (this.isSecurityBlacklisted(context)) {
-      return { allowed: false, reason: 'blacklisted' };
+      return { allowed: false, reason: 'deny_list' };
     }
 
     // Pattern-based checks (AFTER security blacklist, BEFORE session cache)
@@ -240,14 +264,34 @@ export class PermissionManager {
       return { allowed: false, reason: 'mode_restricted' };
     }
 
-    // Check user blacklist (can be removed by user, unlike security blacklist)
-    if (this.isBlacklisted(context)) {
-      return { allowed: false, reason: 'blacklisted' };
+    const sessionDecision = this.checkScopedLists(
+      context,
+      this.sessionProjectSettings?.allowList,
+      this.sessionProjectSettings?.denyList,
+      'session'
+    );
+    if (sessionDecision) {
+      return sessionDecision;
     }
 
-    // Check whitelist
-    if (this.isWhitelisted(context)) {
-      return { allowed: true, reason: 'whitelisted' };
+    const projectDecision = this.checkScopedLists(
+      context,
+      this.localSettings?.allowList,
+      this.localSettings?.denyList,
+      'project'
+    );
+    if (projectDecision) {
+      return projectDecision;
+    }
+
+    const userDecision = this.checkScopedLists(
+      context,
+      this.settings.allowList,
+      this.settings.denyList,
+      'user'
+    );
+    if (userDecision) {
+      return userDecision;
     }
 
     // Check custom rules
@@ -261,8 +305,8 @@ export class PermissionManager {
   }
 
   /**
-   * Record a user's decision - adds to local project whitelist/blacklist and persists
-   * Approved permissions are saved to .autohand/settings.local.json for "approve once, don't ask again"
+   * Record a user's decision using the legacy boolean API.
+   * Approved permissions are saved to the project allowList when possible.
    */
   async recordDecision(context: PermissionContext, allowed: boolean): Promise<void> {
     // Always cache in session
@@ -272,7 +316,7 @@ export class PermissionManager {
       this.sessionCache.set(cacheKey, allowed);
     }
 
-    // Build pattern for whitelist/blacklist
+    // Build pattern for allowList/denyList
     const pattern = this.contextToPattern(context);
 
     // For path-based approvals, also generate a directory wildcard so future
@@ -287,37 +331,122 @@ export class PermissionManager {
       try {
         const patterns = dirPattern ? [pattern, dirPattern] : [pattern];
         for (const p of patterns) {
-          await addToLocalWhitelist(this.workspaceRoot, p);
+          await addToLocalAllowList(this.workspaceRoot, p);
         }
         // Also update local cache
         if (!this.localSettings) {
-          this.localSettings = { whitelist: [] };
+          this.localSettings = { allowList: [] };
         }
-        if (!this.localSettings.whitelist) {
-          this.localSettings.whitelist = [];
+        if (!this.localSettings.allowList) {
+          this.localSettings.allowList = [];
         }
         for (const p of patterns) {
-          if (!this.localSettings.whitelist.includes(p)) {
-            this.localSettings.whitelist.push(p);
+          if (!this.localSettings.allowList.includes(p)) {
+            this.localSettings.allowList.push(p);
           }
         }
       } catch {
         // If local save fails, fall back to global
-        this.addToWhitelist(pattern);
-        if (dirPattern) this.addToWhitelist(dirPattern);
+        this.addToAllowList(pattern);
+        if (dirPattern) this.addToAllowList(dirPattern);
       }
     } else if (allowed) {
       // No workspace root - save to global
-      this.addToWhitelist(pattern);
-      if (dirPattern) this.addToWhitelist(dirPattern);
+      this.addToAllowList(pattern);
+      if (dirPattern) this.addToAllowList(dirPattern);
     } else {
-      // Denied - add exact path only to blacklist (no directory wildcards for denials)
-      this.addToBlacklist(pattern);
+      // Denied - add exact path only to denyList (no directory wildcards for denials)
+      this.addToDenyList(pattern);
     }
 
     // Persist global settings if callback provided
     if (this.onPersist) {
       await this.onPersist(this.settings);
+    }
+  }
+
+  async applyPromptDecision(context: PermissionContext, result: PermissionPromptResult): Promise<void> {
+    const pattern = this.contextToPattern(context);
+    const dirPattern = this.buildDirectoryWildcard(context);
+    const allowPatterns = dirPattern ? [pattern, dirPattern] : [pattern];
+
+    switch (result.decision) {
+      case 'allow_once':
+      case 'deny_once':
+      case 'alternative':
+        return;
+      case 'allow_session': {
+        if (!this.workspaceRoot) {
+          return;
+        }
+        for (const entry of allowPatterns) {
+          await addToSessionAllowList(this.workspaceRoot, entry);
+        }
+        this.sessionProjectSettings = {
+          ...(this.sessionProjectSettings ?? {}),
+          allowList: Array.from(new Set([...(this.sessionProjectSettings?.allowList ?? []), ...allowPatterns])),
+          denyList: [...(this.sessionProjectSettings?.denyList ?? [])],
+        };
+        return;
+      }
+      case 'deny_session': {
+        if (!this.workspaceRoot) {
+          return;
+        }
+        await addToSessionDenyList(this.workspaceRoot, pattern);
+        this.sessionProjectSettings = {
+          ...(this.sessionProjectSettings ?? {}),
+          allowList: [...(this.sessionProjectSettings?.allowList ?? [])],
+          denyList: Array.from(new Set([...(this.sessionProjectSettings?.denyList ?? []), pattern])),
+        };
+        return;
+      }
+      case 'allow_always_project': {
+        if (!this.workspaceRoot) {
+          this.addToAllowList(pattern);
+          if (dirPattern) this.addToAllowList(dirPattern);
+          if (this.onPersist) {
+            await this.onPersist(this.settings);
+          }
+          return;
+        }
+        for (const entry of allowPatterns) {
+          await addToLocalAllowList(this.workspaceRoot, entry);
+        }
+        if (!this.localSettings) {
+          this.localSettings = this.normalizeSettings({});
+        }
+        this.localSettings.allowList = Array.from(new Set([...(this.localSettings.allowList ?? []), ...allowPatterns]));
+        return;
+      }
+      case 'deny_always_project': {
+        if (!this.workspaceRoot) {
+          this.addToDenyList(pattern);
+          if (this.onPersist) {
+            await this.onPersist(this.settings);
+          }
+          return;
+        }
+        await addToLocalDenyList(this.workspaceRoot, pattern);
+        if (!this.localSettings) {
+          this.localSettings = this.normalizeSettings({});
+        }
+        this.localSettings.denyList = Array.from(new Set([...(this.localSettings.denyList ?? []), pattern]));
+        return;
+      }
+      case 'allow_always_user':
+        this.addToAllowList(pattern);
+        if (dirPattern) this.addToAllowList(dirPattern);
+        if (this.onPersist) {
+          await this.onPersist(this.settings);
+        }
+        return;
+      case 'deny_always_user':
+        this.addToDenyList(pattern);
+        if (this.onPersist) {
+          await this.onPersist(this.settings);
+        }
+        return;
     }
   }
 
@@ -423,28 +552,39 @@ export class PermissionManager {
 
   /**
    * Check if context matches the immutable security blacklist
-   * This check CANNOT be bypassed by any mode, whitelist, or user setting
+   * This check CANNOT be bypassed by any mode, allowList, or user setting
    */
   private isSecurityBlacklisted(context: PermissionContext): boolean {
     return DEFAULT_SECURITY_BLACKLIST.some(pattern => this.matchesPattern(context, pattern));
   }
 
   /**
-   * Check if context matches user blacklist (can be modified by user)
+   * Check scoped allow/deny lists, returning a source-specific decision if matched.
    */
-  private isBlacklisted(context: PermissionContext): boolean {
-    const merged = this.getMergedSettings();
-    const userBlacklist = merged.blacklist || [];
-    return userBlacklist.some(pattern => this.matchesPattern(context, pattern));
-  }
+  private checkScopedLists(
+    context: PermissionContext,
+    allowList: string[] | undefined,
+    denyList: string[] | undefined,
+    scope: 'session' | 'project' | 'user'
+  ): PermissionDecision | null {
+    const normalizedAllowList = allowList ?? [];
+    const normalizedDenyList = denyList ?? [];
 
-  /**
-   * Check if context matches whitelist (uses merged global + local settings)
-   */
-  private isWhitelisted(context: PermissionContext): boolean {
-    const merged = this.getMergedSettings();
-    const whitelist = merged.whitelist || [];
-    return whitelist.some(pattern => this.matchesPattern(context, pattern));
+    if (normalizedDenyList.some(pattern => this.matchesPattern(context, pattern))) {
+      return {
+        allowed: false,
+        reason: `${scope}_deny_list` as PermissionDecision['reason'],
+      };
+    }
+
+    if (normalizedAllowList.some(pattern => this.matchesPattern(context, pattern))) {
+      return {
+        allowed: true,
+        reason: `${scope}_allow_list` as PermissionDecision['reason'],
+      };
+    }
+
+    return null;
   }
 
   /**
@@ -573,37 +713,37 @@ export class PermissionManager {
   }
 
   /**
-   * Add to whitelist dynamically
+   * Add to allowList dynamically
    */
-  addToWhitelist(pattern: string): void {
-    if (!this.settings.whitelist) {
-      this.settings.whitelist = [];
+  addToAllowList(pattern: string): void {
+    if (!this.settings.allowList) {
+      this.settings.allowList = [];
     }
-    if (!this.settings.whitelist.includes(pattern)) {
-      this.settings.whitelist.push(pattern);
+    if (!this.settings.allowList.includes(pattern)) {
+      this.settings.allowList.push(pattern);
     }
   }
 
   /**
-   * Add to blacklist dynamically
+   * Add to denyList dynamically
    */
-  addToBlacklist(pattern: string): void {
-    if (!this.settings.blacklist) {
-      this.settings.blacklist = [];
+  addToDenyList(pattern: string): void {
+    if (!this.settings.denyList) {
+      this.settings.denyList = [];
     }
-    if (!this.settings.blacklist.includes(pattern)) {
-      this.settings.blacklist.push(pattern);
+    if (!this.settings.denyList.includes(pattern)) {
+      this.settings.denyList.push(pattern);
     }
   }
 
   /**
-   * Remove from whitelist
+   * Remove from allowList
    */
-  async removeFromWhitelist(pattern: string): Promise<boolean> {
-    if (!this.settings.whitelist) return false;
-    const index = this.settings.whitelist.indexOf(pattern);
+  async removeFromAllowList(pattern: string): Promise<boolean> {
+    if (!this.settings.allowList) return false;
+    const index = this.settings.allowList.indexOf(pattern);
     if (index !== -1) {
-      this.settings.whitelist.splice(index, 1);
+      this.settings.allowList.splice(index, 1);
       if (this.onPersist) {
         await this.onPersist(this.settings);
       }
@@ -613,13 +753,13 @@ export class PermissionManager {
   }
 
   /**
-   * Remove from blacklist
+   * Remove from denyList
    */
-  async removeFromBlacklist(pattern: string): Promise<boolean> {
-    if (!this.settings.blacklist) return false;
-    const index = this.settings.blacklist.indexOf(pattern);
+  async removeFromDenyList(pattern: string): Promise<boolean> {
+    if (!this.settings.denyList) return false;
+    const index = this.settings.denyList.indexOf(pattern);
     if (index !== -1) {
-      this.settings.blacklist.splice(index, 1);
+      this.settings.denyList.splice(index, 1);
       if (this.onPersist) {
         await this.onPersist(this.settings);
       }
@@ -629,23 +769,86 @@ export class PermissionManager {
   }
 
   /**
-   * Get current whitelist
+   * Get current allowList
    */
-  getWhitelist(): string[] {
-    return [...(this.settings.whitelist || [])];
+  getAllowList(): string[] {
+    return [...(this.settings.allowList || [])];
   }
 
   /**
-   * Get current blacklist
+   * Get current denyList
    */
-  getBlacklist(): string[] {
-    return [...(this.settings.blacklist || [])];
+  getDenyList(): string[] {
+    return [...(this.settings.denyList || [])];
   }
 
   /**
    * Get current settings (for display)
    */
   getSettings(): PermissionSettings {
-    return { ...this.settings };
+    return {
+      ...this.settings,
+      allowList: [...(this.settings.allowList || [])],
+      denyList: [...(this.settings.denyList || [])],
+      rules: [...(this.settings.rules || [])],
+      allowPatterns: [...(this.settings.allowPatterns || [])],
+      denyPatterns: [...(this.settings.denyPatterns || [])],
+      availableTools: [...(this.settings.availableTools || [])],
+      excludedTools: [...(this.settings.excludedTools || [])],
+    };
+  }
+
+  getWhitelist(): string[] {
+    return this.getAllowList();
+  }
+
+  getBlacklist(): string[] {
+    return this.getDenyList();
+  }
+
+  async removeFromWhitelist(pattern: string): Promise<boolean> {
+    return this.removeFromAllowList(pattern);
+  }
+
+  async removeFromBlacklist(pattern: string): Promise<boolean> {
+    return this.removeFromDenyList(pattern);
+  }
+
+  addToWhitelist(pattern: string): void {
+    this.addToAllowList(pattern);
+  }
+
+  addToBlacklist(pattern: string): void {
+    this.addToDenyList(pattern);
+  }
+
+  getPermissionSnapshot(userConfigPath: string): PermissionSnapshot {
+    const effective = this.getMergedSettings();
+    return {
+      mode: this.mode,
+      rememberSession: effective.rememberSession !== false,
+      session: {
+        path: this.workspaceRoot ? getSessionPermissionsPath(this.workspaceRoot) : '(project session unavailable)',
+        allowList: [...(this.sessionProjectSettings?.allowList ?? [])],
+        denyList: [...(this.sessionProjectSettings?.denyList ?? [])],
+      },
+      project: {
+        path: this.workspaceRoot
+          ? path.join(this.workspaceRoot, '.autohand', 'settings.local.json')
+          : '(project unavailable)',
+        allowList: [...(this.localSettings?.allowList ?? [])],
+        denyList: [...(this.localSettings?.denyList ?? [])],
+      },
+      user: {
+        path: userConfigPath,
+        allowList: [...(this.settings.allowList ?? [])],
+        denyList: [...(this.settings.denyList ?? [])],
+      },
+      effective: {
+        path: 'merged',
+        allowList: [...(effective.allowList ?? [])],
+        denyList: [...(effective.denyList ?? [])],
+      },
+    };
   }
 }

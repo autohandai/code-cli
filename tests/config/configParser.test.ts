@@ -166,6 +166,22 @@ describe('configParser – error handling (Issue #3)', () => {
     await expect(loadConfig(configPath)).rejects.toThrow(/Failed to parse config|empty|null/i);
   });
 
+  it('rejects duplicate config files in the same directory', async () => {
+    const jsonPath = await writeTempConfig(testDir, 'config.json', JSON.stringify({
+      provider: 'openrouter',
+      openrouter: {
+        apiKey: 'sk-test-key',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        model: 'anthropic/claude-3.5-sonnet',
+      },
+    }));
+    await writeTempConfig(testDir, 'config.yaml', 'provider: openrouter\n');
+
+    const loadConfig = await importLoadConfig();
+
+    await expect(loadConfig(jsonPath)).rejects.toThrow(/multiple config files|invalid settings|review/i);
+  });
+
   it('does not throw unhandled rejection for empty YAML (promise rejects cleanly)', async () => {
     const configPath = await writeTempConfig(testDir, 'config.yaml', '');
     const loadConfig = await importLoadConfig();
