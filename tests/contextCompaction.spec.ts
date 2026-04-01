@@ -116,6 +116,63 @@ describe('Context Compaction', () => {
       const usage = contextManager.getUsage(mockTools);
       expect(usage.contextWindow).toBeDefined();
     });
+
+    it('does not emit no-op summaries when only the active turn is large', async () => {
+      const onCrop = vi.fn();
+      const manager = new ContextManager({
+        model: 'openai/gpt-4o-mini',
+        conversationManager,
+        onCrop,
+      });
+
+      conversationManager.addMessage({ role: 'user', content: 'Inspect this failure' });
+      for (let i = 0; i < 12; i++) {
+        conversationManager.addMessage({
+          role: 'assistant',
+          content: `Large tool follow-up ${i}: ${'x'.repeat(25_000)}`,
+        });
+      }
+
+      const initialLength = conversationManager.history().length;
+      const result = await manager.prepareRequest(mockTools);
+
+      expect(result.wasCropped).toBe(false);
+      expect(result.croppedCount).toBe(0);
+      expect(onCrop).not.toHaveBeenCalled();
+      expect(conversationManager.history()).toHaveLength(initialLength);
+      expect(conversationManager.history().filter((msg) => msg.role === 'system')).toHaveLength(1);
+    });
+
+    it('removes the selected low-priority messages during critical compaction', async () => {
+      const onCrop = vi.fn();
+      const manager = new ContextManager({
+        model: 'openai/gpt-4o-mini',
+        conversationManager,
+        onCrop,
+      });
+
+      conversationManager.addMessage({ role: 'user', content: 'Continue from here' });
+      for (let i = 0; i < 12; i++) {
+        conversationManager.addMessage({
+          role: 'assistant',
+          priority: 'low',
+          content: `Verbose assistant context ${i}: ${'y'.repeat(30_000)}`,
+        });
+      }
+
+      const initialAssistantCount = conversationManager.history().filter((msg) => msg.role === 'assistant').length;
+      const initialLength = conversationManager.history().length;
+      const result = await manager.prepareRequest(mockTools);
+
+      expect(result.wasCropped).toBe(true);
+      expect(result.croppedCount).toBeGreaterThan(0);
+      expect(onCrop).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.stringContaining('priority-based'),
+      );
+      expect(result.messages.length).toBeLessThan(initialLength);
+      expect(result.messages.filter((msg) => msg.role === 'assistant').length).toBeLessThan(initialAssistantCount);
+    });
   });
 
   describe('Retry Logic Pattern Fix', () => {

@@ -988,7 +988,7 @@ describe('ActionExecutor', () => {
       expect(result).toContain('0%'); // in_progress doesn't count as completed
     });
 
-    it('skips tasks without id', async () => {
+    it('auto-generates ids for tasks without id', async () => {
       const readFile = vi.fn().mockRejectedValue(new Error('not found'));
       const writeFile = vi.fn().mockResolvedValue(undefined);
       const executor = createExecutor({ readFile, writeFile });
@@ -996,14 +996,15 @@ describe('ActionExecutor', () => {
       await executor.execute({
         type: 'todo_write',
         tasks: [
-          { title: 'No ID Task', status: 'pending' }, // Missing id - should be skipped
+          { title: 'No ID Task', status: 'pending' },
           { id: '1', title: 'Valid Task', status: 'pending' }
         ]
       } as any);
 
       const written = JSON.parse(writeFile.mock.calls[0][1]);
-      expect(written).toHaveLength(1);
-      expect(written[0].id).toBe('1');
+      expect(written).toHaveLength(2);
+      expect(written[0].id).toMatch(/^task-/);
+      expect(written[1].id).toBe('1');
     });
 
     it('skips tasks without title or content', async () => {

@@ -37,4 +37,15 @@ describe('ConversationManager cropHistory', () => {
     const remaining = manager.history().map((msg) => msg.content);
     expect(remaining).toContain('user-new');
   });
+
+  it('removes specific message indices in chronological order', () => {
+    const removed = manager.removeIndices([4, 2]);
+
+    expect(removed.map((msg) => msg.content)).toEqual(['assistant-old', 'assistant-new']);
+    expect(manager.history().map((msg) => msg.content)).toEqual([
+      'system prompt',
+      'user-old',
+      'user-new',
+    ]);
+  });
 });

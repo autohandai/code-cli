@@ -262,3 +262,86 @@ describe('SlashCommandHandler /chrome context', () => {
     expect(arg).toContain('args');
   });
 });
+
+// ─── --chrome CLI flag ──────────────────────────────────────────
+describe('--chrome CLI flag', () => {
+  it('ensures native host is installed when --chrome is passed', async () => {
+    mockPathExists.mockResolvedValue(false); // native host not installed
+    mockCreateBrowserHandoff.mockResolvedValue({
+      token: 'test-token',
+      sessionId: 'test-session',
+      url: 'about:blank',
+    });
+
+    const ctx = makeCtx();
+    const result = await chrome(ctx as any);
+
+    // When native host is not installed, ensureNativeHostInstalled should be called
+    expect(mockEnsureNativeHostInstalled).toHaveBeenCalled();
+  });
+
+  it('creates a browser handoff with the current session when user selects Open in Chrome', async () => {
+    mockPathExists.mockResolvedValue(true);
+    mockCreateBrowserHandoff.mockResolvedValue({
+      token: 'test-token',
+      sessionId: 'test-session-123',
+      url: 'about:blank',
+    });
+
+    const ctx = makeCtx();
+    mockShowModal.mockResolvedValue({ label: 'Open in Chrome', value: 'open' });
+    await chrome(ctx as any);
+
+    expect(mockCreateBrowserHandoff).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'test-session-123',
+        workspaceRoot: '/tmp/test',
+      }),
+    );
+  });
+
+  it('opens Chrome with the handoff URL', async () => {
+    mockPathExists.mockResolvedValue(true);
+    mockCreateBrowserHandoff.mockResolvedValue({
+      token: 'test-token',
+      sessionId: 'test-session-123',
+      url: 'about:blank',
+    });
+
+    const ctx = makeCtx();
+    mockShowModal.mockResolvedValue({ label: 'Open in Chrome', value: 'open' });
+    await chrome(ctx as any);
+
+    expect(mockOpenChromeContinuation).toHaveBeenCalled();
+  });
+
+  it('returns null when user presses ESC in modal', async () => {
+    mockShowModal.mockResolvedValue(null);
+    const ctx = makeCtx();
+
+    const result = await chrome(ctx as any);
+    expect(result).toBeNull();
+  });
+
+  it('returns error when no config available for disconnect', async () => {
+    const ctx = makeCtx({ config: undefined });
+    const result = await chrome(ctx as any, ['disconnect']);
+    expect(result).toContain('Config not available');
+  });
+});
+
+// ─── --no-chrome CLI flag ───────────────────────────────────────
+describe('--no-chrome CLI flag', () => {
+  it('disables enabledByDefault in config', async () => {
+    const config: Record<string, unknown> = {
+      chrome: { enabledByDefault: true },
+    };
+    const ctx = makeCtx({ config });
+
+    const result = await chrome(ctx as any, ['disconnect']);
+
+    expect(result).toContain('disconnected');
+    expect((config.chrome as Record<string, unknown>).enabledByDefault).toBe(false);
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
+  });
+});
