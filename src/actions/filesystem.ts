@@ -534,22 +534,7 @@ export class FileActionManager {
     const normalized = path.isAbsolute(target) ? target : path.join(this.workspaceRoot, target);
     const resolved = path.resolve(normalized);
 
-    // Resolve symlinks to prevent symlink attacks (TOCTOU)
-    // A symlink inside workspace could point outside it
-    let realPath: string;
-    try {
-      realPath = fs.realpathSync(resolved);
-    } catch {
-      // File doesn't exist yet - check parent directory
-      const parentDir = path.dirname(resolved);
-      try {
-        const realParent = fs.realpathSync(parentDir);
-        realPath = path.join(realParent, path.basename(resolved));
-      } catch {
-        // Parent doesn't exist either - use resolved path for new paths
-        realPath = resolved;
-      }
-    }
+    const realPath = this.resolveRealPathOrAncestor(resolved);
 
     // Build list of all allowed roots (workspace + additional directories)
     const allAllowedRoots = [this.workspaceRoot, ...this.additionalDirs];
@@ -577,6 +562,25 @@ export class FileActionManager {
     // Path is not in any allowed directory
     const allowedDirsList = allAllowedRoots.join(', ');
     throw new Error(`Path ${target} escapes the allowed directories: ${allowedDirsList}`);
+  }
+
+  private resolveRealPathOrAncestor(resolvedPath: string): string {
+    let probe = resolvedPath;
+
+    while (true) {
+      try {
+        const realProbe = fs.realpathSync(probe);
+        return probe === resolvedPath
+          ? realProbe
+          : path.join(realProbe, path.relative(probe, resolvedPath));
+      } catch {
+        const parent = path.dirname(probe);
+        if (parent === probe) {
+          return resolvedPath;
+        }
+        probe = parent;
+      }
+    }
   }
 
   private walkFallback(query: string, baseDir: string): SearchHit[] {
