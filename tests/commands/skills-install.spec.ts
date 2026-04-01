@@ -197,7 +197,7 @@ describe('skillsInstall command', () => {
       undefined
     );
 
-    expect(result).toBeNull();
+    expect(result).toBe('No skill selected.');
     expect(mockSkillsRegistry.importCommunitySkillDirectory).not.toHaveBeenCalled();
   });
 });
