@@ -150,20 +150,20 @@ function listSkills(registry: SkillsRegistry): string {
   const lines: string[] = [];
 
   lines.push('');
-  lines.push(`📚 **${t('commands.skills.title')}**`);
+  lines.push(`📚 ${t('commands.skills.title')}`);
   lines.push('');
 
   if (allSkills.length === 0) {
     lines.push(t('commands.skills.noSkills'));
     lines.push('');
-    lines.push('**Get started:**');
+    lines.push('Get started:');
     lines.push('');
-    lines.push('{{action:🌐 Browse Community Skills|/skills install}}');
-    lines.push('{{action:✨ Create New Skill|/skills new}}');
+    lines.push(`  🌐 Browse Community Skills  →  /skills install`);
+    lines.push(`  ✨ Create New Skill         →  /skills new`);
     lines.push('');
-    lines.push('_Skills can be added in:_');
-    lines.push('- `~/.autohand/skills/<skill-name>/SKILL.md`');
-    lines.push('- `<project>/.autohand/skills/<skill-name>/SKILL.md`');
+    lines.push('Skills can be added in:');
+    lines.push('  ~/.autohand/skills/<skill-name>/SKILL.md');
+    lines.push('  <project>/.autohand/skills/<skill-name>/SKILL.md');
     return lines.join('\n');
   }
 
@@ -185,33 +185,37 @@ function listSkills(registry: SkillsRegistry): string {
   };
 
   for (const [source, skills] of bySource) {
-    lines.push(`**${sourceLabels[source] || source}**`);
+    lines.push(`${sourceLabels[source] || source}`);
     lines.push('');
 
     for (const skill of skills) {
       const isActive = skill.isActive;
       const statusIcon = isActive ? '🟢' : '⚪';
-      const statusText = isActive ? ' _(active)_' : '';
+      const statusText = isActive ? ' (active)' : '';
 
-      lines.push(`${statusIcon} **${skill.name}**${statusText}`);
-      lines.push(`   ${skill.description}`);
+      lines.push(`  ${statusIcon} ${skill.name}${statusText}`);
+      lines.push(`     ${skill.description}`);
 
-      // Add action buttons for each skill
+      // Add action hints for each skill (clean text, no {{action:...}} tokens)
       if (isActive) {
         const suggestion = generateSkillSuggestion(skill.name, skill.description);
-        lines.push(`   {{action:💡 Try it|${suggestion}}} {{action:ℹ️ Info|/skills info ${skill.name}}} {{action:⏸️ Deactivate|/skills deactivate ${skill.name}}}`);
+        lines.push(`     💡 Try: "${suggestion}"`);
+        lines.push(`     ℹ️  Info: /skills info ${skill.name}`);
+        lines.push(`     ⏸️  Deactivate: /skills deactivate ${skill.name}`);
       } else {
-        lines.push(`   {{action:▶️ Activate|/skills use ${skill.name}}} {{action:ℹ️ Info|/skills info ${skill.name}}}`);
+        lines.push(`     ▶️  Activate: /skills use ${skill.name}`);
+        lines.push(`     ℹ️  Info: /skills info ${skill.name}`);
       }
       lines.push('');
     }
   }
 
   lines.push('─'.repeat(40));
-  lines.push(`📊 **${allSkills.length}** skills available, **${activeSkills.length}** active`);
+  lines.push(`📊 ${allSkills.length} skills available, ${activeSkills.length} active`);
   lines.push('');
-  lines.push('**Quick Actions:**');
-  lines.push('{{action:🌐 Browse Community|/skills install}} {{action:✨ Create New|/skills new}}');
+  lines.push('Quick Actions:');
+  lines.push(`  🌐 Browse Community  →  /skills install`);
+  lines.push(`  ✨ Create New        →  /skills new`);
 
   return lines.join('\n');
 }
@@ -465,7 +469,7 @@ async function handleSkillsTrending(): Promise<string> {
     const featured = skill.isFeatured ? chalk.yellow(' [featured]') : '';
     const downloads = skill.downloadCount ? chalk.gray(` (${skill.downloadCount} installs)`) : '';
     lines.push(`${idx} ${name}${featured}${downloads}`);
-    lines.push(`   ${skill.description}`);
+    lines.push(`     ${skill.description}`);
     lines.push(`   {{action:Install|/skills install @${skill.author ?? 'community'}/${skill.id}}}`);
     lines.push('');
   }
