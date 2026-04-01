@@ -187,15 +187,24 @@ export class ContextManager {
    */
   private async summarizeOlderTurns(_tools: FunctionDefinition[]): Promise<number> {
     const messages = this.conversationManager.history();
+    const lastUserIndex = this.findLastUserMessageIndex(messages);
 
-    // Keep system prompt + last N turns (approximately 10 messages)
+    // Only summarize completed history before the current user turn.
+    // This avoids repeatedly trying to summarize the active tool/assistant loop.
+    if (lastUserIndex <= 1) {
+      return 0;
+    }
+
+    // Keep system prompt + last N messages before the active turn.
     const keepRecent = 10;
-    if (messages.length <= keepRecent + 1) {
+    const olderMessageCount = lastUserIndex - 1;
+    if (olderMessageCount <= keepRecent) {
       return 0;  // Not enough messages to summarize
     }
 
-    // Find messages to summarize (skip system, keep recent)
-    const toSummarize = messages.slice(1, messages.length - keepRecent);
+    // Find messages to summarize (skip system, keep recent stable history)
+    const summarizeCount = olderMessageCount - keepRecent;
+    const toSummarize = messages.slice(1, 1 + summarizeCount);
     if (toSummarize.length < 3) {
       return 0;  // Not worth summarizing
     }
@@ -204,7 +213,10 @@ export class ContextManager {
     const summary = await this.summarizeWithLLM(toSummarize);
 
     // Remove the old messages and add summary
-    const removed = this.conversationManager.cropHistory('top', toSummarize.length);
+    const removed = this.conversationManager.cropHistory('top', summarizeCount);
+    if (removed.length === 0) {
+      return 0;
+    }
 
     // Add summary as system note
     this.conversationManager.addSystemNote(summary);
@@ -284,20 +296,20 @@ export class ContextManager {
 
     // Create intelligent summary using LLM when available
     const summary = await this.summarizeWithLLM(removedMessages);
-
-    // Sort indices descending to remove from end first (preserves indices)
-    toRemoveIndices.sort((a, b) => b - a);
-
-    // Remove messages by cropping (simplified: crop from top based on count)
-    // Note: This is a simplification - ideally we'd remove specific indices
-    const removeCount = toRemoveIndices.length;
-    this.conversationManager.cropHistory('top', removeCount);
+    const removed = this.conversationManager.removeIndices(toRemoveIndices);
+    if (removed.length === 0) {
+      return {
+        messages,
+        usage: currentUsage,
+        croppedCount: 0
+      };
+    }
 
     // Add intelligent summary as system note
     this.conversationManager.addSystemNote(summary);
 
     // Notify callback
-    this.onCrop?.(removeCount, `Cropped ${removeCount} messages (priority-based)`);
+    this.onCrop?.(removed.length, `Cropped ${removed.length} messages (priority-based)`);
 
     // Recalculate usage
     const newMessages = this.conversationManager.history();
@@ -306,7 +318,7 @@ export class ContextManager {
     return {
       messages: newMessages,
       usage: newUsage,
-      croppedCount: removeCount,
+      croppedCount: removed.length,
       summary
     };
   }
@@ -402,12 +414,16 @@ export class ContextManager {
    * Check if a message at index is the last user message
    */
   private isLastUserMessage(messages: LLMMessage[], index: number): boolean {
+    return this.findLastUserMessageIndex(messages) === index;
+  }
+
+  private findLastUserMessageIndex(messages: LLMMessage[]): number {
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === 'user') {
-        return i === index;
+        return i;
       }
     }
-    return false;
+    return -1;
   }
 
   /**

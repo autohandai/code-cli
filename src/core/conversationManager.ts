@@ -44,6 +44,31 @@ export class ConversationManager {
     return [...this.messages];
   }
 
+  removeIndices(indices: number[]): LLMMessage[] {
+    if (!this.initialized || indices.length === 0 || this.messages.length <= 1) {
+      return [];
+    }
+
+    const uniqueValidIndices = [...new Set(indices)]
+      .filter((index) => index > 0 && index < this.messages.length)
+      .sort((a, b) => a - b);
+
+    if (uniqueValidIndices.length === 0) {
+      return [];
+    }
+
+    const removed: LLMMessage[] = [];
+    for (let i = uniqueValidIndices.length - 1; i >= 0; i -= 1) {
+      const index = uniqueValidIndices[i];
+      const [message] = this.messages.splice(index, 1);
+      if (message) {
+        removed.unshift(message);
+      }
+    }
+
+    return removed;
+  }
+
   cropHistory(direction: 'top' | 'bottom', amount: number): LLMMessage[] {
     if (!this.initialized || amount <= 0 || this.messages.length <= 1) {
       return [];
@@ -72,14 +97,7 @@ export class ConversationManager {
     if (!toRemove.length) {
       return [];
     }
-    toRemove.sort((a, b) => a - b);
-    const removed: LLMMessage[] = [];
-    for (let i = toRemove.length - 1; i >= 0; i -= 1) {
-      const index = toRemove[i];
-      const [message] = this.messages.splice(index, 1);
-      removed.unshift(message);
-    }
-    return removed;
+    return this.removeIndices(toRemove);
   }
 
   addSystemNote(content: string): void {
