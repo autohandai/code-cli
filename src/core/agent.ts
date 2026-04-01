@@ -86,7 +86,13 @@ import { formatToolOutputForDisplay } from '../ui/toolOutput.js';
 // The actual type comes from dynamic import at runtime
 type InkRenderer = any;
 import { PermissionManager } from '../permissions/PermissionManager.js';
-import type { PermissionMode } from '../permissions/types.js';
+import {
+  isAllowedPermissionPrompt,
+  normalizePermissionPromptResponse,
+  type PermissionMode,
+  type PermissionPromptResponse,
+  type PermissionPromptResult,
+} from '../permissions/types.js';
 import { HookManager } from './HookManager.js';
 import { TeamManager } from './teams/TeamManager.js';
 import { RepeatManager } from './RepeatManager.js';
@@ -135,7 +141,7 @@ export class AutohandAgent {
   private ignoreFilter: GitIgnoreParser;
   private statusListener?: (snapshot: AgentStatusSnapshot) => void;
   private outputListener?: (event: AgentOutputEvent) => void;
-  private confirmationCallback?: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<boolean>;
+  private confirmationCallback?: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<PermissionPromptResponse>;
   private conversation: ConversationManager;
   private toolManager: ToolManager;
   private actionExecutor: ActionExecutor;

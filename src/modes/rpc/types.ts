@@ -3,6 +3,7 @@
  * JSON-RPC 2.0 protocol types for VS Code extension communication
  * Spec: https://www.jsonrpc.org/specification
  */
+import type { PermissionPromptDecision, PermissionPromptResult } from '../../permissions/types.js';
 
 // ============================================================================
 // JSON-RPC 2.0 Base Types
@@ -1158,4 +1159,3 @@ export interface McpToolsChangedNotificationParams {
   tools: Array<{ name: string; description: string; serverName: string }>;
   timestamp: string;
 }
-import type { PermissionPromptDecision, PermissionPromptResult } from '../../permissions/types.js';
