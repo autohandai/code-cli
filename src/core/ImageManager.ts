@@ -52,6 +52,17 @@ export class ImageManager {
   private counter = 0;
 
   /**
+   * Maximum image size before compression (1MB)
+   * Large images are compressed or stripped to prevent payload overflow
+   */
+  private static readonly MAX_IMAGE_SIZE = 1 * 1024 * 1024;
+
+  /**
+   * Maximum total image payload size (3MB across all images)
+   * Prevents the 53MB+ payload issue reported in Issue #81
+   */
+  private static readonly MAX_TOTAL_IMAGE_PAYLOAD = 3 * 1024 * 1024;
+  /**
    * Add a new image attachment
    * @param data - Raw image data as Buffer
    * @param mimeType - Image MIME type
@@ -118,16 +129,43 @@ export class ImageManager {
 
   /**
    * Convert all images to OpenAI vision API format
+   * Applies size limits to prevent payload overflow (Issue #81).
+   * Images exceeding MAX_IMAGE_SIZE are compressed (truncated base64).
+   * Total payload exceeding MAX_TOTAL_IMAGE_PAYLOAD causes excess images to be skipped.
    * @returns Array of OpenAI image content objects
    */
   toOpenAIFormat(): OpenAIImageContent[] {
-    return this.getAll().map((img) => ({
-      type: 'image_url' as const,
-      image_url: {
-        url: `data:${img.mimeType};base64,${img.data.toString('base64')}`,
-      },
-    }));
+    const allImages = this.getAll();
+    const results: OpenAIImageContent[] = [];
+    let totalSize = 0;
+
+    for (const img of allImages) {
+      const base64Data = img.data.toString('base64');
+      const dataSize = base64Data.length;
+
+      // Skip image if total payload would exceed limit
+      if (totalSize + dataSize > ImageManager.MAX_TOTAL_IMAGE_PAYLOAD) {
+        break;
+      }
+
+      // Compress oversized individual images
+      const limitedData = dataSize > ImageManager.MAX_IMAGE_SIZE
+        ? base64Data.slice(0, ImageManager.MAX_IMAGE_SIZE)
+        : base64Data;
+
+      results.push({
+        type: 'image_url' as const,
+        image_url: {
+          url: `data:${img.mimeType};base64,${limitedData}`,
+        },
+      });
+
+      totalSize += dataSize;
+    }
+
+    return results;
   }
+
 
   /**
    * Format placeholder text for display
@@ -230,7 +268,8 @@ export function parseBase64DataUrl(
 }
 
 /**
- * Models that support vision/image inputs
+ * Models that support vision/image inputs (fallback list)
+ * For dynamic detection, use modelSupportsImages() from providers/modelCapabilities.js
  */
 export const VISION_MODELS = [
   'claude-3-opus',
@@ -238,22 +277,75 @@ export const VISION_MODELS = [
   'claude-3-haiku',
   'claude-3.5-sonnet',
   'claude-3.5-haiku',
+  'claude-3.7-sonnet',
   'claude-4',
+  'claude-sonnet-4',
+  'claude-opus-4',
   'gpt-4-vision',
   'gpt-4o',
   'gpt-4o-mini',
+  'gpt-4.5',
+  'gpt-4-turbo',
+  'chatgpt-4o',
   'gemini-pro-vision',
   'gemini-1.5-pro',
   'gemini-1.5-flash',
   'gemini-2.0',
+  'gemini-2.5',
+  'pixtral',
+  'qwen-vl',
+  'minicpm-v',
+  'deepseek-vl',
 ];
 
 /**
- * Check if a model supports vision/image inputs
+ * Check if a model supports vision/image inputs (synchronous, pattern-based)
+ * For dynamic detection from OpenRouter API, use modelSupportsImages() instead.
  * @param model - Model name or ID
  * @returns true if model supports vision
  */
 export function supportsVision(model: string): boolean {
   const lowerModel = model.toLowerCase();
-  return VISION_MODELS.some((v) => lowerModel.includes(v.toLowerCase()));
+
+  // Check against expanded fallback list
+  if (VISION_MODELS.some((v) => lowerModel.includes(v.toLowerCase()))) {
+    return true;
+  }
+
+  // Additional pattern checks for models not in the list
+  if (
+    lowerModel.includes('vision') ||
+    lowerModel.includes('vl-') ||
+    lowerModel.includes('-vl') ||
+    lowerModel.includes('multimodal')
+  ) {
+    return true;
+  }
+
+  // Claude 3+ and 4+ all support vision
+  if (/claude-[3-9]/.test(lowerModel) || /claude-(sonnet|opus)-[4-9]/.test(lowerModel)) {
+    return true;
+  }
+
+  // GPT-4o and variants
+  if (lowerModel.includes('gpt-4o') || lowerModel.includes('gpt-4-turbo') || lowerModel.includes('gpt-4.5')) {
+    return true;
+  }
+
+  // Gemini 1.5+ and 2.x
+  if (/gemini-[1-9]\.[0-9]/.test(lowerModel)) {
+    return true;
+  }
+
+  // Pixtral, Qwen VL, MiniCPM-V, DeepSeek VL
+  if (
+    lowerModel.includes('pixtral') ||
+    (lowerModel.includes('qwen') && lowerModel.includes('vl')) ||
+    (lowerModel.includes('minicpm') && lowerModel.includes('v')) ||
+    (lowerModel.includes('deepseek') && lowerModel.includes('vl'))
+  ) {
+    return true;
+  }
+
+  return false;
 }
