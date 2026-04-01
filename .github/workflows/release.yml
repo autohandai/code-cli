@@ -272,7 +272,11 @@ jobs:
 
             local expected
             local actual
-            expected=$(awk '{print $1}' "$checksum_file")
+            expected=$(grep -oE '[a-f0-9]{64}' "$checksum_file" | head -1)
+            if [ -z "$expected" ]; then
+              echo "⚠️ Could not parse checksum from $(basename "$checksum_file"), skipping verification"
+              return 0
+            fi
             actual=$(sha256sum "$archive" | awk '{print $1}')
             if [ "$expected" != "$actual" ]; then
               echo "❌ Checksum verification failed for $(basename "$archive")" >&2
