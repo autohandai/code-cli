@@ -596,8 +596,12 @@ export async function ensureNativeHostInstalled(options?: {
         // Check shebang is a valid Node.js interpreter (not bun, not the autohand binary itself)
         const firstLine = (await readFile(manifest.path, 'utf8')).split('\n')[0] ?? '';
         const shebangPath = firstLine.replace(/^#!/, '').trim();
-        const shebangBase = shebangPath.split('/').pop()?.toLowerCase() ?? '';
-        const isValidShebang = shebangBase === 'node' || shebangBase === 'env';
+        const shebangParts = shebangPath.split(/\s+/).filter(Boolean);
+        const commandBase = shebangParts[0]?.split('/').pop()?.toLowerCase() ?? '';
+        const envTarget = commandBase === 'env'
+          ? shebangParts.slice(1).find((part) => !part.startsWith('-'))?.split('/').pop()?.toLowerCase() ?? ''
+          : commandBase;
+        const isValidShebang = envTarget === 'node';
         if (isValidShebang) {
           return; // Already installed with valid host
         }
@@ -748,6 +752,38 @@ export function buildChromeLaunchUrl(options: {
   return `${baseUrl}${separator}handoff=${encodeURIComponent(options.token)}`;
 }
 
+/**
+ * Open a URL with graceful fallbacks.
+ * On Linux, `xdg-open` may be missing (headless servers, minimal distros).
+ * Tries multiple strategies before printing the URL for manual opening.
+ */
+async function openUrl(url: string): Promise<void> {
+  try {
+    await open(url);
+    return;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!message.includes('xdg-open') && !message.includes('Executable not found') && !message.includes('ENOENT')) {
+      throw err;
+    }
+  }
+
+  // Fallback: try common Linux openers directly
+  const openers = ['xdg-open', 'sensible-browser', 'x-www-browser', 'firefox', 'chromium', 'google-chrome'];
+  for (const opener of openers) {
+    try {
+      execSync(`which ${opener}`, { stdio: 'pipe' });
+      spawn(opener, [url], { detached: true, stdio: 'ignore' }).unref();
+      return;
+    } catch {
+      // opener not found, try next
+    }
+  }
+
+  // Last resort: print URL for manual opening
+  console.log(`\nUnable to open a browser automatically. Please open this URL manually:\n${url}\n`);
+}
+
 export async function openChromeContinuation(
   url: string,
   browser: BrowserPreference = 'auto',
@@ -776,7 +812,16 @@ export async function openChromeContinuation(
     return;
   }
 
-  await open(url, { app: { name: appName } });
+  try {
+    await open(url, { app: { name: appName } });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('xdg-open') || message.includes('Executable not found') || message.includes('ENOENT')) {
+      await open(url);
+    } else {
+      throw err;
+    }
+  }
 }
 
 export function applyChromeSettings(config: LoadedConfig, updates: Partial<ChromeSettings>): LoadedConfig {
