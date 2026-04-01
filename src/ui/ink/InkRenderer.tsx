@@ -23,6 +23,8 @@ export interface InkRendererOptions {
   onEscape: () => void;
   onCtrlC: () => void;
   enableQueueInput?: boolean;
+  /** Called when a dragged/dropped image is detected in the input */
+  onImageDetected?: (data: Buffer, mimeType: string, filename?: string) => number;
 }
 
 /**
@@ -41,6 +43,7 @@ interface AgentUIWrapperProps {
   onToggleLiveCommandExpanded: () => void;
   onInputChange: (input: string) => void;
   enableQueueInput?: boolean;
+  onImageDetected?: (data: Buffer, mimeType: string, filename?: string) => number;
 }
 
 /**
@@ -56,7 +59,8 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       onCtrlC,
       onToggleLiveCommandExpanded,
       onInputChange,
-      enableQueueInput
+      enableQueueInput,
+      onImageDetected,
     } = props;
 
     const [state, setState] = useState<AgentUIState>(initialState);
@@ -88,6 +92,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         onToggleLiveCommandExpanded={onToggleLiveCommandExpanded}
         onInputChange={handleInputChange}
         enableQueueInput={enableQueueInput}
+        onImageDetected={onImageDetected}
       />
     );
   }
@@ -146,6 +151,7 @@ export class InkRenderer {
             onToggleLiveCommandExpanded={() => this.toggleActiveLiveCommandExpanded()}
             onInputChange={this.handleInputChange}
             enableQueueInput={this.options.enableQueueInput}
+            onImageDetected={this.options.onImageDetected}
           />
         </I18nProvider>
       </ThemeProvider>,
@@ -505,6 +511,7 @@ export class InkRenderer {
               onToggleLiveCommandExpanded={() => this.toggleActiveLiveCommandExpanded()}
               onInputChange={this.handleInputChange}
               enableQueueInput={this.options.enableQueueInput}
+              onImageDetected={this.options.onImageDetected}
             />
           </I18nProvider>
         </ThemeProvider>,
