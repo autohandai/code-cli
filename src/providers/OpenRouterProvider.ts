@@ -7,6 +7,7 @@
 import { OpenRouterClient } from './OpenRouterClient.js';
 import type { LLMProvider } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, OpenRouterSettings, NetworkSettings } from '../types.js';
+import { fetchOpenRouterModelCapabilities } from './modelCapabilities.js';
 
 export class OpenRouterProvider implements LLMProvider {
     private client: OpenRouterClient;
@@ -27,8 +28,19 @@ export class OpenRouterProvider implements LLMProvider {
     }
 
     async listModels(): Promise<string[]> {
-        // Popular models on OpenRouter
-        // In a real implementation, you'd fetch from OpenRouter's models API
+        try {
+            const models = await fetchOpenRouterModelCapabilities();
+            const ids = models
+                .map((model) => model.id)
+                .filter((id): id is string => Boolean(id));
+
+            if (ids.length > 0) {
+                return ids;
+            }
+        } catch {
+            // Fall through to the static fallback list below.
+        }
+
         return [
             'anthropic/claude-3.5-sonnet',
             'anthropic/claude-3-opus',

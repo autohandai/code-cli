@@ -14,6 +14,7 @@ import type {
   LLMMessage,
 } from "../types.js";
 import { ApiError, classifyApiError } from "./errors.js";
+import { modelSupportsImages } from "./modelCapabilities.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -24,11 +25,49 @@ import { ApiError, classifyApiError } from "./errors.js";
  * - name (for function messages, optional)
  * Excludes internal fields like priority, metadata.
  */
-function sanitizeMessages(messages: LLMMessage[]): Record<string, unknown>[] {
+function messageContainsImageContent(messages: LLMMessage[]): boolean {
+  return messages.some((msg) =>
+    Array.isArray(msg.content) &&
+    msg.content.some(
+      (part) =>
+        typeof part === "object" &&
+        part !== null &&
+        "type" in part &&
+        part.type === "image_url"
+    )
+  );
+}
+
+function getTextContent(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  return content
+    .filter(
+      (part): part is { type: string; text?: string } =>
+        typeof part === "object" && part !== null && "type" in part
+    )
+    .filter((part) => part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text ?? "")
+    .join("\n");
+}
+
+function sanitizeMessages(
+  messages: LLMMessage[],
+  allowImageInputs: boolean
+): Record<string, unknown>[] {
   return messages.map((msg) => {
     const sanitized: Record<string, unknown> = {
       role: msg.role,
-      content: msg.content,
+      content:
+        allowImageInputs || !Array.isArray(msg.content)
+          ? msg.content
+          : getTextContent(msg.content),
     };
 
     // Add tool_call_id for tool response messages
@@ -87,9 +126,14 @@ export class OpenRouterClient {
   }
 
   async complete(request: LLMRequest): Promise<LLMResponse> {
+    const selectedModel = request.model ?? this.defaultModel;
+    const allowImageInputs = messageContainsImageContent(request.messages)
+      ? await modelSupportsImages(selectedModel)
+      : false;
+
     const payload: Record<string, unknown> = {
-      model: request.model ?? this.defaultModel,
-      messages: sanitizeMessages(request.messages),
+      model: selectedModel,
+      messages: sanitizeMessages(request.messages, allowImageInputs),
       temperature: request.temperature ?? 0.2,
       max_tokens: request.maxTokens ?? 16000, // Increased from 1000 to allow large file generation
       stream: request.stream ?? false,
@@ -113,7 +157,7 @@ export class OpenRouterClient {
     }
 
     // Add thinking/reasoning level support for compatible models
-    const model = (request.model ?? this.defaultModel).toLowerCase();
+    const model = selectedModel.toLowerCase();
     if (request.thinkingLevel && request.thinkingLevel !== 'normal') {
       // OpenAI o1/o3 models use reasoning_effort
       if (model.includes('o1') || model.includes('o3')) {
