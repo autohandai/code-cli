@@ -55,6 +55,7 @@ import type {
   LearnGenerateParams,
   LearnGenerateResult,
 } from './types.js';
+import { normalizePermissionPromptResponse, type PermissionPromptResponse } from '../../permissions/types.js';
 import {
   RPC_NOTIFICATIONS,
   MAX_IMAGE_SIZE,
@@ -750,12 +751,13 @@ export class RPCAdapter {
   handlePermissionResponse(
     requestId: JsonRpcId,
     permRequestId: string,
-    allowed: boolean
+    decision: PermissionPromptResponse
   ): PermissionResponseResult {
-    process.stderr.write(`[RPC] handlePermissionResponse called: permRequestId=${permRequestId}, allowed=${allowed}, pending keys=${Array.from(this.pendingPermissions.keys()).join(',')}\n`);
+    process.stderr.write(`[RPC] handlePermissionResponse called: permRequestId=${permRequestId}, allowed=${decision}, pending keys=${Array.from(this.pendingPermissions.keys()).join(',')}\n`);
     const pending = this.pendingPermissions.get(permRequestId);
     if (pending) {
-      process.stderr.write(`[RPC] Found pending permission, resolving with allowed=${allowed}\n`);
+      const normalized = normalizePermissionPromptResponse(decision);
+      process.stderr.write(`[RPC] Found pending permission, resolving with allowed=${normalized.decision}\n`);
       // Clear both timeouts
       if (pending.ackTimeout) {
         clearTimeout(pending.ackTimeout);
@@ -764,7 +766,7 @@ export class RPCAdapter {
         clearTimeout(pending.responseTimeout);
       }
       this.pendingPermissions.delete(permRequestId);
-      pending.resolve(allowed);
+      pending.resolve(normalized);
       this.status = 'processing';
       process.stderr.write(`[RPC] Permission resolved, status set to processing\n`);
       return { success: true };
@@ -784,7 +786,7 @@ export class RPCAdapter {
     tool: string,
     description: string,
     context: { command?: string; path?: string; args?: string[] }
-  ): Promise<boolean> {
+  ): Promise<import('../../permissions/types.js').PermissionPromptResult> {
     const permRequestId = generateId('perm');
     this.status = 'waiting_permission';
     process.stderr.write(`[RPC] requestPermission: tool=${tool}, permRequestId=${permRequestId}\n`);
@@ -794,6 +796,17 @@ export class RPCAdapter {
       tool,
       description,
       context,
+      options: [
+        'allow_once',
+        'deny_once',
+        'allow_session',
+        'deny_session',
+        'allow_always_project',
+        'allow_always_user',
+        'deny_always_project',
+        'deny_always_user',
+        'alternative',
+      ],
       timestamp: createTimestamp(),
     });
 
@@ -804,7 +817,7 @@ export class RPCAdapter {
         this.pendingPermissions.delete(permRequestId);
         this.status = 'processing';
         process.stderr.write(`[RPC] Permission ack timeout for ${permRequestId}\n`);
-        resolve(false); // Deny - extension not responding
+        resolve({ decision: 'deny_once' }); // Deny - extension not responding
       }, 30000); // 30 second acknowledgment timeout
 
       this.pendingPermissions.set(permRequestId, {
