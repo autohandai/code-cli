@@ -160,7 +160,11 @@ export class OpenAIProvider implements LLMProvider {
                 return mapped;
             }),
             temperature: request.temperature || 0.7,
-            max_tokens: request.maxTokens
+            // Newer OpenAI models (gpt-5.x, o-series) require max_completion_tokens
+            // instead of max_tokens. Use the correct parameter based on model.
+            ...(this.usesMaxCompletionTokens(request.model || this.model)
+                ? { max_completion_tokens: request.maxTokens }
+                : { max_tokens: request.maxTokens })
         };
 
         // Add reasoning effort when configured (with runtime validation)
@@ -513,6 +517,20 @@ export class OpenAIProvider implements LLMProvider {
                     arguments: toolCall.arguments,
                 },
             }));
+    }
+
+    /**
+     * Determine if a model requires `max_completion_tokens` instead of `max_tokens`.
+     * OpenAI's newer models (gpt-5.x, o-series) reject `max_tokens` with a 400 error.
+     */
+    private usesMaxCompletionTokens(model: string): boolean {
+        const lower = model.toLowerCase();
+        return (
+            lower.startsWith('gpt-5') ||
+            lower.startsWith('o1') ||
+            lower.startsWith('o3') ||
+            lower.startsWith('o4')
+        );
     }
 
     private extractResponsesContent(data: OpenAIResponsesResponse): string {
