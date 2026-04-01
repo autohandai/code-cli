@@ -389,17 +389,23 @@ async function handleSingleRequest(
 
       case RPC_METHODS.PERMISSION_RESPONSE: {
         const permParams = params as PermissionResponseParams | undefined;
-        if (!permParams?.requestId || permParams?.allowed === undefined) {
+        if (!permParams?.requestId || (permParams?.decision === undefined && permParams?.allowed === undefined)) {
           if (shouldRespond) {
             return createErrorResponse(
               id!,
               JSON_RPC_ERROR_CODES.INVALID_PARAMS,
-              'Missing required parameters: requestId, allowed'
+              'Missing required parameters: requestId and a permission decision'
             );
           }
           return null;
         }
-        result = adapter.handlePermissionResponse(id!, permParams.requestId, permParams.allowed);
+        result = adapter.handlePermissionResponse(
+          id!,
+          permParams.requestId,
+          permParams.decision
+            ? { decision: permParams.decision, alternative: permParams.alternative }
+            : Boolean(permParams.allowed)
+        );
         break;
       }
 
