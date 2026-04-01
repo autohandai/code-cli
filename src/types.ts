@@ -538,6 +538,8 @@ export interface ChromeConfigSettings {
   profileDirectory?: string;
   /** Fallback install/continue URL when the extension id is not configured */
   installUrl?: string;
+  /** Whether to start the browser bridge automatically with the CLI (default: false) */
+  enabledByDefault?: boolean;
 }
 
 export interface AutohandConfig {
@@ -680,6 +682,10 @@ export interface CLIOptions {
   yolo?: string;
   /** Timeout in seconds for auto-approve mode */
   timeout?: number;
+  /** Enable Chrome browser integration (same as /chrome) */
+  chrome?: boolean;
+  /** Disable Chrome browser integration */
+  noChrome?: boolean;
 }
 
 export interface PromptContext {
