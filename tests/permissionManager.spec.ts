@@ -3,11 +3,45 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'fs-extra';
 import { PermissionManager } from '../src/permissions/PermissionManager.js';
 
 describe('PermissionManager', () => {
+  let tempWorkspaceRoot: string;
+
+  beforeEach(async () => {
+    tempWorkspaceRoot = path.join(
+      os.tmpdir(),
+      `autohand-permissions-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+    await fs.ensureDir(tempWorkspaceRoot);
+  });
+
+  afterEach(async () => {
+    await fs.remove(tempWorkspaceRoot);
+  });
+
   describe('basic permission checks', () => {
+    it('allows allowList patterns', () => {
+      const manager = new PermissionManager({
+        settings: {
+          allowList: ['run_command:npm install']
+        }
+      });
+
+      const result = manager.checkPermission({
+        tool: 'run_command',
+        command: 'npm',
+        args: ['install']
+      });
+
+      expect(result.allowed).toBe(true);
+      expect(result.reason).toBe('allow_list');
+    });
+
     it('allows whitelisted patterns', () => {
       const manager = new PermissionManager({
         settings: {
@@ -22,7 +56,24 @@ describe('PermissionManager', () => {
       });
 
       expect(result.allowed).toBe(true);
-      expect(result.reason).toBe('whitelisted');
+      expect(result.reason).toBe('allow_list');
+    });
+
+    it('denies denyList patterns', () => {
+      const manager = new PermissionManager({
+        settings: {
+          denyList: ['run_command:rm -rf *']
+        }
+      });
+
+      const result = manager.checkPermission({
+        tool: 'run_command',
+        command: 'rm',
+        args: ['-rf', '*']
+      });
+
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toBe('deny_list');
     });
 
     it('denies blacklisted patterns', () => {
@@ -39,7 +90,7 @@ describe('PermissionManager', () => {
       });
 
       expect(result.allowed).toBe(false);
-      expect(result.reason).toBe('blacklisted');
+      expect(result.reason).toBe('deny_list');
     });
 
     it('returns default for unknown commands in interactive mode', () => {
@@ -126,7 +177,7 @@ describe('PermissionManager', () => {
   });
 
   describe('persistent permissions', () => {
-    it('adds approved commands to whitelist', async () => {
+    it('adds approved commands to the allowList', async () => {
       const onPersist = vi.fn();
       const manager = new PermissionManager({
         settings: {},
@@ -139,11 +190,11 @@ describe('PermissionManager', () => {
         args: ['install']
       }, true);
 
-      expect(manager.getWhitelist()).toContain('run_command:npm install');
+      expect(manager.getAllowList()).toContain('run_command:npm install');
       expect(onPersist).toHaveBeenCalled();
     });
 
-    it('adds denied commands to blacklist', async () => {
+    it('adds denied commands to the denyList', async () => {
       const onPersist = vi.fn();
       const manager = new PermissionManager({
         settings: {},
@@ -156,7 +207,7 @@ describe('PermissionManager', () => {
         args: ['-rf', '/']
       }, false);
 
-      expect(manager.getBlacklist()).toContain('run_command:rm -rf /');
+      expect(manager.getDenyList()).toContain('run_command:rm -rf /');
       expect(onPersist).toHaveBeenCalled();
     });
 
@@ -174,41 +225,41 @@ describe('PermissionManager', () => {
 
       expect(onPersist).toHaveBeenCalledWith(
         expect.objectContaining({
-          whitelist: expect.arrayContaining(['write_file:test.txt'])
+          allowList: expect.arrayContaining(['write_file:test.txt'])
         })
       );
     });
 
-    it('removes items from whitelist', async () => {
+    it('removes items from the allowList', async () => {
       const onPersist = vi.fn();
       const manager = new PermissionManager({
         settings: {
-          whitelist: ['run_command:npm test', 'run_command:npm build']
+          allowList: ['run_command:npm test', 'run_command:npm build']
         },
         onPersist
       });
 
-      const removed = await manager.removeFromWhitelist('run_command:npm test');
+      const removed = await manager.removeFromAllowList('run_command:npm test');
 
       expect(removed).toBe(true);
-      expect(manager.getWhitelist()).not.toContain('run_command:npm test');
-      expect(manager.getWhitelist()).toContain('run_command:npm build');
+      expect(manager.getAllowList()).not.toContain('run_command:npm test');
+      expect(manager.getAllowList()).toContain('run_command:npm build');
       expect(onPersist).toHaveBeenCalled();
     });
 
-    it('removes items from blacklist', async () => {
+    it('removes items from the denyList', async () => {
       const onPersist = vi.fn();
       const manager = new PermissionManager({
         settings: {
-          blacklist: ['run_command:rm -rf *']
+          denyList: ['run_command:rm -rf *']
         },
         onPersist
       });
 
-      const removed = await manager.removeFromBlacklist('run_command:rm -rf *');
+      const removed = await manager.removeFromDenyList('run_command:rm -rf *');
 
       expect(removed).toBe(true);
-      expect(manager.getBlacklist()).not.toContain('run_command:rm -rf *');
+      expect(manager.getDenyList()).not.toContain('run_command:rm -rf *');
       expect(onPersist).toHaveBeenCalled();
     });
   });
@@ -267,7 +318,7 @@ describe('PermissionManager', () => {
       });
 
       expect(result.allowed).toBe(true);
-      expect(result.reason).toBe('whitelisted');
+      expect(result.reason).toBe('allow_list');
     });
 
     it('directory trust does NOT extend to parent directories', async () => {
@@ -345,10 +396,36 @@ describe('PermissionManager', () => {
   });
 
   describe('getters', () => {
+    it('returns copy of allowList', () => {
+      const manager = new PermissionManager({
+        settings: {
+          allowList: ['run_command:npm test']
+        }
+      });
+
+      const allowList = manager.getAllowList();
+      allowList.push('something');
+
+      expect(manager.getAllowList()).toEqual(['run_command:npm test']);
+    });
+
+    it('returns copy of denyList', () => {
+      const manager = new PermissionManager({
+        settings: {
+          denyList: ['run_command:rm -rf *']
+        }
+      });
+
+      const denyList = manager.getDenyList();
+      denyList.push('something');
+
+      expect(manager.getDenyList()).toEqual(['run_command:rm -rf *']);
+    });
+
     it('returns copy of whitelist', () => {
       const manager = new PermissionManager({
         settings: {
-          whitelist: ['run_command:npm test']
+          allowList: ['run_command:npm test']
         }
       });
 
@@ -361,7 +438,7 @@ describe('PermissionManager', () => {
     it('returns copy of blacklist', () => {
       const manager = new PermissionManager({
         settings: {
-          blacklist: ['run_command:rm -rf *']
+          denyList: ['run_command:rm -rf *']
         }
       });
 
@@ -375,13 +452,126 @@ describe('PermissionManager', () => {
       const manager = new PermissionManager({
         settings: {
           mode: 'interactive',
-          whitelist: ['test']
+          allowList: ['test']
         }
       });
 
       const settings = manager.getSettings();
       expect(settings.mode).toBe('interactive');
-      expect(settings.whitelist).toContain('test');
+      expect(settings.allowList).toContain('test');
+      settings.allowList?.push('other');
+
+      const fresh = manager.getSettings();
+      expect(fresh.mode).toBe('interactive');
+      expect(fresh.allowList).toEqual(['test']);
+    });
+  });
+
+  describe('structured prompt decisions', () => {
+    it('stores allow-once decisions in the project session permission file', async () => {
+      const manager = new PermissionManager({
+        settings: {},
+        workspaceRoot: tempWorkspaceRoot,
+      });
+
+      await manager.initLocalSettings();
+      await manager.applyPromptDecision(
+        { tool: 'run_command', command: 'git status' },
+        { decision: 'allow_session' },
+      );
+
+      const reloaded = new PermissionManager({
+        settings: {},
+        workspaceRoot: tempWorkspaceRoot,
+      });
+      await reloaded.initLocalSettings();
+
+      const result = reloaded.checkPermission({
+        tool: 'run_command',
+        command: 'git status',
+      });
+
+      expect(result.allowed).toBe(true);
+      expect(result.reason).toBe('session_allow_list');
+    });
+
+    it('stores project-scoped persistent approvals in settings.local.json', async () => {
+      const onPersist = vi.fn();
+      const manager = new PermissionManager({
+        settings: {},
+        workspaceRoot: tempWorkspaceRoot,
+        onPersist,
+      });
+
+      await manager.initLocalSettings();
+      await manager.applyPromptDecision(
+        { tool: 'write_file', path: '/project/src/example.ts' },
+        { decision: 'allow_always_project' },
+      );
+
+      expect(manager.getAllowList()).toHaveLength(0);
+      expect(onPersist).not.toHaveBeenCalled();
+
+      const reloaded = new PermissionManager({
+        settings: {},
+        workspaceRoot: tempWorkspaceRoot,
+      });
+      await reloaded.initLocalSettings();
+
+      const result = reloaded.checkPermission({
+        tool: 'write_file',
+        path: '/project/src/example.ts',
+      });
+
+      expect(result.allowed).toBe(true);
+      expect(result.reason).toBe('project_allow_list');
+    });
+
+    it('stores user-scoped persistent denials in the denyList', async () => {
+      const onPersist = vi.fn();
+      const manager = new PermissionManager({
+        settings: {},
+        workspaceRoot: tempWorkspaceRoot,
+        onPersist,
+      });
+
+      await manager.applyPromptDecision(
+        { tool: 'run_command', command: 'npm publish' },
+        { decision: 'deny_always_user' },
+      );
+
+      expect(manager.getDenyList()).toContain('run_command:npm publish');
+      expect(onPersist).toHaveBeenCalledWith(
+        expect.objectContaining({
+          denyList: expect.arrayContaining(['run_command:npm publish']),
+        })
+      );
+    });
+
+    it('returns a permission snapshot grouped by session, project, user, and effective scopes', async () => {
+      const manager = new PermissionManager({
+        settings: {
+          allowList: ['run_command:npm test'],
+          denyList: ['run_command:npm publish'],
+        },
+        workspaceRoot: tempWorkspaceRoot,
+      });
+
+      await manager.initLocalSettings();
+      await manager.applyPromptDecision(
+        { tool: 'run_command', command: 'git status' },
+        { decision: 'allow_session' },
+      );
+
+      const snapshot = manager.getPermissionSnapshot('/tmp/config.json');
+
+      expect(snapshot.user.path).toBe('/tmp/config.json');
+      expect(snapshot.user.allowList).toContain('run_command:npm test');
+      expect(snapshot.session.allowList).toContain('run_command:git status');
+      expect(snapshot.project.path).toContain('.autohand/settings.local.json');
+      expect(snapshot.effective.allowList).toEqual(
+        expect.arrayContaining(['run_command:npm test', 'run_command:git status'])
+      );
     });
   });
 });

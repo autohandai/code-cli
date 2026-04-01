@@ -757,7 +757,7 @@ export function buildChromeLaunchUrl(options: {
  * On Linux, `xdg-open` may be missing (headless servers, minimal distros).
  * Tries multiple strategies before printing the URL for manual opening.
  */
-async function openUrl(url: string): Promise<void> {
+export async function openUrl(url: string): Promise<void> {
   try {
     await open(url);
     return;

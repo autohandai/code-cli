@@ -6,6 +6,7 @@
 
 import type { AgentSideConnection, RequestPermissionResponse, ToolKind } from '@agentclientprotocol/sdk';
 import { resolveToolKind, resolveToolDisplayName } from './types.js';
+import type { PermissionPromptResult } from '../../permissions/types.js';
 
 /**
  * Permission bridge options.
@@ -42,20 +43,20 @@ export function createPermissionBridge(options: PermissionBridgeOptions) {
 
   /**
    * The confirmation callback for the agent.
-   * Returns true if the action is approved, false if denied.
+   * Returns a structured permission decision.
    */
   const confirmAction = async (
     message: string,
     context?: { tool?: string; command?: string; path?: string; args?: string[] }
-  ): Promise<boolean> => {
+  ): Promise<PermissionPromptResult> => {
     // Auto-approve modes
     if (modeId === 'unrestricted' || modeId === 'full-access' || modeId === 'auto-mode') {
-      return true;
+      return { decision: 'allow_once' };
     }
 
     // Auto-deny modes
     if (modeId === 'restricted' || modeId === 'dry-run') {
-      return false;
+      return { decision: 'deny_once' };
     }
 
     // Interactive mode: request permission through ACP protocol
@@ -88,26 +89,39 @@ export function createPermissionBridge(options: PermissionBridgeOptions) {
           },
         },
         options: [
-          { kind: 'allow_once', name: 'Allow', optionId: 'allow' },
-          { kind: 'reject_once', name: 'Deny', optionId: 'deny' },
-          { kind: 'allow_always', name: 'Always Allow', optionId: 'allow_always' },
+          { kind: 'allow_once', name: 'Yes', optionId: 'allow_once' },
+          { kind: 'reject_once', name: 'No', optionId: 'deny_once' },
+          { kind: 'allow_once', name: 'Allow Once', optionId: 'allow_session' },
+          { kind: 'reject_once', name: 'Deny Once', optionId: 'deny_session' },
+          { kind: 'allow_always', name: 'Allow Always (Project)', optionId: 'allow_always_project' },
+          { kind: 'allow_always', name: 'Allow Always (User)', optionId: 'allow_always_user' },
+          { kind: 'reject_always', name: 'Deny Always (Project)', optionId: 'deny_always_project' },
+          { kind: 'reject_always', name: 'Deny Always (User)', optionId: 'deny_always_user' },
+          { kind: 'reject_once', name: 'Enter alternative...', optionId: 'alternative' },
         ],
       });
 
       // Check the response outcome
       if (response.outcome.outcome === 'selected') {
         const optionId = response.outcome.optionId;
-        return optionId === 'allow' || optionId === 'allow_always';
+        if (optionId === 'alternative') {
+          const meta = (response.outcome as { _meta?: Record<string, unknown> })._meta;
+          const alternative = typeof meta?.alternative === 'string' ? meta.alternative.trim() : '';
+          return alternative
+            ? { decision: 'alternative', alternative }
+            : { decision: 'deny_once' };
+        }
+        return { decision: optionId as PermissionPromptResult['decision'] };
       }
 
       // Cancelled or other outcome = deny
-      return false;
+      return { decision: 'deny_once' };
     } catch (error) {
       // If permission request fails (connection issue, etc.), deny for safety
       process.stderr.write(
         `[ACP] Permission request failed: ${error instanceof Error ? error.message : String(error)}\n`
       );
-      return false;
+      return { decision: 'deny_once' };
     }
   };
 

@@ -5,118 +5,56 @@
  */
 import chalk from 'chalk';
 import { t } from '../i18n/index.js';
-import { safePrompt } from '../utils/prompt.js';
 import type { PermissionManager } from '../permissions/PermissionManager.js';
+import type { PermissionScopeSnapshot } from '../permissions/types.js';
 
 export interface PermissionsCommandContext {
   permissionManager: PermissionManager;
+  configPath?: string;
+}
+
+function renderSection(title: string, section: PermissionScopeSnapshot): void {
+  console.log(chalk.bold(title));
+  console.log(chalk.gray(section.path));
+
+  if (section.allowList.length === 0) {
+    console.log(chalk.gray('  No AllowList entries'));
+  } else {
+    console.log(chalk.green('  AllowList'));
+    section.allowList.forEach((pattern, index) => {
+      console.log(chalk.green(`    ${index + 1}. ${pattern}`));
+    });
+  }
+
+  if (section.denyList.length === 0) {
+    console.log(chalk.gray('  No DenyList entries'));
+  } else {
+    console.log(chalk.red('  DenyList'));
+    section.denyList.forEach((pattern, index) => {
+      console.log(chalk.red(`    ${index + 1}. ${pattern}`));
+    });
+  }
+
+  console.log();
 }
 
 /**
- * Permissions command - displays and manages tool/command approvals
+ * Permissions command - displays saved permission state by scope.
  */
 export async function permissions(ctx: PermissionsCommandContext): Promise<string | null> {
-  const whitelist = ctx.permissionManager.getWhitelist();
-  const blacklist = ctx.permissionManager.getBlacklist();
-  const settings = ctx.permissionManager.getSettings();
+  const snapshot = ctx.permissionManager.getPermissionSnapshot(ctx.configPath ?? '(user config unknown)');
 
   console.log();
   console.log(chalk.bold.cyan(t('commands.permissions.title')));
   console.log(chalk.gray('─'.repeat(50)));
-  console.log(chalk.gray(t('commands.permissions.mode', { mode: settings.mode || 'interactive' })));
-  console.log(chalk.gray(`Remember session decisions: ${settings.rememberSession !== false ? 'Yes' : 'No'}`));
+  console.log(chalk.gray(t('commands.permissions.mode', { mode: snapshot.mode || 'interactive' })));
+  console.log(chalk.gray(`Remember session decisions: ${snapshot.rememberSession ? 'Yes' : 'No'}`));
   console.log();
 
-  if (whitelist.length === 0 && blacklist.length === 0) {
-    console.log(chalk.gray('  No saved permissions yet.'));
-    console.log();
-    console.log(chalk.gray('  When you approve or deny a tool/command, it will be saved here.'));
-    console.log(chalk.gray('  Approved items are auto-allowed; denied items are auto-blocked.'));
-    console.log();
-    return null;
-  }
-
-  if (whitelist.length > 0) {
-    console.log(chalk.bold.green(t('commands.permissions.allowed')));
-    console.log();
-    whitelist.forEach((pattern, index) => {
-      console.log(chalk.green(`  ${index + 1}. ${pattern}`));
-    });
-    console.log();
-  }
-
-  if (blacklist.length > 0) {
-    console.log(chalk.bold.red(t('commands.permissions.denied')));
-    console.log();
-    blacklist.forEach((pattern, index) => {
-      console.log(chalk.red(`  ${index + 1}. ${pattern}`));
-    });
-    console.log();
-  }
-
-  console.log(chalk.gray('─'.repeat(50)));
-  console.log(chalk.gray(`Total: ${whitelist.length} approved, ${blacklist.length} denied`));
-  console.log();
-
-  // Offer management options
-  const actionResult = await safePrompt<{ action: string }>({
-    type: 'select',
-    name: 'action',
-    message: 'What would you like to do?',
-    choices: [
-      { name: 'done', message: 'Done' },
-      { name: 'remove_approved', message: 'Remove an approved item' },
-      { name: 'remove_denied', message: 'Remove a denied item' },
-      { name: 'clear_all', message: 'Clear all permissions' }
-    ]
-  });
-
-  if (!actionResult || actionResult.action === 'done') {
-    return null;
-  }
-
-  const { action } = actionResult;
-
-  if (action === 'remove_approved' && whitelist.length > 0) {
-    const result = await safePrompt<{ pattern: string }>({
-      type: 'select',
-      name: 'pattern',
-      message: 'Select item to remove from approved list:',
-      choices: whitelist.map(p => ({ name: p, message: p }))
-    });
-    if (result) {
-      await ctx.permissionManager.removeFromWhitelist(result.pattern);
-      console.log(chalk.yellow(`Removed "${result.pattern}" from approved list.`));
-    }
-  } else if (action === 'remove_denied' && blacklist.length > 0) {
-    const result = await safePrompt<{ pattern: string }>({
-      type: 'select',
-      name: 'pattern',
-      message: 'Select item to remove from denied list:',
-      choices: blacklist.map(p => ({ name: p, message: p }))
-    });
-    if (result) {
-      await ctx.permissionManager.removeFromBlacklist(result.pattern);
-      console.log(chalk.yellow(`Removed "${result.pattern}" from denied list.`));
-    }
-  } else if (action === 'clear_all') {
-    const result = await safePrompt<{ confirm: boolean }>({
-      type: 'confirm',
-      name: 'confirm',
-      message: 'Clear all saved permissions? This cannot be undone.',
-      initial: false
-    });
-    if (result?.confirm) {
-      // Remove all items
-      for (const pattern of [...whitelist]) {
-        await ctx.permissionManager.removeFromWhitelist(pattern);
-      }
-      for (const pattern of [...blacklist]) {
-        await ctx.permissionManager.removeFromBlacklist(pattern);
-      }
-      console.log(chalk.yellow('All permissions cleared.'));
-    }
-  }
+  renderSection('Session', snapshot.session);
+  renderSection('Project', snapshot.project);
+  renderSection('User', snapshot.user);
+  renderSection('Effective', snapshot.effective);
 
   return null;
 }

@@ -320,7 +320,21 @@
       "mode": "Mode: {{mode}}",
       "allowed": "Allowed actions:",
       "denied": "Denied actions:",
-      "pending": "Pending approval:"
+      "pending": "Pending approval:",
+      "prompt": {
+        "yes": "Yes",
+        "no": "No",
+        "allowOnce": "Allow Once",
+        "denyOnce": "Deny Once",
+        "allowAlways": "Allow Always",
+        "denyAlways": "Deny Always",
+        "alternative": "Enter alternative...",
+        "alternativeTitle": "Enter alternative action (or empty to cancel)",
+        "scopeTitle": "Choose where to save this decision",
+        "scopeProject": "Project",
+        "scopeUser": "User",
+        "scopeCancel": "Cancel"
+      }
     },
     "login": {
       "description": "sign in to your Autohand account",
