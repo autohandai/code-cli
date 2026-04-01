@@ -5,7 +5,7 @@
  */
 import { spawn } from 'node:child_process';
 import type { SpawnOptions } from 'node:child_process';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 
 export interface CommandResult {
   stdout: string;
@@ -55,7 +55,7 @@ export function runCommand(
 
   return new Promise((resolve, reject) => {
     const workDir = options.directory
-      ? join(cwd, options.directory)
+      ? (isAbsolute(options.directory) ? options.directory : join(cwd, options.directory))
       : cwd;
 
     // Build spawn options
