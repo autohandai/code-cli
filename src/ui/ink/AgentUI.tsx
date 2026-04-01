@@ -235,8 +235,19 @@ export function AgentUI({
       return;
     }
 
-    // Handle Ctrl+C - first warns, second exits
+    // Handle Ctrl+C - clear input if non-empty, otherwise warn then exit
     if (key.ctrl && char === 'c') {
+      const currentInput = textBufferRef.current.getText();
+
+      if (currentInput.length > 0) {
+        // Clear the input on first Ctrl+C when there's text
+        textBufferRef.current.setText('');
+        syncInputFromBuffer();
+        setCtrlCCount(0);
+        return;
+      }
+
+      // Input is empty - handle exit flow
       if (ctrlCCount === 0) {
         setCtrlCCount(1);
         onCtrlC();
