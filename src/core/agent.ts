@@ -3811,7 +3811,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         `Crop ${direction} ${Math.floor(amount)} message(s) from the conversation?`,
         { tool: 'smart_context_cropper' }
       );
-      if (!approved) {
+      if (!isAllowedPermissionPrompt(approved)) {
         return 'smart_context_cropper canceled by user.';
       }
     }
@@ -6347,13 +6347,16 @@ If lint or tests fail, report the issues but do NOT commit.`;
     return `${cleaned.slice(0, 219)}…`;
   }
 
-  private async confirmDangerousAction(message: string, context?: { tool?: string; path?: string; command?: string }): Promise<boolean> {
+  private async confirmDangerousAction(
+    message: string,
+    context?: { tool?: string; path?: string; command?: string }
+  ): Promise<PermissionPromptResult> {
     const normalizedYolo = normalizeYoloInput(this.runtime.options.yolo as string | boolean | undefined);
     if (normalizedYolo && context?.tool) {
       try {
         const pattern = parseYoloPattern(normalizedYolo);
         if (isToolAllowedByYolo(context.tool, pattern)) {
-          return true;
+          return { decision: 'allow_once' };
         }
       } catch {
         // Ignore malformed runtime YOLO values here; CLI validation handles normal entrypoints.
@@ -6361,31 +6364,44 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
 
     if (this.runtime.options.yes || this.runtime.config.ui?.autoConfirm) {
-      return true;
+      return { decision: 'allow_once' };
     }
+
+    let decision: PermissionPromptResult;
 
     // Use confirmation callback if set (e.g., RPC mode)
     if (this.confirmationCallback) {
-      return this.confirmationCallback(message, context);
+      decision = normalizePermissionPromptResponse(await this.confirmationCallback(message, context));
+    } else if (isExternalCallbackEnabled()) {
+      decision = normalizePermissionPromptResponse(await unifiedConfirm(message));
+    } else {
+      this.notificationService.notify(
+        { body: message, reason: 'confirmation' },
+        this.getNotificationGuards()
+      ).catch(() => {});
+
+      decision = await this.withModalPause(async () => {
+        // Reset stdin to cooked mode for Modal prompts
+        const wasRaw = process.stdin.isTTY && (process.stdin as any).isRaw;
+        if (wasRaw) {
+          safeSetRawMode(process.stdin as NodeJS.ReadStream, false);
+        }
+        return unifiedConfirm(message);
+      });
     }
 
-    if (isExternalCallbackEnabled()) {
-      return unifiedConfirm(message);
+    if (context?.tool) {
+      await this.permissionManager.applyPromptDecision(
+        {
+          tool: context.tool,
+          path: context.path,
+          command: context.command,
+        },
+        decision
+      );
     }
 
-    this.notificationService.notify(
-      { body: message, reason: 'confirmation' },
-      this.getNotificationGuards()
-    ).catch(() => {});
-
-    return this.withModalPause(async () => {
-      // Reset stdin to cooked mode for Modal prompts
-      const wasRaw = process.stdin.isTTY && (process.stdin as any).isRaw;
-      if (wasRaw) {
-        safeSetRawMode(process.stdin as NodeJS.ReadStream, false);
-      }
-      return unifiedConfirm(message);
-    });
+    return decision;
   }
 
   /**
@@ -6718,7 +6734,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Set a callback for confirmation prompts (used by RPC mode)
    * When set, this callback is used instead of the default Modal prompt
    */
-  setConfirmationCallback(callback: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<boolean>): void {
+  setConfirmationCallback(
+    callback: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<PermissionPromptResponse>
+  ): void {
     this.confirmationCallback = callback;
   }
 
