@@ -5,9 +5,28 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import readline from 'node:readline';
 import { AutohandAgent } from '../../src/core/agent.js';
 import { getPlanModeManager } from '../../src/commands/plan.js';
+
+async function waitForAssertion(assertion: () => void, attempts = 20): Promise<void> {
+  let lastError: unknown;
+
+  for (let index = 0; index < attempts; index++) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
 
 describe('agent startup and active input UI', () => {
   it('syncInteractiveAutomodePermissions enables unrestricted approvals when interactive auto-mode is on', () => {
@@ -56,6 +75,95 @@ describe('agent startup and active input UI', () => {
     expect(agent.runtime.options.unrestricted).toBe(false);
     expect(agent.runtime.options.restricted).toBe(false);
     expect(agent.permissionManager.setMode).toHaveBeenCalledWith('interactive');
+  });
+
+  it('resolveWorkspacePath allows absolute paths inside additional directories', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const workspaceRoot = mkdtempSync(join(tmpdir(), 'autohand-agent-workspace-'));
+    const additionalDir = mkdtempSync(join(tmpdir(), 'autohand-agent-extra-'));
+    const targetPath = join(additionalDir, 'src', 'feature.ts');
+
+    try {
+      agent.runtime = {
+        workspaceRoot,
+        additionalDirs: [additionalDir],
+      };
+      agent.files = {
+        getAllowedDirectories: () => [workspaceRoot, additionalDir],
+      };
+
+      expect((agent as any).resolveWorkspacePath(targetPath)).toBe(targetPath);
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+      rmSync(additionalDir, { recursive: true, force: true });
+    }
+  });
+
+  it('resolveWorkspacePath explains how to grant access when a directory is out of scope', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const workspaceRoot = mkdtempSync(join(tmpdir(), 'autohand-agent-workspace-'));
+    const outsideDir = mkdtempSync(join(tmpdir(), 'autohand-agent-outside-'));
+    const targetPath = join(outsideDir, 'secret.txt');
+
+    try {
+      agent.runtime = {
+        workspaceRoot,
+        additionalDirs: [],
+      };
+      agent.files = {
+        getAllowedDirectories: () => [workspaceRoot],
+      };
+
+      expect(() => (agent as any).resolveWorkspacePath(targetPath)).toThrow(
+        /\/add-dir <path>|--add-dir <path>/
+      );
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+      rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it('confirmDangerousAction auto-approves run_command when yes mode is enabled', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const confirmationCallback = vi.fn().mockResolvedValue(false);
+
+    agent.runtime = {
+      options: {
+        yes: true,
+      },
+      config: {},
+    };
+    agent.confirmationCallback = confirmationCallback;
+
+    const approved = await (agent as any).confirmDangerousAction('Run command?', {
+      tool: 'run_command',
+      command: 'bun test'
+    });
+
+    expect(approved).toBe(true);
+    expect(confirmationCallback).not.toHaveBeenCalled();
+  });
+
+  it('confirmDangerousAction auto-approves run_command when yolo allows it', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const confirmationCallback = vi.fn().mockResolvedValue(false);
+
+    agent.runtime = {
+      options: {
+        yes: false,
+        yolo: 'allow:run_command',
+      },
+      config: {},
+    };
+    agent.confirmationCallback = confirmationCallback;
+
+    const approved = await (agent as any).confirmDangerousAction('Run command?', {
+      tool: 'run_command',
+      command: 'bun test'
+    });
+
+    expect(approved).toBe(true);
+    expect(confirmationCallback).not.toHaveBeenCalled();
   });
 
   it('ensureInitComplete does not block on unresolved mcpReady', async () => {
@@ -1321,6 +1429,8 @@ describe('agent startup and active input UI', () => {
     expect(prompt).toContain('Context: `find(query="buildSystemPrompt", context=8, mode="context")`');
     expect(prompt).toContain('Semantic: `find(query="code discovery and tool selection", mode="semantic")`');
     expect(prompt).toContain('Prefer dedicated tools over `run_command` whenever a dedicated tool exists.');
+    expect(prompt).toContain('If the user asks for files or folders outside the current workspace scope, do not use `run_command` as a workaround.');
+    expect(prompt).toContain('Tell the user to grant access with `/add-dir <path>` for this session or restart with `--add-dir <path>`, then continue with dedicated file tools.');
     expect(prompt).toContain('{"tool": "run_command", "args": {"command": "npm test"}}');
     expect(prompt).toContain('{"tool": "run_command", "args": {"command": "bun run build"}}');
     expect(prompt).toContain('{"tool": "run_command", "args": {"command": "git status"}}');
@@ -1690,7 +1800,7 @@ describe('agent startup and active input UI', () => {
     };
 
     const closePromise = (agent as any).closeSession();
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(disconnectAll).toHaveBeenCalledTimes(1);
       expect(executeHooks).toHaveBeenCalledTimes(1);
       expect(syncSession).toHaveBeenCalledTimes(1);

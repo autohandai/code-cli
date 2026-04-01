@@ -11,23 +11,26 @@ import { ActionExecutor } from '../src/core/actionExecutor.js';
 
 // Mock child_process.execFile for glob tests
 const mockExecFile = vi.fn();
-vi.mock('node:child_process', async () => {
-  const actual = await vi.importActual('node:child_process');
+vi.mock('node:child_process', () => {
   return {
-    ...actual,
     execSync: vi.fn(),
     execFile: (...args: unknown[]) => mockExecFile(...args),
   };
 });
 
 // Mock fs-extra
-vi.mock('fs-extra', async () => {
-  const actual = await vi.importActual('fs-extra');
+vi.mock('fs-extra', () => {
   return {
-    ...actual,
     default: {
-      ...(actual as Record<string, unknown>).default,
       pathExists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      writeFile: vi.fn(),
+      appendFile: vi.fn(),
+      ensureDir: vi.fn(),
+      remove: vi.fn(),
+      pathExistsSync: vi.fn(),
+      readFileSync: vi.fn(),
+      writeFileSync: vi.fn(),
     },
   };
 });
