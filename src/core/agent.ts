@@ -259,7 +259,7 @@ export class AutohandAgent {
       llm: this.llm,
       memoryManager: this.memoryManager,
       onCrop: (count, reason) => {
-        if (this.contextCompactionEnabled) {
+        if (this.contextCompactionEnabled && count > 0) {
           console.log(chalk.cyan(`ℹ Context optimized: ${reason}`));
         }
       },
@@ -3922,6 +3922,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
       '2. For multi-step tasks, use `todo_write` to create a structured plan. Mark tasks as "in_progress" or "completed" as you go.',
       '3. Identify outputs, success criteria, edge cases, and potential blockers.',
       '4. Prefer dedicated tools over `run_command` whenever a dedicated tool exists. Use shell only for genuine terminal operations that cannot be handled by a built-in tool.',
+      '5. If the user asks for files or folders outside the current workspace scope, do not use `run_command` as a workaround.',
+      '   Tell the user to grant access with `/add-dir <path>` for this session or restart with `--add-dir <path>`, then continue with dedicated file tools.',
       '',
       '#### Search Optimization',
       '- Use `glob` first when you need file path discovery by filename, extension, or directory pattern.',
@@ -5807,6 +5809,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
   /**
    * Get messages with images included for the LLM API call.
    * Modifies the last user message to include any images from the session.
+   * Uses ImageManager.toOpenAIFormat() which applies size limits to prevent
+   * the 53MB+ payload overflow issue (Issue #81).
    * The returned messages may have multimodal content (array of text/image parts)
    * which is supported by OpenAI/OpenRouter APIs but not strictly typed.
    * @returns Messages formatted for API with multimodal content
@@ -5829,25 +5833,19 @@ If lint or tests fail, report the issues but do NOT commit.`;
       }
     }
 
+    // Use ImageManager's size-limited format (prevents 53MB+ payloads)
+    const imageContents = this.imageManager.toOpenAIFormat();
+
     // Clone messages and modify the last user message to include images
     const result: LLMMessage[] = messages.map((msg, i) => {
-      if (i === lastUserMessageIndex && images.length > 0) {
+      if (i === lastUserMessageIndex && imageContents.length > 0) {
         // Create multimodal content array
         // Note: content will be an array, which the API accepts but our type says string
         // This is intentional for multimodal support
         const contentParts = [
-          { type: 'text', text: msg.content }
+          { type: 'text', text: msg.content },
+          ...imageContents,
         ];
-
-        // Add images from ImageManager (OpenAI/OpenRouter format)
-        for (const img of images) {
-          contentParts.push({
-            type: 'image_url',
-            image_url: {
-              url: `data:${img.mimeType};base64,${img.data.toString('base64')}`
-            }
-          } as unknown as typeof contentParts[0]);
-        }
 
         return {
           ...msg,
@@ -5860,6 +5858,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
     return result;
   }
+
 
   /**
    * Update the spinner display (called on input change)
@@ -6509,11 +6508,53 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private resolveWorkspacePath(relativePath: string): string {
-    const resolved = path.resolve(this.runtime.workspaceRoot, relativePath);
-    if (!resolved.startsWith(this.runtime.workspaceRoot)) {
-      throw new Error(`Path ${relativePath} escapes workspace root.`);
+    const resolved = path.isAbsolute(relativePath)
+      ? path.resolve(relativePath)
+      : path.resolve(this.runtime.workspaceRoot, relativePath);
+    const allowedRoots = this.files.getAllowedDirectories?.()
+      ?? [this.runtime.workspaceRoot, ...(this.runtime.additionalDirs ?? [])];
+
+    let probe = resolved;
+    let realPath = resolved;
+
+    while (true) {
+      try {
+        const realProbe = fs.realpathSync(probe);
+        realPath = probe === resolved
+          ? realProbe
+          : path.join(realProbe, path.relative(probe, resolved));
+        break;
+      } catch {
+        const parent = path.dirname(probe);
+        if (parent === probe) {
+          break;
+        }
+        probe = parent;
+      }
     }
-    return resolved;
+
+    for (const allowedRoot of allowedRoots) {
+      let realRoot: string;
+      try {
+        realRoot = fs.realpathSync(allowedRoot);
+      } catch {
+        realRoot = path.resolve(allowedRoot);
+      }
+
+      const rootWithSep = realRoot.endsWith(path.sep)
+        ? realRoot
+        : `${realRoot}${path.sep}`;
+
+      if (realPath === realRoot || realPath.startsWith(rootWithSep)) {
+        return resolved;
+      }
+    }
+
+    const allowedDirsList = allowedRoots.join(', ');
+    throw new Error(
+      `Path ${relativePath} escapes the allowed directories: ${allowedDirsList}. ` +
+      'Tell the user to grant access with /add-dir <path> for this session or restart with --add-dir <path>.'
+    );
   }
 
   private async switchWorkspaceContext(workspaceRoot: string): Promise<void> {
