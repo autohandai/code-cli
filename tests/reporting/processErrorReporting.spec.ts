@@ -7,11 +7,9 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { loadConfigMock, managerCtorMock, reportErrorMock } = vi.hoisted(() => ({
-  loadConfigMock: vi.fn(),
-  managerCtorMock: vi.fn(),
-  reportErrorMock: vi.fn(),
-}));
+const loadConfigMock = vi.fn();
+const managerCtorMock = vi.fn();
+const reportErrorMock = vi.fn();
 
 vi.mock('../../package.json', () => ({
   default: { version: '0.8.0' },
@@ -53,6 +51,22 @@ function createFakeProcess(argv: string[] = ['node', 'autohand']): FakeProcess {
   return emitter;
 }
 
+async function waitForAssertion(assertion: () => void, attempts = 20): Promise<void> {
+  let lastError: unknown;
+
+  for (let index = 0; index < attempts; index++) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
 describe('processErrorReporting', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -84,7 +98,7 @@ describe('processErrorReporting', () => {
     installProcessErrorHandlers({ processRef: fakeProcess, logError });
     fakeProcess.emit('unhandledRejection', new Error('boom'), Promise.resolve());
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(loadConfigMock).toHaveBeenCalledWith('/tmp/custom.json');
       expect(reportErrorMock).toHaveBeenCalledTimes(1);
     });
@@ -116,7 +130,7 @@ describe('processErrorReporting', () => {
     });
     fakeProcess.emit('uncaughtException', new TypeError('fatal crash'));
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(reportErrorMock).toHaveBeenCalledTimes(1);
       expect(exitMock).toHaveBeenCalledWith(1);
     });

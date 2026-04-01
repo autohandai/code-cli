@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { runCommand, runShellCommand } from '../src/actions/command.js';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -43,6 +43,21 @@ describe('runCommand', () => {
   it('executes in subdirectory when directory option provided', async () => {
     const result = await runCommand('ls', [], testDir, { directory: 'subdir' });
     expect(result.stdout).toContain('test.txt');
+    expect(result.code).toBe(0);
+  });
+
+  it('honors absolute directory paths without rebasing them onto cwd', async () => {
+    const absoluteDir = join(testDir, 'absolute-dir');
+    mkdirSync(absoluteDir, { recursive: true });
+
+    const result = await runCommand(
+      'node',
+      ['-e', 'console.log(process.cwd())'],
+      testDir,
+      { directory: absoluteDir }
+    );
+
+    expect(realpathSync(result.stdout.trim())).toBe(realpathSync(absoluteDir));
     expect(result.code).toBe(0);
   });
 
