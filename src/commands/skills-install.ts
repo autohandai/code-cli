@@ -44,8 +44,7 @@ export async function skillsInstall(
   const { skillsRegistry } = ctx;
 
   if (!skillsRegistry) {
-    console.log(chalk.red('Skills registry not available.'));
-    return null;
+    return chalk.red('Skills registry not available.');
   }
 
   const cache = new CommunitySkillsCache();
@@ -58,7 +57,6 @@ export async function skillsInstall(
     if (cached) {
       registry = cached;
     } else {
-      console.log(chalk.cyan('Fetching community skills registry...'));
       registry = await fetcher.fetchRegistry();
       await cache.setRegistry(registry);
     }
@@ -66,12 +64,9 @@ export async function skillsInstall(
     // Try offline fallback
     const stale = await cache.getRegistryIgnoreTTL();
     if (stale) {
-      console.log(chalk.yellow('Using cached skills (offline mode)'));
       registry = stale;
     } else {
-      console.log(chalk.red('Failed to fetch community skills. Please check your internet connection.'));
-      console.log(chalk.gray(error instanceof Error ? error.message : 'Unknown error'));
-      return null;
+      return chalk.red('Failed to fetch community skills. Please check your internet connection.');
     }
   }
 
@@ -97,25 +92,24 @@ async function directInstall(
   // Find the skill
   const skill = fetcher.findSkill(registry.skills, skillName);
   if (!skill) {
-    console.log(chalk.red(`Skill not found: ${skillName}`));
+    const lines = [chalk.red(`Skill not found: ${skillName}`)];
 
     // Suggest similar skills
     const similar = fetcher.findSimilarSkills(registry.skills, skillName, 3);
     if (similar.length > 0) {
-      console.log(chalk.gray('Did you mean:'));
+      lines.push(chalk.gray('Did you mean:'));
       for (const s of similar) {
-        console.log(chalk.gray(`  - ${s.name}: ${s.description}`));
+        lines.push(chalk.gray(`  - ${s.name}: ${s.description}`));
       }
     }
 
-    return null;
+    return lines.join('\n');
   }
 
   // Prompt for install scope
   const scope = await promptInstallScope();
   if (!scope) {
-    console.log(chalk.gray('Installation cancelled.'));
-    return null;
+    return chalk.gray('Installation cancelled.');
   }
 
   return installSkill(ctx, fetcher, cache, skill, scope);
@@ -130,69 +124,15 @@ async function interactiveBrowser(
   fetcher: GitHubRegistryFetcher,
   cache: CommunitySkillsCache
 ): Promise<string | null> {
-  console.log();
-  console.log(chalk.bold.cyan('Community Skills Marketplace'));
-  console.log(chalk.gray('─'.repeat(50)));
-  console.log(chalk.gray(`${registry.skills.length} skills available`));
-  console.log();
-
-  // Show categories
-  console.log(chalk.bold('Categories:'));
-  for (const cat of registry.categories) {
-    console.log(chalk.gray(`  ${cat.name} (${cat.count})`));
-  }
-  console.log();
-
-  // Show featured skills
-  const featured = fetcher.getFeaturedSkills(registry.skills);
-  if (featured.length > 0) {
-    console.log(chalk.bold.yellow('Featured Skills:'));
-    for (const skill of featured.slice(0, 5)) {
-      const rating = skill.rating ? `★ ${skill.rating.toFixed(1)}` : '';
-      const downloads = skill.downloadCount ? `↓${formatDownloads(skill.downloadCount)}` : '';
-      console.log(`  ${chalk.green('●')} ${chalk.bold(skill.name)} ${chalk.gray(rating)} ${chalk.gray(downloads)}`);
-      console.log(chalk.gray(`      ${skill.description}`));
-    }
-    console.log();
-  }
-
   const selectedSkill = await browseAndSelectSkill(registry, fetcher);
   if (!selectedSkill) {
-    console.log(chalk.gray('No skill selected.'));
-    return null;
+    return chalk.gray('No skill selected.');
   }
-
-  // Show skill details and confirm
-  console.log();
-  console.log(chalk.bold.cyan(`Skill: ${selectedSkill.name}`));
-  console.log(chalk.gray('─'.repeat(50)));
-  console.log(chalk.white('Description: ') + selectedSkill.description);
-  console.log(chalk.white('Category: ') + selectedSkill.category);
-  if (selectedSkill.tags?.length) {
-    console.log(chalk.white('Tags: ') + selectedSkill.tags.join(', '));
-  }
-  if (selectedSkill.rating) {
-    console.log(chalk.white('Rating: ') + `★ ${selectedSkill.rating.toFixed(1)}`);
-  }
-  if (selectedSkill.downloadCount) {
-    console.log(chalk.white('Downloads: ') + formatDownloads(selectedSkill.downloadCount));
-  }
-  if (selectedSkill.files.length > 1) {
-    console.log(chalk.white('Files: ') + selectedSkill.files.length + ' files');
-    for (const file of selectedSkill.files.slice(0, 5)) {
-      console.log(chalk.gray(`  - ${file}`));
-    }
-    if (selectedSkill.files.length > 5) {
-      console.log(chalk.gray(`  ... and ${selectedSkill.files.length - 5} more`));
-    }
-  }
-  console.log();
 
   // Prompt for install scope
   const scope = await promptInstallScope();
   if (!scope) {
-    console.log(chalk.gray('Installation cancelled.'));
-    return null;
+    return chalk.gray('Installation cancelled.');
   }
 
   return installSkill(ctx, fetcher, cache, selectedSkill, scope);
