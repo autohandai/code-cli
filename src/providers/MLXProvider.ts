@@ -240,7 +240,24 @@ export class MLXProvider implements LLMProvider {
             throw await this.buildApiError(response);
         }
 
-        const data: MLXChatResponse = await response.json();
+        let data: MLXChatResponse;
+        try {
+            data = await response.json();
+        } catch {
+            // MLX server returned non-JSON or malformed JSON
+            let rawBody = '';
+            try {
+                rawBody = await response.text();
+            } catch {
+                // ignore
+            }
+            throw new ApiError(
+                `MLX server returned an invalid response. The model may have crashed or returned malformed output. Raw: ${rawBody.slice(0, 500)}`,
+                'invalid_request',
+                response.status,
+                false,
+            );
+        }
         const choice = data.choices[0];
 
         let toolCalls: LLMToolCall[] | undefined;
