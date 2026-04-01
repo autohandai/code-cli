@@ -441,6 +441,9 @@ export class ActionExecutor {
           const receivedKeys = Object.keys(action).filter(k => k !== 'type').join(', ') || 'none';
           throw new Error(`write_file requires a "path" argument. Received arguments: [${receivedKeys}]`);
         }
+        if (action.contents === undefined && action.content === undefined) {
+          return 'Error: write_file requires "contents" argument.';
+        }
         const filePath = this.resolveWorkspacePath(action.path);
         const fs = await import('fs-extra');
         const exists = this.files.root && await fs.pathExists(filePath);
@@ -540,12 +543,12 @@ export class ActionExecutor {
       }
       case 'apply_patch': {
         if (!action.path) {
-          throw new Error('apply_patch requires a "path" argument.');
+          return 'Error: apply_patch requires a "path" argument.';
         }
         const oldContent = await this.files.readFile(action.path).catch(() => '');
         const patch = this.pickText(action.patch, action.diff);
         if (!patch) {
-          throw new Error('apply_patch requires patch or diff content.');
+          return 'Error: apply_patch requires a "patch" argument.';
         }
 
         console.log(chalk.cyan(`\n🔧 ${action.path}:`));
@@ -630,6 +633,9 @@ export class ActionExecutor {
       case 'glob':
         return this.executeGlob(action);
       case 'create_directory': {
+        if (!action.path) {
+          return 'Error: create_directory requires a "path" argument.';
+        }
         await this.files.createDirectory(action.path);
         return `Created directory ${action.path}`;
       }
@@ -672,6 +678,12 @@ export class ActionExecutor {
         return `Copied ${action.from} -> ${action.to}`;
       }
       case 'search_replace': {
+        if (!action.path) {
+          return 'Error: search_replace requires a "path" argument.';
+        }
+        if (!action.blocks) {
+          return 'Error: search_replace requires a "blocks" argument.';
+        }
         const content = await this.files.readFile(action.path);
         const result = this.applySearchReplaceBlocks(content, action.blocks);
         if (content !== result) {
@@ -1224,6 +1236,12 @@ export class ActionExecutor {
       case 'custom_command':
         return this.executeCustomCommand(action);
       case 'multi_file_edit': {
+        if (!action.file_path) {
+          return 'Error: multi_file_edit requires a "file_path" argument.';
+        }
+        if (!action.edits || !Array.isArray(action.edits)) {
+          return 'Error: multi_file_edit requires an "edits" argument (array).';
+        }
         const oldContent = await this.files.readFile(action.file_path);
         let newContent = oldContent;
 
@@ -1317,23 +1335,23 @@ export class ActionExecutor {
         }
 
         // Filter out null/undefined tasks and validate required fields
+        // LLM sends {content, status, activeForm} without id — auto-generate ids
         const validTasks = action.tasks.filter((task: any) => {
           if (!task) return false; // Skip null/undefined
-          const hasId = !!task.id;
           const hasContent = !!(task.content || task.title);
-          return hasId && hasContent; // Require both id and content/title
+          return hasContent; // Only require content/title, not id
         });
 
         // Normalize tasks: LLM sends {content, status, activeForm} but we store {id, title, status, activeForm}
         // Preserve any extra properties the task might have
-        const normalizedTasks = validTasks.map((task: any) => {
+        const normalizedTasks = validTasks.map((task: any, index: number) => {
           // Support both formats: {content, status, activeForm} and {id, title, status}
           const content = task.content || task.title || '';
           const title = content;
 
           return {
             ...task, // Preserve extra properties like priority, tags, etc.
-            id: task.id,
+            id: task.id || `task-${Date.now()}-${index}`, // Auto-generate id if missing
             title,
             content, // Keep original content field
             status: task.status || 'pending',
@@ -1341,7 +1359,6 @@ export class ActionExecutor {
             description: task.description
           };
         });
-
         // For todo_write, the LLM sends the COMPLETE updated list, not incremental updates
         // So we replace the entire todo list instead of merging
         const allTodos = normalizedTasks;
@@ -1349,20 +1366,25 @@ export class ActionExecutor {
         // Write back
         await this.files.writeFile(todoPath, JSON.stringify(allTodos, null, 2));
         this.onFileModified?.(todoPath, 'modify');
-
         // Display summary with progress bar
-        console.log(chalk.cyan('\n📋 Task Progress:'));
-
         const total = allTodos.length;
+
+        if (total === 0) {
+          console.log(chalk.dim('\n📋 Task list cleared'));
+          console.log();
+          return 'Task list cleared (0 tasks)';
+        }
+
         const completed = allTodos.filter((t: any) => t.status === 'completed').length;
         const inProgress = allTodos.filter((t: any) => t.status === 'in_progress');
         const pending = allTodos.filter((t: any) => t.status === 'pending').length;
 
-        const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+        const percent = Math.round((completed / total) * 100);
         const barWidth = 20;
         const filled = Math.round((barWidth * percent) / 100);
         const bar = '█'.repeat(filled) + '░'.repeat(barWidth - filled);
 
+        console.log(chalk.cyan('\n📋 Task Progress:'));
         console.log(`  ${chalk.green(bar)} ${percent}%`);
         console.log(chalk.gray(`  ${completed} done · ${inProgress.length} in progress · ${pending} pending`));
 
