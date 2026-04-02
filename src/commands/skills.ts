@@ -17,8 +17,9 @@ import {
   fetchRegistryWithFallback,
   installSkillWithSecurity,
 } from '../skills/communityInstaller.js';
-import { showModal, showConfirm } from '../ui/ink/components/Modal.js';
+import { showModal, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 import type { SkillsRegistry } from '../skills/SkillsRegistry.js';
+import type { SkillDefinition } from '../skills/types.js';
 import type { HookManager } from '../core/HookManager.js';
 
 
@@ -89,6 +90,9 @@ export async function skills(ctx: SkillsCommandContext, args: string[] = []): Pr
       return showSkillInfo(skillsRegistry, skillName);
 
     default:
+      if (!ctx.isNonInteractive && process.stdout.isTTY) {
+        return browseInstalledSkills(ctx, skillsRegistry);
+      }
       return listSkills(skillsRegistry);
   }
 }
@@ -139,6 +143,92 @@ function generateSkillSuggestion(skillName: string, description: string): string
 
   // Default suggestion
   return `Use ${skillName} to help with: ${description.slice(0, 50)}...`;
+}
+
+function getSkillSourceLabel(source: SkillDefinition['source']): string {
+  switch (source) {
+    case 'autohand-user':
+      return 'Autohand User';
+    case 'autohand-project':
+      return 'Project';
+    case 'claude-user':
+      return 'Claude User';
+    case 'claude-project':
+      return 'Claude Project';
+    case 'codex-user':
+      return 'Codex User';
+    case 'codex-project':
+      return 'Codex Project';
+    case 'community':
+      return 'Community';
+    default:
+      return source;
+  }
+}
+
+function buildSkillPreview(skill: SkillDefinition): string {
+  const lines = [
+    `Status: ${skill.isActive ? '🟢 Active' : '⚪ Inactive'}`,
+    `Source: ${getSkillSourceLabel(skill.source)}`,
+    `Path: ${skill.path}`,
+    '',
+    skill.description,
+  ];
+
+  if (skill.isActive) {
+    lines.push('');
+    lines.push(`Try: ${generateSkillSuggestion(skill.name, skill.description)}`);
+    lines.push(`/skills deactivate ${skill.name}`);
+  } else {
+    lines.push('');
+    lines.push(`/skills use ${skill.name}`);
+  }
+
+  lines.push(`/skills info ${skill.name}`);
+  return lines.join('\n');
+}
+
+async function browseInstalledSkills(
+  ctx: SkillsCommandContext,
+  registry: SkillsRegistry
+): Promise<string | null> {
+  const allSkills = registry.listSkills();
+  const activeSkills = registry.getActiveSkills();
+
+  if (allSkills.length === 0) {
+    return listSkills(registry);
+  }
+
+  const options: ModalOption[] = allSkills.map((skill) => ({
+    label: `${skill.isActive ? '🟢' : '⚪'} ${skill.name} · ${getSkillSourceLabel(skill.source)}`,
+    value: skill.name,
+    preview: buildSkillPreview(skill),
+  }));
+
+  options.push({
+    label: '🌐 Browse community skills',
+    value: '__skills_install__',
+    preview: 'Open the community skills browser to search and install new skills.',
+  });
+
+  const initialIndex = Math.max(allSkills.findIndex((skill) => skill.isActive), 0);
+  const selected = await withModalPause(ctx, () => showModal({
+    title: `📚 ${t('commands.skills.title')} (${allSkills.length} available, ${activeSkills.length} active)`,
+    options,
+    initialIndex,
+    maxVisible: 12,
+    layout: 'split',
+  }));
+
+  if (!selected) {
+    return null;
+  }
+
+  if (selected.value === '__skills_install__') {
+    return handleSkillsInstall(ctx);
+  }
+
+  return showSkillInfo(registry, selected.value);
 }
 
 /**
@@ -295,60 +385,54 @@ function showSkillInfo(registry: SkillsRegistry, name: string): string {
 
   const lines: string[] = [];
   lines.push('');
-  lines.push(`📋 **Skill: ${skill.name}**`);
+  lines.push(`📋 Skill: ${skill.name}`);
   lines.push('');
 
-  // Status with action button
-  if (skill.isActive) {
-    lines.push(`**Status:** 🟢 Active`);
-    const suggestion = generateSkillSuggestion(skill.name, skill.description);
-    lines.push('');
-    lines.push(`{{action:💡 Try it now|${suggestion}}} {{action:⏸️ Deactivate|/skills deactivate ${skill.name}}}`);
-  } else {
-    lines.push(`**Status:** ⚪ Inactive`);
-    lines.push('');
-    lines.push(`{{action:▶️ Activate|/skills use ${skill.name}}}`);
-  }
-
-  lines.push('');
-  lines.push('─'.repeat(40));
-  lines.push('');
-  lines.push(`**Description:** ${skill.description}`);
-  lines.push(`**Source:** ${skill.source}`);
-  lines.push(`**Path:** \`${skill.path}\``);
+  lines.push(`Status: ${skill.isActive ? '🟢 Active' : '⚪ Inactive'}`);
+  lines.push(`Description: ${skill.description}`);
+  lines.push(`Source: ${getSkillSourceLabel(skill.source)}`);
+  lines.push(`Path: ${skill.path}`);
 
   if (skill.license) {
-    lines.push(`**License:** ${skill.license}`);
+    lines.push(`License: ${skill.license}`);
   }
 
   if (skill.compatibility) {
-    lines.push(`**Compatibility:** ${skill.compatibility}`);
+    lines.push(`Compatibility: ${skill.compatibility}`);
   }
 
   if (skill['allowed-tools']) {
-    lines.push(`**Allowed Tools:** ${skill['allowed-tools']}`);
+    lines.push(`Allowed Tools: ${skill['allowed-tools']}`);
+  }
+
+  lines.push('');
+  if (skill.isActive) {
+    lines.push(`Recommended Prompt: ${generateSkillSuggestion(skill.name, skill.description)}`);
+    lines.push(`Deactivate: /skills deactivate ${skill.name}`);
+  } else {
+    lines.push(`Activate: /skills use ${skill.name}`);
   }
 
   if (skill.metadata && Object.keys(skill.metadata).length > 0) {
     lines.push('');
-    lines.push('**Metadata:**');
+    lines.push('Metadata:');
     for (const [key, value] of Object.entries(skill.metadata)) {
-      lines.push(`- ${key}: ${value}`);
+      lines.push(`  - ${key}: ${value}`);
     }
   }
 
   lines.push('');
-  lines.push('**Content Preview:**');
-  lines.push('```');
+  lines.push('Content Preview:');
   // Show first 500 chars of body
   const bodyPreview = skill.body.length > 500
     ? skill.body.slice(0, 500) + '\n... (truncated)'
     : skill.body;
-  lines.push(bodyPreview || '(no body content)');
-  lines.push('```');
+  for (const line of (bodyPreview || '(no body content)').split('\n')) {
+    lines.push(`  ${line}`);
+  }
 
   lines.push('');
-  lines.push('{{action:← Back to Skills|/skills}}');
+  lines.push('Back: /skills');
 
   return lines.join('\n');
 }
