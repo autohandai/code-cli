@@ -157,7 +157,7 @@ export class PermissionManager {
 
   private normalizeSettings(settings: PermissionSettings | undefined): PermissionSettings {
     return {
-      mode: 'interactive',
+      mode: settings?.mode ?? 'interactive',
       allowList: [...(settings?.allowList ?? settings?.whitelist ?? [])],
       denyList: [...(settings?.denyList ?? settings?.blacklist ?? [])],
       rules: [...(settings?.rules ?? [])],
@@ -235,7 +235,7 @@ export class PermissionManager {
   checkPermission(context: PermissionContext): PermissionDecision {
     // SECURITY: Always check security blacklist FIRST - cannot be bypassed by any mode
     if (this.isSecurityBlacklisted(context)) {
-      return { allowed: false, reason: 'deny_list' };
+      return { allowed: false, reason: 'blacklisted' };
     }
 
     // Pattern-based checks (AFTER security blacklist, BEFORE session cache)
@@ -573,14 +573,14 @@ export class PermissionManager {
     if (normalizedDenyList.some(pattern => this.matchesPattern(context, pattern))) {
       return {
         allowed: false,
-        reason: `${scope}_deny_list` as PermissionDecision['reason'],
+        reason: scope === 'user' ? 'deny_list' : `${scope}_deny_list` as PermissionDecision['reason'],
       };
     }
 
     if (normalizedAllowList.some(pattern => this.matchesPattern(context, pattern))) {
       return {
         allowed: true,
-        reason: `${scope}_allow_list` as PermissionDecision['reason'],
+        reason: scope === 'user' ? 'allow_list' : `${scope}_allow_list` as PermissionDecision['reason'],
       };
     }
 
@@ -824,6 +824,15 @@ export class PermissionManager {
 
   getPermissionSnapshot(userConfigPath: string): PermissionSnapshot {
     const effective = this.getMergedSettings();
+    const effectiveAllowList = Array.from(new Set([
+      ...(effective.allowList ?? []),
+      ...(this.sessionProjectSettings?.allowList ?? []),
+    ]));
+    const effectiveDenyList = Array.from(new Set([
+      ...(effective.denyList ?? []),
+      ...(this.sessionProjectSettings?.denyList ?? []),
+    ]));
+
     return {
       mode: this.mode,
       rememberSession: effective.rememberSession !== false,
@@ -846,8 +855,8 @@ export class PermissionManager {
       },
       effective: {
         path: 'merged',
-        allowList: [...(effective.allowList ?? [])],
-        denyList: [...(effective.denyList ?? [])],
+        allowList: effectiveAllowList,
+        denyList: effectiveDenyList,
       },
     };
   }
