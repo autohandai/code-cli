@@ -47,7 +47,7 @@ export interface PermissionSettings {
 export interface PermissionDecision {
   allowed: boolean;
   reason:
-    | 'allow_list' | 'deny_list' | 'rule_match' | 'user_approved' | 'user_denied'
+    | 'allow_list' | 'deny_list' | 'blacklisted' | 'rule_match' | 'user_approved' | 'user_denied'
     | 'mode_unrestricted' | 'mode_restricted' | 'default'
     | 'external_approved' | 'external_denied' | 'external_error'
     | 'pattern_denied' | 'pattern_allowed' | 'not_in_available' | 'excluded'
