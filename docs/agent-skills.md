@@ -50,7 +50,7 @@ When activated, skills inject their instructions into the agent's context, provi
 /skills new
 ```
 
-### Auto-Generate Project Skills
+### Auto-Install Recommended Project Skills
 
 ```bash
 autohand --auto-skill
@@ -115,9 +115,9 @@ Detailed instructions for the AI agent...
 
 ---
 
-## Auto-Skill Generation
+## Auto-Skill Bootstrap
 
-The `--auto-skill` flag analyzes your project and generates relevant skills based on the detected stack.
+The `--auto-skill` flag analyzes your project, finds high-confidence community skills that fit the codebase, installs them into `<project>/.autohand/skills/`, and activates them for the session before the agent starts.
 
 ### Usage
 
@@ -128,10 +128,10 @@ autohand --auto-skill
 ### How It Works
 
 1. **Project Analysis** - Scans for package.json, requirements.txt, Cargo.toml, go.mod
-2. **Detection** - Identifies languages, frameworks, and patterns
-3. **Platform Awareness** - Detects OS (macOS/Linux/Windows) for appropriate commands
-4. **LLM Generation** - Creates 3 tailored skills with examples and tool permissions
-5. **Save** - Writes skills to `<project>/.autohand/skills/`
+2. **Recommendation** - Uses the skills advisor to rank community skills for the project
+3. **Install** - Automatically installs the strongest matches at project scope
+4. **Activation** - Activates the installed skills so their instructions are available immediately
+5. **Fallback** - If nothing scores highly enough, Autohand continues normally without installing skills
 
 ### Detected Patterns
 
@@ -147,20 +147,15 @@ autohand --auto-skill
 
 ```
 $ autohand --auto-skill
-Analyzing project structure...
-Detected: typescript, javascript, react, nextjs, testing
-Platform: darwin
-Generating skills...
-  ✓ nextjs-component-creator
-    Tools: read_file, write_file, run_command
-  ✓ typescript-test-generator
-    Tools: read_file, write_file, run_command, find
-  ✓ changelog-generator
-    Tools: git_log, git_diff_range, read_file, write_file
+Scanning for community skills that fit this project...
+Project: Ink TypeScript CLI with strong testing needs.
+  ✓ clean-coder-skill (92%) — Improves implementation discipline for CLI refactors.
+  Installed clean-coder-skill
 
-✓ Generated 3 skills in .autohand/skills
-  Use "/skills" to view and "/skills use <name>" to activate
+Auto-activated skills: clean-coder-skill
 ```
+
+For manual discovery inside a session, use `/skills install`, `/learn`, `find_agent_skills`, and `install_agent_skill`.
 
 ---
 

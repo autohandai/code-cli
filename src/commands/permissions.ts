@@ -13,8 +13,12 @@ export interface PermissionsCommandContext {
   configPath?: string;
 }
 
+function renderBold(text: string): string {
+  return typeof chalk.bold === 'function' ? chalk.bold(text) : text;
+}
+
 function renderSection(title: string, section: PermissionScopeSnapshot): void {
-  console.log(chalk.bold(title));
+  console.log(renderBold(title));
   console.log(chalk.gray(section.path));
 
   if (section.allowList.length === 0) {
