@@ -10,6 +10,11 @@ import type {
   ToolExecutionResult,
   FunctionDefinition
 } from '../types.js';
+import {
+  isAllowedPermissionPrompt,
+  normalizePermissionPromptResponse,
+  type PermissionPromptResponse,
+} from '../permissions/types.js';
 import { ToolFilter, type ClientContext, type ToolPolicy } from './toolFilter.js';
 import { getPlanModeManager } from '../commands/plan.js';
 
@@ -64,7 +69,7 @@ export interface ToolDefinition {
 
 export interface ToolManagerOptions {
   executor: (action: AgentAction, context?: ToolExecutionContext) => Promise<string | undefined>;
-  confirmApproval: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<boolean>;
+  confirmApproval: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<PermissionPromptResponse>;
   definitions?: ToolDefinition[];
   /** Client context for tool filtering (default: 'cli') */
   clientContext?: ClientContext;
@@ -1224,6 +1229,19 @@ Actions:
       required: ['query'],
     },
   },
+  {
+    name: 'install_agent_skill',
+    description: 'Install a community skill by exact skill id or name, then optionally activate it for the current session. Prefer asking the user before using this unless they explicitly requested installation or started with --auto-skill.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Exact community skill id or name to install' },
+        scope: { type: 'string', description: 'Install scope (default: project)', enum: ['project', 'user'] },
+        activate: { type: 'boolean', description: 'Activate the installed skill for the current session (default: true)' },
+      },
+      required: ['name'],
+    },
+  },
   // Schedule Management
   {
     name: 'cron_create',
@@ -1687,8 +1705,28 @@ export class ToolManager {
           permContext.path = String(call.args.file_path);
         }
 
-        const confirmed = await this.confirmApproval(message, permContext);
-        if (!confirmed) {
+        const decision = normalizePermissionPromptResponse(await this.confirmApproval(message, permContext));
+        if (decision.decision === 'alternative' && typeof decision.alternative === 'string') {
+          if (call.tool === 'run_command' && call.args) {
+            call.args.command = decision.alternative;
+            call.args.args = [];
+          } else if (call.args?.path && typeof call.args.path === 'string') {
+            call.args.path = decision.alternative;
+          } else if (call.args?.file_path && typeof call.args.file_path === 'string') {
+            call.args.file_path = decision.alternative;
+          } else {
+            const result: ToolExecutionResult = {
+              tool: call.tool,
+              success: false,
+              output: 'Tool execution skipped because the alternative input could not be applied.',
+            };
+            results.set(i, result);
+            onToolComplete?.(i, result);
+            continue;
+          }
+        }
+
+        if (!isAllowedPermissionPrompt(decision)) {
           const result: ToolExecutionResult = {
             tool: call.tool,
             success: false,
@@ -1737,7 +1775,11 @@ export class ToolManager {
         let result: ToolExecutionResult;
         try {
           const action = this.toAction(call);
-          const output = await this.executor(action, { toolCallId: call.id, tool: call.tool });
+          const output = await this.executor(action, {
+            toolCallId: call.id,
+            tool: call.tool,
+            approvalHandled: true,
+          });
           result = { tool: call.tool, success: true, output };
         } catch (error) {
           result = {
