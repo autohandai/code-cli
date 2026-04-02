@@ -67,6 +67,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   task_stop: 'meta',
   task_output: 'meta',
   skill: 'meta',
+  install_agent_skill: 'create',
   sleep: 'meta',
   enter_worktree: 'meta',
   exit_worktree: 'meta',
