@@ -1351,6 +1351,97 @@ describe('idle prompt shell commands', () => {
   });
 });
 
+describe('idle prompt slash command submission', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('clears slash suggestion rows before handing off a submitted slash command', async () => {
+    const stdOutput = new EventEmitter() as NodeJS.WriteStream & {
+      columns: number;
+      write: (chunk: string | Buffer) => boolean;
+    };
+    stdOutput.columns = 80;
+    stdOutput.write = vi.fn(() => true);
+
+    const stdInput = new EventEmitter() as NodeJS.ReadStream & {
+      isTTY: boolean;
+      setRawMode: (mode: boolean) => void;
+      setEncoding: (encoding: string) => void;
+      resume: () => void;
+      pause: () => void;
+      read: () => null;
+    };
+    stdInput.isTTY = true;
+    stdInput.setRawMode = vi.fn();
+    stdInput.setEncoding = vi.fn();
+    stdInput.resume = vi.fn();
+    stdInput.pause = vi.fn();
+    stdInput.read = vi.fn(() => null);
+
+    const rl = new EventEmitter() as readline.Interface & {
+      line: string;
+      cursor: number;
+      input: NodeJS.ReadStream;
+      output: NodeJS.WriteStream;
+      close: () => void;
+      pause: () => void;
+      resume: () => void;
+      prompt: () => void;
+      setPrompt: (prompt: string) => void;
+      _refreshLine?: () => void;
+      _moveCursor?: () => void;
+    };
+    rl.line = '';
+    rl.cursor = 0;
+    rl.input = stdInput;
+    rl.output = stdOutput;
+    rl.close = vi.fn();
+    rl.pause = vi.fn();
+    rl.resume = vi.fn();
+    rl.prompt = vi.fn();
+    rl.setPrompt = vi.fn();
+    rl._refreshLine = vi.fn();
+    rl._moveCursor = vi.fn();
+
+    vi.spyOn(readline, 'createInterface').mockReturnValue(rl);
+    vi.spyOn(readline, 'emitKeypressEvents').mockImplementation(() => undefined);
+    vi.spyOn(readline, 'cursorTo').mockImplementation(() => true as any);
+    const clearLineSpy = vi.spyOn(readline, 'clearLine').mockImplementation(() => true as any);
+    vi.spyOn(readline, 'moveCursor').mockImplementation(() => true as any);
+
+    const { readInstruction } = await import('../../src/ui/inputPrompt.js');
+
+    const promptPromise = readInstruction(
+      () => [],
+      [{ command: '/model', description: 'Select a model', implemented: true }],
+      undefined,
+      { input: stdInput, output: stdOutput }
+    );
+
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const emitKey = (str: string, key: Partial<readline.Key>) => {
+      stdInput.emit('keypress', str, key);
+    };
+
+    for (const ch of '/model') {
+      emitKey(ch, { sequence: ch, name: ch === '/' ? '/' as any : ch });
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+
+    clearLineSpy.mockClear();
+
+    emitKey('\r', { name: 'return', sequence: '\r' });
+
+    await expect(promptPromise).resolves.toBe('/model');
+    // The boxed prompt teardown must also clear the visible slash suggestion row
+    // before the command handler takes over the terminal.
+    expect(clearLineSpy).toHaveBeenCalledTimes(6);
+  });
+});
+
 describe('idle prompt mention selection', () => {
   it('keeps the third @ file selection when tab is pressed after arrow navigation', async () => {
     const writes: string[] = [];

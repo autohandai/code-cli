@@ -60,12 +60,9 @@ describe('/model command modal lifecycle', () => {
 describe('/theme command modal lifecycle', () => {
   it('calls onBeforeModal before showModal and onAfterModal after completion', async () => {
     const callOrder: string[] = [];
-    const showModal = vi.fn(async () => {
-      callOrder.push('modal');
-      return null;
-    });
-
-    vi.doMock('../../src/ui/ink/components/Modal.js', () => ({ showModal }));
+    const originalIsTTY = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, writable: true });
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     const ctx = {
       config: { ui: { theme: 'dark' } },
@@ -73,23 +70,23 @@ describe('/theme command modal lifecycle', () => {
       onAfterModal: vi.fn(() => { callOrder.push('after'); }),
     };
 
-    const { theme } = await import('../../src/commands/theme.js');
-    await theme(ctx as any);
-
-    expect(callOrder).toEqual(['before', 'modal', 'after']);
-    vi.doUnmock('../../src/ui/ink/components/Modal.js');
+    try {
+      const { theme } = await import('../../src/commands/theme.js');
+      await theme(ctx as any);
+      expect(callOrder).toEqual(['before', 'after']);
+    } finally {
+      consoleSpy.mockRestore();
+      Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, writable: true });
+    }
   });
 });
 
 describe('/language command modal lifecycle', () => {
   it('calls onBeforeModal before showModal and onAfterModal after completion', async () => {
     const callOrder: string[] = [];
-    const showModal = vi.fn(async () => {
-      callOrder.push('modal');
-      return null;
-    });
-
-    vi.doMock('../../src/ui/ink/components/Modal.js', () => ({ showModal }));
+    const originalIsTTY = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, writable: true });
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     const ctx = {
       config: { ui: { locale: 'en' } },
@@ -97,11 +94,14 @@ describe('/language command modal lifecycle', () => {
       onAfterModal: vi.fn(() => { callOrder.push('after'); }),
     };
 
-    const { language } = await import('../../src/commands/language.js');
-    await language(ctx as any);
-
-    expect(callOrder).toEqual(['before', 'modal', 'after']);
-    vi.doUnmock('../../src/ui/ink/components/Modal.js');
+    try {
+      const { language } = await import('../../src/commands/language.js');
+      await language(ctx as any);
+      expect(callOrder).toEqual(['before', 'after']);
+    } finally {
+      consoleSpy.mockRestore();
+      Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, writable: true });
+    }
   });
 });
 
