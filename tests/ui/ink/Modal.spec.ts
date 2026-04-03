@@ -123,6 +123,7 @@ describe('Modal Types', () => {
 
       expect(options.multiSelect).toBe(true);
     });
+
   });
 });
 
@@ -132,7 +133,6 @@ describe('showModal', () => {
     Object.defineProperty(process.stdout, 'isTTY', {
       value: originalIsTTY,
       writable: true,
-      configurable: true,
     });
   });
 
@@ -140,8 +140,8 @@ describe('showModal', () => {
     Object.defineProperty(process.stdout, 'isTTY', {
       value: originalIsTTY,
       writable: true,
-      configurable: true,
     });
+    vi.restoreAllMocks();
   });
 
   it('returns null in non-interactive mode', async () => {
@@ -149,7 +149,6 @@ describe('showModal', () => {
     Object.defineProperty(process.stdout, 'isTTY', {
       value: false,
       writable: true,
-      configurable: true,
     });
 
     // Dynamic import to get fresh module
@@ -161,6 +160,46 @@ describe('showModal', () => {
     });
 
     expect(result).toBeNull();
+  });
+
+  it('prepares modal render state on the alternate screen', async () => {
+    const writes: string[] = [];
+
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      writable: true,
+    });
+
+    vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => {
+      writes.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+      return true;
+    }) as typeof process.stdout.write);
+
+    const { prepareModalRender } = await import('../../../src/ui/ink/components/Modal.js');
+
+    prepareModalRender(process.stdout);
+
+    expect(writes).toEqual(['\x1b[?2004l', '\x1b[?1049h', '\x1b[2J\x1b[H', '\x1B[r']);
+  });
+
+  it('restores the main screen after modal cleanup', async () => {
+    const writes: string[] = [];
+
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      writable: true,
+    });
+
+    vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => {
+      writes.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+      return true;
+    }) as typeof process.stdout.write);
+
+    const { cleanupModalRender } = await import('../../../src/ui/ink/components/Modal.js');
+
+    cleanupModalRender(process.stdout);
+
+    expect(writes).toEqual(['\x1b[?1049l', '\x1b[?2004h']);
   });
 });
 
@@ -305,6 +344,18 @@ describe('Modal Export Validation', () => {
     const module = await import('../../../src/ui/ink/components/Modal.js');
     expect(module.resolveInitialCursor).toBeDefined();
     expect(typeof module.resolveInitialCursor).toBe('function');
+  });
+
+  it('exports prepareModalRender helper', async () => {
+    const module = await import('../../../src/ui/ink/components/Modal.js');
+    expect(module.prepareModalRender).toBeDefined();
+    expect(typeof module.prepareModalRender).toBe('function');
+  });
+
+  it('exports cleanupModalRender helper', async () => {
+    const module = await import('../../../src/ui/ink/components/Modal.js');
+    expect(module.cleanupModalRender).toBeDefined();
+    expect(typeof module.cleanupModalRender).toBe('function');
   });
 });
 

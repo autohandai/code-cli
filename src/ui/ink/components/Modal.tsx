@@ -8,6 +8,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { Box, Text, useInput, render, type Instance } from 'ink';
 import { I18nProvider, useTranslation } from '../../i18n/index.js';
 import { disableBracketedPaste, enableBracketedPaste } from '../../displayUtils.js';
+import { resetScrollRegion } from '../../resetScrollRegion.js';
 
 /**
  * Represents an option in the modal.
@@ -106,6 +107,9 @@ export type ModalProps = SelectModalProps | ConfirmModalProps | InputModalProps 
 
 /** Internal value used to identify the "Other" option */
 const OTHER_VALUE = '__other__';
+const ENTER_ALT_SCREEN = '\x1b[?1049h';
+const EXIT_ALT_SCREEN = '\x1b[?1049l';
+const CLEAR_SCREEN = '\x1b[2J\x1b[H';
 
 /**
  * Resolve initial cursor index for select/confirm modes.
@@ -133,10 +137,21 @@ function unmountAndResolve<T>(
   resolve: (value: T) => void
 ): void {
   instance.unmount();
-  // Re-enable bracketed paste after the modal releases the terminal.
-  enableBracketedPaste(process.stdout);
+  cleanupModalRender(process.stdout);
   // Give Ink one tick to fully release terminal control before the next UI mounts.
   process.nextTick(() => resolve(value));
+}
+
+export function prepareModalRender(output: NodeJS.WriteStream = process.stdout): void {
+  disableBracketedPaste(output);
+  output.write(ENTER_ALT_SCREEN);
+  output.write(CLEAR_SCREEN);
+  resetScrollRegion();
+}
+
+export function cleanupModalRender(output: NodeJS.WriteStream = process.stdout): void {
+  output.write(EXIT_ALT_SCREEN);
+  enableBracketedPaste(output);
 }
 
 /**
@@ -655,7 +670,7 @@ export async function showModal(
   }
 
   // Disable bracketed paste so escape sequences don't leak into Ink's useInput.
-  disableBracketedPaste(process.stdout);
+  prepareModalRender(process.stdout);
 
   return new Promise((resolve) => {
     let completed = false;
@@ -714,7 +729,7 @@ export async function showConfirm(options: {
     return false;
   }
 
-  disableBracketedPaste(process.stdout);
+  prepareModalRender(process.stdout);
 
   return new Promise((resolve) => {
     let completed = false;
@@ -773,7 +788,7 @@ export async function showInput(options: {
     return null;
   }
 
-  disableBracketedPaste(process.stdout);
+  prepareModalRender(process.stdout);
 
   return new Promise((resolve) => {
     let completed = false;
@@ -829,7 +844,7 @@ export async function showPassword(options: {
     return null;
   }
 
-  disableBracketedPaste(process.stdout);
+  prepareModalRender(process.stdout);
 
   return new Promise((resolve) => {
     let completed = false;

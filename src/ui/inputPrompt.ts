@@ -1483,8 +1483,13 @@ export function leavePromptSurface(
     readline.moveCursor(output, 0, 1);
   }
 
-  // Clear content lines below cursor, bottom border, help panel, and status
-  const belowCount = (numContentLines - 1 - cursorRow) + PROMPT_LINES_BELOW_INPUT + lastRenderedHelpLines + statusLineCount;
+  // Clear content lines below cursor, bottom border, help panel, status,
+  // and any active slash suggestion rows rendered under the status line.
+  const belowCount = (numContentLines - 1 - cursorRow)
+    + PROMPT_LINES_BELOW_INPUT
+    + lastRenderedHelpLines
+    + statusLineCount
+    + lastRenderedSlashLines;
   for (let i = 0; i < belowCount; i++) {
     readline.moveCursor(output, 0, 1);
     readline.clearLine(output, 0);
