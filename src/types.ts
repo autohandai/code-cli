@@ -1004,6 +1004,7 @@ export type AgentAction =
     }
   // Skills Discovery
   | { type: 'find_agent_skills'; query: string; category?: string; limit?: number }
+  | { type: 'install_agent_skill'; name: string; scope?: 'project' | 'user'; activate?: boolean }
   // User interaction
   | { type: 'ask_followup_question'; question: string; suggested_answers?: string[] }
   // Schedule management
@@ -1055,6 +1056,8 @@ export interface ToolExecutionResult {
 export interface ToolExecutionContext {
   toolCallId?: string;
   tool?: AgentAction['type'];
+  /** Whether approval was already handled by the caller */
+  approvalHandled?: boolean;
 }
 
 export interface ToolOutputChunk {
