@@ -6,10 +6,7 @@
 
 import fs from 'fs-extra';
 import { join } from 'path';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
+import { spawn } from 'child_process';
 
 /**
  * Quality check types
@@ -93,6 +90,62 @@ export class CodeQualityPipeline {
    * Default timeout for checks (5 minutes)
    */
   private readonly defaultTimeout = 300000;
+
+  /**
+   * Detect the package manager from lock files or package.json
+   */
+  private async detectPackageManager(root: string): Promise<string> {
+    // Check for lock files in order of preference
+    const lockFiles: [string, string][] = [
+      ['bun.lockb', 'bun'],
+      ['bun.lock', 'bun'],
+      ['yarn.lock', 'yarn'],
+      ['pnpm-lock.yaml', 'pnpm'],
+      ['package-lock.json', 'npm'],
+    ];
+
+    for (const [lockFile, pm] of lockFiles) {
+      if (await fs.pathExists(join(root, lockFile))) {
+        return pm;
+      }
+    }
+
+    // Check package.json for packageManager field
+    const pkgPath = join(root, 'package.json');
+    if (await fs.pathExists(pkgPath)) {
+      try {
+        const pkg = await fs.readJson(pkgPath);
+        const pmField = pkg.packageManager as string | undefined;
+        if (pmField) {
+          const pmName = pmField.split('@')[0];
+          if (['bun', 'yarn', 'pnpm', 'npm'].includes(pmName)) {
+            return pmName;
+          }
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+
+    // Default to npm as fallback
+    return 'npm';
+  }
+
+  /**
+   * Build the run command for the detected package manager
+   */
+  private buildRunCommand(pm: string, scriptName: string): [string, string[]] {
+    switch (pm) {
+      case 'bun':
+        return ['bun', ['run', scriptName]];
+      case 'yarn':
+        return ['yarn', [scriptName]];
+      case 'pnpm':
+        return ['pnpm', ['run', scriptName]];
+      default:
+        return ['npm', ['run', scriptName]];
+    }
+  }
 
   /**
    * Run full quality pipeline
@@ -200,7 +253,7 @@ export class CodeQualityPipeline {
   }
 
   /**
-   * Run a single quality check
+   * Run a single quality check using spawn (avoids shell conflicts with TUI)
    */
   private async runCheck(
     root: string,
@@ -208,8 +261,9 @@ export class CodeQualityPipeline {
     name: string,
     scriptName: string
   ): Promise<QualityCheck> {
-    // Build the actual command (use npm run by default)
-    const command = `npm run ${scriptName}`;
+    const pm = await this.detectPackageManager(root);
+    const [cmd, args] = this.buildRunCommand(pm, scriptName);
+    const command = `${pm} run ${scriptName}`;
 
     const check: QualityCheck = {
       type,
@@ -219,24 +273,58 @@ export class CodeQualityPipeline {
     };
 
     const start = Date.now();
+    let output = '';
 
     try {
-      const result = await execAsync(command, {
-        cwd: root,
-        timeout: this.defaultTimeout,
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(cmd, args, {
+          cwd: root,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: { ...process.env, CI: '1', FORCE_COLOR: '0' },
+        });
+
+        const timeout = setTimeout(() => {
+          child.kill('SIGTERM');
+          setTimeout(() => {
+            if (!child.killed) child.kill('SIGKILL');
+          }, 2000);
+          reject(new Error(`Timeout after ${this.defaultTimeout}ms`));
+        }, this.defaultTimeout);
+
+        child.stdout?.on('data', (data: Buffer) => {
+          output += data.toString();
+        });
+
+        child.stderr?.on('data', (data: Buffer) => {
+          output += data.toString();
+        });
+
+        child.on('error', (err) => {
+          clearTimeout(timeout);
+          reject(err);
+        });
+
+        child.on('close', (code) => {
+          clearTimeout(timeout);
+          if (code === 0) {
+            resolve();
+          } else {
+            reject(new Error(`Process exited with code ${code}`));
+          }
+        });
       });
 
       check.status = 'passed';
-      check.output = this.truncateOutput(result.stdout + result.stderr);
+      check.output = this.truncateOutput(output);
       check.exitCode = 0;
     } catch (error: unknown) {
       check.status = 'failed';
       if (error && typeof error === 'object') {
-        const execError = error as { stdout?: string; stderr?: string; code?: number };
-        check.output = this.truncateOutput((execError.stdout || '') + (execError.stderr || ''));
-        check.exitCode = execError.code || 1;
+        const execError = error as { code?: number };
+        check.output = this.truncateOutput(output || String(error));
+        check.exitCode = execError.code ?? 1;
       } else {
-        check.output = String(error);
+        check.output = this.truncateOutput(output || String(error));
         check.exitCode = 1;
       }
     }
@@ -249,6 +337,8 @@ export class CodeQualityPipeline {
    * Run lint auto-fix before checking
    */
   private async runAutoFix(root: string, lintScript: string): Promise<void> {
+    const pm = await this.detectPackageManager(root);
+
     // Try common fix script patterns
     const fixScripts = [
       lintScript.replace('lint', 'lint:fix'),
@@ -258,7 +348,30 @@ export class CodeQualityPipeline {
 
     for (const fixScript of fixScripts) {
       try {
-        await execAsync(`npm run ${fixScript}`, { cwd: root, timeout: 60000 });
+        const [cmd, args] = this.buildRunCommand(pm, fixScript);
+        await new Promise<void>((resolve, reject) => {
+          const child = spawn(cmd, args, {
+            cwd: root,
+            stdio: ['ignore', 'ignore', 'ignore'],
+            env: { ...process.env, CI: '1' },
+          });
+
+          const timeout = setTimeout(() => {
+            child.kill('SIGTERM');
+            reject(new Error('Timeout'));
+          }, 60000);
+
+          child.on('error', () => {
+            clearTimeout(timeout);
+            reject();
+          });
+
+          child.on('close', (code) => {
+            clearTimeout(timeout);
+            if (code === 0) resolve();
+            else reject();
+          });
+        });
         return; // Success, stop trying
       } catch {
         // Try next pattern
