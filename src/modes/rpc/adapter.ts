@@ -568,7 +568,7 @@ export class RPCAdapter {
       process.stderr.write(`[RPC] Clearing pending permission ${permId} due to abort\n`);
       if (pending.ackTimeout) clearTimeout(pending.ackTimeout);
       if (pending.responseTimeout) clearTimeout(pending.responseTimeout);
-      pending.resolve(false); // Deny - operation is being aborted
+      pending.resolve({ decision: 'deny_once' }); // Deny - operation is being aborted
     }
     this.pendingPermissions.clear();
 
@@ -859,7 +859,7 @@ export class RPCAdapter {
       this.pendingPermissions.delete(permRequestId);
       this.status = 'processing';
       process.stderr.write(`[RPC] Permission response timeout for ${permRequestId} (1 hour)\n`);
-      pending.resolve(false);
+      pending.resolve({ decision: 'deny_once' });
     }, 3600000); // 1 hour
 
     process.stderr.write(`[RPC] Permission acknowledged for ${permRequestId}\n`);

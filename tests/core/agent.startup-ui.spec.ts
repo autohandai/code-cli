@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import readline from 'node:readline';
 import { AutohandAgent } from '../../src/core/agent.js';
 import { getPlanModeManager } from '../../src/commands/plan.js';
+import { ApiError } from '../../src/providers/errors.js';
 
 async function waitForAssertion(assertion: () => void, attempts = 20): Promise<void> {
   let lastError: unknown;
@@ -140,7 +141,7 @@ describe('agent startup and active input UI', () => {
       command: 'bun test'
     });
 
-    expect(approved).toBe(true);
+    expect(approved).toEqual({ decision: 'allow_once' });
     expect(confirmationCallback).not.toHaveBeenCalled();
   });
 
@@ -162,7 +163,7 @@ describe('agent startup and active input UI', () => {
       command: 'bun test'
     });
 
-    expect(approved).toBe(true);
+    expect(approved).toEqual({ decision: 'allow_once' });
     expect(confirmationCallback).not.toHaveBeenCalled();
   });
 
@@ -1082,6 +1083,106 @@ describe('agent startup and active input UI', () => {
         process.env.AUTOHAND_TERMINAL_REGIONS = originalEnv;
       }
       console.log = originalLog;
+    }
+  });
+
+  it('retries transport outages without injecting continuation prompts back into the model', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const stdoutDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    const stdinDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    const cleanupBridge = vi.fn();
+    const cleanupEsc = vi.fn();
+    const stopPreparation = vi.fn();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    agent.runtime = {
+      config: {
+        agent: {
+          enableRequestQueue: true,
+          sessionRetryLimit: 3,
+          sessionRetryDelay: 0,
+        },
+      },
+      workspaceRoot: process.cwd(),
+    };
+    agent.intentDetector = {
+      detect: vi.fn(() => ({ intent: 'diagnostic' })),
+    };
+    agent.displayIntentMode = vi.fn();
+    agent.initializeUI = vi.fn(async () => {});
+    agent.inkRenderer = null;
+    agent.persistentInput = {
+      start: vi.fn(),
+      stop: vi.fn(),
+      hasQueued: vi.fn(() => false),
+      getQueueLength: vi.fn(() => 0),
+      getCurrentInput: vi.fn(() => ''),
+      setCurrentInput: vi.fn(),
+      setStatusLine: vi.fn(),
+    };
+    agent.formatStatusLine = vi.fn(() => ({ left: '100% context left', right: '' }));
+    agent.installPersistentConsoleBridge = vi.fn(() => cleanupBridge);
+    agent.setupPersistentInputInterruptHandlers = vi.fn(() => cleanupEsc);
+    agent.startPreparationStatus = vi.fn(() => stopPreparation);
+    agent.buildUserMessage = vi.fn(async (instruction: string) => instruction);
+    agent.setUIStatus = vi.fn();
+    agent.conversation = {
+      addMessage: vi.fn(),
+      history: vi.fn(() => []),
+      addSystemNote: vi.fn(),
+    };
+    agent.saveUserMessage = vi.fn(async () => {});
+    agent.updateContextUsage = vi.fn();
+    agent.runReactLoop = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new ApiError(
+          'Unable to connect to the AI service. Please check your internet connection.',
+          'network_error',
+          0,
+          true,
+        ),
+      )
+      .mockResolvedValueOnce(undefined);
+    agent.submitSessionFailureBugReport = vi.fn(async () => {});
+    agent.sleep = vi.fn(async () => {});
+    agent.injectContinuationMessage = vi.fn();
+    agent.stopStatusUpdates = vi.fn();
+    agent.cleanupUI = vi.fn();
+    agent.clearExplorationLog = vi.fn();
+    agent.printCompletionSummary = vi.fn();
+    agent.pendingInkInstructions = [];
+    agent.taskStartedAt = null;
+    agent.totalTokensUsed = 0;
+    agent.sessionTokensUsed = 0;
+    agent.filesModifiedThisSession = false;
+    agent.useInkRenderer = false;
+    agent.persistentInputActiveTurn = false;
+    agent.promptSeedInput = '';
+    agent.printUserInstructionToChatLog = vi.fn();
+    agent.sessionRetryCount = 0;
+
+    try {
+      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+
+      const result = await (agent as any).runInstruction('hello');
+
+      expect(result).toBe(true);
+      expect(agent.runReactLoop).toHaveBeenCalledTimes(2);
+      expect(agent.submitSessionFailureBugReport).toHaveBeenCalledTimes(1);
+      expect(agent.sleep).toHaveBeenCalledWith(0);
+      expect(agent.injectContinuationMessage).not.toHaveBeenCalled();
+      expect(agent.setUIStatus).toHaveBeenCalledWith('Recovering session...');
+      expect(agent.sessionRetryCount).toBe(0);
+    } finally {
+      logSpy.mockRestore();
+      if (stdoutDescriptor) {
+        Object.defineProperty(process.stdout, 'isTTY', stdoutDescriptor);
+      }
+      if (stdinDescriptor) {
+        Object.defineProperty(process.stdin, 'isTTY', stdinDescriptor);
+      }
     }
   });
 

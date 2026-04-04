@@ -20,6 +20,8 @@ export interface ModalOption {
   value: string;
   /** Optional description shown below the label */
   description?: string;
+  /** Optional preview text shown in a side panel or tooltip */
+  preview?: string;
   /** Initial checked state for multiSelect mode */
   checked?: boolean;
   /** Whether the option is disabled (cannot be selected) */
@@ -638,6 +640,8 @@ export interface ShowModalOptions {
   multiSelect?: boolean;
   /** Called each time spacebar toggles an item in multiSelect mode. */
   onToggle?: (option: ModalOption, checked: boolean) => void;
+  /** Layout mode for the modal display (e.g., 'split', 'full') */
+  layout?: string;
 }
 
 /**

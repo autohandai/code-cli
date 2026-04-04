@@ -369,7 +369,10 @@ export class AutohandAgent {
       runtime,
       files,
       resolveWorkspacePath: (relativePath) => this.resolveWorkspacePath(relativePath),
-      confirmDangerousAction: (message, context) => this.confirmDangerousAction(message, context),
+      confirmDangerousAction: async (message, context) => {
+        const result = await this.confirmDangerousAction(message, context);
+        return result.decision === 'allow_once' || result.decision === 'allow_session' || result.decision === 'allow_always_project' || result.decision === 'allow_always_user';
+      },
       onExploration: (entry) => this.recordExploration(entry),
       onToolOutput: (chunk) => this.handleToolOutput(chunk),
       toolsRegistry: this.toolsRegistry,
@@ -2467,6 +2470,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
           this.persistentInput.stop();
           this.persistentInputActiveTurn = false;
         }
+        // Stop Ink renderer if active — it holds stdin/stdout and will
+        // swallow quality check output or cause stdin conflicts with spawn.
+        if (this.useInkRenderer) {
+          this.cleanupUI();
+        }
         cleanupConsoleBridge();
         cleanupConsoleBridge = () => {}; // Prevent double-cleanup in finally
         await this.runQualityPipeline();
@@ -2508,8 +2516,13 @@ If lint or tests fail, report the issues but do NOT commit.`;
         );
         await this.sleep(delay);
 
-        // Inject continuation message into conversation
-        this.injectContinuationMessage(err, this.sessionRetryCount);
+        // Retry plain transport/service outages without mutating the prompt.
+        // Injecting "continue the task" guidance after a dropped connection
+        // causes the model to resume with extra behavioral instructions once
+        // the service comes back, which can snowball into unnecessary tool use.
+        if (!this.shouldUsePassiveSessionRetry(err)) {
+          this.injectContinuationMessage(err, this.sessionRetryCount);
+        }
 
         // Retry the ReAct loop
         try {
@@ -5255,6 +5268,23 @@ If lint or tests fail, report the issues but do NOT commit.`;
     if (error instanceof ApiError) return error.retryable;
     const classified = classifyApiError(0, error.message);
     return classified.retryable;
+  }
+
+  /**
+   * Transport/service retries should simply wait and retry the same turn.
+   * They must not inject extra continuation instructions back into the model.
+   */
+  private shouldUsePassiveSessionRetry(error: Error): boolean {
+    const code = error instanceof ApiError
+      ? error.code
+      : classifyApiError(0, error.message).code;
+
+    return (
+      code === 'network_error' ||
+      code === 'timeout' ||
+      code === 'rate_limited' ||
+      code === 'server_error'
+    );
   }
 
   /**

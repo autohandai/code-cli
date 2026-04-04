@@ -208,7 +208,7 @@ async function browseInstalledSkills(
   options.push({
     label: '🌐 Browse community skills',
     value: '__skills_install__',
-    preview: 'Open the community skills browser to search and install new skills.',
+    description: 'Open the community skills browser to search and install new skills.',
   });
 
   const initialIndex = Math.max(allSkills.findIndex((skill) => skill.isActive), 0);
@@ -217,7 +217,6 @@ async function browseInstalledSkills(
     options,
     initialIndex,
     maxVisible: 12,
-    layout: 'split',
   }));
 
   if (!selected) {
