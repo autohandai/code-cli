@@ -6,7 +6,8 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { CodeQualityPipeline } from '../../src/core/CodeQualityPipeline';
 import * as fs from 'fs-extra';
-import * as child_process from 'child_process';
+import { spawn } from 'child_process';
+import { EventEmitter } from 'events';
 
 // Mock fs-extra - share references between named and default exports
 vi.mock('fs-extra', () => {
@@ -22,10 +23,37 @@ vi.mock('fs-extra', () => {
   };
 });
 
-// Mock child_process
+// Mock child_process.spawn
 vi.mock('child_process', () => ({
-  exec: vi.fn()
+  spawn: vi.fn()
 }));
+
+function createMockProcess(exitCode: number, stdout = '', stderr = ''): EventEmitter {
+  const emitter = new EventEmitter();
+  const stdoutEmitter = new EventEmitter();
+  const stderrEmitter = new EventEmitter();
+  // @ts-expect-error - mock EventEmitter with stream-like behavior
+  emitter.stdout = stdoutEmitter;
+  // @ts-expect-error
+  emitter.stderr = stderrEmitter;
+  // @ts-expect-error
+  emitter.killed = false;
+  // @ts-expect-error
+  emitter.kill = vi.fn(() => { emitter.killed = true; return true; });
+
+  // Defer close emission to next tick so listeners are registered
+  setImmediate(() => {
+    if (stdout) {
+      stdoutEmitter.emit('data', Buffer.from(stdout));
+    }
+    if (stderr) {
+      stderrEmitter.emit('data', Buffer.from(stderr));
+    }
+    emitter.emit('close', exitCode);
+  });
+
+  return emitter;
+}
 
 describe('CodeQualityPipeline', () => {
   let pipeline: CodeQualityPipeline;
@@ -132,10 +160,8 @@ describe('CodeQualityPipeline', () => {
         }
       });
 
-      const mockExec = vi.fn((cmd, opts, callback) => {
-        callback(null, { stdout: 'All checks passed', stderr: '' });
-      });
-      vi.mocked(child_process.exec).mockImplementation(mockExec as any);
+      const mockSpawn = vi.fn(() => createMockProcess(0, 'All checks passed'));
+      vi.mocked(spawn).mockImplementation(mockSpawn as any);
 
       const result = await pipeline.run(mockWorkspace);
 
@@ -150,14 +176,7 @@ describe('CodeQualityPipeline', () => {
         scripts: { lint: 'eslint src/' }
       });
 
-      const mockExec = vi.fn((cmd, opts, callback) => {
-        const error: any = new Error('Lint failed');
-        error.code = 1;
-        error.stdout = 'src/file.ts: error';
-        error.stderr = '';
-        callback(error, { stdout: error.stdout, stderr: '' });
-      });
-      vi.mocked(child_process.exec).mockImplementation(mockExec as any);
+      vi.mocked(spawn).mockImplementation(() => createMockProcess(1, 'src/file.ts: error'));
 
       const result = await pipeline.run(mockWorkspace);
 
@@ -171,14 +190,7 @@ describe('CodeQualityPipeline', () => {
         scripts: { typecheck: 'tsc --noEmit' }
       });
 
-      const mockExec = vi.fn((cmd, opts, callback) => {
-        const error: any = new Error('Type error');
-        error.code = 1;
-        error.stdout = 'error TS2345: Argument of type';
-        error.stderr = '';
-        callback(error, { stdout: error.stdout, stderr: '' });
-      });
-      vi.mocked(child_process.exec).mockImplementation(mockExec as any);
+      vi.mocked(spawn).mockImplementation(() => createMockProcess(1, 'error TS2345: Argument of type'));
 
       const result = await pipeline.run(mockWorkspace);
 
@@ -192,14 +204,7 @@ describe('CodeQualityPipeline', () => {
         scripts: { test: 'vitest' }
       });
 
-      const mockExec = vi.fn((cmd, opts, callback) => {
-        const error: any = new Error('Test failed');
-        error.code = 1;
-        error.stdout = '1 test failed';
-        error.stderr = '';
-        callback(error, { stdout: error.stdout, stderr: '' });
-      });
-      vi.mocked(child_process.exec).mockImplementation(mockExec as any);
+      vi.mocked(spawn).mockImplementation(() => createMockProcess(1, '1 test failed'));
 
       const result = await pipeline.run(mockWorkspace);
 
@@ -213,14 +218,7 @@ describe('CodeQualityPipeline', () => {
         scripts: { build: 'tsup' }
       });
 
-      const mockExec = vi.fn((cmd, opts, callback) => {
-        const error: any = new Error('Build failed');
-        error.code = 1;
-        error.stdout = 'Build error';
-        error.stderr = '';
-        callback(error, { stdout: error.stdout, stderr: '' });
-      });
-      vi.mocked(child_process.exec).mockImplementation(mockExec as any);
+      vi.mocked(spawn).mockImplementation(() => createMockProcess(1, 'Build error'));
 
       const result = await pipeline.run(mockWorkspace);
 
@@ -278,12 +276,7 @@ describe('CodeQualityPipeline', () => {
         scripts: { lint: 'eslint src/' }
       });
 
-      const mockExec = vi.fn((cmd, opts, callback) => {
-        setTimeout(() => {
-          callback(null, { stdout: 'success', stderr: '' });
-        }, 10);
-      });
-      vi.mocked(child_process.exec).mockImplementation(mockExec as any);
+      vi.mocked(spawn).mockImplementation(() => createMockProcess(0, 'success'));
 
       const result = await pipeline.run(mockWorkspace);
 
@@ -296,10 +289,7 @@ describe('CodeQualityPipeline', () => {
         scripts: { lint: 'eslint src/' }
       });
 
-      const mockExec = vi.fn((cmd, opts, callback) => {
-        callback(null, { stdout: 'success', stderr: '' });
-      });
-      vi.mocked(child_process.exec).mockImplementation(mockExec as any);
+      vi.mocked(spawn).mockImplementation(() => createMockProcess(0, 'success'));
 
       const result = await pipeline.run(mockWorkspace);
 
@@ -312,18 +302,14 @@ describe('CodeQualityPipeline', () => {
         scripts: { test: 'vitest' }
       });
 
-      const mockExec = vi.fn((cmd, opts, callback) => {
-        callback(null, { stdout: 'success', stderr: '' });
-      });
-      vi.mocked(child_process.exec).mockImplementation(mockExec as any);
+      const mockSpawn = vi.fn(() => createMockProcess(0, 'success'));
+      vi.mocked(spawn).mockImplementation(mockSpawn as any);
 
       await pipeline.run(mockWorkspace, { testFilter: 'auth' });
 
-      expect(mockExec).toHaveBeenCalledWith(
-        expect.stringContaining('--grep'),
-        expect.anything(),
-        expect.anything()
-      );
+      expect(mockSpawn).toHaveBeenCalled();
+      const callArgs = mockSpawn.mock.calls[0][1] as string[];
+      expect(callArgs[1]).toContain('--grep');
     });
   });
 

@@ -34,7 +34,7 @@ import {
   invalidateBoxColorCache,
   type InputBorderStyle
 } from './box.js';
-import { buildFileMentionSuggestions } from './mentionFilter.js';
+import { buildFileMentionSuggestions, buildSkillMentionSuggestions, type SkillMentionInfo } from './mentionFilter.js';
 import { themedFg } from './theme/index.js';
 import { stripAnsiCodes, enableBracketedPaste, disableBracketedPaste } from './displayUtils.js';
 import { TextBuffer } from './textBuffer.js';
@@ -151,9 +151,18 @@ interface PromptSuggestion {
 
 const HOT_TIP_LIMIT = 5;
 
+// Lazy-loaded skill cache for $ mention suggestions
+let cachedSkillMentions: SkillMentionInfo[] | undefined;
+
+/** Reset the lazy-loaded skill mention cache (exported for test isolation) */
+export function resetCachedSkillMentions(): void {
+  cachedSkillMentions = undefined;
+}
+
 const CONTEXTUAL_HELP_ROWS: Array<{ left: string; right: string }> = [
   { left: '/ for commands', right: '! for shell commands' },
   { left: '@ for file paths', right: 'tab accepts suggestion' },
+  { left: '$ for skills', right: 'tab accepts suggestion' },
   { left: '? toggles this shortcuts panel', right: 'shift + tab toggles plan mode' },
   { left: 'shift + enter inserts newline', right: 'alt + enter inserts newline' },
   { left: 'enter submits prompt', right: 'ctrl + c clears input / exits' },
@@ -177,7 +186,8 @@ export function buildPromptHotTips(
   currentLine: string,
   files: string[],
   slashCommands: SlashCommand[],
-  workspaceRoot?: string
+  workspaceRoot?: string,
+  skillsProvider?: () => SkillMentionInfo[],
 ): PromptHotTip[] {
   const trimmed = currentLine.trim();
   const mentionMatch = /@([A-Za-z0-9_./\\-]*)$/.exec(currentLine);
@@ -191,6 +201,22 @@ export function buildPromptHotTips(
     return mentionTips.length > 0
       ? mentionTips
       : [{ label: 'Type more after @ to filter file paths' }];
+  }
+
+  const skillMatch = /\$([A-Za-z0-9_-]*)$/.exec(currentLine);
+  if (skillMatch && skillsProvider) {
+    const seed = skillMatch[1] ?? '';
+    const skills = cachedSkillMentions ?? skillsProvider();
+    if (cachedSkillMentions === undefined) {
+      cachedSkillMentions = skills;
+    }
+    const suggestions = buildSkillMentionSuggestions(skills, seed, HOT_TIP_LIMIT);
+    const skillTips = suggestions.map((name) => ({
+      label: `Tab -> $${name}`
+    }));
+    return skillTips.length > 0
+      ? skillTips
+      : [{ label: 'Type more after $ to filter skills' }];
   }
 
   if (trimmed.startsWith('/')) {
@@ -247,6 +273,7 @@ export function buildPromptHotTips(
     { label: 'Tab -> /help' },
     { label: 'Tab -> ! git status' },
     defaultFileTip,
+    { label: 'Type $ for skills' },
     { label: 'Type /, @, or ! to switch suggestion mode' },
     { label: 'Shift+Tab toggles plan mode' },
   ];
@@ -257,7 +284,8 @@ export function getPrimaryHotTipSuggestion(
   files: string[],
   slashCommands: SlashCommand[],
   suggestionText?: string,
-  workspaceRoot?: string
+  workspaceRoot?: string,
+  skillsProvider?: () => SkillMentionInfo[],
 ): PromptSuggestion | null {
   const mentionMatch = /@([A-Za-z0-9_./\\-]*)$/.exec(currentLine);
   if (mentionMatch) {
@@ -268,6 +296,22 @@ export function getPrimaryHotTipSuggestion(
     }
     const prefix = currentLine.slice(0, mentionMatch.index);
     const line = `${prefix}@${suggestions[0]} `;
+    return { line, cursor: line.length };
+  }
+
+  const skillMatch = /\$([A-Za-z0-9_-]*)$/.exec(currentLine);
+  if (skillMatch && skillsProvider) {
+    const seed = skillMatch[1] ?? '';
+    const skills = cachedSkillMentions ?? skillsProvider();
+    if (cachedSkillMentions === undefined) {
+      cachedSkillMentions = skills;
+    }
+    const suggestions = buildSkillMentionSuggestions(skills, seed, 1);
+    if (suggestions.length === 0) {
+      return null;
+    }
+    const prefix = currentLine.slice(0, skillMatch.index);
+    const line = `${prefix}$${suggestions[0]} `;
     return { line, cursor: line.length };
   }
 
@@ -327,11 +371,12 @@ export function getInlineGhostCompletionSuffix(
   files: string[],
   slashCommands: SlashCommand[],
   workspaceRoot?: string,
-  llmSuggestion?: string | null
+  llmSuggestion?: string | null,
+  skillsProvider?: () => SkillMentionInfo[],
 ): string | null {
   const trimmed = currentLine.trim();
-  // Only show ghost completions for actionable prefixes: / (commands), @ (mentions), ! (shell)
-  if (!trimmed.startsWith('/') && !trimmed.startsWith('@') && !trimmed.startsWith('!')) {
+  // Only show ghost completions for actionable prefixes: / (commands), @ (mentions), ! (shell), $ (skills)
+  if (!trimmed.startsWith('/') && !trimmed.startsWith('@') && !trimmed.startsWith('!') && !trimmed.startsWith('$')) {
     return null;
   }
 
@@ -349,7 +394,8 @@ export function getInlineGhostCompletionSuffix(
     files,
     slashCommands,
     undefined,
-    workspaceRoot
+    workspaceRoot,
+    skillsProvider,
   );
   if (!suggestion) {
     return null;
@@ -366,13 +412,14 @@ export function buildContextualHelpPanelLines(
   currentLine: string,
   width: number,
   files: string[],
-  slashCommands: SlashCommand[]
+  slashCommands: SlashCommand[],
+  skillsProvider?: () => SkillMentionInfo[],
 ): string[] {
   const panelWidth = Math.max(20, width);
   const gap = 3;
   const leftWidth = Math.max(12, Math.floor((panelWidth - gap) / 2));
   const rightWidth = Math.max(12, panelWidth - leftWidth - gap);
-  const tips = buildPromptHotTips(currentLine, files, slashCommands);
+  const tips = buildPromptHotTips(currentLine, files, slashCommands, undefined, skillsProvider);
   const primaryTip = tips[0]?.label ?? 'Tab -> /help';
   const secondaryTip = tips[1]?.label ?? 'Type /, @, or ! to switch suggestion mode';
 
@@ -403,9 +450,10 @@ export function buildContextualHelpPanelLines(
 export function buildContextualPromptStatusLine(
   currentLine: string,
   files: string[],
-  slashCommands: SlashCommand[]
+  slashCommands: SlashCommand[],
+  skillsProvider?: () => SkillMentionInfo[],
 ): string {
-  const tips = buildPromptHotTips(currentLine, files, slashCommands);
+  const tips = buildPromptHotTips(currentLine, files, slashCommands, undefined, skillsProvider);
   const primaryTip = tips[0]?.label ?? 'Tab -> /help';
   return `hot tip: ${primaryTip}`;
 }
@@ -1302,7 +1350,8 @@ export async function readInstruction(
   initialValue = '',
   suggestionProvider?: () => string | undefined,
   resolveShellSuggestion?: (input: string) => Promise<string | null>,
-  pendingSuggestion?: Promise<void>
+  pendingSuggestion?: Promise<void>,
+  skillsProvider?: () => SkillMentionInfo[]
 ): Promise<string | null> {
   const stdInput = (io.input ?? process.stdin) as NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void };
   const stdOutput = (io.output ?? process.stdout) as NodeJS.WriteStream;
@@ -1328,6 +1377,7 @@ export async function readInstruction(
         suggestionProvider,
         resolveShellSuggestion,
         pendingSuggestion,
+        skillsProvider,
       });
 
       if (result.kind === 'abort') {
@@ -1355,6 +1405,8 @@ interface PromptOnceOptions {
   resolveShellSuggestion?: (input: string) => Promise<string | null>;
   /** Promise that resolves when a pending suggestion arrives, triggering a re-render. */
   pendingSuggestion?: Promise<void>;
+  /** Lazy provider for skill mentions ($ prefix). Returns cached skills on subsequent calls. */
+  skillsProvider?: () => SkillMentionInfo[];
 }
 
 /**
@@ -1564,6 +1616,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     suggestionProvider,
     resolveShellSuggestion,
     pendingSuggestion,
+    skillsProvider,
   } = options;
 
   // Reset module-level render state so stale values from the previous
@@ -1652,7 +1705,8 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       filesProvider(),
       slashCommands,
       workspaceRoot,
-      llmInlineShellSuggestion
+      llmInlineShellSuggestion,
+      skillsProvider,
     ) ?? undefined;
   };
 
@@ -1661,7 +1715,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       return undefined;
     }
     const width = getPromptBlockWidth(stdOutput.columns);
-    return buildContextualHelpPanelLines(getCurrentText(), width, filesProvider(), slashCommands);
+    return buildContextualHelpPanelLines(getCurrentText(), width, filesProvider(), slashCommands, skillsProvider);
   };
 
   const getSlashSuggestionLines = (): string[] | undefined => {
@@ -2261,7 +2315,8 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
             filesProvider(),
             slashCommands,
             suggestionProvider?.(),
-            workspaceRoot
+            workspaceRoot,
+            skillsProvider,
           );
           let expectedInputAtResponse = currentInput;
 
@@ -2303,7 +2358,8 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
           filesProvider(),
           slashCommands,
           suggestionProvider?.(),
-          workspaceRoot
+          workspaceRoot,
+          skillsProvider,
         );
         if (suggestion) {
           textBuffer.setText(suggestion.line);
