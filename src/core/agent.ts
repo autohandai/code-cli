@@ -26,6 +26,7 @@ import {
   readInstruction,
   safeEmitKeypressEvents
 } from '../ui/inputPrompt.js';
+
 import { safeSetRawMode } from '../ui/rawMode.js';
 import { isShellCommand, isImmediateCommand, parseShellCommand, executeShellCommandAsync, executeStreamingShellCommand } from '../ui/shellCommand.js';
 import { showFilePalette } from '../ui/filePalette.js';
@@ -1875,7 +1876,14 @@ If lint or tests fail, report the issues but do NOT commit.`;
         initialValue,
         () => engine?.getSuggestion() ?? undefined,
         (line) => this.resolveLlmShellSuggestion(line),
-        pendingSuggestion ?? undefined
+        pendingSuggestion ?? undefined,
+        () =>
+          this.skillsRegistry.listSkills().map((s) => ({
+            name: s.name,
+            description: s.description ?? '',
+            isActive: s.isActive,
+            source: s.source,
+          })),
       );
     } finally {
       this.readlinePromptActive = false;
@@ -2875,7 +2883,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         this.forceRenderSpinner();
       }
       // Get messages with images included for multimodal support
-      const messagesWithImages = this.getMessagesWithImages();
+      const messagesWithImages = await this.getMessagesWithImages();
 
       if (debugMode) this.writeDebugLine(`[AGENT DEBUG] Calling LLM with ${messagesWithImages.length} messages, ${tools.length} tools`);
 
@@ -5851,7 +5859,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * which is supported by OpenAI/OpenRouter APIs but not strictly typed.
    * @returns Messages formatted for API with multimodal content
    */
-  private getMessagesWithImages(): LLMMessage[] {
+  private async getMessagesWithImages(): Promise<LLMMessage[]> {
     const messages = this.conversation.history();
     const images = this.imageManager.getAll();
 
@@ -5870,7 +5878,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
 
     // Use ImageManager's size-limited format (prevents 53MB+ payloads)
-    const imageContents = this.imageManager.toOpenAIFormat();
+    const imageContents = await this.imageManager.toOpenAIFormat();
 
     // Clone messages and modify the last user message to include images
     const result: LLMMessage[] = messages.map((msg, i) => {
