@@ -7,26 +7,28 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const loadConfigMock = vi.fn();
-const managerCtorMock = vi.fn();
-const reportErrorMock = vi.fn();
+const mocks = vi.hoisted(() => ({
+  loadConfig: vi.fn(),
+  managerCtor: vi.fn(),
+  reportError: vi.fn(),
+}));
 
 vi.mock('../../package.json', () => ({
   default: { version: '0.8.0' },
 }));
 
 vi.mock('../../src/config.js', () => ({
-  loadConfig: loadConfigMock,
+  loadConfig: mocks.loadConfig,
 }));
 
 vi.mock('../../src/reporting/AutoReportManager.js', () => ({
   AutoReportManager: class AutoReportManager {
     constructor(config: unknown, version: string) {
-      managerCtorMock(config, version);
+      mocks.managerCtor(config, version);
     }
 
-    reportError = reportErrorMock;
-  }
+    reportError = mocks.reportError;
+  },
 }));
 
 import {
@@ -71,13 +73,13 @@ describe('processErrorReporting', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetProcessErrorReportingForTests();
-    loadConfigMock.mockResolvedValue({
+    mocks.loadConfig.mockResolvedValue({
       provider: 'openrouter',
       autoReport: { enabled: true },
       configPath: '/tmp/autohand.json',
       isNewConfig: false,
     });
-    reportErrorMock.mockResolvedValue(undefined);
+    mocks.reportError.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -99,11 +101,11 @@ describe('processErrorReporting', () => {
     fakeProcess.emit('unhandledRejection', new Error('boom'), Promise.resolve());
 
     await waitForAssertion(() => {
-      expect(loadConfigMock).toHaveBeenCalledWith('/tmp/custom.json');
-      expect(reportErrorMock).toHaveBeenCalledTimes(1);
+      expect(mocks.loadConfig).toHaveBeenCalledWith('/tmp/custom.json');
+      expect(mocks.reportError).toHaveBeenCalledTimes(1);
     });
 
-    const [error, context] = reportErrorMock.mock.calls[0];
+    const [error, context] = mocks.reportError.mock.calls[0];
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toBe('boom');
     expect(context).toMatchObject({
@@ -131,11 +133,11 @@ describe('processErrorReporting', () => {
     fakeProcess.emit('uncaughtException', new TypeError('fatal crash'));
 
     await waitForAssertion(() => {
-      expect(reportErrorMock).toHaveBeenCalledTimes(1);
+      expect(mocks.reportError).toHaveBeenCalledTimes(1);
       expect(exitMock).toHaveBeenCalledWith(1);
     });
 
-    const [error, context] = reportErrorMock.mock.calls[0];
+    const [error, context] = mocks.reportError.mock.calls[0];
     expect((error as Error).name).toBe('TypeError');
     expect(context).toMatchObject({
       context: {
@@ -155,8 +157,8 @@ describe('processErrorReporting', () => {
 
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    expect(reportErrorMock).not.toHaveBeenCalled();
-    expect(loadConfigMock).not.toHaveBeenCalled();
+    expect(mocks.reportError).not.toHaveBeenCalled();
+    expect(mocks.loadConfig).not.toHaveBeenCalled();
   });
 
   it('ignores EIO read errors on stdin (fd 0) as uncaught exceptions', async () => {
@@ -175,7 +177,7 @@ describe('processErrorReporting', () => {
 
     await new Promise(resolve => setTimeout(resolve, 10));
 
-    expect(reportErrorMock).not.toHaveBeenCalled();
+    expect(mocks.reportError).not.toHaveBeenCalled();
     expect(exitMock).not.toHaveBeenCalled();
     expect(logError).not.toHaveBeenCalled();
   });
@@ -196,7 +198,7 @@ describe('processErrorReporting', () => {
 
     await new Promise(resolve => setTimeout(resolve, 10));
 
-    expect(reportErrorMock).not.toHaveBeenCalled();
+    expect(mocks.reportError).not.toHaveBeenCalled();
     expect(exitMock).not.toHaveBeenCalled();
     expect(logError).not.toHaveBeenCalled();
   });
@@ -215,7 +217,7 @@ describe('processErrorReporting', () => {
 
     await new Promise(resolve => setTimeout(resolve, 10));
 
-    expect(reportErrorMock).not.toHaveBeenCalled();
+    expect(mocks.reportError).not.toHaveBeenCalled();
   });
 
   it('ignores EACCES mkdir errors as unhandled rejections', async () => {
@@ -229,7 +231,7 @@ describe('processErrorReporting', () => {
     fakeProcess.emit('unhandledRejection', eaccesError, Promise.resolve());
 
     await new Promise(resolve => setTimeout(resolve, 10));
-    expect(reportErrorMock).not.toHaveBeenCalled();
+    expect(mocks.reportError).not.toHaveBeenCalled();
   });
 
   it('ignores EEXIST mkdir errors as unhandled rejections', async () => {
@@ -243,7 +245,7 @@ describe('processErrorReporting', () => {
     fakeProcess.emit('unhandledRejection', eexistError, Promise.resolve());
 
     await new Promise(resolve => setTimeout(resolve, 10));
-    expect(reportErrorMock).not.toHaveBeenCalled();
+    expect(mocks.reportError).not.toHaveBeenCalled();
   });
 
   it('ignores setRawMode errno errors as uncaught exceptions', async () => {
@@ -256,7 +258,7 @@ describe('processErrorReporting', () => {
     fakeProcess.emit('uncaughtException', rawModeError);
 
     await new Promise(resolve => setTimeout(resolve, 10));
-    expect(reportErrorMock).not.toHaveBeenCalled();
+    expect(mocks.reportError).not.toHaveBeenCalled();
     expect(exitMock).not.toHaveBeenCalled();
   });
 
@@ -270,7 +272,7 @@ describe('processErrorReporting', () => {
     fakeProcess.emit('uncaughtException', genError);
 
     await new Promise(resolve => setTimeout(resolve, 10));
-    expect(reportErrorMock).not.toHaveBeenCalled();
+    expect(mocks.reportError).not.toHaveBeenCalled();
     expect(exitMock).not.toHaveBeenCalled();
   });
 
@@ -282,13 +284,13 @@ describe('processErrorReporting', () => {
     fakeProcess.emit('unhandledRejection', sqliteError, Promise.resolve());
 
     await new Promise(resolve => setTimeout(resolve, 10));
-    expect(reportErrorMock).not.toHaveBeenCalled();
+    expect(mocks.reportError).not.toHaveBeenCalled();
   });
 
   it('falls back to an in-memory config when loading the user config fails', async () => {
     const fakeProcess = createFakeProcess();
     fakeProcess.env.AUTOHAND_API_URL = 'https://api.example.com';
-    loadConfigMock.mockRejectedValue(new Error('broken config'));
+    mocks.loadConfig.mockRejectedValue(new Error('broken config'));
 
     await reportProcessError('string failure', {
       handler: 'unhandledRejection',
@@ -296,7 +298,7 @@ describe('processErrorReporting', () => {
       configPath: '/tmp/bad-config.json',
     });
 
-    expect(managerCtorMock).toHaveBeenCalledWith(
+    expect(mocks.managerCtor).toHaveBeenCalledWith(
       expect.objectContaining({
         provider: 'openrouter',
         configPath: '/tmp/bad-config.json',
@@ -310,7 +312,7 @@ describe('processErrorReporting', () => {
       '0.8.0',
     );
 
-    const [error, context] = reportErrorMock.mock.calls[0];
+    const [error, context] = mocks.reportError.mock.calls[0];
     expect((error as Error).message).toBe('string failure');
     expect((error as Error).name).toBe('NonErrorProcessFault');
     expect(context).toMatchObject({

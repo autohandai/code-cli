@@ -5,6 +5,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import chalk from 'chalk';
 
 const {
   mockShowModal,
@@ -197,7 +198,7 @@ describe('skillsInstall command', () => {
       undefined
     );
 
-    expect(result).toBe('No skill selected.');
+    expect(result).toBe(chalk.gray('No skill selected.'));
     expect(mockSkillsRegistry.importCommunitySkillDirectory).not.toHaveBeenCalled();
   });
 });

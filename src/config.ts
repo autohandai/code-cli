@@ -60,6 +60,20 @@ async function detectConfigPath(customPath?: string): Promise<string> {
 }
 
 /**
+ * Check for existence of config files in a directory
+ */
+async function checkConfigFilesExist(dir: string): Promise<string[]> {
+  const files: string[] = [];
+  for (const filename of ['config.json', 'config.yaml', 'config.yml']) {
+    const candidate = path.join(dir, filename);
+    if (await fs.pathExists(candidate)) {
+      files.push(filename);
+    }
+  }
+  return files.sort();
+}
+
+/**
  * Check if path is a YAML file
  */
 function isYamlFile(filePath: string): boolean {
@@ -89,6 +103,18 @@ async function parseConfigFile(configPath: string): Promise<AutohandConfig | Leg
 
 export async function loadConfig(customPath?: string): Promise<LoadedConfig> {
   const configPath = await detectConfigPath(customPath);
+
+  // Check for duplicate config files in the same directory.
+  const configDir = path.dirname(configPath);
+  const configFiles = await checkConfigFilesExist(configDir);
+  if (configFiles.length > 1) {
+    throw new Error(
+      `Multiple config files found in ${configDir} (${configFiles.join(', ')}). ` +
+      `Only one config file is allowed. Please review and remove the duplicate, ` +
+      `or set the AUTOHAND_CONFIG environment variable to specify which one to use.`
+    );
+  }
+
   await fs.ensureDir(path.dirname(configPath));
 
   let isNewConfig = false;

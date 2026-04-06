@@ -3,10 +3,12 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
   getInlineGhostCompletionSuffix,
   getPrimaryHotTipSuggestion,
+  buildPromptHotTips,
+  resetCachedSkillMentions,
   NEWLINE_MARKER,
   convertNewlineMarkersToNewlines,
   processImagesInText,
@@ -240,6 +242,98 @@ describe('inputPrompt', () => {
         '! bun test'
       );
       expect(ghost).toBe('tatus');
+    });
+  });
+
+  describe('skill mention hot tips', () => {
+    const sampleSkills = [
+      { name: 'code-review', description: 'Review code quality', isActive: true, source: 'user' },
+      { name: 'debugger', description: 'Debug issues', isActive: true, source: 'project' },
+      { name: 'frontend-design', description: 'Design UIs', isActive: false, source: 'community' },
+      { name: 'test-helper', description: 'Write tests', isActive: true, source: 'user' },
+    ];
+
+    beforeEach(() => {
+      resetCachedSkillMentions();
+    });
+
+    it('returns skill suggestions for $ prefix', () => {
+      const result = buildPromptHotTips('$co', [], [], undefined, () => sampleSkills);
+      expect(result[0]).toEqual({ label: 'Tab -> $code-review' });
+    });
+
+    it('returns exact match for $ prefix', () => {
+      const result = buildPromptHotTips('$debugger', [], [], undefined, () => sampleSkills);
+      expect(result[0]).toEqual({ label: 'Tab -> $debugger' });
+    });
+
+    it('returns filter message when no skill matches empty seed', () => {
+      const result = buildPromptHotTips('$', [], [], undefined, () => []);
+      expect(result[0]).toEqual({ label: 'Type more after $ to filter skills' });
+    });
+
+    it('falls back to default tips when no skillsProvider given', () => {
+      const result = buildPromptHotTips('$', [], []);
+      expect(result.some((t) => t.label === 'Type /, @, or ! to switch suggestion mode')).toBe(true);
+    });
+
+    it('works alongside @ mentions in same line', () => {
+      const files = ['src/ui/inputPrompt.ts'];
+      const result = buildPromptHotTips('@src', files, [], undefined, () => sampleSkills);
+      expect(result[0]).toEqual({ label: 'Tab -> @src/ui/inputPrompt.ts' });
+    });
+  });
+
+  describe('skill tab completion', () => {
+    const sampleSkills = [
+      { name: 'code-review', description: 'Review code', isActive: true, source: 'user' },
+      { name: 'debugger', description: 'Debug issues', isActive: true, source: 'user' },
+      { name: 'frontend-design', description: 'Design UIs', isActive: false, source: 'community' },
+    ];
+
+    beforeEach(() => {
+      resetCachedSkillMentions();
+    });
+
+    it('completes skill name with trailing space on Tab', () => {
+      const result = getPrimaryHotTipSuggestion('$code', [], [], undefined, undefined, () => sampleSkills);
+      expect(result).toEqual({ line: '$code-review ', cursor: '$code-review '.length });
+    });
+
+    it('completes exact skill match with trailing space', () => {
+      const result = getPrimaryHotTipSuggestion('$debugger', [], [], undefined, undefined, () => sampleSkills);
+      expect(result).toEqual({ line: '$debugger ', cursor: '$debugger '.length });
+    });
+
+    it('returns null when no skills match', () => {
+      const result = getPrimaryHotTipSuggestion('$nonexistent', [], [], undefined, undefined, () => sampleSkills);
+      expect(result).toBeNull();
+    });
+
+    it('preserves text before $ when completing', () => {
+      const result = getPrimaryHotTipSuggestion('hello $code', [], [], undefined, undefined, () => sampleSkills);
+      expect(result).toEqual({ line: 'hello $code-review ', cursor: ('hello $code-review ').length });
+    });
+  });
+
+  describe('skill ghost completion', () => {
+    const sampleSkills = [
+      { name: 'code-review', description: 'Review code', isActive: true, source: 'user' },
+      { name: 'debugger', description: 'Debug issues', isActive: true, source: 'user' },
+    ];
+
+    beforeEach(() => {
+      resetCachedSkillMentions();
+    });
+
+    it('returns ghost text for partial skill match', () => {
+      const ghost = getInlineGhostCompletionSuffix('$code', [], [], undefined, undefined, () => sampleSkills);
+      expect(ghost).toBe('-review ');
+    });
+
+    it('returns null for non-matching skill input', () => {
+      const ghost = getInlineGhostCompletionSuffix('$xyz', [], [], undefined, undefined, () => sampleSkills);
+      expect(ghost).toBeNull();
     });
   });
 });

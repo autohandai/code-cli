@@ -6,6 +6,13 @@
 
 export const MENTION_SUGGESTION_LIMIT = 8;
 
+export interface SkillMentionInfo {
+  name: string;
+  description: string;
+  isActive: boolean;
+  source: string;
+}
+
 export function buildFileMentionSuggestions(files: string[], seed: string, limit = MENTION_SUGGESTION_LIMIT): string[] {
   const trimmedSeed = seed.trim();
   if (!trimmedSeed) {
@@ -52,4 +59,58 @@ export function buildFileMentionSuggestions(files: string[], seed: string, limit
     .sort((a, b) => a.rank - b.rank || a.index - b.index)
     .slice(0, limit)
     .map((entry) => entry.file);
+}
+
+export function buildSkillMentionSuggestions(
+  skills: SkillMentionInfo[],
+  seed: string,
+  limit = MENTION_SUGGESTION_LIMIT
+): string[] {
+  const trimmedSeed = seed.trim();
+  if (!trimmedSeed) {
+    const sorted = [...skills].sort((a, b) => {
+      if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    return sorted.slice(0, limit).map((s) => s.name);
+  }
+
+  const normalizedSeed = trimmedSeed.toLowerCase();
+
+  type RankedSkill = { name: string; rank: number; index: number };
+  const ranked: RankedSkill[] = [];
+
+  skills.forEach((skill, index) => {
+    const nameLower = skill.name.toLowerCase();
+    const descLower = skill.description.toLowerCase();
+
+    const nameStartsWith = nameLower.startsWith(normalizedSeed);
+    const nameContains = nameLower.includes(normalizedSeed);
+    const descContains = descLower.includes(normalizedSeed);
+
+    if (!nameContains && !descContains) {
+      return;
+    }
+
+    let rank: number;
+    if (nameStartsWith) {
+      rank = 0;
+    } else if (nameContains) {
+      rank = 1;
+    } else {
+      rank = 2;
+    }
+
+    // Boost active skills slightly
+    if (skill.isActive) {
+      rank -= 0.5;
+    }
+
+    ranked.push({ name: skill.name, rank, index });
+  });
+
+  return ranked
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .slice(0, limit)
+    .map((entry) => entry.name);
 }

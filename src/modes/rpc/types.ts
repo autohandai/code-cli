@@ -114,6 +114,7 @@ export const RPC_METHODS = {
   PLAN_MODE_SET: 'autohand.planModeSet',
   // Session history
   GET_HISTORY: 'autohand.getHistory',
+  GET_SESSION: 'autohand.getSession',
   // YOLO mode control
   YOLO_SET: 'autohand.yoloSet',
   // MCP (Model Context Protocol) management
@@ -367,6 +368,31 @@ export interface GetHistoryResult {
   currentPage: number;
   totalPages: number;
   totalItems: number;
+}
+
+/**
+ * Request params for loading a specific session
+ */
+export interface GetSessionParams {
+  sessionId: string;
+}
+
+/**
+ * Response for loading a specific session's messages + metadata
+ */
+export interface GetSessionResult {
+  success: boolean;
+  sessionId: string;
+  projectName: string;
+  model: string;
+  messageCount: number;
+  status: string;
+  createdAt: string;
+  lastActiveAt: string;
+  summary?: string;
+  messages: RpcMessage[];
+  workspaceRoot: string;
+  error?: string;
 }
 
 // ============================================================================
