@@ -3,6 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { compressImageBufferWithTargetLimit, IMAGE_TARGET_RAW_SIZE } from '../utils/imageCompression.js';
 
 /**
  * Supported image MIME types for multimodal LLM inputs
@@ -52,24 +53,39 @@ export class ImageManager {
   private counter = 0;
 
   /**
-   * Maximum image size before compression (1MB)
-   * Large images are compressed or stripped to prevent payload overflow
+   * Maximum image size before compression (3.75MB raw target, cc-src's IMAGE_TARGET_RAW_SIZE).
+   * Accounts for base64 4/3 expansion to stay under 5MB API limit.
    */
-  private static readonly MAX_IMAGE_SIZE = 1 * 1024 * 1024;
+  private static readonly MAX_IMAGE_SIZE = IMAGE_TARGET_RAW_SIZE;
 
   /**
-   * Maximum total image payload size (3MB across all images)
-   * Prevents the 53MB+ payload issue reported in Issue #81
-   */
-  private static readonly MAX_TOTAL_IMAGE_PAYLOAD = 3 * 1024 * 1024;
-  /**
-   * Add a new image attachment
+   * Add a new image attachment (sync — compression happens lazily in toOpenAIFormat).
    * @param data - Raw image data as Buffer
    * @param mimeType - Image MIME type
    * @param filename - Optional original filename
    * @returns Sequential image ID starting from 1
    */
   add(data: Buffer, mimeType: ImageMimeType, filename?: string): number {
+    const id = ++this.counter;
+
+    this.images.set(id, {
+      id,
+      data,
+      mimeType,
+      filename,
+    });
+
+    return id;
+  }
+
+  /**
+   * Add a new image attachment without compression (for internal use)
+   * @param data - Raw image data as Buffer
+   * @param mimeType - Image MIME type
+   * @param filename - Optional original filename
+   * @returns Sequential image ID starting from 1
+   */
+  addRaw(data: Buffer, mimeType: ImageMimeType, filename?: string): number {
     const id = ++this.counter;
     this.images.set(id, {
       id,
@@ -128,44 +144,48 @@ export class ImageManager {
   }
 
   /**
-   * Convert all images to OpenAI vision API format
-   * Applies size limits to prevent payload overflow (Issue #81).
-   * Images exceeding MAX_IMAGE_SIZE are compressed (truncated base64).
-   * Total payload exceeding MAX_TOTAL_IMAGE_PAYLOAD causes excess images to be skipped.
+   * Convert all images to OpenAI vision API format.
+   * Images exceeding the target size are properly compressed (not truncated).
+   * @param tokenLimit - Optional token budget for image compression
    * @returns Array of OpenAI image content objects
    */
-  toOpenAIFormat(): OpenAIImageContent[] {
+  async toOpenAIFormat(tokenLimit?: number): Promise<OpenAIImageContent[]> {
     const allImages = this.getAll();
     const results: OpenAIImageContent[] = [];
-    let totalSize = 0;
 
     for (const img of allImages) {
-      const base64Data = img.data.toString('base64');
-      const dataSize = base64Data.length;
+      let base64Data = img.data.toString('base64');
 
-      // Skip image if total payload would exceed limit
-      if (totalSize + dataSize > ImageManager.MAX_TOTAL_IMAGE_PAYLOAD) {
-        break;
+      // If we have a token limit, compress the image to fit
+      if (tokenLimit) {
+        const compressed = await compressImageBufferWithTargetLimit(
+          img.data,
+          tokenLimit,
+          img.mimeType,
+        );
+        base64Data = compressed.base64;
+      } else {
+        // For images stored above the raw target size, compress them
+        if (img.data.length > ImageManager.MAX_IMAGE_SIZE) {
+          const compressed = await compressImageBufferWithTargetLimit(
+            img.data,
+            Math.floor(IMAGE_TARGET_RAW_SIZE),
+            img.mimeType,
+          );
+          base64Data = compressed.base64;
+        }
       }
-
-      // Compress oversized individual images
-      const limitedData = dataSize > ImageManager.MAX_IMAGE_SIZE
-        ? base64Data.slice(0, ImageManager.MAX_IMAGE_SIZE)
-        : base64Data;
 
       results.push({
         type: 'image_url' as const,
         image_url: {
-          url: `data:${img.mimeType};base64,${limitedData}`,
+          url: `data:${img.mimeType};base64,${base64Data}`,
         },
       });
-
-      totalSize += dataSize;
     }
 
     return results;
   }
-
 
   /**
    * Format placeholder text for display
