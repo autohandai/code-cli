@@ -4,7 +4,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ImageManager } from '../../src/core/ImageManager';
+import { ImageManager, IMAGE_EXTENSIONS } from '../../src/core/ImageManager';
+import { IMAGE_TARGET_RAW_SIZE, IMAGE_MAX_DIMENSION } from '../../src/utils/imageCompression';
+
+// Helper: create a PNG that reliably exceeds 3.75MB
+function createRawPixelBuffer(width: number, height: number): Buffer {
+  const pixels = width * height;
+  const data = Buffer.alloc(pixels * 4);
+  for (let i = 0; i < pixels; i++) {
+    data[i * 4] = (i * 7 + Math.floor(i / width) * 13) % 256;
+    data[i * 4 + 1] = (i * 11 + Math.floor(i / width) * 17) % 256;
+    data[i * 4 + 2] = (i * 19 + Math.floor(i / width) * 23) % 256;
+    data[i * 4 + 3] = 255;
+  }
+  return data;
+}
 
 describe('ImageManager', () => {
   let manager: ImageManager;
@@ -78,7 +92,7 @@ describe('ImageManager', () => {
       expect(manager.getAll()).toEqual([]);
     });
 
-    it('returns all images in order added', () => {
+    it('returns all images in order they were added', () => {
       manager.add(Buffer.from('img1'), 'image/png', 'first.png');
       manager.add(Buffer.from('img2'), 'image/jpeg', 'second.jpg');
       manager.add(Buffer.from('img3'), 'image/gif', 'third.gif');
@@ -166,16 +180,16 @@ describe('ImageManager', () => {
   });
 
   describe('toOpenAIFormat()', () => {
-    it('returns empty array when no images', () => {
-      expect(manager.toOpenAIFormat()).toEqual([]);
+    it('returns empty array when no images', async () => {
+      expect(await manager.toOpenAIFormat()).toEqual([]);
     });
 
-    it('converts images to OpenAI API format', () => {
+    it('converts images to OpenAI API format', async () => {
       const pngData = Buffer.from('PNG-DATA');
 
       manager.add(pngData, 'image/png');
 
-      const formatted = manager.toOpenAIFormat();
+      const formatted = await manager.toOpenAIFormat();
 
       expect(formatted.length).toBe(1);
       expect(formatted[0]).toEqual({
@@ -184,6 +198,45 @@ describe('ImageManager', () => {
           url: `data:image/png;base64,${pngData.toString('base64')}`
         }
       });
+    });
+
+    it('compresses oversized images instead of truncating', async () => {
+      const sharp = (await import('sharp')).default;
+      const raw = createRawPixelBuffer(6000, 5000);
+      const largePng = await sharp(raw, { raw: { width: 6000, height: 5000, channels: 4 } })
+        .png({ compressionLevel: 1 })
+        .toBuffer();
+
+      manager.addRaw(largePng, 'image/png', 'large.png');
+
+      const formatted = await manager.toOpenAIFormat();
+
+      expect(formatted.length).toBe(1);
+      const base64Content = formatted[0].image_url.url;
+      expect(typeof base64Content).toBe('string');
+      expect(base64Content).toMatch(/^data:image\/png;base64,/);
+
+      // Verify it produces valid base64 that could be decoded
+      const b64 = base64Content.replace('data:image/png;base64,', '');
+      expect(b64.length).toBeGreaterThan(0);
+    });
+
+    it('respects token limits when compressing', async () => {
+      const sharp = (await import('sharp')).default;
+      const raw = createRawPixelBuffer(6000, 5000);
+      const largePng = await sharp(raw, { raw: { width: 6000, height: 5000, channels: 4 } })
+        .png({ compressionLevel: 1 })
+        .toBuffer();
+
+      manager.addRaw(largePng, 'image/png', 'large.png');
+      const originalB64Len = largePng.toString('base64').length;
+
+      // Use a very low token limit to force aggressive compression
+      const formatted = await manager.toOpenAIFormat(100_000);
+
+      expect(formatted.length).toBe(1);
+      const base64Content = formatted[0].image_url.url;
+      expect(base64Content.length).toBeLessThan(originalB64Len + 22);
     });
   });
 
@@ -210,9 +263,6 @@ describe('ImageManager', () => {
 
 describe('Image Detection Utilities', () => {
   describe('isImagePath()', () => {
-    // This will test the utility function that detects image file paths
-    const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
-
     it('detects common image extensions', () => {
       const paths = [
         '/path/to/image.png',
@@ -223,8 +273,7 @@ describe('Image Detection Utilities', () => {
       ];
 
       for (const path of paths) {
-        const ext = path.split('.').pop()?.toLowerCase();
-        expect(imageExtensions.some(e => e.slice(1) === ext)).toBe(true);
+        expect(IMAGE_EXTENSIONS.some(e => path.toLowerCase().endsWith(e))).toBe(true);
       }
     });
 
@@ -237,8 +286,7 @@ describe('Image Detection Utilities', () => {
       ];
 
       for (const path of paths) {
-        const ext = '.' + path.split('.').pop()?.toLowerCase();
-        expect(imageExtensions.includes(ext)).toBe(false);
+        expect(IMAGE_EXTENSIONS.some(e => path.toLowerCase().endsWith(e))).toBe(false);
       }
     });
   });
@@ -253,5 +301,15 @@ describe('Image Detection Utilities', () => {
       const dataUrl = 'data:text/plain;base64,SGVsbG8=';
       expect(dataUrl.startsWith('data:image/')).toBe(false);
     });
+  });
+});
+
+describe('Constants alignment', () => {
+  it('IMAGE_TARGET_RAW_SIZE matches expected 3.75MB', () => {
+    expect(IMAGE_TARGET_RAW_SIZE).toBe(3.75 * 1024 * 1024);
+  });
+
+  it('IMAGE_MAX_DIMENSION is 2000', () => {
+    expect(IMAGE_MAX_DIMENSION).toBe(2000);
   });
 });
