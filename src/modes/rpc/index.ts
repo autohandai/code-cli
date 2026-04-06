@@ -536,6 +536,11 @@ async function handleSingleRequest(
         break;
       }
 
+      case RPC_METHODS.GET_SESSION: {
+        result = await adapter.handleGetSession(id!, params as { sessionId: string });
+        break;
+      }
+
       case RPC_METHODS.YOLO_SET: {
         const yoloParams = params as YoloSetParams | undefined;
         if (!yoloParams?.pattern) {

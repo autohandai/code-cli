@@ -3,6 +3,8 @@
  * Wraps AutohandAgent and bridges callbacks to JSON-RPC 2.0 notifications
  */
 
+import crypto from 'node:crypto';
+
 import type { AutohandAgent } from '../../core/agent.js';
 import { McpClientManager } from '../../mcp/McpClientManager.js';
 import { classifyApiError, type ApiErrorCode } from '../../providers/errors.js';
@@ -1682,6 +1684,65 @@ export class RPCAdapter {
       const message = error instanceof Error ? error.message : String(error);
       process.stderr.write(`[RPC] Failed to get history: ${message}\n`);
       return { sessions: [], currentPage: 1, totalPages: 0, totalItems: 0 };
+    }
+  }
+
+  /**
+   * Get a specific session's metadata and messages
+   */
+  async handleGetSession(
+    _requestId: JsonRpcId,
+    params: { sessionId: string }
+  ) {
+    const sessionManager = this.agent?.getSessionManager?.();
+    if (!sessionManager) {
+      return { success: false, error: 'Session manager not available' } as any;
+    }
+
+    try {
+      const session = await sessionManager.loadSession(params.sessionId);
+      const m = session.metadata;
+      const messages = session.getMessages().map(msg => ({
+        id: msg.role === 'user' ? `user-${crypto.randomUUID()}` : `msg-${crypto.randomUUID()}`,
+        role: msg.role,
+        content: msg.content,
+        timestamp: new Date(m.createdAt).toISOString(),
+        toolCalls: (msg.toolCalls ?? []).map(tc => ({
+          id: tc.callId ?? '',
+          name: tc.name ?? '',
+          args: tc.arguments ?? {},
+        })),
+      }));
+
+      return {
+        success: true,
+        sessionId: m.sessionId,
+        projectName: m.projectName ?? '',
+        model: m.model ?? '',
+        messageCount: m.messageCount ?? 0,
+        status: m.status ?? 'completed',
+        createdAt: m.createdAt,
+        lastActiveAt: m.lastActiveAt ?? m.createdAt,
+        summary: m.summary,
+        messages,
+        workspaceRoot: m.projectPath ?? '',
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`[RPC] Failed to get session: ${message}\n`);
+      return {
+        success: false,
+        error: message,
+        sessionId: params.sessionId,
+        projectName: '',
+        model: '',
+        messageCount: 0,
+        status: 'completed',
+        createdAt: '',
+        lastActiveAt: '',
+        messages: [],
+        workspaceRoot: '',
+      };
     }
   }
 
