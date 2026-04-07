@@ -357,10 +357,11 @@ export function supportsVision(model: string): boolean {
     return true;
   }
 
-  // Pixtral, Qwen VL, MiniCPM-V, DeepSeek VL
+  // Pixtral, Qwen, MiniCPM-V, DeepSeek VL
+  // Qwen3+ models all support vision even without 'vl' in the name
   if (
     lowerModel.includes('pixtral') ||
-    (lowerModel.includes('qwen') && lowerModel.includes('vl')) ||
+    lowerModel.includes('qwen') ||
     (lowerModel.includes('minicpm') && lowerModel.includes('v')) ||
     (lowerModel.includes('deepseek') && lowerModel.includes('vl'))
   ) {
