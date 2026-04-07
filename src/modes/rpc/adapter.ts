@@ -64,7 +64,8 @@ import {
   isValidImageMimeType,
 } from './types.js';
 import { writeNotification, createTimestamp, generateId } from './protocol.js';
-import { ImageManager, type ImageMimeType, supportsVision } from '../../core/ImageManager.js';
+import { ImageManager, type ImageMimeType } from '../../core/ImageManager.js';
+import { modelSupportsImages } from '../../providers/modelCapabilities.js';
 import { attachBrowserHandoff, attachLatestBrowserHandoff, createBrowserHandoff } from '../../browser/chrome.js';
 
 // ---------------------------------------------------------------------------
@@ -165,6 +166,20 @@ export class RPCAdapter {
   private pendingVscodeInvocations = new Map<string, PendingVscodeInvocation>();
   // MCP server configurations from CLI config (set during initialization)
   private mcpServerConfigs: McpServerConfigEntry[] = [];
+  // Cached vision support result (null = not yet checked)
+  private visionSupported: boolean | null = null;
+
+  /**
+   * Check if the current model supports vision/image inputs.
+   * Uses async OpenRouter API with pattern-matching fallback, cached for the session.
+   */
+  private async checkVisionSupport(): Promise<boolean> {
+    if (this.visionSupported !== null) {
+      return this.visionSupported;
+    }
+    this.visionSupported = await modelSupportsImages(this.model);
+    return this.visionSupported;
+  }
 
   /**
    * Initialize the adapter with an agent instance
@@ -266,9 +281,10 @@ export class RPCAdapter {
       const imagePlaceholders: string[] = [];
       process.stderr.write(`[RPC] handlePrompt: images=${params.images?.length || 0}, hasImageManager=${!!this.imageManager}, model=${this.model}\n`);
 
-      // Check if model supports vision when images are provided
+      // Check if model supports vision when images are provided (async, uses OpenRouter API with pattern fallback)
       if (params.images && params.images.length > 0) {
-        if (!supportsVision(this.model)) {
+        const supportsVisionResult = await this.checkVisionSupport();
+        if (!supportsVisionResult) {
           process.stderr.write(`[RPC] WARNING: Model '${this.model}' does not support vision. Images will not be processed.\n`);
           writeNotification(RPC_NOTIFICATIONS.ERROR, {
             code: -32000,
@@ -280,7 +296,7 @@ export class RPCAdapter {
         }
       }
 
-      if (params.images && params.images.length > 0 && this.imageManager && supportsVision(this.model)) {
+      if (params.images && params.images.length > 0 && this.imageManager && await this.checkVisionSupport()) {
         process.stderr.write(`[RPC] Processing ${params.images.length} images\n`);
         for (const img of params.images) {
           try {
