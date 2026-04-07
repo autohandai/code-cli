@@ -41,6 +41,13 @@ const SAMPLE_COMMANDS: SlashCommand[] = [
   { command: '/init', description: 'create AGENTS.md', handler: 'init' },
 ];
 
+const SAMPLE_SKILLS = [
+  { name: 'code-review', description: 'Code review your changes', isActive: true, source: 'built-in' },
+  { name: 'code-simplifier', description: 'Review for reuse and clarity', isActive: true, source: 'built-in' },
+  { name: 'debugger', description: 'Debug errors and test failures', isActive: false, source: 'built-in' },
+  { name: 'design-consultation', description: 'Design system and brand review', isActive: false, source: 'community' },
+];
+
 describe('MentionPreview slash filtering', () => {
   it('filterSlash with empty seed returns all commands (up to limit)', async () => {
     // Import the module to access filterSlash indirectly via the class
@@ -50,7 +57,7 @@ describe('MentionPreview slash filtering', () => {
     const output = createMockOutput();
     const rl = readline.createInterface({ input, output, terminal: true });
 
-    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output);
+    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output, () => []);
 
     // Access private method for unit testing
     const filterSlash = (preview as any).filterSlash.bind(preview);
@@ -69,7 +76,7 @@ describe('MentionPreview slash filtering', () => {
     const output = createMockOutput();
     const rl = readline.createInterface({ input, output, terminal: true });
 
-    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output);
+    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output, () => []);
     const filterSlash = (preview as any).filterSlash.bind(preview);
 
     // 'ag' should match /agents and /agents-new (prefix match), NOT /search (substring)
@@ -90,7 +97,7 @@ describe('MentionPreview slash filtering', () => {
     const output = createMockOutput();
     const rl = readline.createInterface({ input, output, terminal: true });
 
-    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output);
+    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output, () => []);
     const filterSlash = (preview as any).filterSlash.bind(preview);
 
     const results = filterSlash('a');
@@ -116,7 +123,7 @@ describe('MentionPreview slash filtering', () => {
     const output = createMockOutput();
     const rl = readline.createInterface({ input, output, terminal: true });
 
-    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output);
+    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output, () => []);
     const filterSlash = (preview as any).filterSlash.bind(preview);
 
     // 'ent' doesn't start any command, but is in /agents (ag-ent-s)
@@ -136,7 +143,7 @@ describe('MentionPreview slash filtering', () => {
     const output = createMockOutput();
     const rl = readline.createInterface({ input, output, terminal: true });
 
-    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output);
+    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output, () => []);
     const renderSpy = vi.spyOn(preview as any, 'render');
 
     // Simulate rl.line already containing '/a' (after readline processes the keystroke)
@@ -178,7 +185,7 @@ describe('MentionPreview lazy filesProvider', () => {
 
     // Simulate the race condition: provider starts empty (files not yet collected)
     const fileStore: string[] = [];
-    const preview = new MentionPreview(rl, () => fileStore, SAMPLE_COMMANDS, output);
+    const preview = new MentionPreview(rl, () => fileStore, SAMPLE_COMMANDS, output, () => []);
 
     // Access private filter method
     const filter = (preview as any).filter.bind(preview);
@@ -206,7 +213,7 @@ describe('MentionPreview lazy filesProvider', () => {
     const rl = readline.createInterface({ input, output, terminal: true });
 
     const fileStore: string[] = ['README.md'];
-    const preview = new MentionPreview(rl, () => fileStore, SAMPLE_COMMANDS, output);
+    const preview = new MentionPreview(rl, () => fileStore, SAMPLE_COMMANDS, output, () => []);
     const filter = (preview as any).filter.bind(preview);
 
     // First call sees only README.md
@@ -237,7 +244,8 @@ describe('MentionPreview file rendering', () => {
       rl,
       () => ['src/styleguide/java/nullaway.md', 'src/media/base/null_video_sink.h'],
       SAMPLE_COMMANDS,
-      output
+      output,
+      () => [],
     );
 
     (preview as any).mode = 'file';
@@ -271,7 +279,8 @@ describe('MentionPreview file selection', () => {
       rl,
       () => ['tests/commands/ide.test.ts', 'tests/ui/ink/InkRenderer.test.ts', 'tests/ui/ink/LiveCommandBlock.test.tsx'],
       SAMPLE_COMMANDS,
-      output
+      output,
+      () => [],
     );
 
     (rl as any).line = '@tests/';
@@ -304,7 +313,7 @@ describe('MentionPreview file selection', () => {
       'tests/ui/ink/LiveCommandBlock.test.tsx',
     ];
 
-    const preview = new MentionPreview(rl, () => files, SAMPLE_COMMANDS, output);
+    const preview = new MentionPreview(rl, () => files, SAMPLE_COMMANDS, output, () => []);
 
     (rl as any).line = '@tests/';
     (rl as any).cursor = '@tests/'.length;
@@ -317,6 +326,161 @@ describe('MentionPreview file selection', () => {
     input.emit('keypress', '\t', { name: 'tab', sequence: '\t' });
 
     expect((rl as any).line).toContain('@tests/ui/ink/LiveCommandBlock.test.tsx ');
+
+    preview.dispose();
+    rl.close();
+  });
+});
+
+describe('MentionPreview skill filtering', () => {
+  it('filterSkills returns empty when seed is empty', async () => {
+    const { MentionPreview } = await import('../../src/ui/mentionPreview.js');
+    const input = new Readable({ read() {} });
+    (input as any).setRawMode = vi.fn();
+    const output = createMockOutput();
+    const rl = readline.createInterface({ input, output, terminal: true });
+
+    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output, () => SAMPLE_SKILLS);
+    const filterSkills = (preview as any).filterSkills.bind(preview);
+    expect(filterSkills('')).toEqual([]);
+
+    preview.dispose();
+    rl.close();
+  });
+
+  it('filterSkills filters skills by prefix', async () => {
+    const { MentionPreview } = await import('../../src/ui/mentionPreview.js');
+    const input = new Readable({ read() {} });
+    (input as any).setRawMode = vi.fn();
+    const output = createMockOutput();
+    const rl = readline.createInterface({ input, output, terminal: true });
+
+    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output, () => SAMPLE_SKILLS);
+    const filterSkills = (preview as any).filterSkills.bind(preview);
+
+    const results = filterSkills('code');
+    expect(results).toContain('code-review');
+    expect(results).toContain('code-simplifier');
+    expect(results).not.toContain('debugger');
+
+    preview.dispose();
+    rl.close();
+  });
+
+  it('updateSuggestions enters skill mode when $ is typed with filter text', async () => {
+    const { MentionPreview } = await import('../../src/ui/mentionPreview.js');
+    const input = new Readable({ read() {} });
+    (input as any).setRawMode = vi.fn();
+    const output = createMockOutput();
+    const rl = readline.createInterface({ input, output, terminal: true });
+
+    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output, () => SAMPLE_SKILLS);
+    const renderSpy = vi.spyOn(preview as any, 'render');
+
+    (rl as any).line = '$co';
+    (rl as any).cursor = '$co'.length;
+
+    (preview as any).updateSuggestions();
+
+    expect((preview as any).mode).toBe('skill');
+    expect((preview as any).skillMatches.length).toBeGreaterThan(0);
+    expect(renderSpy).toHaveBeenCalled();
+
+    preview.dispose();
+    rl.close();
+  });
+
+  it('updateSuggestions clears skill mode when $ seed does not match any skill', async () => {
+    const { MentionPreview } = await import('../../src/ui/mentionPreview.js');
+    const input = new Readable({ read() {} });
+    (input as any).setRawMode = vi.fn();
+    const output = createMockOutput();
+    const rl = readline.createInterface({ input, output, terminal: true });
+
+    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output, () => SAMPLE_SKILLS);
+    (rl as any).line = '$xyz';
+    (rl as any).cursor = '$xyz'.length;
+
+    (preview as any).updateSuggestions();
+
+    expect((preview as any).mode).toBe(null);
+    expect((preview as any).skillMatches).toEqual([]);
+
+    preview.dispose();
+    rl.close();
+  });
+
+  it('TAB inserts selected skill name with mid-line preservation', async () => {
+    const { MentionPreview } = await import('../../src/ui/mentionPreview.js');
+    const input = new Readable({ read() {} });
+    (input as any).setRawMode = vi.fn();
+    const output = createMockOutput();
+    const rl = readline.createInterface({ input, output, terminal: true });
+
+    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output, () => SAMPLE_SKILLS);
+    (rl as any).line = 'review $code';
+    (rl as any).cursor = 'review $code'.length;
+
+    (preview as any).mode = 'skill';
+    (preview as any).skillMatches = preview.filterSkillsInfo('code');
+    (preview as any).activeIndex = 0;
+
+    input.emit('keypress', '\t', { name: 'tab', sequence: '\t' });
+
+    expect((rl as any).line).toContain('$code-review ');
+    expect((rl as any).cursor).toBeGreaterThan('review $code-review'.length);
+    // Should have cleared the menu
+    expect((preview as any).mode).toBe(null);
+
+    preview.dispose();
+    rl.close();
+  });
+
+  it('TAB inserts second skill when activeIndex is 1', async () => {
+    const { MentionPreview } = await import('../../src/ui/mentionPreview.js');
+    const input = new Readable({ read() {} });
+    (input as any).setRawMode = vi.fn();
+    const output = createMockOutput();
+    const rl = readline.createInterface({ input, output, terminal: true });
+
+    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output, () => SAMPLE_SKILLS);
+    (rl as any).line = '$co';
+    (rl as any).cursor = '$co'.length;
+
+    (preview as any).mode = 'skill';
+    (preview as any).skillMatches = preview.filterSkillsInfo('code');
+    (preview as any).activeIndex = 1;
+
+    input.emit('keypress', '\t', { name: 'tab', sequence: '\t' });
+
+    expect((rl as any).line).toContain('$code-simplifier ');
+
+    preview.dispose();
+    rl.close();
+  });
+
+  it('renders skill suggestions with name and description', async () => {
+    const { MentionPreview } = await import('../../src/ui/mentionPreview.js');
+    const input = new Readable({ read() {} });
+    (input as any).setRawMode = vi.fn();
+    const output = createMockOutput();
+    const rl = readline.createInterface({ input, output, terminal: true });
+
+    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output, () => SAMPLE_SKILLS);
+    (rl as any).line = '$co';
+    (rl as any).cursor = '$co'.length;
+
+    (preview as any).mode = 'skill';
+    (preview as any).skillMatches = preview.filterSkillsInfo('code');
+    (preview as any).activeIndex = 0;
+    (preview as any).render(['code-review', 'code-simplifier']);
+
+    const rendered = Buffer.concat((output as any)._chunks).toString('utf8');
+    const plain = rendered.replace(/\u001b\[[0-9;]*m/g, '');
+
+    expect(plain).toContain('$code-review');
+    expect(plain).toContain('$code-simplifier');
+    expect(plain).toContain('Code review your changes');
 
     preview.dispose();
     rl.close();
