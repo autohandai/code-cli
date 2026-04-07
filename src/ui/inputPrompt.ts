@@ -1729,6 +1729,9 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     return lines.length > 0 ? lines : undefined;
   };
 
+  // Shared between the resize watcher and readline _refreshLine override.
+  let resizeDetectedAt = 0;
+
   const renderPromptSurface = (isResize = false, hasExistingPromptBlock = true): void => {
     renderPromptLine(
       rl,
@@ -1744,6 +1747,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
   };
 
   const resizeWatcher = new TerminalResizeWatcher(stdOutput, () => {
+    resizeDetectedAt = Date.now();
     const newWidth = Math.max(1, getPromptBlockWidth(stdOutput.columns) - 2);
     textBuffer.setViewport(newWidth, tbMaxVisibleLines);
     renderPromptSurface(true, true);
@@ -1776,6 +1780,12 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     const originalMoveCursor = typeof rlInternal._moveCursor === 'function'
       ? rlInternal._moveCursor.bind(rlInternal)
       : undefined;
+    // When the terminal resizes, readline fires _refreshLine and our
+    // TerminalResizeWatcher debounce handler both race to re-render.
+    // Throttle readline-triggered renders during resize: if a resize
+    // was detected recently, ignore the _refreshLine call, letting the
+    // debounced handler do the single authoritative reflow-aware render.
+    const RESIZE_COOLDOWN_MS = 200;
     const outputGuard = installReadlineOutputGuard(rl);
 
     const setContextualHelpVisible = (visible: boolean) => {
@@ -1900,6 +1910,13 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     if (typeof rlInternal._refreshLine === 'function') {
       rlInternal._refreshLine = () => {
         if (!closed && !pasteState.isInPaste) {
+          // Skip readline-triggered renders during the resize cooldown window.
+          // After a terminal resize, our debounced handler is the authoritative
+          // re-render — letting readline render first causes the old width
+          // content to briefly flash before the correct width.
+          if (resizeDetectedAt > 0 && Date.now() - resizeDetectedAt < RESIZE_COOLDOWN_MS) {
+            return;
+          }
           scheduleRender();
         }
       };
@@ -2781,34 +2798,33 @@ function renderPromptLine(
   output.write('\x1b[?25l');
 
   if (effectiveResize && hasExistingPromptBlock) {
-    // When the terminal resizes, it reflows all previously written content.
-    // A line of N chars wraps to ceil(N / newCols) physical rows at the new
-    // terminal width. We must move up enough to reach above ALL reflowed
-    // remnants of the old prompt block before clearing.
-    const termCols = output.columns ?? 80;
-    const oldWidth = lastRenderedPromptWidth || width;
+    // When the terminal resizes, readline has already reflowed existing
+    // content to the new width and rendered a basic refresh. Our job is
+    // to overlay the correctly-sized prompt block on top. Using the
+    // same-width clearing path (line-by-line) avoids double-reflow
+    // artifacts while keeping the prompt visually consistent.
+    readline.cursorTo(output, 0);
+    readline.clearLine(output, 0);
+
+    // Clear content lines above cursor and top border
     const prevContentLines = lastRenderedContentLines;
     const prevCursorRow = lastRenderedCursorRow;
-    const logicalLines = PROMPT_LINES_ABOVE_INPUT + prevContentLines + PROMPT_LINES_BELOW_INPUT + lastRenderedHelpLines + STATUS_LINE_COUNT + lastRenderedSlashLines;
-    // Use actual terminal columns (not prompt width) since that's what
-    // the terminal uses for reflow calculations.
-    const rowsPerOldLine = Math.max(1, Math.ceil(oldWidth / Math.max(1, termCols)));
-    const totalReflowedRows = logicalLines * rowsPerOldLine;
-    // Move up generously from cursor row. The cursor sits on content row
-    // prevCursorRow, which is (prevCursorRow + PROMPT_LINES_ABOVE_INPUT)
-    // rows below the top border.
-    const cursorOffset = prevCursorRow + PROMPT_LINES_ABOVE_INPUT;
-    const moveUp = totalReflowedRows + rowsPerOldLine + cursorOffset;
-    readline.moveCursor(output, 0, -moveUp);
-    readline.cursorTo(output, 0);
-    // Clear only the reflowed prompt block rows, NOT the entire screen below.
-    const rowsToClear = moveUp + logicalLines;
-    for (let i = 0; i < rowsToClear; i++) {
+    const upCount = prevCursorRow + PROMPT_LINES_ABOVE_INPUT;
+    for (let i = 0; i < upCount; i++) {
+      readline.moveCursor(output, 0, -1);
       readline.clearLine(output, 0);
-      readline.moveCursor(output, 0, 1);
     }
-    // Return cursor to the starting position for the new prompt block
-    readline.moveCursor(output, 0, -rowsToClear);
+
+    // Move down, clearing remaining content + below + help panel + status
+    const clearContentLines = Math.max(prevContentLines, state.lineCount);
+    const downCount = clearContentLines + PROMPT_LINES_BELOW_INPUT + lastRenderedHelpLines + STATUS_LINE_COUNT + lastRenderedSlashLines;
+    for (let i = 0; i < downCount; i++) {
+      readline.moveCursor(output, 0, 1);
+      readline.clearLine(output, 0);
+    }
+
+    // Return to top border position
+    readline.moveCursor(output, 0, -downCount);
     readline.cursorTo(output, 0);
   } else if (hasExistingPromptBlock) {
     // Same-width redraw: cursor sits on content row lastRenderedCursorRow.

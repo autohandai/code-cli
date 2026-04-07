@@ -257,7 +257,7 @@ describe('TerminalRegions', () => {
   });
 
   describe('handleResize', () => {
-    it('uses CSI J (Erase in Display) to clear fixed region instead of row-by-row CSI K', () => {
+    it('does NOT use CSI J (Erase in Display) — avoids visible flash', () => {
       const output = createMockOutput();
       const regions = new TerminalRegions(output);
       regions.enable();
@@ -269,8 +269,26 @@ describe('TerminalRegions', () => {
       output.emit('resize');
 
       const joined = output.writes.join('');
-      // Should contain CSI J (Erase in Display from cursor to end)
-      expect(joined).toContain('\x1b[J');
+      // Should NOT use CSI J (Erase in Display) which causes a visible flash.
+      // Instead, it relies on terminal reflow + per-line CSI K clears.
+      expect(joined).not.toContain('\x1b[J');
+    });
+
+    it('saves and restores cursor around scroll region repositioning', () => {
+      const output = createMockOutput();
+      const regions = new TerminalRegions(output);
+      regions.enable();
+      output.writes = [];
+
+      output.rows = 30;
+      output.columns = 100;
+      output.emit('resize');
+
+      const joined = output.writes.join('');
+      // Should save cursor before repositioning
+      expect(joined).toContain('\x1b[s');
+      // And restore it after
+      expect(joined).toContain('\x1b[u');
     });
 
     it('updates scroll region with new dimensions after resize', () => {
