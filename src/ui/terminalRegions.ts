@@ -131,7 +131,14 @@ export class TerminalRegions {
   }
 
   /**
-   * Handle terminal resize - update scroll region
+   * Handle terminal resize - update scroll region and re-render.
+   *
+   * Unlike the old implementation which used CSI J (Erase in Display) to
+   * wipe the entire area below the cursor — causing a visible flash — this
+   * version relies on the terminal's native reflow to reposition existing
+   * content. It only repositions the scroll region boundary and re-renders
+   * the fixed region line-by-line (each line already gets CSI K for clean
+   * right-border rendering).
    */
   private handleResize(): void {
     if (!this.isActive) return;
@@ -139,29 +146,29 @@ export class TerminalRegions {
     const { height, width } = this.getDimensions();
     const scrollEnd = Math.max(1, height - this.fixedLines);
 
+    // Save cursor so we can restore after repositioning
+    this.output.write(`${CSI}s`);
+
     // 1. Reset scroll region to full terminal so we can address all rows
     this.output.write(`${CSI}r`);
 
-    // 2. Move to the first row of the new fixed-region area and use
-    //    CSI J (Erase in Display — cursor to end) to wipe everything below.
-    //    Unlike CSI K (Erase in Line), CSI J handles wrapped/reflowed content
-    //    across multiple physical rows in a single operation.
-    this.output.write(`${CSI}${scrollEnd + 1};1H`);
-    this.output.write(`${CSI}J`);
+    // 2. Park cursor at the bottom of the scroll area where Ink/scroll
+    //    output continues. The terminal's reflow will have already
+    //    repositioned existing scroll content.
+    this.output.write(`${CSI}${scrollEnd};1H`);
 
     // 3. Set the new scroll region
     this.output.write(`${CSI}1;${scrollEnd}r`);
 
-    // 4. Park cursor at the bottom of the scroll area.  We intentionally do
-    //    NOT use CSI s/u (save/restore) because the saved position is
-    //    meaningless after terminal reflow changes the physical layout.
-    this.output.write(`${CSI}${scrollEnd};1H`);
+    // 4. Restore cursor position
+    this.output.write(`${CSI}u`);
 
     // Track dimensions for future resize events
     this.lastHeight = height;
     this.lastWidth = width;
 
-    // 5. Re-render the fixed region at the new dimensions
+    // 5. Re-render the fixed region at the new dimensions — each row
+    //    already gets CSI K (erase line) for clean rendering.
     this.renderFixedRegion(
       this.currentInput,
       this.currentQueueCount,
