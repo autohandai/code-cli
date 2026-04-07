@@ -104,10 +104,14 @@ Features:
 
 - Type `/` for slash command suggestions
 - Type `@` for file autocomplete (e.g., `@src/index.ts`)
+- Type `$` for skill autocomplete (e.g., `$frontend-design`)
 - Type `!` to run terminal commands (e.g., `! git status`, `! ls -la`)
 - **Smart Paste**: Paste any amount of code (5+ lines shows compact indicator, full content sent to LLM)
 - Press `ESC` to cancel in-flight requests
 - Press `Ctrl+C` twice to exit
+- Press `Shift+Tab` to toggle plan mode
+- Press `?` to toggle keyboard shortcuts panel
+- Press `Enter` or `Shift+Enter` for newlines in multi-line input
 
 ### Command Mode (Non-Interactive)
 
@@ -301,6 +305,28 @@ Autohand includes 40+ tools for autonomous coding:
 ### Planning & Memory
 
 `plan`, `todo_write`, `save_memory`, `recall_memory`
+
+### Meta Tools
+
+`tools_registry` - List all available tools with descriptions.
+`tool_search` - Search tools by capability, name, or description.
+
+### Notebooks
+
+`notebook_cell_edit` - Edit Jupyter notebook cells (code/markdown insert, delete, replace).
+
+### Team & Collaboration
+
+`team_create`, `team_list`, `task_create`, `task_list`, `task_update`, `task_set_owner` - Multi-agent team coordination.
+
+### Agent Delegation
+
+`spawn_subagent` - Delegate tasks to focused agents to keep the main context window clean.
+
+### Skills & Browser
+
+`use_skill`, `sleep` - Activate skills or pause execution.
+`screenshot`, `navigate`, `get_page_content`, `click`, `type_input`, `select_dropdown` - Chrome browser integration.
 
 ## Configuration
 
