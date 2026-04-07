@@ -224,9 +224,20 @@ export function AgentUI({
     onInputChange?.(input);
   }, [input, onInputChange]);
 
-  // Sync viewport only when terminal width changes, not on every render
+  // Sync viewport width on resize so the input layout adapts immediately
   useEffect(() => {
     syncBufferViewport();
+
+    const handleResize = () => syncBufferViewport();
+    if (typeof process.stdout.on === 'function') {
+      process.stdout.on('resize', handleResize);
+    }
+
+    return () => {
+      if (typeof process.stdout.off === 'function') {
+        process.stdout.off('resize', handleResize);
+      }
+    };
   }, [syncBufferViewport]);
 
   useEffect(() => {
