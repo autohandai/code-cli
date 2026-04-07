@@ -808,7 +808,15 @@ Autohand supports special prefixes in the input prompt:
 |--------|-------------|---------|
 | `/` | Slash commands | `/help`, `/model`, `/quit` |
 | `@` | File mentions (autocomplete) | `@src/index.ts` |
+| `$` | Skill mentions (autocomplete) | `$frontend-design`, `$code-review` |
 | `!` | Run terminal commands directly | `! git status`, `! ls -la` |
+
+**Skill Mentions (`$`):**
+- Type `$` followed by characters to see available skills with autocomplete
+- Tab accepts the top suggestion (e.g., `$frontend-design`)
+- Skills are discovered from `~/.autohand/skills/` and `<project>/.autohand/skills/`
+- Activated skills are attached to the prompt as special instructions for the current session
+- Preview panel shows skill metadata (name, description, activation state)
 
 **Shell Commands (`!`):**
 - Commands run in your current working directory
@@ -819,7 +827,7 @@ Autohand supports special prefixes in the input prompt:
 
 ### Slash Commands
 
-#### `/skills` — Package Manager
+#### `/skills` - Package Manager
 
 | Command | Description |
 |---------|-------------|
@@ -835,7 +843,7 @@ Autohand supports special prefixes in the input prompt:
 | `/skills new` | Create a new skill interactively |
 | `/skills feedback <slug> <1-5>` | Rate a community skill |
 
-#### `/learn` — LLM-Powered Skill Advisor
+#### `/learn` - LLM-Powered Skill Advisor
 
 | Command | Description |
 |---------|-------------|
@@ -845,8 +853,8 @@ Autohand supports special prefixes in the input prompt:
 
 `/learn` uses a two-phase LLM flow:
 
-1. **Phase 1 — Analyze + Rank + Audit**: Scans your project structure, audits installed skills for redundancy/conflicts, and ranks community skills by relevance (0-100).
-2. **Phase 2 — Generate** (conditional): If no community skill scores above 60, offers to generate a custom skill tailored to your project.
+1. **Phase 1 - Analyze + Rank + Audit**: Scans your project structure, audits installed skills for redundancy/conflicts, and ranks community skills by relevance (0-100).
+2. **Phase 2 - Generate** (conditional): If no community skill scores above 60, offers to generate a custom skill tailored to your project.
 
 Generated skills include metadata (`agentskill-source: llm-generated`, `agentskill-project-hash`) so `/learn update` can detect when your codebase changes and regenerate stale skills.
 
