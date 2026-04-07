@@ -6,7 +6,7 @@
 import chalk from 'chalk';
 import readline from 'node:readline';
 import type { SlashCommand } from '../core/slashCommands.js';
-import { buildFileMentionSuggestions, MENTION_SUGGESTION_LIMIT } from './mentionFilter.js';
+import { buildFileMentionSuggestions, buildSkillMentionSuggestions, MENTION_SUGGESTION_LIMIT, type SkillMentionInfo } from './mentionFilter.js';
 import {
   STATUS_LINE_COUNT,
   PROMPT_LINES_BELOW_INPUT,
@@ -17,7 +17,7 @@ import {
   getLastRenderedCursorRow
 } from './inputPrompt.js';
 
-type Mode = 'file' | 'slash' | null;
+type Mode = 'file' | 'slash' | 'skill' | null;
 type FileSuggestionAcceptHandler = (line: string, cursorPos: number) => void;
 
 function padVisibleRight(text: string, width: number): string {
@@ -74,10 +74,27 @@ function formatFileSuggestionLine(entry: string, isSelected: boolean, width: num
   return `${basePrefix}${padVisibleRight(styledFilename, filenameWidth)}${styledPath ? `${gap}${styledPath}` : ''}`;
 }
 
+function formatSkillSuggestionLine(skill: SkillMentionInfo, isSelected: boolean, width: number): string {
+  const name = `$${skill.name}`;
+  const description = skill.description;
+  const pointer = isSelected ? chalk.cyan('▸') : ' ';
+  const basePrefix = `${pointer} `;
+  const gap = '  ';
+  const availableWidth = Math.max(12, width - basePrefix.length);
+  const nameWidth = Math.max(12, Math.min(Math.floor(availableWidth * 0.32), 30));
+  const descWidth = Math.max(0, availableWidth - gap.length - nameWidth);
+  const visibleName = truncateVisible(name, nameWidth);
+  const visibleDesc = description ? truncateVisible(description, descWidth) : '';
+  const styledName = isSelected ? chalk.cyan(visibleName) : chalk.white(visibleName);
+  const styledDesc = visibleDesc ? chalk.gray(visibleDesc) : '';
+  return `${basePrefix}${padVisibleRight(styledName, nameWidth)}${styledDesc ? `${gap}${styledDesc}` : ''}`;
+}
+
 export class MentionPreview {
   private suggestionLines = 0;
   private keypressHandler: ((str: string, key: readline.Key) => void) | null = null;
   private slashMatches: SlashCommand[] = [];
+  private skillMatches: SkillMentionInfo[] = [];
   private fileSuggestions: string[] = [];
   private mode: Mode = null;
   private activeIndex = 0;
@@ -85,6 +102,7 @@ export class MentionPreview {
   private suspended = false;
   private lastSuggestions: string[] = [];
   private tabJustHandled = false;
+  private skillsProvider: () => SkillMentionInfo[];
 
   // Dynamic offset from cursor to suggestion area, accounting for multi-line content
   private get suggestionOffset(): number {
@@ -99,12 +117,14 @@ export class MentionPreview {
     private readonly filesProvider: () => string[],
     private readonly slashCommands: SlashCommand[],
     private readonly output: NodeJS.WriteStream,
+    skillsProvider: () => SkillMentionInfo[],
     private readonly onFileSuggestionAccepted?: FileSuggestionAcceptHandler,
   ) {
     const input = (rl as readline.Interface & { input: NodeJS.ReadStream }).input;
     // Use safe emit to prevent duplicate listener registration
     safeEmitKeypressEvents(input);
     this.keypressHandler = this.handleKeypress.bind(this);
+    this.skillsProvider = skillsProvider;
     input.prependListener('keypress', this.keypressHandler);
     // Don't render initially - renderPromptLine handles the status display
     // MentionPreview only renders when there are suggestions to show
@@ -162,10 +182,15 @@ export class MentionPreview {
         this.insertSlashSuggestion(beforeCursor, this.slashMatches[this.activeIndex]);
         return;
       }
+      if (this.mode === 'skill' && this.skillMatches.length) {
+        this.tabJustHandled = true;
+        this.insertSkillSuggestion(beforeCursor, this.skillMatches[this.activeIndex]);
+        return;
+      }
 
-      const match = this.matchMention(beforeCursor);
-      if (match) {
-        const seed = match[1] ?? '';
+      const mentionMatch = this.matchMention(beforeCursor);
+      if (mentionMatch) {
+        const seed = mentionMatch[1] ?? '';
         const suggestions = this.filter(seed);
         if (suggestions.length) {
           this.mode = 'file';
@@ -219,6 +244,26 @@ export class MentionPreview {
     }
     this.slashMatches = [];
 
+    // Check for $ skill trigger
+    const skillMatch = /\$([A-Za-z0-9_-]*)$/.exec(beforeCursor);
+    if (skillMatch) {
+      this.fileSuggestions = [];
+      const seed = skillMatch[1] ?? '';
+      const skillNames = this.filterSkills(seed);
+      // Only show menu when user types filter text after $
+      if (skillNames.length) {
+        this.mode = 'skill';
+        this.skillMatches = this.filterSkillsInfo(seed);
+        this.activeIndex = Math.min(this.activeIndex, this.skillMatches.length - 1);
+      } else {
+        this.mode = null;
+        this.skillMatches = [];
+      }
+      this.render(skillNames);
+      return;
+    }
+    this.skillMatches = [];
+
     const match = this.matchMention(beforeCursor);
     if (!match) {
       this.mode = null;
@@ -246,6 +291,16 @@ export class MentionPreview {
 
   private filter(seed: string): string[] {
     return buildFileMentionSuggestions(this.filesProvider(), seed, MENTION_SUGGESTION_LIMIT);
+  }
+
+  private filterSkills(seed: string): string[] {
+    return buildSkillMentionSuggestions(this.skillsProvider(), seed, MENTION_SUGGESTION_LIMIT);
+  }
+
+  private filterSkillsInfo(seed: string): SkillMentionInfo[] {
+    const allSkills = this.skillsProvider();
+    const skillNames = buildSkillMentionSuggestions(allSkills, seed, MENTION_SUGGESTION_LIMIT);
+    return allSkills.filter((s) => skillNames.includes(s.name));
   }
 
   consumeHandledTab(): boolean {
@@ -334,6 +389,14 @@ export class MentionPreview {
           getPromptBlockWidth(this.output.columns),
           filenameColumnWidth,
         );
+      }
+
+      if (this.mode === 'skill') {
+        const skills = this.skillsProvider();
+        const skillInfo = skills.find((s) => s.name === entry);
+        if (skillInfo) {
+          return formatSkillSuggestionLine(skillInfo, Boolean(isSelected), getPromptBlockWidth(this.output.columns));
+        }
       }
 
       const pointer = isSelected ? chalk.cyan('▸') : ' ';
@@ -436,5 +499,43 @@ export class MentionPreview {
     this.rl.write(remainder);
     this.mode = null;
     this.render([]);
+  }
+
+  private insertSkillSuggestion(beforeCursor: string, skill: SkillMentionInfo): void {
+    const match = /\$([A-Za-z0-9_-]*)$/.exec(beforeCursor);
+    if (!match) {
+      return;
+    }
+    const start = match.index;
+    const afterCursor = this.rl.line.slice(this.rl.cursor);
+    const prefix = this.rl.line.slice(0, start);
+    const replacement = `$${skill.name} `;
+
+    const newLine = prefix + replacement + afterCursor;
+    const newCursorPos = prefix.length + replacement.length;
+
+    if (this.onFileSuggestionAccepted) {
+      this.onFileSuggestionAccepted(newLine, newCursorPos);
+    } else {
+      (this.rl as any).line = newLine;
+      (this.rl as any).cursor = newCursorPos;
+    }
+
+    this.mode = null;
+    this.skillMatches = [];
+    this.lastSuggestions = [];
+    this.clear();
+
+    // @ts-ignore - _refreshLine is internal but necessary for immediate update
+    if (typeof this.rl._refreshLine === 'function') {
+      // @ts-ignore
+      this.rl._refreshLine();
+    } else {
+      readline.cursorTo(this.output, 0);
+      const width = getPromptBlockWidth(this.output.columns);
+      const state = buildPromptRenderState(newLine, newCursorPos, width);
+      this.output.write(state.lineText);
+      readline.cursorTo(this.output, state.cursorColumn);
+    }
   }
 }

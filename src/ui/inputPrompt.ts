@@ -1639,6 +1639,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     filesProvider,
     slashCommands,
     stdOutput,
+    skillsProvider ?? (() => []),
     (line: string, cursorPos: number) => {
       textBuffer.setText(line);
       textBuffer.setCursorPosition(0, cursorPos);
