@@ -599,5 +599,49 @@ describe('OllamaProvider', () => {
                 expect(apiErr.message).toContain('Ollama');
             }
         });
+
+        it('handles tool call arguments with circular references without crashing', async () => {
+            // Create an object with circular reference
+            const circularObj: Record<string, unknown> = { name: 'test' };
+            circularObj.self = circularObj;
+
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                json: async () => ({
+                    message: {
+                        role: 'assistant',
+                        content: 'Response with tool call',
+                        tool_calls: [{
+                            function: {
+                                name: 'test_function',
+                                arguments: circularObj  // This would cause JSON.stringify to fail
+                            }
+                        }]
+                    },
+                    created_at: '2024-11-21T10:30:00Z'
+                })
+            });
+
+            // Mock console.warn to capture warning
+            const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            const response = await provider.complete({
+                messages: [{ role: 'user', content: 'Hello' }]
+            });
+
+            expect(response.content).toBe('Response with tool call');
+            expect(response.toolCalls).toHaveLength(1);
+            expect(response.toolCalls?.[0].function.name).toBe('test_function');
+            // Should fallback to string representation when JSON.stringify fails
+            expect(response.toolCalls?.[0].function.arguments).toContain('[object Object]');
+            
+            // Should log a warning about the stringify failure
+            expect(consoleSpy).toHaveBeenCalledWith(
+                'Failed to stringify tool call arguments, using fallback:',
+                expect.any(Error)
+            );
+
+            consoleSpy.mockRestore();
+        });
     });
 });
