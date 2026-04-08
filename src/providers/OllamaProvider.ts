@@ -266,15 +266,26 @@ export class OllamaProvider implements LLMProvider {
         // Parse tool calls if present (Ollama returns arguments as object, not string)
         let toolCalls: LLMToolCall[] | undefined;
         if (data.message.tool_calls && Array.isArray(data.message.tool_calls)) {
-            toolCalls = data.message.tool_calls.map((tc: OllamaToolCall, index: number) => ({
-                id: `ollama-tool-${Date.now()}-${index}`,
-                type: 'function' as const,
-                function: {
-                    name: tc.function.name,
+            toolCalls = data.message.tool_calls.map((tc: OllamaToolCall, index: number) => {
+                let argumentsStr: string;
+                try {
                     // Ollama returns arguments as object, convert to JSON string for consistency
-                    arguments: JSON.stringify(tc.function.arguments)
+                    argumentsStr = JSON.stringify(tc.function.arguments);
+                } catch (error) {
+                    // If JSON.stringify fails (e.g., circular references), fallback to string representation
+                    console.warn('Failed to stringify tool call arguments, using fallback:', error);
+                    argumentsStr = String(tc.function.arguments);
                 }
-            }));
+                
+                return {
+                    id: `ollama-tool-${Date.now()}-${index}`,
+                    type: 'function' as const,
+                    function: {
+                        name: tc.function.name,
+                        arguments: argumentsStr
+                    }
+                };
+            });
         }
 
         // Parse token usage if present (Ollama uses different field names)
@@ -328,8 +339,7 @@ export class OllamaProvider implements LLMProvider {
         if (response.status === 400) {
             const baseError = classifyApiError(response.status, errorBody, response.headers);
             return new ApiError(
-                `Ollama rejected the request. This can happen when message content ` +
-                `confuses the model's parser. Try simplifying your prompt or using a different model.\n${errorBody}`,
+                `Ollama rejected the request. This can happen when message content confuses the model's parser. Try simplifying your prompt or using a different model.\n${errorBody}`,
                 baseError.code,
                 baseError.httpStatus,
                 baseError.retryable,
