@@ -11,10 +11,18 @@
 - [界面设置](#界面设置)
 - [代理设置](#代理设置)
 - [权限设置](#权限设置)
+- [补丁模式](#补丁模式)
 - [网络设置](#网络设置)
 - [遥测设置](#遥测设置)
 - [外部代理](#外部代理)
 - [API 设置](#api-设置)
+- [认证设置](#认证设置)
+- [社区技能设置](#社区技能设置)
+- [分享设置](#分享设置)
+- [同步设置](#同步设置)
+- [钩子设置](#钩子设置)
+- [MCP 设置](#mcp-设置)
+- [Chrome 扩展设置](#chrome-扩展设置)
 - [技能系统](#技能系统)
 - [完整示例](#完整示例)
 
@@ -39,12 +47,39 @@ export AUTOHAND_HOME=/custom/path  # 将 ~/.autohand 更改为 /custom/path
 
 ## 环境变量
 
-| 变量               | 描述                         | 示例                      |
-| ------------------ | ---------------------------- | ------------------------- |
-| `AUTOHAND_HOME`    | 所有 Autohand 数据的基础目录 | `/custom/path`            |
-| `AUTOHAND_CONFIG`  | 自定义配置文件路径           | `/path/to/config.json`    |
-| `AUTOHAND_API_URL` | API 端点（覆盖配置）         | `https://api.autohand.ai` |
-| `AUTOHAND_SECRET`  | 公司/团队密钥                | `sk-xxx`                  |
+| 变量                                   | 描述                                            | 示例                             |
+| -------------------------------------- | ----------------------------------------------- | -------------------------------- |
+| `AUTOHAND_HOME`                        | 所有 Autohand 数据的基础目录                    | `/custom/path`                   |
+| `AUTOHAND_CONFIG`                      | 自定义配置文件路径                              | `/path/to/config.json`           |
+| `AUTOHAND_API_URL`                     | API 端点（覆盖配置）                            | `https://api.autohand.ai`        |
+| `AUTOHAND_SECRET`                      | 公司/团队密钥                                   | `sk-xxx`                         |
+| `AUTOHAND_PERMISSION_CALLBACK_URL`     | 权限回调 URL（实验性）                          | `http://localhost:3000/callback` |
+| `AUTOHAND_PERMISSION_CALLBACK_TIMEOUT` | 权限回调超时（毫秒）                            | `5000`                           |
+| `AUTOHAND_NON_INTERACTIVE`             | 以非交互模式运行                                | `1`                              |
+| `AUTOHAND_YES`                         | 自动确认所有提示                                | `1`                              |
+| `AUTOHAND_NO_BANNER`                   | 禁用启动横幅                                    | `1`                              |
+| `AUTOHAND_STREAM_TOOL_OUTPUT`          | 实时流式输出工具结果                            | `1`                              |
+| `AUTOHAND_DEBUG`                       | 启用调试日志                                    | `1`                              |
+| `AUTOHAND_THINKING_LEVEL`              | 设置思考级别                                    | `normal`                         |
+| `AUTOHAND_CLIENT_NAME`                 | 客户端/编辑器标识符（由 ACP 扩展设置）          | `zed`                            |
+| `AUTOHAND_CLIENT_VERSION`              | 客户端版本（由 ACP 扩展设置）                   | `0.169.0`                        |
+
+### 思考级别
+
+`AUTOHAND_THINKING_LEVEL` 环境变量控制模型的推理深度：
+
+| 值         | 描述                                                              |
+| ---------- | ----------------------------------------------------------------- |
+| `none`     | 直接回答，无可见推理                                              |
+| `normal`   | 标准推理深度（默认值）                                              |
+| `extended` | 针对复杂任务的深度推理，显示更详细的思考过程                      |
+
+这通常由 ACP 客户端扩展（如 Zed）通过配置下拉菜单设置。
+
+```bash
+# 示例：对复杂任务使用扩展推理
+AUTOHAND_THINKING_LEVEL=extended autohand --prompt "重构此模块"
+```
 
 ---
 
@@ -60,6 +95,8 @@ export AUTOHAND_HOME=/custom/path  # 将 ~/.autohand 更改为 /custom/path
 | `"ollama"`     | 本地 Ollama 实例       |
 | `"llamacpp"`   | 本地 llama.cpp 服务器  |
 | `"openai"`     | 直接使用 OpenAI API    |
+| `"mlx"`        | Apple Silicon 上的 MLX（本地） |
+| `"llmgateway"` | 集成 LLM Gateway API   |
 
 ### `openrouter`
 
@@ -141,6 +178,56 @@ OpenAI API 配置。
 | `baseUrl` | string | 否   | `https://api.openai.com/v1` | API 端点                                  |
 | `model`   | string | 是   | -                           | 模型名称（例如：`gpt-4o`、`gpt-4o-mini`） |
 
+### `mlx`
+
+适用于 Apple Silicon Mac 的 MLX 提供商（本地推理）。
+
+```json
+{
+  "mlx": {
+    "baseUrl": "http://localhost:8080",
+    "port": 8080,
+    "model": "mlx-community/Llama-3.2-3B-Instruct-4bit"
+  }
+}
+```
+
+| 字段       | 类型   | 必需   | 默认值                     | 描述               |
+| ---------- | ------ | ------ | -------------------------- | ------------------ |
+| `baseUrl`  | string | 否     | `http://localhost:8080` | MLX 服务器 URL     |
+| `port`     | number | 否     | `8080`                  | 服务器端口         |
+| `model`    | string | 是     | -                       | MLX 模型标识符     |
+
+### `llmgateway`
+
+集成 LLM Gateway API 配置。通过单个 API 访问多个 LLM 提供商。
+
+```json
+{
+  "llmgateway": {
+    "apiKey": "your-llmgateway-api-key",
+    "baseUrl": "https://api.llmgateway.io/v1",
+    "model": "gpt-4o"
+  }
+}
+```
+
+| 字段       | 类型   | 必需   | 默认值                         | 描述                                               |
+| ---------- | ------ | ------ | ------------------------------ | -------------------------------------------------- |
+| `apiKey`   | string | 是     | -                              | LLM Gateway API 密钥                               |
+| `baseUrl`  | string | 否     | `https://api.llmgateway.io/v1` | API 端点                                           |
+| `model`    | string | 是     | -                              | 模型名称（例如：`gpt-4o`、`claude-3-5-sonnet-20241022`） |
+
+**获取 API 密钥：**
+访问 [llmgateway.io/dashboard](https://llmgateway.io/dashboard) 创建账户并获取 API 密钥。
+
+**支持的模型：**
+LLM Gateway 支持来自多个提供商的模型，包括：
+
+- OpenAI: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`
+- Anthropic: `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`
+- Google: `gemini-1.5-pro`, `gemini-1.5-flash`
+
 ---
 
 ## 工作区设置
@@ -158,6 +245,28 @@ OpenAI API 配置。
 | ------------------- | ------- | -------- | ------------------------ |
 | `defaultRoot`       | string  | 当前目录 | 未指定时的默认工作区     |
 | `allowDangerousOps` | boolean | `false`  | 无需确认即允许破坏性操作 |
+
+### 工作区安全
+
+Autohand 自动阻止在危险目录中的操作，以防止意外损坏：
+
+- **文件系统根目录** (`/`, `C:\`, `D:\`, 等)
+- **主目录** (`~`, `/Users/<user>`, `/home/<user>`, `C:\Users\<user>`)
+- **系统目录** (`/etc`, `/var`, `/System`, `C:\Windows`, 等)
+- **Windows WSL 挂载** (`/mnt/c`, `/mnt/c/Users/<user>`)
+
+此检查无法被覆盖。如果您尝试从危险目录运行 autohand，您将收到错误，并需要指定安全的项目目录。
+
+```bash
+# 这将被阻止
+cd ~ && autohand
+# 错误：不安全的工作区目录
+
+# 这将正常工作
+cd ~/projects/my-app && autohand
+```
+
+有关完整详情，请参阅 [工作区安全](./workspace-safety.md)。
 
 ---
 
@@ -273,7 +382,8 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 {
   "agent": {
     "maxIterations": 100,
-    "enableRequestQueue": true
+    "enableRequestQueue": true,
+    "debug": false
   }
 }
 ```
@@ -282,6 +392,17 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 | -------------------- | ------- | ------ | ------------------------------------ |
 | `maxIterations`      | number  | `100`  | 停止前每个用户请求的最大工具迭代次数 |
 | `enableRequestQueue` | boolean | `true` | 允许用户在代理工作时输入和排队请求   |
+| `debug`              | boolean | `false` | 启用详细调试输出（将代理内部状态日志记录到 stderr） |
+
+### 调试模式
+
+启用调试模式以查看代理内部状态的详细日志记录（react 循环迭代、提示构建、会话详情）。输出转到 stderr 以免干扰正常输出。
+
+启用调试模式的三种方法（按优先级顺序）：
+
+1. **CLI 标志**：`autohand -d` 或 `autohand --debug`
+2. **环境变量**：`AUTOHAND_DEBUG=1`
+3. **配置文件**：设置 `agent.debug: true`
 
 ### 请求队列
 
@@ -391,6 +512,154 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 - `工具名:路径` - 用于文件操作（例如：`multi_file_edit:src/file.ts`）
 - `工具名:命令 参数` - 用于命令（例如：`run_command:npm test`）
 
+### 查看权限
+
+您可以通过两种方式查看当前的权限配置：
+
+**CLI 标志（非交互式）：**
+
+```bash
+autohand --permissions
+```
+
+这将显示：
+
+- 当前权限模式（interactive、unrestricted、restricted）
+- 工作区和配置文件路径
+- 所有已批准的权限模式（白名单）
+- 所有被拒绝的权限模式（黑名单）
+- 摘要统计
+
+**交互式命令：**
+
+```
+/permissions
+```
+
+在交互模式下，`/permissions` 命令提供相同的信息，以及：
+
+- 从白名单中移除项目
+- 从黑名单中移除项目
+- 清除所有已保存的权限
+
+---
+
+## 补丁模式
+
+补丁模式允许您生成与 git 兼容的补丁，而无需修改工作区文件。这对于以下情况非常有用：
+
+- 在应用更改之前进行代码审查
+- 与团队成员共享 AI 生成的更改
+- 创建可重现的变更集
+- 需要捕获更改但不应用它们的 CI/CD 管道
+
+### 用法
+
+```bash
+# 生成补丁到 stdout
+autohand --prompt "添加用户认证" --patch
+
+# 保存到文件
+autohand --prompt "添加用户认证" --patch --output auth.patch
+
+# 管道到文件（替代方法）
+autohand --prompt "重构 API 处理程序" --patch > refactor.patch
+```
+
+### 行为
+
+当指定 `--patch` 时：
+
+- **自动确认**：所有提示自动接受（隐含 `--yes`）
+- **无提示**：不显示批准提示（隐含 `--unrestricted`）
+- **仅预览**：捕获更改但不写入磁盘
+- **强制执行安全**：列入黑名单的操作（`.env`、SSH 密钥、危险命令）仍然被阻止
+
+### 应用补丁
+
+接收者可以使用标准 git 命令应用补丁：
+
+```bash
+# 检查将应用什么（试运行）
+git apply --check changes.patch
+
+# 应用补丁
+git apply changes.patch
+
+# 使用三路合并应用（更好的冲突处理）
+git apply -3 changes.patch
+
+# 应用并暂存更改
+git apply --index changes.patch
+
+# 还原补丁
+git apply -R changes.patch
+```
+
+### 补丁格式
+
+生成的补丁遵循 git 统一差异格式：
+
+```diff
+diff --git a/src/auth.ts b/src/auth.ts
+new file mode 100644
+--- /dev/null
++++ b/src/auth.ts
+@@ -0,0 +1,15 @@
++export function authenticate(user: string, password: string) {
++  // 在此实现
++}
++
+diff --git a/src/index.ts b/src/index.ts
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1,5 +1,7 @@
+ import express from 'express';
++import { authenticate } from './auth';
++
+ const app = express();
++app.use(authenticate);
+```
+
+### 退出代码
+
+| 代码 | 含义                                                |
+| ---- | --------------------------------------------------- |
+| `0`  | 成功，补丁已生成                                    |
+| `1`  | 错误（缺少 `--prompt`、权限被拒绝等）               |
+
+### 与其他标志结合
+
+```bash
+# 使用特定模型
+autohand --prompt "优化查询" --patch --model gpt-4o
+
+# 指定工作区
+autohand --prompt "添加测试" --patch --path ./my-project
+
+# 使用自定义配置
+autohand --prompt "重构" --patch --config ~/.autohand/work.json
+```
+
+### 团队工作流示例
+
+```bash
+# 开发者 A：为功能生成补丁
+autohand --prompt "实现带图表的用户仪表板" --patch --output dashboard.patch
+
+# 通过 git 共享（仅使用补丁文件创建 PR）
+git checkout -b patch/dashboard
+git add dashboard.patch
+git commit -m "Add dashboard feature patch"
+git push
+
+# 开发者 B：审查并应用
+git fetch origin patch/dashboard
+git apply dashboard.patch
+# 运行测试、审查代码，然后提交
+git add -A && git commit -m "feat: add user dashboard with charts"
+```
+
 ---
 
 ## 网络设置
@@ -422,16 +691,26 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
   "telemetry": {
     "enabled": false,
     "apiBaseUrl": "https://api.autohand.ai",
-    "enableSessionSync": false
+    "batchSize": 20,
+    "flushIntervalMs": 60000,
+    "maxQueueSize": 500,
+    "maxRetries": 3,
+    "enableSessionSync": false,
+    "companySecret": ""
   }
 }
 ```
 
-| 字段                | 类型    | 默认值                    | 描述                           |
-| ------------------- | ------- | ------------------------- | ------------------------------ |
-| `enabled`           | boolean | `false`                   | 启用/禁用遥测（选择加入）      |
-| `apiBaseUrl`        | string  | `https://api.autohand.ai` | 遥测 API 端点                  |
-| `enableSessionSync` | boolean | `false`                   | 将会话同步到云端以获得团队功能 |
+| 字段               | 类型    | 默认值                   | 描述                                           |
+| ------------------ | ------- | ------------------------ | ---------------------------------------------- |
+| `enabled`          | boolean | `false`                  | 启用/禁用遥测（选择加入）                      |
+| `apiBaseUrl`       | string  | `https://api.autohand.ai` | 遥测 API 端点                                  |
+| `batchSize`        | number  | `20`                     | 自动刷新前批处理的事件数量                     |
+| `flushIntervalMs`  | number  | `60000`                  | 刷新间隔（毫秒）（1 分钟）                     |
+| `maxQueueSize`     | number  | `500`                    | 删除旧事件前的最大队列大小                     |
+| `maxRetries`       | number  | `3`                      | 失败遥测请求的重试尝试次数                     |
+| `enableSessionSync` | boolean | `false`                  | 将会话同步到云端以支持团队功能                 |
+| `companySecret`    | string  | `""`                     | 用于 API 身份验证的公司密钥                     |
 
 ---
 
@@ -480,7 +759,270 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 
 ---
 
+## 认证设置
+
+受保护资源的认证配置。
+
+```json
+{
+  "auth": {
+    "token": "your-auth-token",
+    "refreshToken": "your-refresh-token",
+    "expiresAt": "2024-12-31T23:59:59Z"
+  }
+}
+```
+
+| 字段           | 类型   | 必需   | 描述                                    |
+| -------------- | ------ | ------ | --------------------------------------- |
+| `token`        | string | 是     | 当前访问令牌                            |
+| `refreshToken` | string | 否     | 用于刷新访问令牌的令牌                  |
+| `expiresAt`    | string | 否     | 令牌过期日期/时间（ISO 格式）          |
+
+---
+
+## 社区技能设置
+
+社区技能注册表的配置。
+
+```json
+{
+  "communitySkills": {
+    "registryUrl": "https://skills.autohand.ai",
+    "cacheDuration": 3600,
+    "autoUpdate": false
+  }
+}
+```
+
+| 字段            | 类型    | 默认值                         | 描述                                            |
+| --------------- | ------- | ------------------------------ | ------------------------------------------------ |
+| `registryUrl`   | string  | `https://skills.autohand.ai` | 技能注册表的基础 URL                           |
+| `cacheDuration` | number  | `3600`                         | 缓存持续时间（秒）                              |
+| `autoUpdate`    | boolean | `false`                        | 技能过时时自动更新                              |
+
+---
+
+## 分享设置
+
+控制会话和工作区的分享方式。
+
+```json
+{
+  "share": {
+    "enabled": true,
+    "defaultVisibility": "private",
+    "allowPublicLinks": false,
+    "requireApproval": true
+  }
+}
+```
+
+| 字段                | 类型    | 默认值       | 描述                                            |
+| ------------------- | ------- | ------------- | ------------------------------------------------ |
+| `enabled`           | boolean | `true`        | 启用分享功能                                    |
+| `defaultVisibility` | string  | `"private"`   | 默认可见性：`private`、`team`、`public`        |
+| `allowPublicLinks`  | boolean | `false`       | 允许创建公共链接                                |
+| `requireApproval`   | boolean | `true`        | 分享前需要批准                                  |
+
+---
+
+## 同步设置
+
+在设备之间同步您的设置。
+
+```json
+{
+  "sync": {
+    "enabled": false,
+    "autoSync": true,
+    "syncInterval": 300,
+    "conflictResolution": "ask"
+  }
+}
+```
+
+| 字段                | 类型    | 默认值       | 描述                                            |
+| ------------------- | ------- | ------------- | ------------------------------------------------ |
+| `enabled`           | boolean | `false`       | 启用设置同步                                    |
+| `autoSync`          | boolean | `true`        | 更改时自动同步                                  |
+| `syncInterval`      | number  | `300`         | 同步间隔（秒）                                  |
+| `conflictResolution` | string  | `"ask"`       | 冲突解决方法：`ask`、`local`、`remote`         |
+
+---
+
+## 钩子设置
+
+为 Autohand 事件配置自定义钩子。
+
+```json
+{
+  "hooks": {
+    "preCommand": "~/.autohand/hooks/pre-command.sh",
+    "postCommand": "~/.autohand/hooks/post-command.sh",
+    "onError": "~/.autohand/hooks/on-error.sh",
+    "onComplete": "~/.autohand/hooks/on-complete.sh"
+  }
+}
+```
+
+| 字段          | 类型   | 描述                                            |
+| ------------- | ------ | ------------------------------------------------ |
+| `preCommand`  | string | 在每个命令之前执行的脚本                        |
+| `postCommand` | string | 在每个命令之后执行的脚本                        |
+| `onError`     | string | 发生错误时执行的脚本                            |
+| `onComplete`  | string | 任务完成时执行的脚本                            |
+
+钩子中可用的环境变量：
+
+- `AUTOHAND_HOOK_TYPE` - 钩子类型（`preCommand`、`postCommand` 等）
+- `AUTOHAND_COMMAND` - 正在执行的命令
+- `AUTOHAND_EXIT_CODE` - 退出代码（仅 `postCommand` 和 `onError`）
+- `AUTOHAND_SESSION_ID` - 当前会话 ID
+
+---
+
+## MCP 设置
+
+与工具服务器集成的 Model Context Protocol（MCP）配置。
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "filesystem": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"],
+        "env": {
+          "HOME": "/home/user"
+        }
+      },
+      "sqlite": {
+        "command": "uvx",
+        "args": ["mcp-server-sqlite", "--db-path", "/path/to/db.sqlite"]
+      }
+    }
+  }
+}
+```
+
+| 字段      | 类型   | 描述                                            |
+| --------- | ------ | ------------------------------------------------ |
+| `command` | string | 启动 MCP 服务器的命令                            |
+| `args`    | array  | 命令的参数                                       |
+| `env`     | object | 额外的环境变量                                   |
+
+MCP 服务器提供代理可以调用的额外工具。每个服务器都由唯一名称标识，并在需要时自动启动。
+
+---
+
+## Chrome 扩展设置
+
+Autohand Chrome 扩展的设置。
+
+```json
+{
+  "chrome": {
+    "extensionId": "your-extension-id",
+    "nativeMessaging": true,
+    "autoLaunch": false,
+    "preferredBrowser": "chrome"
+  }
+}
+```
+
+| 字段                | 类型    | 默认值       | 描述                                            |
+| ------------------- | ------- | ------------- | ------------------------------------------------ |
+| `extensionId`       | string  | -             | 已安装 Chrome 扩展的 ID                        |
+| `nativeMessaging`   | boolean | `true`        | 通过原生消息传递启用通信                        |
+| `autoLaunch`        | boolean | `false`       | 启动时自动打开 Chrome                           |
+| `preferredBrowser`  | string  | `"chrome"`    | 首选浏览器：`chrome`、`chromium`、`edge`、`brave` |
+
+Chrome 扩展允许与网页交互和浏览器自动化。原生消息传递允许 CLI 和扩展之间的双向通信。
+
+---
+
 ## 技能系统
+
+技能是指令包，为 AI 代理提供专业知识指令。它们像按需使用的 `AGENTS.md` 文件，可以为特定任务激活。
+
+### 技能发现位置
+
+技能从多个位置发现，较新的源具有更高的优先级：
+
+| 位置                                  | 源 ID            | 描述                              |
+| -------------------------------------- | ---------------- | ---------------------------------- |
+| `~/.codex/skills/**/SKILL.md`          | `codex-user`     | Codex 用户技能（递归）            |
+| `~/.claude/skills/*/SKILL.md`          | `claude-user`    | Claude 用户技能（单层）            |
+| `~/.autohand/skills/**/SKILL.md`      | `autohand-user`  | Autohand 用户技能（递归）          |
+| `<项目>/.claude/skills/*/SKILL.md`  | `claude-project` | Claude 项目技能（单层）            |
+| `<项目>/.autohand/skills/**/SKILL.md` | `autohand-project` | Autohand 项目技能（递归）          |
+
+### 自动复制行为
+
+从 Codex 或 Claude 位置发现的技能会自动复制到相应的 Autohand 位置：
+
+- `~/.codex/skills/` 和 `~/.claude/skills/` → `~/.autohand/skills/`
+- `<项目>/.claude/skills/` → `<项目>/.autohand/skills/`
+
+Autohand 位置中已有的技能永远不会被覆盖。
+
+### SKILL.md 格式
+
+技能使用 YAML frontmatter 后跟 markdown 内容：
+
+```markdown
+---
+name: my-skill-name
+description: 技能的简短描述
+license: MIT
+compatibility: 适用于 Node.js 18+
+allowed-tools: read_file write_file run_command
+metadata:
+  author: your-name
+  version: "1.0.0"
+---
+
+# My Skill
+
+AI 代理的详细指令...
+```
+
+| 字段            | 必需   | 最大大小   | 描述                                      |
+| ---------------- | ------ | ---------- | ------------------------------------------ |
+| `name`           | 是     | 64 个字符  | 仅小写字母数字和连字符                     |
+| `description`    | 是     | 1024 个字符 | 技能的简短描述                             |
+| `license`        | 否     | -          | 许可证 ID（例如 MIT、Apache-2.0）          |
+| `compatibility`  | 否     | 500 个字符  | 兼容性说明                                 |
+| `allowed-tools`  | 否     | -          | 允许的工具列表，以空格分隔                   |
+| `metadata`       | 否     | -          | 额外的键值元数据                           |
+
+### 输入前缀
+
+Autohand 支持提示输入中的特殊前缀：
+
+| 前缀 | 描述                           | 示例                            |
+| ---- | ------------------------------ | -------------------------------- |
+| `/`  | 斜杠命令                       | `/help`, `/model`, `/quit`       |
+| `@`  | 文件提及（自动完成）           | `@src/index.ts`                 |
+| `$`  | 技能提及（自动完成）           | `$frontend-design`, `$code-review` |
+| `!`  | 直接运行终端命令               | `! git status`, `! ls -la`        |
+
+**技能提及 (`$`)：**
+
+- 在 `$` 后输入以查看自动完成的可用技能
+- Tab 接受主要建议（例如 `$frontend-design`）
+- 技能从 `~/.autohand/skills/` 和 `<项目>/.autohand/skills/` 发现
+- 激活的技能作为当前会话的特殊指令添加到提示中
+- 预览面板显示技能元数据（名称、描述、激活状态）
+
+**Shell 命令 (`!`)：**
+
+- 在当前工作目录中执行
+- 输出直接显示在终端中
+- 不进入 LLM
+- 30 秒超时
+- 执行后返回提示
 
 ### 斜杠命令
 
@@ -563,7 +1105,8 @@ autohand --auto-skill
   },
   "agent": {
     "maxIterations": 100,
-    "enableRequestQueue": true
+    "enableRequestQueue": true,
+    "debug": false
   },
   "permissions": {
     "mode": "interactive",
@@ -578,7 +1121,49 @@ autohand --auto-skill
   },
   "telemetry": {
     "enabled": false,
-    "enableSessionSync": false
+    "apiBaseUrl": "https://api.autohand.ai",
+    "batchSize": 20,
+    "flushIntervalMs": 60000,
+    "maxQueueSize": 500,
+    "maxRetries": 3,
+    "enableSessionSync": false,
+    "companySecret": ""
+  },
+  "auth": {
+    "token": "your-auth-token",
+    "refreshToken": "your-refresh-token"
+  },
+  "communitySkills": {
+    "registryUrl": "https://skills.autohand.ai",
+    "cacheDuration": 3600,
+    "autoUpdate": false
+  },
+  "share": {
+    "enabled": true,
+    "defaultVisibility": "private",
+    "allowPublicLinks": false,
+    "requireApproval": true
+  },
+  "sync": {
+    "enabled": false,
+    "autoSync": true,
+    "syncInterval": 300,
+    "conflictResolution": "ask"
+  },
+  "hooks": {
+    "preCommand": "~/.autohand/hooks/pre-command.sh",
+    "postCommand": "~/.autohand/hooks/post-command.sh",
+    "onError": "~/.autohand/hooks/on-error.sh",
+    "onComplete": "~/.autohand/hooks/on-complete.sh"
+  },
+  "mcp": {
+    "servers": {}
+  },
+  "chrome": {
+    "extensionId": "",
+    "nativeMessaging": true,
+    "autoLaunch": false,
+    "preferredBrowser": "chrome"
   },
   "externalAgents": {
     "enabled": false,

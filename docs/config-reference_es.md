@@ -11,10 +11,19 @@ Referencia completa de todas las opciones de configuración en `~/.autohand/conf
 - [Configuración de UI](#configuración-de-ui)
 - [Configuración del Agente](#configuración-del-agente)
 - [Configuración de Permisos](#configuración-de-permisos)
+- [Modo Patch](#modo-patch)
 - [Configuración de Red](#configuración-de-red)
 - [Configuración de Telemetría](#configuración-de-telemetría)
 - [Agentes Externos](#agentes-externos)
 - [Configuración de API](#configuración-de-api)
+- [Configuración de Autenticación](#configuración-de-autenticación)
+- [Configuración de Skills Comunitarios](#configuración-de-skills-comunitarios)
+- [Configuración de Compartir](#configuración-de-compartir)
+- [Sincronización de Configuraciones](#sincronización-de-configuraciones)
+- [Configuración de Hooks](#configuración-de-hooks)
+- [Configuración de MCP](#configuración-de-mcp)
+- [Configuración de Extensión de Chrome](#configuración-de-extensión-de-chrome)
+- [Sistema de Skills](#sistema-de-skills)
 - [Ejemplo Completo](#ejemplo-completo)
 
 ---
@@ -38,12 +47,39 @@ export AUTOHAND_HOME=/ruta/personalizada  # Cambia ~/.autohand a /ruta/personali
 
 ## Variables de Entorno
 
-| Variable           | Descripción                                      | Ejemplo                   |
-| ------------------ | ------------------------------------------------ | ------------------------- |
-| `AUTOHAND_HOME`    | Directorio base para todos los datos de Autohand | `/ruta/personalizada`     |
-| `AUTOHAND_CONFIG`  | Ruta del archivo de configuración personalizado  | `/ruta/a/config.json`     |
-| `AUTOHAND_API_URL` | Endpoint de API (sobrescribe configuración)      | `https://api.autohand.ai` |
-| `AUTOHAND_SECRET`  | Clave secreta de empresa/equipo                  | `sk-xxx`                  |
+| Variable                               | Descripción                                      | Ejemplo                          |
+| -------------------------------------- | ------------------------------------------------ | -------------------------------- |
+| `AUTOHAND_HOME`                        | Directorio base para todos los datos de Autohand | `/ruta/personalizada`            |
+| `AUTOHAND_CONFIG`                      | Ruta del archivo de configuración personalizado  | `/ruta/a/config.json`            |
+| `AUTOHAND_API_URL`                     | Endpoint de API (sobrescribe configuración)      | `https://api.autohand.ai`        |
+| `AUTOHAND_SECRET`                      | Clave secreta de empresa/equipo                  | `sk-xxx`                         |
+| `AUTOHAND_PERMISSION_CALLBACK_URL`     | URL para callback de permiso (experimental)      | `http://localhost:3000/callback` |
+| `AUTOHAND_PERMISSION_CALLBACK_TIMEOUT` | Timeout para callback de permiso en ms           | `5000`                           |
+| `AUTOHAND_NON_INTERACTIVE`             | Ejecutar en modo no interactivo                  | `1`                              |
+| `AUTOHAND_YES`                         | Auto-confirmar todos los prompts                 | `1`                              |
+| `AUTOHAND_NO_BANNER`                   | Deshabilitar banner de inicio                    | `1`                              |
+| `AUTOHAND_STREAM_TOOL_OUTPUT`          | Transmitir output de herramientas en tiempo real | `1`                             |
+| `AUTOHAND_DEBUG`                       | Habilitar logging de debug                       | `1`                              |
+| `AUTOHAND_THINKING_LEVEL`              | Definir nivel de razonamiento                    | `normal`                         |
+| `AUTOHAND_CLIENT_NAME`                 | Identificador de cliente/editor (definido por extensiones ACP) | `zed`                |
+| `AUTOHAND_CLIENT_VERSION`              | Versión del cliente (definido por extensiones ACP) | `0.169.0`                      |
+
+### Nivel de Razonamiento
+
+La variable de entorno `AUTOHAND_THINKING_LEVEL` controla la profundidad del razonamiento que usa el modelo:
+
+| Valor      | Descripción                                                         |
+| ---------- | ------------------------------------------------------------------- |
+| `none`     | Respuestas directas sin razonamiento visible                        |
+| `normal`   | Profundidad de razonamiento estándar (predeterminado)             |
+| `extended` | Razonamiento profundo para tareas complejas, muestra proceso de pensamiento más detallado |
+
+Esto es típicamente configurado por extensiones cliente ACP (como Zed) a través del dropdown de configuración.
+
+```bash
+# Ejemplo: Usar razonamiento extendido para tareas complejas
+AUTOHAND_THINKING_LEVEL=extended autohand --prompt "refactorizar este módulo"
+```
 
 ---
 
@@ -59,6 +95,8 @@ Proveedor LLM activo a usar.
 | `"ollama"`     | Instancia local de Ollama          |
 | `"llamacpp"`   | Servidor local de llama.cpp        |
 | `"openai"`     | API de OpenAI directamente         |
+| `"mlx"`        | MLX en Apple Silicon (local)       |
+| `"llmgateway"` | API unificada LLM Gateway          |
 
 ### `openrouter`
 
@@ -140,6 +178,56 @@ Configuración de API de OpenAI.
 | `baseUrl` | string | No        | `https://api.openai.com/v1` | Endpoint de API                                 |
 | `model`   | string | Sí        | -                           | Nombre del modelo (ej. `gpt-4o`, `gpt-4o-mini`) |
 
+### `mlx`
+
+Proveedor MLX para Macs Apple Silicon (inferencia local).
+
+```json
+{
+  "mlx": {
+    "baseUrl": "http://localhost:8080",
+    "port": 8080,
+    "model": "mlx-community/Llama-3.2-3B-Instruct-4bit"
+  }
+}
+```
+
+| Campo     | Tipo   | Requerido | Predeterminado          | Descripción                  |
+| --------- | ------ | --------- | ----------------------- | ---------------------------- |
+| `baseUrl` | string | No        | `http://localhost:8080` | URL del servidor MLX         |
+| `port`    | number | No        | `8080`                  | Puerto del servidor          |
+| `model`   | string | Sí        | -                       | Identificador del modelo MLX |
+
+### `llmgateway`
+
+Configuración de la API unificada LLM Gateway. Proporciona acceso a múltiples proveedores LLM a través de una única API.
+
+```json
+{
+  "llmgateway": {
+    "apiKey": "tu-api-key-llmgateway",
+    "baseUrl": "https://api.llmgateway.io/v1",
+    "model": "gpt-4o"
+  }
+}
+```
+
+| Campo     | Tipo   | Requerido | Predeterminado                 | Descripción                                               |
+| --------- | ------ | --------- | ------------------------------ | --------------------------------------------------------- |
+| `apiKey`  | string | Sí        | -                              | Clave de API de LLM Gateway                               |
+| `baseUrl` | string | No        | `https://api.llmgateway.io/v1` | Endpoint de API                                           |
+| `model`   | string | Sí        | -                              | Nombre del modelo (ej. `gpt-4o`, `claude-3-5-sonnet-20241022`) |
+
+**Obtener una Clave de API:**
+Visita [llmgateway.io/dashboard](https://llmgateway.io/dashboard) para crear una cuenta y obtener tu clave de API.
+
+**Modelos Soportados:**
+LLM Gateway soporta modelos de múltiples proveedores incluyendo:
+
+- OpenAI: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`
+- Anthropic: `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`
+- Google: `gemini-1.5-pro`, `gemini-1.5-flash`
+
 ---
 
 ## Configuración del Espacio de Trabajo
@@ -157,6 +245,28 @@ Configuración de API de OpenAI.
 | ------------------- | ------- | ----------------- | --------------------------------------------------------- |
 | `defaultRoot`       | string  | Directorio actual | Espacio de trabajo predeterminado cuando no se especifica |
 | `allowDangerousOps` | boolean | `false`           | Permitir operaciones destructivas sin confirmación        |
+
+### Seguridad del Espacio de Trabajo
+
+Autohand bloquea automáticamente operaciones en directorios peligrosos para prevenir daños accidentales:
+
+- **Raíces del sistema de archivos** (`/`, `C:\`, `D:\`, etc.)
+- **Directorios home** (`~`, `/Users/<user>`, `/home/<user>`, `C:\Users\<user>`)
+- **Directorios del sistema** (`/etc`, `/var`, `/System`, `C:\Windows`, etc.)
+- **Montajes WSL de Windows** (`/mnt/c`, `/mnt/c/Users/<user>`)
+
+Esta verificación no puede ser ignorada. Si intentas ejecutar autohand en un directorio peligroso, verás un error y deberás especificar un directorio de proyecto seguro.
+
+```bash
+# Esto será bloqueado
+cd ~ && autohand
+# Error: Directorio de Espacio de Trabajo Inseguro
+
+# Esto funciona
+cd ~/proyectos/my-app && autohand
+```
+
+Ver [Seguridad del Espacio de Trabajo](./workspace-safety.md) para detalles completos.
 
 ---
 
@@ -272,7 +382,8 @@ Controla el comportamiento del agente y límites de iteración.
 {
   "agent": {
     "maxIterations": 100,
-    "enableRequestQueue": true
+    "enableRequestQueue": true,
+    "debug": false
   }
 }
 ```
@@ -281,6 +392,17 @@ Controla el comportamiento del agente y límites de iteración.
 | -------------------- | ------- | -------------- | --------------------------------------------------------------------------------- |
 | `maxIterations`      | number  | `100`          | Máximo de iteraciones de herramientas por solicitud de usuario antes de detenerse |
 | `enableRequestQueue` | boolean | `true`         | Permitir a usuarios escribir y encolar solicitudes mientras el agente trabaja     |
+| `debug`              | boolean | `false`        | Habilitar output de debug detallado (logs del estado interno del agente a stderr) |
+
+### Modo Debug
+
+Habilita el modo debug para ver logging detallado del estado interno del agente (iteraciones del loop react, construcción de prompts, detalles de la sesión). El output va a stderr para no interferir con el output normal.
+
+Tres formas de habilitar el modo debug (en orden de precedencia):
+
+1. **Flag de CLI**: `autohand -d` o `autohand --debug`
+2. **Variable de entorno**: `AUTOHAND_DEBUG=1`
+3. **Archivo de configuración**: Establecer `agent.debug: true`
 
 ### Cola de Solicitudes
 
@@ -390,6 +512,154 @@ Cuando apruebas una operación de archivo (editar, escribir, eliminar), se guard
 - `nombre_herramienta:ruta` - Para operaciones de archivo (ej. `multi_file_edit:src/file.ts`)
 - `nombre_herramienta:comando args` - Para comandos (ej. `run_command:npm test`)
 
+### Visualizando Permisos
+
+Puedes ver tu configuración de permisos actual de dos formas:
+
+**Flag de CLI (No interactivo):**
+
+```bash
+autohand --permissions
+```
+
+Esto muestra:
+
+- Modo de permiso actual (interactive, unrestricted, restricted)
+- Rutas del workspace y archivo de configuración
+- Todos los patrones aprobados (whitelist)
+- Todos los patrones denegados (blacklist)
+- Estadísticas resumidas
+
+**Comando Interactivo:**
+
+```
+/permissions
+```
+
+En modo interactivo, el comando `/permissions` proporciona la misma información más opciones para:
+
+- Eliminar items de la whitelist
+- Eliminar items de la blacklist
+- Limpiar todos los permisos guardados
+
+---
+
+## Modo Patch
+
+El modo patch permite generar un patch compatible con git sin modificar tus archivos de workspace. Esto es útil para:
+
+- Revisión de código antes de aplicar cambios
+- Compartir cambios generados por IA con miembros del equipo
+- Crear conjuntos de cambios reproducibles
+- Pipelines CI/CD que necesitan capturar cambios sin aplicarlos
+
+### Uso
+
+```bash
+# Generar patch a stdout
+autohand --prompt "agregar autenticación de usuario" --patch
+
+# Guardar en archivo
+autohand --prompt "agregar autenticación de usuario" --patch --output auth.patch
+
+# Pipe a archivo (alternativa)
+autohand --prompt "refactorizar handlers de api" --patch > refactor.patch
+```
+
+### Comportamiento
+
+Cuando `--patch` se especifica:
+
+- **Auto-confirmar**: Todos los prompts son automáticamente aceptados (`--yes` implícito)
+- **Sin prompts**: No se muestran prompts de aprobación (`--unrestricted` implícito)
+- **Solo vista previa**: Los cambios se capturan pero NO se escriben en disco
+- **Seguridad aplicada**: Operaciones en la blacklist (`.env`, claves SSH, comandos peligrosos) aún son bloqueadas
+
+### Aplicando Patches
+
+Los destinatarios pueden aplicar el patch usando comandos git estándar:
+
+```bash
+# Verificar qué se aplicaría (dry-run)
+git apply --check changes.patch
+
+# Aplicar el patch
+git apply changes.patch
+
+# Aplicar con merge 3-way (maneja mejor conflictos)
+git apply -3 changes.patch
+
+# Aplicar y hacer stage de cambios
+git apply --index changes.patch
+
+# Revertir un patch
+git apply -R changes.patch
+```
+
+### Formato del Patch
+
+El patch generado sigue el formato diff unificado de git:
+
+```diff
+diff --git a/src/auth.ts b/src/auth.ts
+new file mode 100644
+--- /dev/null
++++ b/src/auth.ts
+@@ -0,0 +1,15 @@
++export function authenticate(user: string, password: string) {
++  // Implementación aquí
++}
++
+diff --git a/src/index.ts b/src/index.ts
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1,5 +1,7 @@
+ import express from 'express';
++import { authenticate } from './auth';
++
+ const app = express();
++app.use(authenticate);
+```
+
+### Códigos de Salida
+
+| Código | Significado                                         |
+| ------ | --------------------------------------------------- |
+| `0`    | Éxito, patch generado                               |
+| `1`    | Error (falta `--prompt`, permiso denegado, etc.)    |
+
+### Combinando con Otras Flags
+
+```bash
+# Usar modelo específico
+autohand --prompt "optimizar queries" --patch --model gpt-4o
+
+# Especificar workspace
+autohand --prompt "agregar tests" --patch --path ./mi-proyecto
+
+# Usar configuración personalizada
+autohand --prompt "refactorizar" --patch --config ~/.autohand/work.json
+```
+
+### Ejemplo de Flujo de Trabajo en Equipo
+
+```bash
+# Desarrollador A: Generar patch para una feature
+autohand --prompt "implementar dashboard de usuario con gráficos" --patch --output dashboard.patch
+
+# Compartir vía git (crear PR con solo el archivo patch)
+git checkout -b patch/dashboard
+git add dashboard.patch
+git commit -m "Add dashboard feature patch"
+git push
+
+# Desarrollador B: Revisar y aplicar
+git fetch origin patch/dashboard
+git apply dashboard.patch
+# Ejecutar tests, revisar código, luego hacer commit
+git add -A && git commit -m "feat: add user dashboard with charts"
+```
+
 ---
 
 ## Configuración de Red
@@ -421,7 +691,12 @@ La telemetría está **deshabilitada por defecto** (opt-in). Habilítala para ay
   "telemetry": {
     "enabled": false,
     "apiBaseUrl": "https://api.autohand.ai",
-    "enableSessionSync": false
+    "batchSize": 20,
+    "flushIntervalMs": 60000,
+    "maxQueueSize": 500,
+    "maxRetries": 3,
+    "enableSessionSync": false,
+    "companySecret": ""
   }
 }
 ```
@@ -430,7 +705,12 @@ La telemetría está **deshabilitada por defecto** (opt-in). Habilítala para ay
 | ------------------- | ------- | ------------------------- | ------------------------------------------------------------- |
 | `enabled`           | boolean | `false`                   | Habilitar/deshabilitar telemetría (opt-in)                    |
 | `apiBaseUrl`        | string  | `https://api.autohand.ai` | Endpoint de API de telemetría                                 |
+| `batchSize`         | number  | `20`                      | Número de eventos para agrupar antes del auto-flush           |
+| `flushIntervalMs`   | number  | `60000`                   | Intervalo de flush en milisegundos (1 minuto)               |
+| `maxQueueSize`      | number  | `500`                     | Tamaño máximo de la cola antes de descartar eventos antiguos  |
+| `maxRetries`        | number  | `3`                       | Intentos de reintento para solicitudes de telemetría fallidas |
 | `enableSessionSync` | boolean | `false`                   | Sincronizar sesiones a la nube para características de equipo |
+| `companySecret`     | string  | `""`                      | Secreto de la empresa para autenticación de API               |
 
 ---
 
@@ -479,7 +759,270 @@ También se puede configurar mediante variables de entorno:
 
 ---
 
+## Configuración de Autenticación
+
+Configuración de autenticación para recursos protegidos.
+
+```json
+{
+  "auth": {
+    "token": "tu-token-de-autenticación",
+    "refreshToken": "tu-refresh-token",
+    "expiresAt": "2024-12-31T23:59:59Z"
+  }
+}
+```
+
+| Campo          | Tipo   | Requerido | Descripción                                    |
+| -------------- | ------ | ----------- | ---------------------------------------------- |
+| `token`        | string | Sí          | Token de acceso actual                         |
+| `refreshToken` | string | No          | Token para renovar el token de acceso          |
+| `expiresAt`    | string | No          | Fecha/hora de expiración del token (ISO)       |
+
+---
+
+## Configuración de Skills Comunitarios
+
+Configuraciones para el registro de skills comunitarios.
+
+```json
+{
+  "communitySkills": {
+    "registryUrl": "https://skills.autohand.ai",
+    "cacheDuration": 3600,
+    "autoUpdate": false
+  }
+}
+```
+
+| Campo           | Tipo    | Predeterminado               | Descripción                                           |
+| --------------- | ------- | ------------------------------ | ----------------------------------------------------- |
+| `registryUrl`   | string  | `https://skills.autohand.ai` | URL base del registro de skills                       |
+| `cacheDuration` | number  | `3600`                         | Duración del caché en segundos                        |
+| `autoUpdate`    | boolean | `false`                        | Actualizar skills automáticamente cuando estén obsoletos |
+
+---
+
+## Configuración de Compartir
+
+Controla cómo se comparten sesiones y workspaces.
+
+```json
+{
+  "share": {
+    "enabled": true,
+    "defaultVisibility": "private",
+    "allowPublicLinks": false,
+    "requireApproval": true
+  }
+}
+```
+
+| Campo               | Tipo    | Predeterminado | Descripción                                           |
+| ------------------- | ------- | -------------- | ----------------------------------------------------- |
+| `enabled`           | boolean | `true`         | Habilitar características de compartir                |
+| `defaultVisibility` | string  | `"private"`    | Visibilidad por defecto: `private`, `team`, `public`  |
+| `allowPublicLinks`  | boolean | `false`        | Permitir creación de enlaces públicos               |
+| `requireApproval`   | boolean | `true`         | Requerir aprobación antes de compartir              |
+
+---
+
+## Sincronización de Configuraciones
+
+Sincroniza tus configuraciones entre dispositivos.
+
+```json
+{
+  "sync": {
+    "enabled": false,
+    "autoSync": true,
+    "syncInterval": 300,
+    "conflictResolution": "ask"
+  }
+}
+```
+
+| Campo                | Tipo    | Predeterminado | Descripción                                              |
+| -------------------- | ------- | -------------- | -------------------------------------------------------- |
+| `enabled`            | boolean | `false`        | Habilitar sincronización de configuraciones            |
+| `autoSync`           | boolean | `true`         | Sincronizar automáticamente cuando haya cambios          |
+| `syncInterval`       | number  | `300`          | Intervalo de sincronización en segundos                  |
+| `conflictResolution` | string  | `"ask"`        | Cómo resolver conflictos: `ask`, `local`, `remote`       |
+
+---
+
+## Configuración de Hooks
+
+Configura hooks personalizados para eventos de Autohand.
+
+```json
+{
+  "hooks": {
+    "preCommand": "~/.autohand/hooks/pre-command.sh",
+    "postCommand": "~/.autohand/hooks/post-command.sh",
+    "onError": "~/.autohand/hooks/on-error.sh",
+    "onComplete": "~/.autohand/hooks/on-complete.sh"
+  }
+}
+```
+
+| Campo         | Tipo   | Descripción                                           |
+| ------------- | ------ | ----------------------------------------------------- |
+| `preCommand`  | string | Script ejecutado antes de cada comando                |
+| `postCommand` | string | Script ejecutado después de cada comando              |
+| `onError`     | string | Script ejecutado cuando ocurre un error               |
+| `onComplete`  | string | Script ejecutado cuando una tarea se completa         |
+
+Variables de entorno disponibles en los hooks:
+
+- `AUTOHAND_HOOK_TYPE` - Tipo del hook (`preCommand`, `postCommand`, etc.)
+- `AUTOHAND_COMMAND` - Comando siendo ejecutado
+- `AUTOHAND_EXIT_CODE` - Código de salida (solo `postCommand` y `onError`)
+- `AUTOHAND_SESSION_ID` - ID de la sesión actual
+
+---
+
+## Configuración de MCP
+
+Configuración del Model Context Protocol (MCP) para integración con servidores de herramientas.
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "filesystem": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"],
+        "env": {
+          "HOME": "/home/user"
+        }
+      },
+      "sqlite": {
+        "command": "uvx",
+        "args": ["mcp-server-sqlite", "--db-path", "/path/to/db.sqlite"]
+      }
+    }
+  }
+}
+```
+
+| Campo     | Tipo   | Descripción                                           |
+| --------- | ------ | ----------------------------------------------------- |
+| `command` | string | Comando para iniciar el servidor MCP                  |
+| `args`    | array  | Argumentos para el comando                             |
+| `env`     | object | Variables de entorno adicionales                       |
+
+Los servidores MCP proporcionan herramientas adicionales que pueden ser llamadas por el agente. Cada servidor es identificado por un nombre único e iniciado automáticamente cuando sea necesario.
+
+---
+
+## Configuración de Extensión de Chrome
+
+Configuraciones para la extensión de Chrome de Autohand.
+
+```json
+{
+  "chrome": {
+    "extensionId": "tu-extension-id",
+    "nativeMessaging": true,
+    "autoLaunch": false,
+    "preferredBrowser": "chrome"
+  }
+}
+```
+
+| Campo              | Tipo    | Predeterminado | Descripción                                           |
+| ------------------ | ------- | -------------- | ----------------------------------------------------- |
+| `extensionId`      | string  | -              | ID de la extensión Chrome instalada                   |
+| `nativeMessaging`  | boolean | `true`         | Habilitar comunicación vía native messaging           |
+| `autoLaunch`       | boolean | `false`        | Abrir Chrome automáticamente al iniciar               |
+| `preferredBrowser` | string  | `"chrome"`     | Navegador preferido: `chrome`, `chromium`, `edge`, `brave` |
+
+La extensión Chrome permite interacción con páginas web y automatización de browser. El native messaging permite comunicación bidireccional entre la CLI y la extensión.
+
+---
+
 ## Sistema de Skills
+
+Los skills son paquetes de instrucciones que proporcionan instrucciones especializadas al agente de IA. Funcionan como archivos `AGENTS.md` bajo demanda que pueden ser activados para tareas específicas.
+
+### Ubicaciones de Descubrimiento de Skills
+
+Los skills son descubiertos desde múltiples ubicaciones, con fuentes posteriores teniendo precedencia:
+
+| Ubicación                               | ID de Fuente       | Descripción                              |
+| --------------------------------------- | ------------------ | ---------------------------------------- |
+| `~/.codex/skills/**/SKILL.md`           | `codex-user`       | Skills de usuario Codex (recursivo)      |
+| `~/.claude/skills/*/SKILL.md`           | `claude-user`      | Skills de usuario Claude (un nivel)      |
+| `~/.autohand/skills/**/SKILL.md`       | `autohand-user`    | Skills de usuario Autohand (recursivo)   |
+| `<proyecto>/.claude/skills/*/SKILL.md`  | `claude-project`   | Skills de proyecto Claude (un nivel)     |
+| `<proyecto>/.autohand/skills/**/SKILL.md` | `autohand-project` | Skills de proyecto Autohand (recursivo)  |
+
+### Comportamiento de Auto-Copia
+
+Los skills descubiertos desde ubicaciones Codex o Claude son automáticamente copiados a la ubicación Autohand correspondiente:
+
+- `~/.codex/skills/` y `~/.claude/skills/` → `~/.autohand/skills/`
+- `<proyecto>/.claude/skills/` → `<proyecto>/.autohand/skills/`
+
+Los skills existentes en ubicaciones Autohand nunca son sobrescritos.
+
+### Formato SKILL.md
+
+Los skills usan frontmatter YAML seguido de contenido markdown:
+
+```markdown
+---
+name: my-skill-name
+description: Breve descripción del skill
+license: MIT
+compatibility: Funciona con Node.js 18+
+allowed-tools: read_file write_file run_command
+metadata:
+  author: your-name
+  version: "1.0.0"
+---
+
+# My Skill
+
+Instrucciones detalladas para el agente de IA...
+```
+
+| Campo           | Requerido | Tamaño Máx | Descripción                                      |
+| --------------- | --------- | ---------- | ------------------------------------------------ |
+| `name`          | Sí        | 64 chars   | Alfanumérico minúsculo con guiones solo          |
+| `description`   | Sí        | 1024 chars | Breve descripción del skill                      |
+| `license`       | No        | -          | Identificador de licencia (ej. MIT, Apache-2.0)   |
+| `compatibility` | No        | 500 chars  | Notas de compatibilidad                          |
+| `allowed-tools` | No        | -          | Lista separada por espacios de herramientas permitidas |
+| `metadata`      | No        | -          | Metadatos adicionales clave-valor                |
+
+### Prefijos de Entrada
+
+Autohand soporta prefijos especiales en la entrada del prompt:
+
+| Prefijo | Descripción                    | Ejemplo                            |
+| ------- | ------------------------------ | ---------------------------------- |
+| `/`     | Comandos slash                 | `/help`, `/model`, `/quit`         |
+| `@`     | Menciones de archivo (autocompletar) | `@src/index.ts`              |
+| `$`     | Menciones de skill (autocompletar) | `$frontend-design`, `$code-review` |
+| `!`     | Ejecutar comandos de terminal directamente | `! git status`, `! ls -la` |
+
+**Menciones de Skills (`$`):**
+
+- Escribe `$` seguido de caracteres para ver skills disponibles con autocompletar
+- Tab acepta la sugerencia principal (ej. `$frontend-design`)
+- Los skills son descubiertos de `~/.autohand/skills/` y `<proyecto>/.autohand/skills/`
+- Los skills activados son anexados al prompt como instrucciones especiales para la sesión actual
+- El panel de preview muestra metadatos del skill (nombre, descripción, estado de activación)
+
+**Comandos Shell (`!`):**
+
+- Los comandos se ejecutan en tu directorio de trabajo actual
+- El output se muestra directamente en el terminal
+- No va al LLM
+- Timeout de 30 segundos
+- Retorna al prompt después de la ejecución
 
 ### Comandos Slash
 
@@ -564,7 +1107,8 @@ Para una experiencia interactiva más precisa, use `/learn` dentro de una sesió
   },
   "agent": {
     "maxIterations": 100,
-    "enableRequestQueue": true
+    "enableRequestQueue": true,
+    "debug": false
   },
   "permissions": {
     "mode": "interactive",
@@ -579,7 +1123,49 @@ Para una experiencia interactiva más precisa, use `/learn` dentro de una sesió
   },
   "telemetry": {
     "enabled": false,
-    "enableSessionSync": false
+    "apiBaseUrl": "https://api.autohand.ai",
+    "batchSize": 20,
+    "flushIntervalMs": 60000,
+    "maxQueueSize": 500,
+    "maxRetries": 3,
+    "enableSessionSync": false,
+    "companySecret": ""
+  },
+  "auth": {
+    "token": "tu-token-de-autenticación",
+    "refreshToken": "tu-refresh-token"
+  },
+  "communitySkills": {
+    "registryUrl": "https://skills.autohand.ai",
+    "cacheDuration": 3600,
+    "autoUpdate": false
+  },
+  "share": {
+    "enabled": true,
+    "defaultVisibility": "private",
+    "allowPublicLinks": false,
+    "requireApproval": true
+  },
+  "sync": {
+    "enabled": false,
+    "autoSync": true,
+    "syncInterval": 300,
+    "conflictResolution": "ask"
+  },
+  "hooks": {
+    "preCommand": "~/.autohand/hooks/pre-command.sh",
+    "postCommand": "~/.autohand/hooks/post-command.sh",
+    "onError": "~/.autohand/hooks/on-error.sh",
+    "onComplete": "~/.autohand/hooks/on-complete.sh"
+  },
+  "mcp": {
+    "servers": {}
+  },
+  "chrome": {
+    "extensionId": "",
+    "nativeMessaging": true,
+    "autoLaunch": false,
+    "preferredBrowser": "chrome"
   },
   "externalAgents": {
     "enabled": false,
@@ -621,6 +1207,7 @@ ui:
 agent:
   maxIterations: 100
   enableRequestQueue: true
+  debug: false
 
 permissions:
   mode: interactive
@@ -638,7 +1225,49 @@ network:
 
 telemetry:
   enabled: false
+  apiBaseUrl: https://api.autohand.ai
+  batchSize: 20
+  flushIntervalMs: 60000
+  maxQueueSize: 500
+  maxRetries: 3
   enableSessionSync: false
+  companySecret: ""
+
+auth:
+  token: tu-token-de-autenticación
+  refreshToken: tu-refresh-token
+
+communitySkills:
+  registryUrl: https://skills.autohand.ai
+  cacheDuration: 3600
+  autoUpdate: false
+
+share:
+  enabled: true
+  defaultVisibility: private
+  allowPublicLinks: false
+  requireApproval: true
+
+sync:
+  enabled: false
+  autoSync: true
+  syncInterval: 300
+  conflictResolution: ask
+
+hooks:
+  preCommand: ~/.autohand/hooks/pre-command.sh
+  postCommand: ~/.autohand/hooks/post-command.sh
+  onError: ~/.autohand/hooks/on-error.sh
+  onComplete: ~/.autohand/hooks/on-complete.sh
+
+mcp:
+  servers: {}
+
+chrome:
+  extensionId: ""
+  nativeMessaging: true
+  autoLaunch: false
+  preferredBrowser: chrome
 
 externalAgents:
   enabled: false
