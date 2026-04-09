@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 process.title = 'autohand';
+// Set environment variable for detection by Expect and other tools
+process.env.AUTOHAND_CODE = '1';
 import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
