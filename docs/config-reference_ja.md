@@ -63,6 +63,7 @@ export AUTOHAND_HOME=/custom/path  # ~/.autohand を /custom/path に変更
 | `AUTOHAND_THINKING_LEVEL`              | 推論の深さレベルを設定                             | `normal`                         |
 | `AUTOHAND_CLIENT_NAME`                 | クライアント/エディター識別子（ACP拡張機能で設定） | `zed`                            |
 | `AUTOHAND_CLIENT_VERSION`              | クライアントバージョン（ACP拡張機能で設定）        | `0.169.0`                        |
+| `AUTOHAND_CODE`                        | 環境検出フラグ（自動設定）                       | `1`                              |
 
 ### 思考レベル
 
