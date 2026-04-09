@@ -63,6 +63,7 @@ export AUTOHAND_HOME=/custom/path  # ~/.autohand를 /custom/path로 변경
 | `AUTOHAND_THINKING_LEVEL`              | 사고 수준 설정                                  | `normal`                         |
 | `AUTOHAND_CLIENT_NAME`                 | 클라이언트/편집기 식별자 (ACP 확장 프로그램에 의해 설정) | `zed`                            |
 | `AUTOHAND_CLIENT_VERSION`              | 클라이언트 버전 (ACP 확장 프로그램에 의해 설정) | `0.169.0`                        |
+| `AUTOHAND_CODE`                        | 환경 감지 플래그 (자동 설정)                     | `1`                              |
 
 ### 사고 수준
 

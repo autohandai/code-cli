@@ -124,23 +124,67 @@ export async function feedback(_ctx: FeedbackContext): Promise<string | null> {
         return null;
     }
 
-    // Step 2: Prompt for feedback text
-    const textAnswer = await safePrompt<{ feedback: string }>([
-        {
-            type: 'input',
-            name: 'feedback',
-            message: 'What worked? What broke? (optional)'
-        }
-    ]);
-
-    if (!textAnswer) {
-        console.log(chalk.gray('Feedback discarded.'));
+    if (ratingAnswer.rating === 'skip') {
+        console.log(chalk.gray('Feedback skipped.'));
         return null;
     }
 
-    // Parse rating (0 for skip, 1-5 otherwise)
-    const npsScore = ratingAnswer.rating === 'skip' ? 0 : parseInt(ratingAnswer.rating, 10);
-    const freeformFeedback = textAnswer.feedback?.trim() || undefined;
+    const npsScore = parseInt(ratingAnswer.rating, 10);
+    let reason: string | undefined;
+    let improvement: string | undefined;
+    let recommend: boolean | undefined;
+
+    // Step 2: Follow-up based on score
+    if (npsScore >= 4) {
+        // Happy user - ask for recommendation reason
+        const reasonAnswer = await safePrompt<{ reason: string }>([
+            {
+                type: 'input',
+                name: 'reason',
+                message: 'What do you like most about Autohand? (optional, press Enter to skip)'
+            }
+        ]);
+
+        if (!reasonAnswer) {
+            console.log(chalk.gray('Feedback discarded.'));
+            return null;
+        }
+
+        reason = reasonAnswer.reason?.trim() || undefined;
+
+        // Ask about recommendation
+        const recommendAnswer = await safePrompt<{ recommend: string }>([
+            {
+                type: 'select',
+                name: 'recommend',
+                message: 'Would you recommend Autohand to a colleague?',
+                choices: [
+                    { name: 'yes', message: 'Yes' },
+                    { name: 'no', message: 'No' }
+                ]
+            }
+        ]);
+
+        if (recommendAnswer) {
+            recommend = recommendAnswer.recommend === 'yes';
+        }
+    } else {
+        // Unhappy user - ask for improvement
+        const improvementAnswer = await safePrompt<{ improvement: string }>([
+            {
+                type: 'input',
+                name: 'improvement',
+                message: 'What could we do better? (optional, press Enter to skip)'
+            }
+        ]);
+
+        if (!improvementAnswer) {
+            console.log(chalk.gray('Feedback discarded.'));
+            return null;
+        }
+
+        improvement = improvementAnswer.improvement?.trim() || undefined;
+    }
 
     // Build payload matching API schema
     const now = new Date().toISOString();
@@ -149,6 +193,9 @@ export async function feedback(_ctx: FeedbackContext): Promise<string | null> {
 
     const payload = {
         npsScore,
+        recommend,
+        reason,
+        improvement,
         triggerType: 'manual' as const,
         timestamp: now,
         deviceId,
@@ -156,7 +203,6 @@ export async function feedback(_ctx: FeedbackContext): Promise<string | null> {
         platform: process.platform,
         osVersion: os.release(),
         nodeVersion: process.version,
-        freeformFeedback,
         env: {
             platform: `${process.platform}-${process.arch}`,
             node: process.version,
