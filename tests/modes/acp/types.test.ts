@@ -424,7 +424,7 @@ describe("resolveDefaultModel()", () => {
   it("returns fallback model when provider config has no model", () => {
     const config = makeConfig({ openrouter: undefined } as any);
 
-    expect(resolveDefaultModel(config)).toBe("your-modelcard-id-here");
+    expect(resolveDefaultModel(config)).toBe("anthropic/claude-sonnet-4-20250514");
   });
 
   it("defaults to openrouter when provider is not specified", () => {

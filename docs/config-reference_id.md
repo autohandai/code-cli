@@ -52,6 +52,8 @@ export AUTOHAND_HOME=/custom/path  # Mengubah ~/.autohand ke /custom/path
 | `AUTOHAND_HOME`    | Direktori dasar untuk semua data Autohand | `/custom/path`            |
 | `AUTOHAND_CONFIG`  | Path file konfigurasi kustom              | `/path/to/config.json`    |
 | `AUTOHAND_API_URL` | Endpoint API (mengganti konfigurasi)      | `https://api.autohand.ai` |
+| `AUTOHAND_CLIENT_VERSION`              | Versi klien (diatur oleh ekstensi ACP)          | `0.169.0`                        |
+| `AUTOHAND_CODE`                        | Penanda deteksi lingkungan (diatur otomatis)   | `1`                              |
 | `AUTOHAND_SECRET`  | Kunci rahasia perusahaan/tim              | `sk-xxx`                  |
 
 ---

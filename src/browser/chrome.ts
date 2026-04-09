@@ -431,6 +431,8 @@ export function buildNativeHostScript(options: { cliCommand: string; cliArgPrefi
 
   return `#!${shebang}
 const { spawn } = require("node:child_process");
+const path = require("node:path");
+const os = require("node:os");
 let child = null;
 let stdinBuffer = Buffer.alloc(0);
 let stdoutBuffer = "";
