@@ -11,10 +11,18 @@ Referensi lengkap untuk semua opsi konfigurasi di `~/.autohand/config.json` (ata
 - [Pengaturan UI](#pengaturan-ui)
 - [Pengaturan Agent](#pengaturan-agent)
 - [Pengaturan Izin](#pengaturan-izin)
+- [Mode Patch](#mode-patch)
 - [Pengaturan Jaringan](#pengaturan-jaringan)
 - [Pengaturan Telemetri](#pengaturan-telemetri)
 - [Agent Eksternal](#agent-eksternal)
 - [Pengaturan API](#pengaturan-api)
+- [Pengaturan Autentikasi](#pengaturan-autentikasi)
+- [Pengaturan Skill Komunitas](#pengaturan-skill-komunitas)
+- [Pengaturan Berbagi](#pengaturan-berbagi)
+- [Sinkronisasi Pengaturan](#sinkronisasi-pengaturan)
+- [Pengaturan Hook](#pengaturan-hook)
+- [Pengaturan MCP](#pengaturan-mcp)
+- [Pengaturan Ekstensi Chrome](#pengaturan-ekstensi-chrome)
 - [Sistem Skill](#sistem-skill)
 - [Contoh Lengkap](#contoh-lengkap)
 
@@ -141,6 +149,56 @@ Konfigurasi API OpenAI.
 | `baseUrl` | string | Tidak | `https://api.openai.com/v1` | Endpoint API                              |
 | `model`   | string | Ya    | -                           | Nama model (mis. `gpt-4o`, `gpt-4o-mini`) |
 
+### `mlx`
+
+Provider MLX untuk Mac Apple Silicon (inferensi lokal).
+
+```json
+{
+  "mlx": {
+    "baseUrl": "http://localhost:8080",
+    "port": 8080,
+    "model": "mlx-community/Llama-3.2-3B-Instruct-4bit"
+  }
+}
+```
+
+| Kolom     | Tipe   | Wajib | Default                 | Deskripsi               |
+| --------- | ------ | ----- | ----------------------- | ----------------------- |
+| `baseUrl` | string | Tidak | `http://localhost:8080` | URL server MLX          |
+| `port`    | number | Tidak | `8080`                  | Port server             |
+| `model`   | string | Ya    | -                       | Pengidentifikasi model MLX |
+
+### `llmgateway`
+
+Konfigurasi API Terpadu LLM Gateway. Memberikan akses ke beberapa penyedia LLM melalui satu API.
+
+```json
+{
+  "llmgateway": {
+    "apiKey": "your-llmgateway-api-key",
+    "baseUrl": "https://api.llmgateway.io/v1",
+    "model": "gpt-4o"
+  }
+}
+```
+
+| Kolom     | Tipe   | Wajib | Default                        | Deskripsi                                               |
+| --------- | ------ | ----- | ------------------------------ | ------------------------------------------------------- |
+| `apiKey`  | string | Ya    | -                              | Kunci API LLM Gateway                                   |
+| `baseUrl` | string | Tidak | `https://api.llmgateway.io/v1` | Endpoint API                                            |
+| `model`   | string | Ya    | -                              | Nama model (misal `gpt-4o`, `claude-3-5-sonnet-20241022`) |
+
+**Mendapatkan Kunci API:**
+Kunjungi [llmgateway.io/dashboard](https://llmgateway.io/dashboard) untuk membuat akun dan mendapatkan kunci API Anda.
+
+**Model yang Didukung:**
+LLM Gateway mendukung model dari berbagai penyedia termasuk:
+
+- OpenAI: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`
+- Anthropic: `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`
+- Google: `gemini-1.5-pro`, `gemini-1.5-flash`
+
 ---
 
 ## Pengaturan Workspace
@@ -158,6 +216,28 @@ Konfigurasi API OpenAI.
 | ------------------- | ------- | ------------------ | ------------------------------------------- |
 | `defaultRoot`       | string  | Direktori saat ini | Workspace default ketika tidak ditentukan   |
 | `allowDangerousOps` | boolean | `false`            | Izinkan operasi destruktif tanpa konfirmasi |
+
+### Keamanan Workspace
+
+Autohand secara otomatis memblokir operasi di direktori berbahaya untuk mencegah kerusakan yang tidak disengaja:
+
+- **Root sistem file** (`/`, `C:\`, `D:\`, dll.)
+- **Direktori home** (`~`, `/Users/<user>`, `/home/<user>`, `C:\Users\<user>`)
+- **Direktori sistem** (`/etc`, `/var`, `/System`, `C:\Windows`, dll.)
+- **Mount WSL Windows** (`/mnt/c`, `/mnt/c/Users/<user>`)
+
+Pemeriksaan ini tidak dapat ditimpa. Jika Anda mencoba menjalankan autohand dari direktori berbahaya, Anda akan mendapatkan kesalahan dan harus menentukan direktori proyek yang aman.
+
+```bash
+# Ini akan diblokir
+cd ~ && autohand
+# Error: Direktori Workspace Tidak Aman
+
+# Ini berfungsi
+cd ~/projects/my-app && autohand
+```
+
+Lihat [Keamanan Workspace](./workspace-safety.md) untuk detail lengkap.
 
 ---
 
@@ -273,15 +353,26 @@ Kontrol perilaku agent dan batas iterasi.
 {
   "agent": {
     "maxIterations": 100,
-    "enableRequestQueue": true
+    "enableRequestQueue": true,
+    "debug": false
   }
 }
-```
 
-| Field                | Tipe    | Default | Deskripsi                                                             |
-| -------------------- | ------- | ------- | --------------------------------------------------------------------- |
-| `maxIterations`      | number  | `100`   | Iterasi tool maksimum per permintaan pengguna sebelum berhenti        |
-| `enableRequestQueue` | boolean | `true`  | Izinkan pengguna mengetik dan mengantri permintaan saat agent bekerja |
+| Field               | Tipe    | Default | Deskripsi                                                              |
+| ------------------- | ------- | ------- | ---------------------------------------------------------------------- |
+| `maxIterations`      | number  | `100`   | Maksimum iterasi alat per permintaan pengguna sebelum berhenti         |
+| `enableRequestQueue` | boolean | `true`  | Izinkan pengguna mengetik dan mengantre permintaan saat agent bekerja |
+| `debug`              | boolean | `false` | Aktifkan output debug verbose (log status internal agent ke stderr)     |
+
+### Mode Debug
+
+Aktifkan mode debug untuk melihat logging verbose status internal agent (iterasi loop react, pembangunan prompt, detail sesi). Output masuk ke stderr agar tidak mengganggu output normal.
+
+Tiga cara untuk mengaktifkan mode debug (dalam urutan prioritas):
+
+1. **Flag CLI**: `autohand -d` atau `autohand --debug`
+2. **Variabel Lingkungan**: `AUTOHAND_DEBUG=1`
+3. **File Konfigurasi**: Atur `agent.debug: true`
 
 ### Antrian Permintaan
 
@@ -391,6 +482,154 @@ Ketika Anda menyetujui operasi file (edit, tulis, hapus), secara otomatis disimp
 - `nama_tool:path` - Untuk operasi file (mis. `multi_file_edit:src/file.ts`)
 - `nama_tool:perintah args` - Untuk perintah (mis. `run_command:npm test`)
 
+### Melihat Izin
+
+Anda dapat melihat konfigurasi izin saat ini dengan dua cara:
+
+**Flag CLI (Non-interaktif):**
+
+```bash
+autohand --permissions
+```
+
+Ini menampilkan:
+
+- Mode izin saat ini (interactive, unrestricted, restricted)
+- Path workspace dan file konfigurasi
+- Semua pola yang disetujui (whitelist)
+- Semua pola yang ditolak (blacklist)
+- Statistik ringkasan
+
+**Perintah Interaktif:**
+
+```
+/permissions
+```
+
+Dalam mode interaktif, perintah `/permissions` memberikan informasi yang sama ditambah opsi untuk:
+
+- Menghapus item dari whitelist
+- Menghapus item dari blacklist
+- Membersihkan semua izin yang tersimpan
+
+---
+
+## Mode Patch
+
+Mode patch memungkinkan Anda menghasilkan patch yang kompatibel dengan git tanpa memodifikasi file workspace Anda. Ini berguna untuk:
+
+- Tinjauan kode sebelum menerapkan perubahan
+- Berbagi perubahan yang dihasilkan AI dengan anggota tim
+- Membuat set perubahan yang dapat direproduksi
+- Pipeline CI/CD yang perlu menangkap perubahan tanpa menerapkannya
+
+### Penggunaan
+
+```bash
+# Hasilkan patch ke stdout
+autohand --prompt "tambahkan autentikasi pengguna" --patch
+
+# Simpan ke file
+autohand --prompt "tambahkan autentikasi pengguna" --patch --output auth.patch
+
+# Pipe ke file (alternatif)
+autohand --prompt "refactor handler api" --patch > refactor.patch
+```
+
+### Perilaku
+
+Ketika `--patch` ditentukan:
+
+- **Auto-konfirmasi**: Semua prompt secara otomatis diterima (`--yes` implisit)
+- **Tanpa prompt**: Tidak ada prompt persetujuan yang ditampilkan (`--unrestricted` implisit)
+- **Hanya pratinjau**: Perubahan ditangkap tetapi TIDAK ditulis ke disk
+- **Keamanan diterapkan**: Operasi yang masuk daftar hitam (`.env`, kunci SSH, perintah berbahaya) tetap diblokir
+
+### Menerapkan Patch
+
+Penerima dapat menerapkan patch menggunakan perintah git standar:
+
+```bash
+# Periksa apa yang akan diterapkan (dry-run)
+git apply --check changes.patch
+
+# Terapkan patch
+git apply changes.patch
+
+# Terapkan dengan merge 3-way (penanganan konflik yang lebih baik)
+git apply -3 changes.patch
+
+# Terapkan dan stage perubahan
+git apply --index changes.patch
+
+# Kembalikan patch
+git apply -R changes.patch
+```
+
+### Format Patch
+
+Patch yang dihasilkan mengikuti format diff terpadu git:
+
+```diff
+diff --git a/src/auth.ts b/src/auth.ts
+new file mode 100644
+--- /dev/null
++++ b/src/auth.ts
+@@ -0,0 +1,15 @@
++export function authenticate(user: string, password: string) {
++  // Implementasi di sini
++}
++
+diff --git a/src/index.ts b/src/index.ts
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1,5 +1,7 @@
+ import express from 'express';
++import { authenticate } from './auth';
++
+ const app = express();
++app.use(authenticate);
+```
+
+### Kode Keluar
+
+| Kode | Arti                                                |
+| ---- | --------------------------------------------------- |
+| `0`  | Sukses, patch dihasilkan                            |
+| `1`  | Kesalahan (`--prompt` hilang, izin ditolak, dll.) |
+
+### Menggabungkan dengan Flag Lain
+
+```bash
+# Gunakan model tertentu
+autohand --prompt "optimalkan query" --patch --model gpt-4o
+
+# Tentukan workspace
+autohand --prompt "tambahkan test" --patch --path ./my-project
+
+# Gunakan konfigurasi kustom
+autohand --prompt "refactor" --patch --config ~/.autohand/work.json
+```
+
+### Contoh Alur Kerja Tim
+
+```bash
+# Developer A: Hasilkan patch untuk fitur
+autohand --prompt "implementasikan dashboard pengguna dengan grafik" --patch --output dashboard.patch
+
+# Bagikan melalui git (buat PR dengan hanya file patch)
+git checkout -b patch/dashboard
+git add dashboard.patch
+git commit -m "Add dashboard feature patch"
+git push
+
+# Developer B: Tinjau dan terapkan
+git fetch origin patch/dashboard
+git apply dashboard.patch
+# Jalankan test, tinjau kode, lalu commit
+git add -A && git commit -m "feat: add user dashboard with charts"
+```
+
 ---
 
 ## Pengaturan Jaringan
@@ -422,16 +661,26 @@ Telemetri **dinonaktifkan secara default** (opt-in). Aktifkan untuk membantu men
   "telemetry": {
     "enabled": false,
     "apiBaseUrl": "https://api.autohand.ai",
-    "enableSessionSync": false
+    "batchSize": 20,
+    "flushIntervalMs": 60000,
+    "maxQueueSize": 500,
+    "maxRetries": 3,
+    "enableSessionSync": false,
+    "companySecret": ""
   }
 }
 ```
 
-| Field               | Tipe    | Default                   | Deskripsi                                |
+| Kolom               | Tipe    | Default                   | Deskripsi                                |
 | ------------------- | ------- | ------------------------- | ---------------------------------------- |
 | `enabled`           | boolean | `false`                   | Aktifkan/nonaktifkan telemetri (opt-in)  |
 | `apiBaseUrl`        | string  | `https://api.autohand.ai` | Endpoint API telemetri                   |
+| `batchSize`         | number  | `20`                      | Jumlah event untuk batch sebelum auto-flush |
+| `flushIntervalMs`   | number  | `60000`                   | Interval flush dalam milidetik (1 menit) |
+| `maxQueueSize`      | number  | `500`                     | Ukuran maksimum antrian sebelum event lama dihapus |
+| `maxRetries`        | number  | `3`                       | Percobaan ulang untuk permintaan telemetri yang gagal |
 | `enableSessionSync` | boolean | `false`                   | Sinkronkan sesi ke cloud untuk fitur tim |
+| `companySecret`     | string  | `""`                      | Rahasia perusahaan untuk otentikasi API  |
 
 ---
 
@@ -480,7 +729,270 @@ Juga dapat diatur melalui variabel lingkungan:
 
 ---
 
+## Pengaturan Autentikasi
+
+Konfigurasi autentikasi untuk sumber daya yang dilindungi.
+
+```json
+{
+  "auth": {
+    "token": "your-auth-token",
+    "refreshToken": "your-refresh-token",
+    "expiresAt": "2024-12-31T23:59:59Z"
+  }
+}
+```
+
+| Kolom          | Tipe   | Wajib | Deskripsi                                    |
+| -------------- | ------ | ----- | --------------------------------------------- |
+| `token`        | string | Ya    | Token akses saat ini                          |
+| `refreshToken` | string | Tidak | Token untuk memperbarui token akses          |
+| `expiresAt`    | string | Tidak | Tanggal/waktu kedaluwarsa token (ISO format) |
+
+---
+
+## Pengaturan Skill Komunitas
+
+Konfigurasi untuk registri skill komunitas.
+
+```json
+{
+  "communitySkills": {
+    "registryUrl": "https://skills.autohand.ai",
+    "cacheDuration": 3600,
+    "autoUpdate": false
+  }
+}
+```
+
+| Kolom           | Tipe    | Default                        | Deskripsi                                           |
+| --------------- | ------- | ------------------------------ | ----------------------------------------------------- |
+| `registryUrl`   | string  | `https://skills.autohand.ai` | URL dasar registri skill                              |
+| `cacheDuration` | number  | `3600`                         | Durasi cache dalam detik                              |
+| `autoUpdate`    | boolean | `false`                        | Perbarui skill secara otomatis saat usang             |
+
+---
+
+## Pengaturan Berbagi
+
+Kontrol cara berbagi sesi dan workspace.
+
+```json
+{
+  "share": {
+    "enabled": true,
+    "defaultVisibility": "private",
+    "allowPublicLinks": false,
+    "requireApproval": true
+  }
+}
+```
+
+| Kolom               | Tipe    | Default       | Deskripsi                                           |
+| ------------------- | ------- | -------------- | ----------------------------------------------------- |
+| `enabled`           | boolean | `true`         | Aktifkan fitur berbagi                              |
+| `defaultVisibility` | string  | `"private"`    | Visibilitas default: `private`, `team`, `public`    |
+| `allowPublicLinks`  | boolean | `false`        | Izinkan pembuatan tautan publik                       |
+| `requireApproval`   | boolean | `true`         | Memerlukan persetujuan sebelum berbagi              |
+
+---
+
+## Sinkronisasi Pengaturan
+
+Sinkronkan pengaturan Anda antar perangkat.
+
+```json
+{
+  "sync": {
+    "enabled": false,
+    "autoSync": true,
+    "syncInterval": 300,
+    "conflictResolution": "ask"
+  }
+}
+```
+
+| Kolom                | Tipe    | Default       | Deskripsi                                              |
+| -------------------- | ------- | -------------- | -------------------------------------------------------- |
+| `enabled`            | boolean | `false`        | Aktifkan sinkronisasi pengaturan                       |
+| `autoSync`           | boolean | `true`         | Sinkronkan otomatis saat ada perubahan                |
+| `syncInterval`       | number  | `300`          | Interval sinkronisasi dalam detik                       |
+| `conflictResolution` | string  | `"ask"`        | Cara menyelesaikan konflik: `ask`, `local`, `remote`   |
+
+---
+
+## Pengaturan Hook
+
+Konfigurasi hook kustom untuk peristiwa Autohand.
+
+```json
+{
+  "hooks": {
+    "preCommand": "~/.autohand/hooks/pre-command.sh",
+    "postCommand": "~/.autohand/hooks/post-command.sh",
+    "onError": "~/.autohand/hooks/on-error.sh",
+    "onComplete": "~/.autohand/hooks/on-complete.sh"
+  }
+}
+```
+
+| Kolom         | Tipe   | Deskripsi                                           |
+| -------------- | ------ | ----------------------------------------------------- |
+| `preCommand`  | string | Skrip dijalankan sebelum setiap perintah             |
+| `postCommand` | string | Skrip dijalankan setelah setiap perintah             |
+| `onError`     | string | Skrip dijalankan saat terjadi kesalahan              |
+| `onComplete`  | string | Skrip dijalankan saat tugas selesai                  |
+
+Variabel lingkungan yang tersedia di hook:
+
+- `AUTOHAND_HOOK_TYPE` - Tipe hook (`preCommand`, `postCommand`, dll.)
+- `AUTOHAND_COMMAND` - Perintah yang sedang dijalankan
+- `AUTOHAND_EXIT_CODE` - Kode keluar (hanya `postCommand` dan `onError`)
+- `AUTOHAND_SESSION_ID` - ID sesi saat ini
+
+---
+
+## Pengaturan MCP
+
+Konfigurasi Model Context Protocol (MCP) untuk integrasi dengan server alat.
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "filesystem": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"],
+        "env": {
+          "HOME": "/home/user"
+        }
+      },
+      "sqlite": {
+        "command": "uvx",
+        "args": ["mcp-server-sqlite", "--db-path", "/path/to/db.sqlite"]
+      }
+    }
+  }
+}
+```
+
+| Kolom     | Tipe   | Deskripsi                                           |
+| --------- | ------ | ----------------------------------------------------- |
+| `command` | string | Perintah untuk memulai server MCP                     |
+| `args`    | array  | Argumen untuk perintah                                 |
+| `env`     | object | Variabel lingkungan tambahan                           |
+
+Server MCP menyediakan alat tambahan yang dapat dipanggil oleh agent. Setiap server diidentifikasi dengan nama unik dan dimulai secara otomatis saat diperlukan.
+
+---
+
+## Pengaturan Ekstensi Chrome
+
+Pengaturan untuk ekstensi Chrome Autohand.
+
+```json
+{
+  "chrome": {
+    "extensionId": "your-extension-id",
+    "nativeMessaging": true,
+    "autoLaunch": false,
+    "preferredBrowser": "chrome"
+  }
+}
+```
+
+| Kolom              | Tipe    | Default       | Deskripsi                                           |
+| ------------------ | ------- | -------------- | ----------------------------------------------------- |
+| `extensionId`      | string  | -              | ID ekstensi Chrome yang terinstal                     |
+| `nativeMessaging`  | boolean | `true`         | Aktifkan komunikasi melalui native messaging          |
+| `autoLaunch`       | boolean | `false`        | Buka Chrome secara otomatis saat startup              |
+| `preferredBrowser` | string  | `"chrome"`     | Browser pilihan: `chrome`, `chromium`, `edge`, `brave` |
+
+Ekstensi Chrome memungkinkan interaksi dengan halaman web dan otomasi browser. Native messaging memungkinkan komunikasi dua arah antara CLI dan ekstensi.
+
+---
+
 ## Sistem Skill
+
+Skill adalah paket instruksi yang memberikan instruksi khusus ke agen AI. Mereka bekerja seperti file `AGENTS.md` sesuai permintaan yang dapat diaktifkan untuk tugas spesifik.
+
+### Lokasi Penemuan Skill
+
+Skill ditemukan dari beberapa lokasi, dengan sumber yang lebih baru memiliki prioritas:
+
+| Lokasi                                  | ID Sumber        | Deskripsi                              |
+| --------------------------------------- | ---------------- | --------------------------------------- |
+| `~/.codex/skills/**/SKILL.md`          | `codex-user`     | Skill pengguna Codex (rekursif)        |
+| `~/.claude/skills/*/SKILL.md`          | `claude-user`    | Skill pengguna Claude (satu level)     |
+| `~/.autohand/skills/**/SKILL.md`      | `autohand-user`  | Skill pengguna Autohand (rekursif)     |
+| `<proyek>/.claude/skills/*/SKILL.md`  | `claude-project` | Skill proyek Claude (satu level)       |
+| `<proyek>/.autohand/skills/**/SKILL.md` | `autohand-project` | Skill proyek Autohand (rekursif)       |
+
+### Perilaku Auto-Salin
+
+Skill yang ditemukan dari lokasi Codex atau Claude secara otomatis disalin ke lokasi Autohand yang sesuai:
+
+- `~/.codex/skills/` dan `~/.claude/skills/` → `~/.autohand/skills/`
+- `<proyek>/.claude/skills/` → `<proyek>/.autohand/skills/`
+
+Skill yang sudah ada di lokasi Autohand tidak pernah ditimpa.
+
+### Format SKILL.md
+
+Skill menggunakan frontmatter YAML diikuti dengan konten markdown:
+
+```markdown
+---
+name: my-skill-name
+description: Deskripsi singkat skill
+license: MIT
+compatibility: Berfungsi dengan Node.js 18+
+allowed-tools: read_file write_file run_command
+metadata:
+  author: your-name
+  version: "1.0.0"
+---
+
+# My Skill
+
+Instruksi detail untuk agen AI...
+```
+
+| Kolom           | Wajib | Maks Ukuran | Deskripsi                                      |
+| ---------------- | ------ | ----------- | ------------------------------------------------ |
+| `name`           | Ya     | 64 chars    | Huruf kecil alfanumerik dengan tanda hubung saja |
+| `description`    | Ya     | 1024 chars  | Deskripsi singkat skill                          |
+| `license`        | Tidak  | -           | ID lisensi (misal MIT, Apache-2.0)               |
+| `compatibility`  | Tidak  | 500 chars   | Catatan kompatibilitas                           |
+| `allowed-tools`  | Tidak  | -           | Daftar alat yang diizinkan dipisahkan spasi     |
+| `metadata`       | Tidak  | -           | Metadata tambahan kunci-nilai                    |
+
+### Awalan Input
+
+Autohand mendukung awalan khusus dalam input prompt:
+
+| Awalan | Deskripsi                           | Contoh                            |
+| ------- | ------------------------------ | ---------------------------------- |
+| `/`     | Perintah slash                 | `/help`, `/model`, `/quit`         |
+| `@`     | Penyebutan file (auto-complete) | `@src/index.ts`                   |
+| `$`     | Penyebutan skill (auto-complete) | `$frontend-design`, `$code-review` |
+| `!`     | Jalankan perintah terminal langsung | `! git status`, `! ls -la`        |
+
+**Penyebutan Skill (`$`):**
+
+- Ketik setelah `$` untuk melihat skill yang tersedia dengan auto-complete
+- Tab menerima saran utama (misalnya `$frontend-design`)
+- Skill ditemukan dari `~/.autohand/skills/` dan `<proyek>/.autohand/skills/`
+- Skill yang diaktifkan ditambahkan ke prompt sebagai instruksi khusus untuk sesi saat ini
+- Panel pratinjau menampilkan metadata skill (nama, deskripsi, status aktivasi)
+
+**Perintah Shell (`!`):**
+
+- Dijalankan di direktori kerja saat ini
+- Output ditampilkan langsung di terminal
+- Tidak masuk ke LLM
+- Batas waktu 30 detik
+- Kembali ke prompt setelah eksekusi
 
 ### Perintah Slash
 
@@ -563,7 +1075,8 @@ Untuk pengalaman interaktif yang lebih tepat, gunakan `/learn` dalam sesi.
   },
   "agent": {
     "maxIterations": 100,
-    "enableRequestQueue": true
+    "enableRequestQueue": true,
+    "debug": false
   },
   "permissions": {
     "mode": "interactive",
@@ -578,7 +1091,49 @@ Untuk pengalaman interaktif yang lebih tepat, gunakan `/learn` dalam sesi.
   },
   "telemetry": {
     "enabled": false,
-    "enableSessionSync": false
+    "apiBaseUrl": "https://api.autohand.ai",
+    "batchSize": 20,
+    "flushIntervalMs": 60000,
+    "maxQueueSize": 500,
+    "maxRetries": 3,
+    "enableSessionSync": false,
+    "companySecret": ""
+  },
+  "auth": {
+    "token": "your-auth-token",
+    "refreshToken": "your-refresh-token"
+  },
+  "communitySkills": {
+    "registryUrl": "https://skills.autohand.ai",
+    "cacheDuration": 3600,
+    "autoUpdate": false
+  },
+  "share": {
+    "enabled": true,
+    "defaultVisibility": "private",
+    "allowPublicLinks": false,
+    "requireApproval": true
+  },
+  "sync": {
+    "enabled": false,
+    "autoSync": true,
+    "syncInterval": 300,
+    "conflictResolution": "ask"
+  },
+  "hooks": {
+    "preCommand": "~/.autohand/hooks/pre-command.sh",
+    "postCommand": "~/.autohand/hooks/post-command.sh",
+    "onError": "~/.autohand/hooks/on-error.sh",
+    "onComplete": "~/.autohand/hooks/on-complete.sh"
+  },
+  "mcp": {
+    "servers": {}
+  },
+  "chrome": {
+    "extensionId": "",
+    "nativeMessaging": true,
+    "autoLaunch": false,
+    "preferredBrowser": "chrome"
   },
   "externalAgents": {
     "enabled": false,
@@ -620,6 +1175,7 @@ ui:
 agent:
   maxIterations: 100
   enableRequestQueue: true
+  debug: false
 
 permissions:
   mode: interactive
@@ -637,7 +1193,49 @@ network:
 
 telemetry:
   enabled: false
+  apiBaseUrl: https://api.autohand.ai
+  batchSize: 20
+  flushIntervalMs: 60000
+  maxQueueSize: 500
+  maxRetries: 3
   enableSessionSync: false
+  companySecret: ""
+
+auth:
+  token: your-auth-token
+  refreshToken: your-refresh-token
+
+communitySkills:
+  registryUrl: https://skills.autohand.ai
+  cacheDuration: 3600
+  autoUpdate: false
+
+share:
+  enabled: true
+  defaultVisibility: private
+  allowPublicLinks: false
+  requireApproval: true
+
+sync:
+  enabled: false
+  autoSync: true
+  syncInterval: 300
+  conflictResolution: ask
+
+hooks:
+  preCommand: ~/.autohand/hooks/pre-command.sh
+  postCommand: ~/.autohand/hooks/post-command.sh
+  onError: ~/.autohand/hooks/on-error.sh
+  onComplete: ~/.autohand/hooks/on-complete.sh
+
+mcp:
+  servers: {}
+
+chrome:
+  extensionId: ""
+  nativeMessaging: true
+  autoLaunch: false
+  preferredBrowser: chrome
 
 externalAgents:
   enabled: false

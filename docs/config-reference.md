@@ -13,6 +13,7 @@ Complete reference for all configuration options in `~/.autohand/config.json` (o
 - [UI Settings](#ui-settings)
 - [Agent Settings](#agent-settings)
 - [Permissions Settings](#permissions-settings)
+- [Patch Mode](#patch-mode)
 - [Network Settings](#network-settings)
 - [Telemetry Settings](#telemetry-settings)
 - [External Agents](#external-agents)
