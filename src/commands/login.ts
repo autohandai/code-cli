@@ -44,15 +44,23 @@ async function openBrowser(url: string): Promise<boolean> {
       return true;
     }
 
-    try {
-      await execAsync('command -v xdg-open');
-    } catch {
-      return false;
+    // Linux: try multiple fallbacks for opening URLs
+    const openers = ['xdg-open', 'sensible-browser', 'x-www-browser', 'firefox', 'chromium', 'google-chrome'];
+    for (const opener of openers) {
+      try {
+        await execAsync(`command -v ${opener}`);
+        await execFileAsync(opener, [url]);
+        return true;
+      } catch {
+        continue;
+      }
     }
 
-    await execFileAsync('xdg-open', [url]);
-    return true;
+    // If all openers fail, print the URL for manual opening
+    console.log(`\nPlease open this URL manually:\n${url}\n`);
+    return false;
   } catch {
+    console.log(`\nPlease open this URL manually:\n${url}\n`);
     return false;
   }
 }
