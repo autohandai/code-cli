@@ -65,6 +65,8 @@ export AUTOHAND_HOME=/custom/path  # Changes ~/.autohand to /custom/path
 | `AUTOHAND_THINKING_LEVEL`              | Set reasoning depth level                        | `normal`                         |
 | `AUTOHAND_CLIENT_NAME`                 | Client/editor identifier (set by ACP extensions) | `zed`                            |
 | `AUTOHAND_CLIENT_VERSION`              | Client version (set by ACP extensions)           | `0.169.0`                        |
+| `AUTOHAND_CODE`                        | Environment detection flag (set automatically)   | `1`                              |
+| `AUTOHAND_CODE`                        | Environment detection flag (set automatically)   | `1`                              |
 
 ### Thinking Level
 

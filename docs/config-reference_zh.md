@@ -1205,6 +1205,7 @@ ui:
 agent:
   maxIterations: 100
   enableRequestQueue: true
+  debug: false
 
 permissions:
   mode: interactive
@@ -1222,7 +1223,49 @@ network:
 
 telemetry:
   enabled: false
+  apiBaseUrl: https://api.autohand.ai
+  batchSize: 20
+  flushIntervalMs: 60000
+  maxQueueSize: 500
+  maxRetries: 3
   enableSessionSync: false
+  companySecret: ""
+
+auth:
+  token: your-auth-token
+  refreshToken: your-refresh-token
+
+communitySkills:
+  registryUrl: https://skills.autohand.ai
+  cacheDuration: 3600
+  autoUpdate: false
+
+share:
+  enabled: true
+  defaultVisibility: private
+  allowPublicLinks: false
+  requireApproval: true
+
+sync:
+  enabled: false
+  autoSync: true
+  syncInterval: 300
+  conflictResolution: ask
+
+hooks:
+  preCommand: ~/.autohand/hooks/pre-command.sh
+  postCommand: ~/.autohand/hooks/post-command.sh
+  onError: ~/.autohand/hooks/on-error.sh
+  onComplete: ~/.autohand/hooks/on-complete.sh
+
+mcp:
+  servers: {}
+
+chrome:
+  extensionId: ""
+  nativeMessaging: true
+  autoLaunch: false
+  preferredBrowser: chrome
 
 externalAgents:
   enabled: false

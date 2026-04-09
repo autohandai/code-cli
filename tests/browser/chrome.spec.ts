@@ -98,6 +98,8 @@ describe('browser/chrome', () => {
 
     expect(script).toContain('DEFAULT_CLI_COMMAND = "/usr/local/bin/autohand"');
     expect(script).toContain('DEFAULT_CLI_ARG_PREFIX = ["/app/dist/index.js"]');
+    expect(script).toContain('const path = require("node:path")');
+    expect(script).toContain('const os = require("node:os")');
     expect(script).toContain('--mode", "rpc"');
     expect(script).toContain('child.stdin.write(JSON.stringify(message.payload) + "\\n");');
     expect(script).toContain('let stdinBuffer = Buffer.alloc(0);');
@@ -155,6 +157,7 @@ describe('browser/chrome', () => {
     const shutdownHeader = Buffer.alloc(4);
     shutdownHeader.writeUInt32LE(shutdownPayload.length, 0);
     child.stdin.write(Buffer.concat([shutdownHeader, shutdownPayload]));
+    child.stdin.end();
 
     const exitResult = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
       child.on('exit', (code, signal) => resolve({ code, signal }));
