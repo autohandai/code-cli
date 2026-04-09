@@ -7,11 +7,10 @@ export default defineConfig({
     testTimeout: 15_000,
     hookTimeout: 15_000,
     maxConcurrency: 4,
-    // Parallel workers have been unstable on this suite; keep a single forked
-    // worker so the full suite can reuse the larger Node heap from `npm test`.
+    // Enable parallel workers for faster test execution
     pool: 'forks',
-    minWorkers: 1,
-    maxWorkers: 1,
+    minWorkers: 2,
+    maxWorkers: 4,
     poolOptions: {
       forks: {
         execArgv: ['--max-old-space-size=8192'],

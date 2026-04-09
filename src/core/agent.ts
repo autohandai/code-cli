@@ -95,6 +95,10 @@ import {
   type PermissionPromptResult,
 } from '../permissions/types.js';
 import { HookManager } from './HookManager.js';
+import {
+  checkAndPromptForDirectoryPermissions,
+  type DirectoryPermissionOptions,
+} from '../permissions/directoryPermissionPrompt.js';
 import { TeamManager } from './teams/TeamManager.js';
 import { RepeatManager } from './RepeatManager.js';
 import { intervalToCron, shorthandToHuman, shorthandToMs } from '../commands/repeat.js';
@@ -441,7 +445,8 @@ export class AutohandAgent {
     this.telemetryManager = new TelemetryManager({
       enabled: runtime.config.telemetry?.enabled === true,
       apiBaseUrl: runtime.config.telemetry?.apiBaseUrl || 'https://api.autohand.ai',
-      enableSessionSync: runtime.config.telemetry?.enableSessionSync === true
+      enableSessionSync: runtime.config.telemetry?.enableSessionSync === true,
+      clientVersion: packageJson.version
     });
 
     // Initialize community skills client
@@ -2371,6 +2376,15 @@ If lint or tests fail, report the issues but do NOT commit.`;
     this.clearExplorationLog();
     this.filesModifiedThisSession = false;
     this.lastAssistantResponseForNotification = '';
+
+    // Check for directory mentions outside workspace and prompt for permissions
+    if (this.runtime.workspaceRoot && this.permissionManager) {
+      const dirPermissionOptions: DirectoryPermissionOptions = {
+        workspaceRoot: this.runtime.workspaceRoot,
+        permissionManager: this.permissionManager,
+      };
+      await checkAndPromptForDirectoryPermissions(instruction, dirPermissionOptions);
+    }
 
     // Initialize task-level tracking
     this.taskStartedAt = Date.now();

@@ -917,6 +917,33 @@
     "permissionRequested": "Permission requested: {{action}}",
     "error": "ACP error: {{message}}"
   },
+  "permissions": {
+    "directoryPrompt": {
+      "title": "Directory outside workspace detected",
+      "subtitle": "You mentioned a directory that is outside your current workspace. Would you like to add it to your permissions?",
+      "allow": "Allow",
+      "deny": "Deny",
+      "added": "Added {{directory}} to permissions"
+    },
+    "prompt": {
+      "yes": "Yes",
+      "no": "No",
+      "allowOnce": "Allow once",
+      "denyOnce": "Deny once",
+      "allowAlways": "Allow always",
+      "denyAlways": "Deny always",
+      "scopeTitle": "Scope for always decision",
+      "scopeProject": "Project only",
+      "scopeUser": "User (all projects)",
+      "scopeCancel": "Cancel",
+      "alternative": "Enter alternative...",
+      "alternativeTitle": "Enter alternative command or path"
+    },
+    "title": "Permission Settings",
+    "description": "Manage tool and action permissions",
+    "mode": "Mode: {{mode}}",
+    "rememberSession": "Remember session decisions: {{value}}"
+  },
   "languages": {
     "en": "English",
     "zh-cn": "简体中文 (Simplified Chinese)",

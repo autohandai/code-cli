@@ -63,6 +63,7 @@ export AUTOHAND_HOME=/custom/path  # 将 ~/.autohand 更改为 /custom/path
 | `AUTOHAND_THINKING_LEVEL`              | 设置思考级别                                    | `normal`                         |
 | `AUTOHAND_CLIENT_NAME`                 | 客户端/编辑器标识符（由 ACP 扩展设置）          | `zed`                            |
 | `AUTOHAND_CLIENT_VERSION`              | 客户端版本（由 ACP 扩展设置）                   | `0.169.0`                        |
+| `AUTOHAND_CODE`                        | 环境检测标志（自动设置）                         | `1`                              |
 
 ### 思考级别
 
