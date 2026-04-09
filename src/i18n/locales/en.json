@@ -671,6 +671,7 @@
     "mlx": "MLX (Apple Silicon)",
     "llmgateway": "LLM Gateway",
     "azure": "Azure OpenAI",
+    "zai": "Z.ai",
     "openaiAuth": {
       "chooseTitle": "Choose how to connect OpenAI",
       "apiKeyLabel": "Use API key",
@@ -695,7 +696,8 @@
       "llamacpp": "Local - Fast inference with GGUF models",
       "mlx": "Local - Optimized for Apple Silicon Macs",
       "llmgateway": "Cloud - Unified API for multiple LLM providers",
-      "azure": "Cloud - Azure OpenAI Service (enterprise)"
+      "azure": "Cloud - Azure OpenAI Service (enterprise)",
+      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)"
     },
     "config": {
       "chooseProvider": "Choose an LLM provider",
@@ -776,6 +778,10 @@
       "llmgateway": {
         "title": "LLM Gateway Configuration",
         "apiKeyUrl": "https://llmgateway.io/dashboard"
+      },
+      "zai": {
+        "title": "Z.ai Configuration",
+        "apiKeyUrl": "https://z.ai/api-keys"
       },
       "azure": {
         "title": "Azure OpenAI Configuration",

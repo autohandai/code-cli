@@ -8,6 +8,7 @@ import type { LLMProvider } from './LLMProvider.js';
 import type {
     LLMRequest,
     LLMResponse,
+    LLMMessage,
     LLMToolCall,
     LLMUsage,
     ProviderSettings,
@@ -27,6 +28,13 @@ interface OllamaTagsResponse {
 }
 
 interface OllamaToolCall {
+    function: {
+        name: string;
+        arguments: Record<string, unknown>;
+    };
+}
+
+interface OllamaRequestToolCall {
     function: {
         name: string;
         arguments: Record<string, unknown>;
@@ -121,32 +129,9 @@ export class OllamaProvider implements LLMProvider {
     }
 
     async complete(request: LLMRequest): Promise<LLMResponse> {
-        const messages = request.messages.map((msg: {
-            role: string;
-            content: string;
-            name?: string;
-            tool_call_id?: string;
-            tool_calls?: unknown[];
-        }) => {
-            const mapped: Record<string, unknown> = {
-                role: msg.role,
-                content: msg.content ?? ''
-            };
-            if (msg.name) {
-                mapped.name = msg.name;
-            }
-            if (msg.role === 'tool' && msg.tool_call_id) {
-                mapped.tool_call_id = msg.tool_call_id;
-            }
-            if (msg.role === 'assistant' && msg.tool_calls) {
-                mapped.tool_calls = msg.tool_calls;
-            }
-            return mapped;
-        });
-
         const body: Record<string, unknown> = {
             model: request.model || this.model,
-            messages,
+            messages: this.buildMessages(request.messages, !this.disableTools),
             stream: request.stream || false
         };
 
@@ -332,7 +317,40 @@ export class OllamaProvider implements LLMProvider {
             console.warn(`Model ${body.model} does not support tools. Retrying without tool support.`);
             this.disableTools = true;
             delete body.tools;
+            if (Array.isArray(body.messages)) {
+                body.messages = this.sanitizeMessagesForToollessMode(body.messages);
+            }
             return null; // sentinel: caller should retry
+        }
+
+        // Some Ollama-hosted models fail while parsing tool metadata/history rather than
+        // explicitly reporting unsupported tools. Fall back to toolless mode on this class
+        // of parser error so the request can still complete.
+        if (this.isToolParserError(errorBody) && (body.tools || this.hasToolMetadata(body.messages))) {
+            console.warn(`Model ${body.model} rejected tool metadata. Retrying without tool support.`);
+            this.disableTools = true;
+            delete body.tools;
+            if (Array.isArray(body.messages)) {
+                body.messages = this.sanitizeMessagesForToollessMode(body.messages);
+            }
+            return null; // sentinel: caller should retry
+        }
+
+        if (response.status === 429 || this.isOllamaCloudRateLimitError(errorBody)) {
+            const baseError = classifyApiError(
+                response.status === 429 ? response.status : 429,
+                errorBody,
+                response.headers,
+            );
+
+            return new ApiError(
+                'Ollama Cloud has paused this session because you hit a usage limit. This is expected on hosted Ollama plans. Wait a bit and try again, switch to another model, or upgrade your Ollama plan if you need higher limits.',
+                'rate_limited',
+                baseError.httpStatus,
+                true,
+                baseError.retryAfterMs,
+                errorBody,
+            );
         }
 
         // For 400, augment with Ollama-specific context about malformed requests
@@ -362,6 +380,126 @@ export class OllamaProvider implements LLMProvider {
         }
 
         return classifyApiError(response.status, errorBody, response.headers);
+    }
+
+    private buildMessages(messages: LLMMessage[], includeToolMetadata: boolean): Record<string, unknown>[] {
+        if (!includeToolMetadata) {
+            return this.sanitizeMessagesForToollessMode(messages);
+        }
+
+        return messages.map((msg) => {
+            const mapped: Record<string, unknown> = {
+                role: msg.role,
+                content: msg.content ?? '',
+            };
+
+            if (msg.name) {
+                mapped.name = msg.name;
+            }
+            if (msg.role === 'tool' && msg.tool_call_id) {
+                mapped.tool_call_id = msg.tool_call_id;
+            }
+            if (msg.role === 'assistant' && msg.tool_calls?.length) {
+                mapped.tool_calls = this.normalizeToolCallsForRequest(msg.tool_calls);
+            }
+
+            return mapped;
+        });
+    }
+
+    private normalizeToolCallsForRequest(toolCalls: LLMToolCall[]): OllamaRequestToolCall[] {
+        return toolCalls.map((toolCall) => ({
+            function: {
+                name: toolCall.function.name,
+                arguments: this.parseToolArguments(toolCall.function.arguments),
+            }
+        }));
+    }
+
+    private parseToolArguments(rawArguments: string): Record<string, unknown> {
+        try {
+            const parsed = JSON.parse(rawArguments);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                return parsed as Record<string, unknown>;
+            }
+        } catch {
+            // Fall through to safe wrapper below.
+        }
+
+        return { __raw_arguments: rawArguments };
+    }
+
+    private sanitizeMessagesForToollessMode(messages: Array<LLMMessage | Record<string, unknown>>): Record<string, unknown>[] {
+        return messages.map((msg) => {
+            const role = typeof msg.role === 'string' ? msg.role : 'user';
+            const content = typeof msg.content === 'string' ? msg.content : '';
+            const name = typeof msg.name === 'string' ? msg.name : undefined;
+            const toolCalls = Array.isArray(msg.tool_calls) ? msg.tool_calls : undefined;
+
+            if (role === 'tool') {
+                return {
+                    role: 'user',
+                    content: name ? `[Tool result: ${name}]\n${content}` : `[Tool result]\n${content}`,
+                };
+            }
+
+            if (role === 'assistant' && toolCalls?.length) {
+                const toolNames = toolCalls
+                    .map((call) => {
+                        const fn = call && typeof call === 'object' ? (call as { function?: { name?: unknown } }).function : undefined;
+                        return typeof fn?.name === 'string' ? fn.name : undefined;
+                    })
+                    .filter((value): value is string => Boolean(value));
+                const toolSummary = toolNames.length > 0
+                    ? `\n[Assistant requested tools: ${toolNames.join(', ')}]`
+                    : '';
+
+                return {
+                    role: 'assistant',
+                    content: `${content}${toolSummary}`.trim(),
+                };
+            }
+
+            return {
+                role,
+                content,
+                ...(name ? { name } : {}),
+            };
+        });
+    }
+
+    private hasToolMetadata(messages: unknown): boolean {
+        if (!Array.isArray(messages)) {
+            return false;
+        }
+
+        return messages.some((msg) => {
+            if (!msg || typeof msg !== 'object') {
+                return false;
+            }
+
+            const candidate = msg as { role?: unknown; tool_call_id?: unknown; tool_calls?: unknown };
+            return candidate.role === 'tool' || candidate.tool_call_id !== undefined || candidate.tool_calls !== undefined;
+        });
+    }
+
+    private isToolParserError(errorBody: string): boolean {
+        const lower = errorBody.toLowerCase();
+        return (
+            lower.includes("value looks like object, but can't find closing '}' symbol") ||
+            lower.includes('value looks like object, but can\'t find closing') ||
+            (lower.includes('tool') && lower.includes('parse')) ||
+            (lower.includes('function') && lower.includes('arguments') && lower.includes('closing'))
+        );
+    }
+
+    private isOllamaCloudRateLimitError(errorBody: string): boolean {
+        const lower = errorBody.toLowerCase();
+        return (
+            lower.includes('session usage limit') ||
+            lower.includes('rate limit exceeded') ||
+            (lower.includes('upgrade for higher limits') && lower.includes('ollama.com/upgrade'))
+        );
     }
 
     private async handleStreamingResponse(response: Response): Promise<LLMResponse> {

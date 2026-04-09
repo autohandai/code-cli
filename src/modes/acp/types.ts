@@ -3,8 +3,8 @@
  * Constants, session state, and helpers for native ACP integration.
  */
 
-import type { ToolKind, SessionConfigOption } from '@agentclientprotocol/sdk';
-import type { LoadedConfig } from '../../types.js';
+import type { ToolKind, SessionConfigOption } from "@agentclientprotocol/sdk";
+import type { LoadedConfig } from "../../types.js";
 
 // ============================================================================
 // Hook Lifecycle Notification Constants
@@ -15,21 +15,22 @@ import type { LoadedConfig } from '../../types.js';
  * Mirrors RPC_NOTIFICATIONS hook constants for parity with the VS Code extension.
  */
 export const ACP_HOOK_NOTIFICATIONS = {
-  HOOK_PRE_TOOL: 'autohand.hook.preTool',
-  HOOK_POST_TOOL: 'autohand.hook.postTool',
-  HOOK_FILE_MODIFIED: 'autohand.hook.fileModified',
-  HOOK_PRE_PROMPT: 'autohand.hook.prePrompt',
-  HOOK_POST_RESPONSE: 'autohand.hook.postResponse',
-  HOOK_SESSION_ERROR: 'autohand.hook.sessionError',
-  HOOK_STOP: 'autohand.hook.stop',
-  HOOK_SESSION_START: 'autohand.hook.sessionStart',
-  HOOK_SESSION_END: 'autohand.hook.sessionEnd',
-  HOOK_SUBAGENT_STOP: 'autohand.hook.subagentStop',
-  HOOK_PERMISSION_REQUEST: 'autohand.hook.permissionRequest',
-  HOOK_NOTIFICATION: 'autohand.hook.notification',
+  HOOK_PRE_TOOL: "autohand.hook.preTool",
+  HOOK_POST_TOOL: "autohand.hook.postTool",
+  HOOK_FILE_MODIFIED: "autohand.hook.fileModified",
+  HOOK_PRE_PROMPT: "autohand.hook.prePrompt",
+  HOOK_POST_RESPONSE: "autohand.hook.postResponse",
+  HOOK_SESSION_ERROR: "autohand.hook.sessionError",
+  HOOK_STOP: "autohand.hook.stop",
+  HOOK_SESSION_START: "autohand.hook.sessionStart",
+  HOOK_SESSION_END: "autohand.hook.sessionEnd",
+  HOOK_SUBAGENT_STOP: "autohand.hook.subagentStop",
+  HOOK_PERMISSION_REQUEST: "autohand.hook.permissionRequest",
+  HOOK_NOTIFICATION: "autohand.hook.notification",
 } as const;
 
-export type AcpHookNotification = (typeof ACP_HOOK_NOTIFICATIONS)[keyof typeof ACP_HOOK_NOTIFICATIONS];
+export type AcpHookNotification =
+  (typeof ACP_HOOK_NOTIFICATIONS)[keyof typeof ACP_HOOK_NOTIFICATIONS];
 
 // ============================================================================
 // Tool Kind Mapping
@@ -41,69 +42,69 @@ export type AcpHookNotification = (typeof ACP_HOOK_NOTIFICATIONS)[keyof typeof A
  */
 export const TOOL_KIND_MAP: Record<string, ToolKind> = {
   // Read operations
-  read_file: 'read',
-  list_tree: 'read',
-  list_directory: 'read',
-  file_stats: 'read',
-  file_info: 'read',
+  read_file: "read",
+  list_tree: "read",
+  list_directory: "read",
+  file_stats: "read",
+  file_info: "read",
 
   // Search operations
-  find: 'search',
-  search: 'search',
-  search_files: 'search',
-  search_with_context: 'search',
-  semantic_search: 'search',
-  web_search: 'fetch',
-  web_repo: 'fetch',
+  find: "search",
+  search: "search",
+  search_files: "search",
+  search_with_context: "search",
+  semantic_search: "search",
+  web_search: "fetch",
+  web_repo: "fetch",
 
   // Edit operations
-  write_file: 'edit',
-  append_file: 'edit',
-  apply_patch: 'edit',
-  format_file: 'edit',
-  replace_in_file: 'edit',
-  search_replace: 'edit',
-  create_directory: 'edit',
-  copy_path: 'edit',
+  write_file: "edit",
+  append_file: "edit",
+  apply_patch: "edit",
+  format_file: "edit",
+  replace_in_file: "edit",
+  search_replace: "edit",
+  create_directory: "edit",
+  copy_path: "edit",
 
   // Move/delete operations
-  rename_path: 'move',
-  delete_path: 'delete',
+  rename_path: "move",
+  delete_path: "delete",
 
   // Execute operations
-  run_command: 'execute',
-  custom_command: 'execute',
-  git_status: 'execute',
-  git_diff: 'execute',
-  git_commit: 'execute',
-  git_add: 'execute',
-  git_init: 'execute',
-  git_log: 'execute',
-  git_list_untracked: 'execute',
-  git_checkout: 'execute',
-  git_branch: 'execute',
+  run_command: "execute",
+  custom_command: "execute",
+  git_status: "execute",
+  git_diff: "execute",
+  git_commit: "execute",
+  git_add: "execute",
+  git_init: "execute",
+  git_log: "execute",
+  git_list_untracked: "execute",
+  git_checkout: "execute",
+  git_branch: "execute",
 
   // Dependencies
-  dependency_add: 'execute',
-  dependency_remove: 'execute',
-  dependency_update: 'execute',
-  dependency_list: 'read',
+  dependency_add: "execute",
+  dependency_remove: "execute",
+  dependency_update: "execute",
+  dependency_list: "read",
 
   // Think/plan operations
-  todo_write: 'think',
-  plan: 'think',
-  smart_context_cropper: 'think',
-  thinking: 'think',
+  todo_write: "think",
+  plan: "think",
+  smart_context_cropper: "think",
+  thinking: "think",
 
   // Memory/other operations
-  save_memory: 'other',
-  recall_memory: 'other',
-  tools_registry: 'other',
-  tool_search: 'other',
-  skill: 'other',
-  sleep: 'other',
-  project_info: 'read',
-  workspace_info: 'read',
+  save_memory: "other",
+  recall_memory: "other",
+  tools_registry: "other",
+  tool_search: "other",
+  skill: "other",
+  sleep: "other",
+  project_info: "read",
+  workspace_info: "read",
 
   // MCP tools (prefixed with mcp__)
   // These are dynamically matched via resolveToolKind()
@@ -114,70 +115,70 @@ export const TOOL_KIND_MAP: Record<string, ToolKind> = {
  */
 export const TOOL_DISPLAY_NAMES: Record<string, string> = {
   // Read operations
-  read_file: 'Read',
-  list_tree: 'List',
-  tool_search: 'Search tools',
-  skill: 'Skill',
-  sleep: 'Wait',
-  list_directory: 'List',
-  file_stats: 'Stats',
-  file_info: 'Info',
+  read_file: "Read",
+  list_tree: "List",
+  tool_search: "Search tools",
+  skill: "Skill",
+  sleep: "Wait",
+  list_directory: "List",
+  file_stats: "Stats",
+  file_info: "Info",
 
   // Search operations
-  find: 'Search',
-  search: 'Search',
-  search_files: 'Search',
-  search_with_context: 'Search',
-  semantic_search: 'Search',
-  web_search: 'Web Search',
-  web_repo: 'Web Repo',
+  find: "Search",
+  search: "Search",
+  search_files: "Search",
+  search_with_context: "Search",
+  semantic_search: "Search",
+  web_search: "Web Search",
+  web_repo: "Web Repo",
 
   // Edit operations
-  write_file: 'Write',
-  append_file: 'Append',
-  apply_patch: 'Patch',
-  notebook_edit: 'Notebook',
-  format_file: 'Format',
-  replace_in_file: 'Replace',
-  search_replace: 'Replace',
-  create_directory: 'Create',
-  copy_path: 'Copy',
+  write_file: "Write",
+  append_file: "Append",
+  apply_patch: "Patch",
+  notebook_edit: "Notebook",
+  format_file: "Format",
+  replace_in_file: "Replace",
+  search_replace: "Replace",
+  create_directory: "Create",
+  copy_path: "Copy",
 
   // Move/delete operations
-  rename_path: 'Rename',
-  delete_path: 'Delete',
+  rename_path: "Rename",
+  delete_path: "Delete",
 
   // Execute operations
-  run_command: 'Run',
-  custom_command: 'Custom',
-  git_status: 'Git Status',
-  git_diff: 'Git Diff',
-  git_commit: 'Git Commit',
-  git_add: 'Git Add',
-  git_init: 'Git Init',
-  git_log: 'Git Log',
-  git_list_untracked: 'Git Untracked',
-  git_checkout: 'Git Checkout',
-  git_branch: 'Git Branch',
+  run_command: "Run",
+  custom_command: "Custom",
+  git_status: "Git Status",
+  git_diff: "Git Diff",
+  git_commit: "Git Commit",
+  git_add: "Git Add",
+  git_init: "Git Init",
+  git_log: "Git Log",
+  git_list_untracked: "Git Untracked",
+  git_checkout: "Git Checkout",
+  git_branch: "Git Branch",
 
   // Dependencies
-  dependency_add: 'Add Dep',
-  dependency_remove: 'Remove Dep',
-  dependency_update: 'Update Dep',
-  dependency_list: 'List Deps',
+  dependency_add: "Add Dep",
+  dependency_remove: "Remove Dep",
+  dependency_update: "Update Dep",
+  dependency_list: "List Deps",
 
   // Think/plan operations
-  todo_write: 'Todo',
-  plan: 'Plan',
-  smart_context_cropper: 'Thinking',
-  thinking: 'Thinking',
+  todo_write: "Todo",
+  plan: "Plan",
+  smart_context_cropper: "Thinking",
+  thinking: "Thinking",
 
   // Memory/other
-  save_memory: 'Save Memory',
-  recall_memory: 'Recall Memory',
-  tools_registry: 'Tools',
-  project_info: 'Project Info',
-  workspace_info: 'Workspace Info',
+  save_memory: "Save Memory",
+  recall_memory: "Recall Memory",
+  tools_registry: "Tools",
+  project_info: "Project Info",
+  workspace_info: "Workspace Info",
 };
 
 /**
@@ -191,11 +192,11 @@ export function resolveToolKind(toolName: string): ToolKind {
   }
 
   // MCP tools follow naming: mcp__<server>__<tool>
-  if (toolName.startsWith('mcp__')) {
-    return 'execute';
+  if (toolName.startsWith("mcp__")) {
+    return "execute";
   }
 
-  return 'other';
+  return "other";
 }
 
 /**
@@ -207,18 +208,18 @@ export function resolveToolDisplayName(toolName: string): string {
   }
 
   // MCP tools: format as "MCP: server/tool"
-  if (toolName.startsWith('mcp__')) {
-    const parts = toolName.split('__');
+  if (toolName.startsWith("mcp__")) {
+    const parts = toolName.split("__");
     if (parts.length >= 3) {
-      return `MCP: ${parts[1]}/${parts.slice(2).join('/')}`;
+      return `MCP: ${parts[1]}/${parts.slice(2).join("/")}`;
     }
   }
 
   // Fallback: convert snake_case to Title Case
   return toolName
-    .split('_')
+    .split("_")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
+    .join(" ");
 }
 
 // ============================================================================
@@ -235,41 +236,44 @@ export interface AcpCommand {
  * Mirrors the external adapter's command list for Zed compatibility.
  */
 export const DEFAULT_ACP_COMMANDS: AcpCommand[] = [
-  { name: 'help', description: 'Show available commands' },
-  { name: 'new', description: 'Start a new conversation' },
-  { name: 'model', description: 'Select or change the model' },
-  { name: 'resume', description: 'Resume a previous session' },
-  { name: 'sessions', description: 'List recent sessions' },
-  { name: 'session', description: 'Show current session info' },
-  { name: 'status', description: 'Show Autohand status' },
-  { name: 'undo', description: 'Undo the last file change' },
-  { name: 'init', description: 'Create AGENTS.md file' },
-  { name: 'memory', description: 'Manage conversation memory' },
-  { name: 'skills', description: 'List available skills' },
-  { name: 'export', description: 'Export conversation' },
-  { name: 'permissions', description: 'Manage tool permissions' },
-  { name: 'feedback', description: 'Send feedback to Autohand' },
-  { name: 'agents', description: 'List available agents' },
-  { name: 'hooks', description: 'Manage lifecycle hooks' },
-  { name: 'automode', description: 'Toggle autonomous agent loop' },
-  { name: 'add-dir', description: 'Add additional working directory' },
-  { name: 'share', description: 'Share session transcript' },
-  { name: 'formatters', description: 'Manage code formatters' },
-  { name: 'lint', description: 'Run code linting' },
-  { name: 'mcp', description: 'Manage MCP servers' },
-  { name: 'mcp install', description: 'Browse and install community MCP servers' },
-  { name: 'sync', description: 'Sync settings with cloud' },
-  { name: 'history', description: 'Show conversation history' },
-  { name: 'about', description: 'Show Autohand version and links' },
-  { name: 'plan', description: 'Toggle plan mode' },
-  { name: 'ide', description: 'IDE integration settings' },
-  { name: 'search', description: 'Configure web search' },
-  { name: 'login', description: 'Sign in to Autohand account' },
-  { name: 'logout', description: 'Sign out of Autohand account' },
-  { name: 'learn',         description: 'Analyze project and recommend skills' },
-  { name: 'skills search', description: 'Search community skills' },
-  { name: 'skills trending', description: 'Show trending community skills' },
-  { name: 'skills remove', description: 'Remove an installed skill' },
+  { name: "help", description: "Show available commands" },
+  { name: "new", description: "Start a new conversation" },
+  { name: "model", description: "Select or change the model" },
+  { name: "resume", description: "Resume a previous session" },
+  { name: "sessions", description: "List recent sessions" },
+  { name: "session", description: "Show current session info" },
+  { name: "status", description: "Show Autohand status" },
+  { name: "undo", description: "Undo the last file change" },
+  { name: "init", description: "Create AGENTS.md file" },
+  { name: "memory", description: "Manage conversation memory" },
+  { name: "skills", description: "List available skills" },
+  { name: "export", description: "Export conversation" },
+  { name: "permissions", description: "Manage tool permissions" },
+  { name: "feedback", description: "Send feedback to Autohand" },
+  { name: "agents", description: "List available agents" },
+  { name: "hooks", description: "Manage lifecycle hooks" },
+  { name: "automode", description: "Toggle autonomous agent loop" },
+  { name: "add-dir", description: "Add additional working directory" },
+  { name: "share", description: "Share session transcript" },
+  { name: "formatters", description: "Manage code formatters" },
+  { name: "lint", description: "Run code linting" },
+  { name: "mcp", description: "Manage MCP servers" },
+  {
+    name: "mcp install",
+    description: "Browse and install community MCP servers",
+  },
+  { name: "sync", description: "Sync settings with cloud" },
+  { name: "history", description: "Show conversation history" },
+  { name: "about", description: "Show Autohand version and links" },
+  { name: "plan", description: "Toggle plan mode" },
+  { name: "ide", description: "IDE integration settings" },
+  { name: "search", description: "Configure web search" },
+  { name: "login", description: "Sign in to Autohand account" },
+  { name: "logout", description: "Sign out of Autohand account" },
+  { name: "learn", description: "Analyze project and recommend skills" },
+  { name: "skills search", description: "Search community skills" },
+  { name: "skills trending", description: "Show trending community skills" },
+  { name: "skills remove", description: "Remove an installed skill" },
 ];
 
 // ============================================================================
@@ -287,34 +291,34 @@ export interface AcpMode {
  */
 export const DEFAULT_ACP_MODES: AcpMode[] = [
   {
-    id: 'interactive',
-    name: 'Interactive',
-    description: 'Default mode with approval prompts for risky actions',
+    id: "interactive",
+    name: "Interactive",
+    description: "Default mode with approval prompts for risky actions",
   },
   {
-    id: 'full-access',
-    name: 'Full Access',
-    description: 'Auto-approve all actions within the workspace',
+    id: "full-access",
+    name: "Full Access",
+    description: "Auto-approve all actions within the workspace",
   },
   {
-    id: 'unrestricted',
-    name: 'Unrestricted',
-    description: 'Skip all approval prompts (use with caution)',
+    id: "unrestricted",
+    name: "Unrestricted",
+    description: "Skip all approval prompts (use with caution)",
   },
   {
-    id: 'auto-mode',
-    name: 'Auto Mode',
-    description: 'Autonomous multi-step execution loop',
+    id: "auto-mode",
+    name: "Auto Mode",
+    description: "Autonomous multi-step execution loop",
   },
   {
-    id: 'restricted',
-    name: 'Restricted',
-    description: 'Deny all dangerous operations automatically',
+    id: "restricted",
+    name: "Restricted",
+    description: "Deny all dangerous operations automatically",
   },
   {
-    id: 'dry-run',
-    name: 'Dry Run',
-    description: 'Preview actions without applying changes',
+    id: "dry-run",
+    name: "Dry Run",
+    description: "Preview actions without applying changes",
   },
 ];
 
@@ -344,47 +348,49 @@ export interface AcpSessionState {
 /**
  * Build ACP config options from the loaded config.
  */
-export function buildConfigOptions(_config: LoadedConfig): SessionConfigOption[] {
+export function buildConfigOptions(
+  _config: LoadedConfig,
+): SessionConfigOption[] {
   const options: SessionConfigOption[] = [];
 
   // Thinking level
   options.push({
-    type: 'select',
-    id: 'thinking_level',
-    name: 'Thinking Level',
-    description: 'Control the depth of LLM reasoning',
+    type: "select",
+    id: "thinking_level",
+    name: "Thinking Level",
+    description: "Control the depth of LLM reasoning",
     options: [
-      { value: 'none', name: 'None' },
-      { value: 'normal', name: 'Normal' },
-      { value: 'extended', name: 'Extended' },
+      { value: "none", name: "None" },
+      { value: "normal", name: "Normal" },
+      { value: "extended", name: "Extended" },
     ],
-    currentValue: 'normal',
+    currentValue: "normal",
   });
 
   // Auto-commit
   options.push({
-    type: 'select',
-    id: 'auto_commit',
-    name: 'Auto Commit',
-    description: 'Automatically commit changes with LLM-generated messages',
+    type: "select",
+    id: "auto_commit",
+    name: "Auto Commit",
+    description: "Automatically commit changes with LLM-generated messages",
     options: [
-      { value: 'off', name: 'Off' },
-      { value: 'on', name: 'On' },
+      { value: "off", name: "Off" },
+      { value: "on", name: "On" },
     ],
-    currentValue: 'off',
+    currentValue: "off",
   });
 
   // Context compaction
   options.push({
-    type: 'select',
-    id: 'context_compact',
-    name: 'Context Compaction',
-    description: 'Automatically compact context when sessions grow long',
+    type: "select",
+    id: "context_compact",
+    name: "Context Compaction",
+    description: "Automatically compact context when sessions grow long",
     options: [
-      { value: 'on', name: 'On' },
-      { value: 'off', name: 'Off' },
+      { value: "on", name: "On" },
+      { value: "off", name: "Off" },
     ],
-    currentValue: 'on',
+    currentValue: "on",
   });
 
   return options;
@@ -397,7 +403,7 @@ export function parseAvailableModels(config: LoadedConfig): string[] {
   const models: string[] = [];
 
   // Add current model
-  const providerName = config.provider ?? 'openrouter';
+  const providerName = config.provider ?? "openrouter";
   const providerConfig = (config as Record<string, any>)[providerName];
   if (providerConfig?.model) {
     models.push(providerConfig.model);
@@ -405,11 +411,12 @@ export function parseAvailableModels(config: LoadedConfig): string[] {
 
   // Popular models that work with OpenRouter
   const popularModels = [
-    'anthropic/claude-sonnet-4-20250514',
-    'anthropic/claude-3.5-sonnet',
-    'openai/gpt-4o',
-    'google/gemini-2.0-flash-001',
-    'deepseek/deepseek-chat-v3-0324',
+    "anthropic/claude-sonnet-4-20250514",
+    "openai/gpt-4o",
+    "google/gemini-2.0-flash-001",
+    "deepseek/deepseek-chat-v3-0324",
+    "anthropic/claude-sonnet-4-20250514",
+    "anthropic/claude-opus-4-20250514",
   ];
 
   for (const m of popularModels) {
@@ -425,16 +432,16 @@ export function parseAvailableModels(config: LoadedConfig): string[] {
  * Resolve the default mode ID based on config.
  */
 export function resolveDefaultMode(config?: LoadedConfig): string {
-  if (config?.permissions?.mode === 'unrestricted') return 'unrestricted';
-  if (config?.permissions?.mode === 'restricted') return 'restricted';
-  return 'interactive';
+  if (config?.permissions?.mode === "unrestricted") return "unrestricted";
+  if (config?.permissions?.mode === "restricted") return "restricted";
+  return "interactive";
 }
 
 /**
  * Resolve the default model ID from config.
  */
 export function resolveDefaultModel(config: LoadedConfig): string {
-  const providerName = config.provider ?? 'openrouter';
+  const providerName = config.provider ?? "openrouter";
   const providerConfig = (config as Record<string, any>)[providerName];
-  return providerConfig?.model ?? 'anthropic/claude-3.5-sonnet';
+  return providerConfig?.model ?? "anthropic/claude-sonnet-4-20250514";
 }

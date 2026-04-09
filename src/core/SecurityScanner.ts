@@ -7,7 +7,7 @@
 /**
  * Secret severity levels
  */
-export type SecretSeverity = 'high' | 'medium' | 'low';
+export type SecretSeverity = "high" | "medium" | "low";
 
 /**
  * Pattern for detecting secrets
@@ -52,110 +52,110 @@ export class SecurityScanner {
   private patterns: SecretPattern[] = [
     // AWS
     {
-      name: 'AWS Access Key',
+      name: "AWS Access Key",
       regex: /AKIA[0-9A-Z]{16}/,
-      severity: 'high',
-      description: 'AWS Access Key ID',
+      severity: "high",
+      description: "AWS Access Key ID",
     },
 
     // GitHub
     {
-      name: 'GitHub Token',
+      name: "GitHub Token",
       regex: /ghp_[a-zA-Z0-9]{36}/,
-      severity: 'high',
-      description: 'GitHub Personal Access Token',
+      severity: "high",
+      description: "GitHub Personal Access Token",
     },
     {
-      name: 'GitHub OAuth',
+      name: "GitHub OAuth",
       regex: /gho_[a-zA-Z0-9]{36}/,
-      severity: 'high',
-      description: 'GitHub OAuth Token',
+      severity: "high",
+      description: "GitHub OAuth Token",
     },
     {
-      name: 'GitHub App Token',
+      name: "GitHub App Token",
       regex: /ghu_[a-zA-Z0-9]{36}/,
-      severity: 'high',
-      description: 'GitHub App User Token',
+      severity: "high",
+      description: "GitHub App User Token",
     },
 
     // OpenAI / Anthropic
     {
-      name: 'OpenAI Key',
+      name: "OpenAI Key",
       regex: /sk-proj-[a-zA-Z0-9]{32,}/,
-      severity: 'high',
-      description: 'OpenAI Project API Key',
+      severity: "high",
+      description: "OpenAI Project API Key",
     },
     {
-      name: 'Anthropic Key',
+      name: "Anthropic Key",
       regex: /sk-ant-api[a-zA-Z0-9-]{32,}/,
-      severity: 'high',
-      description: 'Anthropic API Key',
+      severity: "high",
+      description: "Anthropic API Key",
     },
 
     // Google
     {
-      name: 'Google API Key',
+      name: "Google API Key",
       regex: /AIzaSy[0-9A-Za-z-_]{33}/,
-      severity: 'high',
-      description: 'Google API Key',
+      severity: "high",
+      description: "Google API Key",
     },
 
     // Stripe
     {
-      name: 'Stripe Live Key',
+      name: "Stripe Live Key",
       regex: /sk_live_[0-9a-zA-Z]{24,}/,
-      severity: 'high',
-      description: 'Stripe Live Secret Key',
+      severity: "high",
+      description: "Stripe Live Secret Key",
     },
     {
-      name: 'Stripe Test Key',
+      name: "Stripe Test Key",
       regex: /sk_test_[0-9a-zA-Z]{24,}/,
-      severity: 'low',
-      description: 'Stripe Test Secret Key',
+      severity: "low",
+      description: "Stripe Test Secret Key",
     },
 
     // Private Keys
     {
-      name: 'Private Key',
+      name: "Private Key",
       regex: /-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/,
-      severity: 'high',
-      description: 'Private Key File',
+      severity: "high",
+      description: "Private Key File",
     },
 
     // Database URLs with credentials
     {
-      name: 'Database URL',
+      name: "Database URL",
       regex: /(postgres|postgresql|mysql|mongodb|redis):\/\/[^:]+:[^@]+@/,
-      severity: 'high',
-      description: 'Database URL with credentials',
+      severity: "high",
+      description: "Database URL with credentials",
     },
 
     // JWT Tokens
     {
-      name: 'JWT Token',
+      name: "JWT Token",
       regex: /eyJ[a-zA-Z0-9]{10,}\.eyJ[a-zA-Z0-9]{10,}\.[a-zA-Z0-9_-]{10,}/,
-      severity: 'medium',
-      description: 'JSON Web Token',
+      severity: "medium",
+      description: "JSON Web Token",
     },
 
     // Generic patterns (lower priority)
     {
-      name: 'Generic API Key',
+      name: "Generic API Key",
       regex: /[aA][pP][iI][-_]?[kK][eE][yY]\s*[:=]\s*['"][a-zA-Z0-9]{16,}['"]/,
-      severity: 'medium',
-      description: 'Generic API Key Assignment',
+      severity: "medium",
+      description: "Generic API Key Assignment",
     },
     {
-      name: 'Generic Secret',
+      name: "Generic Secret",
       regex: /[sS][eE][cC][rR][eE][tT]\s*[:=]\s*['"][^'"]{8,}['"]/,
-      severity: 'medium',
-      description: 'Generic Secret Assignment',
+      severity: "medium",
+      description: "Generic Secret Assignment",
     },
     {
-      name: 'Password Assignment',
+      name: "Password Assignment",
       regex: /[pP][aA][sS][sS][wW][oO][rR][dD]\s*[:=]\s*['"][^'"]{4,}['"]/,
-      severity: 'medium',
-      description: 'Password Assignment',
+      severity: "medium",
+      description: "Password Assignment",
     },
   ];
 
@@ -184,20 +184,20 @@ export class SecurityScanner {
    */
   scanDiff(diff: string): SecurityScanResult {
     const findings: SecurityFinding[] = [];
-    const lines = diff.split('\n');
+    const lines = diff.split("\n");
 
     let currentFile: string | undefined;
     let lineNumber = 0;
 
     for (const line of lines) {
       // Track file changes from diff header
-      if (line.startsWith('+++ b/')) {
+      if (line.startsWith("+++ b/")) {
         currentFile = line.slice(6);
         continue;
       }
 
       // Also check for diff --git format
-      if (line.startsWith('diff --git')) {
+      if (line.startsWith("diff --git")) {
         const match = line.match(/diff --git a\/.+ b\/(.+)/);
         if (match) {
           currentFile = match[1];
@@ -206,7 +206,7 @@ export class SecurityScanner {
       }
 
       // Track line numbers from hunk headers
-      if (line.startsWith('@@')) {
+      if (line.startsWith("@@")) {
         const match = line.match(/@@ -\d+(?:,\d+)? \+(\d+)/);
         if (match) {
           lineNumber = parseInt(match[1], 10) - 1;
@@ -215,17 +215,17 @@ export class SecurityScanner {
       }
 
       // Skip removed lines and context lines for line counting
-      if (line.startsWith('-') && !line.startsWith('---')) {
+      if (line.startsWith("-") && !line.startsWith("---")) {
         continue;
       }
 
-      if (line.startsWith(' ')) {
+      if (line.startsWith(" ")) {
         lineNumber++;
         continue;
       }
 
       // Only scan added lines (starting with +)
-      if (!line.startsWith('+') || line.startsWith('+++')) {
+      if (!line.startsWith("+") || line.startsWith("+++")) {
         continue;
       }
 
@@ -252,7 +252,7 @@ export class SecurityScanner {
    */
   scanFile(content: string, filename?: string): SecurityScanResult {
     const findings: SecurityFinding[] = [];
-    const lines = content.split('\n');
+    const lines = content.split("\n");
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -274,7 +274,7 @@ export class SecurityScanner {
     line: string,
     file: string | undefined,
     lineNumber: number,
-    findings: SecurityFinding[]
+    findings: SecurityFinding[],
   ): void {
     for (const pattern of this.patterns) {
       const match = line.match(pattern.regex);
@@ -295,8 +295,8 @@ export class SecurityScanner {
    * Build scan result from findings
    */
   private buildResult(findings: SecurityFinding[]): SecurityScanResult {
-    const blockedCount = findings.filter((f) => f.severity === 'high').length;
-    const warningCount = findings.filter((f) => f.severity !== 'high').length;
+    const blockedCount = findings.filter((f) => f.severity === "high").length;
+    const warningCount = findings.filter((f) => f.severity !== "high").length;
 
     return {
       clean: blockedCount === 0,
@@ -356,19 +356,23 @@ export class SecurityScanner {
    * @returns Formatted string for terminal display
    */
   formatDisplay(result: SecurityScanResult): string {
-    const lines: string[] = ['[SECURITY] Scanning staged changes...'];
+    const lines: string[] = ["[SECURITY] Scanning staged changes..."];
 
     if (result.findings.length === 0) {
-      lines.push('');
-      lines.push('[OK] No secrets detected');
-      return lines.join('\n');
+      lines.push("");
+      lines.push("[OK] No secrets detected");
+      return lines.join("\n");
     }
 
-    lines.push('');
+    lines.push("");
 
     for (const finding of result.findings) {
       const severity =
-        finding.severity === 'high' ? '[HIGH]' : finding.severity === 'medium' ? '[WARN]' : '[LOW]';
+        finding.severity === "high"
+          ? "[HIGH]"
+          : finding.severity === "medium"
+            ? "[WARN]"
+            : "[LOW]";
 
       lines.push(`  ${severity} ${finding.type} detected`);
 
@@ -381,19 +385,21 @@ export class SecurityScanner {
       // Redact the actual secret in display
       const redactedLine = this.redactSecret(finding.line, finding.match);
       lines.push(`         Line: ${redactedLine}`);
-      lines.push('');
+      lines.push("");
     }
 
     if (result.blockedCount > 0) {
-      lines.push(`[BLOCKED] ${result.blockedCount} high-severity secrets found`);
-      lines.push('          Remove secrets before committing.');
-      lines.push('          Consider using environment variables instead.');
+      lines.push(
+        `[BLOCKED] ${result.blockedCount} high-severity secrets found`,
+      );
+      lines.push("          Remove secrets before committing.");
+      lines.push("          Consider using environment variables instead.");
     } else if (result.warningCount > 0) {
       lines.push(`[WARN] ${result.warningCount} potential secrets found`);
-      lines.push('       Review before committing.');
+      lines.push("       Review before committing.");
     }
 
-    return lines.join('\n');
+    return lines.join("\n");
   }
 
   /**
@@ -401,11 +407,12 @@ export class SecurityScanner {
    */
   private redactSecret(line: string, secret: string): string {
     if (secret.length <= 8) {
-      return line.replace(secret, '*'.repeat(secret.length));
+      return line.replace(secret, "*".repeat(secret.length));
     }
 
     // Keep first 4 and last 4 characters visible
-    const redacted = secret.slice(0, 4) + '*'.repeat(secret.length - 8) + secret.slice(-4);
+    const redacted =
+      secret.slice(0, 4) + "*".repeat(secret.length - 8) + secret.slice(-4);
     return line.replace(secret, redacted);
   }
 }

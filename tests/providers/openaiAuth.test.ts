@@ -216,7 +216,7 @@ describe('openaiAuth', () => {
     };
     const idToken = `a.${Buffer.from(JSON.stringify(jwtPayload)).toString('base64url')}.c`;
 
-    vi.spyOn(globalThis, 'fetch').mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
 
       if (url.startsWith('http://127.0.0.1:')) {
@@ -237,29 +237,35 @@ describe('openaiAuth', () => {
       throw new Error(`Unexpected fetch url: ${url}`);
     });
 
-    let authorizationUrl = '';
-    const authPromise = ensureOpenAIChatGPTAuth({
-      onPrompt: ({ authorizationUrl: url }) => {
-        authorizationUrl = url;
-      },
-    } as never);
+    try {
+      let authorizationUrl = '';
+      const authPromise = ensureOpenAIChatGPTAuth({
+        onPrompt: ({ authorizationUrl: url }) => {
+          authorizationUrl = url;
+        },
+      } as never);
 
-    for (let i = 0; i < 50 && !authorizationUrl; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      for (let i = 0; i < 50 && !authorizationUrl; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+
+      const authUrl = new URL(authorizationUrl);
+      const redirectUri = authUrl.searchParams.get('redirect_uri');
+      const state = authUrl.searchParams.get('state');
+      const originator = authUrl.searchParams.get('originator');
+
+      expect(redirectUri).toMatch(/^http:\/\/localhost:\d+\/auth\/callback$/);
+      expect(originator).toBe('autohand-code');
+
+      await realFetch(`${redirectUri}?code=auth-code-123&state=${state}`);
+
+      const result = await authPromise;
+      expect(result.accountId).toBe('account-123');
+    } finally {
+      fetchSpy.mockRestore();
+      // Additional delay to ensure server cleanup
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
-
-    const authUrl = new URL(authorizationUrl);
-    const redirectUri = authUrl.searchParams.get('redirect_uri');
-    const state = authUrl.searchParams.get('state');
-    const originator = authUrl.searchParams.get('originator');
-
-    expect(redirectUri).toBe('http://localhost:1455/auth/callback');
-    expect(originator).toBe('autohand-code');
-
-    await realFetch(`${redirectUri}?code=auth-code-123&state=${state}`);
-
-    const result = await authPromise;
-    expect(result.accountId).toBe('account-123');
   });
 
   it('authenticates through browser oauth callback without device polling', async () => {
@@ -293,41 +299,47 @@ describe('openaiAuth', () => {
       throw new Error(`Unexpected fetch url: ${url}`);
     });
 
-    let authorizationUrl = '';
-    const authPromise = authenticateOpenAIChatGPT({
-      onPrompt: ({ authorizationUrl: url }) => {
-        authorizationUrl = url;
-      },
-    });
+    try {
+      let authorizationUrl = '';
+      const authPromise = authenticateOpenAIChatGPT({
+        onPrompt: ({ authorizationUrl: url }) => {
+          authorizationUrl = url;
+        },
+      });
 
-    for (let i = 0; i < 50 && !authorizationUrl; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      for (let i = 0; i < 50 && !authorizationUrl; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+
+      expect(authorizationUrl).toContain('https://auth.openai.com/oauth/authorize');
+
+      const authUrl = new URL(authorizationUrl);
+      const redirectUri = authUrl.searchParams.get('redirect_uri');
+      const state = authUrl.searchParams.get('state');
+      const originator = authUrl.searchParams.get('originator');
+
+      expect(redirectUri).toBeTruthy();
+      expect(state).toBeTruthy();
+      expect(redirectUri).toMatch(/^http:\/\/localhost:\d+\/auth\/callback$/);
+      expect(originator).toBe('autohand-code');
+
+      await realFetch(`${redirectUri}?code=auth-code-123&state=${state}`);
+
+      const result = await authPromise;
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://auth.openai.com/oauth/token',
+        expect.objectContaining({
+          method: 'POST',
+        }),
+      );
+      expect(result.accountId).toBe('account-123');
+      expect(result.refreshToken).toBe('refresh-token');
+    } finally {
+      fetchSpy.mockRestore();
+      // Additional delay to ensure server cleanup
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
-
-    expect(authorizationUrl).toContain('https://auth.openai.com/oauth/authorize');
-
-    const authUrl = new URL(authorizationUrl);
-    const redirectUri = authUrl.searchParams.get('redirect_uri');
-    const state = authUrl.searchParams.get('state');
-    const originator = authUrl.searchParams.get('originator');
-
-    expect(redirectUri).toBeTruthy();
-    expect(state).toBeTruthy();
-    expect(redirectUri).toBe('http://localhost:1455/auth/callback');
-    expect(originator).toBe('autohand-code');
-
-    await realFetch(`${redirectUri}?code=auth-code-123&state=${state}`);
-
-    const result = await authPromise;
-
-    expect(fetchSpy).toHaveBeenCalledWith(
-      'https://auth.openai.com/oauth/token',
-      expect.objectContaining({
-        method: 'POST',
-      }),
-    );
-    expect(result.accountId).toBe('account-123');
-    expect(result.refreshToken).toBe('refresh-token');
   });
 
   it('detects expired tokens from expiresAt', () => {

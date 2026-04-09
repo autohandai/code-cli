@@ -70,7 +70,6 @@ export class ClineImporter extends BaseImporter {
           await this.importSettings(imported, errors, onProgress);
           break;
         default:
-          // Cline only supports settings import
           break;
       }
     }

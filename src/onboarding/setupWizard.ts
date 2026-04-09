@@ -14,6 +14,7 @@ import { join } from 'path';
 import type { AutohandConfig, LoadedConfig, ProviderName, AzureSettings, AzureAuthMethod, PermissionMode, SearchProvider, ReasoningEffort, OpenAIAuthMode, OpenAIChatGPTAuth, OpenAISettings } from '../types.js';
 import { getProviderConfig } from '../config.js';
 import { ProviderFactory } from '../providers/ProviderFactory.js';
+import { ZAI_MODELS, ZAI_DEFAULT_BASE_URL } from '../providers/ZaiProvider.js';
 import { authenticateOpenAIChatGPT, isChatGPTAuthExpired } from '../providers/openaiAuth.js';
 import { installLlamaCpp, probeLlamaCppEnvironment } from '../providers/llamaCppSetup.js';
 import { ProjectAnalyzer } from './projectAnalyzer.js';
@@ -499,6 +500,26 @@ export class SetupWizard {
 
     if (provider === 'llamacpp') {
       this.state.model = defaultModel;
+      return this.state.model;
+    }
+
+    if (provider === 'zai') {
+      const options: ModalOption[] = ZAI_MODELS.map((modelName) => ({
+        label: modelName,
+        value: modelName,
+      }));
+      const defaultIndex = Math.max(0, ZAI_MODELS.indexOf(defaultModel as (typeof ZAI_MODELS)[number]));
+      const result = await showModal({
+        title: t('providers.config.selectModel'),
+        options,
+        initialIndex: defaultIndex >= 0 ? defaultIndex : 0,
+      });
+
+      if (!result) {
+        return null;
+      }
+
+      this.state.model = result.value as string;
       return this.state.model;
     }
 
@@ -1627,7 +1648,7 @@ export class SetupWizard {
   // Helper methods
 
   private requiresApiKey(provider: ProviderName): boolean {
-    return provider === 'openrouter' || provider === 'llmgateway';
+    return provider === 'openrouter' || provider === 'llmgateway' || provider === 'zai';
   }
 
   private getProviderDisplayName(provider: ProviderName): string {
@@ -1642,7 +1663,8 @@ export class SetupWizard {
     const urls: Record<string, string> = {
       openrouter: t('providers.wizard.openrouter.apiKeyUrl'),
       openai: t('providers.wizard.openai.apiKeyUrl'),
-      llmgateway: t('providers.wizard.llmgateway.apiKeyUrl')
+      llmgateway: t('providers.wizard.llmgateway.apiKeyUrl'),
+      zai: t('providers.wizard.zai.apiKeyUrl')
     };
     return urls[provider] || '';
   }
@@ -1655,7 +1677,8 @@ export class SetupWizard {
       llamacpp: 'local',
       mlx: 'mlx-community/Llama-3.2-3B-Instruct-4bit',
       llmgateway: 'gpt-4o',
-      azure: 'gpt-5.3-codex'
+      azure: 'gpt-5.3-codex',
+      zai: 'glm-4.5'
     };
     return defaults[provider] || '';
   }
@@ -1668,7 +1691,8 @@ export class SetupWizard {
       llamacpp: 'http://localhost:8080',
       mlx: 'http://localhost:8080',
       llmgateway: 'https://api.llmgateway.io/v1',
-      azure: 'https://{resourceName}.openai.azure.com'
+      azure: 'https://{resourceName}.openai.azure.com',
+      zai: ZAI_DEFAULT_BASE_URL
     };
     return urls[provider] || '';
   }

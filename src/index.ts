@@ -5,6 +5,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import fs from 'fs-extra';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { execSync, spawnSync } from 'node:child_process';
 import packageJson from '../package.json' with { type: 'json' };
 import { getProviderConfig, loadConfig, resolveWorkspaceRoot, saveConfig } from './config.js';
@@ -1841,7 +1842,18 @@ IMPORTANT: Only output <promise>DONE</promise> when ALL requirements are fully m
 Do not stop early - keep improving until the task is truly complete.`;
 }
 
-program.parseAsync();
+function isCliEntrypoint(): boolean {
+  const entryPath = process.argv[1];
+  if (!entryPath) {
+    return false;
+  }
+
+  return import.meta.url === pathToFileURL(entryPath).href;
+}
+
+if (isCliEntrypoint()) {
+  void program.parseAsync();
+}
 
 function launchInTmuxIfRequested(opts: CLIOptions & { mode?: string }): boolean {
   if (!opts.tmux) {

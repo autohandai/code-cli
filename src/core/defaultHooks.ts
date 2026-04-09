@@ -228,7 +228,8 @@ format_file() {
     npx --no-install @biomejs/biome format --write "$file" 2>/dev/null && return 0
   fi
 
-  return 1
+  # No formatter available, exit gracefully
+  return 0
 }
 
 # Format the file (silently)

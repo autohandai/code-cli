@@ -6,6 +6,7 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import type { OpenAIChatGPTAuth } from '../types.js';
 
 const OPENAI_AUTH_BASE_URL = 'https://auth.openai.com';
@@ -303,16 +304,34 @@ async function listenForOAuthCallback(expectedState: string): Promise<{
     };
   });
 
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(OPENAI_BROWSER_CALLBACK_PORT, OPENAI_BROWSER_CALLBACK_HOST, () => {
-      server.off('error', reject);
-      resolve();
+  const listenOnPort = async (port: number): Promise<void> =>
+    new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(port, OPENAI_BROWSER_CALLBACK_HOST, () => {
+        server.off('error', reject);
+        resolve();
+      });
     });
-  });
+
+  try {
+    await listenOnPort(OPENAI_BROWSER_CALLBACK_PORT);
+  } catch (error) {
+    if (!(error instanceof Error) || !('code' in error) || error.code !== 'EADDRINUSE') {
+      throw error;
+    }
+
+    await listenOnPort(0);
+  }
+
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Failed to determine OpenAI OAuth callback address.');
+  }
+
+  const callbackPort = (address as AddressInfo).port;
 
   return {
-    redirectUri: `http://${OPENAI_BROWSER_CALLBACK_URL_HOST}:${OPENAI_BROWSER_CALLBACK_PORT}${OPENAI_BROWSER_CALLBACK_PATH}`,
+    redirectUri: `http://${OPENAI_BROWSER_CALLBACK_URL_HOST}:${callbackPort}${OPENAI_BROWSER_CALLBACK_PATH}`,
     waitForResult: () => waitForResult,
     close: async () => {
       if (timeoutId) clearTimeout(timeoutId);

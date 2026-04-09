@@ -510,7 +510,7 @@
     "openai": "OpenAI",
     "ollama": "Ollama",
     "llamacpp": "llama.cpp",
-    "mlx": "MLX（Apple Silicon）",
+    "mlx": "MLX (Apple Silicon)",
     "llmgateway": "LLM Gateway",
     "azure": "Azure OpenAI",
     "hints": {
@@ -520,7 +520,8 @@
       "llamacpp": "本地 - 使用 GGUF 模型進行快速推斷",
       "mlx": "本地 - 針對 Apple Silicon Mac 優化",
       "llmgateway": "雲端 - 多個 LLM 提供者的統一 API",
-      "azure": "雲端 - Azure OpenAI 服務（企業）"
+      "azure": "雲端 - Azure OpenAI 服務（企業）",
+      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)"
     },
     "config": {
       "chooseProvider": "選擇一個 LLM 提供者",
@@ -601,6 +602,10 @@
       "llmgateway": {
         "title": "LLM Gateway 設定",
         "apiKeyUrl": "https://llmgateway.io/dashboard"
+      },
+      "zai": {
+        "title": "Z.ai 設定",
+        "apiKeyUrl": "https://z.ai/api-keys"
       },
       "azure": {
         "title": "Azure OpenAI 設定",

@@ -2,25 +2,25 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Mocks – declared before imports so vi.mock hoisting works
 // ---------------------------------------------------------------------------
 
-const mockHistory = vi.fn<() => Array<{ role: string; content: string }>>().mockReturnValue([]);
+const mockHistory = vi
+  .fn<() => Array<{ role: string; content: string }>>()
+  .mockReturnValue([]);
 
-vi.mock('../../src/core/conversationManager.js', () => ({
+vi.mock("../../src/core/conversationManager.js", () => ({
   ConversationManager: {
     getInstance: () => ({ history: mockHistory }),
   },
 }));
 
-const mockExtract = vi
-  .fn()
-  .mockResolvedValue([]);
+const mockExtract = vi.fn().mockResolvedValue([]);
 
-vi.mock('../../src/memory/extractSessionMemories.js', () => ({
+vi.mock("../../src/memory/extractSessionMemories.js", () => ({
   extractAndSaveSessionMemories: (...args: unknown[]) => mockExtract(...args),
 }));
 
@@ -28,7 +28,10 @@ vi.mock('../../src/memory/extractSessionMemories.js', () => ({
 // Import under test (after mocks)
 // ---------------------------------------------------------------------------
 
-import { newConversation, type NewCommandContext } from '../../src/commands/new.js';
+import {
+  newConversation,
+  type NewCommandContext,
+} from "../../src/commands/new.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -38,16 +41,20 @@ function createContext(hasSession = true): NewCommandContext {
   return {
     resetConversation: vi.fn(),
     sessionManager: {
-      getCurrentSession: vi.fn().mockReturnValue(
-        hasSession ? { metadata: { sessionId: 'sess-1' } } : null,
-      ),
+      getCurrentSession: vi
+        .fn()
+        .mockReturnValue(
+          hasSession ? { metadata: { sessionId: "sess-1" } } : null,
+        ),
       closeSession: vi.fn().mockResolvedValue(undefined),
-      createSession: vi.fn().mockResolvedValue({ metadata: { sessionId: 'sess-2' } }),
+      createSession: vi
+        .fn()
+        .mockResolvedValue({ metadata: { sessionId: "sess-2" } }),
     } as any,
     memoryManager: {} as any,
     llm: {} as any,
-    workspaceRoot: '/tmp/project',
-    model: 'anthropic/claude-3.5-sonnet',
+    workspaceRoot: "/tmp/project",
+    model: "your-modelcard-id-here",
   };
 }
 
@@ -55,27 +62,29 @@ function createContext(hasSession = true): NewCommandContext {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('/new command', () => {
+describe("/new command", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockHistory.mockReturnValue([
-      { role: 'system', content: 'You are a helpful assistant.' },
-      { role: 'user', content: 'Hello' },
-      { role: 'assistant', content: 'Hi there!' },
+      { role: "system", content: "You are a helpful assistant." },
+      { role: "user", content: "Hello" },
+      { role: "assistant", content: "Hi there!" },
     ]);
   });
 
-  it('calls extractAndSaveSessionMemories before resetting conversation', async () => {
+  it("calls extractAndSaveSessionMemories before resetting conversation", async () => {
     const ctx = createContext();
 
     const callOrder: string[] = [];
     mockExtract.mockImplementation(async () => {
-      callOrder.push('extract');
-      return [{ content: 'User prefers tabs', level: 'user', tags: ['style'] }];
+      callOrder.push("extract");
+      return [{ content: "User prefers tabs", level: "user", tags: ["style"] }];
     });
-    (ctx.resetConversation as ReturnType<typeof vi.fn>).mockImplementation(() => {
-      callOrder.push('reset');
-    });
+    (ctx.resetConversation as ReturnType<typeof vi.fn>).mockImplementation(
+      () => {
+        callOrder.push("reset");
+      },
+    );
 
     await newConversation(ctx);
 
@@ -91,15 +100,15 @@ describe('/new command', () => {
     );
 
     // extract happened before reset
-    expect(callOrder).toEqual(['extract', 'reset']);
+    expect(callOrder).toEqual(["extract", "reset"]);
   });
 
-  it('still works when extraction returns memories — reset and create session still happen', async () => {
+  it("still works when extraction returns memories — reset and create session still happen", async () => {
     const ctx = createContext(true);
 
     mockExtract.mockResolvedValue([
-      { content: 'User prefers dark theme', level: 'user', tags: ['ui'] },
-      { content: 'Project uses vitest', level: 'project', tags: ['testing'] },
+      { content: "User prefers dark theme", level: "user", tags: ["ui"] },
+      { content: "Project uses vitest", level: "project", tags: ["testing"] },
     ]);
 
     await newConversation(ctx);
@@ -113,7 +122,7 @@ describe('/new command', () => {
     );
   });
 
-  it('closes current session and creates a new one', async () => {
+  it("closes current session and creates a new one", async () => {
     const ctx = createContext(true);
     await newConversation(ctx);
 
@@ -124,7 +133,7 @@ describe('/new command', () => {
     );
   });
 
-  it('skips session close when no current session exists', async () => {
+  it("skips session close when no current session exists", async () => {
     const ctx = createContext(false);
     await newConversation(ctx);
 
@@ -133,7 +142,7 @@ describe('/new command', () => {
     expect(ctx.sessionManager.createSession).toHaveBeenCalledTimes(1);
   });
 
-  it('returns null', async () => {
+  it("returns null", async () => {
     const ctx = createContext();
     const result = await newConversation(ctx);
     expect(result).toBeNull();

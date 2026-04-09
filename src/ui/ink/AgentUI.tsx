@@ -224,20 +224,11 @@ export function AgentUI({
     onInputChange?.(input);
   }, [input, onInputChange]);
 
-  // Sync viewport width on resize so the input layout adapts immediately
+  // Sync viewport on every render since Ink handles resize layout via its own
+  // process.stdout 'resize' listener. The textarea width is derived from
+  // process.stdout.columns at render time.
   useEffect(() => {
     syncBufferViewport();
-
-    const handleResize = () => syncBufferViewport();
-    if (typeof process.stdout.on === 'function') {
-      process.stdout.on('resize', handleResize);
-    }
-
-    return () => {
-      if (typeof process.stdout.off === 'function') {
-        process.stdout.off('resize', handleResize);
-      }
-    };
   }, [syncBufferViewport]);
 
   useEffect(() => {
