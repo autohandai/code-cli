@@ -7,12 +7,12 @@
  * Types for session sharing functionality
  */
 
-import type { SessionMessage } from '../session/types.js';
+import type { SessionMessage } from "../session/types.js";
 
 // ============ Visibility ============
 
 /** Visibility options for shared sessions */
-export type ShareVisibility = 'public' | 'private';
+export type ShareVisibility = "public" | "private";
 
 // ============ Tool Usage ============
 
@@ -60,7 +60,7 @@ export interface ShareSessionMetadata {
   sessionId: string;
   /** Project name */
   projectName: string;
-  /** Model used (e.g., "anthropic/claude-3.5-sonnet") */
+  /** Model used (e.g., "anthropic/claude-sonnet-4-20250514") */
   model: string;
   /** Provider name */
   provider: string;
@@ -73,7 +73,7 @@ export interface ShareSessionMetadata {
   /** Total message count */
   messageCount: number;
   /** Session status when shared */
-  status: 'active' | 'completed' | 'crashed';
+  status: "active" | "completed" | "crashed";
   /** Optional session summary */
   summary?: string;
 }

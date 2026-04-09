@@ -39,6 +39,7 @@ Autohand looks for configuration in this order:
 4. `~/.autohand/config.json` (default)
 
 You can also override the base directory:
+
 ```bash
 export AUTOHAND_HOME=/custom/path  # Changes ~/.autohand to /custom/path
 ```
@@ -47,31 +48,31 @@ export AUTOHAND_HOME=/custom/path  # Changes ~/.autohand to /custom/path
 
 ## Environment Variables
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `AUTOHAND_HOME` | Base directory for all Autohand data | `/custom/path` |
-| `AUTOHAND_CONFIG` | Custom config file path | `/path/to/config.json` |
-| `AUTOHAND_API_URL` | API endpoint (overrides config) | `https://api.autohand.ai` |
-| `AUTOHAND_SECRET` | Company/team secret key | `sk-xxx` |
-| `AUTOHAND_PERMISSION_CALLBACK_URL` | URL for permission callback (experimental) | `http://localhost:3000/callback` |
-| `AUTOHAND_PERMISSION_CALLBACK_TIMEOUT` | Timeout for permission callback in ms | `5000` |
-| `AUTOHAND_NON_INTERACTIVE` | Run in non-interactive mode | `1` |
-| `AUTOHAND_YES` | Auto-confirm all prompts | `1` |
-| `AUTOHAND_NO_BANNER` | Disable startup banner | `1` |
-| `AUTOHAND_STREAM_TOOL_OUTPUT` | Stream tool output in real-time | `1` |
-| `AUTOHAND_DEBUG` | Enable debug logging | `1` |
-| `AUTOHAND_THINKING_LEVEL` | Set reasoning depth level | `normal` |
-| `AUTOHAND_CLIENT_NAME` | Client/editor identifier (set by ACP extensions) | `zed` |
-| `AUTOHAND_CLIENT_VERSION` | Client version (set by ACP extensions) | `0.169.0` |
+| Variable                               | Description                                      | Example                          |
+| -------------------------------------- | ------------------------------------------------ | -------------------------------- |
+| `AUTOHAND_HOME`                        | Base directory for all Autohand data             | `/custom/path`                   |
+| `AUTOHAND_CONFIG`                      | Custom config file path                          | `/path/to/config.json`           |
+| `AUTOHAND_API_URL`                     | API endpoint (overrides config)                  | `https://api.autohand.ai`        |
+| `AUTOHAND_SECRET`                      | Company/team secret key                          | `sk-xxx`                         |
+| `AUTOHAND_PERMISSION_CALLBACK_URL`     | URL for permission callback (experimental)       | `http://localhost:3000/callback` |
+| `AUTOHAND_PERMISSION_CALLBACK_TIMEOUT` | Timeout for permission callback in ms            | `5000`                           |
+| `AUTOHAND_NON_INTERACTIVE`             | Run in non-interactive mode                      | `1`                              |
+| `AUTOHAND_YES`                         | Auto-confirm all prompts                         | `1`                              |
+| `AUTOHAND_NO_BANNER`                   | Disable startup banner                           | `1`                              |
+| `AUTOHAND_STREAM_TOOL_OUTPUT`          | Stream tool output in real-time                  | `1`                              |
+| `AUTOHAND_DEBUG`                       | Enable debug logging                             | `1`                              |
+| `AUTOHAND_THINKING_LEVEL`              | Set reasoning depth level                        | `normal`                         |
+| `AUTOHAND_CLIENT_NAME`                 | Client/editor identifier (set by ACP extensions) | `zed`                            |
+| `AUTOHAND_CLIENT_VERSION`              | Client version (set by ACP extensions)           | `0.169.0`                        |
 
 ### Thinking Level
 
 The `AUTOHAND_THINKING_LEVEL` environment variable controls the depth of reasoning the model uses:
 
-| Value | Description |
-|-------|-------------|
-| `none` | Direct responses without visible reasoning |
-| `normal` | Standard reasoning depth (default) |
+| Value      | Description                                                           |
+| ---------- | --------------------------------------------------------------------- |
+| `none`     | Direct responses without visible reasoning                            |
+| `normal`   | Standard reasoning depth (default)                                    |
 | `extended` | Deep reasoning for complex tasks, shows more detailed thought process |
 
 This is typically set by ACP client extensions (like Zed) through the config dropdown.
@@ -86,18 +87,20 @@ AUTOHAND_THINKING_LEVEL=extended autohand --prompt "refactor this module"
 ## Provider Settings
 
 ### `provider`
+
 Active LLM provider to use.
 
-| Value | Description |
-|-------|-------------|
-| `"openrouter"` | OpenRouter API (default) |
-| `"ollama"` | Local Ollama instance |
-| `"llamacpp"` | Local llama.cpp server |
-| `"openai"` | OpenAI API directly |
-| `"mlx"` | MLX on Apple Silicon (local) |
-| `"llmgateway"` | LLM Gateway unified API |
+| Value          | Description                  |
+| -------------- | ---------------------------- |
+| `"openrouter"` | OpenRouter API (default)     |
+| `"ollama"`     | Local Ollama instance        |
+| `"llamacpp"`   | Local llama.cpp server       |
+| `"openai"`     | OpenAI API directly          |
+| `"mlx"`        | MLX on Apple Silicon (local) |
+| `"llmgateway"` | LLM Gateway unified API      |
 
 ### `openrouter`
+
 OpenRouter provider configuration.
 
 ```json
@@ -105,18 +108,19 @@ OpenRouter provider configuration.
   "openrouter": {
     "apiKey": "sk-or-v1-xxx",
     "baseUrl": "https://openrouter.ai/api/v1",
-    "model": "anthropic/claude-sonnet-4"
+    "model": "your-modelcard-id-here"
   }
 }
 ```
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `apiKey` | string | Yes | - | Your OpenRouter API key |
-| `baseUrl` | string | No | `https://openrouter.ai/api/v1` | API endpoint |
-| `model` | string | Yes | - | Model identifier (e.g., `anthropic/claude-sonnet-4`) |
+| Field     | Type   | Required | Default                        | Description                                       |
+| --------- | ------ | -------- | ------------------------------ | ------------------------------------------------- |
+| `apiKey`  | string | Yes      | -                              | Your OpenRouter API key                           |
+| `baseUrl` | string | No       | `https://openrouter.ai/api/v1` | API endpoint                                      |
+| `model`   | string | Yes      | -                              | Model identifier (e.g., `your-modelcard-id-here`) |
 
 ### `ollama`
+
 Ollama provider configuration.
 
 ```json
@@ -129,13 +133,14 @@ Ollama provider configuration.
 }
 ```
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `baseUrl` | string | No | `http://localhost:11434` | Ollama server URL |
-| `port` | number | No | `11434` | Server port (alternative to baseUrl) |
-| `model` | string | Yes | - | Model name (e.g., `llama3.2`, `codellama`) |
+| Field     | Type   | Required | Default                  | Description                                |
+| --------- | ------ | -------- | ------------------------ | ------------------------------------------ |
+| `baseUrl` | string | No       | `http://localhost:11434` | Ollama server URL                          |
+| `port`    | number | No       | `11434`                  | Server port (alternative to baseUrl)       |
+| `model`   | string | Yes      | -                        | Model name (e.g., `llama3.2`, `codellama`) |
 
 ### `llamacpp`
+
 llama.cpp server configuration.
 
 ```json
@@ -148,13 +153,14 @@ llama.cpp server configuration.
 }
 ```
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `baseUrl` | string | No | `http://localhost:8080` | llama.cpp server URL |
-| `port` | number | No | `8080` | Server port |
-| `model` | string | Yes | - | Model identifier |
+| Field     | Type   | Required | Default                 | Description          |
+| --------- | ------ | -------- | ----------------------- | -------------------- |
+| `baseUrl` | string | No       | `http://localhost:8080` | llama.cpp server URL |
+| `port`    | number | No       | `8080`                  | Server port          |
+| `model`   | string | Yes      | -                       | Model identifier     |
 
 ### `openai`
+
 OpenAI API configuration.
 
 ```json
@@ -185,15 +191,16 @@ OpenAI can also use your ChatGPT subscription via Autohand's built-in OpenAI sig
 }
 ```
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `authMode` | string | No | `api-key` | Authentication mode: `api-key` or `chatgpt` |
-| `apiKey` | string | Yes for `api-key` mode | - | OpenAI API key |
-| `baseUrl` | string | No | `https://api.openai.com/v1` | API endpoint |
-| `model` | string | Yes | - | Model name (e.g., `gpt-5.4`, `gpt-5.4-mini`) |
-| `chatgptAuth` | object | Yes for `chatgpt` mode | - | Stored ChatGPT/Codex auth tokens and account id |
+| Field         | Type   | Required               | Default                     | Description                                     |
+| ------------- | ------ | ---------------------- | --------------------------- | ----------------------------------------------- |
+| `authMode`    | string | No                     | `api-key`                   | Authentication mode: `api-key` or `chatgpt`     |
+| `apiKey`      | string | Yes for `api-key` mode | -                           | OpenAI API key                                  |
+| `baseUrl`     | string | No                     | `https://api.openai.com/v1` | API endpoint                                    |
+| `model`       | string | Yes                    | -                           | Model name (e.g., `gpt-5.4`, `gpt-5.4-mini`)    |
+| `chatgptAuth` | object | Yes for `chatgpt` mode | -                           | Stored ChatGPT/Codex auth tokens and account id |
 
 ### `mlx`
+
 MLX provider for Apple Silicon Macs (local inference).
 
 ```json
@@ -206,13 +213,14 @@ MLX provider for Apple Silicon Macs (local inference).
 }
 ```
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `baseUrl` | string | No | `http://localhost:8080` | MLX server URL |
-| `port` | number | No | `8080` | Server port |
-| `model` | string | Yes | - | MLX model identifier |
+| Field     | Type   | Required | Default                 | Description          |
+| --------- | ------ | -------- | ----------------------- | -------------------- |
+| `baseUrl` | string | No       | `http://localhost:8080` | MLX server URL       |
+| `port`    | number | No       | `8080`                  | Server port          |
+| `model`   | string | Yes      | -                       | MLX model identifier |
 
 ### `llmgateway`
+
 LLM Gateway unified API configuration. Provides access to multiple LLM providers through a single API.
 
 ```json
@@ -225,19 +233,20 @@ LLM Gateway unified API configuration. Provides access to multiple LLM providers
 }
 ```
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `apiKey` | string | Yes | - | LLM Gateway API key |
-| `baseUrl` | string | No | `https://api.llmgateway.io/v1` | API endpoint |
-| `model` | string | Yes | - | Model name (e.g., `gpt-4o`, `claude-3-5-sonnet-20241022`) |
+| Field     | Type   | Required | Default                        | Description                                               |
+| --------- | ------ | -------- | ------------------------------ | --------------------------------------------------------- |
+| `apiKey`  | string | Yes      | -                              | LLM Gateway API key                                       |
+| `baseUrl` | string | No       | `https://api.llmgateway.io/v1` | API endpoint                                              |
+| `model`   | string | Yes      | -                              | Model name (e.g., `gpt-4o`, `claude-3-5-sonnet-20241022`) |
 
 **Getting an API Key:**
 Visit [llmgateway.io/dashboard](https://llmgateway.io/dashboard) to create an account and get your API key.
 
 **Supported Models:**
 LLM Gateway supports models from multiple providers including:
+
 - OpenAI: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`
-- Anthropic: `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`
+`claude-3-5-haiku-20241022`
 - Google: `gemini-1.5-pro`, `gemini-1.5-flash`
 
 ---
@@ -253,10 +262,10 @@ LLM Gateway supports models from multiple providers including:
 }
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `defaultRoot` | string | Current directory | Default workspace when none specified |
-| `allowDangerousOps` | boolean | `false` | Allow destructive operations without confirmation |
+| Field               | Type    | Default           | Description                                       |
+| ------------------- | ------- | ----------------- | ------------------------------------------------- |
+| `defaultRoot`       | string  | Current directory | Default workspace when none specified             |
+| `allowDangerousOps` | boolean | `false`           | Allow destructive operations without confirmation |
 
 ### Workspace Safety
 
@@ -300,17 +309,17 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 }
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `theme` | `"dark"` | `"light"` | `"dark"` | Color theme for terminal output |
-| `autoConfirm` | boolean | `false` | Skip confirmation prompts for safe operations |
-| `readFileCharLimit` | number | `300` | Max characters to display from read/find tool output (full content is still sent to the model) |
-| `showCompletionNotification` | boolean | `true` | Show system notification when task completes |
-| `showThinking` | boolean | `true` | Display LLM's reasoning/thought process |
-| `useInkRenderer` | boolean | `false` | Use Ink-based renderer for flicker-free UI (experimental) |
-| `terminalBell` | boolean | `true` | Ring terminal bell when task completes (shows badge on terminal tab/dock) |
-| `checkForUpdates` | boolean | `true` | Check for CLI updates on startup |
-| `updateCheckInterval` | number | `24` | Hours between update checks (uses cached result within interval) |
+| Field                        | Type     | Default   | Description                                                                                    |
+| ---------------------------- | -------- | --------- | ---------------------------------------------------------------------------------------------- | ------------------------------- |
+| `theme`                      | `"dark"` | `"light"` | `"dark"`                                                                                       | Color theme for terminal output |
+| `autoConfirm`                | boolean  | `false`   | Skip confirmation prompts for safe operations                                                  |
+| `readFileCharLimit`          | number   | `300`     | Max characters to display from read/find tool output (full content is still sent to the model) |
+| `showCompletionNotification` | boolean  | `true`    | Show system notification when task completes                                                   |
+| `showThinking`               | boolean  | `true`    | Display LLM's reasoning/thought process                                                        |
+| `useInkRenderer`             | boolean  | `false`   | Use Ink-based renderer for flicker-free UI (experimental)                                      |
+| `terminalBell`               | boolean  | `true`    | Ring terminal bell when task completes (shows badge on terminal tab/dock)                      |
+| `checkForUpdates`            | boolean  | `true`    | Check for CLI updates on startup                                                               |
+| `updateCheckInterval`        | number   | `24`      | Hours between update checks (uses cached result within interval)                               |
 
 Note: `readFileCharLimit` only affects terminal display for `read_file`, `find`, and the legacy aliases `search` and `search_with_context`. Full content is still sent to the model and stored in tool messages.
 
@@ -323,11 +332,13 @@ When `terminalBell` is enabled (default), Autohand rings the terminal bell (`\x0
 - **Sound** - If terminal sounds are enabled in your terminal settings
 
 Terminal-specific settings:
+
 - **macOS Terminal**: Preferences > Profiles > Advanced > Bell (Visual/Audible)
 - **iTerm2**: Preferences > Profiles > Terminal > Notifications
 - **VS Code Terminal**: Settings > Terminal > Integrated: Enable Bell
 
 To disable:
+
 ```json
 {
   "ui": {
@@ -346,6 +357,7 @@ When `useInkRenderer` is enabled, Autohand uses React-based terminal rendering (
 - **Composable UI**: Foundation for future advanced UI features
 
 To enable:
+
 ```json
 {
   "ui": {
@@ -365,18 +377,21 @@ When `checkForUpdates` is enabled (default), Autohand checks for new releases on
 ```
 
 If an update is available:
+
 ```
 > Autohand v0.6.7 (abc1234) ⬆ Update available: v0.6.8
   ↳ Run: curl -fsSL https://autohand.ai/install.sh | sh
 ```
 
 How it works:
+
 - Fetches latest release from GitHub API
 - Caches result in `~/.autohand/version-check.json`
 - Only checks once per `updateCheckInterval` hours (default: 24)
 - Non-blocking: startup continues even if check fails
 
 To disable:
+
 ```json
 {
   "ui": {
@@ -386,6 +401,7 @@ To disable:
 ```
 
 Or via environment variable:
+
 ```bash
 export AUTOHAND_SKIP_UPDATE_CHECK=1
 ```
@@ -406,11 +422,11 @@ Control agent behavior and iteration limits.
 }
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `maxIterations` | number | `100` | Maximum tool iterations per user request before stopping |
-| `enableRequestQueue` | boolean | `true` | Allow users to type and queue requests while agent is working |
-| `debug` | boolean | `false` | Enable verbose debug output (logs agent internal state to stderr) |
+| Field                | Type    | Default | Description                                                       |
+| -------------------- | ------- | ------- | ----------------------------------------------------------------- |
+| `maxIterations`      | number  | `100`   | Maximum tool iterations per user request before stopping          |
+| `enableRequestQueue` | boolean | `true`  | Allow users to type and queue requests while agent is working     |
+| `debug`              | boolean | `false` | Enable verbose debug output (logs agent internal state to stderr) |
 
 ### Debug Mode
 
@@ -446,10 +462,7 @@ Fine-grained control over tool permissions.
       "run_command:bun *",
       "run_command:git status"
     ],
-    "blacklist": [
-      "run_command:rm -rf *",
-      "run_command:sudo *"
-    ],
+    "blacklist": ["run_command:rm -rf *", "run_command:sudo *"],
     "rules": [
       {
         "tool": "run_command",
@@ -464,13 +477,14 @@ Fine-grained control over tool permissions.
 
 ### `mode`
 
-| Value | Description |
-|-------|-------------|
-| `"interactive"` | Prompt for approval on dangerous operations (default) |
-| `"unrestricted"` | No prompts, allow everything |
-| `"restricted"` | Deny all dangerous operations |
+| Value            | Description                                           |
+| ---------------- | ----------------------------------------------------- |
+| `"interactive"`  | Prompt for approval on dangerous operations (default) |
+| `"unrestricted"` | No prompts, allow everything                          |
+| `"restricted"`   | Deny all dangerous operations                         |
 
 ### `whitelist`
+
 Array of tool patterns that never require approval.
 
 ```json
@@ -478,6 +492,7 @@ Array of tool patterns that never require approval.
 ```
 
 ### `blacklist`
+
 Array of tool patterns that are always blocked.
 
 ```json
@@ -485,18 +500,20 @@ Array of tool patterns that are always blocked.
 ```
 
 ### `rules`
+
 Fine-grained permission rules.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `tool` | string | Tool name to match |
-| `pattern` | string | Optional pattern to match against arguments |
-| `action` | `"allow"` | `"deny"` | `"prompt"` | Action to take |
+| Field     | Type      | Description                                 |
+| --------- | --------- | ------------------------------------------- | ---------- | -------------- |
+| `tool`    | string    | Tool name to match                          |
+| `pattern` | string    | Optional pattern to match against arguments |
+| `action`  | `"allow"` | `"deny"`                                    | `"prompt"` | Action to take |
 
 ### `rememberSession`
-| Type | Default | Description |
-|------|---------|-------------|
-| boolean | `true` | Remember approval decisions for the session |
+
+| Type    | Default | Description                                 |
+| ------- | ------- | ------------------------------------------- |
+| boolean | `true`  | Remember approval decisions for the session |
 
 ### Local Project Permissions
 
@@ -518,12 +535,14 @@ When you approve a file operation (edit, write, delete), it's automatically save
 ```
 
 **How it works:**
+
 - When you approve an operation, it's saved to `.autohand/settings.local.json`
 - Next time, the same operation will be auto-approved
 - Local project settings are merged with global settings (local takes priority)
 - Add `.autohand/settings.local.json` to `.gitignore` to keep personal settings private
 
 **Pattern format:**
+
 - `tool_name:path` - For file operations (e.g., `multi_file_edit:src/file.ts`)
 - `tool_name:command args` - For commands (e.g., `run_command:npm test`)
 
@@ -532,11 +551,13 @@ When you approve a file operation (edit, write, delete), it's automatically save
 You can view your current permission settings in two ways:
 
 **CLI Flag (Non-interactive):**
+
 ```bash
 autohand --permissions
 ```
 
 This displays:
+
 - Current permission mode (interactive, unrestricted, restricted)
 - Workspace and config file paths
 - All approved patterns (whitelist)
@@ -544,11 +565,13 @@ This displays:
 - Summary statistics
 
 **Interactive Command:**
+
 ```
 /permissions
 ```
 
 In interactive mode, the `/permissions` command provides the same information plus options to:
+
 - Remove items from the whitelist
 - Remove items from the blacklist
 - Clear all saved permissions
@@ -558,6 +581,7 @@ In interactive mode, the `/permissions` command provides the same information pl
 ## Patch Mode
 
 Patch mode allows you to generate a shareable git-compatible patch without modifying your workspace files. This is useful for:
+
 - Code review before applying changes
 - Sharing AI-generated changes with team members
 - Creating reproducible change sets
@@ -579,6 +603,7 @@ autohand --prompt "refactor api handlers" --patch > refactor.patch
 ### Behavior
 
 When `--patch` is specified:
+
 - **Auto-confirm**: All confirmations are automatically accepted (`--yes` implied)
 - **No prompts**: No approval prompts are shown (`--unrestricted` implied)
 - **Preview only**: Changes are captured but NOT written to disk
@@ -632,10 +657,10 @@ diff --git a/src/index.ts b/src/index.ts
 
 ### Exit Codes
 
-| Code | Meaning |
-|------|---------|
-| `0` | Success, patch generated |
-| `1` | Error (missing `--prompt`, permission denied, etc.) |
+| Code | Meaning                                             |
+| ---- | --------------------------------------------------- |
+| `0`  | Success, patch generated                            |
+| `1`  | Error (missing `--prompt`, permission denied, etc.) |
 
 ### Combining with Other Flags
 
@@ -683,11 +708,11 @@ git add -A && git commit -m "feat: add user dashboard with charts"
 }
 ```
 
-| Field | Type | Default | Max | Description |
-|-------|------|---------|-----|-------------|
-| `maxRetries` | number | `3` | `5` | Retry attempts for failed API requests |
-| `timeout` | number | `30000` | - | Request timeout in milliseconds |
-| `retryDelay` | number | `1000` | - | Delay between retries in milliseconds |
+| Field        | Type   | Default | Max | Description                            |
+| ------------ | ------ | ------- | --- | -------------------------------------- |
+| `maxRetries` | number | `3`     | `5` | Retry attempts for failed API requests |
+| `timeout`    | number | `30000` | -   | Request timeout in milliseconds        |
+| `retryDelay` | number | `1000`  | -   | Delay between retries in milliseconds  |
 
 ---
 
@@ -710,16 +735,17 @@ Telemetry is **disabled by default** (opt-in). Enable it to help improve Autohan
 }
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `enabled` | boolean | `false` | Enable/disable telemetry (opt-in) |
-| `apiBaseUrl` | string | `https://api.autohand.ai` | Telemetry API endpoint |
-| `batchSize` | number | `20` | Number of events to batch before auto-flush |
-| `flushIntervalMs` | number | `60000` | Flush interval in milliseconds (1 minute) |
-| `maxQueueSize` | number | `500` | Maximum queue size before dropping old events |
-| `maxRetries` | number | `3` | Retry attempts for failed telemetry requests |
-| `enableSessionSync` | boolean | `false` | Sync sessions to cloud for team features |
-| `companySecret` | string | `""` | Company secret for API authentication |
+| Field               | Type    | Default                   | Description                                   |
+| ------------------- | ------- | ------------------------- | --------------------------------------------- |
+| `enabled`           | boolean | `false`                   | Enable/disable telemetry (opt-in)             |
+| `apiBaseUrl`        | string  | `https://api.autohand.ai` | Telemetry API endpoint                        |
+| `batchSize`         | number  | `20`                      | Number of events to batch before auto-flush   |
+| `flushIntervalMs`   | number  | `60000`                   | Flush interval in milliseconds (1 minute)     |
+| `maxQueueSize`      | number  | `500`                     | Maximum queue size before dropping old events |
+| `maxRetries`        | number  | `3`                       | Retry attempts for failed telemetry requests  |
+| `enableSessionSync` | boolean | `false`                   | Sync sessions to cloud for team features      |
+| `companySecret`     | string  | `""`                      | Company secret for API authentication         |
+
 ---
 
 ## External Agents
@@ -730,18 +756,15 @@ Load custom agent definitions from external directories.
 {
   "externalAgents": {
     "enabled": true,
-    "paths": [
-      "~/.autohand/agents",
-      "/team/shared/agents"
-    ]
+    "paths": ["~/.autohand/agents", "/team/shared/agents"]
   }
 }
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `enabled` | boolean | `false` | Enable external agent loading |
-| `paths` | string[] | `[]` | Directories to load agents from |
+| Field     | Type     | Default | Description                     |
+| --------- | -------- | ------- | ------------------------------- |
+| `enabled` | boolean  | `false` | Enable external agent loading   |
+| `paths`   | string[] | `[]`    | Directories to load agents from |
 
 ---
 
@@ -753,12 +776,12 @@ Skills are instruction packages that provide specialized instructions to the AI 
 
 Skills are discovered from multiple locations, with later sources taking precedence:
 
-| Location | Source ID | Description |
-|----------|-----------|-------------|
-| `~/.codex/skills/**/SKILL.md` | `codex-user` | User-level Codex skills (recursive) |
-| `~/.claude/skills/*/SKILL.md` | `claude-user` | User-level Claude skills (one level) |
-| `~/.autohand/skills/**/SKILL.md` | `autohand-user` | User-level Autohand skills (recursive) |
-| `<project>/.claude/skills/*/SKILL.md` | `claude-project` | Project-level Claude skills (one level) |
+| Location                                 | Source ID          | Description                               |
+| ---------------------------------------- | ------------------ | ----------------------------------------- |
+| `~/.codex/skills/**/SKILL.md`            | `codex-user`       | User-level Codex skills (recursive)       |
+| `~/.claude/skills/*/SKILL.md`            | `claude-user`      | User-level Claude skills (one level)      |
+| `~/.autohand/skills/**/SKILL.md`         | `autohand-user`    | User-level Autohand skills (recursive)    |
+| `<project>/.claude/skills/*/SKILL.md`    | `claude-project`   | Project-level Claude skills (one level)   |
 | `<project>/.autohand/skills/**/SKILL.md` | `autohand-project` | Project-level Autohand skills (recursive) |
 
 ### Auto-Copy Behavior
@@ -791,27 +814,28 @@ metadata:
 Detailed instructions for the AI agent...
 ```
 
-| Field | Required | Max Length | Description |
-|-------|----------|------------|-------------|
-| `name` | Yes | 64 chars | Lowercase alphanumeric with hyphens only |
-| `description` | Yes | 1024 chars | Brief description of the skill |
-| `license` | No | - | License identifier (e.g., MIT, Apache-2.0) |
-| `compatibility` | No | 500 chars | Compatibility notes |
-| `allowed-tools` | No | - | Space-delimited list of allowed tools |
-| `metadata` | No | - | Additional key-value metadata |
+| Field           | Required | Max Length | Description                                |
+| --------------- | -------- | ---------- | ------------------------------------------ |
+| `name`          | Yes      | 64 chars   | Lowercase alphanumeric with hyphens only   |
+| `description`   | Yes      | 1024 chars | Brief description of the skill             |
+| `license`       | No       | -          | License identifier (e.g., MIT, Apache-2.0) |
+| `compatibility` | No       | 500 chars  | Compatibility notes                        |
+| `allowed-tools` | No       | -          | Space-delimited list of allowed tools      |
+| `metadata`      | No       | -          | Additional key-value metadata              |
 
 ### Input Prefixes
 
 Autohand supports special prefixes in the input prompt:
 
-| Prefix | Description | Example |
-|--------|-------------|---------|
-| `/` | Slash commands | `/help`, `/model`, `/quit` |
-| `@` | File mentions (autocomplete) | `@src/index.ts` |
-| `$` | Skill mentions (autocomplete) | `$frontend-design`, `$code-review` |
-| `!` | Run terminal commands directly | `! git status`, `! ls -la` |
+| Prefix | Description                    | Example                            |
+| ------ | ------------------------------ | ---------------------------------- |
+| `/`    | Slash commands                 | `/help`, `/model`, `/quit`         |
+| `@`    | File mentions (autocomplete)   | `@src/index.ts`                    |
+| `$`    | Skill mentions (autocomplete)  | `$frontend-design`, `$code-review` |
+| `!`    | Run terminal commands directly | `! git status`, `! ls -la`         |
 
 **Skill Mentions (`$`):**
+
 - Type `$` followed by characters to see available skills with autocomplete
 - Tab accepts the top suggestion (e.g., `$frontend-design`)
 - Skills are discovered from `~/.autohand/skills/` and `<project>/.autohand/skills/`
@@ -819,6 +843,7 @@ Autohand supports special prefixes in the input prompt:
 - Preview panel shows skill metadata (name, description, activation state)
 
 **Shell Commands (`!`):**
+
 - Commands run in your current working directory
 - Output displays directly in terminal
 - Does not go to the LLM
@@ -829,27 +854,27 @@ Autohand supports special prefixes in the input prompt:
 
 #### `/skills` - Package Manager
 
-| Command | Description |
-|---------|-------------|
-| `/skills` | List all available skills |
-| `/skills use <name>` | Activate a skill for the current session |
-| `/skills deactivate <name>` | Deactivate a skill |
-| `/skills info <name>` | Show detailed skill information |
-| `/skills install` | Browse and install from community registry |
-| `/skills install @<slug>` | Install a community skill by slug |
-| `/skills search <query>` | Search the community skills registry |
-| `/skills trending` | Show trending community skills |
-| `/skills remove <slug>` | Uninstall a community skill |
-| `/skills new` | Create a new skill interactively |
-| `/skills feedback <slug> <1-5>` | Rate a community skill |
+| Command                         | Description                                |
+| ------------------------------- | ------------------------------------------ |
+| `/skills`                       | List all available skills                  |
+| `/skills use <name>`            | Activate a skill for the current session   |
+| `/skills deactivate <name>`     | Deactivate a skill                         |
+| `/skills info <name>`           | Show detailed skill information            |
+| `/skills install`               | Browse and install from community registry |
+| `/skills install @<slug>`       | Install a community skill by slug          |
+| `/skills search <query>`        | Search the community skills registry       |
+| `/skills trending`              | Show trending community skills             |
+| `/skills remove <slug>`         | Uninstall a community skill                |
+| `/skills new`                   | Create a new skill interactively           |
+| `/skills feedback <slug> <1-5>` | Rate a community skill                     |
 
 #### `/learn` - LLM-Powered Skill Advisor
 
-| Command | Description |
-|---------|-------------|
-| `/learn` | Analyze project and recommend skills (quick scan) |
-| `/learn deep` | Deep-scan project (reads source files) for more targeted results |
-| `/learn update` | Re-analyze project and regenerate outdated LLM-generated skills |
+| Command         | Description                                                      |
+| --------------- | ---------------------------------------------------------------- |
+| `/learn`        | Analyze project and recommend skills (quick scan)                |
+| `/learn deep`   | Deep-scan project (reads source files) for more targeted results |
+| `/learn update` | Re-analyze project and regenerate outdated LLM-generated skills  |
 
 `/learn` uses a two-phase LLM flow:
 
@@ -867,6 +892,7 @@ autohand --auto-skill
 ```
 
 This will:
+
 1. Analyze your project structure (package.json, requirements.txt, etc.)
 2. Detect languages, frameworks, and patterns
 3. Generate 3 relevant skills using LLM
@@ -875,6 +901,7 @@ This will:
 For a more targeted, interactive experience, use `/learn` inside a session instead.
 
 Detected patterns include:
+
 - **Languages**: TypeScript, JavaScript, Python, Rust, Go
 - **Frameworks**: React, Next.js, Vue, Express, Flask, Django
 - **Patterns**: CLI tools, testing, monorepo, Docker, CI/CD
@@ -894,12 +921,13 @@ Backend API configuration for team features.
 }
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `baseUrl` | string | `https://api.autohand.ai` | API endpoint |
-| `companySecret` | string | - | Team/company secret for shared features |
+| Field           | Type   | Default                   | Description                             |
+| --------------- | ------ | ------------------------- | --------------------------------------- |
+| `baseUrl`       | string | `https://api.autohand.ai` | API endpoint                            |
+| `companySecret` | string | -                         | Team/company secret for shared features |
 
 Can also be set via environment variables:
+
 - `AUTOHAND_API_URL` → `api.baseUrl`
 - `AUTOHAND_SECRET` → `api.companySecret`
 
@@ -924,15 +952,15 @@ Authentication and user session configuration.
 }
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `token` | string | - | Authentication token for API access |
-| `user` | object | - | Authenticated user information |
-| `user.id` | string | - | User ID |
-| `user.email` | string | - | User email address |
-| `user.name` | string | - | User display name |
-| `user.avatar` | string | - | User avatar URL (optional) |
-| `expiresAt` | string | - | Token expiration timestamp (ISO 8601 format) |
+| Field         | Type   | Default | Description                                  |
+| ------------- | ------ | ------- | -------------------------------------------- |
+| `token`       | string | -       | Authentication token for API access          |
+| `user`        | object | -       | Authenticated user information               |
+| `user.id`     | string | -       | User ID                                      |
+| `user.email`  | string | -       | User email address                           |
+| `user.name`   | string | -       | User display name                            |
+| `user.avatar` | string | -       | User avatar URL (optional)                   |
+| `expiresAt`   | string | -       | Token expiration timestamp (ISO 8601 format) |
 
 ---
 
@@ -950,11 +978,11 @@ Configuration for community skills discovery and management.
 }
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `enabled` | boolean | `true` | Enable community skills features |
-| `showSuggestionsOnStartup` | boolean | `true` | Show skill suggestions on startup when no vendor skills exist |
-| `autoBackup` | boolean | `true` | Automatically backup discovered vendor skills to API |
+| Field                      | Type    | Default | Description                                                   |
+| -------------------------- | ------- | ------- | ------------------------------------------------------------- |
+| `enabled`                  | boolean | `true`  | Enable community skills features                              |
+| `showSuggestionsOnStartup` | boolean | `true`  | Show skill suggestions on startup when no vendor skills exist |
+| `autoBackup`               | boolean | `true`  | Automatically backup discovered vendor skills to API          |
 
 ---
 
@@ -970,9 +998,9 @@ Configuration for session sharing via `/share` command. Sessions are hosted at [
 }
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `enabled` | boolean | `true` | Enable/disable the `/share` command |
+| Field     | Type    | Default | Description                         |
+| --------- | ------- | ------- | ----------------------------------- |
+| `enabled` | boolean | `true`  | Enable/disable the `/share` command |
 
 ### YAML Format
 
@@ -994,6 +1022,7 @@ If you want to disable session sharing for security or privacy reasons:
 ```
 
 When disabled, running `/share` will display:
+
 ```
 Session sharing is disabled.
 To enable, set share.enabled: true in your config file.
@@ -1017,13 +1046,13 @@ Autohand can sync your configuration across devices for logged-in users. Setting
 }
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `enabled` | boolean | `true` (logged) | Enable/disable settings sync |
-| `interval` | number | `300000` | Sync interval in milliseconds (default: 5 minutes) |
-| `exclude` | string[] | `[]` | Glob patterns to exclude from sync |
-| `includeTelemetry` | boolean | `false` | Sync telemetry data (requires user consent) |
-| `includeFeedback` | boolean | `false` | Sync feedback data (requires user consent) |
+| Field              | Type     | Default         | Description                                        |
+| ------------------ | -------- | --------------- | -------------------------------------------------- |
+| `enabled`          | boolean  | `true` (logged) | Enable/disable settings sync                       |
+| `interval`         | number   | `300000`        | Sync interval in milliseconds (default: 5 minutes) |
+| `exclude`          | string[] | `[]`            | Glob patterns to exclude from sync                 |
+| `includeTelemetry` | boolean  | `false`         | Sync telemetry data (requires user consent)        |
+| `includeFeedback`  | boolean  | `false`         | Sync feedback data (requires user consent)         |
 
 ### CLI Flag
 
@@ -1081,6 +1110,7 @@ When conflicts occur (same file modified on multiple devices), the **cloud versi
 API keys and other sensitive data in `config.json` are encrypted using your authentication token before upload. They can only be decrypted with your credentials.
 
 **What's encrypted:**
+
 - Fields named `apiKey`
 - Fields ending with `Key`, `Token`, `Secret`
 - The `password` field
@@ -1101,10 +1131,7 @@ You can exclude specific files or patterns from sync:
 {
   "sync": {
     "enabled": true,
-    "exclude": [
-      "custom-local-config.json",
-      "temp/*"
-    ]
+    "exclude": ["custom-local-config.json", "temp/*"]
   }
 }
 ```
@@ -1154,27 +1181,29 @@ Configure MCP (Model Context Protocol) servers to extend Autohand with external 
 ```
 
 ### `mcp.enabled`
+
 - **Type**: `boolean`
 - **Default**: `true`
 - **Description**: Enable or disable all MCP support. When `false`, no servers are connected at startup and MCP tools are unavailable.
 
 ### `mcp.servers`
+
 - **Type**: `McpServerConfigEntry[]`
 - **Default**: `[]`
 - **Description**: Array of MCP server configurations.
 
 ### Server Entry Fields
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `name` | `string` | Yes | - | Unique server identifier |
-| `transport` | `"stdio"` \| `"sse"` \| `"http"` | Yes | - | Transport type |
-| `command` | `string` | Yes (stdio) | - | Command to start the server process |
-| `args` | `string[]` | No | `[]` | Arguments for the command |
-| `url` | `string` | Yes (sse/http) | - | Server endpoint URL |
-| `headers` | `Record<string, string>` | No | `{}` | Custom HTTP headers for http/sse transport (e.g. auth tokens) |
-| `env` | `Record<string, string>` | No | `{}` | Environment variables passed to the server |
-| `autoConnect` | `boolean` | No | `true` | Whether to auto-connect on startup |
+| Field         | Type                             | Required       | Default | Description                                                   |
+| ------------- | -------------------------------- | -------------- | ------- | ------------------------------------------------------------- |
+| `name`        | `string`                         | Yes            | -       | Unique server identifier                                      |
+| `transport`   | `"stdio"` \| `"sse"` \| `"http"` | Yes            | -       | Transport type                                                |
+| `command`     | `string`                         | Yes (stdio)    | -       | Command to start the server process                           |
+| `args`        | `string[]`                       | No             | `[]`    | Arguments for the command                                     |
+| `url`         | `string`                         | Yes (sse/http) | -       | Server endpoint URL                                           |
+| `headers`     | `Record<string, string>`         | No             | `{}`    | Custom HTTP headers for http/sse transport (e.g. auth tokens) |
+| `env`         | `Record<string, string>`         | No             | `{}`    | Environment variables passed to the server                    |
+| `autoConnect` | `boolean`                        | No             | `true`  | Whether to auto-connect on startup                            |
 
 > Servers connect asynchronously in the background during startup without blocking the prompt. Use `/mcp` to manage servers interactively, or `/mcp add` to browse the community registry or add custom servers.
 
@@ -1216,47 +1245,47 @@ Configuration for lifecycle hooks that run shell commands on agent events. See [
 
 ### `hooks`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `enabled` | boolean | `true` | Enable/disable all hooks globally |
-| `hooks` | array | `[]` | Array of hook definitions |
+| Field     | Type    | Default | Description                       |
+| --------- | ------- | ------- | --------------------------------- |
+| `enabled` | boolean | `true`  | Enable/disable all hooks globally |
+| `hooks`   | array   | `[]`    | Array of hook definitions         |
 
 ### Hook Definition
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `event` | string | Yes | - | Event to hook into |
-| `command` | string | Yes | - | Shell command to execute |
-| `description` | string | No | - | Description for `/hooks` display |
-| `enabled` | boolean | No | `true` | Whether hook is active |
-| `timeout` | number | No | `5000` | Timeout in milliseconds |
-| `async` | boolean | No | `false` | Run without blocking |
-| `filter` | object | No | - | Filter by tool or path |
+| Field         | Type    | Required | Default | Description                      |
+| ------------- | ------- | -------- | ------- | -------------------------------- |
+| `event`       | string  | Yes      | -       | Event to hook into               |
+| `command`     | string  | Yes      | -       | Shell command to execute         |
+| `description` | string  | No       | -       | Description for `/hooks` display |
+| `enabled`     | boolean | No       | `true`  | Whether hook is active           |
+| `timeout`     | number  | No       | `5000`  | Timeout in milliseconds          |
+| `async`       | boolean | No       | `false` | Run without blocking             |
+| `filter`      | object  | No       | -       | Filter by tool or path           |
 
 ### Hook Events
 
-| Event | When Fired |
-|-------|------------|
-| `pre-tool` | Before any tool executes |
-| `post-tool` | After tool completes |
+| Event           | When Fired                            |
+| --------------- | ------------------------------------- |
+| `pre-tool`      | Before any tool executes              |
+| `post-tool`     | After tool completes                  |
 | `file-modified` | When file is created/modified/deleted |
-| `pre-prompt` | Before sending to LLM |
-| `post-response` | After LLM responds |
-| `session-error` | When error occurs |
+| `pre-prompt`    | Before sending to LLM                 |
+| `post-response` | After LLM responds                    |
+| `session-error` | When error occurs                     |
 
 ### Environment Variables
 
 When hooks execute, these environment variables are available:
 
-| Variable | Description |
-|----------|-------------|
-| `HOOK_EVENT` | Event name |
-| `HOOK_WORKSPACE` | Workspace root path |
-| `HOOK_TOOL` | Tool name (tool events) |
-| `HOOK_ARGS` | JSON-encoded tool args |
-| `HOOK_SUCCESS` | true/false (post-tool) |
-| `HOOK_PATH` | File path (file-modified) |
-| `HOOK_TOKENS` | Tokens used (post-response) |
+| Variable         | Description                 |
+| ---------------- | --------------------------- |
+| `HOOK_EVENT`     | Event name                  |
+| `HOOK_WORKSPACE` | Workspace root path         |
+| `HOOK_TOOL`      | Tool name (tool events)     |
+| `HOOK_ARGS`      | JSON-encoded tool args      |
+| `HOOK_SUCCESS`   | true/false (post-tool)      |
+| `HOOK_PATH`      | File path (file-modified)   |
+| `HOOK_TOKENS`    | Tokens used (post-response) |
 
 ---
 
@@ -1277,14 +1306,14 @@ Control the Autohand Chrome extension integration. See the full guide at [Autoha
 }
 ```
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `extensionId` | `string` | — | Installed Chrome extension ID for direct handoff |
-| `enabledByDefault` | `boolean` | `false` | Start browser bridge automatically with the CLI |
-| `browser` | `string` | `"auto"` | Preferred Chromium browser: `auto`, `chrome`, `chromium`, `brave`, `edge` |
-| `userDataDir` | `string` | — | Browser user data directory to target the correct profile |
-| `profileDirectory` | `string` | — | Browser profile directory name (e.g., `"Default"`, `"Profile 1"`) |
-| `installUrl` | `string` | — | Fallback URL when the extension ID is not configured |
+| Key                | Type      | Default  | Description                                                               |
+| ------------------ | --------- | -------- | ------------------------------------------------------------------------- |
+| `extensionId`      | `string`  | —        | Installed Chrome extension ID for direct handoff                          |
+| `enabledByDefault` | `boolean` | `false`  | Start browser bridge automatically with the CLI                           |
+| `browser`          | `string`  | `"auto"` | Preferred Chromium browser: `auto`, `chrome`, `chromium`, `brave`, `edge` |
+| `userDataDir`      | `string`  | —        | Browser user data directory to target the correct profile                 |
+| `profileDirectory` | `string`  | —        | Browser profile directory name (e.g., `"Default"`, `"Profile 1"`)         |
+| `installUrl`       | `string`  | —        | Fallback URL when the extension ID is not configured                      |
 
 ### CLI Flags
 
@@ -1312,7 +1341,7 @@ autohand --no-chrome       # Start with browser bridge disabled
   "openrouter": {
     "apiKey": "sk-or-v1-your-key-here",
     "baseUrl": "https://openrouter.ai/api/v1",
-    "model": "anthropic/claude-sonnet-4"
+    "model": "your-modelcard-id-here"
   },
   "ollama": {
     "baseUrl": "http://localhost:11434",
@@ -1338,13 +1367,8 @@ autohand --no-chrome       # Start with browser bridge disabled
   },
   "permissions": {
     "mode": "interactive",
-    "whitelist": [
-      "run_command:npm *",
-      "run_command:bun *"
-    ],
-    "blacklist": [
-      "run_command:rm -rf /"
-    ],
+    "whitelist": ["run_command:npm *", "run_command:bun *"],
+    "blacklist": ["run_command:rm -rf /"],
     "rememberSession": true
   },
   "network": {
@@ -1401,7 +1425,7 @@ provider: openrouter
 openrouter:
   apiKey: sk-or-v1-your-key-here
   baseUrl: https://openrouter.ai/api/v1
-  model: anthropic/claude-sonnet-4
+  model: your-modelcard-id-here
 
 ollama:
   baseUrl: http://localhost:11434
@@ -1517,34 +1541,34 @@ Autohand stores data in `~/.autohand/` (or `$AUTOHAND_HOME`):
 
 These flags override config file settings:
 
-| Flag | Description |
-|------|-------------|
-| `--model <model>` | Override model |
-| `--path <path>` | Override workspace root |
-| `--worktree [name]` | Run session in isolated git worktree (optional worktree/branch name) |
-| `--tmux` | Launch in a dedicated tmux session (implies `--worktree`; cannot be used with `--no-worktree`) |
-| `--add-dir <path>` | Add additional directories to workspace scope (can be used multiple times) |
-| `--config <path>` | Use custom config file |
-| `--temperature <n>` | Set temperature (0-1) |
-| `--yes` | Auto-confirm prompts |
-| `--dry-run` | Preview without executing |
-| `-d, --debug` | Enable verbose debug output |
-| `--unrestricted` | No approval prompts |
-| `--restricted` | Deny dangerous operations |
-| `--permissions` | Display current permission settings and exit |
-| `--patch` | Generate git patch without applying changes |
-| `--output <file>` | Output file for patch (used with --patch) |
-| `--auto-skill` | Auto-generate skills based on project analysis (see also `/learn` for interactive advisor) |
-| `--learn` | Run `/learn` skill advisor non-interactively (analyze and install recommended skills) |
-| `--learn-update` | Re-analyze project and regenerate outdated LLM-generated skills non-interactively |
-| `-c, --auto-commit` | Auto-commit changes after completing tasks |
-| `--login` | Sign in to your Autohand account |
-| `--logout` | Sign out of your Autohand account |
-| `--about` | Show information about Autohand (version, links, contribution info) |
-| `--sync-settings` | Enable/disable settings sync (default: true for logged users) |
-| `--setup` | Run the setup wizard to configure or reconfigure Autohand |
-| `--sys-prompt <value>` | Replace entire system prompt (inline string or file path) |
-| `--append-sys-prompt <value>` | Append to system prompt (inline string or file path) |
+| Flag                          | Description                                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------------------------- |
+| `--model <model>`             | Override model                                                                                 |
+| `--path <path>`               | Override workspace root                                                                        |
+| `--worktree [name]`           | Run session in isolated git worktree (optional worktree/branch name)                           |
+| `--tmux`                      | Launch in a dedicated tmux session (implies `--worktree`; cannot be used with `--no-worktree`) |
+| `--add-dir <path>`            | Add additional directories to workspace scope (can be used multiple times)                     |
+| `--config <path>`             | Use custom config file                                                                         |
+| `--temperature <n>`           | Set temperature (0-1)                                                                          |
+| `--yes`                       | Auto-confirm prompts                                                                           |
+| `--dry-run`                   | Preview without executing                                                                      |
+| `-d, --debug`                 | Enable verbose debug output                                                                    |
+| `--unrestricted`              | No approval prompts                                                                            |
+| `--restricted`                | Deny dangerous operations                                                                      |
+| `--permissions`               | Display current permission settings and exit                                                   |
+| `--patch`                     | Generate git patch without applying changes                                                    |
+| `--output <file>`             | Output file for patch (used with --patch)                                                      |
+| `--auto-skill`                | Auto-generate skills based on project analysis (see also `/learn` for interactive advisor)     |
+| `--learn`                     | Run `/learn` skill advisor non-interactively (analyze and install recommended skills)          |
+| `--learn-update`              | Re-analyze project and regenerate outdated LLM-generated skills non-interactively              |
+| `-c, --auto-commit`           | Auto-commit changes after completing tasks                                                     |
+| `--login`                     | Sign in to your Autohand account                                                               |
+| `--logout`                    | Sign out of your Autohand account                                                              |
+| `--about`                     | Show information about Autohand (version, links, contribution info)                            |
+| `--sync-settings`             | Enable/disable settings sync (default: true for logged users)                                  |
+| `--setup`                     | Run the setup wizard to configure or reconfigure Autohand                                      |
+| `--sys-prompt <value>`        | Replace entire system prompt (inline string or file path)                                      |
+| `--append-sys-prompt <value>` | Append to system prompt (inline string or file path)                                           |
 
 ---
 
@@ -1554,18 +1578,20 @@ Autohand allows you to customize the system prompt used by the AI agent. This is
 
 ### CLI Flags
 
-| Flag | Description |
-|------|-------------|
-| `--sys-prompt <value>` | Replace the entire system prompt |
+| Flag                          | Description                                 |
+| ----------------------------- | ------------------------------------------- |
+| `--sys-prompt <value>`        | Replace the entire system prompt            |
 | `--append-sys-prompt <value>` | Append content to the default system prompt |
 
 Both flags accept either:
+
 - **Inline string**: Direct text content
 - **File path**: Path to a file containing the prompt (auto-detected)
 
 ### File Path Detection
 
 A value is treated as a file path if it:
+
 - Starts with `./`, `../`, `/`, or `~/`
 - Starts with a Windows drive letter (e.g., `C:\`)
 - Ends with `.txt`, `.md`, or `.prompt`
@@ -1576,6 +1602,7 @@ Otherwise, it's treated as an inline string.
 ### `--sys-prompt` (Complete Replacement)
 
 When provided, this **completely replaces** the default system prompt. The agent will NOT load:
+
 - Default Autohand instructions
 - AGENTS.md project instructions
 - User/project memories
@@ -1593,6 +1620,7 @@ autohand --sys-prompt ~/.autohand/prompts/python-expert.md --prompt "Debug this 
 ```
 
 **Example custom prompt file (`custom-prompt.txt`):**
+
 ```
 You are a specialized Python debugging assistant.
 
@@ -1606,6 +1634,7 @@ Rules:
 ### `--append-sys-prompt` (Add to Default)
 
 When provided, this **appends** content to the full default system prompt. The agent will still load:
+
 - Default Autohand instructions
 - AGENTS.md project instructions
 - User/project memories
@@ -1622,6 +1651,7 @@ autohand --append-sys-prompt ./team-guidelines.md --prompt "Add error handling"
 ```
 
 **Example append file (`team-guidelines.md`):**
+
 ```
 ## Team Guidelines
 
@@ -1634,6 +1664,7 @@ autohand --append-sys-prompt ./team-guidelines.md --prompt "Add error handling"
 ### Precedence
 
 When both flags are provided:
+
 1. `--sys-prompt` takes full precedence
 2. `--append-sys-prompt` is ignored
 
@@ -1644,25 +1675,25 @@ autohand --sys-prompt "Custom only" --append-sys-prompt "This is ignored"
 
 ### Use Cases
 
-| Use Case | Recommended Flag |
-|----------|------------------|
-| Custom agent persona | `--sys-prompt` |
-| Minimal instructions | `--sys-prompt` |
-| Add team guidelines | `--append-sys-prompt` |
-| Add project conventions | `--append-sys-prompt` |
-| Integration with external systems | `--sys-prompt` |
-| Specialized debugging | `--sys-prompt` |
+| Use Case                          | Recommended Flag      |
+| --------------------------------- | --------------------- |
+| Custom agent persona              | `--sys-prompt`        |
+| Minimal instructions              | `--sys-prompt`        |
+| Add team guidelines               | `--append-sys-prompt` |
+| Add project conventions           | `--append-sys-prompt` |
+| Integration with external systems | `--sys-prompt`        |
+| Specialized debugging             | `--sys-prompt`        |
 
 ### Error Handling
 
-| Scenario | Behavior |
-|----------|----------|
-| Empty value | Error |
-| File not found | Treated as inline string |
-| Empty file | Error |
-| File > 1MB | Error |
-| Permission denied | Error |
-| Directory path | Error |
+| Scenario          | Behavior                 |
+| ----------------- | ------------------------ |
+| Empty value       | Error                    |
+| File not found    | Treated as inline string |
+| Empty file        | Error                    |
+| File > 1MB        | Error                    |
+| Permission denied | Error                    |
+| Directory path    | Error                    |
 
 ### Examples
 
@@ -1719,6 +1750,7 @@ Use `/add-dir` during an interactive session:
 ### Safety Restrictions
 
 The following directories cannot be added:
+
 - Home directory (`~` or `$HOME`)
 - Root directory (`/`)
 - System directories (`/etc`, `/var`, `/usr`, `/bin`, `/sbin`)

@@ -29,7 +29,7 @@ type Primitive = string | number | boolean | null;
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
-export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure';
+export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure' | 'zai';
 
 export type AzureAuthMethod = 'api-key' | 'entra-id' | 'managed-identity';
 export type OpenAIAuthMode = 'api-key' | 'chatgpt';
@@ -82,6 +82,10 @@ export interface AzureSettings extends ProviderSettings {
   clientId?: string;
   /** Azure client secret — required for entra-id auth (service principal) */
   clientSecret?: string;
+}
+
+export interface ZaiSettings extends ProviderSettings {
+  apiKey: string;
 }
 
 export interface WorkspaceSettings {
@@ -556,6 +560,8 @@ export interface AutohandConfig {
   llmgateway?: LLMGatewaySettings;
   /** Azure OpenAI settings */
   azure?: AzureSettings;
+  /** Z.ai (Zhipu AI) settings */
+  zai?: ZaiSettings;
   workspace?: WorkspaceSettings;
   ui?: UISettings;
   agent?: AgentSettings;

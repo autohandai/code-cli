@@ -520,7 +520,8 @@
       "llamacpp": "Helyi - Gyors következtetés GGUF modellekkel",
       "mlx": "Helyi - Optimalizálva Apple Silicon Mac-ekhez",
       "llmgateway": "Felhő - Egyesített API több LLM szolgáltatóhoz",
-      "azure": "Felhő - Azure OpenAI Service (vállalati)"
+      "azure": "Felhő - Azure OpenAI Service (vállalati)",
+      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)"
     },
     "config": {
       "chooseProvider": "Válasszon egy LLM szolgáltatót",
@@ -601,6 +602,10 @@
       "llmgateway": {
         "title": "LLM Gateway Konfiguráció",
         "apiKeyUrl": "https://llmgateway.io/dashboard"
+      },
+      "zai": {
+        "title": "Z.ai Konfiguráció",
+        "apiKeyUrl": "https://z.ai/api-keys"
       },
       "azure": {
         "title": "Azure OpenAI Konfiguráció",

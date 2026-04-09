@@ -520,7 +520,8 @@
       "llamacpp": "Místní - Rychlá inferencia s GGUF modely",
       "mlx": "Místní - Optimalizované pro Apple Silicon Mac",
       "llmgateway": "Cloud - Jednotné API pro více poskytovatelů LLM",
-      "azure": "Cloud - Azure OpenAI Service (enterprise)"
+      "azure": "Cloud - Azure OpenAI Service (enterprise)",
+      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)"
     },
     "config": {
       "chooseProvider": "Zvolte poskytovatele LLM",
@@ -601,6 +602,10 @@
       "llmgateway": {
         "title": "Konfigurace LLM Gateway",
         "apiKeyUrl": "https://llmgateway.io/dashboard"
+      },
+      "zai": {
+        "title": "Konfigurace Z.ai",
+        "apiKeyUrl": "https://z.ai/api-keys"
       },
       "azure": {
         "title": "Konfigurace Azure OpenAI",

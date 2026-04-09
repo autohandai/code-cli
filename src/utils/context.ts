@@ -3,26 +3,26 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type { LLMMessage, FunctionDefinition } from '../types.js';
+import type { LLMMessage, FunctionDefinition } from "../types.js";
 
 /** Known model context windows */
 const MODEL_CONTEXT: Record<string, number> = {
-  'anthropic/claude-3.5-sonnet': 200_000,
-  'anthropic/claude-3-opus': 200_000,
-  'anthropic/claude-3-haiku': 200_000,
-  'anthropic/claude-sonnet-4': 200_000,
-  'anthropic/claude-opus-4': 200_000,
-  'openai/gpt-4o-mini': 128_000,
-  'openai/gpt-4o': 128_000,
-  'openai/gpt-4.1': 200_000,
-  'openai/o1': 200_000,
-  'openai/o1-mini': 128_000,
-  'google/gemini-pro': 128_000,
-  'google/gemini-2.0-flash': 1_000_000,
-  'google/gemini-2.5-pro': 1_000_000,
-  'deepseek/deepseek-r1': 64_000,
-  'deepseek/deepseek-r1-0528-qwen3-8b:free': 8_000,
-  'deepseek/deepseek-coder': 16_000
+  "anthropic/claude-sonnet-4-20250514": 200_000,
+  "anthropic/claude-3-opus": 200_000,
+  "anthropic/claude-3-haiku": 200_000,
+
+  "anthropic/claude-opus-4": 200_000,
+  "openai/gpt-4o-mini": 128_000,
+  "openai/gpt-4o": 128_000,
+  "openai/gpt-4.1": 200_000,
+  "openai/o1": 200_000,
+  "openai/o1-mini": 128_000,
+  "google/gemini-pro": 128_000,
+  "google/gemini-2.0-flash": 1_000_000,
+  "google/gemini-2.5-pro": 1_000_000,
+  "deepseek/deepseek-r1": 64_000,
+  "deepseek/deepseek-r1-0528-qwen3-8b:free": 8_000,
+  "deepseek/deepseek-coder": 16_000,
 };
 
 /** Safety margin to prevent hitting exact limits (10% reserved) */
@@ -43,8 +43,10 @@ export function getContextWindow(model: string): number {
     return MODEL_CONTEXT[normalized];
   }
   // Fuzzy match for model variants
-  const fuzzy = Object.entries(MODEL_CONTEXT).find(([name]) =>
-    normalized.includes(name) || name.includes(normalized.split('/').pop() ?? '')
+  const fuzzy = Object.entries(MODEL_CONTEXT).find(
+    ([name]) =>
+      normalized.includes(name) ||
+      name.includes(normalized.split("/").pop() ?? ""),
   );
   return fuzzy ? fuzzy[1] : 128_000;
 }
@@ -76,7 +78,7 @@ export function estimateMessageTokens(message: LLMMessage): number {
   const structureOverhead = 10;
 
   let tokens = structureOverhead;
-  tokens += estimateTokens(message.content ?? '');
+  tokens += estimateTokens(message.content ?? "");
 
   // Add tokens for tool calls if present
   if (message.tool_calls) {
@@ -94,7 +96,10 @@ export function estimateMessageTokens(message: LLMMessage): number {
  * Estimate tokens for all messages in conversation
  */
 export function estimateMessagesTokens(messages: LLMMessage[]): number {
-  return messages.reduce((acc, message) => acc + estimateMessageTokens(message), 0);
+  return messages.reduce(
+    (acc, message) => acc + estimateMessageTokens(message),
+    0,
+  );
 }
 
 /**
@@ -158,7 +163,7 @@ export function calculateContextUsage(
   messages: LLMMessage[],
   tools: FunctionDefinition[],
   model: string,
-  outputBudget = 16000
+  outputBudget = 16000,
 ): ContextUsage {
   const messagesTokens = estimateMessagesTokens(messages);
   const toolsTokens = estimateToolsTokens(tools);
@@ -179,7 +184,7 @@ export function calculateContextUsage(
     isWarning: usagePercent >= CONTEXT_WARNING_THRESHOLD,
     isCritical: usagePercent >= CONTEXT_CRITICAL_THRESHOLD,
     isExceeded: totalTokens >= safeWindow,
-    remainingTokens: Math.max(0, safeWindow - totalTokens)
+    remainingTokens: Math.max(0, safeWindow - totalTokens),
   };
 }
 
@@ -190,7 +195,7 @@ export function estimateRemainingCapacity(
   messages: LLMMessage[],
   tools: FunctionDefinition[],
   model: string,
-  averageMessageSize = 500
+  averageMessageSize = 500,
 ): number {
   const usage = calculateContextUsage(messages, tools, model);
   return Math.floor(usage.remainingTokens / averageMessageSize);
@@ -205,7 +210,7 @@ export function findCroppableMessages(messages: LLMMessage[]): number[] {
   // Find last user message index (must be preserved)
   let lastUserIndex = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === 'user') {
+    if (messages[i].role === "user") {
       lastUserIndex = i;
       break;
     }
@@ -214,7 +219,7 @@ export function findCroppableMessages(messages: LLMMessage[]): number[] {
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
     // Skip system messages (index 0 usually)
-    if (msg.role === 'system') continue;
+    if (msg.role === "system") continue;
     // Skip the last user message
     if (i === lastUserIndex) continue;
     // Everything else can be cropped
@@ -230,7 +235,7 @@ export function findCroppableMessages(messages: LLMMessage[]): number[] {
 export function calculateTokensToCrop(
   currentTokens: number,
   contextWindow: number,
-  targetUsage = 0.7
+  targetUsage = 0.7,
 ): number {
   const targetTokens = Math.floor(contextWindow * targetUsage);
   return Math.max(0, currentTokens - targetTokens);

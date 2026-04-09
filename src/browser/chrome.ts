@@ -487,7 +487,8 @@ function ensureChild() {
   if (launchSettings?.timeoutSeconds) args.push("--timeout", String(launchSettings.timeoutSeconds));
   if (launchSettings?.contextCompact === false) args.push("--no-context-compact");
   for (const dir of launchSettings?.extraDirs || []) args.push("--add-dir", dir);
-  child = spawn(cliCommand, args, { env: process.env, stdio: ["pipe", "pipe", "pipe"] });
+  const cwd = launchSettings?.workspacePath || path.join(os.homedir(), 'Desktop');
+  child = spawn(cliCommand, args, { env: process.env, stdio: ["pipe", "pipe", "pipe"], cwd });
   child.stdout.on("data", (chunk) => handleCliStdout(chunk.toString("utf8")));
   child.stderr.on("data", (chunk) => handleCliStderr(chunk.toString("utf8")));
   child.on("exit", (code, signal) => {

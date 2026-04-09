@@ -118,6 +118,12 @@ export class InkRenderer {
   /** Flush interval in ms - batches rapid output to prevent flickering */
   private static readonly LIVE_OUTPUT_FLUSH_INTERVAL_MS = 100;
 
+  /** Resize handler reference for cleanup */
+  private resizeHandler: (() => void) | null = null;
+
+  /** Debounce timer for drag-resize events */
+  private resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor(options: InkRendererOptions) {
     this.options = options;
     this.state = createInitialUIState();
@@ -132,11 +138,36 @@ export class InkRenderer {
   };
 
   /**
+   * Register resize handler before Ink so it fires first and clears the
+   * screen before Ink's incremental renderer (log-update) tries positional
+   * cursor math which is stale after terminal reflow.
+   */
+  private onResize = () => {
+    // Debounce rapid events during drag-resize
+    if (this.resizeDebounceTimer) {
+      clearTimeout(this.resizeDebounceTimer);
+    }
+    this.resizeDebounceTimer = setTimeout(() => {
+      // Clear entire screen and move cursor home.
+      // Ink then re-renders on a clean canvas.
+      process.stdout.write('\x1b[2J\x1b[H');
+      this.resizeDebounceTimer = null;
+    }, 50);
+  };
+
+  /**
    * Start the Ink renderer
    */
   start(): void {
     if (this.instance) {
       return;
+    }
+
+    // Install our resize guard BEFORE Ink registers its own handler.
+    // Node.js event listeners fire in registration order.
+    this.resizeHandler = this.onResize;
+    if (typeof process.stdout.on === 'function') {
+      process.stdout.on('resize', this.resizeHandler);
     }
 
     this.instance = render(
@@ -171,6 +202,19 @@ export class InkRenderer {
     if (this.instance) {
       this.instance.unmount();
       this.instance = null;
+    }
+
+    if (
+      this.resizeHandler &&
+      typeof process.stdout.off === 'function'
+    ) {
+      process.stdout.off('resize', this.resizeHandler);
+      this.resizeHandler = null;
+    }
+
+    if (this.resizeDebounceTimer) {
+      clearTimeout(this.resizeDebounceTimer);
+      this.resizeDebounceTimer = null;
     }
   }
 

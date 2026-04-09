@@ -154,7 +154,7 @@ export class ImageManager {
     const results: OpenAIImageContent[] = [];
 
     for (const img of allImages) {
-      let base64Data = img.data.toString('base64');
+      let base64Data: string;
 
       // If we have a token limit, compress the image to fit
       if (tokenLimit) {
@@ -173,6 +173,8 @@ export class ImageManager {
             img.mimeType,
           );
           base64Data = compressed.base64;
+        } else {
+          base64Data = img.data.toString('base64');
         }
       }
 

@@ -61,6 +61,7 @@ describe('file-modified event wiring', () => {
 
   it('ACP types already define HOOK_FILE_MODIFIED notification', () => {
     const src = readFileSync('src/modes/acp/types.ts', 'utf-8');
-    expect(src).toContain("HOOK_FILE_MODIFIED: 'autohand.hook.fileModified'");
+    expect(src).toContain('HOOK_FILE_MODIFIED');
+    expect(src).toContain('autohand.hook.fileModified');
   });
 });

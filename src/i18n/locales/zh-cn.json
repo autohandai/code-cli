@@ -520,7 +520,8 @@
       "llamacpp": "本地 - 使用 GGUF 模型进行快速推理",
       "mlx": "本地 - 针对 Apple Silicon Mac 优化",
       "llmgateway": "云端 - 多个 LLM 提供商的统一 API",
-      "azure": "云端 - Azure OpenAI 服务（企业级）"
+      "azure": "云端 - Azure OpenAI 服务（企业级）",
+      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)"
     },
     "config": {
       "chooseProvider": "选择一个 LLM 提供商",
@@ -601,6 +602,10 @@
       "llmgateway": {
         "title": "LLM Gateway 配置",
         "apiKeyUrl": "https://llmgateway.io/dashboard"
+      },
+      "zai": {
+        "title": "Z.ai 配置",
+        "apiKeyUrl": "https://z.ai/api-keys"
       },
       "azure": {
         "title": "Azure OpenAI 配置",

@@ -10,6 +10,7 @@ Autohand supports multiple LLM providers, giving you flexibility to choose betwe
   - [OpenRouter](#openrouter)
   - [OpenAI](#openai)
   - [LLM Gateway](#llm-gateway)
+  - [Z.ai](#zai)
 - [Local Providers](#local-providers)
   - [Ollama](#ollama)
   - [llama.cpp](#llamacpp)
@@ -33,7 +34,7 @@ cat > ~/.autohand/config.json << 'EOF'
   "provider": "openrouter",
   "openrouter": {
     "apiKey": "sk-or-v1-your-key-here",
-    "model": "anthropic/claude-sonnet-4"
+    "model": "your-modelcard-id-here"
   }
 }
 EOF
@@ -43,14 +44,15 @@ EOF
 
 ## Provider Comparison
 
-| Provider | Type | Cost | Latency | Best For |
-|----------|------|------|---------|----------|
-| **OpenRouter** | Cloud | Pay-per-use | Low | Access to 100+ models, recommended default |
-| **OpenAI** | Cloud | Pay-per-use | Low | Direct OpenAI access, GPT-4o, o1 models |
-| **LLM Gateway** | Cloud | Pay-per-use | Low | Unified API for multiple providers |
-| **Ollama** | Local | Free | Medium | Privacy-focused, offline work |
-| **llama.cpp** | Local | Free | Low | Performance-focused local inference |
-| **MLX** | Local | Free | Low | Apple Silicon optimized |
+| Provider        | Type  | Cost        | Latency | Best For                                        |
+| --------------- | ----- | ----------- | ------- | ----------------------------------------------- |
+| **OpenRouter**  | Cloud | Pay-per-use | Low     | Access to 100+ models, recommended default      |
+| **OpenAI**      | Cloud | Pay-per-use | Low     | Direct OpenAI access, GPT-4o, o1 models         |
+| **LLM Gateway** | Cloud | Pay-per-use | Low     | Unified API for multiple providers              |
+| **Z.ai**        | Cloud | Pay-per-use | Low     | GLM-4.5 series models, CogView image generation |
+| **Ollama**      | Local | Free        | Medium  | Privacy-focused, offline work                   |
+| **llama.cpp**   | Local | Free        | Low     | Performance-focused local inference             |
+| **MLX**         | Local | Free        | Low     | Apple Silicon optimized                         |
 
 ---
 
@@ -58,7 +60,7 @@ EOF
 
 ### OpenRouter
 
-OpenRouter provides a unified API to access 100+ models from various providers (Anthropic, OpenAI, Google, Meta, etc.) with a single API key.
+OpenRouter provides a unified API to access 100+ models from various providers (Anthropic via Azure Foundry Models, OpenAI, Google, Meta, etc.) with a single API key.
 
 **Setup:**
 
@@ -70,7 +72,7 @@ OpenRouter provides a unified API to access 100+ models from various providers (
   "provider": "openrouter",
   "openrouter": {
     "apiKey": "sk-or-v1-your-key-here",
-    "model": "anthropic/claude-sonnet-4"
+    "model": "your-modelcard-id-here"
   }
 }
 ```
@@ -78,13 +80,14 @@ OpenRouter provides a unified API to access 100+ models from various providers (
 **Popular Models:**
 | Model | Description |
 |-------|-------------|
-| `anthropic/claude-sonnet-4` | Best balance of speed and capability |
+| `your-modelcard-id-here` | Best balance of speed and capability |
 | `anthropic/claude-3-opus` | Most capable Claude model |
 | `openai/gpt-4o` | OpenAI's flagship model |
 | `google/gemini-pro-1.5` | Google's latest model |
 | `meta-llama/llama-3.1-70b-instruct` | Open-source alternative |
 
 **Switching Models:**
+
 ```
 /model anthropic/claude-3-opus
 ```
@@ -168,6 +171,7 @@ LLM Gateway provides a unified API for multiple LLM providers with a single inte
 | `gemini-1.5-flash` | Google |
 
 **Benefits:**
+
 - Single API key for multiple providers
 - Unified billing and usage tracking
 - OpenAI-compatible API format
@@ -185,6 +189,52 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
     "messages": [
       {"role": "user", "content": "Hello!"}
     ]
+  }'
+```
+
+---
+
+### Z.ai
+
+Z.ai (Zhipu AI) provides access to the GLM family of models and CogView for image generation. The API is fully OpenAI-compatible.
+
+**Setup:**
+
+1. Get your API key at [platform.z.ai](https://platform.z.ai/keys)
+2. Configure Autohand:
+
+```json
+{
+  "provider": "zai",
+  "zai": {
+    "apiKey": "your-zai-api-key",
+    "model": "glm-4.5"
+  }
+}
+```
+
+**Popular Models:**
+
+| Model              | Description                          |
+| ------------------ | ------------------------------------ |
+| `glm-4.5`          | Flagship GLM model, strong reasoning |
+| `glm-4.5v`         | Vision-language model                |
+| `glm-4.5-air`      | Faster, lighter variant              |
+| `glm-4.5-prior`    | Priority access variant              |
+| `glm-4.5-flash`    | Low-latency model                    |
+| `glm-4.5-air-2504` | April 2025 Air variant               |
+| `cogview-4.5`      | Image generation model               |
+
+**Example Usage:**
+
+```bash
+# Test with curl
+curl -X POST "https://api.z.ai/api/paas/v4/chat/completions" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $ZAI_API_KEY" \
+  -d '{
+    "model": "glm-4.5",
+    "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
 
@@ -224,6 +274,7 @@ Ollama makes it easy to run open-source LLMs locally. Great for privacy-consciou
 | `mixtral` | 47B | High quality mixture-of-experts |
 
 **Custom Ollama Server:**
+
 ```json
 {
   "provider": "ollama",
@@ -262,6 +313,7 @@ llama.cpp provides high-performance local inference with GGUF models.
 ```
 
 **Finding GGUF Models:**
+
 - [Hugging Face GGUF Models](https://huggingface.co/models?search=gguf)
 - Popular: `TheBloke/Llama-2-7B-GGUF`, `TheBloke/CodeLlama-13B-GGUF`
 
@@ -272,6 +324,7 @@ llama.cpp provides high-performance local inference with GGUF models.
 MLX is optimized for Apple Silicon Macs, providing fast local inference.
 
 **Requirements:**
+
 - macOS with Apple Silicon (M1/M2/M3)
 - Python 3.10+
 
@@ -350,6 +403,7 @@ Update `~/.autohand/config.json`:
 **Symptom:** "Authentication failed" or "Invalid API key"
 
 **Solutions:**
+
 1. Verify your API key is correct in the config
 2. Check the key hasn't expired
 3. Ensure you have credits/quota remaining
@@ -359,6 +413,7 @@ Update `~/.autohand/config.json`:
 **Symptom:** "Unable to connect" or timeout errors
 
 **Solutions:**
+
 1. Check internet connection
 2. Verify the base URL is correct
 3. For local providers, ensure the server is running
@@ -369,6 +424,7 @@ Update `~/.autohand/config.json`:
 **Symptom:** "Model not found" error
 
 **Solutions:**
+
 1. Verify the model name is spelled correctly
 2. Check if you have access to the model (some require approval)
 3. For local providers, ensure the model is downloaded
@@ -378,6 +434,7 @@ Update `~/.autohand/config.json`:
 **Symptom:** "Rate limit exceeded" errors
 
 **Solutions:**
+
 1. Wait and retry
 2. Use a different model
 3. Upgrade your API plan
@@ -397,6 +454,7 @@ Update `~/.autohand/config.json`:
 **Symptom:** Slow responses from local models
 
 **Solutions:**
+
 1. Use a smaller model (e.g., 7B instead of 70B)
 2. Use quantized models (Q4, Q5, Q8)
 3. Ensure you have sufficient RAM
@@ -435,10 +493,10 @@ All cloud providers support custom network settings:
 }
 ```
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `maxRetries` | 3 | Max retry attempts (capped at 5) |
-| `timeout` | 30000 | Request timeout in ms |
-| `retryDelay` | 1000 | Base delay between retries |
+| Setting      | Default | Description                      |
+| ------------ | ------- | -------------------------------- |
+| `maxRetries` | 3       | Max retry attempts (capped at 5) |
+| `timeout`    | 30000   | Request timeout in ms            |
+| `retryDelay` | 1000    | Base delay between retries       |
 
 Retries use exponential backoff: `retryDelay * 2^attempt`

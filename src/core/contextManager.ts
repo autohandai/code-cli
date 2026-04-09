@@ -5,7 +5,7 @@
  *
  * Smart Context Manager
  * Automatically manages conversation context with intelligent compression and summarization.
- * Inspired by Claude Code's "unlimited context through automatic summarization".
+ * context through automatic summarization".
  */
 import type { LLMMessage, FunctionDefinition, MessagePriority, MessageMetadata } from '../types.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
