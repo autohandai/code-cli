@@ -11,10 +11,18 @@
 - [UI 설정](#ui-설정)
 - [에이전트 설정](#에이전트-설정)
 - [권한 설정](#권한-설정)
+- [패치 모드](#패치-모드)
 - [네트워크 설정](#네트워크-설정)
 - [텔레메트리 설정](#텔레메트리-설정)
 - [외부 에이전트](#외부-에이전트)
 - [API 설정](#api-설정)
+- [인증 설정](#인증-설정)
+- [커뮤니티 스킬 설정](#커뮤니티-스킬-설정)
+- [공유 설정](#공유-설정)
+- [동기화 설정](#동기화-설정)
+- [훅 설정](#훅-설정)
+- [MCP 설정](#mcp-설정)
+- [Chrome 확장 설정](#chrome-확장-설정)
 - [스킬 시스템](#스킬-시스템)
 - [전체 예제](#전체-예제)
 
@@ -39,12 +47,39 @@ export AUTOHAND_HOME=/custom/path  # ~/.autohand를 /custom/path로 변경
 
 ## 환경 변수
 
-| 변수               | 설명                                 | 예시                      |
-| ------------------ | ------------------------------------ | ------------------------- |
-| `AUTOHAND_HOME`    | 모든 Autohand 데이터의 기본 디렉토리 | `/custom/path`            |
-| `AUTOHAND_CONFIG`  | 사용자 지정 설정 파일 경로           | `/path/to/config.json`    |
-| `AUTOHAND_API_URL` | API 엔드포인트 (설정 덮어쓰기)       | `https://api.autohand.ai` |
-| `AUTOHAND_SECRET`  | 회사/팀 비밀 키                      | `sk-xxx`                  |
+| 변수                                   | 설명                                            | 예시                             |
+| -------------------------------------- | ----------------------------------------------- | -------------------------------- |
+| `AUTOHAND_HOME`                        | 모든 Autohand 데이터의 기본 디렉토리            | `/custom/path`                   |
+| `AUTOHAND_CONFIG`                      | 사용자 지정 설정 파일 경로                      | `/path/to/config.json`           |
+| `AUTOHAND_API_URL`                     | API 엔드포인트 (설정 덮어쓰기)                  | `https://api.autohand.ai`        |
+| `AUTOHAND_SECRET`                      | 회사/팀 비밀 키                                 | `sk-xxx`                         |
+| `AUTOHAND_PERMISSION_CALLBACK_URL`     | 권한 콜백 URL (실험적)                          | `http://localhost:3000/callback` |
+| `AUTOHAND_PERMISSION_CALLBACK_TIMEOUT` | 권한 콜백 타임아웃 (밀리초)                     | `5000`                           |
+| `AUTOHAND_NON_INTERACTIVE`             | 비대화형 모드로 실행                            | `1`                              |
+| `AUTOHAND_YES`                         | 모든 프롬프트 자동 확인                         | `1`                              |
+| `AUTOHAND_NO_BANNER`                   | 시작 배너 비활성화                              | `1`                              |
+| `AUTOHAND_STREAM_TOOL_OUTPUT`          | 실시간으로 도구 출력 스트리밍                   | `1`                              |
+| `AUTOHAND_DEBUG`                       | 디버그 로깅 활성화                              | `1`                              |
+| `AUTOHAND_THINKING_LEVEL`              | 사고 수준 설정                                  | `normal`                         |
+| `AUTOHAND_CLIENT_NAME`                 | 클라이언트/편집기 식별자 (ACP 확장 프로그램에 의해 설정) | `zed`                            |
+| `AUTOHAND_CLIENT_VERSION`              | 클라이언트 버전 (ACP 확장 프로그램에 의해 설정) | `0.169.0`                        |
+
+### 사고 수준
+
+`AUTOHAND_THINKING_LEVEL` 환경 변수는 모델의 추론 깊이를 제어합니다:
+
+| 값         | 설명                                                              |
+| ---------- | ----------------------------------------------------------------- |
+| `none`     | 보이는 추론 없이 직접적인 응답                                    |
+| `normal`   | 표준 추론 깊이 (기본값)                                           |
+| `extended` | 복잡한 작업을 위한 심층 추론, 더 자세한 사고 과정 표시            |
+
+이는 일반적으로 ACP 클라이언트 확장 프로그램(예: Zed)이 구성 드롭다운을 통해 설정합니다.
+
+```bash
+# 예시: 복잡한 작업에 확장된 추론 사용
+AUTOHAND_THINKING_LEVEL=extended autohand --prompt "이 모듈을 리팩토링하세요"
+```
 
 ---
 
@@ -54,12 +89,14 @@ export AUTOHAND_HOME=/custom/path  # ~/.autohand를 /custom/path로 변경
 
 사용할 활성 LLM 프로바이더입니다.
 
-| 값             | 설명                    |
-| -------------- | ----------------------- |
-| `"openrouter"` | OpenRouter API (기본값) |
-| `"ollama"`     | 로컬 Ollama 인스턴스    |
-| `"llamacpp"`   | 로컬 llama.cpp 서버     |
-| `"openai"`     | OpenAI API 직접 사용    |
+| 값             | 설명                            |
+| -------------- | ------------------------------- |
+| `"openrouter"` | OpenRouter API (기본값)         |
+| `"ollama"`     | 로컬 Ollama 인스턴스            |
+| `"llamacpp"`   | 로컬 llama.cpp 서버             |
+| `"openai"`     | OpenAI API 직접 사용            |
+| `"mlx"`        | Apple Silicon에서 MLX (로컬)    |
+| `"llmgateway"` | 통합 LLM Gateway API            |
 
 ### `openrouter`
 
@@ -141,6 +178,56 @@ OpenAI API 설정입니다.
 | `baseUrl` | string | 아니오 | `https://api.openai.com/v1` | API 엔드포인트                          |
 | `model`   | string | 예     | -                           | 모델 이름 (예: `gpt-4o`, `gpt-4o-mini`) |
 
+### `mlx`
+
+Apple Silicon Mac용 MLX 프로바이더(로컬 추론).
+
+```json
+{
+  "mlx": {
+    "baseUrl": "http://localhost:8080",
+    "port": 8080,
+    "model": "mlx-community/Llama-3.2-3B-Instruct-4bit"
+  }
+}
+```
+
+| 필드      | 타입   | 필수   | 기본값                 | 설명               |
+| --------- | ------ | ------ | ---------------------- | ------------------ |
+| `baseUrl` | string | 아니오 | `http://localhost:8080` | MLX 서버 URL       |
+| `port`    | number | 아니오 | `8080`                  | 서버 포트          |
+| `model`   | string | 예     | -                       | MLX 모델 식별자    |
+
+### `llmgateway`
+
+통합 LLM Gateway API 구성. 단일 API를 통해 여러 LLM 프로바이더에 접근할 수 있습니다.
+
+```json
+{
+  "llmgateway": {
+    "apiKey": "your-llmgateway-api-key",
+    "baseUrl": "https://api.llmgateway.io/v1",
+    "model": "gpt-4o"
+  }
+}
+```
+
+| 필드      | 타입   | 필수   | 기본값                        | 설명                                               |
+| --------- | ------ | ------ | -------------------------------- | -------------------------------------------------- |
+| `apiKey`  | string | 예     | -                                | LLM Gateway API 키                                 |
+| `baseUrl` | string | 아니오 | `https://api.llmgateway.io/v1` | API 엔드포인트                                     |
+| `model`   | string | 예     | -                                | 모델 이름 (예: `gpt-4o`, `claude-3-5-sonnet-20241022`) |
+
+**API 키 받기:**
+계정을 만들고 API 키를 받으려면 [llmgateway.io/dashboard](https://llmgateway.io/dashboard)를 방문하세요.
+
+**지원되는 모델:**
+LLM Gateway는 다음을 포함한 여러 프로바이더의 모델을 지원합니다:
+
+- OpenAI: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`
+- Anthropic: `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`
+- Google: `gemini-1.5-pro`, `gemini-1.5-flash`
+
 ---
 
 ## 워크스페이스 설정
@@ -158,6 +245,28 @@ OpenAI API 설정입니다.
 | ------------------- | ------- | ------------- | ------------------------------------ |
 | `defaultRoot`       | string  | 현재 디렉토리 | 지정되지 않은 경우 기본 워크스페이스 |
 | `allowDangerousOps` | boolean | `false`       | 확인 없이 파괴적 작업 허용           |
+
+### 워크스페이스 안전성
+
+Autohand는 우발적인 손상을 방지하기 위해 위험한 디렉토리에서 작업을 자동으로 차단합니다:
+
+- **파일 시스템 루트** (`/`, `C:\`, `D:\`, 등)
+- **홈 디렉토리** (`~`, `/Users/<user>`, `/home/<user>`, `C:\Users\<user>`)
+- **시스템 디렉토리** (`/etc`, `/var`, `/System`, `C:\Windows`, 등)
+- **Windows WSL 마운트** (`/mnt/c`, `/mnt/c/Users/<user>`)
+
+이 검사는 재정의할 수 없습니다. 위험한 디렉토리에서 autohand를 실행하려고 하면 오류가 발생하고 안전한 프로젝트 디렉토리를 지정해야 합니다.
+
+```bash
+# 이것은 차단됩니다
+cd ~ && autohand
+# 오류: 안전하지 않은 워크스페이스 디렉토리
+
+# 이것은 작동합니다
+cd ~/projects/my-app && autohand
+```
+
+자세한 내용은 [워크스페이스 안전성](./workspace-safety.md)을 참조하세요.
 
 ---
 
@@ -273,7 +382,8 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 {
   "agent": {
     "maxIterations": 100,
-    "enableRequestQueue": true
+    "enableRequestQueue": true,
+    "debug": false
   }
 }
 ```
@@ -282,6 +392,17 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 | -------------------- | ------- | ------ | --------------------------------------------- |
 | `maxIterations`      | number  | `100`  | 중지하기 전 사용자 요청당 최대 도구 반복 횟수 |
 | `enableRequestQueue` | boolean | `true` | 에이전트 작업 중 요청 입력 및 대기열 허용     |
+| `debug`              | boolean | `false` | 상세 디버그 출력 활성화 (에이전트 내부 상태 로그를 stderr에 기록) |
+
+### 디버그 모드
+
+디버그 모드를 활성화하면 에이전트의 내부 상태에 대한 상세 로깅(react 루프 반복, 프롬프트 구축, 세션 세부 정보)을 볼 수 있습니다. 출력은 정상 출력을 방해하지 않도록 stderr로 전송됩니다.
+
+디버그 모드를 활성화하는 세 가지 방법 (우선순위 순):
+
+1. **CLI 플래그**: `autohand -d` 또는 `autohand --debug`
+2. **환경 변수**: `AUTOHAND_DEBUG=1`
+3. **구성 파일**: `agent.debug: true` 설정
 
 ### 요청 대기열
 
