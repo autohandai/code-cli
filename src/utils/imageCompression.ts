@@ -256,8 +256,36 @@ export async function compressImageBuffer(
     };
   }
 
-  // Stage 1: Progressive resize with format-specific optimizations
-  const scalingFactors = [1.0, 0.75, 0.5, 0.25];
+  // Very small budgets need an aggressive first step to avoid repeated multi-megapixel passes.
+  if (maxBytes <= 1024 * 1024) {
+    const budgetDimension = Math.max(300, Math.min(1200, Math.round(Math.sqrt(maxBytes))));
+    for (const quality of [70, 50, 35, 20]) {
+      const jpegBuf = await sharp(imageBuffer)
+        .resize(budgetDimension, budgetDimension, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality })
+        .toBuffer();
+      if (jpegBuf.length <= maxBytes) {
+        return {
+          base64: jpegBuf.toString('base64'),
+          mediaType: 'image/jpeg',
+          originalSize: imageBuffer.length,
+        };
+      }
+    }
+  }
+
+  // Start close to the required byte budget to avoid several expensive full-size passes.
+  const budgetDimension = Math.max(400, Math.min(IMAGE_MAX_DIMENSION, Math.round(Math.sqrt(maxBytes * 1.5))));
+  const estimatedScale = Math.min(
+    Math.sqrt(Math.max(maxBytes, 1) / imageBuffer.length),
+    budgetDimension / Math.max(metadata.width ?? budgetDimension, metadata.height ?? budgetDimension),
+  );
+  const preferredStart = Math.min(1, Math.max(0.1, estimatedScale * 1.1));
+  const scalingFactors = Array.from(new Set([
+    preferredStart,
+    Math.max(0.1, preferredStart * 0.75),
+    Math.max(0.1, preferredStart * 0.5),
+  ])).sort((a, b) => b - a);
   const w = metadata.width ?? IMAGE_MAX_DIMENSION;
   const h = metadata.height ?? IMAGE_MAX_DIMENSION;
 

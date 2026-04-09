@@ -403,6 +403,8 @@
     "ollama": "Ollama",
     "llamacpp": "llama.cpp",
     "mlx": "MLX (Apple Silicon)",
+    "llmgateway": "LLM Gateway",
+    "azure": "Azure OpenAI",
     "hints": {
       "openrouter": "Облако - Доступ к 100+ моделям (Claude, GPT-4 и др.)",
       "openai": "Облако - Официальные модели OpenAI (GPT-4o, o1 и др.)",

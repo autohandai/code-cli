@@ -5,12 +5,12 @@
  *
  * Integration tests for sync feature
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import fs from 'fs-extra';
-import path from 'path';
-import os from 'os';
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import fs from "fs-extra";
+import path from "path";
+import os from "os";
 
-describe('Sync Integration', () => {
+describe("Sync Integration", () => {
   let tempDir: string;
   let mockFetch: ReturnType<typeof vi.fn>;
 
@@ -29,12 +29,12 @@ describe('Sync Integration', () => {
     vi.restoreAllMocks();
   });
 
-  describe('SyncApiClient', () => {
-    it('constructs correct API URLs', async () => {
-      const { SyncApiClient } = await import('../../src/sync/SyncApiClient.js');
+  describe("SyncApiClient", () => {
+    it("constructs correct API URLs", async () => {
+      const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
 
       const client = new SyncApiClient({
-        baseUrl: 'https://test-api.example.com',
+        baseUrl: "https://test-api.example.com",
         timeout: 5000,
       });
 
@@ -42,28 +42,28 @@ describe('Sync Integration', () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 404,
-        text: () => Promise.resolve('Not found'),
+        text: () => Promise.resolve("Not found"),
       });
 
-      const manifest = await client.getRemoteManifest('test-token');
+      const manifest = await client.getRemoteManifest("test-token");
 
       expect(manifest).toBeNull();
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://test-api.example.com/v1/sync/manifest',
+        "https://test-api.example.com/v1/sync/manifest",
         expect.objectContaining({
-          method: 'GET',
+          method: "GET",
           headers: expect.objectContaining({
-            Authorization: 'Bearer test-token',
+            Authorization: "Bearer test-token",
           }),
-        })
+        }),
       );
     });
 
-    it('handles API errors gracefully', async () => {
-      const { SyncApiClient } = await import('../../src/sync/SyncApiClient.js');
+    it("handles API errors gracefully", async () => {
+      const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
 
       const client = new SyncApiClient({
-        baseUrl: 'https://test-api.example.com',
+        baseUrl: "https://test-api.example.com",
         timeout: 5000,
         maxRetries: 1, // Disable retries for this test
       });
@@ -71,17 +71,19 @@ describe('Sync Integration', () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 400, // Use 400 (not retried) instead of 500 (retried)
-        text: () => Promise.resolve('Bad request'),
+        text: () => Promise.resolve("Bad request"),
       });
 
-      await expect(client.getRemoteManifest('test-token')).rejects.toThrow('API error');
+      await expect(client.getRemoteManifest("test-token")).rejects.toThrow(
+        "API error",
+      );
     });
 
-    it('retries on server errors', async () => {
-      const { SyncApiClient } = await import('../../src/sync/SyncApiClient.js');
+    it("retries on server errors", async () => {
+      const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
 
       const client = new SyncApiClient({
-        baseUrl: 'https://test-api.example.com',
+        baseUrl: "https://test-api.example.com",
         timeout: 5000,
         maxRetries: 3,
         retryDelay: 10, // Fast retries for testing
@@ -92,12 +94,12 @@ describe('Sync Integration', () => {
         .mockResolvedValueOnce({
           ok: false,
           status: 500,
-          text: () => Promise.resolve('Server error'),
+          text: () => Promise.resolve("Server error"),
         })
         .mockResolvedValueOnce({
           ok: false,
           status: 500,
-          text: () => Promise.resolve('Server error'),
+          text: () => Promise.resolve("Server error"),
         })
         .mockResolvedValueOnce({
           ok: true,
@@ -105,16 +107,16 @@ describe('Sync Integration', () => {
           json: () => Promise.resolve({ manifest: null }),
         });
 
-      const result = await client.getRemoteManifest('test-token');
+      const result = await client.getRemoteManifest("test-token");
       expect(result).toBeNull();
       expect(mockFetch).toHaveBeenCalledTimes(3);
     });
 
-    it('handles rate limiting with retry', async () => {
-      const { SyncApiClient } = await import('../../src/sync/SyncApiClient.js');
+    it("handles rate limiting with retry", async () => {
+      const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
 
       const client = new SyncApiClient({
-        baseUrl: 'https://test-api.example.com',
+        baseUrl: "https://test-api.example.com",
         timeout: 5000,
         maxRetries: 3,
         retryDelay: 10, // Fast retries for testing
@@ -125,8 +127,8 @@ describe('Sync Integration', () => {
         .mockResolvedValueOnce({
           ok: false,
           status: 429,
-          headers: new Map([['Retry-After', '1']]),
-          text: () => Promise.resolve('Rate limited'),
+          headers: new Map([["Retry-After", "1"]]),
+          text: () => Promise.resolve("Rate limited"),
         })
         .mockResolvedValueOnce({
           ok: true,
@@ -134,16 +136,16 @@ describe('Sync Integration', () => {
           json: () => Promise.resolve({ manifest: null }),
         });
 
-      const result = await client.getRemoteManifest('test-token');
+      const result = await client.getRemoteManifest("test-token");
       expect(result).toBeNull();
       expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
-    it('handles network timeouts', async () => {
-      const { SyncApiClient } = await import('../../src/sync/SyncApiClient.js');
+    it("handles network timeouts", async () => {
+      const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
 
       const client = new SyncApiClient({
-        baseUrl: 'https://test-api.example.com',
+        baseUrl: "https://test-api.example.com",
         timeout: 100, // Very short timeout
       });
 
@@ -151,15 +153,20 @@ describe('Sync Integration', () => {
       mockFetch.mockImplementationOnce(
         () =>
           new Promise((_, reject) => {
-            setTimeout(() => reject(new DOMException('Aborted', 'AbortError')), 50);
-          })
+            setTimeout(
+              () => reject(new DOMException("Aborted", "AbortError")),
+              50,
+            );
+          }),
       );
 
-      await expect(client.getRemoteManifest('test-token')).rejects.toThrow('timeout');
+      await expect(client.getRemoteManifest("test-token")).rejects.toThrow(
+        "timeout",
+      );
     });
 
-    it('respects file size limits', async () => {
-      const { SyncApiClient } = await import('../../src/sync/SyncApiClient.js');
+    it("respects file size limits", async () => {
+      const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
 
       const client = new SyncApiClient({
         maxFileSize: 100, // 100 bytes
@@ -168,28 +175,29 @@ describe('Sync Integration', () => {
       // Create content larger than limit
       const largeContent = Buffer.alloc(200);
 
-      await expect(client.uploadFile('https://example.com/upload', largeContent)).rejects.toThrow(
-        'exceeds max size'
-      );
+      await expect(
+        client.uploadFile("https://example.com/upload", largeContent),
+      ).rejects.toThrow("exceeds max size");
     });
   });
 
-  describe('Encryption', () => {
-    it('encrypts and decrypts config correctly', async () => {
-      const { encryptConfig, decryptConfig } = await import('../../src/sync/encryption.js');
+  describe("Encryption", () => {
+    it("encrypts and decrypts config correctly", async () => {
+      const { encryptConfig, decryptConfig } =
+        await import("../../src/sync/encryption.js");
 
       const originalConfig = {
-        provider: 'openrouter',
+        provider: "openrouter",
         openrouter: {
-          apiKey: 'sk-test-key-12345',
-          model: 'anthropic/claude-3.5-sonnet',
+          apiKey: "sk-test-key-12345",
+          model: "your-modelcard-id-here",
         },
         ui: {
-          theme: 'dark',
+          theme: "dark",
         },
       };
 
-      const authToken = 'test-auth-token-abcdef';
+      const authToken = "test-auth-token-abcdef";
 
       const encrypted = encryptConfig(originalConfig, authToken);
       const decrypted = decryptConfig(encrypted, authToken);
@@ -197,44 +205,45 @@ describe('Sync Integration', () => {
       expect(decrypted).toEqual(originalConfig);
     });
 
-    it('encrypts API keys in nested objects', async () => {
-      const { encryptConfig } = await import('../../src/sync/encryption.js');
+    it("encrypts API keys in nested objects", async () => {
+      const { encryptConfig } = await import("../../src/sync/encryption.js");
 
       const config = {
         openrouter: {
-          apiKey: 'sk-test-key',
+          apiKey: "sk-test-key",
         },
         anthropic: {
-          apiKey: 'sk-ant-key',
+          apiKey: "sk-ant-key",
         },
       };
 
-      const encrypted = encryptConfig(config, 'auth-token');
+      const encrypted = encryptConfig(config, "auth-token");
 
       // API keys should be encrypted (contain : separator)
-      expect(encrypted.openrouter.apiKey).toContain(':');
-      expect(encrypted.anthropic.apiKey).toContain(':');
+      expect(encrypted.openrouter.apiKey).toContain(":");
+      expect(encrypted.anthropic.apiKey).toContain(":");
     });
 
-    it('throws on decryption with wrong token', async () => {
-      const { encrypt, decrypt } = await import('../../src/sync/encryption.js');
+    it("throws on decryption with wrong token", async () => {
+      const { encrypt, decrypt } = await import("../../src/sync/encryption.js");
 
-      const encrypted = encrypt('secret', 'correct-token');
+      const encrypted = encrypt("secret", "correct-token");
 
-      expect(() => decrypt(encrypted, 'wrong-token')).toThrow();
+      expect(() => decrypt(encrypted, "wrong-token")).toThrow();
     });
   });
 
-  describe('Sync Types', () => {
-    it('exports metadata correctly', async () => {
-      const { metadata } = await import('../../src/commands/sync.js');
+  describe("Sync Types", () => {
+    it("exports metadata correctly", async () => {
+      const { metadata } = await import("../../src/commands/sync.js");
 
-      expect(metadata.command).toBe('/sync');
+      expect(metadata.command).toBe("/sync");
       expect(metadata.implemented).toBe(true);
     });
 
-    it('sets and gets sync service reference', async () => {
-      const { setSyncService, getSyncService } = await import('../../src/commands/sync.js');
+    it("sets and gets sync service reference", async () => {
+      const { setSyncService, getSyncService } =
+        await import("../../src/commands/sync.js");
 
       // Initially null
       setSyncService(null);
@@ -250,8 +259,8 @@ describe('Sync Integration', () => {
     });
   });
 
-  describe('CLI Options', () => {
-    it('supports --sync-settings flag', () => {
+  describe("CLI Options", () => {
+    it("supports --sync-settings flag", () => {
       // This is a compile-time check - if the type doesn't include syncSettings,
       // TypeScript will fail. We just verify the option exists in CLIOptions.
       interface TestOptions {
@@ -269,26 +278,32 @@ describe('Sync Integration', () => {
     });
   });
 
-  describe('File Filtering', () => {
-    it('excludes device-specific files from sync', async () => {
-      const { SYNC_EXCLUDE_ALWAYS } = await import('../../src/sync/types.js');
+  describe("File Filtering", () => {
+    it("excludes device-specific files from sync", async () => {
+      const { SYNC_EXCLUDE_ALWAYS } = await import("../../src/sync/types.js");
 
-      expect(SYNC_EXCLUDE_ALWAYS).toContain('device-id');
-      expect(SYNC_EXCLUDE_ALWAYS).toContain('error.log');
+      expect(SYNC_EXCLUDE_ALWAYS).toContain("device-id");
+      expect(SYNC_EXCLUDE_ALWAYS).toContain("error.log");
     });
 
-    it('includes standard files by default', async () => {
-      const { SYNC_INCLUDE_DEFAULT } = await import('../../src/sync/types.js');
+    it("includes standard files by default", async () => {
+      const { SYNC_INCLUDE_DEFAULT } = await import("../../src/sync/types.js");
 
-      expect(SYNC_INCLUDE_DEFAULT).toContain('config.json');
+      expect(SYNC_INCLUDE_DEFAULT).toContain("config.json");
       // Check for directory patterns (with trailing slash)
-      expect(SYNC_INCLUDE_DEFAULT.some((p) => p.startsWith('agents'))).toBe(true);
-      expect(SYNC_INCLUDE_DEFAULT.some((p) => p.startsWith('skills'))).toBe(true);
-      expect(SYNC_INCLUDE_DEFAULT.some((p) => p.startsWith('memory'))).toBe(true);
+      expect(SYNC_INCLUDE_DEFAULT.some((p) => p.startsWith("agents"))).toBe(
+        true,
+      );
+      expect(SYNC_INCLUDE_DEFAULT.some((p) => p.startsWith("skills"))).toBe(
+        true,
+      );
+      expect(SYNC_INCLUDE_DEFAULT.some((p) => p.startsWith("memory"))).toBe(
+        true,
+      );
     });
 
-    it('requires consent for telemetry and feedback', async () => {
-      const { SYNC_CONSENT_REQUIRED } = await import('../../src/sync/types.js');
+    it("requires consent for telemetry and feedback", async () => {
+      const { SYNC_CONSENT_REQUIRED } = await import("../../src/sync/types.js");
 
       // Check for telemetry and feedback paths (may have trailing slashes)
       expect(SYNC_CONSENT_REQUIRED.telemetry).toMatch(/^telemetry/);
@@ -296,18 +311,19 @@ describe('Sync Integration', () => {
     });
   });
 
-  describe('Slash Command Registration', () => {
-    it('includes sync in slash commands', async () => {
-      const { SLASH_COMMANDS } = await import('../../src/core/slashCommands.js');
+  describe("Slash Command Registration", () => {
+    it("includes sync in slash commands", async () => {
+      const { SLASH_COMMANDS } =
+        await import("../../src/core/slashCommands.js");
 
-      const syncCommand = SLASH_COMMANDS.find((cmd) => cmd.command === '/sync');
+      const syncCommand = SLASH_COMMANDS.find((cmd) => cmd.command === "/sync");
       expect(syncCommand).toBeDefined();
       expect(syncCommand?.implemented).toBe(true);
     });
   });
 
-  describe('Sync Config', () => {
-    it('supports sync settings in config schema', () => {
+  describe("Sync Config", () => {
+    it("supports sync settings in config schema", () => {
       // Verify sync config interface
       interface SyncConfig {
         enabled: boolean;
@@ -329,13 +345,13 @@ describe('Sync Integration', () => {
   });
 });
 
-describe('Sync Service Factory', () => {
-  it('creates sync service with options', async () => {
-    const { createSyncService } = await import('../../src/sync/index.js');
+describe("Sync Service Factory", () => {
+  it("creates sync service with options", async () => {
+    const { createSyncService } = await import("../../src/sync/index.js");
 
     const service = createSyncService({
-      authToken: 'test-token',
-      userId: 'test-user',
+      authToken: "test-token",
+      userId: "test-user",
       config: {
         enabled: true,
         interval: 60000,

@@ -357,6 +357,30 @@ describe('OllamaProvider', () => {
             expect(apiErr.httpStatus).toBe(503);
         });
 
+        it('returns a friendly reminder for Ollama Cloud session usage limits', async () => {
+            const p = new OllamaProvider(config, { maxRetries: 0 });
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: false,
+                status: 429,
+                statusText: 'Too Many Requests',
+                headers: new Headers(),
+                text: async () => '{"error":"you (kind_elgamal_616) have reached your session usage limit, upgrade for higher limits: https://ollama.com/upgrade"}'
+            });
+
+            const err = await p.complete({
+                messages: [{ role: 'user', content: 'Hello' }]
+            }).catch((e: unknown) => e);
+
+            expect(err).toBeInstanceOf(ApiError);
+            const apiErr = err as ApiError;
+            expect(apiErr.code).toBe('rate_limited');
+            expect(apiErr.httpStatus).toBe(429);
+            expect(apiErr.message).toContain('Ollama Cloud has paused this session');
+            expect(apiErr.message).toContain('Wait a bit and try again');
+            expect(apiErr.message).toContain('upgrade your Ollama plan');
+            expect(apiErr.rawDetail).toContain('session usage limit');
+        });
+
         it('respects configured timeout', async () => {
             const networkSettings: NetworkSettings = { timeout: 100, maxRetries: 0 };
             const fastTimeoutProvider = new OllamaProvider(config, networkSettings);
@@ -438,6 +462,109 @@ describe('OllamaProvider', () => {
             // Second call should not include tools
             const secondCallBody = JSON.parse((fetch as ReturnType<typeof vi.fn>).mock.calls[1][1].body);
             expect(secondCallBody.tools).toBeUndefined();
+        });
+
+        it('normalizes assistant tool call arguments to objects for Ollama request history', async () => {
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                json: async () => ({
+                    message: { content: 'ok' },
+                    created_at: '2024-11-21T10:30:00Z'
+                })
+            });
+
+            await provider.complete({
+                messages: [
+                    { role: 'user', content: 'Read package.json' },
+                    {
+                        role: 'assistant',
+                        content: '',
+                        tool_calls: [
+                            {
+                                id: 'call_1',
+                                type: 'function',
+                                function: {
+                                    name: 'read_file',
+                                    arguments: '{"path":"package.json"}'
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        role: 'tool',
+                        name: 'read_file',
+                        content: '{"name":"autohand-cli"}',
+                        tool_call_id: 'call_1'
+                    }
+                ]
+            });
+
+            const requestBody = JSON.parse((fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+            expect(requestBody.messages[1].tool_calls).toEqual([
+                {
+                    function: {
+                        name: 'read_file',
+                        arguments: { path: 'package.json' }
+                    }
+                }
+            ]);
+        });
+
+        it('retries in toolless mode when Ollama rejects tool parser metadata', async () => {
+            global.fetch = vi.fn()
+                .mockResolvedValueOnce({
+                    ok: false,
+                    status: 400,
+                    statusText: 'Bad Request',
+                    text: async () => '{"error":"Value looks like object, but can\'t find closing \'}\' symbol"}'
+                })
+                .mockResolvedValueOnce({
+                    ok: true,
+                    json: async () => ({
+                        message: { content: 'Fallback response' },
+                        created_at: '2024-11-21T10:30:00Z'
+                    })
+                });
+
+            const response = await provider.complete({
+                messages: [
+                    { role: 'user', content: 'Inspect package.json and summarize it' },
+                    {
+                        role: 'assistant',
+                        content: '',
+                        tool_calls: [
+                            {
+                                id: 'call_1',
+                                type: 'function',
+                                function: {
+                                    name: 'read_file',
+                                    arguments: '{"path":"package.json"}'
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        role: 'tool',
+                        name: 'read_file',
+                        content: '{"name":"autohand-cli"}',
+                        tool_call_id: 'call_1'
+                    }
+                ],
+                tools: [{
+                    name: 'read_file',
+                    description: 'Read a file',
+                    parameters: { type: 'object', properties: {} }
+                }]
+            });
+
+            expect(response.content).toBe('Fallback response');
+            expect(global.fetch).toHaveBeenCalledTimes(2);
+
+            const secondCallBody = JSON.parse((fetch as ReturnType<typeof vi.fn>).mock.calls[1][1].body);
+            expect(secondCallBody.tools).toBeUndefined();
+            expect(secondCallBody.messages[1].tool_calls).toBeUndefined();
+            expect(secondCallBody.messages[2].role).toBe('user');
+            expect(secondCallBody.messages[2].content).toContain('[Tool result: read_file]');
         });
     });
 

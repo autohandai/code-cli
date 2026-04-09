@@ -20,7 +20,7 @@ export type StdinType = 'tty' | 'pipe' | 'none';
  * Uses `process.stdin.isTTY` for the fast path, then falls back to
  * `fstatSync(0)` to distinguish pipe/file from no-stdin scenarios.
  *
- * Inspired by Cline's `piped.ts` pattern: `fstatSync(0).isFIFO()`.
+ * Uses the `fstatSync(0).isFIFO()` pattern to detect piped input.
  *
  * @param fstat - Optional fstatSync override for testing
  * @returns The detected stdin type

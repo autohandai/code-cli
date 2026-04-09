@@ -520,7 +520,8 @@
       "llamacpp": "Yerel - GGUF modelleri ile hızlı çıkarım",
       "mlx": "Yerel - Apple Silicon için optimize edilmiş",
       "llmgateway": "Bulut - Çoklu LLM sağlayıcı için birleşik API",
-      "azure": "Bulut - Azure OpenAI Servisi (kurumsal)"
+      "azure": "Bulut - Azure OpenAI Servisi (kurumsal)",
+      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)"
     },
     "config": {
       "chooseProvider": "Bir LLM sağlayıcısı seçin",
@@ -601,6 +602,10 @@
       "llmgateway": {
         "title": "LLM Gateway Yapılandırması",
         "apiKeyUrl": "https://llmgateway.io/dashboard"
+      },
+      "zai": {
+        "title": "Z.ai Yapılandırması",
+        "apiKeyUrl": "https://z.ai/api-keys"
       },
       "azure": {
         "title": "Azure OpenAI Yapılandırması",

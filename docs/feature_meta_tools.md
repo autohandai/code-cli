@@ -68,9 +68,9 @@ Meta-tools are saved as JSON files in `~/.autohand/tools/{name}.json`:
 
 The `handler` field is a shell command template that supports parameter substitution using `{{param}}` syntax:
 
-| Syntax | Description |
-|--------|-------------|
-| `{{path}}` | Replaces with the `path` parameter value |
+| Syntax      | Description                               |
+| ----------- | ----------------------------------------- |
+| `{{path}}`  | Replaces with the `path` parameter value  |
 | `{{query}}` | Replaces with the `query` parameter value |
 | `{{limit}}` | Replaces with the `limit` parameter value |
 
@@ -113,21 +113,29 @@ Once created, the meta-tool can be invoked like any built-in tool:
 ### Common Use Cases
 
 1. **Code Analysis Tools**
+
    ```json
    {
      "name": "find_todos",
      "description": "Find TODO comments in codebase",
-     "parameters": {"type": "object", "properties": {"path": {"type": "string"}}},
+     "parameters": {
+       "type": "object",
+       "properties": { "path": { "type": "string" } }
+     },
      "handler": "grep -rn 'TODO\\|FIXME' {{path}}"
    }
    ```
 
 2. **Build/Test Shortcuts**
+
    ```json
    {
      "name": "quick_test",
      "description": "Run tests for a specific file",
-     "parameters": {"type": "object", "properties": {"file": {"type": "string"}}},
+     "parameters": {
+       "type": "object",
+       "properties": { "file": { "type": "string" } }
+     },
      "handler": "bun test {{file}}"
    }
    ```
@@ -137,7 +145,13 @@ Once created, the meta-tool can be invoked like any built-in tool:
    {
      "name": "recent_changes",
      "description": "Show recent changes by author",
-     "parameters": {"type": "object", "properties": {"author": {"type": "string"}, "days": {"type": "number"}}},
+     "parameters": {
+       "type": "object",
+       "properties": {
+         "author": { "type": "string" },
+         "days": { "type": "number" }
+       }
+     },
      "handler": "git log --author='{{author}}' --since='{{days}} days ago' --oneline"
    }
    ```
@@ -155,20 +169,18 @@ Autohand can load agent definitions from external paths, enabling integration wi
 Add external agent paths to your config file (`~/.autohand/config.json` or `~/.autohand/config.yaml`):
 
 **JSON:**
+
 ```json
 {
   "externalAgents": {
     "enabled": true,
-    "paths": [
-      "~/.claude/agents",
-      "~/.gemini/agents",
-      "~/.aider/agents"
-    ]
+    "paths": ["~/.claude/agents", "~/.gemini/agents", "~/.aider/agents"]
   }
 }
 ```
 
 **YAML:**
+
 ```yaml
 externalAgents:
   enabled: true
@@ -189,7 +201,7 @@ Standard JSON agent definition:
   "description": "Expert code reviewer",
   "systemPrompt": "You are an expert code reviewer...",
   "tools": ["read_file", "search", "git_diff"],
-  "model": "anthropic/claude-3.5-sonnet"
+  "model": "your-modelcard-id-here"
 }
 ```
 
@@ -203,16 +215,19 @@ Markdown files (`.md`) are parsed as agent definitions:
 - **Tools**: All tools available by default
 
 Example (`~/.claude/agents/code-reviewer.md`):
+
 ```markdown
 # Code Reviewer
 
 You are an expert code reviewer focusing on:
+
 - Security vulnerabilities
 - Performance issues
 - Code style consistency
 - Best practices
 
 When reviewing code, always:
+
 1. Start by understanding the context
 2. Look for potential bugs
 3. Suggest improvements
@@ -241,6 +256,7 @@ External agents are available through the delegation tools:
 ### Agent Sources
 
 Each agent tracks its source:
+
 - `builtin`: Core agents shipped with Autohand
 - `user`: Agents from `~/.autohand/agents/`
 - `external`: Agents from external paths
@@ -273,12 +289,12 @@ Each agent tracks its source:
 
 ### create_meta_tool Action
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `name` | string | Yes | Tool name in snake_case |
-| `description` | string | Yes | What the tool does |
-| `parameters` | object | Yes | JSON Schema for parameters |
-| `handler` | string | Yes | Shell command template |
+| Parameter     | Type   | Required | Description                |
+| ------------- | ------ | -------- | -------------------------- |
+| `name`        | string | Yes      | Tool name in snake_case    |
+| `description` | string | Yes      | What the tool does         |
+| `parameters`  | object | Yes      | JSON Schema for parameters |
+| `handler`     | string | Yes      | Shell command template     |
 
 ### MetaToolDefinition Schema
 
@@ -289,7 +305,7 @@ interface MetaToolDefinition {
   parameters: Record<string, unknown>;
   handler: string;
   createdAt: string;
-  source: 'agent' | 'user';
+  source: "agent" | "user";
 }
 ```
 
@@ -309,11 +325,13 @@ interface ExternalAgentsConfig {
 ### Example 1: Create a Line Counter Tool
 
 **Agent Request:**
+
 ```
 Create a tool that counts lines in TypeScript files
 ```
 
 **Tool Created:**
+
 ```json
 {
   "name": "count_ts_lines",
@@ -335,6 +353,7 @@ Create a tool that counts lines in TypeScript files
 ### Example 2: Load Claude Code Agents
 
 **Config:**
+
 ```yaml
 externalAgents:
   enabled: true
@@ -343,10 +362,12 @@ externalAgents:
 ```
 
 **Agent File (`~/.claude/agents/react-expert.md`):**
+
 ```markdown
 # React Expert
 
 Specialized in React.js development with deep knowledge of:
+
 - Hooks (useState, useEffect, useMemo, useCallback)
 - Context API and state management
 - Performance optimization
@@ -356,6 +377,7 @@ Always suggest functional components over class components.
 ```
 
 **Usage:**
+
 ```json
 {
   "type": "delegate_task",

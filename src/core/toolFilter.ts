@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Tool filtering based on client context and risk categories
- * Inspired by Claude Code's permission model
  */
 import type { ToolDefinition } from './toolManager.js';
 import type { ClientContext } from '../types.js';

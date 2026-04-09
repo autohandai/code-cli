@@ -520,7 +520,8 @@
       "llamacpp": "로컬 - GGUF 모델로 빠른 추론",
       "mlx": "로컬 - Apple Silicon 최적화",
       "llmgateway": "클라우드 - 다중 LLM 제공자 통합 API",
-      "azure": "클라우드 - Azure OpenAI Service (엔터프라이즈)"
+      "azure": "클라우드 - Azure OpenAI Service (엔터프라이즈)",
+      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)"
     },
     "config": {
       "chooseProvider": "LLM 제공자 선택",
@@ -601,6 +602,10 @@
       "llmgateway": {
         "title": "LLM Gateway 설정",
         "apiKeyUrl": "https://llmgateway.io/dashboard"
+      },
+      "zai": {
+        "title": "Z.ai 설정",
+        "apiKeyUrl": "https://z.ai/api-keys"
       },
       "azure": {
         "title": "Azure OpenAI 설정",

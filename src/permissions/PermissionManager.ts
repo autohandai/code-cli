@@ -630,6 +630,7 @@ export class PermissionManager {
   /**
    * Match context against a pattern string
    * Format: "tool:pattern" or just "pattern" for run_command
+   * Supports prefix patterns like "write_file:*" and directory-specific patterns
    */
   private matchesPattern(context: PermissionContext, pattern: string): boolean {
     // Parse pattern
@@ -651,7 +652,48 @@ export class PermissionManager {
       return false;
     }
 
-    // Check command/path match
+    // Handle prefix patterns (tool:*)
+    if (commandPattern === '*') {
+      return true;
+    }
+
+    // Handle directory/workspace-specific prefix patterns
+    if (commandPattern.endsWith(':*')) {
+      const prefix = commandPattern.slice(0, -2);
+      const fullCommand = this.getFullCommand(context);
+      
+      // Check if the command/path starts with the prefix
+      if (fullCommand.startsWith(prefix)) {
+        // Ensure it's a proper prefix (either exact match or followed by separator)
+        return fullCommand === prefix || 
+               fullCommand.startsWith(prefix + ' ') || 
+               fullCommand.startsWith(prefix + '/') ||
+               fullCommand.startsWith(prefix + path.sep);
+      }
+      return false;
+    }
+
+    // Handle workspace-relative patterns like "write_file:src/*"
+    if (this.workspaceRoot && (commandPattern.includes('/*'))) {
+      
+      // For file operations, check if the path matches the workspace pattern
+      if (context.path) {
+        // Convert workspace-relative patterns to absolute paths for matching
+        let workspacePattern = commandPattern;
+        if (commandPattern.startsWith('src/*') || commandPattern.startsWith('tests/*') || 
+            commandPattern.startsWith('docs/*') || commandPattern.startsWith('config/*') ||
+            commandPattern.startsWith('utils/*') || commandPattern.startsWith('build/*')) {
+          workspacePattern = path.join(this.workspaceRoot, commandPattern);
+        }
+        
+        if (workspacePattern !== commandPattern) {
+          const resolvedPath = path.resolve(this.workspaceRoot, context.path);
+          return this.globMatch(resolvedPath, workspacePattern);
+        }
+      }
+    }
+
+    // Check command/path match with standard glob matching
     const fullCommand = this.getFullCommand(context);
     return this.globMatch(fullCommand, commandPattern);
   }
@@ -796,6 +838,51 @@ export class PermissionManager {
       availableTools: [...(this.settings.availableTools || [])],
       excludedTools: [...(this.settings.excludedTools || [])],
     };
+  }
+
+  /**
+   * Create a prefix pattern for a tool (e.g., write_file:src:*)
+   */
+  static createPrefixPattern(tool: string, prefix: string): string {
+    return `${tool}:${prefix}:*`;
+  }
+
+  /**
+   * Create a workspace-relative pattern (e.g., write_file:src/*)
+   */
+  static createWorkspacePattern(tool: string, workspaceDir: string): string {
+    return `${tool}:${workspaceDir}/*`;
+  }
+
+  /**
+   * Create a tool wildcard pattern (e.g., write_file:*)
+   */
+  static createToolWildcardPattern(tool: string): string {
+    return `${tool}:*`;
+  }
+
+  /**
+   * Add a prefix pattern to allowList
+   */
+  addPrefixPattern(tool: string, prefix: string): void {
+    const pattern = PermissionManager.createPrefixPattern(tool, prefix);
+    this.addToAllowList(pattern);
+  }
+
+  /**
+   * Add a workspace-relative pattern to allowList
+   */
+  addWorkspacePattern(tool: string, workspaceDir: string): void {
+    const pattern = PermissionManager.createWorkspacePattern(tool, workspaceDir);
+    this.addToAllowList(pattern);
+  }
+
+  /**
+   * Add a tool wildcard pattern to allowList
+   */
+  addToolWildcardPattern(tool: string): void {
+    const pattern = PermissionManager.createToolWildcardPattern(tool);
+    this.addToAllowList(pattern);
   }
 
   getWhitelist(): string[] {

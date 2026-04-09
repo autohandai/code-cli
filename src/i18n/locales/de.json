@@ -520,7 +520,8 @@
       "llamacpp": "Lokal - Schnelle Inferenz mit GGUF-Modellen",
       "mlx": "Lokal - Optimiert für Apple Silicon Macs",
       "llmgateway": "Cloud - Einheitliche API für mehrere LLM-Anbieter",
-      "azure": "Cloud - Azure OpenAI Service (Enterprise)"
+      "azure": "Cloud - Azure OpenAI Service (Enterprise)",
+      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)"
     },
     "config": {
       "chooseProvider": "LLM-Anbieter wählen",
@@ -601,6 +602,10 @@
       "llmgateway": {
         "title": "LLM Gateway-Konfiguration",
         "apiKeyUrl": "https://llmgateway.io/dashboard"
+      },
+      "zai": {
+        "title": "Z.ai-Konfiguration",
+        "apiKeyUrl": "https://z.ai/api-keys"
       },
       "azure": {
         "title": "Azure OpenAI-Konfiguration",
