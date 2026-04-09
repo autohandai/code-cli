@@ -78,11 +78,12 @@ describe('feedback command', () => {
   });
 
   describe('rating capture', () => {
-    it('should prompt for rating (1-5) in addition to feedback text', async () => {
-      // Simulate user providing rating and feedback
+    it('should prompt for rating (1-5) with conditional follow-up questions', async () => {
+      // Simulate user providing rating 4 (happy path), reason, and recommend
       (safePrompt as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce({ rating: '4' })
-        .mockResolvedValueOnce({ feedback: 'Great CLI tool!' });
+        .mockResolvedValueOnce({ reason: 'Great CLI tool!' })
+        .mockResolvedValueOnce({ recommend: 'yes' });
 
       mockFetch.mockResolvedValue({
         ok: true,
@@ -91,8 +92,8 @@ describe('feedback command', () => {
 
       await feedback({ sessionManager: null as any });
 
-      // Should call safePrompt for rating first, then for feedback text
-      expect(safePrompt).toHaveBeenCalledTimes(2);
+      // Should call safePrompt 3 times: rating, reason, recommend (for score >= 4)
+      expect(safePrompt).toHaveBeenCalledTimes(3);
 
       // First call should be for rating
       const firstCall = (safePrompt as ReturnType<typeof vi.fn>).mock.calls[0][0];
@@ -106,9 +107,11 @@ describe('feedback command', () => {
     });
 
     it('should accept ratings from 1-5 or skip', async () => {
+      // For rating 5 (happy path), prompt for reason and recommend
       (safePrompt as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce({ rating: '5' })
-        .mockResolvedValueOnce({ feedback: 'Love it!' });
+        .mockResolvedValueOnce({ reason: 'Love it!' })
+        .mockResolvedValueOnce({ recommend: 'yes' });
 
       mockFetch.mockResolvedValue({
         ok: true,
@@ -123,13 +126,39 @@ describe('feedback command', () => {
       const body = JSON.parse(fetchCall[1].body);
       expect(body.npsScore).toBe(5);
     });
+
+    it('should ask for improvement for ratings < 4', async () => {
+      // For rating 2 (unhappy path), prompt for improvement
+      (safePrompt as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce({ rating: '2' })
+        .mockResolvedValueOnce({ improvement: 'Needs better error messages' });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true, id: 'test-789' }),
+      });
+
+      await feedback({ sessionManager: null as any });
+
+      // Should call safePrompt 2 times: rating, improvement (for score < 4)
+      expect(safePrompt).toHaveBeenCalledTimes(2);
+
+      // Verify API was called with improvement
+      expect(mockFetch).toHaveBeenCalled();
+      const fetchCall = mockFetch.mock.calls[0];
+      const body = JSON.parse(fetchCall[1].body);
+      expect(body.npsScore).toBe(2);
+      expect(body.improvement).toBe('Needs better error messages');
+      expect(body.reason).toBeUndefined();
+      expect(body.recommend).toBeUndefined();
+    });
   });
 
   describe('API submission', () => {
     it('should send feedback to api.autohand.ai', async () => {
       (safePrompt as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce({ rating: '3' })
-        .mockResolvedValueOnce({ feedback: 'Works okay' });
+        .mockResolvedValueOnce({ improvement: 'Works okay' });
 
       mockFetch.mockResolvedValue({
         ok: true,
@@ -150,7 +179,8 @@ describe('feedback command', () => {
     it('should include required fields matching API schema', async () => {
       (safePrompt as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce({ rating: '4' })
-        .mockResolvedValueOnce({ feedback: 'The feedback text' });
+        .mockResolvedValueOnce({ reason: 'The feedback text' })
+        .mockResolvedValueOnce({ recommend: 'yes' });
 
       mockFetch.mockResolvedValue({
         ok: true,
@@ -170,14 +200,17 @@ describe('feedback command', () => {
       expect(body).toHaveProperty('cliVersion');
       expect(body).toHaveProperty('platform');
 
-      // Free-form feedback should be in freeformFeedback field
-      expect(body).toHaveProperty('freeformFeedback', 'The feedback text');
+      // For rating >= 4, should have reason and recommend
+      expect(body).toHaveProperty('reason', 'The feedback text');
+      expect(body).toHaveProperty('recommend', true);
+      expect(body).not.toHaveProperty('improvement');
     });
 
     it('should prefer AUTOHAND_API_URL or config api base URL when submitting feedback', async () => {
       (safePrompt as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce({ rating: '5' })
-        .mockResolvedValueOnce({ feedback: 'Uses custom URL' });
+        .mockResolvedValueOnce({ reason: 'Uses custom URL' })
+        .mockResolvedValueOnce({ recommend: 'yes' });
 
       mockFetch.mockResolvedValue({
         ok: true,
@@ -198,29 +231,21 @@ describe('feedback command', () => {
       expect(url).toContain('https://custom-api.example.com/v1/feedback');
     });
 
-    it('should set npsScore to 0 when user skips rating', async () => {
+    it('should discard feedback when user skips rating', async () => {
       (safePrompt as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ rating: 'skip' })
-        .mockResolvedValueOnce({ feedback: 'Just text feedback' });
-
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({ success: true, id: 'test-skip' }),
-      });
+        .mockResolvedValueOnce({ rating: 'skip' });
 
       await feedback({ sessionManager: null as any });
 
-      const fetchCall = mockFetch.mock.calls[0];
-      const body = JSON.parse(fetchCall[1].body);
-
-      // npsScore should be 0 for skipped rating (per API schema: 0 = no rating)
-      expect(body.npsScore).toBe(0);
+      // Should not call API when rating is skipped
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it('should include environment info in env field', async () => {
       (safePrompt as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce({ rating: '5' })
-        .mockResolvedValueOnce({ feedback: 'Excellent!' });
+        .mockResolvedValueOnce({ reason: 'Excellent!' })
+        .mockResolvedValueOnce({ recommend: 'yes' });
 
       mockFetch.mockResolvedValue({
         ok: true,
@@ -244,7 +269,7 @@ describe('feedback command', () => {
 
       (safePrompt as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce({ rating: '2' })
-        .mockResolvedValueOnce({ feedback: 'Had an error' });
+        .mockResolvedValueOnce({ improvement: 'Had an error' });
 
       mockFetch.mockResolvedValue({
         ok: true,
@@ -271,7 +296,8 @@ describe('feedback command', () => {
 
       (safePrompt as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce({ rating: '5' })
-        .mockResolvedValueOnce({ feedback: 'First feedback!' });
+        .mockResolvedValueOnce({ reason: 'First feedback!' })
+        .mockResolvedValueOnce({ recommend: 'yes' });
 
       mockFetch.mockResolvedValue({
         ok: true,
@@ -328,7 +354,8 @@ describe('feedback command', () => {
 
       (safePrompt as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce({ rating: '4' })
-        .mockResolvedValueOnce({ feedback: 'Back again!' });
+        .mockResolvedValueOnce({ reason: 'Back again!' })
+        .mockResolvedValueOnce({ recommend: 'yes' });
 
       mockFetch.mockResolvedValue({
         ok: true,
@@ -347,7 +374,8 @@ describe('feedback command', () => {
 
       (safePrompt as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce({ rating: '5' })
-        .mockResolvedValueOnce({ feedback: 'Great!' });
+        .mockResolvedValueOnce({ reason: 'Great!' })
+        .mockResolvedValueOnce({ recommend: 'yes' });
 
       mockFetch.mockResolvedValue({
         ok: true,
@@ -368,7 +396,8 @@ describe('feedback command', () => {
     it('should handle API errors gracefully', async () => {
       (safePrompt as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce({ rating: '4' })
-        .mockResolvedValueOnce({ feedback: 'Test feedback' });
+        .mockResolvedValueOnce({ reason: 'Test feedback' })
+        .mockResolvedValueOnce({ recommend: 'yes' });
 
       mockFetch.mockResolvedValue({
         ok: false,
@@ -386,7 +415,8 @@ describe('feedback command', () => {
     it('should handle network errors gracefully', async () => {
       (safePrompt as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce({ rating: '4' })
-        .mockResolvedValueOnce({ feedback: 'Test feedback' });
+        .mockResolvedValueOnce({ reason: 'Test feedback' })
+        .mockResolvedValueOnce({ recommend: 'yes' });
 
       mockFetch.mockRejectedValue(new Error('Network error'));
 
@@ -398,7 +428,8 @@ describe('feedback command', () => {
     it('should sanitize HTML challenge responses from API errors', async () => {
       (safePrompt as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce({ rating: '4' })
-        .mockResolvedValueOnce({ feedback: 'Test feedback' });
+        .mockResolvedValueOnce({ reason: 'Test feedback' })
+        .mockResolvedValueOnce({ recommend: 'yes' });
 
       mockFetch.mockResolvedValue({
         ok: false,
