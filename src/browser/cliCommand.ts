@@ -35,7 +35,7 @@ export function registerChromeCommand(program: Command): void {
       cliPath?: string;
       open?: boolean;
     }) => {
-      const config = await loadConfig();
+      const config = await loadConfig(undefined, process.cwd());
       const launchSpec = resolveCliLaunchSpec(options.cliPath);
       const browsers = normalizeBrowsers(options.browser);
       const extensionId = options.extensionId ?? config.chrome?.extensionId;
