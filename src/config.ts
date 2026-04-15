@@ -16,6 +16,7 @@ import type {
 } from "./types.js";
 import { AUTOHAND_FILES } from "./constants.js";
 import { autoInitTheme, themeExists } from "./ui/theme/index.js";
+import { loadLocalProjectSettings, type LocalProjectSettings } from "./permissions/localProjectPermissions.js";
 
 const DEFAULT_CONFIG_PATH = AUTOHAND_FILES.configJson;
 const YAML_CONFIG_PATH = AUTOHAND_FILES.configYaml;
@@ -114,7 +115,7 @@ async function parseConfigFile(
   return JSON.parse(content) as AutohandConfig | LegacyConfigShape;
 }
 
-export async function loadConfig(customPath?: string): Promise<LoadedConfig> {
+export async function loadConfig(customPath?: string, workspaceRoot?: string): Promise<LoadedConfig> {
   const configPath = await detectConfigPath(customPath);
 
   // Check for duplicate config files in the same directory.
@@ -179,8 +180,17 @@ export async function loadConfig(customPath?: string): Promise<LoadedConfig> {
   }
   const normalized = normalizeConfig(parsed);
 
+  // Load workspace-specific settings if workspaceRoot is provided
+  let workspaceSettings: LocalProjectSettings | null = null;
+  if (workspaceRoot) {
+    workspaceSettings = await loadLocalProjectSettings(workspaceRoot);
+  }
+
+  // Merge workspace settings with global config (workspace takes precedence)
+  const withWorkspace = mergeWorkspaceSettings(normalized, workspaceSettings);
+
   // Merge environment variables for API settings
-  const withEnv = mergeEnvVariables(normalized);
+  const withEnv = mergeEnvVariables(withWorkspace);
 
   validateConfig(withEnv, configPath);
 
@@ -189,6 +199,70 @@ export async function loadConfig(customPath?: string): Promise<LoadedConfig> {
   autoInitTheme(themeName);
 
   return { ...withEnv, configPath, isNewConfig };
+}
+
+/**
+ * Merge workspace settings with global config
+ * Workspace settings take precedence over global settings
+ */
+function mergeWorkspaceSettings(
+  globalConfig: AutohandConfig,
+  workspaceSettings: LocalProjectSettings | null
+): AutohandConfig {
+  if (!workspaceSettings) {
+    return globalConfig;
+  }
+
+  // Deep merge where workspace settings override global settings
+  const merged: AutohandConfig = { ...globalConfig };
+
+  // Override provider if set in workspace
+  if (workspaceSettings.provider !== undefined) {
+    merged.provider = workspaceSettings.provider;
+  }
+
+  // Override model if set in workspace
+  if (workspaceSettings.model !== undefined) {
+    // Update the model in the provider-specific config
+    const provider = workspaceSettings.provider || merged.provider;
+    if (provider && merged[provider]) {
+      (merged[provider] as ProviderSettings).model = workspaceSettings.model;
+    }
+  }
+
+  // Merge agent settings
+  if (workspaceSettings.agent) {
+    merged.agent = {
+      ...merged.agent,
+      ...workspaceSettings.agent,
+    };
+  }
+
+  // Merge network settings
+  if (workspaceSettings.network) {
+    merged.network = {
+      ...merged.network,
+      ...workspaceSettings.network,
+    };
+  }
+
+  // Merge telemetry settings
+  if (workspaceSettings.telemetry) {
+    merged.telemetry = {
+      ...merged.telemetry,
+      ...workspaceSettings.telemetry,
+    };
+  }
+
+  // Merge permissions settings
+  if (workspaceSettings.permissions) {
+    merged.permissions = {
+      ...merged.permissions,
+      ...workspaceSettings.permissions,
+    };
+  }
+
+  return merged;
 }
 
 /**
