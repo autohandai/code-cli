@@ -317,12 +317,12 @@ export class FeedbackManager {
     try {
       // Step 1: NPS Score (1-5) with number key shortcuts (Modal has built-in support)
       const ratingOptions: ModalOption[] = [
-        { label: `${chalk.green('5')} - Excellent`, value: '5' },
-        { label: `${chalk.green('4')} - Good`, value: '4' },
-        { label: `${chalk.yellow('3')} - Okay`, value: '3' },
-        { label: `${chalk.red('2')} - Poor`, value: '2' },
-        { label: `${chalk.red('1')} - Very Poor`, value: '1' },
-        { label: `${chalk.gray('s')} - Skip`, value: 'skip' }
+        { label: `${chalk.green('⭐⭐⭐⭐⭐')} Excellent`, value: '5' },
+        { label: `${chalk.green('⭐⭐⭐⭐')} Good`, value: '4' },
+        { label: `${chalk.yellow('⭐⭐⭐')} Okay`, value: '3' },
+        { label: `${chalk.red('⭐⭐')} Poor`, value: '2' },
+        { label: `${chalk.red('⭐')} Very Poor`, value: '1' },
+        { label: `${chalk.gray('s')} Skip`, value: 'skip' }
       ];
 
       const ratingResult = await showModal({
@@ -357,13 +357,11 @@ export class FeedbackManager {
         });
         reason = reasonAnswer || undefined;
 
-        // Ask about recommendation
-        if (reasonAnswer !== null) {
-          recommend = await showConfirm({
-            title: 'Would you recommend Autohand to a colleague?',
-            defaultValue: true
-          });
-        }
+        // Ask about recommendation (always ask, even if reason was skipped)
+        recommend = await showConfirm({
+          title: 'Would you recommend Autohand to a colleague?',
+          defaultValue: true
+        });
       } else {
         // Unhappy user - ask for improvement
         const improvementAnswer = await showInput({
