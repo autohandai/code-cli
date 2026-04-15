@@ -28,6 +28,7 @@ import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessio
 import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './utils/tmux.js';
 import { promptNotify } from './ui/inputPrompt.js';
 import { registerChromeCommand } from './browser/cliCommand.js';
+import { ASCII_FRIEND } from './utils/asciiArt.js';
 
 /**
  * Get git commit hash (short)
@@ -96,7 +97,7 @@ async function loadConfigForMcpScope(scopeInput?: string): Promise<{ config: Loa
   }
 
   const projectConfigPath = await resolveProjectConfigPath(process.cwd());
-  return { config: await loadConfig(projectConfigPath), scope };
+  return { config: await loadConfig(projectConfigPath, process.cwd()), scope };
 }
 import { FileActionManager } from './actions/filesystem.js';
 import { configureSearch } from './actions/web.js';
@@ -168,17 +169,6 @@ async function validateAuthOnStartup(config: LoadedConfig): Promise<AuthUser | u
 }
 installProcessErrorHandlers();
 
-const ASCII_FRIEND = [
-  '⢀⡴⠛⠛⠻⣷⡄⠀⣠⡶⠟⠛⠻⣶⡄⢀⣴⡾⠛⠛⢿⣦⠀⢀⣴⠞⠛⠛⠶⡀',
-  '⡎⠀⢰⣶⡆⠈⣿⣴⣿⠁⣴⣶⡄⠘⣿⣾⡏⢀⣶⣦⠀⢻⡇⣿⠃⢠⣶⡆⠀⢹',
-  '⢧⠀⠘⠛⠃⢠⡿⠙⣿⡀⠙⠛⠃⣰⡿⢻⣧⠈⠛⠛⢀⣾⠇⢻⣆⠈⠛⠋⠀⡼',
-  '⠈⠻⢶⣶⡾⠟⠁⠀⠘⠿⢶⣶⡾⠟⠁⠀⠙⠷⣶⣶⠿⠋⠀⠈⠻⠷⣶⡶⠚⠁',
-  '⢀⣴⠿⠿⠷⣦⡀⠀⣠⣶⠿⠻⢷⣦⡀⠀⣠⡾⠟⠿⣶⣄⠀⢀⣴⡾⠿⠿⣶⣄',
-  '⡾⠃⢠⣤⡄⠘⣿⣠⣿⠁⣠⣤⡄⠹⣷⣼⡏⢀⣤⣤⠈⢿⡆⣾⠏⢀⣤⣄⠈⢿',
-  '⢧⡀⠸⠿⠇⢀⣿⠺⣿⡀⠻⠿⠃⢰⣿⢿⣇⠈⠿⠿⠀⣼⡇⢿⣇⠘⠿⠇⠀⣸',
-  '⠈⢿⣦⣤⣴⡿⠃⠀⠙⢷⣦⣤⣶⡿⠁⠈⠻⣷⣤⣤⡾⠛⠀⠈⢿⣦⣤⣤⠴⠁'
-].join('\n');
-
 const program = new Command();
 registerChromeCommand(program);
 
@@ -226,6 +216,7 @@ program
   .option('--interactive-on-complete', 'After auto-mode ends, hand off directly to interactive mode (TTY only)', false)
   .option('--setup', 'Run the setup wizard to configure or reconfigure Autohand', false)
   .option('--about', 'Show information about Autohand', false)
+  .option('--feedback', 'Submit feedback', false)
   .option('--add-dir <path...>', 'Add additional directories to workspace scope (can be used multiple times)')
   .option('--display-language <locale>', 'Set display language (e.g., en, zh-cn, fr, de, ja)')
   .option('--cc, --context-compact', 'Enable context compaction (default: on)')
@@ -238,6 +229,11 @@ program
   .option('--chrome', 'Enable Chrome browser integration (same as /chrome)')
   .option('--no-chrome', 'Disable Chrome browser integration')
   .action(async (positionalPrompt: string | undefined, opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean | string; tmux?: boolean; setup?: boolean; about?: boolean; syncSettings?: string | boolean; cc?: boolean; searchEngine?: string; learn?: boolean; learnUpdate?: boolean }) => {
+    // Clear screen immediately for Cursor-like behavior (before any output)
+    if (process.stdout.isTTY && process.env.AUTOHAND_NO_BANNER !== '1') {
+      process.stdout.write('\x1b[3J\x1b[2J\x1b[H');
+    }
+
     // When -p is passed without a value, Commander sets opts.prompt to true (boolean).
     // Normalize to undefined so downstream code can detect "flag present, no text".
     if ((opts as Record<string, unknown>).prompt === true) {
@@ -325,9 +321,20 @@ program
       process.exit(0);
     }
 
+    // Handle --feedback flag
+    if (opts.feedback) {
+      const { initI18n, detectLocale } = await import('./i18n/index.js');
+      const { feedback } = await import('./commands/feedback.js');
+      const { locale } = detectLocale();
+      await initI18n(locale);
+      const config = await loadConfig(opts.config);
+      await feedback({ config });
+      process.exit(0);
+    }
+
     // Handle --setup flag
     if (opts.setup) {
-      const config = await loadConfig(opts.config);
+      const config = await loadConfig(opts.config, process.cwd());
       const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
       const wizard = new SetupWizard(workspaceRoot, config);
       const result = await wizard.run({ skipWelcome: false });
@@ -349,7 +356,7 @@ program
     // Everything below requires a valid login. --login, --logout, --setup,
     // --about, --permissions, --skill-install, and --learn* are exempt above.
     {
-      let authConfig = await loadConfig(opts.config);
+      let authConfig = await loadConfig(opts.config, process.cwd());
       authConfig = await ensureAuthenticated(authConfig);
       // Propagate refreshed auth into the options so downstream code sees
       // the updated token (e.g. runCLI, runRpcMode, runAutoMode).
@@ -371,7 +378,7 @@ program
 
     // Handle --no-chrome flag (disable chrome bridge in config)
     if (opts.noChrome) {
-      const config = await loadConfig(opts.config);
+      const config = await loadConfig(opts.config, process.cwd());
       if (config.chrome) {
         config.chrome.enabledByDefault = false;
         await saveConfig(config);
@@ -450,7 +457,7 @@ program
   .option('--model <model>', 'Override the configured LLM model')
   .action(async (sessionId: string, opts: CLIOptions) => {
     // Mandatory auth gate for resume
-    let authConfig = await loadConfig(opts.config);
+    let authConfig = await loadConfig(opts.config, process.cwd());
     authConfig = await ensureAuthenticated(authConfig);
     (opts as any)._authConfig = authConfig;
 
@@ -722,7 +729,7 @@ program
   .description('Create an AGENTS.md file in the workspace')
   .option('--path <path>', 'Workspace path')
   .action(async (opts: { path?: string }) => {
-    const config = await loadConfig();
+    const config = await loadConfig(undefined, process.cwd());
     const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
     const agentsPath = path.join(workspaceRoot, 'AGENTS.md');
     const exists = await fs.pathExists(agentsPath);
@@ -806,7 +813,7 @@ program
 
 async function runCLI(options: CLIOptions): Promise<void> {
   try {
-    let config = await loadConfig(options.config);
+    let config = await loadConfig(options.config, process.cwd());
     const originalWorkspaceRoot = resolveWorkspaceRoot(config, options.path);
     let workspaceRoot = originalWorkspaceRoot;
     let sessionWorktree: ReturnType<typeof prepareSessionWorktree> | null = null;
@@ -1186,6 +1193,11 @@ function printBanner(): void {
     return;
   }
   if (process.stdout.isTTY) {
+    // Clear screen and scrollback buffer for Cursor-like behavior
+    // \x1b[3J = clear entire screen including scrollback (not universally supported, but works on most modern terminals)
+    // \x1b[2J = clear entire screen (visible only)
+    // \x1b[H = move cursor to home position (top-left)
+    process.stdout.write('\x1b[3J\x1b[2J\x1b[H');
     console.log(chalk.gray(ASCII_FRIEND));
   } else {
     console.log('autohand');
