@@ -34,7 +34,7 @@ export async function executeTask(
   const { FileActionManager } = await import('../actions/filesystem.js');
 
   // Load config and create provider
-  const config = await loadConfig();
+  const config = await loadConfig(undefined, process.cwd());
   const provider = ProviderFactory.create(config);
   if (opts.model) provider.setModel(opts.model);
 
