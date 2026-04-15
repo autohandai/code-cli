@@ -645,6 +645,8 @@ export interface CLIOptions {
   login?: boolean;
   /** Sign out of Autohand account */
   logout?: boolean;
+  /** Submit feedback */
+  feedback?: boolean;
   /** Enable/disable settings sync (default: true for logged users, false otherwise) */
   syncSettings?: boolean;
   /** Generate git patch without applying changes */
