@@ -105,7 +105,7 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
 
   try {
     // Load configuration
-    const config = await loadConfig(options.config);
+    const config = await loadConfig(options.config, process.cwd());
 
     // Non-interactive auth check — RPC mode cannot prompt for login
     const isAuthed = await checkAuthenticated(config);

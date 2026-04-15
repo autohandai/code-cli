@@ -87,7 +87,7 @@ export class AutohandAcpAdapter implements Agent {
 
   private async ensureConfig(): Promise<LoadedConfig> {
     if (!this.config) {
-      this.config = await loadConfig();
+      this.config = await loadConfig(undefined, process.cwd());
     }
     return this.config;
   }
@@ -377,7 +377,7 @@ export class AutohandAcpAdapter implements Agent {
     this.clientCapabilities = params.clientCapabilities;
 
     // Load config once for the lifetime of the connection
-    this.config = await loadConfig();
+    this.config = await loadConfig(undefined, process.cwd());
 
     return {
       protocolVersion: PROTOCOL_VERSION,
