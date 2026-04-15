@@ -9,38 +9,98 @@ import chalk from 'chalk';
 import { AuthClient } from './AuthClient.js';
 import { loadConfig } from '../config.js';
 import { showModal } from '../ui/ink/components/Modal.js';
+import { LOGO_LINES } from '../utils/asciiArt.js';
+import { checkForUpdates } from '../utils/versionCheck.js';
 import packageJson from '../../package.json' with { type: 'json' };
 import type { LoadedConfig } from '../types.js';
-
-// ASCII logo + ANSI Regular FIGlet "Autohand" — side-by-side, cross-platform
-const GAP = '     ';
-const LOGO_LINES = [
-  '(@) (@) (@) (@)' + GAP + ' █████  ██    ██ ████████  ██████  ██   ██  █████  ███    ██ ██████',
-  '(@) (@) (@) (@)' + GAP + '██   ██ ██    ██    ██    ██    ██ ██   ██ ██   ██ ████   ██ ██   ██',
-  '               ' + GAP + '███████ ██    ██    ██    ██    ██ ███████ ███████ ██ ██  ██ ██   ██',
-  '               ' + GAP + '██   ██ ██    ██    ██    ██    ██ ██   ██ ██   ██ ██  ██ ██ ██   ██',
-  '               ' + GAP + '██   ██  ██████     ██     ██████  ██   ██ ██   ██ ██   ████ ██████',
-];
-
-/** Total number of rendered lines. */
-const WELCOME_HEIGHT = LOGO_LINES.length;
+import { spawn } from 'node:child_process';
+import { platform } from 'node:os';
 
 /**
- * Typewriter: renders the logo line by line, horizontally centered.
+ * Get git commit hash (short)
+ * Uses build-time embedded commit, falls back to runtime git command for dev
  */
-async function typewriteWelcome(startRow: number): Promise<void> {
-  const cols = process.stdout.columns || 80;
-  const maxWidth = Math.max(...LOGO_LINES.map(l => l.length));
-  const leftPad = Math.max(0, Math.floor((cols - maxWidth) / 2));
-  const pad = ' '.repeat(leftPad);
-
-  process.stdout.write('\x1b[?25l'); // hide cursor
-  for (let i = 0; i < LOGO_LINES.length; i++) {
-    process.stdout.write(`\x1b[${startRow + i};1H\x1b[2K`);
-    process.stdout.write(chalk.white(pad + LOGO_LINES[i]));
-    await new Promise(r => setTimeout(r, 70));
+async function getGitCommit(): Promise<string> {
+  // Use build-time embedded commit if available
+  if (process.env.BUILD_GIT_COMMIT && process.env.BUILD_GIT_COMMIT !== 'undefined') {
+    return process.env.BUILD_GIT_COMMIT;
   }
-  process.stdout.write('\x1b[?25h'); // show cursor
+  // For alpha builds, version suffix encodes the source commit
+  const match = packageJson.version.match(/-alpha\.([0-9a-f]{7,40})$/i);
+  if (match?.[1]) {
+    return match[1];
+  }
+  // Fallback for development (running from source)
+  try {
+    const { execSync } = await import('node:child_process');
+    return execSync('git rev-parse --short HEAD', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
+ * Run the appropriate upgrade command based on platform
+ */
+async function runUpgrade(): Promise<void> {
+  const os = platform();
+  let command: string;
+  let args: string[];
+  const shell: string | boolean = false;
+
+  if (os === 'win32') {
+    // Windows
+    command = 'powershell.exe';
+    args = ['-Command', 'iwr -useb https://autohand.ai/install.ps1 | iex'];
+  } else if (os === 'darwin') {
+    // macOS - try brew first, fallback to curl
+    command = 'sh';
+    args = ['-c', 'brew tap autohandai/code && brew install autohand-code || curl -fsSL https://autohand.ai/install.sh | sh'];
+  } else {
+    // Linux - use curl
+    command = 'sh';
+    args = ['-c', 'curl -fsSL https://autohand.ai/install.sh | sh'];
+  }
+
+  console.log(chalk.gray('Upgrading Autohand...'));
+  console.log(chalk.gray(`Running: ${command} ${args.join(' ')}`));
+  console.log();
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      stdio: 'inherit',
+      shell: shell || undefined,
+    });
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        console.log();
+        console.log(chalk.green('Upgrade completed successfully!'));
+        console.log(chalk.gray('Please restart Autohand to use the new version.'));
+        resolve();
+      } else {
+        console.log();
+        console.log(chalk.red('Upgrade failed.'));
+        console.log(chalk.gray('You can try manually:'));
+        if (os === 'win32') {
+          console.log(chalk.gray('  iwr -useb https://autohand.ai/install.ps1 | iex'));
+        } else {
+          console.log(chalk.gray('  curl -fsSL https://autohand.ai/install.sh | sh'));
+          console.log(chalk.gray('  or: brew tap autohandai/code && brew install autohand-code'));
+        }
+        console.log(chalk.gray('  or: npm i -g autohand-cli'));
+        console.log(chalk.gray('  or: bun i -g autohand-cli'));
+        reject(new Error(`Upgrade failed with exit code ${code}`));
+      }
+    });
+
+    child.on('error', (error) => {
+      console.log();
+      console.log(chalk.red('Upgrade failed.'));
+      console.log(chalk.gray(`Error: ${error.message}`));
+      reject(error);
+    });
+  });
 }
 
 /**
@@ -127,45 +187,62 @@ function isTokenExpiredLocally(config: LoadedConfig): boolean {
  * Reloads config after login. Exits if login fails.
  */
 async function promptLogin(config: LoadedConfig): Promise<LoadedConfig> {
-  // Show full-screen welcome before login — like Cursor's splash screen
+  // Show modal with logo and login/exit options
   if (process.stdout.isTTY) {
-    const rows = process.stdout.rows || 24;
-    const version = `v${packageJson.version}`;
+    const commit = await getGitCommit();
+    const versionStr = commit !== 'unknown' 
+      ? `v${packageJson.version} (${commit})` 
+      : `v${packageJson.version}`;
+    
+    // Check for updates
+    let updateAvailable = false;
+    let latestVersion: string | null = null;
+    try {
+      const updateResult = await checkForUpdates(packageJson.version, { forceCheck: true });
+      if (!updateResult.error && !updateResult.isUpToDate && updateResult.latestVersion) {
+        updateAvailable = true;
+        latestVersion = updateResult.latestVersion;
+      }
+    } catch {
+      // Silently fail version check
+    }
 
-    // Clear screen and position content vertically centered
-    process.stdout.write('\x1b[2J\x1b[H');
-
-    // Layout: logo (8 lines) + blank + version + blank + modal (~12)
-    const contentHeight = WELCOME_HEIGHT + 6;
-    const topPadding = Math.max(0, Math.floor((rows - contentHeight) / 2));
-    const logoRow = topPadding + 1; // 1-based terminal row
-
-    // Typewriter: icon + FIGlet side-by-side
-    await typewriteWelcome(logoRow);
-
-    // Position cursor below the art for version + modal
-    process.stdout.write(`\x1b[${logoRow + WELCOME_HEIGHT};1H`);
-    const cols = process.stdout.columns || 80;
-    const maxWidth = Math.max(...LOGO_LINES.map(l => l.length));
-    const leftPad = Math.max(0, Math.floor((cols - maxWidth) / 2));
-    const versionPad = ' '.repeat(leftPad + Math.floor((maxWidth - version.length) / 2));
-    console.log();
-    console.log(chalk.gray(`${versionPad}${version}`));
-    console.log();
+    const logoWithVersion = [...LOGO_LINES, '', chalk.gray(versionStr)];
+    
+    // Build options based on update availability
+    const options = [
+      { label: 'Login', value: 'login' },
+    ];
+    
+    if (updateAvailable && latestVersion) {
+      options.push({ 
+        label: `Upgrade (v${latestVersion} available)`, 
+        value: 'upgrade' 
+      });
+    }
+    
+    options.push({ label: 'Exit', value: 'exit' });
 
     const selected = await showModal({
-      title: chalk.white('Sign in to continue.'),
-      options: [
-        { label: 'Login', value: 'login' },
-        { label: 'Exit', value: 'exit' },
-      ],
+      logo: logoWithVersion,
+      skipAltScreen: true,
+      title: updateAvailable 
+        ? chalk.yellow('New version available!') 
+        : chalk.white('Sign in to continue.'),
+      options,
     });
-
-    // Clear the splash before proceeding
-    process.stdout.write('\x1b[2J\x1b[H');
 
     if (!selected || selected.value === 'exit') {
       process.exit(0);
+    }
+
+    if (selected.value === 'upgrade') {
+      try {
+        await runUpgrade();
+        process.exit(0);
+      } catch {
+        process.exit(1);
+      }
     }
   }
 
