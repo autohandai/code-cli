@@ -18,7 +18,7 @@ export const metadata = {
     implemented: true
 };
 
-type FeedbackContext = Pick<SlashCommandContext, 'sessionManager' | 'config'>;
+type FeedbackContext = Pick<SlashCommandContext, 'config'> & { sessionManager?: SlashCommandContext['sessionManager'] };
 
 // API configuration
 const DEFAULT_API_BASE_URL = 'https://api.autohand.ai';
@@ -109,12 +109,12 @@ export async function feedback(_ctx: FeedbackContext): Promise<string | null> {
             name: 'rating',
             message: 'How would you rate your experience?',
             choices: [
-                { name: '5', message: '5 - Excellent' },
-                { name: '4', message: '4 - Good' },
-                { name: '3', message: '3 - Okay' },
-                { name: '2', message: '2 - Poor' },
-                { name: '1', message: '1 - Very Poor' },
-                { name: 'skip', message: 's - Skip rating' }
+                { name: '5', message: 'Excellent' },
+                { name: '4', message: 'Good' },
+                { name: '3', message: 'Okay' },
+                { name: '2', message: 'Poor' },
+                { name: '1', message: 'Very Poor' },
+                { name: 'skip', message: 'Skip rating' }
             ]
         }
     ]);
@@ -152,7 +152,7 @@ export async function feedback(_ctx: FeedbackContext): Promise<string | null> {
 
         reason = reasonAnswer.reason?.trim() || undefined;
 
-        // Ask about recommendation
+        // Ask about recommendation (always ask, even if reason was skipped)
         const recommendAnswer = await safePrompt<{ recommend: string }>([
             {
                 type: 'select',
@@ -165,9 +165,12 @@ export async function feedback(_ctx: FeedbackContext): Promise<string | null> {
             }
         ]);
 
-        if (recommendAnswer) {
-            recommend = recommendAnswer.recommend === 'yes';
+        if (!recommendAnswer) {
+            console.log(chalk.gray('Feedback discarded.'));
+            return null;
         }
+
+        recommend = recommendAnswer.recommend === 'yes';
     } else {
         // Unhappy user - ask for improvement
         const improvementAnswer = await safePrompt<{ improvement: string }>([
@@ -261,7 +264,7 @@ async function sendFeedbackToApi(
     const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
 
     try {
-        const response = await fetch(`${apiBaseUrl}/v1/feedback`, {
+        const response = await fetch(`${apiBaseUrl}/v1/feedback/`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
