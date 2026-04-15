@@ -52,7 +52,7 @@ async function loadConfigForScope(
   }
 
   const projectConfigPath = path.join(workspaceRoot, PROJECT_DIR_NAME, 'config.json');
-  return { config: await loadConfig(projectConfigPath), scope };
+  return { config: await loadConfig(projectConfigPath, workspaceRoot), scope };
 }
 
 function syncRuntimeConfig(runtimeConfig: LoadedConfig | undefined, updatedConfig: LoadedConfig): void {
