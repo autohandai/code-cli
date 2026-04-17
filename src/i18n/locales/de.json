@@ -515,6 +515,8 @@
     "azure": "Azure OpenAI",
     "zai": "Z.ai",
     "vertexai": "Google Cloud Vertex AI",
+    "xai": "xAI (Grok)",
+    "cerebras": "Cerebras AI",
     "hints": {
       "openrouter": "Cloud - Zugriff auf 100+ Modelle (Claude, GPT-4, etc.)",
       "openai": "Cloud - Offizielle OpenAI-Modelle (GPT-4o, o1, etc.)",
@@ -524,7 +526,9 @@
       "llmgateway": "Cloud - Einheitliche API für mehrere LLM-Anbieter",
       "azure": "Cloud - Azure OpenAI Service (Enterprise)",
       "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)",
-      "vertexai": "Cloud - Google Cloud Vertex AI (Gemini, Claude, GLM)"
+      "vertexai": "Cloud - Google Cloud Vertex AI (Gemini, Claude, GLM)",
+      "xai": "Cloud - xAI Grok models with web search, X search, and code execution",
+      "cerebras": "Cloud - Cerebras AI with GLM and Qwen models"
     },
     "config": {
       "chooseProvider": "LLM-Anbieter wählen",

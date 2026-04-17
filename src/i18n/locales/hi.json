@@ -424,10 +424,14 @@
     "azure": "Azure OpenAI",
     "zai": "Z.ai",
     "vertexai": "Google Cloud Vertex AI",
+    "xai": "xAI (Grok)",
+    "cerebras": "Cerebras AI",
     "hints": {
       "openrouter": "क्लाउड - 100+ मॉडल तक पहुँच (Claude, GPT-4, आदि)",
       "zai": "क्लाउड - Z.ai GLM models (glm-4.5, cogview, etc.)",
-      "vertexai": "क्लाउड - Google Cloud Vertex AI (Gemini, Claude, GLM)"
+      "vertexai": "क्लाउड - Google Cloud Vertex AI (Gemini, Claude, GLM)",
+      "xai": "क्लाउड - xAI Grok models with web search, X search, and code execution",
+      "cerebras": "क्लाउड - Cerebras AI with GLM and Qwen models"
     },
     "config": {
       "selectReasoningEffort": "तर्क स्तर चुनें",
