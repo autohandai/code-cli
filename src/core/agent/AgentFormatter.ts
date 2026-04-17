@@ -224,12 +224,19 @@ export function describeInstruction(instruction: string): string {
 }
 
 /**
- * Format elapsed time in minutes and seconds
+ * Format elapsed time in hours, minutes, and seconds
+ * Shows hours only when elapsed time exceeds 60 minutes
  */
 export function formatElapsedTime(startedAt: number): string {
   const diff = Date.now() - startedAt;
-  const minutes = Math.floor(diff / 60000);
-  const seconds = Math.floor((diff % 60000) / 1000);
+  const totalSeconds = Math.floor(diff / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${minutes.toString().padStart(2, '0')}m ${seconds.toString().padStart(2, '0')}s`;
+  }
   return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
 }
 
