@@ -631,6 +631,16 @@
         "enterAuthToken": "Google Cloud 인증 토큰 입력",
         "enterModel": "모델 ID 입력 (예: zai-org/glm-5-maas, google/gemini-1.5-pro)"
       },
+      "xai": {
+        "title": "xAI (Grok) 설정",
+        "apiKeyUrl": "https://console.x.ai/keys",
+        "enterModel": "모델 ID 입력 (예: grok-4.20-reasoning, grok-4-1-fast-reasoning)"
+      },
+      "cerebras": {
+        "title": "Cerebras AI 설정",
+        "apiKeyUrl": "https://cloud.cerebras.ai/platform/",
+        "enterModel": "Cerebras 모델 선택"
+      },
       "azure": {
         "title": "Azure OpenAI 설정",
         "getStarted": "시작하기: https://ai.azure.com",

@@ -435,6 +435,16 @@
         "authTokenCommand": "gcloud auth print-access-token",
         "enterAuthToken": "Ingresa tu token de autenticación de Google Cloud",
         "enterModel": "Ingresa el ID del modelo (ej., zai-org/glm-5-maas, google/gemini-1.5-pro)"
+      },
+      "xai": {
+        "title": "Configuración xAI (Grok)",
+        "apiKeyUrl": "https://console.x.ai/keys",
+        "enterModel": "Ingresa el ID del modelo (ej., grok-4.20-reasoning, grok-4-1-fast-reasoning)"
+      },
+      "cerebras": {
+        "title": "Configuración Cerebras AI",
+        "apiKeyUrl": "https://cloud.cerebras.ai/platform/",
+        "enterModel": "Selecciona un modelo Cerebras"
       }
     }
   },
