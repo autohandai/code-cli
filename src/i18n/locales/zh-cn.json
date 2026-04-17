@@ -515,6 +515,8 @@
     "azure": "Azure OpenAI",
     "zai": "Z.ai",
     "vertexai": "Google Cloud Vertex AI",
+    "xai": "xAI (Grok)",
+    "cerebras": "Cerebras AI",
     "hints": {
       "openrouter": "云端 - 可访问 100+ 个模型（Claude、GPT-4 等）",
       "openai": "云端 - 官方 OpenAI 模型（GPT-4o、o1 等）",
@@ -524,7 +526,9 @@
       "llmgateway": "云端 - 多个 LLM 提供商的统一 API",
       "azure": "云端 - Azure OpenAI 服务（企业级）",
       "zai": "云端 - Z.ai GLM models (glm-4.5, cogview, etc.)",
-      "vertexai": "云端 - Google Cloud Vertex AI (Gemini, Claude, GLM)"
+      "vertexai": "云端 - Google Cloud Vertex AI (Gemini, Claude, GLM)",
+      "xai": "云端 - xAI Grok models with web search, X search, and code execution",
+      "cerebras": "云端 - Cerebras AI with GLM and Qwen models"
     },
     "config": {
       "chooseProvider": "选择一个 LLM 提供商",

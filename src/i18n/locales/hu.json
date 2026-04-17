@@ -515,6 +515,8 @@
     "azure": "Azure OpenAI",
     "zai": "Z.ai",
     "vertexai": "Google Cloud Vertex AI",
+    "xai": "xAI (Grok)",
+    "cerebras": "Cerebras AI",
     "hints": {
       "openrouter": "Felhő - Hozzáférés 100+ modellhez (Claude, GPT-4 stb.)",
       "openai": "Felhő - Hivatalos OpenAI modellek (GPT-4o, o1 stb.)",
@@ -524,7 +526,9 @@
       "llmgateway": "Felhő - Egyesített API több LLM szolgáltatóhoz",
       "azure": "Felhő - Azure OpenAI Service (vállalati)",
       "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)",
-      "vertexai": "Felhő - Google Cloud Vertex AI (Gemini, Claude, GLM)"
+      "vertexai": "Felhő - Google Cloud Vertex AI (Gemini, Claude, GLM)",
+      "xai": "Felhő - xAI Grok models with web search, X search, and code execution",
+      "cerebras": "Felhő - Cerebras AI with GLM and Qwen models"
     },
     "config": {
       "chooseProvider": "Válasszon egy LLM szolgáltatót",

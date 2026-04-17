@@ -407,10 +407,14 @@
     "azure": "Azure OpenAI",
     "zai": "Z.ai",
     "vertexai": "Google Cloud Vertex AI",
+    "xai": "xAI (Grok)",
+    "cerebras": "Cerebras AI",
     "hints": {
       "openrouter": "Nube - Acceso a más de 100 modelos (Claude, GPT-4, etc.)",
       "zai": "Nube - Modelos GLM de Z.ai (glm-4.5, cogview, etc.)",
-      "vertexai": "Nube - Google Cloud Vertex AI (Gemini, Claude, GLM)"
+      "vertexai": "Nube - Google Cloud Vertex AI (Gemini, Claude, GLM)",
+      "xai": "Nube - Modelos xAI Grok con búsqueda web, búsqueda X y ejecución de código",
+      "cerebras": "Nube - Cerebras AI con modelos GLM y Qwen"
     },
     "config": {
       "selectReasoningEffort": "Seleccione el nivel de razonamiento",
