@@ -30,6 +30,13 @@ var mockDetectLocale = vi.fn();
 var mockFetch = vi.fn();
 var mockProbeLlamaCppEnvironment = vi.fn();
 var mockInstallLlamaCpp = vi.fn();
+var mockIsGcloudInstalled = vi.fn();
+var mockGetGcloudProject = vi.fn();
+var mockGetGcloudAccount = vi.fn();
+var mockGetGcloudAccessToken = vi.fn();
+var mockClearGcloudTokenCache = vi.fn();
+var mockIsGcloudAuthenticated = vi.fn();
+var mockGetGcloudVersion = vi.fn();
 
 vi.mock("../../src/ui/ink/components/Modal.js", () => ({
   showModal: mockShowModal,
@@ -75,6 +82,17 @@ vi.mock("../../src/auth/index.js", () => ({
 vi.mock("../../src/providers/llamaCppSetup.js", () => ({
   probeLlamaCppEnvironment: mockProbeLlamaCppEnvironment,
   installLlamaCpp: mockInstallLlamaCpp,
+}));
+
+// Mock gcloud utilities to prevent auto-fetching tokens during tests
+vi.mock("../../src/utils/gcloudAuth.js", () => ({
+  isGcloudInstalled: mockIsGcloudInstalled,
+  getGcloudProject: mockGetGcloudProject,
+  getGcloudAccount: mockGetGcloudAccount,
+  getGcloudAccessToken: mockGetGcloudAccessToken,
+  clearGcloudTokenCache: mockClearGcloudTokenCache,
+  isGcloudAuthenticated: mockIsGcloudAuthenticated,
+  getGcloudVersion: mockGetGcloudVersion,
 }));
 
 vi.mock("open", () => ({
@@ -126,6 +144,14 @@ describe("Vertex AI Configuration Persistence E2E", () => {
       ok: true,
       output: "",
     });
+
+    // Reset gcloud mocks - prevent auto-fetching tokens
+    mockIsGcloudInstalled.mockResolvedValue(false);
+    mockGetGcloudProject.mockResolvedValue(null);
+    mockGetGcloudAccount.mockResolvedValue(null);
+    mockGetGcloudAccessToken.mockResolvedValue({ token: "", error: "gcloud not mocked" });
+    mockIsGcloudAuthenticated.mockResolvedValue(false);
+    mockGetGcloudVersion.mockResolvedValue(null);
   });
 
   afterEach(() => {

@@ -15,7 +15,6 @@ interface TokenCache {
 
 /** In-memory token cache (tokens expire in ~28 min, we refresh at 25 min) */
 let tokenCache: TokenCache | null = null;
-const TOKEN_REFRESH_BUFFER_MS = 3 * 60 * 1000; // 3 minutes before expiry
 
 /**
  * Check if gcloud CLI is installed and available

@@ -295,6 +295,57 @@ describe('PermissionManager', () => {
 
       expect(result.allowed).toBe(true);
     });
+
+    it('matches workspace-relative subdirectory patterns like src/core/*', () => {
+      const manager = new PermissionManager({
+        settings: {
+          allowList: ['write_file:src/core/*']
+        },
+        workspaceRoot: '/project'
+      });
+
+      // Should match files in src/core/
+      const result = manager.checkPermission({
+        tool: 'write_file',
+        path: 'src/core/agent.ts'
+      });
+
+      expect(result.allowed).toBe(true);
+      expect(result.reason).toBe('allow_list');
+    });
+
+    it('matches nested subdirectory patterns like src/core/utils/*', () => {
+      const manager = new PermissionManager({
+        settings: {
+          allowList: ['write_file:src/core/utils/*']
+        },
+        workspaceRoot: '/project'
+      });
+
+      const result = manager.checkPermission({
+        tool: 'write_file',
+        path: 'src/core/utils/helpers.ts'
+      });
+
+      expect(result.allowed).toBe(true);
+    });
+
+    it('does NOT match files outside the subdirectory pattern', () => {
+      const manager = new PermissionManager({
+        settings: {
+          allowList: ['write_file:src/core/*']
+        },
+        workspaceRoot: '/project'
+      });
+
+      // Should NOT match files in src/other/
+      const result = manager.checkPermission({
+        tool: 'write_file',
+        path: 'src/other/file.ts'
+      });
+
+      expect(result.allowed).toBe(false);
+    });
   });
 
   describe('directory trust — approve once for a directory', () => {
