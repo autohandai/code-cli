@@ -317,6 +317,23 @@
     },
     "import": {
       "description": "अन्य कोडिंग एजेंटों से डेटा आयात करें"
+    },
+    "vertexai": {
+      "title": "Google Cloud Vertex AI कॉन्फ़िगरेशन",
+      "getStarted": "Gemini, Claude और अन्य मॉडल तक पहुंच के लिए Google Cloud Vertex AI से कनेक्ट करें",
+      "setupSteps": {
+        "title": "शुरू करने से पहले, सुनिश्चित करें कि आपके पास है:",
+        "step1": "1. Vertex AI API सक्षम के साथ Google Cloud प्रोजेक्ट",
+        "step2": "2. gcloud CLI इंस्टॉल और प्रमाणित",
+        "step3": "3. आपकी Google Cloud प्रोजेक्ट ID"
+      },
+      "enterEndpoint": "Vertex AI एंडपॉइंट दर्ज करें",
+      "enterRegion": "क्षेत्र दर्ज करें",
+      "enterProjectId": "अपनी Google Cloud प्रोजेक्ट ID दर्ज करें",
+      "authTokenHint": "आप gcloud CLI का उपयोग करके प्रमाणीकरण टोकन उत्पन्न कर सकते हैं:",
+      "authTokenCommand": "gcloud auth print-access-token",
+      "enterAuthToken": "अपना Google Cloud प्रमाणीकरण टोकन दर्ज करें",
+      "enterModel": "मॉडल ID दर्ज करें (जैसे: zai-org/glm-5-maas, google/gemini-1.5-pro)"
     }
   },
   "setup": {
@@ -405,12 +422,12 @@
     "mlx": "MLX (Apple Silicon)",
     "llmgateway": "LLM Gateway",
     "azure": "Azure OpenAI",
+    "zai": "Z.ai",
+    "vertexai": "Google Cloud Vertex AI",
     "hints": {
       "openrouter": "क्लाउड - 100+ मॉडल तक पहुँच (Claude, GPT-4, आदि)",
-      "openai": "क्लाउड - आधिकारिक OpenAI मॉडल (GPT-4o, o1, आदि)",
-      "ollama": "स्थानीय - अपनी मशीन पर मॉडल चलाएँ (मुफ़्त)",
-      "llamacpp": "स्थानीय - GGUF मॉडल के साथ तेज़ इन्फ़रेंस",
-      "mlx": "स्थानीय - Apple Silicon Mac के लिए अनुकूलित"
+      "zai": "क्लाउड - Z.ai GLM models (glm-4.5, cogview, etc.)",
+      "vertexai": "क्लाउड - Google Cloud Vertex AI (Gemini, Claude, GLM)"
     },
     "config": {
       "selectReasoningEffort": "तर्क स्तर चुनें",

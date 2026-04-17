@@ -29,7 +29,7 @@ type Primitive = string | number | boolean | null;
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
-export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure' | 'zai';
+export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure' | 'zai' | 'vertexai' | 'xai' | 'cerebras';
 
 export type AzureAuthMethod = 'api-key' | 'entra-id' | 'managed-identity';
 export type OpenAIAuthMode = 'api-key' | 'chatgpt';
@@ -86,6 +86,29 @@ export interface AzureSettings extends ProviderSettings {
 
 export interface ZaiSettings extends ProviderSettings {
   apiKey: string;
+}
+
+/** xAI (xAI) settings for the xAI API. */
+export interface XAISettings extends ProviderSettings {
+    /** xAI API key (required). */
+    apiKey: string;
+}
+
+/** Cerebras AI settings for the Cerebras API. */
+export interface CerebrasSettings extends ProviderSettings {
+    /** Cerebras API key (required). */
+    apiKey: string;
+}
+
+export interface VertexAISettings extends ProviderSettings {
+  /** Google Cloud Auth Token (from gcloud auth print-access-token) */
+  authToken: string;
+  /** Endpoint URL (default: aiplatform.googleapis.com) */
+  endpoint?: string;
+  /** Region (default: global) */
+  region?: string;
+  /** Google Cloud Project ID */
+  projectId: string;
 }
 
 export interface WorkspaceSettings {
@@ -562,6 +585,12 @@ export interface AutohandConfig {
   azure?: AzureSettings;
   /** Z.ai (Zhipu AI) settings */
   zai?: ZaiSettings;
+  /** Google Cloud Vertex AI settings */
+  vertexai?: VertexAISettings;
+  /** xAI settings (gGrok models via xAI's API) */
+  xai?: XAISettings;
+  /** Cerebras AI settings (GLM and Qwen models) */
+  cerebras?: CerebrasSettings;
   workspace?: WorkspaceSettings;
   ui?: UISettings;
   agent?: AgentSettings;

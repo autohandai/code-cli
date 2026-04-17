@@ -109,7 +109,28 @@
         "tab": "Premi Tab per il completamento automatico dei percorsi dei file",
         "escape": "Premi Esc per annullare l'operazione corrente"
       },
-      "docsLink": "Per maggiori informazioni, visita {{link}}"
+      "docsLink": "Per maggiori informazioni, visita {{link}}",
+      "zai": {
+        "title": "Configurazione Z.ai",
+        "apiKeyUrl": "https://z.ai/api-keys"
+      },
+      "vertexai": {
+        "title": "Configurazione Google Cloud Vertex AI",
+        "getStarted": "Connettiti a Google Cloud Vertex AI per accedere a Gemini, Claude e altri modelli",
+        "setupSteps": {
+          "title": "Prima di iniziare, assicurati di avere:",
+          "step1": "1. Un progetto Google Cloud con API Vertex AI abilitata",
+          "step2": "2. gcloud CLI installato e autenticato",
+          "step3": "3. Il tuo ID progetto Google Cloud"
+        },
+        "enterEndpoint": "Inserisci l'endpoint Vertex AI",
+        "enterRegion": "Inserisci la regione",
+        "enterProjectId": "Inserisci il tuo ID progetto Google Cloud",
+        "authTokenHint": "Puoi generare un token di autenticazione usando gcloud CLI:",
+        "authTokenCommand": "gcloud auth print-access-token",
+        "enterAuthToken": "Inserisci il tuo token di autenticazione Google Cloud",
+        "enterModel": "Inserisci l'ID del modello (es. zai-org/glm-5-maas, google/gemini-1.5-pro)"
+      }
     },
     "about": {
       "title": "Autohand",
@@ -405,12 +426,12 @@
     "mlx": "MLX (Apple Silicon)",
     "llmgateway": "LLM Gateway",
     "azure": "Azure OpenAI",
+    "zai": "Z.ai",
+    "vertexai": "Google Cloud Vertex AI",
     "hints": {
       "openrouter": "Cloud - Accesso a più di 100 modelli (Claude, GPT-4, ecc.)",
-      "openai": "Cloud - Modelli OpenAI ufficiali (GPT-4o, o1, ecc.)",
-      "ollama": "Locale - Esegui modelli sulla tua macchina (gratuito)",
-      "llamacpp": "Locale - Inferenza veloce con modelli GGUF",
-      "mlx": "Locale - Ottimizzato per Mac con Apple Silicon"
+      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)",
+      "vertexai": "Cloud - Google Cloud Vertex AI (Gemini, Claude, GLM)"
     },
     "config": {
       "selectReasoningEffort": "Seleziona il livello di ragionamento",

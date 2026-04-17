@@ -649,6 +649,124 @@ async function handleSingleRequest(
         break;
       }
 
+      // SDK control methods
+      case RPC_METHODS.SET_PERMISSION_MODE: {
+        const setPermParams = params as { mode?: string } | undefined;
+        if (!setPermParams?.mode) {
+          if (shouldRespond) {
+            return createErrorResponse(
+              id!,
+              JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+              'Missing required parameter: mode'
+            );
+          }
+          return null;
+        }
+        result = await adapter.handleSetPermissionMode(setPermParams as any);
+        break;
+      }
+
+      case RPC_METHODS.SET_MODEL: {
+        const setModelParams = params as { model?: string } | undefined;
+        result = await adapter.handleSetModel(setModelParams as any);
+        break;
+      }
+
+      case RPC_METHODS.SET_MAX_THINKING_TOKENS: {
+        const setThinkingParams = params as { maxThinkingTokens?: number | null } | undefined;
+        result = await adapter.handleSetMaxThinkingTokens(setThinkingParams as any);
+        break;
+      }
+
+      case RPC_METHODS.APPLY_FLAG_SETTINGS: {
+        const applyFlagsParams = params as { settings?: Record<string, unknown> } | undefined;
+        if (!applyFlagsParams?.settings) {
+          if (shouldRespond) {
+            return createErrorResponse(
+              id!,
+              JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+              'Missing required parameter: settings'
+            );
+          }
+          return null;
+        }
+        result = await adapter.handleApplyFlagSettings(applyFlagsParams as any);
+        break;
+      }
+
+      case RPC_METHODS.GET_SUPPORTED_MODELS: {
+        result = await adapter.handleGetSupportedModels();
+        break;
+      }
+
+      case RPC_METHODS.GET_SUPPORTED_COMMANDS: {
+        result = await adapter.handleGetSupportedCommands();
+        break;
+      }
+
+      case RPC_METHODS.GET_CONTEXT_USAGE: {
+        result = await adapter.handleGetContextUsage();
+        break;
+      }
+
+      case RPC_METHODS.RELOAD_PLUGINS: {
+        result = await adapter.handleReloadPlugins();
+        break;
+      }
+
+      case RPC_METHODS.GET_ACCOUNT_INFO: {
+        result = await adapter.handleGetAccountInfo();
+        break;
+      }
+
+      case RPC_METHODS.MCP_TOGGLE_SERVER: {
+        const toggleParams = params as { serverName?: string; enabled?: boolean } | undefined;
+        if (!toggleParams?.serverName || toggleParams?.enabled === undefined) {
+          if (shouldRespond) {
+            return createErrorResponse(
+              id!,
+              JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+              'Missing required parameters: serverName, enabled'
+            );
+          }
+          return null;
+        }
+        result = await adapter.handleMcpToggleServer(toggleParams as any);
+        break;
+      }
+
+      case RPC_METHODS.MCP_RECONNECT_SERVER: {
+        const reconnectParams = params as { serverName?: string } | undefined;
+        if (!reconnectParams?.serverName) {
+          if (shouldRespond) {
+            return createErrorResponse(
+              id!,
+              JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+              'Missing required parameter: serverName'
+            );
+          }
+          return null;
+        }
+        result = await adapter.handleMcpReconnectServer(reconnectParams as any);
+        break;
+      }
+
+      case RPC_METHODS.MCP_SET_SERVERS: {
+        const setServersParams = params as { servers?: Record<string, unknown> } | undefined;
+        if (!setServersParams?.servers) {
+          if (shouldRespond) {
+            return createErrorResponse(
+              id!,
+              JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+              'Missing required parameter: servers'
+            );
+          }
+          return null;
+        }
+        result = await adapter.handleMcpSetServers(setServersParams as any);
+        break;
+      }
+
       default: {
         if (shouldRespond) {
           return createErrorResponse(

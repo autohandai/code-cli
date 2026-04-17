@@ -166,7 +166,8 @@ export class ProviderConfigManager {
     if (
       provider === "openrouter" ||
       provider === "llmgateway" ||
-      provider === "zai"
+      provider === "zai" ||
+      provider === "xai"
     ) {
       return !!config.apiKey && config.apiKey !== "replace-me";
     }
@@ -203,6 +204,12 @@ export class ProviderConfigManager {
         break;
       case "zai":
         await this.configureZai();
+        break;
+      case "vertexai":
+        await this.configureVertexAI();
+        break;
+      case "xai":
+        await this.configureXAI();
         break;
     }
   }
@@ -965,14 +972,24 @@ export class ProviderConfigManager {
       const currentModel =
         this.runtime.options.model ?? currentSettings?.model ?? "";
 
-      // For cloud providers (openai, openrouter, llmgateway, azure, zai), offer to change API key as well
+      // For cloud providers (openai, openrouter, llmgateway, azure, zai, vertexai, xai), offer to change API key as well
       if (
         provider === "openai" ||
         provider === "openrouter" ||
         provider === "llmgateway" ||
         provider === "azure" ||
-        provider === "zai"
+        provider === "zai" ||
+        provider === "vertexai" ||
+        provider === "xai"
       ) {
+        if (provider === "vertexai") {
+          await this.configureVertexAI();
+          return;
+        }
+        if (provider === "xai") {
+          await this.configureXAI();
+          return;
+        }
         await this.changeCloudProviderSettings(
           provider,
           currentModel,
@@ -1112,8 +1129,193 @@ export class ProviderConfigManager {
     }
   }
 
+  /**
+   * Configure Google Cloud Vertex AI provider
+   */
+  private async configureVertexAI(): Promise<void> {
+    try {
+      console.log(chalk.cyan(t("providers.wizard.vertexai.title")));
+      console.log(
+        chalk.gray(
+          t("providers.wizard.vertexai.getStarted") + "\n",
+        ),
+      );
+
+      console.log(
+        chalk.yellow(`\n${t("providers.wizard.vertexai.setupSteps.title")}`),
+      );
+      console.log(
+        chalk.gray(`  ${t("providers.wizard.vertexai.setupSteps.step1")}`),
+      );
+      console.log(
+        chalk.gray(`  ${t("providers.wizard.vertexai.setupSteps.step2")}`),
+      );
+      console.log(
+        chalk.gray(`  ${t("providers.wizard.vertexai.setupSteps.step3")}`),
+      );
+      console.log();
+
+      // Step 1: Endpoint
+      const endpoint =
+        (await showInput({
+          title: t("providers.wizard.vertexai.enterEndpoint"),
+          defaultValue: "aiplatform.googleapis.com",
+        })) ?? undefined;
+      if (!endpoint) {
+        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+        return;
+      }
+
+      // Step 2: Region
+      const region =
+        (await showInput({
+          title: t("providers.wizard.vertexai.enterRegion"),
+          defaultValue: "global",
+        })) ?? undefined;
+      if (!region) {
+        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+        return;
+      }
+
+      // Step 3: Project ID
+      const projectId =
+        (await showInput({
+          title: t("providers.wizard.vertexai.enterProjectId"),
+          placeholder: "YOUR_PROJECT_ID",
+        })) ?? undefined;
+      if (!projectId) {
+        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+        return;
+      }
+
+      // Step 4: Auth Token
+      console.log(
+        chalk.gray("\n" + t("providers.wizard.vertexai.authTokenHint")),
+      );
+      console.log(
+        chalk.gray(`  ${t("providers.wizard.vertexai.authTokenCommand")}`),
+      );
+      console.log();
+
+      const authToken =
+        (await showPassword({
+          title: t("providers.wizard.vertexai.enterAuthToken"),
+          placeholder: t("ui.apiKeyPlaceholder"),
+        })) ?? undefined;
+      if (!authToken) {
+        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+        return;
+      }
+
+      // Step 5: Model
+      const model =
+        (await showInput({
+          title: t("providers.wizard.vertexai.enterModel"),
+          defaultValue: "zai-org/glm-5-maas",
+        })) ?? undefined;
+      if (!model) {
+        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+        return;
+      }
+
+      this.runtime.config.vertexai = {
+        authToken,
+        endpoint,
+        region,
+        projectId,
+        model: sanitizeModelId(model),
+      };
+
+      this.runtime.config.provider = "vertexai";
+      this.runtime.options.model = model;
+      await saveConfig(this.runtime.config);
+      this.resetLlmClient("vertexai", model);
+
+      console.log(
+        chalk.green(
+          "\n✓ " +
+            t("providers.config.configuredSuccessfully", {
+              provider: t("providers.vertexai"),
+            }),
+        ),
+      );
+      console.log(
+        chalk.gray(
+          "  " + t("providers.config.modelLabel", { model }),
+        ),
+      );
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Configure xAI provider (API key + model)
+   */
+  private async configureXAI(): Promise<void> {
+    try {
+      console.log(chalk.cyan(t("providers.wizard.xai.title")));
+      console.log(
+        chalk.gray(
+          t("providers.config.apiKeyUrl", {
+            url: t("providers.wizard.xai.apiKeyUrl"),
+          }) + "\n",
+        ),
+      );
+
+      const apiKey = await showPassword({
+        title: t("providers.config.enterApiKey", {
+          provider: t("providers.xai"),
+        }),
+        placeholder: t("ui.apiKeyPlaceholder"),
+      });
+
+      if (!apiKey) {
+        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+        return;
+      }
+
+      const model =
+        (await showInput({
+          title: t("providers.wizard.xai.enterModel"),
+          defaultValue: "grok-4.20-reasoning",
+        })) ?? undefined;
+      if (!model) {
+        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+        return;
+      }
+
+      this.runtime.config.xai = {
+        apiKey,
+        baseUrl: "https://api.x.ai/v1",
+        model,
+      };
+
+      this.runtime.config.provider = "xai";
+      this.runtime.options.model = model;
+      await saveConfig(this.runtime.config);
+      this.resetLlmClient("xai", model);
+
+      console.log(
+        chalk.green(
+          "\n✓ " +
+            t("providers.config.configuredSuccessfully", {
+              provider: t("providers.xai"),
+            }),
+        ),
+      );
+      console.log(
+        chalk.gray(
+          "  " + t("providers.config.modelLabel", { model }),
+        ),
+      );
+    } catch (error) {
+      throw error;
+    }
+  }
+
   private async changeCloudProviderSettings(
-    provider: "openai" | "openrouter" | "llmgateway" | "azure" | "zai",
+    provider: "openai" | "openrouter" | "llmgateway" | "azure" | "zai" | "xai",
     currentModel: string,
     currentSettings: {
       apiKey?: string;
@@ -1241,6 +1443,8 @@ export class ProviderConfigManager {
         llmgateway: "https://llmgateway.io/dashboard",
         azure: "https://ai.azure.com",
         zai: "https://z.ai/api-keys",
+        xai: "https://console.x.ai/keys",
+        cerebras: "https://cloud.cerebras.ai/platform/",
       };
       const keyUrl = keyUrlMap[provider];
       console.log(
@@ -1442,6 +1646,7 @@ export class ProviderConfigManager {
         openrouter: "https://openrouter.ai/api/v1",
         llmgateway: "https://api.llmgateway.io/v1",
         zai: ZAI_DEFAULT_BASE_URL,
+        xai: "https://api.x.ai/v1",
       };
       const baseUrl = baseUrlMap[provider];
 
@@ -1532,7 +1737,7 @@ export class ProviderConfigManager {
    * Validate API key by making a test request to the provider
    */
   private async validateApiKey(
-    provider: "openai" | "openrouter" | "llmgateway" | "azure" | "zai",
+    provider: "openai" | "openrouter" | "llmgateway" | "azure" | "zai" | "xai" | "cerebras",
     apiKey: string,
   ): Promise<{ valid: boolean; error?: string; hint?: string }> {
     // Azure keys can't be easily validated without resource/deployment info
@@ -1546,6 +1751,8 @@ export class ProviderConfigManager {
         openrouter: "https://openrouter.ai/api/v1",
         llmgateway: "https://api.llmgateway.io/v1",
         zai: ZAI_DEFAULT_BASE_URL,
+        xai: "https://api.x.ai/v1",
+        cerebras: "https://api.cerebras.ai/v1",
       };
       const baseUrl = baseUrlMap[provider];
 
@@ -1584,6 +1791,8 @@ export class ProviderConfigManager {
         openrouter: "https://openrouter.ai/keys",
         llmgateway: "https://llmgateway.io/dashboard",
         zai: "https://z.ai/api-keys",
+        xai: "https://console.x.ai/keys",
+        cerebras: "https://cloud.cerebras.ai/platform/",
       };
 
       if (status === 401) {
@@ -1709,6 +1918,21 @@ export class ProviderConfigManager {
       zai:
         this.runtime.config.zai ??
         (this.runtime.config.zai = { apiKey: "", model }),
+      vertexai:
+        this.runtime.config.vertexai ??
+        (this.runtime.config.vertexai = {
+          authToken: "",
+          endpoint: "aiplatform.googleapis.com",
+          region: "global",
+          projectId: "",
+          model,
+        }),
+      xai:
+        this.runtime.config.xai ??
+        (this.runtime.config.xai = { apiKey: "", model }),
+      cerebras:
+        this.runtime.config.cerebras ??
+        (this.runtime.config.cerebras = { apiKey: "", model }),
     };
     cfgMap[provider].model = model;
     this.setActiveProvider(provider);

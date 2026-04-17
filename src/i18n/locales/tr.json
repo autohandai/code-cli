@@ -513,6 +513,8 @@
     "mlx": "MLX (Apple Silicon)",
     "llmgateway": "LLM Gateway",
     "azure": "Azure OpenAI",
+    "zai": "Z.ai",
+    "vertexai": "Google Cloud Vertex AI",
     "hints": {
       "openrouter": "Bulut - 100+ model erişimi (Claude, GPT-4, vb.)",
       "openai": "Bulut - Resmi OpenAI modelleri (GPT-4o, o1, vb.)",
@@ -521,7 +523,8 @@
       "mlx": "Yerel - Apple Silicon için optimize edilmiş",
       "llmgateway": "Bulut - Çoklu LLM sağlayıcı için birleşik API",
       "azure": "Bulut - Azure OpenAI Servisi (kurumsal)",
-      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)"
+      "zai": "Bulut - Z.ai GLM models (glm-4.5, cogview, etc.)",
+      "vertexai": "Bulut - Google Cloud Vertex AI (Gemini, Claude, GLM)"
     },
     "config": {
       "chooseProvider": "Bir LLM sağlayıcısı seçin",
@@ -606,6 +609,23 @@
       "zai": {
         "title": "Z.ai Yapılandırması",
         "apiKeyUrl": "https://z.ai/api-keys"
+      },
+      "vertexai": {
+        "title": "Google Cloud Vertex AI Yapılandırması",
+        "getStarted": "Gemini, Claude ve diğer modellere erişmek için Google Cloud Vertex AI'a bağlanın",
+        "setupSteps": {
+          "title": "Başlamadan önce şunlara sahip olduğunuzdan emin olun:",
+          "step1": "1. Vertex AI API etkinleştirilmiş Google Cloud projesi",
+          "step2": "2. gcloud CLI yüklü ve kimlik doğrulaması yapılmış",
+          "step3": "3. Google Cloud proje kimliğiniz"
+        },
+        "enterEndpoint": "Vertex AI uç noktasını girin",
+        "enterRegion": "Bölgeyi girin",
+        "enterProjectId": "Google Cloud proje kimliğinizi girin",
+        "authTokenHint": "gcloud CLI kullanarak kimlik doğrulama belirteci oluşturabilirsiniz:",
+        "authTokenCommand": "gcloud auth print-access-token",
+        "enterAuthToken": "Google Cloud kimlik doğrulama belirtecini girin",
+        "enterModel": "Model kimliğini girin (örn: zai-org/glm-5-maas, google/gemini-1.5-pro)"
       },
       "azure": {
         "title": "Azure OpenAI Yapılandırması",

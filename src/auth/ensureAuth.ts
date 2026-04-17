@@ -207,7 +207,7 @@ async function promptLogin(config: LoadedConfig): Promise<LoadedConfig> {
       // Silently fail version check
     }
 
-    const logoWithVersion = [...LOGO_LINES, '', chalk.gray(versionStr)];
+    const logoWithVersion = [...LOGO_LINES, '', chalk.gray(versionStr)].join('\n');
     
     // Build options based on update availability
     const options = [

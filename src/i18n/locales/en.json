@@ -680,6 +680,8 @@
     "azure": "Azure OpenAI",
     "zai": "Z.ai",
     "vertexai": "Google Cloud Vertex AI",
+    "xai": "xAI (Grok)",
+    "cerebras": "Cerebras AI",
     "openaiAuth": {
       "chooseTitle": "Choose how to connect OpenAI",
       "apiKeyLabel": "Use API key",
@@ -706,7 +708,9 @@
       "llmgateway": "Cloud - Unified API for multiple LLM providers",
       "azure": "Cloud - Azure OpenAI Service (enterprise)",
       "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)",
-      "vertexai": "Cloud - Google Cloud Vertex AI (Gemini, Claude, GLM models)"
+      "vertexai": "Cloud - Google Cloud Vertex AI (Gemini, Claude, GLM models)",
+      "xai": "Cloud - xAI Grok models with web search, X search, and code execution",
+      "cerebras": "Cloud - Cerebras AI with GLM and Qwen models"
     },
     "config": {
       "chooseProvider": "Choose an LLM provider",
@@ -808,6 +812,16 @@
         "authTokenCommand": "gcloud auth print-access-token",
         "enterAuthToken": "Enter your Google Cloud auth token",
         "enterModel": "Enter the model ID (e.g., zai-org/glm-5-maas, google/gemini-1.5-pro)"
+      },
+      "xai": {
+        "title": "xAI (Grok) Configuration",
+        "apiKeyUrl": "https://console.x.ai/keys",
+        "enterModel": "Enter the model ID (e.g., grok-4.20-reasoning, grok-4-1-fast-reasoning)"
+      },
+      "cerebras": {
+        "title": "Cerebras AI Configuration",
+        "apiKeyUrl": "https://cloud.cerebras.ai/platform/",
+        "enterModel": "Select a Cerebras model"
       },
       "azure": {
         "title": "Azure OpenAI Configuration",

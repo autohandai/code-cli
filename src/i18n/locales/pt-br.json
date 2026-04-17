@@ -513,6 +513,8 @@
     "mlx": "MLX (Apple Silicon)",
     "llmgateway": "LLM Gateway",
     "azure": "Azure OpenAI",
+    "zai": "Z.ai",
+    "vertexai": "Google Cloud Vertex AI",
     "hints": {
       "openrouter": "Nuvem - Acesso a 100+ modelos (Claude, GPT-4, etc.)",
       "openai": "Nuvem - Modelos oficiais OpenAI (GPT-4o, o1, etc.)",
@@ -521,7 +523,8 @@
       "mlx": "Local - Otimizado para Macs Apple Silicon",
       "llmgateway": "Nuvem - API unificada para múltiplos provedores LLM",
       "azure": "Nuvem - Azure OpenAI Service (enterprise)",
-      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)"
+      "zai": "Nuvem - Z.ai GLM models (glm-4.5, cogview, etc.)",
+      "vertexai": "Nuvem - Google Cloud Vertex AI (Gemini, Claude, GLM)"
     },
     "config": {
       "chooseProvider": "Escolha um provedor LLM",
@@ -606,6 +609,23 @@
       "zai": {
         "title": "Configuração Z.ai",
         "apiKeyUrl": "https://z.ai/api-keys"
+      },
+      "vertexai": {
+        "title": "Configuração Google Cloud Vertex AI",
+        "getStarted": "Conecte-se ao Google Cloud Vertex AI para acessar Gemini, Claude e outros modelos",
+        "setupSteps": {
+          "title": "Antes de começar, certifique-se de ter:",
+          "step1": "1. Um projeto Google Cloud com a API Vertex AI habilitada",
+          "step2": "2. gcloud CLI instalado e autenticado",
+          "step3": "3. Seu ID de projeto do Google Cloud"
+        },
+        "enterEndpoint": "Insira o endpoint do Vertex AI",
+        "enterRegion": "Insira a região",
+        "enterProjectId": "Insira seu ID de projeto do Google Cloud",
+        "authTokenHint": "Você pode gerar um token de autenticação usando o gcloud CLI:",
+        "authTokenCommand": "gcloud auth print-access-token",
+        "enterAuthToken": "Insira seu token de autenticação do Google Cloud",
+        "enterModel": "Insira o ID do modelo (ex: zai-org/glm-5-maas, google/gemini-1.5-pro)"
       },
       "azure": {
         "title": "Configuração Azure OpenAI",

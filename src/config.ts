@@ -13,6 +13,7 @@ import type {
   ProviderSettings,
   AzureSettings,
   OpenAISettings,
+  VertexAISettings,
 } from "./types.js";
 import { AUTOHAND_FILES } from "./constants.js";
 import { autoInitTheme, themeExists } from "./ui/theme/index.js";
@@ -522,6 +523,9 @@ export function getProviderConfig(
     llmgateway: config.llmgateway,
     azure: config.azure,
     zai: config.zai,
+    vertexai: config.vertexai,
+    xai: config.xai,
+    cerebras: config.cerebras,
   };
 
   const entry = configByProvider[chosen];
@@ -555,6 +559,11 @@ export function getProviderConfig(
   ) {
     const { apiKey, model } = entry as ProviderSettings;
     if (!apiKey || apiKey === "replace-me" || !model) {
+      return null; // Incomplete config
+    }
+  } else if (chosen === "vertexai") {
+    const { authToken, projectId, model } = entry as VertexAISettings;
+    if (!authToken || !projectId || !model) {
       return null; // Incomplete config
     }
   } else {

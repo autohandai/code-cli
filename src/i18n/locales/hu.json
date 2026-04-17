@@ -513,6 +513,8 @@
     "mlx": "MLX (Apple Silicon)",
     "llmgateway": "LLM Gateway",
     "azure": "Azure OpenAI",
+    "zai": "Z.ai",
+    "vertexai": "Google Cloud Vertex AI",
     "hints": {
       "openrouter": "Felhő - Hozzáférés 100+ modellhez (Claude, GPT-4 stb.)",
       "openai": "Felhő - Hivatalos OpenAI modellek (GPT-4o, o1 stb.)",
@@ -521,7 +523,8 @@
       "mlx": "Helyi - Optimalizálva Apple Silicon Mac-ekhez",
       "llmgateway": "Felhő - Egyesített API több LLM szolgáltatóhoz",
       "azure": "Felhő - Azure OpenAI Service (vállalati)",
-      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)"
+      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)",
+      "vertexai": "Felhő - Google Cloud Vertex AI (Gemini, Claude, GLM)"
     },
     "config": {
       "chooseProvider": "Válasszon egy LLM szolgáltatót",
@@ -606,6 +609,23 @@
       "zai": {
         "title": "Z.ai Konfiguráció",
         "apiKeyUrl": "https://z.ai/api-keys"
+      },
+      "vertexai": {
+        "title": "Google Cloud Vertex AI Konfiguráció",
+        "getStarted": "Csatlakozzon a Google Cloud Vertex AI-hoz a Gemini, Claude és más modellek eléréséhez",
+        "setupSteps": {
+          "title": "Mielőtt elkezdené, győződjön meg arról, hogy rendelkezik:",
+          "step1": "1. Google Cloud projekt engedélyezett Vertex AI API-val",
+          "step2": "2. gcloud CLI telepítve és hitelesítve",
+          "step3": "3. Google Cloud projekt azonosítója"
+        },
+        "enterEndpoint": "Adja meg a Vertex AI végpontot",
+        "enterRegion": "Adja meg a régiót",
+        "enterProjectId": "Adja meg a Google Cloud projekt azonosítóját",
+        "authTokenHint": "Hitelesítő tokent generálhat a gcloud CLI használatával:",
+        "authTokenCommand": "gcloud auth print-access-token",
+        "enterAuthToken": "Adja meg a Google Cloud hitelesítő tokent",
+        "enterModel": "Adja meg a modell azonosítót (pl.: zai-org/glm-5-maas, google/gemini-1.5-pro)"
       },
       "azure": {
         "title": "Azure OpenAI Konfiguráció",
