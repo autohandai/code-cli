@@ -4624,7 +4624,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
             // Ctrl+C is handled by InkRenderer (first warns, second exits)
             // We just need to abort on the second one
           },
-          enableQueueInput: this.runtime.config.agent?.enableRequestQueue !== false
+          enableQueueInput: this.runtime.config.agent?.enableRequestQueue !== false,
+          filesProvider: () => this.workspaceFileCollector.getCachedFiles(),
         });
         this.inkRenderer.start();
         this.inkRenderer.setWorking(true, 'Gathering context...');
