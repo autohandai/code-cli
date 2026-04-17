@@ -513,6 +513,8 @@
     "mlx": "MLX (Apple Silicon)",
     "llmgateway": "LLM Gateway",
     "azure": "Azure OpenAI",
+    "zai": "Z.ai",
+    "vertexai": "Google Cloud Vertex AI",
     "hints": {
       "openrouter": "クラウド - 100以上のモデルにアクセス（Claude, GPT-4など）",
       "openai": "クラウド - 公式OpenAIモデル（GPT-4o, o1など）",
@@ -521,7 +523,8 @@
       "mlx": "ローカル - Apple Silicon Mac向けに最適化",
       "llmgateway": "クラウド - 複数のLLMプロバイダー向け統一API",
       "azure": "クラウド - Azure OpenAI Service（エンタープライズ）",
-      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)"
+      "zai": "クラウド - Z.ai GLM models (glm-4.5, cogview, etc.)",
+      "vertexai": "クラウド - Google Cloud Vertex AI (Gemini, Claude, GLM)"
     },
     "config": {
       "chooseProvider": "LLMプロバイダーを選択",
@@ -606,6 +609,23 @@
       "zai": {
         "title": "Z.ai設定",
         "apiKeyUrl": "https://z.ai/api-keys"
+      },
+      "vertexai": {
+        "title": "Google Cloud Vertex AI設定",
+        "getStarted": "Google Cloud Vertex AI に接続して、Gemini、Claude などのモデルにアクセス",
+        "setupSteps": {
+          "title": "始める前に、以下を確認してください：",
+          "step1": "1. Vertex AI API が有効になった Google Cloud プロジェクト",
+          "step2": "2. gcloud CLI がインストールされ、認証済み",
+          "step3": "3. Google Cloud プロジェクト ID"
+        },
+        "enterEndpoint": "Vertex AI エンドポイントを入力",
+        "enterRegion": "リージョンを入力",
+        "enterProjectId": "Google Cloud プロジェクト ID を入力",
+        "authTokenHint": "gcloud CLI を使用して認証トークンを生成できます：",
+        "authTokenCommand": "gcloud auth print-access-token",
+        "enterAuthToken": "Google Cloud 認証トークンを入力",
+        "enterModel": "モデル ID を入力（例：zai-org/glm-5-maas, google/gemini-1.5-pro）"
       },
       "azure": {
         "title": "Azure OpenAI設定",

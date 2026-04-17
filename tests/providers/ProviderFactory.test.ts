@@ -52,6 +52,7 @@ describe("ProviderFactory", () => {
         "llmgateway",
         "azure",
         "zai",
+        "vertexai",
       ]);
     });
   });

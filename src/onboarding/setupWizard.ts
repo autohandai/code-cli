@@ -12,10 +12,11 @@ import { ASCII_FRIEND } from '../utils/asciiArt.js';
 import fse from 'fs-extra';
 import { join } from 'path';
 
-import type { AutohandConfig, LoadedConfig, ProviderName, AzureSettings, AzureAuthMethod, PermissionMode, SearchProvider, ReasoningEffort, OpenAIAuthMode, OpenAIChatGPTAuth, OpenAISettings } from '../types.js';
+import type { AutohandConfig, LoadedConfig, ProviderName, AzureSettings, AzureAuthMethod, PermissionMode, SearchProvider, ReasoningEffort, OpenAIAuthMode, OpenAIChatGPTAuth, OpenAISettings, VertexAISettings } from '../types.js';
 import { getProviderConfig } from '../config.js';
 import { ProviderFactory } from '../providers/ProviderFactory.js';
 import { ZAI_MODELS, ZAI_DEFAULT_BASE_URL } from '../providers/ZaiProvider.js';
+import { CEREBRAS_MODELS, CEREBRAS_DEFAULT_BASE_URL } from '../providers/CerebrasProvider.js';
 import { authenticateOpenAIChatGPT, isChatGPTAuthExpired } from '../providers/openaiAuth.js';
 import { installLlamaCpp, probeLlamaCppEnvironment } from '../providers/llamaCppSetup.js';
 import { ProjectAnalyzer } from './projectAnalyzer.js';
@@ -69,6 +70,7 @@ interface OnboardingState {
     checkForUpdates?: boolean;
   };
   azureConfig?: AzureSettings;
+  vertexaiConfig?: VertexAISettings;
   permissionMode?: PermissionMode;
   rememberSession?: boolean;
   notifications?: {
@@ -169,10 +171,13 @@ export class SetupWizard {
       const provider = await this.promptProvider();
       if (!provider) return this.cancelled();
 
-      // Step 5: Provider-specific configuration (API key + validation OR Azure flow)
+      // Step 5: Provider-specific configuration (API key + validation OR Azure/VertexAI flow)
       if (provider === 'azure') {
         const azureResult = await this.promptAzureConfig();
         if (!azureResult) return this.cancelled();
+      } else if (provider === 'vertexai') {
+        const vertexaiResult = await this.promptVertexAIConfig();
+        if (!vertexaiResult) return this.cancelled();
       } else {
         if (provider === 'llamacpp') {
           const ready = await this.prepareLlamaCpp();
@@ -307,6 +312,11 @@ export class SetupWizard {
       return this.isOpenAIConfigured(providerConfig as OpenAISettings);
     }
 
+    if (provider === 'vertexai') {
+      const vertexaiConfig = providerConfig as VertexAISettings;
+      return !!(vertexaiConfig.authToken && vertexaiConfig.authToken.length >= 10);
+    }
+
     if (this.requiresApiKey(provider)) {
       const apiKey = (providerConfig as any).apiKey;
       if (!apiKey || apiKey === 'replace-me' || apiKey.length < 10) {
@@ -381,6 +391,11 @@ export class SetupWizard {
     // For providers that require an API key, check if it's set and valid
     if (provider === 'openai') {
       return this.isOpenAIConfigured(providerConfig as OpenAISettings);
+    }
+
+    if (provider === 'vertexai') {
+      const vertexaiConfig = providerConfig as VertexAISettings;
+      return !!(vertexaiConfig.authToken && vertexaiConfig.authToken.length >= 10);
     }
 
     if (this.requiresApiKey(provider)) {
@@ -498,6 +513,26 @@ export class SetupWizard {
         value: modelName,
       }));
       const defaultIndex = Math.max(0, ZAI_MODELS.indexOf(defaultModel as (typeof ZAI_MODELS)[number]));
+      const result = await showModal({
+        title: t('providers.config.selectModel'),
+        options,
+        initialIndex: defaultIndex >= 0 ? defaultIndex : 0,
+      });
+
+      if (!result) {
+        return null;
+      }
+
+      this.state.model = result.value as string;
+      return this.state.model;
+    }
+
+    if (provider === 'cerebras') {
+      const options: ModalOption[] = CEREBRAS_MODELS.map((modelName) => ({
+        label: modelName,
+        value: modelName,
+      }));
+      const defaultIndex = Math.max(0, CEREBRAS_MODELS.indexOf(defaultModel as (typeof CEREBRAS_MODELS)[number]));
       const result = await showModal({
         title: t('providers.config.selectModel'),
         options,
@@ -902,6 +937,8 @@ export class SetupWizard {
           baseUrl: this.getDefaultBaseUrl('openai'),
           ...(this.state.reasoningEffort !== undefined && { reasoningEffort: this.state.reasoningEffort })
         };
+      } else if (this.state.provider === 'vertexai' && this.state.vertexaiConfig) {
+        config.vertexai = this.state.vertexaiConfig;
       } else if (this.requiresApiKey(this.state.provider)) {
         (config as any)[this.state.provider] = {
           apiKey: this.state.apiKey,
@@ -1157,6 +1194,82 @@ export class SetupWizard {
 
     console.log(chalk.green('\n✓ ' + t('providers.config.configuredSuccessfully', { provider: t('providers.azure') })));
     console.log(chalk.gray('  ' + t('providers.wizard.azure.authLabel', { method: authMethod })));
+    console.log(chalk.gray('  ' + t('providers.config.modelLabel', { model })));
+    console.log();
+
+    return true;
+  }
+
+  /**
+   * Full Google Cloud Vertex AI configuration flow
+   * Shows prerequisites, collects endpoint, region, project ID, auth token, and model
+   */
+  private async promptVertexAIConfig(): Promise<boolean> {
+    this.state.currentStep = 'apiKey';
+
+    // Show title and prerequisites
+    console.log(chalk.cyan('\n' + t('providers.wizard.vertexai.title')));
+    console.log(chalk.gray(t('providers.wizard.vertexai.getStarted') + '\n'));
+
+    console.log(chalk.yellow(t('providers.wizard.vertexai.setupSteps.title')));
+    console.log(chalk.gray('  ' + t('providers.wizard.vertexai.setupSteps.step1')));
+    console.log(chalk.gray('  ' + t('providers.wizard.vertexai.setupSteps.step2')));
+    console.log(chalk.gray('  ' + t('providers.wizard.vertexai.setupSteps.step3')));
+    console.log();
+
+    // Step 1: Endpoint
+    const endpoint = await showInput({
+      title: t('providers.wizard.vertexai.enterEndpoint'),
+      defaultValue: 'aiplatform.googleapis.com'
+    });
+    if (!endpoint) return false;
+
+    // Step 2: Region
+    const region = await showInput({
+      title: t('providers.wizard.vertexai.enterRegion'),
+      defaultValue: 'global'
+    });
+    if (!region) return false;
+
+    // Step 3: Project ID
+    const projectId = await showInput({
+      title: t('providers.wizard.vertexai.enterProjectId'),
+      placeholder: 'YOUR_PROJECT_ID'
+    });
+    if (!projectId) return false;
+
+    // Step 4: Auth Token
+    console.log(chalk.gray('\n' + t('providers.wizard.vertexai.authTokenHint')));
+    console.log(chalk.gray('  ' + t('providers.wizard.vertexai.authTokenCommand')));
+    console.log();
+
+    const authToken = await showPassword({
+      title: t('providers.wizard.vertexai.enterAuthToken'),
+      placeholder: t('ui.apiKeyPlaceholder')
+    });
+    if (!authToken) return false;
+
+    // Step 5: Model
+    const model = await showInput({
+      title: t('providers.wizard.vertexai.enterModel'),
+      defaultValue: 'zai-org/glm-5-maas'
+    });
+    if (!model) return false;
+
+    // Store config in state
+    this.state.provider = 'vertexai';
+    this.state.apiKey = authToken;
+    this.state.model = model;
+    this.state.providerBaseUrl = `https://${endpoint}/v1/projects/${projectId}/locations/${region}/endpoints/openapi`;
+    this.state.vertexaiConfig = {
+      authToken,
+      endpoint,
+      region,
+      projectId,
+      model
+    };
+
+    console.log(chalk.green('\n✓ ' + t('providers.config.configuredSuccessfully', { provider: t('providers.vertexai') })));
     console.log(chalk.gray('  ' + t('providers.config.modelLabel', { model })));
     console.log();
 
@@ -1637,7 +1750,7 @@ export class SetupWizard {
   // Helper methods
 
   private requiresApiKey(provider: ProviderName): boolean {
-    return provider === 'openrouter' || provider === 'llmgateway' || provider === 'zai';
+    return provider === 'openrouter' || provider === 'llmgateway' || provider === 'zai' || provider === 'vertexai' || provider === 'xai' || provider === 'cerebras';
   }
 
   private getProviderDisplayName(provider: ProviderName): string {
@@ -1667,7 +1780,10 @@ export class SetupWizard {
       mlx: 'mlx-community/Llama-3.2-3B-Instruct-4bit',
       llmgateway: 'gpt-4o',
       azure: 'gpt-5.3-codex',
-      zai: 'glm-4.5'
+      zai: 'glm-4.5',
+      vertexai: 'zai-org/glm-5-maas',
+      xai: 'grok-4.20-reasoning',
+      cerebras: 'zai-glm-4.7'
     };
     return defaults[provider] || '';
   }
@@ -1681,7 +1797,10 @@ export class SetupWizard {
       mlx: 'http://localhost:8080',
       llmgateway: 'https://api.llmgateway.io/v1',
       azure: 'https://{resourceName}.openai.azure.com',
-      zai: ZAI_DEFAULT_BASE_URL
+      zai: ZAI_DEFAULT_BASE_URL,
+      vertexai: 'https://aiplatform.googleapis.com',
+      xai: 'https://api.x.ai/v1',
+      cerebras: CEREBRAS_DEFAULT_BASE_URL
     };
     return urls[provider] || '';
   }

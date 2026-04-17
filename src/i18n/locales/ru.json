@@ -109,7 +109,24 @@
         "tab": "Нажмите Tab для автодополнения путей к файлам",
         "escape": "Нажмите Esc для отмены текущей операции"
       },
-      "docsLink": "Подробнее: {{link}}"
+      "docsLink": "Подробнее: {{link}}",
+      "vertexai": {
+        "title": "Конфигурация Google Cloud Vertex AI",
+        "getStarted": "Подключитесь к Google Cloud Vertex AI для доступа к Gemini, Claude и другим моделям",
+        "setupSteps": {
+          "title": "Перед началом убедитесь, что у вас есть:",
+          "step1": "1. Проект Google Cloud с включенным API Vertex AI",
+          "step2": "2. gcloud CLI установлен и аутентифицирован",
+          "step3": "3. Ваш идентификатор проекта Google Cloud"
+        },
+        "enterEndpoint": "Введите конечную точку Vertex AI",
+        "enterRegion": "Введите регион",
+        "enterProjectId": "Введите идентификатор проекта Google Cloud",
+        "authTokenHint": "Вы можете сгенерировать токен аутентификации с помощью gcloud CLI:",
+        "authTokenCommand": "gcloud auth print-access-token",
+        "enterAuthToken": "Введите токен аутентификации Google Cloud",
+        "enterModel": "Введите идентификатор модели (например, zai-org/glm-5-maas, google/gemini-1.5-pro)"
+      }
     },
     "about": {
       "title": "Autohand",
@@ -405,12 +422,12 @@
     "mlx": "MLX (Apple Silicon)",
     "llmgateway": "LLM Gateway",
     "azure": "Azure OpenAI",
+    "zai": "Z.ai",
+    "vertexai": "Google Cloud Vertex AI",
     "hints": {
       "openrouter": "Облако - Доступ к 100+ моделям (Claude, GPT-4 и др.)",
-      "openai": "Облако - Официальные модели OpenAI (GPT-4o, o1 и др.)",
-      "ollama": "Локально - Запуск моделей на вашем компьютере (бесплатно)",
-      "llamacpp": "Локально - Быстрый вывод с моделями GGUF",
-      "mlx": "Локально - Оптимизировано для Mac на Apple Silicon"
+      "zai": "Облако - Z.ai GLM models (glm-4.5, cogview, etc.)",
+      "vertexai": "Облако - Google Cloud Vertex AI (Gemini, Claude, GLM)"
     },
     "config": {
       "selectReasoningEffort": "Выберите уровень рассуждения",

@@ -513,6 +513,8 @@
     "mlx": "MLX (Apple Silicon)",
     "llmgateway": "LLM Gateway",
     "azure": "Azure OpenAI",
+    "zai": "Z.ai",
+    "vertexai": "Google Cloud Vertex AI",
     "hints": {
       "openrouter": "Cloud - Accès à 100+ modèles (Claude, GPT-4, etc.)",
       "openai": "Cloud - Modèles officiels OpenAI (GPT-4o, o1, etc.)",
@@ -521,7 +523,8 @@
       "mlx": "Local - Optimisé pour les Macs Apple Silicon",
       "llmgateway": "Cloud - API unifiée pour plusieurs fournisseurs LLM",
       "azure": "Cloud - Service Azure OpenAI (entreprise)",
-      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)"
+      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)",
+      "vertexai": "Cloud - Google Cloud Vertex AI (Gemini, Claude, GLM)"
     },
     "config": {
       "chooseProvider": "Choisir un fournisseur LLM",
@@ -606,6 +609,23 @@
       "zai": {
         "title": "Configuration Z.ai",
         "apiKeyUrl": "https://z.ai/api-keys"
+      },
+      "vertexai": {
+        "title": "Configuration Google Cloud Vertex AI",
+        "getStarted": "Connectez-vous à Google Cloud Vertex AI pour accéder à Gemini, Claude et autres modèles",
+        "setupSteps": {
+          "title": "Avant de commencer, assurez-vous d'avoir:",
+          "step1": "1. Un projet Google Cloud avec l'API Vertex AI activée",
+          "step2": "2. gcloud CLI installé et authentifié",
+          "step3": "3. Votre ID de projet Google Cloud"
+        },
+        "enterEndpoint": "Entrez le point de terminaison Vertex AI",
+        "enterRegion": "Entrez la région",
+        "enterProjectId": "Entrez votre ID de projet Google Cloud",
+        "authTokenHint": "Vous pouvez générer un jeton d'authentification en utilisant gcloud CLI:",
+        "authTokenCommand": "gcloud auth print-access-token",
+        "enterAuthToken": "Entrez votre jeton d'authentification Google Cloud",
+        "enterModel": "Entrez l'ID du modèle (ex: zai-org/glm-5-maas, google/gemini-1.5-pro)"
       },
       "azure": {
         "title": "Configuration Azure OpenAI",

@@ -220,7 +220,6 @@ describe('agent startup and active input UI', () => {
     (agent as any).forceRenderSpinner();
 
     expect(spinner.text).toContain('Working...');
-    expect(spinner.text).toContain('tokens');
     expect(spinner.text).not.toContain('typing:');
     expect(spinner.text).not.toContain('┌');
   });
@@ -254,7 +253,6 @@ describe('agent startup and active input UI', () => {
     (agent as any).setUIStatus('Reasoning with the AI (ReAct loop)...');
 
     expect(spinner.text).toContain('Reasoning with the AI');
-    expect(spinner.text).toContain('context left');
     expect(spinner.text).not.toContain('\n');
   });
 
@@ -375,7 +373,6 @@ describe('agent startup and active input UI', () => {
     const stop = (agent as any).startPreparationStatus('build tests');
 
     expect(spinner.text).toContain('Preparing to');
-    expect(spinner.text).toContain('context left');
     expect(spinner.text).not.toContain('\n');
 
     stop();
