@@ -513,6 +513,8 @@
     "mlx": "MLX (Apple Silicon)",
     "llmgateway": "LLM Gateway",
     "azure": "Azure OpenAI",
+    "zai": "Z.ai",
+    "vertexai": "Google Cloud Vertex AI",
     "hints": {
       "openrouter": "云端 - 可访问 100+ 个模型（Claude、GPT-4 等）",
       "openai": "云端 - 官方 OpenAI 模型（GPT-4o、o1 等）",
@@ -521,7 +523,8 @@
       "mlx": "本地 - 针对 Apple Silicon Mac 优化",
       "llmgateway": "云端 - 多个 LLM 提供商的统一 API",
       "azure": "云端 - Azure OpenAI 服务（企业级）",
-      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)"
+      "zai": "云端 - Z.ai GLM models (glm-4.5, cogview, etc.)",
+      "vertexai": "云端 - Google Cloud Vertex AI (Gemini, Claude, GLM)"
     },
     "config": {
       "chooseProvider": "选择一个 LLM 提供商",
@@ -606,6 +609,23 @@
       "zai": {
         "title": "Z.ai 配置",
         "apiKeyUrl": "https://z.ai/api-keys"
+      },
+      "vertexai": {
+        "title": "Google Cloud Vertex AI 配置",
+        "getStarted": "连接到 Google Cloud Vertex AI 以访问 Gemini、Claude 和其他模型",
+        "setupSteps": {
+          "title": "开始之前，请确保您已准备好：",
+          "step1": "1. 启用了 Vertex AI API 的 Google Cloud 项目",
+          "step2": "2. 已安装并认证的 gcloud CLI",
+          "step3": "3. 您的 Google Cloud 项目 ID"
+        },
+        "enterEndpoint": "输入 Vertex AI 端点",
+        "enterRegion": "输入区域",
+        "enterProjectId": "输入您的 Google Cloud 项目 ID",
+        "authTokenHint": "您可以使用 gcloud CLI 生成认证令牌：",
+        "authTokenCommand": "gcloud auth print-access-token",
+        "enterAuthToken": "输入您的 Google Cloud 认证令牌",
+        "enterModel": "输入模型 ID（例如：zai-org/glm-5-maas, google/gemini-1.5-pro）"
       },
       "azure": {
         "title": "Azure OpenAI 配置",

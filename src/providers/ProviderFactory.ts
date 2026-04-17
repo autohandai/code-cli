@@ -14,6 +14,9 @@ import { MLXProvider } from './MLXProvider.js';
 import { LLMGatewayProvider } from './LLMGatewayProvider.js';
 import { AzureProvider } from './AzureProvider.js';
 import { ZaiProvider } from './ZaiProvider.js';
+import { VertexAIProvider } from './VertexAIProvider.js';
+import { XAIProvider } from './XAIProvider.js';
+import { CerebrasProvider } from './CerebrasProvider.js';
 import { isMLXSupported } from '../utils/platform.js';
 import type { AutohandConfig, ProviderName } from '../types.js';
 
@@ -107,6 +110,24 @@ export class ProviderFactory {
                 }
                 return new ZaiProvider(config.zai, config.network);
 
+            case 'vertexai':
+                if (!config.vertexai) {
+                    return new UnconfiguredProvider('vertexai');
+                }
+                return new VertexAIProvider(config.vertexai, config.network);
+
+            case 'xai':
+                if (!config.xai) {
+                    return new UnconfiguredProvider('xai');
+                }
+                return new XAIProvider(config.xai);
+
+            case 'cerebras':
+                if (!config.cerebras) {
+                    return new UnconfiguredProvider('cerebras');
+                }
+                return new CerebrasProvider(config.cerebras, config.network);
+
             case 'openrouter':
             default:
                 if (!config.openrouter) {
@@ -121,7 +142,7 @@ export class ProviderFactory {
      * MLX is only included on Apple Silicon (macOS + arm64).
      */
     static getProviderNames(): ProviderName[] {
-        const providers: ProviderName[] = ['openrouter', 'ollama', 'openai', 'llamacpp', 'llmgateway', 'azure', 'zai'];
+        const providers: ProviderName[] = ['openrouter', 'ollama', 'openai', 'llamacpp', 'llmgateway', 'azure', 'zai', 'vertexai', 'xai', 'cerebras'];
         if (isMLXSupported()) {
             providers.push('mlx');
         }
@@ -134,7 +155,7 @@ export class ProviderFactory {
      * MLX is always a valid provider name, but may not be available on non-Apple Silicon systems.
      */
     static isValidProvider(name: string): name is ProviderName {
-        const allProviders: ProviderName[] = ['openrouter', 'ollama', 'openai', 'llamacpp', 'mlx', 'llmgateway', 'azure', 'zai'];
+        const allProviders: ProviderName[] = ['openrouter', 'ollama', 'openai', 'llamacpp', 'mlx', 'llmgateway', 'azure', 'zai', 'vertexai', 'xai', 'cerebras'];
         return allProviders.includes(name as ProviderName);
     }
 }

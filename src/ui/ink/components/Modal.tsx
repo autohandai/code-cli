@@ -642,6 +642,10 @@ export interface ShowModalOptions {
   onToggle?: (option: ModalOption, checked: boolean) => void;
   /** Layout mode for the modal display (e.g., 'split', 'full') */
   layout?: string;
+  /** Logo/art to display at the top of the modal */
+  logo?: string;
+  /** When true, skips entering alternative screen buffer */
+  skipAltScreen?: boolean;
 }
 
 /**

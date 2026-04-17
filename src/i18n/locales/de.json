@@ -513,6 +513,8 @@
     "mlx": "MLX (Apple Silicon)",
     "llmgateway": "LLM Gateway",
     "azure": "Azure OpenAI",
+    "zai": "Z.ai",
+    "vertexai": "Google Cloud Vertex AI",
     "hints": {
       "openrouter": "Cloud - Zugriff auf 100+ Modelle (Claude, GPT-4, etc.)",
       "openai": "Cloud - Offizielle OpenAI-Modelle (GPT-4o, o1, etc.)",
@@ -521,7 +523,8 @@
       "mlx": "Lokal - Optimiert für Apple Silicon Macs",
       "llmgateway": "Cloud - Einheitliche API für mehrere LLM-Anbieter",
       "azure": "Cloud - Azure OpenAI Service (Enterprise)",
-      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)"
+      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)",
+      "vertexai": "Cloud - Google Cloud Vertex AI (Gemini, Claude, GLM)"
     },
     "config": {
       "chooseProvider": "LLM-Anbieter wählen",
@@ -606,6 +609,23 @@
       "zai": {
         "title": "Z.ai-Konfiguration",
         "apiKeyUrl": "https://z.ai/api-keys"
+      },
+      "vertexai": {
+        "title": "Google Cloud Vertex AI-Konfiguration",
+        "getStarted": "Verbinden Sie sich mit Google Cloud Vertex AI für Zugriff auf Gemini, Claude und andere Modelle",
+        "setupSteps": {
+          "title": "Bevor Sie beginnen, stellen Sie sicher, dass Sie haben:",
+          "step1": "1. Ein Google Cloud Projekt mit aktivierter Vertex AI API",
+          "step2": "2. gcloud CLI installiert und authentifiziert",
+          "step3": "3. Ihre Google Cloud Projekt-ID"
+        },
+        "enterEndpoint": "Geben Sie den Vertex AI Endpunkt ein",
+        "enterRegion": "Geben Sie die Region ein",
+        "enterProjectId": "Geben Sie Ihre Google Cloud Projekt-ID ein",
+        "authTokenHint": "Sie können ein Auth-Token mit gcloud CLI generieren:",
+        "authTokenCommand": "gcloud auth print-access-token",
+        "enterAuthToken": "Geben Sie Ihr Google Cloud Auth-Token ein",
+        "enterModel": "Geben Sie die Modell-ID ein (z.B. zai-org/glm-5-maas, google/gemini-1.5-pro)"
       },
       "azure": {
         "title": "Azure OpenAI-Konfiguration",

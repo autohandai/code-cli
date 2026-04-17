@@ -513,6 +513,8 @@
     "mlx": "MLX (Apple Silicon)",
     "llmgateway": "LLM Gateway",
     "azure": "Azure OpenAI",
+    "zai": "Z.ai",
+    "vertexai": "Google Cloud Vertex AI",
     "hints": {
       "openrouter": "Cloud - Přístup k 100+ modelům (Claude, GPT-4, atd.)",
       "openai": "Cloud - Oficiální modely OpenAI (GPT-4o, o1, atd.)",
@@ -521,7 +523,8 @@
       "mlx": "Místní - Optimalizované pro Apple Silicon Mac",
       "llmgateway": "Cloud - Jednotné API pro více poskytovatelů LLM",
       "azure": "Cloud - Azure OpenAI Service (enterprise)",
-      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)"
+      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)",
+      "vertexai": "Cloud - Google Cloud Vertex AI (Gemini, Claude, GLM)"
     },
     "config": {
       "chooseProvider": "Zvolte poskytovatele LLM",
@@ -606,6 +609,23 @@
       "zai": {
         "title": "Konfigurace Z.ai",
         "apiKeyUrl": "https://z.ai/api-keys"
+      },
+      "vertexai": {
+        "title": "Konfigurace Google Cloud Vertex AI",
+        "getStarted": "Připojte se k Google Cloud Vertex AI pro přístup k Gemini, Claude a dalším modelům",
+        "setupSteps": {
+          "title": "Před začátkem se ujistěte, že máte:",
+          "step1": "1. Projekt Google Cloud s povoleným API Vertex AI",
+          "step2": "2. gcloud CLI nainstalovaný a ověřený",
+          "step3": "3. Vaše ID projektu Google Cloud"
+        },
+        "enterEndpoint": "Zadejte endpoint Vertex AI",
+        "enterRegion": "Zadejte region",
+        "enterProjectId": "Zadejte ID projektu Google Cloud",
+        "authTokenHint": "Token ověření můžete vygenerovat pomocí gcloud CLI:",
+        "authTokenCommand": "gcloud auth print-access-token",
+        "enterAuthToken": "Zadejte token ověření Google Cloud",
+        "enterModel": "Zadejte ID modelu (např. zai-org/glm-5-maas, google/gemini-1.5-pro)"
       },
       "azure": {
         "title": "Konfigurace Azure OpenAI",

@@ -7,6 +7,7 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import { PROJECT_DIR_NAME } from '../constants.js';
 import type { PermissionSettings } from './types.js';
+import type { ProviderName, AgentSettings, NetworkSettings, TelemetrySettings } from '../types.js';
 
 const LOCAL_SETTINGS_FILE = 'settings.local.json';
 
@@ -14,6 +15,16 @@ export interface LocalProjectSettings {
   permissions?: PermissionSettings;
   /** Version for future migrations */
   version?: number;
+  /** Provider override for this project */
+  provider?: ProviderName;
+  /** Model override for this project */
+  model?: string;
+  /** Agent settings override */
+  agent?: AgentSettings;
+  /** Network settings override */
+  network?: NetworkSettings;
+  /** Telemetry settings override */
+  telemetry?: TelemetrySettings;
 }
 
 function normalizePermissionSettings(settings: PermissionSettings | undefined): PermissionSettings | undefined {

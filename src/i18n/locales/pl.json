@@ -513,6 +513,8 @@
     "mlx": "MLX (Apple Silicon)",
     "llmgateway": "LLM Gateway",
     "azure": "Azure OpenAI",
+    "zai": "Z.ai",
+    "vertexai": "Google Cloud Vertex AI",
     "hints": {
       "openrouter": "Chmura - Dostęp do 100+ modeli (Claude, GPT-4, itp.)",
       "openai": "Chmura - Oficjalne modele OpenAI (GPT-4o, o1, itp.)",
@@ -521,7 +523,8 @@
       "mlx": "Lokalnie - Zoptymalizowane dla procesorów Apple Silicon",
       "llmgateway": "Chmura - Ujednolicone API dla wielu dostawców LLM",
       "azure": "Chmura - Usługa Azure OpenAI (przedsiębiorstwa)",
-      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)"
+      "zai": "Chmura - Z.ai GLM models (glm-4.5, cogview, etc.)",
+      "vertexai": "Chmura - Google Cloud Vertex AI (Gemini, Claude, GLM)"
     },
     "config": {
       "chooseProvider": "Wybierz dostawcę LLM",
@@ -606,6 +609,23 @@
       "zai": {
         "title": "Konfiguracja Z.ai",
         "apiKeyUrl": "https://z.ai/api-keys"
+      },
+      "vertexai": {
+        "title": "Konfiguracja Google Cloud Vertex AI",
+        "getStarted": "Połącz się z Google Cloud Vertex AI, aby uzyskać dostęp do modeli Gemini, Claude i innych",
+        "setupSteps": {
+          "title": "Przed rozpoczęciem upewnij się, że masz:",
+          "step1": "1. Projekt Google Cloud z włączonym API Vertex AI",
+          "step2": "2. gcloud CLI zainstalowany i uwierzytelniony",
+          "step3": "3. Twój identyfikator projektu Google Cloud"
+        },
+        "enterEndpoint": "Wprowadź punkt końcowy Vertex AI",
+        "enterRegion": "Wprowadź region",
+        "enterProjectId": "Wprowadź identyfikator projektu Google Cloud",
+        "authTokenHint": "Możesz wygenerować token uwierzytelniania za pomocą gcloud CLI:",
+        "authTokenCommand": "gcloud auth print-access-token",
+        "enterAuthToken": "Wprowadź token uwierzytelniania Google Cloud",
+        "enterModel": "Wprowadź identyfikator modelu (np. zai-org/glm-5-maas, google/gemini-1.5-pro)"
       },
       "azure": {
         "title": "Konfiguracja Azure OpenAI",

@@ -437,7 +437,7 @@ export class OpenAIProvider implements LLMProvider {
         }
 
         return {
-            Authorization: `Bearer ${this.apiKey}`
+            Authorization: `Bearer ${this.apiKey}`,
         };
     }
 

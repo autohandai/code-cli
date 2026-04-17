@@ -1,0 +1,20 @@
+{
+	"folders": [
+		{
+			"path": "../api"
+		},
+		{
+			"path": "../chrome-ext"
+		},
+		{
+			"path": "."
+		},
+		{
+			"path": "../vscode-autohand"
+		},
+		{
+			"path": "../../../Downloads/cc-src"
+		}
+	],
+	"settings": {}
+}

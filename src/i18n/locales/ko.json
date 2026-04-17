@@ -513,6 +513,8 @@
     "mlx": "MLX (Apple Silicon)",
     "llmgateway": "LLM Gateway",
     "azure": "Azure OpenAI",
+    "zai": "Z.ai",
+    "vertexai": "Google Cloud Vertex AI",
     "hints": {
       "openrouter": "클라우드 - 100+개 모델 접근 (Claude, GPT-4 등)",
       "openai": "클라우드 - 공식 OpenAI 모델 (GPT-4o, o1 등)",
@@ -521,7 +523,8 @@
       "mlx": "로컬 - Apple Silicon 최적화",
       "llmgateway": "클라우드 - 다중 LLM 제공자 통합 API",
       "azure": "클라우드 - Azure OpenAI Service (엔터프라이즈)",
-      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)"
+      "zai": "클라우드 - Z.ai GLM models (glm-4.5, cogview, etc.)",
+      "vertexai": "클라우드 - Google Cloud Vertex AI (Gemini, Claude, GLM)"
     },
     "config": {
       "chooseProvider": "LLM 제공자 선택",
@@ -606,6 +609,23 @@
       "zai": {
         "title": "Z.ai 설정",
         "apiKeyUrl": "https://z.ai/api-keys"
+      },
+      "vertexai": {
+        "title": "Google Cloud Vertex AI 설정",
+        "getStarted": "Gemini, Claude 및 기타 모델에 액세스하려면 Google Cloud Vertex AI에 연결하세요",
+        "setupSteps": {
+          "title": "시작하기 전에 다음이 있는지 확인하세요:",
+          "step1": "1. Vertex AI API가 활성화된 Google Cloud 프로젝트",
+          "step2": "2. gcloud CLI가 설치되고 인증되었습니다",
+          "step3": "3. Google Cloud 프로젝트 ID"
+        },
+        "enterEndpoint": "Vertex AI 엔드포인트 입력",
+        "enterRegion": "리전 입력",
+        "enterProjectId": "Google Cloud 프로젝트 ID 입력",
+        "authTokenHint": "gcloud CLI를 사용하여 인증 토큰을 생성할 수 있습니다:",
+        "authTokenCommand": "gcloud auth print-access-token",
+        "enterAuthToken": "Google Cloud 인증 토큰 입력",
+        "enterModel": "모델 ID 입력 (예: zai-org/glm-5-maas, google/gemini-1.5-pro)"
       },
       "azure": {
         "title": "Azure OpenAI 설정",
