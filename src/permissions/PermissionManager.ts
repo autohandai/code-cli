@@ -673,23 +673,15 @@ export class PermissionManager {
       return false;
     }
 
-    // Handle workspace-relative patterns like "write_file:src/*"
-    if (this.workspaceRoot && (commandPattern.includes('/*'))) {
-      
+    // Handle workspace-relative patterns like "write_file:src/*" or "write_file:src/core/*"
+    if (this.workspaceRoot && commandPattern.includes('/*')) {
       // For file operations, check if the path matches the workspace pattern
       if (context.path) {
-        // Convert workspace-relative patterns to absolute paths for matching
-        let workspacePattern = commandPattern;
-        if (commandPattern.startsWith('src/*') || commandPattern.startsWith('tests/*') || 
-            commandPattern.startsWith('docs/*') || commandPattern.startsWith('config/*') ||
-            commandPattern.startsWith('utils/*') || commandPattern.startsWith('build/*')) {
-          workspacePattern = path.join(this.workspaceRoot, commandPattern);
-        }
-        
-        if (workspacePattern !== commandPattern) {
-          const resolvedPath = path.resolve(this.workspaceRoot, context.path);
-          return this.globMatch(resolvedPath, workspacePattern);
-        }
+        // Any pattern containing /* is treated as a workspace-relative glob pattern
+        // This handles src/*, src/core/*, tests/unit/*, etc.
+        const workspacePattern = path.join(this.workspaceRoot, commandPattern);
+        const resolvedPath = path.resolve(this.workspaceRoot, context.path);
+        return this.globMatch(resolvedPath, workspacePattern);
       }
     }
 
