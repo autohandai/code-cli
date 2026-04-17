@@ -77,6 +77,10 @@ export interface SlashCommandContext {
     repeatManager?: RepeatManager;
     /** Queue an instruction to be sent to the LLM on the next turn (not displayed to user) */
     queueInstruction?: (instruction: string) => void;
+    /** Event emitter for RPC/ACP mode notifications */
+    eventEmitter?: {
+        emit: (event: string, data?: unknown) => void;
+    };
 }
 
 export interface SlashCommandSubcommand {

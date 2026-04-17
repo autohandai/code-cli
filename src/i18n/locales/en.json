@@ -276,6 +276,13 @@
         "parallelApiKeyDesc": "API key for Parallel.ai"
       }
     },
+    "setup": {
+      "description": "run the setup wizard to configure or reconfigure Autohand",
+      "interactiveOnly": "Setup requires an interactive terminal. Use the --setup CLI flag instead.",
+      "cancelled": "Setup cancelled.",
+      "failed": "Setup failed. Please try again.",
+      "complete": "Setup complete! Run `autohand` to start."
+    },
     "status": {
       "description": "show current status",
       "title": "Autohand Status",
@@ -672,6 +679,7 @@
     "llmgateway": "LLM Gateway",
     "azure": "Azure OpenAI",
     "zai": "Z.ai",
+    "vertexai": "Google Cloud Vertex AI",
     "openaiAuth": {
       "chooseTitle": "Choose how to connect OpenAI",
       "apiKeyLabel": "Use API key",
@@ -697,7 +705,8 @@
       "mlx": "Local - Optimized for Apple Silicon Macs",
       "llmgateway": "Cloud - Unified API for multiple LLM providers",
       "azure": "Cloud - Azure OpenAI Service (enterprise)",
-      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)"
+      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)",
+      "vertexai": "Cloud - Google Cloud Vertex AI (Gemini, Claude, GLM models)"
     },
     "config": {
       "chooseProvider": "Choose an LLM provider",
@@ -782,6 +791,23 @@
       "zai": {
         "title": "Z.ai Configuration",
         "apiKeyUrl": "https://z.ai/api-keys"
+      },
+      "vertexai": {
+        "title": "Google Cloud Vertex AI Configuration",
+        "getStarted": "Connect to Google Cloud Vertex AI for access to Gemini, Claude, and other models",
+        "setupSteps": {
+          "title": "Before you begin, make sure you have:",
+          "step1": "1. A Google Cloud project with Vertex AI API enabled",
+          "step2": "2. gcloud CLI installed and authenticated",
+          "step3": "3. Your Google Cloud project ID"
+        },
+        "enterEndpoint": "Enter the Vertex AI endpoint",
+        "enterRegion": "Enter the region",
+        "enterProjectId": "Enter your Google Cloud Project ID",
+        "authTokenHint": "You can generate an auth token using the gcloud CLI:",
+        "authTokenCommand": "gcloud auth print-access-token",
+        "enterAuthToken": "Enter your Google Cloud auth token",
+        "enterModel": "Enter the model ID (e.g., zai-org/glm-5-maas, google/gemini-1.5-pro)"
       },
       "azure": {
         "title": "Azure OpenAI Configuration",
