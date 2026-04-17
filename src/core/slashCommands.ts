@@ -51,6 +51,7 @@ import * as repeatCmd from '../commands/repeat.js';
 import * as chromeCmd from '../commands/chrome.js';
 import * as reviewCmd from '../commands/review.js';
 import * as prReviewCmd from '../commands/pr-review.js';
+import * as setupCmd from '../commands/setup.js';
 
 import type { SlashCommand } from './slashCommandTypes.js';
 export type { SlashCommand } from './slashCommandTypes.js';
@@ -111,4 +112,5 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   chromeCmd.metadata,
   reviewCmd.metadata,
   prReviewCmd.metadata,
+  setupCmd.metadata,
 ] as (SlashCommand | undefined)[]).filter((cmd): cmd is SlashCommand => cmd != null && typeof cmd.command === 'string');

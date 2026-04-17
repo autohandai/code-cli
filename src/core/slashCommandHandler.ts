@@ -455,6 +455,15 @@ export class SlashCommandHandler {
           const { repeat } = await import('../commands/repeat.js');
           return repeat({ repeatManager: this.ctx.repeatManager, llm: this.ctx.llm }, args);
         }
+        case '/setup': {
+          const { setup } = await import('../commands/setup.js');
+          this.ctx.onBeforeModal?.();
+          try {
+            return await setup(this.ctx);
+          } finally {
+            this.ctx.onAfterModal?.();
+          }
+        }
         default:
           this.printUnsupported(command);
           return null;
