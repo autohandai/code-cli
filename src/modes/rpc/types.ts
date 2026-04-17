@@ -4,6 +4,7 @@
  * Spec: https://www.jsonrpc.org/specification
  */
 import type { PermissionPromptDecision, PermissionPromptResult } from '../../permissions/types.js';
+import type { McpServerConfigEntry } from '../../types.js';
 
 // ============================================================================
 // JSON-RPC 2.0 Base Types
@@ -130,6 +131,21 @@ export const RPC_METHODS = {
   SKILLS_TRENDING: 'autohand.skills.trending',
   SKILLS_REMOVE: 'autohand.skills.remove',
   SKILLS_INSTALL: 'autohand.skills.install',
+  // SDK control methods
+  SET_PERMISSION_MODE: 'autohand.permissionModeSet',
+  SET_MODEL: 'autohand.modelSet',
+  SET_MAX_THINKING_TOKENS: 'autohand.maxThinkingTokensSet',
+  APPLY_FLAG_SETTINGS: 'autohand.applyFlagSettings',
+  GET_SUPPORTED_MODELS: 'autohand.getSupportedModels',
+  GET_SUPPORTED_COMMANDS: 'autohand.getSupportedCommands',
+  GET_CONTEXT_USAGE: 'autohand.getContextUsage',
+  RELOAD_PLUGINS: 'autohand.reloadPlugins',
+  GET_ACCOUNT_INFO: 'autohand.getAccountInfo',
+  MCP_TOGGLE_SERVER: 'autohand.mcp.toggleServer',
+  MCP_RECONNECT_SERVER: 'autohand.mcp.reconnectServer',
+  MCP_SET_SERVERS: 'autohand.mcp.setServers',
+  // Setup wizard
+  SETUP: 'autohand.setup',
 } as const;
 
 export type RpcMethod = (typeof RPC_METHODS)[keyof typeof RPC_METHODS];
@@ -187,6 +203,13 @@ export const RPC_NOTIFICATIONS = {
   LEARN_SECURITY_WARNING: 'autohand.learn.securityWarning',
   LEARN_PROGRESS: 'autohand.learn.progress',
   SCHEDULE_TRIGGERED: 'autohand.schedule.triggered',
+  // Setup wizard notifications
+  SETUP_STARTED: 'autohand.setup.started',
+  SETUP_STEP_START: 'autohand.setup.stepStart',
+  SETUP_STEP_COMPLETE: 'autohand.setup.stepComplete',
+  SETUP_CANCELLED: 'autohand.setup.cancelled',
+  SETUP_ERROR: 'autohand.setup.error',
+  SETUP_COMPLETE: 'autohand.setup.complete',
 } as const;
 
 export type RpcNotification = (typeof RPC_NOTIFICATIONS)[keyof typeof RPC_NOTIFICATIONS];
@@ -1184,4 +1207,236 @@ export interface McpInvokeRequestNotificationParams {
 export interface McpToolsChangedNotificationParams {
   tools: Array<{ name: string; description: string; serverName: string }>;
   timestamp: string;
+}
+
+// ============================================================================
+// SDK Control RPC Types
+// ============================================================================
+
+/**
+ * Params for setPermissionMode
+ */
+export interface SetPermissionModeParams {
+  mode: 'default' | 'bypassPermissions' | 'interactive' | 'unrestricted';
+}
+
+/**
+ * Result for setPermissionMode
+ */
+export interface SetPermissionModeResult {
+  success: boolean;
+  currentMode: string;
+  previousMode: string;
+}
+
+/**
+ * Params for setModel
+ */
+export interface SetModelParams {
+  model?: string;
+}
+
+/**
+ * Result for setModel
+ */
+export interface SetModelResult {
+  success: boolean;
+  currentModel?: string;
+}
+
+/**
+ * Params for setMaxThinkingTokens
+ */
+export interface SetMaxThinkingTokensParams {
+  maxThinkingTokens: number | null;
+}
+
+/**
+ * Result for setMaxThinkingTokens
+ */
+export interface SetMaxThinkingTokensResult {
+  success: boolean;
+  currentMaxThinkingTokens: number | null;
+}
+
+/**
+ * Params for applyFlagSettings
+ */
+export interface ApplyFlagSettingsParams {
+  settings: Record<string, unknown>;
+}
+
+/**
+ * Result for applyFlagSettings
+ */
+export interface ApplyFlagSettingsResult {
+  success: boolean;
+  appliedSettings: string[];
+}
+
+/**
+ * Result for getSupportedModels
+ */
+export interface GetSupportedModelsResult {
+  models: Array<{
+    id: string;
+    displayName: string;
+  }>;
+}
+
+/**
+ * Result for getSupportedCommands
+ */
+export interface GetSupportedCommandsResult {
+  commands: string[];
+}
+
+/**
+ * Result for getContextUsage
+ */
+export interface GetContextUsageResult {
+  systemPrompt: number;
+  tools: number;
+  messages: number;
+  mcpTools: number;
+  memoryFiles: number;
+  total: number;
+}
+
+/**
+ * Result for reloadPlugins
+ */
+export interface ReloadPluginsResult {
+  success: boolean;
+  reloadedPlugins: string[];
+}
+
+/**
+ * Result for getAccountInfo
+ */
+export interface GetAccountInfoResult {
+  email: string;
+}
+
+/**
+ * Params for MCP toggle server
+ */
+export interface McpToggleServerParams {
+  serverName: string;
+  enabled: boolean;
+}
+
+/**
+ * Result for MCP toggle server
+ */
+export interface McpToggleServerResult {
+  success: boolean;
+  serverName: string;
+  status: 'enabled' | 'disabled';
+}
+
+/**
+ * Params for MCP reconnect server
+ */
+export interface McpReconnectServerParams {
+  serverName: string;
+}
+
+/**
+ * Result for MCP reconnect server
+ */
+export interface McpReconnectServerResult {
+  success: boolean;
+  serverName: string;
+  status: 'connected' | 'disconnected';
+}
+
+/**
+ * Params for MCP set servers
+ */
+export interface McpSetServersParams {
+  servers: Record<string, McpServerConfigEntry>;
+}
+
+/**
+ * Result for MCP set servers
+ */
+export interface McpSetServersResult {
+  success: boolean;
+  configuredServers: string[];
+}
+
+// ============================================================================
+// Setup Wizard Types
+// ============================================================================
+
+/**
+ * Params for setup RPC method
+ */
+export interface SetupParams {
+  /** If true, skip the welcome screen */
+  skipWelcome?: boolean;
+  /** If true, run quick setup (skip advanced options) */
+  quickSetup?: boolean;
+}
+
+/**
+ * Result for setup RPC method
+ */
+export interface SetupResult {
+  success: boolean;
+  provider?: string;
+  model?: string;
+  locale?: string;
+  skippedSteps: string[];
+  agentsFileCreated?: boolean;
+  cancelled: boolean;
+  error?: string;
+}
+
+/**
+ * Notification params for setup started event
+ */
+export interface SetupStartedNotificationParams {
+  timestamp: string;
+  locale: string;
+  workspaceRoot: string;
+}
+
+/**
+ * Notification params for setup step events
+ */
+export interface SetupStepNotificationParams {
+  step: string;
+  timestamp: string;
+  data?: Record<string, unknown>;
+}
+
+/**
+ * Notification params for setup cancelled event
+ */
+export interface SetupCancelledNotificationParams {
+  timestamp: string;
+  step: string;
+}
+
+/**
+ * Notification params for setup error event
+ */
+export interface SetupErrorNotificationParams {
+  timestamp: string;
+  error: string;
+  context?: Record<string, unknown>;
+}
+
+/**
+ * Notification params for setup complete event
+ */
+export interface SetupCompleteNotificationParams {
+  timestamp: string;
+  success: boolean;
+  provider?: string;
+  model?: string;
+  skippedSteps: string[];
+  agentsFileCreated?: boolean;
 }
