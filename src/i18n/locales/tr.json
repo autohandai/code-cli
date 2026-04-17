@@ -515,6 +515,8 @@
     "azure": "Azure OpenAI",
     "zai": "Z.ai",
     "vertexai": "Google Cloud Vertex AI",
+    "xai": "xAI (Grok)",
+    "cerebras": "Cerebras AI",
     "hints": {
       "openrouter": "Bulut - 100+ model erişimi (Claude, GPT-4, vb.)",
       "openai": "Bulut - Resmi OpenAI modelleri (GPT-4o, o1, vb.)",
@@ -524,7 +526,9 @@
       "llmgateway": "Bulut - Çoklu LLM sağlayıcı için birleşik API",
       "azure": "Bulut - Azure OpenAI Servisi (kurumsal)",
       "zai": "Bulut - Z.ai GLM models (glm-4.5, cogview, etc.)",
-      "vertexai": "Bulut - Google Cloud Vertex AI (Gemini, Claude, GLM)"
+      "vertexai": "Bulut - Google Cloud Vertex AI (Gemini, Claude, GLM)",
+      "xai": "Bulut - xAI Grok models with web search, X search, and code execution",
+      "cerebras": "Bulut - Cerebras AI with GLM and Qwen models"
     },
     "config": {
       "chooseProvider": "Bir LLM sağlayıcısı seçin",
