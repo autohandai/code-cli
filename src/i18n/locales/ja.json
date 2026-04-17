@@ -631,6 +631,16 @@
         "enterAuthToken": "Google Cloud 認証トークンを入力",
         "enterModel": "モデル ID を入力（例：zai-org/glm-5-maas, google/gemini-1.5-pro）"
       },
+      "xai": {
+        "title": "xAI (Grok)設定",
+        "apiKeyUrl": "https://console.x.ai/keys",
+        "enterModel": "モデル ID を入力（例：grok-4.20-reasoning, grok-4-1-fast-reasoning）"
+      },
+      "cerebras": {
+        "title": "Cerebras AI設定",
+        "apiKeyUrl": "https://cloud.cerebras.ai/platform/",
+        "enterModel": "Cerebrasモデルを選択"
+      },
       "azure": {
         "title": "Azure OpenAI設定",
         "getStarted": "開始はこちら: https://ai.azure.com",

@@ -631,6 +631,16 @@
         "enterAuthToken": "Zadejte token ověření Google Cloud",
         "enterModel": "Zadejte ID modelu (např. zai-org/glm-5-maas, google/gemini-1.5-pro)"
       },
+      "xai": {
+        "title": "Konfigurace xAI (Grok)",
+        "apiKeyUrl": "https://console.x.ai/keys",
+        "enterModel": "Zadejte ID modelu (např. grok-4.20-reasoning, grok-4-1-fast-reasoning)"
+      },
+      "cerebras": {
+        "title": "Konfigurace Cerebras AI",
+        "apiKeyUrl": "https://cloud.cerebras.ai/platform/",
+        "enterModel": "Vyberte model Cerebras"
+      },
       "azure": {
         "title": "Konfigurace Azure OpenAI",
         "getStarted": "Začněte na: https://ai.azure.com",

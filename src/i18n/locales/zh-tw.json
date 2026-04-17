@@ -631,6 +631,16 @@
         "enterAuthToken": "輸入您的 Google Cloud 認證權杖",
         "enterModel": "輸入模型 ID（例如：zai-org/glm-5-maas, google/gemini-1.5-pro）"
       },
+      "xai": {
+        "title": "xAI (Grok)設定",
+        "apiKeyUrl": "https://console.x.ai/keys",
+        "enterModel": "輸入模型 ID（例如：grok-4.20-reasoning, grok-4-1-fast-reasoning）"
+      },
+      "cerebras": {
+        "title": "Cerebras AI設定",
+        "apiKeyUrl": "https://cloud.cerebras.ai/platform/",
+        "enterModel": "選擇 Cerebras 模型"
+      },
       "azure": {
         "title": "Azure OpenAI 設定",
         "getStarted": "開始使用：https://ai.azure.com",

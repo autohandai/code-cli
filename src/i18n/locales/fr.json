@@ -631,6 +631,16 @@
         "enterAuthToken": "Entrez votre jeton d'authentification Google Cloud",
         "enterModel": "Entrez l'ID du modèle (ex: zai-org/glm-5-maas, google/gemini-1.5-pro)"
       },
+      "xai": {
+        "title": "Configuration xAI (Grok)",
+        "apiKeyUrl": "https://console.x.ai/keys",
+        "enterModel": "Entrez l'ID du modèle (ex: grok-4.20-reasoning, grok-4-1-fast-reasoning)"
+      },
+      "cerebras": {
+        "title": "Configuration Cerebras AI",
+        "apiKeyUrl": "https://cloud.cerebras.ai/platform/",
+        "enterModel": "Sélectionnez un modèle Cerebras"
+      },
       "azure": {
         "title": "Configuration Azure OpenAI",
         "getStarted": "Commencer sur: https://ai.azure.com",

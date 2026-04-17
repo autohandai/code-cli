@@ -631,6 +631,16 @@
         "enterAuthToken": "Adja meg a Google Cloud hitelesítő tokent",
         "enterModel": "Adja meg a modell azonosítót (pl.: zai-org/glm-5-maas, google/gemini-1.5-pro)"
       },
+      "xai": {
+        "title": "xAI (Grok) Konfiguráció",
+        "apiKeyUrl": "https://console.x.ai/keys",
+        "enterModel": "Adja meg a modell azonosítót (pl.: grok-4.20-reasoning, grok-4-1-fast-reasoning)"
+      },
+      "cerebras": {
+        "title": "Cerebras AI Konfiguráció",
+        "apiKeyUrl": "https://cloud.cerebras.ai/platform/",
+        "enterModel": "Válasszon egy Cerebras modellt"
+      },
       "azure": {
         "title": "Azure OpenAI Konfiguráció",
         "getStarted": "Kezdje itt: https://ai.azure.com",
