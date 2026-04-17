@@ -53,6 +53,8 @@ describe("ProviderFactory", () => {
         "azure",
         "zai",
         "vertexai",
+        "xai",
+        "cerebras",
       ]);
     });
   });

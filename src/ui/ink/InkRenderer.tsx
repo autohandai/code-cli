@@ -25,6 +25,8 @@ export interface InkRendererOptions {
   enableQueueInput?: boolean;
   /** Called when a dragged/dropped image is detected in the input */
   onImageDetected?: (data: Buffer, mimeType: string, filename?: string) => number;
+  /** Provider for file list used in @ mention autocomplete */
+  filesProvider?: () => string[];
 }
 
 /**
@@ -44,6 +46,7 @@ interface AgentUIWrapperProps {
   onInputChange: (input: string) => void;
   enableQueueInput?: boolean;
   onImageDetected?: (data: Buffer, mimeType: string, filename?: string) => number;
+  filesProvider?: () => string[];
 }
 
 /**
@@ -61,6 +64,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       onInputChange,
       enableQueueInput,
       onImageDetected,
+      filesProvider,
     } = props;
 
     const [state, setState] = useState<AgentUIState>(initialState);
@@ -93,6 +97,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         onInputChange={handleInputChange}
         enableQueueInput={enableQueueInput}
         onImageDetected={onImageDetected}
+        filesProvider={filesProvider}
       />
     );
   }
@@ -183,6 +188,7 @@ export class InkRenderer {
             onInputChange={this.handleInputChange}
             enableQueueInput={this.options.enableQueueInput}
             onImageDetected={this.options.onImageDetected}
+            filesProvider={this.options.filesProvider}
           />
         </I18nProvider>
       </ThemeProvider>,
@@ -556,6 +562,7 @@ export class InkRenderer {
               onInputChange={this.handleInputChange}
               enableQueueInput={this.options.enableQueueInput}
               onImageDetected={this.options.onImageDetected}
+              filesProvider={this.options.filesProvider}
             />
           </I18nProvider>
         </ThemeProvider>,

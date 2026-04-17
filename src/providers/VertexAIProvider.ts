@@ -14,6 +14,7 @@ import type {
   LLMMessage,
 } from "../types.js";
 import type { LLMProvider } from "./LLMProvider.js";
+import { getGcloudAccessToken, clearGcloudTokenCache } from "../utils/gcloudAuth.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -71,7 +72,7 @@ const FRIENDLY_ERRORS: Record<number, string> = {
 };
 
 export class VertexAIProvider implements LLMProvider {
-  private readonly authToken: string;
+  private authToken: string; // Changed from readonly to allow refresh
   private readonly endpoint: string;
   private readonly region: string;
   private readonly projectId: string;
@@ -80,6 +81,7 @@ export class VertexAIProvider implements LLMProvider {
   private readonly maxRetries: number;
   private readonly retryDelay: number;
   private readonly timeout: number;
+  private readonly useGcloudRefresh: boolean; // Auto-refresh via gcloud CLI
 
   constructor(settings: VertexAISettings, networkSettings?: NetworkSettings) {
     this.authToken = settings.authToken;
@@ -87,6 +89,10 @@ export class VertexAIProvider implements LLMProvider {
     this.region = settings.region ?? DEFAULT_REGION;
     this.projectId = settings.projectId;
     this.defaultModel = settings.model;
+    
+    // Enable gcloud auto-refresh if the token looks like a gcloud token
+    // (gcloud tokens start with "ya29." and are very long)
+    this.useGcloudRefresh = this.authToken.startsWith('ya29.') && this.authToken.length > 100;
 
     // Build the base URL for Vertex AI OpenAI-compatible endpoint
     this.baseUrl = `https://${this.endpoint}/v1/projects/${this.projectId}/locations/${this.region}/endpoints/openapi`;
@@ -126,10 +132,11 @@ export class VertexAIProvider implements LLMProvider {
 
   async isAvailable(): Promise<boolean> {
     try {
+      const token = await this.getValidToken();
       const response = await fetch(`${this.baseUrl}/models`, {
         method: "GET",
         headers: {
-          Authorization: `Bearer ${this.authToken}`,
+          Authorization: `Bearer ${token}`,
         },
         signal: AbortSignal.timeout(5000),
       });
@@ -137,6 +144,42 @@ export class VertexAIProvider implements LLMProvider {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Get a valid auth token, refreshing from gcloud if needed
+   */
+  private async getValidToken(): Promise<string> {
+    // If gcloud auto-refresh is enabled, always get a fresh token
+    if (this.useGcloudRefresh) {
+      const result = await getGcloudAccessToken();
+      if (result.token) {
+        this.authToken = result.token;
+        return this.authToken;
+      }
+      // Fall back to existing token if gcloud fails
+    }
+    return this.authToken;
+  }
+
+  /**
+   * Refresh the token after an auth error
+   */
+  private async refreshToken(): Promise<boolean> {
+    if (!this.useGcloudRefresh) {
+      return false;
+    }
+
+    // Clear the cache and get a fresh token
+    clearGcloudTokenCache();
+    const result = await getGcloudAccessToken();
+    
+    if (result.token) {
+      this.authToken = result.token;
+      return true;
+    }
+    
+    return false;
   }
 
   async complete(request: LLMRequest): Promise<LLMResponse> {
@@ -167,7 +210,7 @@ export class VertexAIProvider implements LLMProvider {
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${this.authToken}`,
+      Authorization: `Bearer ${await this.getValidToken()}`,
     };
 
     // Validate payload size before sending
@@ -197,6 +240,13 @@ export class VertexAIProvider implements LLMProvider {
         return response;
       } catch (error) {
         lastError = error as Error;
+
+        // Check if this is an auth error and we can refresh the token
+        if (this.isAuthError(error as Error) && await this.refreshToken()) {
+          // Update headers with new token and retry immediately
+          headers.Authorization = `Bearer ${this.authToken}`;
+          continue;
+        }
 
         // Don't retry if user cancelled or if it's a non-retryable error
         if (this.isNonRetryableError(error as Error)) {
@@ -386,6 +436,27 @@ export class VertexAIProvider implements LLMProvider {
       return true;
     }
 
+    return false;
+  }
+
+  /**
+   * Check if error is an authentication error that can be fixed by refreshing the token
+   */
+  private isAuthError(error: Error): boolean {
+    const message = error.message.toLowerCase();
+    
+    // Check for 401 Unauthorized or auth-related errors
+    if (
+      message.includes('401') ||
+      message.includes('unauthorized') ||
+      message.includes('authentication') ||
+      message.includes('auth token') ||
+      message.includes('invalid token') ||
+      message.includes('token expired')
+    ) {
+      return true;
+    }
+    
     return false;
   }
 

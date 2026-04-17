@@ -9,6 +9,7 @@ import { StatusLine } from './StatusLine.js';
 import { LiveCommandBlock, ToolOutputStatic, ToolOutputBatchStatic, type LiveCommandEntry, type ToolOutputEntry, type ToolOutputBatchEntry, type ToolOutputItem } from './ToolOutput.js';
 import { InputLine } from './InputLine.js';
 import { ThinkingOutput } from './ThinkingOutput.js';
+import { FileMentionDropdown, parseFileSuggestions, matchFileMention, type FileMentionSuggestion } from './FileMentionDropdown.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/index.js';
 import { getPlanModeManager } from '../../commands/plan.js';
@@ -16,6 +17,7 @@ import { TextBuffer } from '../textBuffer.js';
 import { handleTextBufferKey, type KeyHandlerResult } from '../textBufferKeyHandler.js';
 import { getPromptBlockWidth, isShiftEnterResidualSequence, processImagesInText } from '../inputPrompt.js';
 import { renderTerminalMarkdown } from '../../core/immediateCommandRouter.js';
+import { buildFileMentionSuggestions } from '../mentionFilter.js';
 
 export interface AgentUIState {
   isWorking: boolean;
@@ -46,6 +48,8 @@ export interface AgentUIProps {
   enableQueueInput?: boolean;
   /** Called when a dragged/dropped image is detected in the input */
   onImageDetected?: (data: Buffer, mimeType: string, filename?: string) => number;
+  /** Provider for file list used in @ mention autocomplete */
+  filesProvider?: () => string[];
 }
 
 interface TextBufferKeyInfo {
@@ -162,6 +166,7 @@ export function AgentUI({
   onInputChange,
   enableQueueInput = true,
   onImageDetected,
+  filesProvider,
 }: AgentUIProps) {
   const { exit } = useApp();
   const { colors } = useTheme();
@@ -171,6 +176,12 @@ export function AgentUI({
   const [ctrlCCount, setCtrlCCount] = useState(0);
   const [planModeIndicator, setPlanModeIndicator] = useState('');
   const [planModeStatusKey, setPlanModeStatusKey] = useState('');
+  
+  // File mention autocomplete state
+  const [fileMentionSuggestions, setFileMentionSuggestions] = useState<FileMentionSuggestion[]>([]);
+  const [fileMentionActiveIndex, setFileMentionActiveIndex] = useState(0);
+  const [fileMentionVisible, setFileMentionVisible] = useState(false);
+  const fileMentionStartIndexRef = useRef<number | null>(null);
   const textBufferRef = useRef<TextBuffer>(
     new TextBuffer(
       getInkTextBufferViewportWidth(process.stdout.columns),
@@ -298,7 +309,41 @@ export function AgentUI({
     };
   }, [input, onImageDetected, syncInputFromBuffer]);
 
-  useInput((char, key) => {
+  // Update file mention suggestions when input changes
+  useEffect(() => {
+    if (!filesProvider) {
+      setFileMentionVisible(false);
+      setFileMentionSuggestions([]);
+      return;
+    }
+
+    const mention = matchFileMention(input, cursorOffset);
+    if (!mention) {
+      setFileMentionVisible(false);
+      setFileMentionSuggestions([]);
+      fileMentionStartIndexRef.current = null;
+      return;
+    }
+
+    const files = filesProvider();
+    const matchingFiles = buildFileMentionSuggestions(files, mention.seed, 5);
+    
+    if (matchingFiles.length === 0) {
+      setFileMentionVisible(false);
+      setFileMentionSuggestions([]);
+      fileMentionStartIndexRef.current = null;
+      return;
+    }
+
+    fileMentionStartIndexRef.current = mention.startIndex;
+    setFileMentionSuggestions(parseFileSuggestions(matchingFiles));
+    setFileMentionVisible(true);
+    setFileMentionActiveIndex(prev => Math.min(prev, matchingFiles.length - 1));
+  }, [input, cursorOffset, filesProvider]);
+
+  // Memoize the input handler to prevent re-registration on every render
+  // This is critical for preventing flickering during rapid key events (holding backspace/delete)
+  const handleInput = useCallback((char: string, key: InkKey) => {
     syncBufferViewport();
 
     // Handle Shift+Tab for plan mode toggle
@@ -327,12 +372,16 @@ export function AgentUI({
       }
 
       // Input is empty - handle exit flow
-      if (ctrlCCount === 0) {
-        setCtrlCCount(1);
-        onCtrlC();
-      } else {
-        exit();
-      }
+      // Use functional update to avoid dependency on ctrlCCount
+      setCtrlCCount(prev => {
+        if (prev === 0) {
+          onCtrlC();
+          return 1;
+        } else {
+          exit();
+          return prev;
+        }
+      });
       return;
     }
 
@@ -346,7 +395,44 @@ export function AgentUI({
       return;
     }
 
-    if (key.tab) {
+    // Handle arrow keys for file mention navigation
+    if (fileMentionVisible && fileMentionSuggestions.length > 0) {
+      if (key.upArrow) {
+        setFileMentionActiveIndex(prev => 
+          prev > 0 ? prev - 1 : fileMentionSuggestions.length - 1
+        );
+        return;
+      }
+      if (key.downArrow) {
+        setFileMentionActiveIndex(prev => 
+          prev < fileMentionSuggestions.length - 1 ? prev + 1 : 0
+        );
+        return;
+      }
+    }
+
+    // Handle Tab for file mention acceptance
+    if (key.tab && !key.shift) {
+      if (fileMentionVisible && fileMentionSuggestions.length > 0 && fileMentionStartIndexRef.current !== null) {
+        const suggestion = fileMentionSuggestions[fileMentionActiveIndex];
+        if (suggestion) {
+          const buffer = textBufferRef.current;
+          const currentText = buffer.getText();
+          const beforeMention = currentText.slice(0, fileMentionStartIndexRef.current);
+          const afterCursor = currentText.slice(cursorOffset);
+          const replacement = `@${suggestion.path} `;
+          const newText = beforeMention + replacement + afterCursor;
+          
+          buffer.setText(newText);
+          syncInputFromBuffer();
+          
+          // Reset file mention state
+          setFileMentionVisible(false);
+          setFileMentionSuggestions([]);
+          fileMentionStartIndexRef.current = null;
+          return;
+        }
+      }
       return;
     }
 
@@ -368,7 +454,24 @@ export function AgentUI({
       syncInputFromBuffer();
       return;
     }
-  });
+  }, [
+    syncBufferViewport,
+    onEscape,
+    syncInputFromBuffer,
+    onCtrlC,
+    exit,
+    state.liveCommands,
+    onToggleLiveCommandExpanded,
+    state.isWorking,
+    enableQueueInput,
+    onInstruction,
+    fileMentionVisible,
+    fileMentionSuggestions,
+    fileMentionActiveIndex,
+    cursorOffset,
+  ]);
+
+  useInput(handleInput);
 
   // Memoize tool outputs to prevent unnecessary re-renders
   // Static items use the entry id as key and never re-render
@@ -424,6 +527,13 @@ export function AgentUI({
         cursorOffset={cursorOffset}
         ctrlCCount={ctrlCCount}
         contextPercent={state.contextPercent}
+        fileMentionDropdown={
+          <FileMentionDropdown
+            suggestions={fileMentionSuggestions}
+            activeIndex={fileMentionActiveIndex}
+            visible={fileMentionVisible && state.isWorking}
+          />
+        }
       />
     </Box>
   );
@@ -477,6 +587,7 @@ interface FixedBottomProps {
   cursorOffset: number;
   ctrlCCount: number;
   contextPercent?: number;
+  fileMentionDropdown?: React.ReactNode;
 }
 
 const FixedBottom = memo(function FixedBottom({
@@ -490,7 +601,8 @@ const FixedBottom = memo(function FixedBottom({
   input,
   cursorOffset,
   ctrlCCount,
-  contextPercent
+  contextPercent,
+  fileMentionDropdown,
 }: FixedBottomProps) {
   const { colors } = useTheme();
   const { t } = useTranslation();
@@ -544,6 +656,9 @@ const FixedBottom = memo(function FixedBottom({
           isActive={isWorking}
         />
       )}
+
+      {/* File mention dropdown */}
+      {fileMentionDropdown}
 
       {/* Help line - reserve a stable row even while working to avoid first-send layout jumps */}
       <Box>

@@ -24,6 +24,12 @@ import { AgentsGenerator } from './agentsGenerator.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from '../startup/workspaceSafety.js';
 import { getAuthClient } from '../auth/index.js';
 import { AUTH_CONFIG } from '../constants.js';
+import {
+  isGcloudInstalled,
+  getGcloudProject,
+  getGcloudAccessToken,
+  getGcloudAccount,
+} from '../utils/gcloudAuth.js';
 
 /**
  * Steps in the onboarding wizard
@@ -1203,6 +1209,7 @@ export class SetupWizard {
   /**
    * Full Google Cloud Vertex AI configuration flow
    * Shows prerequisites, collects endpoint, region, project ID, auth token, and model
+   * Auto-detects gcloud CLI and uses it for automatic token management
    */
   private async promptVertexAIConfig(): Promise<boolean> {
     this.state.currentStep = 'apiKey';
@@ -1211,48 +1218,99 @@ export class SetupWizard {
     console.log(chalk.cyan('\n' + t('providers.wizard.vertexai.title')));
     console.log(chalk.gray(t('providers.wizard.vertexai.getStarted') + '\n'));
 
-    console.log(chalk.yellow(t('providers.wizard.vertexai.setupSteps.title')));
-    console.log(chalk.gray('  ' + t('providers.wizard.vertexai.setupSteps.step1')));
-    console.log(chalk.gray('  ' + t('providers.wizard.vertexai.setupSteps.step2')));
-    console.log(chalk.gray('  ' + t('providers.wizard.vertexai.setupSteps.step3')));
-    console.log();
+    // Check if gcloud CLI is installed
+    const gcloudInstalled = await isGcloudInstalled();
+    const gcloudAccount = gcloudInstalled ? await getGcloudAccount() : null;
+    const gcloudProject = gcloudInstalled ? await getGcloudProject() : null;
+
+    // Get existing config for prefills
+    const existingConfig = this.existingConfig?.vertexai;
+    const existingProjectId = existingConfig?.projectId;
+    const existingEndpoint = existingConfig?.endpoint;
+    const existingRegion = existingConfig?.region;
+    const existingModel = existingConfig?.model;
+
+    // Show gcloud status
+    if (gcloudInstalled) {
+      console.log(chalk.green('  ✓ gcloud CLI detected'));
+      if (gcloudAccount) {
+        console.log(chalk.gray(`    Account: ${gcloudAccount}`));
+      }
+      if (gcloudProject) {
+        console.log(chalk.gray(`    Project: ${gcloudProject}`));
+      }
+      console.log();
+    } else {
+      console.log(chalk.yellow('  ⚠ gcloud CLI not detected'));
+      console.log(chalk.gray('  Install it for automatic token management:'));
+      console.log(chalk.gray('  https://cloud.google.com/sdk/docs/install'));
+      console.log();
+    }
 
     // Step 1: Endpoint
     const endpoint = await showInput({
       title: t('providers.wizard.vertexai.enterEndpoint'),
-      defaultValue: 'aiplatform.googleapis.com'
+      defaultValue: existingEndpoint || 'aiplatform.googleapis.com'
     });
     if (!endpoint) return false;
 
     // Step 2: Region
     const region = await showInput({
       title: t('providers.wizard.vertexai.enterRegion'),
-      defaultValue: 'global'
+      defaultValue: existingRegion || 'global'
     });
     if (!region) return false;
 
-    // Step 3: Project ID
+    // Step 3: Project ID - prefill from gcloud or existing config
+    const defaultProjectId = existingProjectId || gcloudProject || '';
     const projectId = await showInput({
       title: t('providers.wizard.vertexai.enterProjectId'),
+      defaultValue: defaultProjectId,
       placeholder: 'YOUR_PROJECT_ID'
     });
     if (!projectId) return false;
 
-    // Step 4: Auth Token
-    console.log(chalk.gray('\n' + t('providers.wizard.vertexai.authTokenHint')));
-    console.log(chalk.gray('  ' + t('providers.wizard.vertexai.authTokenCommand')));
-    console.log();
+    // Step 4: Auth Token - auto-fetch from gcloud if available
+    let authToken: string;
 
-    const authToken = await showPassword({
-      title: t('providers.wizard.vertexai.enterAuthToken'),
-      placeholder: t('ui.apiKeyPlaceholder')
-    });
-    if (!authToken) return false;
+    if (gcloudInstalled) {
+      console.log(chalk.gray('\n  Fetching access token from gcloud...'));
+      const tokenResult = await getGcloudAccessToken();
+
+      if (tokenResult.token) {
+        console.log(chalk.green('  ✓ Access token obtained (valid for ~25 minutes)'));
+        console.log(chalk.gray('  Tokens are automatically refreshed when using gcloud.'));
+        authToken = tokenResult.token;
+      } else {
+        console.log(chalk.yellow(`  ⚠ ${tokenResult.error}`));
+        console.log(chalk.gray('  Please enter token manually or run: gcloud auth login'));
+        console.log();
+
+        const manualToken = await showPassword({
+          title: t('providers.wizard.vertexai.enterAuthToken'),
+          placeholder: t('ui.apiKeyPlaceholder')
+        });
+        if (!manualToken) return false;
+        authToken = manualToken;
+      }
+    } else {
+      // Manual token entry
+      console.log(chalk.gray('\n' + t('providers.wizard.vertexai.authTokenHint')));
+      console.log(chalk.gray('  ' + t('providers.wizard.vertexai.authTokenCommand')));
+      console.log();
+
+      const manualToken = await showPassword({
+        title: t('providers.wizard.vertexai.enterAuthToken'),
+        placeholder: t('ui.apiKeyPlaceholder')
+      });
+      if (!manualToken) return false;
+      authToken = manualToken;
+    }
 
     // Step 5: Model
     const model = await showInput({
       title: t('providers.wizard.vertexai.enterModel'),
-      defaultValue: 'zai-org/glm-5-maas'
+      defaultValue: existingModel || 'zai-org/glm-5-maas'
     });
     if (!model) return false;
 
@@ -1271,6 +1329,9 @@ export class SetupWizard {
 
     console.log(chalk.green('\n✓ ' + t('providers.config.configuredSuccessfully', { provider: t('providers.vertexai') })));
     console.log(chalk.gray('  ' + t('providers.config.modelLabel', { model })));
+    if (gcloudInstalled) {
+      console.log(chalk.gray('  Token auto-refresh enabled via gcloud CLI'));
+    }
     console.log();
 
     return true;
