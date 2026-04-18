@@ -65,6 +65,11 @@ import { webRepo, formatRepoInfo, formatRepoDir } from '../actions/webRepo.js';
 import { projectTracker } from '../actions/projectTracker.js';
 import { PermissionManager } from '../permissions/PermissionManager.js';
 import type { PermissionContext } from '../permissions/types.js';
+import {
+  normalizeYoloInput,
+  parseYoloPattern,
+  isToolAllowedByYolo,
+} from '../permissions/yoloMode.js';
 import type { ProjectManager } from '../session/ProjectManager.js';
 import type { AgentAction, AgentRuntime, ExplorationEvent, ToolExecutionContext, ToolOutputChunk } from '../types.js';
 import type { FileActionManager } from '../actions/filesystem.js';
@@ -1159,8 +1164,13 @@ export class ActionExecutor {
         console.log(chalk.white(`   ${commitMessage}`));
         console.log();
 
+        // Check for auto-approval: --yes, --yolo, CI, or non-interactive mode
+        const normalizedYolo = normalizeYoloInput(this.runtime.options.yolo as string | boolean | undefined);
+        const yoloAllowsCommit = normalizedYolo && isToolAllowedByYolo('auto_commit', parseYoloPattern(normalizedYolo));
+        
         const autoApproveCommit = Boolean(
           this.runtime.options.yes
+          || yoloAllowsCommit
           || process.env.CI === '1'
           || process.env.AUTOHAND_NON_INTERACTIVE === '1'
         );
@@ -1176,15 +1186,15 @@ export class ActionExecutor {
           return result.message;
         }
 
-        // Ask for confirmation with y/n/e
+        // Ask for confirmation with y/n/e - include the message in the modal
         const options: ModalOption[] = [
-          { label: 'Yes - commit with this message', value: 'y' },
+          { label: `Yes - commit with this message`, value: 'y' },
           { label: 'Edit - modify the message', value: 'e' },
           { label: 'No - cancel commit', value: 'n' }
         ];
 
         const modalResult = await showModal({
-          title: 'Commit with this message?',
+          title: `Commit with this message?\n\n"${commitMessage}"`,
           options
         });
 
