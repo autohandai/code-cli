@@ -126,8 +126,11 @@ export class InkRenderer {
   /** Resize handler reference for cleanup */
   private resizeHandler: (() => void) | null = null;
 
-  /** Debounce timer for drag-resize events */
+/** Debounce timer for drag-resize events */
   private resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Debounce time for resize events (ms) - longer to batch drag-resize */
+  private static readonly RESIZE_DEBOUNCE_MS = 150;
 
   constructor(options: InkRendererOptions) {
     this.options = options;
@@ -142,22 +145,19 @@ export class InkRenderer {
     this.state = { ...this.state, currentInput: input };
   };
 
-  /**
-   * Register resize handler before Ink so it fires first and clears the
-   * screen before Ink's incremental renderer (log-update) tries positional
-   * cursor math which is stale after terminal reflow.
+/**
+   * Handle resize events with debouncing to prevent flickering during drag-resize.
+   * Ink handles re-renders naturally - we just need to debounce rapid events.
    */
   private onResize = () => {
-    // Debounce rapid events during drag-resize
+    // Debounce rapid events during drag-resize to prevent multiple re-renders
     if (this.resizeDebounceTimer) {
       clearTimeout(this.resizeDebounceTimer);
     }
     this.resizeDebounceTimer = setTimeout(() => {
-      // Clear entire screen and move cursor home.
-      // Ink then re-renders on a clean canvas.
-      process.stdout.write('\x1b[2J\x1b[H');
       this.resizeDebounceTimer = null;
-    }, 50);
+      // Let Ink handle the re-render naturally - no screen clear needed
+    }, InkRenderer.RESIZE_DEBOUNCE_MS);
   };
 
   /**
