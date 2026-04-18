@@ -13,6 +13,11 @@ import { ProviderFactory } from '../../providers/ProviderFactory.js';
 import { loadConfig } from '../../config.js';
 import { checkAuthenticated } from '../../auth/index.js';
 import { checkWorkspaceSafety } from '../../startup/workspaceSafety.js';
+import {
+  normalizeYoloInput,
+  parseYoloPattern,
+  buildPermissionSettingsFromYolo,
+} from '../../permissions/yoloMode.js';
 import type { CLIOptions, AgentRuntime } from '../../types.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from '../../utils/sessionWorktree.js';
 import type {
@@ -106,6 +111,23 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
   try {
     // Load configuration
     const config = await loadConfig(options.config, process.cwd());
+
+    // Process --yolo flag BEFORE creating runtime (same as main CLI flow)
+    const normalizedYolo = normalizeYoloInput(options.yolo as string | boolean | undefined);
+    if (normalizedYolo) {
+      try {
+        const yoloPattern = parseYoloPattern(normalizedYolo);
+        options.yolo = normalizedYolo;
+        config.permissions = {
+          ...config.permissions,
+          ...buildPermissionSettingsFromYolo(yoloPattern),
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        writeErrorResponse(null, JSON_RPC_ERROR_CODES.INTERNAL_ERROR, message);
+        process.exit(1);
+      }
+    }
 
     // Non-interactive auth check — RPC mode cannot prompt for login
     const isAuthed = await checkAuthenticated(config);
