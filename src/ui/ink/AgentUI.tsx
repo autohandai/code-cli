@@ -5,6 +5,7 @@
  */
 import React, { useState, useEffect, memo, useMemo, useRef, useCallback } from 'react';
 import { Box, Text, useInput, useApp, Static, type Key as InkKey } from 'ink';
+import { useBufferedInput, type BufferedKeyInfo } from '../useBufferedInput.js';
 import { StatusLine } from './StatusLine.js';
 import { LiveCommandBlock, ToolOutputStatic, ToolOutputBatchStatic, type LiveCommandEntry, type ToolOutputEntry, type ToolOutputBatchEntry, type ToolOutputItem } from './ToolOutput.js';
 import { InputLine } from './InputLine.js';
@@ -472,6 +473,27 @@ export function AgentUI({
   ]);
 
   useInput(handleInput);
+
+  // Enhanced buffered input for Kitty keyboard protocol and paste detection
+  // This supplements useInput with better escape sequence handling
+  useBufferedInput({
+    onInput: (input, key, info) => {
+      // Handle Kitty keyboard protocol events with full modifier details
+      if (info?.kittyEvent) {
+        // Kitty protocol provides precise key and modifier information
+        // We can use this for enhanced key combinations in the future
+        // For now, the standard useInput handler processes these
+      }
+      
+      // Handle paste events (bracketed paste mode)
+      if (info?.sequenceType === 'paste') {
+        // Paste content is in `input`
+        // The standard useInput will also receive this, but we can
+        // add special handling here if needed
+      }
+    },
+    isActive: state.isWorking && enableQueueInput,
+  });
 
   // Memoize tool outputs to prevent unnecessary re-renders
   // Static items use the entry id as key and never re-render
