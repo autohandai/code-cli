@@ -199,6 +199,8 @@ describe('SetupWizard — Mandatory Registration', () => {
     mockChangeLanguage.mockResolvedValue(undefined);
     mockFetch.mockResolvedValue({ ok: true, status: 200 });
     mockSaveConfig.mockResolvedValue(undefined);
+    mockInitiateDeviceAuth.mockReset();
+    mockPollDeviceAuth.mockReset();
     vi.stubGlobal('fetch', mockFetch);
   });
 
