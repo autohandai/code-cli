@@ -125,6 +125,8 @@ function sequenceToInkInput(event: SequenceEvent): BufferedKeyInfo {
     tab: false,
     backspace: false,
     delete: false,
+    pageDown: false,
+    pageUp: false,
   };
   
   let input = '';
@@ -209,7 +211,7 @@ export function useBufferedInput(options: UseBufferedInputOptions): void {
       return;
     }
     
-    const buffer = new StdinBuffer(stdin, flushTimeout);
+    const buffer = new StdinBuffer({ timeout: flushTimeout });
     bufferRef.current = buffer;
     
     // Handle sequence events from the buffer

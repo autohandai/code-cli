@@ -7,6 +7,15 @@
 import { EventEmitter } from 'node:events';
 
 /**
+ * Sequence event types emitted by StdinBuffer.
+ */
+export type SequenceEvent = 
+  | { type: 'printable'; data: string }
+  | { type: 'csi'; data: string }
+  | { type: 'osc'; data: string }
+  | { type: 'paste'; data: string };
+
+/**
  * StdinBuffer accumulates stdin data and emits complete escape sequences.
  *
  * Problem: Terminal escape sequences can arrive in partial chunks across
