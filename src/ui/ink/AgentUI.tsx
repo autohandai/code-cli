@@ -595,48 +595,33 @@ const DynamicContent = memo(function DynamicContent({
 });
 
 /**
- * Fixed bottom section - status line, queue, input
+ * Status section - status line, queue, completion stats
+ * Memoized to prevent re-renders when only input changes
  */
-interface FixedBottomProps {
+interface StatusSectionProps {
   isWorking: boolean;
   status: string;
   elapsed: string;
   tokens: string;
   queuedInstructions: string[];
   completionStats: { elapsed: string; tokens: string } | null;
-  enableQueueInput: boolean;
-  input: string;
-  cursorOffset: number;
-  ctrlCCount: number;
   contextPercent?: number;
-  fileMentionDropdown?: React.ReactNode;
 }
 
-const FixedBottom = memo(function FixedBottom({
+const StatusSection = memo(function StatusSection({
   isWorking,
   status,
   elapsed,
   tokens,
   queuedInstructions,
   completionStats,
-  enableQueueInput,
-  input,
-  cursorOffset,
-  ctrlCCount,
   contextPercent,
-  fileMentionDropdown,
-}: FixedBottomProps) {
+}: StatusSectionProps) {
   const { colors } = useTheme();
-  const { t } = useTranslation();
 
   // Show queue or completion stats in a stable position
   const showQueue = queuedInstructions.length > 0 && isWorking;
   const showCompletionStats = !isWorking && completionStats;
-
-  // Format context percentage
-  const contextDisplay = contextPercent !== undefined
-    ? `${Math.round(contextPercent)}% context left`
-    : '';
 
   return (
     <>
@@ -669,7 +654,53 @@ const FixedBottom = memo(function FixedBottom({
           </Text>
         </Box>
       )}
+    </>
+  );
+}, (prev, next) => {
+  // Only re-render if status-related props change
+  return prev.isWorking === next.isWorking &&
+         prev.status === next.status &&
+         prev.elapsed === next.elapsed &&
+         prev.tokens === next.tokens &&
+         prev.contextPercent === next.contextPercent &&
+         prev.queuedInstructions.length === next.queuedInstructions.length &&
+         prev.completionStats?.elapsed === next.completionStats?.elapsed &&
+         prev.completionStats?.tokens === next.completionStats?.tokens;
+});
 
+/**
+ * Input section - input line, help line, ctrl+c warning
+ * Memoized to prevent re-renders when only status changes
+ */
+interface InputSectionProps {
+  isWorking: boolean;
+  enableQueueInput: boolean;
+  input: string;
+  cursorOffset: number;
+  ctrlCCount: number;
+  contextPercent?: number;
+  fileMentionDropdown?: React.ReactNode;
+}
+
+const InputSection = memo(function InputSection({
+  isWorking,
+  enableQueueInput,
+  input,
+  cursorOffset,
+  ctrlCCount,
+  contextPercent,
+  fileMentionDropdown,
+}: InputSectionProps) {
+  const { colors } = useTheme();
+  const { t } = useTranslation();
+
+  // Format context percentage
+  const contextDisplay = contextPercent !== undefined
+    ? `${Math.round(contextPercent)}% context left`
+    : '';
+
+  return (
+    <>
       {/* Input line - always rendered for layout stability */}
       {enableQueueInput && (
         <InputLine
@@ -695,6 +726,72 @@ const FixedBottom = memo(function FixedBottom({
           <Text color={colors.warning}>{t('ui.ctrlCToExit')}</Text>
         </Box>
       )}
+    </>
+  );
+}, (prev, next) => {
+  // Only re-render if input-related props change
+  return prev.isWorking === next.isWorking &&
+         prev.enableQueueInput === next.enableQueueInput &&
+         prev.input === next.input &&
+         prev.cursorOffset === next.cursorOffset &&
+         prev.ctrlCCount === next.ctrlCCount &&
+         prev.contextPercent === next.contextPercent &&
+         prev.fileMentionDropdown === next.fileMentionDropdown;
+});
+
+/**
+ * Fixed bottom section - status line, queue, input
+ * Split into StatusSection and InputSection for better memoization
+ */
+interface FixedBottomProps {
+  isWorking: boolean;
+  status: string;
+  elapsed: string;
+  tokens: string;
+  queuedInstructions: string[];
+  completionStats: { elapsed: string; tokens: string } | null;
+  enableQueueInput: boolean;
+  input: string;
+  cursorOffset: number;
+  ctrlCCount: number;
+  contextPercent?: number;
+  fileMentionDropdown?: React.ReactNode;
+}
+
+const FixedBottom = memo(function FixedBottom({
+  isWorking,
+  status,
+  elapsed,
+  tokens,
+  queuedInstructions,
+  completionStats,
+  enableQueueInput,
+  input,
+  cursorOffset,
+  ctrlCCount,
+  contextPercent,
+  fileMentionDropdown,
+}: FixedBottomProps) {
+  return (
+    <>
+      <StatusSection
+        isWorking={isWorking}
+        status={status}
+        elapsed={elapsed}
+        tokens={tokens}
+        queuedInstructions={queuedInstructions}
+        completionStats={completionStats}
+        contextPercent={contextPercent}
+      />
+      <InputSection
+        isWorking={isWorking}
+        enableQueueInput={enableQueueInput}
+        input={input}
+        cursorOffset={cursorOffset}
+        ctrlCCount={ctrlCCount}
+        contextPercent={contextPercent}
+        fileMentionDropdown={fileMentionDropdown}
+      />
     </>
   );
 });
