@@ -612,7 +612,9 @@
     "registration": {
       "title": "Autohand Account",
       "description": "Create a free Autohand account to unlock cloud sync, team features, and usage analytics.",
+      "descriptionMandatory": "An Autohand account is required to use Autohand. Sign up for free with Google, GitHub, or email.",
       "prompt": "Create an Autohand account? (Sign up with Google, GitHub, or email)",
+      "retryPrompt": "Would you like to try again?",
       "skipped": "You can create an account later with /login",
       "initiating": "Starting authentication...",
       "failed": "Could not start authentication: {{error}}",
