@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ProcessTerminal } from '../../src/ui/terminal/ProcessTerminal.js';
+import { ProcessTerminal } from '../../../src/ui/terminal/ProcessTerminal.js';
 
 // Mock stdin/stdout
 function createMockStream() {
