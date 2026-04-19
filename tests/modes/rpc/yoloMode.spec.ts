@@ -164,7 +164,6 @@ describe('RPC Mode YOLO Processing', () => {
         await import('../../../src/permissions/yoloMode.js');
 
       const options = { yolo: 'invalid-pattern' };
-      const config: any = {};
       
       const normalizedYolo = normalizeYoloInput(options.yolo as string | boolean | undefined);
       expect(normalizedYolo).toBe('invalid-pattern');

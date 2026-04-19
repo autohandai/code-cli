@@ -14,9 +14,7 @@ import {
   disableModifyOtherKeys,
   parseKittyResponse,
   isKittyProtocolActive,
-  setKittyProtocolActive,
   isModifyOtherKeysActive,
-  setModifyOtherKeysActive,
 } from '../kittyProtocol.js';
 
 /**
