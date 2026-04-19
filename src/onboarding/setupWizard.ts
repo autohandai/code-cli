@@ -805,6 +805,7 @@ export class SetupWizard {
 
   /**
    * Prompt user to create an Autohand account using device-flow auth.
+   * Account creation is now mandatory to use Autohand.
    * Reuses the same flow as /login command.
    */
   private async promptRegistration(): Promise<void> {
@@ -815,19 +816,8 @@ export class SetupWizard {
     console.log(chalk.white.bold('  ' + t('setup.registration.title')));
     console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
     console.log();
-    console.log(chalk.gray('  ' + t('setup.registration.description')));
+    console.log(chalk.gray('  ' + t('setup.registration.descriptionMandatory')));
     console.log();
-
-    const wantsAccount = await showConfirm({
-      title: t('setup.registration.prompt'),
-      defaultValue: false
-    });
-
-    if (!wantsAccount) {
-      this.state.skipped.push('registration');
-      console.log(chalk.gray('  ' + t('setup.registration.skipped')));
-      return;
-    }
 
     // Run device-flow auth (same as /login)
     const authClient = getAuthClient();
@@ -837,6 +827,18 @@ export class SetupWizard {
 
     if (!initResult.success || !initResult.deviceCode || !initResult.userCode) {
       console.log(chalk.yellow('  ' + t('setup.registration.failed', { error: initResult.error || 'Unknown error' })));
+      
+      // Allow retry since auth failed
+      const retry = await showConfirm({
+        title: t('setup.registration.retryPrompt'),
+        defaultValue: true
+      });
+      
+      if (retry) {
+        return this.promptRegistration();
+      }
+      
+      this.state.skipped.push('registration');
       console.log(chalk.gray('  ' + t('setup.registration.tryLater')));
       return;
     }
@@ -897,6 +899,18 @@ export class SetupWizard {
       if (pollResult.status === 'expired') {
         process.stdout.write('\r' + ' '.repeat(20) + '\r');
         console.log(chalk.yellow('  ' + t('setup.registration.expired')));
+        
+        // Allow retry
+        const retry = await showConfirm({
+          title: t('setup.registration.retryPrompt'),
+          defaultValue: true
+        });
+        
+        if (retry) {
+          return this.promptRegistration();
+        }
+        
+        this.state.skipped.push('registration');
         console.log(chalk.gray('  ' + t('setup.registration.tryLater')));
         return;
       }
@@ -905,6 +919,18 @@ export class SetupWizard {
     // Timeout
     process.stdout.write('\r' + ' '.repeat(20) + '\r');
     console.log(chalk.yellow('  ' + t('setup.registration.timeout')));
+    
+    // Allow retry
+    const retry = await showConfirm({
+      title: t('setup.registration.retryPrompt'),
+      defaultValue: true
+    });
+    
+    if (retry) {
+      return this.promptRegistration();
+    }
+    
+    this.state.skipped.push('registration');
     console.log(chalk.gray('  ' + t('setup.registration.tryLater')));
   }
 
