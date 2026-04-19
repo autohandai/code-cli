@@ -132,7 +132,7 @@ vi.spyOn(process.stdin, 'once').mockImplementation((event: any, callback: any) =
 import { SetupWizard } from '../../src/onboarding/setupWizard';
 
 /**
- * Set up mock sequence for a full cloud provider flow WITH registration step.
+ * Set up mock sequence for a full cloud provider flow with mandatory registration.
  *
  * Flow order:
  *  1. Language modal
@@ -144,17 +144,17 @@ import { SetupWizard } from '../../src/onboarding/setupWizard';
  *  7. Telemetry confirm
  *  8. AutoReport confirm
  *  9. Preferences confirm
- * 10. Advanced gate confirm
- * 11. Agents confirm
- * 12. Registration confirm (NEW)
- * 13. Review confirm
+ *  10. Advanced gate confirm
+ *  11. Agents confirm
+ *  12. Registration (mandatory - no confirm, just device auth)
+ *  13. Review confirm
  */
-function setupCloudWithRegistration(opts: {
+function setupCloudWithMandatoryRegistration(opts: {
   provider: string;
   apiKey: string;
   model: string;
-  wantsRegistration: boolean;
   deviceAuthSuccess?: boolean;
+  retryOnFailure?: boolean;
 }) {
   // showModal calls: language, provider, permissions
   mockShowModal
@@ -168,7 +168,8 @@ function setupCloudWithRegistration(opts: {
   // showInput: model
   mockShowInput.mockResolvedValueOnce(opts.model);
 
-  // showConfirm calls: remember, telemetry, autoReport, prefs, advanced, agents, registration, review
+  // showConfirm calls: remember, telemetry, autoReport, prefs, advanced, agents, review
+  // Note: registration is now mandatory - no confirm prompt
   mockShowConfirm
     .mockResolvedValueOnce(true)                            // remember session
     .mockResolvedValueOnce(true)                            // telemetry
@@ -176,14 +177,13 @@ function setupCloudWithRegistration(opts: {
     .mockResolvedValueOnce(false)                           // preferences (skip)
     .mockResolvedValueOnce(false)                           // advanced (skip)
     .mockResolvedValueOnce(false)                           // agents (skip)
-    .mockResolvedValueOnce(opts.wantsRegistration)          // registration
     .mockResolvedValueOnce(true);                           // review confirm
 
   // Mock fetch for API validation
   mockFetch.mockResolvedValue({ ok: true, status: 200 });
 }
 
-describe('SetupWizard — Registration Step', () => {
+describe('SetupWizard — Mandatory Registration', () => {
   const testWorkspace = '/test/workspace';
 
   beforeEach(() => {
@@ -202,29 +202,11 @@ describe('SetupWizard — Registration Step', () => {
     vi.stubGlobal('fetch', mockFetch);
   });
 
-  it('should skip registration when user declines', async () => {
-    setupCloudWithRegistration({
+  it('should automatically start device auth flow (no confirmation prompt)', async () => {
+    setupCloudWithMandatoryRegistration({
       provider: 'openrouter',
       apiKey: 'sk-test-key-long-enough',
       model: 'nvidia/nemotron-3-super-120b-a12b:free',
-      wantsRegistration: false,
-    });
-
-    const wizard = new SetupWizard(testWorkspace);
-    const result = await wizard.run({ skipWelcome: true });
-
-    expect(result.success).toBe(true);
-    expect(result.skippedSteps).toContain('registration');
-    // Device auth should NOT be called
-    expect(mockInitiateDeviceAuth).not.toHaveBeenCalled();
-  });
-
-  it('should run device auth flow when user accepts registration', async () => {
-    setupCloudWithRegistration({
-      provider: 'openrouter',
-      apiKey: 'sk-test-key-long-enough',
-      model: 'nvidia/nemotron-3-super-120b-a12b:free',
-      wantsRegistration: true,
     });
 
     // Mock successful device auth
@@ -253,16 +235,17 @@ describe('SetupWizard — Registration Step', () => {
 
     expect(result.success).toBe(true);
     expect(result.skippedSteps).not.toContain('registration');
+    // Device auth should be called automatically (no confirmation needed)
     expect(mockInitiateDeviceAuth).toHaveBeenCalledOnce();
     expect(mockPollDeviceAuth).toHaveBeenCalledWith('test-device-code');
   });
 
-  it('should handle device auth initiation failure gracefully', async () => {
-    setupCloudWithRegistration({
+  it('should allow retry when device auth initiation fails', async () => {
+    setupCloudWithMandatoryRegistration({
       provider: 'openrouter',
       apiKey: 'sk-test-key-long-enough',
       model: 'nvidia/nemotron-3-super-120b-a12b:free',
-      wantsRegistration: true,
+      retryOnFailure: true,
     });
 
     // Mock failed device auth initiation
@@ -271,20 +254,65 @@ describe('SetupWizard — Registration Step', () => {
       error: 'Service unavailable',
     });
 
+    // Mock retry confirm = true, then success
+    mockShowConfirm.mockResolvedValueOnce(true); // retry
+
+    // Second attempt succeeds
+    mockInitiateDeviceAuth.mockResolvedValueOnce({
+      success: true,
+      deviceCode: 'retry-device-code',
+      userCode: 'RETRY-123',
+      verificationUri: 'https://autohand.ai/cli-auth',
+      verificationUriComplete: 'https://autohand.ai/cli-auth?code=RETRY-123&source=cli',
+      expiresIn: 300,
+      interval: 2,
+    });
+
+    mockPollDeviceAuth.mockResolvedValueOnce({
+      success: true,
+      status: 'authorized',
+      token: 'retry-token',
+      user: { id: 'user-2', email: 'retry@example.com', name: 'Retry User' },
+    });
+
     const wizard = new SetupWizard(testWorkspace);
     const result = await wizard.run({ skipWelcome: true });
 
-    // Should still complete the wizard even if registration fails
+    // Should succeed after retry
     expect(result.success).toBe(true);
-    expect(mockPollDeviceAuth).not.toHaveBeenCalled();
+    expect(mockInitiateDeviceAuth).toHaveBeenCalledTimes(2);
   });
 
-  it('should handle device auth expiry gracefully', async () => {
-    setupCloudWithRegistration({
+  it('should allow skipping registration after failed auth if user declines retry', async () => {
+    setupCloudWithMandatoryRegistration({
       provider: 'openrouter',
       apiKey: 'sk-test-key-long-enough',
       model: 'nvidia/nemotron-3-super-120b-a12b:free',
-      wantsRegistration: true,
+    });
+
+    // Mock failed device auth initiation
+    mockInitiateDeviceAuth.mockResolvedValueOnce({
+      success: false,
+      error: 'Service unavailable',
+    });
+
+    // User declines retry
+    mockShowConfirm.mockResolvedValueOnce(false); // no retry
+
+    const wizard = new SetupWizard(testWorkspace);
+    const result = await wizard.run({ skipWelcome: true });
+
+    // Should still complete the wizard but skip registration
+    expect(result.success).toBe(true);
+    expect(result.skippedSteps).toContain('registration');
+    expect(mockPollDeviceAuth).not.toHaveBeenCalled();
+  });
+
+  it('should allow retry when device auth expires', async () => {
+    setupCloudWithMandatoryRegistration({
+      provider: 'openrouter',
+      apiKey: 'sk-test-key-long-enough',
+      model: 'nvidia/nemotron-3-super-120b-a12b:free',
     });
 
     mockInitiateDeviceAuth.mockResolvedValueOnce({
@@ -303,11 +331,15 @@ describe('SetupWizard — Registration Step', () => {
       status: 'expired',
     });
 
+    // User declines retry
+    mockShowConfirm.mockResolvedValueOnce(false);
+
     const wizard = new SetupWizard(testWorkspace);
     const result = await wizard.run({ skipWelcome: true });
 
     // Should still complete the wizard
     expect(result.success).toBe(true);
+    expect(result.skippedSteps).toContain('registration');
   });
 
   it('should skip registration in quickSetup mode', async () => {
@@ -339,11 +371,10 @@ describe('SetupWizard — Registration Step', () => {
   });
 
   it('should store auth data in result config when registration succeeds', async () => {
-    setupCloudWithRegistration({
+    setupCloudWithMandatoryRegistration({
       provider: 'openrouter',
       apiKey: 'sk-test-key-long-enough',
       model: 'nvidia/nemotron-3-super-120b-a12b:free',
-      wantsRegistration: true,
     });
 
     mockInitiateDeviceAuth.mockResolvedValueOnce({
@@ -373,13 +404,21 @@ describe('SetupWizard — Registration Step', () => {
     });
   });
 
-  it('should not include auth in config when registration is skipped', async () => {
-    setupCloudWithRegistration({
+  it('should not include auth in config when registration is skipped after failure', async () => {
+    setupCloudWithMandatoryRegistration({
       provider: 'openrouter',
       apiKey: 'sk-test-key-long-enough',
       model: 'nvidia/nemotron-3-super-120b-a12b:free',
-      wantsRegistration: false,
     });
+
+    // Mock failed device auth
+    mockInitiateDeviceAuth.mockResolvedValueOnce({
+      success: false,
+      error: 'Network error',
+    });
+
+    // User declines retry
+    mockShowConfirm.mockResolvedValueOnce(false);
 
     const wizard = new SetupWizard(testWorkspace);
     const result = await wizard.run({ skipWelcome: true });
