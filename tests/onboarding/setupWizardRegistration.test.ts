@@ -201,6 +201,9 @@ describe('SetupWizard — Mandatory Registration', () => {
     mockSaveConfig.mockResolvedValue(undefined);
     mockInitiateDeviceAuth.mockReset();
     mockPollDeviceAuth.mockReset();
+    // Default: return failure (tests will override with mockResolvedValueOnce)
+    mockInitiateDeviceAuth.mockResolvedValue({ success: false, error: 'not configured' });
+    mockPollDeviceAuth.mockResolvedValue({ success: false, status: 'pending' });
     vi.stubGlobal('fetch', mockFetch);
   });
 
@@ -286,20 +289,32 @@ describe('SetupWizard — Mandatory Registration', () => {
   });
 
   it('should allow skipping registration after failed auth if user declines retry', async () => {
-    setupCloudWithMandatoryRegistration({
-      provider: 'openrouter',
-      apiKey: 'sk-test-key-long-enough',
-      model: 'nvidia/nemotron-3-super-120b-a12b:free',
-    });
+    // Set up full flow manually (don't use helper since we need custom confirm queue)
+    mockShowModal
+      .mockResolvedValueOnce({ value: 'en' })
+      .mockResolvedValueOnce({ value: 'openrouter' })
+      .mockResolvedValueOnce({ value: 'interactive' });
+
+    mockShowPassword.mockResolvedValueOnce('sk-test-key-long-enough');
+    mockShowInput.mockResolvedValueOnce('nvidia/nemotron-3-super-120b-a12b:free');
+    mockFetch.mockResolvedValue({ ok: true, status: 200 });
+
+    // Queue: remember, telemetry, autoReport, prefs, advanced, agents, retry, review
+    mockShowConfirm
+      .mockResolvedValueOnce(true)   // remember session
+      .mockResolvedValueOnce(true)   // telemetry
+      .mockResolvedValueOnce(true)   // autoReport
+      .mockResolvedValueOnce(false)  // preferences (skip)
+      .mockResolvedValueOnce(false)  // advanced (skip)
+      .mockResolvedValueOnce(false)  // agents (skip)
+      .mockResolvedValueOnce(false)  // retry (user declines retry)
+      .mockResolvedValueOnce(true);  // review confirm
 
     // Mock failed device auth initiation
     mockInitiateDeviceAuth.mockResolvedValueOnce({
       success: false,
       error: 'Service unavailable',
     });
-
-    // User declines retry
-    mockShowConfirm.mockResolvedValueOnce(false); // no retry
 
     const wizard = new SetupWizard(testWorkspace);
     const result = await wizard.run({ skipWelcome: true });
@@ -311,11 +326,26 @@ describe('SetupWizard — Mandatory Registration', () => {
   });
 
   it('should allow retry when device auth expires', async () => {
-    setupCloudWithMandatoryRegistration({
-      provider: 'openrouter',
-      apiKey: 'sk-test-key-long-enough',
-      model: 'nvidia/nemotron-3-super-120b-a12b:free',
-    });
+    // Set up full flow manually
+    mockShowModal
+      .mockResolvedValueOnce({ value: 'en' })
+      .mockResolvedValueOnce({ value: 'openrouter' })
+      .mockResolvedValueOnce({ value: 'interactive' });
+
+    mockShowPassword.mockResolvedValueOnce('sk-test-key-long-enough');
+    mockShowInput.mockResolvedValueOnce('nvidia/nemotron-3-super-120b-a12b:free');
+    mockFetch.mockResolvedValue({ ok: true, status: 200 });
+
+    // Queue: remember, telemetry, autoReport, prefs, advanced, agents, retry, review
+    mockShowConfirm
+      .mockResolvedValueOnce(true)   // remember session
+      .mockResolvedValueOnce(true)   // telemetry
+      .mockResolvedValueOnce(true)   // autoReport
+      .mockResolvedValueOnce(false)  // preferences (skip)
+      .mockResolvedValueOnce(false)  // advanced (skip)
+      .mockResolvedValueOnce(false)  // agents (skip)
+      .mockResolvedValueOnce(false)  // retry (user declines retry after expiry)
+      .mockResolvedValueOnce(true);  // review confirm
 
     mockInitiateDeviceAuth.mockResolvedValueOnce({
       success: true,
@@ -332,9 +362,6 @@ describe('SetupWizard — Mandatory Registration', () => {
       success: false,
       status: 'expired',
     });
-
-    // User declines retry
-    mockShowConfirm.mockResolvedValueOnce(false);
 
     const wizard = new SetupWizard(testWorkspace);
     const result = await wizard.run({ skipWelcome: true });
@@ -407,20 +434,32 @@ describe('SetupWizard — Mandatory Registration', () => {
   });
 
   it('should not include auth in config when registration is skipped after failure', async () => {
-    setupCloudWithMandatoryRegistration({
-      provider: 'openrouter',
-      apiKey: 'sk-test-key-long-enough',
-      model: 'nvidia/nemotron-3-super-120b-a12b:free',
-    });
+    // Set up full flow manually
+    mockShowModal
+      .mockResolvedValueOnce({ value: 'en' })
+      .mockResolvedValueOnce({ value: 'openrouter' })
+      .mockResolvedValueOnce({ value: 'interactive' });
+
+    mockShowPassword.mockResolvedValueOnce('sk-test-key-long-enough');
+    mockShowInput.mockResolvedValueOnce('nvidia/nemotron-3-super-120b-a12b:free');
+    mockFetch.mockResolvedValue({ ok: true, status: 200 });
+
+    // Queue: remember, telemetry, autoReport, prefs, advanced, agents, retry, review
+    mockShowConfirm
+      .mockResolvedValueOnce(true)   // remember session
+      .mockResolvedValueOnce(true)   // telemetry
+      .mockResolvedValueOnce(true)   // autoReport
+      .mockResolvedValueOnce(false)  // preferences (skip)
+      .mockResolvedValueOnce(false)  // advanced (skip)
+      .mockResolvedValueOnce(false)  // agents (skip)
+      .mockResolvedValueOnce(false)  // retry (user declines retry)
+      .mockResolvedValueOnce(true);  // review confirm
 
     // Mock failed device auth
     mockInitiateDeviceAuth.mockResolvedValueOnce({
       success: false,
       error: 'Network error',
     });
-
-    // User declines retry
-    mockShowConfirm.mockResolvedValueOnce(false);
 
     const wizard = new SetupWizard(testWorkspace);
     const result = await wizard.run({ skipWelcome: true });

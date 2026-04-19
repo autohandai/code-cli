@@ -1300,16 +1300,24 @@ export class ActionExecutor {
             }
 
             if (firstIndex === -1) {
+              // Try to find similar text and use it for replacement
+              const similar = this.findSimilarText(newContent, edit.old_string);
+              if (similar) {
+                // Found similar text - use it for replacement
+                const similarIndex = newContent.indexOf(similar);
+                if (similarIndex !== -1) {
+                  newContent = newContent.substring(0, similarIndex) + edit.new_string + newContent.substring(similarIndex + similar.length);
+                  console.log(chalk.yellow(`  ⚠ Edit ${i + 1}: Applied with fuzzy match (whitespace/indentation differed)`));
+                  console.log(chalk.gray(`    Original search: "${edit.old_string.substring(0, 60)}${edit.old_string.length > 60 ? '...' : ''}"`));
+                  console.log(chalk.gray(`    Matched: "${similar.substring(0, 60)}${similar.length > 60 ? '...' : ''}"`));
+                  continue;
+                }
+              }
+
+              // No similar text found - show error
               console.log(chalk.red(`  ✗ Edit ${i + 1}: Could not find text to replace`));
               console.log(chalk.gray(`    Looking for (${edit.old_string.length} chars):`));
               console.log(chalk.gray(`    "${edit.old_string.substring(0, 80)}${edit.old_string.length > 80 ? '...' : ''}"`));
-
-              // Try to find similar text
-              const similar = this.findSimilarText(newContent, edit.old_string);
-              if (similar) {
-                console.log(chalk.yellow(`    Did you mean:`));
-                console.log(chalk.yellow(`    "${similar.substring(0, 80)}${similar.length > 80 ? '...' : ''}"`));
-              }
 
               // Show hex codes for debugging tricky characters
               if (edit.old_string.length < 100) {
@@ -2260,7 +2268,7 @@ export class ActionExecutor {
     if (searchWords.length === 0) return null;
 
     const lines = content.split('\n');
-    let bestMatch: { line: string; score: number } | null = null;
+    let bestMatch: { line: string; originalLine: string; score: number } | null = null;
 
     for (const line of lines) {
       const lineLower = line.toLowerCase();
@@ -2279,11 +2287,13 @@ export class ActionExecutor {
       }
 
       if (score > 0 && (!bestMatch || score > bestMatch.score)) {
-        bestMatch = { line: line.trim(), score };
+        // Store both trimmed (for display) and original (for replacement)
+        bestMatch = { line: line.trim(), originalLine: line, score };
       }
     }
 
-    return bestMatch && bestMatch.score >= 2 ? bestMatch.line : null;
+    // Return the original line (with indentation) for replacement
+    return bestMatch && bestMatch.score >= 2 ? bestMatch.originalLine : null;
   }
 
   /**
