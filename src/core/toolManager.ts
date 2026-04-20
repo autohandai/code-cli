@@ -1283,6 +1283,20 @@ Actions:
       required: ['schedule_id'],
     },
   },
+  // ── Directory Access ──
+  {
+    name: 'request_directory_access',
+    description: 'Request access to a directory outside the current workspace. Use this when the user mentions a folder or path that is not within the allowed directories. In yolo/auto-mode, access is granted automatically. In interactive mode, the user will be asked to approve. Returns the resolved path if access was granted, or an error message if denied.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'The directory path to request access to (absolute or relative to cwd)' },
+        reason: { type: 'string', description: 'Optional reason why access is needed (shown to user in interactive mode)' },
+      },
+      required: ['path'],
+    },
+    requiresApproval: false, // This tool handles its own approval flow
+  },
   // ── Code review ──
   {
     name: 'code_review',

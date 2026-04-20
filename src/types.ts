@@ -1065,6 +1065,7 @@ export type AgentAction =
   | { type: 'browser_get_tabs' }
   | { type: 'browser_get_tab_groups' }
   | { type: 'browser_execute_js'; code: string }
+  | { type: 'request_directory_access'; path: string; reason?: string }
   | { type: 'code_review'; path?: string; scope?: 'full' | 'diff' | 'file'; instructions?: string };
 
 export type ExplorationEvent = { kind: 'read' | 'list' | 'search'; target: string };

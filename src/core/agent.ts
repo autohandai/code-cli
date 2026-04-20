@@ -415,6 +415,7 @@ export class AutohandAgent {
           reviewError: context.reviewError,
         });
       },
+      onModalPause: async <T>(fn: () => Promise<T>) => this.withModalPause(fn),
     });
 
     this.activeProvider = runtime.config.provider ?? 'openrouter';
