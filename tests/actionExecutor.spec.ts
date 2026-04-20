@@ -25,6 +25,7 @@ vi.mock('node:child_process', async () => {
 
 // Mock fs-extra for pathExists control in write_file tests
 const mockPathExists = vi.fn().mockResolvedValue(false);
+const mockStat = vi.fn().mockResolvedValue({ isDirectory: () => true });
 vi.mock('fs-extra', async () => {
   const actual = await vi.importActual('fs-extra');
   return {
@@ -32,8 +33,10 @@ vi.mock('fs-extra', async () => {
     default: {
       ...(actual as Record<string, unknown>).default,
       pathExists: (...args: unknown[]) => mockPathExists(...args),
+      stat: (...args: unknown[]) => mockStat(...args),
     },
     pathExists: (...args: unknown[]) => mockPathExists(...args),
+    stat: (...args: unknown[]) => mockStat(...args),
   };
 });
 
@@ -3281,9 +3284,8 @@ describe('ActionExecutor', () => {
         addAdditionalDirectory: vi.fn(),
       });
 
-      const fs = await import('fs-extra');
-      vi.spyOn(fs, 'pathExists').mockResolvedValue(true);
-      vi.spyOn(fs, 'stat').mockResolvedValue({ isDirectory: () => true } as any);
+      mockPathExists.mockResolvedValue(true);
+      mockStat.mockResolvedValue({ isDirectory: () => true } as any);
 
       const result = await executor.execute({
         type: 'request_directory_access',
@@ -3304,9 +3306,8 @@ describe('ActionExecutor', () => {
         }
       });
 
-      const fs = await import('fs-extra');
-      vi.spyOn(fs, 'pathExists').mockResolvedValue(true);
-      vi.spyOn(fs, 'stat').mockResolvedValue({ isDirectory: () => true } as any);
+      mockPathExists.mockResolvedValue(true);
+      mockStat.mockResolvedValue({ isDirectory: () => true } as any);
 
       const result = await executor.execute({
         type: 'request_directory_access',
@@ -3333,9 +3334,8 @@ describe('ActionExecutor', () => {
         onRequestDirectoryAccess,
       });
 
-      const fs = await import('fs-extra');
-      vi.spyOn(fs, 'pathExists').mockResolvedValue(true);
-      vi.spyOn(fs, 'stat').mockResolvedValue({ isDirectory: () => true } as any);
+      mockPathExists.mockResolvedValue(true);
+      mockStat.mockResolvedValue({ isDirectory: () => true } as any);
 
       const result = await executor.execute({
         type: 'request_directory_access',
@@ -3363,9 +3363,8 @@ describe('ActionExecutor', () => {
         onRequestDirectoryAccess,
       });
 
-      const fs = await import('fs-extra');
-      vi.spyOn(fs, 'pathExists').mockResolvedValue(true);
-      vi.spyOn(fs, 'stat').mockResolvedValue({ isDirectory: () => true } as any);
+      mockPathExists.mockResolvedValue(true);
+      mockStat.mockResolvedValue({ isDirectory: () => true } as any);
 
       const result = await executor.execute({
         type: 'request_directory_access',
@@ -3382,9 +3381,8 @@ describe('ActionExecutor', () => {
         addAdditionalDirectory: vi.fn(),
       });
 
-      const fs = await import('fs-extra');
-      vi.spyOn(fs, 'pathExists').mockResolvedValue(true);
-      vi.spyOn(fs, 'stat').mockResolvedValue({ isDirectory: () => true } as any);
+      mockPathExists.mockResolvedValue(true);
+      mockStat.mockResolvedValue({ isDirectory: () => true } as any);
 
       const result = await executor.execute({
         type: 'request_directory_access',

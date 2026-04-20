@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { applyPatch as applyUnifiedPatch } from 'diff';
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
 import { resolveRipgrepCommand } from '../utils/ripgrep.js';
+import { validateAndFixPatch } from '../utils/patchValidator.js';
 
 /**
  * Resource limits to prevent DoS and resource exhaustion
@@ -350,7 +351,9 @@ export class FileActionManager {
   async applyPatch(target: string, patch: string, description?: string): Promise<void> {
     const filePath = this.resolvePath(target);
     const current = await this.readFileSafe(target);
-    const updated = applyUnifiedPatch(current, patch);
+    // Validate and fix the patch to correct any mismatched line counts in hunk headers
+    const fixedPatch = validateAndFixPatch(patch);
+    const updated = applyUnifiedPatch(current, fixedPatch);
     if (updated === false) {
       throw new Error(`Failed to apply patch to ${target}`);
     }
