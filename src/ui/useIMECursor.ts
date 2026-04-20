@@ -39,10 +39,10 @@ export interface IMECursorOptions {
  * Calculate the screen row for the input box.
  * This is an approximation based on the terminal height and typical layout.
  */
-function estimateInputRow(stdout: NodeJS.WriteStream): number {
+function estimateInputRow(): number {
   // The input is typically at the bottom of the screen
   // We estimate based on the terminal height minus the status line and borders
-  const terminalHeight = stdout.rows || 24;
+  const terminalHeight = process.stdout.rows || 24;
   // Reserve space for status line (1) + input box borders (2) + margin (1)
   return Math.max(1, terminalHeight - 4);
 }
@@ -85,7 +85,7 @@ export function useIMECursor(options: IMECursorOptions): void {
     }
 
     // Calculate cursor position
-    const startRow = inputStartRow ?? estimateInputRow(stdout);
+    const startRow = inputStartRow ?? estimateInputRow();
     const { row, col } = calculateSingleLineCursor(
       value,
       cursorOffset,
@@ -130,7 +130,6 @@ export function useIMECursor(options: IMECursorOptions): void {
  * Use this for imperative cursor positioning outside of React components.
  */
 export function positionIMECursor(
-  stdout: NodeJS.WriteStream,
   value: string,
   cursorOffset: number,
   options?: {
@@ -139,7 +138,7 @@ export function positionIMECursor(
     maxWidth?: number;
   }
 ): void {
-  const startRow = options?.inputStartRow ?? estimateInputRow(stdout);
+  const startRow = options?.inputStartRow ?? estimateInputRow();
   const startCol = options?.inputStartCol ?? 2;
 
   const { row, col } = calculateSingleLineCursor(
@@ -150,5 +149,5 @@ export function positionIMECursor(
     options?.maxWidth
   );
 
-  stdout.write(moveTo(row, col) + CURSOR.SHOW);
+  process.stdout.write(moveTo(row, col) + CURSOR.SHOW);
 }

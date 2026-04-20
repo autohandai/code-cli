@@ -93,7 +93,7 @@ export function calculateIMECursor(
   buffer: TextBuffer,
   inputBoxStartRow: number,
   inputBoxStartCol: number,
-  viewportWidth: number
+  _viewportWidth: number
 ): { row: number; col: number } {
   // Get visual cursor position (accounts for word wrapping)
   const [visualRow, visualCol] = buffer.getVisualCursor();

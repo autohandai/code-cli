@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import React, { useState, useEffect, memo, useMemo, useRef, useCallback } from 'react';
-import { Box, Text, useInput, useApp, Static, type Key as InkKey } from 'ink';
+import { Box, Text, useInput, useApp, useStdout, Static, type Key as InkKey } from 'ink';
 import { useBufferedInput, type BufferedKeyInfo } from '../useBufferedInput.js';
 import { StatusLine } from './StatusLine.js';
 import { LiveCommandBlock, ToolOutputStatic, ToolOutputBatchStatic, type LiveCommandEntry, type ToolOutputEntry, type ToolOutputBatchEntry, type ToolOutputItem } from './ToolOutput.js';
@@ -506,6 +506,25 @@ export function AgentUI({
     [state.liveCommands]
   );
 
+  // Calculate input width for InputLine - passed down to prevent useStdout re-renders
+  // which cause flicker on resize. Use useStdout here at the top level to react to resize.
+  // Debounce the width to prevent rapid re-renders during terminal resize.
+  const { stdout } = useStdout();
+  const [debouncedWidth, setDebouncedWidth] = useState(() => getPromptBlockWidth(stdout.columns));
+  
+  useEffect(() => {
+    const newWidth = getPromptBlockWidth(stdout.columns);
+    if (newWidth === debouncedWidth) return;
+    
+    // Debounce resize to prevent flicker during rapid resize events
+    const timer = setTimeout(() => {
+      setDebouncedWidth(newWidth);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [stdout.columns, debouncedWidth]);
+  
+  const inputWidth = debouncedWidth;
+
   return (
     <Box flexDirection="column">
       {/* Plan mode indicator */}
@@ -556,6 +575,7 @@ export function AgentUI({
             visible={fileMentionVisible && state.isWorking}
           />
         }
+        inputWidth={inputWidth}
       />
     </Box>
   );
@@ -669,28 +689,58 @@ const StatusSection = memo(function StatusSection({
 });
 
 /**
- * Input section - input line, help line, ctrl+c warning
- * Memoized to prevent re-renders when only status changes
+ * Input line wrapper - only re-renders when input props change
+ * Separated from help line to prevent resize flicker
  */
-interface InputSectionProps {
+interface InputLineWrapperProps {
   isWorking: boolean;
   enableQueueInput: boolean;
   input: string;
   cursorOffset: number;
-  ctrlCCount: number;
-  contextPercent?: number;
-  fileMentionDropdown?: React.ReactNode;
+  /** Terminal width for InputLine */
+  inputWidth: number;
 }
 
-const InputSection = memo(function InputSection({
+const InputLineWrapper = memo(function InputLineWrapper({
   isWorking,
   enableQueueInput,
   input,
   cursorOffset,
-  ctrlCCount,
+  inputWidth,
+}: InputLineWrapperProps) {
+  if (!enableQueueInput) {
+    return null;
+  }
+
+  return (
+    <InputLine
+      value={input}
+      cursorOffset={cursorOffset}
+      isActive={isWorking}
+      width={inputWidth}
+    />
+  );
+}, (prev, next) => {
+  return prev.isWorking === next.isWorking &&
+         prev.enableQueueInput === next.enableQueueInput &&
+         prev.input === next.input &&
+         prev.cursorOffset === next.cursorOffset &&
+         prev.inputWidth === next.inputWidth;
+});
+
+/**
+ * Help line section - shows context info and command hints
+ * Memoized separately from InputLine to prevent resize flicker
+ */
+interface HelpLineSectionProps {
+  isWorking: boolean;
+  contextPercent?: number;
+}
+
+const HelpLineSection = memo(function HelpLineSection({
+  isWorking,
   contextPercent,
-  fileMentionDropdown,
-}: InputSectionProps) {
+}: HelpLineSectionProps) {
   const { colors } = useTheme();
   const { t } = useTranslation();
 
@@ -700,43 +750,56 @@ const InputSection = memo(function InputSection({
     : '';
 
   return (
-    <>
-      {/* Input line - always rendered for layout stability */}
-      {enableQueueInput && (
-        <InputLine
-          value={input}
-          cursorOffset={cursorOffset}
-          isActive={isWorking}
-        />
-      )}
-
-      {/* File mention dropdown */}
-      {fileMentionDropdown}
-
-      {/* Help line - reserve a stable row even while working to avoid first-send layout jumps */}
-      <Box>
-        <Text color={colors.dim}>
-          {getComposerHelpLine(isWorking, contextDisplay, t('ui.commandHint'))}
-        </Text>
-      </Box>
-
-      {/* Ctrl+C warning - renders in stable position */}
-      {ctrlCCount === 1 && (
-        <Box>
-          <Text color={colors.warning}>{t('ui.ctrlCToExit')}</Text>
-        </Box>
-      )}
-    </>
+    <Box>
+      <Text color={colors.dim}>
+        {getComposerHelpLine(isWorking, contextDisplay, t('ui.commandHint'))}
+      </Text>
+    </Box>
   );
 }, (prev, next) => {
-  // Only re-render if input-related props change
   return prev.isWorking === next.isWorking &&
-         prev.enableQueueInput === next.enableQueueInput &&
-         prev.input === next.input &&
-         prev.cursorOffset === next.cursorOffset &&
-         prev.ctrlCCount === next.ctrlCCount &&
-         prev.contextPercent === next.contextPercent &&
-         prev.fileMentionDropdown === next.fileMentionDropdown;
+         prev.contextPercent === next.contextPercent;
+});
+
+/**
+ * Ctrl+C warning section
+ */
+interface CtrlCWarningProps {
+  ctrlCCount: number;
+}
+
+const CtrlCWarning = memo(function CtrlCWarning({
+  ctrlCCount,
+}: CtrlCWarningProps) {
+  const { colors } = useTheme();
+  const { t } = useTranslation();
+
+  if (ctrlCCount !== 1) {
+    return null;
+  }
+
+  return (
+    <Box>
+      <Text color={colors.warning}>{t('ui.ctrlCToExit')}</Text>
+    </Box>
+  );
+}, (prev, next) => {
+  return prev.ctrlCCount === next.ctrlCCount;
+});
+
+/**
+ * File mention dropdown wrapper
+ */
+interface FileMentionWrapperProps {
+  fileMentionDropdown?: React.ReactNode;
+}
+
+const FileMentionWrapper = memo(function FileMentionWrapper({
+  fileMentionDropdown,
+}: FileMentionWrapperProps) {
+  return fileMentionDropdown ?? null;
+}, (prev, next) => {
+  return prev.fileMentionDropdown === next.fileMentionDropdown;
 });
 
 /**
@@ -756,6 +819,8 @@ interface FixedBottomProps {
   ctrlCCount: number;
   contextPercent?: number;
   fileMentionDropdown?: React.ReactNode;
+  /** Terminal width for InputLine */
+  inputWidth: number;
 }
 
 const FixedBottom = memo(function FixedBottom({
@@ -771,6 +836,7 @@ const FixedBottom = memo(function FixedBottom({
   ctrlCCount,
   contextPercent,
   fileMentionDropdown,
+  inputWidth,
 }: FixedBottomProps) {
   return (
     <>
@@ -783,15 +849,19 @@ const FixedBottom = memo(function FixedBottom({
         completionStats={completionStats}
         contextPercent={contextPercent}
       />
-      <InputSection
+      <InputLineWrapper
         isWorking={isWorking}
         enableQueueInput={enableQueueInput}
         input={input}
         cursorOffset={cursorOffset}
-        ctrlCCount={ctrlCCount}
-        contextPercent={contextPercent}
-        fileMentionDropdown={fileMentionDropdown}
+        inputWidth={inputWidth}
       />
+      <FileMentionWrapper fileMentionDropdown={fileMentionDropdown} />
+      <HelpLineSection
+        isWorking={isWorking}
+        contextPercent={contextPercent}
+      />
+      <CtrlCWarning ctrlCCount={ctrlCCount} />
     </>
   );
 });
