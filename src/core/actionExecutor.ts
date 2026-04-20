@@ -1701,6 +1701,10 @@ export class ActionExecutor {
         }
       }
       // Code review tool
+      // Directory access tool
+      case 'request_directory_access': {
+        return this.executeRequestDirectoryAccess(action as { type: 'request_directory_access'; path: string; reason?: string });
+      }
       case 'code_review': {
         return this.executeCodeReview(action as { type: 'code_review'; path?: string; scope?: string; instructions?: string });
       }
@@ -1741,6 +1745,79 @@ export class ActionExecutor {
     const toolName = type as string;
     const { invokeBrowserTool } = await import('../browser/browserToolBridge.js');
     return invokeBrowserTool(toolName, params as Record<string, unknown>);
+  }
+
+
+  private async executeRequestDirectoryAccess(action: { type: 'request_directory_access'; path: string; reason?: string }): Promise<string> {
+    const path = require('node:path');
+    const fs = require('fs-extra');
+    const { checkWorkspaceSafety } = require('../startup/workspaceSafety.js');
+
+    // Resolve the path
+    const resolvedPath = path.resolve(action.path);
+
+    // Check if directory exists
+    if (!await fs.pathExists(resolvedPath)) {
+      return `Error: Directory does not exist: ${resolvedPath}`;
+    }
+
+    // Check if it's actually a directory
+    const stats = await fs.stat(resolvedPath);
+    if (!stats.isDirectory()) {
+      return `Error: Path is not a directory: ${resolvedPath}`;
+    }
+
+    // Safety check
+    const safetyResult = checkWorkspaceSafety(resolvedPath);
+    if (!safetyResult.safe) {
+      return `Error: Unsafe directory: ${resolvedPath}. ${safetyResult.reason}`;
+    }
+
+    // Check if already in workspace
+    const workspaceRoot = this.runtime.workspaceRoot;
+    const additionalDirs = this.files.getAllowedDirectories();
+    
+    if (resolvedPath === workspaceRoot || additionalDirs.includes(resolvedPath)) {
+      return `Directory is already accessible: ${resolvedPath}`;
+    }
+
+    // Check if within workspace or additional dirs
+    const normalizedResolved = resolvedPath.endsWith(path.sep) ? resolvedPath.slice(0, -1) : resolvedPath;
+    const normalizedWorkspace = workspaceRoot.endsWith(path.sep) ? workspaceRoot.slice(0, -1) : workspaceRoot;
+    
+    if (normalizedResolved.startsWith(normalizedWorkspace + path.sep)) {
+      return `Directory is already within workspace: ${resolvedPath}`;
+    }
+
+    for (const dir of additionalDirs) {
+      const normalizedDir = dir.endsWith(path.sep) ? dir.slice(0, -1) : dir;
+      if (normalizedResolved.startsWith(normalizedDir + path.sep) || normalizedResolved === normalizedDir) {
+        return `Directory is already accessible: ${resolvedPath}`;
+      }
+    }
+
+    // Check if we have a callback to handle the request
+    if (this.onRequestDirectoryAccess) {
+      const result = await this.onRequestDirectoryAccess(resolvedPath, action.reason);
+      if (result) {
+        // Access granted - add to additional directories
+        this.files.addAdditionalDirectory(resolvedPath);
+        return `Access granted to directory: ${resolvedPath}\n\nYou can now use file tools (read_file, write_file, glob, find, etc.) to work with files in this directory.`;
+      } else {
+        return `Access denied to directory: ${resolvedPath}`;
+      }
+    }
+
+    // No callback - check if in yolo/auto mode
+    const normalizedYolo = normalizeYoloInput(this.runtime.options.yolo as string | boolean | undefined);
+    if (normalizedYolo) {
+      // In yolo mode, auto-grant access
+      this.files.addAdditionalDirectory(resolvedPath);
+      return `Access auto-granted (yolo mode) to directory: ${resolvedPath}\n\nYou can now use file tools (read_file, write_file, glob, find, etc.) to work with files in this directory.`;
+    }
+
+    // Interactive mode without callback - inform user
+    return `Directory access required: ${resolvedPath}\n\nTo grant access, use:\n  /add-dir ${resolvedPath}\n\nOr restart with:\n  --add-dir ${resolvedPath}`;
   }
 
   private async executeCodeReview(action: { type: 'code_review'; path?: string; scope?: string; instructions?: string }): Promise<string> {

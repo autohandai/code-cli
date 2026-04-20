@@ -3255,3 +3255,143 @@ describe('ActionExecutor', () => {
     });
   });
 });
+
+  describe('request_directory_access', () => {
+    it('returns error when directory does not exist', async () => {
+      const executor = createExecutor({
+        getAllowedDirectories: vi.fn().mockReturnValue(['/repo']),
+        addAdditionalDirectory: vi.fn(),
+      });
+
+      // Mock fs-extra pathExists to return false
+      const fs = await import('fs-extra');
+      vi.spyOn(fs, 'pathExists').mockResolvedValue(false);
+
+      const result = await executor.execute({
+        type: 'request_directory_access',
+        path: '/nonexistent/path'
+      });
+
+      expect(result).toContain('Error: Directory does not exist');
+    });
+
+    it('returns already accessible when directory is workspace root', async () => {
+      const executor = createExecutor({
+        getAllowedDirectories: vi.fn().mockReturnValue(['/repo']),
+        addAdditionalDirectory: vi.fn(),
+      });
+
+      const fs = await import('fs-extra');
+      vi.spyOn(fs, 'pathExists').mockResolvedValue(true);
+      vi.spyOn(fs, 'stat').mockResolvedValue({ isDirectory: () => true } as any);
+
+      const result = await executor.execute({
+        type: 'request_directory_access',
+        path: '/repo'
+      });
+
+      expect(result).toContain('already accessible');
+    });
+
+    it('auto-grants access in yolo mode', async () => {
+      const addAdditionalDirectory = vi.fn();
+      const executor = createExecutor({
+        getAllowedDirectories: vi.fn().mockReturnValue(['/repo']),
+        addAdditionalDirectory,
+      }, {
+        runtime: {
+          options: { yolo: 'allow:*' }
+        }
+      });
+
+      const fs = await import('fs-extra');
+      vi.spyOn(fs, 'pathExists').mockResolvedValue(true);
+      vi.spyOn(fs, 'stat').mockResolvedValue({ isDirectory: () => true } as any);
+
+      const result = await executor.execute({
+        type: 'request_directory_access',
+        path: '/external/path'
+      });
+
+      expect(result).toContain('auto-granted');
+      expect(result).toContain('yolo mode');
+      expect(addAdditionalDirectory).toHaveBeenCalled();
+    });
+
+    it('uses callback when available in interactive mode', async () => {
+      const addAdditionalDirectory = vi.fn();
+      const onRequestDirectoryAccess = vi.fn().mockResolvedValue('/external/path');
+      
+      const executor = new ActionExecutor({
+        runtime: createRuntime(),
+        files: createFiles({
+          getAllowedDirectories: vi.fn().mockReturnValue(['/repo']),
+          addAdditionalDirectory,
+        }) as FileActionManager,
+        resolveWorkspacePath: (rel) => `/repo/${rel}`,
+        confirmDangerousAction: vi.fn().mockResolvedValue(true),
+        onRequestDirectoryAccess,
+      });
+
+      const fs = await import('fs-extra');
+      vi.spyOn(fs, 'pathExists').mockResolvedValue(true);
+      vi.spyOn(fs, 'stat').mockResolvedValue({ isDirectory: () => true } as any);
+
+      const result = await executor.execute({
+        type: 'request_directory_access',
+        path: '/external/path',
+        reason: 'User requested access to this folder'
+      });
+
+      expect(onRequestDirectoryAccess).toHaveBeenCalledWith('/external/path', 'User requested access to this folder');
+      expect(result).toContain('Access granted');
+      expect(addAdditionalDirectory).toHaveBeenCalled();
+    });
+
+    it('denies access when callback returns undefined', async () => {
+      const addAdditionalDirectory = vi.fn();
+      const onRequestDirectoryAccess = vi.fn().mockResolvedValue(undefined);
+      
+      const executor = new ActionExecutor({
+        runtime: createRuntime(),
+        files: createFiles({
+          getAllowedDirectories: vi.fn().mockReturnValue(['/repo']),
+          addAdditionalDirectory,
+        }) as FileActionManager,
+        resolveWorkspacePath: (rel) => `/repo/${rel}`,
+        confirmDangerousAction: vi.fn().mockResolvedValue(true),
+        onRequestDirectoryAccess,
+      });
+
+      const fs = await import('fs-extra');
+      vi.spyOn(fs, 'pathExists').mockResolvedValue(true);
+      vi.spyOn(fs, 'stat').mockResolvedValue({ isDirectory: () => true } as any);
+
+      const result = await executor.execute({
+        type: 'request_directory_access',
+        path: '/external/path'
+      });
+
+      expect(result).toContain('Access denied');
+      expect(addAdditionalDirectory).not.toHaveBeenCalled();
+    });
+
+    it('returns instructions when no callback and not yolo mode', async () => {
+      const executor = createExecutor({
+        getAllowedDirectories: vi.fn().mockReturnValue(['/repo']),
+        addAdditionalDirectory: vi.fn(),
+      });
+
+      const fs = await import('fs-extra');
+      vi.spyOn(fs, 'pathExists').mockResolvedValue(true);
+      vi.spyOn(fs, 'stat').mockResolvedValue({ isDirectory: () => true } as any);
+
+      const result = await executor.execute({
+        type: 'request_directory_access',
+        path: '/external/path'
+      });
+
+      expect(result).toContain('/add-dir');
+      expect(result).toContain('--add-dir');
+    });
+  });
