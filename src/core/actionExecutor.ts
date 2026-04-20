@@ -1749,9 +1749,9 @@ export class ActionExecutor {
 
 
   private async executeRequestDirectoryAccess(action: { type: 'request_directory_access'; path: string; reason?: string }): Promise<string> {
-    const path = require('node:path');
-    const fs = require('fs-extra');
-    const { checkWorkspaceSafety } = require('../startup/workspaceSafety.js');
+    const path = await import('node:path');
+    const fs = (await import('fs-extra')).default;
+    const { checkWorkspaceSafety } = await import('../startup/workspaceSafety.js');
 
     // Resolve the path
     const resolvedPath = path.resolve(action.path);
