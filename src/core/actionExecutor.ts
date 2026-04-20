@@ -125,6 +125,10 @@ export interface ActionExecutorOptions {
     reviewInstructions?: string;
     reviewError?: string;
   }) => Promise<void>;
+  /** Callback to wrap modal operations with proper inkRenderer pause/resume */
+  onModalPause?: <T>(fn: () => Promise<T>) => Promise<T>;
+  /** Callback to request directory access outside workspace - returns resolved path if granted, undefined if denied */
+  onRequestDirectoryAccess?: (path: string, reason?: string) => Promise<string | undefined>;
 }
 
 type AgentExecutorDeps = ActionExecutorOptions;
@@ -147,6 +151,8 @@ export class ActionExecutor {
   private readonly onPlanCreated?: AgentExecutorDeps['onPlanCreated'];
   private readonly onPermissionRequest?: AgentExecutorDeps['onPermissionRequest'];
   private readonly onReviewHook?: AgentExecutorDeps['onReviewHook'];
+  private readonly onModalPause?: AgentExecutorDeps['onModalPause'];
+  private readonly onRequestDirectoryAccess?: AgentExecutorDeps['onRequestDirectoryAccess'];
   private readonly securityScanner: SecurityScanner;
   private readonly searchCache: Map<string, string> = new Map();
 
@@ -168,6 +174,8 @@ export class ActionExecutor {
     this.onPlanCreated = deps.onPlanCreated;
     this.onPermissionRequest = deps.onPermissionRequest;
     this.onReviewHook = deps.onReviewHook;
+    this.onModalPause = deps.onModalPause;
+    this.onRequestDirectoryAccess = deps.onRequestDirectoryAccess;
     this.securityScanner = new SecurityScanner();
   }
 
@@ -1193,25 +1201,39 @@ export class ActionExecutor {
           { label: 'No - cancel commit', value: 'n' }
         ];
 
-        const modalResult = await showModal({
-          title: `Commit with this message?\n\n"${commitMessage}"`,
-          options
-        });
+        // Wrap modal operations with onModalPause to properly pause/resume inkRenderer
+        const runModal = async () => {
+          const modalResult = await showModal({
+            title: `Commit with this message?\n\n"${commitMessage}"`,
+            options
+          });
 
-        if (!modalResult || modalResult.value === 'n') {
+          if (!modalResult || modalResult.value === 'n') {
+            return { cancelled: true, editedMessage: null };
+          }
+
+          if (modalResult.value === 'e') {
+            const editedMessage = await showInput({
+              title: 'Enter commit message:',
+              defaultValue: commitMessage
+            });
+            return { cancelled: false, editedMessage };
+          }
+
+          return { cancelled: false, editedMessage: null };
+        };
+
+        const modalOutcome = this.onModalPause
+          ? await this.onModalPause(runModal)
+          : await runModal();
+
+        if (modalOutcome.cancelled) {
           console.log(chalk.yellow('Commit cancelled.'));
           return 'Commit cancelled by user';
         }
 
-        if (modalResult.value === 'e') {
-          const editedMessage = await showInput({
-            title: 'Enter commit message:',
-            defaultValue: commitMessage
-          });
-
-          if (editedMessage) {
-            commitMessage = editedMessage;
-          }
+        if (modalOutcome.editedMessage) {
+          commitMessage = modalOutcome.editedMessage;
         }
 
         // Execute the commit
