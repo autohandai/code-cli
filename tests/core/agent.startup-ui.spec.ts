@@ -1527,8 +1527,8 @@ describe('agent startup and active input UI', () => {
     expect(prompt).toContain('Context: `find(query="buildSystemPrompt", context=8, mode="context")`');
     expect(prompt).toContain('Semantic: `find(query="code discovery and tool selection", mode="semantic")`');
     expect(prompt).toContain('Prefer dedicated tools over `run_command` whenever a dedicated tool exists.');
-    expect(prompt).toContain('If the user asks for files or folders outside the current workspace scope, do not use `run_command` as a workaround.');
-    expect(prompt).toContain('Tell the user to grant access with `/add-dir <path>` for this session or restart with `--add-dir <path>`, then continue with dedicated file tools.');
+    expect(prompt).toContain('If the user mentions a directory or path outside the current workspace scope, proactively call `request_directory_access` to request access');
+    expect(prompt).toContain('Do not use `run_command` as a workaround for directory access');
     expect(prompt).toContain('{"tool": "run_command", "args": {"command": "npm test"}}');
     expect(prompt).toContain('{"tool": "run_command", "args": {"command": "bun run build"}}');
     expect(prompt).toContain('{"tool": "run_command", "args": {"command": "git status"}}');
