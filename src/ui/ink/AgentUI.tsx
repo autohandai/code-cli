@@ -210,15 +210,39 @@ export function AgentUI({
     hiddenContent: null,
   });
 
-  const syncInputFromBuffer = useCallback(() => {
-    const buffer = textBufferRef.current;
-    setInput(buffer.getText());
-    setCursorOffset(getTextBufferCursorOffset(buffer));
+  // Throttled sync from buffer to React state to batch rapid keystrokes
+  // and reduce re-render frequency during fast typing (16ms = ~60fps).
+  const inputSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingInputSyncRef = useRef<{ text: string; offset: number } | null>(null);
+
+  const flushInputSync = useCallback(() => {
+    inputSyncTimerRef.current = null;
+    const pending = pendingInputSyncRef.current;
+    if (!pending) return;
+    pendingInputSyncRef.current = null;
+    setInput(pending.text);
+    setCursorOffset(pending.offset);
   }, []);
 
+  const syncInputFromBuffer = useCallback(() => {
+    const buffer = textBufferRef.current;
+    pendingInputSyncRef.current = {
+      text: buffer.getText(),
+      offset: getTextBufferCursorOffset(buffer),
+    };
+    if (!inputSyncTimerRef.current) {
+      inputSyncTimerRef.current = setTimeout(flushInputSync, 16);
+    }
+  }, [flushInputSync]);
+
+  const lastColumnsRef = useRef(process.stdout.columns);
+
   const syncBufferViewport = useCallback(() => {
+    const columns = process.stdout.columns;
+    if (columns === lastColumnsRef.current) return;
+    lastColumnsRef.current = columns;
     textBufferRef.current.setViewport(
-      getInkTextBufferViewportWidth(process.stdout.columns),
+      getInkTextBufferViewportWidth(columns),
       INK_TEXTBUFFER_VIEWPORT_HEIGHT
     );
   }, []);
