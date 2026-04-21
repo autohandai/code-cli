@@ -464,6 +464,10 @@ export class SlashCommandHandler {
             this.ctx.onAfterModal?.();
           }
         }
+        case '/yolo': {
+          const { toggleYolo } = await import('../commands/yolo.js');
+          return toggleYolo(this.ctx);
+        }
         default:
           this.printUnsupported(command);
           return null;

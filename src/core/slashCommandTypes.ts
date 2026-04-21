@@ -81,6 +81,8 @@ export interface SlashCommandContext {
     eventEmitter?: {
         emit: (event: string, data?: unknown) => void;
     };
+    /** Set YOLO mode pattern (e.g. 'allow:*' or undefined to clear) */
+    setYoloMode?: (pattern: string | undefined) => void;
 }
 
 export interface SlashCommandSubcommand {

@@ -99,6 +99,8 @@ export const RPC_METHODS = {
   BROWSER_HANDOFF_ATTACH_LATEST: 'autohand.browserHandoff.attachLatest',
   PERMISSION_RESPONSE: 'autohand.permissionResponse',
   PERMISSION_ACKNOWLEDGED: 'autohand.permissionAcknowledged',
+  DIRECTORY_ACCESS_RESPONSE: 'autohand.directoryAccessResponse',
+  DIRECTORY_ACCESS_ACKNOWLEDGED: 'autohand.directoryAccessAcknowledged',
   // Multi-file change preview
   CHANGES_DECISION: 'autohand.changesDecision',
   // Skills management (non-interactive for RPC mode)
@@ -165,6 +167,7 @@ export const RPC_NOTIFICATIONS = {
   TOOL_UPDATE: 'autohand.toolUpdate',
   TOOL_END: 'autohand.toolEnd',
   PERMISSION_REQUEST: 'autohand.permissionRequest',
+  DIRECTORY_ACCESS_REQUEST: 'autohand.directoryAccessRequest',
   ERROR: 'autohand.error',
   // Multi-file change preview notifications
   CHANGES_BATCH_START: 'autohand.changesBatchStart',
@@ -192,6 +195,8 @@ export const RPC_NOTIFICATIONS = {
   AUTOMODE_CANCEL: 'autohand.automode.cancel',
   AUTOMODE_COMPLETE: 'autohand.automode.complete',
   AUTOMODE_ERROR: 'autohand.automode.error',
+  // Mode change notifications
+  MODE_CHANGE: 'autohand.modeChange',
   // Pipe mode notifications
   PIPE_OUTPUT: 'autohand.pipe.output',
   PIPE_COMPLETE: 'autohand.pipe.complete',
@@ -329,6 +334,15 @@ export interface PermissionResponseParams {
 }
 
 export interface PermissionAcknowledgedParams {
+  requestId: string;
+}
+
+export interface DirectoryAccessResponseParams {
+  requestId: string;
+  granted: boolean;
+}
+
+export interface DirectoryAccessAcknowledgedParams {
   requestId: string;
 }
 
@@ -805,6 +819,19 @@ export interface RpcMessage {
 export interface PendingPermission {
   requestId: string;
   resolve: (decision: PermissionPromptResult) => void;
+  reject: (error: Error) => void;
+  /** Short timeout for acknowledgment (30s) - cleared when ack received */
+  ackTimeout: NodeJS.Timeout | null;
+  /** Long timeout for user response (1 hour) - set after ack received */
+  responseTimeout: NodeJS.Timeout | null;
+  /** Whether extension has acknowledged receiving the request */
+  acknowledged: boolean;
+}
+
+export interface PendingDirectoryAccess {
+  requestId: string;
+  path: string;
+  resolve: (granted: string | undefined) => void;
   reject: (error: Error) => void;
   /** Short timeout for acknowledgment (30s) - cleared when ack received */
   ackTimeout: NodeJS.Timeout | null;

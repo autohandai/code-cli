@@ -165,13 +165,11 @@ export class ContextManager {
     for (let i = 1; i < messages.length; i++) {
       const msg = messages[i];
       if (msg.role === 'tool' && msg.content && msg.content.length > 2000) {
-        // Skip if already compressed
-        if (msg.metadata?.isCompressed) continue;
-
         const compressed = compressToolOutput(msg, 1000);
         if (compressed.content !== msg.content) {
-          // Update in place
-          messages[i] = compressed;
+          // Write back to the canonical conversation store.
+          // (history() returns a shallow copy, so mutating that array is a no-op.)
+          this.conversationManager.replaceMessage(i, compressed);
           compressedCount++;
         }
       }
@@ -209,8 +207,17 @@ export class ContextManager {
       return 0;  // Not worth summarizing
     }
 
-    // Use LLM-powered summarization when available, fall back to static
-    const summary = await this.summarizeWithLLM(toSummarize);
+    // When context is already tight (>85%), skip the LLM summarization
+    // that consumes extra tokens and can time out. Static extraction is
+    // faster, deterministic, and doesn't push us closer to the limit.
+    const currentUsage = calculateContextUsage(
+      this.conversationManager.history(),
+      _tools,
+      this.model
+    );
+    const summary = currentUsage.usagePercent > 0.85
+      ? summarizeMessagesStatic(toSummarize)
+      : await this.summarizeWithLLM(toSummarize);
 
     // Remove the old messages and add summary
     const removed = this.conversationManager.cropHistory('top', summarizeCount);
@@ -218,8 +225,9 @@ export class ContextManager {
       return 0;
     }
 
-    // Add summary as system note
-    this.conversationManager.addSystemNote(summary);
+    // Add summary as system note, replacing any previous context summary
+    // so old notes don't accumulate and eat tokens forever.
+    this.conversationManager.addSystemNote(summary, '[Context Summary]');
 
     // Notify callback
     this.onCrop?.(removed.length, `Summarized ${removed.length} older messages`);
@@ -291,12 +299,20 @@ export class ContextManager {
       };
     }
 
-    // Collect messages before removal for summary
-    const removedMessages = toRemoveIndices.map(i => messages[i]);
+    // Enforce tool-call coherence: never split assistant tool_calls from
+    // their matching tool results. Expands the removal set to keep pairs intact.
+    const coherentIndices = findCoherentRemovalIndices(messages, toRemoveIndices);
 
-    // Create intelligent summary using LLM when available
-    const summary = await this.summarizeWithLLM(removedMessages);
-    const removed = this.conversationManager.removeIndices(toRemoveIndices);
+    // Collect messages before removal for summary
+    const removedMessages = coherentIndices.map(i => messages[i]);
+
+    // Skip expensive LLM summarization when we're in a real emergency (>92%).
+    // Static extraction is faster and doesn't consume tokens we don't have.
+    const summary = currentUsage.usagePercent > 0.92
+      ? summarizeMessagesStatic(removedMessages)
+      : await this.summarizeWithLLM(removedMessages);
+
+    const removed = this.conversationManager.removeIndices(coherentIndices);
     if (removed.length === 0) {
       return {
         messages,
@@ -305,8 +321,8 @@ export class ContextManager {
       };
     }
 
-    // Add intelligent summary as system note
-    this.conversationManager.addSystemNote(summary);
+    // Replace previous auto-recovery summary instead of appending
+    this.conversationManager.addSystemNote(summary, '[Auto-Recovery]');
 
     // Notify callback
     this.onCrop?.(removed.length, `Cropped ${removed.length} messages (priority-based)`);
@@ -736,6 +752,47 @@ export function sortMessagesByPriority(messages: LLMMessage[]): number[] {
   });
 
   return indices.map(i => i.index);
+}
+
+/**
+ * Ensure tool-call coherence when removing messages.
+ * If a tool result is removed, its matching assistant tool_call must also go.
+ * If an assistant with tool_calls is removed, all its tool results must also go.
+ * This prevents API errors from dangling tool_call_ids.
+ */
+export function findCoherentRemovalIndices(
+  messages: LLMMessage[],
+  targetIndices: number[]
+): number[] {
+  const toRemove = new Set(targetIndices);
+
+  // If removing a tool result, also remove the matching assistant tool_call
+  for (const idx of [...toRemove]) {
+    const msg = messages[idx];
+    if (msg.role === 'tool' && msg.tool_call_id) {
+      const assistantIdx = messages.findIndex(
+        (m) =>
+          m.role === 'assistant' &&
+          m.tool_calls?.some((tc) => tc.id === msg.tool_call_id)
+      );
+      if (assistantIdx >= 0) toRemove.add(assistantIdx);
+    }
+  }
+
+  // If removing an assistant with tool_calls, also remove all its tool results
+  for (const idx of [...toRemove]) {
+    const msg = messages[idx];
+    if (msg.role === 'assistant' && msg.tool_calls) {
+      for (const tc of msg.tool_calls) {
+        const toolIdx = messages.findIndex(
+          (m) => m.role === 'tool' && m.tool_call_id === tc.id
+        );
+        if (toolIdx >= 0) toRemove.add(toolIdx);
+      }
+    }
+  }
+
+  return [...toRemove].sort((a, b) => a - b);
 }
 
 /**

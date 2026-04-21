@@ -13,6 +13,7 @@ import { ProviderFactory } from '../../providers/ProviderFactory.js';
 import { loadConfig } from '../../config.js';
 import { checkAuthenticated } from '../../auth/index.js';
 import { checkWorkspaceSafety } from '../../startup/workspaceSafety.js';
+import { validateWorkspacePath } from '../../startup/checks.js';
 import {
   normalizeYoloInput,
   parseYoloPattern,
@@ -30,6 +31,8 @@ import type {
   BrowserHandoffAttachLatestParams,
   PermissionResponseParams,
   PermissionAcknowledgedParams,
+  DirectoryAccessResponseParams,
+  DirectoryAccessAcknowledgedParams,
   ChangesDecisionParams,
   GetSkillsRegistryParams,
   InstallSkillParams,
@@ -129,6 +132,30 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
       }
     }
 
+    // Determine workspace
+    const originalWorkspaceRoot = options.path ?? process.cwd();
+    let workspaceRoot = originalWorkspaceRoot;
+
+    // Workspace safety check
+    const workspacePathValidation = await validateWorkspacePath(originalWorkspaceRoot);
+    if (!workspacePathValidation.valid) {
+      writeErrorResponse(
+        null,
+        JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+        workspacePathValidation.error || 'Invalid workspace path'
+      );
+      process.exit(1);
+    }
+    const safetyCheck = checkWorkspaceSafety(originalWorkspaceRoot);
+    if (!safetyCheck.safe) {
+      writeErrorResponse(
+        null,
+        JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+        `Unsafe workspace: ${safetyCheck.reason || originalWorkspaceRoot}`
+      );
+      process.exit(1);
+    }
+
     // Non-interactive auth check — RPC mode cannot prompt for login
     const isAuthed = await checkAuthenticated(config);
     if (!isAuthed) {
@@ -140,15 +167,12 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
       process.exit(1);
     }
 
+
     // Disable Ink renderer for RPC mode (stdin is not a TTY)
     if (!config.ui) {
       config.ui = {};
     }
     config.ui.useInkRenderer = false;
-
-    // Determine workspace
-    const originalWorkspaceRoot = options.path ?? process.cwd();
-    let workspaceRoot = originalWorkspaceRoot;
 
     if (isSessionWorktreeEnabled(options.worktree)) {
       const sessionWorktree = prepareSessionWorktree({
@@ -242,6 +266,14 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
       if (context?.command) permContext.command = context.command;
       if (context?.path) permContext.path = context.path;
       return adapter.requestPermission(tool, description, permContext);
+    });
+
+    // Connect agent directory access to RPC adapter
+    agent.setDirectoryAccessCallback(async (path, reason) => {
+      if (!adapter) {
+        throw new Error('RPC adapter not initialized');
+      }
+      return adapter.requestDirectoryAccess(path, reason);
     });
 
     // Setup stdin reader
@@ -444,6 +476,38 @@ async function handleSingleRequest(
           return null;
         }
         result = adapter.handlePermissionAcknowledged(ackParams.requestId);
+        break;
+      }
+
+      case RPC_METHODS.DIRECTORY_ACCESS_RESPONSE: {
+        const dirParams = params as DirectoryAccessResponseParams | undefined;
+        if (!dirParams?.requestId || typeof dirParams.granted !== 'boolean') {
+          if (shouldRespond) {
+            return createErrorResponse(
+              id!,
+              JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+              'Missing required parameters: requestId, granted'
+            );
+          }
+          return null;
+        }
+        result = adapter.handleDirectoryAccessResponse(dirParams.requestId, dirParams.granted);
+        break;
+      }
+
+      case RPC_METHODS.DIRECTORY_ACCESS_ACKNOWLEDGED: {
+        const dirAckParams = params as DirectoryAccessAcknowledgedParams | undefined;
+        if (!dirAckParams?.requestId) {
+          if (shouldRespond) {
+            return createErrorResponse(
+              id!,
+              JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+              'Missing required parameter: requestId'
+            );
+          }
+          return null;
+        }
+        result = adapter.handleDirectoryAccessAcknowledged(dirAckParams.requestId);
         break;
       }
 
