@@ -104,6 +104,61 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
 );
 
 /**
+ * Patch process.stdout.write to wrap terminal output in DEC Mode 2026
+ * (Synchronized Output). This batches all writes within a single microtask
+ * into one atomic terminal update, eliminating flicker from partial frames.
+ *
+ * Inspired by pi-mono's TUI differential renderer:
+ * https://github.com/badlogic/pi-mono/blob/main/packages/tui/src/tui.ts
+ *
+ * On unsupported terminals the CSI sequences are silently ignored, so this
+ * is safe to enable unconditionally.
+ */
+function patchStdoutForSyncOutput(): () => void {
+  const originalWrite = process.stdout.write.bind(process.stdout);
+  let syncActive = false;
+  let pendingEnd = false;
+
+  const endSync = () => {
+    if (pendingEnd) {
+      pendingEnd = false;
+      syncActive = false;
+      originalWrite('\x1b[?2026l');
+    }
+  };
+
+  const patchedWrite = function (
+    chunk: string | Uint8Array,
+    encoding?: BufferEncoding,
+    cb?: (err?: Error) => void
+  ): boolean {
+    const str = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString();
+    if (!str || str.length === 0) {
+      return originalWrite.call(process.stdout, chunk, encoding as any, cb as any);
+    }
+
+    if (!syncActive) {
+      syncActive = true;
+      originalWrite('\x1b[?2026h');
+    }
+    pendingEnd = true;
+
+    const result = originalWrite.call(process.stdout, chunk, encoding as any, cb as any);
+    queueMicrotask(endSync);
+    return result;
+  };
+
+  process.stdout.write = patchedWrite as any;
+
+  return () => {
+    process.stdout.write = originalWrite;
+    if (syncActive) {
+      originalWrite('\x1b[?2026l');
+    }
+  };
+}
+
+/**
  * InkRenderer wraps the Ink render instance and provides
  * imperative methods to update the UI state from the agent.
  *
@@ -126,11 +181,14 @@ export class InkRenderer {
   /** Resize handler reference for cleanup */
   private resizeHandler: (() => void) | null = null;
 
-/** Debounce timer for drag-resize events */
+  /** Debounce timer for drag-resize events */
   private resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Debounce time for resize events (ms) - longer to batch drag-resize */
   private static readonly RESIZE_DEBOUNCE_MS = 150;
+
+  /** Cleanup function for stdout sync-output patch */
+  private unpatchedStdout: (() => void) | null = null;
 
   constructor(options: InkRendererOptions) {
     this.options = options;
@@ -167,6 +225,10 @@ export class InkRenderer {
     if (this.instance) {
       return;
     }
+
+    // Enable synchronized output wrapping to eliminate flicker from partial
+    // frame updates. Must happen before Ink starts writing to stdout.
+    this.unpatchedStdout = patchStdoutForSyncOutput();
 
     // Install our resize guard BEFORE Ink registers its own handler.
     // Node.js event listeners fire in registration order.
@@ -221,6 +283,11 @@ export class InkRenderer {
     if (this.resizeDebounceTimer) {
       clearTimeout(this.resizeDebounceTimer);
       this.resizeDebounceTimer = null;
+    }
+
+    if (this.unpatchedStdout) {
+      this.unpatchedStdout();
+      this.unpatchedStdout = null;
     }
   }
 

@@ -20,6 +20,7 @@ import { handleTextBufferKey, type KeyHandlerResult } from '../textBufferKeyHand
 import { getPromptBlockWidth, isShiftEnterResidualSequence, processImagesInText } from '../inputPrompt.js';
 import { renderTerminalMarkdown } from '../../core/immediateCommandRouter.js';
 import { buildFileMentionSuggestions } from '../mentionFilter.js';
+import { getContentDisplay } from '../displayUtils.js';
 
 export interface AgentUIState {
   isWorking: boolean;
@@ -210,6 +211,33 @@ export function AgentUI({
     hiddenContent: null,
   });
 
+  // Refs for stable input handler access — prevents useInput re-registration
+  // on every render while keeping handler logic up-to-date.
+  const inputRef = useRef(input);
+  inputRef.current = input;
+  const cursorOffsetRef = useRef(cursorOffset);
+  cursorOffsetRef.current = cursorOffset;
+  const fileMentionVisibleRef = useRef(fileMentionVisible);
+  fileMentionVisibleRef.current = fileMentionVisible;
+  const fileMentionSuggestionsRef = useRef(fileMentionSuggestions);
+  fileMentionSuggestionsRef.current = fileMentionSuggestions;
+  const fileMentionActiveIndexRef = useRef(fileMentionActiveIndex);
+  fileMentionActiveIndexRef.current = fileMentionActiveIndex;
+  const isWorkingRef = useRef(state.isWorking);
+  isWorkingRef.current = state.isWorking;
+  const liveCommandsRef = useRef(state.liveCommands);
+  liveCommandsRef.current = state.liveCommands;
+  const enableQueueInputRef = useRef(enableQueueInput);
+  enableQueueInputRef.current = enableQueueInput;
+  const onEscapeRef = useRef(onEscape);
+  onEscapeRef.current = onEscape;
+  const onCtrlCRef = useRef(onCtrlC);
+  onCtrlCRef.current = onCtrlC;
+  const onToggleLiveCommandExpandedRef = useRef(onToggleLiveCommandExpanded);
+  onToggleLiveCommandExpandedRef.current = onToggleLiveCommandExpanded;
+  const onInstructionRef = useRef(onInstruction);
+  onInstructionRef.current = onInstruction;
+
   // Throttled sync from buffer to React state to batch rapid keystrokes
   // and reduce re-render frequency during fast typing (16ms = ~60fps).
   const inputSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -380,8 +408,9 @@ export function AgentUI({
     setFileMentionActiveIndex(prev => Math.min(prev, matchingFiles.length - 1));
   }, [input, cursorOffset, filesProvider]);
 
-  // Memoize the input handler to prevent re-registration on every render
-  // This is critical for preventing flickering during rapid key events (holding backspace/delete)
+  // Stable input handler that reads mutable values from refs.
+  // Empty dependency array means useInput never re-registers, eliminating
+  // a major source of flicker during rapid keystrokes.
   const handleInput = useCallback((char: string, key: InkKey) => {
     syncBufferViewport();
 
@@ -394,7 +423,7 @@ export function AgentUI({
 
     // Handle escape - cancel current operation
     if (key.escape) {
-      onEscape();
+      onEscapeRef.current();
       return;
     }
 
@@ -414,7 +443,7 @@ export function AgentUI({
       // Use functional update to avoid dependency on ctrlCCount
       setCtrlCCount(prev => {
         if (prev === 0) {
-          onCtrlC();
+          onCtrlCRef.current();
           return 1;
         } else {
           exit();
@@ -424,27 +453,27 @@ export function AgentUI({
       return;
     }
 
-    if (key.ctrl && char === 'o' && state.liveCommands.length > 0) {
-      onToggleLiveCommandExpanded?.();
+    if (key.ctrl && char === 'o' && liveCommandsRef.current.length > 0) {
+      onToggleLiveCommandExpandedRef.current?.();
       return;
     }
 
     // Only handle input when working and queue input is enabled
-    if (!state.isWorking || !enableQueueInput) {
+    if (!isWorkingRef.current || !enableQueueInputRef.current) {
       return;
     }
 
     // Handle arrow keys for file mention navigation
-    if (fileMentionVisible && fileMentionSuggestions.length > 0) {
+    if (fileMentionVisibleRef.current && fileMentionSuggestionsRef.current.length > 0) {
       if (key.upArrow) {
         setFileMentionActiveIndex(prev => 
-          prev > 0 ? prev - 1 : fileMentionSuggestions.length - 1
+          prev > 0 ? prev - 1 : fileMentionSuggestionsRef.current.length - 1
         );
         return;
       }
       if (key.downArrow) {
         setFileMentionActiveIndex(prev => 
-          prev < fileMentionSuggestions.length - 1 ? prev + 1 : 0
+          prev < fileMentionSuggestionsRef.current.length - 1 ? prev + 1 : 0
         );
         return;
       }
@@ -452,13 +481,13 @@ export function AgentUI({
 
     // Handle Tab for file mention acceptance
     if (key.tab && !key.shift) {
-      if (fileMentionVisible && fileMentionSuggestions.length > 0 && fileMentionStartIndexRef.current !== null) {
-        const suggestion = fileMentionSuggestions[fileMentionActiveIndex];
+      if (fileMentionVisibleRef.current && fileMentionSuggestionsRef.current.length > 0 && fileMentionStartIndexRef.current !== null) {
+        const suggestion = fileMentionSuggestionsRef.current[fileMentionActiveIndexRef.current];
         if (suggestion) {
           const buffer = textBufferRef.current;
           const currentText = buffer.getText();
           const beforeMention = currentText.slice(0, fileMentionStartIndexRef.current);
-          const afterCursor = currentText.slice(cursorOffset);
+          const afterCursor = currentText.slice(cursorOffsetRef.current);
           const replacement = `@${suggestion.path} `;
           const newText = beforeMention + replacement + afterCursor;
           
@@ -479,7 +508,6 @@ export function AgentUI({
     const result = handleInkTextBufferInput(buffer, char, key);
 
     if (result === 'submit') {
-      const buffer = textBufferRef.current;
       const pasteState = pasteStateRef.current;
       
       // Use hidden content (actual pasted text) if available, otherwise use buffer text
@@ -489,7 +517,7 @@ export function AgentUI({
       if (!text) {
         return;
       }
-      onInstruction(text);
+      onInstructionRef.current(text);
       buffer.setText('');
       pasteState.hiddenContent = null; // Clear paste state after submit
       syncInputFromBuffer();
@@ -500,24 +528,17 @@ export function AgentUI({
       syncInputFromBuffer();
       return;
     }
-  }, [
-    syncBufferViewport,
-    onEscape,
-    syncInputFromBuffer,
-    onCtrlC,
-    exit,
-    state.liveCommands,
-    onToggleLiveCommandExpanded,
-    state.isWorking,
-    enableQueueInput,
-    onInstruction,
-    fileMentionVisible,
-    fileMentionSuggestions,
-    fileMentionActiveIndex,
-    cursorOffset,
-  ]);
+  }, [syncBufferViewport, syncInputFromBuffer, exit]);
 
-  useInput(handleInput);
+  // Extra safety: wrap in a ref so useInput never re-registers even if
+  // the above callback identity changes unexpectedly.
+  const handleInputRef = useRef(handleInput);
+  handleInputRef.current = handleInput;
+  const stableHandleInput = useCallback((char: string, key: InkKey) => {
+    handleInputRef.current(char, key);
+  }, []);
+
+  useInput(stableHandleInput);
 
   // Enhanced buffered input for Kitty keyboard protocol and paste detection
   // This supplements useInput with better escape sequence handling
