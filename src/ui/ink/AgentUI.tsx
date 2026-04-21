@@ -11,6 +11,7 @@ import { LiveCommandBlock, ToolOutputStatic, ToolOutputBatchStatic, type LiveCom
 import { InputLine } from './InputLine.js';
 import { ThinkingOutput } from './ThinkingOutput.js';
 import { FileMentionDropdown, parseFileSuggestions, matchFileMention, type FileMentionSuggestion } from './FileMentionDropdown.js';
+import { UserMessage } from './UserMessage.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/index.js';
 import { getPlanModeManager } from '../../commands/plan.js';
@@ -657,13 +658,11 @@ const StatusSection = memo(function StatusSection({
 
       {/* Info section - either queue or completion stats, stable position */}
       {showQueue && (
-        <Box flexDirection="column" marginTop={1}>
+        <Box flexDirection="column">
           {queuedInstructions.map((instruction, idx) => (
-            <Box key={idx}>
-              <Text color={colors.muted} italic>
-                (queued) - {instruction.length > 60 ? instruction.slice(0, 57) + '...' : instruction}
-              </Text>
-            </Box>
+            <UserMessage key={idx} isQueued>
+              {instruction}
+            </UserMessage>
           ))}
         </Box>
       )}
