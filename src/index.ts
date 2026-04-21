@@ -195,6 +195,7 @@ program
   .option('--skill-install [skill-name]', 'Install a community skill (opens browser if no name)')
   .option('--project', 'Install skill to project level (with --skill-install)', false)
   .option('--permissions', 'Display current permission settings and exit', false)
+  .option('--settings', 'Configure Autohand settings (same as /settings in interactive mode)', false)
   .option('--login', 'Sign in to your Autohand account', false)
   .option('--logout', 'Sign out of your Autohand account', false)
   .option('--sync-settings [bool]', 'Enable/disable settings sync (default: true for logged users)')
@@ -293,6 +294,14 @@ program
     if (opts.permissions) {
       await displayPermissions(opts);
       return;
+    }
+
+    // Handle --settings flag
+    if ((opts as any).settings) {
+      const config = await loadConfig(opts.config, process.cwd());
+      const { settings } = await import('./commands/settings.js');
+      await settings({ config });
+      process.exit(0);
     }
 
     // Handle --login flag
@@ -481,6 +490,17 @@ program
     const { logout } = await import('./commands/logout.js');
     const config = await loadConfig();
     await logout({ config });
+    process.exit(0);
+  });
+
+// ── Config subcommand ───────────────────────────────────────────────────
+program
+  .command('config')
+  .description('Configure Autohand settings (same as /settings in interactive mode)')
+  .action(async () => {
+    const config = await loadConfig();
+    const { settings } = await import('./commands/settings.js');
+    await settings({ config });
     process.exit(0);
   });
 
