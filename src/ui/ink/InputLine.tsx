@@ -65,19 +65,13 @@ function InputLineComponent({ value, cursorOffset, isActive, width }: InputLineP
   
   // Track last cursor position to avoid unnecessary updates
   const lastCursorRef = useRef<{ row: number; col: number } | null>(null);
-  // Track pending cursor position timer for cancellation
-  const cursorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Position hardware cursor for IME support after render
+  // Position hardware cursor for IME support immediately after render.
+  // With stdout synchronized-output patching (InkRenderer), this write
+  // is batched atomically with Ink's frame output, eliminating cursor flicker.
   useEffect(() => {
     if (!isActive) {
       return;
-    }
-
-    // Cancel any pending cursor positioning
-    if (cursorTimerRef.current) {
-      clearTimeout(cursorTimerRef.current);
-      cursorTimerRef.current = null;
     }
 
     // Calculate the screen position of the cursor
@@ -85,29 +79,15 @@ function InputLineComponent({ value, cursorOffset, isActive, width }: InputLineP
     const row = inputStartRow + 1 + displayData.cursorRow;
     const col = displayData.cursorColumn + 1;
 
-    // Only update if position changed
+    // Only update if position changed — prevents redundant writes during
+    // re-renders where only unrelated props changed.
     if (
       lastCursorRef.current?.row !== row ||
       lastCursorRef.current?.col !== col
     ) {
       lastCursorRef.current = { row, col };
+      process.stdout.write(moveTo(row, col) + CURSOR.SHOW);
     }
-
-    // Position cursor after Ink's render cycle with a small delay
-    // to batch rapid updates and prevent flickering
-    cursorTimerRef.current = setTimeout(() => {
-      cursorTimerRef.current = null;
-      if (isActive) {
-        process.stdout.write(moveTo(row, col) + CURSOR.SHOW);
-      }
-    }, 16); // ~60fps, batches rapid updates
-
-    return () => {
-      if (cursorTimerRef.current) {
-        clearTimeout(cursorTimerRef.current);
-        cursorTimerRef.current = null;
-      }
-    };
   }, [isActive, displayData.cursorRow, displayData.cursorColumn, displayData.plainLines.length]);
 
   // Keep space stable when queue input is inactive.
