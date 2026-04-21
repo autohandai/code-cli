@@ -10,6 +10,7 @@ import { highlightLine, detectLanguage } from '../ui/syntaxHighlight.js';
 import { getTheme, isThemeInitialized, hexToRgb } from '../ui/theme/index.js';
 import { addDependency, removeDependency } from '../actions/dependencies.js';
 import { runCommand } from '../actions/command.js';
+import { executeStreamingShellCommand } from '../ui/shellCommand.js';
 import { listDirectoryTree, fileStats as getFileStats, checksumFile } from '../actions/metadata.js';
 import {
   diffFile,
@@ -129,6 +130,10 @@ export interface ActionExecutorOptions {
   onModalPause?: <T>(fn: () => Promise<T>) => Promise<T>;
   /** Callback to request directory access outside workspace - returns resolved path if granted, undefined if denied */
   onRequestDirectoryAccess?: (path: string, reason?: string) => Promise<string | undefined>;
+  /** Callbacks for live command display in Ink TUI (used by shell tool) */
+  onLiveCommandStart?: (command: string) => string;
+  onLiveCommandOutput?: (id: string, stream: 'stdout' | 'stderr', chunk: string) => void;
+  onLiveCommandRemove?: (id: string) => void;
 }
 
 type AgentExecutorDeps = ActionExecutorOptions;
@@ -153,6 +158,9 @@ export class ActionExecutor {
   private readonly onReviewHook?: AgentExecutorDeps['onReviewHook'];
   private readonly onModalPause?: AgentExecutorDeps['onModalPause'];
   private readonly onRequestDirectoryAccess?: AgentExecutorDeps['onRequestDirectoryAccess'];
+  private readonly onLiveCommandStart?: AgentExecutorDeps['onLiveCommandStart'];
+  private readonly onLiveCommandOutput?: AgentExecutorDeps['onLiveCommandOutput'];
+  private readonly onLiveCommandRemove?: AgentExecutorDeps['onLiveCommandRemove'];
   private readonly securityScanner: SecurityScanner;
   private readonly searchCache: Map<string, string> = new Map();
 
@@ -176,6 +184,9 @@ export class ActionExecutor {
     this.onReviewHook = deps.onReviewHook;
     this.onModalPause = deps.onModalPause;
     this.onRequestDirectoryAccess = deps.onRequestDirectoryAccess;
+    this.onLiveCommandStart = deps.onLiveCommandStart;
+    this.onLiveCommandOutput = deps.onLiveCommandOutput;
+    this.onLiveCommandRemove = deps.onLiveCommandRemove;
     this.securityScanner = new SecurityScanner();
   }
 
@@ -822,6 +833,79 @@ export class ActionExecutor {
           parts.push(`[Background PID: ${result.backgroundPid}]`);
         }
 
+        return parts.join('\n');
+      }
+      case 'shell': {
+        if (!action.command || typeof action.command !== 'string') {
+          return 'Error: shell requires a "command" argument (string)';
+        }
+
+        const cmdStr = `${action.command} ${(action.args ?? []).join(' ')}`.trim();
+        const commandId = this.onLiveCommandStart?.(cmdStr);
+        const hasLiveDisplay = Boolean(commandId);
+
+        if (hasLiveDisplay) {
+          const liveId = commandId!;
+          try {
+            const result = await executeStreamingShellCommand(
+              cmdStr,
+              this.runtime.workspaceRoot,
+              {
+                onStdout: (chunk) => this.onLiveCommandOutput!(liveId, 'stdout', chunk),
+                onStderr: (chunk) => this.onLiveCommandOutput!(liveId, 'stderr', chunk),
+                preferPty: process.stdin.isTTY && process.stdout.isTTY,
+                columns: process.stdout.columns,
+                rows: process.stdout.rows,
+              }
+            );
+            this.onLiveCommandRemove!(liveId);
+            const header = action.description
+              ? `$ ${action.description}\n> ${cmdStr}`
+              : `$ ${cmdStr}`;
+            const dirInfo = action.directory ? `[dir: ${action.directory}]` : '';
+            const parts = [dirInfo ? `${header} ${dirInfo}` : header];
+            if (result.output) parts.push(result.output);
+            if (result.error) parts.push(result.error);
+            return parts.join('\n');
+          } catch (err) {
+            this.onLiveCommandRemove!(liveId);
+            const error = err as Error;
+            return `Error running "${cmdStr}": ${error.message}`;
+          }
+        }
+
+        // Fallback to regular runCommand when no live display is available
+        let result: Awaited<ReturnType<typeof runCommand>>;
+        try {
+          result = await runCommand(
+            cmdStr,
+            [],
+            this.runtime.workspaceRoot,
+            {
+              directory: action.directory,
+              shell: true,
+            }
+          );
+        } catch (err) {
+          const error = err as NodeJS.ErrnoException;
+          if (
+            error.code === 'ENOENT' ||
+            error.message.includes('Command not found')
+          ) {
+            return `Error: Command not found: "${action.command}". Make sure it is installed and available on your PATH.`;
+          }
+          return `Error running "${cmdStr}": ${error.message}`;
+        }
+
+        const header = action.description
+          ? `$ ${action.description}\n> ${cmdStr}`
+          : `$ ${cmdStr}`;
+        const dirInfo = action.directory ? `[dir: ${action.directory}]` : '';
+        const parts = [
+          dirInfo ? `${header} ${dirInfo}` : header,
+          result.stdout,
+          result.stderr,
+        ].filter(Boolean);
         return parts.join('\n');
       }
       case 'add_dependency': {

@@ -301,6 +301,22 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
     approvalMessage: 'Allow the agent to run a shell command?'
   },
   {
+    name: 'shell',
+    description: 'Execute a shell command with real-time output displayed in a live, isolated box in the TUI. Use for long-running commands (tests, builds, installs, dev servers) where you want to monitor progress without blocking the CLI input. For quick commands that just need a result, use run_command instead.',
+    parameters: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', description: 'Command to execute. Supports pipes (|), redirects (>), env vars ($HOME), globs (*), and chaining (&&).' },
+        args: { type: 'array', description: 'Command arguments. Joined with the command into a single shell string.', items: { type: 'string', description: 'Single argument' } },
+        directory: { type: 'string', description: 'Directory relative to workspace root to execute in' },
+        description: { type: 'string', description: 'Brief description of what this command does (shown to user)' }
+      },
+      required: ['command']
+    },
+    requiresApproval: true,
+    approvalMessage: 'Allow the agent to run a shell command with live output?'
+  },
+  {
     name: 'add_dependency',
     description: 'Add a package dependency (supports dev flag)',
     parameters: {
@@ -1667,6 +1683,13 @@ export class ToolManager {
           const dir = call.args.directory ? ` (in ${call.args.directory})` : '';
           message = `Run this command${dir}?\n  $ ${fullCommand}`;
           permContext.command = fullCommand;
+        } else if (call.tool === 'shell' && call.args) {
+          const cmd = String(call.args.command || '');
+          const args = Array.isArray(call.args.args) ? call.args.args.join(' ') : '';
+          const fullCommand = args ? `${cmd} ${args}` : cmd;
+          const dir = call.args.directory ? ` (in ${call.args.directory})` : '';
+          message = `Run this shell command with live output${dir}?\n  $ ${fullCommand}`;
+          permContext.command = fullCommand;
         } else if (call.tool === 'delete_path' && call.args?.path) {
           message = `Delete this path?\n  ${call.args.path}`;
           permContext.path = String(call.args.path);
@@ -1682,6 +1705,9 @@ export class ToolManager {
         const decision = normalizePermissionPromptResponse(await this.confirmApproval(message, permContext));
         if (decision.decision === 'alternative' && typeof decision.alternative === 'string') {
           if (call.tool === 'run_command' && call.args) {
+            call.args.command = decision.alternative;
+            call.args.args = [];
+          } else if (call.tool === 'shell' && call.args) {
             call.args.command = decision.alternative;
             call.args.args = [];
           } else if (call.args?.path && typeof call.args.path === 'string') {

@@ -153,6 +153,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
 
   // Shell operations
   run_command: 'shell',
+  shell: 'shell',
   custom_command: 'shell',
 
   // Browser operations (Chrome extension bridge only)

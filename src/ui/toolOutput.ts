@@ -34,9 +34,9 @@ export interface FileToolOutputOptions {
   charLimit: number;
   /** File path for file operations */
   filePath?: string;
-  /** Command for run_command tool */
+  /** Command for run_command or shell tool */
   command?: string;
-  /** Args for run_command tool */
+  /** Args for run_command or shell tool */
   commandArgs?: string[];
 }
 
@@ -64,8 +64,8 @@ export function formatToolOutputForDisplay(options: FileToolOutputOptions): Tool
   const { tool, content, charLimit, filePath, command, commandArgs } = options;
   const totalChars = content.length;
 
-  // For run_command, show the command being executed
-  if (tool === 'run_command' && command) {
+  // For run_command and shell, show the command being executed
+  if ((tool === 'run_command' || tool === 'shell') && command) {
     const fullCommand = commandArgs?.length
       ? `${command} ${commandArgs.join(' ')}`
       : command;

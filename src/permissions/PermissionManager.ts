@@ -98,16 +98,27 @@ export const DEFAULT_SECURITY_BLACKLIST: string[] = [
   'run_command:env',
   'run_command:export',
   'run_command:set',
+  'shell:printenv',
+  'shell:printenv *',
+  'shell:env',
+  'shell:export',
+  'shell:set',
 
   // System information
   'run_command:cat /etc/passwd',
   'run_command:cat /etc/shadow',
   'run_command:cat /etc/sudoers',
+  'shell:cat /etc/passwd',
+  'shell:cat /etc/shadow',
+  'shell:cat /etc/sudoers',
 
   // Privilege escalation
   'run_command:sudo *',
   'run_command:su *',
   'run_command:doas *',
+  'shell:sudo *',
+  'shell:su *',
+  'shell:doas *',
 
   // Destructive operations
   'run_command:rm -rf /',
@@ -118,23 +129,42 @@ export const DEFAULT_SECURITY_BLACKLIST: string[] = [
   'run_command:mkfs*',
   'run_command:wipefs*',
   'run_command:shred*',
+  'shell:rm -rf /',
+  'shell:rm -rf /*',
+  'shell:rm -rf ~',
+  'shell:rm -rf ~/*',
+  'shell:dd if=* of=/dev/*',
+  'shell:mkfs*',
+  'shell:wipefs*',
+  'shell:shred*',
 
   // Remote code execution
   'run_command:curl * | *sh',
   'run_command:wget * | *sh',
   'run_command:curl *|*sh',
   'run_command:wget *|*sh',
+  'shell:curl * | *sh',
+  'shell:wget * | *sh',
+  'shell:curl *|*sh',
+  'shell:wget *|*sh',
 
   // Network tools that can exfiltrate
   'run_command:nc -e*',
   'run_command:ncat -e*',
   'run_command:netcat -e*',
+  'shell:nc -e*',
+  'shell:ncat -e*',
+  'shell:netcat -e*',
 
   // Credential theft
   'run_command:cat */.ssh/*',
   'run_command:cat */.aws/*',
   'run_command:cat *.pem',
   'run_command:cat *.key',
+  'shell:cat */.ssh/*',
+  'shell:cat */.aws/*',
+  'shell:cat *.pem',
+  'shell:cat *.key',
 ];
 
 export interface PermissionManagerOptions {

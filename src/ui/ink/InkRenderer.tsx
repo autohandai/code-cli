@@ -258,7 +258,9 @@ export class InkRenderer {
         // Ensure Ink handles stdin for input capture
         stdin: process.stdin,
         stdout: process.stdout,
-        stderr: process.stderr
+        stderr: process.stderr,
+        // Let AgentUI handle Ctrl+C (clear text / warn-then-exit) instead of Ink forcing exit
+        exitOnCtrlC: false
       }
     );
   }
@@ -436,6 +438,16 @@ export class InkRenderer {
    */
   clearToolOutputs(): void {
     this.updateState({ toolOutputs: [] });
+  }
+
+  /**
+   * Remove a live command from the live commands list without converting it to a static tool output.
+   * Used when the caller will handle adding the final output themselves.
+   */
+  removeLiveCommand(id: string): void {
+    this.updateState({
+      liveCommands: this.state.liveCommands.filter((item) => item.id !== id)
+    });
   }
 
   startLiveCommand(command: string): string {
@@ -645,7 +657,9 @@ export class InkRenderer {
         {
           stdin: process.stdin,
           stdout: process.stdout,
-          stderr: process.stderr
+          stderr: process.stderr,
+          // Let AgentUI handle Ctrl+C (clear text / warn-then-exit) instead of Ink forcing exit
+          exitOnCtrlC: false
         }
       );
     }

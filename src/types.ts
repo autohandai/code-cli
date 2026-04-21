@@ -934,6 +934,13 @@ export type AgentAction =
       /** Run command with inherited stdio for interactive prompts (passwords, etc.) */
       interactive?: boolean;
     }
+  | {
+      type: 'shell';
+      command: string;
+      args?: string[];
+      directory?: string;
+      description?: string;
+    }
   | { type: 'add_dependency'; name: string; version: string; dev?: boolean }
   | { type: 'remove_dependency'; name: string; dev?: boolean }
   | { type: 'format_file'; path: string; formatter: string }
