@@ -32,6 +32,8 @@ export interface RunCommandOptions {
   onStdout?: (chunk: string) => void;
   /** Stream stderr output */
   onStderr?: (chunk: string) => void;
+  /** Run command with inherited stdio for interactive prompts (passwords, etc.) */
+  interactive?: boolean;
 }
 
 /**
@@ -73,6 +75,9 @@ export function runCommand(
     if (options.background) {
       spawnOptions.detached = true;
       spawnOptions.stdio = ['ignore', 'pipe', 'pipe'];
+    } else if (options.interactive) {
+      // Interactive mode: inherit stdio for password prompts, TUI apps, etc.
+      spawnOptions.stdio = 'inherit';
     }
 
     // Bun may throw synchronously from spawn() when the command is not found (ENOENT),
@@ -100,6 +105,23 @@ export function runCommand(
         code: null,
         backgroundPid: child.pid,
         signal: null,
+      });
+      return;
+    }
+
+    // For interactive mode, output goes directly to terminal
+    // Just wait for the process to close
+    if (options.interactive) {
+      child.once('error', (error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') {
+          reject(new Error(`Command not found: ${cmd}`));
+        } else {
+          reject(error);
+        }
+      });
+
+      child.once('close', (code, signal) => {
+        resolve({ stdout: '', stderr: '', code, signal });
       });
       return;
     }

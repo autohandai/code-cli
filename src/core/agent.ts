@@ -6421,7 +6421,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       }
     }
 
-    if (this.runtime.options.yes || this.runtime.config.ui?.autoConfirm) {
+    if (this.runtime.options.yes || this.runtime.options.unrestricted || this.runtime.config.ui?.autoConfirm) {
       return { decision: 'allow_once' };
     }
 
@@ -6471,7 +6471,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     suggestedAnswers?: string[]
   ): Promise<string> {
     // Auto-approve mode: always answer "Yes" to unblock autonomous flows.
-    if (this.runtime.options.yes) {
+    if (this.runtime.options.yes || this.runtime.options.unrestricted) {
       console.log(chalk.yellow(`\n❓ ${question}`));
       console.log(chalk.gray('  (Auto-answered: Yes)\n'));
       return '<answer>Yes</answer>';
@@ -6531,7 +6531,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     console.log(chalk.cyan('─'.repeat(60) + '\n'));
 
     // Non-interactive mode: auto-accept with default option
-    if (this.runtime.options.yes || process.env.CI === '1' || process.env.AUTOHAND_NON_INTERACTIVE === '1') {
+    if (this.runtime.options.yes || this.runtime.options.unrestricted || process.env.CI === '1' || process.env.AUTOHAND_NON_INTERACTIVE === '1') {
       const config = planManager.acceptPlan('auto_accept');
       console.log(chalk.yellow('  (Auto-accepted in non-interactive mode)\n'));
       return `Plan accepted with option: ${config.option}. Starting execution...`;

@@ -22,7 +22,7 @@ export default defineConfig({
   splitting: true,
   clean: true,
   target: 'node18',
-  external: [],
+  external: ['sharp'],
   // Ensure ink-spinner uses the same React as ink
   noExternal: [
     'ink-spinner',
