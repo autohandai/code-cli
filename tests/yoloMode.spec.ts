@@ -21,7 +21,7 @@ describe('YOLO Mode', () => {
   describe('parseYoloPattern', () => {
     it('uses file-tool defaults for bare --yolo mode', () => {
       expect(getDefaultYoloPattern()).toBe(
-        'allow:read_file,write_file,multi_file_edit,list_dir,file_search,grep_search,move_path,copy_path'
+        'allow:read_file,write_file,multi_file_edit,list_dir,file_search,grep_search,move_path,copy_path,run_command,shell'
       );
       expect(normalizeYoloInput(true)).toBe(getDefaultYoloPattern());
     });

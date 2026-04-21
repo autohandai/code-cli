@@ -142,12 +142,16 @@ export function buildPermissionSettingsFromYolo(pattern: YoloPattern): Partial<P
 
   if (pattern.mode === 'allow') {
     const allowPatterns = pattern.tools.map((tool) => ({ kind: tool }));
-    const fileTools = new Set(DEFAULT_YOLO_FILE_TOOLS);
-    const allRequestedToolsAreFileTools = pattern.tools.every((tool) => fileTools.has(tool));
+    // Tools that affect file paths - these determine allPathsAllowed
+    const pathAffectingTools = new Set(['read_file', 'write_file', 'multi_file_edit', 'move_path', 'copy_path']);
+    // Check if all path-affecting tools in the pattern are from the default set
+    const defaultTools = new Set(DEFAULT_YOLO_FILE_TOOLS);
+    const patternPathTools = pattern.tools.filter(tool => pathAffectingTools.has(tool));
+    const allPathToolsAreDefault = patternPathTools.every(tool => defaultTools.has(tool));
 
     return {
       allowPatterns,
-      allPathsAllowed: allRequestedToolsAreFileTools,
+      allPathsAllowed: allPathToolsAreDefault,
     };
   }
 
