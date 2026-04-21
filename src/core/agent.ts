@@ -33,9 +33,11 @@ import { showFilePalette } from '../ui/filePalette.js';
 import { createInkRenderer } from '../ui/ink/InkRenderer.js';
 import { showQuestionModal } from '../ui/questionModal.js';
 import { showPlanAcceptModal } from '../ui/planAcceptModal.js';
+import { showDirectoryAccessModal } from '../ui/directoryAccessModal.js';
 import {
   getContextWindow,
   estimateMessagesTokens,
+  estimateMessageTokens,
   calculateContextUsage
 } from '../utils/context.js';
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
@@ -49,7 +51,7 @@ import { ToolManager } from './toolManager.js';
 import { ActionExecutor } from './actionExecutor.js';
 import { SlashCommandHandler } from './slashCommandHandler.js';
 import { routeOutput, renderTerminalMarkdown, createImmediateShellCommandBlockWriter, formatImmediateShellCommandHeader } from './immediateCommandRouter.js';
-import { isToolAllowedByYolo, normalizeYoloInput, parseYoloPattern } from '../permissions/yoloMode.js';
+import { isToolAllowedByYolo, normalizeYoloInput, parseYoloPattern, buildPermissionSettingsFromYolo } from '../permissions/yoloMode.js';
 import { SessionManager } from '../session/SessionManager.js';
 import { ProjectManager } from '../session/ProjectManager.js';
 import { ToolsRegistry } from './toolsRegistry.js';
@@ -194,6 +196,10 @@ export class AutohandAgent {
   private inkRenderer: InkRenderer | null = null;
   private useInkRenderer = false;
   private pendingInkInstructions: string[] = [];
+  /** Current abort controller for the active Ink turn — referenced by Ink's onEscape */
+  private currentInkAbortController: AbortController | null = null;
+  /** Current cancel callback for the active Ink turn — referenced by Ink's onEscape */
+  private currentInkOnCancel: (() => void) | null = null;
   private persistentInput: PersistentInput;
   private persistentInputActiveTurn = false;
   private readlinePromptActive = false;
@@ -419,6 +425,7 @@ export class AutohandAgent {
       onLiveCommandStart: (command) => this.inkRenderer?.startLiveCommand(command) ?? '',
       onLiveCommandOutput: (id, stream, chunk) => this.inkRenderer?.appendLiveCommandOutput(id, stream, chunk),
       onLiveCommandRemove: (id) => this.inkRenderer?.removeLiveCommand(id),
+      onRequestDirectoryAccess: async (path, reason) => this.requestDirectoryAccess(path, reason),
     });
 
     this.activeProvider = runtime.config.provider ?? 'openrouter';
@@ -1129,6 +1136,31 @@ export class AutohandAgent {
       queueInstruction: (instruction: string) => {
         this.pendingInkInstructions.push(instruction);
       },
+      // Set/clear YOLO mode for /yolo and /no-yolo commands
+      setYoloMode: (pattern: string | undefined) => {
+        this.runtime.options.yolo = pattern;
+        if (pattern) {
+          try {
+            const yoloPattern = parseYoloPattern(pattern);
+            const settings = buildPermissionSettingsFromYolo(yoloPattern);
+            if (settings.mode === 'unrestricted') {
+              this.permissionManager.setMode('unrestricted');
+              this.runtime.options.unrestricted = true;
+              this.runtime.options.yes = true;
+            } else {
+              this.permissionManager.setMode('interactive');
+              this.runtime.options.unrestricted = false;
+              this.runtime.options.yes = false;
+            }
+          } catch {
+            // Ignore malformed patterns
+          }
+        } else {
+          this.permissionManager.setMode(this.basePermissionMode ?? 'interactive');
+          this.runtime.options.unrestricted = false;
+          this.runtime.options.yes = false;
+        }
+      },
     };
     this.slashHandler = new SlashCommandHandler(slashContext, SLASH_COMMANDS);
   }
@@ -1653,6 +1685,18 @@ If lint or tests fail, report the issues but do NOT commit.`;
             this.promptSeedInput = this.persistentInput.getCurrentInput();
             this.persistentInput.stop();
             this.persistentInputActiveTurn = false;
+          }
+          // If Ink is still active (idle between turns), stop it before falling
+          // back to readline to avoid stdin conflicts. Drain any last-moment
+          // queued instructions so they aren't lost in the race window.
+          if (this.inkRenderer) {
+            while (this.inkRenderer.hasQueuedInstructions()) {
+              const qi = this.inkRenderer.dequeueInstruction();
+              if (qi) this.pendingInkInstructions.push(qi);
+            }
+            this.inkRenderer.stop();
+            this.inkRenderer = null;
+            this.runtime.inkRenderer = undefined;
           }
           instruction = await this.promptForInstruction();
         }
@@ -2603,7 +2647,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
       // cursor position relative to the active scroll region; if regions are
       // reset first, ora.stop() moves the cursor to an incorrect absolute
       // row (typically row 1), causing the next prompt to render at the top.
-      this.cleanupUI();
+      // When using Ink, keep the renderer alive between turns to prevent the
+      // composer from disappearing and reappearing during back-to-back turns.
+      this.cleanupUI(this.useInkRenderer);
 
       if (this.persistentInputActiveTurn && !keepPersistentInputForNextTurn) {
         this.persistentInput.stop();
@@ -2950,16 +2996,34 @@ If lint or tests fail, report the issues but do NOT commit.`;
           this.runtime.spinner?.stop();
           console.log(chalk.yellow('\n⚠ Context too long for model, auto-compacting...'));
 
-          // Force aggressive crop to ~50% usage
+          // Force aggressive crop to ~55% usage by token budget.
+          // The old message-count heuristic was brittle: one giant tool output
+          // could be 60% of tokens but only 1 message, so removing 40% of
+          // messages freed almost nothing. We now walk oldest-first by tokens.
           const currentMessages = this.conversation.history();
-          const targetRemove = Math.ceil(currentMessages.length * 0.4);
-          const removed = this.conversation.cropHistory('top', targetRemove);
+          const contextWindow = getContextWindow(this.runtime.options.model ?? '');
+          const targetTokens = Math.floor(contextWindow * 0.55);
+          const currentUsage = calculateContextUsage(currentMessages, tools, this.runtime.options.model ?? '');
+          let tokensToRemove = currentUsage.totalTokens - targetTokens;
+
+          const indicesToRemove: number[] = [];
+          // Never remove index 0 (system prompt) or the last user message
+          const lastUserIndex = currentMessages.reduce((acc, m, i) => m.role === 'user' ? i : acc, -1);
+          for (let i = 1; i < currentMessages.length && tokensToRemove > 0; i++) {
+            if (i === lastUserIndex) continue;
+            const msgTokens = estimateMessageTokens(currentMessages[i]);
+            indicesToRemove.push(i);
+            tokensToRemove -= msgTokens;
+          }
+
+          const removed = this.conversation.removeIndices(indicesToRemove);
 
           if (removed.length > 0) {
             const summary = await this.summarizeRemovedMessages(removed);
             this.conversation.addSystemNote(
               `[Auto-Recovery] ${removed.length} messages compacted after context overflow.\n` +
-              `Summary: ${summary}`
+              `Summary: ${summary}`,
+              '[Auto-Recovery]'
             );
             console.log(chalk.gray(`   Compacted ${removed.length} messages, retrying...`));
             continue; // Retry the current iteration with compacted context
@@ -3186,6 +3250,27 @@ If lint or tests fail, report the issues but do NOT commit.`;
             await this.saveToolMessage(result.tool, content, otherCalls[i]?.id);
           }
           this.updateContextUsage(this.conversation.history(), tools);
+
+          // Mid-turn compaction: if tool outputs pushed us into critical territory,
+          // compact immediately instead of waiting for the next iteration's
+          // prepareRequest(). This prevents a single massive tool result from
+          // causing a context-overflow 400 on the next LLM call.
+          if (this.contextCompactionEnabled && iteration > 0) {
+            const midTurnUsage = calculateContextUsage(
+              this.conversation.history(),
+              tools,
+              this.runtime.options.model ?? ''
+            );
+            if (midTurnUsage.isCritical) {
+              if (debugMode) {
+                this.writeDebugLine(`[AGENT DEBUG] Mid-turn compaction triggered at ${Math.round(midTurnUsage.usagePercent * 100)}%`);
+              }
+              const prepared = await this.contextManager.prepareRequest(tools);
+              if (prepared.wasCropped) {
+                console.log(chalk.cyan(`ℹ Mid-turn compaction: ${prepared.croppedCount} messages`));
+              }
+            }
+          }
 
           // Detect when ALL tool calls were denied by the user
           const allDenied = results.length > 0 && results.every(r =>
@@ -4618,14 +4703,28 @@ If lint or tests fail, report the issues but do NOT commit.`;
     if (this.useInkRenderer && process.stdout.isTTY && process.stdin.isTTY) {
       // createInkRenderer is statically imported at the top of this file
       try {
+        // Update the shared abort controller reference so Ink's onEscape
+        // always targets the current turn (even when reusing Ink across turns).
+        this.currentInkAbortController = abortController ?? null;
+        this.currentInkOnCancel = onCancel ?? null;
+
+        if (this.inkRenderer?.isRunning()) {
+          // Reuse existing InkRenderer — just transition back to working state.
+          // This avoids the composer disappear/reappear flicker between turns.
+          this.inkRenderer.setWorking(true, 'Gathering context...');
+          this.runtime.inkRenderer = this.inkRenderer;
+          return;
+        }
+
         // Create and start InkRenderer (only in TTY mode)
         this.inkRenderer = createInkRenderer({
           onInstruction: (text: string) => { void this.handleInkSubmittedInstruction(text); },
           onEscape: () => {
-            // ESC cancels the current operation
-            if (abortController && !abortController.signal.aborted) {
-              abortController.abort();
-              onCancel?.();
+            // ESC cancels the current operation — always use the latest abort controller
+            const ctrl = this.currentInkAbortController;
+            if (ctrl && !ctrl.signal.aborted) {
+              ctrl.abort();
+              this.currentInkOnCancel?.();
             }
           },
           onCtrlC: () => {
@@ -4704,19 +4803,29 @@ If lint or tests fail, report the issues but do NOT commit.`;
   /**
    * Clean up the UI completely.
    * Preserves any queued instructions from InkRenderer before stopping.
+   * When `keepInkAlive` is true, the Ink renderer is transitioned to idle
+   * instead of being destroyed, preventing the composer disappear/reappear
+   * flicker between back-to-back turns.
    */
-  private cleanupUI(): void {
+  private cleanupUI(keepInkAlive = false): void {
     if (this.inkRenderer) {
-      // Preserve queued instructions before stopping
-      while (this.inkRenderer.hasQueuedInstructions()) {
-        const instruction = this.inkRenderer.dequeueInstruction();
-        if (instruction) {
-          this.pendingInkInstructions.push(instruction);
+      if (keepInkAlive) {
+        // Transition to idle state instead of destroying Ink.
+        // Queued instructions stay in Ink so runInteractiveLoop can dequeue
+        // directly on the next iteration without a full unmount/remount cycle.
+        this.inkRenderer.setWorking(false);
+      } else {
+        // Preserve queued instructions before stopping
+        while (this.inkRenderer.hasQueuedInstructions()) {
+          const instruction = this.inkRenderer.dequeueInstruction();
+          if (instruction) {
+            this.pendingInkInstructions.push(instruction);
+          }
         }
+        this.inkRenderer.stop();
+        this.inkRenderer = null;
+        this.runtime.inkRenderer = undefined;
       }
-      this.inkRenderer.stop();
-      this.inkRenderer = null;
-      this.runtime.inkRenderer = undefined;
     }
     if (this.runtime.spinner) {
       this.runtime.spinner.stop();
@@ -6481,6 +6590,41 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
 
     return decision;
+  }
+
+  /**
+   * Request access to a directory outside the workspace.
+   * In RPC mode, sends a notification to the client for user approval.
+   * In interactive mode, shows a modal prompt.
+   */
+  private directoryAccessCallback?: (path: string, reason?: string) => Promise<string | undefined>;
+
+  setDirectoryAccessCallback(callback: (path: string, reason?: string) => Promise<string | undefined>): void {
+    this.directoryAccessCallback = callback;
+  }
+
+  private async requestDirectoryAccess(dirPath: string, reason?: string): Promise<string | undefined> {
+    // In yolo/yes/unrestricted mode, auto-grant
+    const normalizedYolo = normalizeYoloInput(this.runtime.options.yolo as string | boolean | undefined);
+    if (normalizedYolo || this.runtime.options.yes || this.runtime.options.unrestricted) {
+      return dirPath;
+    }
+
+    // Use callback if set (e.g., RPC mode)
+    if (this.directoryAccessCallback) {
+      return this.directoryAccessCallback(dirPath, reason);
+    }
+
+    // Interactive mode - show modal prompt via Ink
+    if (this.useInkRenderer && this.inkRenderer) {
+      return this.withModalPause(async () => {
+        const result = await showDirectoryAccessModal({ path: dirPath, reason });
+        return result ? dirPath : undefined;
+      });
+    }
+
+    // Fallback - no callback and no Ink renderer
+    return undefined;
   }
 
   /**

@@ -21,6 +21,7 @@ import type {
   JsonRpcId,
   RpcMessage,
   PendingPermission,
+  PendingDirectoryAccess,
   PromptParams,
   PromptResult,
   AbortResult,
@@ -171,6 +172,7 @@ export class RPCAdapter {
   private currentMessageId: string | null = null;
   private currentMessageContent = '';
   private pendingPermissions = new Map<string, PendingPermission>();
+  private pendingDirectoryAccess = new Map<string, PendingDirectoryAccess>();
   private abortController: AbortController | null = null;
   private status: 'idle' | 'processing' | 'waiting_permission' = 'idle';
   private model = '';
@@ -908,6 +910,109 @@ export class RPCAdapter {
 
     process.stderr.write(`[RPC] Permission acknowledged for ${permRequestId}\n`);
     return { success: true };
+  }
+
+  /**
+   * Request directory access from client (called from agent's requestDirectoryAccess)
+   * Uses two-phase timeout similar to permission requests:
+   * - Phase 1: 30s to receive acknowledgment from extension
+   * - Phase 2: 1 hour for user to respond after ack received
+   */
+  async requestDirectoryAccess(
+    dirPath: string,
+    reason?: string
+  ): Promise<string | undefined> {
+    const requestId = generateId('dir');
+    this.status = 'waiting_permission';
+    process.stderr.write(`[RPC] requestDirectoryAccess: path=${dirPath}, requestId=${requestId}\n`);
+
+    writeNotification(RPC_NOTIFICATIONS.DIRECTORY_ACCESS_REQUEST, {
+      requestId,
+      path: dirPath,
+      reason,
+      timestamp: createTimestamp(),
+    });
+
+    return new Promise((resolve, reject) => {
+      // Phase 1: Wait for acknowledgment (30s)
+      const ackTimeout = setTimeout(() => {
+        this.pendingDirectoryAccess.delete(requestId);
+        this.status = 'processing';
+        process.stderr.write(`[RPC] Directory access ack timeout for ${requestId}\n`);
+        resolve(undefined); // Deny - extension not responding
+      }, 30000); // 30 second acknowledgment timeout
+
+      this.pendingDirectoryAccess.set(requestId, {
+        requestId,
+        path: dirPath,
+        resolve,
+        reject,
+        ackTimeout,
+        responseTimeout: null,
+        acknowledged: false,
+      });
+    });
+  }
+
+  /**
+   * Handle acknowledgment from client that directory access UI is shown
+   */
+  handleDirectoryAccessAcknowledged(requestId: string): { success: boolean } {
+    const pending = this.pendingDirectoryAccess.get(requestId);
+    if (!pending) {
+      process.stderr.write(`[RPC] Directory access ack for unknown request ${requestId}\n`);
+      return { success: false };
+    }
+
+    if (pending.acknowledged) {
+      return { success: true }; // Already acknowledged
+    }
+
+    // Got acknowledgment - extension is alive and showing UI
+    if (pending.ackTimeout) {
+      clearTimeout(pending.ackTimeout);
+      pending.ackTimeout = null;
+    }
+    pending.acknowledged = true;
+
+    // Set a very long timeout for user response (1 hour)
+    pending.responseTimeout = setTimeout(() => {
+      this.pendingDirectoryAccess.delete(requestId);
+      this.status = 'processing';
+      process.stderr.write(`[RPC] Directory access response timeout for ${requestId} (1 hour)\n`);
+      pending.resolve(undefined);
+    }, 3600000); // 1 hour
+
+    process.stderr.write(`[RPC] Directory access acknowledged for ${requestId}\n`);
+    return { success: true };
+  }
+
+  /**
+   * Handle directory access response from client
+   */
+  handleDirectoryAccessResponse(
+    requestId: string,
+    granted: boolean
+  ): { success: boolean } {
+    process.stderr.write(`[RPC] handleDirectoryAccessResponse: requestId=${requestId}, granted=${granted}\n`);
+    const pending = this.pendingDirectoryAccess.get(requestId);
+    if (pending) {
+      // Clear both timeouts
+      if (pending.ackTimeout) {
+        clearTimeout(pending.ackTimeout);
+      }
+      if (pending.responseTimeout) {
+        clearTimeout(pending.responseTimeout);
+      }
+      this.pendingDirectoryAccess.delete(requestId);
+      pending.resolve(granted ? pending.path : undefined);
+      this.status = 'processing';
+      process.stderr.write(`[RPC] Directory access resolved, status set to processing\n`);
+      return { success: true };
+    }
+
+    process.stderr.write(`[RPC] Directory access response for unknown request ${requestId}\n`);
+    return { success: false };
   }
 
   /**

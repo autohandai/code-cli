@@ -19,10 +19,8 @@ describe('YOLO Mode', () => {
   // parseYoloPattern
   // ========================================================================
   describe('parseYoloPattern', () => {
-    it('uses file-tool defaults for bare --yolo mode', () => {
-      expect(getDefaultYoloPattern()).toBe(
-        'allow:read_file,write_file,multi_file_edit,list_dir,file_search,grep_search,move_path,copy_path,run_command,shell'
-      );
+    it('uses allow-all wildcard for bare --yolo mode', () => {
+      expect(getDefaultYoloPattern()).toBe('allow:*');
       expect(normalizeYoloInput(true)).toBe(getDefaultYoloPattern());
     });
 
@@ -102,15 +100,12 @@ describe('YOLO Mode', () => {
   });
 
   describe('buildPermissionSettingsFromYolo', () => {
-    it('maps bare file-tool allowlists to allPathsAllowed', () => {
+    it('maps bare --yolo to unrestricted permission mode', () => {
       const settings = buildPermissionSettingsFromYolo(
         parseYoloPattern(getDefaultYoloPattern())
       );
 
-      expect(settings.allPathsAllowed).toBe(true);
-      expect(settings.allowPatterns).toEqual(
-        expect.arrayContaining([{ kind: 'read_file' }, { kind: 'write_file' }, { kind: 'multi_file_edit' }])
-      );
+      expect(settings).toEqual({ mode: 'unrestricted' });
     });
 
     it('maps allow:* to unrestricted permission mode', () => {

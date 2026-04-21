@@ -4,8 +4,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import sharp from 'sharp';
 import type { ImageMimeType } from '../core/ImageManager.js';
+
+type SharpMetadata = Awaited<ReturnType<ReturnType<typeof import('sharp')>['metadata']>>;
+
+let sharpConstructor: typeof import('sharp') | undefined;
+
+async function getSharp(): Promise<typeof import('sharp')> {
+  if (!sharpConstructor) {
+    const mod = await import('sharp');
+    sharpConstructor = (mod as unknown as { default: typeof import('sharp') }).default;
+  }
+  return sharpConstructor;
+}
 
 /**
  * Maximum raw byte size before compression kicks in.
@@ -98,8 +109,10 @@ export async function compressImage(
   }
 
   try {
+    const sharp = await getSharp();
+
     // Validate input early — sharp throws for corrupt data
-    let probeMetadata: sharp.Metadata;
+    let probeMetadata: SharpMetadata;
     try {
       probeMetadata = await sharp(data).metadata();
     } catch {
@@ -197,6 +210,8 @@ async function tryCompressWithoutResize(
   data: Buffer,
   format: string | undefined,
 ): Promise<{ compressedData: Buffer; mimeType: ImageMimeType } | null> {
+  const sharp = await getSharp();
+
   // PNG: try palette optimization
   if (format === 'png') {
     const pngBuf = await sharp(data)
@@ -242,6 +257,8 @@ export async function compressImageBuffer(
   if (imageBuffer.length === 0) {
     throw new Error('Image buffer is empty');
   }
+
+  const sharp = await getSharp();
 
   const fallbackFormat = (originalMediaType?.split('/')[1] || 'jpeg').replace('jpg', 'jpeg');
   const metadata = await sharp(imageBuffer).metadata();

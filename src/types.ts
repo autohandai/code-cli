@@ -495,7 +495,9 @@ export type HookEvent =
   | 'review:end'
   | 'review:paused'
   | 'review:failed'
-  | 'review:completed';
+  | 'review:completed'
+  // Mode events
+  | 'mode-change';       // Permission mode changed (unrestricted, yolo, etc.)
 
 /** Filter to limit when a hook fires */
 export interface HookFilter {

@@ -345,6 +345,18 @@ program
     if (opts.setup) {
       const config = await loadConfig(opts.config, process.cwd());
       const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
+
+      const workspacePathValidation = await validateWorkspacePath(workspaceRoot);
+      if (!workspacePathValidation.valid) {
+        console.error(chalk.red(`Error: ${workspacePathValidation.error}`));
+        process.exit(1);
+      }
+      const safetyCheck = checkWorkspaceSafety(workspaceRoot);
+      if (!safetyCheck.safe) {
+        printDangerousWorkspaceWarning(workspaceRoot, safetyCheck);
+        process.exit(1);
+      }
+
       const wizard = new SetupWizard(workspaceRoot, config);
       const result = await wizard.run({ skipWelcome: false });
 
@@ -359,6 +371,24 @@ program
         console.log(chalk.green('\nSetup complete! Run `autohand` to start.'));
       }
       process.exit(0);
+    }
+
+    // ── Workspace safety gate ──
+    // Check workspace is safe BEFORE requiring authentication so users
+    // running from home/system directories get the warning first.
+    {
+      const preAuthConfig = await loadConfig(opts.config, process.cwd());
+      const workspaceRoot = resolveWorkspaceRoot(preAuthConfig, opts.path);
+      const workspacePathValidation = await validateWorkspacePath(workspaceRoot);
+      if (!workspacePathValidation.valid) {
+        console.error(chalk.red(`Error: ${workspacePathValidation.error}`));
+        process.exit(1);
+      }
+      const safetyCheck = checkWorkspaceSafety(workspaceRoot);
+      if (!safetyCheck.safe) {
+        printDangerousWorkspaceWarning(workspaceRoot, safetyCheck);
+        process.exit(1);
+      }
     }
 
     // ── Mandatory authentication gate ──

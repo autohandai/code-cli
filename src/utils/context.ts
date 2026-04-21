@@ -59,33 +59,70 @@ export function getSafeContextWindow(model: string): number {
 }
 
 /**
- * Estimate tokens for a text string
- * Uses character count / 3 as a rough approximation.
- * The chars/4 ratio is only accurate for pure English prose; code, JSON
- * schemas, and non-English text average closer to 3 chars/token.
- * A more conservative estimate prevents context overflow 400 errors.
+ * Determine the model family from a model identifier.
+ * Used to pick the right token-estimation heuristic.
  */
-export function estimateTokens(text: string): number {
+export function getModelFamily(model: string): string {
+  const normalized = model.toLowerCase();
+  if (normalized.includes('claude')) return 'claude';
+  if (normalized.includes('gpt-4') || normalized.includes('o1') || normalized.includes('o3')) return 'openai';
+  if (normalized.includes('gemini')) return 'gemini';
+  if (normalized.includes('deepseek')) return 'deepseek';
+  return 'default';
+}
+
+/**
+ * Estimate tokens for a text string.
+ *
+ * Uses character-count heuristics tuned per model family:
+ * - OpenAI (GPT-4, o1, o3): ~4 chars/token for English, ~2.5 for code/JSON
+ * - Claude: ~3.5 chars/token for English, ~2.5 for code/JSON
+ * - Gemini: ~4 chars/token
+ * - DeepSeek: ~3 chars/token
+ *
+ * The old uniform chars/3 was conservative for prose but often 30-50% off
+ * for code and JSON schemas, causing surprise context-overflow 400s.
+ */
+export function estimateTokens(text: string, modelFamily?: string): number {
   if (!text) return 0;
-  return Math.ceil(text.length / 3);
+
+  // Detect code-like content (JSON schemas, stack traces, source code).
+  // Require multiple structural characters to avoid false positives from
+  // prose punctuation like "Task: do something" or "Note - see below".
+  const codeLikeChars = text.match(/[{}[\]":\\]/g)?.length ?? 0;
+  const codeLikeRatio =
+    text.length > 200 && codeLikeChars >= 4
+      ? 0.65  // code/JSON is denser
+      : 1.0;
+
+  const baseRatio: Record<string, number> = {
+    openai: 4,
+    claude: 3.5,
+    gemini: 4,
+    deepseek: 3,
+    default: 3.5,
+  };
+
+  const ratio = (baseRatio[modelFamily ?? 'default'] ?? 3.5) * codeLikeRatio;
+  return Math.ceil(text.length / ratio);
 }
 
 /**
  * Estimate tokens for a single message including role overhead
  */
-export function estimateMessageTokens(message: LLMMessage): number {
+export function estimateMessageTokens(message: LLMMessage, modelFamily?: string): number {
   // Base overhead for message structure (role, separators, etc.)
   const structureOverhead = 10;
 
   let tokens = structureOverhead;
-  tokens += estimateTokens(message.content ?? "");
+  tokens += estimateTokens(message.content ?? '', modelFamily);
 
   // Add tokens for tool calls if present
   if (message.tool_calls) {
     for (const call of message.tool_calls) {
       tokens += 5; // ID and type overhead
-      tokens += estimateTokens(call.function.name);
-      tokens += estimateTokens(call.function.arguments);
+      tokens += estimateTokens(call.function.name, modelFamily);
+      tokens += estimateTokens(call.function.arguments, modelFamily);
     }
   }
 
@@ -95,9 +132,9 @@ export function estimateMessageTokens(message: LLMMessage): number {
 /**
  * Estimate tokens for all messages in conversation
  */
-export function estimateMessagesTokens(messages: LLMMessage[]): number {
+export function estimateMessagesTokens(messages: LLMMessage[], modelFamily?: string): number {
   return messages.reduce(
-    (acc, message) => acc + estimateMessageTokens(message),
+    (acc, message) => acc + estimateMessageTokens(message, modelFamily),
     0,
   );
 }
@@ -106,23 +143,24 @@ export function estimateMessagesTokens(messages: LLMMessage[]): number {
  * Estimate tokens for tool definitions
  * This is critical - tool definitions add significant overhead
  */
-export function estimateToolsTokens(tools: FunctionDefinition[]): number {
+export function estimateToolsTokens(tools: FunctionDefinition[], modelFamily?: string): number {
   if (!tools || tools.length === 0) return 0;
 
   let tokens = 0;
   for (const tool of tools) {
     // Name and description
-    tokens += estimateTokens(tool.name);
-    tokens += estimateTokens(tool.description);
+    tokens += estimateTokens(tool.name, modelFamily);
+    tokens += estimateTokens(tool.description, modelFamily);
 
     // Parameters schema - serialize and estimate
     if (tool.parameters) {
       const paramJson = JSON.stringify(tool.parameters);
-      tokens += estimateTokens(paramJson);
+      tokens += estimateTokens(paramJson, modelFamily);
     }
 
     // Overhead per tool (type: function wrapper, structure)
-    tokens += 15;
+    // Real overhead is 30-50 tokens for complex schemas, not 15
+    tokens += 35;
   }
 
   return tokens;
@@ -165,12 +203,15 @@ export function calculateContextUsage(
   model: string,
   outputBudget = 16000,
 ): ContextUsage {
-  const messagesTokens = estimateMessagesTokens(messages);
-  const toolsTokens = estimateToolsTokens(tools);
+  const modelFamily = getModelFamily(model);
+  const messagesTokens = estimateMessagesTokens(messages, modelFamily);
+  const toolsTokens = estimateToolsTokens(tools, modelFamily);
   const totalTokens = messagesTokens + toolsTokens;
 
   const contextWindow = getContextWindow(model);
-  const effectiveWindow = contextWindow - outputBudget; // Reserve for output
+  // Cap output budget so small models don't end up with negative effective windows
+  const cappedOutputBudget = Math.min(outputBudget, Math.floor(contextWindow * 0.25));
+  const effectiveWindow = contextWindow - cappedOutputBudget; // Reserve for output
   const safeWindow = Math.floor(effectiveWindow * SAFETY_MARGIN);
   const usagePercent = totalTokens / effectiveWindow;
 

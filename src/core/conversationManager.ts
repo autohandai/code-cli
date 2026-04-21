@@ -100,9 +100,33 @@ export class ConversationManager {
     return this.removeIndices(toRemove);
   }
 
-  addSystemNote(content: string): void {
+  replaceMessage(index: number, message: LLMMessage): void {
+    if (!this.initialized) {
+      throw new Error('ConversationManager must be initialized before replacing messages.');
+    }
+    if (index >= 0 && index < this.messages.length) {
+      this.messages[index] = message;
+    }
+  }
+
+  /**
+   * Add a system note to the conversation.
+   * If `replaceKey` is provided, replaces an existing system note containing
+   * that key instead of appending. This prevents accumulation of old context
+   * summary notes that never get cleaned up.
+   */
+  addSystemNote(content: string, replaceKey?: string): void {
     if (!this.initialized) {
       throw new Error('ConversationManager must be initialized before adding summaries.');
+    }
+    if (replaceKey) {
+      const idx = this.messages.findIndex(
+        (m) => m.role === 'system' && m.content?.includes(replaceKey)
+      );
+      if (idx >= 0) {
+        this.messages[idx] = { role: 'system', content };
+        return;
+      }
     }
     this.messages.push({ role: 'system', content });
   }
