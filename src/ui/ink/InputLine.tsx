@@ -3,31 +3,18 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { memo, useEffect, useRef, useMemo } from 'react';
+import React, { memo, useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
 import { buildMultiLineRenderState } from '../inputPrompt.js';
 import { stripAnsiCodes } from '../displayUtils.js';
 import { getContentDisplay } from '../displayUtils.js';
-import { CURSOR, moveTo } from '../cursorPositioning.js';
 
 function drawInkBorder(width: number, position: 'top' | 'bottom'): string {
   const innerWidth = Math.max(0, width - 2);
   return position === 'top'
     ? `┌${'─'.repeat(innerWidth)}┐`
     : `└${'─'.repeat(innerWidth)}┘`;
-}
-
-/**
- * Calculate the screen row for the input box.
- * This estimates where the input appears on screen for IME cursor positioning.
- */
-function estimateInputRow(lineCount: number): number {
-  const terminalHeight = process.stdout.rows || 24;
-  // Input box: top border + content lines + bottom border
-  // Plus margin (1) and status line above
-  const inputBoxHeight = 2 + lineCount; // borders + content
-  return Math.max(1, terminalHeight - inputBoxHeight - 1);
 }
 
 export interface InputLineProps {
@@ -40,13 +27,13 @@ export interface InputLineProps {
 
 function InputLineComponent({ value, cursorOffset, isActive, width }: InputLineProps) {
   const { colors } = useTheme();
-  
+
   // Memoize borders - only recalculate when width changes
   const borders = useMemo(() => ({
     top: drawInkBorder(width, 'top'),
     bottom: drawInkBorder(width, 'bottom'),
   }), [width]);
-  
+
   // Memoize display value processing
   const displayData = useMemo(() => {
     const displayValue = getContentDisplay(value).visual;
@@ -62,33 +49,6 @@ function InputLineComponent({ value, cursorOffset, isActive, width }: InputLineP
       cursorColumn,
     };
   }, [value, cursorOffset, width]);
-  
-  // Track last cursor position to avoid unnecessary updates
-  const lastCursorRef = useRef<{ row: number; col: number } | null>(null);
-
-  // Position hardware cursor for IME support immediately after render.
-  // With stdout synchronized-output patching (InkRenderer), this write
-  // is batched atomically with Ink's frame output, eliminating cursor flicker.
-  useEffect(() => {
-    if (!isActive) {
-      return;
-    }
-
-    // Calculate the screen position of the cursor
-    const inputStartRow = estimateInputRow(displayData.plainLines.length);
-    const row = inputStartRow + 1 + displayData.cursorRow;
-    const col = displayData.cursorColumn + 1;
-
-    // Only update if position changed — prevents redundant writes during
-    // re-renders where only unrelated props changed.
-    if (
-      lastCursorRef.current?.row !== row ||
-      lastCursorRef.current?.col !== col
-    ) {
-      lastCursorRef.current = { row, col };
-      process.stdout.write(moveTo(row, col) + CURSOR.SHOW);
-    }
-  }, [isActive, displayData.cursorRow, displayData.cursorColumn, displayData.plainLines.length]);
 
   // Keep space stable when queue input is inactive.
   if (!isActive) {
