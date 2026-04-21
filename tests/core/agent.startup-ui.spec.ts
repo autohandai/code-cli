@@ -60,7 +60,7 @@ describe('agent startup and active input UI', () => {
     agent.runtime = {
       options: {
         yes: true,
-        unrestricted: true,
+        unrestricted: false,
         restricted: false,
       },
     };
@@ -76,6 +76,54 @@ describe('agent startup and active input UI', () => {
     expect(agent.runtime.options.unrestricted).toBe(false);
     expect(agent.runtime.options.restricted).toBe(false);
     expect(agent.permissionManager.setMode).toHaveBeenCalledWith('interactive');
+  });
+
+  it('syncInteractiveAutomodePermissions respects --unrestricted CLI flag', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+
+    agent.runtime = {
+      options: {
+        yes: false,
+        unrestricted: true,
+        restricted: false,
+      },
+    };
+    agent.permissionManager = {
+      setMode: vi.fn(),
+    };
+    agent.basePermissionMode = 'interactive';
+    agent.interactiveAutomodeEnabled = false;
+
+    (agent as any).syncInteractiveAutomodePermissions();
+
+    expect(agent.runtime.options.yes).toBe(true);
+    expect(agent.runtime.options.unrestricted).toBe(true);
+    expect(agent.runtime.options.restricted).toBe(false);
+    expect(agent.permissionManager.setMode).toHaveBeenCalledWith('unrestricted');
+  });
+
+  it('syncInteractiveAutomodePermissions respects --restricted CLI flag', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+
+    agent.runtime = {
+      options: {
+        yes: true,
+        unrestricted: true,
+        restricted: true,
+      },
+    };
+    agent.permissionManager = {
+      setMode: vi.fn(),
+    };
+    agent.basePermissionMode = 'unrestricted';
+    agent.interactiveAutomodeEnabled = false;
+
+    (agent as any).syncInteractiveAutomodePermissions();
+
+    expect(agent.runtime.options.yes).toBe(false);
+    expect(agent.runtime.options.unrestricted).toBe(false);
+    expect(agent.runtime.options.restricted).toBe(true);
+    expect(agent.permissionManager.setMode).toHaveBeenCalledWith('restricted');
   });
 
   it('resolveWorkspacePath allows absolute paths inside additional directories', () => {

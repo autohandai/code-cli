@@ -3319,6 +3319,52 @@ describe('ActionExecutor', () => {
       expect(addAdditionalDirectory).toHaveBeenCalled();
     });
 
+    it('auto-grants access in unrestricted mode', async () => {
+      const addAdditionalDirectory = vi.fn();
+      const executor = createExecutor({
+        getAllowedDirectories: vi.fn().mockReturnValue(['/repo']),
+        addAdditionalDirectory,
+      }, {
+        runtime: {
+          options: { unrestricted: true }
+        }
+      });
+
+      mockPathExists.mockResolvedValue(true);
+      mockStat.mockResolvedValue({ isDirectory: () => true } as any);
+
+      const result = await executor.execute({
+        type: 'request_directory_access',
+        path: '/external/path'
+      });
+
+      expect(result).toContain('auto-granted');
+      expect(addAdditionalDirectory).toHaveBeenCalled();
+    });
+
+    it('auto-grants access in yes mode (auto-mode)', async () => {
+      const addAdditionalDirectory = vi.fn();
+      const executor = createExecutor({
+        getAllowedDirectories: vi.fn().mockReturnValue(['/repo']),
+        addAdditionalDirectory,
+      }, {
+        runtime: {
+          options: { yes: true }
+        }
+      });
+
+      mockPathExists.mockResolvedValue(true);
+      mockStat.mockResolvedValue({ isDirectory: () => true } as any);
+
+      const result = await executor.execute({
+        type: 'request_directory_access',
+        path: '/external/path'
+      });
+
+      expect(result).toContain('auto-granted');
+      expect(addAdditionalDirectory).toHaveBeenCalled();
+    });
+
     it('uses callback when available in interactive mode', async () => {
       const addAdditionalDirectory = vi.fn();
       const onRequestDirectoryAccess = vi.fn().mockResolvedValue('/external/path');

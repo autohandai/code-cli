@@ -439,7 +439,14 @@ export function AgentUI({
         return;
       }
 
-      // Input is empty - handle exit flow
+      // Input is empty - check if LLM is running
+      if (isWorkingRef.current) {
+        // LLM is running - cancel the current operation (like ESC)
+        onEscapeRef.current();
+        return;
+      }
+
+      // LLM is not running - handle exit flow
       // Use functional update to avoid dependency on ctrlCCount
       setCtrlCCount(prev => {
         if (prev === 0) {
