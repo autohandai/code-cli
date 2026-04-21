@@ -28,6 +28,8 @@ const DEFAULT_YOLO_FILE_TOOLS = [
   'grep_search',
   'move_path',
   'copy_path',
+  'run_command',
+  'shell',
 ];
 
 export function getDefaultYoloPattern(): string {
