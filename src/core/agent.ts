@@ -5678,18 +5678,18 @@ If lint or tests fail, report the issues but do NOT commit.`;
       return;
     }
 
-    // CLI flags override config file settings
-    if (this.runtime.options.unrestricted) {
-      this.runtime.options.yes = true;
-      this.runtime.options.restricted = false;
-      this.permissionManager.setMode('unrestricted');
-      return;
-    }
-
+    // CLI flags override config file settings (restricted takes precedence for safety)
     if (this.runtime.options.restricted) {
       this.runtime.options.yes = false;
       this.runtime.options.unrestricted = false;
       this.permissionManager.setMode('restricted');
+      return;
+    }
+
+    if (this.runtime.options.unrestricted) {
+      this.runtime.options.yes = true;
+      this.runtime.options.restricted = false;
+      this.permissionManager.setMode('unrestricted');
       return;
     }
 

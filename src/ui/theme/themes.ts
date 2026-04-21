@@ -49,7 +49,7 @@ export const darkTheme: ThemeDefinition = {
     dim: 'gray200',
     text: 'gray200',
     // Backgrounds & Content
-    userMessageBg: 'gray600',
+    userMessageBg: 'gray500',
     userMessageText: 'gray100',
     toolPendingBg: 'bgLight',
     toolSuccessBg: '#1b3d1b',
