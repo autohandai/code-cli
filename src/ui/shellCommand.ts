@@ -359,6 +359,7 @@ export function parseShellCommand(input: string): string {
 /**
  * Check if the input is a command that should execute immediately (not queued).
  * Shell commands (! prefix) and slash commands (/ prefix) bypass the queue.
+ * File paths starting with / (e.g., /var/folders/.../Screenshot.png) are NOT commands.
  */
 export function isImmediateCommand(input: string): boolean {
   const trimmed = input.trim();
@@ -368,9 +369,23 @@ export function isImmediateCommand(input: string): boolean {
   if (isShellCommand(trimmed)) return true;
 
   // Slash commands: / followed by at least one non-space character
+  // BUT: exclude file paths like /var/folders/... or /Users/...
   if (trimmed.startsWith('/')) {
     const command = trimmed.slice(1).trim();
-    return command.length > 0;
+    if (command.length === 0) return false;
+    
+    // Check if this looks like a file path (has nested slashes or common path prefixes)
+    // File paths like /var/folders/... or /Users/... should NOT be treated as commands
+    const firstToken = trimmed.split(/\s+/, 1)[0] ?? '';
+    const hasNestedSlashes = (firstToken.match(/\//g) || []).length > 1;
+    const isCommonPathPrefix = /^\/(?:Users|home|tmp|var|opt|etc|usr)\//i.test(firstToken);
+    const looksLikeFile = /\.[a-z0-9]{1,5}$/i.test(firstToken);
+    
+    if (hasNestedSlashes || isCommonPathPrefix || looksLikeFile) {
+      return false; // Looks like a file path, not a command
+    }
+    
+    return true;
   }
 
   return false;

@@ -39,6 +39,7 @@ import type {
 import { PROTOCOL_VERSION, RequestError } from '@agentclientprotocol/sdk';
 
 import { AutohandAgent } from '../../core/agent.js';
+import { isLikelyFilePathSlashInput } from '../../core/slashInputDetection.js';
 import { ConversationManager } from '../../core/conversationManager.js';
 import { FileActionManager } from '../../actions/filesystem.js';
 import { ProviderFactory } from '../../providers/ProviderFactory.js';
@@ -513,8 +514,9 @@ export class AutohandAcpAdapter implements Agent {
     }
 
     // Check if it's a slash command
+    // BUT: exclude file paths like /var/folders/... or /Users/...
     const trimmed = instruction.trim();
-    if (trimmed.startsWith('/')) {
+    if (trimmed.startsWith('/') && !isLikelyFilePathSlashInput(trimmed)) {
       // Use parseSlashCommand to handle two-word commands ("/mcp install", "/skills new")
       // and preserve the "/" prefix required by the handler.
       const { command, args } = agent.parseSlashCommand(trimmed);

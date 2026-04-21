@@ -567,6 +567,9 @@ export class TextBuffer {
    * Updates viewport dimensions and marks the layout for recomputation.
    */
   setViewport(width: number, height: number): void {
+    if (this.viewportWidth === width && this.viewportHeight === height) {
+      return;
+    }
     this.viewportWidth = width;
     this.viewportHeight = height;
     this.layoutDirty = true;

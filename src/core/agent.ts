@@ -1007,7 +1007,7 @@ export class AutohandAgent {
           .catch((error: Error) => {
             routeOutput(chalk.red(error.message || 'Command failed'), routeOpts);
           });
-      } else if (text.startsWith('/')) {
+      } else if (text.startsWith('/') && !isLikelyFilePathSlashInput(text)) {
         const { command, args } = this.parseSlashCommand(text);
         this.handleSlashCommand(command, args)
           .then((handled) => {
@@ -5007,7 +5007,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
             .catch((error: Error) => {
               routeOutput(chalk.red(error.message || 'Command failed'), routeOpts);
             });
-        } else if (text.startsWith('/')) {
+        } else if (text.startsWith('/') && !isLikelyFilePathSlashInput(text)) {
           const { command, args } = this.parseSlashCommand(text);
           this.handleSlashCommand(command, args)
             .then((handled) => {
