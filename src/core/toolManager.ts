@@ -208,46 +208,6 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
-    name: 'search',
-    description: 'Legacy alias for `find` in exact mode. Prefer `find` for new tool calls.',
-    parameters: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'Text to search for' },
-        path: { type: 'string', description: 'Optional relative path to search in' }
-      },
-      required: ['query']
-    }
-  },
-  {
-    name: 'search_with_context',
-    description: 'Legacy alias for `find` with context. Prefer `find` with the `context` argument for new tool calls.',
-    parameters: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'Text to search for' },
-        path: { type: 'string', description: 'Optional relative path to search in' },
-        context: { type: 'number', description: 'Number of context lines (default 2)' },
-        limit: { type: 'number', description: 'Maximum results (default 10)' }
-      },
-      required: ['query']
-    }
-  },
-  {
-    name: 'semantic_search',
-    description: 'Legacy alias for `find` in semantic mode. Prefer `find` with `mode: "semantic"` for new tool calls.',
-    parameters: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'Text to search for' },
-        path: { type: 'string', description: 'Optional relative path to search in' },
-        limit: { type: 'number', description: 'Maximum results (default 5)' },
-        window: { type: 'number', description: 'Context window size (default 400)' }
-      },
-      required: ['query']
-    }
-  },
-  {
     name: 'glob',
     description: 'Fast cross-platform file pattern matching powered by ripgrep. Returns file paths matching glob patterns. Use for finding files by extension, name pattern, or directory structure. Much faster than find for large repos.',
     parameters: {

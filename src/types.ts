@@ -916,7 +916,6 @@ export type AgentAction =
       window?: number;
       mode?: 'auto' | 'exact' | 'context' | 'semantic';
     }
-  | { type: 'search'; query: string; path?: string }
   | { type: 'create_directory'; path: string }
   | { type: 'delete_path'; path: string }
   | { type: 'rename_path'; from: string; to: string }
@@ -938,8 +937,6 @@ export type AgentAction =
   | { type: 'add_dependency'; name: string; version: string; dev?: boolean }
   | { type: 'remove_dependency'; name: string; dev?: boolean }
   | { type: 'format_file'; path: string; formatter: string }
-  | { type: 'search_with_context'; query: string; limit?: number; context?: number; path?: string }
-  | { type: 'semantic_search'; query: string; limit?: number; window?: number; path?: string }
   | { type: 'glob'; pattern?: string; patterns?: string[]; path?: string; limit?: number }
   | { type: 'list_tree'; path?: string; depth?: number }
   | { type: 'file_stats'; path: string }

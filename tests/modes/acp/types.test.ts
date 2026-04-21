@@ -53,10 +53,8 @@ describe("TOOL_KIND_MAP", () => {
 
   it('contains expected search tools with ToolKind "search"', () => {
     expect(TOOL_KIND_MAP["find"]).toBe("search");
-    expect(TOOL_KIND_MAP["search"]).toBe("search");
-    expect(TOOL_KIND_MAP["search_files"]).toBe("search");
-    expect(TOOL_KIND_MAP["search_with_context"]).toBe("search");
-    expect(TOOL_KIND_MAP["semantic_search"]).toBe("search");
+    // Legacy search tools (search, search_with_context, semantic_search) have been
+    // consolidated into the unified 'find' tool with mode parameter
   });
 
   it('contains expected edit tools with ToolKind "edit"', () => {
@@ -206,7 +204,7 @@ describe("resolveToolKind()", () => {
   it("returns correct kind for known tools", () => {
     expect(resolveToolKind("read_file")).toBe("read");
     expect(resolveToolKind("find")).toBe("search");
-    expect(resolveToolKind("search")).toBe("search");
+    // Legacy 'search' tool removed - use 'find' with mode: 'exact' instead
     expect(resolveToolKind("write_file")).toBe("edit");
     expect(resolveToolKind("rename_path")).toBe("move");
     expect(resolveToolKind("delete_path")).toBe("delete");
