@@ -623,26 +623,7 @@ export class ActionExecutor {
       }
       case 'find':
         return this.executeFind(action);
-      case 'search':
-        return this.executeFind({ type: 'find', query: action.query, path: action.path, mode: 'exact' });
-      case 'search_with_context':
-        return this.executeFind({
-          type: 'find',
-          query: action.query,
-          path: action.path,
-          limit: action.limit,
-          context: action.context,
-          mode: 'context'
-        });
-      case 'semantic_search':
-        return this.executeFind({
-          type: 'find',
-          query: action.query,
-          path: action.path,
-          limit: action.limit,
-          window: action.window,
-          mode: 'semantic'
-        });
+
       case 'glob':
         return this.executeGlob(action);
       case 'create_directory': {

@@ -50,7 +50,7 @@ describe('formatToolOutputForDisplay', () => {
   it('truncates search output', () => {
     const content = 'abcdefghij';
     const result = formatToolOutputForDisplay({
-      tool: 'search',
+      tool: 'find',
       content,
       charLimit: 4
     });

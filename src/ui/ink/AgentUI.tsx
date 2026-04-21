@@ -427,7 +427,7 @@ export function AgentUI({
       return;
     }
 
-    // Handle Ctrl+C - clear input if non-empty, otherwise warn then exit
+    // Handle Ctrl+C - clear input if non-empty, cancel LLM if running, otherwise warn then exit
     if (key.ctrl && char === 'c') {
       const currentInput = textBufferRef.current.getText();
 
