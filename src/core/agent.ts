@@ -6245,12 +6245,14 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private printUserInstructionToChatLog(instruction: string): void {
-    if (this.useInkRenderer) {
+    const normalized = instruction.replace(/\r\n/g, '\n').trim();
+    if (!normalized) {
       return;
     }
 
-    const normalized = instruction.replace(/\r\n/g, '\n').trim();
-    if (!normalized) {
+    // Use InkRenderer if available
+    if (this.useInkRenderer && this.inkRenderer) {
+      this.inkRenderer.addUserMessage(normalized);
       return;
     }
 

@@ -287,6 +287,15 @@ export class InkRenderer {
   }
 
   /**
+   * Add a user message to the conversation display
+   */
+  addUserMessage(message: string): void {
+    this.updateState({
+      userMessages: [...this.state.userMessages, message]
+    });
+  }
+
+  /**
    * Add a tool output entry
    */
   addToolOutput(tool: string, success: boolean, output: string, thought?: string): void {

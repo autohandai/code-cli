@@ -65,11 +65,19 @@ function InputLineComponent({ value, cursorOffset, isActive, width }: InputLineP
   
   // Track last cursor position to avoid unnecessary updates
   const lastCursorRef = useRef<{ row: number; col: number } | null>(null);
+  // Track pending cursor position timer for cancellation
+  const cursorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Position hardware cursor for IME support after render
   useEffect(() => {
     if (!isActive) {
       return;
+    }
+
+    // Cancel any pending cursor positioning
+    if (cursorTimerRef.current) {
+      clearTimeout(cursorTimerRef.current);
+      cursorTimerRef.current = null;
     }
 
     // Calculate the screen position of the cursor
@@ -85,15 +93,20 @@ function InputLineComponent({ value, cursorOffset, isActive, width }: InputLineP
       lastCursorRef.current = { row, col };
     }
 
-    // Position cursor after Ink's render cycle
-    const timer = setTimeout(() => {
+    // Position cursor after Ink's render cycle with a small delay
+    // to batch rapid updates and prevent flickering
+    cursorTimerRef.current = setTimeout(() => {
+      cursorTimerRef.current = null;
       if (isActive) {
         process.stdout.write(moveTo(row, col) + CURSOR.SHOW);
       }
-    }, 0);
+    }, 16); // ~60fps, batches rapid updates
 
     return () => {
-      clearTimeout(timer);
+      if (cursorTimerRef.current) {
+        clearTimeout(cursorTimerRef.current);
+        cursorTimerRef.current = null;
+      }
     };
   }, [isActive, displayData.cursorRow, displayData.cursorColumn, displayData.plainLines.length]);
 

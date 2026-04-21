@@ -30,6 +30,8 @@ export interface AgentUIState {
   liveCommands: LiveCommandEntry[];
   thinking: string | null;
   queuedInstructions: string[];
+  /** User messages displayed in the conversation */
+  userMessages: string[];
   currentInput: string;
   finalResponse: string | null;
   /** Completion stats shown after work finishes */
@@ -196,6 +198,17 @@ export function AgentUI({
   const lastProcessedInputRef = useRef<string>('');
   // Debounce timer for image scanning
   const imageScanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  // Paste state tracking for bracketed paste mode
+  const pasteStateRef = useRef<{
+    isInPaste: boolean;
+    buffer: string;
+    hiddenContent: string | null;
+  }>({
+    isInPaste: false,
+    buffer: '',
+    hiddenContent: null,
+  });
 
   const syncInputFromBuffer = useCallback(() => {
     const buffer = textBufferRef.current;
@@ -442,12 +455,19 @@ export function AgentUI({
     const result = handleInkTextBufferInput(buffer, char, key);
 
     if (result === 'submit') {
-      const text = buffer.getText().trim();
+      const buffer = textBufferRef.current;
+      const pasteState = pasteStateRef.current;
+      
+      // Use hidden content (actual pasted text) if available, otherwise use buffer text
+      let text = pasteState.hiddenContent || buffer.getText();
+      text = text.trim();
+      
       if (!text) {
         return;
       }
       onInstruction(text);
       buffer.setText('');
+      pasteState.hiddenContent = null; // Clear paste state after submit
       syncInputFromBuffer();
       return;
     }
@@ -488,9 +508,24 @@ export function AgentUI({
       
       // Handle paste events (bracketed paste mode)
       if (info?.sequenceType === 'paste') {
-        // Paste content is in `input`
-        // The standard useInput will also receive this, but we can
-        // add special handling here if needed
+        const pasteState = pasteStateRef.current;
+        const display = getContentDisplay(input);
+        
+        if (display.isPasted) {
+          // Large paste (5+ lines): show indicator, store actual content
+          pasteState.hiddenContent = display.actual;
+          
+          // Insert the visual indicator into the buffer
+          const buffer = textBufferRef.current;
+          buffer.insert(display.visual);
+          syncInputFromBuffer();
+        } else {
+          // Small paste: insert normally
+          pasteState.hiddenContent = null;
+          const buffer = textBufferRef.current;
+          buffer.insert(input);
+          syncInputFromBuffer();
+        }
       }
     },
     isActive: state.isWorking && enableQueueInput,
@@ -538,6 +573,13 @@ export function AgentUI({
 
       {liveCommandItems.map((item) => (
         <LiveCommandBlock key={item.id} entry={item} />
+      ))}
+
+      {/* User messages - displayed with styled background */}
+      {state.userMessages.map((message, idx) => (
+        <UserMessage key={`user-${idx}`}>
+          {message}
+        </UserMessage>
       ))}
 
       {/* Static tool outputs - these never re-render once displayed */}
@@ -878,6 +920,7 @@ export function createInitialUIState(): AgentUIState {
     liveCommands: [],
     thinking: null,
     queuedInstructions: [],
+    userMessages: [],
     currentInput: '',
     finalResponse: null,
     completionStats: null,
