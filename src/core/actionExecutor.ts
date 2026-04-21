@@ -1851,12 +1851,17 @@ export class ActionExecutor {
       }
     }
 
-    // No callback - check if in yolo/auto mode
+    // No callback - check if in yolo/auto mode/unrestricted
     const normalizedYolo = normalizeYoloInput(this.runtime.options.yolo as string | boolean | undefined);
     if (normalizedYolo) {
       // In yolo mode, auto-grant access
       this.files.addAdditionalDirectory(resolvedPath);
       return `Access auto-granted (yolo mode) to directory: ${resolvedPath}\n\nYou can now use file tools (read_file, write_file, glob, find, etc.) to work with files in this directory.`;
+    }
+
+    if (this.runtime.options.unrestricted || this.runtime.options.yes) {
+      this.files.addAdditionalDirectory(resolvedPath);
+      return `Access auto-granted to directory: ${resolvedPath}\n\nYou can now use file tools (read_file, write_file, glob, find, etc.) to work with files in this directory.`;
     }
 
     // Interactive mode without callback - inform user
