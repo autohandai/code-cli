@@ -5,7 +5,7 @@
  *
  * Unit tests for paste state handling in AgentUI
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { getContentDisplay } from '../../src/ui/displayUtils.js';
 
 describe('Paste State Handling', () => {

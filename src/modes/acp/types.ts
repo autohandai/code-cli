@@ -57,10 +57,6 @@ export const TOOL_KIND_MAP: Record<string, ToolKind> = {
 
   // Search operations
   find: "search",
-  search: "search",
-  search_files: "search",
-  search_with_context: "search",
-  semantic_search: "search",
   web_search: "fetch",
   web_repo: "fetch",
 

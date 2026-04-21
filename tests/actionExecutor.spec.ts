@@ -492,27 +492,28 @@ describe('ActionExecutor', () => {
       expect(result).toContain('src/auth.ts');
     });
 
-    it('executes search and returns results', async () => {
+    it('executes find in exact mode', async () => {
       const search = vi.fn().mockReturnValue([
         { file: 'src/index.ts', line: 10, text: 'console.log("hello")' },
         { file: 'src/utils.ts', line: 5, text: 'console.log("world")' }
       ]);
       const executor = createExecutor({ search });
 
-      const result = await executor.execute({ type: 'search', query: 'console.log' } as any);
+      const result = await executor.execute({ type: 'find', query: 'console.log', mode: 'exact' } as any);
 
       expect(search).toHaveBeenCalledWith('console.log', undefined);
       expect(result).toContain('src/index.ts:10');
       expect(result).toContain('src/utils.ts:5');
     });
 
-    it('executes search_with_context', async () => {
+    it('executes find with context mode', async () => {
       const searchWithContext = vi.fn().mockReturnValue('matched context');
       const executor = createExecutor({ searchWithContext });
 
       const result = await executor.execute({
-        type: 'search_with_context',
+        type: 'find',
         query: 'function',
+        mode: 'context',
         limit: 5,
         context: 3
       } as any);
@@ -525,56 +526,19 @@ describe('ActionExecutor', () => {
       expect(result).toBe('matched context');
     });
 
-    it('executes semantic_search', async () => {
+    it('executes find in semantic mode', async () => {
       const semanticSearch = vi.fn().mockReturnValue([
         { file: 'src/auth.ts', snippet: 'login function' }
       ]);
       const executor = createExecutor({ semanticSearch });
 
       const result = await executor.execute({
-        type: 'semantic_search',
-        query: 'authentication'
+        type: 'find',
+        query: 'authentication',
+        mode: 'semantic'
       } as any);
 
       expect(semanticSearch).toHaveBeenCalled();
-      expect(result).toContain('src/auth.ts');
-    });
-
-    it('treats search_with_context as a compatibility alias for find with context', async () => {
-      const searchWithContext = vi.fn().mockReturnValue('matched context');
-      const executor = createExecutor({ searchWithContext });
-
-      const result = await executor.execute({
-        type: 'search_with_context',
-        query: 'function',
-        limit: 5,
-        context: 3
-      } as any);
-
-      expect(searchWithContext).toHaveBeenCalledWith('function', {
-        limit: 5,
-        context: 3,
-        relativePath: undefined
-      });
-      expect(result).toBe('matched context');
-    });
-
-    it('treats semantic_search as a compatibility alias for find semantic mode', async () => {
-      const semanticSearch = vi.fn().mockReturnValue([
-        { file: 'src/auth.ts', snippet: 'login function' }
-      ]);
-      const executor = createExecutor({ semanticSearch });
-
-      const result = await executor.execute({
-        type: 'semantic_search',
-        query: 'authentication'
-      } as any);
-
-      expect(semanticSearch).toHaveBeenCalledWith('authentication', {
-        limit: undefined,
-        window: undefined,
-        relativePath: undefined
-      });
       expect(result).toContain('src/auth.ts');
     });
   });
@@ -1574,14 +1538,14 @@ describe('ActionExecutor', () => {
       expect(onExploration).toHaveBeenCalledWith({ kind: 'read', target: 'src/index.ts' });
     });
 
-    it('emits exploration events for search actions', async () => {
+    it('emits exploration events for find actions', async () => {
       const onExploration = vi.fn();
       const executor = createExecutor(
         { search: vi.fn().mockReturnValue([]) },
         { onExploration }
       );
 
-      await executor.execute({ type: 'search', query: 'test' } as any);
+      await executor.execute({ type: 'find', query: 'test', mode: 'exact' } as any);
 
       expect(onExploration).toHaveBeenCalledWith({ kind: 'search', target: 'test' });
     });
@@ -1607,14 +1571,14 @@ describe('ActionExecutor', () => {
       await expect(executor.execute({ type: 'read_file', path: 'src/index.ts' })).resolves.not.toThrow();
     });
 
-    it('emits exploration for search_with_context', async () => {
+    it('emits exploration for find with context mode', async () => {
       const onExploration = vi.fn();
       const executor = createExecutor(
         { searchWithContext: vi.fn().mockReturnValue('context') },
         { onExploration }
       );
 
-      await executor.execute({ type: 'search_with_context', query: 'function' } as any);
+      await executor.execute({ type: 'find', query: 'function', mode: 'context' } as any);
 
       expect(onExploration).toHaveBeenCalledWith({ kind: 'search', target: 'function' });
     });
@@ -1644,7 +1608,7 @@ describe('ActionExecutor', () => {
         { onExploration }
       );
 
-      await executor.execute({ type: 'search', query: 'función' } as any);
+      await executor.execute({ type: 'find', query: 'función', mode: 'exact' } as any);
 
       expect(onExploration).toHaveBeenCalledWith({ kind: 'search', target: 'función' });
     });
@@ -1709,7 +1673,7 @@ describe('ActionExecutor', () => {
       );
 
       // Empty query should complete without error
-      const result = await executor.execute({ type: 'search', query: '' } as any);
+      const result = await executor.execute({ type: 'find', query: '', mode: 'exact' } as any);
 
       expect(result).toBeDefined();
     });
@@ -1733,7 +1697,7 @@ describe('ActionExecutor', () => {
         { onExploration }
       );
 
-      await executor.execute({ type: 'search', query: 'function\\s+\\w+' } as any);
+      await executor.execute({ type: 'find', query: 'function\\s+\\w+', mode: 'exact' } as any);
 
       expect(onExploration).toHaveBeenCalledWith({ kind: 'search', target: 'function\\s+\\w+' });
     });
@@ -1745,7 +1709,7 @@ describe('ActionExecutor', () => {
         { onExploration }
       );
 
-      await executor.execute({ type: 'search', query: 'test', path: 'src/' } as any);
+      await executor.execute({ type: 'find', query: 'test', path: 'src/', mode: 'exact' } as any);
 
       expect(onExploration).toHaveBeenCalledWith({ kind: 'search', target: 'test' });
     });
@@ -1805,7 +1769,7 @@ describe('ActionExecutor', () => {
         { runtime: { options: { dryRun: true } } as any }
       );
 
-      const result = await executor.execute({ type: 'search', query: 'test' } as any);
+      const result = await executor.execute({ type: 'find', query: 'test', mode: 'exact' } as any);
 
       expect(search).toHaveBeenCalled();
       expect(result).toContain('test.ts');
