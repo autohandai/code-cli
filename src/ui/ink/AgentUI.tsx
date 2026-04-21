@@ -427,7 +427,7 @@ export function AgentUI({
       return;
     }
 
-    // Handle Ctrl+C - clear input if non-empty, cancel LLM if running, otherwise warn then exit
+    // Handle Ctrl+C - clear input if non-empty, otherwise warn then exit
     if (key.ctrl && char === 'c') {
       const currentInput = textBufferRef.current.getText();
 
@@ -439,14 +439,7 @@ export function AgentUI({
         return;
       }
 
-      // Input is empty - check if LLM is running
-      if (isWorkingRef.current) {
-        // LLM is running - cancel the current operation (like ESC)
-        onEscapeRef.current();
-        return;
-      }
-
-      // LLM is not running - handle exit flow
+      // Input is empty - handle exit flow (ESC is for canceling operations)
       // Use functional update to avoid dependency on ctrlCCount
       setCtrlCCount(prev => {
         if (prev === 0) {

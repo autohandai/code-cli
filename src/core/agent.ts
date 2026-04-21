@@ -416,6 +416,9 @@ export class AutohandAgent {
         });
       },
       onModalPause: async <T>(fn: () => Promise<T>) => this.withModalPause(fn),
+      onLiveCommandStart: (command) => this.inkRenderer?.startLiveCommand(command) ?? '',
+      onLiveCommandOutput: (id, stream, chunk) => this.inkRenderer?.appendLiveCommandOutput(id, stream, chunk),
+      onLiveCommandRemove: (id) => this.inkRenderer?.removeLiveCommand(id),
     });
 
     this.activeProvider = runtime.config.provider ?? 'openrouter';
