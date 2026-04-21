@@ -34,6 +34,8 @@ export interface ModalOption {
 interface BaseModalProps {
   /** Title displayed at the top of the modal */
   title: string;
+  /** Logo/art to display at the top of the modal */
+  logo?: string;
   /** Callback invoked when user cancels (ESC) */
   onCancel?: () => void;
 }
@@ -196,7 +198,7 @@ export function cleanupModalRender(output: NodeJS.WriteStream = process.stdout):
  */
 function Modal(props: ModalProps) {
   const { t } = useTranslation();
-  const { title, onCancel } = props;
+  const { title, logo, onCancel } = props;
 
   // Determine mode (default to 'select' for backward compatibility)
   const mode = 'mode' in props ? props.mode : 'select';
@@ -613,6 +615,13 @@ function Modal(props: ModalProps) {
 
   return (
     <Box flexDirection="column" paddingX={1}>
+      {logo && (
+        <Box flexDirection="column">
+          {logo.split('\n').map((line, i) => (
+            <Text key={i}>{line}</Text>
+          ))}
+        </Box>
+      )}
       <Text color="cyan">{title}</Text>
       <Text> </Text>
       {renderContent()}
@@ -670,7 +679,7 @@ export interface ShowModalOptions {
 export async function showModal(
   options: ShowModalOptions
 ): Promise<ModalOption | null> {
-  const { title, options: modalOptions, allowCustomInput, multiSelect, maxVisible, onToggle } = options;
+  const { title, logo, options: modalOptions, allowCustomInput, multiSelect, maxVisible, onToggle } = options;
 
   // Non-interactive fallback
   if (!process.stdout.isTTY) {
@@ -687,6 +696,7 @@ export async function showModal(
       <I18nProvider>
         <Modal
           title={title}
+          logo={logo}
           options={modalOptions}
           allowCustomInput={allowCustomInput}
           multiSelect={multiSelect}

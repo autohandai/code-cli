@@ -3967,7 +3967,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       '1. Read ALL relevant files before planning. Use `glob` first for filename/path discovery, `find` for content discovery, then `read_file` once you know the exact file or region to inspect.',
       '2. For multi-step tasks, use `todo_write` to create a structured plan. Mark tasks as "in_progress" or "completed" as you go.',
       '3. Identify outputs, success criteria, edge cases, and potential blockers.',
-      '4. Prefer dedicated tools over `run_command` whenever a dedicated tool exists. Use shell only for genuine terminal operations that cannot be handled by a built-in tool.',
+      '4. Prefer dedicated tools over `run_command` whenever a dedicated tool exists. Prefer `shell` over `run_command` for most commands - `shell` shows real-time output in a live TUI block. Use `run_command` only for quick commands where you don\'t need to monitor progress (e.g., `git status`, `echo`, simple queries).',
       '5. If the user mentions a directory or path outside the current workspace scope, proactively call `request_directory_access` to request access',
       '   - In yolo/auto-mode, access will be granted automatically',
       '   - In interactive mode, the user will be asked to approve',
