@@ -17,6 +17,7 @@ interface InkRendererInterface {
   addToolOutputs(outputs: Array<{ tool: string; success: boolean; output: string }>): void;
   clearToolOutputs(): void;
   setThinking(thought: string | null): void;
+  addUserMessage(message: string): void;
   addQueuedInstruction(instruction: string): void;
   dequeueInstruction(): string | undefined;
   hasQueuedInstructions(): boolean;

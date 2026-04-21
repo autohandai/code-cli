@@ -150,6 +150,7 @@ export async function loadConfig(customPath?: string, workspaceRoot?: string): P
         theme: "dark",
         autoConfirm: false,
         promptSuggestions: true,
+        useInkRenderer: true,
       },
       telemetry: {
         enabled: false,
