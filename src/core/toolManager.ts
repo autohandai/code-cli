@@ -285,7 +285,7 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'run_command',
-    description: 'Execute a shell command in the user\'s shell with full pipe, redirect, and environment variable support. Cross-platform (bash/zsh on macOS/Linux, cmd/PowerShell on Windows). Prefer dedicated tools for file operations (read_file, write_file, find).',
+    description: 'Execute a shell command in the user\'s shell with full pipe, redirect, and environment variable support. Cross-platform (bash/zsh on macOS/Linux, cmd/PowerShell on Windows). Prefer dedicated tools for file operations (read_file, write_file, find). For most commands, prefer the `shell` tool instead - it shows real-time output. Use this only for quick commands where you don\'t need progress monitoring.',
     parameters: {
       type: 'object',
       properties: {
