@@ -302,7 +302,7 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'shell',
-    description: 'Execute a shell command with real-time output displayed in a live, isolated box in the TUI. Use for long-running commands (tests, builds, installs, dev servers) where you want to monitor progress without blocking the CLI input. For quick commands that just need a result, use run_command instead.',
+    description: 'Execute a shell command with real-time output displayed in a live, isolated box in the TUI. Use this as the DEFAULT for running shell commands - it shows stdout/stderr in real-time while keeping the CLI input responsive. Ideal for tests, builds, installs, dev servers, and any command where you want to see progress. For quick one-liners where output monitoring isn\'t needed, you can use run_command instead.',
     parameters: {
       type: 'object',
       properties: {
