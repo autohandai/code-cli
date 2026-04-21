@@ -931,6 +931,8 @@ export type AgentAction =
       description?: string;
       /** Run process in background with PID tracking */
       background?: boolean;
+      /** Run command with inherited stdio for interactive prompts (passwords, etc.) */
+      interactive?: boolean;
     }
   | { type: 'add_dependency'; name: string; version: string; dev?: boolean }
   | { type: 'remove_dependency'; name: string; dev?: boolean }

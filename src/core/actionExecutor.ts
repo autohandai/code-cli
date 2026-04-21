@@ -748,6 +748,48 @@ export class ActionExecutor {
 
         const cmdStr = `${action.command} ${(action.args ?? []).join(' ')}`.trim();
 
+        // For interactive commands, pause Ink renderer and use inherited stdio
+        if (action.interactive) {
+          // Pause the Ink renderer to give terminal control back to the command
+          const onModalPause = this.onModalPause;
+          if (onModalPause) {
+            return await onModalPause(async () => {
+              let result: Awaited<ReturnType<typeof runCommand>>;
+              try {
+                result = await runCommand(
+                  cmdStr,
+                  [],
+                  this.runtime.workspaceRoot,
+                  {
+                    directory: action.directory,
+                    shell: true,
+                    interactive: true,
+                  }
+                );
+              } catch (err) {
+                const error = err as NodeJS.ErrnoException;
+                if (
+                  error.code === 'ENOENT' ||
+                  error.message.includes('Command not found')
+                ) {
+                  return `Error: Command not found: "${action.command}". Make sure it is installed and available on your PATH.`;
+                }
+                return `Error running "${cmdStr}": ${error.message}`;
+              }
+
+              const header = action.description
+                ? `$ ${action.description}\n> ${cmdStr}`
+                : `$ ${cmdStr}`;
+              const dirInfo = action.directory ? `[dir: ${action.directory}]` : '';
+              const parts = [dirInfo ? `${header} ${dirInfo}` : header];
+              if (result.code !== 0) {
+                parts.push(`(exit code: ${result.code})`);
+              }
+              return parts.join('\n');
+            });
+          }
+        }
+
         let result: Awaited<ReturnType<typeof runCommand>>;
         // Always execute through the user's shell so pipes, redirects,
         // env-var expansion, globs, and builtins work out of the box.
@@ -1177,6 +1219,7 @@ export class ActionExecutor {
         const yoloAllowsCommit = normalizedYolo && isToolAllowedByYolo('auto_commit', parseYoloPattern(normalizedYolo));
         
         const autoApproveCommit = Boolean(
+          this.runtime.options.unrestricted ||
           this.runtime.options.yes
           || yoloAllowsCommit
           || process.env.CI === '1'
