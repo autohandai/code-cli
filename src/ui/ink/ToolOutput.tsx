@@ -122,8 +122,10 @@ export const ToolOutput = memo(ToolOutputComponent, (prev, next) => {
 /**
  * Static version of ToolOutput for use in Ink's <Static> component.
  * Renders completed tool outputs that never need to update.
+ *
+ * Memoized so it does not re-execute when parent re-renders on resize.
  */
-export function ToolOutputStatic({ entry }: ToolOutputProps) {
+function ToolOutputStaticComponent({ entry }: ToolOutputProps) {
   const { colors } = useTheme();
   const { tool, success, output, thought } = entry;
 
@@ -156,14 +158,22 @@ export function ToolOutputStatic({ entry }: ToolOutputProps) {
   );
 }
 
+export const ToolOutputStatic = memo(ToolOutputStaticComponent, (prev, next) =>
+  prev.entry.id === next.entry.id &&
+  prev.entry.output === next.entry.output &&
+  prev.entry.thought === next.entry.thought
+);
+
 /** Max items to show per group before collapsing */
 const MAX_VISIBLE_PER_GROUP = 4;
 
 /**
  * Renders a grouped batch of parallel tool calls.
  * Groups same-type tools together with tree-style connectors.
+ *
+ * Memoized so it does not re-execute when parent re-renders on resize.
  */
-export function ToolOutputBatchStatic({ entry }: { entry: ToolOutputBatchEntry }) {
+function ToolOutputBatchStaticComponent({ entry }: { entry: ToolOutputBatchEntry }) {
   const { colors } = useTheme();
   const { thought, groups } = entry;
 
@@ -225,13 +235,19 @@ export function ToolOutputBatchStatic({ entry }: { entry: ToolOutputBatchEntry }
   );
 }
 
+export const ToolOutputBatchStatic = memo(ToolOutputBatchStaticComponent, (prev, next) =>
+  prev.entry.id === next.entry.id &&
+  prev.entry.thought === next.entry.thought &&
+  prev.entry.groups.length === next.entry.groups.length
+);
+
 export interface ToolOutputListProps {
   entries: ToolOutputEntry[];
   maxVisible?: number;
 }
 
 /**
- * @deprecated Use <Static> with ToolOutputStatic in AgentUI instead
+ * @deprecated Use ToolOutputStatic directly in AgentUI instead
  */
 export function ToolOutputList({ entries, maxVisible = 50 }: ToolOutputListProps) {
   const visible = entries.slice(-maxVisible);

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import React, { useState, useEffect, memo, useMemo, useRef, useCallback } from 'react';
-import { Box, Text, useInput, useApp, useStdout, Static, type Key as InkKey } from 'ink';
+import { Box, Text, useInput, useApp, useStdout, type Key as InkKey } from 'ink';
 import { useBufferedInput, type BufferedKeyInfo } from '../useBufferedInput.js';
 import { StatusLine } from './StatusLine.js';
 import { LiveCommandBlock, ToolOutputStatic, ToolOutputBatchStatic, type LiveCommandEntry, type ToolOutputEntry, type ToolOutputBatchEntry, type ToolOutputItem } from './ToolOutput.js';
@@ -587,24 +587,12 @@ export function AgentUI({
     [state.liveCommands]
   );
 
-  // Calculate input width for InputLine - passed down to prevent useStdout re-renders
-  // which cause flicker on resize. Use useStdout here at the top level to react to resize.
-  // Debounce the width to prevent rapid re-renders during terminal resize.
+  // Calculate input width for InputLine directly from stdout columns.
+  // With synchronized-output patching (InkRenderer), rapid resize re-renders
+  // are batched atomically, so the old 100ms debounce is no longer needed
+  // and was actually causing a layout lag during drag-resize.
   const { stdout } = useStdout();
-  const [debouncedWidth, setDebouncedWidth] = useState(() => getPromptBlockWidth(stdout.columns));
-  
-  useEffect(() => {
-    const newWidth = getPromptBlockWidth(stdout.columns);
-    if (newWidth === debouncedWidth) return;
-    
-    // Debounce resize to prevent flicker during rapid resize events
-    const timer = setTimeout(() => {
-      setDebouncedWidth(newWidth);
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [stdout.columns, debouncedWidth]);
-  
-  const inputWidth = debouncedWidth;
+  const inputWidth = getPromptBlockWidth(stdout.columns);
 
   return (
     <Box flexDirection="column">
@@ -627,14 +615,13 @@ export function AgentUI({
         </UserMessage>
       ))}
 
-      {/* Static tool outputs - these never re-render once displayed */}
-      <Static items={toolOutputItems}>
-        {(item: ToolOutputItem) => (
-          item.type === 'batch'
-            ? <ToolOutputBatchStatic key={item.id} entry={item as ToolOutputBatchEntry} />
-            : <ToolOutputStatic key={item.id} entry={item as ToolOutputEntry} />
-        )}
-      </Static>
+      {/* Tool outputs - rendered dynamically so Ink manages them during resize.
+          Components are memoized so React skips execution when data is unchanged. */}
+      {toolOutputItems.map((item: ToolOutputItem) => (
+        item.type === 'batch'
+          ? <ToolOutputBatchStatic key={item.id} entry={item as ToolOutputBatchEntry} />
+          : <ToolOutputStatic key={item.id} entry={item as ToolOutputEntry} />
+      ))}
 
       {/* Dynamic content section */}
       <DynamicContent
