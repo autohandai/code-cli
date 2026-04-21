@@ -17,6 +17,7 @@ export interface UserMessageProps {
 /**
  * UserMessage displays a user's prompt with a styled background.
  * Similar to how Codex displays user messages with a light gray background.
+ * Uses inverse colors to create a visible background effect across the full width.
  */
 function UserMessageComponent({ children, isQueued = false }: UserMessageProps) {
   const { colors } = useTheme();
@@ -26,6 +27,8 @@ function UserMessageComponent({ children, isQueued = false }: UserMessageProps) 
     ? children.slice(0, 197) + '...' 
     : children;
 
+  // Use inverse styling to create a visible background effect
+  // This swaps foreground and background colors for better visibility
   return (
     <Box 
       marginTop={1}
@@ -33,8 +36,9 @@ function UserMessageComponent({ children, isQueued = false }: UserMessageProps) 
       width="100%"
     >
       <Text 
-        backgroundColor={colors.userMessageBg || '#333333'}
-        color={colors.userMessageText || '#ffffff'}
+        color={colors.userMessageBg || '#333333'}
+        backgroundColor={colors.userMessageText || '#ffffff'}
+        bold
       >
         {isQueued ? '(queued) ' : ''}{displayText}
       </Text>
