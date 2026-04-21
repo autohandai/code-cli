@@ -2383,6 +2383,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       const dirPermissionOptions: DirectoryPermissionOptions = {
         workspaceRoot: this.runtime.workspaceRoot,
         permissionManager: this.permissionManager,
+        autoApprove: this.runtime.options.unrestricted || this.runtime.options.yes || false,
       };
       await checkAndPromptForDirectoryPermissions(instruction, dirPermissionOptions);
     }
@@ -5674,6 +5675,21 @@ If lint or tests fail, report the issues but do NOT commit.`;
       this.runtime.options.unrestricted = true;
       this.runtime.options.restricted = false;
       this.permissionManager.setMode('unrestricted');
+      return;
+    }
+
+    // CLI flags override config file settings
+    if (this.runtime.options.unrestricted) {
+      this.runtime.options.yes = true;
+      this.runtime.options.restricted = false;
+      this.permissionManager.setMode('unrestricted');
+      return;
+    }
+
+    if (this.runtime.options.restricted) {
+      this.runtime.options.yes = false;
+      this.runtime.options.unrestricted = false;
+      this.permissionManager.setMode('restricted');
       return;
     }
 

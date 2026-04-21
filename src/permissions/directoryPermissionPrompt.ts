@@ -14,6 +14,7 @@ import type { PermissionManager } from './PermissionManager.js';
 export interface DirectoryPermissionOptions {
   workspaceRoot: string;
   permissionManager: PermissionManager;
+  autoApprove?: boolean;
 }
 
 /**
@@ -164,7 +165,7 @@ export async function checkAndPromptForDirectoryPermissions(
   instruction: string,
   options: DirectoryPermissionOptions
 ): Promise<void> {
-  const { workspaceRoot } = options;
+  const { workspaceRoot, autoApprove } = options;
   
   // Extract directory paths from instruction
   const directoryPaths = extractDirectoryPaths(instruction);
@@ -191,6 +192,13 @@ export async function checkAndPromptForDirectoryPermissions(
     // Check if it's actually a directory
     const isDir = await isDirectory(dirPath);
     if (!isDir) {
+      continue;
+    }
+    
+    if (autoApprove) {
+      // Auto-grant access without prompting
+      await addDirectoryToPermissions(dirPath, options);
+      console.log(t('permissions.directoryPrompt.added', { directory: dirPath }));
       continue;
     }
     

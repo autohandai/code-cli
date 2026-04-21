@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { isImmediateCommand, isShellCommand, parseShellCommand } from '../src/ui/shellCommand.js';
+import { isImmediateCommand, isShellCommand, parseShellCommand } from '../../src/ui/shellCommand.js';
 
 describe('isImmediateCommand', () => {
   describe('shell commands', () => {
