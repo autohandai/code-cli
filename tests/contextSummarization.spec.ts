@@ -456,8 +456,10 @@ describe("Tiered context management with LLM summarization", () => {
     expect(result.messages[0].role).toBe("system");
   });
 
-  // Test 12: Tier 3 (90%) auto-crop uses LLM summarization
-  it("should use LLM summarization in Tier 3 when context crosses 90%", async () => {
+  // Test 12: Tier 3 (90%) auto-crop falls back to static summarization
+  // when context is critically tight (>92%) to avoid burning tokens on an
+  // LLM call during an emergency.
+  it("should fall back to static summarization in Tier 3 when context is critically tight", async () => {
     const llm = createMockLLM(
       "Critical summary: extensive work done on auth module.",
     );
@@ -468,15 +470,15 @@ describe("Tiered context management with LLM summarization", () => {
       llm,
     });
 
-    // Fill even more to trigger Tier 3 (90%+)
+    // Fill heavily to trigger Tier 3 (>92%)
     fillConversation(conversationManager, 400, 500);
 
     const result = await contextManager.prepareRequest(mockTools);
 
     // Should have cropped something
-    if (result.wasCropped) {
-      expect(llm.complete).toHaveBeenCalled();
-    }
+    expect(result.wasCropped).toBe(true);
+    // LLM should NOT have been called for summarization when >92%
+    expect(llm.complete).not.toHaveBeenCalled();
     expect(result.messages.length).toBeGreaterThan(0);
   });
 

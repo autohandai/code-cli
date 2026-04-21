@@ -33,7 +33,7 @@ const DEFAULT_YOLO_FILE_TOOLS = [
 ];
 
 export function getDefaultYoloPattern(): string {
-  return `allow:${DEFAULT_YOLO_FILE_TOOLS.join(',')}`;
+  return 'allow:*';
 }
 
 export function normalizeYoloInput(pattern: string | boolean | undefined): string | undefined {

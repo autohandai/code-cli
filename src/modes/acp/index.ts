@@ -11,6 +11,8 @@ import { AgentSideConnection, ndJsonStream } from '@agentclientprotocol/sdk';
 import { AutohandAcpAdapter } from './adapter.js';
 import type { CLIOptions } from '../../types.js';
 import { installProcessErrorHandlers } from '../../reporting/processErrorReporting.js';
+import { checkWorkspaceSafety } from '../../startup/workspaceSafety.js';
+import { validateWorkspacePath } from '../../startup/checks.js';
 
 /**
  * Redirect all console methods to stderr.
@@ -36,6 +38,19 @@ function redirectConsoleToStderr(): void {
  *   After:  Zed -> autohand --mode acp -> in-process ACP protocol
  */
 export async function runAcpMode(options: CLIOptions): Promise<void> {
+  // Workspace safety check
+  const workspacePath = options.path ?? process.cwd();
+  const workspacePathValidation = await validateWorkspacePath(workspacePath);
+  if (!workspacePathValidation.valid) {
+    process.stderr.write(`[ACP] Error: ${workspacePathValidation.error}\n`);
+    process.exit(1);
+  }
+  const safetyCheck = checkWorkspaceSafety(workspacePath);
+  if (!safetyCheck.safe) {
+    process.stderr.write(`[ACP] Error: Unsafe workspace — ${safetyCheck.reason}\n`);
+    process.exit(1);
+  }
+
   // Redirect all console output to stderr
   redirectConsoleToStderr();
 

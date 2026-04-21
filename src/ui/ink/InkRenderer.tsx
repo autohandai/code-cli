@@ -725,6 +725,13 @@ export class InkRenderer {
   getState(): Readonly<AgentUIState> {
     return this.state;
   }
+
+  /**
+   * Check if the Ink renderer is currently mounted and running
+   */
+  isRunning(): boolean {
+    return this.instance !== null;
+  }
 }
 
 /**

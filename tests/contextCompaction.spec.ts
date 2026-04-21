@@ -172,7 +172,9 @@ describe("Context Compaction", () => {
         role: "user",
         content: "Continue from here",
       });
-      for (let i = 0; i < 12; i++) {
+      // 14 large assistant messages push usage above 90% with the new
+      // per-model token estimator (OpenAI ~4 chars/token).
+      for (let i = 0; i < 14; i++) {
         conversationManager.addMessage({
           role: "assistant",
           priority: "low",

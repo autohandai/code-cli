@@ -8,6 +8,8 @@ import path from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 import { MessageRouter } from '../core/teams/MessageRouter.js';
 import type { TeamTask } from '../core/teams/types.js';
+import { checkWorkspaceSafety } from '../startup/workspaceSafety.js';
+import { validateWorkspacePath } from '../startup/checks.js';
 
 export interface TeammateOptions {
   teamName: string;
@@ -179,6 +181,17 @@ export async function runTeammateModeWithStreams(
  * 5. On shutdown: send shutdownAck and exit
  */
 export async function runTeammateMode(opts: TeammateOptions): Promise<void> {
+  const workspacePath = opts.workspacePath || process.cwd();
+  const workspacePathValidation = await validateWorkspacePath(workspacePath);
+  if (!workspacePathValidation.valid) {
+    process.stderr.write(`[Teammate] Error: ${workspacePathValidation.error}\n`);
+    process.exit(1);
+  }
+  const safetyCheck = checkWorkspaceSafety(workspacePath);
+  if (!safetyCheck.safe) {
+    process.stderr.write(`[Teammate] Error: Unsafe workspace — ${safetyCheck.reason}\n`);
+    process.exit(1);
+  }
   return runTeammateModeWithStreams(opts, process.stdin, process.stdout);
 }
 
