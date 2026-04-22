@@ -152,7 +152,7 @@ describe('browser/chrome', () => {
     child.stdin.write(payload.subarray(0, 5));
     await new Promise((resolve) => setTimeout(resolve, 10));
     child.stdin.write(payload.subarray(5));
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 300));
     const shutdownPayload = Buffer.from(JSON.stringify({ type: 'shutdown' }), 'utf8');
     const shutdownHeader = Buffer.alloc(4);
     shutdownHeader.writeUInt32LE(shutdownPayload.length, 0);
