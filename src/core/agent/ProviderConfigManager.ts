@@ -1268,7 +1268,7 @@ export class ProviderConfigManager {
       this.runtime.config.provider = "vertexai";
       this.runtime.options.model = newModel;
 
-      console.log(chalk.green("\n✓ " + t("providers.config.settingsUpdated")));
+      console.log(chalk.green("\n✓ " + t("providers.config.settingsUpdated", { provider: "Vertex AI" })));
       console.log(chalk.gray(`  Model: ${newModel}`));
 
       this.updateContextWindowFromModel(newModel);
