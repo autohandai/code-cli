@@ -23,13 +23,9 @@ export async function listDirectoryTree(root: string, options: TreeOptions = {})
   const workspaceRoot = options.workspaceRoot ?? root;
   const result: string[] = [];
 
-  // Validate that root is within workspace
-  const resolvedRoot = path.resolve(root);
-  const resolvedWorkspace = path.resolve(workspaceRoot);
-  if (!resolvedRoot.startsWith(resolvedWorkspace)) {
-    throw new Error(`Path ${root} is outside the workspace root.`);
-  }
-
+  // Note: Path validation is handled by resolveWorkspacePath in actionExecutor
+  // which checks against both workspace root and pre-authorized directories from /add-dir
+  
   const ignoreFilter = new GitIgnoreParser(workspaceRoot);
 
   async function walk(current: string, prefix: string, currentDepth: number): Promise<void> {
