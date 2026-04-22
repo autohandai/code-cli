@@ -303,6 +303,7 @@ export const VISION_MODELS = [
   'claude-4',
   'claude-sonnet-4',
   'claude-opus-4',
+  'claude-opus-4-7',
   'gpt-4-vision',
   'gpt-4o',
   'gpt-4o-mini',

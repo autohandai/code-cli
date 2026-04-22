@@ -214,7 +214,8 @@ function quickVisionCheck(lowerModel: string): boolean {
     lowerModel.includes('claude-3') ||
     lowerModel.includes('claude-4') ||
     lowerModel.includes('claude-sonnet-4') ||
-    lowerModel.includes('claude-opus-4')
+    lowerModel.includes('claude-opus-4') ||
+    lowerModel.includes('claude-opus-4-7')
   ) {
     return true;
   }
