@@ -942,6 +942,7 @@ export type AgentAction =
       args?: string[];
       directory?: string;
       description?: string;
+      background?: boolean;
     }
   | { type: 'add_dependency'; name: string; version: string; dev?: boolean }
   | { type: 'remove_dependency'; name: string; dev?: boolean }

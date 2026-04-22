@@ -151,17 +151,18 @@ export function parseSitrepText(text: string): SitrepMessageProps | null {
       continue;
     }
     
-    // Parse Files
+    // Parse Files (comma-separated list)
     if (trimmed.startsWith('- Files:') || trimmed.startsWith('Files:')) {
       const filesStr = trimmed.replace(/^- Files:\s*/, '').replace(/^Files:\s*/, '');
       if (filesStr && !filesStr.startsWith('[')) {
-        files = [filesStr];
+        // Split by comma and trim each file path
+        files = filesStr.split(',').map(f => f.trim()).filter(f => f.length > 0);
       }
       continue;
     }
     
-    // Parse file list items
-    if (trimmed.startsWith('- ') && !trimmed.startsWith('- Done') && !trimmed.startsWith('- Files') && !trimmed.startsWith('- Status') && !trimmed.startsWith('- Next')) {
+    // Parse file list items (bullet points after Files:)
+    if (trimmed.startsWith('- ') && !trimmed.startsWith('- Done') && !trimmed.startsWith('- Files') && !trimmed.startsWith('- Status') && !trimmed.startsWith('- Next') && !trimmed.startsWith('- Verify')) {
       const file = trimmed.slice(2).trim();
       if (file && !file.startsWith('[')) {
         files.push(file);

@@ -12,6 +12,7 @@ const MODEL_CONTEXT: Record<string, number> = {
   "anthropic/claude-3-haiku": 200_000,
 
   "anthropic/claude-opus-4": 200_000,
+  "anthropic/claude-opus-4-7": 1_000_000,
   "openai/gpt-4o-mini": 128_000,
   "openai/gpt-4o": 128_000,
   "openai/gpt-4.1": 200_000,

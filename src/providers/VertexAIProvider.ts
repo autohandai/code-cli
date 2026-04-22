@@ -58,6 +58,42 @@ const MAX_ALLOWED_RETRIES = 5;
 const DEFAULT_RETRY_DELAY = 1000;
 const DEFAULT_TIMEOUT = 30000;
 
+/** Anthropic models that use the native Vertex AI endpoint */
+const ANTHROPIC_MODELS = [
+  'claude-3-opus',
+  'claude-3-sonnet',
+  'claude-3-haiku',
+  'claude-3-5-sonnet',
+  'claude-3-5-haiku',
+  'claude-3.5-sonnet',
+  'claude-3.5-haiku',
+  'claude-4',
+  'claude-sonnet-4',
+  'claude-opus-4',
+  'claude-opus-4-7',
+];
+
+/**
+ * Check if a model is an Anthropic model
+ */
+function isAnthropicModel(model: string): boolean {
+  const lowerModel = model.toLowerCase();
+  return ANTHROPIC_MODELS.some(m => lowerModel.includes(m.toLowerCase()));
+}
+
+/**
+ * Extract the model ID for Vertex AI native Anthropic endpoint
+ * Strips 'anthropic/' prefix if present
+ */
+function extractAnthropicModelId(model: string): string {
+  const lowerModel = model.toLowerCase();
+  // Strip 'anthropic/' prefix if present
+  if (lowerModel.startsWith('anthropic/')) {
+    return model.substring('anthropic/'.length);
+  }
+  return model;
+}
+
 /** User-friendly error messages that hide raw provider errors */
 const FRIENDLY_ERRORS: Record<number, string> = {
   400: "The request was malformed. This often happens when the context is too long. Try /undo to remove recent turns or /new to start fresh.",
@@ -127,6 +163,7 @@ export class VertexAIProvider implements LLMProvider {
       "anthropic/claude-3-5-sonnet",
       "anthropic/claude-3-opus",
       "anthropic/claude-3-haiku",
+      "anthropic/claude-opus-4-7",
     ];
   }
 
@@ -183,29 +220,66 @@ export class VertexAIProvider implements LLMProvider {
   }
 
   async complete(request: LLMRequest): Promise<LLMResponse> {
-    const payload: Record<string, unknown> = {
-      model: request.model ?? this.defaultModel,
-      messages: sanitizeMessages(request.messages),
-      temperature: request.temperature ?? 0.2,
-      max_tokens: request.maxTokens ?? 16000,
-      stream: request.stream ?? false,
-    };
+    const model = request.model ?? this.defaultModel;
+    const isAnthropic = isAnthropicModel(model);
 
-    // Add function calling support if tools are provided
-    if (request.tools && request.tools.length > 0) {
-      payload.tools = request.tools.map((tool: FunctionDefinition) => ({
-        type: "function",
-        function: {
+    // Build payload based on model type
+    let payload: Record<string, unknown>;
+    let url: string;
+
+    if (isAnthropic) {
+      // Native Anthropic endpoint on Vertex AI
+      const modelId = extractAnthropicModelId(model);
+      url = `https://${this.endpoint}/v1/projects/${this.projectId}/locations/${this.region}/publishers/anthropic/models/${modelId}:streamRawPredict`;
+
+      payload = {
+        anthropic_version: "vertex-2023-10-16",
+        messages: sanitizeMessages(request.messages),
+        max_tokens: request.maxTokens ?? 16000,
+        stream: request.stream ?? false,
+      };
+
+      // Add optional parameters
+      if (request.temperature !== undefined) {
+        payload.temperature = request.temperature;
+      }
+
+      // Add function calling support if tools are provided
+      if (request.tools && request.tools.length > 0) {
+        payload.tools = request.tools.map((tool: FunctionDefinition) => ({
           name: tool.name,
           description: tool.description,
-          parameters: tool.parameters ?? { type: "object", properties: {} },
-        },
-      }));
-
-      // Set tool_choice based on request
-      if (request.toolChoice) {
-        payload.tool_choice = request.toolChoice;
+          input_schema: tool.parameters ?? { type: "object", properties: {} },
+        }));
       }
+    } else {
+      // OpenAI-compatible endpoint
+      payload = {
+        model: model,
+        messages: sanitizeMessages(request.messages),
+        temperature: request.temperature ?? 0.2,
+        max_tokens: request.maxTokens ?? 16000,
+        stream: request.stream ?? false,
+      };
+
+      // Add function calling support if tools are provided
+      if (request.tools && request.tools.length > 0) {
+        payload.tools = request.tools.map((tool: FunctionDefinition) => ({
+          type: "function",
+          function: {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters ?? { type: "object", properties: {} },
+          },
+        }));
+
+        // Set tool_choice based on request
+        if (request.toolChoice) {
+          payload.tool_choice = request.toolChoice;
+        }
+      }
+
+      url = `${this.baseUrl}/chat/completions`;
     }
 
     const headers: Record<string, string> = {
@@ -232,10 +306,12 @@ export class VertexAIProvider implements LLMProvider {
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       try {
         const response = await this.makeRequest(
+          url,
           payload,
           headers,
           request.signal,
-          payloadJson
+          payloadJson,
+          isAnthropic
         );
         return response;
       } catch (error) {
@@ -269,10 +345,12 @@ export class VertexAIProvider implements LLMProvider {
   }
 
   private async makeRequest(
+    url: string,
     payload: object,
     headers: Record<string, string>,
     signal?: AbortSignal,
-    preSerializedBody?: string
+    preSerializedBody?: string,
+    isAnthropic: boolean = false
   ): Promise<LLMResponse> {
     let response: Response;
 
@@ -290,7 +368,7 @@ export class VertexAIProvider implements LLMProvider {
         : timeoutController.signal;
 
       try {
-        response = await fetch(`${this.baseUrl}/chat/completions`, {
+        response = await fetch(url, {
           method: "POST",
           headers,
           body: preSerializedBody ?? JSON.stringify(payload),
@@ -325,6 +403,13 @@ export class VertexAIProvider implements LLMProvider {
     }
 
     const json = (await response.json()) as any;
+
+    // Handle Anthropic response format
+    if (isAnthropic) {
+      return this.parseAnthropicResponse(json);
+    }
+
+    // OpenAI-compatible response format
     const message = json?.choices?.[0]?.message;
     const text = message?.content ?? "";
     const finishReason = json?.choices?.[0]?.finish_reason;
@@ -361,6 +446,62 @@ export class VertexAIProvider implements LLMProvider {
       content: text,
       toolCalls,
       finishReason: finishReason as LLMResponse["finishReason"],
+      usage,
+      raw: json,
+    };
+  }
+
+  /**
+   * Parse Anthropic API response format
+   */
+  private parseAnthropicResponse(json: any): LLMResponse {
+    // Anthropic response format:
+    // { id: "msg_xxx", type: "message", role: "assistant", content: [{ type: "text", text: "..." }], ... }
+    const contentBlocks = json?.content ?? [];
+    const textBlock = contentBlocks.find((b: any) => b.type === "text");
+    const text = textBlock?.text ?? "";
+
+    // Parse tool calls if present (Anthropic format)
+    let toolCalls: LLMToolCall[] | undefined;
+    const toolUseBlocks = contentBlocks.filter((b: any) => b.type === "tool_use");
+    if (toolUseBlocks.length > 0) {
+      toolCalls = toolUseBlocks.map((block: any) => ({
+        id: block.id,
+        type: "function" as const,
+        function: {
+          name: block.name ?? "",
+          arguments: JSON.stringify(block.input ?? {}),
+        },
+      }));
+    }
+
+    // Parse token usage if present
+    let usage: LLMUsage | undefined;
+    if (json?.usage) {
+      usage = {
+        promptTokens: json.usage.input_tokens ?? 0,
+        completionTokens: json.usage.output_tokens ?? 0,
+        totalTokens: (json.usage.input_tokens ?? 0) + (json.usage.output_tokens ?? 0),
+      };
+    }
+
+    // Map Anthropic stop_reason to finish_reason
+    const stopReason = json?.stop_reason;
+    let finishReason: LLMResponse["finishReason"];
+    if (stopReason === "end_turn" || stopReason === "stop_sequence") {
+      finishReason = "stop";
+    } else if (stopReason === "tool_use") {
+      finishReason = "tool_calls";
+    } else if (stopReason === "max_tokens") {
+      finishReason = "length";
+    }
+
+    return {
+      id: json.id ?? "vertexai-anthropic-response",
+      created: Date.now(),
+      content: text,
+      toolCalls,
+      finishReason,
       usage,
       raw: json,
     };
