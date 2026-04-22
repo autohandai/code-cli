@@ -31,6 +31,7 @@ import type {
   ReasoningEffort,
   OpenAIAuthMode,
   OpenAISettings,
+  VertexAISettings,
 } from "../../types.js";
 import type { LLMProvider } from "../../providers/LLMProvider.js";
 import type { TelemetryManager } from "../../telemetry/TelemetryManager.js";
