@@ -4189,36 +4189,38 @@ If lint or tests fail, report the issues but do NOT commit.`;
       '',
 
       // ═══════════════════════════════════════════════════════════════════
-      // 5.1. PLAN MODE
+      // 5.1. PLAN MODE (only shown when plan mode is enabled)
       // ═══════════════════════════════════════════════════════════════════
-      '## Plan Mode',
-      'When in plan mode (read-only exploration phase), you can only use read-only tools.',
-      'Use the `plan` tool to create a structured plan before execution.',
-      '',
-      '### Plan Format',
-      'When using the `plan` tool, the `notes` field MUST contain a numbered step-by-step plan.',
-      'Break the task into 3-10 concrete, actionable steps. Each step should be specific enough to execute independently.',
-      'NEVER submit a single sentence as the plan - always break it into multiple numbered steps.',
-      '',
-      'Example plan notes:',
-      '"1. Read the existing authentication code in src/auth/\\n2. Create JWT utility module at src/auth/jwt.ts\\n3. Add token generation and validation functions\\n4. Update login endpoint to use JWT\\n5. Write unit tests for JWT module\\n6. Run tests and verify"',
-      '',
-      'When presenting a plan, always include:',
-      '1. **Overview**: Brief summary of what will be accomplished',
-      '2. **Steps**: Numbered list of implementation steps',
-      '3. **Suggested TODO List**: A checkbox-style task list the user can copy',
-      '',
-      'For the Suggested TODO List, use markdown checkbox format:',
-      '```',
-      '## Suggested TODO List',
-      '- [ ] First task to complete',
-      '- [ ] Second task to complete',
-      '- [ ] Third task to complete',
-      '```',
-      '',
-      'This format renders as interactive checkboxes in the UI.',
-      'IMPORTANT: Always include the actual TODO items after the heading - never leave the list empty.',
-      '',
+      ...(getPlanModeManager().isEnabled() ? [
+        '## Plan Mode',
+        'When in plan mode (read-only exploration phase), you can only use read-only tools.',
+        'Use the `plan` tool to create a structured plan before execution.',
+        '',
+        '### Plan Format',
+        'When using the `plan` tool, the `notes` field MUST contain a numbered step-by-step plan.',
+        'Break the task into 3-10 concrete, actionable steps. Each step should be specific enough to execute independently.',
+        'NEVER submit a single sentence as the plan - always break it into multiple numbered steps.',
+        '',
+        'Example plan notes:',
+        '"1. Read the existing authentication code in src/auth/\\n2. Create JWT utility module at src/auth/jwt.ts\\n3. Add token generation and validation functions\\n4. Update login endpoint to use JWT\\n5. Write unit tests for JWT module\\n6. Run tests and verify"',
+        '',
+        'When presenting a plan, always include:',
+        '1. **Overview**: Brief summary of what will be accomplished',
+        '2. **Steps**: Numbered list of implementation steps',
+        '3. **Suggested TODO List**: A checkbox-style task list the user can copy',
+        '',
+        'For the Suggested TODO List, use markdown checkbox format:',
+        '```',
+        '## Suggested TODO List',
+        '- [ ] First task to complete',
+        '- [ ] Second task to complete',
+        '- [ ] Third task to complete',
+        '```',
+        '',
+        'This format renders as interactive checkboxes in the UI.',
+        'IMPORTANT: Always include the actual TODO items after the heading - never leave the list empty.',
+        '',
+      ] : []),
 
       // ═══════════════════════════════════════════════════════════════════
       // 5.5. DYNAMIC TOOL CREATION
@@ -4316,6 +4318,17 @@ If lint or tests fail, report the issues but do NOT commit.`;
       'Keep the SITREP concise — 3-5 lines max. The user should never wonder "what just happened?".',
       'If no tool calls were made (e.g. a simple Q&A), skip the SITREP.'
     ];
+
+    // Add pre-authorized directories from --add-dir flag
+    if (this.runtime.additionalDirs && this.runtime.additionalDirs.length > 0) {
+      parts.push('', '## Pre-Authorized Directories');
+      parts.push('The following directories have been pre-authorized for access via --add-dir:');
+      for (const dir of this.runtime.additionalDirs) {
+        parts.push(`- ${dir}`);
+      }
+      parts.push('');
+      parts.push('You can read, write, and operate on files in these directories without requesting permission.');
+    }
 
     if (memories) {
       parts.push('', '## User Preferences & Memory', memories);
