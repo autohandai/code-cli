@@ -210,19 +210,36 @@ export function useBufferedInput(options: UseBufferedInputOptions): void {
     if (!stdin || !isActive) {
       return;
     }
-    
+
     const buffer = new StdinBuffer({ timeout: flushTimeout });
     bufferRef.current = buffer;
-    
-    // Handle sequence events from the buffer
-    const handleSequence = (event: SequenceEvent) => {
-      const info = sequenceToInkInput(event);
+
+    // IMPORTANT: We intentionally do NOT attach stdin.on('data') here.
+    // Ink's App component uses stdin 'readable' events to read input.
+    // Adding a 'data' listener would switch the stream to flowing mode and
+    // prevent Ink from receiving keystrokes. A future refactor should find
+    // a safe way to intercept stdin data (e.g., wrapping stdin.read()) so
+    // that bracketed-paste and Kitty-protocol events can be detected.
+
+    // Handle sequence events from the buffer (currently only triggered
+    // by direct buffer.process() calls from external code).
+    const handleData = (data: string) => {
+      const type: SequenceEvent['type'] = data.startsWith('\x1b') ? 'csi' : 'printable';
+      const info = sequenceToInkInput({ type, data });
       onInputRef.current(info.input, info.key, info);
     };
-    
-    buffer.on('sequence', handleSequence);
-    
+
+    const handlePaste = (data: string) => {
+      const info = sequenceToInkInput({ type: 'paste', data });
+      onInputRef.current(info.input, info.key, info);
+    };
+
+    buffer.on('data', handleData);
+    buffer.on('paste', handlePaste);
+
     return () => {
+      buffer.off('data', handleData);
+      buffer.off('paste', handlePaste);
       buffer.destroy();
       bufferRef.current = null;
     };

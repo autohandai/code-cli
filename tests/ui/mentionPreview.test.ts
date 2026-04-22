@@ -486,3 +486,85 @@ describe('MentionPreview skill filtering', () => {
     rl.close();
   });
 });
+
+describe('MentionPreview race condition resilience', () => {
+  it('accepts slash suggestion on Tab even when setImmediate update has not fired', async () => {
+    const { MentionPreview } = await import('../../src/ui/mentionPreview.js');
+    const input = new Readable({ read() {} });
+    (input as any).setRawMode = vi.fn();
+    const output = createMockOutput();
+    const rl = readline.createInterface({ input, output, terminal: true });
+
+    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output, () => []);
+
+    // Simulate rl.line already containing '/a' but updateSuggestions was never called
+    (rl as any).line = '/a';
+    (rl as any).cursor = 2;
+    // Intentionally do NOT call updateSuggestions() — this mimics the race where
+    // Tab is pressed before the deferred setImmediate(updateSuggestions) fires.
+    (preview as any).slashMatches = [];
+    (preview as any).mode = null;
+
+    // Emit Tab
+    input.emit('keypress', '\t', { name: 'tab', sequence: '\t' });
+
+    // The fix ensures updateSuggestions() runs synchronously inside handleKeypress
+    // for Tab, so the suggestion should be accepted despite the stale internal state.
+    expect((rl as any).line).toContain('/agents');
+
+    preview.dispose();
+    rl.close();
+  });
+
+  it('accepts file mention on Tab even when setImmediate update has not fired', async () => {
+    const { MentionPreview } = await import('../../src/ui/mentionPreview.js');
+    const input = new Readable({ read() {} });
+    (input as any).setRawMode = vi.fn();
+    const output = createMockOutput();
+    const rl = readline.createInterface({ input, output, terminal: true });
+
+    const preview = new MentionPreview(
+      rl,
+      () => ['src/index.ts', 'src/core/agent.ts'],
+      SAMPLE_COMMANDS,
+      output,
+      () => [],
+    );
+
+    (rl as any).line = '@sr';
+    (rl as any).cursor = 3;
+    // Stale state — mimics the race condition
+    (preview as any).fileSuggestions = [];
+    (preview as any).mode = null;
+
+    input.emit('keypress', '\t', { name: 'tab', sequence: '\t' });
+
+    expect((rl as any).line).toContain('@src/index.ts');
+
+    preview.dispose();
+    rl.close();
+  });
+
+  it('accepts skill mention on Tab even when setImmediate update has not fired', async () => {
+    const { MentionPreview } = await import('../../src/ui/mentionPreview.js');
+    const input = new Readable({ read() {} });
+    (input as any).setRawMode = vi.fn();
+    const output = createMockOutput();
+    const rl = readline.createInterface({ input, output, terminal: true });
+
+    const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output, () => SAMPLE_SKILLS);
+
+    (rl as any).line = '$co';
+    (rl as any).cursor = 3;
+    // Stale state
+    (preview as any).skillMatches = [];
+    (preview as any).mode = null;
+
+    input.emit('keypress', '\t', { name: 'tab', sequence: '\t' });
+
+    expect((rl as any).line).toContain('$code-review');
+
+    preview.dispose();
+    rl.close();
+  });
+});

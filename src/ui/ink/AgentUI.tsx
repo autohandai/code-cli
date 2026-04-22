@@ -238,6 +238,8 @@ export function AgentUI({
   onToggleLiveCommandExpandedRef.current = onToggleLiveCommandExpanded;
   const onInstructionRef = useRef(onInstruction);
   onInstructionRef.current = onInstruction;
+  const filesProviderRef = useRef(filesProvider);
+  filesProviderRef.current = filesProvider;
 
   // Throttled sync from buffer to React state to batch rapid keystrokes
   // and reduce re-render frequency during fast typing (16ms = ~60fps).
@@ -385,6 +387,14 @@ export function AgentUI({
       return;
     }
 
+    // Guard against stale React state: if the buffer already has newer text
+    // (because the 16ms throttle hasn't flushed yet), skip processing.
+    // The synchronous handler in handleInput already updated the refs.
+    const buffer = textBufferRef.current;
+    if (input !== buffer.getText() || cursorOffset !== getTextBufferCursorOffset(buffer)) {
+      return;
+    }
+
     const mention = matchFileMention(input, cursorOffset);
     if (!mention) {
       setFileMentionVisible(false);
@@ -488,7 +498,7 @@ export function AgentUI({
           const buffer = textBufferRef.current;
           const currentText = buffer.getText();
           const beforeMention = currentText.slice(0, fileMentionStartIndexRef.current);
-          const afterCursor = currentText.slice(cursorOffsetRef.current);
+          const afterCursor = currentText.slice(getTextBufferCursorOffset(buffer));
           const replacement = `@${suggestion.path} `;
           const newText = beforeMention + replacement + afterCursor;
           
@@ -527,6 +537,42 @@ export function AgentUI({
 
     if (result === 'handled') {
       syncInputFromBuffer();
+
+      // Immediate mention detection so Tab works without waiting for the 16ms
+      // React state throttle. This eliminates the intermittent failure where
+      // rapid typing followed by Tab is ignored because mention state hasn't
+      // been flushed to React yet.
+      const currentText = buffer.getText();
+      const currentOffset = getTextBufferCursorOffset(buffer);
+      const provider = filesProviderRef.current;
+      if (provider) {
+        const mention = matchFileMention(currentText, currentOffset);
+        if (mention) {
+          const files = provider();
+          const matchingFiles = buildFileMentionSuggestions(files, mention.seed, 5);
+          if (matchingFiles.length > 0) {
+            fileMentionStartIndexRef.current = mention.startIndex;
+            fileMentionSuggestionsRef.current = parseFileSuggestions(matchingFiles);
+            fileMentionVisibleRef.current = true;
+            setFileMentionSuggestions(fileMentionSuggestionsRef.current);
+            setFileMentionVisible(true);
+            setFileMentionActiveIndex(prev => Math.min(prev, matchingFiles.length - 1));
+          } else {
+            fileMentionVisibleRef.current = false;
+            fileMentionSuggestionsRef.current = [];
+            fileMentionStartIndexRef.current = null;
+            setFileMentionVisible(false);
+            setFileMentionSuggestions([]);
+          }
+        } else if (fileMentionVisibleRef.current) {
+          fileMentionVisibleRef.current = false;
+          fileMentionSuggestionsRef.current = [];
+          fileMentionStartIndexRef.current = null;
+          setFileMentionVisible(false);
+          setFileMentionSuggestions([]);
+        }
+      }
+
       return;
     }
   }, [syncBufferViewport, syncInputFromBuffer, exit]);
