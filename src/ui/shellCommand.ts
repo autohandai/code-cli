@@ -278,6 +278,8 @@ interface ShellCommandResult {
   output?: string;
   /** Error message if command failed */
   error?: string;
+  /** PID of background process (only set when background: true) */
+  backgroundPid?: number;
 }
 
 type ExecAsyncError = Error & {
