@@ -1081,7 +1081,10 @@ export class AutohandAgent {
       llm: this.llm,
       workspaceRoot: runtime.workspaceRoot,
       model: model,
-      resetConversation: async () => this.resetConversationContext(),
+      resetConversation: async () => {
+        await this.resetConversationContext();
+        await this.injectSessionBootstrap();
+      },
       undoFileMutation: () => this.files.undoLast(),
       removeLastTurn: () => this.conversation.removeLastTurn(),
       // Status command context
@@ -1344,6 +1347,10 @@ export class AutohandAgent {
         this.sessionManager.createSession(this.runtime.workspaceRoot, model),
       ]);
 
+      // Inject explicit session bootstrap so the LLM is consciously aware of
+      // memories, AGENTS.md, skills, and project context from the first turn.
+      await this.injectSessionBootstrap();
+
       // Phase 3: Telemetry (no stdout output)
       if (session) {
         await this.telemetryManager.startSession(
@@ -1407,6 +1414,8 @@ export class AutohandAgent {
       this.resetConversationContext(),
       this.sessionManager.createSession(this.runtime.workspaceRoot, model),
     ]);
+
+    await this.injectSessionBootstrap();
 
     // Start telemetry session
     if (session) {
@@ -1531,6 +1540,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const session = await this.sessionManager.loadSession(sessionId);
 
     await this.resetConversationContext();
+    await this.injectSessionBootstrap();
     const messages = session.getMessages();
     for (const msg of messages) {
       if (msg.role === 'system') {
@@ -2541,14 +2551,19 @@ If lint or tests fail, report the issues but do NOT commit.`;
           this.persistentInput.stop();
           this.persistentInputActiveTurn = false;
         }
-        // Stop Ink renderer if active — it holds stdin/stdout and will
-        // swallow quality check output or cause stdin conflicts with spawn.
-        if (this.useInkRenderer) {
-          this.cleanupUI();
+        // Pause Ink renderer instead of destroying it. This releases stdin/stdout
+        // so spawned child processes (lint, test) work correctly, but preserves
+        // state so the composer reappears immediately after quality checks.
+        if (this.useInkRenderer && this.inkRenderer) {
+          this.inkRenderer.pause();
         }
         cleanupConsoleBridge();
         cleanupConsoleBridge = () => {}; // Prevent double-cleanup in finally
         await this.runQualityPipeline();
+        // Resume Ink so the composer is restored before runInstruction returns.
+        if (this.useInkRenderer && this.inkRenderer) {
+          this.inkRenderer.resume();
+        }
       }
     } catch (error) {
       success = false;
@@ -6486,6 +6501,71 @@ If lint or tests fail, report the issues but do NOT commit.`;
     this.conversation.reset(systemPrompt);
     this.mentionContexts = [];
     this.updateContextUsage(this.conversation.history());
+  }
+
+  /**
+   * Generate an explicit session bootstrap note that surfaces the most
+   * important context — memories, AGENTS.md, skills, and project structure —
+   * as a coherent "here's what you should know" block. This is injected as a
+   * system note so the LLM explicitly sees it, rather than passively hoping it
+   * notices buried system prompt content.
+   */
+  private async generateSessionBootstrap(): Promise<string> {
+    const parts: string[] = ['[Session Bootstrap]'];
+
+    // 1. Top memories (most relevant, limited to save tokens)
+    const memories = await this.memoryManager.getContextMemories(3);
+    if (memories) {
+      parts.push('', '## Memories & Preferences', memories);
+    }
+
+    // 2. AGENTS.md summary (first 20 lines — enough for conventions, not the full manifesto)
+    const agentsPath = path.join(this.runtime.workspaceRoot, 'AGENTS.md');
+    if (await fs.pathExists(agentsPath)) {
+      const content = await fs.readFile(agentsPath, 'utf-8');
+      const summary = content.split('\n').slice(0, 20).join('\n');
+      if (summary.trim()) {
+        parts.push('', '## Project Instructions (AGENTS.md)', summary);
+      }
+    }
+
+    // 3. Active skills
+    const activeSkills = this.skillsRegistry.getActiveSkills();
+    if (activeSkills.length > 0) {
+      parts.push('', '## Active Skills');
+      for (const skill of activeSkills) {
+        parts.push(`- **${skill.name}**: ${skill.description}`);
+      }
+    }
+
+    // 4. Lightweight project scan — key config files and top-level structure
+    const keyFiles = ['package.json', 'README.md', 'tsconfig.json', ' Cargo.toml', 'pyproject.toml', 'go.mod'];
+    const foundKeys: string[] = [];
+    for (const file of keyFiles) {
+      if (await fs.pathExists(path.join(this.runtime.workspaceRoot, file.trim()))) {
+        foundKeys.push(file.trim());
+      }
+    }
+    if (foundKeys.length > 0) {
+      parts.push('', `## Project Structure`, `Key files detected: ${foundKeys.join(', ')}`);
+    }
+
+    return parts.join('\n');
+  }
+
+  /**
+   * Inject the session bootstrap into the conversation. Called once per
+   * session start (new CLI invocation, /new, /clear, or resumed session).
+   */
+  private async injectSessionBootstrap(): Promise<void> {
+    try {
+      const bootstrap = await this.generateSessionBootstrap();
+      if (bootstrap && bootstrap.length > '[Session Bootstrap]'.length + 10) {
+        this.conversation.addSystemNote(bootstrap, '[Session Bootstrap]');
+      }
+    } catch {
+      // Bootstrap is best-effort; never block session start
+    }
   }
 
   private availableProviders(): ProviderName[] {
