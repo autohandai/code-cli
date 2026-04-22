@@ -26,6 +26,47 @@ import {
 
 const tempRoots: string[] = [];
 
+/**
+ * Find a Node.js executable for running native host scripts.
+ * Returns null if Node.js is not available (e.g., on CI where only Bun is installed).
+ */
+async function findNodePath(): Promise<string | null> {
+  const { spawnSync } = await import('node:child_process');
+  
+  // Check if current process is Node.js (not Bun)
+  const execBase = path.basename(process.execPath).toLowerCase();
+  if (!execBase.includes('bun') && !execBase.includes('autohand')) {
+    return process.execPath;
+  }
+  
+  // Try common Node.js locations
+  const candidates = [
+    '/opt/homebrew/bin/node',
+    '/usr/local/bin/node',
+    '/usr/bin/node',
+    path.join(os.homedir(), '.local/bin/node'),
+  ];
+  
+  for (const candidate of candidates) {
+    try {
+      const result = spawnSync(candidate, ['--version'], { stdio: 'pipe' });
+      if (result.status === 0) return candidate;
+    } catch {
+      // continue
+    }
+  }
+  
+  // Try 'which node' or 'where node'
+  const command = process.platform === 'win32' ? 'where' : 'which';
+  const result = spawnSync(command, ['node'], { stdio: 'pipe' });
+  if (result.status === 0) {
+    const found = result.stdout?.toString().trim().split('\n')[0];
+    if (found) return found;
+  }
+  
+  return null;
+}
+
 afterEach(async () => {
   const { remove } = await import('fs-extra');
   await Promise.all(tempRoots.splice(0).map((root) => remove(root)));
@@ -107,6 +148,14 @@ describe('browser/chrome', () => {
   });
 
   it('parses chunked native messaging input without dropping the frame header', async () => {
+    // This test requires Node.js to run the native host script.
+    // On CI, only Bun is installed, so we need to find Node.js or skip.
+    const nodePath = await findNodePath();
+    if (!nodePath) {
+      console.log('Skipping test: Node.js not available (required for native host script)');
+      return;
+    }
+
     const tempRoot = path.join(os.tmpdir(), `autohand-host-chunks-${Date.now()}`);
     tempRoots.push(tempRoot);
 
@@ -128,11 +177,12 @@ describe('browser/chrome', () => {
       buildNativeHostScript({
         cliCommand: process.execPath,
         cliArgPrefix: [cliScriptPath],
+        nodePath,
       }),
       'utf8',
     );
 
-    const child = spawn(process.execPath, [hostScriptPath], {
+    const child = spawn(nodePath, [hostScriptPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     const exitPromise = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
