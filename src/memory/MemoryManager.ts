@@ -212,22 +212,24 @@ export class MemoryManager {
   }
 
   /**
-   * Get memories formatted for LLM context injection
+   * Get memories formatted for LLM context injection.
+   * Limits to the most recent/relevant entries to avoid consuming excessive
+   * system prompt tokens. Older memories remain accessible via recall_memory.
    */
-  async getContextMemories(): Promise<string> {
+  async getContextMemories(limit = 5): Promise<string> {
     const { project, user } = await this.listAll();
     const parts: string[] = [];
 
     if (project.length > 0) {
       parts.push('## Project Memories');
-      for (const entry of project.slice(0, 10)) {
+      for (const entry of project.slice(0, limit)) {
         parts.push(`- ${entry.content}`);
       }
     }
 
     if (user.length > 0) {
       parts.push('## User Preferences');
-      for (const entry of user.slice(0, 10)) {
+      for (const entry of user.slice(0, limit)) {
         parts.push(`- ${entry.content}`);
       }
     }
