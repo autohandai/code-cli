@@ -32,6 +32,7 @@ const tempRoots: string[] = [];
  */
 async function findNodePath(): Promise<string | null> {
   const { spawnSync } = await import('node:child_process');
+  const { existsSync } = await import('node:fs');
   
   // Check if current process is Node.js (not Bun)
   const execBase = path.basename(process.execPath).toLowerCase();
@@ -39,29 +40,36 @@ async function findNodePath(): Promise<string | null> {
     return process.execPath;
   }
   
-  // Try common Node.js locations
+  // Try 'which node' or 'where node' first (most reliable)
+  const command = process.platform === 'win32' ? 'where' : 'which';
+  const whichResult = spawnSync(command, ['node'], { stdio: 'pipe' });
+  if (whichResult.status === 0) {
+    const found = whichResult.stdout?.toString().trim().split('\n')[0];
+    if (found && existsSync(found)) {
+      // Verify it actually works
+      const result = spawnSync(found, ['--version'], { stdio: 'pipe' });
+      if (result.status === 0) return found;
+    }
+  }
+  
+  // Try common Node.js locations (including GitHub Actions tool cache)
   const candidates = [
-    '/opt/homebrew/bin/node',
-    '/usr/local/bin/node',
-    '/usr/bin/node',
+    '/opt/hostedtoolcache/node/current/bin/node', // GitHub Actions
+    '/opt/homebrew/bin/node', // macOS Homebrew
+    '/usr/local/bin/node', // Common Linux/macOS
+    '/usr/bin/node', // Linux
     path.join(os.homedir(), '.local/bin/node'),
   ];
   
   for (const candidate of candidates) {
-    try {
-      const result = spawnSync(candidate, ['--version'], { stdio: 'pipe' });
-      if (result.status === 0) return candidate;
-    } catch {
-      // continue
+    if (existsSync(candidate)) {
+      try {
+        const result = spawnSync(candidate, ['--version'], { stdio: 'pipe' });
+        if (result.status === 0) return candidate;
+      } catch {
+        // continue
+      }
     }
-  }
-  
-  // Try 'which node' or 'where node'
-  const command = process.platform === 'win32' ? 'where' : 'which';
-  const result = spawnSync(command, ['node'], { stdio: 'pipe' });
-  if (result.status === 0) {
-    const found = result.stdout?.toString().trim().split('\n')[0];
-    if (found) return found;
   }
   
   return null;
