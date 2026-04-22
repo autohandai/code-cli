@@ -79,6 +79,9 @@ import { FeedbackManager } from '../feedback/FeedbackManager.js';
 import { TelemetryManager } from '../telemetry/TelemetryManager.js';
 import { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import { CommunitySkillsClient } from '../skills/CommunitySkillsClient.js';
+import { CommunitySkillsCache } from '../skills/CommunitySkillsCache.js';
+import { GitHubRegistryFetcher } from '../skills/GitHubRegistryFetcher.js';
+import { fetchRegistryWithFallback, installSkillWithSecurity } from '../skills/communityInstaller.js';
 import { McpClientManager } from '../mcp/McpClientManager.js';
 import type { McpServerConfig } from '../mcp/types.js';
 import { AUTOHAND_PATHS } from '../constants.js';
@@ -878,6 +881,58 @@ export class AutohandAgent {
             } else {
               const cancelled = this.repeatManager.cancel(id);
               result = cancelled ? `Cancelled schedule ${id}.` : `No active schedule found with ID "${id}".`;
+            }
+          } else if (action.type === 'install_agent_skill') {
+            const skillName = (action as { name: string }).name;
+            if (!skillName) {
+              result = 'Error: install_agent_skill requires a "name" argument.';
+            } else {
+              const scope = (action as { scope?: 'project' | 'user' }).scope ?? 'project';
+              const activate = (action as { activate?: boolean }).activate !== false;
+              const cache = new CommunitySkillsCache();
+              const fetcher = new GitHubRegistryFetcher();
+              const registry = await fetchRegistryWithFallback(cache, fetcher);
+              if (!registry) {
+                result = 'Failed to fetch community skills registry. Please check your internet connection.';
+              } else {
+                const skill = fetcher.findSkill(registry.skills, skillName);
+                if (!skill) {
+                  const similar = fetcher.findSimilarSkills(registry.skills, skillName, 3);
+                  let msg = `Skill not found: "${skillName}".`;
+                  if (similar.length > 0) {
+                    msg += `\nDid you mean: ${similar.map((s) => s.name).join(', ')}`;
+                  }
+                  result = msg;
+                } else {
+                  const installResult = await installSkillWithSecurity(
+                    {
+                      skillsRegistry: this.skillsRegistry,
+                      workspaceRoot: this.runtime.workspaceRoot,
+                      hookManager: this.hookManager,
+                      isNonInteractive: true,
+                    },
+                    skill,
+                    cache,
+                    fetcher,
+                    scope,
+                  );
+                  if (activate && !installResult.includes('Failed') && !installResult.includes('Blocked') && !installResult.includes('blocked') && !installResult.includes('Denied')) {
+                    // Try to activate after successful install
+                    try {
+                      const activateResult = this.skillsRegistry.activateSkill(skill.name);
+                      if (activateResult) {
+                        result = `${installResult}\n\nActivated skill: ${skill.name}`;
+                      } else {
+                        result = `${installResult}\n\nNote: skill installed but could not be activated automatically.`;
+                      }
+                    } catch {
+                      result = `${installResult}\n\nNote: skill installed but activation failed.`;
+                    }
+                  } else {
+                    result = installResult;
+                  }
+                }
+              }
             }
           } else if (McpClientManager.isMcpTool(action.type)) {
             // Ensure MCP servers have finished connecting before dispatching
