@@ -309,7 +309,8 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
         command: { type: 'string', description: 'Command to execute. Supports pipes (|), redirects (>), env vars ($HOME), globs (*), and chaining (&&).' },
         args: { type: 'array', description: 'Command arguments. Joined with the command into a single shell string.', items: { type: 'string', description: 'Single argument' } },
         directory: { type: 'string', description: 'Directory relative to workspace root to execute in' },
-        description: { type: 'string', description: 'Brief description of what this command does (shown to user)' }
+        description: { type: 'string', description: 'Brief description of what this command does (shown to user)' },
+        background: { type: 'boolean', description: 'Run process in background (detached). Returns immediately with PID. Use for dev servers, long-running processes, or when you don\'t need to wait for completion.' }
       },
       required: ['command']
     },

@@ -293,6 +293,8 @@ export interface ExecuteStreamingShellCommandOptions extends ExecuteShellCommand
   preferPty?: boolean;
   columns?: number;
   rows?: number;
+  /** Run process in background (detached). Returns immediately with PID. */
+  background?: boolean;
 }
 
 interface PtyDisposable {
@@ -597,6 +599,39 @@ export async function executeStreamingShellCommand(
   options: ExecuteStreamingShellCommandOptions = {}
 ): Promise<ShellCommandResult> {
   const trimmedCommand = command.trim();
+  
+  // Handle background mode - spawn detached process and return immediately
+  if (options.background) {
+    return new Promise((resolve) => {
+      let child;
+      try {
+        child = spawn(trimmedCommand, {
+          cwd: cwd ?? process.cwd(),
+          shell: true,
+          detached: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+      } catch (error) {
+        const execError = error as Error;
+        resolve({
+          success: false,
+          error: execError.message || 'Unknown error'
+        });
+        return;
+      }
+      
+      // Unref the child so the parent can exit independently
+      child.unref();
+      
+      // Return immediately with PID
+      resolve({
+        success: true,
+        output: '',
+        backgroundPid: child.pid
+      });
+    });
+  }
+  
   const shouldUsePty = options.preferPty === true && process.stdin.isTTY && process.stdout.isTTY;
 
   if (!shouldUsePty) {
