@@ -1292,6 +1292,7 @@ export class ProviderConfigManager {
       console.log(chalk.gray(`  Model: ${newModel}`));
 
       this.updateContextWindowFromModel(newModel);
+      this.resetLlmClient("vertexai", newModel);
       this.emitStatus();
     } catch (error) {
       console.log(chalk.red(`\n✗ ${t("providers.config.error")}`));
