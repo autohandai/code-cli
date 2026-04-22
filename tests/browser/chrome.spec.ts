@@ -185,9 +185,21 @@ describe('browser/chrome', () => {
     const child = spawn(nodePath, [hostScriptPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    
+    const stderrChunks: Buffer[] = [];
+    child.stderr.on('data', (chunk) => {
+      stderrChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    
     const exitPromise = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
       child.once('error', (error) => reject(error));
-      child.once('exit', (code, signal) => resolve({ code, signal }));
+      child.once('exit', (code, signal) => {
+        if (code !== 0) {
+          const stderr = Buffer.concat(stderrChunks).toString('utf8');
+          console.error('Host script stderr:', stderr);
+        }
+        resolve({ code, signal });
+      });
     });
 
     const stdoutChunks: Buffer[] = [];
