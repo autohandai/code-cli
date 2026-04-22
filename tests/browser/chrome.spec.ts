@@ -175,7 +175,7 @@ describe('browser/chrome', () => {
     await writeFile(
       hostScriptPath,
       buildNativeHostScript({
-        cliCommand: process.execPath,
+        cliCommand: nodePath,
         cliArgPrefix: [cliScriptPath],
         nodePath,
       }),
