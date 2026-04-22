@@ -1544,34 +1544,243 @@ Autohand stores data in `~/.autohand/` (or `$AUTOHAND_HOME`):
 
 These flags override config file settings:
 
+### Core Flags
+
 | Flag                          | Description                                                                                    |
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
-| `--model <model>`             | Override model                                                                                 |
+| `-v, --version`               | Output the current version                                                                     |
+| `-p, --prompt [text]`         | Run a single instruction in command mode                                                       |
 | `--path <path>`               | Override workspace root                                                                        |
-| `--worktree [name]`           | Run session in isolated git worktree (optional worktree/branch name)                           |
-| `--tmux`                      | Launch in a dedicated tmux session (implies `--worktree`; cannot be used with `--no-worktree`) |
-| `--add-dir <path>`            | Add additional directories to workspace scope (can be used multiple times)                     |
 | `--config <path>`             | Use custom config file                                                                         |
-| `--temperature <n>`           | Set temperature (0-1)                                                                          |
-| `--yes`                       | Auto-confirm prompts                                                                           |
+| `--model <model>`             | Override model                                                                                 |
+| `--temperature <n>`           | Set sampling temperature (0-1)                                                                  |
+| `--thinking [level]`          | Set thinking/reasoning depth (none, normal, extended)                                          |
+| `-y, --yes`                   | Auto-confirm prompts                                                                           |
 | `--dry-run`                   | Preview without executing                                                                      |
 | `-d, --debug`                 | Enable verbose debug output                                                                    |
+
+### Permissions & Safety
+
+| Flag                          | Description                                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------------------------- |
 | `--unrestricted`              | No approval prompts                                                                            |
 | `--restricted`                | Deny dangerous operations                                                                      |
 | `--permissions`               | Display current permission settings and exit                                                   |
+| `--yolo [pattern]`            | Auto-approve tool calls matching pattern (e.g., `allow:read,write` or `deny:delete`)           |
+| `--timeout <seconds>`         | Timeout in seconds for auto-approve mode                                                       |
+
+### Git & Worktree
+
+| Flag                          | Description                                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------------------------- |
+| `--worktree [name]`           | Run session in isolated git worktree (optional worktree/branch name)                           |
+| `--tmux`                      | Launch in a dedicated tmux session (implies `--worktree`; cannot be used with `--no-worktree`) |
+| `--no-worktree`               | Disable git worktree isolation in auto-mode                                                    |
+| `-c, --auto-commit`           | Auto-commit changes after completing tasks                                                     |
 | `--patch`                     | Generate git patch without applying changes                                                    |
 | `--output <file>`             | Output file for patch (used with --patch)                                                      |
+
+### Auto-Mode
+
+| Flag                          | Description                                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------------------------- |
+| `--auto-mode [prompt]`        | Enable interactive auto-mode, or start a standalone loop with an inline task                   |
+| `--max-iterations <n>`        | Max auto-mode iterations (default: 50)                                                         |
+| `--completion-promise <text>` | Completion marker text (default: "DONE")                                                       |
+| `--checkpoint-interval <n>`   | Git commit every N iterations (default: 5)                                                     |
+| `--max-runtime <m>`           | Max runtime in minutes (default: 120)                                                          |
+| `--max-cost <d>`              | Max API cost in dollars (default: 10)                                                          |
+| `--interactive-on-complete`   | After auto-mode ends, hand off directly to interactive mode (TTY only)                         |
+
+### Skills & Learning
+
+| Flag                          | Description                                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------------------------- |
 | `--auto-skill`                | Auto-generate skills based on project analysis (see also `/learn` for interactive advisor)     |
 | `--learn`                     | Run `/learn` skill advisor non-interactively (analyze and install recommended skills)          |
 | `--learn-update`              | Re-analyze project and regenerate outdated LLM-generated skills non-interactively              |
-| `-c, --auto-commit`           | Auto-commit changes after completing tasks                                                     |
+| `--skill-install [name]`      | Install a community skill (opens browser if no name provided)                                  |
+| `--project`                   | Install skill to project level (with --skill-install)                                          |
+
+### Authentication & Account
+
+| Flag                          | Description                                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------------------------- |
 | `--login`                     | Sign in to your Autohand account                                                               |
 | `--logout`                    | Sign out of your Autohand account                                                              |
-| `--about`                     | Show information about Autohand (version, links, contribution info)                            |
 | `--sync-settings`             | Enable/disable settings sync (default: true for logged users)                                  |
+
+### Setup & Info
+
+| Flag                          | Description                                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------------------------- |
 | `--setup`                     | Run the setup wizard to configure or reconfigure Autohand                                      |
+| `--about`                     | Show information about Autohand (version, links, contribution info)                            |
+| `--feedback`                  | Submit feedback to the Autohand team                                                           |
+| `--settings`                  | Configure Autohand settings (same as `/settings` in interactive mode)                          |
+
+### Workspace & Directories
+
+| Flag                          | Description                                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------------------------- |
+| `--add-dir <path...>`         | Add additional directories to workspace scope (can be used multiple times)                     |
+
+### Run Modes
+
+| Flag                          | Description                                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------------------------- |
+| `--mode <mode>`               | Run mode: interactive (default), rpc, or acp                                                   |
+| `--acp`                       | Shorthand for --mode acp (Agent Client Protocol over stdio)                                    |
+| `--teammate-mode <mode>`      | Team display mode: auto, in-process, or tmux                                                   |
+
+### UI & Language
+
+| Flag                          | Description                                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------------------------- |
+| `--display-language <locale>` | Set display language (e.g., en, zh-cn, fr, de, ja)                                             |
+| `--search-engine <provider>`  | Set web search provider (google, brave, duckduckgo, parallel)                                  |
+| `--cc, --context-compact`     | Enable context compaction (default: on)                                                        |
+| `--no-cc, --no-context-compact` | Disable context compaction                                                                    |
+
+### Chrome Integration
+
+| Flag                          | Description                                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------------------------- |
+| `--chrome`                    | Enable Chrome browser integration (same as `/chrome`)                                          |
+| `--no-chrome`                 | Disable Chrome browser integration                                                             |
+
+### System Prompt
+
+| Flag                          | Description                                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------------------------- |
 | `--sys-prompt <value>`        | Replace entire system prompt (inline string or file path)                                      |
 | `--append-sys-prompt <value>` | Append to system prompt (inline string or file path)                                           |
+
+---
+
+## Slash Commands
+
+Autohand provides a rich set of slash commands for interactive use. Type `/` in the REPL to see suggestions.
+
+### Session Management
+
+| Command       | Description                                           |
+| ------------- | ----------------------------------------------------- |
+| `/quit`       | Exit the current session                              |
+| `/new`        | Start fresh conversation (with memory extraction)     |
+| `/clear`      | Clear conversation with automatic memory extraction   |
+| `/session`    | Show current session details                          |
+| `/sessions`   | List past sessions                                    |
+| `/resume`     | Resume a previous session                             |
+| `/history`    | Browse session history with pagination                |
+| `/undo`       | Revert git changes and last turn                      |
+| `/export`     | Export session to markdown/JSON/HTML                  |
+| `/share`      | Share current session                                 |
+| `/status`     | Show session status                                   |
+
+### Model & Provider
+
+| Command       | Description                                           |
+| ------------- | ----------------------------------------------------- |
+| `/model`      | Switch or configure LLM model                         |
+| `/cc`         | Compact context manually                              |
+
+### Project Setup
+
+| Command       | Description                                           |
+| ------------- | ----------------------------------------------------- |
+| `/init`       | Create `AGENTS.md` file in current directory          |
+| `/setup`      | Run the setup wizard to configure Autohand            |
+| `/add-dir`    | Add directories to workspace scope                    |
+
+### Agents & Teams
+
+| Command       | Description                                           |
+| ------------- | ----------------------------------------------------- |
+| `/agents`     | List available sub-agents                             |
+| `/agents-new` | Create a new agent via wizard                         |
+| `/team`       | Manage team for parallel work                         |
+| `/tasks`      | Manage tasks in team                                  |
+| `/message`    | Send message to teammate                              |
+
+### Skills
+
+| Command          | Description                                        |
+| ---------------- | -------------------------------------------------- |
+| `/skills`        | List and manage skills                             |
+| `/skills-new`    | Create new skill                                   |
+| `/learn`         | Learn and install recommended skills               |
+
+### Memory & Settings
+
+| Command       | Description                                           |
+| ------------- | ----------------------------------------------------- |
+| `/memory`     | View and manage stored memories                       |
+| `/settings`   | Configure Autohand settings                           |
+| `/sync`       | Sync settings across devices                          |
+| `/import`     | Import settings from a file                           |
+
+### Permissions & Hooks
+
+| Command       | Description                                           |
+| ------------- | ----------------------------------------------------- |
+| `/permissions`| Manage tool permissions                               |
+| `/hooks`      | Manage lifecycle hooks                                |
+
+### Authentication
+
+| Command       | Description                                           |
+| ------------- | ----------------------------------------------------- |
+| `/login`      | Authenticate with Autohand API                        |
+| `/logout`     | Log out of Autohand account                           |
+
+### Tools & Utilities
+
+| Command       | Description                                           |
+| ------------- | ----------------------------------------------------- |
+| `/search`     | Search the web                                        |
+| `/formatters` | List available code formatters                        |
+| `/lint`       | List available code linters                          |
+| `/completion` | Generate shell completion scripts                     |
+| `/plan`       | Create implementation plan                            |
+| `/review`     | Perform code review                                   |
+| `/pr-review`  | Review a pull request                                 |
+
+### IDE Integration
+
+| Command       | Description                                           |
+| ------------- | ----------------------------------------------------- |
+| `/ide`        | Detect and connect to running IDEs                    |
+
+### MCP (Model Context Protocol)
+
+| Command       | Description                                           |
+| ------------- | ----------------------------------------------------- |
+| `/mcp`        | Interactive MCP server manager                        |
+
+### Automation
+
+| Command       | Description                                           |
+| ------------- | ----------------------------------------------------- |
+| `/automode`   | Start autonomous coding mode                          |
+| `/repeat`     | Schedule recurring jobs                               |
+| `/yolo`       | Toggle yolo mode (auto-approve tools)                 |
+
+### Chrome Integration
+
+| Command       | Description                                           |
+| ------------- | ----------------------------------------------------- |
+| `/chrome`     | Enable Chrome browser integration                     |
+
+### UI & Display
+
+| Command       | Description                                           |
+| ------------- | ----------------------------------------------------- |
+| `/help`       | Display available slash commands and tips             |
+| `/about`      | Show information about Autohand                       |
+| `/theme`      | Change color theme                                    |
+| `/language`   | Change display language                               |
+| `/feedback`   | Send feedback to the Autohand team                    |
 
 ---
 
