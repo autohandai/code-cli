@@ -1291,7 +1291,8 @@ export class ProviderConfigManager {
       console.log(chalk.green("\n✓ " + t("providers.config.settingsUpdated", { provider: "Vertex AI" })));
       console.log(chalk.gray(`  Model: ${newModel}`));
 
-      this.updateContextWindowFromModel(newModel);
+      this.updateContextWindow(getContextWindow(newModel));
+      this.resetContextPercent();
       this.resetLlmClient("vertexai", newModel);
       this.emitStatus();
     } catch (error) {
