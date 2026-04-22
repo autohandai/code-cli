@@ -159,6 +159,7 @@ describe('browser/chrome', () => {
     // This test requires Node.js to run the native host script.
     // On CI, only Bun is installed, so we need to find Node.js or skip.
     const nodePath = await findNodePath();
+    console.log('findNodePath returned:', nodePath);
     if (!nodePath) {
       console.log('Skipping test: Node.js not available (required for native host script)');
       return;
