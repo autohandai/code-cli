@@ -735,6 +735,7 @@
       "changeModelOnly": "Change model only",
       "changeApiKeyOnly": "Change API key only",
       "changeBoth": "Change both model and API key",
+      "changeBaseUrl": "Change base URL/endpoint",
       "validatingApiKey": "Validating API key...",
       "apiKeyValid": "API key is valid",
       "apiKeyRequired": "API key is required",
