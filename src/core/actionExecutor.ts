@@ -856,6 +856,7 @@ export class ActionExecutor {
                 preferPty: process.stdin.isTTY && process.stdout.isTTY,
                 columns: process.stdout.columns,
                 rows: process.stdout.rows,
+                background: action.background,
               }
             );
             this.onLiveCommandRemove!(liveId);
@@ -866,6 +867,7 @@ export class ActionExecutor {
             const parts = [dirInfo ? `${header} ${dirInfo}` : header];
             if (result.output) parts.push(result.output);
             if (result.error) parts.push(result.error);
+            if (result.backgroundPid) parts.push(`[Background PID: ${result.backgroundPid}]`);
             return parts.join('\n');
           } catch (err) {
             this.onLiveCommandRemove!(liveId);
