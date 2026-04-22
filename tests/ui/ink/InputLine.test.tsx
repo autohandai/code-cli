@@ -70,3 +70,66 @@ describe('InputLine', () => {
     expect(output).not.toContain('[K');
   });
 });
+describe('InputLine cursor positioning', () => {
+  const originalColumns = process.stdout.columns;
+
+  beforeEach(() => {
+    Object.defineProperty(process.stdout, 'columns', {
+      value: 80,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process.stdout, 'columns', {
+      value: originalColumns,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  it('positions cursor at end of text when cursorOffset equals text length', () => {
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <InputLine value="hello" cursorOffset={5} isActive width={80} />
+      </ThemeProvider>
+    );
+    const output = stripAnsi(lastFrame());
+    expect(output).toContain('hello');
+  });
+
+  it('positions cursor in middle of text when cursorOffset is less than text length', () => {
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <InputLine value="hello world" cursorOffset={5} isActive width={80} />
+      </ThemeProvider>
+    );
+    const output = stripAnsi(lastFrame());
+    expect(output).toContain('hello');
+    expect(output).toContain('world');
+  });
+
+  it('handles empty input with cursor at start', () => {
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <InputLine value="" cursorOffset={0} isActive width={80} />
+      </ThemeProvider>
+    );
+    const output = stripAnsi(lastFrame());
+    expect(output).toContain('┌');
+    expect(output).toContain('└');
+  });
+
+  it('handles multiline text with correct cursor row', () => {
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <InputLine value="line1\nline2\nline3" cursorOffset={12} isActive width={80} />
+      </ThemeProvider>
+    );
+    const output = stripAnsi(lastFrame());
+    expect(output).toContain('line1');
+    expect(output).toContain('line2');
+    expect(output).toContain('line3');
+  });
+});
