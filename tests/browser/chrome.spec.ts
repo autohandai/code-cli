@@ -226,6 +226,11 @@ describe('browser/chrome', () => {
     child.stdin.end();
 
     const exitResult = await exitPromise;
+    
+    if (exitResult.code !== 0) {
+      const stderr = Buffer.concat(stderrChunks).toString('utf8');
+      throw new Error(`Host script exited with code ${exitResult.code}. Stderr: ${stderr || '(empty)'}`);
+    }
 
     expect(exitResult.code).toBe(0);
     expect(exitResult.signal).toBeNull();
