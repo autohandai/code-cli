@@ -1156,8 +1156,8 @@ export class ProviderConfigManager {
 
       // Ask what to change
       const actionOptions: ModalOption[] = [
-        { label: t("providers.config.changeModel"), value: "model" },
-        { label: t("providers.config.changeApiKey"), value: "authToken" },
+        { label: t("providers.config.changeModelOnly"), value: "model" },
+        { label: t("providers.config.changeApiKeyOnly"), value: "authToken" },
         { label: t("providers.config.changeBoth"), value: "both" },
         { label: t("providers.config.changeBaseUrl"), value: "endpoint" },
         { label: t("ui.cancel"), value: "cancel" },
