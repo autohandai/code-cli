@@ -135,6 +135,10 @@ describe('browser/chrome', () => {
     const child = spawn(process.execPath, [hostScriptPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    const exitPromise = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+      child.once('error', (error) => reject(error));
+      child.once('exit', (code, signal) => resolve({ code, signal }));
+    });
 
     const stdoutChunks: Buffer[] = [];
     child.stdout.on('data', (chunk) => {
@@ -159,9 +163,7 @@ describe('browser/chrome', () => {
     child.stdin.write(Buffer.concat([shutdownHeader, shutdownPayload]));
     child.stdin.end();
 
-    const exitResult = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-      child.on('exit', (code, signal) => resolve({ code, signal }));
-    });
+    const exitResult = await exitPromise;
 
     expect(exitResult.code).toBe(0);
     expect(exitResult.signal).toBeNull();
