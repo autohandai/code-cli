@@ -12,6 +12,7 @@ import { InputLine } from './InputLine.js';
 import { ThinkingOutput } from './ThinkingOutput.js';
 import { FileMentionDropdown, parseFileSuggestions, matchFileMention, type FileMentionSuggestion } from './FileMentionDropdown.js';
 import { UserMessage } from './UserMessage.js';
+import { SitrepMessage, parseSitrepText } from './SitrepMessage.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/index.js';
 import { getPlanModeManager } from '../../commands/plan.js';
@@ -670,16 +671,57 @@ const DynamicContent = memo(function DynamicContent({
   finalResponse,
   isWorking
 }: DynamicContentProps) {
+  // Parse final response to detect SITREP sections
+  const content = useMemo(() => {
+    if (!finalResponse || isWorking) return null;
+
+    // Check if this contains a SITREP block
+    const sitrepMatch = finalResponse.match(/SITREP:\s*\n([\s\S]*?)(?=\n\n|$)/);
+    if (sitrepMatch) {
+      const sitrepText = sitrepMatch[0];
+      const sitrepProps = parseSitrepText(sitrepText);
+      const beforeSitrep = finalResponse.slice(0, sitrepMatch.index).trim();
+      const afterSitrep = finalResponse.slice(sitrepMatch.index! + sitrepText.length).trim();
+
+      return {
+        before: beforeSitrep || null,
+        sitrep: sitrepProps,
+        after: afterSitrep || null
+      };
+    }
+
+    // No SITREP, return plain text
+    return { before: finalResponse, sitrep: null, after: null };
+  }, [finalResponse, isWorking]);
+
   return (
     <>
       {/* Thinking output */}
       <ThinkingOutput thought={thinking} />
 
       {/* Final response (when not working) */}
-      {finalResponse && !isWorking && (
-        <Box marginTop={1}>
-          <Text>{renderTerminalMarkdown(finalResponse)}</Text>
-        </Box>
+      {content && (
+        <>
+          {content.before && (
+            <Box marginTop={1}>
+              <Text>{renderTerminalMarkdown(content.before)}</Text>
+            </Box>
+          )}
+          {content.sitrep && (
+            <SitrepMessage
+              done={content.sitrep.done}
+              files={content.sitrep.files}
+              status={content.sitrep.status}
+              next={content.sitrep.next}
+              verify={content.sitrep.verify}
+            />
+          )}
+          {content.after && (
+            <Box marginTop={1}>
+              <Text>{renderTerminalMarkdown(content.after)}</Text>
+            </Box>
+          )}
+        </>
       )}
     </>
   );
