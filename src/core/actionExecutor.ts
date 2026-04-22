@@ -886,6 +886,7 @@ export class ActionExecutor {
             {
               directory: action.directory,
               shell: true,
+              background: action.background,
             }
           );
         } catch (err) {
