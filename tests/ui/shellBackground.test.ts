@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { executeStreamingShellCommand } from '../../src/ui/shellCommand.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
