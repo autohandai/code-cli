@@ -983,7 +983,7 @@ export class ProviderConfigManager {
         provider === "xai"
       ) {
         if (provider === "vertexai") {
-          await this.configureVertexAI();
+          await this.changeVertexAISettings(currentModel, currentSettings as VertexAISettings | null);
           return;
         }
         if (provider === "xai") {
