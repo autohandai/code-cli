@@ -721,6 +721,7 @@
       "configuredSuccessfully": "{{provider}} configured successfully!",
       "selectModel": "Select a model",
       "selectReasoningEffort": "Select reasoning effort level",
+      "customModel": "Custom model...",
       "reasoningEffortLabel": "Reasoning effort: {{level}}",
       "enterModelId": "Enter the model ID",
       "enterApiKey": "Enter your {{provider}} API key",
@@ -897,6 +898,7 @@
     "discarded": "Changes discarded."
   },
   "ui": {
+    "cancel": "Cancel",
     "escToCancel": "esc to cancel",
     "commandHint": "? shortcuts · / commands · @ mention files · ! terminal",
     "ctrlCToExit": "Press Ctrl+C again to exit",

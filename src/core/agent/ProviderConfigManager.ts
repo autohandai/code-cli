@@ -1243,6 +1243,11 @@ export class ProviderConfigManager {
           label: name,
           value: name,
         }));
+        // Add custom model option
+        modelOptions.push({
+          label: t("providers.config.customModel") || "Custom model...",
+          value: "__custom__",
+        });
         const currentIndex = Math.max(0, models.indexOf(currentModel));
         const result = await showModal({
           title: t("providers.config.selectModel"),
@@ -1254,7 +1259,22 @@ export class ProviderConfigManager {
           console.log(chalk.gray("\n" + t("providers.config.settingsChangeCancelled")));
           return;
         }
-        newModel = result.value as string;
+        
+        // Handle custom model selection
+        if (result.value === "__custom__") {
+          const customModel = await showInput({
+            title: t("providers.config.enterModelId"),
+            placeholder: "anthropic/claude-sonnet-4",
+            defaultValue: currentModel,
+          });
+          if (!customModel) {
+            console.log(chalk.gray("\n" + t("providers.config.settingsChangeCancelled")));
+            return;
+          }
+          newModel = customModel.trim();
+        } else {
+          newModel = result.value as string;
+        }
       }
 
       // Update config
