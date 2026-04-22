@@ -168,6 +168,15 @@ export class MentionPreview {
     if (this.disposed || this.suspended) {
       return;
     }
+
+    // For navigation/acceptance keys, refresh suggestions synchronously so
+    // they reflect the current rl.line. Without this, a Tab pressed rapidly
+    // after a character can use stale suggestion data because the deferred
+    // setImmediate(updateSuggestions) hasn't fired yet.
+    if (this.isTabKey(_str, key) || key?.name === 'down' || key?.name === 'up') {
+      this.updateSuggestions();
+    }
+
     const beforeCursor = this.rl.line.slice(0, this.rl.cursor);
 
     // Tab and arrow keys must be handled synchronously (before readline processes them)
