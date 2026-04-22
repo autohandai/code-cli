@@ -52,6 +52,8 @@ export const HOOK_EVENTS: HookEvent[] = [
   'review:paused',
   'review:failed',
   'review:completed',
+  // Mode events
+  'mode-change',
 ];
 
 // Event descriptions for better UX
@@ -94,6 +96,8 @@ const EVENT_DESCRIPTIONS: Record<HookEvent, string> = {
   'review:paused': 'When a code review is paused',
   'review:failed': 'When a code review encounters an error',
   'review:completed': 'When a code review finishes successfully',
+  // Mode events
+  'mode-change': 'When permission mode changes (unrestricted, yolo, etc.)',
 };
 
 // Icons for built-in hooks (matched by script name or description keywords)
