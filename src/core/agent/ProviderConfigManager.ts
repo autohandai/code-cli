@@ -1130,6 +1130,156 @@ export class ProviderConfigManager {
   }
 
   /**
+   * Change Vertex AI settings with pre-populated values
+   */
+  private async changeVertexAISettings(
+    currentModel: string,
+    currentSettings: VertexAISettings | null,
+  ): Promise<void> {
+    try {
+      console.log(chalk.cyan(t("providers.wizard.vertexai.title")));
+
+      // Show current settings
+      const maskedToken = currentSettings?.authToken
+        ? `...${currentSettings.authToken.slice(-8)}`
+        : t("ui.notSet");
+      const currentEndpoint = currentSettings?.endpoint || "aiplatform.googleapis.com";
+      const currentProject = currentSettings?.projectId || t("ui.notSet");
+      const currentRegion = currentSettings?.region || "global";
+
+      console.log(chalk.gray(`\n${t("providers.config.currentSettings")}:`));
+      console.log(chalk.gray(`  Project ID: ${currentProject}`));
+      console.log(chalk.gray(`  Region: ${currentRegion}`));
+      console.log(chalk.gray(`  Endpoint: ${currentEndpoint}`));
+      console.log(chalk.gray(`  Auth Token: ${maskedToken}`));
+      console.log(chalk.gray(`  Model: ${currentModel || t("ui.notSet")}`));
+
+      // Ask what to change
+      const actionOptions: ModalOption[] = [
+        { label: t("providers.config.changeModel"), value: "model" },
+        { label: t("providers.config.changeApiKey"), value: "authToken" },
+        { label: t("providers.config.changeBoth"), value: "both" },
+        { label: t("providers.config.changeBaseUrl"), value: "endpoint" },
+        { label: t("ui.cancel"), value: "cancel" },
+      ];
+
+      const actionResult = await showModal({
+        title: t("providers.config.whatToChange"),
+        options: actionOptions,
+      });
+
+      if (!actionResult || actionResult.value === "cancel") {
+        console.log(chalk.gray("\n" + t("providers.config.settingsChangeCancelled")));
+        return;
+      }
+
+      const action = actionResult.value as string;
+      let newAuthToken = currentSettings?.authToken || "";
+      let newProjectId = currentSettings?.projectId || "";
+      let newRegion = currentSettings?.region || "global";
+      let newEndpoint = currentSettings?.endpoint || "aiplatform.googleapis.com";
+      let newModel = currentModel;
+
+      // Handle auth token change
+      if (action === "authToken" || action === "both") {
+        const authToken = await showInput({
+          title: t("providers.wizard.vertexai.enterAuthToken"),
+          placeholder: currentSettings?.authToken ? maskedToken : t("ui.apiKeyPlaceholder"),
+          defaultValue: currentSettings?.authToken || "",
+        });
+
+        if (!authToken) {
+          console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+          return;
+        }
+        newAuthToken = authToken.trim();
+
+        // Also ask for project ID if changing auth
+        const projectId = await showInput({
+          title: t("providers.wizard.vertexai.enterProjectId"),
+          placeholder: currentSettings?.projectId || "my-gcp-project",
+          defaultValue: currentSettings?.projectId || "",
+        });
+
+        if (!projectId) {
+          console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+          return;
+        }
+        newProjectId = projectId.trim();
+
+        // Ask for region
+        const region = await showInput({
+          title: t("providers.wizard.vertexai.enterRegion"),
+          placeholder: currentSettings?.region || "global",
+          defaultValue: currentSettings?.region || "global",
+        });
+        newRegion = region?.trim() || "global";
+      }
+
+      // Handle endpoint change
+      if (action === "endpoint") {
+        const endpoint = await showInput({
+          title: t("providers.wizard.vertexai.enterEndpoint"),
+          placeholder: currentSettings?.endpoint || "aiplatform.googleapis.com",
+          defaultValue: currentSettings?.endpoint || "aiplatform.googleapis.com",
+        });
+        newEndpoint = endpoint?.trim() || "aiplatform.googleapis.com";
+      }
+
+      // Handle model change
+      if (action === "model" || action === "both") {
+        const models = [
+          "anthropic/claude-opus-4-7",
+          "anthropic/claude-opus-4",
+          "anthropic/claude-sonnet-4",
+          "anthropic/claude-3-5-sonnet",
+          "anthropic/claude-3-opus",
+          "anthropic/claude-3-haiku",
+          "google/gemini-1.5-pro",
+          "google/gemini-1.5-flash",
+          "google/gemini-1.0-pro",
+        ];
+        const modelOptions: ModalOption[] = models.map((name) => ({
+          label: name,
+          value: name,
+        }));
+        const currentIndex = Math.max(0, models.indexOf(currentModel));
+        const result = await showModal({
+          title: t("providers.config.selectModel"),
+          options: modelOptions,
+          initialIndex: currentIndex,
+        });
+
+        if (!result) {
+          console.log(chalk.gray("\n" + t("providers.config.settingsChangeCancelled")));
+          return;
+        }
+        newModel = result.value as string;
+      }
+
+      // Update config
+      this.runtime.config.vertexai = {
+        authToken: newAuthToken,
+        projectId: newProjectId,
+        region: newRegion,
+        endpoint: newEndpoint,
+        model: newModel,
+      };
+      this.runtime.config.provider = "vertexai";
+      this.runtime.options.model = newModel;
+
+      console.log(chalk.green("\n✓ " + t("providers.config.settingsUpdated")));
+      console.log(chalk.gray(`  Model: ${newModel}`));
+
+      this.updateContextWindowFromModel(newModel);
+      this.emitStatus();
+    } catch (error) {
+      console.log(chalk.red(`\n✗ ${t("providers.config.error")}`));
+      console.log(chalk.gray((error as Error).message));
+    }
+  }
+
+  /**
    * Configure Google Cloud Vertex AI provider
    */
   private async configureVertexAI(): Promise<void> {
