@@ -1,5 +1,9 @@
 #!/usr/bin/env node
-process.title = 'autohand';
+process.title = 'Autohand Code';
+// Set terminal window/icon title (OSC 0 - works in Ghostty, iTerm2, and most terminals)
+if (process.stdout.isTTY) {
+  process.stdout.write('\x1b]0;Autohand Code\x07');
+}
 // Set environment variable for detection by Expect and other tools
 process.env.AUTOHAND_CODE = '1';
 import 'dotenv/config';
