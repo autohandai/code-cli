@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, it, expect, vi } from 'vitest';
-import { DEFAULT_TOOL_DEFINITIONS, ToolManager } from '../src/core/toolManager.js';
+import { DEFAULT_TOOL_DEFINITIONS, PLAN_TOOL_DEFINITION, ToolManager } from '../src/core/toolManager.js';
 
 const noopDefinitions = [
   { name: 'read_file', description: 'read file' },
@@ -46,6 +46,19 @@ describe('ToolManager', () => {
     expect(names.has('send_team_message')).toBe(true);
   });
 
+  it('does NOT include plan tool in DEFAULT_TOOL_DEFINITIONS', () => {
+    const names = new Set(DEFAULT_TOOL_DEFINITIONS.map((tool) => tool.name));
+    expect(names.has('plan')).toBe(false);
+  });
+
+  it('exports PLAN_TOOL_DEFINITION as standalone constant', () => {
+    expect(PLAN_TOOL_DEFINITION).toBeDefined();
+    expect(PLAN_TOOL_DEFINITION.name).toBe('plan');
+    expect(PLAN_TOOL_DEFINITION.description).toContain('structured implementation plan');
+    expect(PLAN_TOOL_DEFINITION.parameters).toBeDefined();
+    expect(PLAN_TOOL_DEFINITION.parameters?.properties).toHaveProperty('notes');
+  });
+
   it('executes tool calls via the provided executor', async () => {
     const executor = vi.fn().mockResolvedValue('file contents');
     const confirm = vi.fn().mockResolvedValue(true);
@@ -80,6 +93,56 @@ describe('ToolManager', () => {
     });
 
     expect(manager.listToolNames()).toEqual(['read_file', 'delete_path']);
+  });
+
+  it('unregister removes a tool definition by name', () => {
+    const manager = new ToolManager({
+      executor: vi.fn(),
+      confirmApproval: vi.fn(),
+      definitions: noopDefinitions as any
+    });
+
+    expect(manager.listToolNames()).toContain('read_file');
+    expect(manager.listToolNames()).toContain('delete_path');
+
+    const removed = manager.unregister('read_file');
+    expect(removed).toBe(true);
+    expect(manager.listToolNames()).not.toContain('read_file');
+    expect(manager.listToolNames()).toContain('delete_path');
+  });
+
+  it('unregister returns false for non-existent tool', () => {
+    const manager = new ToolManager({
+      executor: vi.fn(),
+      confirmApproval: vi.fn(),
+      definitions: noopDefinitions as any
+    });
+
+    const removed = manager.unregister('nonexistent_tool');
+    expect(removed).toBe(false);
+  });
+
+  it('plan tool can be dynamically registered and unregistered', () => {
+    const manager = new ToolManager({
+      executor: vi.fn(),
+      confirmApproval: vi.fn(),
+      definitions: [{ name: 'read_file', description: 'read file' }] as any
+    });
+
+    // Plan should not be in default tools
+    expect(manager.listToolNames()).not.toContain('plan');
+
+    // Register plan tool dynamically
+    manager.register(PLAN_TOOL_DEFINITION);
+    expect(manager.listToolNames()).toContain('plan');
+
+    // Unregister plan tool
+    manager.unregister('plan');
+    expect(manager.listToolNames()).not.toContain('plan');
+
+    // Re-register should work
+    manager.register(PLAN_TOOL_DEFINITION);
+    expect(manager.listToolNames()).toContain('plan');
   });
 
   it('replaces MCP tools without touching other tools', () => {
