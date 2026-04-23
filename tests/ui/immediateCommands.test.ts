@@ -227,6 +227,10 @@ describe('PersistentInput immediate command handling', () => {
       isTTY: true,
       setRawMode: vi.fn(),
       resume: vi.fn(),
+      off: vi.fn(),
+      on: vi.fn(),
+      listenerCount: vi.fn(() => 0),
+      removeAllListeners: vi.fn(() => (pi as any).input),
     };
     (pi as any).regions = {
       focusScrollBottom,
