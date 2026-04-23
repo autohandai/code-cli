@@ -293,7 +293,7 @@ export class ProviderConfigManager {
       try {
         const response = await fetch(`${ollamaUrl}/api/tags`);
         if (response.ok) {
-          const data = await response.json();
+          const data = await response.json() as { models?: Array<{ name: string }> };
           availableModels = data.models?.map((m: any) => m.name) || [];
         }
       } catch {
@@ -585,7 +585,7 @@ export class ProviderConfigManager {
       try {
         const response = await fetch(`${mlxUrl}/v1/models`);
         if (response.ok) {
-          const data = await response.json();
+          const data = await response.json() as { data?: Array<{ id: string }> };
           availableModels = data.data?.map((m: any) => m.id) || [];
         }
       } catch {
@@ -1009,7 +1009,7 @@ export class ProviderConfigManager {
         try {
           const response = await fetch(`${currentSettings.baseUrl}/api/tags`);
           if (response.ok) {
-            const data = await response.json();
+            const data = await response.json() as { models?: Array<{ name: string }> };
             const models = data.models?.map((m: any) => m.name) || [];
             if (models.length > 0) {
               const options: ModalOption[] = models.map((name: string) => ({

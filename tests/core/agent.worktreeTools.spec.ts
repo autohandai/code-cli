@@ -13,9 +13,9 @@ vi.mock('../../src/utils/sessionWorktree.js', () => ({
 }));
 
 vi.mock('../../src/actions/worktree.js', () => ({
-  WorktreeManager: vi.fn().mockImplementation(() => ({
-    remove: mockWorktreeRemove,
-  })),
+  WorktreeManager: class {
+    remove = mockWorktreeRemove;
+  },
 }));
 
 describe('AutohandAgent worktree tools', () => {

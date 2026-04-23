@@ -90,7 +90,7 @@ function FilePalette({ files, statusLine, seed, onSubmit }: FilePaletteProps) {
       setCursor((prev) => (prev - 1 + filtered.length) % filtered.length);
       return;
     }
-    if (key.backspace || key.delete) {
+    if (key.backspace) {
       setValue((prev) => prev.slice(0, -1));
       setCursor(0);
       return;

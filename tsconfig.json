@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
-    "target": "ES2021",
+    "target": "ES2022",
+    "lib": ["ES2022"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "rootDir": "src",
@@ -12,7 +13,8 @@
     "resolveJsonModule": true,
     "types": ["node", "react"],
     "jsx": "react-jsx",
-    "allowSyntheticDefaultImports": true
+    "allowSyntheticDefaultImports": true,
+    "ignoreDeprecations": "6.0"
   },
   "include": ["src", "types"],
   "exclude": ["node_modules", "dist", "src/types.d.ts"]

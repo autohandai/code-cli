@@ -216,14 +216,14 @@ export class CerebrasClient {
       return this.handleStreamingResponse(response);
     }
 
-    const data = await response.json();
+    const data = await response.json() as { choices?: Array<{ message: { tool_calls?: any[]; content: string }; finish_reason?: string }>; usage?: any; id?: string; created?: number };
     const choice = data.choices?.[0];
 
     let toolCalls: LLMToolCall[] | undefined;
     if (choice?.message?.tool_calls?.length) {
       toolCalls = choice.message.tool_calls.map((tc: { id: string; type: string; function: { name: string; arguments: string } }) => ({
         id: tc.id,
-        type: tc.type || "function",
+        type: tc.type as "function",
         function: {
           name: tc.function.name,
           arguments: tc.function.arguments,
@@ -336,7 +336,7 @@ export class CerebrasClient {
   ): Promise<Error> {
     let errorDetail = "";
     try {
-      const errorData = await response.json();
+      const errorData = await response.json() as { error?: { message?: string } };
       errorDetail = errorData.error?.message || JSON.stringify(errorData);
     } catch {
       try {

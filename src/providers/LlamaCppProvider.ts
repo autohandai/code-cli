@@ -64,7 +64,7 @@ export class LlamaCppProvider implements LLMProvider {
             if (!response.ok) {
                 return this.model ? [this.model] : [];
             }
-            const data = await response.json();
+            const data = await response.json() as { data?: { id: string }[] };
             return data.data?.map((m: { id: string }) => m.id) ?? [this.model];
         } catch {
             return this.model ? [this.model] : [];
@@ -122,7 +122,7 @@ export class LlamaCppProvider implements LLMProvider {
             throw await this.buildApiError(response, body);
         }
 
-        const data: LlamaCppChatResponse = await response.json();
+        const data = await response.json() as LlamaCppChatResponse;
         const choice = data.choices[0];
 
         let toolCalls: LLMToolCall[] | undefined;

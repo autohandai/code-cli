@@ -91,7 +91,7 @@ export class MLXProvider implements LLMProvider {
                 if (!response.ok) {
                     return this.model ? [this.model] : [];
                 }
-                const data = await response.json();
+                const data = await response.json() as { data?: { id: string }[] };
                 return data.data?.map((m: { id: string }) => m.id) ?? (this.model ? [this.model] : []);
             } finally {
                 clearTimeout(timerId);
@@ -242,7 +242,7 @@ export class MLXProvider implements LLMProvider {
 
         let data: MLXChatResponse;
         try {
-            data = await response.json();
+            data = await response.json() as MLXChatResponse;
         } catch {
             // MLX server returned non-JSON or malformed JSON
             let rawBody = '';

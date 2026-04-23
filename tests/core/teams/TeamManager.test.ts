@@ -9,27 +9,29 @@ import { TeamManager } from '../../../src/core/teams/TeamManager.js';
 // Mock TeammateProcess to avoid real process spawning
 vi.mock('../../../src/core/teams/TeammateProcess.js', () => {
   return {
-    TeammateProcess: vi.fn().mockImplementation((opts) => {
-      const mock = {
-        name: opts.name,
-        status: 'spawning' as string,
-        pid: 0,
-        setStatus: vi.fn((s: string) => { mock.status = s; }),
-        spawn: vi.fn(),
-        send: vi.fn(),
-        assignTask: vi.fn(),
-        sendMessage: vi.fn(),
-        requestShutdown: vi.fn(),
-        kill: vi.fn(),
-        toMember: () => ({
-          name: opts.name,
-          agentName: opts.agentName,
+    TeammateProcess: class {
+      constructor(opts: any) {
+        this.name = opts.name;
+        this.agentName = opts.agentName;
+        this.status = 'spawning' as string;
+        this.pid = 0;
+        this.setStatus = vi.fn((s: string) => { this.status = s; });
+        this.spawn = vi.fn();
+        this.send = vi.fn();
+        this.assignTask = vi.fn();
+        this.sendMessage = vi.fn();
+        this.requestShutdown = vi.fn();
+        this.kill = vi.fn();
+      }
+      toMember() {
+        return {
+          name: this.name,
+          agentName: this.agentName,
           pid: 0,
           status: 'idle',
-        }),
-      };
-      return mock;
-    }),
+        };
+      }
+    },
   };
 });
 

@@ -229,7 +229,7 @@ export class OpenAIProvider implements LLMProvider {
             throw await this.buildApiError(response);
         }
 
-        const data: OpenAIChatResponse = await response.json();
+        const data = await response.json() as OpenAIChatResponse;
         const message = data.choices[0].message;
         const finishReason = data.choices[0].finish_reason;
 
