@@ -11,11 +11,6 @@ import type {
   NewSessionRequest,
 } from "@agentclientprotocol/sdk";
 import type { LoadedConfig } from "../../../src/types.js";
-import { ApiError } from "../../../src/providers/errors.js";
-
-// ---------------------------------------------------------------------------
-// Hoisted mocks - created before vi.mock hoists
-// ---------------------------------------------------------------------------
 
 const {
   mockAgent,
@@ -24,11 +19,10 @@ const {
   MockPersistentSessionManagerClass,
   mockConversation,
   mockLoadConfig,
-  mockProviderCreate,
-  mockFileActionManager,
   mockPrepareSessionWorktree,
   mockIsSessionWorktreeEnabled,
-  MockAutohandAgent,
+  mockFileActionManager,
+  SessionManagerMockClass,
 } = vi.hoisted(() => {
   const mockSessionManager = {
     loadSession: vi.fn(),
@@ -68,23 +62,22 @@ const {
     }),
   };
 
-  // The constructor mock must return the shared mockAgent object
-  const MockAutohandAgent = vi.fn().mockImplementation(() => mockAgent);
-
   const mockLoadConfig = vi.fn<() => Promise<LoadedConfig>>();
 
-  const mockProviderCreate = vi.fn().mockReturnValue({
-    getName: () => "openrouter",
-    streamChat: vi.fn(),
-  });
-
-  const mockFileActionManager = vi.fn().mockImplementation(() => ({}));
   const mockPrepareSessionWorktree = vi.fn();
   const mockIsSessionWorktreeEnabled = vi
     .fn()
     .mockImplementation(
       (value: unknown) => value !== undefined && value !== false,
     );
+
+  const mockFileActionManager = vi.fn();
+
+  const SessionManagerMockClass = class {
+    constructor() {
+      return mockPersistentSessionManager;
+    }
+  };
 
   return {
     mockAgent,
@@ -93,30 +86,42 @@ const {
     MockPersistentSessionManagerClass,
     mockConversation,
     mockLoadConfig,
-    mockProviderCreate,
-    mockFileActionManager,
     mockPrepareSessionWorktree,
     mockIsSessionWorktreeEnabled,
-    MockAutohandAgent,
+    mockFileActionManager,
+    SessionManagerMockClass,
   };
 });
+
+import { ApiError } from "../../../src/providers/errors.js";
 
 // ---------------------------------------------------------------------------
 // Module mocks
 // ---------------------------------------------------------------------------
 
 vi.mock("../../../src/core/agent.js", () => ({
-  AutohandAgent: MockAutohandAgent,
+  AutohandAgent: class {
+    constructor() {
+      return mockAgent;
+    }
+  },
 }));
 
 vi.mock("../../../src/providers/ProviderFactory.js", () => ({
   ProviderFactory: {
-    create: mockProviderCreate,
+    create: vi.fn().mockReturnValue({
+      getName: () => "openrouter",
+      streamChat: vi.fn(),
+    }),
   },
 }));
 
 vi.mock("../../../src/actions/filesystem.js", () => ({
-  FileActionManager: mockFileActionManager,
+  FileActionManager: class {
+    constructor(workspaceRoot: string) {
+      mockFileActionManager(workspaceRoot);
+    }
+  },
 }));
 
 vi.mock("../../../src/utils/sessionWorktree.js", () => ({
@@ -135,8 +140,9 @@ vi.mock("../../../src/config.js", () => ({
   resolveWorkspaceRoot: vi.fn().mockReturnValue("/workspace"),
 }));
 
+// Mock SessionManager for dynamic import
 vi.mock("../../../src/session/SessionManager.js", () => ({
-  SessionManager: MockPersistentSessionManagerClass,
+  SessionManager: SessionManagerMockClass,
 }));
 
 // Mock the package.json import
@@ -162,6 +168,7 @@ function makeConfig(overrides: Partial<LoadedConfig> = {}): LoadedConfig {
       apiKey: "sk-test",
       model: "your-modelcard-id-here",
     },
+    ui: {},
     ...overrides,
   } as LoadedConfig;
 }
@@ -207,7 +214,6 @@ describe("AutohandAcpAdapter", () => {
     vi.clearAllMocks();
 
     // Re-establish the constructor mock after clearAllMocks resets it
-    MockAutohandAgent.mockImplementation(() => mockAgent);
     MockPersistentSessionManagerClass.mockImplementation(
       () => mockPersistentSessionManager,
     );

@@ -20,17 +20,13 @@ vi.mock('fs-extra', () => ({
   },
 }));
 
-// Mock node:sqlite DatabaseSync – use vi.hoisted() so the variable
-// is available when vi.mock() factory runs (vi.mock is hoisted above all other code).
-const { mockPrepare, mockClose, MockDatabaseSync } = vi.hoisted(() => {
-  const mockPrepare = vi.fn();
-  const mockClose = vi.fn();
-  const MockDatabaseSync = vi.fn().mockImplementation(() => ({
-    prepare: mockPrepare,
-    close: mockClose,
-  }));
-  return { mockPrepare, mockClose, MockDatabaseSync };
-});
+// Mock node:sqlite DatabaseSync
+const mockPrepare = vi.fn();
+const mockClose = vi.fn();
+const MockDatabaseSync = vi.fn().mockImplementation(() => ({
+  prepare: mockPrepare,
+  close: mockClose,
+}));
 
 vi.mock('node:sqlite', () => ({
   DatabaseSync: MockDatabaseSync,
@@ -47,8 +43,17 @@ describe('CursorImporter', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockPrepare.mockReset();
-    mockClose.mockReset();
+    mockPrepare.mockClear();
+    mockClose.mockClear();
+    // Reset fse mocks to default implementations
+    fse.pathExists.mockResolvedValue(false);
+    fse.readFile.mockResolvedValue('');
+    fse.readdir.mockResolvedValue([]);
+    fse.readJson.mockResolvedValue({});
+    fse.ensureDir.mockResolvedValue(undefined);
+    fse.writeJson.mockResolvedValue(undefined);
+    fse.writeFile.mockResolvedValue(undefined);
+    fse.copy.mockResolvedValue(undefined);
     // mockReset (not mockClear) to restore implementation after tests
     // that override MockDatabaseSync.mockImplementation directly
     MockDatabaseSync.mockReset();
@@ -81,7 +86,7 @@ describe('CursorImporter', () => {
   // ---------------------------------------------------------------
   describe('scan()', () => {
     it('should return empty available map when ~/.cursor does not exist', async () => {
-      vi.mocked(fse.pathExists).mockResolvedValue(false as never);
+      fse.pathExists.mockResolvedValue(false as never);
 
       const result = await importer.scan();
       expect(result.source).toBe('cursor');
@@ -89,7 +94,7 @@ describe('CursorImporter', () => {
     });
 
     it('should detect hooks.json as settings', async () => {
-      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+      fse.pathExists.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s === CURSOR_HOME) return true;
         if (s === path.join(CURSOR_HOME, 'hooks.json')) return true;
@@ -104,7 +109,7 @@ describe('CursorImporter', () => {
     });
 
     it('should detect mcp.json', async () => {
-      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+      fse.pathExists.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s === CURSOR_HOME) return true;
         if (s === path.join(CURSOR_HOME, 'mcp.json')) return true;
@@ -119,7 +124,7 @@ describe('CursorImporter', () => {
     });
 
     it('should detect hooks from hooks.json', async () => {
-      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+      fse.pathExists.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s === CURSOR_HOME) return true;
         if (s === path.join(CURSOR_HOME, 'hooks.json')) return true;
@@ -138,14 +143,14 @@ describe('CursorImporter', () => {
   // ---------------------------------------------------------------
   describe('import() - settings', () => {
     it('should import settings from hooks.json', async () => {
-      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+      fse.pathExists.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s === CURSOR_HOME) return true;
         if (s === path.join(CURSOR_HOME, 'hooks.json')) return true;
         return false;
       });
 
-      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
+      fse.readFile.mockImplementation(async (p: string) => {
         if (String(p).endsWith('hooks.json')) {
           return JSON.stringify({ hooks: [{ event: 'onSave', command: 'lint' }] }) as never;
         }
@@ -157,7 +162,7 @@ describe('CursorImporter', () => {
     });
 
     it('should handle missing hooks.json', async () => {
-      vi.mocked(fse.pathExists).mockResolvedValue(false as never);
+      fse.pathExists.mockResolvedValue(false as never);
 
       const result = await importer.import(['settings']);
       expect(result.imported.get('settings')!.skipped).toBe(1);
@@ -169,14 +174,14 @@ describe('CursorImporter', () => {
   // ---------------------------------------------------------------
   describe('import() - mcp', () => {
     it('should import MCP server configurations', async () => {
-      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+      fse.pathExists.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s === CURSOR_HOME) return true;
         if (s === path.join(CURSOR_HOME, 'mcp.json')) return true;
         return false;
       });
 
-      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
+      fse.readFile.mockImplementation(async (p: string) => {
         if (String(p).endsWith('mcp.json')) {
           return JSON.stringify({
             mcpServers: {
@@ -192,7 +197,7 @@ describe('CursorImporter', () => {
     });
 
     it('should handle missing mcp.json', async () => {
-      vi.mocked(fse.pathExists).mockResolvedValue(false as never);
+      fse.pathExists.mockResolvedValue(false as never);
 
       const result = await importer.import(['mcp']);
       expect(result.imported.get('mcp')!.skipped).toBe(1);
@@ -204,14 +209,14 @@ describe('CursorImporter', () => {
   // ---------------------------------------------------------------
   describe('import() - hooks', () => {
     it('should extract hook configurations', async () => {
-      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+      fse.pathExists.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s === CURSOR_HOME) return true;
         if (s === path.join(CURSOR_HOME, 'hooks.json')) return true;
         return false;
       });
 
-      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
+      fse.readFile.mockImplementation(async (p: string) => {
         if (String(p).endsWith('hooks.json')) {
           return JSON.stringify({ hooks: [{ event: 'onSave', command: 'lint' }] }) as never;
         }
@@ -223,7 +228,7 @@ describe('CursorImporter', () => {
     });
 
     it('should handle missing hooks.json for hooks', async () => {
-      vi.mocked(fse.pathExists).mockResolvedValue(false as never);
+      fse.pathExists.mockResolvedValue(false as never);
 
       const result = await importer.import(['hooks']);
       expect(result.imported.get('hooks')!.skipped).toBe(1);
@@ -235,13 +240,13 @@ describe('CursorImporter', () => {
   // ---------------------------------------------------------------
   describe('scan() - skills', () => {
     it('should detect skills-cursor directory with subdirectories', async () => {
-      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+      fse.pathExists.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s === CURSOR_HOME) return true;
         if (s === path.join(CURSOR_HOME, 'skills-cursor')) return true;
         return false;
       });
-      vi.mocked(fse.readdir).mockResolvedValue([
+      fse.readdir.mockResolvedValue([
         { name: 'create-rule', isDirectory: () => true, isFile: () => false },
         { name: 'create-skill', isDirectory: () => true, isFile: () => false },
         { name: 'create-subagent', isDirectory: () => true, isFile: () => false },
@@ -255,7 +260,7 @@ describe('CursorImporter', () => {
     });
 
     it('should not report skills when skills-cursor does not exist', async () => {
-      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+      fse.pathExists.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s === CURSOR_HOME) return true;
         return false;
@@ -266,26 +271,26 @@ describe('CursorImporter', () => {
     });
 
     it('should not report skills when skills-cursor is empty', async () => {
-      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+      fse.pathExists.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s === CURSOR_HOME) return true;
         if (s === path.join(CURSOR_HOME, 'skills-cursor')) return true;
         return false;
       });
-      vi.mocked(fse.readdir).mockResolvedValue([] as never);
+      fse.readdir.mockResolvedValue([] as never);
 
       const result = await importer.scan();
       expect(result.available.has('skills')).toBe(false);
     });
 
     it('should only count directories, not files like .DS_Store', async () => {
-      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+      fse.pathExists.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s === CURSOR_HOME) return true;
         if (s === path.join(CURSOR_HOME, 'skills-cursor')) return true;
         return false;
       });
-      vi.mocked(fse.readdir).mockResolvedValue([
+      fse.readdir.mockResolvedValue([
         { name: 'create-rule', isDirectory: () => true, isFile: () => false },
         { name: '.DS_Store', isDirectory: () => false, isFile: () => true },
         { name: 'README.md', isDirectory: () => false, isFile: () => true },
@@ -301,7 +306,7 @@ describe('CursorImporter', () => {
   // ---------------------------------------------------------------
   describe('scan() - cli-config.json', () => {
     it('should detect cli-config.json as settings source', async () => {
-      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+      fse.pathExists.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s === CURSOR_HOME) return true;
         if (s === path.join(CURSOR_HOME, 'cli-config.json')) return true;
@@ -315,7 +320,7 @@ describe('CursorImporter', () => {
     });
 
     it('should report both settings sources when hooks.json and cli-config.json exist', async () => {
-      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+      fse.pathExists.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s === CURSOR_HOME) return true;
         if (s === path.join(CURSOR_HOME, 'hooks.json')) return true;
@@ -341,13 +346,13 @@ describe('CursorImporter', () => {
         approvalMode: 'allowlist',
       };
 
-      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+      fse.pathExists.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s.endsWith('cli-config.json')) return true;
         if (s.endsWith('hooks.json')) return true;
         return true;
       });
-      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
+      fse.readFile.mockImplementation(async (p: string) => {
         if (String(p).endsWith('cli-config.json')) {
           return JSON.stringify(cliConfig) as never;
         }
@@ -362,7 +367,7 @@ describe('CursorImporter', () => {
       expect(result.imported.get('settings')!.failed).toBe(0);
 
       // Should write the imported settings JSON
-      const writeJsonCalls = vi.mocked(fse.writeJson).mock.calls;
+      const writeJsonCalls = fse.writeJson.mock.calls;
       const settingsCall = writeJsonCalls.find(call =>
         String(call[0]).includes('imported-cursor-settings')
       );
@@ -374,13 +379,13 @@ describe('CursorImporter', () => {
     });
 
     it('should fall back to hooks.json when cli-config.json is missing', async () => {
-      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+      fse.pathExists.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s.endsWith('cli-config.json')) return false;
         if (s.endsWith('hooks.json')) return true;
         return true;
       });
-      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
+      fse.readFile.mockImplementation(async (p: string) => {
         if (String(p).endsWith('hooks.json')) {
           return JSON.stringify({ hooks: {} }) as never;
         }
@@ -392,8 +397,8 @@ describe('CursorImporter', () => {
     });
 
     it('should handle malformed cli-config.json', async () => {
-      vi.mocked(fse.pathExists).mockResolvedValue(true as never);
-      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
+      fse.pathExists.mockResolvedValue(true as never);
+      fse.readFile.mockImplementation(async (p: string) => {
         if (String(p).endsWith('cli-config.json')) return 'not{valid' as never;
         if (String(p).endsWith('hooks.json')) return JSON.stringify({}) as never;
         throw new Error('not found');
@@ -405,8 +410,8 @@ describe('CursorImporter', () => {
     });
 
     it('should handle empty cli-config.json', async () => {
-      vi.mocked(fse.pathExists).mockResolvedValue(true as never);
-      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
+      fse.pathExists.mockResolvedValue(true as never);
+      fse.readFile.mockImplementation(async (p: string) => {
         if (String(p).endsWith('cli-config.json')) return '' as never;
         return JSON.stringify({}) as never;
       });
@@ -421,8 +426,8 @@ describe('CursorImporter', () => {
   // ---------------------------------------------------------------
   describe('import() - skills', () => {
     it('should import skill directories from skills-cursor', async () => {
-      vi.mocked(fse.pathExists).mockResolvedValue(true as never);
-      vi.mocked(fse.readdir).mockResolvedValue([
+      fse.pathExists.mockResolvedValue(true as never);
+      fse.readdir.mockResolvedValue([
         { name: 'create-rule', isDirectory: () => true, isFile: () => false },
         { name: 'create-skill', isDirectory: () => true, isFile: () => false },
       ] as never);
@@ -434,8 +439,8 @@ describe('CursorImporter', () => {
     });
 
     it('should skip non-directory entries', async () => {
-      vi.mocked(fse.pathExists).mockResolvedValue(true as never);
-      vi.mocked(fse.readdir).mockResolvedValue([
+      fse.pathExists.mockResolvedValue(true as never);
+      fse.readdir.mockResolvedValue([
         { name: 'create-rule', isDirectory: () => true, isFile: () => false },
         { name: '.DS_Store', isDirectory: () => false, isFile: () => true },
       ] as never);
@@ -446,20 +451,20 @@ describe('CursorImporter', () => {
     });
 
     it('should skip when skills-cursor does not exist', async () => {
-      vi.mocked(fse.pathExists).mockResolvedValue(false as never);
+      fse.pathExists.mockResolvedValue(false as never);
 
       const result = await importer.import(['skills']);
       expect(result.imported.get('skills')!.skipped).toBe(1);
     });
 
     it('should handle copy errors for individual skills', async () => {
-      vi.mocked(fse.pathExists).mockResolvedValue(true as never);
-      vi.mocked(fse.readdir).mockResolvedValue([
+      fse.pathExists.mockResolvedValue(true as never);
+      fse.readdir.mockResolvedValue([
         { name: 'good-skill', isDirectory: () => true, isFile: () => false },
         { name: 'bad-skill', isDirectory: () => true, isFile: () => false },
       ] as never);
       let callCount = 0;
-      vi.mocked(fse.copy).mockImplementation(async () => {
+      fse.copy.mockImplementation(async () => {
         callCount++;
         if (callCount === 2) throw new Error('EACCES: permission denied');
       });
@@ -473,8 +478,8 @@ describe('CursorImporter', () => {
     });
 
     it('should fire progress callbacks for each skill', async () => {
-      vi.mocked(fse.pathExists).mockResolvedValue(true as never);
-      vi.mocked(fse.readdir).mockResolvedValue([
+      fse.pathExists.mockResolvedValue(true as never);
+      fse.readdir.mockResolvedValue([
         { name: 'skill-a', isDirectory: () => true, isFile: () => false },
         { name: 'skill-b', isDirectory: () => true, isFile: () => false },
       ] as never);
@@ -488,14 +493,14 @@ describe('CursorImporter', () => {
     });
 
     it('should copy to imported-cursor subdirectory in autohand skills', async () => {
-      vi.mocked(fse.pathExists).mockResolvedValue(true as never);
-      vi.mocked(fse.readdir).mockResolvedValue([
+      fse.pathExists.mockResolvedValue(true as never);
+      fse.readdir.mockResolvedValue([
         { name: 'create-rule', isDirectory: () => true, isFile: () => false },
       ] as never);
 
       await importer.import(['skills']);
 
-      const copyCalls = vi.mocked(fse.copy).mock.calls;
+      const copyCalls = fse.copy.mock.calls;
       expect(copyCalls.length).toBe(1);
       const [src, dest] = copyCalls[0];
       expect(String(src)).toContain('skills-cursor');
@@ -509,9 +514,9 @@ describe('CursorImporter', () => {
   // ---------------------------------------------------------------
   describe('import() - multiple categories', () => {
     it('should import all supported categories at once', async () => {
-      vi.mocked(fse.pathExists).mockResolvedValue(true as never);
-      vi.mocked(fse.readFile).mockResolvedValue('{"version":1}' as never);
-      vi.mocked(fse.readdir).mockResolvedValue([
+      fse.pathExists.mockResolvedValue(true as never);
+      fse.readFile.mockResolvedValue('{"version":1}' as never);
+      fse.readdir.mockResolvedValue([
         { name: 'a-skill', isDirectory: () => true, isFile: () => false },
       ] as never);
 
@@ -532,14 +537,14 @@ describe('CursorImporter', () => {
   // ---------------------------------------------------------------
   describe('error handling', () => {
     it('should not throw when hooks.json is malformed', async () => {
-      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+      fse.pathExists.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s === CURSOR_HOME) return true;
         if (s === path.join(CURSOR_HOME, 'hooks.json')) return true;
         return false;
       });
 
-      vi.mocked(fse.readFile).mockRejectedValue(new Error('invalid json') as never);
+      fse.readFile.mockRejectedValue(new Error('invalid json') as never);
 
       const result = await importer.import(['settings']);
       expect(result.imported.get('settings')!.failed).toBe(1);
@@ -552,7 +557,7 @@ describe('CursorImporter', () => {
   // ---------------------------------------------------------------
   describe('scan() - sessions', () => {
     it('should detect sessions from chats directory', async () => {
-      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+      fse.pathExists.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s === CURSOR_HOME) return true;
         if (s === path.join(CURSOR_HOME, 'chats')) return true;
@@ -560,7 +565,7 @@ describe('CursorImporter', () => {
       });
 
       // Two hash dirs, each with one UUID subdir containing store.db
-      vi.mocked(fse.readdir).mockImplementation(async (p: string, _opts?: unknown) => {
+      fse.readdir.mockImplementation(async (p: string, _opts?: unknown) => {
         const s = String(p);
         if (s === path.join(CURSOR_HOME, 'chats')) {
           return [
@@ -589,7 +594,7 @@ describe('CursorImporter', () => {
     });
 
     it('should not report sessions when chats dir does not exist', async () => {
-      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+      fse.pathExists.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s === CURSOR_HOME) return true;
         return false;
@@ -600,13 +605,13 @@ describe('CursorImporter', () => {
     });
 
     it('should not report sessions when chats dir is empty', async () => {
-      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+      fse.pathExists.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s === CURSOR_HOME) return true;
         if (s === path.join(CURSOR_HOME, 'chats')) return true;
         return false;
       });
-      vi.mocked(fse.readdir).mockResolvedValue([] as never);
+      fse.readdir.mockResolvedValue([] as never);
 
       const result = await importer.scan();
       expect(result.available.has('sessions')).toBe(false);
@@ -640,7 +645,7 @@ describe('CursorImporter', () => {
      * Helper: sets up fse mocks for session discovery with N session DBs.
      */
     function setupSessionDiscovery(sessions: Array<{ hash: string; uuid: string }>) {
-      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+      fse.pathExists.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s === CURSOR_HOME) return true;
         if (s === path.join(CURSOR_HOME, 'chats')) return true;
@@ -651,7 +656,7 @@ describe('CursorImporter', () => {
         return false;
       });
 
-      vi.mocked(fse.readdir).mockImplementation(async (p: string, _opts?: unknown) => {
+      fse.readdir.mockImplementation(async (p: string, _opts?: unknown) => {
         const s = String(p);
         if (s === path.join(CURSOR_HOME, 'chats')) {
           const uniqueHashes = [...new Set(sessions.map(s => s.hash))];
@@ -690,7 +695,7 @@ describe('CursorImporter', () => {
     }
 
     it('should skip sessions when chats dir does not exist', async () => {
-      vi.mocked(fse.pathExists).mockResolvedValue(false as never);
+      fse.pathExists.mockResolvedValue(false as never);
 
       const result = await importer.import(['sessions']);
       expect(result.imported.get('sessions')!.skipped).toBe(1);
@@ -721,7 +726,7 @@ describe('CursorImporter', () => {
       expect(result.imported.get('sessions')!.failed).toBe(0);
 
       // Should have written session data
-      const writeFileCalls = vi.mocked(fse.writeFile).mock.calls;
+      const writeFileCalls = fse.writeFile.mock.calls;
       const conversationCall = writeFileCalls.find(call =>
         String(call[0]).includes('conversation.jsonl'),
       );
@@ -753,7 +758,7 @@ describe('CursorImporter', () => {
       const result = await importer.import(['sessions']);
       expect(result.imported.get('sessions')!.success).toBe(1);
 
-      const writeFileCalls = vi.mocked(fse.writeFile).mock.calls;
+      const writeFileCalls = fse.writeFile.mock.calls;
       const conversationCall = writeFileCalls.find(call =>
         String(call[0]).includes('conversation.jsonl'),
       );
@@ -781,7 +786,7 @@ describe('CursorImporter', () => {
       const result = await importer.import(['sessions']);
       expect(result.imported.get('sessions')!.success).toBe(1);
 
-      const writeFileCalls = vi.mocked(fse.writeFile).mock.calls;
+      const writeFileCalls = fse.writeFile.mock.calls;
       const conversationCall = writeFileCalls.find(call =>
         String(call[0]).includes('conversation.jsonl'),
       );
@@ -816,7 +821,7 @@ describe('CursorImporter', () => {
       const result = await importer.import(['sessions']);
       expect(result.imported.get('sessions')!.success).toBe(1);
 
-      const writeFileCalls = vi.mocked(fse.writeFile).mock.calls;
+      const writeFileCalls = fse.writeFile.mock.calls;
       const conversationCall = writeFileCalls.find(call =>
         String(call[0]).includes('conversation.jsonl'),
       );
@@ -847,7 +852,7 @@ describe('CursorImporter', () => {
 
       await importer.import(['sessions']);
 
-      const writeFileCalls = vi.mocked(fse.writeFile).mock.calls;
+      const writeFileCalls = fse.writeFile.mock.calls;
       const conversationCall = writeFileCalls.find(call =>
         String(call[0]).includes('conversation.jsonl'),
       );
@@ -971,7 +976,7 @@ describe('CursorImporter', () => {
       expect(result.imported.get('sessions')!.success).toBe(1);
 
       // Verify metadata.json was written
-      const writeJsonCalls = vi.mocked(fse.writeJson).mock.calls;
+      const writeJsonCalls = fse.writeJson.mock.calls;
       const metadataCall = writeJsonCalls.find(call =>
         String(call[0]).includes('metadata.json'),
       );
@@ -1000,7 +1005,7 @@ describe('CursorImporter', () => {
       const result = await importer.import(['sessions']);
       expect(result.imported.get('sessions')!.success).toBe(1);
 
-      const writeFileCalls = vi.mocked(fse.writeFile).mock.calls;
+      const writeFileCalls = fse.writeFile.mock.calls;
       const conversationCall = writeFileCalls.find(call =>
         String(call[0]).includes('conversation.jsonl'),
       );
@@ -1027,7 +1032,7 @@ describe('CursorImporter', () => {
       const result = await importer.import(['sessions']);
       expect(result.imported.get('sessions')!.success).toBe(1);
 
-      const writeFileCalls = vi.mocked(fse.writeFile).mock.calls;
+      const writeFileCalls = fse.writeFile.mock.calls;
       const conversationCall = writeFileCalls.find(call =>
         String(call[0]).includes('conversation.jsonl'),
       );
@@ -1105,7 +1110,7 @@ describe('CursorImporter', () => {
       const result = await importer.import(['sessions']);
       expect(result.imported.get('sessions')!.success).toBe(1);
 
-      const writeJsonCalls = vi.mocked(fse.writeJson).mock.calls;
+      const writeJsonCalls = fse.writeJson.mock.calls;
       const metadataCall = writeJsonCalls.find(call =>
         String(call[0]).includes('metadata.json'),
       );

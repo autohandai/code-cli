@@ -7,7 +7,7 @@
  * Covers: no-generated-skills case, up-to-date hashes, stale hashes triggering
  * regeneration, LLM failure during regeneration, and file write errors.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { learn } from '../../src/commands/learn.js';
 import type { LLMProvider } from '../../src/providers/LLMProvider.js';
 
@@ -116,7 +116,12 @@ function createMockRegistry(skills: any[] = []) {
 describe('/learn update', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockWriteFile.mockClear();
     mockWriteFile.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('reports no generated skills when none exist', async () => {
@@ -308,6 +313,7 @@ describe('/learn update', () => {
     // Should not crash, should report failure
     expect(result).toBeDefined();
     expect(result).toContain('Failed to regenerate');
+    // writeFile should not be called for the failed skill
     expect(mockWriteFile).not.toHaveBeenCalled();
   });
 
@@ -470,7 +476,7 @@ describe('/learn update', () => {
     );
 
     expect(mockWriteFile).toHaveBeenCalled();
-    const writtenContent = mockWriteFile.mock.calls[0]?.[1] as string;
+    const writtenContent = mockWriteFile.mock.calls[mockWriteFile.mock.calls.length - 1]?.[1] as string;
     expect(writtenContent).toContain('allowed-tools: read_file write_file run_command');
   });
 

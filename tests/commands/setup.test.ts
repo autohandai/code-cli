@@ -6,26 +6,15 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// Use vi.hoisted() to ensure mock functions are available when vi.mock is hoisted
-const {
-  mockSetupWizardRun,
-  mockLoadConfig,
-  mockSaveConfig,
-  mockResolveWorkspaceRoot,
-  mockInitI18n,
-  mockDetectLocale,
-  mockChalkGreen,
-  mockChalkGray,
-} = vi.hoisted(() => ({
-  mockSetupWizardRun: vi.fn(),
-  mockLoadConfig: vi.fn(),
-  mockSaveConfig: vi.fn(),
-  mockResolveWorkspaceRoot: vi.fn(),
-  mockInitI18n: vi.fn(),
-  mockDetectLocale: vi.fn(),
-  mockChalkGreen: vi.fn((s: string) => s),
-  mockChalkGray: vi.fn((s: string) => s),
-}));
+// Define mock functions before vi.mock (Vitest 4.x pattern)
+const mockSetupWizardRun = vi.fn();
+const mockLoadConfig = vi.fn();
+const mockSaveConfig = vi.fn();
+const mockResolveWorkspaceRoot = vi.fn();
+const mockInitI18n = vi.fn();
+const mockDetectLocale = vi.fn();
+const mockChalkGreen = vi.fn((s: string) => s);
+const mockChalkGray = vi.fn((s: string) => s);
 
 // Mock chalk
 vi.mock("chalk", () => ({

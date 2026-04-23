@@ -150,7 +150,7 @@ describe("teammate executeTask", () => {
   it("returns error string on agent not found", async () => {
     const { AgentRegistry } =
       await import("../../src/core/agents/AgentRegistry.js");
-    vi.mocked(AgentRegistry.getInstance().getAgent).mockReturnValueOnce(
+    (AgentRegistry.getInstance().getAgent as any).mockReturnValueOnce(
       undefined,
     );
 
@@ -177,7 +177,7 @@ describe("teammate executeTask", () => {
   it("calls provider.setModel when opts.model is provided", async () => {
     const { ProviderFactory } =
       await import("../../src/providers/ProviderFactory.js");
-    const mockProvider = ProviderFactory.create({} as any);
+    const mockProvider = ProviderFactory.create({} as any) as any;
 
     await executeTask(
       {

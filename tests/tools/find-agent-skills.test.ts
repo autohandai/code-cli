@@ -8,6 +8,34 @@ import { DEFAULT_TOOL_DEFINITIONS } from '../../src/core/toolManager.js';
 import { filterToolsByRelevance } from '../../src/core/toolFilter.js';
 import type { LLMMessage } from '../../src/types.js';
 
+// Mock TeammateProcess to avoid conflicts with other test files that mock it
+// This is needed because toolManager imports agent which imports TeamManager which imports TeammateProcess
+vi.mock('../../src/core/teams/TeammateProcess.js', () => {
+  return {
+    TeammateProcess: vi.fn().mockImplementation((opts) => {
+      const mock = {
+        name: opts.name,
+        status: 'spawning' as string,
+        pid: 0,
+        setStatus: vi.fn((s: string) => { mock.status = s; }),
+        spawn: vi.fn(),
+        send: vi.fn(),
+        assignTask: vi.fn(),
+        sendMessage: vi.fn(),
+        requestShutdown: vi.fn(),
+        kill: vi.fn(),
+        toMember: () => ({
+          name: opts.name,
+          agentName: opts.agentName,
+          pid: 0,
+          status: 'idle',
+        }),
+      };
+      return mock;
+    }),
+  };
+});
+
 vi.mock('../../src/skills/CommunitySkillsCache.js', () => ({
   CommunitySkillsCache: vi.fn().mockImplementation(() => ({
     getRegistry: vi.fn(async () => null),
