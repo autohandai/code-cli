@@ -13,25 +13,39 @@ import type { SkillsRegistry } from '../../src/skills/SkillsRegistry.js';
 // ─── Mocks ───────────────────────────────────────────────────────────
 
 vi.mock('../../src/skills/CommunitySkillsCache.js', () => ({
-  CommunitySkillsCache: vi.fn().mockImplementation(() => ({
-    getRegistry: vi.fn(async () => null),
-    setRegistry: vi.fn(async () => {}),
-    getSkillDirectory: vi.fn(async () => null),
-    setSkillDirectory: vi.fn(async () => {}),
-    getRegistryIgnoreTTL: vi.fn(async () => null),
-  })),
+  CommunitySkillsCache: class {
+    async getRegistry() {
+      return null;
+    }
+    async setRegistry() {
+      return;
+    }
+    async getSkillDirectory() {
+      return null;
+    }
+    async setSkillDirectory() {
+      return;
+    }
+    async getRegistryIgnoreTTL() {
+      return null;
+    }
+  },
 }));
 
 vi.mock('../../src/skills/GitHubRegistryFetcher.js', () => ({
-  GitHubRegistryFetcher: vi.fn().mockImplementation(() => ({
-    fetchRegistry: vi.fn(async () => ({
-      version: '1.0.0',
-      updatedAt: new Date().toISOString(),
-      skills: [],
-      categories: [],
-    })),
-    fetchSkillDirectory: vi.fn(async () => new Map()),
-  })),
+  GitHubRegistryFetcher: class {
+    async fetchRegistry() {
+      return {
+        version: '1.0.0',
+        updatedAt: new Date().toISOString(),
+        skills: [],
+        categories: [],
+      };
+    }
+    async fetchSkillDirectory() {
+      return new Map();
+    }
+  },
 }));
 
 vi.mock('../../src/ui/ink/components/Modal.js', () => ({
@@ -40,13 +54,23 @@ vi.mock('../../src/ui/ink/components/Modal.js', () => ({
 }));
 
 vi.mock('../../src/skills/LearnClient.js', () => ({
-  LearnClient: vi.fn().mockImplementation(() => ({
-    search: vi.fn(() => []),
-    trending: vi.fn(() => []),
-    findBySlug: vi.fn(() => null),
-    filterLearnedSkills: vi.fn(() => []),
-    checkUpdates: vi.fn(() => []),
-  })),
+  LearnClient: class {
+    search() {
+      return [];
+    }
+    trending() {
+      return [];
+    }
+    findBySlug() {
+      return null;
+    }
+    filterLearnedSkills() {
+      return [];
+    }
+    checkUpdates() {
+      return [];
+    }
+  },
 }));
 
 // ─── Helpers ─────────────────────────────────────────────────────────

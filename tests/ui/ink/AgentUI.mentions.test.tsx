@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
 import React from 'react';
 import { render, cleanup } from 'ink-testing-library';
 import { AgentUI, createInitialUIState, handleInkTextBufferInput } from '../../../src/ui/ink/AgentUI.js';

@@ -7,7 +7,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import chalk from 'chalk';
 
-// Define mock functions before vi.mock (Vitest 4.x pattern)
+// Define mock functions before vi.mock
 const mockShowModal = vi.fn();
 const mockShowInput = vi.fn();
 const mockSafePrompt = vi.fn();
@@ -33,24 +33,26 @@ vi.mock('../../src/utils/prompt.js', () => ({
 }));
 
 vi.mock('../../src/skills/GitHubRegistryFetcher.js', () => ({
-  GitHubRegistryFetcher: vi.fn().mockImplementation(() => ({
-    fetchRegistry: mockFetchRegistry,
-    findSkill: mockFindSkill,
-    findSimilarSkills: mockFindSimilarSkills,
-    getFeaturedSkills: mockGetFeaturedSkills,
-    filterSkills: mockFilterSkills,
-    fetchSkillDirectory: mockFetchSkillDirectory,
-  })),
+  GitHubRegistryFetcher: class {
+    fetchRegistry = mockFetchRegistry;
+    findSkill = mockFindSkill;
+    findSimilarSkills = mockFindSimilarSkills;
+    getFeaturedSkills = mockGetFeaturedSkills;
+    filterSkills = mockFilterSkills;
+    fetchSkillDirectory = mockFetchSkillDirectory;
+  },
 }));
 
 vi.mock('../../src/skills/CommunitySkillsCache.js', () => ({
-  CommunitySkillsCache: vi.fn().mockImplementation(() => ({
-    getRegistry: mockGetRegistry,
-    getRegistryIgnoreTTL: mockGetRegistryIgnoreTTL,
-    setRegistry: mockSetRegistry,
-    getSkillDirectory: mockGetSkillDirectory,
-    setSkillDirectory: mockSetSkillDirectory,
-  })),
+  CommunitySkillsCache: class {
+    constructor() {
+      this.getRegistry = mockGetRegistry;
+      this.getRegistryIgnoreTTL = mockGetRegistryIgnoreTTL;
+      this.setRegistry = mockSetRegistry;
+      this.getSkillDirectory = mockGetSkillDirectory;
+      this.setSkillDirectory = mockSetSkillDirectory;
+    }
+  },
 }));
 
 import type { CommunitySkillsRegistry, GitHubCommunitySkill } from '../../src/types.js';
