@@ -1634,6 +1634,8 @@ describe('agent startup and active input UI', () => {
     agent.llm = { complete: llmComplete };
     agent.toolManager = {
       toFunctionDefinitions: vi.fn(() => []),
+      listToolNames: vi.fn(() => []),
+      unregister: vi.fn(() => true),
       execute: executeTools,
     };
     agent.contextCompactionEnabled = false;
@@ -1641,6 +1643,7 @@ describe('agent startup and active input UI', () => {
     agent.getMessagesWithImages = vi.fn(() => []);
     agent.parseAssistantResponse = vi.fn(() => ({
       thought: 'Retrying',
+      reflection: 'The git log output shows the same commits as before, no new changes detected',
       toolCalls: [{ id: 'call-1', tool: 'git_log', args: { max_count: 1, oneline: true } }],
     }));
     agent.saveAssistantMessage = vi.fn(async () => {});
