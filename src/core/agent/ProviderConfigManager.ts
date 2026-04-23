@@ -1186,7 +1186,7 @@ export class ProviderConfigManager {
         const authToken = await showInput({
           title: t("providers.wizard.vertexai.enterAuthToken"),
           placeholder: currentSettings?.authToken ? maskedToken : t("ui.apiKeyPlaceholder"),
-          defaultValue: currentSettings?.authToken || "",
+          defaultValue: "",
         });
 
         if (!authToken) {
