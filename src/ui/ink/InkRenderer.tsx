@@ -291,6 +291,9 @@ export class InkRenderer {
       this.unpatchedStdout();
       this.unpatchedStdout = null;
     }
+
+    // Clear any pending instruction waiter to prevent dangling promises
+    this._instructionWaiter = null;
   }
 
   /**
@@ -672,6 +675,12 @@ export class InkRenderer {
     this.updateState({
       queuedInstructions: [...this.state.queuedInstructions, instruction]
     });
+    // Resolve any pending waiter so the main loop can continue
+    if (this._instructionWaiter) {
+      const waiter = this._instructionWaiter;
+      this._instructionWaiter = null;
+      waiter();
+    }
   }
 
   /**
@@ -698,6 +707,23 @@ export class InkRenderer {
   getQueueCount(): number {
     return this.state.queuedInstructions.length;
   }
+
+  /**
+   * Wait for the next instruction to be queued.
+   * Returns a promise that resolves as soon as addQueuedInstruction is called.
+   * Used by the main loop to await the Ink composer instead of stopping it
+   * and falling back to readline (which causes stdin conflicts).
+   */
+  waitForInstruction(): Promise<void> {
+    if (this.state.queuedInstructions.length > 0) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      this._instructionWaiter = resolve;
+    });
+  }
+
+  private _instructionWaiter: (() => void) | null = null;
 
   /**
    * Set the final response (displayed when not working)

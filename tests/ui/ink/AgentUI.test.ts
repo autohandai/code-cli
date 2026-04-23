@@ -323,3 +323,63 @@ describe('AgentUI Ctrl+C behavior', () => {
     expect(buffer.getText()).toBe('');
   });
 });
+
+// =========================================================================
+// Regression: Composer must accept input when idle (isWorking=false).
+// The useInput handler had an early return at line 473 that blocked ALL
+// input when !isWorking, including Enter (submit) and text editing.
+// Only queue-specific features (file mentions, tab during work) should
+// be gated by isWorking. Basic text input and submit must always work.
+// =========================================================================
+describe('AgentUI idle composer input handling', () => {
+  it('handleInkTextBufferInput processes Enter (submit) regardless of isWorking state', () => {
+    // handleInkTextBufferInput is a pure function — it doesn't check isWorking.
+    // The bug was in the useInput handler which returned early before calling
+    // this function when !isWorking. Verify the pure function works correctly.
+    const buffer = new TextBuffer(80, 10, '/help');
+
+    const result = handleInkTextBufferInput(buffer, '', createInkKey({ return: true }));
+
+    expect(result).toBe('submit');
+  });
+
+  it('handleInkTextBufferInput processes text input regardless of isWorking state', () => {
+    const buffer = new TextBuffer(80, 10, 'hello');
+
+    const result = handleInkTextBufferInput(buffer, '!', createInkKey());
+
+    expect(result).toBe('handled');
+    expect(buffer.getText()).toBe('hello!');
+  });
+
+  it('handleInkTextBufferInput processes arrow keys regardless of isWorking state', () => {
+    const buffer = new TextBuffer(80, 10, 'hello');
+
+    const result = handleInkTextBufferInput(buffer, '', createInkKey({ leftArrow: true }));
+
+    expect(result).toBe('handled');
+    expect(getTextBufferCursorOffset(buffer)).toBe(4);
+  });
+
+  it('source code: isWorking gate does NOT block input when idle', async () => {
+    // Verify the isWorking gate only blocks input when working AND
+    // queue-input is disabled. When idle (isWorking=false), input must
+    // always be allowed so the composer accepts text and submit.
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const src = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/ui/ink/AgentUI.tsx'),
+      'utf8',
+    );
+
+    // The gate must use && (AND), not || (OR).
+    // Old (broken): if (!isWorkingRef.current || !enableQueueInputRef.current) return;
+    // New (fixed):  if (isWorkingRef.current && !enableQueueInputRef.current) return;
+    // With &&: when isWorking=false, the condition is false → no return → input allowed.
+    // With ||: when isWorking=false, the condition is true → return → input blocked.
+    expect(src).toContain('isWorkingRef.current && !enableQueueInputRef.current');
+
+    // The old broken pattern must NOT be present
+    expect(src).not.toContain('!isWorkingRef.current || !enableQueueInputRef.current');
+  });
+});

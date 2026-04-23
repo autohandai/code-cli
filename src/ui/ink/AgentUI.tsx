@@ -469,8 +469,10 @@ export function AgentUI({
       return;
     }
 
-    // Only handle input when working and queue input is enabled
-    if (!isWorkingRef.current || !enableQueueInputRef.current) {
+    // Block input only when working AND queue-input is disabled.
+    // When idle (isWorking=false), always allow input so the user can
+    // compose their next prompt.
+    if (isWorkingRef.current && !enableQueueInputRef.current) {
       return;
     }
 
