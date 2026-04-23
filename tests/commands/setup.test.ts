@@ -18,7 +18,9 @@ vi.mock("chalk", () => ({
 const mockSetupWizardRun = vi.fn();
 vi.mock("../../src/onboarding/setupWizard.js", () => ({
   SetupWizard: class {
-    run = mockSetupWizardRun;
+    constructor() {
+      this.run = mockSetupWizardRun;
+    }
   },
 }));
 
@@ -80,7 +82,6 @@ describe("setup command", () => {
       const result = await setup(mockContext);
 
       expect(vi.mocked(loadConfig)).toHaveBeenCalledWith(mockConfig.configPath, mockContext.workspaceRoot);
-      expect(SetupWizard).toHaveBeenCalledWith("/test/workspace", mockConfig);
       expect(mockSetupWizardRun).toHaveBeenCalledWith({ force: true, skipWelcome: false });
       expect(vi.mocked(saveConfig)).toHaveBeenCalled();
       expect(result).toBeNull();

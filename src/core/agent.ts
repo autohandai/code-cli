@@ -199,6 +199,10 @@ export class AutohandAgent {
   private inkRenderer: InkRenderer | null = null;
   private useInkRenderer = false;
   private pendingInkInstructions: string[] = [];
+  /** Resolver for the promise that waits for the next Ink-submitted instruction.
+   *  Set when the loop is idle and waiting for Composer input; resolved by
+   *  handleInkSubmittedInstruction so the loop can dequeue and process it. */
+  private inkInstructionResolver: (() => void) | null = null;
   /** Current abort controller for the active Ink turn — referenced by Ink's onEscape */
   private currentInkAbortController: AbortController | null = null;
   /** Current cancel callback for the active Ink turn — referenced by Ink's onEscape */
@@ -1761,19 +1765,56 @@ If lint or tests fail, report the issues but do NOT commit.`;
             this.persistentInput.stop();
             this.persistentInputActiveTurn = false;
           }
-          // If Ink is still active (idle between turns), stop it before falling
-          // back to readline to avoid stdin conflicts. Drain any last-moment
-          // queued instructions so they aren't lost in the race window.
-          if (this.inkRenderer) {
-            while (this.inkRenderer.hasQueuedInstructions()) {
-              const qi = this.inkRenderer.dequeueInstruction();
-              if (qi) this.pendingInkInstructions.push(qi);
+          // If Ink is still active (idle between turns), wait for the next
+          // instruction from the Composer instead of stopping the renderer and
+          // falling back to readline. This keeps the Composer alive after
+          // non-interactive slash commands like /help and /history.
+          console.log(`[DEBUG] Idle check: inkRenderer exists=${!!this.inkRenderer}, isRunning=${this.inkRenderer?.isRunning()}`);
+          if (this.inkRenderer?.isRunning()) {
+            // Ensure the renderer is in idle (not working) state so the
+            // Composer accepts input.
+            console.log(`[DEBUG] Entering idle-wait, setting working=false`);
+            this.inkRenderer.setWorking(false);
+
+            // Wait for the user to submit text in the Composer.
+            // handleInkSubmittedInstruction resolves this promise when it
+            // queues a new instruction.
+            console.log(`[DEBUG] Waiting for resolver...`);
+            await new Promise<void>(resolve => {
+              this.inkInstructionResolver = resolve;
+            });
+            console.log(`[DEBUG] Resolver resolved`);
+
+            // The instruction is now queued — dequeue it.
+            if (this.inkRenderer?.hasQueuedInstructions()) {
+              instruction = this.inkRenderer.dequeueInstruction() ?? null;
+              console.log(`[DEBUG] Dequeued instruction: ${instruction}`);
             }
-            this.inkRenderer.stop();
-            this.inkRenderer = null;
-            this.runtime.inkRenderer = undefined;
+            // If we still don't have an instruction (race condition), loop
+            // around and try again.
+            if (!instruction) {
+              console.log(`[DEBUG] No instruction after resolver, continuing`);
+              continue;
+            }
+          } else {
+            // Ink is not running — drain any stale queued instructions and
+            // fall back to readline.
+            console.log(`[DEBUG] Ink not running, falling back to readline`);
+            if (this.inkRenderer) {
+              while (this.inkRenderer.hasQueuedInstructions()) {
+                const qi = this.inkRenderer.dequeueInstruction();
+                if (qi) this.pendingInkInstructions.push(qi);
+              }
+              console.log(`[DEBUG] Stopping inkRenderer in fallback path`);
+              this.inkRenderer.stop();
+              this.inkRenderer = null;
+              this.runtime.inkRenderer = undefined;
+              this.inkInstructionResolver = null;
+            }
+            console.log(`[DEBUG] Calling promptForInstruction in readline mode`);
+            instruction = await this.promptForInstruction();
+            console.log(`[DEBUG] promptForInstruction returned: ${instruction}`);
           }
-          instruction = await this.promptForInstruction();
         }
 
         if (!instruction) {
@@ -1804,11 +1845,24 @@ If lint or tests fail, report the issues but do NOT commit.`;
               // Echo the slash command to the chat log so it's visible
               console.log(chalk.white(`\n› ${instruction}`));
 
+              console.log(`[DEBUG] Before runSlashCommandWithInput: inkRenderer exists=${!!this.inkRenderer}, isRunning=${this.inkRenderer?.isRunning()}`);
               const handled = await this.runSlashCommandWithInput(command, args);
+              console.log(`[DEBUG] After runSlashCommandWithInput: inkRenderer exists=${!!this.inkRenderer}, isRunning=${this.inkRenderer?.isRunning()}`);
               if (handled !== null) {
                 console.log(renderTerminalMarkdown(handled));
               }
-              continue;
+              // Ensure the renderer is in idle state so the Composer accepts input
+              // after non-interactive slash commands like /help, /clear, /history
+              console.log(`[DEBUG] After slash command output: inkRenderer exists=${!!this.inkRenderer}, isRunning=${this.inkRenderer?.isRunning()}`);
+              if (this.inkRenderer?.isRunning()) {
+                this.inkRenderer.setWorking(false);
+                // Return to the top of the loop so the idle-wait path can await
+                // the next Composer submission without falling through to
+                // instruction.startsWith('/') which would throw on null.
+                continue;
+              } else {
+                continue;
+              }
             }
           }
         }
@@ -2095,6 +2149,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
           // Convert markdown formatting (**bold**, _italic_) to ANSI terminal codes
           console.log(renderTerminalMarkdown(handled));
         }
+        console.log(`[DEBUG] promptForInstruction: slash command handled, returning null`);
         return null;
       }
     }
@@ -5013,12 +5068,14 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * flicker between back-to-back turns.
    */
   private cleanupUI(keepInkAlive = false): void {
+    console.log(`[DEBUG] cleanupUI called: keepInkAlive=${keepInkAlive}, inkRenderer exists=${!!this.inkRenderer}`);
     if (this.inkRenderer) {
       if (keepInkAlive) {
         // Transition to idle state instead of destroying Ink.
         // Queued instructions stay in Ink so runInteractiveLoop can dequeue
         // directly on the next iteration without a full unmount/remount cycle.
         this.inkRenderer.setWorking(false);
+        console.log(`[DEBUG] cleanupUI: set working to false`);
       } else {
         // Preserve queued instructions before stopping
         while (this.inkRenderer.hasQueuedInstructions()) {
@@ -5027,9 +5084,12 @@ If lint or tests fail, report the issues but do NOT commit.`;
             this.pendingInkInstructions.push(instruction);
           }
         }
+        console.log(`[DEBUG] cleanupUI: stopping inkRenderer`);
         this.inkRenderer.stop();
         this.inkRenderer = null;
         this.runtime.inkRenderer = undefined;
+        // Clear any pending resolver so the idle-wait promise doesn't hang
+        this.inkInstructionResolver = null;
       }
     }
     if (this.runtime.spinner) {
@@ -5117,6 +5177,13 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
 
     this.inkRenderer?.addQueuedInstruction(text);
+
+    // If the interactive loop is idle-waiting for the next Composer input,
+    // resolve the promise so it can dequeue and process this instruction.
+    if (this.inkInstructionResolver) {
+      this.inkInstructionResolver();
+      this.inkInstructionResolver = null;
+    }
   }
 
   private shouldPreferPtyForImmediateShellCommands(): boolean {
@@ -6520,6 +6587,13 @@ If lint or tests fail, report the issues but do NOT commit.`;
   private ensureStdinReady(): void {
     const stdin = process.stdin as NodeJS.ReadStream;
     if (!stdin.isTTY) return;
+
+    // When the Ink renderer is active, it manages raw mode and readable
+    // listeners via its own reference counting. External manipulation breaks
+    // Ink 7's stdin handling and leaves the composer unresponsive.
+    if (this.inkRenderer?.isRunning()) {
+      return;
+    }
 
     // When persistent input is active, it owns raw mode and key handling.
     // Do not override stdin state between queued turns.

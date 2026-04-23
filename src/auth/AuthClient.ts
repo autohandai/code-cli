@@ -11,6 +11,7 @@ import type {
   DeviceAuthPollResponse,
   SessionValidationResponse,
   LogoutResponse,
+  AuthUser,
 } from './types.js';
 
 const DEFAULT_TIMEOUT = 10000;
@@ -48,7 +49,7 @@ export class AuthClient {
       });
 
       clearTimeout(timeoutId);
-      const data = await response.json();
+      const data = await response.json() as { error?: string; message?: string; deviceCode?: string; userCode?: string; verificationUri?: string; verificationUriComplete?: string; expiresIn?: number; interval?: number };
 
       if (!response.ok) {
         return {
@@ -93,7 +94,7 @@ export class AuthClient {
       });
 
       clearTimeout(timeoutId);
-      const data = await response.json();
+      const data = await response.json() as { success?: boolean; status?: 'pending' | 'authorized' | 'expired'; token?: string; user?: AuthUser; error?: string; message?: string };
 
       if (!response.ok && response.status !== 404) {
         return {
@@ -142,10 +143,16 @@ export class AuthClient {
         return { authenticated: false };
       }
 
-      const data = await response.json();
+      const data = await response.json() as { user?: AuthUser } | AuthUser;
+      let user: AuthUser | undefined;
+      if (typeof data === 'object' && 'user' in data) {
+        user = data.user;
+      } else if (typeof data === 'object') {
+        user = data as AuthUser;
+      }
       return {
         authenticated: true,
-        user: data.user || data,
+        user,
       };
     } catch (error) {
       clearTimeout(timeoutId);

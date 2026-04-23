@@ -88,4 +88,32 @@ describe('useBufferedInput isActive logic', () => {
     expect(oldIsActive(false, true)).toBe(false); // inactive! should be active
     expect(oldIsActive(false, false)).toBe(false); // inactive! should be active
   });
+
+  it('AgentUI source uses correct useBufferedInput isActive expression', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const src = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/ui/ink/AgentUI.tsx'),
+      'utf8',
+    );
+
+    // Must use the correct idle-or-queue-enabled logic
+    expect(src.includes('isActive: !state.isWorking || enableQueueInput,')).toBe(true);
+    // Must NOT contain the old buggy logic
+    expect(src.includes('isActive: state.isWorking && enableQueueInput,')).toBe(false);
+  });
+
+  it('AgentUI source passes isActive={true} to InputLine so input is visible when idle', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const src = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/ui/ink/AgentUI.tsx'),
+      'utf8',
+    );
+
+    // InputLine must be visible even when isWorking=false (idle)
+    expect(src.includes('isActive={true}')).toBe(true);
+    // Must NOT hide input when idle
+    expect(src.includes('isActive={isWorking}')).toBe(false);
+  });
 });

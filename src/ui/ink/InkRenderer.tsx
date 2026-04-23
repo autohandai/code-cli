@@ -620,6 +620,15 @@ export class InkRenderer {
       }
       this.instance.unmount();
       this.instance = null;
+
+      // React 19 defers useEffect cleanup to microtasks. Manually clean up
+      // stdin listeners and raw mode to prevent conflicts when showModal()
+      // creates a new Ink instance.
+      if (process.stdin.isTTY) {
+        process.stdin.setRawMode(false);
+        process.stdin.removeAllListeners('readable');
+        process.stdin.unref();
+      }
     }
   }
 

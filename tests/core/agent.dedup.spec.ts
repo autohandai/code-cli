@@ -556,5 +556,37 @@ describe('agent.ts deduplication', () => {
         betweenSlashAndRun.includes('handleSlashCommand')
       ).toBe(true);
     });
+
+    it('returns to idle-wait via continue after slash commands when Ink is running', () => {
+      // After a non-interactive slash command (e.g. /help) the loop must
+      // return to the top via continue so the idle-wait path can await the
+      // next Composer submission. Falling through with instruction = null
+      // would hit instruction.startsWith('/') and throw a TypeError.
+      const fs = require('node:fs');
+      const path = require('node:path');
+      const src = fs.readFileSync(
+        path.resolve(process.cwd(), 'src/core/agent.ts'),
+        'utf8',
+      );
+
+      const loopMatch = src.match(/private async runInteractiveLoop\(\)[\s\S]*?\n  (?=private |async |\/\*\*|$)/);
+      expect(loopMatch).not.toBeNull();
+      const loopBody = loopMatch![0];
+
+      // Find the slash-command handling section inside runInteractiveLoop
+      const slashHandlerIdx = loopBody.indexOf("instruction.startsWith('/')");
+      expect(slashHandlerIdx).toBeGreaterThan(-1);
+
+      // After the slash command output, look for the block that checks
+      // inkRenderer.isRunning() — it must use continue, not instruction = null.
+      const afterSlash = loopBody.substring(slashHandlerIdx);
+      const inkRunningBlock = afterSlash.indexOf("if (this.inkRenderer?.isRunning())");
+      expect(inkRunningBlock).toBeGreaterThan(-1);
+
+      const blockEnd = afterSlash.indexOf('}', inkRunningBlock);
+      const blockBody = afterSlash.substring(inkRunningBlock, blockEnd);
+      expect(blockBody.includes('continue')).toBe(true);
+      expect(blockBody.includes('instruction = null')).toBe(false);
+    });
   });
 });

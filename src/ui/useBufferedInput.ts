@@ -127,6 +127,12 @@ function sequenceToInkInput(event: SequenceEvent): BufferedKeyInfo {
     delete: false,
     pageDown: false,
     pageUp: false,
+    home: false,
+    end: false,
+    super: false,
+    hyper: false,
+    capsLock: false,
+    numLock: false,
   };
   
   let input = '';

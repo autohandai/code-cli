@@ -118,7 +118,7 @@ export class XAIProvider implements LLMProvider {
             const headers = await this.buildAuthHeaders();
             const response = await fetch(`${this.baseUrl}/language-models`, { headers });
             if (response.ok) {
-                const data = await response.json();
+                const data = await response.json() as { models?: Array<{ id: string; aliases?: string[] }> };
                 if (data?.models && Array.isArray(data.models)) {
                     // Collect all canonical IDs + their aliases
                     const ids = new Set<string>();

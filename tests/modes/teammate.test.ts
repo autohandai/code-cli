@@ -44,17 +44,23 @@ vi.mock("../../src/core/agents/AgentRegistry.js", () => ({
 }));
 
 vi.mock("../../src/core/agents/SubAgent.js", () => ({
-  SubAgent: vi.fn().mockImplementation(() => ({
-    run: vi.fn().mockResolvedValue("Completed: wrote 3 test files"),
-  })),
+  SubAgent: class {
+    constructor() {
+      this.run = vi.fn().mockResolvedValue("Completed: wrote 3 test files");
+    }
+  },
 }));
 
 vi.mock("../../src/core/actionExecutor.js", () => ({
-  ActionExecutor: vi.fn().mockImplementation(() => ({})),
+  ActionExecutor: class {
+    constructor() {}
+  },
 }));
 
 vi.mock("../../src/actions/filesystem.js", () => ({
-  FileActionManager: vi.fn().mockImplementation(() => ({})),
+  FileActionManager: class {
+    constructor() {}
+  },
 }));
 
 import {
