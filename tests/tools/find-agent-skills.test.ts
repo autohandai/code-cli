@@ -36,19 +36,27 @@ vi.mock('../../src/core/teams/TeammateProcess.js', () => {
   };
 });
 
-vi.mock('../../src/skills/CommunitySkillsCache.js', () => ({
-  CommunitySkillsCache: vi.fn().mockImplementation(() => ({
-    getRegistry: vi.fn(async () => null),
-    getRegistryIgnoreTTL: vi.fn(async () => null),
-    setRegistry: vi.fn(async () => {}),
-    getSkillDirectory: vi.fn(async () => null),
-    setSkillDirectory: vi.fn(async () => {}),
-  })),
-}));
+class MockCommunitySkillsCache {
+  async getRegistry() {
+    return null;
+  }
+  async getRegistryIgnoreTTL() {
+    return null;
+  }
+  async setRegistry() {
+    return;
+  }
+  async getSkillDirectory() {
+    return null;
+  }
+  async setSkillDirectory() {
+    return;
+  }
+}
 
-vi.mock('../../src/skills/GitHubRegistryFetcher.js', () => ({
-  GitHubRegistryFetcher: vi.fn().mockImplementation(() => ({
-    fetchRegistry: vi.fn(async () => ({
+class MockGitHubRegistryFetcher {
+  async fetchRegistry() {
+    return {
       version: '1.0.0',
       updatedAt: '2026-01-01',
       skills: [
@@ -90,9 +98,19 @@ vi.mock('../../src/skills/GitHubRegistryFetcher.js', () => ({
         },
       ],
       categories: [],
-    })),
-    fetchSkillDirectory: vi.fn(async () => new Map()),
-  })),
+    };
+  }
+  async fetchSkillDirectory() {
+    return new Map();
+  }
+}
+
+vi.mock('../../src/skills/CommunitySkillsCache.js', () => ({
+  CommunitySkillsCache: MockCommunitySkillsCache,
+}));
+
+vi.mock('../../src/skills/GitHubRegistryFetcher.js', () => ({
+  GitHubRegistryFetcher: MockGitHubRegistryFetcher,
 }));
 
 describe('find_agent_skills tool', () => {

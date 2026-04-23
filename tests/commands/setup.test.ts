@@ -6,42 +6,33 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// Define mock functions before vi.mock (Vitest 4.x pattern)
-const mockSetupWizardRun = vi.fn();
-const mockLoadConfig = vi.fn();
-const mockSaveConfig = vi.fn();
-const mockResolveWorkspaceRoot = vi.fn();
-const mockInitI18n = vi.fn();
-const mockDetectLocale = vi.fn();
-const mockChalkGreen = vi.fn((s: string) => s);
-const mockChalkGray = vi.fn((s: string) => s);
-
 // Mock chalk
 vi.mock("chalk", () => ({
   default: {
-    green: mockChalkGreen,
-    gray: mockChalkGray,
+    green: (s: string) => s,
+    gray: (s: string) => s,
   },
 }));
 
 // Mock SetupWizard
+const mockSetupWizardRun = vi.fn();
 vi.mock("../../src/onboarding/setupWizard.js", () => ({
-  SetupWizard: vi.fn().mockImplementation(() => ({
-    run: mockSetupWizardRun,
-  })),
+  SetupWizard: class {
+    run = mockSetupWizardRun;
+  },
 }));
 
 // Mock config
 vi.mock("../../src/config.js", () => ({
-  loadConfig: mockLoadConfig,
-  saveConfig: mockSaveConfig,
-  resolveWorkspaceRoot: mockResolveWorkspaceRoot,
+  loadConfig: vi.fn(),
+  saveConfig: vi.fn(),
+  resolveWorkspaceRoot: vi.fn(),
 }));
 
 // Mock i18n
 vi.mock("../../src/i18n/index.js", () => ({
-  initI18n: mockInitI18n,
-  detectLocale: mockDetectLocale,
+  initI18n: vi.fn(),
+  detectLocale: vi.fn(),
   t: (key: string) => key,
 }));
 
@@ -51,6 +42,8 @@ vi.spyOn(console, "log").mockImplementation(() => {});
 // Import after mocking
 import { setup } from "../../src/commands/setup";
 import { SetupWizard } from "../../src/onboarding/setupWizard";
+import { loadConfig, saveConfig, resolveWorkspaceRoot } from "../../src/config";
+import { initI18n, detectLocale } from "../../src/i18n/index";
 import type { LoadedConfig } from "../../src/types";
 import type { SlashCommandContext } from "../../src/core/slashCommandTypes";
 
@@ -69,10 +62,10 @@ describe("setup command", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockLoadConfig.mockResolvedValue(mockConfig);
-    mockResolveWorkspaceRoot.mockReturnValue("/test/workspace");
-    mockDetectLocale.mockReturnValue({ locale: "en", source: "default" });
-    mockInitI18n.mockResolvedValue(undefined);
+    vi.mocked(loadConfig).mockResolvedValue(mockConfig);
+    vi.mocked(resolveWorkspaceRoot).mockReturnValue("/test/workspace");
+    vi.mocked(detectLocale).mockReturnValue({ locale: "en", source: "default" });
+    vi.mocked(initI18n).mockResolvedValue(undefined);
   });
 
   describe("interactive mode", () => {
@@ -86,10 +79,10 @@ describe("setup command", () => {
 
       const result = await setup(mockContext);
 
-      expect(mockLoadConfig).toHaveBeenCalledWith(mockConfig.configPath, mockContext.workspaceRoot);
+      expect(vi.mocked(loadConfig)).toHaveBeenCalledWith(mockConfig.configPath, mockContext.workspaceRoot);
       expect(SetupWizard).toHaveBeenCalledWith("/test/workspace", mockConfig);
       expect(mockSetupWizardRun).toHaveBeenCalledWith({ force: true, skipWelcome: false });
-      expect(mockSaveConfig).toHaveBeenCalled();
+      expect(vi.mocked(saveConfig)).toHaveBeenCalled();
       expect(result).toBeNull();
     });
 
@@ -104,7 +97,7 @@ describe("setup command", () => {
       const result = await setup(mockContext);
 
       expect(mockSetupWizardRun).toHaveBeenCalledWith({ force: true, skipWelcome: false });
-      expect(mockSaveConfig).not.toHaveBeenCalled();
+      expect(vi.mocked(saveConfig)).not.toHaveBeenCalled();
       expect(result).toContain("cancelled");
     });
 
@@ -119,7 +112,7 @@ describe("setup command", () => {
       const result = await setup(mockContext);
 
       expect(mockSetupWizardRun).toHaveBeenCalledWith({ force: true, skipWelcome: false });
-      expect(mockSaveConfig).not.toHaveBeenCalled();
+      expect(vi.mocked(saveConfig)).not.toHaveBeenCalled();
       expect(result).toContain("failed");
     });
 
@@ -191,7 +184,7 @@ describe("setup command", () => {
 
   describe("i18n support", () => {
     it("should use detected locale for i18n", async () => {
-      mockDetectLocale.mockReturnValue({ locale: "de", source: "user" });
+      vi.mocked(detectLocale).mockReturnValue({ locale: "de", source: "user" });
 
       mockSetupWizardRun.mockResolvedValue({
         success: true,
@@ -202,11 +195,11 @@ describe("setup command", () => {
 
       await setup(mockContext);
 
-      expect(mockInitI18n).toHaveBeenCalledWith("de");
+      expect(vi.mocked(initI18n)).toHaveBeenCalledWith("de");
     });
 
     it("should fallback to en when locale detection fails", async () => {
-      mockDetectLocale.mockReturnValue({ locale: null, source: "default" });
+      vi.mocked(detectLocale).mockReturnValue({ locale: null, source: "default" });
 
       mockSetupWizardRun.mockResolvedValue({
         success: true,
@@ -217,7 +210,7 @@ describe("setup command", () => {
 
       await setup(mockContext);
 
-      expect(mockInitI18n).toHaveBeenCalledWith("en");
+      expect(vi.mocked(initI18n)).toHaveBeenCalledWith("en");
     });
   });
 

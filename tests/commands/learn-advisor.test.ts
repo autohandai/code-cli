@@ -14,43 +14,59 @@ import type { LLMProvider } from '../../src/providers/LLMProvider.js';
 // ─── Mocks ──────────────────────────────────────────────────────────
 
 vi.mock('../../src/skills/CommunitySkillsCache.js', () => ({
-  CommunitySkillsCache: vi.fn().mockImplementation(() => ({
-    getRegistry: vi.fn(async () => null),
-    getRegistryIgnoreTTL: vi.fn(async () => null),
-    setRegistry: vi.fn(async () => {}),
-    getSkillDirectory: vi.fn(async () => null),
-    setSkillDirectory: vi.fn(async () => {}),
-  })),
+  CommunitySkillsCache: class {
+    async getRegistry() {
+      return null;
+    }
+    async getRegistryIgnoreTTL() {
+      return null;
+    }
+    async setRegistry() {
+      return;
+    }
+    async getSkillDirectory() {
+      return null;
+    }
+    async setSkillDirectory() {
+      return;
+    }
+  },
 }));
 
 vi.mock('../../src/skills/GitHubRegistryFetcher.js', () => ({
-  GitHubRegistryFetcher: vi.fn().mockImplementation(() => ({
-    fetchRegistry: vi.fn(async () => ({
-      version: '1.0.0',
-      updatedAt: new Date().toISOString(),
-      skills: [],
-      categories: [],
-    })),
-    fetchSkillDirectory: vi.fn(async () => new Map()),
-  })),
+  GitHubRegistryFetcher: class {
+    async fetchRegistry() {
+      return {
+        version: '1.0.0',
+        updatedAt: new Date().toISOString(),
+        skills: [],
+        categories: [],
+      };
+    }
+    async fetchSkillDirectory() {
+      return new Map();
+    }
+  },
 }));
 
 vi.mock('../../src/skills/autoSkill.js', () => ({
-  ProjectAnalyzer: vi.fn().mockImplementation(() => ({
-    analyze: vi.fn(async () => ({
-      projectName: 'test-app',
-      languages: ['typescript'],
-      frameworks: ['react'],
-      patterns: ['testing'],
-      dependencies: ['react', 'vitest'],
-      filePatterns: [],
-      platform: 'darwin',
-      hasGit: true,
-      hasTests: true,
-      hasCI: false,
-      packageManager: 'bun',
-    })),
-  })),
+  ProjectAnalyzer: class {
+    async analyze() {
+      return {
+        projectName: 'test-app',
+        languages: ['typescript'],
+        frameworks: ['react'],
+        patterns: ['testing'],
+        dependencies: ['react', 'vitest'],
+        filePatterns: [],
+        platform: 'darwin',
+        hasGit: true,
+        hasTests: true,
+        hasCI: false,
+        packageManager: 'bun',
+      };
+    }
+  },
   buildSkillGenerationPrompt: vi.fn(() => 'mock prompt'),
 }));
 
