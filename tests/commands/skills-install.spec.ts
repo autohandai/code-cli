@@ -7,37 +7,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import chalk from 'chalk';
 
-const {
-  mockShowModal,
-  mockShowInput,
-  mockSafePrompt,
-  mockFetchRegistry,
-  mockFindSkill,
-  mockFindSimilarSkills,
-  mockGetFeaturedSkills,
-  mockFilterSkills,
-  mockFetchSkillDirectory,
-  mockGetRegistry,
-  mockGetRegistryIgnoreTTL,
-  mockSetRegistry,
-  mockGetSkillDirectory,
-  mockSetSkillDirectory,
-} = vi.hoisted(() => ({
-  mockShowModal: vi.fn(),
-  mockShowInput: vi.fn(),
-  mockSafePrompt: vi.fn(),
-  mockFetchRegistry: vi.fn(),
-  mockFindSkill: vi.fn(),
-  mockFindSimilarSkills: vi.fn(),
-  mockGetFeaturedSkills: vi.fn(),
-  mockFilterSkills: vi.fn(),
-  mockFetchSkillDirectory: vi.fn(),
-  mockGetRegistry: vi.fn(),
-  mockGetRegistryIgnoreTTL: vi.fn(),
-  mockSetRegistry: vi.fn(),
-  mockGetSkillDirectory: vi.fn(),
-  mockSetSkillDirectory: vi.fn(),
-}));
+// Define mock functions before vi.mock (Vitest 4.x pattern)
+const mockShowModal = vi.fn();
+const mockShowInput = vi.fn();
+const mockSafePrompt = vi.fn();
+const mockFetchRegistry = vi.fn();
+const mockFindSkill = vi.fn();
+const mockFindSimilarSkills = vi.fn();
+const mockGetFeaturedSkills = vi.fn();
+const mockFilterSkills = vi.fn();
+const mockFetchSkillDirectory = vi.fn();
+const mockGetRegistry = vi.fn();
+const mockGetRegistryIgnoreTTL = vi.fn();
+const mockSetRegistry = vi.fn();
+const mockGetSkillDirectory = vi.fn();
+const mockSetSkillDirectory = vi.fn();
 
 vi.mock('../../src/ui/ink/components/Modal.js', () => ({
   showModal: mockShowModal,

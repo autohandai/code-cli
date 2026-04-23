@@ -99,6 +99,7 @@ describe('/learn progress logging', () => {
 
   afterEach(() => {
     consoleSpy.mockRestore();
+    vi.restoreAllMocks();
   });
 
   it('logs sequential progress steps via console.log', async () => {

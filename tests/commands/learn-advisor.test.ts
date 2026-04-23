@@ -7,7 +7,7 @@
  * Covers: parseLearnArgs (updated), handleLearnRecommend flow,
  * LLM failure handling, gap analysis, and generation flow.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { learn, parseLearnArgs } from '../../src/commands/learn.js';
 import type { LLMProvider } from '../../src/providers/LLMProvider.js';
 
@@ -132,6 +132,10 @@ describe('parseLearnArgs (updated)', () => {
 describe('/learn LLM-powered flow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('returns error when skillsRegistry is not available', async () => {
