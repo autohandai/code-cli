@@ -72,7 +72,7 @@ import type {
 } from '../types.js';
 
 import { AgentDelegator } from './agents/AgentDelegator.js';
-import { DEFAULT_TOOL_DEFINITIONS, type ToolDefinition } from './toolManager.js';
+import { DEFAULT_TOOL_DEFINITIONS, PLAN_TOOL_DEFINITION, type ToolDefinition } from './toolManager.js';
 import { ErrorLogger } from './errorLogger.js';
 import { MemoryManager } from '../memory/MemoryManager.js';
 import { FeedbackManager } from '../feedback/FeedbackManager.js';
@@ -1173,13 +1173,23 @@ export class AutohandAgent {
       // Non-interactive mode (RPC/ACP) - guards interactive commands
       isNonInteractive: runtime.isRpcMode === true,
       onBeforeModal: () => {
+        if (this.inkRenderer) {
+          this.inkRenderer.pause();
+        }
         if (this.persistentInputActiveTurn) {
           this.persistentInput.pauseForModal();
         }
       },
       onAfterModal: () => {
         if (this.persistentInputActiveTurn) {
-          this.persistentInput.resumeFromModal();
+          try {
+            this.persistentInput.resumeFromModal();
+          } catch {
+            // Best effort — continue to resume InkRenderer
+          }
+        }
+        if (this.inkRenderer) {
+          this.inkRenderer.resume();
         }
       },
       // After /learn recommends a skill, seed the next prompt with the install command
@@ -2906,6 +2916,17 @@ If lint or tests fail, report the issues but do NOT commit.`;
       ? 1000
       : (this.runtime.config.agent?.maxIterations ?? 100);
 
+    // Gate plan tool: only register when plan mode is enabled.
+    // This ensures the LLM literally cannot call `plan` unless the user
+    // entered plan mode, preventing unsolicited plan generation.
+    if (planModeManager.isEnabled() && planModeManager.getPhase() === 'planning') {
+      if (!this.toolManager.listToolNames().includes('plan')) {
+        this.toolManager.register(PLAN_TOOL_DEFINITION);
+      }
+    } else {
+      this.toolManager.unregister('plan');
+    }
+
     // Get all function definitions for native tool calling
     let allTools = this.toolManager.toFunctionDefinitions();
 
@@ -2936,6 +2957,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
     let forceNoToolsUntilResponse = false;
     let forceNoToolsViolationCount = 0;
     const toolConsecutiveFailures = new Map<string, number>();
+    let needsReflection = false; // Set after tool execution; cleared when model reflects
+    const reflectionViolationLimit = 2;
+    let reflectionViolationCount = 0;
 
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
       // Check for abort at the start of each iteration
@@ -3169,6 +3193,37 @@ If lint or tests fail, report the issues but do NOT commit.`;
               : `→ Step ${iteration + 1}: thinking...`;
           console.log(chalk.gray(status));
         }
+      }
+
+      // Reflection loop guard: after tool results, the model MUST reflect before
+      // calling more tools. If it jumps straight to tool calls without a reflection
+      // (or a substantive thought that implicitly reflects), inject a system note.
+      if (needsReflection && payload.toolCalls && payload.toolCalls.length > 0) {
+        const hasReflection = Boolean(payload.reflection);
+        const thoughtIsSubstantive = (payload.thought?.length ?? 0) > 50;
+        if (!hasReflection && !thoughtIsSubstantive) {
+          reflectionViolationCount++;
+          if (reflectionViolationCount < reflectionViolationLimit) {
+            this.conversation.addSystemNote(
+              '[Reflection Required] You received tool results but did not reflect on them. ' +
+              'Before calling more tools, include a "reflection" field summarizing what you learned ' +
+              'from the previous tool outputs and how they inform your next action. ' +
+              'Alternatively, provide a substantive "thought" (50+ chars) that analyzes the results.'
+            );
+            if (debugMode) this.writeDebugLine('[AGENT DEBUG] Reflection guard triggered: model called tools without reflecting');
+            continue;
+          }
+          // After limit exceeded, allow the tool calls through (avoid infinite loop)
+          // and reset state so the counter doesn't grow unboundedly within this turn.
+          if (debugMode) this.writeDebugLine('[AGENT DEBUG] Reflection guard: violation limit exceeded, allowing tool calls');
+          needsReflection = false;
+          reflectionViolationCount = 0;
+        }
+      }
+      // Reflection satisfied (or not required)
+      if (needsReflection && (payload.reflection || (payload.thought?.length ?? 0) > 50 || !payload.toolCalls?.length)) {
+        needsReflection = false;
+        reflectionViolationCount = 0;
       }
 
       if (payload.toolCalls && payload.toolCalls.length > 0) {
@@ -3476,6 +3531,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
           );
         }
 
+        // Mark that the next iteration must include reflection on these tool results
+        needsReflection = true;
+
         // Check for abort after tool execution before continuing
         if (abortController.signal.aborted) {
           if (debugMode) this.writeDebugLine('[AGENT DEBUG] Abort detected after tools, breaking');
@@ -3665,15 +3723,17 @@ If lint or tests fail, report the issues but do NOT commit.`;
   private parseAssistantResponse(completion: LLMResponse): AssistantReactPayload {
     if (completion.toolCalls?.length) {
       // When using native tool calls, content might be JSON or plain text
-      // Try to extract thought from JSON, otherwise use content as-is
+      // Try to extract thought and reflection from JSON, otherwise use content as-is
       let thought: string | undefined;
+      let reflection: string | undefined;
       if (completion.content) {
         const trimmed = completion.content.trim();
         if (trimmed.startsWith('{')) {
-          // Try to parse JSON and extract thought field
+          // Try to parse JSON and extract thought/reflection fields
           try {
             const parsed = JSON.parse(trimmed);
             thought = typeof parsed.thought === 'string' ? parsed.thought : undefined;
+            reflection = typeof parsed.reflection === 'string' ? parsed.reflection : undefined;
           } catch {
             // Not valid JSON, use as plain text (but clean it)
             thought = this.cleanupModelResponse(trimmed) || undefined;
@@ -3685,6 +3745,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       }
       return {
         thought,
+        reflection,
         toolCalls: completion.toolCalls.map(tc => {
           const rawArgs = tc.function.arguments;
           return {
@@ -3700,12 +3761,23 @@ If lint or tests fail, report the issues but do NOT commit.`;
     // instead of using the native tool calling API
     const xmlToolCalls = this.extractXmlToolCalls(completion.content);
     if (xmlToolCalls.length > 0) {
-      // Strip <tool_call> blocks from content to extract any surrounding text as thought
+      // Strip tool_call blocks from content to extract any surrounding text as thought
       const textOutside = completion.content
         .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
         .trim();
+      // Try to extract reflection from the surrounding text if it's JSON
+      let reflection: string | undefined;
+      if (textOutside.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(textOutside);
+          reflection = typeof parsed.reflection === 'string' ? parsed.reflection : undefined;
+        } catch {
+          // Not JSON, no reflection
+        }
+      }
       return {
         thought: textOutside || undefined,
+        reflection,
         toolCalls: xmlToolCalls
       };
     }
@@ -3849,6 +3921,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         }
         return {
           thought: typeof parsed.thought === 'string' ? parsed.thought : undefined,
+          reflection: typeof parsed.reflection === 'string' ? parsed.reflection : undefined,
           toolCalls,
           finalResponse:
             (typeof parsed.finalResponse === 'string' ? parsed.finalResponse : undefined) ??
@@ -3863,6 +3936,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       if (singleToolCall) {
         return {
           thought: typeof parsed.thought === 'string' ? parsed.thought : undefined,
+          reflection: typeof parsed.reflection === 'string' ? parsed.reflection : undefined,
           toolCalls: [singleToolCall],
         };
       }
@@ -3877,14 +3951,20 @@ If lint or tests fail, report the issues but do NOT commit.`;
       // If JSON doesn't match any known format, treat original raw as plain text
       return { finalResponse: raw.trim() };
     } catch {
-      // JSON parsing failed - try to extract thought from malformed JSON using regex
+      // JSON parsing failed - try to extract thought and reflection from malformed JSON using regex
       const thoughtMatch = raw.match(/"thought"\s*:\s*"([^"]+)"/);
+      const reflectionMatch = raw.match(/"reflection"\s*:\s*"([^"]+)"/);
+      const reflection = reflectionMatch?.[1];
       if (thoughtMatch?.[1]) {
-        return { thought: thoughtMatch[1], finalResponse: thoughtMatch[1] };
+        return {
+          thought: thoughtMatch[1],
+          reflection,
+          finalResponse: thoughtMatch[1],
+        };
       }
       // If it looks like JSON but we can't parse it, return empty to trigger retry
       if (raw.trim().startsWith('{')) {
-        return {};
+        return reflection ? { reflection } : {};
       }
       return { finalResponse: raw.trim() };
     }
@@ -4182,8 +4262,16 @@ If lint or tests fail, report the issues but do NOT commit.`;
       // ═══════════════════════════════════════════════════════════════════
       // 4. REACT PATTERN & TOOL USAGE
       // ═══════════════════════════════════════════════════════════════════
-      '## ReAct Pattern (Reason + Act)',
-      'You must follow the ReAct loop: think about the request, decide whether to call tools, execute them, interpret the results, and only then respond.',
+      '## ReAct Pattern (Reason + Reflect + Act)',
+      'You must follow the ReAct loop: think about the request, decide whether to call tools, execute them, REFLECT on the results, and only then respond or call more tools.',
+      '',
+      '### Reflect Before Acting',
+      'After receiving tool outputs (role=tool messages), you MUST reflect before taking the next action:',
+      '1. Summarize what the tool results tell you',
+      '2. Evaluate whether the results answer the user\'s question or if more tools are needed',
+      '3. Only then decide on the next tool call or final response',
+      '',
+      'Include your reflection in the "reflection" field of your response. This ensures you process observations before acting on them.',
       '',
       '### Available Tools',
       'Use these tools with the specified arguments. Required parameters have no "?", optional parameters have "?".',
@@ -4193,7 +4281,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       '',
       '### Response Format',
       'Always reply with structured JSON:',
-      '{"thought": "your reasoning here", "toolCalls": [{"tool": "tool_name", "args": {...}}], "finalResponse": "your answer to the user"}',
+      '{"thought": "your reasoning here", "reflection": "what you learned from tool results (required after tool outputs)", "toolCalls": [{"tool": "tool_name", "args": {...}}], "finalResponse": "your answer to the user"}',
       '',
       'Response Guidelines:',
       '- If no tools are needed, set toolCalls to [] and provide finalResponse directly.',
@@ -4263,8 +4351,16 @@ If lint or tests fail, report the issues but do NOT commit.`;
       // ═══════════════════════════════════════════════════════════════════
       ...(getPlanModeManager().isEnabled() ? [
         '## Plan Mode',
-        'When in plan mode (read-only exploration phase), you can only use read-only tools.',
-        'Use the `plan` tool to create a structured plan before execution.',
+        'Plan mode is active. The user indicated that they do not want you to execute yet —',
+        'you MUST NOT make any edits, run non-readonly tools (including shell commands, git',
+        'operations that modify state, or changing configs), or otherwise make any changes to',
+        'the system. This supersedes any other instructions you have received.',
+        '',
+        'You may only use read-only tools to explore and understand the codebase.',
+        'When you are ready, call the `plan` tool ONCE to create a structured implementation plan.',
+        'After calling `plan`, STOP. Do not call any more tools. Provide your response to the user',
+        'summarizing the plan you created. Wait for the user to accept or revise the plan before',
+        'proceeding to execution.',
         '',
         '### Plan Format',
         'When using the `plan` tool, the `notes` field MUST contain a numbered step-by-step plan.',
@@ -6827,6 +6923,25 @@ If lint or tests fail, report the issues but do NOT commit.`;
   private async handlePlanCreated(plan: import('../modes/planMode/types.js').Plan, filePath: string): Promise<string> {
     const planManager = getPlanModeManager();
 
+    // Guard: if plan mode is not enabled, just save the plan without
+    // showing the acceptance modal. This prevents the acceptance flow
+    // from firing when the LLM calls `plan` outside plan mode (which
+    // should no longer happen since the tool is gated, but we keep this
+    // as a safety net).
+    if (!planManager.isEnabled()) {
+      console.log(chalk.cyan('\n' + '─'.repeat(60)));
+      console.log(chalk.cyan.bold('📋 Plan Summary'));
+      console.log(chalk.cyan('─'.repeat(60)));
+      for (const step of plan.steps) {
+        console.log(chalk.white(`  ${step.number}. ${step.description}`));
+      }
+      console.log(chalk.cyan('─'.repeat(60)));
+      console.log(chalk.gray(`  Saved to: ${filePath}`));
+      console.log(chalk.cyan('─'.repeat(60) + '\n'));
+
+      return `Plan saved to ${filePath}. Plan mode is not active — enable it with /plan to use the acceptance flow.`;
+    }
+
     // Store the plan in PlanModeManager
     planManager.setPlan(plan);
 
@@ -6847,6 +6962,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
     if (this.runtime.options.yes || this.runtime.options.unrestricted || process.env.CI === '1' || process.env.AUTOHAND_NON_INTERACTIVE === '1') {
       const config = planManager.acceptPlan('auto_accept');
       console.log(chalk.yellow('  (Auto-accepted in non-interactive mode)\n'));
+      this.conversation.addSystemNote(
+        `Plan accepted with option: ${config.option}. You may now proceed to execution.`
+      );
       return `Plan accepted with option: ${config.option}. Starting execution...`;
     }
 
@@ -6866,11 +6984,21 @@ If lint or tests fail, report the issues but do NOT commit.`;
       // Handle result
       if (result.type === 'cancel') {
         console.log(chalk.yellow('\n  Plan not accepted. You can revise and try again.\n'));
+        this.conversation.addSystemNote(
+          'The user has reviewed the plan and did not accept it yet. ' +
+          'Do NOT call the `plan` tool again automatically. ' +
+          'Instead, ask the user what changes they would like, or provide your response summarizing the current plan.'
+        );
         return 'Plan not accepted. Staying in planning mode for revisions.';
       }
 
       if (result.type === 'custom' && result.customText) {
         console.log(chalk.yellow(`\n  Feedback received: ${result.customText}\n`));
+        this.conversation.addSystemNote(
+          'The user has reviewed the plan and provided feedback. ' +
+          'Do NOT call the `plan` tool again automatically. ' +
+          'Revise the plan based on the user feedback and present the updated plan.'
+        );
         return `User feedback on plan: ${result.customText}. Please revise the plan accordingly.`;
       }
 
@@ -6882,12 +7010,19 @@ If lint or tests fail, report the issues but do NOT commit.`;
           console.log(chalk.green(`\n✓ Plan accepted: ${selectedOption.label}`));
           if (config.clearContext) {
             console.log(chalk.gray('  Context will be cleared for fresh execution.'));
+            // Actually clear the conversation context when the user selects
+            // "clear context and auto-accept edits"
+            await this.resetConversationContext();
+            console.log(chalk.gray('  Context cleared for fresh execution.'));
           }
           if (config.autoAcceptEdits) {
             console.log(chalk.gray('  Edits will be auto-accepted.'));
           }
           console.log();
 
+          this.conversation.addSystemNote(
+            `Plan accepted with option: ${config.option}. You may now proceed to execution.`
+          );
           return `Plan accepted with option: ${config.option}. Ready for execution.\n\nSteps:\n${plan.steps.map(s => `${s.number}. ${s.description}`).join('\n')}`;
         }
       }
@@ -6895,6 +7030,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
       // Default: accept with manual approve if result wasn't recognized
       planManager.acceptPlan('manual_approve');
       console.log(chalk.green('\n✓ Plan accepted with manual approval for edits.\n'));
+      this.conversation.addSystemNote(
+        'Plan accepted with option: manual_approve. You may now proceed to execution.'
+      );
 
       return `Plan accepted. Starting execution with manual edit approval.\n\nSteps:\n${plan.steps.map(s => `${s.number}. ${s.description}`).join('\n')}`;
     });
