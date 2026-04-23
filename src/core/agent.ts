@@ -1787,6 +1787,32 @@ If lint or tests fail, report the issues but do NOT commit.`;
           continue;
         }
 
+        // Handle slash commands locally (never send to LLM).
+        // The readline path (promptForInstruction) handles slash commands
+        // before runInstruction, but instructions from the Ink queue bypass
+        // that path. Without this, /help etc. go through the full ReAct loop
+        // which sends them to the LLM and leaves the composer frozen.
+        if (instruction.startsWith('/')) {
+          const parsed = this.parseSlashCommand(instruction);
+          const isKnownSlashCommand = this.isSlashCommandSupported(parsed.command);
+          if (isKnownSlashCommand || !isLikelyFilePathSlashInput(instruction)) {
+            const command = parsed.command;
+            const args = parsed.args;
+
+            // /quit and /exit are handled above (line 1795)
+            if (command !== '/quit' && command !== '/exit') {
+              // Echo the slash command to the chat log so it's visible
+              console.log(chalk.white(`\n› ${instruction}`));
+
+              const handled = await this.runSlashCommandWithInput(command, args);
+              if (handled !== null) {
+                console.log(renderTerminalMarkdown(handled));
+              }
+              continue;
+            }
+          }
+        }
+
         // Ensure background init is complete before processing any instruction.
         // This runs while the user was typing, so it's usually already done.
         await this.ensureInitComplete();
