@@ -357,7 +357,7 @@ function Modal(props: ModalProps) {
       }
 
       // Backspace: delete character before cursor
-      if (key.backspace || key.delete) {
+      if (key.backspace) {
         if (inputCursor > 0) {
           setInputValue((prev: string) =>
             prev.slice(0, inputCursor - 1) + prev.slice(inputCursor)
@@ -390,7 +390,7 @@ function Modal(props: ModalProps) {
         }
         return;
       }
-      if (key.backspace || key.delete) {
+      if (key.backspace) {
         setCustomInput((prev: string) => prev.slice(0, -1));
         return;
       }
@@ -688,6 +688,15 @@ export async function showModal(
 
   // Disable bracketed paste so escape sequences don't leak into Ink's useInput.
   prepareModalRender(process.stdout);
+
+  // Yield a macrotask so React 19's Scheduler flushes any pending passive
+  // effect cleanup from a just-unmounted Ink instance (e.g. InkRenderer.pause()).
+  // Ink's reconciler uses Scheduler.unstable_scheduleCallback (macrotask) for
+  // passive effects, so without this yield the previous instance's useInput
+  // cleanup runs AFTER the new modal's useInput effect, calling setRawMode(false)
+  // and removing the readable listener we just attached — symptom: menu
+  // renders but keyboard is frozen (stdin in cooked/line-buffered mode).
+  await new Promise<void>((resolve) => setImmediate(resolve));
 
   return new Promise((resolve) => {
     let completed = false;
