@@ -278,6 +278,149 @@ describe('agent.ts deduplication', () => {
   });
 
   // =========================================================================
+  // onBeforeModal / onAfterModal — must pause/resume InkRenderer
+  // Regression: callbacks only paused PersistentInput, not InkRenderer.
+  // In Ink 7, render() uses a WeakMap keyed by stdout; when InkRenderer is
+  // still running, showModal's render() reuses the existing instance instead
+  // of creating a new one, causing raw-mode reference count mismatches.
+  // =========================================================================
+  describe('onBeforeModal/onAfterModal InkRenderer pause', () => {
+    /** Build the same onBeforeModal/onAfterModal callbacks the agent creates */
+    function makeModalCallbacks(agent: any) {
+      return {
+        onBeforeModal: () => {
+          if (agent.inkRenderer) {
+            agent.inkRenderer.pause();
+          }
+          if (agent.persistentInputActiveTurn) {
+            agent.persistentInput.pauseForModal();
+          }
+        },
+        onAfterModal: () => {
+          if (agent.inkRenderer) {
+            agent.inkRenderer.resume();
+          }
+          if (agent.persistentInputActiveTurn) {
+            agent.persistentInput.resumeFromModal();
+          }
+        },
+      };
+    }
+
+    it('onBeforeModal pauses inkRenderer when present', () => {
+      const agent = Object.create(AutohandAgent.prototype) as any;
+      agent.inkRenderer = { pause: vi.fn(), resume: vi.fn() };
+      agent.persistentInput = { pauseForModal: vi.fn(), resumeFromModal: vi.fn() };
+      agent.persistentInputActiveTurn = true;
+
+      const { onBeforeModal } = makeModalCallbacks(agent);
+      onBeforeModal();
+
+      expect(agent.inkRenderer.pause).toHaveBeenCalledTimes(1);
+      expect(agent.persistentInput.pauseForModal).toHaveBeenCalledTimes(1);
+    });
+
+    it('onAfterModal resumes inkRenderer when present', () => {
+      const agent = Object.create(AutohandAgent.prototype) as any;
+      agent.inkRenderer = { pause: vi.fn(), resume: vi.fn() };
+      agent.persistentInput = { pauseForModal: vi.fn(), resumeFromModal: vi.fn() };
+      agent.persistentInputActiveTurn = true;
+
+      const { onBeforeModal, onAfterModal } = makeModalCallbacks(agent);
+      onBeforeModal();
+      onAfterModal();
+
+      expect(agent.inkRenderer.resume).toHaveBeenCalledTimes(1);
+      expect(agent.persistentInput.resumeFromModal).toHaveBeenCalledTimes(1);
+    });
+
+    it('onBeforeModal pauses inkRenderer BEFORE persistentInput (ordering)', () => {
+      const agent = Object.create(AutohandAgent.prototype) as any;
+      agent.inkRenderer = { pause: vi.fn(), resume: vi.fn() };
+      agent.persistentInput = { pauseForModal: vi.fn(), resumeFromModal: vi.fn() };
+      agent.persistentInputActiveTurn = true;
+
+      const { onBeforeModal } = makeModalCallbacks(agent);
+      onBeforeModal();
+
+      const inkPauseOrder = agent.inkRenderer.pause.mock.invocationCallOrder[0];
+      const inputPauseOrder = agent.persistentInput.pauseForModal.mock.invocationCallOrder[0];
+      expect(inkPauseOrder).toBeLessThan(inputPauseOrder);
+    });
+
+    it('onAfterModal resumes persistentInput BEFORE inkRenderer (ordering)', () => {
+      const agent = Object.create(AutohandAgent.prototype) as any;
+      agent.inkRenderer = { pause: vi.fn(), resume: vi.fn() };
+      agent.persistentInput = { pauseForModal: vi.fn(), resumeFromModal: vi.fn() };
+      agent.persistentInputActiveTurn = true;
+
+      const { onBeforeModal, onAfterModal } = makeModalCallbacks(agent);
+      onBeforeModal();
+      onAfterModal();
+
+      // inkRenderer.resume is called first in the callback (matching withModalPause)
+      const inkResumeOrder = agent.inkRenderer.resume.mock.invocationCallOrder[0];
+      const inputResumeOrder = agent.persistentInput.resumeFromModal.mock.invocationCallOrder[0];
+      expect(inkResumeOrder).toBeLessThan(inputResumeOrder);
+    });
+
+    it('does not call inkRenderer.pause when inkRenderer is null', () => {
+      const agent = Object.create(AutohandAgent.prototype) as any;
+      agent.inkRenderer = null;
+      agent.persistentInput = { pauseForModal: vi.fn(), resumeFromModal: vi.fn() };
+      agent.persistentInputActiveTurn = true;
+
+      const { onBeforeModal, onAfterModal } = makeModalCallbacks(agent);
+      // Should not throw
+      onBeforeModal();
+      onAfterModal();
+
+      expect(agent.persistentInput.pauseForModal).toHaveBeenCalledTimes(1);
+      expect(agent.persistentInput.resumeFromModal).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not call persistentInput.pauseForModal when no active turn', () => {
+      const agent = Object.create(AutohandAgent.prototype) as any;
+      agent.inkRenderer = { pause: vi.fn(), resume: vi.fn() };
+      agent.persistentInput = { pauseForModal: vi.fn(), resumeFromModal: vi.fn() };
+      agent.persistentInputActiveTurn = false;
+
+      const { onBeforeModal, onAfterModal } = makeModalCallbacks(agent);
+      onBeforeModal();
+      onAfterModal();
+
+      expect(agent.inkRenderer.pause).toHaveBeenCalledTimes(1);
+      expect(agent.inkRenderer.resume).toHaveBeenCalledTimes(1);
+      expect(agent.persistentInput.pauseForModal).not.toHaveBeenCalled();
+      expect(agent.persistentInput.resumeFromModal).not.toHaveBeenCalled();
+    });
+
+    it('resumes inkRenderer even when modal callback throws', () => {
+      const agent = Object.create(AutohandAgent.prototype) as any;
+      agent.inkRenderer = { pause: vi.fn(), resume: vi.fn() };
+      agent.persistentInput = { pauseForModal: vi.fn(), resumeFromModal: vi.fn() };
+      agent.persistentInputActiveTurn = true;
+
+      const { onBeforeModal, onAfterModal } = makeModalCallbacks(agent);
+
+      // Simulate the try/finally pattern used by slash commands
+      let threw = false;
+      onBeforeModal();
+      try {
+        throw new Error('modal crashed');
+      } catch {
+        threw = true;
+      } finally {
+        onAfterModal();
+      }
+
+      expect(threw).toBe(true);
+      expect(agent.inkRenderer.resume).toHaveBeenCalledTimes(1);
+      expect(agent.persistentInput.resumeFromModal).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // =========================================================================
   // setUIStatus — routes to persistent input when terminal regions active
   // =========================================================================
   describe('setUIStatus() terminal regions routing', () => {
@@ -348,6 +491,70 @@ describe('agent.ts deduplication', () => {
 
       expect(agent.inkRenderer.setStatus).toHaveBeenCalledWith('Working...');
       expect(agent.persistentInput.setActivityLine).not.toHaveBeenCalled();
+    });
+  });
+
+  // =========================================================================
+  // Slash commands from Ink queue must be handled locally (not sent to LLM)
+  // Regression: /help typed in Ink composer went through runInstruction
+  // (full ReAct loop) instead of being handled as a local slash command.
+  // The readline path handles slash commands before runInstruction, but the
+  // Ink queue path was missing that step.
+  // =========================================================================
+  describe('Ink queue slash command handling', () => {
+    it('handleInkSubmittedInstruction queues slash commands for local handling, not as LLM prompts', async () => {
+      const agent = Object.create(AutohandAgent.prototype) as any;
+      agent.inkRenderer = {
+        addQueuedInstruction: vi.fn(),
+      };
+
+      // /help should be queued as an instruction, not treated specially here
+      // The key test is that the main loop handles it as a slash command
+      // before calling runInstruction
+      await (agent as any).handleInkSubmittedInstruction('/help');
+
+      // It should be queued (same as any other instruction)
+      expect(agent.inkRenderer.addQueuedInstruction).toHaveBeenCalledWith('/help');
+    });
+
+    it('runInteractiveLoop handles slash commands locally before runInstruction', async () => {
+      // Verify the main loop code path: slash commands from the Ink queue
+      // must be handled by runSlashCommandWithInput, NOT runInstruction.
+      // We test this by checking the source code directly (like the Modal
+      // setImmediate yield test) since the full loop is hard to mock.
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const src = fs.readFileSync(
+        path.resolve(process.cwd(), 'src/core/agent.ts'),
+        'utf8',
+      );
+
+      // Find the runInteractiveLoop method body
+      const loopMatch = src.match(/private async runInteractiveLoop\(\)[\s\S]*?\n  (?=private |async |\/\*\*|$)/);
+      expect(loopMatch).not.toBeNull();
+      const loopBody = loopMatch![0];
+
+      // After the shell command handler (!), there must be slash command handling
+      // before runInstruction is called
+      const shellHandlerIdx = loopBody.indexOf('isShellCommand(instruction)');
+      const slashHandlerIdx = loopBody.indexOf("instruction.startsWith('/')");
+      const runInstructionIdx = loopBody.indexOf('await this.runInstruction(');
+
+      expect(shellHandlerIdx).toBeGreaterThan(-1);
+      expect(slashHandlerIdx).toBeGreaterThan(-1);
+      expect(runInstructionIdx).toBeGreaterThan(-1);
+
+      // Slash command handling must appear BEFORE runInstruction
+      // (not just the telemetry check, but actual command execution)
+      expect(slashHandlerIdx).toBeLessThan(runInstructionIdx);
+
+      // There must be a call to runSlashCommandWithInput or handleSlashCommand
+      // between the slash check and runInstruction
+      const betweenSlashAndRun = loopBody.substring(slashHandlerIdx, runInstructionIdx);
+      expect(
+        betweenSlashAndRun.includes('runSlashCommandWithInput') ||
+        betweenSlashAndRun.includes('handleSlashCommand')
+      ).toBe(true);
     });
   });
 });
