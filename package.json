@@ -47,63 +47,51 @@
     "autohand"
   ],
   "engines": {
-    "node": ">=18.17.0"
+    "node": ">=22.0.0"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "0.12.0",
+    "@agentclientprotocol/sdk": "0.19.1",
     "chalk": "^5.6.2",
-    "commander": "^14.0.2",
-    "diff": "^8.0.2",
-    "dotenv": "^17.2.3",
-    "fs-extra": "^11.3.2",
-    "ignore": "^5.3.1",
-    "ink": "^4.4.1",
+    "commander": "^14.0.3",
+    "diff": "^9.0.0",
+    "dotenv": "^17.4.2",
+    "fs-extra": "^11.3.4",
+    "ignore": "^7.0.5",
+    "ink": "^7.0.1",
     "ink-spinner": "^5.0.0",
-    "minimatch": "^10.1.1",
+    "minimatch": "^10.2.5",
     "node-notifier": "^10.0.1",
-    "node-pty": "^1.0.0",
-    "open": "^10.1.0",
-    "ora": "^9.0.0",
-    "react": "^18.2.0",
+    "node-pty": "^1.1.0",
+    "open": "^11.0.0",
+    "ora": "^9.4.0",
+    "react": "^19.2.5",
     "sharp": "^0.34.5",
     "string-width": "^8.2.0",
-    "terminal-link": "^3.0.0",
-    "yaml": "^2.8.2",
-    "zod": "^4.1.12"
+    "terminal-link": "^5.0.0",
+    "yaml": "^2.8.3",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/diff": "^8.0.0",
     "@types/fs-extra": "^11.0.4",
     "@types/minimatch": "^6.0.0",
-    "@types/node": "^24.10.1",
+    "@types/node": "^25.6.0",
     "@types/node-notifier": "^8.0.5",
-    "@types/react": "^18.3.3",
+    "@types/react": "^19.2.5",
     "@types/terminal-link": "^1.2.0",
-    "@typescript-eslint/eslint-plugin": "^8.48.1",
-    "@typescript-eslint/parser": "^8.48.1",
-    "eslint": "^9.39.1",
-    "ink-testing-library": "^3.0.0",
-    "memfs": "^4.51.1",
+    "@typescript-eslint/eslint-plugin": "^8.59.0",
+    "@typescript-eslint/parser": "^8.59.0",
+    "eslint": "^10.2.1",
+    "ink-testing-library": "^4.0.0",
+    "memfs": "^4.57.2",
     "react-devtools-core": "^7.0.1",
-    "strip-ansi": "^7.1.2",
+    "strip-ansi": "^7.2.0",
     "tsup": "^8.5.1",
-    "tsx": "^4.20.6",
-    "typescript": "^5.9.3",
-    "vitest": "^1.6.0"
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5"
   },
   "overrides": {
-    "ink": {
-      "slice-ansi": {
-        "ansi-styles": "^6.2.1"
-      },
-      "wrap-ansi": {
-        "ansi-styles": "^6.2.1"
-      },
-      "cli-truncate": {
-        "slice-ansi": {
-          "ansi-styles": "^6.2.1"
-        }
-      }
-    }
+    "ansi-styles": "^6.2.3"
   }
 }
