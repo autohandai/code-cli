@@ -366,7 +366,8 @@ describe('PlanModeManager tool filtering', () => {
     expect(tools).toContain('git_diff');
     expect(tools).toContain('git_log');
 
-    // Should include plan-related tools
+    // Should include plan-related tools (plan is allowed in read-only list
+    // when plan mode is enabled; it's gated at the ToolManager level)
     expect(tools).toContain('plan');
     expect(tools).toContain('ask_followup_question');
 
@@ -406,6 +407,12 @@ describe('PlanModeManager tool filtering', () => {
     expect(filteredTools.map(t => t.name)).not.toContain('write_file');
     expect(filteredTools.map(t => t.name)).not.toContain('run_command');
     expect(filteredTools.map(t => t.name)).not.toContain('git_commit');
+  });
+
+  it('plan tool is NOT in DEFAULT_TOOL_DEFINITIONS (gated at ToolManager level)', async () => {
+    const { DEFAULT_TOOL_DEFINITIONS } = await import('../src/core/toolManager.js');
+    const names = new Set(DEFAULT_TOOL_DEFINITIONS.map(d => d.name));
+    expect(names.has('plan')).toBe(false);
   });
 });
 

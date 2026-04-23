@@ -97,19 +97,6 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
-    name: 'plan',
-    description: 'Create a structured implementation plan with detailed numbered steps before executing a task. Always break the task into concrete, actionable steps (e.g. "1. Read existing auth code\\n2. Create JWT utility module\\n3. Add login endpoint"). Each step should be a single clear action. Aim for 3-10 steps depending on complexity.',
-    parameters: {
-      type: 'object',
-      properties: {
-        notes: {
-          type: 'string',
-          description: 'A numbered step-by-step plan. Each step on its own line starting with "N. " (e.g. "1. Read existing code\\n2. Create new module\\n3. Write tests"). Be specific and actionable - avoid single vague descriptions.'
-        }
-      }
-    }
-  },
-  {
     name: 'ask_followup_question',
     description: 'Ask the user a follow-up question to gather clarification or preferences. Use when you need specific information to proceed. Include suggested answers when possible to guide the response. Only available in interactive and plan mode.',
     parameters: {
@@ -1455,6 +1442,24 @@ Actions:
   },
 ];
 
+/**
+ * Standalone plan tool definition — only registered when plan mode is enabled.
+ * Exported so agent.ts can dynamically inject/remove it.
+ */
+export const PLAN_TOOL_DEFINITION: ToolDefinition = {
+  name: 'plan',
+  description: 'Create a structured implementation plan with detailed numbered steps before executing a task. Always break the task into concrete, actionable steps (e.g. "1. Read existing auth code\n2. Create JWT utility module\n3. Add login endpoint"). Each step should be a single clear action. Aim for 3-10 steps depending on complexity.',
+  parameters: {
+    type: 'object',
+    properties: {
+      notes: {
+        type: 'string',
+        description: 'A numbered step-by-step plan. Each step on its own line starting with "N. " (e.g. "1. Read existing code\n2. Create new module\n3. Write tests"). Be specific and actionable - avoid single vague descriptions.'
+      }
+    }
+  }
+};
+
 export class ToolManager {
   private readonly definitions = new Map<AgentAction['type'], ToolDefinition>();
   private readonly executor: ToolManagerOptions['executor'];
@@ -1475,6 +1480,14 @@ export class ToolManager {
 
   register(definition: ToolDefinition): void {
     this.definitions.set(definition.name, definition);
+  }
+
+  /**
+   * Unregister a tool definition by name.
+   * Used to dynamically remove tools (e.g. plan tool when plan mode is disabled).
+   */
+  unregister(name: AgentAction['type']): boolean {
+    return this.definitions.delete(name);
   }
 
   /**
