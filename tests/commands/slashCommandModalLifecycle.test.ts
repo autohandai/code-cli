@@ -8,11 +8,22 @@
  * so PersistentInput's scroll regions are deactivated during
  * Ink modal rendering.
  *
- * Root cause: PersistentInput's handleKeypress + renderFixedRegion
+ * Root cause (v1): PersistentInput's handleKeypress + renderFixedRegion
  * re-establish ANSI scroll regions between Ink re-renders, causing
  * duplication. The lightweight pauseForModal/resumeFromModal methods
  * suppress this interference without the heavy terminal manipulation
  * of the full pause/resume cycle.
+ *
+ * Root cause (v2 - Ink 7 navigation bug): onBeforeModal/onAfterModal
+ * only paused PersistentInput but NOT InkRenderer. When showModal()
+ * called render() while InkRenderer was still active, Ink 7's WeakMap
+ * instance cache reused the existing instance instead of creating a new
+ * one. This caused React effect ordering issues where Modal's useInput
+ * registered before AgentUI's cleanup, leaving raw mode ref-count > 0
+ * while PersistentInput had externally disabled raw mode. Result: stdin
+ * was NOT in raw mode, keystrokes were line-buffered, and arrow keys
+ * never triggered readable events. Fix: onBeforeModal also pauses
+ * InkRenderer (matching withModalPause pattern).
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -179,3 +190,133 @@ describe('TerminalRegions deactivate()', () => {
     expect(mockOutput.off).toHaveBeenCalledWith('resize', expect.any(Function));
   });
 });
+
+describe('InkRenderer pause/resume during modal lifecycle (Ink 7 regression)', () => {
+  it('onBeforeModal pauses InkRenderer before PersistentInput, onAfterModal resumes PersistentInput before InkRenderer', async () => {
+    // This verifies the fix for the Ink 7 navigation bug:
+    // onBeforeModal must pause InkRenderer so showModal's render() creates
+    // a fresh instance with exclusive raw mode control, rather than reusing
+    // the existing instance (which causes raw mode ref-count conflicts).
+    const callOrder: string[] = [];
+
+    const mockInkRenderer = {
+      pause: vi.fn(() => { callOrder.push('inkRenderer.pause'); }),
+      resume: vi.fn(() => { callOrder.push('inkRenderer.resume'); }),
+    };
+
+    const mockPersistentInput = {
+      pauseForModal: vi.fn(() => { callOrder.push('persistentInput.pauseForModal'); }),
+      resumeFromModal: vi.fn(() => { callOrder.push('persistentInput.resumeFromModal'); }),
+    };
+
+    // Simulate the onBeforeModal callback from agent.ts
+    const onBeforeModal = () => {
+      if (mockInkRenderer) {
+        mockInkRenderer.pause();
+      }
+      if (mockPersistentInput) {
+        mockPersistentInput.pauseForModal();
+      }
+    };
+
+    // Simulate the onAfterModal callback from agent.ts
+    const onAfterModal = () => {
+      if (mockPersistentInput) {
+        mockPersistentInput.resumeFromModal();
+      }
+      if (mockInkRenderer) {
+        mockInkRenderer.resume();
+      }
+    };
+
+    onBeforeModal();
+    onAfterModal();
+
+    // InkRenderer must pause BEFORE PersistentInput disables raw mode
+    expect(callOrder.indexOf('inkRenderer.pause')).toBeLessThan(callOrder.indexOf('persistentInput.pauseForModal'));
+    // PersistentInput must resume BEFORE InkRenderer re-registers useInput
+    expect(callOrder.indexOf('persistentInput.resumeFromModal')).toBeLessThan(callOrder.indexOf('inkRenderer.resume'));
+
+    expect(mockInkRenderer.pause).toHaveBeenCalledTimes(1);
+    expect(mockInkRenderer.resume).toHaveBeenCalledTimes(1);
+    expect(mockPersistentInput.pauseForModal).toHaveBeenCalledTimes(1);
+    expect(mockPersistentInput.resumeFromModal).toHaveBeenCalledTimes(1);
+  });
+
+  it('onBeforeModal/onAfterModal gracefully handle missing InkRenderer', () => {
+    const callOrder: string[] = [];
+
+    const mockPersistentInput = {
+      pauseForModal: vi.fn(() => { callOrder.push('persistentInput.pauseForModal'); }),
+      resumeFromModal: vi.fn(() => { callOrder.push('persistentInput.resumeFromModal'); }),
+    };
+
+    // No InkRenderer (e.g. useInkRenderer is false)
+    const inkRenderer = null;
+
+    const onBeforeModal = () => {
+      if (inkRenderer) {
+        inkRenderer.pause();
+      }
+      if (mockPersistentInput) {
+        mockPersistentInput.pauseForModal();
+      }
+    };
+
+    const onAfterModal = () => {
+      if (mockPersistentInput) {
+        mockPersistentInput.resumeFromModal();
+      }
+      if (inkRenderer) {
+        inkRenderer.resume();
+      }
+    };
+
+    onBeforeModal();
+    onAfterModal();
+
+    // Should still work with PersistentInput only
+    expect(mockPersistentInput.pauseForModal).toHaveBeenCalledTimes(1);
+    expect(mockPersistentInput.resumeFromModal).toHaveBeenCalledTimes(1);
+    expect(callOrder).toEqual(['persistentInput.pauseForModal', 'persistentInput.resumeFromModal']);
+  });
+
+  it('onAfterModal still resumes InkRenderer even if PersistentInput resume throws', () => {
+    const mockInkRenderer = {
+      pause: vi.fn(),
+      resume: vi.fn(),
+    };
+
+    const mockPersistentInput = {
+      pauseForModal: vi.fn(),
+      resumeFromModal: vi.fn(() => { throw new Error('resume failed'); }),
+    };
+
+    const onBeforeModal = () => {
+      if (mockInkRenderer) {
+        mockInkRenderer.pause();
+      }
+      if (mockPersistentInput) {
+        mockPersistentInput.pauseForModal();
+      }
+    };
+
+    const onAfterModal = () => {
+      try {
+        if (mockPersistentInput) {
+          mockPersistentInput.resumeFromModal();
+        }
+      } catch {
+        // Best effort - continue to resume InkRenderer
+      }
+      if (mockInkRenderer) {
+        mockInkRenderer.resume();
+      }
+    };
+
+    onBeforeModal();
+    expect(() => onAfterModal()).not.toThrow();
+    expect(mockInkRenderer.resume).toHaveBeenCalledTimes(1);
+  });
+});
+

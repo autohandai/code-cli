@@ -151,7 +151,7 @@ describe('PersistentInput.pauseForModal() — screen clearing before Ink', () =>
     input.stop();
   });
 
-  it('handleKeypress is suppressed (isPaused=true) after pauseForModal', async () => {
+  it('pauseForModal removes keypress listener so readline data listener is cleaned up', async () => {
     const mockStdin = createMockStdin();
     const mockStdout = createMockStdout();
 
@@ -161,14 +161,20 @@ describe('PersistentInput.pauseForModal() — screen clearing before Ink', () =>
     const { PersistentInput } = await import('../../src/ui/persistentInput.js');
     const input = new PersistentInput();
     input.start();
+
+    // After start(), keypress listener should be registered
+    expect(mockStdin.listenerCount('keypress')).toBeGreaterThan(0);
+
     input.pauseForModal();
 
+    // After pauseForModal(), keypress listener must be removed.
+    // This causes readline.emitKeypressEvents to remove its data listener,
+    // which is critical for Ink 7's readable listener to work during modals.
+    expect(mockStdin.listenerCount('keypress')).toBe(0);
+
+    // Simulate keypress — should be a no-op (listener removed)
     (mockStdout.write as ReturnType<typeof vi.fn>).mockClear();
-
-    // Simulate keypress — should be a no-op (isPaused = true)
     mockStdin.emit('keypress', 'a', { name: 'a' });
-
-    // No writes should happen as a result of the keypress
     expect((mockStdout.write as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
     expect(input.getCurrentInput()).toBe('');
 
@@ -202,6 +208,62 @@ describe('PersistentInput.pauseForModal() — screen clearing before Ink', () =>
     expect(hasCursorPosition).toBe(true);
 
     input.stop();
+  });
+
+  it('resumeFromModal re-registers keypress listener removed by pauseForModal', async () => {
+    const mockStdin = createMockStdin();
+    const mockStdout = createMockStdout();
+
+    Object.defineProperty(process, 'stdin', { value: mockStdin, writable: true, configurable: true });
+    Object.defineProperty(process, 'stdout', { value: mockStdout, writable: true, configurable: true });
+
+    const { PersistentInput } = await import('../../src/ui/persistentInput.js');
+    const input = new PersistentInput();
+    input.start();
+
+    const keypressCountAfterStart = mockStdin.listenerCount('keypress');
+    expect(keypressCountAfterStart).toBeGreaterThan(0);
+
+    input.pauseForModal();
+    expect(mockStdin.listenerCount('keypress')).toBe(0);
+
+    input.resumeFromModal();
+
+    // keypress listener must be re-registered after resumeFromModal
+    expect(mockStdin.listenerCount('keypress')).toBe(keypressCountAfterStart);
+
+    // And keypress events should flow through again
+    (mockStdout.write as ReturnType<typeof vi.fn>).mockClear();
+    mockStdin.emit('keypress', 'x', { name: 'x', sequence: 'x' });
+    // The keypress should have been processed (not suppressed)
+    expect(input.getCurrentInput()).toBe('x');
+
+    input.stop();
+  });
+
+  it('stop() force-removes readline data listener to prevent Ink 7 readable conflict', async () => {
+    const mockStdin = createMockStdin();
+    const mockStdout = createMockStdout();
+
+    Object.defineProperty(process, 'stdin', { value: mockStdin, writable: true, configurable: true });
+    Object.defineProperty(process, 'stdout', { value: mockStdout, writable: true, configurable: true });
+
+    const { PersistentInput } = await import('../../src/ui/persistentInput.js');
+    const input = new PersistentInput();
+    input.start();
+
+    // After start(), keypress and data listeners should be present
+    expect(mockStdin.listenerCount('keypress')).toBeGreaterThan(0);
+    // readline.emitKeypressEvents adds a data listener when keypress listeners exist
+    expect(mockStdin.listenerCount('data')).toBeGreaterThan(0);
+
+    input.stop();
+
+    // After stop(), keypress listener must be removed
+    expect(mockStdin.listenerCount('keypress')).toBe(0);
+    // And the readline data listener must also be removed (force-cleaned,
+    // not left for the next data event which may never fire)
+    expect(mockStdin.listenerCount('data')).toBe(0);
   });
 });
 

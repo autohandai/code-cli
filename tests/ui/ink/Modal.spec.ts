@@ -383,3 +383,40 @@ describe('resolveInitialCursor', () => {
     expect(resolveInitialCursor('confirm', 2)).toBe(0);
   });
 });
+
+describe('showModal passive-effect cleanup yield (Ink 7 / React 19 regression)', () => {
+  // Regression: when InkRenderer.pause() unmounts the main UI and showModal()
+  // immediately calls render(), the previous instance's useInput cleanup
+  // (scheduled as a macrotask by React's Scheduler) fires AFTER the new modal's
+  // useInput effect. The stale cleanup calls stdin.setRawMode(false) and
+  // removes the readable listener, leaving the terminal in line-buffered mode
+  // with no input listener — symptom reported by user: 'menu rendered but no
+  // keys work'. The fix is a setImmediate yield in showModal before render()
+  // so the old cleanup drains first.
+  it('awaits setImmediate after prepareModalRender and before render()', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const src = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/ui/ink/components/Modal.tsx'),
+      'utf8',
+    );
+
+    // Extract the body of showModal
+    const showModalMatch = src.match(/export async function showModal[\s\S]*?\n\}/);
+    expect(showModalMatch).not.toBeNull();
+    const body = showModalMatch![0];
+
+    const prepareIdx = body.indexOf('prepareModalRender(');
+    const yieldIdx = body.indexOf('setImmediate');
+    const renderIdx = body.indexOf('render(');
+
+    expect(prepareIdx).toBeGreaterThan(-1);
+    expect(yieldIdx).toBeGreaterThan(-1);
+    expect(renderIdx).toBeGreaterThan(-1);
+
+    // Sequence must be: prepareModalRender → setImmediate yield → render()
+    expect(prepareIdx).toBeLessThan(yieldIdx);
+    expect(yieldIdx).toBeLessThan(renderIdx);
+  });
+});
+
