@@ -1089,6 +1089,7 @@ export interface ToolCallRequest {
 
 export interface AssistantReactPayload {
   thought?: string;
+  reflection?: string;
   toolCalls?: ToolCallRequest[];
   finalResponse?: string;
   response?: string;

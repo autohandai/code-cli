@@ -158,7 +158,7 @@ export async function fetchOpenRouterModelCapabilities(
       throw new Error(`Failed to fetch model capabilities: ${response.status} ${response.statusText}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as { data?: OpenRouterModelCapability[] };
     const models: OpenRouterModelCapability[] = Array.isArray(data?.data) ? data.data : [];
 
     cache = {

@@ -100,7 +100,7 @@ export class OllamaProvider implements LLMProvider {
                 if (!response.ok) {
                     return [];
                 }
-                const data: OllamaTagsResponse = await response.json();
+                const data = await response.json() as OllamaTagsResponse;
                 return data.models.map(m => m.name);
             } finally {
                 clearTimeout(timerId);
@@ -246,7 +246,7 @@ export class OllamaProvider implements LLMProvider {
             return this.handleStreamingResponse(response);
         }
 
-        const data: OllamaChatResponse = await response.json();
+        const data = await response.json() as OllamaChatResponse;
 
         // Parse tool calls if present (Ollama returns arguments as object, not string)
         let toolCalls: LLMToolCall[] | undefined;
@@ -542,7 +542,7 @@ export class OllamaProvider implements LLMProvider {
                     );
                 }
 
-                const { done, value } = chunkResult as ReadableStreamReadResult<Uint8Array>;
+                const { done, value } = chunkResult as { done: boolean; value: Uint8Array };
 
                 if (done) {
                     // Stream ended at the transport level — stop reading
@@ -596,7 +596,7 @@ export class OllamaProvider implements LLMProvider {
         reader: ReadableStreamDefaultReader<Uint8Array>,
         timeoutMs: number,
         _partialContent: string,
-    ): Promise<{ timedOut: true } | ReadableStreamReadResult<Uint8Array>> {
+    ): Promise<{ timedOut: true } | { done: boolean; value: Uint8Array }> {
         let timerId!: ReturnType<typeof setTimeout>;
 
         const timeoutPromise = new Promise<{ timedOut: true }>((resolve) => {
@@ -608,7 +608,11 @@ export class OllamaProvider implements LLMProvider {
                 reader.read(),
                 timeoutPromise,
             ]);
-            return result;
+            // Handle the union type properly
+            if ('timedOut' in result) {
+                return result;
+            }
+            return { done: result.done, value: result.value || new Uint8Array() };
         } finally {
             clearTimeout(timerId);
         }

@@ -341,7 +341,7 @@ export class SetupWizard {
     console.log(chalk.gray(ASCII_FRIEND));
     console.log();
     console.log(chalk.cyan.bold('  Welcome to Autohand!'));
-    console.log(chalk.gray('  Your super fast AI coding agent'));
+    console.log(chalk.gray('  Your super fast self evolving coding agent'));
     console.log();
     console.log(chalk.white('  Let\'s get you set up in just a few steps.'));
     console.log();

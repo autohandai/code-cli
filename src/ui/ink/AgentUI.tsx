@@ -622,7 +622,7 @@ export function AgentUI({
         }
       }
     },
-    isActive: state.isWorking && enableQueueInput,
+    isActive: !state.isWorking || enableQueueInput,
   });
 
   // Memoize tool outputs to prevent unnecessary re-renders
@@ -879,7 +879,7 @@ const InputLineWrapper = memo(function InputLineWrapper({
     <InputLine
       value={input}
       cursorOffset={cursorOffset}
-      isActive={isWorking}
+      isActive={true}
       width={inputWidth}
     />
   );

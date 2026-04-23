@@ -679,23 +679,25 @@ export class AutohandAcpAdapter implements Agent {
     }
 
     const validValues: string[] = [];
-    for (const entry of option.options) {
-      if ('value' in entry) {
-        validValues.push(entry.value);
-      } else if ('options' in entry) {
-        for (const subEntry of entry.options) {
-          validValues.push(subEntry.value);
+    if (option.type === 'select' && 'options' in option) {
+      for (const entry of option.options) {
+        if ('value' in entry) {
+          validValues.push(entry.value);
+        } else if ('options' in entry) {
+          for (const subEntry of entry.options) {
+            validValues.push(subEntry.value);
+          }
         }
       }
     }
-    if (!validValues.includes(params.value)) {
+    if (typeof params.value === 'string' && !validValues.includes(params.value)) {
       throw RequestError.invalidParams({
         message: `Invalid value "${params.value}" for config option "${params.configId}"`,
       });
     }
 
     option.currentValue = params.value;
-    agent.applyAcpConfigOption(params.configId, params.value);
+    agent.applyAcpConfigOption(params.configId, String(params.value));
 
     return {
       configOptions: this.cloneConfigOptions(options),
