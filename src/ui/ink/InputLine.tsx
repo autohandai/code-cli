@@ -9,6 +9,7 @@ import { useTheme } from '../theme/ThemeContext.js';
 import { buildMultiLineRenderState } from '../inputPrompt.js';
 import { stripAnsiCodes } from '../displayUtils.js';
 import { getContentDisplay } from '../displayUtils.js';
+import type { InputBorderStyle } from '../box.js';
 
 function drawInkBorder(width: number, position: 'top' | 'bottom'): string {
   const innerWidth = Math.max(0, width - 2);
@@ -23,10 +24,20 @@ export interface InputLineProps {
   isActive: boolean;
   /** Terminal width - passed from parent to avoid useStdout re-renders */
   width: number;
+  /** Border style - mirrors readline/terminal regions behavior */
+  borderStyle?: InputBorderStyle;
 }
 
-function InputLineComponent({ value, cursorOffset, isActive, width }: InputLineProps) {
+const PLAN_BORDER_COLOR = '#ff9d3f';
+
+function InputLineComponent({ value, cursorOffset, isActive, width, borderStyle = 'default' }: InputLineProps) {
   const { colors } = useTheme();
+
+  const borderColor = borderStyle === 'plan'
+    ? PLAN_BORDER_COLOR
+    : borderStyle === 'shell'
+      ? colors.dim
+      : undefined;
 
   // Memoize borders - only recalculate when width changes
   const borders = useMemo(() => ({
@@ -62,11 +73,11 @@ function InputLineComponent({ value, cursorOffset, isActive, width }: InputLineP
   // Active state mirrors the boxed prompt style from readline mode.
   return (
     <Box marginTop={1} flexDirection="column">
-      <Text>{borders.top}</Text>
+      <Text color={borderColor}>{borders.top}</Text>
       {displayData.plainLines.map((line, index) => (
         <Text key={index}>{line}</Text>
       ))}
-      <Text>{borders.bottom}</Text>
+      <Text color={borderColor}>{borders.bottom}</Text>
     </Box>
   );
 }
@@ -80,6 +91,7 @@ export const InputLine = memo(InputLineComponent, (prev, next) => {
     prev.value === next.value &&
     prev.cursorOffset === next.cursorOffset &&
     prev.isActive === next.isActive &&
-    prev.width === next.width
+    prev.width === next.width &&
+    prev.borderStyle === next.borderStyle
   );
 });

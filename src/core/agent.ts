@@ -112,7 +112,7 @@ import { WorktreeManager } from '../actions/worktree.js';
 import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
 import { ActivityIndicator } from '../ui/activityIndicator.js';
 import { NotificationService } from '../utils/notification.js';
-import { getPlanModeManager } from '../commands/plan.js';
+import { getPlanModeManager, plan as planCommand } from '../commands/plan.js';
 import type { VersionCheckResult } from '../utils/versionCheck.js';
 import { getInstallHint } from '../utils/versionCheck.js';
 import { runWithConcurrency, type ParallelTaskSpec } from '../utils/parallel.js';
@@ -1769,51 +1769,71 @@ If lint or tests fail, report the issues but do NOT commit.`;
           // instruction from the Composer instead of stopping the renderer and
           // falling back to readline. This keeps the Composer alive after
           // non-interactive slash commands like /help and /history.
-          console.log(`[DEBUG] Idle check: inkRenderer exists=${!!this.inkRenderer}, isRunning=${this.inkRenderer?.isRunning()}`);
+          if (process.env.AUTOHAND_DEBUG === '1') {
+            console.log(`[DEBUG] Idle check: inkRenderer exists=${!!this.inkRenderer}, isRunning=${this.inkRenderer?.isRunning()}`);
+          }
           if (this.inkRenderer?.isRunning()) {
             // Ensure the renderer is in idle (not working) state so the
             // Composer accepts input.
-            console.log(`[DEBUG] Entering idle-wait, setting working=false`);
+            if (process.env.AUTOHAND_DEBUG === '1') {
+              console.log(`[DEBUG] Entering idle-wait, setting working=false`);
+            }
             this.inkRenderer.setWorking(false);
 
             // Wait for the user to submit text in the Composer.
             // handleInkSubmittedInstruction resolves this promise when it
             // queues a new instruction.
-            console.log(`[DEBUG] Waiting for resolver...`);
+            if (process.env.AUTOHAND_DEBUG === '1') {
+              console.log(`[DEBUG] Waiting for resolver...`);
+            }
             await new Promise<void>(resolve => {
               this.inkInstructionResolver = resolve;
             });
-            console.log(`[DEBUG] Resolver resolved`);
+            if (process.env.AUTOHAND_DEBUG === '1') {
+              console.log(`[DEBUG] Resolver resolved`);
+            }
 
             // The instruction is now queued — dequeue it.
             if (this.inkRenderer?.hasQueuedInstructions()) {
               instruction = this.inkRenderer.dequeueInstruction() ?? null;
-              console.log(`[DEBUG] Dequeued instruction: ${instruction}`);
+              if (process.env.AUTOHAND_DEBUG === '1') {
+                console.log(`[DEBUG] Dequeued instruction: ${instruction}`);
+              }
             }
             // If we still don't have an instruction (race condition), loop
             // around and try again.
             if (!instruction) {
-              console.log(`[DEBUG] No instruction after resolver, continuing`);
+              if (process.env.AUTOHAND_DEBUG === '1') {
+                console.log(`[DEBUG] No instruction after resolver, continuing`);
+              }
               continue;
             }
           } else {
             // Ink is not running — drain any stale queued instructions and
             // fall back to readline.
-            console.log(`[DEBUG] Ink not running, falling back to readline`);
+            if (process.env.AUTOHAND_DEBUG === '1') {
+              console.log(`[DEBUG] Ink not running, falling back to readline`);
+            }
             if (this.inkRenderer) {
               while (this.inkRenderer.hasQueuedInstructions()) {
                 const qi = this.inkRenderer.dequeueInstruction();
                 if (qi) this.pendingInkInstructions.push(qi);
               }
-              console.log(`[DEBUG] Stopping inkRenderer in fallback path`);
+              if (process.env.AUTOHAND_DEBUG === '1') {
+                console.log(`[DEBUG] Stopping inkRenderer in fallback path`);
+              }
               this.inkRenderer.stop();
               this.inkRenderer = null;
               this.runtime.inkRenderer = undefined;
               this.inkInstructionResolver = null;
             }
-            console.log(`[DEBUG] Calling promptForInstruction in readline mode`);
+            if (process.env.AUTOHAND_DEBUG === '1') {
+              console.log(`[DEBUG] Calling promptForInstruction in readline mode`);
+            }
             instruction = await this.promptForInstruction();
-            console.log(`[DEBUG] promptForInstruction returned: ${instruction}`);
+            if (process.env.AUTOHAND_DEBUG === '1') {
+              console.log(`[DEBUG] promptForInstruction returned: ${instruction}`);
+            }
           }
         }
 
@@ -1842,18 +1862,42 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
             // /quit and /exit are handled above (line 1795)
             if (command !== '/quit' && command !== '/exit') {
-              // Echo the slash command to the chat log so it's visible
-              console.log(chalk.white(`\n› ${instruction}`));
+              // Echo the slash command to the chat log so it's visible.
+              // Skip the echo for /plan in Ink mode to avoid stdout corruption.
+              if (!(command === '/plan' && this.inkRenderer?.isRunning())) {
+                console.log(chalk.white(`\n› ${instruction}`));
+              }
 
-              console.log(`[DEBUG] Before runSlashCommandWithInput: inkRenderer exists=${!!this.inkRenderer}, isRunning=${this.inkRenderer?.isRunning()}`);
-              const handled = await this.runSlashCommandWithInput(command, args);
-              console.log(`[DEBUG] After runSlashCommandWithInput: inkRenderer exists=${!!this.inkRenderer}, isRunning=${this.inkRenderer?.isRunning()}`);
+              if (process.env.AUTOHAND_DEBUG === '1') {
+                console.log(`[DEBUG] Before runSlashCommandWithInput: inkRenderer exists=${!!this.inkRenderer}, isRunning=${this.inkRenderer?.isRunning()}`);
+              }
+
+              // For /plan in Ink mode, redirect console output to user messages
+              // to avoid stdout corruption that freezes the composer.
+              let handled: string | null = null;
+              if (command === '/plan' && this.inkRenderer?.isRunning()) {
+                const logBuffer: string[] = [];
+                handled = await planCommand({} as any, args.join(' '), {
+                  output: (msg: string) => logBuffer.push(msg),
+                });
+                if (logBuffer.length > 0) {
+                  this.inkRenderer.addUserMessage(logBuffer.join('\n'));
+                }
+              } else {
+                handled = await this.runSlashCommandWithInput(command, args);
+              }
+
+              if (process.env.AUTOHAND_DEBUG === '1') {
+                console.log(`[DEBUG] After runSlashCommandWithInput: inkRenderer exists=${!!this.inkRenderer}, isRunning=${this.inkRenderer?.isRunning()}`);
+              }
               if (handled !== null) {
                 console.log(renderTerminalMarkdown(handled));
               }
               // Ensure the renderer is in idle state so the Composer accepts input
               // after non-interactive slash commands like /help, /clear, /history
-              console.log(`[DEBUG] After slash command output: inkRenderer exists=${!!this.inkRenderer}, isRunning=${this.inkRenderer?.isRunning()}`);
+              if (process.env.AUTOHAND_DEBUG === '1') {
+                console.log(`[DEBUG] After slash command output: inkRenderer exists=${!!this.inkRenderer}, isRunning=${this.inkRenderer?.isRunning()}`);
+              }
               if (this.inkRenderer?.isRunning()) {
                 this.inkRenderer.setWorking(false);
                 // Return to the top of the loop so the idle-wait path can await
@@ -2149,7 +2193,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
           // Convert markdown formatting (**bold**, _italic_) to ANSI terminal codes
           console.log(renderTerminalMarkdown(handled));
         }
-        console.log(`[DEBUG] promptForInstruction: slash command handled, returning null`);
+        if (process.env.AUTOHAND_DEBUG === '1') {
+          console.log(`[DEBUG] promptForInstruction: slash command handled, returning null`);
+        }
         return null;
       }
     }
@@ -5068,14 +5114,18 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * flicker between back-to-back turns.
    */
   private cleanupUI(keepInkAlive = false): void {
-    console.log(`[DEBUG] cleanupUI called: keepInkAlive=${keepInkAlive}, inkRenderer exists=${!!this.inkRenderer}`);
+    if (process.env.AUTOHAND_DEBUG === '1') {
+      console.log(`[DEBUG] cleanupUI called: keepInkAlive=${keepInkAlive}, inkRenderer exists=${!!this.inkRenderer}`);
+    }
     if (this.inkRenderer) {
       if (keepInkAlive) {
         // Transition to idle state instead of destroying Ink.
         // Queued instructions stay in Ink so runInteractiveLoop can dequeue
         // directly on the next iteration without a full unmount/remount cycle.
         this.inkRenderer.setWorking(false);
-        console.log(`[DEBUG] cleanupUI: set working to false`);
+        if (process.env.AUTOHAND_DEBUG === '1') {
+          console.log(`[DEBUG] cleanupUI: set working to false`);
+        }
       } else {
         // Preserve queued instructions before stopping
         while (this.inkRenderer.hasQueuedInstructions()) {
@@ -5084,7 +5134,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
             this.pendingInkInstructions.push(instruction);
           }
         }
-        console.log(`[DEBUG] cleanupUI: stopping inkRenderer`);
+        if (process.env.AUTOHAND_DEBUG === '1') {
+          console.log(`[DEBUG] cleanupUI: stopping inkRenderer`);
+        }
         this.inkRenderer.stop();
         this.inkRenderer = null;
         this.runtime.inkRenderer = undefined;
