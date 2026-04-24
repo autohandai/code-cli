@@ -16,6 +16,7 @@ import { SitrepMessage, parseSitrepText } from './SitrepMessage.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/index.js';
 import { getPlanModeManager } from '../../commands/plan.js';
+import type { InputBorderStyle } from '../box.js';
 import { TextBuffer } from '../textBuffer.js';
 import { handleTextBufferKey, type KeyHandlerResult } from '../textBufferKeyHandler.js';
 import { getPromptBlockWidth, isShiftEnterResidualSequence, processImagesInText } from '../inputPrompt.js';
@@ -643,6 +644,17 @@ export function AgentUI({
   const { stdout } = useStdout();
   const inputWidth = getPromptBlockWidth(stdout.columns);
 
+  // Compute border style to match readline/terminal regions behavior
+  const inputBorderStyle: InputBorderStyle = (() => {
+    if (/^[\s\u200B-\u200D\uFEFF]*!/u.test(input)) {
+      return 'shell';
+    }
+    if (getPlanModeManager().isEnabled()) {
+      return 'plan';
+    }
+    return 'default';
+  })();
+
   return (
     <Box flexDirection="column">
       {/* Plan mode indicator */}
@@ -700,6 +712,7 @@ export function AgentUI({
           />
         }
         inputWidth={inputWidth}
+        borderStyle={inputBorderStyle}
       />
     </Box>
   );
@@ -862,6 +875,8 @@ interface InputLineWrapperProps {
   cursorOffset: number;
   /** Terminal width for InputLine */
   inputWidth: number;
+  /** Border style for the input box */
+  borderStyle?: InputBorderStyle;
 }
 
 const InputLineWrapper = memo(function InputLineWrapper({
@@ -870,6 +885,7 @@ const InputLineWrapper = memo(function InputLineWrapper({
   input,
   cursorOffset,
   inputWidth,
+  borderStyle,
 }: InputLineWrapperProps) {
   if (!enableQueueInput) {
     return null;
@@ -881,6 +897,7 @@ const InputLineWrapper = memo(function InputLineWrapper({
       cursorOffset={cursorOffset}
       isActive={true}
       width={inputWidth}
+      borderStyle={borderStyle}
     />
   );
 }, (prev, next) => {
@@ -888,7 +905,8 @@ const InputLineWrapper = memo(function InputLineWrapper({
          prev.enableQueueInput === next.enableQueueInput &&
          prev.input === next.input &&
          prev.cursorOffset === next.cursorOffset &&
-         prev.inputWidth === next.inputWidth;
+         prev.inputWidth === next.inputWidth &&
+         prev.borderStyle === next.borderStyle;
 });
 
 /**
@@ -984,6 +1002,8 @@ interface FixedBottomProps {
   fileMentionDropdown?: React.ReactNode;
   /** Terminal width for InputLine */
   inputWidth: number;
+  /** Border style for the input box */
+  borderStyle?: InputBorderStyle;
 }
 
 const FixedBottom = memo(function FixedBottom({
@@ -1000,6 +1020,7 @@ const FixedBottom = memo(function FixedBottom({
   contextPercent,
   fileMentionDropdown,
   inputWidth,
+  borderStyle,
 }: FixedBottomProps) {
   return (
     <>
@@ -1018,6 +1039,7 @@ const FixedBottom = memo(function FixedBottom({
         input={input}
         cursorOffset={cursorOffset}
         inputWidth={inputWidth}
+        borderStyle={borderStyle}
       />
       <FileMentionWrapper fileMentionDropdown={fileMentionDropdown} />
       <HelpLineSection
