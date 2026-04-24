@@ -108,6 +108,17 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
   const { setBrowserBridgeOutput } = await import('../../browser/browserToolBridge.js');
   setBrowserBridgeOutput(process.stdout);
 
+  // Log stream errors so we can detect broken pipes / disconnects
+  process.stdout.on('error', (err) => {
+    process.stderr.write(`[RPC] stdout error: ${err.message}\n`);
+  });
+  process.stdin.on('error', (err) => {
+    process.stderr.write(`[RPC] stdin error: ${err.message}\n`);
+  });
+  process.stdin.on('end', () => {
+    process.stderr.write('[RPC] stdin end (extension disconnected)\n');
+  });
+
   let adapter: RPCAdapter | null = null;
   let agent: AutohandAgent | null = null;
 
@@ -283,6 +294,7 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
     while (true) {
       try {
         const line = await reader.readLine();
+        process.stderr.write(`[RPC DEBUG] stdin read line size=${line.length}b\n`);
         await handleLine(line, adapter);
       } catch (error) {
         // Stream closed or fatal error
@@ -291,6 +303,7 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
           break;
         }
         const message = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`[RPC] Fatal error in request loop: ${message}\n`);
         writeInternalError(null, message);
       }
     }
@@ -792,6 +805,22 @@ async function handleSingleRequest(
 
       case RPC_METHODS.GET_CONTEXT_USAGE: {
         result = await adapter.handleGetContextUsage();
+        break;
+      }
+
+      case RPC_METHODS.SET_CONTEXT_COMPACT: {
+        const compactParams = params as { enabled?: boolean } | undefined;
+        if (compactParams?.enabled === undefined) {
+          if (shouldRespond) {
+            return {
+              jsonrpc: '2.0',
+              error: { code: -32602, message: 'Missing enabled parameter' },
+              id: id ?? null,
+            };
+          }
+          return null;
+        }
+        result = await adapter.handleSetContextCompact({ enabled: compactParams.enabled });
         break;
       }
 

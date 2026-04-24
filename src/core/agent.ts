@@ -37,16 +37,15 @@ import { showDirectoryAccessModal } from '../ui/directoryAccessModal.js';
 import {
   getContextWindow,
   estimateMessagesTokens,
-  estimateMessageTokens,
   calculateContextUsage
-} from '../utils/context.js';
+} from './context/tokenizer.js';
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
 import { getAutoCommitInfo } from '../actions/git.js';
 import { filterToolsByRelevance, createToolFilter } from './toolFilter.js';
 import { isSearchConfigured } from '../actions/web.js';
 import { SLASH_COMMANDS } from './slashCommands.js';
 import { ConversationManager } from './conversationManager.js';
-import { ContextManager } from './contextManager.js';
+import { ContextOrchestrator } from './context/orchestrator.js';
 import { ToolManager } from './toolManager.js';
 import { ActionExecutor } from './actionExecutor.js';
 import { SlashCommandHandler } from './slashCommandHandler.js';
@@ -234,8 +233,7 @@ export class AutohandAgent {
   private consecutiveCancellations = 0;
 
   // Context compaction - auto-compresses context to prevent "context too long" errors
-  private contextManager!: ContextManager;
-  private contextCompactionEnabled = true;
+  private contextOrchestrator!: ContextOrchestrator;
 
   constructor(
     private llm: LLMProvider,
@@ -274,21 +272,24 @@ export class AutohandAgent {
     this.toolsRegistry = new ToolsRegistry();
     this.memoryManager = new MemoryManager(runtime.workspaceRoot);
 
-    // Initialize context manager for auto-compaction
+    // Initialize context orchestrator for auto-compaction
     // Default enabled, can be toggled with --no-cc or /cc command
-    this.contextCompactionEnabled = runtime.options.contextCompact !== false;
-    this.contextManager = new ContextManager({
+    this.contextOrchestrator = new ContextOrchestrator({
       model,
       conversationManager: this.conversation,
       llm: this.llm,
       memoryManager: this.memoryManager,
+      enabled: runtime.options.contextCompact !== false,
       onCrop: (count, reason) => {
-        if (this.contextCompactionEnabled && count > 0) {
+        if (this.contextOrchestrator.isEnabled() && count > 0) {
           console.log(chalk.cyan(`ℹ Context optimized: ${reason}`));
         }
       },
       onWarning: (usage) => {
         console.log(chalk.yellow(`⚠ Context at ${Math.round(usage.usagePercent * 100)}%`));
+      },
+      onOverflow: (usage) => {
+        console.log(chalk.yellow(`⚠ Context overflow at ${Math.round(usage.usagePercent * 100)}%`));
       },
     });
 
@@ -1186,7 +1187,7 @@ export class AutohandAgent {
           this.persistentInput.pauseForModal();
         }
       },
-      onAfterModal: () => {
+      onAfterModal: async () => {
         if (this.persistentInputActiveTurn) {
           try {
             this.persistentInput.resumeFromModal();
@@ -1195,7 +1196,7 @@ export class AutohandAgent {
           }
         }
         if (this.inkRenderer) {
-          this.inkRenderer.resume();
+          await this.inkRenderer.resume();
         }
       },
       // After /learn recommends a skill, seed the next prompt with the install command
@@ -1268,15 +1269,19 @@ export class AutohandAgent {
 
   // Context compaction toggle methods for /cc command
   toggleContextCompaction(): void {
-    this.contextCompactionEnabled = !this.contextCompactionEnabled;
+    this.contextOrchestrator.toggle();
   }
 
   isContextCompactionEnabled(): boolean {
-    return this.contextCompactionEnabled;
+    return this.contextOrchestrator.isEnabled();
   }
 
   setContextCompaction(enabled: boolean): void {
-    this.contextCompactionEnabled = enabled;
+    this.contextOrchestrator.setEnabled(enabled);
+  }
+
+  getContextOrchestrator(): ContextOrchestrator {
+    return this.contextOrchestrator;
   }
 
   /** Promise that resolves when background init is complete */
@@ -2756,7 +2761,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         await this.runQualityPipeline();
         // Resume Ink so the composer is restored before runInstruction returns.
         if (this.useInkRenderer && this.inkRenderer) {
-          this.inkRenderer.resume();
+          await this.inkRenderer.resume();
         }
       }
     } catch (error) {
@@ -3120,55 +3125,24 @@ If lint or tests fail, report the issues but do NOT commit.`;
         tools = [];
       }
 
-      // Use ContextManager for smart auto-compaction when enabled
+      // Use ContextOrchestrator for smart auto-compaction
       const model = this.runtime.options.model ?? getProviderConfig(this.runtime.config, this.activeProvider)?.model ?? 'unconfigured';
+      this.contextOrchestrator.setModel(model);
 
-      if (this.contextCompactionEnabled) {
-        // Use tiered context management (70% compress, 80% summarize, 90%+ crop)
-        this.contextManager.setModel(model);
-        const prepared = await this.contextManager.prepareRequest(tools);
+      const prepared = await this.contextOrchestrator.prepareRequest(
+        tools,
+        iteration,
+        this.runtime.spinner,
+      );
 
-        if (prepared.wasCropped) {
-          this.runtime.spinner?.stop();
-          console.log(chalk.cyan(`ℹ Auto-compacted ${prepared.croppedCount} messages`));
-          if (prepared.summary) {
-            console.log(chalk.gray(`   Summary preserved in context`));
-          }
-        }
-
-        this.updateContextUsage(prepared.messages, tools);
-      } else {
-        // Manual context management (legacy behavior when compaction disabled)
-        const contextUsage = calculateContextUsage(messages, tools, model);
-
-        // Auto-crop if at critical threshold (90%+)
-        if (contextUsage.isCritical) {
-          this.runtime.spinner?.stop();
-          console.log(chalk.yellow('\n⚠ Context at critical level, auto-cropping old messages...'));
-
-          // Target 70% usage after cropping
-          const targetTokens = Math.floor(contextUsage.contextWindow * 0.7);
-          const tokensToRemove = contextUsage.totalTokens - targetTokens;
-          const avgMessageTokens = 200; // Rough estimate
-          const messagesToRemove = Math.ceil(tokensToRemove / avgMessageTokens);
-
-          const removed = this.conversation.cropHistory('top', messagesToRemove);
-          if (removed.length > 0) {
-            // Generate a summary of what was removed
-            const summary = await this.summarizeRemovedMessages(removed);
-            this.conversation.addSystemNote(
-              `[Context Management] ${removed.length} older messages were summarized to maintain context limits.\n` +
-              `Summary of removed content:\n${summary}`
-            );
-            console.log(chalk.gray(`   Removed ${removed.length} messages to free up context space`));
-            console.log(chalk.gray(`   Summary preserved in context`));
-          }
-          this.updateContextUsage(this.conversation.history(), tools);
-        } else if (contextUsage.isWarning && iteration === 0) {
-          // Only warn once per user turn (iteration 0)
-          console.log(chalk.yellow(`\n⚠ Context at ${Math.round(contextUsage.usagePercent * 100)}% - approaching limit`));
+      if (prepared.wasCropped) {
+        console.log(chalk.cyan(`ℹ Auto-compacted ${prepared.croppedCount} messages`));
+        if (prepared.summary) {
+          console.log(chalk.gray(`   Summary preserved in context`));
         }
       }
+
+      this.updateContextUsage(prepared.messages, tools);
 
       // Keep spinner active without switching to a non-boxed status renderer.
       this.ensureSpinnerRunning();
@@ -3224,36 +3198,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
           this.runtime.spinner?.stop();
           console.log(chalk.yellow('\n⚠ Context too long for model, auto-compacting...'));
 
-          // Force aggressive crop to ~55% usage by token budget.
-          // The old message-count heuristic was brittle: one giant tool output
-          // could be 60% of tokens but only 1 message, so removing 40% of
-          // messages freed almost nothing. We now walk oldest-first by tokens.
-          const currentMessages = this.conversation.history();
-          const contextWindow = getContextWindow(this.runtime.options.model ?? '');
-          const targetTokens = Math.floor(contextWindow * 0.55);
-          const currentUsage = calculateContextUsage(currentMessages, tools, this.runtime.options.model ?? '');
-          let tokensToRemove = currentUsage.totalTokens - targetTokens;
-
-          const indicesToRemove: number[] = [];
-          // Never remove index 0 (system prompt) or the last user message
-          const lastUserIndex = currentMessages.reduce((acc, m, i) => m.role === 'user' ? i : acc, -1);
-          for (let i = 1; i < currentMessages.length && tokensToRemove > 0; i++) {
-            if (i === lastUserIndex) continue;
-            const msgTokens = estimateMessageTokens(currentMessages[i]);
-            indicesToRemove.push(i);
-            tokensToRemove -= msgTokens;
-          }
-
-          const removed = this.conversation.removeIndices(indicesToRemove);
-
-          if (removed.length > 0) {
-            const summary = await this.summarizeRemovedMessages(removed);
-            this.conversation.addSystemNote(
-              `[Auto-Recovery] ${removed.length} messages compacted after context overflow.\n` +
-              `Summary: ${summary}`,
-              '[Auto-Recovery]'
-            );
-            console.log(chalk.gray(`   Compacted ${removed.length} messages, retrying...`));
+          // Delegate to ContextOrchestrator for aggressive overflow recovery
+          const overflowResult = await this.contextOrchestrator.handleOverflow(tools);
+          if (overflowResult.croppedCount > 0) {
+            console.log(chalk.gray(`   Compacted ${overflowResult.croppedCount} messages, retrying...`));
             continue; // Retry the current iteration with compacted context
           }
         }
@@ -3514,21 +3462,17 @@ If lint or tests fail, report the issues but do NOT commit.`;
           // compact immediately instead of waiting for the next iteration's
           // prepareRequest(). This prevents a single massive tool result from
           // causing a context-overflow 400 on the next LLM call.
-          if (this.contextCompactionEnabled && iteration > 0) {
-            const midTurnUsage = calculateContextUsage(
-              this.conversation.history(),
-              tools,
-              this.runtime.options.model ?? ''
-            );
-            if (midTurnUsage.isCritical) {
-              if (debugMode) {
-                this.writeDebugLine(`[AGENT DEBUG] Mid-turn compaction triggered at ${Math.round(midTurnUsage.usagePercent * 100)}%`);
-              }
-              const prepared = await this.contextManager.prepareRequest(tools);
-              if (prepared.wasCropped) {
-                console.log(chalk.cyan(`ℹ Mid-turn compaction: ${prepared.croppedCount} messages`));
-              }
+          const midTurnCompacted = await this.contextOrchestrator.checkMidTurnCompaction(tools, iteration);
+          if (midTurnCompacted) {
+            if (debugMode) {
+              const midTurnUsage = calculateContextUsage(
+                this.conversation.history(),
+                tools,
+                this.runtime.options.model ?? ''
+              );
+              this.writeDebugLine(`[AGENT DEBUG] Mid-turn compaction triggered at ${Math.round(midTurnUsage.usagePercent * 100)}%`);
             }
+            console.log(chalk.cyan(`ℹ Mid-turn compaction applied`));
           }
 
           // Detect when ALL tool calls were denied by the user
@@ -3835,8 +3779,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
 
     // Last resort: show a static summary of what was accomplished
-    const staticSummary = await this.contextManager.summarizeWithLLM(
-      this.conversation.history().slice(1) // skip system prompt
+    const { summarizeWithLLM } = await import('./context/summarizer.js');
+    const staticSummary = await summarizeWithLLM(
+      this.conversation.history().slice(1), // skip system prompt
+      this.llm,
+      this.memoryManager,
     );
     const fallbackMsg = `Task did not complete within ${maxIterations} iterations.\n\nProgress summary:\n${staticSummary}`;
     this.lastAssistantResponseForNotification = fallbackMsg;
@@ -4806,11 +4753,12 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
   /**
    * Generate a concise summary of removed messages using LLM-powered summarization.
-   * Delegates to ContextManager.summarizeWithLLM for rich summaries,
+   * Delegates to the summarizer module for rich summaries,
    * falling back to static extraction if LLM is unavailable.
    */
   private async summarizeRemovedMessages(messages: LLMMessage[]): Promise<string> {
-    return this.contextManager.summarizeWithLLM(messages);
+    const { summarizeWithLLM } = await import('./context/summarizer.js');
+    return summarizeWithLLM(messages, this.llm, this.memoryManager);
   }
 
   private flushMentionContexts(): { block: string; files: string[] } | null {
@@ -6072,6 +6020,14 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   /**
+   * Get current tool definitions for context usage calculations.
+   * Used by RPC adapter to provide real context usage data.
+   */
+  getToolDefinitions(): import('../types.js').FunctionDefinition[] {
+    return this.toolManager?.toFunctionDefinitions() ?? [];
+  }
+
+  /**
    * Get the permission manager for mode control
    */
   getPermissionManager(): PermissionManager {
@@ -6174,7 +6130,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
     this.llm.setModel(modelId);
     this.contextWindow = getContextWindow(modelId);
-    this.contextManager.setModel(modelId);
+    this.contextOrchestrator.setModel(modelId);
     this.contextPercentLeft = 100;
     this.emitStatus();
   }
@@ -6196,7 +6152,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
 
     if (configId === 'context_compact') {
-      this.setContextCompaction(value === 'on');
+      this.contextOrchestrator.applyAcpConfig(configId, value);
     }
   }
 
@@ -6598,7 +6554,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       return await fn();
     } finally {
       if (this.inkRenderer) {
-        this.inkRenderer.resume();
+        await this.inkRenderer.resume();
       }
 
       this.persistentInput.resume();
@@ -7129,7 +7085,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * This transitions from planning phase to execution (or back to planning
    * if the user rejects).
    */
-  private async handleExitPlanMode(summary?: string): Promise<string> {
+  private async handleExitPlanMode(_summary?: string): Promise<string> {
     const planManager = getPlanModeManager();
 
     // Guard: must be in plan mode

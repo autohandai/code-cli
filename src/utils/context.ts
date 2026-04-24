@@ -2,283 +2,30 @@
  * @license
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
- */
-import type { LLMMessage, FunctionDefinition } from "../types.js";
-
-/** Known model context windows */
-const MODEL_CONTEXT: Record<string, number> = {
-  "anthropic/claude-sonnet-4-20250514": 200_000,
-  "anthropic/claude-3-opus": 200_000,
-  "anthropic/claude-3-haiku": 200_000,
-
-  "anthropic/claude-opus-4": 200_000,
-  "anthropic/claude-opus-4-7": 1_000_000,
-  "openai/gpt-4o-mini": 128_000,
-  "openai/gpt-4o": 128_000,
-  "openai/gpt-4.1": 200_000,
-  "openai/o1": 200_000,
-  "openai/o1-mini": 128_000,
-  "google/gemini-pro": 128_000,
-  "google/gemini-2.0-flash": 1_000_000,
-  "google/gemini-2.5-pro": 1_000_000,
-  "deepseek/deepseek-r1": 64_000,
-  "deepseek/deepseek-r1-0528-qwen3-8b:free": 8_000,
-  "deepseek/deepseek-coder": 16_000,
-};
-
-/** Safety margin to prevent hitting exact limits (10% reserved) */
-const SAFETY_MARGIN = 0.9;
-
-/** Warning threshold for context usage */
-export const CONTEXT_WARNING_THRESHOLD = 0.8;
-
-/** Critical threshold for auto-cropping */
-export const CONTEXT_CRITICAL_THRESHOLD = 0.9;
-
-/**
- * Get context window size for a model
- */
-export function getContextWindow(model: string): number {
-  const normalized = model.toLowerCase();
-  if (MODEL_CONTEXT[normalized]) {
-    return MODEL_CONTEXT[normalized];
-  }
-  // Fuzzy match for model variants
-  const fuzzy = Object.entries(MODEL_CONTEXT).find(
-    ([name]) =>
-      normalized.includes(name) ||
-      name.includes(normalized.split("/").pop() ?? ""),
-  );
-  return fuzzy ? fuzzy[1] : 128_000;
-}
-
-/**
- * Get safe context window (with safety margin)
- */
-export function getSafeContextWindow(model: string): number {
-  return Math.floor(getContextWindow(model) * SAFETY_MARGIN);
-}
-
-/**
- * Determine the model family from a model identifier.
- * Used to pick the right token-estimation heuristic.
- */
-export function getModelFamily(model: string): string {
-  const normalized = model.toLowerCase();
-  if (normalized.includes('claude')) return 'claude';
-  if (normalized.includes('gpt-4') || normalized.includes('o1') || normalized.includes('o3')) return 'openai';
-  if (normalized.includes('gemini')) return 'gemini';
-  if (normalized.includes('deepseek')) return 'deepseek';
-  return 'default';
-}
-
-/**
- * Estimate tokens for a text string.
  *
- * Uses character-count heuristics tuned per model family:
- * - OpenAI (GPT-4, o1, o3): ~4 chars/token for English, ~2.5 for code/JSON
- * - Claude: ~3.5 chars/token for English, ~2.5 for code/JSON
- * - Gemini: ~4 chars/token
- * - DeepSeek: ~3 chars/token
+ * DEPRECATED: This barrel re-exports from src/core/context/tokenizer.ts.
+ * New code should import directly from src/core/context/index.ts.
+ * Existing imports are preserved for backward compatibility.
  *
- * The old uniform chars/3 was conservative for prose but often 30-50% off
- * for code and JSON schemas, causing surprise context-overflow 400s.
+ * @deprecated Import from '../core/context/index.js' instead.
  */
-export function estimateTokens(text: string, modelFamily?: string): number {
-  if (!text) return 0;
 
-  // Detect code-like content (JSON schemas, stack traces, source code).
-  // Require multiple structural characters to avoid false positives from
-  // prose punctuation like "Task: do something" or "Note - see below".
-  const codeLikeChars = text.match(/[{}[\]":\\]/g)?.length ?? 0;
-  const codeLikeRatio =
-    text.length > 200 && codeLikeChars >= 4
-      ? 0.65  // code/JSON is denser
-      : 1.0;
+// Re-export everything from the canonical location
+export {
+  getContextWindow,
+  getSafeContextWindow,
+  getModelFamily,
+  estimateTokens,
+  estimateMessageTokens,
+  estimateMessagesTokens,
+  estimateToolsTokens,
+  calculateContextUsage,
+  estimateRemainingCapacity,
+  findCroppableMessages,
+  calculateTokensToCrop,
+  CONTEXT_WARNING_THRESHOLD,
+  CONTEXT_CRITICAL_THRESHOLD,
+} from '../core/context/tokenizer.js';
 
-  const baseRatio: Record<string, number> = {
-    openai: 4,
-    claude: 3.5,
-    gemini: 4,
-    deepseek: 3,
-    default: 3.5,
-  };
-
-  const ratio = (baseRatio[modelFamily ?? 'default'] ?? 3.5) * codeLikeRatio;
-  return Math.ceil(text.length / ratio);
-}
-
-/**
- * Estimate tokens for a single message including role overhead
- */
-export function estimateMessageTokens(message: LLMMessage, modelFamily?: string): number {
-  // Base overhead for message structure (role, separators, etc.)
-  const structureOverhead = 10;
-
-  let tokens = structureOverhead;
-  tokens += estimateTokens(message.content ?? '', modelFamily);
-
-  // Add tokens for tool calls if present
-  if (message.tool_calls) {
-    for (const call of message.tool_calls) {
-      tokens += 5; // ID and type overhead
-      tokens += estimateTokens(call.function.name, modelFamily);
-      tokens += estimateTokens(call.function.arguments, modelFamily);
-    }
-  }
-
-  return tokens;
-}
-
-/**
- * Estimate tokens for all messages in conversation
- */
-export function estimateMessagesTokens(messages: LLMMessage[], modelFamily?: string): number {
-  return messages.reduce(
-    (acc, message) => acc + estimateMessageTokens(message, modelFamily),
-    0,
-  );
-}
-
-/**
- * Estimate tokens for tool definitions
- * This is critical - tool definitions add significant overhead
- */
-export function estimateToolsTokens(tools: FunctionDefinition[], modelFamily?: string): number {
-  if (!tools || tools.length === 0) return 0;
-
-  let tokens = 0;
-  for (const tool of tools) {
-    // Name and description
-    tokens += estimateTokens(tool.name, modelFamily);
-    tokens += estimateTokens(tool.description, modelFamily);
-
-    // Parameters schema - serialize and estimate
-    if (tool.parameters) {
-      const paramJson = JSON.stringify(tool.parameters);
-      tokens += estimateTokens(paramJson, modelFamily);
-    }
-
-    // Overhead per tool (type: function wrapper, structure)
-    // Real overhead is 30-50 tokens for complex schemas, not 15
-    tokens += 35;
-  }
-
-  return tokens;
-}
-
-/**
- * Calculate total context usage including all components
- */
-export interface ContextUsage {
-  /** Total estimated tokens */
-  totalTokens: number;
-  /** Messages tokens */
-  messagesTokens: number;
-  /** Tools tokens */
-  toolsTokens: number;
-  /** Context window size for model */
-  contextWindow: number;
-  /** Safe context window (with margin) */
-  safeWindow: number;
-  /** Usage percentage (0-1) */
-  usagePercent: number;
-  /** Whether we're at warning threshold */
-  isWarning: boolean;
-  /** Whether we're at critical threshold */
-  isCritical: boolean;
-  /** Whether context is exceeded */
-  isExceeded: boolean;
-  /** Remaining safe tokens */
-  remainingTokens: number;
-}
-
-/**
- * Calculate comprehensive context usage.
- * @param outputBudget Tokens reserved for model output (subtracted from effective window).
- *   Default 16000 matches the maxTokens used in runReactLoop.
- */
-export function calculateContextUsage(
-  messages: LLMMessage[],
-  tools: FunctionDefinition[],
-  model: string,
-  outputBudget = 16000,
-): ContextUsage {
-  const modelFamily = getModelFamily(model);
-  const messagesTokens = estimateMessagesTokens(messages, modelFamily);
-  const toolsTokens = estimateToolsTokens(tools, modelFamily);
-  const totalTokens = messagesTokens + toolsTokens;
-
-  const contextWindow = getContextWindow(model);
-  // Cap output budget so small models don't end up with negative effective windows
-  const cappedOutputBudget = Math.min(outputBudget, Math.floor(contextWindow * 0.25));
-  const effectiveWindow = contextWindow - cappedOutputBudget; // Reserve for output
-  const safeWindow = Math.floor(effectiveWindow * SAFETY_MARGIN);
-  const usagePercent = totalTokens / effectiveWindow;
-
-  return {
-    totalTokens,
-    messagesTokens,
-    toolsTokens,
-    contextWindow,
-    safeWindow,
-    usagePercent,
-    isWarning: usagePercent >= CONTEXT_WARNING_THRESHOLD,
-    isCritical: usagePercent >= CONTEXT_CRITICAL_THRESHOLD,
-    isExceeded: totalTokens >= safeWindow,
-    remainingTokens: Math.max(0, safeWindow - totalTokens),
-  };
-}
-
-/**
- * Estimate how many messages can be safely added
- */
-export function estimateRemainingCapacity(
-  messages: LLMMessage[],
-  tools: FunctionDefinition[],
-  model: string,
-  averageMessageSize = 500,
-): number {
-  const usage = calculateContextUsage(messages, tools, model);
-  return Math.floor(usage.remainingTokens / averageMessageSize);
-}
-
-/**
- * Find messages that can be safely cropped (not system, not last user message)
- */
-export function findCroppableMessages(messages: LLMMessage[]): number[] {
-  const indices: number[] = [];
-
-  // Find last user message index (must be preserved)
-  let lastUserIndex = -1;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === "user") {
-      lastUserIndex = i;
-      break;
-    }
-  }
-
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-    // Skip system messages (index 0 usually)
-    if (msg.role === "system") continue;
-    // Skip the last user message
-    if (i === lastUserIndex) continue;
-    // Everything else can be cropped
-    indices.push(i);
-  }
-
-  return indices;
-}
-
-/**
- * Calculate tokens to crop to reach target usage
- */
-export function calculateTokensToCrop(
-  currentTokens: number,
-  contextWindow: number,
-  targetUsage = 0.7,
-): number {
-  const targetTokens = Math.floor(contextWindow * targetUsage);
-  return Math.max(0, currentTokens - targetTokens);
-}
+// Re-export the ContextUsage type
+export type { ContextUsage } from '../core/context/tokenizer.js';

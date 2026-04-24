@@ -146,6 +146,8 @@ export const RPC_METHODS = {
   MCP_TOGGLE_SERVER: 'autohand.mcp.toggleServer',
   MCP_RECONNECT_SERVER: 'autohand.mcp.reconnectServer',
   MCP_SET_SERVERS: 'autohand.mcp.setServers',
+  // Context compaction control
+  SET_CONTEXT_COMPACT: 'autohand.setContextCompact',
   // Setup wizard
   SETUP: 'autohand.setup',
 } as const;
@@ -158,6 +160,7 @@ export type RpcMethod = (typeof RPC_METHODS)[keyof typeof RPC_METHODS];
 export const RPC_NOTIFICATIONS = {
   AGENT_START: 'autohand.agentStart',
   AGENT_END: 'autohand.agentEnd',
+  PING: 'autohand.ping',
   TURN_START: 'autohand.turnStart',
   TURN_END: 'autohand.turnEnd',
   MESSAGE_START: 'autohand.messageStart',
@@ -215,6 +218,11 @@ export const RPC_NOTIFICATIONS = {
   SETUP_CANCELLED: 'autohand.setup.cancelled',
   SETUP_ERROR: 'autohand.setup.error',
   SETUP_COMPLETE: 'autohand.setup.complete',
+  // Context lifecycle notifications
+  HOOK_CONTEXT_COMPACTED: 'autohand.hook.contextCompacted',
+  HOOK_CONTEXT_OVERFLOW: 'autohand.hook.contextOverflow',
+  HOOK_CONTEXT_WARNING: 'autohand.hook.contextWarning',
+  HOOK_CONTEXT_CRITICAL: 'autohand.hook.contextCritical',
 } as const;
 
 export type RpcNotification = (typeof RPC_NOTIFICATIONS)[keyof typeof RPC_NOTIFICATIONS];
@@ -1328,6 +1336,24 @@ export interface GetContextUsageResult {
   mcpTools: number;
   memoryFiles: number;
   total: number;
+  contextWindow?: number;
+  usagePercent?: number;
+  isWarning?: boolean;
+  isCritical?: boolean;
+}
+
+/**
+ * Params for setContextCompact
+ */
+export interface SetContextCompactParams {
+  enabled: boolean;
+}
+
+/**
+ * Result for setContextCompact
+ */
+export interface SetContextCompactResult {
+  enabled: boolean;
 }
 
 /**

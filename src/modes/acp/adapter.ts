@@ -212,6 +212,7 @@ export class AutohandAcpAdapter implements Agent {
         unrestricted: modeId === 'unrestricted',
         restricted: modeId === 'restricted',
         dryRun: modeId === 'dry-run',
+        contextCompact: true, // Default enabled; ACP config can toggle via applyAcpConfigOption
       },
       isRpcMode: true,
     };
