@@ -72,7 +72,7 @@ import type {
 } from '../types.js';
 
 import { AgentDelegator } from './agents/AgentDelegator.js';
-import { DEFAULT_TOOL_DEFINITIONS, PLAN_TOOL_DEFINITION, type ToolDefinition } from './toolManager.js';
+import { DEFAULT_TOOL_DEFINITIONS, PLAN_TOOL_DEFINITION, EXIT_PLAN_MODE_TOOL_DEFINITION, type ToolDefinition } from './toolManager.js';
 import { ErrorLogger } from './errorLogger.js';
 import { MemoryManager } from '../memory/MemoryManager.js';
 import { FeedbackManager } from '../feedback/FeedbackManager.js';
@@ -886,6 +886,8 @@ export class AutohandAgent {
               const cancelled = this.repeatManager.cancel(id);
               result = cancelled ? `Cancelled schedule ${id}.` : `No active schedule found with ID "${id}".`;
             }
+          } else if (action.type === 'exit_plan_mode') {
+            result = await this.handleExitPlanMode((action as { summary?: string }).summary);
           } else if (action.type === 'install_agent_skill') {
             const skillName = (action as { name: string }).name;
             if (!skillName) {
@@ -3043,15 +3045,20 @@ If lint or tests fail, report the issues but do NOT commit.`;
       ? 1000
       : (this.runtime.config.agent?.maxIterations ?? 100);
 
-    // Gate plan tool: only register when plan mode is enabled.
-    // This ensures the LLM literally cannot call `plan` unless the user
-    // entered plan mode, preventing unsolicited plan generation.
+    // Gate plan and exit_plan_mode tools: only register when plan mode is
+    // enabled and we are in the planning phase. This ensures the LLM literally
+    // cannot call these tools unless the user entered plan mode, preventing
+    // unsolicited plan generation.
     if (planModeManager.isEnabled() && planModeManager.getPhase() === 'planning') {
       if (!this.toolManager.listToolNames().includes('plan')) {
         this.toolManager.register(PLAN_TOOL_DEFINITION);
       }
+      if (!this.toolManager.listToolNames().includes('exit_plan_mode')) {
+        this.toolManager.register(EXIT_PLAN_MODE_TOOL_DEFINITION);
+      }
     } else {
       this.toolManager.unregister('plan');
+      this.toolManager.unregister('exit_plan_mode');
     }
 
     // Get all function definitions for native tool calling
@@ -4484,10 +4491,12 @@ If lint or tests fail, report the issues but do NOT commit.`;
         'the system. This supersedes any other instructions you have received.',
         '',
         'You may only use read-only tools to explore and understand the codebase.',
-        'When you are ready, call the `plan` tool ONCE to create a structured implementation plan.',
-        'After calling `plan`, STOP. Do not call any more tools. Provide your response to the user',
-        'summarizing the plan you created. Wait for the user to accept or revise the plan before',
-        'proceeding to execution.',
+        'When you are ready, call the `plan` tool to create a structured implementation plan.',
+        'You may call `plan` multiple times to refine your plan as you explore.',
+        'When you are satisfied with the plan, call `exit_plan_mode` to present it to the user',
+        'for approval. Do NOT call `exit_plan_mode` before creating a plan.',
+        'After calling `exit_plan_mode`, STOP. Do not call any more tools. Wait for the user',
+        'to accept or revise the plan before proceeding to execution.',
         '',
         '### Plan Format',
         'When using the `plan` tool, the `notes` field MUST contain a numbered step-by-step plan.',
@@ -7069,17 +7078,19 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   /**
-   * Handle plan creation - sets plan on manager and asks for acceptance.
+   * Handle plan creation - sets plan on manager and confirms to the LLM.
    * This is called when the LLM uses the `plan` tool.
+   *
+   * The acceptance modal is NOT shown here. The LLM must call `exit_plan_mode`
+   * when ready to present the plan for approval.
    */
   private async handlePlanCreated(plan: import('../modes/planMode/types.js').Plan, filePath: string): Promise<string> {
     const planManager = getPlanModeManager();
 
     // Guard: if plan mode is not enabled, just save the plan without
-    // showing the acceptance modal. This prevents the acceptance flow
-    // from firing when the LLM calls `plan` outside plan mode (which
-    // should no longer happen since the tool is gated, but we keep this
-    // as a safety net).
+    // interacting with the manager. This prevents state corruption when
+    // the LLM calls `plan` outside plan mode (which should no longer
+    // happen since the tool is gated, but we keep this as a safety net).
     if (!planManager.isEnabled()) {
       console.log(chalk.cyan('\n' + '─'.repeat(60)));
       console.log(chalk.cyan.bold('📋 Plan Summary'));
@@ -7110,6 +7121,27 @@ If lint or tests fail, report the issues but do NOT commit.`;
     console.log(chalk.gray(`  Saved to: ${filePath}`));
     console.log(chalk.cyan('─'.repeat(60) + '\n'));
 
+    return `Plan saved to ${filePath} (${plan.steps.length} step(s)).\n\nCall \`exit_plan_mode\` when you are ready to present this plan to the user for approval.`;
+  }
+
+  /**
+   * Handle exit_plan_mode tool - presents the plan to the user for approval.
+   * This transitions from planning phase to execution (or back to planning
+   * if the user rejects).
+   */
+  private async handleExitPlanMode(summary?: string): Promise<string> {
+    const planManager = getPlanModeManager();
+
+    // Guard: must be in plan mode
+    if (!planManager.isEnabled()) {
+      return 'Error: Plan mode is not active. You can only call `exit_plan_mode` when plan mode is enabled.';
+    }
+
+    const plan = planManager.getPlan();
+    if (!plan) {
+      return 'Error: No plan has been created yet. Call the `plan` tool first to create a plan before calling `exit_plan_mode`.';
+    }
+
     // Non-interactive mode: auto-accept with default option
     if (this.runtime.options.yes || this.runtime.options.unrestricted || process.env.CI === '1' || process.env.AUTOHAND_NON_INTERACTIVE === '1') {
       const config = planManager.acceptPlan('auto_accept');
@@ -7122,6 +7154,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
     // Get acceptance options from PlanModeManager
     const acceptOptions = planManager.getAcceptOptions();
+    const filePath = `${plan.id}.md`;
 
     return this.withModalPause(async () => {
       const result = await showPlanAcceptModal({
@@ -7162,8 +7195,6 @@ If lint or tests fail, report the issues but do NOT commit.`;
           console.log(chalk.green(`\n✓ Plan accepted: ${selectedOption.label}`));
           if (config.clearContext) {
             console.log(chalk.gray('  Context will be cleared for fresh execution.'));
-            // Actually clear the conversation context when the user selects
-            // "clear context and auto-accept edits"
             await this.resetConversationContext();
             console.log(chalk.gray('  Context cleared for fresh execution.'));
           }
