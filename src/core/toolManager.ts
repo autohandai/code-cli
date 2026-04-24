@@ -1448,13 +1448,31 @@ Actions:
  */
 export const PLAN_TOOL_DEFINITION: ToolDefinition = {
   name: 'plan',
-  description: 'Create a structured implementation plan with detailed numbered steps before executing a task. Always break the task into concrete, actionable steps (e.g. "1. Read existing auth code\n2. Create JWT utility module\n3. Add login endpoint"). Each step should be a single clear action. Aim for 3-10 steps depending on complexity.',
+  description: 'Create a structured implementation plan with detailed numbered steps before executing a task. Always break the task into concrete, actionable steps (e.g. "1. Read existing auth code\n2. Create JWT utility module\n3. Add login endpoint"). Each step should be a single clear action. Aim for 3-10 steps depending on complexity. You may call this tool multiple times to refine the plan. When you are satisfied with the plan, call `exit_plan_mode` to present it to the user for approval.',
   parameters: {
     type: 'object',
     properties: {
       notes: {
         type: 'string',
         description: 'A numbered step-by-step plan. Each step on its own line starting with "N. " (e.g. "1. Read existing code\n2. Create new module\n3. Write tests"). Be specific and actionable - avoid single vague descriptions.'
+      }
+    }
+  }
+};
+
+/**
+ * Standalone exit_plan_mode tool definition — only registered when plan mode is enabled.
+ * Exported so agent.ts can dynamically inject/remove it.
+ */
+export const EXIT_PLAN_MODE_TOOL_DEFINITION: ToolDefinition = {
+  name: 'exit_plan_mode',
+  description: 'Present the current plan to the user for approval and exit the planning phase. Call this ONLY after you have created a plan using the `plan` tool and are ready for the user to review it. Do NOT call this tool before creating a plan.',
+  parameters: {
+    type: 'object',
+    properties: {
+      summary: {
+        type: 'string',
+        description: 'A brief summary of the plan you created, highlighting the key changes and approach.'
       }
     }
   }

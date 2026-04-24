@@ -1002,6 +1002,7 @@ export type AgentAction =
   | { type: 'git_push'; remote?: string; branch?: string; force?: boolean; set_upstream?: boolean }
   | { type: 'custom_command'; name: string; command: string; args?: string[]; description?: string; dangerous?: boolean }
   | { type: 'plan'; notes: string }
+  | { type: 'exit_plan_mode'; summary?: string }
   | { type: 'multi_file_edit'; file_path: string; edits: Array<{ old_string: string; new_string: string; replace_all?: boolean }> }
   | { type: 'todo_write'; tasks: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm: string }> }
   | {
