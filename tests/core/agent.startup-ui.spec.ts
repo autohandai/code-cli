@@ -1688,6 +1688,19 @@ describe('agent startup and active input UI', () => {
       execute: executeTools,
     };
     agent.contextCompactionEnabled = false;
+    agent.contextOrchestrator = {
+      setModel: vi.fn(),
+      prepareRequest: vi.fn(async () => ({
+        messages: [],
+        tools: [],
+        usage: { totalTokens: 0, usagePercent: 0, isWarning: false, isCritical: false, isExceeded: false },
+        wasCropped: false,
+        croppedCount: 0,
+      })),
+      isEnabled: vi.fn(() => false),
+      checkMidTurnCompaction: vi.fn(async () => false),
+      handleOverflow: vi.fn(async () => ({ messages: [], usage: {}, croppedCount: 0 })),
+    };
     agent.updateContextUsage = vi.fn();
     agent.getMessagesWithImages = vi.fn(() => []);
     agent.parseAssistantResponse = vi.fn(() => ({

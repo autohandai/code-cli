@@ -76,6 +76,8 @@ import type {
   McpReconnectServerResult,
   McpSetServersParams,
   McpSetServersResult,
+  SetContextCompactParams,
+  SetContextCompactResult,
 } from './types.js';
 import { normalizePermissionPromptResponse, type PermissionPromptResponse } from '../../permissions/types.js';
 import {
@@ -189,6 +191,10 @@ export class RPCAdapter {
   private mcpServerConfigs: McpServerConfigEntry[] = [];
   // Cached vision support result (null = not yet checked)
   private visionSupported: boolean | null = null;
+  // Keepalive interval to prevent Chrome from killing the MV3 service worker
+  // during long turns with no traffic.
+  private keepaliveInterval: ReturnType<typeof setInterval> | null = null;
+  private readonly KEEPALIVE_MS = 15_000;
   // Config reference for runtime settings changes
   private config: {
     permissionMode?: string;
@@ -295,6 +301,7 @@ export class RPCAdapter {
 
     this.status = 'processing';
     this.abortController = new AbortController();
+    this.startKeepalive();
 
     // Start a new turn
     this.currentTurnId = generateId('turn');
@@ -559,6 +566,7 @@ export class RPCAdapter {
       });
       process.stderr.write(`[RPC DEBUG] TURN_END emitted successfully\n`);
 
+      this.stopKeepalive();
       this.status = 'idle';
       this.currentTurnId = null;
       this.turnStartTime = null;
@@ -593,6 +601,7 @@ export class RPCAdapter {
         durationMs,
       });
 
+      this.stopKeepalive();
       this.status = 'idle';
       this.currentTurnId = null;
       this.turnStartTime = null;
@@ -620,6 +629,7 @@ export class RPCAdapter {
 
     if (this.abortController) {
       this.abortController.abort();
+      this.stopKeepalive();
       this.status = 'idle';
 
       // End current message if one is in progress
@@ -688,6 +698,7 @@ export class RPCAdapter {
     // Clear images from previous session
     this.imageManager?.clear();
 
+    this.stopKeepalive();
     this.sessionId = generateId('session');
     this.status = 'idle';
     this.currentTurnId = null;
@@ -752,6 +763,8 @@ export class RPCAdapter {
 
     const attached = await this.agent.attachSession(handoff.sessionId);
     this.sessionId = attached.sessionId;
+    this.stopKeepalive();
+    this.stopKeepalive();
     this.workspace = attached.workspaceRoot;
     this.model = attached.model;
     this.status = 'idle';
@@ -778,6 +791,7 @@ export class RPCAdapter {
     }
 
     const attached = await this.agent.attachSession(handoff.sessionId);
+    this.stopKeepalive();
     this.sessionId = attached.sessionId;
     this.workspace = attached.workspaceRoot;
     this.model = attached.model;
@@ -2161,7 +2175,26 @@ export class RPCAdapter {
   /**
    * Shutdown the adapter
    */
+  private startKeepalive(): void {
+    this.stopKeepalive();
+    this.keepaliveInterval = setInterval(() => {
+      writeNotification(RPC_NOTIFICATIONS.PING, {
+        timestamp: createTimestamp(),
+        status: this.status,
+        turnId: this.currentTurnId,
+      });
+    }, this.KEEPALIVE_MS);
+  }
+
+  private stopKeepalive(): void {
+    if (this.keepaliveInterval) {
+      clearInterval(this.keepaliveInterval);
+      this.keepaliveInterval = null;
+    }
+  }
+
   shutdown(reason: 'completed' | 'aborted' | 'error' | 'disconnected' = 'completed'): void {
+    this.stopKeepalive();
     // Cancel any pending permissions
     for (const [, pending] of this.pendingPermissions) {
       if (pending.ackTimeout) {
@@ -2645,7 +2678,7 @@ export class RPCAdapter {
   }
 
   /**
-   * Apply flag settings
+   * Apply flag settings — now propagates contextCompact to the agent.
    */
   async handleApplyFlagSettings(
     params: ApplyFlagSettingsParams
@@ -2656,6 +2689,10 @@ export class RPCAdapter {
         if (value !== undefined) {
           (this.config as Record<string, unknown>)[key] = value;
           appliedSettings.push(key);
+          // Propagate context compact changes to the agent
+          if (key === 'contextCompact' && typeof value === 'boolean') {
+            this.agent?.setContextCompaction(value);
+          }
         }
       }
       return {
@@ -2718,18 +2755,35 @@ export class RPCAdapter {
   }
 
   /**
-   * Get context usage
+   * Get context usage — returns real data from the agent's orchestrator.
    */
   async handleGetContextUsage(): Promise<GetContextUsageResult> {
     try {
-      // Return context usage breakdown
+      if (this.agent?.getContextOrchestrator) {
+        const orchestrator = this.agent.getContextOrchestrator();
+        const tools = this.agent.getToolDefinitions?.() ?? [];
+        const usage = orchestrator.getExtendedUsage(tools);
+        return {
+          systemPrompt: usage.systemPrompt,
+          tools: usage.tools,
+          messages: usage.messages,
+          mcpTools: usage.mcpTools,
+          memoryFiles: usage.memoryFiles,
+          total: usage.total,
+          contextWindow: usage.contextWindow,
+          usagePercent: usage.usagePercent,
+          isWarning: usage.isWarning,
+          isCritical: usage.isCritical,
+        };
+      }
+      // Fallback stub when agent is not available
       return {
-        systemPrompt: 1000,
-        tools: 500,
-        messages: 2000,
-        mcpTools: 300,
-        memoryFiles: 200,
-        total: 4000,
+        systemPrompt: 0,
+        tools: 0,
+        messages: 0,
+        mcpTools: 0,
+        memoryFiles: 0,
+        total: 0,
       };
     } catch {
       return {
@@ -2740,6 +2794,20 @@ export class RPCAdapter {
         memoryFiles: 0,
         total: 0,
       };
+    }
+  }
+
+  /**
+   * Set context compaction enabled/disabled
+   */
+  async handleSetContextCompact(
+    params: SetContextCompactParams
+  ): Promise<SetContextCompactResult> {
+    try {
+      this.agent?.setContextCompaction(params.enabled);
+      return { enabled: params.enabled };
+    } catch {
+      return { enabled: this.agent?.isContextCompactionEnabled?.() ?? false };
     }
   }
 

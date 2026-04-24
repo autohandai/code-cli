@@ -383,7 +383,9 @@ export function buildConfigOptions(
     currentValue: "off",
   });
 
-  // Context compaction
+  // Context compaction — default enabled; ACP sessions can toggle via applyAcpConfigOption
+  // contextCompact is a CLI option, not stored in LoadedConfig, so default to true
+  const contextCompactEnabled = true;
   options.push({
     type: "select",
     id: "context_compact",
@@ -393,7 +395,7 @@ export function buildConfigOptions(
       { value: "on", name: "On" },
       { value: "off", name: "Off" },
     ],
-    currentValue: "on",
+    currentValue: contextCompactEnabled ? "on" : "off",
   });
 
   return options;

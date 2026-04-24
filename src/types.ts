@@ -30,7 +30,7 @@ type Primitive = string | number | boolean | null;
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
-export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure' | 'zai' | 'vertexai' | 'xai' | 'cerebras';
+export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure' | 'zai' | 'vertexai' | 'xai' | 'cerebras' | 'nvidia';
 
 export type AzureAuthMethod = 'api-key' | 'entra-id' | 'managed-identity';
 export type OpenAIAuthMode = 'api-key' | 'chatgpt';
@@ -98,6 +98,12 @@ export interface XAISettings extends ProviderSettings {
 /** Cerebras AI settings for the Cerebras API. */
 export interface CerebrasSettings extends ProviderSettings {
     /** Cerebras API key (required). */
+    apiKey: string;
+}
+
+/** NVIDIA AI Cloud settings for the NVIDIA API. */
+export interface NvidiaAISettings extends ProviderSettings {
+    /** NVIDIA API key (required, prefix: nvapi-). */
     apiKey: string;
 }
 
@@ -497,7 +503,12 @@ export type HookEvent =
   | 'review:failed'
   | 'review:completed'
   // Mode events
-  | 'mode-change';       // Permission mode changed (unrestricted, yolo, etc.)
+  | 'mode-change'        // Permission mode changed (unrestricted, yolo, etc.)
+  // Context lifecycle events
+  | 'context:compact'    // Context was compacted (messages removed/summarized)
+  | 'context:overflow'   // Context overflow detected (API 400 error)
+  | 'context:warning'    // Context usage crossed warning threshold
+  | 'context:critical';  // Context usage crossed critical threshold
 
 /** Filter to limit when a hook fires */
 export interface HookFilter {
@@ -594,6 +605,8 @@ export interface AutohandConfig {
   xai?: XAISettings;
   /** Cerebras AI settings (GLM and Qwen models) */
   cerebras?: CerebrasSettings;
+  /** NVIDIA AI Cloud settings (NVIDIA NIM models) */
+  nvidia?: NvidiaAISettings;
   workspace?: WorkspaceSettings;
   ui?: UISettings;
   agent?: AgentSettings;

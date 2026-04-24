@@ -98,6 +98,11 @@ const EVENT_DESCRIPTIONS: Record<HookEvent, string> = {
   'review:completed': 'When a code review finishes successfully',
   // Mode events
   'mode-change': 'When permission mode changes (unrestricted, yolo, etc.)',
+  // Context lifecycle events
+  'context:compact': 'When context is compacted (messages removed/summarized)',
+  'context:overflow': 'When context overflow is detected (API 400 error)',
+  'context:warning': 'When context usage crosses warning threshold (80%)',
+  'context:critical': 'When context usage crosses critical threshold (90%+)',
 };
 
 // Icons for built-in hooks (matched by script name or description keywords)
