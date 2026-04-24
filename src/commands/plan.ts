@@ -39,54 +39,60 @@ export function getPlanModeManager(): PlanModeManager {
  *   /plan off    - Disable plan mode
  *   /plan status - Show current plan status
  */
-export async function plan(_ctx: SlashCommandContext, args?: string): Promise<string | null> {
+export interface PlanOptions {
+  /** Optional output handler; defaults to console.log */
+  output?: (message: string) => void;
+}
+
+export async function plan(_ctx: SlashCommandContext, args?: string, opts?: PlanOptions): Promise<string | null> {
   const manager = getPlanModeManager();
   const subcommand = args?.trim().toLowerCase();
+  const out = opts?.output ?? console.log;
 
   switch (subcommand) {
     case 'on':
     case 'enable':
       if (manager.isEnabled()) {
-        console.log(chalk.yellow('Plan mode is already enabled.'));
+        out(chalk.yellow('Plan mode is already enabled.'));
         return null;
       }
       manager.enable();
-      console.log(chalk.green('Plan mode enabled.'));
-      console.log(chalk.gray('Tools are now read-only. Use /plan off to disable.'));
-      console.log(chalk.gray('Tip: Press Shift+Tab twice to quickly toggle plan mode.'));
+      out(chalk.green('Plan mode enabled.'));
+      out(chalk.gray('Tools are now read-only. Use /plan off to disable.'));
+      out(chalk.gray('Tip: Press Shift+Tab twice to quickly toggle plan mode.'));
       return null;
 
     case 'off':
     case 'disable':
       if (!manager.isEnabled()) {
-        console.log(chalk.yellow('Plan mode is not enabled.'));
+        out(chalk.yellow('Plan mode is not enabled.'));
         return null;
       }
       manager.disable();
-      console.log(chalk.green('Plan mode disabled.'));
-      console.log(chalk.gray('Full tool access restored.'));
+      out(chalk.green('Plan mode disabled.'));
+      out(chalk.gray('Full tool access restored.'));
       return null;
 
     case 'status':
-      return showPlanStatus(manager);
+      return showPlanStatus(manager, out);
 
     case '':
     case undefined:
       // Toggle
       if (manager.isEnabled()) {
         manager.disable();
-        console.log(chalk.green('Plan mode disabled.'));
-        console.log(chalk.gray('Full tool access restored.'));
+        out(chalk.green('Plan mode disabled.'));
+        out(chalk.gray('Full tool access restored.'));
       } else {
         manager.enable();
-        console.log(chalk.green('Plan mode enabled.'));
-        console.log(chalk.gray('Tools are now read-only.'));
+        out(chalk.green('Plan mode enabled.'));
+        out(chalk.gray('Tools are now read-only.'));
       }
       return null;
 
     default:
-      console.log(chalk.yellow(`Unknown subcommand: ${subcommand}`));
-      console.log(chalk.gray(`
+      out(chalk.yellow(`Unknown subcommand: ${subcommand}`));
+      out(chalk.gray(`
 Usage:
   /plan        - Toggle plan mode
   /plan on     - Enable plan mode
@@ -104,45 +110,45 @@ Keyboard shortcut:
 /**
  * Show current plan mode status
  */
-function showPlanStatus(manager: PlanModeManager): string | null {
+function showPlanStatus(manager: PlanModeManager, out: (message: string) => void = console.log): string | null {
   const enabled = manager.isEnabled();
   const phase = manager.getPhase();
   const plan = manager.getPlan();
   const indicator = manager.getPromptIndicator();
 
-  console.log('');
-  console.log(chalk.bold.cyan('Plan Mode Status'));
-  console.log(chalk.gray('─'.repeat(40)));
-  console.log(`Status:    ${enabled ? chalk.green('ENABLED') : chalk.gray('DISABLED')}`);
-  console.log(`Phase:     ${chalk.cyan(phase)}`);
-  console.log(`Indicator: ${indicator || chalk.gray('(none)')}`);
+  out('');
+  out(chalk.bold.cyan('Plan Mode Status'));
+  out(chalk.gray('─'.repeat(40)));
+  out(`Status:    ${enabled ? chalk.green('ENABLED') : chalk.gray('DISABLED')}`);
+  out(`Phase:     ${chalk.cyan(phase)}`);
+  out(`Indicator: ${indicator || chalk.gray('(none)')}`);
 
   if (plan) {
     const completed = plan.steps.filter(s => s.status === 'completed').length;
     const inProgress = plan.steps.find(s => s.status === 'in_progress');
 
-    console.log('');
-    console.log(chalk.bold(`Plan: ${plan.id}`));
-    console.log(`Progress: ${completed}/${plan.steps.length} steps`);
-    console.log('');
+    out('');
+    out(chalk.bold(`Plan: ${plan.id}`));
+    out(`Progress: ${completed}/${plan.steps.length} steps`);
+    out('');
 
     for (const step of plan.steps) {
       const icon = getStepIcon(step.status);
       const color = getStepColor(step.status);
-      console.log(color(`  ${icon} ${step.number}. ${step.description}`));
+      out(color(`  ${icon} ${step.number}. ${step.description}`));
     }
 
     if (inProgress) {
-      console.log('');
-      console.log(chalk.yellow(`Currently working on: Step ${inProgress.number}`));
+      out('');
+      out(chalk.yellow(`Currently working on: Step ${inProgress.number}`));
     }
   } else {
-    console.log('');
-    console.log(chalk.gray('No plan created yet.'));
-    console.log(chalk.gray('Ask the agent to create a plan for your task.'));
+    out('');
+    out(chalk.gray('No plan created yet.'));
+    out(chalk.gray('Ask the agent to create a plan for your task.'));
   }
 
-  console.log('');
+  out('');
   return null;
 }
 
