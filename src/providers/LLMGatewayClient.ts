@@ -12,6 +12,7 @@ import type {
   NetworkSettings,
   FunctionDefinition,
   LLMMessage,
+  NvidiaChatTemplateKwargs,
 } from "../types.js";
 
 /**
@@ -98,13 +99,7 @@ export class LLMGatewayClient {
   }
 
   async complete(request: LLMRequest): Promise<LLMResponse> {
-    const payload: Record<string, unknown> = {
-      model: request.model ?? this.defaultModel,
-      messages: sanitizeMessages(request.messages),
-      temperature: request.temperature ?? 0.2,
-      max_tokens: request.maxTokens ?? 16000,
-      stream: request.stream ?? false,
-    };
+    const payload = this.buildPayload(request);
 
     // Add function calling support if tools are provided
     if (request.tools && request.tools.length > 0) {
@@ -121,6 +116,13 @@ export class LLMGatewayClient {
       if (request.toolChoice) {
         payload.tool_choice = request.toolChoice;
       }
+    }
+
+    // Add chat_template_kwargs for NVIDIA reasoning models
+    if (request.chatTemplateKwargs) {
+      payload.extra_body = {
+        chat_template_kwargs: this.buildChatTemplateKwargs(request.chatTemplateKwargs),
+      };
     }
 
     const headers: Record<string, string> = {
@@ -153,7 +155,8 @@ export class LLMGatewayClient {
           payload,
           headers,
           request.signal,
-          payloadJson
+          payloadJson,
+          request.stream ?? false
         );
         return response;
       } catch (error) {
@@ -179,11 +182,32 @@ export class LLMGatewayClient {
     );
   }
 
+  private buildPayload(request: LLMRequest): Record<string, unknown> {
+    const payload: Record<string, unknown> = {
+      model: request.model ?? this.defaultModel,
+      messages: sanitizeMessages(request.messages),
+      temperature: request.temperature ?? 0.2,
+      max_tokens: request.maxTokens ?? 16000,
+      stream: request.stream ?? false,
+    };
+    return payload;
+  }
+
+  private buildChatTemplateKwargs(kwargs: NvidiaChatTemplateKwargs): Record<string, unknown> {
+    const result: Record<string, unknown> = {};
+    if (kwargs.thinking !== undefined) result.thinking = kwargs.thinking;
+    if (kwargs.enable_thinking !== undefined) result.enable_thinking = kwargs.enable_thinking;
+    if (kwargs.reasoning_effort !== undefined) result.reasoning_effort = kwargs.reasoning_effort;
+    if (kwargs.clear_thinking !== undefined) result.clear_thinking = kwargs.clear_thinking;
+    return result;
+  }
+
   private async makeRequest(
     payload: object,
     headers: Record<string, string>,
     signal?: AbortSignal,
-    preSerializedBody?: string
+    preSerializedBody?: string,
+    isStreaming: boolean = false
   ): Promise<LLMResponse> {
     let response: Response;
 
@@ -235,6 +259,11 @@ export class LLMGatewayClient {
       throw new Error(await this.buildFriendlyError(response));
     }
 
+    // Handle streaming responses
+    if (isStreaming) {
+      return this.handleStreamingResponse(response);
+    }
+
     const json = (await response.json()) as any;
     const message = json?.choices?.[0]?.message;
     const text = message?.content ?? "";
@@ -274,6 +303,78 @@ export class LLMGatewayClient {
       finishReason: finishReason as LLMResponse["finishReason"],
       usage,
       raw: json,
+    };
+  }
+
+  private async handleStreamingResponse(response: Response): Promise<LLMResponse> {
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error("No response body for streaming");
+    }
+
+    const decoder = new TextDecoder();
+    let fullContent = "";
+    let fullReasoning = "";
+    let lastChunk: any = null;
+    let finishReason: string = "stop";
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split("\n").filter(line => line.trim());
+
+        for (const line of lines) {
+          // Handle SSE format: "data: {...}"
+          if (line.startsWith("data: ")) {
+            const dataStr = line.slice(6).trim();
+            if (dataStr === "[DONE]") continue;
+
+            try {
+              const data = JSON.parse(dataStr);
+              lastChunk = data;
+
+              const delta = data.choices?.[0]?.delta;
+              if (!delta) continue;
+
+              // Extract reasoning content (DeepSeek uses 'reasoning', Z.ai uses 'reasoning_content')
+              const reasoning = delta.reasoning || delta.reasoning_content;
+              if (reasoning) {
+                fullReasoning += reasoning;
+              }
+
+              // Extract regular content
+              if (delta.content) {
+                fullContent += delta.content;
+              }
+
+              // Track finish reason
+              if (data.choices?.[0]?.finish_reason) {
+                finishReason = data.choices[0].finish_reason;
+              }
+            } catch {
+              // Skip invalid JSON lines
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    // Combine reasoning and content if reasoning exists
+    const finalContent = fullReasoning
+      ? `<thinking>${fullReasoning}</thinking>\n\n${fullContent}`
+      : fullContent;
+
+    return {
+      id: lastChunk?.id ?? `llmgateway-stream-${Date.now()}`,
+      created: lastChunk?.created ?? Math.floor(Date.now() / 1000),
+      content: finalContent,
+      finishReason: finishReason as LLMResponse["finishReason"],
+      raw: { content: fullContent, reasoning: fullReasoning, chunks: lastChunk },
     };
   }
 

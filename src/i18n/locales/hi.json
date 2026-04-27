@@ -344,6 +344,11 @@
       "title": "Cerebras AI विन्यास",
       "apiKeyUrl": "https://cloud.cerebras.ai/platform/",
       "enterModel": "एक Cerebras मॉडल चुनें"
+    },
+    "nvidia": {
+      "title": "NVIDIA AI Cloud विन्यास",
+      "apiKeyUrl": "https://build.nvidia.com/api-key",
+      "enterModel": "एक NVIDIA मॉडल चुनें"
     }
   },
   "setup": {
@@ -436,12 +441,14 @@
     "vertexai": "Google Cloud Vertex AI",
     "xai": "xAI (Grok)",
     "cerebras": "Cerebras AI",
+    "nvidia": "NVIDIA AI Cloud",
     "hints": {
       "openrouter": "क्लाउड - 100+ मॉडल तक पहुँच (Claude, GPT-4, आदि)",
       "zai": "क्लाउड - Z.ai GLM models (glm-4.5, cogview, etc.)",
       "vertexai": "क्लाउड - Google Cloud Vertex AI (Gemini, Claude, GLM)",
       "xai": "क्लाउड - xAI Grok models with web search, X search, and code execution",
-      "cerebras": "क्लाउड - Cerebras AI with GLM and Qwen models"
+      "cerebras": "क्लाउड - Cerebras AI with GLM and Qwen models",
+      "nvidia": "क्लाउड - NVIDIA NIM मॉडल (Llama, Phi, Gemma, Mixtral, आदि)"
     },
     "config": {
       "selectReasoningEffort": "तर्क स्तर चुनें",

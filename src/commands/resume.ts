@@ -102,7 +102,7 @@ export async function resume(ctx: {
     args: string[];
     workspaceRoot?: string;
     onBeforeModal?: () => void;
-    onAfterModal?: () => void;
+    onAfterModal?: () => Promise<void> | void;
 }): Promise<string | null> {
     const sessionId = ctx.args[0];
 
@@ -165,7 +165,7 @@ export async function resume(ctx: {
                     options
                 });
             } finally {
-                ctx.onAfterModal?.();
+                await ctx.onAfterModal?.();
             }
         })();
 

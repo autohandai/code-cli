@@ -89,7 +89,7 @@ export class SlashCommandHandler {
           try {
             return await createAgent(this.ctx);
           } finally {
-            this.ctx.onAfterModal?.();
+            await this.ctx.onAfterModal?.();
           }
         }
         case '/feedback': {
@@ -98,7 +98,7 @@ export class SlashCommandHandler {
           try {
             return await feedback(this.ctx);
           } finally {
-            this.ctx.onAfterModal?.();
+            await this.ctx.onAfterModal?.();
           }
         }
         case '/resume': {
@@ -157,7 +157,16 @@ export class SlashCommandHandler {
             console.log(chalk.yellow('Config not available.'));
             return null;
           }
-          return settings({ config: this.ctx.config });
+          // Pause the InkRenderer for the entire /settings session.
+          // settings() runs its own while(true) loop with multiple showModal
+          // calls; without pause/resume the Composer's useInput races the
+          // modal's useInput for stdin and ESC events get dropped.
+          this.ctx.onBeforeModal?.();
+          try {
+            return await settings({ config: this.ctx.config });
+          } finally {
+            await this.ctx.onAfterModal?.();
+          }
         }
         case '/memory': {
           const { memory } = await import('../commands/memory.js');
@@ -222,7 +231,7 @@ export class SlashCommandHandler {
           try {
             return await login({ config: this.ctx.config });
           } finally {
-            this.ctx.onAfterModal?.();
+            await this.ctx.onAfterModal?.();
           }
         }
         case '/logout': {
@@ -231,7 +240,7 @@ export class SlashCommandHandler {
           try {
             return await logout({ config: this.ctx.config, currentSession: this.ctx.currentSession });
           } finally {
-            this.ctx.onAfterModal?.();
+            await this.ctx.onAfterModal?.();
           }
         }
         case '/permissions': {
@@ -243,7 +252,7 @@ export class SlashCommandHandler {
               configPath: this.ctx.config?.configPath,
             });
           } finally {
-            this.ctx.onAfterModal?.();
+            await this.ctx.onAfterModal?.();
           }
         }
         case '/hooks': {
@@ -255,7 +264,7 @@ export class SlashCommandHandler {
           try {
             return await hooks({ hookManager: this.ctx.hookManager });
           } finally {
-            this.ctx.onAfterModal?.();
+            await this.ctx.onAfterModal?.();
           }
         }
         case '/skills': {
@@ -461,7 +470,7 @@ export class SlashCommandHandler {
           try {
             return await setup(this.ctx);
           } finally {
-            this.ctx.onAfterModal?.();
+            await this.ctx.onAfterModal?.();
           }
         }
         case '/yolo': {

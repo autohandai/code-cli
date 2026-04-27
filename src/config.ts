@@ -354,6 +354,7 @@ function normalizeConfig(
         autoConfirm: config.dry_run ?? false,
         theme: "dark",
         promptSuggestions: true,
+        useInkRenderer: true,
       },
     };
   }
@@ -371,7 +372,8 @@ function isModernConfig(
     typeof (config as AutohandConfig).openai === "object" ||
     typeof (config as AutohandConfig).mlx === "object" ||
     typeof (config as AutohandConfig).azure === "object" ||
-    typeof (config as AutohandConfig).zai === "object"
+    typeof (config as AutohandConfig).zai === "object" ||
+    typeof (config as AutohandConfig).nvidia === "object"
   );
 }
 
@@ -527,6 +529,7 @@ export function getProviderConfig(
     vertexai: config.vertexai,
     xai: config.xai,
     cerebras: config.cerebras,
+    nvidia: config.nvidia,
   };
 
   const entry = configByProvider[chosen];
@@ -556,7 +559,8 @@ export function getProviderConfig(
   } else if (
     chosen === "openrouter" ||
     chosen === "llmgateway" ||
-    chosen === "zai"
+    chosen === "zai" ||
+    chosen === "nvidia"
   ) {
     const { apiKey, model } = entry as ProviderSettings;
     if (!apiKey || apiKey === "replace-me" || !model) {
@@ -605,6 +609,8 @@ function defaultBaseUrlFor(
       return DEFAULT_OPENAI_URL;
     case "mlx":
       return p ? `http://localhost:${p}` : DEFAULT_MLX_URL;
+    case "nvidia":
+      return "https://integrate.api.nvidia.com/v1";
     default:
       return undefined;
   }

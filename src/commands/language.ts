@@ -19,7 +19,7 @@ import {
 interface LanguageContext {
   config: LoadedConfig;
   onBeforeModal?: () => void;
-  onAfterModal?: () => void;
+  onAfterModal?: () => Promise<void> | void;
 }
 
 /**
@@ -49,7 +49,7 @@ export async function language(ctx: LanguageContext): Promise<string | null> {
         initialIndex: SUPPORTED_LOCALES.indexOf(currentLocale)
       });
     } finally {
-      ctx.onAfterModal?.();
+      await ctx.onAfterModal?.();
     }
   })();
 

@@ -348,5 +348,143 @@ describe('LLMGatewayClient', () => {
       const callBody = JSON.parse(fetchMock.mock.calls[0][1].body);
       expect(callBody.tool_choice).toBe('auto');
     });
+
+    it('should include chat_template_kwargs in extra_body for NVIDIA reasoning models', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          id: 'test',
+          created: Date.now(),
+          choices: [{ message: { content: 'Test response' }, finish_reason: 'stop' }]
+        })
+      });
+      global.fetch = fetchMock;
+
+      const settings: LLMGatewaySettings = {
+        apiKey: 'test-key',
+        model: 'deepseek-ai/deepseek-v4-pro'
+      };
+      const client = new LLMGatewayClient(settings);
+
+      await client.complete({
+        messages: [{ role: 'user', content: 'Hello' }],
+        chatTemplateKwargs: {
+          thinking: true,
+          reasoning_effort: 'high'
+        }
+      });
+
+      const callBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(callBody.extra_body).toBeDefined();
+      expect(callBody.extra_body.chat_template_kwargs).toEqual({
+        thinking: true,
+        reasoning_effort: 'high'
+      });
+    });
+
+    it('should support Z.ai GLM chat_template_kwargs', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          id: 'test',
+          created: Date.now(),
+          choices: [{ message: { content: 'Test response' }, finish_reason: 'stop' }]
+        })
+      });
+      global.fetch = fetchMock;
+
+      const settings: LLMGatewaySettings = {
+        apiKey: 'test-key',
+        model: 'z-ai/glm-5.1'
+      };
+      const client = new LLMGatewayClient(settings);
+
+      await client.complete({
+        messages: [{ role: 'user', content: 'Hello' }],
+        chatTemplateKwargs: {
+          enable_thinking: true,
+          clear_thinking: false
+        }
+      });
+
+      const callBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(callBody.extra_body.chat_template_kwargs).toEqual({
+        enable_thinking: true,
+        clear_thinking: false
+      });
+    });
+
+    it('should handle streaming responses with reasoning content', async () => {
+      // Create a mock stream with SSE data containing reasoning
+      const encoder = new TextEncoder();
+      const streamData = [
+        'data: {"id":"stream-test","created":1234567890,"choices":[{"delta":{"reasoning":"Let me think"},"finish_reason":null}]}\n\n',
+        'data: {"id":"stream-test","created":1234567890,"choices":[{"delta":{"reasoning_content":" about this"},"finish_reason":null}]}\n\n',
+        'data: {"id":"stream-test","created":1234567890,"choices":[{"delta":{"content":"Hello"},"finish_reason":null}]}\n\n',
+        'data: {"id":"stream-test","created":1234567890,"choices":[{"delta":{"content":"!"},"finish_reason":"stop"}]}\n\n',
+        'data: [DONE]\n\n'
+      ];
+
+      const mockStream = new ReadableStream({
+        start(controller) {
+          streamData.forEach(chunk => controller.enqueue(encoder.encode(chunk)));
+          controller.close();
+        }
+      });
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        body: mockStream
+      });
+
+      const settings: LLMGatewaySettings = {
+        apiKey: 'test-key',
+        model: 'deepseek-ai/deepseek-v4-pro'
+      };
+      const client = new LLMGatewayClient(settings);
+
+      const response = await client.complete({
+        messages: [{ role: 'user', content: 'Hello' }],
+        stream: true
+      });
+
+      expect(response.content).toBe('<thinking>Let me think about this</thinking>\n\nHello!');
+      expect(response.finishReason).toBe('stop');
+    });
+
+    it('should handle streaming without reasoning content', async () => {
+      const encoder = new TextEncoder();
+      const streamData = [
+        'data: {"id":"stream-test","created":1234567890,"choices":[{"delta":{"content":"Just content"},"finish_reason":null}]}\n\n',
+        'data: {"id":"stream-test","created":1234567890,"choices":[{"delta":{"content":" here"},"finish_reason":"stop"}]}\n\n',
+        'data: [DONE]\n\n'
+      ];
+
+      const mockStream = new ReadableStream({
+        start(controller) {
+          streamData.forEach(chunk => controller.enqueue(encoder.encode(chunk)));
+          controller.close();
+        }
+      });
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        body: mockStream
+      });
+
+      const settings: LLMGatewaySettings = {
+        apiKey: 'test-key',
+        model: 'gpt-4o'
+      };
+      const client = new LLMGatewayClient(settings);
+
+      const response = await client.complete({
+        messages: [{ role: 'user', content: 'Hello' }],
+        stream: true
+      });
+
+      expect(response.content).toBe('Just content here');
+      expect(response.finishReason).toBe('stop');
+    });
   });
 });

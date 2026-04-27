@@ -126,7 +126,12 @@ export const PROMPT_LINES_ABOVE_INPUT = 1;
 export const PROMPT_LINES_BELOW_INPUT = 1;
 export const PROMPT_PLACEHOLDER = 'Plan, search, build anything';
 export const PROMPT_INPUT_PREFIX = '❯ ';
-const SHIFT_ENTER_RESIDUAL_PATTERN = /^(?:13;?[234]?\d*[u~]|27;[234];13~)$/;
+// Matches modified-Enter CSI fragments where readline / Ink stripped some
+// portion of the leading escape (the full `\x1b[` prefix, just `\x1b`, or
+// nothing at all). Without this, terminals using xterm modifyOtherKeys or
+// the kitty keyboard protocol leak literal "[27;2;13~" / "27;2;13~" into
+// the prompt instead of inserting a newline.
+const SHIFT_ENTER_RESIDUAL_PATTERN = /^(?:\x1b\[|\x1b|\[)?(?:13;?[234]?\d*[u~]|27;[234];13~)$/;
 
 export interface PromptRenderState {
   lineText: string;

@@ -204,10 +204,15 @@ describe('browser/chrome', () => {
     child.stderr.on('data', (chunk) => {
       stderrChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     });
-    
-    const exitPromise = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+
+    // Wait for 'close' (not 'exit') so that all stdout/stderr data is fully
+    // drained before we parse.  The 'exit' event fires when the process ends
+    // but stdio streams may still have buffered data that hasn't been emitted
+    // as 'data' events yet — this is the root cause of the flake under
+    // parallel test load.
+    const closePromise = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
       child.once('error', (error) => reject(error));
-      child.once('exit', (code, signal) => {
+      child.once('close', (code, signal) => {
         if (code !== 0) {
           const stderr = Buffer.concat(stderrChunks).toString('utf8');
           console.error('Host script stderr:', stderr);
@@ -232,22 +237,42 @@ describe('browser/chrome', () => {
     child.stdin.write(payload.subarray(0, 5));
     await new Promise((resolve) => setTimeout(resolve, 10));
     child.stdin.write(payload.subarray(5));
-    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    // Instead of a fixed 300ms delay, wait until the host script actually
+    // produces output on stdout (the forwarded CLI response).  Under heavy
+    // parallel test load the CLI child can take much longer to start and
+    // emit its JSON-RPC line, so a fixed delay is inherently racy.
+    const OUTPUT_TIMEOUT_MS = 8000;
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(resolve, OUTPUT_TIMEOUT_MS);
+      const interval = setInterval(() => {
+        if (stdoutChunks.length > 0) {
+          clearTimeout(timeout);
+          clearInterval(interval);
+          resolve();
+        }
+      }, 50);
+    });
+
+    // Small grace period so the host can finish writing the native messaging
+    // frame after we observed the first stdout chunk.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
     const shutdownPayload = Buffer.from(JSON.stringify({ type: 'shutdown' }), 'utf8');
     const shutdownHeader = Buffer.alloc(4);
     shutdownHeader.writeUInt32LE(shutdownPayload.length, 0);
     child.stdin.write(Buffer.concat([shutdownHeader, shutdownPayload]));
     child.stdin.end();
 
-    const exitResult = await exitPromise;
-    
-    if (exitResult.code !== 0) {
+    const closeResult = await closePromise;
+
+    if (closeResult.code !== 0) {
       const stderr = Buffer.concat(stderrChunks).toString('utf8');
-      throw new Error(`Host script exited with code ${exitResult.code}. Stderr: ${stderr || '(empty)'}`);
+      throw new Error(`Host script exited with code ${closeResult.code}. Stderr: ${stderr || '(empty)'}`);
     }
 
-    expect(exitResult.code).toBe(0);
-    expect(exitResult.signal).toBeNull();
+    expect(closeResult.code).toBe(0);
+    expect(closeResult.signal).toBeNull();
 
     const output = Buffer.concat(stdoutChunks);
     const messages: Array<Record<string, unknown>> = [];

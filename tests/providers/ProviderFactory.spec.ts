@@ -68,5 +68,38 @@ describe("ProviderFactory", () => {
     it("should return false for invalid provider", () => {
       expect(ProviderFactory.isValidProvider("invalid-provider")).toBe(false);
     });
+
+    it("should return true for nvidia", () => {
+      expect(ProviderFactory.isValidProvider("nvidia")).toBe(true);
+    });
+  });
+
+  describe("nvidia provider", () => {
+    it("should create NVIDIAProvider when nvidia is configured", () => {
+      const config: AutohandConfig = {
+        provider: "nvidia",
+        nvidia: {
+          apiKey: "nvapi-test-key",
+          model: "meta/llama-3.3-70b-instruct",
+        },
+      };
+
+      const provider = ProviderFactory.create(config);
+      expect(provider.getName()).toBe("nvidia");
+    });
+
+    it("should return UnconfiguredProvider when nvidia config is missing", () => {
+      const config: AutohandConfig = {
+        provider: "nvidia",
+      };
+
+      const provider = ProviderFactory.create(config);
+      expect(provider.getName()).toBe("unconfigured");
+    });
+
+    it("should include nvidia in the list", () => {
+      const providers = ProviderFactory.getProviderNames();
+      expect(providers).toContain("nvidia");
+    });
   });
 });

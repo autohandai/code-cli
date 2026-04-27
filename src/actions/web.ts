@@ -22,19 +22,20 @@ export interface WebSearchOptions {
   maxResults?: number;
   searchType?: 'general' | 'packages' | 'docs' | 'changelog';
   /** Override the default search provider */
-  provider?: 'brave' | 'duckduckgo' | 'parallel' | 'google';
+  provider?: 'brave' | 'duckduckgo' | 'parallel' | 'google' | 'browser-profile' | 'exa';
 }
 
 /** Search provider configuration */
 export interface SearchConfig {
-  provider: 'brave' | 'duckduckgo' | 'parallel' | 'google';
+  provider: 'brave' | 'duckduckgo' | 'parallel' | 'google' | 'browser-profile' | 'exa';
   braveApiKey?: string;
   parallelApiKey?: string;
+  exaApiKey?: string;
 }
 
 /** Global search configuration - set by the agent at startup */
 let globalSearchConfig: SearchConfig = {
-  provider: 'google'
+  provider: 'browser-profile'
 };
 
 /**
@@ -59,6 +60,8 @@ export function getSearchConfig(): SearchConfig {
  * purpose of offering the web_search tool to the LLM.
  *
  * Returns true when:
+ * - browser-profile is selected AND Chrome/Chromium is available
+ * - Exa is selected AND has an API key
  * - Brave is selected AND has an API key
  * - Parallel is selected AND has an API key
  * - Google is selected (no key required, more reliable than DDG)
@@ -67,8 +70,13 @@ export function isSearchConfigured(): boolean {
   const config = getSearchConfig();
   const braveKey = config.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY;
   const parallelKey = config.parallelApiKey ?? process.env.PARALLEL_API_KEY;
+  const exaKey = config.exaApiKey ?? process.env.EXA_API_KEY;
 
   switch (config.provider) {
+    case 'browser-profile':
+      return !!findChromePath(); // Available if Chrome/Chromium is installed
+    case 'exa':
+      return !!exaKey;
     case 'brave':
       return !!braveKey;
     case 'parallel':
@@ -380,6 +388,8 @@ function htmlToText(html: string): string {
  * Search the web using the configured search provider
  *
  * Supports:
+ * - Browser Profile (uses user's Chrome/Chromium with cookies/login state)
+ * - Exa.ai Search API (requires API key)
  * - Google HTML scraping (no API key, reliable default)
  * - Brave Search API (requires API key)
  * - DuckDuckGo HTML (may be blocked by CAPTCHA)
@@ -404,13 +414,31 @@ export async function webSearch(query: string, options: WebSearchOptions = {}): 
   }
 
   // Use provider from options or fall back to global config
-  const provider = options.provider ?? globalSearchConfig.provider;
+  let provider = options.provider ?? globalSearchConfig.provider;
 
   // Get API keys from config or environment
   const braveApiKey = globalSearchConfig.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY;
   const parallelApiKey = globalSearchConfig.parallelApiKey ?? process.env.PARALLEL_API_KEY;
+  const exaApiKey = globalSearchConfig.exaApiKey ?? process.env.EXA_API_KEY;
+
+  // Auto-fallback: if browser-profile selected but Chrome not available, use google
+  if (provider === 'browser-profile' && !findChromePath()) {
+    provider = 'google';
+  }
 
   switch (provider) {
+    case 'browser-profile':
+      return browserProfileSearch(enhancedQuery, maxResults);
+
+    case 'exa':
+      if (!exaApiKey) {
+        throw new Error(
+          'Exa.ai Search requires an API key. Configure it with /search or set EXA_API_KEY environment variable. ' +
+          'Get an API key at: https://exa.ai'
+        );
+      }
+      return exaSearch(enhancedQuery, exaApiKey, maxResults);
+
     case 'brave':
       if (!braveApiKey) {
         throw new Error(
@@ -699,6 +727,236 @@ async function braveSearch(query: string, apiKey: string, maxResults: number): P
       reject(new Error('Brave Search request timed out'));
     });
   });
+}
+
+/**
+ * Search using Exa.ai API
+ * https://exa.ai/docs/reference/search-api-guide
+ */
+async function exaSearch(query: string, apiKey: string, maxResults: number): Promise<WebSearchResult[]> {
+  const postData = JSON.stringify({
+    query,
+    numResults: maxResults,
+    contents: {
+      text: true
+    }
+  });
+
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'api.exa.ai',
+      port: 443,
+      path: '/search',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Length': Buffer.byteLength(postData)
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        if (res.statusCode && res.statusCode >= 400) {
+          reject(new Error(`Exa.ai API error: HTTP ${res.statusCode} - ${data}`));
+          return;
+        }
+
+        try {
+          const json = JSON.parse(data);
+
+          if (json.results && Array.isArray(json.results)) {
+            const results: WebSearchResult[] = json.results.slice(0, maxResults).map((r: any) => ({
+              title: r.title || r.url || 'Untitled',
+              url: r.url || '',
+              snippet: r.text?.slice(0, 300) || r.highlight?.slice(0, 300) || ''
+            }));
+            resolve(results);
+          } else {
+            resolve([]);
+          }
+        } catch (parseError) {
+          reject(new Error(`Failed to parse Exa.ai response: ${parseError instanceof Error ? parseError.message : String(parseError)}`));
+        }
+      });
+      res.on('error', reject);
+    });
+
+    req.on('error', reject);
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Exa.ai request timed out'));
+    });
+
+    req.write(postData);
+    req.end();
+  });
+}
+
+/**
+ * Search using user's browser profile via Chrome DevTools Protocol.
+ * Leverages user's cookies, login state, and browsing history for reliable results.
+ */
+async function browserProfileSearch(query: string, maxResults: number): Promise<WebSearchResult[]> {
+  const chromePath = findChromePath();
+  if (!chromePath) {
+    throw new Error(
+      'No Chrome/Chromium browser found. Install Chrome or configure a different search provider with /search.'
+    );
+  }
+
+  // Find a user profile to use
+  const profile = await findBrowserProfile();
+  if (!profile) {
+    // Fall back to headless search without profile
+    return googleSearch(query, maxResults);
+  }
+
+  const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=${maxResults}&hl=en`;
+
+  return new Promise((resolve, reject) => {
+    const port = 9222 + Math.floor(Math.random() * 1000); // Random port to avoid conflicts
+    const args = [
+      `--remote-debugging-port=${port}`,
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-default-apps',
+      '--disable-background-networking',
+      '--disable-sync',
+      `--user-data-dir=${profile.userDataDir}`,
+      `--profile-directory=${profile.profileDirectory}`,
+      '--headless=new',
+      '--dump-dom',
+      searchUrl,
+    ];
+
+    let stdout = '';
+    let stderr = '';
+    let killed = false;
+
+    const proc = spawn(chromePath, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 30000,
+    });
+
+    proc.stdout.on('data', (data: Buffer) => {
+      stdout += data.toString();
+      if (stdout.length > 500000) {
+        killed = true;
+        proc.kill('SIGTERM');
+      }
+    });
+
+    proc.stderr.on('data', (data: Buffer) => {
+      stderr += data.toString();
+    });
+
+    proc.on('close', (code) => {
+      if (killed) {
+        const results = parseGoogleResultsFromDOM(stdout.slice(0, 500000), maxResults);
+        resolve(results.length > 0 ? results : []);
+        return;
+      }
+
+      if (code !== 0 && code !== null) {
+        // Profile search failed, fall back to regular google search
+        googleSearch(query, maxResults).then(resolve).catch(reject);
+        return;
+      }
+
+      const results = parseGoogleResultsFromDOM(stdout, maxResults);
+
+      // Check for CAPTCHA
+      if (stdout.includes('unusual traffic') || stdout.includes('captcha') || stdout.includes('g-recaptcha')) {
+        // Fall back to regular google search which has its own fallbacks
+        googleSearch(query, maxResults).then(resolve).catch(reject);
+        return;
+      }
+
+      if (results.length > 0) {
+        resolve(results);
+      } else {
+        // No results from profile search, try regular google search
+        googleSearch(query, maxResults).then(resolve).catch(reject);
+      }
+    });
+
+    proc.on('error', (err) => {
+      // Launch failed, fall back to regular google search
+      googleSearch(query, maxResults).then(resolve).catch(reject);
+    });
+  });
+}
+
+/**
+ * Detect user's browser profile to use for searching.
+ * Returns the profile directory and user data dir for Chrome/Chromium/Brave/Edge.
+ */
+async function findBrowserProfile(): Promise<{ userDataDir: string; profileDirectory: string; browser: string } | null> {
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const fs = await import('fs-extra');
+  const { pathExists } = fs;
+
+  const homeDir = os.homedir();
+  const platform = process.platform;
+
+  // Define browser data roots by platform
+  const browserRoots: Array<{ name: string; userDataDir: string }> = [];
+
+  if (platform === 'darwin') {
+    browserRoots.push(
+      { name: 'Chrome', userDataDir: path.join(homeDir, 'Library', 'Application Support', 'Google', 'Chrome') },
+      { name: 'Chromium', userDataDir: path.join(homeDir, 'Library', 'Application Support', 'Chromium') },
+      { name: 'Brave', userDataDir: path.join(homeDir, 'Library', 'Application Support', 'BraveSoftware', 'Brave-Browser') },
+      { name: 'Edge', userDataDir: path.join(homeDir, 'Library', 'Application Support', 'Microsoft Edge') },
+    );
+  } else if (platform === 'linux') {
+    browserRoots.push(
+      { name: 'Chrome', userDataDir: path.join(homeDir, '.config', 'google-chrome') },
+      { name: 'Chromium', userDataDir: path.join(homeDir, '.config', 'chromium') },
+      { name: 'Brave', userDataDir: path.join(homeDir, '.config', 'BraveSoftware', 'Brave-Browser') },
+      { name: 'Edge', userDataDir: path.join(homeDir, '.config', 'microsoft-edge') },
+    );
+  } else if (platform === 'win32') {
+    const localAppData = process.env.LOCALAPPDATA ?? '';
+    browserRoots.push(
+      { name: 'Chrome', userDataDir: path.join(localAppData, 'Google', 'Chrome', 'User Data') },
+      { name: 'Chromium', userDataDir: path.join(localAppData, 'Chromium', 'User Data') },
+      { name: 'Brave', userDataDir: path.join(localAppData, 'BraveSoftware', 'Brave-Browser', 'User Data') },
+      { name: 'Edge', userDataDir: path.join(localAppData, 'Microsoft', 'Edge', 'User Data') },
+    );
+  }
+
+  // Find the first browser with a valid profile
+  for (const browser of browserRoots) {
+    if (!(await pathExists(browser.userDataDir))) {
+      continue;
+    }
+
+    try {
+      const entries = await fs.readdir(browser.userDataDir);
+      const profiles = entries.filter((entry: string) =>
+        entry === 'Default' || entry.startsWith('Profile ')
+      );
+
+      // Prefer Default profile, otherwise use first available
+      const profileDirectory = profiles.includes('Default') ? 'Default' : profiles[0];
+      if (profileDirectory) {
+        return {
+          userDataDir: browser.userDataDir,
+          profileDirectory,
+          browser: browser.name,
+        };
+      }
+    } catch {
+      // Continue to next browser
+    }
+  }
+
+  return null;
 }
 
 /**

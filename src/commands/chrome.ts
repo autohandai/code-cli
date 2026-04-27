@@ -31,7 +31,7 @@ async function withModalPause<T>(ctx: ChromeCommandContext, fn: () => Promise<T>
   try {
     return await fn();
   } finally {
-    ctx.onAfterModal?.();
+    await ctx.onAfterModal?.();
   }
 }
 

@@ -426,12 +426,20 @@
     "vertexai": "Google Cloud Vertex AI",
     "xai": "xAI (Grok)",
     "cerebras": "Cerebras AI",
+    "nvidia": "NVIDIA AI Cloud",
     "hints": {
       "openrouter": "Облако - Доступ к 100+ моделям (Claude, GPT-4 и др.)",
+      "openai": "Облако - Официальные модели OpenAI (GPT-4o, o1 и др.)",
+      "ollama": "Локально - Запуск моделей на вашем компьютере (бесплатно)",
+      "llamacpp": "Локально - Быстрая инференция с GGUF моделями",
+      "mlx": "Локально - Оптимизировано для Apple Silicon Mac",
+      "llmgateway": "Облако - Единый API для нескольких LLM провайдеров",
+      "azure": "Облако - Служба Azure OpenAI (предприятие)",
       "zai": "Облако - Z.ai GLM models (glm-4.5, cogview, etc.)",
       "vertexai": "Облако - Google Cloud Vertex AI (Gemini, Claude, GLM)",
       "xai": "Облако - xAI Grok models with web search, X search, and code execution",
-      "cerebras": "Облако - Cerebras AI with GLM and Qwen models"
+      "cerebras": "Облако - Cerebras AI with GLM and Qwen models",
+      "nvidia": "Облако - Модели NVIDIA NIM (Llama, Phi, Gemma, Mixtral и др.)"
     },
     "config": {
       "selectReasoningEffort": "Выберите уровень рассуждения",

@@ -29,7 +29,7 @@ export interface SkillsCommandContext {
   hookManager?: HookManager;
   isNonInteractive?: boolean;
   onBeforeModal?: () => void;
-  onAfterModal?: () => void;
+  onAfterModal?: () => Promise<void> | void;
 }
 
 async function withModalPause<T>(ctx: SkillsCommandContext, fn: () => Promise<T>): Promise<T> {
@@ -37,7 +37,7 @@ async function withModalPause<T>(ctx: SkillsCommandContext, fn: () => Promise<T>
   try {
     return await fn();
   } finally {
-    ctx.onAfterModal?.();
+    await ctx.onAfterModal?.();
   }
 }
 

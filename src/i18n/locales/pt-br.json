@@ -517,18 +517,20 @@
     "vertexai": "Google Cloud Vertex AI",
     "xai": "xAI (Grok)",
     "cerebras": "Cerebras AI",
+    "nvidia": "NVIDIA AI Cloud",
     "hints": {
       "openrouter": "Nuvem - Acesso a 100+ modelos (Claude, GPT-4, etc.)",
       "openai": "Nuvem - Modelos oficiais OpenAI (GPT-4o, o1, etc.)",
       "ollama": "Local - Executar modelos na sua máquina (grátis)",
       "llamacpp": "Local - Inferência rápida com modelos GGUF",
       "mlx": "Local - Otimizado para Macs Apple Silicon",
-      "llmgateway": "Nuvem - API unificada para múltiplos provedores LLM",
-      "azure": "Nuvem - Azure OpenAI Service (enterprise)",
+      "llmgateway": "Nuvem - API unificada para vários provedores LLM",
+      "azure": "Nuvem - Serviço Azure OpenAI (enterprise)",
       "zai": "Nuvem - Z.ai GLM models (glm-4.5, cogview, etc.)",
       "vertexai": "Nuvem - Google Cloud Vertex AI (Gemini, Claude, GLM)",
       "xai": "Nuvem - xAI Grok models with web search, X search, and code execution",
-      "cerebras": "Nuvem - Cerebras AI with GLM and Qwen models"
+      "cerebras": "Cloud - Cerebras AI with GLM and Qwen models",
+      "nvidia": "Nuvem - Modelos NVIDIA NIM (Llama, Phi, Gemma, Mixtral, etc.)"
     },
     "config": {
       "chooseProvider": "Escolha um provedor LLM",
@@ -672,6 +674,11 @@
         "enterDeploymentNameChange": "Digite o nome do seu deployment",
         "deploymentChangeHint": "Digite o nome do seu modelo implantado do Azure AI Foundry > Deployments",
         "deploymentChangeExample": "ex: gpt-4o, gpt-4o-mini, gpt-4-turbo (NÃO uma URL)"
+      },
+      "nvidia": {
+        "title": "Configuração NVIDIA AI Cloud",
+        "apiKeyUrl": "https://build.nvidia.com/api-key",
+        "enterModel": "Selecione um modelo NVIDIA"
       }
     }
   },

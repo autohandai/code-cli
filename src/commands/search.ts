@@ -27,15 +27,25 @@ export async function search(ctx: SearchContext): Promise<string | null> {
   // Check API key status
   const braveKeySet = !!(currentConfig.braveApiKey || process.env.BRAVE_SEARCH_API_KEY);
   const parallelKeySet = !!(currentConfig.parallelApiKey || process.env.PARALLEL_API_KEY);
+  const exaKeySet = !!(currentConfig.exaApiKey || process.env.EXA_API_KEY);
 
   console.log(chalk.gray(`Brave API key: ${braveKeySet ? chalk.green('configured') : chalk.yellow('not set')}`));
   console.log(chalk.gray(`Parallel API key: ${parallelKeySet ? chalk.green('configured') : chalk.yellow('not set')}`));
+  console.log(chalk.gray(`Exa API key: ${exaKeySet ? chalk.green('configured') : chalk.yellow('not set')}`));
   console.log();
 
   // Provider selection
   const providerOptions: ModalOption[] = [
     {
-      label: `Google ${chalk.gray('(no API key required, recommended default)')}`,
+      label: `Browser Profile ${chalk.gray('(uses your Chrome/Brave cookies - no API key)')}`,
+      value: 'browser-profile'
+    },
+    {
+      label: `Exa.ai ${chalk.gray('(requires API key)')} ${exaKeySet ? chalk.green('✓') : ''}`,
+      value: 'exa'
+    },
+    {
+      label: `Google ${chalk.gray('(no API key required)')}`,
       value: 'google'
     },
     {
@@ -69,6 +79,22 @@ export async function search(ctx: SearchContext): Promise<string | null> {
     // If selecting a provider that needs an API key, prompt for it
     let braveApiKey = currentConfig.braveApiKey;
     let parallelApiKey = currentConfig.parallelApiKey;
+    let exaApiKey = currentConfig.exaApiKey;
+
+    if (provider === 'exa' && !exaKeySet) {
+      console.log(chalk.gray('\nGet your Exa.ai API key at: https://exa.ai\n'));
+
+      const apiKey = await showPassword({
+        title: 'Enter Exa.ai API key:'
+      });
+
+      if (apiKey?.trim()) {
+        exaApiKey = apiKey.trim();
+      } else {
+        console.log(chalk.yellow('No API key entered. Exa.ai Search will not work without an API key.'));
+        return null;
+      }
+    }
 
     if (provider === 'brave' && !braveKeySet) {
       console.log(chalk.gray('\nGet your free Brave Search API key at: https://brave.com/search/api/\n'));
@@ -105,6 +131,7 @@ export async function search(ctx: SearchContext): Promise<string | null> {
       provider,
       braveApiKey,
       parallelApiKey,
+      exaApiKey,
     });
 
     // Save to config file
@@ -113,6 +140,7 @@ export async function search(ctx: SearchContext): Promise<string | null> {
         provider,
         braveApiKey,
         parallelApiKey,
+        exaApiKey,
       };
       await saveConfig(config);
       console.log(chalk.green(`\n✓ Search provider set to ${provider} and saved to config`));
@@ -122,6 +150,12 @@ export async function search(ctx: SearchContext): Promise<string | null> {
 
     // Show provider-specific info
     switch (provider) {
+      case 'browser-profile':
+        console.log(chalk.gray('Browser Profile Search is now active. Uses your Chrome/Brave cookies for better results.'));
+        break;
+      case 'exa':
+        console.log(chalk.gray('Exa.ai Search is now active with neural search capabilities.'));
+        break;
       case 'google':
         console.log(chalk.gray('Google Search is now active. No API key required.'));
         break;
@@ -145,6 +179,6 @@ export async function search(ctx: SearchContext): Promise<string | null> {
 
 export const metadata = {
   command: '/search',
-  description: 'configure web search provider (google, brave, duckduckgo, parallel)',
+  description: 'configure web search provider (browser-profile, exa, google, brave, duckduckgo, parallel)',
   implemented: true,
 };

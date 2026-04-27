@@ -517,18 +517,20 @@
     "vertexai": "Google Cloud Vertex AI",
     "xai": "xAI (Grok)",
     "cerebras": "Cerebras AI",
+    "nvidia": "NVIDIA AI Cloud",
     "hints": {
       "openrouter": "클라우드 - 100+개 모델 접근 (Claude, GPT-4 등)",
       "openai": "클라우드 - 공식 OpenAI 모델 (GPT-4o, o1 등)",
       "ollama": "로컬 - 머신에서 모델 실행 (무료)",
       "llamacpp": "로컬 - GGUF 모델로 빠른 추론",
       "mlx": "로컬 - Apple Silicon 최적화",
-      "llmgateway": "클라우드 - 다중 LLM 제공자 통합 API",
+      "llmgateway": "클라우드 - 여러 LLM 제공자를 위한 통합 API",
       "azure": "클라우드 - Azure OpenAI Service (엔터프라이즈)",
       "zai": "클라우드 - Z.ai GLM models (glm-4.5, cogview, etc.)",
       "vertexai": "클라우드 - Google Cloud Vertex AI (Gemini, Claude, GLM)",
       "xai": "클라우드 - xAI Grok models with web search, X search, and code execution",
-      "cerebras": "클라우드 - Cerebras AI with GLM and Qwen models"
+      "cerebras": "Cloud - Cerebras AI with GLM and Qwen models",
+      "nvidia": "클라우드 - NVIDIA NIM 모델 (Llama, Phi, Gemma, Mixtral 등)"
     },
     "config": {
       "chooseProvider": "LLM 제공자 선택",
@@ -640,6 +642,11 @@
         "title": "Cerebras AI 설정",
         "apiKeyUrl": "https://cloud.cerebras.ai/platform/",
         "enterModel": "Cerebras 모델 선택"
+      },
+      "nvidia": {
+        "title": "NVIDIA AI Cloud 설정",
+        "apiKeyUrl": "https://build.nvidia.com/api-key",
+        "enterModel": "NVIDIA 모델 선택"
       },
       "azure": {
         "title": "Azure OpenAI 설정",
