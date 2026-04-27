@@ -989,6 +989,8 @@ async function runCLI(options: CLIOptions): Promise<void> {
       console.log(chalk.gray(`Using git worktree: ${sessionWorktree.worktreePath}`));
       console.log(chalk.gray(`Branch: ${sessionWorktree.branchName}${sessionWorktree.createdBranch ? ' (new)' : ''}\n`));
     }
+    // Store whether Ink will be enabled so we can synchronize startup
+    const inkEnabled = config.ui?.useInkRenderer === true;
 
     // Initialize and start ping service (45-minute intervals for usage tracking)
     // This runs independently of telemetry opt-in for basic usage counting
@@ -1006,6 +1008,13 @@ async function runCLI(options: CLIOptions): Promise<void> {
 
     // Print welcome immediately with no version/auth info - don't block on network
     printWelcome(runtime, undefined, null);
+
+    // Ensure all stdout is flushed before Ink takes over the alternate screen buffer
+    // This prevents banner/welcome output from appearing mid-render in Ink's UI
+    if (inkEnabled && process.stdout.isTTY) {
+      process.stdout.write('\x1b[s'); // Save cursor position
+      process.stdout.write('\x1b[u'); // Restore cursor position (forces flush)
+    }
 
     // Mutable reference so the background startup IIFE can reach the agent
     // once it's constructed (after synchronous setup below).
@@ -1258,6 +1267,44 @@ function printBanner(): void {
   }
 }
 
+interface WelcomeSuggestion {
+  command: string;
+  description: string;
+}
+
+/**
+ * Build contextual welcome suggestions based on auth state and workspace features.
+ * Shows different commands depending on whether the user is logged in and what
+ * features are available, rather than always showing the same fixed list.
+ */
+function buildWelcomeSuggestions(isLoggedIn: boolean, workspaceRoot: string): WelcomeSuggestion[] {
+  const suggestions: WelcomeSuggestion[] = [];
+
+  // Always suggest /help — it's the universal discovery command
+  suggestions.push({ command: '/help', description: 'see all available commands and tips' });
+
+  if (!isLoggedIn) {
+    // Not logged in — prioritize getting them signed in
+    suggestions.push({ command: '/login', description: 'sign in to your Autohand account' });
+  }
+
+  // Check if AGENTS.md exists — suggest /init only when it doesn't
+  const agentsPath = path.join(workspaceRoot, 'AGENTS.md');
+  const hasAgentsMd = fs.pathExistsSync(agentsPath);
+  if (!hasAgentsMd) {
+    suggestions.push({ command: '/init', description: 'create an AGENTS.md file with instructions for Autohand' });
+  }
+
+  // Logged-in features
+  if (isLoggedIn) {
+    suggestions.push({ command: '/review', description: 'review your current changes and find issues' });
+    suggestions.push({ command: '/plan', description: 'plan and break down a complex task' });
+    suggestions.push({ command: '/skills', description: 'discover and install skills for your project' });
+  }
+
+  return suggestions;
+}
+
 function printWelcome(runtime: AgentRuntime, authUser?: AuthUser, versionCheck?: VersionCheckResult | null): void {
   if (!process.stdout.isTTY) {
     return;
@@ -1289,6 +1336,7 @@ function printWelcome(runtime: AgentRuntime, authUser?: AuthUser, versionCheck?:
   }
 
   // Personalized greeting if logged in
+  const isLoggedIn = !!(authUser || runtime.config.auth?.token);
   if (authUser) {
     console.log(chalk.green(`Welcome back, ${authUser.name || authUser.email}!`));
   }
@@ -1299,13 +1347,12 @@ function printWelcome(runtime: AgentRuntime, authUser?: AuthUser, versionCheck?:
 
   console.log(`${chalk.gray('model:')} ${chalk.cyan(model)}  ${ccStatus}  ${chalk.gray('| directory:')} ${chalk.cyan(dir)}`);
   console.log();
-  console.log(chalk.gray('To get started, describe a task or try one of these commands:'));
-  console.log(chalk.cyan('/init ') + chalk.gray('create an AGENTS.md file with instructions for Autohand'));
-  console.log(chalk.cyan('/help ') + chalk.gray('review my current changes and find issues'));
 
-  // Show login hint if not authenticated
-  if (!authUser) {
-    console.log(chalk.cyan('/login ') + chalk.gray('sign in to your Autohand account'));
+  // Build contextual suggestions based on auth state and available features
+  const suggestions = buildWelcomeSuggestions(isLoggedIn, dir);
+  console.log(chalk.gray('To get started, describe a task or try one of these commands:'));
+  for (const s of suggestions) {
+    console.log(chalk.cyan(s.command + ' ') + chalk.gray(s.description));
   }
 
   console.log();
