@@ -5115,9 +5115,14 @@ If lint or tests fail, report the issues but do NOT commit.`;
               source: s.source,
             })),
         });
+        // Seed provider/model BEFORE start() so they are baked into the
+        // initial render. Otherwise React 19 concurrent mount hasn't attached
+        // the wrapper ref by the time setProviderModel() runs synchronously,
+        // and the welcome helpline misses the "autohand (provider, model)"
+        // prefix until the first state-triggered re-render.
+        this.inkRenderer.setProviderModel(this.activeProvider, model);
         this.inkRenderer.start();
         this.inkRenderer.setWorking(true, 'Gathering context...');
-        this.inkRenderer.setProviderModel(this.activeProvider, model);
         this.runtime.inkRenderer = this.inkRenderer;
       } catch (err) {
         // Fall back to ora spinner if ink can't be loaded (e.g., standalone binary)
