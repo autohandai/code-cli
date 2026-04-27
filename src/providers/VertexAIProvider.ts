@@ -15,6 +15,7 @@ import type {
 } from "../types.js";
 import type { LLMProvider } from "./LLMProvider.js";
 import { getGcloudAccessToken, clearGcloudTokenCache } from "../utils/gcloudAuth.js";
+import { ApiError, classifyApiError } from "./errors.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -71,6 +72,31 @@ const ANTHROPIC_MODELS = [
   'claude-sonnet-4',
   'claude-opus-4',
   'claude-opus-4-7',
+  'claude-opus-4-6',
+  'claude-opus-4.7',
+  'claude-opus-4.6',
+];
+
+/**
+ * Recommended coding-capable models available on Vertex AI.
+ */
+export const VERTEX_AI_CODING_MODELS = [
+  // Anthropic Claude (coding-optimized)
+  "anthropic/claude-opus-4-7",
+  "anthropic/claude-opus-4-6",
+  "anthropic/claude-opus-4",
+  "anthropic/claude-sonnet-4",
+  "anthropic/claude-3-5-sonnet",
+  "anthropic/claude-3-opus",
+  "anthropic/claude-3-haiku",
+  // Google Gemini (coding-capable)
+  "google/gemini-3.1-pro",
+  "google/gemini-3.1-flash",
+  "google/gemini-1.5-pro",
+  "google/gemini-1.5-flash",
+  "google/gemini-1.0-pro",
+  // Z.ai models
+  "zai-org/glm-5-maas",
 ];
 
 /**
@@ -93,19 +119,6 @@ function extractAnthropicModelId(model: string): string {
   }
   return model;
 }
-
-/** User-friendly error messages that hide raw provider errors */
-const FRIENDLY_ERRORS: Record<number, string> = {
-  400: "The request was malformed. This often happens when the context is too long. Try /undo to remove recent turns or /new to start fresh.",
-  401: "Authentication failed. Please verify your Google Cloud auth token. Run 'gcloud auth print-access-token' to get a fresh token.",
-  403: "Access denied. Your auth token may not have permission for this model or project.",
-  404: "The requested model was not found. Use /model to select a different one.",
-  429: "Rate limit exceeded. Please wait a moment and try again, or choose a different model.",
-  500: "The Vertex AI service encountered an internal error. Please try again later.",
-  502: "The Vertex AI service is temporarily unavailable. Please try again in a few moments.",
-  503: "The Vertex AI service is currently overloaded. Please try again later.",
-  504: "The request timed out. The service may be experiencing high load.",
-};
 
 export class VertexAIProvider implements LLMProvider {
   private authToken: string; // Changed from readonly to allow refresh
@@ -153,18 +166,8 @@ export class VertexAIProvider implements LLMProvider {
   }
 
   async listModels(): Promise<string[]> {
-    // Vertex AI doesn't have a standard models endpoint
-    // Return common Vertex AI models
-    return [
-      "zai-org/glm-5-maas",
-      "google/gemini-1.5-pro",
-      "google/gemini-1.5-flash",
-      "google/gemini-1.0-pro",
-      "anthropic/claude-3-5-sonnet",
-      "anthropic/claude-3-opus",
-      "anthropic/claude-3-haiku",
-      "anthropic/claude-opus-4-7",
-    ];
+    // Return recommended Vertex AI coding models
+    return [...VERTEX_AI_CODING_MODELS];
   }
 
   async isAvailable(): Promise<boolean> {
@@ -294,10 +297,13 @@ export class VertexAIProvider implements LLMProvider {
 
     if (payloadSizeBytes > maxPayloadSize) {
       const sizeMB = (payloadSizeBytes / (1024 * 1024)).toFixed(2);
-      throw new Error(
+      throw new ApiError(
         `Request payload too large (${sizeMB}MB). ` +
           `This usually happens when the conversation history grows too long. ` +
-          `Try using /undo to remove recent turns or /new to start fresh.`
+          `Try using /undo to remove recent turns or /new to start fresh.`,
+        'context_overflow',
+        400,
+        false,
       );
     }
 
@@ -382,24 +388,33 @@ export class VertexAIProvider implements LLMProvider {
 
       // User cancelled
       if (err.name === "AbortError" && signal?.aborted) {
-        throw new Error("Request cancelled.");
+        throw new ApiError("Request cancelled.", 'cancelled', 0, false);
       }
 
       // Timeout
       if (err.name === "AbortError") {
-        throw new Error(
-          "Request timed out. The Vertex AI service may be experiencing high load."
+        throw new ApiError(
+          "Request timed out. The Vertex AI service may be experiencing high load.",
+          'timeout',
+          504,
+          true,
         );
       }
 
-      // Network error - friendly message
-      throw new Error(
-        "Unable to connect to Vertex AI. Please check your internet connection and auth token."
+      // Network error - use centralized classifier
+      const classified = classifyApiError(0, err.message);
+      throw new ApiError(
+        classified.message,
+        classified.code,
+        classified.httpStatus,
+        classified.retryable,
+        classified.retryAfterMs,
+        classified.rawDetail,
       );
     }
 
     if (!response.ok) {
-      throw new Error(await this.buildFriendlyError(response));
+      throw await this.buildFriendlyError(response);
     }
 
     const json = (await response.json()) as any;
@@ -507,7 +522,7 @@ export class VertexAIProvider implements LLMProvider {
     };
   }
 
-  private async buildFriendlyError(response: Response): Promise<string> {
+  private async buildFriendlyError(response: Response): Promise<ApiError> {
     const status = response.status;
 
     // Try to get the actual error message from the response
@@ -527,34 +542,16 @@ export class VertexAIProvider implements LLMProvider {
       }
     }
 
-    // Return user-friendly message with details when available
-    const friendlyMessage = FRIENDLY_ERRORS[status];
-    if (friendlyMessage) {
-      return errorDetail
-        ? `${friendlyMessage}\n${errorDetail}`
-        : friendlyMessage;
-    }
-
-    // For unknown errors, include status and details
-    if (status >= 500) {
-      const base =
-        "The Vertex AI service is temporarily unavailable. Please try again later.";
-      return errorDetail ? `${base}\n(${status}: ${errorDetail})` : base;
-    }
-
-    if (status >= 400) {
-      const base = "The request could not be processed.";
-      return errorDetail
-        ? `${base} (${status}: ${errorDetail})`
-        : `${base} (HTTP ${status}) Please try again or adjust your prompt.`;
-    }
-
-    return errorDetail
-      ? `An unexpected error occurred: ${errorDetail}`
-      : "An unexpected error occurred. Please try again.";
+    // Use centralized classifier for consistent error handling across all providers
+    return classifyApiError(status, errorDetail, response.headers);
   }
 
   private isNonRetryableError(error: Error): boolean {
+    // If it's an ApiError, use its structured retryable flag
+    if (error instanceof ApiError) {
+      return !error.retryable;
+    }
+
     const message = error.message.toLowerCase();
 
     // Don't retry on user cancellation
@@ -584,6 +581,11 @@ export class VertexAIProvider implements LLMProvider {
    * Check if error is an authentication error that can be fixed by refreshing the token
    */
   private isAuthError(error: Error): boolean {
+    // If it's an ApiError, check the structured code
+    if (error instanceof ApiError) {
+      return error.code === 'auth_failed';
+    }
+
     const message = error.message.toLowerCase();
     
     // Check for 401 Unauthorized or auth-related errors

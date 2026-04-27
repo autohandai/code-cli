@@ -15,7 +15,7 @@ import { t } from '../i18n/index.js';
 interface IDEContext {
   workspaceRoot: string;
   onBeforeModal?: () => void;
-  onAfterModal?: () => void;
+  onAfterModal?: () => Promise<void> | void;
 }
 
 /**
@@ -107,7 +107,7 @@ export async function ide(ctx: IDEContext): Promise<string | null> {
       options,
     });
   } finally {
-    ctx.onAfterModal?.();
+    await ctx.onAfterModal?.();
   }
 
   if (!result) {

@@ -16,6 +16,7 @@ import type { AutohandConfig, LoadedConfig, ProviderName, AzureSettings, AzureAu
 import { getProviderConfig } from '../config.js';
 import { ProviderFactory } from '../providers/ProviderFactory.js';
 import { ZAI_MODELS, ZAI_DEFAULT_BASE_URL } from '../providers/ZaiProvider.js';
+import { VERTEX_AI_CODING_MODELS } from '../providers/VertexAIProvider.js';
 import { CEREBRAS_MODELS, CEREBRAS_DEFAULT_BASE_URL } from '../providers/CerebrasProvider.js';
 import { authenticateOpenAIChatGPT, isChatGPTAuthExpired } from '../providers/openaiAuth.js';
 import { installLlamaCpp, probeLlamaCppEnvironment } from '../providers/llamaCppSetup.js';
@@ -539,6 +540,27 @@ export class SetupWizard {
         value: modelName,
       }));
       const defaultIndex = Math.max(0, CEREBRAS_MODELS.indexOf(defaultModel as (typeof CEREBRAS_MODELS)[number]));
+      const result = await showModal({
+        title: t('providers.config.selectModel'),
+        options,
+        initialIndex: defaultIndex >= 0 ? defaultIndex : 0,
+      });
+
+      if (!result) {
+        return null;
+      }
+
+      this.state.model = result.value as string;
+      return this.state.model;
+    }
+
+    if (provider === 'nvidia') {
+      const { NVIDIA_MODELS } = await import('../providers/NVIDIAProvider.js');
+      const options: ModalOption[] = [...NVIDIA_MODELS].map((modelName: string) => ({
+        label: modelName,
+        value: modelName,
+      }));
+      const defaultIndex = Math.max(0, [...NVIDIA_MODELS].indexOf(defaultModel as (typeof NVIDIA_MODELS)[number]));
       const result = await showModal({
         title: t('providers.config.selectModel'),
         options,
@@ -1254,7 +1276,6 @@ export class SetupWizard {
     const existingProjectId = existingConfig?.projectId;
     const existingEndpoint = existingConfig?.endpoint;
     const existingRegion = existingConfig?.region;
-    const existingModel = existingConfig?.model;
 
     // Show gcloud status
     if (gcloudInstalled) {
@@ -1333,12 +1354,18 @@ export class SetupWizard {
       authToken = manualToken;
     }
 
-    // Step 5: Model
-    const model = await showInput({
-      title: t('providers.wizard.vertexai.enterModel'),
-      defaultValue: existingModel || 'zai-org/glm-5-maas'
+    // Step 5: Model selection with recommended coding models
+    const modelOptions: ModalOption[] = VERTEX_AI_CODING_MODELS.map((name) => ({
+      label: name,
+      value: name,
+    }));
+    const modelResult = await showModal({
+      title: t('providers.config.selectModel'),
+      options: modelOptions,
+      allowCustomInput: true,
     });
-    if (!model) return false;
+    if (!modelResult) return false;
+    const model = modelResult.value as string;
 
     // Store config in state
     this.state.provider = 'vertexai';
@@ -1837,7 +1864,7 @@ export class SetupWizard {
   // Helper methods
 
   private requiresApiKey(provider: ProviderName): boolean {
-    return provider === 'openrouter' || provider === 'llmgateway' || provider === 'zai' || provider === 'vertexai' || provider === 'xai' || provider === 'cerebras';
+    return provider === 'openrouter' || provider === 'llmgateway' || provider === 'zai' || provider === 'vertexai' || provider === 'xai' || provider === 'cerebras' || provider === 'nvidia';
   }
 
   private getProviderDisplayName(provider: ProviderName): string {
@@ -1853,7 +1880,8 @@ export class SetupWizard {
       openrouter: t('providers.wizard.openrouter.apiKeyUrl'),
       openai: t('providers.wizard.openai.apiKeyUrl'),
       llmgateway: t('providers.wizard.llmgateway.apiKeyUrl'),
-      zai: t('providers.wizard.zai.apiKeyUrl')
+      zai: t('providers.wizard.zai.apiKeyUrl'),
+      nvidia: t('providers.wizard.nvidia.apiKeyUrl')
     };
     return urls[provider] || '';
   }
@@ -1870,7 +1898,8 @@ export class SetupWizard {
       zai: 'glm-4.5',
       vertexai: 'zai-org/glm-5-maas',
       xai: 'grok-4.20-reasoning',
-      cerebras: 'zai-glm-4.7'
+      cerebras: 'zai-glm-4.7',
+      nvidia: 'mistralai/mixtral-8x7b-instruct-v0.1'
     };
     return defaults[provider] || '';
   }
@@ -1887,7 +1916,8 @@ export class SetupWizard {
       zai: ZAI_DEFAULT_BASE_URL,
       vertexai: 'https://aiplatform.googleapis.com',
       xai: 'https://api.x.ai/v1',
-      cerebras: CEREBRAS_DEFAULT_BASE_URL
+      cerebras: CEREBRAS_DEFAULT_BASE_URL,
+      nvidia: 'https://integrate.api.nvidia.com/v1'
     };
     return urls[provider] || '';
   }

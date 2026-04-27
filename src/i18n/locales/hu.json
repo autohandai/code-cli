@@ -517,6 +517,7 @@
     "vertexai": "Google Cloud Vertex AI",
     "xai": "xAI (Grok)",
     "cerebras": "Cerebras AI",
+    "nvidia": "NVIDIA AI Cloud",
     "hints": {
       "openrouter": "Felhő - Hozzáférés 100+ modellhez (Claude, GPT-4 stb.)",
       "openai": "Felhő - Hivatalos OpenAI modellek (GPT-4o, o1 stb.)",
@@ -528,7 +529,8 @@
       "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)",
       "vertexai": "Felhő - Google Cloud Vertex AI (Gemini, Claude, GLM)",
       "xai": "Felhő - xAI Grok models with web search, X search, and code execution",
-      "cerebras": "Felhő - Cerebras AI with GLM and Qwen models"
+      "cerebras": "Cloud - Cerebras AI with GLM and Qwen models",
+      "nvidia": "Felhő - NVIDIA NIM modellek (Llama, Phi, Gemma, Mixtral stb.)"
     },
     "config": {
       "chooseProvider": "Válasszon egy LLM szolgáltatót",
@@ -640,6 +642,11 @@
         "title": "Cerebras AI Konfiguráció",
         "apiKeyUrl": "https://cloud.cerebras.ai/platform/",
         "enterModel": "Válasszon egy Cerebras modellt"
+      },
+      "nvidia": {
+        "title": "NVIDIA AI Cloud Konfiguráció",
+        "apiKeyUrl": "https://build.nvidia.com/api-key",
+        "enterModel": "Válasszon egy NVIDIA modellt"
       },
       "azure": {
         "title": "Azure OpenAI Konfiguráció",

@@ -517,6 +517,7 @@
     "vertexai": "Google Cloud Vertex AI",
     "xai": "xAI (Grok)",
     "cerebras": "Cerebras AI",
+    "nvidia": "NVIDIA AI Cloud",
     "hints": {
       "openrouter": "Cloud - Přístup k 100+ modelům (Claude, GPT-4, atd.)",
       "openai": "Cloud - Oficiální modely OpenAI (GPT-4o, o1, atd.)",
@@ -528,7 +529,8 @@
       "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)",
       "vertexai": "Cloud - Google Cloud Vertex AI (Gemini, Claude, GLM)",
       "xai": "Cloud - xAI Grok models with web search, X search, and code execution",
-      "cerebras": "Cloud - Cerebras AI with GLM and Qwen models"
+      "cerebras": "Cloud - Cerebras AI with GLM and Qwen models",
+      "nvidia": "Cloud - NVIDIA NIM models (Llama, Phi, Gemma, Mixtral, atd.)"
     },
     "config": {
       "chooseProvider": "Zvolte poskytovatele LLM",
@@ -640,6 +642,11 @@
         "title": "Konfigurace Cerebras AI",
         "apiKeyUrl": "https://cloud.cerebras.ai/platform/",
         "enterModel": "Vyberte model Cerebras"
+      },
+      "nvidia": {
+        "title": "Konfigurace NVIDIA AI Cloud",
+        "apiKeyUrl": "https://build.nvidia.com/api-key",
+        "enterModel": "Vyberte model NVIDIA"
       },
       "azure": {
         "title": "Konfigurace Azure OpenAI",

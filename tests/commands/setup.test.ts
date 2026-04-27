@@ -43,7 +43,6 @@ vi.spyOn(console, "log").mockImplementation(() => {});
 
 // Import after mocking
 import { setup } from "../../src/commands/setup";
-import { SetupWizard } from "../../src/onboarding/setupWizard";
 import { loadConfig, saveConfig, resolveWorkspaceRoot } from "../../src/config";
 import { initI18n, detectLocale } from "../../src/i18n/index";
 import type { LoadedConfig } from "../../src/types";

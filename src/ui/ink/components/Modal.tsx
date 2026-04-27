@@ -111,9 +111,6 @@ export type ModalProps = SelectModalProps | ConfirmModalProps | InputModalProps 
 
 /** Internal value used to identify the "Other" option */
 const OTHER_VALUE = '__other__';
-const ENTER_ALT_SCREEN = '\x1b[?1049h';
-const EXIT_ALT_SCREEN = '\x1b[?1049l';
-const CLEAR_SCREEN = '\x1b[2J\x1b[H';
 
 /**
  * Resolve initial cursor index for select/confirm modes.
@@ -140,21 +137,26 @@ function unmountAndResolve<T>(
   value: T,
   resolve: (value: T) => void
 ): void {
+  // With { alternateScreen: true, concurrent: true }, Ink owns the alt-screen
+  // lifecycle: unmount() exits alt-screen and discards every teardown write
+  // (log-update final frame, cli-cursor show, trailing newline, patched
+  // console output). Nothing from the modal can leak into the primary buffer.
   instance.unmount();
   cleanupModalRender(process.stdout);
-  // Give Ink one tick to fully release terminal control before the next UI mounts.
-  process.nextTick(() => resolve(value));
+  resolve(value);
 }
 
 export function prepareModalRender(output: NodeJS.WriteStream = process.stdout): void {
+  // Bracketed paste is disabled while the modal is active so escape sequences
+  // from pasted text don't leak into Ink's useInput. Ink handles entering the
+  // alt-screen itself when render() is called with { alternateScreen: true }.
   disableBracketedPaste(output);
-  output.write(ENTER_ALT_SCREEN);
-  output.write(CLEAR_SCREEN);
   resetScrollRegion();
 }
 
 export function cleanupModalRender(output: NodeJS.WriteStream = process.stdout): void {
-  output.write(EXIT_ALT_SCREEN);
+  // Ink restores the primary buffer during unmount(); we just re-enable
+  // bracketed paste for the parent composer.
   enableBracketedPaste(output);
 }
 
@@ -723,7 +725,16 @@ export async function showModal(
           }}
         />
       </I18nProvider>,
-      { exitOnCtrlC: false }
+      {
+        stdin: process.stdin,
+        stdout: process.stdout,
+        stderr: process.stderr,
+        exitOnCtrlC: false,
+        concurrent: true,
+        // Ink owns alt-screen entry/exit so teardown writes are discarded
+        // and never leak the modal frame into the primary buffer.
+        alternateScreen: true
+      }
     );
   });
 }
@@ -782,7 +793,14 @@ export async function showConfirm(options: {
           }}
         />
       </I18nProvider>,
-      { exitOnCtrlC: false }
+      {
+        stdin: process.stdin,
+        stdout: process.stdout,
+        stderr: process.stderr,
+        exitOnCtrlC: false,
+        concurrent: true,
+        alternateScreen: true
+      }
     );
   });
 }
@@ -840,7 +858,14 @@ export async function showInput(options: {
           }}
         />
       </I18nProvider>,
-      { exitOnCtrlC: false }
+      {
+        stdin: process.stdin,
+        stdout: process.stdout,
+        stderr: process.stderr,
+        exitOnCtrlC: false,
+        concurrent: true,
+        alternateScreen: true
+      }
     );
   });
 }
@@ -895,7 +920,14 @@ export async function showPassword(options: {
           }}
         />
       </I18nProvider>,
-      { exitOnCtrlC: false }
+      {
+        stdin: process.stdin,
+        stdout: process.stdout,
+        stderr: process.stderr,
+        exitOnCtrlC: false,
+        concurrent: true,
+        alternateScreen: true
+      }
     );
   });
 }

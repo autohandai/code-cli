@@ -256,7 +256,9 @@ export class LineReader {
 export function writeResponse(id: JsonRpcId, result: unknown): void {
   try {
     const response = createResponse(id, result);
-    process.stdout.write(serialize(response) + '\n');
+    const serialized = serialize(response) + '\n';
+    process.stderr.write(`[RPC DEBUG] writeResponse id=${id} size=${serialized.length}b\n`);
+    process.stdout.write(serialized);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown write error';
     process.stderr.write(`[RPC] Failed to write response for id '${id}': ${message}\n`);
@@ -275,7 +277,9 @@ export function writeErrorResponse(
 ): void {
   try {
     const response = createErrorResponse(id, code, message, data);
-    process.stdout.write(serialize(response) + '\n');
+    const serialized = serialize(response) + '\n';
+    process.stderr.write(`[RPC DEBUG] writeErrorResponse id=${id} size=${serialized.length}b\n`);
+    process.stdout.write(serialized);
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : 'Unknown write error';
     process.stderr.write(`[RPC] Failed to write error response: ${errMsg}\n`);
@@ -289,7 +293,9 @@ export function writeErrorResponse(
 export function writeBatchResponse(responses: JsonRpcResponse[]): void {
   if (responses.length > 0) {
     try {
-      process.stdout.write(serializeBatch(responses) + '\n');
+      const serialized = serializeBatch(responses) + '\n';
+      process.stderr.write(`[RPC DEBUG] writeBatchResponse count=${responses.length} size=${serialized.length}b\n`);
+      process.stdout.write(serialized);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown write error';
       process.stderr.write(`[RPC] Failed to write batch response: ${message}\n`);
@@ -304,8 +310,11 @@ export function writeBatchResponse(responses: JsonRpcResponse[]): void {
 export function writeNotification(method: string, params?: JsonRpcParams): void {
   try {
     const notification = createNotification(method, params);
-    const serialized = serialize(notification);
-    process.stdout.write(serialized + '\n');
+    const serialized = serialize(notification) + '\n';
+    if (method !== 'autohand.ping') {
+      process.stderr.write(`[RPC DEBUG] writeNotification method=${method} size=${serialized.length}b\n`);
+    }
+    process.stdout.write(serialized);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown write error';
     process.stderr.write(`[RPC] Failed to write notification '${method}': ${message}\n`);

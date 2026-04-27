@@ -228,12 +228,18 @@ export async function showImportWizard(
         <I18nProvider>
           <ScanningSpinner source={importer!.displayName} />
         </I18nProvider>,
-        { exitOnCtrlC: false },
+        {
+          stdin: process.stdin,
+          stdout: process.stdout,
+          stderr: process.stderr,
+          exitOnCtrlC: false,
+          concurrent: true
+        },
       );
 
       importer!.scan().then((result) => {
         inst.unmount();
-        process.nextTick(() => resolve(result));
+        resolve(result);
       });
     });
   } else {
@@ -289,7 +295,13 @@ export async function showImportWizard(
           }}
         />
       </I18nProvider>,
-      { exitOnCtrlC: false },
+      {
+        stdin: process.stdin,
+        stdout: process.stdout,
+        stderr: process.stderr,
+        exitOnCtrlC: false,
+        concurrent: true
+      },
     );
   });
 
@@ -299,9 +311,15 @@ export async function showImportWizard(
       <I18nProvider>
         <ImportSummary source={importer.displayName} result={result} />
       </I18nProvider>,
-      { exitOnCtrlC: false },
+      {
+        stdin: process.stdin,
+        stdout: process.stdout,
+        stderr: process.stderr,
+        exitOnCtrlC: false,
+        concurrent: true
+      },
     );
-    // Give Ink a moment to flush then unmount
+    // Give user a moment to read the summary
     await new Promise<void>((r) => setTimeout(r, 100));
     summaryInst.unmount();
   } else {

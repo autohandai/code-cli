@@ -14,6 +14,8 @@ import React, { useState, useImperativeHandle, forwardRef, useCallback, useRef }
 import { render, type Instance } from 'ink';
 import { AgentUI, createInitialUIState, type AgentUIState } from './AgentUI.js';
 import type { LiveCommandEntry, ToolOutputEntry, ToolOutputBatchEntry, ToolOutputItem, BatchToolItem } from './ToolOutput.js';
+import type { SlashCommand } from '../../core/slashCommandTypes.js';
+import type { SkillMentionInfo } from '../mentionFilter.js';
 import { ThemeProvider } from '../theme/ThemeContext.js';
 import { I18nProvider } from '../i18n/index.js';
 import { safeSetRawMode } from '../rawMode.js';
@@ -27,6 +29,10 @@ export interface InkRendererOptions {
   onImageDetected?: (data: Buffer, mimeType: string, filename?: string) => number;
   /** Provider for file list used in @ mention autocomplete */
   filesProvider?: () => string[];
+  /** Slash commands for / autocomplete */
+  slashCommands?: SlashCommand[];
+  /** Provider for skill list used in $ mention autocomplete */
+  skillsProvider?: () => SkillMentionInfo[];
 }
 
 /**
@@ -47,6 +53,8 @@ interface AgentUIWrapperProps {
   enableQueueInput?: boolean;
   onImageDetected?: (data: Buffer, mimeType: string, filename?: string) => number;
   filesProvider?: () => string[];
+  slashCommands?: SlashCommand[];
+  skillsProvider?: () => SkillMentionInfo[];
 }
 
 /**
@@ -65,6 +73,8 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       enableQueueInput,
       onImageDetected,
       filesProvider,
+      slashCommands,
+      skillsProvider,
     } = props;
 
     const [state, setState] = useState<AgentUIState>(initialState);
@@ -98,6 +108,8 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         enableQueueInput={enableQueueInput}
         onImageDetected={onImageDetected}
         filesProvider={filesProvider}
+        slashCommands={slashCommands}
+        skillsProvider={skillsProvider}
       />
     );
   }
@@ -251,6 +263,8 @@ export class InkRenderer {
             enableQueueInput={this.options.enableQueueInput}
             onImageDetected={this.options.onImageDetected}
             filesProvider={this.options.filesProvider}
+            slashCommands={this.options.slashCommands}
+            skillsProvider={this.options.skillsProvider}
           />
         </I18nProvider>
       </ThemeProvider>,
@@ -260,7 +274,10 @@ export class InkRenderer {
         stdout: process.stdout,
         stderr: process.stderr,
         // Let AgentUI handle Ctrl+C (clear text / warn-then-exit) instead of Ink forcing exit
-        exitOnCtrlC: false
+        exitOnCtrlC: false,
+        // Concurrent mode makes unmount() flush React 19 passive effects synchronously
+        // so useInput cleanup runs before the next render() (modal or resume).
+        concurrent: true
       }
     );
   }
@@ -609,45 +626,101 @@ export class InkRenderer {
   }
 
   /**
+   * Set provider and model for display in the status line
+   */
+  setProviderModel(provider: string, model: string): void {
+    this.updateState({ provider, model });
+  }
+
+  /**
    * Pause input handling by stopping the renderer (preserves state)
    * Use this before external prompts that need stdin access
    */
   pause(): void {
+    if (process.env.AUTOHAND_DEBUG === '1') {
+      console.log(`[DEBUG] InkRenderer.pause: instance exists=${!!this.instance}`);
+    }
     if (this.instance) {
       // Sync state from wrapper before unmounting
       if (this.wrapperRef.current) {
         this.state = this.wrapperRef.current.getState();
       }
+      // unmount() in concurrent mode flushes React 19 passive effects
+      // synchronously, so useInput cleanup (raw-mode off + readable-listener
+      // removal) runs BEFORE the modal mounts. This is required so the modal's
+      // own useInput effect can attach a fresh readable listener and re-enable
+      // raw mode without racing the previous Composer's cleanup.
       this.instance.unmount();
       this.instance = null;
 
-      // React 19 defers useEffect cleanup to microtasks. Manually clean up
-      // stdin listeners and raw mode to prevent conflicts when showModal()
-      // creates a new Ink instance.
+      // Safety net: ensure stdin is in a clean paused, non-raw state in case
+      // any third-party listener was attached outside of Ink's lifecycle.
+      // After concurrent unmount these listeners should already be gone, but
+      // we remove them explicitly to guarantee the modal gets exclusive stdin.
       if (process.stdin.isTTY) {
         process.stdin.setRawMode(false);
-        process.stdin.removeAllListeners('readable');
-        process.stdin.unref();
       }
+      process.stdin.removeAllListeners('readable');
     }
   }
 
   /**
    * Resume input handling by restarting the renderer with preserved state
    */
-  resume(): void {
+  async resume(): Promise<void> {
+    if (process.env.AUTOHAND_DEBUG === '1') {
+      console.log(`[DEBUG] InkRenderer.resume: instance exists=${!!this.instance}`);
+    }
     if (!this.instance) {
+      // Yield a macrotask so React 19's Scheduler flushes any pending passive
+      // effect cleanup from a just-unmounted Ink instance (from pause()).
+      // Ink's reconciler uses Scheduler.unstable_scheduleCallback (macrotask) for
+      // passive effects, so without this yield the previous instance's useInput
+      // cleanup runs AFTER the new instance's useInput effect, calling setRawMode(false)
+      // and removing the readable listener we just attached — symptom: composer
+      // renders but keyboard is frozen (stdin in cooked/line-buffered mode).
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
       // Ensure stdin is restored to proper state after Modal prompts
       if (process.stdin.isTTY) {
         safeSetRawMode(process.stdin, true);
       }
-      process.stdin.resume();
+      // DO NOT call process.stdin.resume() here.
+      // After the modal's cleanup, the stream has no 'readable' listener,
+      // so resume() would switch it to flowing mode. When the Composer
+      // later attaches its own 'readable' listener, Node.js does NOT
+      // automatically switch back to paused mode, so the Composer never
+      // receives keystrokes.
 
       // Clear line and move to new line for clean restart
       process.stdout.write('\n');
 
       // Create fresh ref for new instance
       this.wrapperRef = React.createRef<AgentUIWrapperHandle>();
+
+      // CRITICAL: drop already-committed Static history before mounting the
+      // new Ink instance.
+      //
+      // Why: every time we unmount/remount Ink (on every modal cycle), the
+      // FRESH Ink instance has no memory of what the PREVIOUS instance
+      // committed to scrollback. If we hand it back the same userMessages /
+      // toolOutputs, it cheerfully re-commits all of them as new <Static>
+      // items below the originals — giving the user duplicated chat history
+      // on every /theme, /model, /settings cycle.
+      //
+      // The original items are already in the terminal's scrollback buffer
+      // (committed by the previous Ink instance's onRender). They will not
+      // re-flow on resize, but that's a one-time loss per pause/resume and
+      // far less painful than seeing every prior message duplicated.
+      //
+      // We deliberately keep `liveCommands` (active commands shouldn't be
+      // possible while a modal is open, but if any were they'd be lost on
+      // the renderer side, which is correct behavior).
+      this.state = {
+        ...this.state,
+        userMessages: [],
+        toolOutputs: [],
+      };
 
       this.instance = render(
         <ThemeProvider>
@@ -663,6 +736,8 @@ export class InkRenderer {
               enableQueueInput={this.options.enableQueueInput}
               onImageDetected={this.options.onImageDetected}
               filesProvider={this.options.filesProvider}
+              slashCommands={this.options.slashCommands}
+              skillsProvider={this.options.skillsProvider}
             />
           </I18nProvider>
         </ThemeProvider>,
@@ -671,9 +746,15 @@ export class InkRenderer {
           stdout: process.stdout,
           stderr: process.stderr,
           // Let AgentUI handle Ctrl+C (clear text / warn-then-exit) instead of Ink forcing exit
-          exitOnCtrlC: false
+          exitOnCtrlC: false,
+          // Concurrent mode makes unmount() flush React 19 passive effects synchronously
+          // so useInput cleanup runs before the next render() (modal or resume).
+          concurrent: true
         }
       );
+      if (process.env.AUTOHAND_DEBUG === '1') {
+        console.log(`[DEBUG] InkRenderer.resume: instance created successfully`);
+      }
     }
   }
 

@@ -6,10 +6,12 @@
  * Global test setup:
  * - Patches yoga-wasm-web/auto for asm.js compatibility (must run before Ink imports)
  * - Ensures i18n is initialized before any module-level t() calls
+ * - Mocks node:sqlite for CursorImporter tests
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { vi } from 'vitest';
 
 // Fix yoga-wasm-web/auto node.js entry BEFORE any Ink import.
 // The original npm entry uses WASM (readFile("./yoga.wasm")) which fails in
@@ -33,6 +35,21 @@ if (fs.existsSync(yogaNodeJs)) {
     ].join('\n'));
   }
 }
+
+// Mock node:sqlite globally to avoid test isolation issues
+// CursorImporter uses dynamic import which can conflict with per-file mocks
+vi.mock('node:sqlite', () => ({
+  DatabaseSync: vi.fn().mockImplementation(() => ({
+    prepare: vi.fn(),
+    close: vi.fn(),
+  })),
+  default: {
+    DatabaseSync: vi.fn().mockImplementation(() => ({
+      prepare: vi.fn(),
+      close: vi.fn(),
+    })),
+  },
+}));
 
 import { initI18n } from './src/i18n/index.js';
 

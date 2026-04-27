@@ -40,7 +40,13 @@ export async function showFilePalette(options: FilePaletteOptions): Promise<stri
           }}
         />
       </I18nProvider>,
-      { exitOnCtrlC: false }
+      {
+        stdin: process.stdin,
+        stdout: process.stdout,
+        stderr: process.stderr,
+        exitOnCtrlC: false,
+        concurrent: true
+      }
     );
   });
 }

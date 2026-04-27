@@ -163,13 +163,13 @@ describe("Vertex AI Configuration Persistence E2E", () => {
     mockShowModal
       .mockResolvedValueOnce({ value: "en" }) // language
       .mockResolvedValueOnce({ value: "vertexai" }) // provider
+      .mockResolvedValueOnce({ value: "zai-org/glm-5-maas" }) // model
       .mockResolvedValueOnce({ value: "interactive" }); // permissions
 
     mockShowInput
       .mockResolvedValueOnce("aiplatform.googleapis.com") // endpoint
       .mockResolvedValueOnce("us-central1") // region
-      .mockResolvedValueOnce("my-gcp-project-123") // projectId
-      .mockResolvedValueOnce("zai-org/glm-5-maas"); // model
+      .mockResolvedValueOnce("my-gcp-project-123"); // projectId
 
     mockShowPassword.mockResolvedValueOnce("ya29.a0ARrdaM..."); // authToken
 
@@ -201,13 +201,13 @@ describe("Vertex AI Configuration Persistence E2E", () => {
     mockShowModal
       .mockResolvedValueOnce({ value: "en" })
       .mockResolvedValueOnce({ value: "vertexai" })
+      .mockResolvedValueOnce({ value: "custom/model-v1" })
       .mockResolvedValueOnce({ value: "interactive" });
 
     mockShowInput
       .mockResolvedValueOnce("custom-endpoint.googleapis.com") // custom endpoint
       .mockResolvedValueOnce("europe-west1") // custom region
-      .mockResolvedValueOnce("another-project-456")
-      .mockResolvedValueOnce("custom/model-v1");
+      .mockResolvedValueOnce("another-project-456");
 
     mockShowPassword.mockResolvedValueOnce("different-token-xyz");
 
@@ -276,13 +276,13 @@ describe("Vertex AI Configuration Persistence E2E", () => {
     mockShowModal
       .mockResolvedValueOnce({ value: "en" })
       .mockResolvedValueOnce({ value: "vertexai" })
+      .mockResolvedValueOnce({ value: "zai-org/glm-5-maas" })
       .mockResolvedValueOnce({ value: "interactive" });
 
     mockShowInput
       .mockResolvedValueOnce("aiplatform.googleapis.com")
       .mockResolvedValueOnce("us-central1")
-      .mockResolvedValueOnce("my-project")
-      .mockResolvedValueOnce("zai-org/glm-5-maas");
+      .mockResolvedValueOnce("my-project");
 
     mockShowPassword.mockResolvedValueOnce("new-auth-token-123");
 

@@ -101,10 +101,25 @@ export interface CerebrasSettings extends ProviderSettings {
     apiKey: string;
 }
 
+/** NVIDIA chat template kwargs for reasoning models like DeepSeek and Z.ai GLM */
+export interface NvidiaChatTemplateKwargs {
+  /** Enable thinking/reasoning mode (DeepSeek models use 'thinking', Z.ai uses 'enable_thinking') */
+  thinking?: boolean;
+  enable_thinking?: boolean;
+  /** Reasoning effort level for DeepSeek models */
+  reasoning_effort?: 'low' | 'medium' | 'high';
+  /** Clear thinking output for Z.ai GLM models */
+  clear_thinking?: boolean;
+}
+
 /** NVIDIA AI Cloud settings for the NVIDIA API. */
 export interface NvidiaAISettings extends ProviderSettings {
-    /** NVIDIA API key (required, prefix: nvapi-). */
-    apiKey: string;
+  /** NVIDIA API key (required, prefix: nvapi-). */
+  apiKey: string;
+  /** Chat template kwargs for reasoning/thinking modes (DeepSeek v4 Pro, Z.ai GLM models) */
+  chatTemplateKwargs?: NvidiaChatTemplateKwargs;
+  /** Enable streaming responses (default: false) */
+  stream?: boolean;
 }
 
 export interface VertexAISettings extends ProviderSettings {
@@ -643,16 +658,18 @@ export interface AutohandConfig {
 }
 
 /** Supported web search providers */
-export type SearchProvider = 'brave' | 'duckduckgo' | 'parallel' | 'google';
+export type SearchProvider = 'brave' | 'duckduckgo' | 'parallel' | 'google' | 'browser-profile' | 'exa';
 
 /** Web search provider settings */
 export interface SearchSettings {
-  /** Active search provider (default: google) */
+  /** Active search provider (default: browser-profile when available, else google) */
   provider?: SearchProvider;
   /** Brave Search API key */
   braveApiKey?: string;
   /** Parallel.ai API key */
   parallelApiKey?: string;
+  /** Exa.ai API key */
+  exaApiKey?: string;
 }
 
 export interface LoadedConfig extends AutohandConfig {
@@ -876,6 +893,8 @@ export interface LLMRequest {
   signal?: AbortSignal;
   /** Thinking/reasoning depth level (default: 'normal') */
   thinkingLevel?: ThinkingLevel;
+  /** Chat template kwargs for NVIDIA reasoning models (DeepSeek, Z.ai GLM) */
+  chatTemplateKwargs?: NvidiaChatTemplateKwargs;
 }
 
 /** Token usage statistics from LLM response */

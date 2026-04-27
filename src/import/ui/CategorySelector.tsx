@@ -199,7 +199,13 @@ export async function showCategorySelector(
           }}
         />
       </I18nProvider>,
-      { exitOnCtrlC: false },
+      {
+        stdin: process.stdin,
+        stdout: process.stdout,
+        stderr: process.stderr,
+        exitOnCtrlC: false,
+        concurrent: true
+      },
     );
   });
 }

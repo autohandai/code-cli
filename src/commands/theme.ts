@@ -14,7 +14,7 @@ import { saveConfig } from '../config.js';
 interface ThemeContext {
   config: LoadedConfig;
   onBeforeModal?: () => void;
-  onAfterModal?: () => void;
+  onAfterModal?: () => Promise<void> | void;
 }
 
 /**
@@ -74,7 +74,7 @@ export async function theme(ctx: ThemeContext): Promise<string | null> {
         initialIndex: themes.indexOf(currentTheme)
       });
     } finally {
-      ctx.onAfterModal?.();
+      await ctx.onAfterModal?.();
     }
   })();
 

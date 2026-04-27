@@ -140,6 +140,11 @@
         "title": "Configurazione Cerebras AI",
         "apiKeyUrl": "https://cloud.cerebras.ai/platform/",
         "enterModel": "Seleziona un modello Cerebras"
+      },
+      "nvidia": {
+        "title": "Configurazione NVIDIA AI Cloud",
+        "apiKeyUrl": "https://build.nvidia.com/api-key",
+        "enterModel": "Seleziona un modello NVIDIA"
       }
     },
     "about": {
@@ -440,12 +445,14 @@
     "vertexai": "Google Cloud Vertex AI",
     "xai": "xAI (Grok)",
     "cerebras": "Cerebras AI",
+    "nvidia": "NVIDIA AI Cloud",
     "hints": {
       "openrouter": "Cloud - Accesso a più di 100 modelli (Claude, GPT-4, ecc.)",
       "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)",
       "vertexai": "Cloud - Google Cloud Vertex AI (Gemini, Claude, GLM)",
       "xai": "Cloud - xAI Grok models with web search, X search, and code execution",
-      "cerebras": "Cloud - Cerebras AI with GLM and Qwen models"
+      "cerebras": "Cloud - Cerebras AI with GLM and Qwen models",
+      "nvidia": "Cloud - Modelli NVIDIA NIM (Llama, Phi, Gemma, Mixtral, ecc.)"
     },
     "config": {
       "selectReasoningEffort": "Seleziona il livello di ragionamento",

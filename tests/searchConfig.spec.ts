@@ -9,7 +9,7 @@ import { configureSearch, getSearchConfig, webSearch } from '../src/actions/web.
 describe('Search Configuration', () => {
   beforeEach(() => {
     // Reset to default configuration
-    configureSearch({ provider: 'duckduckgo', braveApiKey: undefined, parallelApiKey: undefined });
+    configureSearch({ provider: 'browser-profile', braveApiKey: undefined, parallelApiKey: undefined, exaApiKey: undefined });
   });
 
   describe('configureSearch', () => {
@@ -17,6 +17,18 @@ describe('Search Configuration', () => {
       configureSearch({ provider: 'brave' });
       const config = getSearchConfig();
       expect(config.provider).toBe('brave');
+    });
+
+    it('sets provider to browser-profile', () => {
+      configureSearch({ provider: 'browser-profile' });
+      const config = getSearchConfig();
+      expect(config.provider).toBe('browser-profile');
+    });
+
+    it('sets provider to exa', () => {
+      configureSearch({ provider: 'exa' });
+      const config = getSearchConfig();
+      expect(config.provider).toBe('exa');
     });
 
     it('sets provider to duckduckgo', () => {
@@ -43,6 +55,12 @@ describe('Search Configuration', () => {
       expect(config.parallelApiKey).toBe('test-parallel-key');
     });
 
+    it('stores exa API key', () => {
+      configureSearch({ provider: 'exa', exaApiKey: 'test-exa-key' });
+      const config = getSearchConfig();
+      expect(config.exaApiKey).toBe('test-exa-key');
+    });
+
     it('preserves existing settings when partially updating', () => {
       configureSearch({ provider: 'brave', braveApiKey: 'test-key' });
       configureSearch({ provider: 'duckduckgo' });
@@ -55,7 +73,7 @@ describe('Search Configuration', () => {
   describe('getSearchConfig', () => {
     it('returns configured provider after explicit set', () => {
       const config = getSearchConfig();
-      expect(config.provider).toBe('duckduckgo'); // set by beforeEach
+      expect(config.provider).toBe('browser-profile'); // set by beforeEach (new default)
     });
 
     it('returns a copy of config (not reference)', () => {
@@ -67,6 +85,12 @@ describe('Search Configuration', () => {
   });
 
   describe('webSearch provider selection', () => {
+    it('throws error for exa without API key', async () => {
+      configureSearch({ provider: 'exa', exaApiKey: undefined });
+
+      await expect(webSearch('test query')).rejects.toThrow('Exa.ai Search requires an API key');
+    });
+
     it('throws error for brave without API key', async () => {
       configureSearch({ provider: 'brave', braveApiKey: undefined });
 

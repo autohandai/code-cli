@@ -11,7 +11,12 @@ import { LiveCommandBlock, ToolOutputStatic, ToolOutputBatchStatic, type LiveCom
 import { InputLine } from './InputLine.js';
 import { ThinkingOutput } from './ThinkingOutput.js';
 import { FileMentionDropdown, parseFileSuggestions, matchFileMention, type FileMentionSuggestion } from './FileMentionDropdown.js';
+import { SlashCommandDropdown, matchSlashCommand, buildSlashSuggestions, buildSubcommandSuggestions, type SlashCommandSuggestion } from './SlashCommandDropdown.js';
+import { SkillMentionDropdown, matchSkillMention, buildSkillSuggestions, type SkillSuggestion } from './SkillMentionDropdown.js';
+import type { SlashCommand } from '../../core/slashCommandTypes.js';
+import type { SkillMentionInfo } from '../mentionFilter.js';
 import { UserMessage } from './UserMessage.js';
+import { ShortcutsHelpPanel } from './ShortcutsHelpPanel.js';
 import { SitrepMessage, parseSitrepText } from './SitrepMessage.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/index.js';
@@ -43,6 +48,10 @@ export interface AgentUIState {
   planModeIndicator?: string;
   /** Context percentage remaining (0-100) */
   contextPercent?: number;
+  /** Current LLM provider key (e.g. 'openai', 'openrouter') */
+  provider?: string;
+  /** Current LLM model name */
+  model?: string;
 }
 
 export interface AgentUIProps {
@@ -57,6 +66,10 @@ export interface AgentUIProps {
   onImageDetected?: (data: Buffer, mimeType: string, filename?: string) => number;
   /** Provider for file list used in @ mention autocomplete */
   filesProvider?: () => string[];
+  /** Slash commands for / autocomplete */
+  slashCommands?: SlashCommand[];
+  /** Provider for skills used in $ mention autocomplete */
+  skillsProvider?: () => SkillMentionInfo[];
 }
 
 interface TextBufferKeyInfo {
@@ -137,15 +150,25 @@ export function handleInkTextBufferInput(
 }
 
 export function getComposerHelpLine(
-  isWorking: boolean,
+  _isWorking: boolean,
+  providerDisplay: string,
   contextDisplay: string,
   commandHint: string
 ): string {
-  if (isWorking) {
-    return ' ';
+  // Helpline is always visible (working or idle) so users keep
+  // shortcuts/provider/context context across the entire turn.
+  const parts: string[] = [];
+  if (providerDisplay) {
+    parts.push(providerDisplay);
+  }
+  if (contextDisplay) {
+    parts.push(contextDisplay);
+  }
+  if (commandHint) {
+    parts.push(commandHint);
   }
 
-  return `${contextDisplay}${contextDisplay ? ' · ' : ''}${commandHint}`;
+  return parts.join(' · ');
 }
 
 /**
@@ -174,6 +197,8 @@ export function AgentUI({
   enableQueueInput = true,
   onImageDetected,
   filesProvider,
+  slashCommands,
+  skillsProvider,
 }: AgentUIProps) {
   const { exit } = useApp();
   const { colors } = useTheme();
@@ -189,6 +214,20 @@ export function AgentUI({
   const [fileMentionActiveIndex, setFileMentionActiveIndex] = useState(0);
   const [fileMentionVisible, setFileMentionVisible] = useState(false);
   const fileMentionStartIndexRef = useRef<number | null>(null);
+
+  // Slash command autocomplete state
+  const [slashSuggestions, setSlashSuggestions] = useState<SlashCommandSuggestion[]>([]);
+  const [slashActiveIndex, setSlashActiveIndex] = useState(0);
+  const [slashVisible, setSlashVisible] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const slashStartIndexRef = useRef<number | null>(null);
+  const slashFullMatchRef = useRef<string | null>(null);
+
+  // Skill ($) mention autocomplete state
+  const [skillSuggestions, setSkillSuggestions] = useState<SkillSuggestion[]>([]);
+  const [skillActiveIndex, setSkillActiveIndex] = useState(0);
+  const [skillVisible, setSkillVisible] = useState(false);
+  const skillStartIndexRef = useRef<number | null>(null);
   const textBufferRef = useRef<TextBuffer>(
     new TextBuffer(
       getInkTextBufferViewportWidth(process.stdout.columns),
@@ -241,6 +280,24 @@ export function AgentUI({
   onInstructionRef.current = onInstruction;
   const filesProviderRef = useRef(filesProvider);
   filesProviderRef.current = filesProvider;
+  const slashCommandsRef = useRef(slashCommands);
+  slashCommandsRef.current = slashCommands;
+  const slashVisibleRef = useRef(slashVisible);
+  slashVisibleRef.current = slashVisible;
+  const slashSuggestionsRef = useRef(slashSuggestions);
+  slashSuggestionsRef.current = slashSuggestions;
+  const slashActiveIndexRef = useRef(slashActiveIndex);
+  slashActiveIndexRef.current = slashActiveIndex;
+  const showShortcutsRef = useRef(showShortcuts);
+  showShortcutsRef.current = showShortcuts;
+  const skillsProviderRef = useRef(skillsProvider);
+  skillsProviderRef.current = skillsProvider;
+  const skillVisibleRef = useRef(skillVisible);
+  skillVisibleRef.current = skillVisible;
+  const skillSuggestionsRef = useRef(skillSuggestions);
+  skillSuggestionsRef.current = skillSuggestions;
+  const skillActiveIndexRef = useRef(skillActiveIndex);
+  skillActiveIndexRef.current = skillActiveIndex;
 
   // Throttled sync from buffer to React state to batch rapid keystrokes
   // and reduce re-render frequency during fast typing (16ms = ~60fps).
@@ -420,6 +477,116 @@ export function AgentUI({
     setFileMentionActiveIndex(prev => Math.min(prev, matchingFiles.length - 1));
   }, [input, cursorOffset, filesProvider]);
 
+  // Update slash command suggestions when input changes
+  useEffect(() => {
+    const cmds = slashCommandsRef.current;
+    if (!cmds || cmds.length === 0) {
+      setSlashVisible(false);
+      setSlashSuggestions([]);
+      return;
+    }
+
+    // Guard against stale React state (same pattern as file mentions)
+    const buffer = textBufferRef.current;
+    if (input !== buffer.getText() || cursorOffset !== getTextBufferCursorOffset(buffer)) {
+      return;
+    }
+
+    const trimmed = input.replace(/^\s+/, '');
+    if (!trimmed.startsWith('/')) {
+      setSlashVisible(false);
+      setSlashSuggestions([]);
+      slashStartIndexRef.current = null;
+      slashFullMatchRef.current = null;
+      return;
+    }
+
+    // Check subcommand mode first (e.g. "/learn " → show subcommands)
+    const subcommandResult = buildSubcommandSuggestions(trimmed, cmds);
+    if (subcommandResult !== null) {
+      if (subcommandResult.length > 0) {
+        const match = matchSlashCommand(input, cursorOffset);
+        slashStartIndexRef.current = match?.startIndex ?? 0;
+        slashFullMatchRef.current = trimmed;
+        setSlashSuggestions(subcommandResult);
+        setSlashVisible(true);
+        setSlashActiveIndex(prev => Math.min(prev, subcommandResult.length - 1));
+      } else {
+        setSlashVisible(false);
+        setSlashSuggestions([]);
+      }
+      return;
+    }
+
+    // Top-level command matching (e.g. "/mo" → /model)
+    const match = matchSlashCommand(input, cursorOffset);
+    if (!match) {
+      setSlashVisible(false);
+      setSlashSuggestions([]);
+      slashStartIndexRef.current = null;
+      slashFullMatchRef.current = null;
+      return;
+    }
+
+    const suggestions = buildSlashSuggestions(match.seed, cmds);
+    if (suggestions.length === 0) {
+      setSlashVisible(false);
+      setSlashSuggestions([]);
+      slashStartIndexRef.current = null;
+      slashFullMatchRef.current = null;
+      return;
+    }
+
+    slashStartIndexRef.current = match.startIndex;
+    slashFullMatchRef.current = input.slice(match.startIndex);
+    setSlashSuggestions(suggestions);
+    setSlashVisible(true);
+    setSlashActiveIndex(prev => Math.min(prev, suggestions.length - 1));
+  }, [input, cursorOffset]);
+
+  // Update skill ($) mention suggestions when input changes
+  useEffect(() => {
+    const provider = skillsProviderRef.current;
+    if (!provider) {
+      if (skillVisibleRef.current) {
+        setSkillVisible(false);
+        setSkillSuggestions([]);
+        skillStartIndexRef.current = null;
+      }
+      return;
+    }
+
+    const buffer = textBufferRef.current;
+    if (input !== buffer.getText() || cursorOffset !== getTextBufferCursorOffset(buffer)) {
+      return;
+    }
+
+    const mention = matchSkillMention(input, cursorOffset);
+    if (!mention) {
+      if (skillVisibleRef.current) {
+        setSkillVisible(false);
+        setSkillSuggestions([]);
+        skillStartIndexRef.current = null;
+      }
+      return;
+    }
+
+    const suggestions = buildSkillSuggestions(mention.seed, provider());
+    if (suggestions.length === 0) {
+      if (skillVisibleRef.current) {
+        setSkillVisible(false);
+        setSkillSuggestions([]);
+        skillStartIndexRef.current = null;
+      }
+      return;
+    }
+
+    skillStartIndexRef.current = mention.startIndex;
+    setSkillSuggestions(suggestions);
+    setSkillVisible(true);
+    setSkillActiveIndex(prev => Math.min(prev, suggestions.length - 1));
+  }, [input, cursorOffset]);
+
   // Stable input handler that reads mutable values from refs.
   // Empty dependency array means useInput never re-registers, eliminating
   // a major source of flicker during rapid keystrokes.
@@ -458,7 +625,11 @@ export function AgentUI({
           onCtrlCRef.current();
           return 1;
         } else {
-          exit();
+          // Defer exit() to break out of React's render-phase state computation.
+          // Ink's useApp().exit() calls setState on the App component; triggering
+          // that from inside a functional updater causes React 19 to warn about
+          // nested component updates during render.
+          setImmediate(exit);
           return prev;
         }
       });
@@ -477,8 +648,35 @@ export function AgentUI({
       return;
     }
 
-    // Handle arrow keys for file mention navigation
-    if (fileMentionVisibleRef.current && fileMentionSuggestionsRef.current.length > 0) {
+    // Handle arrow keys for slash / skill / file mention navigation
+    // Priority: slash > skill > file mention (only one is ever visible)
+    if (slashVisibleRef.current && slashSuggestionsRef.current.length > 0) {
+      if (key.upArrow) {
+        setSlashActiveIndex(prev =>
+          prev > 0 ? prev - 1 : slashSuggestionsRef.current.length - 1
+        );
+        return;
+      }
+      if (key.downArrow) {
+        setSlashActiveIndex(prev =>
+          prev < slashSuggestionsRef.current.length - 1 ? prev + 1 : 0
+        );
+        return;
+      }
+    } else if (skillVisibleRef.current && skillSuggestionsRef.current.length > 0) {
+      if (key.upArrow) {
+        setSkillActiveIndex(prev =>
+          prev > 0 ? prev - 1 : skillSuggestionsRef.current.length - 1
+        );
+        return;
+      }
+      if (key.downArrow) {
+        setSkillActiveIndex(prev =>
+          prev < skillSuggestionsRef.current.length - 1 ? prev + 1 : 0
+        );
+        return;
+      }
+    } else if (fileMentionVisibleRef.current && fileMentionSuggestionsRef.current.length > 0) {
       if (key.upArrow) {
         setFileMentionActiveIndex(prev => 
           prev > 0 ? prev - 1 : fileMentionSuggestionsRef.current.length - 1
@@ -493,8 +691,47 @@ export function AgentUI({
       }
     }
 
-    // Handle Tab for file mention acceptance
+    // Handle Tab for slash / skill / file mention acceptance
+    // Priority matches the arrow-key block above
     if (key.tab && !key.shift) {
+      if (skillVisibleRef.current && skillSuggestionsRef.current.length > 0 && skillStartIndexRef.current !== null) {
+        const suggestion = skillSuggestionsRef.current[skillActiveIndexRef.current];
+        if (suggestion) {
+          const buffer = textBufferRef.current;
+          const currentText = buffer.getText();
+          const beforeMention = currentText.slice(0, skillStartIndexRef.current);
+          const afterCursor = currentText.slice(getTextBufferCursorOffset(buffer));
+          const replacement = `${suggestion.name} `;
+          buffer.setText(beforeMention + replacement + afterCursor);
+          syncInputFromBuffer();
+
+          setSkillVisible(false);
+          setSkillSuggestions([]);
+          skillStartIndexRef.current = null;
+          return;
+        }
+      }
+      if (slashVisibleRef.current && slashSuggestionsRef.current.length > 0 && slashStartIndexRef.current !== null) {
+        const suggestion = slashSuggestionsRef.current[slashActiveIndexRef.current];
+        if (suggestion) {
+          const buffer = textBufferRef.current;
+          const currentText = buffer.getText();
+          const beforeSlash = currentText.slice(0, slashStartIndexRef.current);
+          const afterCursor = currentText.slice(getTextBufferCursorOffset(buffer));
+          const replacement = `${suggestion.command} `;
+          const newText = beforeSlash + replacement + afterCursor;
+
+          buffer.setText(newText);
+          syncInputFromBuffer();
+
+          // Reset slash command state
+          setSlashVisible(false);
+          setSlashSuggestions([]);
+          slashStartIndexRef.current = null;
+          slashFullMatchRef.current = null;
+          return;
+        }
+      }
       if (fileMentionVisibleRef.current && fileMentionSuggestionsRef.current.length > 0 && fileMentionStartIndexRef.current !== null) {
         const suggestion = fileMentionSuggestionsRef.current[fileMentionActiveIndexRef.current];
         if (suggestion) {
@@ -516,6 +753,29 @@ export function AgentUI({
         }
       }
       return;
+    }
+
+    // ── Toggle shortcut help on '?' when input is empty ──
+    if (char === '?' && !key.ctrl && !key.meta && !key.shift) {
+      const currentText = textBufferRef.current.getText();
+      if (currentText.trim() === '' || currentText.trim() === '?') {
+        if (currentText.trim() === '?') {
+          textBufferRef.current.setText('');
+          syncInputFromBuffer();
+        }
+        setShowShortcuts(prev => !prev);
+        return;
+      }
+    }
+
+    // ── Auto-hide shortcut help on editable keys ──
+    if (showShortcutsRef.current) {
+      const isNavigationKey = key.escape || key.tab || key.return || key.upArrow || key.downArrow || key.leftArrow || key.rightArrow;
+      const isModifierKey = key.ctrl || key.meta;
+      if ((!isNavigationKey && !isModifierKey && char) || key.backspace || key.delete) {
+        setShowShortcuts(false);
+        // Fall through to process the key normally
+      }
     }
 
     const buffer = textBufferRef.current;
@@ -573,6 +833,67 @@ export function AgentUI({
           fileMentionStartIndexRef.current = null;
           setFileMentionVisible(false);
           setFileMentionSuggestions([]);
+        }
+      }
+
+      // Immediate slash command detection (same pattern as file mentions)
+      const cmds = slashCommandsRef.current;
+      if (cmds && cmds.length > 0) {
+        const trimmed = currentText.replace(/^\s+/, '');
+        if (trimmed.startsWith('/')) {
+          const subcmdResult = buildSubcommandSuggestions(trimmed, cmds);
+          if (subcmdResult !== null) {
+            if (subcmdResult.length > 0) {
+              const slashMatch = matchSlashCommand(currentText, currentOffset);
+              slashStartIndexRef.current = slashMatch?.startIndex ?? 0;
+              slashFullMatchRef.current = trimmed;
+              slashSuggestionsRef.current = subcmdResult;
+              slashVisibleRef.current = true;
+              setSlashSuggestions(subcmdResult);
+              setSlashVisible(true);
+              setSlashActiveIndex(prev => Math.min(prev, subcmdResult.length - 1));
+            } else {
+              slashVisibleRef.current = false;
+              slashSuggestionsRef.current = [];
+              setSlashVisible(false);
+              setSlashSuggestions([]);
+            }
+          } else {
+            const slashMatch = matchSlashCommand(currentText, currentOffset);
+            if (slashMatch) {
+              const slashSuggs = buildSlashSuggestions(slashMatch.seed, cmds);
+              if (slashSuggs.length > 0) {
+                slashStartIndexRef.current = slashMatch.startIndex;
+                slashFullMatchRef.current = currentText.slice(slashMatch.startIndex);
+                slashSuggestionsRef.current = slashSuggs;
+                slashVisibleRef.current = true;
+                setSlashSuggestions(slashSuggs);
+                setSlashVisible(true);
+                setSlashActiveIndex(prev => Math.min(prev, slashSuggs.length - 1));
+              } else if (slashVisibleRef.current) {
+                slashVisibleRef.current = false;
+                slashSuggestionsRef.current = [];
+                slashStartIndexRef.current = null;
+                slashFullMatchRef.current = null;
+                setSlashVisible(false);
+                setSlashSuggestions([]);
+              }
+            } else if (slashVisibleRef.current) {
+              slashVisibleRef.current = false;
+              slashSuggestionsRef.current = [];
+              slashStartIndexRef.current = null;
+              slashFullMatchRef.current = null;
+              setSlashVisible(false);
+              setSlashSuggestions([]);
+            }
+          }
+        } else if (slashVisibleRef.current) {
+          slashVisibleRef.current = false;
+          slashSuggestionsRef.current = [];
+          slashStartIndexRef.current = null;
+          slashFullMatchRef.current = null;
+          setSlashVisible(false);
+          setSlashSuggestions([]);
         }
       }
 
@@ -704,15 +1025,32 @@ export function AgentUI({
         cursorOffset={cursorOffset}
         ctrlCCount={ctrlCCount}
         contextPercent={state.contextPercent}
+        provider={state.provider}
+        model={state.model}
         fileMentionDropdown={
           <FileMentionDropdown
             suggestions={fileMentionSuggestions}
             activeIndex={fileMentionActiveIndex}
-            visible={fileMentionVisible && state.isWorking}
+            visible={fileMentionVisible && !state.isWorking}
+          />
+        }
+        skillMentionDropdown={
+          <SkillMentionDropdown
+            suggestions={skillSuggestions}
+            activeIndex={skillActiveIndex}
+            visible={skillVisible && !state.isWorking}
+          />
+        }
+        slashCommandDropdown={
+          <SlashCommandDropdown
+            suggestions={slashSuggestions}
+            activeIndex={slashActiveIndex}
+            visible={slashVisible && !state.isWorking}
           />
         }
         inputWidth={inputWidth}
         borderStyle={inputBorderStyle}
+        showShortcuts={showShortcuts}
       />
     </Box>
   );
@@ -804,6 +1142,8 @@ interface StatusSectionProps {
   queuedInstructions: string[];
   completionStats: { elapsed: string; tokens: string } | null;
   contextPercent?: number;
+  provider?: string;
+  model?: string;
 }
 
 const StatusSection = memo(function StatusSection({
@@ -814,6 +1154,8 @@ const StatusSection = memo(function StatusSection({
   queuedInstructions,
   completionStats,
   contextPercent,
+  provider,
+  model,
 }: StatusSectionProps) {
   const { colors } = useTheme();
 
@@ -831,6 +1173,8 @@ const StatusSection = memo(function StatusSection({
         tokens={tokens}
         queueCount={queuedInstructions.length}
         contextPercent={contextPercent}
+        provider={provider}
+        model={model}
       />
 
       {/* Info section - either queue or completion stats, stable position */}
@@ -861,7 +1205,9 @@ const StatusSection = memo(function StatusSection({
          prev.contextPercent === next.contextPercent &&
          prev.queuedInstructions.length === next.queuedInstructions.length &&
          prev.completionStats?.elapsed === next.completionStats?.elapsed &&
-         prev.completionStats?.tokens === next.completionStats?.tokens;
+         prev.completionStats?.tokens === next.completionStats?.tokens &&
+         prev.provider === next.provider &&
+         prev.model === next.model;
 });
 
 /**
@@ -916,11 +1262,15 @@ const InputLineWrapper = memo(function InputLineWrapper({
 interface HelpLineSectionProps {
   isWorking: boolean;
   contextPercent?: number;
+  provider?: string;
+  model?: string;
 }
 
 const HelpLineSection = memo(function HelpLineSection({
   isWorking,
   contextPercent,
+  provider,
+  model,
 }: HelpLineSectionProps) {
   const { colors } = useTheme();
   const { t } = useTranslation();
@@ -930,16 +1280,23 @@ const HelpLineSection = memo(function HelpLineSection({
     ? `${Math.round(contextPercent)}% context left`
     : '';
 
+  // Format provider/model display
+  const providerDisplay = provider
+    ? `autohand (${t(`providers.${provider}`) ?? provider}${model ? `, ${model}` : ''})`
+    : '';
+
   return (
     <Box>
       <Text color={colors.dim}>
-        {getComposerHelpLine(isWorking, contextDisplay, t('ui.commandHint'))}
+        {getComposerHelpLine(isWorking, providerDisplay, contextDisplay, t('ui.commandHint'))}
       </Text>
     </Box>
   );
 }, (prev, next) => {
   return prev.isWorking === next.isWorking &&
-         prev.contextPercent === next.contextPercent;
+         prev.contextPercent === next.contextPercent &&
+         prev.provider === next.provider &&
+         prev.model === next.model;
 });
 
 /**
@@ -984,6 +1341,36 @@ const FileMentionWrapper = memo(function FileMentionWrapper({
 });
 
 /**
+ * Slash command dropdown wrapper
+ */
+interface SlashCommandWrapperProps {
+  slashCommandDropdown?: React.ReactNode;
+}
+
+const SlashCommandWrapper = memo(function SlashCommandWrapper({
+  slashCommandDropdown,
+}: SlashCommandWrapperProps) {
+  return slashCommandDropdown ?? null;
+}, (prev, next) => {
+  return prev.slashCommandDropdown === next.slashCommandDropdown;
+});
+
+/**
+ * Skill mention dropdown wrapper
+ */
+interface SkillMentionWrapperProps {
+  skillMentionDropdown?: React.ReactNode;
+}
+
+const SkillMentionWrapper = memo(function SkillMentionWrapper({
+  skillMentionDropdown,
+}: SkillMentionWrapperProps) {
+  return skillMentionDropdown ?? null;
+}, (prev, next) => {
+  return prev.skillMentionDropdown === next.skillMentionDropdown;
+});
+
+/**
  * Fixed bottom section - status line, queue, input
  * Split into StatusSection and InputSection for better memoization
  */
@@ -999,11 +1386,17 @@ interface FixedBottomProps {
   cursorOffset: number;
   ctrlCCount: number;
   contextPercent?: number;
+  provider?: string;
+  model?: string;
   fileMentionDropdown?: React.ReactNode;
+  slashCommandDropdown?: React.ReactNode;
+  skillMentionDropdown?: React.ReactNode;
   /** Terminal width for InputLine */
   inputWidth: number;
   /** Border style for the input box */
   borderStyle?: InputBorderStyle;
+  /** Whether the shortcuts help panel is visible */
+  showShortcuts: boolean;
 }
 
 const FixedBottom = memo(function FixedBottom({
@@ -1018,9 +1411,14 @@ const FixedBottom = memo(function FixedBottom({
   cursorOffset,
   ctrlCCount,
   contextPercent,
+  provider,
+  model,
   fileMentionDropdown,
+  slashCommandDropdown,
+  skillMentionDropdown,
   inputWidth,
   borderStyle,
+  showShortcuts,
 }: FixedBottomProps) {
   return (
     <>
@@ -1032,6 +1430,8 @@ const FixedBottom = memo(function FixedBottom({
         queuedInstructions={queuedInstructions}
         completionStats={completionStats}
         contextPercent={contextPercent}
+        provider={provider}
+        model={model}
       />
       <InputLineWrapper
         isWorking={isWorking}
@@ -1042,9 +1442,14 @@ const FixedBottom = memo(function FixedBottom({
         borderStyle={borderStyle}
       />
       <FileMentionWrapper fileMentionDropdown={fileMentionDropdown} />
+      <SlashCommandWrapper slashCommandDropdown={slashCommandDropdown} />
+      <SkillMentionWrapper skillMentionDropdown={skillMentionDropdown} />
+      <ShortcutsHelpPanel visible={showShortcuts && !isWorking} />
       <HelpLineSection
         isWorking={isWorking}
         contextPercent={contextPercent}
+        provider={provider}
+        model={model}
       />
       <CtrlCWarning ctrlCCount={ctrlCCount} />
     </>
@@ -1068,6 +1473,10 @@ export function createInitialUIState(): AgentUIState {
     currentInput: '',
     finalResponse: null,
     completionStats: null,
-    contextPercent: undefined
+    // Default to 100% before any tokens are consumed so the welcome helpline
+    // shows "100% context left" right after startup, before the first prompt.
+    contextPercent: 100,
+    provider: undefined,
+    model: undefined,
   };
 }
