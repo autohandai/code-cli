@@ -67,7 +67,8 @@ import type {
   ToolCallRequest,
   ExplorationEvent,
   ProviderName,
-  ToolOutputChunk
+  ToolOutputChunk,
+  LoadedConfig
 } from '../types.js';
 
 import { AgentDelegator } from './agents/AgentDelegator.js';
@@ -83,7 +84,8 @@ import { GitHubRegistryFetcher } from '../skills/GitHubRegistryFetcher.js';
 import { fetchRegistryWithFallback, installSkillWithSecurity } from '../skills/communityInstaller.js';
 import { McpClientManager } from '../mcp/McpClientManager.js';
 import type { McpServerConfig } from '../mcp/types.js';
-import { AUTOHAND_PATHS } from '../constants.js';
+import { AUTOHAND_PATHS, AUTH_CONFIG } from '../constants.js';
+import { getAuthClient } from '../auth/index.js';
 import { PersistentInput, createPersistentInput } from '../ui/persistentInput.js';
 import { injectLocaleIntoPrompt, getCurrentLocale, t } from '../i18n/index.js';
 import { formatToolOutputForDisplay } from '../ui/toolOutput.js';
@@ -198,17 +200,9 @@ export class AutohandAgent {
   private inkRenderer: InkRenderer | null = null;
   private useInkRenderer = false;
   private pendingInkInstructions: string[] = [];
-  /** Resolver for the promise that waits for the next Ink-submitted instruction.
-   *  Set when the loop is idle and waiting for Composer input; resolved by
-   *  handleInkSubmittedInstruction so the loop can dequeue and process it. */
   private inkInstructionResolver: (() => void) | null = null;
-  /** Current abort controller for the active Ink turn — referenced by Ink's onEscape */
-  private currentInkAbortController: AbortController | null = null;
-  /** Current cancel callback for the active Ink turn — referenced by Ink's onEscape */
-  private currentInkOnCancel: (() => void) | null = null;
-  private persistentInput: PersistentInput;
-  private persistentInputActiveTurn = false;
   private readlinePromptActive = false;
+  private modalActive = false;
   private deferredDebugLines: string[] = [];
   private queueInput = '';
   private promptSeedInput = '';
@@ -217,6 +211,10 @@ export class AutohandAgent {
   private lastRenderedStatus = '';
   private activityIndicator: ActivityIndicator;
   private lastAssistantResponseForNotification = '';
+  private persistentInput: PersistentInput;
+  private persistentInputActiveTurn = false;
+  private currentInkAbortController: AbortController | null = null;
+  private currentInkOnCancel: (() => void) | null = null;
 
   // New feature modules
   private imageManager: ImageManager;
@@ -231,6 +229,7 @@ export class AutohandAgent {
   private searchQueries: string[] = [];
   private sessionRetryCount = 0;
   private consecutiveCancellations = 0;
+  private lastActivityAt = Date.now();
 
   // Context compaction - auto-compresses context to prevent "context too long" errors
   private contextOrchestrator!: ContextOrchestrator;
@@ -336,6 +335,12 @@ export class AutohandAgent {
         if (runtime.isRpcMode) {
           return;
         }
+        // Suppress hook output when a modal is active to avoid corrupting
+        // the alternate screen buffer. The output will be shown after the
+        // modal closes via onAfterModal.
+        if (this.modalActive) {
+          return;
+        }
         // Route hook output through promptNotify so it renders above the
         // active composer instead of interleaving with readline output.
         if (result.stdout && !result.response) {
@@ -437,6 +442,11 @@ export class AutohandAgent {
     });
 
     this.activeProvider = runtime.config.provider ?? 'openrouter';
+    if (process.env.AUTOHAND_DEBUG === '1') {
+      const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
+      const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
+      console.log(`[DEBUG] Initial provider: ${this.activeProvider}, model: ${model}`);
+    }
     // Determine client context for delegation
     const delegatorContext = runtime.options.clientContext
       ?? (runtime.options.restricted ? 'restricted' : 'cli');
@@ -488,7 +498,14 @@ export class AutohandAgent {
       () => this.llm,
       (newLlm) => { this.llm = newLlm; },
       () => this.activeProvider,
-      (provider) => { this.activeProvider = provider; },
+      (provider) => {
+        this.activeProvider = provider;
+        if (process.env.AUTOHAND_DEBUG === '1') {
+          const providerSettings = getProviderConfig(this.runtime.config, provider);
+          const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
+          console.log(`[DEBUG] Provider changed: ${provider}, model: ${model}`);
+        }
+      },
       () => this.delegator,
       (newDelegator) => { this.delegator = newDelegator; },
       this.telemetryManager,
@@ -1180,6 +1197,10 @@ export class AutohandAgent {
       // Non-interactive mode (RPC/ACP) - guards interactive commands
       isNonInteractive: runtime.isRpcMode === true,
       onBeforeModal: () => {
+        if (process.env.AUTOHAND_DEBUG === '1') {
+          console.log(`[DEBUG] onBeforeModal: inkRenderer exists=${!!this.inkRenderer}, persistentInputActive=${this.persistentInputActiveTurn}`);
+        }
+        this.modalActive = true;
         if (this.inkRenderer) {
           this.inkRenderer.pause();
         }
@@ -1188,6 +1209,10 @@ export class AutohandAgent {
         }
       },
       onAfterModal: async () => {
+        if (process.env.AUTOHAND_DEBUG === '1') {
+          console.log(`[DEBUG] onAfterModal: inkRenderer exists=${!!this.inkRenderer}, persistentInputActive=${this.persistentInputActiveTurn}`);
+        }
+        this.modalActive = false;
         if (this.persistentInputActiveTurn) {
           try {
             this.persistentInput.resumeFromModal();
@@ -1197,6 +1222,9 @@ export class AutohandAgent {
         }
         if (this.inkRenderer) {
           await this.inkRenderer.resume();
+        }
+        if (process.env.AUTOHAND_DEBUG === '1') {
+          console.log(`[DEBUG] onAfterModal completed`);
         }
       },
       // After /learn recommends a skill, seed the next prompt with the install command
@@ -1727,6 +1755,17 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async runInteractiveLoop(): Promise<void> {
+    // Initialize Ink UI early so the composer is ready before the first idle check.
+    // This ensures consistent UI from startup instead of falling back to readline
+    // and then switching to Ink after the first prompt.
+    if (this.useInkRenderer && !this.inkRenderer) {
+      await this.initializeUI(undefined, undefined, true);
+      // Set to idle state so the Composer accepts input immediately
+      if (this.inkRenderer?.isRunning()) {
+        this.inkRenderer.setWorking(false);
+      }
+    }
+
     while (true) {
       try {
         let instruction: string | null = null;
@@ -1922,6 +1961,20 @@ If lint or tests fail, report the issues but do NOT commit.`;
         // This runs while the user was typing, so it's usually already done.
         await this.ensureInitComplete();
         this.flushMcpStartupSummaryIfPending();
+
+        // Check idle timeout — force logout if session has been idle too long.
+        // Must check BEFORE updating lastActivityAt so the idle duration is accurate.
+        if (this.runtime.config.auth?.token) {
+          const idleMs = Date.now() - this.lastActivityAt;
+          const timeoutMs = AUTH_CONFIG.idleTimeoutMs;
+          if (idleMs >= timeoutMs) {
+            await this.forceIdleLogout();
+            return;
+          }
+        }
+
+        // Update activity timestamp on every user interaction
+        this.lastActivityAt = Date.now();
 
         if (instruction === '/exit' || instruction === '/quit') {
           // Fire-and-forget: don't block quit on telemetry
@@ -2686,6 +2739,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
       }
     }, canUsePersistentInput);
 
+    if (process.env.AUTOHAND_DEBUG === '1') {
+      console.log(`[DEBUG] runInstruction: after initializeUI, inkRenderer exists=${!!this.inkRenderer}, useInkRenderer=${this.useInkRenderer}`);
+    }
+
     const shouldUsePersistentInput = canUsePersistentInput && !this.inkRenderer;
     let cleanupConsoleBridge: () => void = () => {};
 
@@ -2863,6 +2920,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
       // row (typically row 1), causing the next prompt to render at the top.
       // When using Ink, keep the renderer alive between turns to prevent the
       // composer from disappearing and reappearing during back-to-back turns.
+      if (process.env.AUTOHAND_DEBUG === '1') {
+        console.log(`[DEBUG] runInstruction finally: useInkRenderer=${this.useInkRenderer}, inkRenderer exists=${!!this.inkRenderer}`);
+      }
       this.cleanupUI(this.useInkRenderer);
 
       if (this.persistentInputActiveTurn && !keepPersistentInputForNextTurn) {
@@ -2974,6 +3034,49 @@ If lint or tests fail, report the issues but do NOT commit.`;
       tool_call_id: toolCallId
     };
     await session.append(message);
+  }
+
+  /**
+   * Force logout when the session has been idle beyond the configured timeout.
+   * Clears the local auth token, informs the user, and exits.
+   */
+  private async forceIdleLogout(): Promise<void> {
+    const idleMinutes = Math.round((Date.now() - this.lastActivityAt) / 60_000);
+    console.log();
+    console.log(chalk.yellow(`Session idle for ${idleMinutes} minutes — logging out for security.`));
+    console.log(chalk.gray('Run autohand again to start a new session.'));
+
+    // Clear auth from config
+    if (this.runtime.config.auth?.token) {
+      const authClient = getAuthClient();
+      try {
+        await authClient.logout(this.runtime.config.auth.token);
+      } catch {
+        // Server logout failed, but we still clear local token
+      }
+
+      const updatedConfig: LoadedConfig = {
+        ...this.runtime.config,
+        auth: undefined,
+      };
+      try {
+        await saveConfig(updatedConfig);
+      } catch {
+        // Ignore save errors during idle logout
+      }
+    }
+
+    // Save current session before exit
+    const session = this.sessionManager.getCurrentSession();
+    if (session) {
+      try {
+        await this.sessionManager.closeSession('Idle timeout — auto logout');
+      } catch {
+        // Ignore session save errors during forced logout
+      }
+    }
+
+    await this.closeSession();
   }
 
   private async closeSession(): Promise<void> {
@@ -4963,6 +5066,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
     onCancel?: () => void,
     suppressSpinner = false
   ): Promise<void> {
+    if (process.env.AUTOHAND_DEBUG === '1') {
+      console.log(`[DEBUG] initializeUI: useInkRenderer=${this.useInkRenderer}, stdout.isTTY=${process.stdout.isTTY}, stdin.isTTY=${process.stdin.isTTY}`);
+    }
     if (this.useInkRenderer && process.stdout.isTTY && process.stdin.isTTY) {
       // createInkRenderer is statically imported at the top of this file
       try {
@@ -4971,10 +5077,14 @@ If lint or tests fail, report the issues but do NOT commit.`;
         this.currentInkAbortController = abortController ?? null;
         this.currentInkOnCancel = onCancel ?? null;
 
+        const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
+        const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
+
         if (this.inkRenderer?.isRunning()) {
           // Reuse existing InkRenderer — just transition back to working state.
           // This avoids the composer disappear/reappear flicker between turns.
           this.inkRenderer.setWorking(true, 'Gathering context...');
+          this.inkRenderer.setProviderModel(this.activeProvider, model);
           this.runtime.inkRenderer = this.inkRenderer;
           return;
         }
@@ -4996,12 +5106,24 @@ If lint or tests fail, report the issues but do NOT commit.`;
           },
           enableQueueInput: this.runtime.config.agent?.enableRequestQueue !== false,
           filesProvider: () => this.workspaceFileCollector.getCachedFiles(),
+          slashCommands: SLASH_COMMANDS,
+          skillsProvider: () =>
+            this.skillsRegistry.listSkills().map((s) => ({
+              name: s.name,
+              description: s.description ?? '',
+              isActive: s.isActive,
+              source: s.source,
+            })),
         });
         this.inkRenderer.start();
         this.inkRenderer.setWorking(true, 'Gathering context...');
+        this.inkRenderer.setProviderModel(this.activeProvider, model);
         this.runtime.inkRenderer = this.inkRenderer;
-      } catch {
+      } catch (err) {
         // Fall back to ora spinner if ink can't be loaded (e.g., standalone binary)
+        if (process.env.AUTOHAND_DEBUG === '1') {
+          console.log(`[DEBUG] InkRenderer initialization failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
         this.useInkRenderer = false;
         if (!suppressSpinner) {
           this.initFallbackSpinner();
@@ -6126,6 +6248,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
     const providerConfig = this.runtime.config[provider] as { model?: string } | undefined;
     if (providerConfig) {
       providerConfig.model = modelId;
+    }
+
+    if (process.env.AUTOHAND_DEBUG === '1') {
+      console.log(`[DEBUG] Model changed via ACP: provider=${provider}, model=${modelId}`);
     }
 
     this.llm.setModel(modelId);
