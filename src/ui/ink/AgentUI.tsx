@@ -981,7 +981,7 @@ export function AgentUI({
       {/* Plan mode indicator */}
       {planModeIndicator && planModeStatusKey && (
         <Box>
-          <Text color="cyan" bold>{planModeIndicator}</Text>
+          <Text color={colors.accent} bold>{planModeIndicator}</Text>
           <Text color={colors.muted}> {t(planModeStatusKey)}</Text>
         </Box>
       )}

@@ -28,16 +28,14 @@ export interface InputLineProps {
   borderStyle?: InputBorderStyle;
 }
 
-const PLAN_BORDER_COLOR = '#ff9d3f';
-
 function InputLineComponent({ value, cursorOffset, isActive, width, borderStyle = 'default' }: InputLineProps) {
   const { colors } = useTheme();
 
   const borderColor = borderStyle === 'plan'
-    ? PLAN_BORDER_COLOR
+    ? colors.warning
     : borderStyle === 'shell'
       ? colors.dim
-      : undefined;
+      : colors.borderAccent;
 
   // Memoize borders - only recalculate when width changes
   const borders = useMemo(() => ({
@@ -73,11 +71,11 @@ function InputLineComponent({ value, cursorOffset, isActive, width, borderStyle 
   // Active state mirrors the boxed prompt style from readline mode.
   return (
     <Box marginTop={1} flexDirection="column">
-      <Text color={borderColor}>{borders.top}</Text>
+      <Text color={borderColor} backgroundColor={colors.userMessageBg}>{borders.top}</Text>
       {displayData.plainLines.map((line, index) => (
-        <Text key={index}>{line}</Text>
+        <Text key={index} color={colors.userMessageText} backgroundColor={colors.userMessageBg}>{line}</Text>
       ))}
-      <Text color={borderColor}>{borders.bottom}</Text>
+      <Text color={borderColor} backgroundColor={colors.userMessageBg}>{borders.bottom}</Text>
     </Box>
   );
 }

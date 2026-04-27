@@ -32,7 +32,7 @@ export const ShortcutsHelpPanel = memo(function ShortcutsHelpPanel({
 
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <Text color="cyan" bold>{' ? shortcuts'}</Text>
+      <Text color={colors.accent} bold>{' ? shortcuts'}</Text>
       {SHORTCUT_ROWS.map((row, i) => (
         <Box key={i} gap={2}>
           <Text color={colors.dim}>{`  ${row.left}`}</Text>
