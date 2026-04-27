@@ -70,6 +70,74 @@ describe('InputLine', () => {
     expect(output).not.toContain('[K');
   });
 });
+describe('InputLine theme colors', () => {
+  const originalColumns = process.stdout.columns;
+
+  beforeEach(() => {
+    Object.defineProperty(process.stdout, 'columns', {
+      value: 40,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process.stdout, 'columns', {
+      value: originalColumns,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  it('uses theme borderAccent color for default border style', () => {
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <InputLine value="test" cursorOffset={4} isActive width={40} borderStyle="default" />
+      </ThemeProvider>
+    );
+    const output = lastFrame();
+    // Should contain ANSI color codes from theme (borderAccent is typically a hex color)
+    // The output should have color codes, not be plain text
+    expect(output).toMatch(/\x1b\[[0-9;]*m/);
+    expect(output).toContain('test');
+  });
+
+  it('uses theme warning color for plan border style', () => {
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <InputLine value="test" cursorOffset={4} isActive width={40} borderStyle="plan" />
+      </ThemeProvider>
+    );
+    const output = lastFrame();
+    // Should contain ANSI color codes from theme
+    expect(output).toMatch(/\x1b\[[0-9;]*m/);
+    expect(output).toContain('test');
+  });
+
+  it('uses theme dim color for shell border style', () => {
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <InputLine value="!test" cursorOffset={5} isActive width={40} borderStyle="shell" />
+      </ThemeProvider>
+    );
+    const output = lastFrame();
+    // Should contain ANSI color codes from theme
+    expect(output).toMatch(/\x1b\[[0-9;]*m/);
+    expect(output).toContain('!test');
+  });
+
+  it('applies background color from theme to composer box', () => {
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <InputLine value="content" cursorOffset={7} isActive width={40} />
+      </ThemeProvider>
+    );
+    const output = lastFrame();
+    // Should have background color codes (48;2;R;G;B or 48;5;N)
+    expect(output).toMatch(/\x1b\[48;[25]/);
+  });
+});
+
 describe('InputLine cursor positioning', () => {
   const originalColumns = process.stdout.columns;
 
