@@ -115,4 +115,38 @@ describe('getProviderConfig', () => {
     const result = getProviderConfig(cfg);
     expect(result).toBeNull();
   });
+
+  it('returns nvidia settings when configured', () => {
+    const cfg: AutohandConfig = {
+      provider: 'nvidia',
+      nvidia: { apiKey: 'nvapi-test-key', model: 'meta/llama-3.3-70b-instruct', baseUrl: 'https://integrate.api.nvidia.com/v1' }
+    };
+
+    const result = getProviderConfig(cfg);
+    expect(result).not.toBeNull();
+    expect(result!.baseUrl).toBe('https://integrate.api.nvidia.com/v1');
+    expect(result!.model).toBe('meta/llama-3.3-70b-instruct');
+    expect(result!.apiKey).toBe('nvapi-test-key');
+  });
+
+  it('returns default base url for nvidia when missing', () => {
+    const cfg: AutohandConfig = {
+      provider: 'nvidia',
+      nvidia: { apiKey: 'nvapi-test-key', model: 'meta/llama-3.3-70b-instruct' }
+    };
+
+    const result = getProviderConfig(cfg);
+    expect(result).not.toBeNull();
+    expect(result!.baseUrl).toBe('https://integrate.api.nvidia.com/v1');
+  });
+
+  it('returns null when nvidia config has no api key', () => {
+    const cfg: AutohandConfig = {
+      provider: 'nvidia',
+      nvidia: { apiKey: '', model: 'meta/llama-3.3-70b-instruct' }
+    };
+
+    const result = getProviderConfig(cfg);
+    expect(result).toBeNull();
+  });
 });

@@ -3,8 +3,8 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { memo, useMemo } from 'react';
-import { Box, Text, useStdout } from 'ink';
+import React, { memo } from 'react';
+import { Box, Text } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
 
 export interface UserMessageProps {
@@ -14,194 +14,115 @@ export interface UserMessageProps {
   isQueued?: boolean;
 }
 
-/** Maximum number of lines to show before collapsing */
-const MAX_DISPLAY_LINES = 5;
+const COLLAPSE_LINE_THRESHOLD = 15;
+const COLLAPSE_CHAR_THRESHOLD = 1500;
+const TRUNCATE_LINE_MIN = 5;
+const BYTE_SIZE_THRESHOLD = 1024;
 
-/** Threshold for treating text as "large pasted content" */
-const LARGE_TEXT_LINES_THRESHOLD = 15;
-const LARGE_TEXT_CHARS_THRESHOLD = 1500;
+type ContentType = 'Code block' | 'JSON' | 'Stack trace' | 'Log output' | 'Diff' | 'Text';
 
-/**
- * Format byte size to human readable string
- */
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-}
-
-/**
- * Detect if text looks like pasted content (code block, log, etc.)
- */
-function detectContentType(text: string): string {
-  const trimmed = text.trim();
-  
-  // Check for code blocks
-  if (trimmed.startsWith('```') || trimmed.includes('\n```')) {
-    return 'Code block';
-  }
-  
-  // Check for JSON
-  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
-      (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
-    try {
+function detectContentType(text: string): ContentType {
+  if (/^```/m.test(text) || /```[\s\S]*?```/.test(text)) return 'Code block';
+  try {
+    const trimmed = text.trim();
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+        (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
       JSON.parse(trimmed);
       return 'JSON';
-    } catch {
-      // Not valid JSON
     }
-  }
-  
-  // Check for stack trace
-  if (trimmed.includes('at ') && trimmed.includes(':') && 
-      (trimmed.includes('Error:') || trimmed.includes('Exception:') || 
-       trimmed.includes('\n    at '))) {
-    return 'Stack trace';
-  }
-  
-  // Check for log output
-  const lines = trimmed.split('\n');
-  const logPattern = /^\d{4}-\d{2}-\d{2}|^\[\d{4}-\d{2}-\d{2}|^\d{2}:\d{2}:\d{2}|^\[INFO\]|^\[WARN\]|^\[ERROR\]|^\[DEBUG\]/;
-  const logLines = lines.filter(l => logPattern.test(l.trim()));
-  if (logLines.length > lines.length * 0.5 && lines.length > 3) {
-    return 'Log output';
-  }
-  
-  // Check for diff/patch
-  if (trimmed.startsWith('diff --git') || 
-      (trimmed.includes('\n--- ') && trimmed.includes('\n+++ '))) {
-    return 'Diff';
-  }
-  
+  } catch {}
+  if (/^Error:.*\n\s+at\s/m.test(text) || /at\s+\w+\s*\(/.test(text)) return 'Stack trace';
+  if (/^\[?\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}/m.test(text)) return 'Log output';
+  if (/^diff --git/m.test(text) || /^(---\s+a\/|\+\+\+\s+b\/)/m.test(text)) return 'Diff';
   return 'Text';
+}
+
+function formatByteSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${bytes}B`;
 }
 
 /**
  * UserMessage displays a user's prompt with a styled background.
  * Similar to how Codex displays user messages with a light gray background.
  *
- * Features:
- * - Full-width background using space padding
- * - Compacts long messages to max 5 lines with "..." indicator
- * - Renders large pasted content as a compact bordered box
+ * Uses Box width="100%" so Ink/Yoga manages the width correctly across
+ * terminal resizes — no manual padding hacks that leave artifacts.
  */
 function UserMessageComponent({ children, isQueued = false }: UserMessageProps) {
   const { colors } = useTheme();
-  const { stdout } = useStdout();
 
-  const terminalWidth = stdout?.columns ?? 80;
+  const lines = children.split('\n');
+  const lineCount = lines.length;
+  const charCount = children.length;
+  const byteSize = Buffer.byteLength(children, 'utf8');
 
-  // Check if this is large text that should be compacted
-  const isLargeText = useMemo(() => {
-    const lines = children.split('\n');
-    const charCount = children.length;
-    return lines.length > LARGE_TEXT_LINES_THRESHOLD || charCount > LARGE_TEXT_CHARS_THRESHOLD;
-  }, [children]);
+  const shouldCollapse = lineCount > COLLAPSE_LINE_THRESHOLD || charCount > COLLAPSE_CHAR_THRESHOLD;
+  const shouldTruncate = !shouldCollapse && lineCount > TRUNCATE_LINE_MIN && lineCount <= COLLAPSE_LINE_THRESHOLD;
 
-  // Process message: wrap to terminal width and limit to max lines
-  const displayLines = useMemo(() => {
-    const prefix = isQueued ? '(queued) ' : '';
-    const fullText = `${prefix}${children}`;
-
-    // Approximate characters per line (account for padding)
-    const charsPerLine = Math.max(1, terminalWidth - 2);
-
-    // Split into lines (respect existing newlines)
-    const existingLines = fullText.split('\n');
-    const wrappedLines: string[] = [];
-
-    for (const line of existingLines) {
-      if (line.length <= charsPerLine) {
-        wrappedLines.push(line);
-      } else {
-        // Wrap long lines
-        for (let i = 0; i < line.length; i += charsPerLine) {
-          wrappedLines.push(line.slice(i, i + charsPerLine));
-        }
-      }
-    }
-
-    // Limit to max lines
-    if (wrappedLines.length > MAX_DISPLAY_LINES) {
-      const truncated = wrappedLines.slice(0, MAX_DISPLAY_LINES);
-      // Add indicator to last line
-      const lastLine = truncated[MAX_DISPLAY_LINES - 1];
-      const indicator = ' ...';
-      const available = charsPerLine - indicator.length;
-      truncated[MAX_DISPLAY_LINES - 1] = lastLine.slice(0, available) + indicator;
-      return truncated;
-    }
-
-    return wrappedLines;
-  }, [children, isQueued, terminalWidth]);
-
-  // Compact display for large pasted content
-  const compactInfo = useMemo(() => {
-    if (!isLargeText) return null;
-    
-    const lines = children.split('\n');
-    const charCount = children.length;
-    const byteSize = Buffer.byteLength(children, 'utf-8');
+  if (shouldCollapse) {
     const contentType = detectContentType(children);
-    
-    return {
-      lines: lines.length,
-      size: formatSize(byteSize),
-      chars: charCount,
-      type: contentType,
-    };
-  }, [children, isLargeText]);
+    const parts: string[] = [contentType];
+    if (lineCount > COLLAPSE_LINE_THRESHOLD) {
+      parts.push(`${lineCount} lines`);
+    }
+    parts.push('collapsed for readability');
+    if (byteSize >= BYTE_SIZE_THRESHOLD) {
+      parts.push(formatByteSize(byteSize));
+    }
 
-  // Render compact box for large text
-  if (isLargeText && compactInfo) {
-    const prefix = isQueued ? '(queued) ' : '';
-    const label = `${prefix}${compactInfo.type}`;
-    const stats = `${compactInfo.lines} lines, ${compactInfo.size}`;
-    
     return (
-      <Box 
-        marginTop={1} 
-        flexDirection="column"
-        borderStyle="round"
-        borderColor={colors.userMessageBg || '#757575'}
+      <Box
+        marginTop={1}
         paddingX={1}
+        width="100%"
+        flexDirection="column"
       >
-        <Box>
-          <Text 
-            color={colors.userMessageText || '#f5f5f5'}
-            backgroundColor={colors.userMessageBg || '#757575'}
-            bold
-          >
-            {' '}
-            {label}
-            {' '}
-          </Text>
-          <Text dimColor>
-            {' '}
-            {stats}
-          </Text>
-        </Box>
-        <Box marginTop={1}>
-          <Text dimColor italic>
-            Content sent to assistant (collapsed for readability)
-          </Text>
-        </Box>
+        <Text
+          color={colors.userMessageBg || '#333333'}
+          backgroundColor={colors.userMessageText || '#ffffff'}
+          bold
+        >
+          {isQueued ? '(queued) ' : ''}{parts.join(' · ')}
+        </Text>
+      </Box>
+    );
+  }
+
+  if (shouldTruncate) {
+    const displayText = lines.slice(0, TRUNCATE_LINE_MIN).join('\n') + '\n...';
+
+    return (
+      <Box
+        marginTop={1}
+        paddingX={1}
+        width="100%"
+      >
+        <Text
+          color={colors.userMessageBg || '#333333'}
+          backgroundColor={colors.userMessageText || '#ffffff'}
+          bold
+        >
+          {isQueued ? '(queued) ' : ''}{displayText}
+        </Text>
       </Box>
     );
   }
 
   return (
-    <Box marginTop={1} flexDirection="column">
-      {displayLines.map((line, idx) => (
-        <Text
-          key={idx}
-          color={colors.userMessageText || '#f5f5f5'}
-          backgroundColor={colors.userMessageBg || '#757575'}
-          bold
-        >
-          {line.padEnd(terminalWidth - 1)}
-        </Text>
-      ))}
+    <Box
+      marginTop={1}
+      paddingX={1}
+      width="100%"
+    >
+      <Text
+        color={colors.userMessageBg || '#333333'}
+        backgroundColor={colors.userMessageText || '#ffffff'}
+        bold
+      >
+        {isQueued ? '(queued) ' : ''}{children}
+      </Text>
     </Box>
   );
 }

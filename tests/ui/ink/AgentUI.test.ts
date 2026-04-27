@@ -73,11 +73,27 @@ describe('AgentUI TextBuffer integration helpers', () => {
 });
 
 describe('AgentUI layout stability', () => {
-  it('keeps a placeholder help row while the first prompt is working', () => {
-    expect(getComposerHelpLine(false, '70% context left', '? shortcuts · / commands')).toBe(
+  it('keeps the help row visible while the first prompt is working', () => {
+    expect(getComposerHelpLine(false, '', '70% context left', '? shortcuts · / commands')).toBe(
       '70% context left · ? shortcuts · / commands'
     );
-    expect(getComposerHelpLine(true, '70% context left', '? shortcuts · / commands')).toBe(' ');
+    // While working, the helpline stays visible so users keep
+    // shortcuts/provider/context context across the entire turn.
+    expect(getComposerHelpLine(true, '', '70% context left', '? shortcuts · / commands')).toBe(
+      '70% context left · ? shortcuts · / commands'
+    );
+  });
+
+  it('shows provider and model before context in help line', () => {
+    expect(
+      getComposerHelpLine(false, 'autohand (OpenAI, gpt-4o)', '70% context left', '? shortcuts · / commands')
+    ).toBe('autohand (OpenAI, gpt-4o) · 70% context left · ? shortcuts · / commands');
+  });
+
+  it('shows provider display alone when context is empty', () => {
+    expect(
+      getComposerHelpLine(false, 'autohand (OpenAI, gpt-4o)', '', '? shortcuts · / commands')
+    ).toBe('autohand (OpenAI, gpt-4o) · ? shortcuts · / commands');
   });
 });
 
@@ -215,6 +231,32 @@ describe('AgentUI multiline input regression', () => {
       // Should not contain the raw residual in the text
       expect(buffer.getText()).not.toContain(residual);
     }
+  });
+
+  // Regression: terminals using xterm modifyOtherKeys protocol send
+  // ESC[27;2;13~ for Shift+Enter. Ink may forward this either as the
+  // full sequence or with the leading ESC stripped (leaving "[27;2;13~").
+  // Both forms must be recognised as a newline insertion, not literal text.
+  it('treats xterm modifyOtherKeys Shift+Enter as newline (full ESC sequence)', () => {
+    const buffer = new TextBuffer(80, 10, 'test');
+    const result = handleInkTextBufferInput(buffer, '\x1b[27;2;13~', createInkKey());
+    expect(result).toBe('handled');
+    expect(buffer.getText()).toBe('test\n');
+    expect(buffer.getText()).not.toContain('27;2;13');
+  });
+
+  it('treats xterm modifyOtherKeys Shift+Enter as newline (ESC-stripped form)', () => {
+    const buffer = new TextBuffer(80, 10, 'test');
+    const result = handleInkTextBufferInput(buffer, '[27;2;13~', createInkKey());
+    expect(result).toBe('handled');
+    expect(buffer.getText()).toBe('test\n');
+    expect(buffer.getText()).not.toContain('[27;2;13~');
+  });
+
+  it('treats kitty CSI u Shift+Enter as newline (ESC-stripped form)', () => {
+    const buffer = new TextBuffer(80, 10, 'test');
+    handleInkTextBufferInput(buffer, '[13;2u', createInkKey());
+    expect(buffer.getText()).toBe('test\n');
   });
 
   it('preserves emoji and CJK characters in multi-line content', () => {

@@ -200,7 +200,13 @@ export async function showMcpServerList(
       if (instance) {
         instance.rerender(element);
       } else {
-        instance = render(element, { exitOnCtrlC: false });
+        instance = render(element, {
+          stdin: process.stdin,
+          stdout: process.stdout,
+          stderr: process.stderr,
+          exitOnCtrlC: false,
+          concurrent: true
+        });
       }
     };
 

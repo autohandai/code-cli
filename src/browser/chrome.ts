@@ -443,6 +443,14 @@ const DEFAULT_CLI_ARG_PREFIX = ${jsArray(cliArgPrefix)};
 process.stdin.on("data", handleNativeData);
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+process.on("exit", shutdown);
+process.on("uncaughtException", (err) => {
+  process.stderr.write("[HOST] uncaughtException: " + err.message + "\\n" + err.stack + "\\n");
+  shutdown();
+});
+process.stdout.on("error", (err) => {
+  process.stderr.write("[HOST] stdout error: " + err.message + "\\n");
+});
 function handleNativeData(chunk) {
   stdinBuffer = Buffer.concat([stdinBuffer, chunk]);
   while (stdinBuffer.length >= 4) {
@@ -452,7 +460,11 @@ function handleNativeData(chunk) {
     }
     const body = stdinBuffer.subarray(4, 4 + length);
     stdinBuffer = stdinBuffer.subarray(4 + length);
-    handleNativeMessage(JSON.parse(body.toString("utf8")));
+    try {
+      handleNativeMessage(JSON.parse(body.toString("utf8")));
+    } catch (err) {
+      process.stderr.write("[HOST] Failed to parse native message: " + (err?.message || String(err)) + "\\n");
+    }
   }
 }
 function handleNativeMessage(message) {
@@ -492,9 +504,20 @@ function ensureChild() {
   const cwd = launchSettings?.workspacePath || path.join(os.homedir(), 'Desktop');
   child = spawn(cliCommand, args, { env: process.env, stdio: ["pipe", "pipe", "pipe"], cwd });
   child.stdout.on("data", (chunk) => handleCliStdout(chunk.toString("utf8")));
+  child.stdout.on("error", (err) => {
+    process.stderr.write("[HOST] child.stdout error: " + err.message + "\\n");
+  });
   child.stderr.on("data", (chunk) => handleCliStderr(chunk.toString("utf8")));
+  child.stderr.on("error", (err) => {
+    process.stderr.write("[HOST] child.stderr error: " + err.message + "\\n");
+  });
   child.on("exit", (code, signal) => {
     sendNativeMessage({ type: "status", status: "exited", code, signal });
+    child = null;
+  });
+  child.on("error", (err) => {
+    process.stderr.write("[HOST] child process error: " + err.message + "\\n");
+    sendNativeMessage({ type: "status", status: "spawn-error", error: err.message });
     child = null;
   });
 }
@@ -513,17 +536,25 @@ function flushLines(stream) {
         continue;
       } catch {}
     }
-    sendNativeMessage({ type: "log", stream, line: trimmed });
+    try {
+      sendNativeMessage({ type: "log", stream, line: trimmed });
+    } catch (err) {
+      process.stderr.write("[HOST] sendNativeMessage(log) failed: " + (err?.message || String(err)) + "\\n");
+    }
   }
   if (stream === "stdout") stdoutBuffer = buffer;
   else stderrBuffer = buffer;
 }
 function sendNativeMessage(message) {
-  const body = Buffer.from(JSON.stringify(message), "utf8");
-  const header = Buffer.alloc(4);
-  header.writeUInt32LE(body.length, 0);
-  process.stdout.write(header);
-  process.stdout.write(body);
+  try {
+    const body = Buffer.from(JSON.stringify(message), "utf8");
+    const header = Buffer.alloc(4);
+    header.writeUInt32LE(body.length, 0);
+    process.stdout.write(header);
+    process.stdout.write(body);
+  } catch (err) {
+    process.stderr.write("[HOST] sendNativeMessage failed: " + (err?.message || String(err)) + "\\n");
+  }
 }
 function shutdown() {
   if (child) {

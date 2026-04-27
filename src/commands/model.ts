@@ -12,14 +12,14 @@ import { t } from '../i18n/index.js';
 export async function model(ctx: {
   promptModelSelection: () => Promise<void>;
   onBeforeModal?: () => void;
-  onAfterModal?: () => void;
+  onAfterModal?: () => Promise<void> | void;
 }): Promise<string | null> {
   ctx.onBeforeModal?.();
   try {
     await ctx.promptModelSelection();
     return null;
   } finally {
-    ctx.onAfterModal?.();
+    await ctx.onAfterModal?.();
   }
 }
 

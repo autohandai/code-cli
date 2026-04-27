@@ -45,16 +45,17 @@ describe("ProviderFactory", () => {
       const providers = ProviderFactory.getProviderNames();
       expect(providers).not.toContain("mlx");
       expect(providers).toEqual([
-        "openrouter",
-        "ollama",
-        "openai",
-        "llamacpp",
-        "llmgateway",
-        "azure",
         "zai",
-        "vertexai",
         "xai",
+        "vertexai",
+        "nvidia",
+        "openrouter",
+        "openai",
+        "ollama",
+        "llmgateway",
+        "llamacpp",
         "cerebras",
+        "azure",
       ]);
     });
   });

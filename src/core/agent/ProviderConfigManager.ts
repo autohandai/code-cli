@@ -20,6 +20,8 @@ import {
   probeLlamaCppEnvironment,
 } from "../../providers/llamaCppSetup.js";
 import { ZAI_MODELS, ZAI_DEFAULT_BASE_URL } from "../../providers/ZaiProvider.js";
+import { NVIDIA_MODELS, NVIDIA_DEFAULT_BASE_URL } from "../../providers/NVIDIAProvider.js";
+import { VERTEX_AI_CODING_MODELS } from "../../providers/VertexAIProvider.js";
 import { sanitizeModelId } from "../../providers/errors.js";
 import { saveConfig, getProviderConfig } from "../../config.js";
 import { getContextWindow } from "../../utils/context.js";
@@ -87,7 +89,7 @@ export class ProviderConfigManager {
             : "";
         // Add hosted indicator for cloud providers
         const hostedNote =
-          ["openrouter", "openai", "llmgateway", "azure", "zai"].includes(name)
+          ["openrouter", "openai", "llmgateway", "azure", "zai", "nvidia"].includes(name)
             ? chalk.gray(" (" + t("providers.config.hosted") + ")")
             : "";
         return {
@@ -168,7 +170,8 @@ export class ProviderConfigManager {
       provider === "openrouter" ||
       provider === "llmgateway" ||
       provider === "zai" ||
-      provider === "xai"
+      provider === "xai" ||
+      provider === "nvidia"
     ) {
       return !!config.apiKey && config.apiKey !== "replace-me";
     }
@@ -211,6 +214,9 @@ export class ProviderConfigManager {
         break;
       case "xai":
         await this.configureXAI();
+        break;
+      case "nvidia":
+        await this.configureNvidia();
         break;
     }
   }
@@ -973,7 +979,7 @@ export class ProviderConfigManager {
       const currentModel =
         this.runtime.options.model ?? currentSettings?.model ?? "";
 
-      // For cloud providers (openai, openrouter, llmgateway, azure, zai, vertexai, xai), offer to change API key as well
+      // For cloud providers (openai, openrouter, llmgateway, azure, zai, vertexai, xai, nvidia), offer to change API key as well
       if (
         provider === "openai" ||
         provider === "openrouter" ||
@@ -981,7 +987,8 @@ export class ProviderConfigManager {
         provider === "azure" ||
         provider === "zai" ||
         provider === "vertexai" ||
-        provider === "xai"
+        provider === "xai" ||
+        provider === "nvidia"
       ) {
         if (provider === "vertexai") {
           await this.changeVertexAISettings(currentModel, currentSettings as VertexAISettings | null);
@@ -1229,53 +1236,37 @@ export class ProviderConfigManager {
 
       // Handle model change
       if (action === "model" || action === "both") {
-        const models = [
-          "anthropic/claude-opus-4-7",
-          "anthropic/claude-opus-4",
-          "anthropic/claude-sonnet-4",
-          "anthropic/claude-3-5-sonnet",
-          "anthropic/claude-3-opus",
-          "anthropic/claude-3-haiku",
-          "google/gemini-1.5-pro",
-          "google/gemini-1.5-flash",
-          "google/gemini-1.0-pro",
-        ];
+        // Build model list: user's current model first (if not in defaults), then recommended coding models
+        const userModel = currentModel?.trim();
+        const models: string[] = [];
+
+        // Always put the user's current model first if it's set and not already in the recommended list
+        if (userModel && !VERTEX_AI_CODING_MODELS.includes(userModel)) {
+          models.push(userModel);
+        }
+
+        // Add recommended coding-capable models
+        models.push(...VERTEX_AI_CODING_MODELS);
+
         const modelOptions: ModalOption[] = models.map((name) => ({
-          label: name,
+          label: name === userModel ? `${name} (current)` : name,
           value: name,
         }));
-        // Add custom model option
-        modelOptions.push({
-          label: t("providers.config.customModel") || "Custom model...",
-          value: "__custom__",
-        });
-        const currentIndex = Math.max(0, models.indexOf(currentModel));
+
+        const currentIndex = Math.max(0, models.indexOf(userModel));
         const result = await showModal({
           title: t("providers.config.selectModel"),
           options: modelOptions,
           initialIndex: currentIndex,
+          allowCustomInput: true,
         });
 
         if (!result) {
           console.log(chalk.gray("\n" + t("providers.config.settingsChangeCancelled")));
           return;
         }
-        
-        // Handle custom model selection
-        if (result.value === "__custom__") {
-          const customModel = await showInput({
-            title: t("providers.config.enterModelId"),
-            placeholder: "anthropic/claude-sonnet-4",
-            defaultValue: currentModel,
-          });
-          if (!customModel) {
-            console.log(chalk.gray("\n" + t("providers.config.settingsChangeCancelled")));
-            return;
-          }
-          newModel = customModel.trim();
-        } else {
-          newModel = result.value as string;
-        }
+
+        newModel = result.value as string;
       }
 
       // Update config
@@ -1380,16 +1371,21 @@ export class ProviderConfigManager {
         return;
       }
 
-      // Step 5: Model
-      const model =
-        (await showInput({
-          title: t("providers.wizard.vertexai.enterModel"),
-          defaultValue: "zai-org/glm-5-maas",
-        })) ?? undefined;
-      if (!model) {
+      // Step 5: Model selection with recommended coding models
+      const modelOptions: ModalOption[] = VERTEX_AI_CODING_MODELS.map((name) => ({
+        label: name,
+        value: name,
+      }));
+      const modelResult = await showModal({
+        title: t("providers.config.selectModel"),
+        options: modelOptions,
+        allowCustomInput: true,
+      });
+      if (!modelResult) {
         console.log(chalk.gray("\n" + t("providers.config.cancelled")));
         return;
       }
+      const model = modelResult.value as string;
 
       this.runtime.config.vertexai = {
         authToken,
@@ -1487,8 +1483,75 @@ export class ProviderConfigManager {
     }
   }
 
+  /**
+   * Configure NVIDIA AI Cloud provider (API key + model selection)
+   */
+  private async configureNvidia(): Promise<void> {
+    try {
+      console.log(chalk.cyan(t("providers.wizard.nvidia.title")));
+      console.log(
+        chalk.gray(
+          t("providers.config.apiKeyUrl", {
+            url: t("providers.wizard.nvidia.apiKeyUrl"),
+          }) + "\n",
+        ),
+      );
+
+      const apiKey = await showPassword({
+        title: t("providers.config.enterApiKey", {
+          provider: t("providers.nvidia"),
+        }),
+        placeholder: t("ui.apiKeyPlaceholder"),
+      });
+
+      if (!apiKey) {
+        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+        return;
+      }
+
+      const modelChoices: ModalOption[] = NVIDIA_MODELS.map((model) => ({
+        label: model,
+        value: model,
+      }));
+
+      const result = await showModal({
+        title: t("providers.config.selectModel"),
+        options: modelChoices,
+      });
+
+      if (!result) {
+        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+        return;
+      }
+
+      const model = result.value as string;
+
+      this.runtime.config.nvidia = {
+        apiKey,
+        baseUrl: NVIDIA_DEFAULT_BASE_URL,
+        model,
+      };
+
+      this.runtime.config.provider = "nvidia";
+      this.runtime.options.model = model;
+      await saveConfig(this.runtime.config);
+      this.resetLlmClient("nvidia", model);
+
+      console.log(
+        chalk.green(
+          "\n✓ " +
+            t("providers.config.configuredSuccessfully", {
+              provider: t("providers.nvidia"),
+            }),
+        ),
+      );
+    } catch (error) {
+      throw error;
+    }
+  }
+
   private async changeCloudProviderSettings(
-    provider: "openai" | "openrouter" | "llmgateway" | "azure" | "zai" | "xai",
+    provider: "openai" | "openrouter" | "llmgateway" | "azure" | "zai" | "xai" | "nvidia",
     currentModel: string,
     currentSettings: {
       apiKey?: string;
@@ -1618,6 +1681,7 @@ export class ProviderConfigManager {
         zai: "https://z.ai/api-keys",
         xai: "https://console.x.ai/keys",
         cerebras: "https://cloud.cerebras.ai/platform/",
+        nvidia: "https://build.nvidia.com/api-key",
       };
       const keyUrl = keyUrlMap[provider];
       console.log(
@@ -1735,6 +1799,29 @@ export class ProviderConfigManager {
         }
 
         newModel = result.value as string;
+      } else if (provider === "nvidia") {
+        const modelOptions: ModalOption[] = NVIDIA_MODELS.map((name) => ({
+          label: name,
+          value: name,
+        }));
+        const currentIndex = Math.max(
+          0,
+          [...NVIDIA_MODELS].indexOf(currentModel as (typeof NVIDIA_MODELS)[number]),
+        );
+        const result = await showModal({
+          title: t("providers.config.selectModel"),
+          options: modelOptions,
+          initialIndex: currentIndex,
+        });
+
+        if (!result) {
+          console.log(
+            chalk.gray("\n" + t("providers.config.settingsChangeCancelled")),
+          );
+          return;
+        }
+
+        newModel = result.value as string;
       } else if (provider === "azure") {
         console.log(
           chalk.gray(t("providers.wizard.azure.deploymentChangeHint")),
@@ -1820,6 +1907,7 @@ export class ProviderConfigManager {
         llmgateway: "https://api.llmgateway.io/v1",
         zai: ZAI_DEFAULT_BASE_URL,
         xai: "https://api.x.ai/v1",
+        nvidia: NVIDIA_DEFAULT_BASE_URL,
       };
       const baseUrl = baseUrlMap[provider];
 
@@ -1837,6 +1925,18 @@ export class ProviderConfigManager {
           baseUrl,
           model: newModel,
         };
+      } else if (provider === "nvidia") {
+        this.runtime.config.nvidia = {
+          apiKey: newApiKey,
+          baseUrl,
+          model: newModel,
+        };
+      } else if (provider === "zai") {
+        this.runtime.config.zai = {
+          apiKey: newApiKey,
+          baseUrl,
+          model: newModel,
+        };
       } else {
         this.runtime.config.llmgateway = {
           apiKey: newApiKey,
@@ -1845,8 +1945,6 @@ export class ProviderConfigManager {
         };
       }
     }
-
-    this.runtime.config.provider = provider;
     this.runtime.options.model = newModel;
     await saveConfig(this.runtime.config);
     this.resetLlmClient(provider, newModel);
@@ -1910,7 +2008,7 @@ export class ProviderConfigManager {
    * Validate API key by making a test request to the provider
    */
   private async validateApiKey(
-    provider: "openai" | "openrouter" | "llmgateway" | "azure" | "zai" | "xai" | "cerebras",
+    provider: "openai" | "openrouter" | "llmgateway" | "azure" | "zai" | "xai" | "cerebras" | "nvidia",
     apiKey: string,
   ): Promise<{ valid: boolean; error?: string; hint?: string }> {
     // Azure keys can't be easily validated without resource/deployment info
@@ -1926,6 +2024,7 @@ export class ProviderConfigManager {
         zai: ZAI_DEFAULT_BASE_URL,
         xai: "https://api.x.ai/v1",
         cerebras: "https://api.cerebras.ai/v1",
+        nvidia: NVIDIA_DEFAULT_BASE_URL,
       };
       const baseUrl = baseUrlMap[provider];
 
@@ -1944,6 +2043,7 @@ export class ProviderConfigManager {
             "X-OpenRouter-Categories": "cli-agent",
           }),
         },
+        signal: AbortSignal.timeout(10000), // 10s timeout for validation
       });
 
       if (response.ok) {
@@ -1966,6 +2066,7 @@ export class ProviderConfigManager {
         zai: "https://z.ai/api-keys",
         xai: "https://console.x.ai/keys",
         cerebras: "https://cloud.cerebras.ai/platform/",
+        nvidia: "https://build.nvidia.com/api-key",
       };
 
       if (status === 401) {
@@ -2106,6 +2207,9 @@ export class ProviderConfigManager {
       cerebras:
         this.runtime.config.cerebras ??
         (this.runtime.config.cerebras = { apiKey: "", model }),
+      nvidia:
+        this.runtime.config.nvidia ??
+        (this.runtime.config.nvidia = { apiKey: "", model }),
     };
     cfgMap[provider].model = model;
     this.setActiveProvider(provider);

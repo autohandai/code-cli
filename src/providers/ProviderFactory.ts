@@ -17,6 +17,7 @@ import { ZaiProvider } from './ZaiProvider.js';
 import { VertexAIProvider } from './VertexAIProvider.js';
 import { XAIProvider } from './XAIProvider.js';
 import { CerebrasProvider } from './CerebrasProvider.js';
+import { NVIDIAProvider } from './NVIDIAProvider.js';
 import { isMLXSupported } from '../utils/platform.js';
 import type { AutohandConfig, ProviderName } from '../types.js';
 
@@ -128,6 +129,12 @@ export class ProviderFactory {
                 }
                 return new CerebrasProvider(config.cerebras, config.network);
 
+            case 'nvidia':
+                if (!config.nvidia) {
+                    return new UnconfiguredProvider('nvidia');
+                }
+                return new NVIDIAProvider(config.nvidia, config.network);
+
             case 'openrouter':
             default:
                 if (!config.openrouter) {
@@ -142,7 +149,8 @@ export class ProviderFactory {
      * MLX is only included on Apple Silicon (macOS + arm64).
      */
     static getProviderNames(): ProviderName[] {
-        const providers: ProviderName[] = ['openrouter', 'ollama', 'openai', 'llamacpp', 'llmgateway', 'azure', 'zai', 'vertexai', 'xai', 'cerebras'];
+        // Sorted DESC by display name: Z.ai, xAI, Vertex AI, NVIDIA, OpenRouter, OpenAI, Ollama, MLX, LLM Gateway, llama.cpp, Cerebras, Azure
+        const providers: ProviderName[] = ['zai', 'xai', 'vertexai', 'nvidia', 'openrouter', 'openai', 'ollama', 'llmgateway', 'llamacpp', 'cerebras', 'azure'];
         if (isMLXSupported()) {
             providers.push('mlx');
         }
@@ -155,7 +163,7 @@ export class ProviderFactory {
      * MLX is always a valid provider name, but may not be available on non-Apple Silicon systems.
      */
     static isValidProvider(name: string): name is ProviderName {
-        const allProviders: ProviderName[] = ['openrouter', 'ollama', 'openai', 'llamacpp', 'mlx', 'llmgateway', 'azure', 'zai', 'vertexai', 'xai', 'cerebras'];
+        const allProviders: ProviderName[] = ['openrouter', 'ollama', 'openai', 'llamacpp', 'mlx', 'llmgateway', 'azure', 'zai', 'vertexai', 'xai', 'cerebras', 'nvidia'];
         return allProviders.includes(name as ProviderName);
     }
 }

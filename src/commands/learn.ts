@@ -42,7 +42,7 @@ export interface LearnCommandContext {
   llm: LLMProvider;
   onProgress?: (message: string) => void;
   onBeforeModal?: () => void;
-  onAfterModal?: () => void;
+  onAfterModal?: () => Promise<void> | void;
   /** Called with the top recommended skill slug for install hint in the composer */
   onTopRecommendation?: (slug: string) => void;
 }
@@ -68,7 +68,7 @@ async function withModalPause<T>(ctx: LearnCommandContext, fn: () => Promise<T>)
   try {
     return await fn();
   } finally {
-    ctx.onAfterModal?.();
+    await ctx.onAfterModal?.();
   }
 }
 

@@ -38,7 +38,7 @@ const CONTROL_CHAR_RE = /^[\x00-\x1f\x7f]/;
  * the ESC[ prefix and pass the remainder ("13;2~", "13~", "13;2u", etc.) as
  * literal text. We must NOT insert these as printable input.
  */
-const CSI_ENTER_RESIDUAL_RE = /^(?:13;?[234]?\d*[u~]|27;[234];13~)$/;
+const CSI_ENTER_RESIDUAL_RE = /^(?:\x1b\[|\x1b|\[)?(?:13;?[234]?\d*[u~]|27;[234];13~)$/;
 
 /**
  * Maps a readline keypress event to a {@link TextBuffer} mutation.

@@ -68,7 +68,7 @@ export interface SlashCommandContext {
     /** Called before /learn shows a modal (pause persistent input) */
     onBeforeModal?: () => void;
     /** Called after /learn modal closes (resume persistent input) */
-    onAfterModal?: () => void;
+    onAfterModal?: () => void | Promise<void>;
     /** Called with the top recommended skill slug from /learn for install hint */
     onTopRecommendation?: (slug: string) => void;
     /** Team manager for /team and /tasks commands */
