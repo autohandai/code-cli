@@ -85,7 +85,7 @@ export class SlashCommandHandler {
         case '/agents new':
         case '/agents-new': {
           const { createAgent } = await import('../commands/agents-new.js');
-          this.ctx.onBeforeModal?.();
+          await this.ctx.onBeforeModal?.();
           try {
             return await createAgent(this.ctx);
           } finally {
@@ -94,7 +94,7 @@ export class SlashCommandHandler {
         }
         case '/feedback': {
           const { feedback } = await import('../commands/feedback.js');
-          this.ctx.onBeforeModal?.();
+          await this.ctx.onBeforeModal?.();
           try {
             return await feedback(this.ctx);
           } finally {
@@ -161,7 +161,7 @@ export class SlashCommandHandler {
           // settings() runs its own while(true) loop with multiple showModal
           // calls; without pause/resume the Composer's useInput races the
           // modal's useInput for stdin and ESC events get dropped.
-          this.ctx.onBeforeModal?.();
+          await this.ctx.onBeforeModal?.();
           try {
             return await settings({ config: this.ctx.config });
           } finally {
@@ -223,11 +223,16 @@ export class SlashCommandHandler {
         }
         case '/status': {
           const { status } = await import('../commands/status.js');
-          return status(this.ctx);
+          await this.ctx.onBeforeModal?.();
+          try {
+            return await status(this.ctx);
+          } finally {
+            await this.ctx.onAfterModal?.();
+          }
         }
         case '/login': {
           const { login } = await import('../commands/login.js');
-          this.ctx.onBeforeModal?.();
+          await this.ctx.onBeforeModal?.();
           try {
             return await login({ config: this.ctx.config });
           } finally {
@@ -236,7 +241,7 @@ export class SlashCommandHandler {
         }
         case '/logout': {
           const { logout } = await import('../commands/logout.js');
-          this.ctx.onBeforeModal?.();
+          await this.ctx.onBeforeModal?.();
           try {
             return await logout({ config: this.ctx.config, currentSession: this.ctx.currentSession });
           } finally {
@@ -245,7 +250,7 @@ export class SlashCommandHandler {
         }
         case '/permissions': {
           const { permissions } = await import('../commands/permissions.js');
-          this.ctx.onBeforeModal?.();
+          await this.ctx.onBeforeModal?.();
           try {
             return await permissions({
               permissionManager: this.ctx.permissionManager,
@@ -260,7 +265,7 @@ export class SlashCommandHandler {
           if (!this.ctx.hookManager) {
             return 'Hook manager not available.';
           }
-          this.ctx.onBeforeModal?.();
+          await this.ctx.onBeforeModal?.();
           try {
             return await hooks({ hookManager: this.ctx.hookManager });
           } finally {
@@ -466,7 +471,7 @@ export class SlashCommandHandler {
         }
         case '/setup': {
           const { setup } = await import('../commands/setup.js');
-          this.ctx.onBeforeModal?.();
+          await this.ctx.onBeforeModal?.();
           try {
             return await setup(this.ctx);
           } finally {
