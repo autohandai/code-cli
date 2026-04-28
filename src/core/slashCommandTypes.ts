@@ -66,7 +66,7 @@ export interface SlashCommandContext {
     /** Whether running in non-interactive mode (RPC/ACP) where stdin is not a TTY */
     isNonInteractive?: boolean;
     /** Called before /learn shows a modal (pause persistent input) */
-    onBeforeModal?: () => void;
+    onBeforeModal?: () => void | Promise<void>;
     /** Called after /learn modal closes (resume persistent input) */
     onAfterModal?: () => void | Promise<void>;
     /** Called with the top recommended skill slug from /learn for install hint */

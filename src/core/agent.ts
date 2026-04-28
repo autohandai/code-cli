@@ -1200,13 +1200,18 @@ export class AutohandAgent {
       isContextCompactionEnabled: () => this.isContextCompactionEnabled(),
       // Non-interactive mode (RPC/ACP) - guards interactive commands
       isNonInteractive: runtime.isRpcMode === true,
-      onBeforeModal: () => {
+      onBeforeModal: async () => {
         if (process.env.AUTOHAND_DEBUG === '1') {
           console.log(`[DEBUG] onBeforeModal: inkRenderer exists=${!!this.inkRenderer}, persistentInputActive=${this.persistentInputActiveTurn}`);
         }
         this.modalActive = true;
         if (this.inkRenderer) {
           this.inkRenderer.pause();
+          // Yield a macrotask so React 19's Scheduler flushes any pending passive
+          // effect cleanup from the just-unmounted Ink instance. Without this, the
+          // modal's useInput effect can run before the previous Composer's cleanup,
+          // causing both to appear simultaneously.
+          await new Promise<void>((resolve) => setImmediate(resolve));
         }
         if (this.persistentInputActiveTurn) {
           this.persistentInput.pauseForModal();
@@ -5483,13 +5488,29 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
 
     const commandId = this.inkRenderer.startLiveCommand(`! ${shellCmd}`);
+    if (process.env.AUTOHAND_DEBUG === '1') {
+      console.log(`[DEBUG] executeImmediateShellCommandForInk: started ${shellCmd}, commandId=${commandId}`);
+    }
     const result = await executeStreamingShellCommand(shellCmd, this.runtime.workspaceRoot, {
-      onStdout: (chunk) => this.inkRenderer?.appendLiveCommandOutput(commandId, 'stdout', chunk),
-      onStderr: (chunk) => this.inkRenderer?.appendLiveCommandOutput(commandId, 'stderr', chunk),
+      onStdout: (chunk) => {
+        if (process.env.AUTOHAND_DEBUG === '1') {
+          console.log(`[DEBUG] onStdout chunk: ${JSON.stringify(chunk)}`);
+        }
+        this.inkRenderer?.appendLiveCommandOutput(commandId, 'stdout', chunk);
+      },
+      onStderr: (chunk) => {
+        if (process.env.AUTOHAND_DEBUG === '1') {
+          console.log(`[DEBUG] onStderr chunk: ${JSON.stringify(chunk)}`);
+        }
+        this.inkRenderer?.appendLiveCommandOutput(commandId, 'stderr', chunk);
+      },
       preferPty: this.shouldPreferPtyForImmediateShellCommands(),
       columns: process.stdout.columns,
       rows: process.stdout.rows,
     });
+    if (process.env.AUTOHAND_DEBUG === '1') {
+      console.log(`[DEBUG] executeImmediateShellCommandForInk: finished, result=${JSON.stringify(result)}`);
+    }
     this.inkRenderer.finishLiveCommand(commandId, result.success, result.error);
     return result;
   }
