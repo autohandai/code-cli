@@ -20,6 +20,8 @@ export interface NewCommandContext {
     workspaceRoot: string;
     model: string;
     hookManager?: HookManager;
+    /** Optional callback to clear the screen (Ink-aware) instead of raw ANSI */
+    clearScreen?: () => void;
 }
 
 /**
@@ -57,7 +59,11 @@ export async function newConversation(ctx: NewCommandContext): Promise<string | 
     await ctx.sessionManager.createSession(ctx.workspaceRoot, ctx.model);
 
     // 7. Clear the terminal screen so the chat log starts fresh
-    process.stdout.write('\x1b[2J\x1b[H');
+    if (ctx.clearScreen) {
+      ctx.clearScreen();
+    } else {
+      process.stdout.write('\x1b[2J\x1b[H');
+    }
 
     // 8. Print summary
     console.log();

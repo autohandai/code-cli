@@ -137,6 +137,7 @@ export class SlashCommandHandler {
             workspaceRoot: this.ctx.workspaceRoot,
             model: this.ctx.model,
             hookManager: this.ctx.hookManager,
+            clearScreen: this.ctx.clearScreen,
           });
         }
         case '/clear': {
@@ -149,6 +150,7 @@ export class SlashCommandHandler {
             workspaceRoot: this.ctx.workspaceRoot,
             model: this.ctx.model,
             hookManager: this.ctx.hookManager,
+            clearScreen: this.ctx.clearScreen,
           });
         }
         case '/settings': {
