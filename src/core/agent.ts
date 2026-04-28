@@ -2911,6 +2911,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
       // instead of being routed through writeAbove in scroll regions
       // (which gets torn down in the finally block, making output invisible).
       if (this.lastIntent === 'implementation' && this.filesModifiedThisSession) {
+        // Set modalActive to suppress hook output during quality checks.
+        // This prevents custom hooks (e.g., quality check hooks) from
+        // interfering with the terminal state while the UI is paused.
+        this.modalActive = true;
         if (this.persistentInputActiveTurn) {
           this.promptSeedInput = this.persistentInput.getCurrentInput();
           this.persistentInput.stop();
@@ -2929,6 +2933,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         if (this.useInkRenderer && this.inkRenderer) {
           await this.inkRenderer.resume();
         }
+        this.modalActive = false;
       }
     } catch (error) {
       success = false;
