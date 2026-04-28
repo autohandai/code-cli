@@ -602,6 +602,36 @@ export function AgentUI({
 
     // Handle escape - cancel current operation
     if (key.escape) {
+      // Close any open dropdowns/menus first before calling onEscape
+      if (slashVisibleRef.current) {
+        slashVisibleRef.current = false;
+        slashSuggestionsRef.current = [];
+        slashStartIndexRef.current = null;
+        slashFullMatchRef.current = null;
+        setSlashVisible(false);
+        setSlashSuggestions([]);
+        return;
+      }
+      if (skillVisibleRef.current) {
+        skillVisibleRef.current = false;
+        skillSuggestionsRef.current = [];
+        skillStartIndexRef.current = null;
+        setSkillVisible(false);
+        setSkillSuggestions([]);
+        return;
+      }
+      if (fileMentionVisibleRef.current) {
+        fileMentionVisibleRef.current = false;
+        fileMentionSuggestionsRef.current = [];
+        fileMentionStartIndexRef.current = null;
+        setFileMentionVisible(false);
+        setFileMentionSuggestions([]);
+        return;
+      }
+      if (showShortcutsRef.current) {
+        setShowShortcuts(false);
+        return;
+      }
       onEscapeRef.current();
       return;
     }
