@@ -633,6 +633,13 @@ export class InkRenderer {
   }
 
   /**
+   * Clear the composer input (e.g. after a slash command completes)
+   */
+  clearInput(): void {
+    this.updateState({ currentInput: '' });
+  }
+
+  /**
    * Pause input handling by stopping the renderer (preserves state)
    * Use this before external prompts that need stdin access
    */
