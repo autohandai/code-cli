@@ -231,6 +231,10 @@ export class AutohandAgent {
   private consecutiveCancellations = 0;
   private lastActivityAt = Date.now();
 
+  // Exit flag - set when SIGINT/SIGTERM received to stop queue processing immediately
+  private shouldExit = false;
+  private exitSignalHandlersInstalled = false;
+
   // Context compaction - auto-compresses context to prevent "context too long" errors
   private contextOrchestrator!: ContextOrchestrator;
 
@@ -1392,8 +1396,98 @@ export class AutohandAgent {
       this.persistentInput.setPendingSuggestion(this.pendingSuggestion);
     }
 
+    // Install exit signal handlers to stop queue processing immediately on SIGINT/SIGTERM
+    this.installExitSignalHandlers();
+
     // Show prompt immediately - don't wait for init
     await this.runInteractiveLoop();
+
+    // Clean up signal handlers
+    this.removeExitSignalHandlers();
+  }
+
+  /**
+   * Install SIGINT/SIGTERM handlers to trigger immediate exit with queue cleanup.
+   * This ensures queued requests and child processes are terminated when user exits.
+   */
+  private installExitSignalHandlers(): void {
+    if (this.exitSignalHandlersInstalled) return;
+    this.exitSignalHandlersInstalled = true;
+
+    const handleExitSignal = () => {
+      if (this.shouldExit) {
+        // Second signal - force immediate exit
+        console.log(chalk.gray('\nForce exiting...'));
+        process.exit(0);
+      }
+      this.shouldExit = true;
+      console.log(chalk.gray('\nExiting - clearing queues and stopping...'));
+      this.clearAllQueuesAndAbort();
+    };
+
+    process.on('SIGINT', handleExitSignal);
+    process.on('SIGTERM', handleExitSignal);
+  }
+
+  /**
+   * Remove exit signal handlers (cleanup).
+   */
+  private removeExitSignalHandlers(): void {
+    this.exitSignalHandlersInstalled = false;
+    // Note: process.removeListener would require storing the handler reference.
+    // The shouldExit flag prevents handlers from doing anything after cleanup.
+  }
+
+  /**
+   * Clear all queues and abort any active work for immediate exit.
+   */
+  private clearAllQueuesAndAbort(): void {
+    // Clear pending instruction queues
+    this.pendingInkInstructions.length = 0;
+    if (this.inkRenderer) {
+      this.inkRenderer.clearQueue();
+    }
+    // Clear persistent input queue
+    while (this.persistentInput.hasQueued()) {
+      this.persistentInput.dequeue();
+    }
+
+    // Abort any active abort controllers to stop current work
+    if (this.activeAbortController) {
+      try {
+        this.activeAbortController.abort();
+      } catch {
+        // Ignore abort errors
+      }
+      this.activeAbortController = null;
+    }
+    if (this.currentInkAbortController) {
+      try {
+        this.currentInkAbortController.abort();
+      } catch {
+        // Ignore abort errors
+      }
+      this.currentInkAbortController = null;
+    }
+    if (this.shellSuggestionAbortController) {
+      try {
+        this.shellSuggestionAbortController.abort();
+      } catch {
+        // Ignore abort errors
+      }
+      this.shellSuggestionAbortController = null;
+    }
+
+    // Stop any active team processes
+    if (this.teamManager) {
+      this.teamManager.shutdown().catch(() => {});
+    }
+
+    // Resolve any pending ink instruction resolver to unblock the loop
+    if (this.inkInstructionResolver) {
+      this.inkInstructionResolver();
+      this.inkInstructionResolver = null;
+    }
   }
 
   /**
@@ -1767,8 +1861,18 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
 
     while (true) {
+      // Check if we should exit immediately (SIGINT/SIGTERM received)
+      if (this.shouldExit) {
+        return;
+      }
+
       try {
         let instruction: string | null = null;
+
+        // Check shouldExit again before processing any queued items
+        if (this.shouldExit) {
+          return;
+        }
 
         if (this.pendingInkInstructions.length > 0) {
           instruction = this.pendingInkInstructions.shift() ?? null;
@@ -1996,6 +2100,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
         // Reset error tracking on successful prompt
         this.lastErrorMessage = null;
         this.consecutiveErrorCount = 0;
+
+        // Check shouldExit before processing the instruction
+        if (this.shouldExit) {
+          return;
+        }
 
         const turnStartTime = Date.now();
         await this.runInstruction(instruction);
