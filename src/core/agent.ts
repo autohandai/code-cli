@@ -1273,6 +1273,14 @@ export class AutohandAgent {
           this.runtime.options.yes = false;
         }
       },
+      // Clear terminal / Ink UI for /clear and /new
+      clearScreen: () => {
+        if (this.inkRenderer?.isRunning()) {
+          this.inkRenderer.resetAndClearScreen();
+        } else {
+          process.stdout.write('\x1b[2J\x1b[H');
+        }
+      },
     };
     this.slashHandler = new SlashCommandHandler(slashContext, SLASH_COMMANDS);
   }

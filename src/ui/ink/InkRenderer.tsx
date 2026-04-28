@@ -461,6 +461,23 @@ export class InkRenderer {
   }
 
   /**
+   * Reset all state and clear the terminal screen.
+   * Used by /clear and /new to give a fresh UI without corrupting
+   * Ink's log-update state with raw ANSI escape sequences.
+   */
+  resetAndClearScreen(): void {
+    const newState = createInitialUIState();
+    this.state = newState;
+    if (this.wrapperRef.current) {
+      this.wrapperRef.current.updateState(newState);
+    }
+    if (this.instance) {
+      this.instance.clear();
+    }
+    process.stdout.write('\x1b[2J\x1b[H');
+  }
+
+  /**
    * Remove a live command from the live commands list without converting it to a static tool output.
    * Used when the caller will handle adding the final output themselves.
    */
