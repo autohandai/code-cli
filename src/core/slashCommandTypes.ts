@@ -83,6 +83,8 @@ export interface SlashCommandContext {
     };
     /** Set YOLO mode pattern (e.g. 'allow:*' or undefined to clear) */
     setYoloMode?: (pattern: string | undefined) => void;
+    /** Clear the terminal screen / Ink UI (used by /clear, /new) */
+    clearScreen?: () => void;
 }
 
 export interface SlashCommandSubcommand {
