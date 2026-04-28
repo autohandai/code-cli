@@ -182,6 +182,10 @@ autohand -p "refactor database queries" --dry-run
 | `--append-sys-prompt <value>`   |       | Append to system prompt (inline string or file path)                             |
 | `--yolo [pattern]`              |       | Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete) |
 | `--timeout <seconds>`           |       | Timeout in seconds for auto-approve mode                                         |
+| `--settings`                    |       | Configure Autohand settings (same as /settings in interactive mode)              |
+| `--feedback`                    |       | Submit feedback                                                                   |
+| `--chrome`                      |       | Enable Chrome browser integration (same as /chrome)                              |
+| `--no-chrome`                   |       | Disable Chrome browser integration                                                |
 
 ## Agent Skills
 
