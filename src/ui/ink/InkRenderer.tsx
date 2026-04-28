@@ -692,6 +692,12 @@ export class InkRenderer {
       // automatically switch back to paused mode, so the Composer never
       // receives keystrokes.
 
+      // Clear terminal from cursor to end of screen to remove residual
+      // dynamic content (thinking, status, input box) from the previous
+      // Ink instance. This prevents composer stacking on modal return.
+      // \x1b[J = Erase in Display (clear from cursor to end of screen)
+      process.stdout.write('\x1b[J');
+
       // Clear line and move to new line for clean restart
       process.stdout.write('\n');
 
@@ -796,6 +802,13 @@ export class InkRenderer {
    */
   getQueueCount(): number {
     return this.state.queuedInstructions.length;
+  }
+
+  /**
+   * Clear all queued instructions
+   */
+  clearQueue(): void {
+    this.updateState({ queuedInstructions: [] });
   }
 
   /**
