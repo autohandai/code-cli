@@ -2075,6 +2075,27 @@ If lint or tests fail, report the issues but do NOT commit.`;
           }
         }
 
+        // Handle # trigger for storing memories (never send to LLM).
+        // The readline path (promptForInstruction) handles # memory storage,
+        // but instructions from the Ink queue bypass that path.
+        if (instruction.startsWith('#')) {
+          const content = instruction.slice(1).trim();
+          if (this.inkRenderer) {
+            this.modalActive = true;
+            this.inkRenderer.pause();
+            await new Promise<void>((resolve) => setImmediate(resolve));
+          }
+          try {
+            await this.handleMemoryStore(content);
+          } finally {
+            if (this.inkRenderer) {
+              this.modalActive = false;
+              await this.inkRenderer.resume();
+            }
+          }
+          continue;
+        }
+
         // Ensure background init is complete before processing any instruction.
         // This runs while the user was typing, so it's usually already done.
         await this.ensureInitComplete();

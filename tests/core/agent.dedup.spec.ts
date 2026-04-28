@@ -588,5 +588,32 @@ describe('agent.ts deduplication', () => {
       expect(blockBody.includes('continue')).toBe(true);
       expect(blockBody.includes('instruction = null')).toBe(false);
     });
+
+    it('handles # memory storage locally before runInstruction', () => {
+      // Regression: # trigger from the Ink queue bypassed handleMemoryStore
+      // and was sent to the LLM as a regular instruction.
+      const fs = require('node:fs');
+      const path = require('node:path');
+      const src = fs.readFileSync(
+        path.resolve(process.cwd(), 'src/core/agent.ts'),
+        'utf8',
+      );
+
+      const loopMatch = src.match(/private async runInteractiveLoop\(\)[\s\S]*?\n  (?=private |async |\/\*\*|$)/);
+      expect(loopMatch).not.toBeNull();
+      const loopBody = loopMatch![0];
+
+      const hashHandlerIdx = loopBody.indexOf("instruction.startsWith('#')");
+      const runInstructionIdx = loopBody.indexOf('await this.runInstruction(');
+
+      expect(hashHandlerIdx).toBeGreaterThan(-1);
+      expect(runInstructionIdx).toBeGreaterThan(-1);
+      expect(hashHandlerIdx).toBeLessThan(runInstructionIdx);
+
+      // Must call handleMemoryStore and use continue
+      const betweenHashAndRun = loopBody.substring(hashHandlerIdx, runInstructionIdx);
+      expect(betweenHashAndRun.includes('handleMemoryStore')).toBe(true);
+      expect(betweenHashAndRun.includes('continue')).toBe(true);
+    });
   });
 });
