@@ -144,27 +144,25 @@ async function validateAuthOnStartup(config: LoadedConfig): Promise<AuthUser | u
     }
   }
 
-  // Validate with server (non-blocking, silent failure)
+  // Validate with server (non-blocking, silent failure).
+  // IMPORTANT: we never wipe the local token here just because the server
+  // returns 401 — that destroys valid sessions when the auth endpoint is
+  // flaky or temporarily down.  Only local expiry (handled above) or an
+  // explicit /logout should remove credentials.
   try {
     const authClient = getAuthClient();
     const result = await authClient.validateSession(config.auth.token);
 
-    if (!result.authenticated) {
-      // Token invalid, clear it silently
-      config.auth = undefined;
-      try {
-        await saveConfig(config);
-      } catch {
-        // Ignore save errors during startup
+    if (result.authenticated) {
+      // Update user info if returned from server
+      if (result.user && config.auth) {
+        config.auth.user = result.user;
       }
-      return undefined;
+      return config.auth?.user;
     }
 
-    // Update user info if returned from server
-    if (result.user && config.auth) {
-      config.auth.user = result.user;
-    }
-
+    // Server says invalid — preserve local token and return current user
+    // so the session continues uninterrupted.
     return config.auth?.user;
   } catch {
     // Network error, assume token is still valid locally
@@ -1070,9 +1068,10 @@ async function runCLI(options: CLIOptions): Promise<void> {
                   enabled: true,
                 },
                 onAuthFailure: async () => {
-                  config.auth = undefined;
-                  try { await saveConfig(config); } catch { /* ignore */ }
-                  promptNotify(chalk.yellow('Session expired. Run /login to sign in again.'));
+                  // Notify the user but do NOT wipe local credentials automatically.
+                  // The startup auth gate already trusts locally-valid tokens;
+                  // destroying them here would force re-login on transient sync issues.
+                  promptNotify(chalk.yellow('Session sync failed. Run /logout and /login if you continue to see this message.'));
                 },
               });
               syncService.start();

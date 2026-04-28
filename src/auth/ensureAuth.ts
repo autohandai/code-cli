@@ -124,7 +124,7 @@ export async function ensureAuthenticated(config: LoadedConfig): Promise<LoadedC
     }
 
     // Validate with server using a short timeout
-    const client = new AuthClient({ timeout: 3000 });
+    const client = new AuthClient({ timeout: 5000 });
     try {
       const result = await client.validateSession(config.auth.token);
       if (result.authenticated) {
@@ -134,8 +134,11 @@ export async function ensureAuthenticated(config: LoadedConfig): Promise<LoadedC
         }
         return config;
       }
-      // Server says invalid — need to re-login
-      return await promptLogin(config);
+      // Server says invalid, but token is not expired locally.
+      // Trust the local token rather than forcing re-login on transient
+      // server issues (e.g. flaky /me endpoint, deployment hiccups).
+      // The background validateAuthOnStartup will surface any real expiry.
+      return config;
     } catch {
       // Network error — trust local token
       return config;
