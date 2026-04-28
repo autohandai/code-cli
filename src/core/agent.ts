@@ -2055,6 +2055,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
               }
               if (this.inkRenderer?.isRunning()) {
                 this.inkRenderer.setWorking(false);
+                this.inkRenderer.clearInput();
                 // Return to the top of the loop so the idle-wait path can await
                 // the next Composer submission without falling through to
                 // instruction.startsWith('/') which would throw on null.
@@ -6491,6 +6492,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
         this.persistentInputActiveTurn = false;
       }
       cleanupConsoleBridge();
+      if (isInteractive && this.inkRenderer?.isRunning()) {
+        this.inkRenderer.clearInput();
+      }
     }
   }
 
