@@ -11,6 +11,8 @@ INSTALLATION.md
 RELEASE_SETUP.md
 dev-build.sh
 bun.lock
+.vitest/vitest/*
+.vitest/
 .agent/
 # Environment variables (API secrets)
 .env
