@@ -180,7 +180,7 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'find',
-    description: 'Find code, functions, variables, symbols, and surrounding context in the workspace. Use this as the default discovery tool. mode=exact uses ripgrep, mode=context returns surrounding lines, mode=semantic does broader fuzzy retrieval, and mode=auto picks the best strategy.',
+    description: '[DEPRECATED] Use fff_grep instead. Find code, functions, variables, symbols in the workspace. mode=exact uses ripgrep, mode=context returns surrounding lines, mode=semantic does fuzzy retrieval. Legacy tool - will be removed in v0.9.0.',
     parameters: {
       type: 'object',
       properties: {
@@ -196,7 +196,7 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'glob',
-    description: 'Fast cross-platform file pattern matching powered by ripgrep. Returns file paths matching glob patterns. Use for finding files by extension, name pattern, or directory structure. Much faster than find for large repos.',
+    description: '[DEPRECATED] Use fff_find instead. Fast file pattern matching powered by ripgrep. Returns file paths matching glob patterns. Legacy tool - will be removed in v0.9.0.',
     parameters: {
       type: 'object',
       properties: {
@@ -210,6 +210,36 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
         limit: { type: 'number', description: 'Maximum number of results to return (default: 100)' },
       },
     },
+  },
+  {
+    name: 'fff_grep',
+    description: 'Content search with frecency ranking and definition detection. Auto-detects regex, falls back to fuzzy on zero matches, returns git annotations. Prefer this over find for content search.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search pattern (regex auto-detected)' },
+        path: { type: 'string', description: 'Optional subdirectory to search in' },
+        exclude: { type: 'string', description: 'Exclude patterns (comma/space separated)' },
+        caseSensitive: { type: 'boolean', description: 'Force case-sensitive matching' },
+        beforeContext: { type: 'number', description: 'Lines of context before match (default: 2)' },
+        afterContext: { type: 'number', description: 'Lines of context after match (default: 2)' },
+        classifyDefinitions: { type: 'boolean', description: 'Prioritize code definitions (default: true)' },
+        limit: { type: 'number', description: 'Maximum results (default: 50)' }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'fff_find',
+    description: 'Path and filename search with frecency ranking. Matches full repo-relative paths. Git-aware annotations. Prefer this over glob for finding specific files.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Filename or path pattern to search' },
+        limit: { type: 'number', description: 'Maximum results (default: 50)' }
+      },
+      required: ['query']
+    }
   },
   {
     name: 'create_directory',

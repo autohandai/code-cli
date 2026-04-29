@@ -980,6 +980,18 @@ export type AgentAction =
   | { type: 'remove_dependency'; name: string; dev?: boolean }
   | { type: 'format_file'; path: string; formatter: string }
   | { type: 'glob'; pattern?: string; patterns?: string[]; path?: string; limit?: number }
+  | {
+      type: 'fff_grep';
+      query: string;
+      path?: string;
+      exclude?: string;
+      caseSensitive?: boolean;
+      beforeContext?: number;
+      afterContext?: number;
+      classifyDefinitions?: boolean;
+      limit?: number;
+    }
+  | { type: 'fff_find'; query: string; limit?: number }
   | { type: 'list_tree'; path?: string; depth?: number }
   | { type: 'file_stats'; path: string }
   | { type: 'checksum'; path: string; algorithm?: string }
