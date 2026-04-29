@@ -256,76 +256,16 @@ jobs:
           set -euo pipefail
           cd release-binaries
 
-          RIPGREP_REPO="BurntSushi/ripgrep"
-          RIPGREP_VERSION=15.1.0
-
-          echo "Using ripgrep ${RIPGREP_VERSION}"
-
-          verify_checksum() {
-            local archive="$1"
-            local checksum_file="$2"
-
-            if [ ! -f "$checksum_file" ]; then
-              echo "⚠️ Checksum file missing for $(basename "$archive"), skipping verification"
-              return 0
-            fi
-
-            local expected
-            local actual
-            expected=$(grep -oE '[a-f0-9]{64}' "$checksum_file" | head -1)
-            if [ -z "$expected" ]; then
-              echo "⚠️ Could not parse checksum from $(basename "$checksum_file"), skipping verification"
-              return 0
-            fi
-            actual=$(sha256sum "$archive" | awk '{print $1}')
-            if [ "$expected" != "$actual" ]; then
-              echo "❌ Checksum verification failed for $(basename "$archive")" >&2
-              echo "  Expected: $expected" >&2
-              echo "  Actual:   $actual" >&2
-              exit 1
-            fi
-            echo "✅ Checksum verified for $(basename "$archive")"
-          }
-
           bundle_unix() {
             local binary="$1"
-            local rg_target="$2"
             local temp_dir
             temp_dir=$(mktemp -d)
-            local rg_archive="ripgrep-${RIPGREP_VERSION}-${rg_target}.tar.gz"
-            local rg_url="https://github.com/${RIPGREP_REPO}/releases/download/${RIPGREP_VERSION}/${rg_archive}"
-
-            echo "📦 Downloading ripgrep: $rg_archive"
-            if ! curl -fsSL --retry 3 --retry-delay 5 "$rg_url" -o "${temp_dir}/${rg_archive}"; then
-              echo "❌ Failed to download ripgrep from: $rg_url" >&2
-              rm -rf "$temp_dir"
-              exit 1
-            fi
-
-            echo "🔐 Downloading checksum file..."
-            curl -fsSL "${rg_url}.sha256" -o "${temp_dir}/${rg_archive}.sha256" || true
-            verify_checksum "${temp_dir}/${rg_archive}" "${temp_dir}/${rg_archive}.sha256"
-
-            echo "📂 Extracting ripgrep..."
-            tar -xzf "${temp_dir}/${rg_archive}" -C "$temp_dir"
-
-            # Find the extracted rg binary (handles varying archive structures)
-            local rg_bin
-            rg_bin=$(find "$temp_dir" -name "rg" -type f | head -1)
-            if [ -z "$rg_bin" ]; then
-              echo "❌ Could not find rg binary in extracted archive" >&2
-              echo "Archive contents:" >&2
-              tar -tzf "${temp_dir}/${rg_archive}" >&2
-              rm -rf "$temp_dir"
-              exit 1
-            fi
 
             mkdir -p "${temp_dir}/bundle"
             cp "$binary" "${temp_dir}/bundle/autohand"
-            cp "$rg_bin" "${temp_dir}/bundle/rg"
-            chmod +x "${temp_dir}/bundle/autohand" "${temp_dir}/bundle/rg"
+            chmod +x "${temp_dir}/bundle/autohand"
 
-            tar -czf "${binary}.tar.gz" -C "${temp_dir}/bundle" autohand rg
+            tar -czf "${binary}.tar.gz" -C "${temp_dir}/bundle" autohand
             sha256sum "${binary}.tar.gz" > "${binary}.tar.gz.sha256"
             rm -rf "$temp_dir"
             echo "✅ Created ${binary}.tar.gz"
@@ -333,46 +273,17 @@ jobs:
 
           bundle_windows() {
             local binary="$1"
-            local rg_target="$2"
-            local archive_name="$3"
+            local archive_name="$2"
             local output_path="${PWD}/${archive_name}"
             local temp_dir
             temp_dir=$(mktemp -d)
-            local rg_archive="ripgrep-${RIPGREP_VERSION}-${rg_target}.zip"
-            local rg_url="https://github.com/${RIPGREP_REPO}/releases/download/${RIPGREP_VERSION}/${rg_archive}"
-
-            echo "📦 Downloading ripgrep: $rg_archive"
-            if ! curl -fsSL --retry 3 --retry-delay 5 "$rg_url" -o "${temp_dir}/${rg_archive}"; then
-              echo "❌ Failed to download ripgrep from: $rg_url" >&2
-              rm -rf "$temp_dir"
-              exit 1
-            fi
-
-            echo "🔐 Downloading checksum file..."
-            curl -fsSL "${rg_url}.sha256" -o "${temp_dir}/${rg_archive}.sha256" || true
-            verify_checksum "${temp_dir}/${rg_archive}" "${temp_dir}/${rg_archive}.sha256"
-
-            echo "📂 Extracting ripgrep..."
-            unzip -q "${temp_dir}/${rg_archive}" -d "$temp_dir"
-
-            # Find the extracted rg.exe binary (handles varying archive structures)
-            local rg_bin
-            rg_bin=$(find "$temp_dir" -name "rg.exe" -type f | head -1)
-            if [ -z "$rg_bin" ]; then
-              echo "❌ Could not find rg.exe binary in extracted archive" >&2
-              echo "Archive contents:" >&2
-              unzip -l "${temp_dir}/${rg_archive}" >&2
-              rm -rf "$temp_dir"
-              exit 1
-            fi
 
             mkdir -p "${temp_dir}/bundle"
             cp "$binary" "${temp_dir}/bundle/autohand.exe"
-            cp "$rg_bin" "${temp_dir}/bundle/rg.exe"
 
             (
               cd "${temp_dir}/bundle"
-              zip -q "$output_path" autohand.exe rg.exe
+              zip -q "$output_path" autohand.exe
             )
             sha256sum "${archive_name}" > "${archive_name}.sha256"
             rm -rf "$temp_dir"
@@ -382,24 +293,24 @@ jobs:
           # Create tar.gz bundles for Unix platforms
           if [ -f "autohand-macos-arm64" ]; then
             chmod +x autohand-macos-arm64
-            bundle_unix "autohand-macos-arm64" "aarch64-apple-darwin"
+            bundle_unix "autohand-macos-arm64"
           fi
           if [ -f "autohand-macos-x64" ]; then
             chmod +x autohand-macos-x64
-            bundle_unix "autohand-macos-x64" "x86_64-apple-darwin"
+            bundle_unix "autohand-macos-x64"
           fi
           if [ -f "autohand-linux-x64" ]; then
             chmod +x autohand-linux-x64
-            bundle_unix "autohand-linux-x64" "x86_64-unknown-linux-musl"
+            bundle_unix "autohand-linux-x64"
           fi
           if [ -f "autohand-linux-arm64" ]; then
             chmod +x autohand-linux-arm64
-            bundle_unix "autohand-linux-arm64" "aarch64-unknown-linux-gnu"
+            bundle_unix "autohand-linux-arm64"
           fi
 
           # Create bundled zip for Windows
           if [ -f "autohand-windows-x64.exe" ]; then
-            bundle_windows "autohand-windows-x64.exe" "x86_64-pc-windows-msvc" "autohand-windows-x64.zip"
+            bundle_windows "autohand-windows-x64.exe" "autohand-windows-x64.zip"
           fi
 
           ls -lh *.tar.gz *.tar.gz.sha256 *.zip *.zip.sha256 2>/dev/null || true

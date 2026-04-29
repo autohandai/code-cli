@@ -140,18 +140,6 @@ EOF
 
     install_file "${_tmp_dir}/autohand" "$_dir/$BINARY_NAME"
 
-    if [ "${AUTOHAND_SKIP_RIPGREP:-0}" = "1" ]; then
-        warn "Skipping ripgrep install because AUTOHAND_SKIP_RIPGREP=1"
-    elif command -v rg > /dev/null 2>&1; then
-        info "ripgrep already installed, skipping bundled install"
-    elif [ -f "${_tmp_dir}/rg" ]; then
-        chmod +x "${_tmp_dir}/rg"
-        install_file "${_tmp_dir}/rg" "$_dir/rg"
-        success "ripgrep installed successfully to $_dir/rg"
-    else
-        warn "Bundle did not contain ripgrep, skipping"
-    fi
-
     rm -rf "$_tmp_dir"
 
     if ! echo "$PATH" | tr ':' '\n' | grep -qx "$_dir"; then
