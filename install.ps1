@@ -295,9 +295,7 @@ function Install-Autohand {
     if (-not (Test-Path $installPath)) {
         New-Item -ItemType Directory -Path $installPath -Force | Out-Null
     }
-
     $binaryPath = Join-Path $installPath $BINARY_NAME
-    $rgPath = Join-Path $installPath "rg.exe"
     $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("autohand-install-" + [System.Guid]::NewGuid().ToString("N"))
     $archivePath = Join-Path $tempRoot $archiveName
     $checksumPath = "$archivePath.sha256"
@@ -356,20 +354,6 @@ function Install-Autohand {
 
         Copy-Item -Path $extractedAutohand -Destination $binaryPath -Force
         Write-Success "Installed to $binaryPath"
-
-        if ($env:AUTOHAND_SKIP_RIPGREP -eq "1") {
-            Write-Host "Skipping ripgrep install because AUTOHAND_SKIP_RIPGREP=1" -ForegroundColor Yellow
-        } elseif (Get-Command rg -ErrorAction SilentlyContinue) {
-            Write-Step "ripgrep already installed, skipping bundled install"
-        } else {
-            $extractedRipgrep = Get-ChildItem -Path $extractPath -Filter "rg.exe" -Recurse | Select-Object -First 1 -ExpandProperty FullName
-            if ($extractedRipgrep) {
-                Copy-Item -Path $extractedRipgrep -Destination $rgPath -Force
-                Write-Success "ripgrep installed to $rgPath"
-            } else {
-                Write-Host "Bundle did not contain ripgrep, skipping" -ForegroundColor Yellow
-            }
-        }
     }
     finally {
         if (Test-Path $tempRoot) {

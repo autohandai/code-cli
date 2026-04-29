@@ -637,6 +637,10 @@ export class ActionExecutor {
 
       case 'glob':
         return this.executeGlob(action);
+      case 'fff_grep':
+        return this.executeFFFGrep(action);
+      case 'fff_find':
+        return this.executeFFFFind(action);
       case 'create_directory': {
         if (!action.path) {
           return 'Error: create_directory requires a "path" argument.';
@@ -2128,6 +2132,7 @@ export class ActionExecutor {
   }
 
   private executeFind(action: Extract<AgentAction, { type: 'find' }>): string {
+    console.warn(chalk.yellow('[DEPRECATED] The `find` tool is deprecated. Use `fff_grep` instead. Will be removed in v0.9.0.'));
     const mode = action.mode ?? (action.context && action.context > 0 ? 'context' : 'exact');
     const cacheKey = `find:${mode}:${action.query}:${action.path || ''}:${action.limit || ''}:${action.context || ''}:${action.window || ''}`;
     if (this.searchCache.has(cacheKey)) {
@@ -2173,6 +2178,7 @@ export class ActionExecutor {
   }
 
   private async executeGlob(action: Extract<AgentAction, { type: 'glob' }>): Promise<string> {
+    console.warn(chalk.yellow('[DEPRECATED] The `glob` tool is deprecated. Use `fff_find` instead. Will be removed in v0.9.0.'));
     const { resolveRipgrepCommand } = await import('../utils/ripgrep.js');
     const rgPath = resolveRipgrepCommand();
 
@@ -2238,6 +2244,42 @@ export class ActionExecutor {
         return 'No files found matching the pattern.';
       }
       throw error;
+    }
+  }
+
+  private async executeFFFGrep(
+    action: Extract<AgentAction, { type: 'fff_grep' }>
+  ): Promise<string> {
+    const { FFFSearchProvider } = await import('../search/fffSearchProvider.js');
+    const provider = await FFFSearchProvider.create(this.runtime.workspaceRoot);
+    try {
+      return await provider.grep({
+        query: action.query,
+        path: action.path,
+        exclude: action.exclude,
+        caseSensitive: action.caseSensitive,
+        beforeContext: action.beforeContext,
+        afterContext: action.afterContext,
+        classifyDefinitions: action.classifyDefinitions,
+        limit: action.limit,
+      });
+    } finally {
+      provider.destroy();
+    }
+  }
+
+  private async executeFFFFind(
+    action: Extract<AgentAction, { type: 'fff_find' }>
+  ): Promise<string> {
+    const { FFFSearchProvider } = await import('../search/fffSearchProvider.js');
+    const provider = await FFFSearchProvider.create(this.runtime.workspaceRoot);
+    try {
+      return await provider.fileSearch({
+        query: action.query,
+        limit: action.limit,
+      });
+    } finally {
+      provider.destroy();
     }
   }
 

@@ -29,11 +29,14 @@ import {
 
 import { safeSetRawMode } from '../ui/rawMode.js';
 import { isShellCommand, isImmediateCommand, parseShellCommand, executeShellCommandAsync, executeStreamingShellCommand } from '../ui/shellCommand.js';
-import { showFilePalette } from '../ui/filePalette.js';
+import { showFilePalette } from '../ui/ink/modals/filePalette.js';
 import { createInkRenderer } from '../ui/ink/InkRenderer.js';
-import { showQuestionModal } from '../ui/questionModal.js';
-import { showPlanAcceptModal } from '../ui/planAcceptModal.js';
-import { showDirectoryAccessModal } from '../ui/directoryAccessModal.js';
+import { showQuestionModal } from '../ui/ink/modals/questionModal.js';
+import { showPlanAcceptModal } from '../ui/ink/modals/planAcceptModal.js';
+import { showDirectoryAccessModal } from '../ui/ink/modals/directoryAccessModal.js';
+import { createInkUIManager, type InkUIManager } from '../ui/InkUIManager.js';
+import { createPlainUIManager, type PlainUIManager } from '../ui/PlainUIManager.js';
+import type { UIManager } from '../ui/UIManager.js';
 import {
   getContextWindow,
   estimateMessagesTokens,
@@ -145,6 +148,18 @@ import {
   truncateMcpStartupError,
 } from './mcpStartupHistory.js';
 
+/**
+ * Error thrown when the ReAct loop is aborted by internal loop guards
+ * (e.g. repeated tool-call violations or consecutive empty responses).
+ * Not retryable — the caller should surface the failure to the user.
+ */
+class LoopAbortedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LoopAbortedError';
+  }
+}
+
 export class AutohandAgent {
   private mentionContexts: { path: string; contents: string }[] = [];
   private contextWindow: number;
@@ -197,6 +212,8 @@ export class AutohandAgent {
   private resizeHandler: (() => void) | null = null;
   private sessionStartedAt: number = Date.now();
   private sessionTokensUsed = 0;
+  // UI Manager - unified interface for Ink or Plain terminal UI
+  private ui: UIManager | null = null;
   private inkRenderer: InkRenderer | null = null;
   private useInkRenderer = false;
   private pendingInkInstructions: string[] = [];
@@ -1050,9 +1067,13 @@ export class AutohandAgent {
     // Check if Ink renderer is enabled
     this.useInkRenderer = runtime.config.ui?.useInkRenderer === true;
 
+    // Initialize UIManager based on config
+    this.initializeUIManager();
+
     // Initialize persistent input for queuing messages while agent works.
     // Default to terminal regions so the boxed composer stays visible during turns.
     // Allow disabling via env for troubleshooting terminals with region issues.
+    // TODO: Migrate to use UIManager exclusively - this is kept for backward compatibility during transition
     const disableTerminalRegions = process.env.AUTOHAND_TERMINAL_REGIONS === '0';
     this.persistentInput = createPersistentInput({
       maxQueueSize: 10,
@@ -1868,8 +1889,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
     if (this.useInkRenderer && !this.inkRenderer) {
       await this.initializeUI(undefined, undefined, true);
       // Set to idle state so the Composer accepts input immediately
-      if (this.inkRenderer?.isRunning()) {
-        this.inkRenderer.setWorking(false);
+      if (this.ui) {
+        this.ui.setWorking(false);
       }
     }
 
@@ -1941,7 +1962,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
             if (process.env.AUTOHAND_DEBUG === '1') {
               console.log(`[DEBUG] Entering idle-wait, setting working=false`);
             }
-            this.inkRenderer.setWorking(false);
+            this.ui?.setWorking(false);
 
             // Wait for the user to submit text in the Composer.
             // handleInkSubmittedInstruction resolves this promise when it
@@ -2061,9 +2082,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
               if (process.env.AUTOHAND_DEBUG === '1') {
                 console.log(`[DEBUG] After slash command output: inkRenderer exists=${!!this.inkRenderer}, isRunning=${this.inkRenderer?.isRunning()}`);
               }
-              if (this.inkRenderer?.isRunning()) {
-                this.inkRenderer.setWorking(false);
-                this.inkRenderer.clearInput();
+              if (this.ui) {
+                this.ui.setWorking(false);
+                this.ui.clearInput();
                 // Return to the top of the loop so the idle-wait path can await
                 // the next Composer submission without falling through to
                 // instruction.startsWith('/') which would throw on null.
@@ -2985,69 +3006,76 @@ If lint or tests fail, report the issues but do NOT commit.`;
         return this.runInstruction(instruction);
       }
 
-      // Session failure retry logic
-      const err = error instanceof Error ? error : new Error(String(error));
-      const maxRetries = this.runtime.config.agent?.sessionRetryLimit ?? 3;
-      const baseDelay = this.runtime.config.agent?.sessionRetryDelay ?? 1000;
+      // Loop guard aborts are handled gracefully inside runReactLoop
+      // (fallback message already emitted to the user). Skip retries and
+      // error UI so we don't double-print failure messages.
+      if (error instanceof Error && error.name === 'LoopAbortedError') {
+        // Fall through to finally with success = false
+      } else {
+        // Session failure retry logic
+        const err = error instanceof Error ? error : new Error(String(error));
+        const maxRetries = this.runtime.config.agent?.sessionRetryLimit ?? 3;
+        const baseDelay = this.runtime.config.agent?.sessionRetryDelay ?? 1000;
 
-      if (this.isRetryableSessionError(err) && this.sessionRetryCount < maxRetries) {
-        this.sessionRetryCount++;
+        if (this.isRetryableSessionError(err) && this.sessionRetryCount < maxRetries) {
+          this.sessionRetryCount++;
 
-        // Submit bug report to telemetry
-        await this.submitSessionFailureBugReport(err, this.sessionRetryCount, maxRetries);
+          // Submit bug report to telemetry
+          await this.submitSessionFailureBugReport(err, this.sessionRetryCount, maxRetries);
 
-        // Show retry message to user
-        console.log(chalk.yellow(`\n⚠ Session encountered an error: ${err.message}`));
-        console.log(chalk.cyan(`  Attempting recovery (${this.sessionRetryCount}/${maxRetries})...`));
+          // Show retry message to user
+          console.log(chalk.yellow(`\n⚠ Session encountered an error: ${err.message}`));
+          console.log(chalk.cyan(`  Attempting recovery (${this.sessionRetryCount}/${maxRetries})...`));
 
-        // Wait with exponential backoff (1.5x multiplier)
-        const delay = Math.max(
-          baseDelay * Math.pow(1.5, this.sessionRetryCount - 1),
-          err instanceof ApiError ? err.retryAfterMs ?? 0 : 0
-        );
-        await this.sleep(delay);
+          // Wait with exponential backoff (1.5x multiplier)
+          const delay = Math.max(
+            baseDelay * Math.pow(1.5, this.sessionRetryCount - 1),
+            err instanceof ApiError ? err.retryAfterMs ?? 0 : 0
+          );
+          await this.sleep(delay);
 
-        // Retry plain transport/service outages without mutating the prompt.
-        // Injecting "continue the task" guidance after a dropped connection
-        // causes the model to resume with extra behavioral instructions once
-        // the service comes back, which can snowball into unnecessary tool use.
-        if (!this.shouldUsePassiveSessionRetry(err)) {
-          this.injectContinuationMessage(err, this.sessionRetryCount);
-        }
+          // Retry plain transport/service outages without mutating the prompt.
+          // Injecting "continue the task" guidance after a dropped connection
+          // causes the model to resume with extra behavioral instructions once
+          // the service comes back, which can snowball into unnecessary tool use.
+          if (!this.shouldUsePassiveSessionRetry(err)) {
+            this.injectContinuationMessage(err, this.sessionRetryCount);
+          }
 
-        // Retry the ReAct loop
-        try {
-          this.setUIStatus('Recovering session...');
-          await this.runReactLoop(abortController);
+          // Retry the ReAct loop
+          try {
+            this.setUIStatus('Recovering session...');
+            await this.runReactLoop(abortController);
 
-          // If we get here, retry succeeded - reset counter
-          this.sessionRetryCount = 0;
-          success = true;
-          return success;
-        } catch (retryError) {
-          // Retry failed, will be caught by outer logic on next iteration
-          // or fall through to final failure if max retries exceeded
-          if (this.sessionRetryCount >= maxRetries) {
-            // Max retries exceeded, fall through to failure
+            // If we get here, retry succeeded - reset counter
             this.sessionRetryCount = 0;
-          } else {
-            // Re-throw to trigger another retry attempt
-            throw retryError;
+            success = true;
+            return success;
+          } catch (retryError) {
+            // Retry failed, will be caught by outer logic on next iteration
+            // or fall through to final failure if max retries exceeded
+            if (this.sessionRetryCount >= maxRetries) {
+              // Max retries exceeded, fall through to failure
+              this.sessionRetryCount = 0;
+            } else {
+              // Re-throw to trigger another retry attempt
+              throw retryError;
+            }
           }
         }
-      }
 
-      // Reset retry counter on non-retryable errors or max retries exceeded
-      this.sessionRetryCount = 0;
+        // Reset retry counter on non-retryable errors or max retries exceeded
+        this.sessionRetryCount = 0;
 
-      this.stopUI(true, 'Session failed');
-      // Emit error for RPC mode
-      const errorMessage = this.getDisplayErrorMessage(error);
-      this.emitOutput({ type: 'error', content: errorMessage });
-      if (error instanceof Error) {
-        console.error(chalk.red(errorMessage));
-      } else {
-        console.error(errorMessage);
+        this.stopUI(true, 'Session failed');
+        // Emit error for RPC mode
+        const errorMessage = this.getDisplayErrorMessage(error);
+        this.emitOutput({ type: 'error', content: errorMessage });
+        if (error instanceof Error) {
+          console.error(chalk.red(errorMessage));
+        } else {
+          console.error(errorMessage);
+        }
       }
     } finally {
       // IMPORTANT: Keep the console bridge active until AFTER terminal regions
@@ -3585,15 +3613,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
               'I stopped repeated tool calls to prevent a loop and token waste. ' +
               'Please confirm if you want a direct answer now or a narrower retry instruction.';
             this.lastAssistantResponseForNotification = loopFallback;
-            if (this.inkRenderer) {
-              this.inkRenderer.setWorking(false);
-              this.inkRenderer.setFinalResponse(loopFallback);
-            } else {
-              this.runtime.spinner?.stop();
-              console.log(loopFallback);
-            }
+            this.ui?.setWorking(false);
+            this.ui?.setFinalResponse(loopFallback);
             this.emitOutput({ type: 'message', content: loopFallback });
-            return;
+            throw new LoopAbortedError('Repeated tool-call limit exceeded');
           }
 
           continue;
@@ -3939,17 +3962,12 @@ If lint or tests fail, report the issues but do NOT commit.`;
           console.log(chalk.yellow('\n⚠ Model not providing response after multiple attempts. Showing available context.'));
           const fallback = payload.thought || 'The model did not provide a clear response. Please try rephrasing your question.';
           this.lastAssistantResponseForNotification = fallback;
-          if (this.inkRenderer) {
-            this.inkRenderer.setWorking(false);
-            this.inkRenderer.setFinalResponse(fallback);
-          } else {
-            this.runtime.spinner?.stop();
-            console.log(fallback);
-          }
+          this.ui?.setWorking(false);
+          this.ui?.setFinalResponse(fallback);
           (this as any)[consecutiveEmptyKey] = 0;
           // Emit fallback for RPC mode
           this.emitOutput({ type: 'message', content: fallback });
-          return;
+          throw new LoopAbortedError('Model produced empty responses after multiple attempts');
         }
 
         this.conversation.addSystemNote(
@@ -4017,12 +4035,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
       const summaryResponse = summaryCompletion.content?.trim();
       if (summaryResponse) {
         this.lastAssistantResponseForNotification = summaryResponse;
-        if (this.inkRenderer) {
-          this.inkRenderer.setWorking(false);
-          this.inkRenderer.setFinalResponse(summaryResponse);
-        } else {
-          console.log(summaryResponse);
-        }
+        this.ui?.setWorking(false);
+        this.ui?.setFinalResponse(summaryResponse);
         this.emitOutput({ type: 'message', content: summaryResponse });
         return;
       }
@@ -4039,12 +4053,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
     );
     const fallbackMsg = `Task did not complete within ${maxIterations} iterations.\n\nProgress summary:\n${staticSummary}`;
     this.lastAssistantResponseForNotification = fallbackMsg;
-    if (this.inkRenderer) {
-      this.inkRenderer.setWorking(false);
-      this.inkRenderer.setFinalResponse(fallbackMsg);
-    } else {
-      console.log(chalk.gray(fallbackMsg));
-    }
+    this.ui?.setWorking(false);
+    this.ui?.setFinalResponse(fallbackMsg);
     this.emitOutput({ type: 'message', content: fallbackMsg });
   }
 
@@ -4543,24 +4553,25 @@ If lint or tests fail, report the issues but do NOT commit.`;
       '   - After access is granted, continue with dedicated file tools (read_file, glob, find, etc.).',
       '',
       '#### Search Optimization',
-      '- Use `glob` first when you need file path discovery by filename, extension, or directory pattern.',
-      '- Use `find` as the default code discovery tool.',
-      '- Use `find` for content, symbol, import, regex, and semantic lookup inside files.',
-      '- Use `find` with exact matching for literals, identifiers, filenames, imports, and regex patterns.',
-      '- Use `find` with surrounding context when you need nearby code, not a separate follow-up search.',
-      '- Use `find` in semantic mode only for broader concept lookup when exact matching is not enough.',
-      '- Use `read_file` after `find` identifies the exact file or region you need.',
+      '- **NEW: Prefer `fff_find`** over `glob` for file path discovery. It uses frecency ranking (recent + frequent) and returns git-aware results.',
+      '- **NEW: Prefer `fff_grep`** over `find` for content/code discovery. It auto-detects regex, falls back to fuzzy on zero matches, classifies definitions, and includes git annotations.',
+      '- Use `fff_find` first when you need file discovery by filename, extension, or path pattern.',
+      '- Use `fff_grep` as the default code discovery tool for content, symbols, imports, and regex lookup.',
+      '- `fff_grep` features: smart-case, definition classification, context lines, git status annotations.',
+      '- Legacy tools `find` and `glob` are DEPRECATED and will be removed in v0.9.0. Migrate to `fff_*` tools.',
+      '- Use `fff_grep` and `fff_find` for all new searches.',
+      '- Use `read_file` after search identifies the exact file or region you need.',
       '- Use `tool_search` if you are unsure which built-in tool best fits the current task.',
-      '- Prefer `glob`, `find`, `read_file`, `git_status`, and `git_diff` over `run_command` whenever they can accomplish the task.',
+      '- Prefer dedicated file tools (`fff_find`, `fff_grep`, `read_file`, `git_status`, `git_diff`) over `run_command` whenever they can accomplish the task.',
       '- Combine related searches into a single regex pattern (e.g., `pattern1|pattern2`) instead of separate searches.',
       '- Limit discovery searches to 2-3 per task. Analyze results before searching again.',
       '- If a search returns no results, broaden the pattern rather than trying variations.',
-      '- The legacy tools `search`, `search_with_context`, and `semantic_search` are compatibility aliases. Prefer `find` for new tool calls.',
+      '- The legacy tools `search`, `search_with_context`, and `semantic_search` are compatibility aliases. Prefer `fff_grep` or `find` for new tool calls.',
       '- Examples:',
-      '  - Glob: `glob(pattern="**/*.test.ts")`',
-      '  - Exact: `find(query="parallelToolConcurrency|maxConcurrency", mode="exact")`',
-      '  - Context: `find(query="buildSystemPrompt", context=8, mode="context")`',
-      '  - Semantic: `find(query="code discovery and tool selection", mode="semantic")`',
+      '  - File discovery: `fff_find(query="**/*.test.ts")` or `fff_find(query="auth controller")`',
+      '  - Content search: `fff_grep(query="UserController")` or `fff_grep(query="async function.*login")`',
+      '  - Legacy glob: `glob(pattern="**/*.test.ts")` (use only if fff_find unavailable)',
+      '  - Legacy find: `find(query="buildSystemPrompt", mode="exact")` (use only if fff_grep unavailable)',
       '',
       '### Phase 3: Implementation',
       '1. Write code using `write_file`, `search_replace`, `apply_patch`, or `multi_file_edit`.',
@@ -5204,6 +5215,48 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
   private clearExplorationLog(): void {
     this.hasPrintedExplorationHeader = false;
+  }
+
+  /**
+   * Initialize the UIManager based on configuration.
+   * Creates either InkUIManager or PlainUIManager depending on useInkRenderer config.
+   */
+  private initializeUIManager(): void {
+    if (this.ui) {
+      return; // Already initialized
+    }
+
+    const isTTY = process.stdout.isTTY && process.stdin.isTTY;
+
+    if (this.useInkRenderer && isTTY) {
+      // Create Ink UIManager
+      const inkUIManager = createInkUIManager({
+        onInstruction: (text: string) => { void this.handleInkSubmittedInstruction(text); },
+        onEscape: () => {
+          const ctrl = this.currentInkAbortController;
+          if (ctrl && !ctrl.signal.aborted) {
+            ctrl.abort();
+            this.currentInkOnCancel?.();
+          }
+        },
+        onCtrlC: () => {
+          // Ctrl+C handling - could trigger graceful shutdown
+        },
+        enableQueueInput: true,
+        filesProvider: () => this.workspaceFileCollector.getFiles(),
+        slashCommands: SLASH_COMMANDS,
+      });
+      this.ui = inkUIManager;
+    } else {
+      // Create Plain UIManager
+      const disableTerminalRegions = process.env.AUTOHAND_TERMINAL_REGIONS === '0';
+      this.ui = createPlainUIManager({
+        workspaceRoot: this.runtime.workspaceRoot,
+        silentMode: disableTerminalRegions,
+        resolveShellSuggestion: (input) => this.resolveLlmShellSuggestion(input),
+        suggestionProvider: () => this.suggestionEngine?.getSuggestion() ?? undefined,
+      });
+    }
   }
 
   /**
