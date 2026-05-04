@@ -17,12 +17,8 @@ import type { LLMProvider } from '../providers/LLMProvider.js';
 import { safeEmitKeypressEvents } from '../ui/inputPrompt.js';
 
 import { safeSetRawMode } from '../ui/rawMode.js';
-import { showQuestionModal } from '../ui/questionModal.js';
-import { showPlanAcceptModal } from '../ui/planAcceptModal.js';
-import { showDirectoryAccessModal } from '../ui/directoryAccessModal.js';
 import type { UIManager } from '../ui/UIManager.js';
 import {
-  getContextWindow,
   estimateMessagesTokens,
   calculateContextUsage
 } from './context/tokenizer.js';
@@ -33,7 +29,6 @@ import { ContextOrchestrator } from './context/orchestrator.js';
 import { ToolManager } from './toolManager.js';
 import { ActionExecutor } from './actionExecutor.js';
 import { SlashCommandHandler } from './slashCommandHandler.js';
-import { isToolAllowedByYolo, normalizeYoloInput, parseYoloPattern } from '../permissions/yoloMode.js';
 import { SessionManager } from '../session/SessionManager.js';
 import { ProjectManager } from '../session/ProjectManager.js';
 import { ToolsRegistry } from './toolsRegistry.js';
@@ -72,7 +67,6 @@ type InkRenderer = any;
 import { PermissionManager } from '../permissions/PermissionManager.js';
 import {
   isAllowedPermissionPrompt,
-  normalizePermissionPromptResponse,
   type PermissionMode,
   type PermissionPromptResponse,
   type PermissionPromptResult,
@@ -80,9 +74,8 @@ import {
 import { HookManager } from './HookManager.js';
 import { TeamManager } from './teams/TeamManager.js';
 import { RepeatManager } from './RepeatManager.js';
-import { prepareSessionWorktree, type SessionWorktreeInfo } from '../utils/sessionWorktree.js';
-import { WorktreeManager } from '../actions/worktree.js';
-import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
+import type { SessionWorktreeInfo } from '../utils/sessionWorktree.js';
+import { isExternalCallbackEnabled } from '../ui/promptCallback.js';
 import { ActivityIndicator } from '../ui/activityIndicator.js';
 import { NotificationService } from '../utils/notification.js';
 import { getPlanModeManager } from '../commands/plan.js';
@@ -139,6 +132,30 @@ import {
 } from './agent/AgentLifecycleRunner.js';
 import { promptForAgentInstruction } from './agent/PromptInstructionReader.js';
 import {
+  applyAgentAcpConfigOption,
+  applyAgentAcpMode,
+  applyAgentAcpModel,
+  confirmAgentDangerousAction,
+  connectAgentAcpMcpServers,
+  enterAgentSessionWorktree,
+  executeAgentAskFollowupQuestion,
+  executeAgentSleepTool,
+  exitAgentSessionWorktree,
+  handleAgentExitPlanMode,
+  handleAgentPlanCreated,
+  handleAgentSkillTool,
+  handleAgentSlashCommand,
+  isAgentDestructiveCommand,
+  isAgentSlashCommand,
+  isAgentSlashCommandSupported,
+  parseAgentSlashCommand,
+  requestAgentDirectoryAccess,
+  resolveAgentWorkspacePath,
+  runAgentSlashCommandWithInput,
+  setAgentDirectoryAccessCallback,
+  switchAgentWorkspaceContext,
+} from './agent/AgentCommandRuntime.js';
+import {
   addAgentUIToolOutput,
   addAgentUIToolOutputs,
   buildAgentSpinnerStatusText,
@@ -176,6 +193,13 @@ import { AutoReportManager } from '../reporting/AutoReportManager.js';
 import { SuggestionEngine } from './SuggestionEngine.js';
 
 export class AutohandAgent {
+  private static readonly INTERACTIVE_SLASH_COMMANDS = new Set([
+    '/chrome', '/hooks', '/feedback', '/permissions', '/login', '/logout',
+    '/agents-new', '/agents new', '/resume', '/theme', '/language',
+    '/model', '/skills', '/skills install', '/skills-install',
+    '/skills new', '/skills-new', '/mcp', '/mcp install', '/mcp-install',
+  ]);
+
   private contextWindow!: number;
   private contextPercentLeft = 100;
   private ignoreFilter!: GitIgnoreParser;
@@ -1659,23 +1683,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Apply ACP mode changes to runtime and permission behavior.
    */
   applyAcpMode(modeId: string): void {
-    const unrestricted = modeId === 'unrestricted' || modeId === 'full-access' || modeId === 'auto-mode';
-    const restricted = modeId === 'restricted' || modeId === 'dry-run';
-
-    this.runtime.options.yes = unrestricted;
-    this.runtime.options.unrestricted = unrestricted;
-    this.runtime.options.restricted = modeId === 'restricted';
-    this.runtime.options.dryRun = modeId === 'dry-run';
-
-    if (restricted) {
-      this.permissionManager.setMode('restricted');
-      return;
-    }
-    if (unrestricted) {
-      this.permissionManager.setMode('unrestricted');
-      return;
-    }
-    this.permissionManager.setMode('interactive');
+    return applyAgentAcpMode(this, modeId);
   }
 
   private setInteractiveAutomodeEnabled(enabled: boolean): void {
@@ -1733,120 +1741,29 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Apply ACP model changes for subsequent and in-flight iterations.
    */
   applyAcpModel(modelId: string): void {
-    this.runtime.options.model = modelId;
-
-    const provider = this.activeProvider ?? this.runtime.config.provider ?? 'openrouter';
-    const providerConfig = this.runtime.config[provider] as { model?: string } | undefined;
-    if (providerConfig) {
-      providerConfig.model = modelId;
-    }
-
-    if (process.env.AUTOHAND_DEBUG === '1') {
-      console.log(`[DEBUG] Model changed via ACP: provider=${provider}, model=${modelId}`);
-    }
-
-    this.llm.setModel(modelId);
-    this.contextWindow = getContextWindow(modelId);
-    this.contextOrchestrator.setModel(modelId);
-    this.contextPercentLeft = 100;
-    this.syncProviderModelStatusLine(provider);
-    this.emitStatus();
+    return applyAgentAcpModel(this, modelId);
   }
 
   /**
    * Apply ACP config option changes to runtime behavior.
    */
   applyAcpConfigOption(configId: string, value: string): void {
-    if (configId === 'thinking_level') {
-      if (value === 'none' || value === 'normal' || value === 'extended') {
-        this.runtime.options.thinking = value;
-      }
-      return;
-    }
-
-    if (configId === 'auto_commit') {
-      this.runtime.options.autoCommit = value === 'on';
-      return;
-    }
-
-    if (configId === 'context_compact') {
-      this.contextOrchestrator.applyAcpConfig(configId, value);
-    }
+    return applyAgentAcpConfigOption(this, configId, value);
   }
 
   /**
    * Connect ACP-provided MCP servers and refresh available MCP tools.
    */
   async connectAcpMcpServers(configs: McpServerConfig[]): Promise<void> {
-    if (configs.length === 0) {
-      return;
-    }
-    await this.mcpManager.connectAll(configs);
-    this.syncMcpTools();
+    return connectAgentAcpMcpServers(this, configs);
   }
 
   /**
    * Run a slash command with PersistentInput active so the user can type
-   * while long-running commands like /learn execute. This prevents blocking
-   * the composer during commands that involve LLM calls or network requests.
+   * while long-running commands like /learn execute.
    */
-  // Commands that show their own interactive UI (modals, prompts).
-  // These must NOT have the persistent input active — it conflicts with
-  // their own terminal rendering and leaves the status line on screen.
-  private static readonly INTERACTIVE_SLASH_COMMANDS = new Set([
-    '/chrome', '/hooks', '/feedback', '/permissions', '/login', '/logout',
-    '/agents-new', '/agents new', '/resume', '/theme', '/language',
-    '/model', '/skills', '/skills install', '/skills-install',
-    '/skills new', '/skills-new', '/mcp', '/mcp install', '/mcp-install',
-  ]);
-
   private async runSlashCommandWithInput(command: string, args: string[]): Promise<string | null> {
-    const queueEnabled = this.runtime.config.agent?.enableRequestQueue !== false;
-    const isInteractive = AutohandAgent.INTERACTIVE_SLASH_COMMANDS.has(command);
-    const canUsePersistentInput =
-      process.stdout.isTTY && process.stdin.isTTY && queueEnabled && !this.inkRenderer && !isInteractive;
-
-    let cleanupConsoleBridge: () => void = () => {};
-
-    if (canUsePersistentInput) {
-      this.persistentInput.start();
-      this.persistentInputActiveTurn = true;
-      // Install console bridge so console.log output from slash commands
-      // (e.g. /learn progress messages) routes through writeAbove() into
-      // the scroll region instead of landing on the fixed-region status line.
-      cleanupConsoleBridge = this.installPersistentConsoleBridge();
-    }
-
-    try {
-      const result = await this.handleSlashCommand(command, args);
-      return result;
-    } finally {
-      if (this.persistentInputActiveTurn) {
-        // Preserve any text the user typed while the slash command ran.
-        // Prefer current input; if empty, take the first queued item as seed
-        // so the user can review before submitting. Do NOT auto-process
-        // queued items from a slash command context.
-        const typed = this.persistentInput.getCurrentInput();
-        if (typed.trim()) {
-          this.promptSeedInput = typed;
-        } else if (this.persistentInput.hasQueued()) {
-          const first = this.persistentInput.dequeue();
-          if (first) {
-            this.promptSeedInput = first.text;
-          }
-        }
-        // Drain remaining queued items — they should not be auto-processed
-        while (this.persistentInput.hasQueued()) {
-          this.persistentInput.dequeue();
-        }
-        this.persistentInput.stop();
-        this.persistentInputActiveTurn = false;
-      }
-      cleanupConsoleBridge();
-      if (isInteractive && this.inkRenderer?.isRunning()) {
-        this.inkRenderer.clearInput();
-      }
-    }
+    return runAgentSlashCommandWithInput(this, command, args);
   }
 
   /**
@@ -1854,32 +1771,21 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Returns the command output or null if the command doesn't exist
    */
   async handleSlashCommand(command: string, args: string[] = []): Promise<string | null> {
-    // /mcp depends on background startup state (notably MCP auto-connect).
-    // Ensure startup init is settled before rendering server status/actions.
-    if (command === '/mcp' || command === '/mcp install') {
-      await this.ensureInitComplete();
-      this.flushMcpStartupSummaryIfPending();
-    }
-
-    const result = await this.slashHandler.handle(command, args);
-    if (command === '/mcp' || command === '/mcp install') {
-      this.syncMcpTools();
-    }
-    return result;
+    return handleAgentSlashCommand(this, command, args);
   }
 
   /**
    * Check if a string is a slash command
    */
   isSlashCommand(input: string): boolean {
-    return input.trim().startsWith('/');
+    return isAgentSlashCommand(this, input);
   }
 
   /**
    * Check if a slash command is supported (exists in the command map)
    */
   isSlashCommandSupported(command: string): boolean {
-    return this.slashHandler.isCommandSupported(command);
+    return isAgentSlashCommandSupported(this, command);
   }
 
   /**
@@ -1887,24 +1793,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * e.g., "/skills install myskill" -> { command: "/skills install", args: ["myskill"] }
    */
   parseSlashCommand(input: string): { command: string; args: string[] } {
-    const trimmed = input.trim();
-    const parts = trimmed.split(/\s+/);
-
-    // Check for two-word commands like "/skills install", "/mcp install"
-    const twoWordCommands = ['/skills install', '/skills new', '/skills use', '/agents new', '/mcp install'];
-    const potentialTwoWord = parts.slice(0, 2).join(' ');
-
-    if (twoWordCommands.includes(potentialTwoWord)) {
-      return {
-        command: potentialTwoWord,
-        args: parts.slice(2),
-      };
-    }
-
-    return {
-      command: parts[0],
-      args: parts.slice(1),
-    };
+    return parseAgentSlashCommand(this, input);
   }
 
   /**
@@ -2260,57 +2149,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     message: string,
     context?: { tool?: string; path?: string; command?: string }
   ): Promise<PermissionPromptResult> {
-    const normalizedYolo = normalizeYoloInput(this.runtime.options.yolo as string | boolean | undefined);
-    if (normalizedYolo && context?.tool) {
-      try {
-        const pattern = parseYoloPattern(normalizedYolo);
-        if (isToolAllowedByYolo(context.tool, pattern)) {
-          return { decision: 'allow_once' };
-        }
-      } catch {
-        // Ignore malformed runtime YOLO values here; CLI validation handles normal entrypoints.
-      }
-    }
-
-    if (this.runtime.options.yes || this.runtime.options.unrestricted || this.runtime.config.ui?.autoConfirm) {
-      return { decision: 'allow_once' };
-    }
-
-    let decision: PermissionPromptResult;
-
-    // Use confirmation callback if set (e.g., RPC mode)
-    if (this.confirmationCallback) {
-      decision = normalizePermissionPromptResponse(await this.confirmationCallback(message, context));
-    } else if (isExternalCallbackEnabled()) {
-      decision = normalizePermissionPromptResponse(await unifiedConfirm(message));
-    } else {
-      this.notificationService.notify(
-        { body: message, reason: 'confirmation' },
-        this.getNotificationGuards()
-      ).catch(() => {});
-
-      decision = await this.withModalPause(async () => {
-        // Reset stdin to cooked mode for Modal prompts
-        const wasRaw = process.stdin.isTTY && (process.stdin as any).isRaw;
-        if (wasRaw) {
-          safeSetRawMode(process.stdin as NodeJS.ReadStream, false);
-        }
-        return unifiedConfirm(message);
-      });
-    }
-
-    if (context?.tool) {
-      await this.permissionManager.applyPromptDecision(
-        {
-          tool: context.tool,
-          path: context.path,
-          command: context.command,
-        },
-        decision
-      );
-    }
-
-    return decision;
+    return confirmAgentDangerousAction(this, message, context);
   }
 
   /**
@@ -2321,31 +2160,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
   private directoryAccessCallback?: (path: string, reason?: string) => Promise<string | undefined>;
 
   setDirectoryAccessCallback(callback: (path: string, reason?: string) => Promise<string | undefined>): void {
-    this.directoryAccessCallback = callback;
+    return setAgentDirectoryAccessCallback(this, callback);
   }
 
   private async requestDirectoryAccess(dirPath: string, reason?: string): Promise<string | undefined> {
-    // In yolo/yes/unrestricted mode, auto-grant
-    const normalizedYolo = normalizeYoloInput(this.runtime.options.yolo as string | boolean | undefined);
-    if (normalizedYolo || this.runtime.options.yes || this.runtime.options.unrestricted) {
-      return dirPath;
-    }
-
-    // Use callback if set (e.g., RPC mode)
-    if (this.directoryAccessCallback) {
-      return this.directoryAccessCallback(dirPath, reason);
-    }
-
-    // Interactive mode - show modal prompt via Ink
-    if (this.useInkRenderer && this.inkRenderer) {
-      return this.withModalPause(async () => {
-        const result = await showDirectoryAccessModal({ path: dirPath, reason });
-        return result ? dirPath : undefined;
-      });
-    }
-
-    // Fallback - no callback and no Ink renderer
-    return undefined;
+    return requestAgentDirectoryAccess(this, dirPath, reason);
   }
 
   /**
@@ -2356,41 +2175,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     question: string,
     suggestedAnswers?: string[]
   ): Promise<string> {
-    // Auto-approve mode: always answer "Yes" to unblock autonomous flows.
-    if (this.runtime.options.yes || this.runtime.options.unrestricted) {
-      console.log(chalk.yellow(`\n❓ ${question}`));
-      console.log(chalk.gray('  (Auto-answered: Yes)\n'));
-      return '<answer>Yes</answer>';
-    }
-
-    // Non-interactive mode fallback
-    if (process.env.CI === '1' || process.env.AUTOHAND_NON_INTERACTIVE === '1') {
-      console.log(chalk.yellow(`\n❓ ${question}`));
-      console.log(chalk.gray('  (Auto-skipped in non-interactive mode)\n'));
-      return '<answer>Skipped (non-interactive mode)</answer>';
-    }
-
-    this.notificationService.notify(
-      { body: `Question: ${question.slice(0, 100)}`, reason: 'question' },
-      this.getNotificationGuards()
-    ).catch(() => {});
-
-    return this.withModalPause(async () => {
-      const answer = await showQuestionModal({
-        question,
-        suggestedAnswers
-      });
-
-      if (answer === null) {
-        this.consecutiveCancellations++;
-        console.log(chalk.yellow('\n  (Question cancelled)\n'));
-        return '<answer>User cancelled this question. Do NOT call ask_followup_question again. Continue with your best judgment or provide a final response.</answer>';
-      }
-
-      this.consecutiveCancellations = 0;
-      console.log(chalk.green(`\n✓ Answer: ${answer}\n`));
-      return `<answer>${answer}</answer>`;
-    });
+    return executeAgentAskFollowupQuestion(this, question, suggestedAnswers);
   }
 
   /**
@@ -2401,43 +2186,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * when ready to present the plan for approval.
    */
   private async handlePlanCreated(plan: import('../modes/planMode/types.js').Plan, filePath: string): Promise<string> {
-    const planManager = getPlanModeManager();
-
-    // Guard: if plan mode is not enabled, just save the plan without
-    // interacting with the manager. This prevents state corruption when
-    // the LLM calls `plan` outside plan mode (which should no longer
-    // happen since the tool is gated, but we keep this as a safety net).
-    if (!planManager.isEnabled()) {
-      console.log(chalk.cyan('\n' + '─'.repeat(60)));
-      console.log(chalk.cyan.bold('📋 Plan Summary'));
-      console.log(chalk.cyan('─'.repeat(60)));
-      for (const step of plan.steps) {
-        console.log(chalk.white(`  ${step.number}. ${step.description}`));
-      }
-      console.log(chalk.cyan('─'.repeat(60)));
-      console.log(chalk.gray(`  Saved to: ${filePath}`));
-      console.log(chalk.cyan('─'.repeat(60) + '\n'));
-
-      return `Plan saved to ${filePath}. Plan mode is not active — enable it with /plan to use the acceptance flow.`;
-    }
-
-    // Store the plan in PlanModeManager
-    planManager.setPlan(plan);
-
-    // Display plan summary
-    console.log(chalk.cyan('\n' + '─'.repeat(60)));
-    console.log(chalk.cyan.bold('📋 Plan Summary'));
-    console.log(chalk.cyan('─'.repeat(60)));
-
-    for (const step of plan.steps) {
-      console.log(chalk.white(`  ${step.number}. ${step.description}`));
-    }
-
-    console.log(chalk.cyan('─'.repeat(60)));
-    console.log(chalk.gray(`  Saved to: ${filePath}`));
-    console.log(chalk.cyan('─'.repeat(60) + '\n'));
-
-    return `Plan saved to ${filePath} (${plan.steps.length} step(s)).\n\nCall \`exit_plan_mode\` when you are ready to present this plan to the user for approval.`;
+    return handleAgentPlanCreated(this, plan, filePath);
   }
 
   /**
@@ -2446,287 +2195,37 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * if the user rejects).
    */
   private async handleExitPlanMode(_summary?: string): Promise<string> {
-    const planManager = getPlanModeManager();
-
-    // Guard: must be in plan mode
-    if (!planManager.isEnabled()) {
-      return 'Error: Plan mode is not active. You can only call `exit_plan_mode` when plan mode is enabled.';
-    }
-
-    const plan = planManager.getPlan();
-    if (!plan) {
-      return 'Error: No plan has been created yet. Call the `plan` tool first to create a plan before calling `exit_plan_mode`.';
-    }
-
-    // Non-interactive mode: auto-accept with default option
-    if (this.runtime.options.yes || this.runtime.options.unrestricted || process.env.CI === '1' || process.env.AUTOHAND_NON_INTERACTIVE === '1') {
-      const config = planManager.acceptPlan('auto_accept');
-      console.log(chalk.yellow('  (Auto-accepted in non-interactive mode)\n'));
-      this.conversation.addSystemNote(
-        `Plan accepted with option: ${config.option}. You may now proceed to execution.`
-      );
-      return `Plan accepted with option: ${config.option}. Starting execution...`;
-    }
-
-    // Get acceptance options from PlanModeManager
-    const acceptOptions = planManager.getAcceptOptions();
-    const filePath = `${plan.id}.md`;
-
-    return this.withModalPause(async () => {
-      const result = await showPlanAcceptModal({
-        planFilePath: filePath,
-        options: acceptOptions.map(opt => ({
-          id: opt.id,
-          label: opt.label,
-          shortcut: opt.shortcut
-        }))
-      });
-
-      // Handle result
-      if (result.type === 'cancel') {
-        console.log(chalk.yellow('\n  Plan not accepted. You can revise and try again.\n'));
-        this.conversation.addSystemNote(
-          'The user has reviewed the plan and did not accept it yet. ' +
-          'Do NOT call the `plan` tool again automatically. ' +
-          'Instead, ask the user what changes they would like, or provide your response summarizing the current plan.'
-        );
-        return 'Plan not accepted. Staying in planning mode for revisions.';
-      }
-
-      if (result.type === 'custom' && result.customText) {
-        console.log(chalk.yellow(`\n  Feedback received: ${result.customText}\n`));
-        this.conversation.addSystemNote(
-          'The user has reviewed the plan and provided feedback. ' +
-          'Do NOT call the `plan` tool again automatically. ' +
-          'Revise the plan based on the user feedback and present the updated plan.'
-        );
-        return `User feedback on plan: ${result.customText}. Please revise the plan accordingly.`;
-      }
-
-      if (result.type === 'option' && result.optionId) {
-        const selectedOption = acceptOptions.find(opt => opt.id === result.optionId);
-        if (selectedOption) {
-          const config = planManager.acceptPlan(selectedOption.id);
-
-          console.log(chalk.green(`\n✓ Plan accepted: ${selectedOption.label}`));
-          if (config.clearContext) {
-            console.log(chalk.gray('  Context will be cleared for fresh execution.'));
-            await this.resetConversationContext();
-            console.log(chalk.gray('  Context cleared for fresh execution.'));
-          }
-          if (config.autoAcceptEdits) {
-            console.log(chalk.gray('  Edits will be auto-accepted.'));
-          }
-          console.log();
-
-          this.conversation.addSystemNote(
-            `Plan accepted with option: ${config.option}. You may now proceed to execution.`
-          );
-          return `Plan accepted with option: ${config.option}. Ready for execution.\n\nSteps:\n${plan.steps.map(s => `${s.number}. ${s.description}`).join('\n')}`;
-        }
-      }
-
-      // Default: accept with manual approve if result wasn't recognized
-      planManager.acceptPlan('manual_approve');
-      console.log(chalk.green('\n✓ Plan accepted with manual approval for edits.\n'));
-      this.conversation.addSystemNote(
-        'Plan accepted with option: manual_approve. You may now proceed to execution.'
-      );
-
-      return `Plan accepted. Starting execution with manual edit approval.\n\nSteps:\n${plan.steps.map(s => `${s.number}. ${s.description}`).join('\n')}`;
-    });
+    return handleAgentExitPlanMode(this, _summary);
   }
 
   private resolveWorkspacePath(relativePath: string): string {
-    const resolved = path.isAbsolute(relativePath)
-      ? path.resolve(relativePath)
-      : path.resolve(this.runtime.workspaceRoot, relativePath);
-    const allowedRoots = this.files.getAllowedDirectories?.()
-      ?? [this.runtime.workspaceRoot, ...(this.runtime.additionalDirs ?? [])];
-
-    let probe = resolved;
-    let realPath = resolved;
-
-    while (true) {
-      try {
-        const realProbe = fs.realpathSync(probe);
-        realPath = probe === resolved
-          ? realProbe
-          : path.join(realProbe, path.relative(probe, resolved));
-        break;
-      } catch {
-        const parent = path.dirname(probe);
-        if (parent === probe) {
-          break;
-        }
-        probe = parent;
-      }
-    }
-
-    for (const allowedRoot of allowedRoots) {
-      let realRoot: string;
-      try {
-        realRoot = fs.realpathSync(allowedRoot);
-      } catch {
-        realRoot = path.resolve(allowedRoot);
-      }
-
-      const rootWithSep = realRoot.endsWith(path.sep)
-        ? realRoot
-        : `${realRoot}${path.sep}`;
-
-      if (realPath === realRoot || realPath.startsWith(rootWithSep)) {
-        return resolved;
-      }
-    }
-
-    const allowedDirsList = allowedRoots.join(', ');
-    throw new Error(
-      `Path ${relativePath} escapes the allowed directories: ${allowedDirsList}. ` +
-      'Tell the user to grant access with /add-dir <path> for this session or restart with --add-dir <path>.'
-    );
+    return resolveAgentWorkspacePath(this, relativePath);
   }
 
   private async switchWorkspaceContext(workspaceRoot: string): Promise<void> {
-    this.runtime.workspaceRoot = workspaceRoot;
-    this.memoryManager.setWorkspace(workspaceRoot);
-    this.hookManager.setWorkspaceRoot(workspaceRoot);
-    this.files.setWorkspaceRoot(workspaceRoot);
-    this.persistentInput.setWorkspaceRoot(workspaceRoot);
-    this.ignoreFilter = new GitIgnoreParser(workspaceRoot, []);
-    this.workspaceFileCollector.setWorkspace(workspaceRoot, this.ignoreFilter);
-    await this.skillsRegistry.setWorkspace(workspaceRoot);
+    return switchAgentWorkspaceContext(this, workspaceRoot);
   }
 
   private async enterSessionWorktree(name?: string): Promise<string> {
-    if (this.sessionWorktreeState) {
-      return `Already inside worktree ${this.sessionWorktreeState.worktreePath} (${this.sessionWorktreeState.branchName}). Exit it first with exit_worktree.`;
-    }
-
-    const originalWorkspaceRoot = this.runtime.workspaceRoot;
-    const info = prepareSessionWorktree({
-      cwd: originalWorkspaceRoot,
-      worktree: name ?? true,
-      mode: 'cli',
-    });
-
-    this.sessionWorktreeState = {
-      ...info,
-      originalWorkspaceRoot,
-    };
-
-    await this.switchWorkspaceContext(info.worktreePath);
-
-    return [
-      `Entered worktree ${info.worktreePath}.`,
-      `Branch: ${info.branchName}${info.createdBranch ? ' (new)' : ''}`,
-      `Original workspace: ${originalWorkspaceRoot}`,
-    ].join('\n');
+    return enterAgentSessionWorktree(this, name);
   }
 
   private handleSkillTool(
     action: Extract<AgentAction, { type: 'skill' }>
   ): string {
-    if (action.command === 'list') {
-      const skills = this.skillsRegistry.listSkills().map((skill) => ({
-        name: skill.name,
-        description: skill.description,
-        source: skill.source,
-        active: skill.isActive,
-      }));
-      return JSON.stringify(skills, null, 2);
-    }
-
-    if (!action.name?.trim()) {
-      throw new Error(`skill ${action.command} requires a "name" argument.`);
-    }
-
-    const name = action.name.trim();
-    const skill = this.skillsRegistry.getSkill(name);
-    if (!skill) {
-      const similar = this.skillsRegistry.findSimilar(name, 0.2)
-        .slice(0, 3)
-        .map((match) => match.skill.name);
-      const suggestion = similar.length > 0
-        ? `\nDid you mean: ${similar.join(', ')}`
-        : '';
-      return `Skill "${name}" not found.${suggestion}`;
-    }
-
-    if (action.command === 'info') {
-      return JSON.stringify({
-        name: skill.name,
-        description: skill.description,
-        source: skill.source,
-        path: skill.path,
-        active: skill.isActive,
-        allowedTools: skill['allowed-tools'] ?? null,
-      }, null, 2);
-    }
-
-    if (action.command === 'activate') {
-      if (skill.isActive) {
-        return `Skill "${name}" is already active.`;
-      }
-      const success = this.skillsRegistry.activateSkill(name);
-      return success
-        ? `Activated skill: ${name}\n${skill.description}`
-        : `Failed to activate skill: ${name}`;
-    }
-
-    if (action.command === 'deactivate') {
-      if (!skill.isActive) {
-        return `Skill "${name}" is not active.`;
-      }
-      const success = this.skillsRegistry.deactivateSkill(name);
-      return success
-        ? `Deactivated skill: ${name}`
-        : `Failed to deactivate skill: ${name}`;
-    }
-
-    throw new Error(`Unsupported skill command: ${action.command}`);
+    return handleAgentSkillTool(this, action);
   }
 
   private async executeSleepTool(seconds: number, reason?: string): Promise<string> {
-    if (!Number.isFinite(seconds) || seconds < 0) {
-      throw new Error('sleep requires a non-negative "seconds" argument.');
-    }
-    if (seconds > 300) {
-      throw new Error('sleep cannot exceed 300 seconds.');
-    }
-
-    await this.sleep(seconds * 1000);
-    const units = seconds === 1 ? 'second' : 'seconds';
-    return reason
-      ? `Slept for ${seconds} ${units}.\nReason: ${reason}`
-      : `Slept for ${seconds} ${units}.`;
+    return executeAgentSleepTool(this, seconds, reason);
   }
 
   private async exitSessionWorktree(keep = false): Promise<string> {
-    const state = this.sessionWorktreeState;
-    if (!state) {
-      return 'No active session worktree.';
-    }
-
-    if (!keep) {
-      const manager = new WorktreeManager(state.repoRoot);
-      await manager.remove(state.worktreePath, {
-        force: true,
-        deleteBranch: state.createdBranch,
-      });
-    }
-
-    await this.switchWorkspaceContext(state.originalWorkspaceRoot);
-    this.sessionWorktreeState = null;
-
-    return keep
-      ? `Exited worktree ${state.worktreePath} and returned to ${state.originalWorkspaceRoot}. Worktree kept on disk.`
-      : `Exited worktree ${state.worktreePath} and returned to ${state.originalWorkspaceRoot}.`;
+    return exitAgentSessionWorktree(this, keep);
   }
 
   private isDestructiveCommand(command: string): boolean {
-    const lowered = command.toLowerCase();
-    return lowered.includes('rm ') || lowered.includes('sudo ') || lowered.includes('dd ');
+    return isAgentDestructiveCommand(this, command);
   }
 
   setStatusListener(listener: (snapshot: AgentStatusSnapshot) => void): void {
