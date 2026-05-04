@@ -205,6 +205,32 @@ describe('AgentUI @ mention handling', () => {
   });
 });
 
+describe('AgentUI Ctrl+C exit handling', () => {
+  it('submits /quit on the second Ctrl+C with an empty composer', async () => {
+    const onInstruction = vi.fn();
+    const { stdin, lastFrame } = renderAgentUIWithStdin({
+      state: {
+        ...createInitialUIState(),
+        isWorking: false,
+      },
+      onInstruction,
+    });
+
+    await new Promise(r => setImmediate(r));
+
+    stdin.write('\x03');
+    await new Promise(r => setImmediate(r));
+
+    expect(onInstruction).not.toHaveBeenCalled();
+    expect(lastFrame()).toContain('Press Ctrl+C again to exit');
+
+    stdin.write('\x03');
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(onInstruction).toHaveBeenCalledWith('/quit');
+  });
+});
+
 describe('matchFileMention edge cases', () => {
   it('matches @ at the end of input', () => {
     const result = matchFileMention('hello @', 7);
