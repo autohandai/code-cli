@@ -3,33 +3,33 @@
 [![Bun](https://img.shields.io/badge/Bun-%23c61f33?style=flat&logo=bun&logoColor=white)](https://bun.sh)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Us-%235865F2?style=flat&logo=discord&logoColor=white)](https://discord.com/invite/MWTNudaj8E)
 
-**An autonomous coding agent CLI that reads, reasons, and writes code across your entire project. No context switching. No copy-paste.**
+**A fast, terminal-native AI coding agent for planning, editing, testing, and automating work across your codebase.**
 
-Autohand Code CLI is an autonomous LLM-powered coding agent that lives in your terminal. It uses the ReAct (Reason + Act) pattern to understand your codebase, plan changes, and execute them with your approval. It's blazing fast, intuitive, and extensible with a modular skill system.
+Autohand Code CLI is a fast, terminal-native AI coding agent that lives where you already work. It reads project context, plans changes, edits files, runs tools, and asks for approval before risky operations.
 
-We built with a minimalistic design philosophy to keep the focus on coding. Just install, run `autohand`, and start giving instructions in natural language. Autohand handles the rest.
+The interface is built for focused interactive sessions: minimal chrome, smooth Ink rendering, file mentions, slash commands, skills, permissions, provider switching, and session history all available from one prompt.
 
-Scale Autohand across your team and CI/CD pipelines to automate repetitive coding tasks, enforce code quality, and accelerate development velocity.
+Install it, run `autohand`, and describe the outcome you want in natural language. Use Autohand Code CLI locally, with your editor, or in CI/CD to automate repetitive engineering work without giving up control.
 
-![Alt Autohand in the terminal](docs/gif/autohand-intro.gif)
+![Autohand Code CLI running in the terminal](docs/gif/autohand-intro.gif)
 
 ## Features
 
-- **Autonomous Coding**: Understands your codebase and executes changes with approval
-- **ReAct Pattern**: Combines reasoning and action for intelligent code modifications
-- **Interactive REPL**: Full terminal experience with file mentions and slash commands
-- **Modular Skills**: Extend functionality with specialized instruction packages
+- **Terminal-Native Agent**: Understands your codebase and executes approved changes from the CLI
+- **Planning + Tools**: Combines reasoning, file edits, shell commands, and web context in one loop
+- **Interactive REPL**: Smooth terminal experience with file mentions, slash commands, and keyboard shortcuts
+- **Modular Skills**: Extends workflows with specialized instruction packages
 - **Multi-Provider Support**: Works with OpenRouter, LLMGateway, OpenAI, Azure Foundry Models, Z.ai, and local models
 - **Git Integration**: Full version control support with automatic commits
 - **Cross-Platform**: Works on macOS, Linux, and Windows
 
-## Why Autohand?
+## Why Autohand Code CLI?
 
 - **No Context Switching**: Stay in your terminal, no copy-paste needed
 - **Intelligent Planning**: Understands your codebase before making changes
-- **Safe Execution**: Requires approval for all modifications
-- **Extensible**: Add new skills and customize behavior
-- **Fast**: Optimized for quick responses and efficient execution
+- **Safe Execution**: Prompts before risky operations unless you choose a different permission mode
+- **Extensible**: Add skills, hooks, and provider configuration as your workflow grows
+- **Fast**: Optimized for responsive interactive sessions and efficient tool execution
 
 ## Installation
 
@@ -76,7 +76,7 @@ autohand -p "refactor the auth module" -c
 
 ## Editor Extensions
 
-Use Autohand directly in your favorite editor:
+Use Autohand Code CLI directly in your favorite editor:
 
 ### VS Code
 
@@ -153,8 +153,8 @@ autohand -p "refactor database queries" --dry-run
 | `--skill-install [name]`        |       | Install a community skill                                                        |
 | `--project`                     |       | Install skill to project level (with --skill-install)                            |
 | `--permissions`                 |       | Display current permission settings and exit                                     |
-| `--login`                       |       | Sign in to your Autohand account                                                 |
-| `--logout`                      |       | Sign out of your Autohand account                                                |
+| `--login`                       |       | Sign in to your Autohand Code account                                            |
+| `--logout`                      |       | Sign out of your Autohand Code account                                           |
 | `--sync-settings [bool]`        |       | Enable/disable settings sync (default: true for logged users)                    |
 | `--patch`                       |       | Generate git patch without applying changes                                      |
 | `--output <file>`               |       | Output file for patch (default: stdout)                                          |
@@ -171,8 +171,8 @@ autohand -p "refactor database queries" --dry-run
 | `--max-runtime <m>`             |       | Max runtime in minutes (default: 120)                                            |
 | `--max-cost <d>`                |       | Max API cost in dollars (default: 10)                                            |
 | `--interactive-on-complete`     |       | After auto-mode ends, hand off to interactive mode (TTY only)                    |
-| `--setup`                       |       | Run the setup wizard to configure or reconfigure Autohand                        |
-| `--about`                       |       | Show information about Autohand                                                  |
+| `--setup`                       |       | Run the setup wizard to configure or reconfigure Autohand Code CLI               |
+| `--about`                       |       | Show information about Autohand Code CLI                                         |
 | `--add-dir <path...>`           |       | Add additional directories to workspace scope (can be used multiple times)       |
 | `--display-language <locale>`   |       | Set display language (e.g., en, zh-cn, fr, de, ja)                               |
 | `--cc, --context-compact`       |       | Enable context compaction (default: on)                                          |
@@ -182,14 +182,14 @@ autohand -p "refactor database queries" --dry-run
 | `--append-sys-prompt <value>`   |       | Append to system prompt (inline string or file path)                             |
 | `--yolo [pattern]`              |       | Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete) |
 | `--timeout <seconds>`           |       | Timeout in seconds for auto-approve mode                                         |
-| `--settings`                    |       | Configure Autohand settings (same as /settings in interactive mode)              |
+| `--settings`                    |       | Configure Autohand Code CLI settings (same as /settings in interactive mode)     |
 | `--feedback`                    |       | Submit feedback                                                                   |
 | `--chrome`                      |       | Enable Chrome browser integration (same as /chrome)                              |
 | `--no-chrome`                   |       | Disable Chrome browser integration                                                |
 
 ## Agent Skills
 
-Skills are modular instruction packages that extend Autohand with specialized workflows. They work like on-demand `AGENTS.md` files for specific tasks.
+Skills are modular instruction packages that extend Autohand Code CLI with specialized workflows. They work like on-demand `AGENTS.md` files for specific tasks.
 
 ### Using Skills
 
@@ -265,7 +265,7 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/completion`      | Generate shell completion scripts    |
 | `/export`          | Export session to markdown/JSON/HTML |
 | `/status`          | Show workspace status                |
-| `/login`           | Authenticate with Autohand API       |
+| `/login`           | Authenticate with Autohand Code API  |
 | `/logout`          | Sign out                             |
 | `/permissions`     | Manage tool permissions              |
 | `/hooks`           | Manage git hooks                     |
@@ -278,7 +278,7 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/sync`            | Sync settings across devices         |
 | `/add-dir`         | Add additional workspace directory   |
 | `/plan`            | Create a task plan                   |
-| `/about`           | Show information about Autohand      |
+| `/about`           | Show information about Autohand Code CLI |
 | `/ide`             | Open in IDE                          |
 | `/history`         | View command history                 |
 | `/mcp`             | Manage MCP servers                   |
@@ -293,7 +293,7 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 
 ## Tool System
 
-Autohand includes 40+ tools for autonomous coding:
+Autohand Code CLI includes 40+ tools for autonomous coding:
 
 ### File Operations
 
@@ -381,7 +381,7 @@ autohand resume <session-id>
 
 ## Entire Integration
 
-Autohand Code supports [Entire](https://entire.io) for session checkpointing. Entire captures your coding sessions -- prompts, file changes, and token usage -- as git-backed checkpoints that you can rewind to, review, and share.
+Autohand Code CLI supports [Entire](https://entire.io) for session checkpointing. Entire captures your coding sessions -- prompts, file changes, and token usage -- as git-backed checkpoints that you can rewind to, review, and share.
 
 ```bash
 # Install hooks in this repository
@@ -394,11 +394,11 @@ entire status
 entire disable --agent autohand-code
 ```
 
-Once enabled, Entire works automatically through Autohand's hooks system. No changes to your workflow are needed. See the [Entire Integration Guide](docs/entire-integration.md) for setup details and troubleshooting.
+Once enabled, Entire works automatically through the Autohand Code CLI hooks system. No changes to your workflow are needed. See the [Entire Integration Guide](docs/entire-integration.md) for setup details and troubleshooting.
 
 ## Security & Permissions
 
-Autohand includes a permission system for sensitive operations:
+Autohand Code CLI includes a permission system for sensitive operations:
 
 - **Interactive** (default): Prompts for confirmation on risky actions
 - **Unrestricted** (`--unrestricted`): No approval prompts
@@ -423,7 +423,7 @@ Configure granular permissions in `~/.autohand/config.toml/yaml/json`:
 
 ## Telemetry & Feedback
 
-Telemetry is disabled by default. Opt-in to help improve Autohand:
+Telemetry is disabled by default. Opt in to help improve Autohand Code CLI:
 
 ```json
 {
@@ -433,7 +433,7 @@ Telemetry is disabled by default. Opt-in to help improve Autohand:
 }
 ```
 
-When enabled, Autohand collects anonymous usage data (no PII, no code content). See [Telemetry Documentation](docs/telemetry.md) for details.
+When enabled, Autohand Code CLI collects anonymous usage data (no PII, no code content). See [Telemetry Documentation](docs/telemetry.md) for details.
 
 The backend API is available at: https://github.com/autohandai/api
 
@@ -453,7 +453,7 @@ bun run build
 bun run typecheck
 
 # Run tests
-bun test
+bun run test
 ```
 
 ## Docker
@@ -463,7 +463,7 @@ FROM oven/bun:1
 WORKDIR /app
 COPY . .
 RUN bun install && bun run build
-CMD ["./dist/cli.js"]
+CMD ["node", "dist/index.js"]
 ```
 
 ```bash
@@ -508,9 +508,9 @@ We welcome contributions! Please read our [Contributing Guide](CONTRIBUTING.md) 
 
 ## Security
 
-Autohand is designed with security in mind:
+Autohand Code CLI is designed with security in mind:
 
-- **No Code Execution**: Autohand only suggests changes, you approve them
+- **User-Controlled Execution**: Risky operations require approval unless you opt into a broader permission mode
 - **Permission System**: Fine-grained control over what operations are allowed
 - **Local Processing**: Your code never leaves your machine unless you choose
 - **Open Source**: Transparent code that can be audited
@@ -532,7 +532,7 @@ Apache License 2.0 - Free for individuals, non-profits, educational institutions
 ### Upcoming Features
 
 - **Enhanced AI Models**: Support for newer models and improved reasoning
-- **Plugin System**: Easier way to extend Autohand with custom functionality
+- **Plugin System**: Easier way to extend Autohand Code CLI with custom functionality
 - **Team Collaboration**: Features for team-based development workflows
 - **Advanced Testing**: Automated test generation and execution
 - **Code Review**: AI-powered code review and quality checks
@@ -547,4 +547,4 @@ Apache License 2.0 - Free for individuals, non-profits, educational institutions
 
 ---
 
-**Ready to get started?** Run `autohand` in your terminal and experience the future of coding!
+**Ready to get started?** Run `autohand` in your terminal and start a coding session.
