@@ -21,6 +21,7 @@ export interface InkUIManagerOptions {
   filesProvider?: () => string[];
   slashCommands?: SlashCommand[];
   skillsProvider?: () => SkillMentionInfo[];
+  rendererFactory?: (options: InkRendererOptions) => InkRenderer;
 }
 
 export class InkUIManager extends BaseUIManager implements UIManager {
@@ -39,8 +40,9 @@ export class InkUIManager extends BaseUIManager implements UIManager {
       return;
     }
 
+    const { rendererFactory, ...rendererOptionBase } = this.options;
     const rendererOptions: InkRendererOptions = {
-      ...this.options,
+      ...rendererOptionBase,
       onInstruction: (text: string) => {
         this.enqueueInstruction(text);
         if (this.inputWaiter) {
@@ -51,7 +53,7 @@ export class InkUIManager extends BaseUIManager implements UIManager {
       },
     };
 
-    this.inkRenderer = new InkRenderer(rendererOptions);
+    this.inkRenderer = rendererFactory?.(rendererOptions) ?? new InkRenderer(rendererOptions);
     if (this.providerModel) {
       this.inkRenderer.setProviderModel(this.providerModel.provider, this.providerModel.model);
     }
