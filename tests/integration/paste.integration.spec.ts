@@ -8,6 +8,10 @@
 import { describe, it, expect } from 'vitest';
 import { getContentDisplay } from '../../src/ui/displayUtils.js';
 
+function expectedPasteToken(text: string): string {
+  return `[Text pasted ${Array.from(text).length} chars]`;
+}
+
 describe('Paste Integration', () => {
   describe('getContentDisplay', () => {
     it('should handle small paste (4 lines) without indicator', () => {
@@ -24,7 +28,7 @@ describe('Paste Integration', () => {
       const content = 'line1\nline2\nline3\nline4\nline5';
       const result = getContentDisplay(content);
 
-      expect(result.visual).toBe('[Text pasted: 5 lines]');
+      expect(result.visual).toBe(expectedPasteToken(content));
       expect(result.actual).toBe(content);
       expect(result.isPasted).toBe(true);
       expect(result.lineCount).toBe(5);
@@ -34,7 +38,7 @@ describe('Paste Integration', () => {
       const lines = Array(10).fill(0).map((_, i) => `line${i + 1}`).join('\n');
       const result = getContentDisplay(lines);
 
-      expect(result.visual).toBe('[Text pasted: 10 lines]');
+      expect(result.visual).toBe(expectedPasteToken(lines));
       expect(result.actual).toBe(lines);
       expect(result.isPasted).toBe(true);
       expect(result.lineCount).toBe(10);
@@ -44,7 +48,7 @@ describe('Paste Integration', () => {
       const lines = Array(100).fill(0).map((_, i) => `line${i + 1}`).join('\n');
       const result = getContentDisplay(lines);
 
-      expect(result.visual).toBe('[Text pasted: 100 lines]');
+      expect(result.visual).toBe(expectedPasteToken(lines));
       expect(result.actual).toBe(lines);
       expect(result.isPasted).toBe(true);
       expect(result.lineCount).toBe(100);
@@ -59,7 +63,7 @@ describe('Paste Integration', () => {
 const x = hello();`;
       const result = getContentDisplay(code);
 
-      expect(result.visual).toBe('[Text pasted: 6 lines]');
+      expect(result.visual).toBe(expectedPasteToken(code));
       expect(result.actual).toBe(code);
       expect(result.isPasted).toBe(true);
       expect(result.lineCount).toBe(6);
@@ -78,7 +82,7 @@ const x = hello();`;
       const content = 'line1\n\nline3\n\nline5\n\nline7';
       const result = getContentDisplay(content);
 
-      expect(result.visual).toBe('[Text pasted: 7 lines]');
+      expect(result.visual).toBe(expectedPasteToken(content));
       expect(result.actual).toBe(content);
       expect(result.lineCount).toBe(7);
     });
@@ -93,7 +97,7 @@ const x = hello();`;
 }`;
       const result = getContentDisplay(json);
 
-      expect(result.visual).toBe('[Text pasted: 7 lines]');
+      expect(result.visual).toBe(expectedPasteToken(json));
       expect(result.actual).toBe(json);
       // Verify JSON is valid
       expect(() => JSON.parse(result.actual)).not.toThrow();
@@ -109,7 +113,7 @@ JOIN orders ON users.id = orders.user_id
 WHERE orders.total > 100;`;
       const result = getContentDisplay(sql);
 
-      expect(result.visual).toBe('[Text pasted: 7 lines]');
+      expect(result.visual).toBe(expectedPasteToken(sql));
       expect(result.actual).toBe(sql);
     });
   });

@@ -2,6 +2,10 @@
 import { describe, it, expect } from 'vitest';
 import { getContentDisplay } from '../../src/ui/displayUtils.js';
 
+function expectedPasteToken(text: string): string {
+  return `[Text pasted ${Array.from(text).length} chars]`;
+}
+
 describe('getContentDisplay', () => {
   it('should return content as-is for less than 5 lines', () => {
     const text = 'line1\nline2\nline3\nline4';
@@ -17,10 +21,11 @@ describe('getContentDisplay', () => {
     const text = 'line1\nline2\nline3\nline4\nline5';
     const result = getContentDisplay(text);
 
-    expect(result.visual).toBe('[Text pasted: 5 lines]');
+    expect(result.visual).toBe(expectedPasteToken(text));
     expect(result.actual).toBe(text);
     expect(result.isPasted).toBe(true);
     expect(result.lineCount).toBe(5);
+    expect(result.charCount).toBe(Array.from(text).length);
   });
 
   it('should handle single line correctly', () => {
@@ -47,9 +52,10 @@ describe('getContentDisplay', () => {
     const lines = Array(100).fill('line').join('\n');
     const result = getContentDisplay(lines);
 
-    expect(result.visual).toBe('[Text pasted: 100 lines]');
+    expect(result.visual).toBe(expectedPasteToken(lines));
     expect(result.actual).toBe(lines);
     expect(result.isPasted).toBe(true);
     expect(result.lineCount).toBe(100);
+    expect(result.charCount).toBe(Array.from(lines).length);
   });
 });

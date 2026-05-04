@@ -104,6 +104,7 @@ export interface InkPasteState {
   buffer: string;
   hiddenContent: string | null;
   hiddenPastes?: Array<{ visual: string; actual: string }>;
+  hiddenPlaceholder?: string | null;
 }
 
 export interface InkPasteConsumeResult {
@@ -138,6 +139,10 @@ function mapInkKeyToTextBufferKey(input: string, key: InkKey): TextBufferKeyInfo
     name = 'delete';
   } else if (key.tab) {
     name = 'tab';
+  } else if (key.home) {
+    name = 'home';
+  } else if (key.end) {
+    name = 'end';
   } else if (key.ctrl && input === 'a') {
     name = 'a';
   } else if (key.ctrl && input === 'e') {
@@ -246,11 +251,13 @@ export function storeInkHiddenPaste(
   actual: string
 ): void {
   pasteState.hiddenContent = actual;
+  pasteState.hiddenPlaceholder = visual;
   pasteState.hiddenPastes = [...(pasteState.hiddenPastes ?? []), { visual, actual }];
 }
 
 export function clearInkHiddenPastes(pasteState: InkPasteState): void {
   pasteState.hiddenContent = null;
+  delete pasteState.hiddenPlaceholder;
   pasteState.hiddenPastes = [];
 }
 
@@ -262,6 +269,18 @@ export function resolveInkHiddenPastes(text: string, pasteState: InkPasteState):
   }
 
   return resolved;
+}
+
+export function resolveInkComposerSubmitText(
+  visibleText: string,
+  pasteState: Pick<InkPasteState, 'hiddenContent' | 'hiddenPlaceholder'>
+): string {
+  const { hiddenContent, hiddenPlaceholder } = pasteState;
+  if (!hiddenContent || !hiddenPlaceholder || !visibleText.includes(hiddenPlaceholder)) {
+    return visibleText;
+  }
+
+  return visibleText.replace(hiddenPlaceholder, hiddenContent);
 }
 
 export function clearInkComposerInputForSubmit(
@@ -421,6 +440,8 @@ export function AgentUI({
   onInstructionRef.current = onInstruction;
   const onInputChangeRef = useRef(onInputChange);
   onInputChangeRef.current = onInputChange;
+  const onImageDetectedRef = useRef(onImageDetected);
+  onImageDetectedRef.current = onImageDetected;
   const filesProviderRef = useRef(filesProvider);
   filesProviderRef.current = filesProvider;
   const slashCommandsRef = useRef(slashCommands);
@@ -585,6 +606,7 @@ export function AgentUI({
       if (processed !== input) {
         // Image was detected and replaced with [Image #N]
         lastProcessedInputRef.current = processed;
+        clearInkHiddenPastes(pasteStateRef.current);
         const buffer = textBufferRef.current;
         buffer.setText(processed);
         syncInputFromBuffer();
@@ -609,9 +631,8 @@ export function AgentUI({
       return;
     }
 
-    // Guard against stale React state: if the buffer already has newer text
-    // (because the 16ms throttle hasn't flushed yet), skip processing.
-    // The synchronous handler in handleInput already updated the refs.
+    // Guard against stale React state if the buffer has already moved ahead
+    // of this render. The synchronous handler updates refs immediately.
     const buffer = textBufferRef.current;
     if (input !== buffer.getText() || cursorOffset !== getTextBufferCursorOffset(buffer)) {
       return;
@@ -650,7 +671,7 @@ export function AgentUI({
       return;
     }
 
-    // Guard against stale React state (same pattern as file mentions)
+    // Guard against stale React state (same pattern as file mentions).
     const buffer = textBufferRef.current;
     if (input !== buffer.getText() || cursorOffset !== getTextBufferCursorOffset(buffer)) {
       return;
@@ -760,7 +781,11 @@ export function AgentUI({
     const pasteResult = consumeInkBracketedPasteInput(char, pasteStateRef.current);
     if (pasteResult.handled) {
       if (pasteResult.completedText !== undefined) {
-        const display = getContentDisplay(pasteResult.completedText);
+        const imageDetector = onImageDetectedRef.current;
+        const processedText = imageDetector
+          ? processImagesInText(pasteResult.completedText, imageDetector, { announce: false })
+          : pasteResult.completedText;
+        const display = getContentDisplay(processedText);
         const pasteState = pasteStateRef.current;
         const buffer = textBufferRef.current;
 
@@ -768,7 +793,8 @@ export function AgentUI({
           storeInkHiddenPaste(pasteState, display.visual, display.actual);
           buffer.insert(display.visual);
         } else {
-          buffer.insert(pasteResult.completedText);
+          clearInkHiddenPastes(pasteState);
+          buffer.insert(processedText);
         }
 
         syncInputFromBuffer();
@@ -815,6 +841,7 @@ export function AgentUI({
       if (currentInput.length > 0) {
         // Clear the input on first Ctrl+C when there's text
         textBufferRef.current.setText('');
+        clearInkHiddenPastes(pasteStateRef.current);
         syncInputFromBuffer();
         setCtrlCCount(0);
         return;
@@ -1005,16 +1032,15 @@ export function AgentUI({
       });
       dismissAutocompleteState();
       onInstructionRef.current(text);
+
       return;
     }
 
     if (result === 'handled') {
       syncInputFromBuffer();
 
-      // Immediate mention detection so Tab works without waiting for the 16ms
-      // React state throttle. This eliminates the intermittent failure where
-      // rapid typing followed by Tab is ignored because mention state hasn't
-      // been flushed to React yet.
+      // Immediate mention detection so Tab works after rapid typing even
+      // before React effects have run the derived suggestion pass.
       const currentText = buffer.getText();
       const currentOffset = getTextBufferCursorOffset(buffer);
       if (currentText.trim() === '') {

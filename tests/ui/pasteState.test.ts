@@ -8,6 +8,10 @@
 import { describe, it, expect } from 'vitest';
 import { getContentDisplay } from '../../src/ui/displayUtils.js';
 
+function expectedPasteToken(text: string): string {
+  return `[Text pasted ${Array.from(text).length} chars]`;
+}
+
 describe('Paste State Handling', () => {
   describe('getContentDisplay', () => {
     it('should return visual indicator for 5+ line pastes', () => {
@@ -15,7 +19,7 @@ describe('Paste State Handling', () => {
       const result = getContentDisplay(content);
       
       expect(result.isPasted).toBe(true);
-      expect(result.visual).toBe('[Text pasted: 5 lines]');
+      expect(result.visual).toBe(expectedPasteToken(content));
       expect(result.actual).toBe(content);
     });
 
@@ -53,7 +57,7 @@ describe('Paste State Handling', () => {
       const lines = Array(25).fill(0).map((_, i) => `line${i + 1}`).join('\n');
       const result = getContentDisplay(lines);
       
-      expect(result.visual).toBe('[Text pasted: 25 lines]');
+      expect(result.visual).toBe(expectedPasteToken(lines));
     });
 
     it('should handle exactly threshold line count', () => {
@@ -62,7 +66,7 @@ describe('Paste State Handling', () => {
       const result = getContentDisplay(fiveLines);
       
       expect(result.isPasted).toBe(true);
-      expect(result.visual).toBe('[Text pasted: 5 lines]');
+      expect(result.visual).toBe(expectedPasteToken(fiveLines));
     });
 
     it('should handle one below threshold', () => {
@@ -85,7 +89,7 @@ const x = test();`;
       const result = getContentDisplay(code);
       
       // Visual shows indicator
-      expect(result.visual).toBe('[Text pasted: 5 lines]');
+      expect(result.visual).toBe(expectedPasteToken(code));
       
       // Actual preserves original code
       expect(result.actual).toBe(code);

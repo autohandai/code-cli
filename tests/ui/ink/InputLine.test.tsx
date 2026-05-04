@@ -50,6 +50,16 @@ describe('InputLine', () => {
     expect(output.split('\n').length).toBeGreaterThanOrEqual(4);
   });
 
+  it('does not collapse normal multiline composer text into a paste token', () => {
+    const value = 'one\ntwo\nthree\nfour\nfive';
+    const { lastFrame } = renderInputLine(value);
+    const output = stripAnsi(lastFrame());
+
+    expect(output).toContain('one');
+    expect(output).toContain('five');
+    expect(output).not.toContain('[Text pasted');
+  });
+
   it('renders wrapped rows for long single-line input', () => {
     const { lastFrame } = renderInputLine('alpha beta gamma delta');
     const output = stripAnsi(lastFrame());

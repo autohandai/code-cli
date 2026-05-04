@@ -56,6 +56,8 @@ export interface ContentDisplay {
   isPasted: boolean;
   /** Total lines in content */
   lineCount: number;
+  /** Total Unicode code points in content */
+  charCount: number;
 }
 
 /**
@@ -63,12 +65,15 @@ export interface ContentDisplay {
  * Shows compact indicator for pastes with 5+ lines.
  */
 export function getContentDisplay(text: string): ContentDisplay {
+  const charCount = Array.from(text).length;
+
   if (!text) {
     return {
       visual: '',
       actual: '',
       isPasted: false,
-      lineCount: 1
+      lineCount: 1,
+      charCount,
     };
   }
 
@@ -77,10 +82,11 @@ export function getContentDisplay(text: string): ContentDisplay {
 
   if (lineCount >= 5) {
     return {
-      visual: `[Text pasted: ${lineCount} lines]`,
+      visual: `[Text pasted ${charCount} chars]`,
       actual: text,
       isPasted: true,
-      lineCount
+      lineCount,
+      charCount,
     };
   }
 
@@ -88,6 +94,7 @@ export function getContentDisplay(text: string): ContentDisplay {
     visual: text,
     actual: text,
     isPasted: false,
-    lineCount
+    lineCount,
+    charCount,
   };
 }

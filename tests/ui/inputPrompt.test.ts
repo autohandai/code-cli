@@ -129,7 +129,7 @@ describe('pasted reference helpers', () => {
   it('removes compact pasted reference token and keeps surrounding text', async () => {
     const { removePastedReferenceFromLine } = await import('../../src/ui/inputPrompt.js');
 
-    const result = removePastedReferenceFromLine('fix this [Text pasted: 283 lines] now');
+    const result = removePastedReferenceFromLine('fix this [Text pasted 283 chars] now');
 
     expect(result).toEqual({
       line: 'fix this  now',
