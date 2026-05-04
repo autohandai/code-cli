@@ -25,7 +25,6 @@ import { SlashCommandHandler } from './slashCommandHandler.js';
 import { SessionManager } from '../session/SessionManager.js';
 import { ProjectManager } from '../session/ProjectManager.js';
 import { ToolsRegistry } from './toolsRegistry.js';
-import type { SessionMessage } from '../session/types.js';
 import type {
   AgentRuntime,
   AgentAction,
@@ -184,6 +183,12 @@ import {
   updateAgentContextUsage,
   type AgentContextRuntimeHost,
 } from './agent/AgentContextRuntime.js';
+import {
+  handleAgentToolOutput,
+  queueAgentToolMessageChunk,
+  saveAgentToolMessage,
+  type AgentToolOutputRuntimeHost,
+} from './agent/AgentToolOutputRuntime.js';
 import {
   closeAgentSession,
   emitAgentOutput,
@@ -711,13 +716,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private handleToolOutput(chunk: ToolOutputChunk): void {
-    if (process.env.AUTOHAND_STREAM_TOOL_OUTPUT !== '1') {
-      return;
-    }
-    if (!chunk.toolCallId || !chunk.data) {
-      return;
-    }
-    this.queueToolMessageChunk(chunk.tool, chunk.data, chunk.toolCallId, chunk.stream);
+    return handleAgentToolOutput(this as unknown as AgentToolOutputRuntimeHost, chunk);
   }
 
   private queueToolMessageChunk(
@@ -726,37 +725,22 @@ If lint or tests fail, report the issues but do NOT commit.`;
     toolCallId: string,
     stream?: 'stdout' | 'stderr'
   ): void {
-    const session = this.sessionManager.getCurrentSession();
-    if (!session) return;
-
-    const message: SessionMessage = {
-      role: 'tool',
-      content,
+    return queueAgentToolMessageChunk(
+      this as unknown as AgentToolOutputRuntimeHost,
       name,
-      timestamp: new Date().toISOString(),
-      tool_call_id: toolCallId,
-      _meta: stream ? { stream } : undefined
-    };
-
-    this.toolOutputQueue = this.toolOutputQueue
-      .catch(() => undefined)
-      .then(() => session.appendTransient(message));
+      content,
+      toolCallId,
+      stream
+    );
   }
 
   private async saveToolMessage(name: string, content: string, toolCallId?: string): Promise<void> {
-    const session = this.sessionManager.getCurrentSession();
-    if (!session) return;
-
-    await this.toolOutputQueue.catch(() => undefined);
-
-    const message: SessionMessage = {
-      role: 'tool',
-      content,
+    return saveAgentToolMessage(
+      this as unknown as AgentToolOutputRuntimeHost,
       name,
-      timestamp: new Date().toISOString(),
-      tool_call_id: toolCallId
-    };
-    await session.append(message);
+      content,
+      toolCallId
+    );
   }
 
   /**
