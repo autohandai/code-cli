@@ -317,6 +317,107 @@ describe('ToolManager', () => {
       expect(timestamps[2]).toBeGreaterThanOrEqual(timestamps[1]);
     });
 
+    it('executes mutating tools sequentially even when concurrency allows parallel reads', async () => {
+      const tracker = { current: 0, max: 0 };
+      const executor = createDelayedExecutor(25, tracker);
+
+      const mutatingDefs = [
+        { name: 'write_file', description: 'write' },
+        { name: 'delete_path', description: 'delete' },
+        { name: 'search_replace', description: 'replace' }
+      ] as const;
+
+      const manager = new ToolManager({
+        executor,
+        confirmApproval: vi.fn().mockResolvedValue(true),
+        definitions: mutatingDefs as any,
+        maxConcurrency: 5
+      });
+
+      await manager.execute([
+        { tool: 'write_file', args: { path: 'a.ts', contents: 'a' } },
+        { tool: 'delete_path', args: { path: 'b.ts' } },
+        { tool: 'search_replace', args: { path: 'c.ts', blocks: 'SEARCH\nold\nREPLACE\nnew' } }
+      ]);
+
+      expect(tracker.max).toBe(1);
+    });
+
+    it('uses mutating tools as barriers between parallel read batches', async () => {
+      const events: Array<{ phase: 'start' | 'end'; tool: string }> = [];
+      const tracker = { current: 0, max: 0 };
+      const executor = async (action: { type: string }) => {
+        tracker.current++;
+        tracker.max = Math.max(tracker.max, tracker.current);
+        events.push({ phase: 'start', tool: action.type });
+        await new Promise(r => setTimeout(r, 25));
+        events.push({ phase: 'end', tool: action.type });
+        tracker.current--;
+        return action.type;
+      };
+
+      const defs = [
+        { name: 'read_file', description: 'read' },
+        { name: 'search_files', description: 'search' },
+        { name: 'write_file', description: 'write' },
+        { name: 'git_status', description: 'git status' },
+        { name: 'list_files', description: 'list' }
+      ] as const;
+
+      const manager = new ToolManager({
+        executor: executor as any,
+        confirmApproval: vi.fn().mockResolvedValue(true),
+        definitions: defs as any,
+        maxConcurrency: 5
+      });
+
+      await manager.execute([
+        { tool: 'read_file', args: { path: 'a.ts' } },
+        { tool: 'search_files', args: { query: 'needle' } },
+        { tool: 'write_file', args: { path: 'a.ts', contents: 'new' } },
+        { tool: 'git_status', args: {} },
+        { tool: 'list_files', args: {} }
+      ]);
+
+      const position = (phase: 'start' | 'end', tool: string) =>
+        events.findIndex(event => event.phase === phase && event.tool === tool);
+
+      const writeStart = position('start', 'write_file');
+      const writeEnd = position('end', 'write_file');
+
+      expect(tracker.max).toBe(2);
+      expect(writeStart).toBeGreaterThan(position('end', 'read_file'));
+      expect(writeStart).toBeGreaterThan(position('end', 'search_files'));
+      expect(position('start', 'git_status')).toBeGreaterThan(writeEnd);
+      expect(position('start', 'list_files')).toBeGreaterThan(writeEnd);
+    });
+
+    it('executes shell tools sequentially because commands can mutate arbitrary state', async () => {
+      const tracker = { current: 0, max: 0 };
+      const executor = createDelayedExecutor(25, tracker);
+
+      const shellDefs = [
+        { name: 'run_command', description: 'run command' },
+        { name: 'shell', description: 'shell' },
+        { name: 'custom_command', description: 'custom command' }
+      ] as const;
+
+      const manager = new ToolManager({
+        executor,
+        confirmApproval: vi.fn().mockResolvedValue(true),
+        definitions: shellDefs as any,
+        maxConcurrency: 5
+      });
+
+      await manager.execute([
+        { tool: 'run_command', args: { command: 'echo one' } },
+        { tool: 'shell', args: { command: 'echo two' } },
+        { tool: 'custom_command', args: { name: 'three', command: 'echo three' } }
+      ]);
+
+      expect(tracker.max).toBe(1);
+    });
+
     it('handles mixed denied + approved tools correctly', async () => {
       const confirm = vi.fn()
         .mockResolvedValueOnce(false)  // deny first
