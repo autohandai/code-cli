@@ -19,4 +19,12 @@ describe('README branding', () => {
     expect(readme).not.toContain('Autohand includes 40+ tools');
     expect(readme).not.toContain('Autohand is designed with security in mind');
   });
+
+  it('links to the Autohand Code CLI extension guide', async () => {
+    const readme = await readFile(join(process.cwd(), 'README.md'), 'utf8');
+
+    expect(readme).toContain(
+      '[Extending Autohand Code CLI](docs/extending.md) - Build tools, skills, hooks, MCP servers, and integrations'
+    );
+  });
 });
