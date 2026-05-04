@@ -20,7 +20,7 @@ describe('file-modified event wiring', () => {
   });
 
   it('markFilesModified emits file_modified output event', () => {
-    const src = readFileSync('src/core/agent.ts', 'utf-8');
+    const src = readFileSync('src/core/agent/AgentSessionAccounting.ts', 'utf-8');
     // Should emit output event for RPC/ACP forwarding
     expect(src).toContain("type: 'file_modified'");
   });
