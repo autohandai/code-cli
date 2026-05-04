@@ -18,7 +18,6 @@ import type { LLMProvider } from '../providers/LLMProvider.js';
 import {
   getPromptBlockWidth,
   promptNotify,
-  readInstruction,
   safeEmitKeypressEvents
 } from '../ui/inputPrompt.js';
 
@@ -43,7 +42,7 @@ import { ContextOrchestrator } from './context/orchestrator.js';
 import { ToolManager } from './toolManager.js';
 import { ActionExecutor } from './actionExecutor.js';
 import { SlashCommandHandler } from './slashCommandHandler.js';
-import { renderTerminalMarkdown, createImmediateShellCommandBlockWriter, formatImmediateShellCommandHeader } from './immediateCommandRouter.js';
+import { createImmediateShellCommandBlockWriter, formatImmediateShellCommandHeader } from './immediateCommandRouter.js';
 import { isToolAllowedByYolo, normalizeYoloInput, parseYoloPattern } from '../permissions/yoloMode.js';
 import { SessionManager } from '../session/SessionManager.js';
 import { ProjectManager } from '../session/ProjectManager.js';
@@ -54,7 +53,6 @@ import type {
   AgentAction,
   LLMMessage,
   LLMResponse,
-  LLMToolCall,
   AgentStatusSnapshot,
   AgentOutputEvent,
   AssistantReactPayload,
@@ -75,7 +73,6 @@ import { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import { CommunitySkillsClient } from '../skills/CommunitySkillsClient.js';
 import { McpClientManager } from '../mcp/McpClientManager.js';
 import type { McpServerConfig } from '../mcp/types.js';
-import { AUTH_CONFIG } from '../constants.js';
 import { getAuthClient } from '../auth/index.js';
 import { PersistentInput } from '../ui/persistentInput.js';
 import { t } from '../i18n/index.js';
@@ -98,7 +95,7 @@ import { WorktreeManager } from '../actions/worktree.js';
 import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
 import { ActivityIndicator } from '../ui/activityIndicator.js';
 import { NotificationService } from '../utils/notification.js';
-import { formatPlanModeToggleMessage, getPlanModeManager, plan as planCommand } from '../commands/plan.js';
+import { getPlanModeManager } from '../commands/plan.js';
 import type { VersionCheckResult } from '../utils/versionCheck.js';
 import { getInstallHint } from '../utils/versionCheck.js';
 import { runWithConcurrency, type ParallelTaskSpec } from '../utils/parallel.js';
@@ -138,8 +135,24 @@ import {
   type AgentInputTurnHost,
 } from './agent/InputTurnCoordinator.js';
 import { buildSessionBootstrap } from './agent/SessionBootstrapBuilder.js';
+import {
+  attachAgentSession,
+  clearAgentQueuesAndAbort,
+  ensureAgentInitComplete,
+  initializeAgentForRPC,
+  initializeAgentManagers,
+  installAgentExitSignalHandlers,
+  logAgentQueuedProcessingMessage,
+  performAgentBackgroundInit,
+  removeAgentExitSignalHandlers,
+  restoreAgentSessionState,
+  resumeAgentSession,
+  runAgentCommandMode,
+  runAgentInteractive,
+  runAgentInteractiveLoop,
+} from './agent/AgentLifecycleRunner.js';
+import { promptForAgentInstruction } from './agent/PromptInstructionReader.js';
 import { AutoReportManager } from '../reporting/AutoReportManager.js';
-import { isLikelyFilePathSlashInput } from './slashInputDetection.js';
 import { SuggestionEngine } from './SuggestionEngine.js';
 
 export class AutohandAgent {
@@ -305,64 +318,7 @@ export class AutohandAgent {
   }
 
   async runInteractive(initialInstruction?: string): Promise<void> {
-    // Bail out early if stdin is not a TTY - interactive mode requires a terminal
-    if (!process.stdin.isTTY) {
-      console.error(chalk.red('Interactive mode requires a terminal (TTY). Use --prompt for non-interactive usage.'));
-      process.exitCode = 1;
-      return;
-    }
-
-    // Queue piped text so the first loop iteration processes it before prompting.
-    if (initialInstruction) {
-      this.pendingInkInstructions.push(initialInstruction);
-    }
-
-    this.mcpStartupCoordinator.prepareForInteractiveStartup();
-
-    // Start ALL initialization in background so prompt appears instantly.
-    // The user can start typing while managers initialize.
-    // When they submit, we await initReady before processing.
-    this.initReady = this.performBackgroundInit();
-
-    // Fire startup suggestion LLM call immediately so the first prompt
-    // shows contextual ghost text. Git context is gathered asynchronously
-    // and the LLM call runs fully in the background.
-    // promptForInstruction() awaits this with a 5s startup deadline,
-    // then falls back to no suggestion if the call hasn't resolved.
-    if (this.suggestionEngine) {
-      const engine = this.suggestionEngine;
-      const workspaceRoot = this.runtime.workspaceRoot;
-      const collector = this.workspaceFileCollector;
-      this.isStartupSuggestion = true;
-      this.pendingSuggestion = (async () => {
-        const [gitStatusResult, gitLogResult] = await runWithConcurrency([
-          {
-            label: 'git_status',
-            run: async () => execFileAsync('git', ['status', '-sb'], { cwd: workspaceRoot, encoding: 'utf8' }).catch(() => null),
-          },
-          {
-            label: 'git_log',
-            run: async () => execFileAsync('git', ['log', '--oneline', '-5'], { cwd: workspaceRoot, encoding: 'utf8' }).catch(() => null),
-          },
-        ], this.getParallelismLimit());
-        const recentFiles = collector.getCachedFiles().slice(0, 20);
-        await engine.generateFromProjectContext({
-          gitStatus: gitStatusResult?.stdout.trim() || undefined,
-          recentCommits: gitLogResult?.stdout.trim() || undefined,
-          recentFiles,
-        });
-      })();
-      this.persistentInput.setPendingSuggestion(this.pendingSuggestion);
-    }
-
-    // Install exit signal handlers to stop queue processing immediately on SIGINT/SIGTERM
-    this.installExitSignalHandlers();
-
-    // Show prompt immediately - don't wait for init
-    await this.runInteractiveLoop();
-
-    // Clean up signal handlers
-    this.removeExitSignalHandlers();
+    return runAgentInteractive(this, initialInstruction);
   }
 
   /**
@@ -370,76 +326,21 @@ export class AutohandAgent {
    * This ensures queued requests and child processes are terminated when user exits.
    */
   private installExitSignalHandlers(): void {
-    if (this.exitSignalHandlersInstalled) return;
-    this.exitSignalHandlersInstalled = true;
-
-    const handleExitSignal = () => {
-      if (this.shouldExit) {
-        // Second signal - force immediate exit
-        console.log(chalk.gray('\nForce exiting...'));
-        process.exit(0);
-      }
-      this.shouldExit = true;
-      console.log(chalk.gray('\nExiting - clearing queues and stopping...'));
-      this.clearAllQueuesAndAbort();
-    };
-
-    process.on('SIGINT', handleExitSignal);
-    process.on('SIGTERM', handleExitSignal);
+    return installAgentExitSignalHandlers(this);
   }
 
   /**
    * Remove exit signal handlers (cleanup).
    */
   private removeExitSignalHandlers(): void {
-    this.exitSignalHandlersInstalled = false;
-    // Note: process.removeListener would require storing the handler reference.
-    // The shouldExit flag prevents handlers from doing anything after cleanup.
+    return removeAgentExitSignalHandlers(this);
   }
 
   /**
    * Clear all queues and abort any active work for immediate exit.
    */
   private clearAllQueuesAndAbort(): void {
-    // Clear pending instruction queues
-    this.pendingInkInstructions.length = 0;
-    if (this.inkRenderer) {
-      this.inkRenderer.clearQueue();
-    }
-    // Clear persistent input queue
-    while (this.persistentInput.hasQueued()) {
-      this.persistentInput.dequeue();
-    }
-
-    // Abort any active abort controllers to stop current work
-    if (this.activeAbortController) {
-      try {
-        this.activeAbortController.abort();
-      } catch {
-        // Ignore abort errors
-      }
-      this.activeAbortController = null;
-    }
-    if (this.currentInkAbortController) {
-      try {
-        this.currentInkAbortController.abort();
-      } catch {
-        // Ignore abort errors
-      }
-      this.currentInkAbortController = null;
-    }
-    this.shellSuggestionProvider?.abort();
-
-    // Stop any active team processes
-    if (this.teamManager) {
-      this.teamManager.shutdown().catch(() => {});
-    }
-
-    // Resolve any pending ink instruction resolver to unblock the loop
-    if (this.inkInstructionResolver) {
-      this.inkInstructionResolver();
-      this.inkInstructionResolver = null;
-    }
+    return clearAgentQueuesAndAbort(this);
   }
 
   /**
@@ -447,19 +348,7 @@ export class AutohandAgent {
    * Used by performBackgroundInit, initializeForRPC, and resumeSession.
    */
   private async initializeManagers(): Promise<void> {
-    await runWithConcurrency([
-      { label: 'session_manager', run: async () => this.sessionManager.initialize() },
-      { label: 'project_manager', run: async () => this.projectManager.initialize() },
-      { label: 'memory_manager', run: async () => this.memoryManager.initialize() },
-      { label: 'skills_registry', run: async () => this.skillsRegistry.initialize() },
-      { label: 'hook_manager', run: async () => this.hookManager.initialize() },
-      {
-        label: 'workspace_files',
-        run: async () => {
-          await this.workspaceFileCollector.collectWorkspaceFiles();
-        },
-      },
-    ], this.getParallelismLimit());
+    return initializeAgentManagers(this);
   }
 
   /**
@@ -468,53 +357,7 @@ export class AutohandAgent {
    * NOTE: Must NOT write to stdout - the prompt is already rendering.
    */
   private async performBackgroundInit(): Promise<void> {
-    try {
-      // Phase 1: Parallel manager initialization
-      await this.initializeManagers();
-
-      // Fire MCP connections in background (non-blocking, like Claude Code).
-      // Servers connect asynchronously; tools become available once ready.
-      // Does NOT block the main init pipeline or user prompt.
-      if (this.runtime.config.mcp?.enabled !== false) {
-        this.mcpStartupCoordinator.markConnectStarted();
-        this.mcpReady = this.mcpManager
-          .connectAll(this.runtime.config.mcp?.servers ?? [])
-          .then(() => { this.syncMcpTools(); })
-          .catch(() => { /* individual server errors already captured by connectAll */ })
-          .finally(() => {
-            this.mcpStartupCoordinator.markSummaryPending();
-          });
-      }
-
-      // Phase 2: Sequential setup that depends on phase 1
-
-      await this.skillsRegistry.setWorkspace(this.runtime.workspaceRoot);
-      this.feedbackManager.startSession();
-      const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
-      const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
-      const [, session] = await Promise.all([
-        this.resetConversationContext(),
-        this.sessionManager.createSession(this.runtime.workspaceRoot, model),
-      ]);
-
-      // Inject explicit session bootstrap so the LLM is consciously aware of
-      // memories, AGENTS.md, skills, and project context from the first turn.
-      await this.injectSessionBootstrap();
-
-      // Phase 3: Telemetry (no stdout output)
-      if (session) {
-        await this.telemetryManager.startSession(
-          session.metadata.sessionId,
-          model,
-          this.activeProvider
-        );
-      }
-
-      // NOTE: session-start hook is fired in ensureInitComplete() AFTER the
-      // prompt closes, so its output doesn't corrupt the readline display.
-    } finally {
-      this.initDone = true;
-    }
+    return performAgentBackgroundInit(this);
   }
 
   /**
@@ -523,114 +366,18 @@ export class AutohandAgent {
    * Also fires the session-start hook here so output renders cleanly.
    */
   private async ensureInitComplete(): Promise<void> {
-    if (this.initReady) {
-      await this.initReady;
-      this.initReady = null;
-
-      // Keep MCP startup async and do not block first instruction execution.
-      // MCP tool calls still await mcpReady in the tool executor path.
-      this.flushMcpStartupSummaryIfPending();
-
-      // Fire session-start hook now that the prompt is closed and stdout is clean
-      const session = this.sessionManager.getCurrentSession();
-      await this.hookManager.executeHooks('session-start', {
-        sessionId: session?.metadata.sessionId,
-        sessionType: 'startup',
-      });
-    }
+    return ensureAgentInitComplete(this);
   }
 
   /**
    * Initialize the agent for RPC mode (no interactive loop or command mode)
    */
   async initializeForRPC(): Promise<void> {
-    // Initialize managers in parallel for faster startup
-    await this.initializeManagers();
-    // Fire MCP connections in background (non-blocking)
-    if (this.runtime.config.mcp?.enabled !== false) {
-      this.mcpReady = this.mcpManager
-        .connectAll(this.runtime.config.mcp?.servers ?? [])
-        .then(() => { this.syncMcpTools(); })
-        .catch(() => {})
-        .finally(() => {
-          this.mcpStartupCoordinator.markSummaryPending();
-        });
-    }
-    // These must run sequentially after the parallel init
-    await this.skillsRegistry.setWorkspace(this.runtime.workspaceRoot);
-    const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
-    const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
-    const [, session] = await Promise.all([
-      this.resetConversationContext(),
-      this.sessionManager.createSession(this.runtime.workspaceRoot, model),
-    ]);
-
-    await this.injectSessionBootstrap();
-
-    // Start telemetry session
-    if (session) {
-      await this.telemetryManager.startSession(
-        session.metadata.sessionId,
-        model,
-        this.activeProvider
-      );
-    }
-
-    // Fire session-start hook
-    await this.hookManager.executeHooks('session-start', {
-      sessionId: session?.metadata.sessionId,
-      sessionType: 'startup',
-    });
+    return initializeAgentForRPC(this);
   }
 
   async runCommandMode(instruction: string): Promise<void> {
-    await this.initializeForRPC();
-
-    const turnStartTime = Date.now();
-    await this.runInstruction(instruction);
-
-    // Fire stop hook after turn completes (non-blocking)
-    const turnDuration = Date.now() - turnStartTime;
-    const session = this.sessionManager.getCurrentSession();
-    this.hookManager.executeHooks('stop', {
-      sessionId: session?.metadata.sessionId,
-      turnDuration,
-      tokensUsed: this.sessionTokensUsed,
-    }).catch(() => {
-      // Ignore hook errors - they shouldn't block the user
-    });
-
-    // Restore stdin to known state after hook execution
-    this.ensureStdinReady();
-
-    // Ring terminal bell to notify user (shows badge on terminal tab)
-    if (this.runtime.config.ui?.terminalBell !== false) {
-      process.stdout.write('\x07');
-    }
-
-    // Native OS notification for task completion
-    if (this.runtime.config.ui?.showCompletionNotification !== false) {
-      this.notificationService.notify(
-        { body: this.getCompletionNotificationBody(), reason: 'task_complete' },
-        this.getNotificationGuards()
-      ).catch(() => {});
-    }
-
-    if (this.runtime.options.autoCommit) {
-      await this.performAutoCommit();
-    }
-
-    // Fire session-end hook for command mode
-    await this.hookManager.executeHooks('session-end', {
-      sessionId: session?.metadata.sessionId,
-      sessionEndReason: 'exit',
-      duration: Date.now() - this.sessionStartedAt,
-    });
-
-    // Restore stdin after session-end hook
-    this.ensureStdinReady();
-
-    await this.telemetryManager.endSession('completed');
+    return runAgentCommandMode(this, instruction);
   }
 
   /**
@@ -687,673 +434,30 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async restoreSessionState(sessionId: string) {
-    const session = await this.sessionManager.loadSession(sessionId);
-
-    await this.resetConversationContext();
-    await this.injectSessionBootstrap();
-    const messages = session.getMessages();
-    for (const msg of messages) {
-      if (msg.role === 'system') {
-        if (!msg.content.startsWith('You are Autohand')) {
-          this.conversation.addSystemNote(msg.content);
-        }
-      } else {
-        let convertedToolCalls: LLMToolCall[] | undefined;
-        const sessionToolCalls = (msg as any).toolCalls;
-        if (sessionToolCalls && Array.isArray(sessionToolCalls)) {
-          convertedToolCalls = sessionToolCalls.map((tc: any) => ({
-            id: tc.id,
-            type: 'function' as const,
-            function: {
-              name: tc.tool || tc.function?.name || 'unknown',
-              arguments: typeof tc.args === 'string' ? tc.args : JSON.stringify(tc.args || {})
-            }
-          }));
-        }
-
-        this.conversation.addMessage({
-          role: msg.role,
-          content: msg.content,
-          name: msg.name,
-          tool_calls: convertedToolCalls,
-          tool_call_id: (msg as any).tool_call_id
-        });
-      }
-    }
-
-    await this.injectProjectKnowledge();
-    this.updateContextUsage(this.conversation.history());
-    return session;
+    return restoreAgentSessionState(this, sessionId);
   }
 
   async attachSession(sessionId: string): Promise<{ sessionId: string; model: string; workspaceRoot: string; messageCount: number }> {
-    await this.initializeManagers();
-    const session = await this.restoreSessionState(sessionId);
-
-    await this.telemetryManager.startSession(
-      sessionId,
-      session.metadata.model,
-      this.activeProvider
-    );
-
-    return {
-      sessionId: session.metadata.sessionId,
-      model: session.metadata.model,
-      workspaceRoot: session.metadata.projectPath,
-      messageCount: session.getMessages().length,
-    };
+    return attachAgentSession(this, sessionId);
   }
 
   async resumeSession(sessionId: string): Promise<void> {
-    // Initialize managers and pre-load files in parallel
-    await this.initializeManagers();
-
-    try {
-      const session = await this.restoreSessionState(sessionId);
-
-      console.log(chalk.cyan(`\n📂 Resumed session ${sessionId}`));
-
-      // Start telemetry for resumed session
-      await this.telemetryManager.startSession(
-        sessionId,
-        session.metadata.model,
-        this.activeProvider
-      );
-
-      // Start interactive loop
-      await this.runInteractiveLoop();
-    } catch (error) {
-      console.error(chalk.red(`Failed to resume session: ${(error as Error).message}`));
-      await this.telemetryManager.trackError({
-        type: 'session_resume_failed',
-        message: (error as Error).message,
-        context: 'resumeSession'
-      });
-      // Fallback to new session
-      const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
-      const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
-      await this.sessionManager.createSession(this.runtime.workspaceRoot, model);
-      await this.runInteractiveLoop();
-    }
+    return resumeAgentSession(this, sessionId);
   }
 
   private lastErrorMessage: string | null = null;
   private consecutiveErrorCount = 0;
 
   private logQueuedProcessingMessage(instruction: string, remaining = 0): void {
-    const preview = `${instruction.slice(0, 50)}${instruction.length > 50 ? '...' : ''}`;
-    const headline = chalk.cyan(`▶ Processing queued request: "${preview}"`);
-    const detail = remaining > 0 ? chalk.gray(`  ${remaining} more request(s) queued`) : '';
-    const usingTerminalRegions = this.isUsingTerminalRegionsForActiveTurn();
-
-    if (usingTerminalRegions) {
-      this.persistentInput.writeAbove(`${headline}\n`);
-      if (detail) {
-        this.persistentInput.writeAbove(`${detail}\n`);
-      }
-      return;
-    }
-
-    console.log(`\n${headline}`);
-    if (detail) {
-      console.log(detail);
-    }
+    return logAgentQueuedProcessingMessage(this, instruction, remaining);
   }
 
   private async runInteractiveLoop(): Promise<void> {
-    // Initialize Ink UI early so the composer is ready before the first idle check.
-    // This ensures consistent UI from startup instead of falling back to readline
-    // and then switching to Ink after the first prompt.
-    if (this.useInkRenderer && !this.inkRenderer) {
-      await this.initializeUI(undefined, undefined, true);
-      // Set to idle state so the Composer accepts input immediately
-      this.setComposerIdle();
-    }
-
-    while (true) {
-      // Check if we should exit immediately (SIGINT/SIGTERM received)
-      if (this.shouldExit) {
-        return;
-      }
-
-      try {
-        let instruction: string | null = null;
-
-        // Check shouldExit again before processing any queued items
-        if (this.shouldExit) {
-          return;
-        }
-
-        if (this.pendingInkInstructions.length > 0) {
-          instruction = this.pendingInkInstructions.shift() ?? null;
-          if (instruction) {
-            if (this.runtime.spinner?.isSpinning) {
-              this.runtime.spinner.stop();
-              this.lastRenderedStatus = '';
-            }
-            const remaining = this.pendingInkInstructions.length;
-            this.logQueuedProcessingMessage(instruction, remaining);
-          }
-        } else if (this.inkRenderer?.hasQueuedInstructions()) {
-          instruction = this.inkRenderer.dequeueInstruction() ?? null;
-          if (instruction) {
-            if (this.runtime.spinner?.isSpinning) {
-              this.runtime.spinner.stop();
-              this.lastRenderedStatus = '';
-            }
-            const remaining = this.inkRenderer.getQueueCount();
-            this.logQueuedProcessingMessage(instruction, remaining);
-          }
-        } else if (this.persistentInput.hasQueued()) {
-          const queued = this.persistentInput.dequeue();
-          if (queued) {
-            instruction = queued.text;
-            if (this.runtime.spinner?.isSpinning) {
-              this.runtime.spinner.stop();
-              this.lastRenderedStatus = '';
-            }
-            const remaining = this.persistentInput.hasQueued()
-              ? this.persistentInput.getQueueLength()
-              : 0;
-            this.logQueuedProcessingMessage(instruction, remaining);
-          }
-        }
-
-        if (!instruction) {
-          if (this.persistentInputActiveTurn) {
-            this.promptSeedInput = this.persistentInput.getCurrentInput();
-            this.persistentInput.stop();
-            this.persistentInputActiveTurn = false;
-          }
-          // If Ink is still active (idle between turns), wait for the next
-          // instruction from the Composer instead of stopping the renderer and
-          // falling back to readline. This keeps the Composer alive after
-          // non-interactive slash commands like /help and /history.
-          if (process.env.AUTOHAND_DEBUG === '1') {
-            console.log(`[DEBUG] Idle check: inkRenderer exists=${!!this.inkRenderer}, isRunning=${this.inkRenderer?.isRunning()}`);
-          }
-          if (this.inkRenderer?.isRunning()) {
-            // Ensure the renderer is in idle (not working) state so the
-            // Composer accepts input.
-            if (process.env.AUTOHAND_DEBUG === '1') {
-              console.log(`[DEBUG] Entering idle-wait, setting working=false`);
-            }
-            this.setComposerIdle();
-
-            // Wait for the user to submit text in the Composer.
-            // handleInkSubmittedInstruction resolves this promise when it
-            // queues a new instruction.
-            if (process.env.AUTOHAND_DEBUG === '1') {
-              console.log(`[DEBUG] Waiting for resolver...`);
-            }
-            await new Promise<void>(resolve => {
-              this.inkInstructionResolver = resolve;
-            });
-            if (process.env.AUTOHAND_DEBUG === '1') {
-              console.log(`[DEBUG] Resolver resolved`);
-            }
-
-            // The instruction is now queued — dequeue it.
-            if (this.inkRenderer?.hasQueuedInstructions()) {
-              instruction = this.inkRenderer.dequeueInstruction() ?? null;
-              if (process.env.AUTOHAND_DEBUG === '1') {
-                console.log(`[DEBUG] Dequeued instruction: ${instruction}`);
-              }
-            }
-            // If we still don't have an instruction (race condition), loop
-            // around and try again.
-            if (!instruction) {
-              if (process.env.AUTOHAND_DEBUG === '1') {
-                console.log(`[DEBUG] No instruction after resolver, continuing`);
-              }
-              continue;
-            }
-          } else {
-            // Ink is not running — drain any stale queued instructions and
-            // fall back to readline.
-            if (process.env.AUTOHAND_DEBUG === '1') {
-              console.log(`[DEBUG] Ink not running, falling back to readline`);
-            }
-            if (this.inkRenderer) {
-              while (this.inkRenderer.hasQueuedInstructions()) {
-                const qi = this.inkRenderer.dequeueInstruction();
-                if (qi) this.pendingInkInstructions.push(qi);
-              }
-              if (process.env.AUTOHAND_DEBUG === '1') {
-                console.log(`[DEBUG] Stopping inkRenderer in fallback path`);
-              }
-              this.inkRenderer.stop();
-              this.inkRenderer = null;
-              this.runtime.inkRenderer = undefined;
-              this.inkInstructionResolver = null;
-            }
-            if (process.env.AUTOHAND_DEBUG === '1') {
-              console.log(`[DEBUG] Calling promptForInstruction in readline mode`);
-            }
-            instruction = await this.promptForInstruction();
-            if (process.env.AUTOHAND_DEBUG === '1') {
-              console.log(`[DEBUG] promptForInstruction returned: ${instruction}`);
-            }
-          }
-        }
-
-        if (!instruction) {
-          continue;
-        }
-
-        // Handle ! shell commands locally (never send to LLM)
-        if (isShellCommand(instruction)) {
-          const shellCmd = parseShellCommand(instruction);
-          await this.executeImmediateShellCommand(shellCmd);
-          continue;
-        }
-
-        // Handle slash commands locally (never send to LLM).
-        // The readline path (promptForInstruction) handles slash commands
-        // before runInstruction, but instructions from the Ink queue bypass
-        // that path. Without this, /help etc. go through the full ReAct loop
-        // which sends them to the LLM and leaves the composer frozen.
-        if (instruction.startsWith('/')) {
-          const parsed = this.parseSlashCommand(instruction);
-          const isKnownSlashCommand = this.isSlashCommandSupported(parsed.command);
-          if (isKnownSlashCommand || !isLikelyFilePathSlashInput(instruction)) {
-            const command = parsed.command;
-            const args = parsed.args;
-
-            // /quit and /exit are handled above (line 1795)
-            if (command !== '/quit' && command !== '/exit') {
-              this.clearComposerInput();
-
-              // Echo the slash command to the chat log so it's visible.
-              // Skip the echo for /plan in Ink mode to avoid stdout corruption.
-              if (!(command === '/plan' && this.inkRenderer?.isRunning())) {
-                console.log(chalk.white(`\n› ${instruction}`));
-              }
-
-              if (process.env.AUTOHAND_DEBUG === '1') {
-                console.log(`[DEBUG] Before runSlashCommandWithInput: inkRenderer exists=${!!this.inkRenderer}, isRunning=${this.inkRenderer?.isRunning()}`);
-              }
-
-              // For /plan in Ink mode, redirect console output to user messages
-              // to avoid stdout corruption that freezes the composer.
-              let handled: string | null = null;
-              if (command === '/plan' && this.inkRenderer?.isRunning()) {
-                const logBuffer: string[] = [];
-                handled = await planCommand({} as any, args.join(' '), {
-                  output: (msg: string) => logBuffer.push(msg),
-                });
-                if (logBuffer.length > 0) {
-                  this.inkRenderer.addUserMessage(logBuffer.join('\n'));
-                }
-              } else {
-                handled = await this.runSlashCommandWithInput(command, args);
-              }
-
-              if (process.env.AUTOHAND_DEBUG === '1') {
-                console.log(`[DEBUG] After runSlashCommandWithInput: inkRenderer exists=${!!this.inkRenderer}, isRunning=${this.inkRenderer?.isRunning()}`);
-              }
-              if (handled !== null) {
-                console.log(renderTerminalMarkdown(handled));
-              }
-              // Ensure the renderer is in idle state so the Composer accepts input
-              // after non-interactive slash commands like /help, /clear, /history
-              if (process.env.AUTOHAND_DEBUG === '1') {
-                console.log(`[DEBUG] After slash command output: inkRenderer exists=${!!this.inkRenderer}, isRunning=${this.inkRenderer?.isRunning()}`);
-              }
-              if (this.ui || this.inkRenderer) {
-                this.setComposerIdle();
-                this.clearComposerInput();
-                // Return to the top of the loop so the idle-wait path can await
-                // the next Composer submission without falling through to
-                // instruction.startsWith('/') which would throw on null.
-                continue;
-              } else {
-                continue;
-              }
-            }
-          }
-        }
-
-        // Handle # trigger for storing memories (never send to LLM).
-        // The readline path (promptForInstruction) handles # memory storage,
-        // but instructions from the Ink queue bypass that path.
-        if (instruction.startsWith('#')) {
-          const content = instruction.slice(1).trim();
-          if (this.inkRenderer) {
-            this.modalActive = true;
-            this.inkRenderer.pause();
-            await new Promise<void>((resolve) => setImmediate(resolve));
-          }
-          try {
-            await this.handleMemoryStore(content);
-          } finally {
-            if (this.inkRenderer) {
-              this.modalActive = false;
-              await this.inkRenderer.resume();
-            }
-          }
-          continue;
-        }
-
-        // Ensure background init is complete before processing any instruction.
-        // This runs while the user was typing, so it's usually already done.
-        await this.ensureInitComplete();
-        this.flushMcpStartupSummaryIfPending();
-
-        // Check idle timeout — force logout if session has been idle too long.
-        // Must check BEFORE updating lastActivityAt so the idle duration is accurate.
-        if (this.runtime.config.auth?.token) {
-          const idleMs = Date.now() - this.lastActivityAt;
-          const timeoutMs = AUTH_CONFIG.idleTimeoutMs;
-          if (idleMs >= timeoutMs) {
-            await this.forceIdleLogout();
-            return;
-          }
-        }
-
-        // Update activity timestamp on every user interaction
-        this.lastActivityAt = Date.now();
-
-        if (instruction === '/exit' || instruction === '/quit') {
-          // Fire-and-forget: don't block quit on telemetry
-          this.telemetryManager.trackCommand({ command: instruction }).catch(() => {});
-          const trigger = this.feedbackManager.shouldPrompt({ sessionEnding: true });
-          if (trigger) {
-            const session = this.sessionManager.getCurrentSession();
-            await this.showFeedbackWithPause(trigger, session?.metadata.sessionId);
-          }
-          await this.closeSession();
-          return;
-        }
-
-        const isSlashCommand = instruction.startsWith('/');
-        if (isSlashCommand) {
-          await this.telemetryManager.trackCommand({ command: instruction.split(' ')[0] });
-        }
-
-        // Reset error tracking on successful prompt
-        this.lastErrorMessage = null;
-        this.consecutiveErrorCount = 0;
-
-        // Check shouldExit before processing the instruction
-        if (this.shouldExit) {
-          return;
-        }
-
-        const turnStartTime = Date.now();
-        await this.runInstruction(instruction);
-        this.flushMcpStartupSummaryIfPending();
-
-        // Start generating next-step suggestion in background.
-        // The promise is awaited in promptForInstruction() with a deadline
-        // so the LLM call runs concurrently with hooks/notifications below.
-        if (this.suggestionEngine) {
-          this.pendingSuggestion = this.suggestionEngine.generate(this.conversation.history());
-          this.persistentInput.setPendingSuggestion(this.pendingSuggestion);
-        }
-
-        // Fire stop hook after turn completes (non-blocking)
-        const turnDuration = Date.now() - turnStartTime;
-        const session = this.sessionManager.getCurrentSession();
-        this.hookManager.executeHooks('stop', {
-          sessionId: session?.metadata.sessionId,
-          turnDuration,
-          tokensUsed: this.sessionTokensUsed,
-        }).catch(() => {
-          // Ignore hook errors - they shouldn't block the user
-        });
-
-        // Restore stdin to known state after hook execution
-        // Hook commands with shell: true can sometimes leave stdin in unexpected state
-        this.ensureStdinReady();
-
-        // Ring terminal bell to notify user (shows badge on terminal tab)
-        if (this.runtime.config.ui?.terminalBell !== false) {
-          process.stdout.write('\x07');
-        }
-
-        // Native OS notification for task completion
-        if (this.runtime.config.ui?.showCompletionNotification !== false) {
-          this.notificationService.notify(
-            { body: this.getCompletionNotificationBody(), reason: 'task_complete' },
-            this.getNotificationGuards()
-          ).catch(() => {});
-        }
-
-        this.feedbackManager.recordInteraction();
-        this.telemetryManager.recordInteraction();
-
-        const feedbackTrigger = this.feedbackManager.shouldPrompt({
-          userMessage: instruction,
-          taskCompleted: true
-        });
-
-        if (feedbackTrigger) {
-          const session = this.sessionManager.getCurrentSession();
-          await this.showFeedbackWithPause(feedbackTrigger, session?.metadata.sessionId);
-        }
-
-        console.log();
-      } catch (error) {
-        const errorObj = error as any;
-        const isCancel = errorObj.name === 'ExitPromptError' ||
-          errorObj.isCanceled ||
-          errorObj.message?.includes('canceled') ||
-          errorObj.message?.includes('User force closed') ||
-          !errorObj.message;
-
-        if (isCancel) {
-          this.lastErrorMessage = null;
-          this.consecutiveErrorCount = 0;
-          continue;
-        }
-
-        // TTY/IO errors (errno 5 = EIO, setRawMode failures) are unrecoverable.
-        // Exit immediately instead of retrying — the terminal is gone.
-        const isTTYError = /setRawMode|errno:\s*\d+|EIO|EPERM/.test(errorObj.message ?? '');
-        if (isTTYError) {
-          await this.errorLogger.log(error as Error, {
-            context: 'Interactive loop (TTY failure)',
-            workspace: this.runtime.workspaceRoot
-          });
-          const session = this.sessionManager.getCurrentSession();
-          if (session) {
-            session.metadata.status = 'completed';
-            await session.save();
-          }
-          await this.telemetryManager.endSession('completed');
-          return;
-        }
-
-        const errorMessage = this.getDisplayErrorMessage(error);
-
-        // Track consecutive identical errors to prevent infinite telemetry spam
-        if (errorMessage === this.lastErrorMessage) {
-          this.consecutiveErrorCount++;
-        } else {
-          this.lastErrorMessage = errorMessage;
-          this.consecutiveErrorCount = 1;
-        }
-
-        // Only send telemetry for the first occurrence of a repeated error
-        if (this.consecutiveErrorCount <= 1) {
-          await this.errorLogger.log(error as Error, {
-            context: 'Interactive loop',
-            workspace: this.runtime.workspaceRoot
-          });
-
-          await this.telemetryManager.trackError({
-            type: 'interactive_loop_error',
-            message: errorMessage,
-            stack: (error as Error).stack,
-            context: 'Interactive loop'
-          });
-
-          // Auto-report to GitHub (fire-and-forget, non-blocking)
-          this.autoReportManager.reportError(error as Error, {
-            errorType: 'interactive_loop_error',
-            model: this.runtime.options.model ?? getProviderConfig(this.runtime.config, this.activeProvider)?.model,
-            provider: this.activeProvider,
-            sessionId: this.sessionManager.getCurrentSession()?.metadata.sessionId,
-            conversationLength: this.conversation.history().length,
-            contextUsagePercent: Math.round((1 - this.contextPercentLeft / 100) * 100),
-          }).catch(() => {});
-        }
-
-        // Exit if the same error repeats 3 times - it won't fix itself
-        if (this.consecutiveErrorCount >= 3) {
-          console.error(chalk.red(`\nFatal: "${errorMessage}" repeated ${this.consecutiveErrorCount} times. Exiting.`));
-          const session = this.sessionManager.getCurrentSession();
-          if (session) {
-            session.metadata.status = 'crashed';
-            await session.save();
-          }
-          await this.telemetryManager.endSession('crashed');
-          process.exitCode = 1;
-          return;
-        }
-
-        const session = this.sessionManager.getCurrentSession();
-        if (session) {
-          session.metadata.status = 'crashed';
-          await session.save();
-        }
-
-        this.reportInteractiveLoopError(errorMessage);
-        console.error(chalk.gray(`Error logged to: ${this.errorLogger.getLogPath()}\n`));
-
-        continue;
-      }
-    }
+    return runAgentInteractiveLoop(this);
   }
 
   private async promptForInstruction(): Promise<string | null> {
-    // Use cached workspace files for instant prompt display.
-    // Files are pre-loaded during runInteractive() init and cached for 30s.
-    // Trigger a background refresh without blocking the prompt.
-    this.workspaceFileCollector.collectWorkspaceFiles().catch(() => {});
-    const statusLine = this.formatStatusLine();
-    const initialValue = this.promptSeedInput;
-    this.promptSeedInput = '';
-    // Wait for the pending suggestion LLM call to finish.
-    // Startup: don't block — show the prompt instantly. The user wants to
-    // start typing immediately. If the suggestion resolved already, great;
-    // otherwise the default placeholder is shown.
-    // Turns: wait up to 3s. The user is still reading output so a brief
-    // wait for contextual ghost text is acceptable.
-    // Suggestion uses a lazy provider: each render cycle in the prompt reads
-    // the latest value via getSuggestion(). This eliminates the race condition
-    // where the LLM takes >3s and the static snapshot was always undefined.
-    // The pendingSuggestion promise triggers a re-render when it resolves,
-    // so the ghost text appears as soon as the LLM responds — even if the
-    // prompt is already displayed.
-    const pendingSuggestion = this.pendingSuggestion;
-    this.isStartupSuggestion = false;
-    this.pendingSuggestion = null;
-
-    const debugSuggestion = process.env.AUTOHAND_DEBUG === '1';
-    if (debugSuggestion) {
-      const state = pendingSuggestion ? 'pending' : 'none';
-      this.writeDebugLine(`[SUGGESTION] Provider mode — pending=${state}, engine=${this.suggestionEngine ? 'exists' : 'null'}`);
-    }
-
-    const engine = this.suggestionEngine;
-    this.readlinePromptActive = true;
-    let input: string | null;
-    try {
-      input = await readInstruction(
-        () => this.workspaceFileCollector.getCachedFiles(),
-        SLASH_COMMANDS,
-        statusLine,
-        {}, // default IO
-        (data, mimeType, filename) => this.imageManager.add(data, mimeType, filename),
-        this.runtime.workspaceRoot,
-        initialValue,
-        () => engine?.getSuggestion() ?? undefined,
-        (line) => this.resolveLlmShellSuggestion(line),
-        pendingSuggestion ?? undefined,
-        () =>
-          this.skillsRegistry.listSkills().map((s) => ({
-            name: s.name,
-            description: s.description ?? '',
-            isActive: s.isActive,
-            source: s.source,
-          })),
-      );
-    } finally {
-      this.readlinePromptActive = false;
-      this.flushDeferredDebugLines();
-    }
-    // Only exit on explicit ABORT (double Ctrl+C). Palette cancel or dismiss should continue.
-    if (input === 'ABORT') { // double Ctrl+C from prompt
-      return '/exit';
-    }
-    if (input === null) {
-      // keep interactive loop running
-      return null;
-    }
-
-    let normalized = input.trim();
-    if (!normalized) {
-      return null;
-    }
-
-    if (normalized === '/') {
-      console.log(chalk.gray('Type a slash command name (e.g. /diff) and press Enter.'));
-      return null;
-    }
-
-    if (normalized.startsWith('/')) {
-      // Always prioritize known slash commands, even when args contain '/'
-      // (e.g. package specs like "@playwright/mcp@latest").
-      const parsed = this.parseSlashCommand(normalized);
-      const isKnownSlashCommand = this.isSlashCommandSupported(parsed.command);
-      if (!isKnownSlashCommand && isLikelyFilePathSlashInput(normalized)) {
-        // Looks like an absolute file path, not a command.
-        // Fall through to normal prompt handling below.
-      } else {
-        const command = parsed.command;
-        const args = parsed.args;
-
-        // /quit and /exit return themselves as pass-through instructions
-        // so the interactive loop's special exit handler (line 963) can catch them.
-        // Skip the slash handler for these - they're control-flow, not commands.
-        if (command === '/quit' || command === '/exit') {
-          return command;
-        }
-
-        // Clear any residual status line content from the readline prompt
-        // before rendering the slash command output. The readline status
-        // row can leave artefacts when the terminal wraps or resizes.
-        process.stdout.write('\x1b[0J');
-
-        // Echo the user's slash command to the chat log so it's visible
-        console.log(chalk.white(`\n› ${normalized}`));
-
-        const handled = await this.runSlashCommandWithInput(command, args);
-        if (handled !== null) {
-          // Slash command returned display output - print it, don't send to LLM
-          // Convert markdown formatting (**bold**, _italic_) to ANSI terminal codes
-          console.log(renderTerminalMarkdown(handled));
-        }
-        if (process.env.AUTOHAND_DEBUG === '1') {
-          console.log(`[DEBUG] promptForInstruction: slash command handled, returning null`);
-        }
-        return null;
-      }
-    }
-
-    // Handle # trigger for storing memories
-    if (normalized.startsWith('#')) {
-      await this.handleMemoryStore(normalized.slice(1).trim());
-      return null;
-    }
-
-    if (normalized) {
-      normalized = await this.mentionResolver.resolve(normalized);
-      return normalized;
-    }
-    return null;
+    return promptForAgentInstruction(this);
   }
 
   private async resolveLlmShellSuggestion(inputLine: string): Promise<string | null> {
