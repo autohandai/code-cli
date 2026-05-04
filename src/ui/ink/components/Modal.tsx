@@ -156,11 +156,17 @@ function unmountAndResolve<T>(
   value: T,
   resolve: (value: T) => void
 ): void {
-  // Keep cleanup after unmount so Ink's final frame and cursor restoration
-  // happen inside the modal's alternate screen, not the composer screen.
-  instance.unmount();
-  cleanupModalRender(process.stdout);
-  resolve(value);
+  void (async () => {
+    // Keep cleanup after Ink's unmount flush so final cursor restoration and
+    // line cleanup happen inside the modal's alternate screen, not scrollback.
+    instance.unmount();
+    try {
+      await instance.waitUntilExit();
+    } finally {
+      cleanupModalRender(process.stdout);
+      resolve(value);
+    }
+  })();
 }
 
 export function prepareModalRender(output: NodeJS.WriteStream = process.stdout): void {
@@ -783,6 +789,8 @@ export async function showConfirm(options: {
 
   prepareModalRender(process.stdout);
 
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
   return new Promise((resolve) => {
     let completed = false;
 
@@ -847,6 +855,8 @@ export async function showInput(options: {
 
   prepareModalRender(process.stdout);
 
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
   return new Promise((resolve) => {
     let completed = false;
 
@@ -907,6 +917,8 @@ export async function showPassword(options: {
   }
 
   prepareModalRender(process.stdout);
+
+  await new Promise<void>((resolve) => setImmediate(resolve));
 
   return new Promise((resolve) => {
     let completed = false;

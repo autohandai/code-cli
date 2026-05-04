@@ -28,12 +28,12 @@ export interface SkillsCommandContext {
   workspaceRoot?: string;
   hookManager?: HookManager;
   isNonInteractive?: boolean;
-  onBeforeModal?: () => void;
+  onBeforeModal?: () => Promise<void> | void;
   onAfterModal?: () => Promise<void> | void;
 }
 
 async function withModalPause<T>(ctx: SkillsCommandContext, fn: () => Promise<T>): Promise<T> {
-  ctx.onBeforeModal?.();
+  await ctx.onBeforeModal?.();
   try {
     return await fn();
   } finally {
