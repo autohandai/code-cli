@@ -13,7 +13,7 @@ import { saveConfig } from '../config.js';
 
 interface ThemeContext {
   config: LoadedConfig;
-  onBeforeModal?: () => void;
+  onBeforeModal?: () => Promise<void> | void;
   onAfterModal?: () => Promise<void> | void;
 }
 
@@ -65,7 +65,7 @@ export async function theme(ctx: ThemeContext): Promise<string | null> {
     return { label, value: name, description };
   });
 
-  ctx.onBeforeModal?.();
+  await ctx.onBeforeModal?.();
   const result = await (async () => {
     try {
       return await showModal({

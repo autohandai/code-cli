@@ -8,6 +8,7 @@ import readline from 'node:readline';
 import { t } from '../i18n/index.js';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import type { AutohandConfig } from '../types.js';
+import { cleanupModalRender, prepareModalRender } from '../ui/ink/components/Modal.js';
 import packageJson from '../../package.json' with { type: 'json' };
 
 export const metadata = {
@@ -73,13 +74,19 @@ function renderStatusUI(data: StatusData): Promise<void> {
     return new Promise((resolve) => {
         const tabs: TabName[] = ['Status', 'Config', 'Usage'];
         let currentTab = 0;
+        let completed = false;
 
         const input = process.stdin as NodeJS.ReadStream;
         const isTTY = input.isTTY;
+        const useAlternateScreen = process.stdout.isTTY;
 
         // Store original input state so we can restore it on exit
         const wasRaw = (input as any).isRaw;
         const wasPaused = typeof input.isPaused === 'function' ? input.isPaused() : false;
+
+        if (useAlternateScreen) {
+            prepareModalRender(process.stdout);
+        }
 
         if (wasPaused && typeof input.resume === 'function') {
             input.resume();
@@ -173,6 +180,11 @@ function renderStatusUI(data: StatusData): Promise<void> {
         };
 
         const cleanup = () => {
+            if (completed) {
+                return;
+            }
+            completed = true;
+
             input.off('data', handler);
             if (isTTY && !wasRaw && typeof input.setRawMode === 'function') {
                 try { input.setRawMode(false); } catch { /* TTY may be gone */ }
@@ -182,6 +194,9 @@ function renderStatusUI(data: StatusData): Promise<void> {
             }
             // Clear screen before returning
             process.stdout.write('\x1B[2J\x1B[H');
+            if (useAlternateScreen) {
+                cleanupModalRender(process.stdout);
+            }
         };
 
         input.on('data', handler);

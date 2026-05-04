@@ -317,6 +317,7 @@ export function index256To16(index: number): number {
  * Initialized with dark theme by default, can be replaced via initTheme().
  */
 let globalTheme: Theme | null = null;
+const themeListeners = new Set<() => void>();
 
 /**
  * Get the current global theme.
@@ -329,10 +330,30 @@ export function getTheme(): Theme {
 }
 
 /**
+ * Get the current global theme without forcing initialization.
+ */
+export function getThemeSnapshot(): Theme | null {
+  return globalTheme;
+}
+
+/**
+ * Subscribe to global theme changes.
+ */
+export function subscribeThemeChanges(listener: () => void): () => void {
+  themeListeners.add(listener);
+  return () => {
+    themeListeners.delete(listener);
+  };
+}
+
+/**
  * Set the global theme.
  */
 export function setTheme(theme: Theme): void {
   globalTheme = theme;
+  for (const listener of themeListeners) {
+    listener();
+  }
 }
 
 /**

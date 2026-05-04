@@ -41,7 +41,7 @@ export interface LearnCommandContext {
   isNonInteractive?: boolean;
   llm: LLMProvider;
   onProgress?: (message: string) => void;
-  onBeforeModal?: () => void;
+  onBeforeModal?: () => Promise<void> | void;
   onAfterModal?: () => Promise<void> | void;
   /** Called with the top recommended skill slug for install hint in the composer */
   onTopRecommendation?: (slug: string) => void;
@@ -64,7 +64,7 @@ function logProgress(ctx: LearnCommandContext, message: string, progress?: StepP
 }
 
 async function withModalPause<T>(ctx: LearnCommandContext, fn: () => Promise<T>): Promise<T> {
-  ctx.onBeforeModal?.();
+  await ctx.onBeforeModal?.();
   try {
     return await fn();
   } finally {

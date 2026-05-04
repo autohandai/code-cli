@@ -107,6 +107,111 @@ describe('/theme command modal lifecycle', () => {
       Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, writable: true });
     }
   });
+
+  it('awaits async onBeforeModal before opening the theme picker', async () => {
+    const callOrder: string[] = [];
+    const originalIsTTY = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, writable: true });
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const ctx = {
+      config: { ui: { theme: 'dark' } },
+      onBeforeModal: vi.fn(async () => {
+        callOrder.push('before-start');
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        callOrder.push('before-end');
+      }),
+      onAfterModal: vi.fn(() => { callOrder.push('after'); }),
+    };
+
+    try {
+      const { theme } = await import('../../src/commands/theme.js');
+      await theme(ctx as any);
+      expect(callOrder).toEqual(['before-start', 'before-end', 'after']);
+    } finally {
+      consoleSpy.mockRestore();
+      Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, writable: true });
+    }
+  });
+});
+
+describe('/status command screen isolation', () => {
+  it('uses an alternate screen and restores it when leaving status', async () => {
+    const { EventEmitter } = await import('node:events');
+    const originalStdin = process.stdin;
+    const originalStdout = process.stdout;
+    const writes: string[] = [];
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const input = new EventEmitter() as NodeJS.ReadStream & {
+      isTTY: boolean;
+      isRaw: boolean;
+      setRawMode: (mode: boolean) => void;
+      setEncoding: (encoding: BufferEncoding) => void;
+      resume: () => void;
+      pause: () => void;
+      isPaused: () => boolean;
+    };
+    input.isTTY = true;
+    input.isRaw = false;
+    input.setRawMode = vi.fn((mode: boolean) => { input.isRaw = mode; });
+    input.setEncoding = vi.fn();
+    input.resume = vi.fn();
+    input.pause = vi.fn();
+    input.isPaused = vi.fn(() => false);
+
+    const output = new EventEmitter() as NodeJS.WriteStream & {
+      isTTY: boolean;
+      write: (chunk: string | Uint8Array) => boolean;
+    };
+    output.isTTY = true;
+    output.write = vi.fn((chunk: string | Uint8Array) => {
+      writes.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+      return true;
+    });
+
+    Object.defineProperty(process, 'stdin', { value: input, writable: true, configurable: true });
+    Object.defineProperty(process, 'stdout', { value: output, writable: true, configurable: true });
+
+    const ctx = {
+      sessionManager: {
+        getCurrentSession: () => ({ metadata: { sessionId: 'session-1' } }),
+        listSessions: vi.fn(async () => []),
+      },
+      llm: {
+        isAvailable: vi.fn(async () => true),
+      },
+      workspaceRoot: '/tmp/workspace',
+      provider: 'openai',
+      model: 'gpt-test',
+      getContextPercentLeft: () => 90,
+      getTotalTokensUsed: () => 123,
+      config: { ui: { theme: 'dark' } },
+      isContextCompactionEnabled: () => true,
+    };
+
+    try {
+      const { status } = await import('../../src/commands/status.js');
+      const statusPromise = status(ctx as any);
+
+      while (input.listenerCount('data') === 0) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      input.emit('data', '\u0003');
+      await statusPromise;
+
+      expect(writes).toContain('\x1b[?1049h\x1b[2J\x1b[H');
+      expect(writes).toContain('\x1b[?1049l');
+      expect(writes.indexOf('\x1b[?1049h\x1b[2J\x1b[H')).toBeLessThan(
+        writes.indexOf('\x1b[?1049l')
+      );
+    } finally {
+      Object.defineProperty(process, 'stdin', { value: originalStdin, writable: true, configurable: true });
+      Object.defineProperty(process, 'stdout', { value: originalStdout, writable: true, configurable: true });
+      consoleSpy.mockRestore();
+      vi.restoreAllMocks();
+    }
+  });
 });
 
 describe('/language command modal lifecycle', () => {

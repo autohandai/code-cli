@@ -27,7 +27,7 @@ export const metadata = {
 type ChromeCommandContext = SlashCommandContext;
 
 async function withModalPause<T>(ctx: ChromeCommandContext, fn: () => Promise<T>): Promise<T> {
-  ctx.onBeforeModal?.();
+  await ctx.onBeforeModal?.();
   try {
     return await fn();
   } finally {

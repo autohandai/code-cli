@@ -101,7 +101,7 @@ export async function resume(ctx: {
     sessionManager: SessionManager;
     args: string[];
     workspaceRoot?: string;
-    onBeforeModal?: () => void;
+    onBeforeModal?: () => Promise<void> | void;
     onAfterModal?: () => Promise<void> | void;
 }): Promise<string | null> {
     const sessionId = ctx.args[0];
@@ -157,7 +157,7 @@ export async function resume(ctx: {
             description: choice.hint
         }));
 
-        ctx.onBeforeModal?.();
+        await ctx.onBeforeModal?.();
         const result = await (async () => {
             try {
                 return await showModal({
