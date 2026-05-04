@@ -4,8 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
-import type { AssistantReactPayload, LLMMessage, LLMResponse } from '../../types.js';
+import type { LLMMessage } from '../../types.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
+import type { ReactionParser } from './ReactionParser.js';
 
 interface SimpleChatConversation {
   addMessage(message: LLMMessage): void;
@@ -20,7 +21,7 @@ export interface SimpleChatAgent {
   lastAssistantResponseForNotification: string;
   saveUserMessage(content: string): Promise<void>;
   saveAssistantMessage(content: string): Promise<void>;
-  parseAssistantResponse(completion: LLMResponse): AssistantReactPayload;
+  getReactionParser(): ReactionParser;
   cleanupModelResponse(content: string): string;
   updateContextUsage(messages: LLMMessage[]): void;
 }
@@ -72,7 +73,7 @@ export class SimpleChatHandler {
         temperature: 0.7,
       });
 
-      const payload = this.agent.parseAssistantResponse(completion);
+      const payload = this.agent.getReactionParser().parseAssistantResponse(completion);
       const rawContent = (payload.finalResponse ?? payload.response ?? completion.content).trim();
       const content = this.agent.cleanupModelResponse(rawContent);
       this.agent.lastAssistantResponseForNotification = content;

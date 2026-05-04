@@ -1936,10 +1936,12 @@ describe('agent startup and active input UI', () => {
     };
     agent.updateContextUsage = vi.fn();
     agent.getMessagesWithImages = vi.fn(() => []);
-    agent.parseAssistantResponse = vi.fn(() => ({
-      thought: 'Retrying',
-      reflection: 'The git log output shows the same commits as before, no new changes detected',
-      toolCalls: [{ id: 'call-1', tool: 'git_log', args: { max_count: 1, oneline: true } }],
+    agent.getReactionParser = vi.fn(() => ({
+      parseAssistantResponse: vi.fn(() => ({
+        thought: 'Retrying',
+        reflection: 'The git log output shows the same commits as before, no new changes detected',
+        toolCalls: [{ id: 'call-1', tool: 'git_log', args: { max_count: 1, oneline: true } }],
+      })),
     }));
     agent.saveAssistantMessage = vi.fn(async () => {});
     agent.saveToolMessage = vi.fn(async () => {});
