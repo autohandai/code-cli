@@ -525,12 +525,12 @@ describe('agent.ts deduplication', () => {
       const fs = await import('node:fs');
       const path = await import('node:path');
       const src = fs.readFileSync(
-        path.resolve(process.cwd(), 'src/core/agent.ts'),
+        path.resolve(process.cwd(), 'src/core/agent/AgentLifecycleRunner.ts'),
         'utf8',
       );
 
-      // Find the runInteractiveLoop method body
-      const loopMatch = src.match(/private async runInteractiveLoop\(\)[\s\S]*?\n  (?=private |async |\/\*\*|$)/);
+      // Find the extracted runInteractiveLoop helper body.
+      const loopMatch = src.match(/export async function runAgentInteractiveLoop\([^{]*\)[\s\S]*?(?=\nexport |\n$)/);
       expect(loopMatch).not.toBeNull();
       const loopBody = loopMatch![0];
 
@@ -538,7 +538,7 @@ describe('agent.ts deduplication', () => {
       // before runInstruction is called
       const shellHandlerIdx = loopBody.indexOf('isShellCommand(instruction)');
       const slashHandlerIdx = loopBody.indexOf("instruction.startsWith('/')");
-      const runInstructionIdx = loopBody.indexOf('await this.runInstruction(');
+      const runInstructionIdx = loopBody.indexOf('await host.runInstruction(');
 
       expect(shellHandlerIdx).toBeGreaterThan(-1);
       expect(slashHandlerIdx).toBeGreaterThan(-1);
@@ -565,11 +565,11 @@ describe('agent.ts deduplication', () => {
       const fs = require('node:fs');
       const path = require('node:path');
       const src = fs.readFileSync(
-        path.resolve(process.cwd(), 'src/core/agent.ts'),
+        path.resolve(process.cwd(), 'src/core/agent/AgentLifecycleRunner.ts'),
         'utf8',
       );
 
-      const loopMatch = src.match(/private async runInteractiveLoop\(\)[\s\S]*?\n  (?=private |async |\/\*\*|$)/);
+      const loopMatch = src.match(/export async function runAgentInteractiveLoop\([^{]*\)[\s\S]*?(?=\nexport |\n$)/);
       expect(loopMatch).not.toBeNull();
       const loopBody = loopMatch![0];
 
@@ -580,7 +580,7 @@ describe('agent.ts deduplication', () => {
       // After the slash command output, look for the block that clears the
       // current UI surface — it must use continue, not instruction = null.
       const afterSlash = loopBody.substring(slashHandlerIdx);
-      const inkRunningBlock = afterSlash.indexOf("if (this.ui || this.inkRenderer)");
+      const inkRunningBlock = afterSlash.indexOf("if (host.ui || host.inkRenderer)");
       expect(inkRunningBlock).toBeGreaterThan(-1);
 
       const blockEnd = afterSlash.indexOf('}', inkRunningBlock);
@@ -595,16 +595,16 @@ describe('agent.ts deduplication', () => {
       const fs = require('node:fs');
       const path = require('node:path');
       const src = fs.readFileSync(
-        path.resolve(process.cwd(), 'src/core/agent.ts'),
+        path.resolve(process.cwd(), 'src/core/agent/AgentLifecycleRunner.ts'),
         'utf8',
       );
 
-      const loopMatch = src.match(/private async runInteractiveLoop\(\)[\s\S]*?\n  (?=private |async |\/\*\*|$)/);
+      const loopMatch = src.match(/export async function runAgentInteractiveLoop\([^{]*\)[\s\S]*?(?=\nexport |\n$)/);
       expect(loopMatch).not.toBeNull();
       const loopBody = loopMatch![0];
 
       const hashHandlerIdx = loopBody.indexOf("instruction.startsWith('#')");
-      const runInstructionIdx = loopBody.indexOf('await this.runInstruction(');
+      const runInstructionIdx = loopBody.indexOf('await host.runInstruction(');
 
       expect(hashHandlerIdx).toBeGreaterThan(-1);
       expect(runInstructionIdx).toBeGreaterThan(-1);
