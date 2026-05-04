@@ -6,37 +6,30 @@
 import chalk from 'chalk';
 import fs from 'fs-extra';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { execFile, spawnSync } from 'node:child_process';
-import { format as formatText, promisify } from 'node:util';
+import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 import ora from 'ora';
 import { showModal, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
-import readline from 'node:readline';
 import { FileActionManager } from '../actions/filesystem.js';
 import { saveConfig, getProviderConfig } from '../config.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
-import { ProviderNotConfiguredError } from '../providers/ProviderFactory.js';
-import { ApiError, classifyApiError } from '../providers/errors.js';
 import {
   getPromptBlockWidth,
-  promptInterrupt,
   promptNotify,
   readInstruction,
   safeEmitKeypressEvents
 } from '../ui/inputPrompt.js';
 
 import { safeSetRawMode } from '../ui/rawMode.js';
-import { isShellCommand, isImmediateCommand, parseShellCommand, executeShellCommandAsync, executeStreamingShellCommand } from '../ui/shellCommand.js';
-import { showFilePalette } from '../ui/filePalette.js';
+import { isShellCommand, parseShellCommand, executeShellCommandAsync, executeStreamingShellCommand } from '../ui/shellCommand.js';
 import { showQuestionModal } from '../ui/questionModal.js';
 import { showPlanAcceptModal } from '../ui/planAcceptModal.js';
 import { showDirectoryAccessModal } from '../ui/directoryAccessModal.js';
 import { createInkUIManager } from '../ui/InkUIManager.js';
 import { createPlainUIManager } from '../ui/PlainUIManager.js';
 import type { UIManager } from '../ui/UIManager.js';
-import { shouldUseInkRenderer } from '../ui/inkMode.js';
 import {
   getContextWindow,
   estimateMessagesTokens,
@@ -44,16 +37,14 @@ import {
 } from './context/tokenizer.js';
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
 import { getAutoCommitInfo } from '../actions/git.js';
-import { filterToolsByRelevance, createToolFilter } from './toolFilter.js';
-import { isSearchConfigured } from '../actions/web.js';
 import { SLASH_COMMANDS } from './slashCommands.js';
 import { ConversationManager } from './conversationManager.js';
 import { ContextOrchestrator } from './context/orchestrator.js';
 import { ToolManager } from './toolManager.js';
 import { ActionExecutor } from './actionExecutor.js';
 import { SlashCommandHandler } from './slashCommandHandler.js';
-import { routeOutput, renderTerminalMarkdown, createImmediateShellCommandBlockWriter, formatImmediateShellCommandHeader } from './immediateCommandRouter.js';
-import { isToolAllowedByYolo, normalizeYoloInput, parseYoloPattern, buildPermissionSettingsFromYolo } from '../permissions/yoloMode.js';
+import { renderTerminalMarkdown, createImmediateShellCommandBlockWriter, formatImmediateShellCommandHeader } from './immediateCommandRouter.js';
+import { isToolAllowedByYolo, normalizeYoloInput, parseYoloPattern } from '../permissions/yoloMode.js';
 import { SessionManager } from '../session/SessionManager.js';
 import { ProjectManager } from '../session/ProjectManager.js';
 import { ToolsRegistry } from './toolsRegistry.js';
@@ -75,23 +66,19 @@ import type {
 } from '../types.js';
 
 import { AgentDelegator } from './agents/AgentDelegator.js';
-import { DEFAULT_TOOL_DEFINITIONS, PLAN_TOOL_DEFINITION, EXIT_PLAN_MODE_TOOL_DEFINITION, type ToolDefinition } from './toolManager.js';
+import type { ToolDefinition } from './toolManager.js';
 import { ErrorLogger } from './errorLogger.js';
 import { MemoryManager } from '../memory/MemoryManager.js';
 import { FeedbackManager } from '../feedback/FeedbackManager.js';
 import { TelemetryManager } from '../telemetry/TelemetryManager.js';
 import { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import { CommunitySkillsClient } from '../skills/CommunitySkillsClient.js';
-import { CommunitySkillsCache } from '../skills/CommunitySkillsCache.js';
-import { GitHubRegistryFetcher } from '../skills/GitHubRegistryFetcher.js';
-import { fetchRegistryWithFallback, installSkillWithSecurity } from '../skills/communityInstaller.js';
 import { McpClientManager } from '../mcp/McpClientManager.js';
 import type { McpServerConfig } from '../mcp/types.js';
-import { AUTOHAND_PATHS, AUTH_CONFIG } from '../constants.js';
+import { AUTH_CONFIG } from '../constants.js';
 import { getAuthClient } from '../auth/index.js';
-import { PersistentInput, createPersistentInput } from '../ui/persistentInput.js';
-import { injectLocaleIntoPrompt, getCurrentLocale, t } from '../i18n/index.js';
-import { formatToolOutputForDisplay } from '../ui/toolOutput.js';
+import { PersistentInput } from '../ui/persistentInput.js';
+import { t } from '../i18n/index.js';
 // InkRenderer type - using 'any' to avoid bun bundling ink at compile time
 // The actual type comes from dynamic import at runtime
 type InkRenderer = any;
@@ -104,13 +91,8 @@ import {
   type PermissionPromptResult,
 } from '../permissions/types.js';
 import { HookManager } from './HookManager.js';
-import {
-  checkAndPromptForDirectoryPermissions,
-  type DirectoryPermissionOptions,
-} from '../permissions/directoryPermissionPrompt.js';
 import { TeamManager } from './teams/TeamManager.js';
 import { RepeatManager } from './RepeatManager.js';
-import { intervalToCron, shorthandToHuman, shorthandToMs } from '../commands/repeat.js';
 import { prepareSessionWorktree, type SessionWorktreeInfo } from '../utils/sessionWorktree.js';
 import { WorktreeManager } from '../actions/worktree.js';
 import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
@@ -120,7 +102,6 @@ import { formatPlanModeToggleMessage, getPlanModeManager, plan as planCommand } 
 import type { VersionCheckResult } from '../utils/versionCheck.js';
 import { getInstallHint } from '../utils/versionCheck.js';
 import { runWithConcurrency, type ParallelTaskSpec } from '../utils/parallel.js';
-import packageJson from '../../package.json' with { type: 'json' };
 // New feature modules
 import { ImageManager } from './ImageManager.js';
 import { IntentDetector, type Intent, type IntentResult } from './IntentDetector.js';
@@ -128,12 +109,8 @@ import { EnvironmentBootstrap, type BootstrapResult } from './EnvironmentBootstr
 import { CodeQualityPipeline } from './CodeQualityPipeline.js';
 import { ProjectAnalyzer as OnboardingProjectAnalyzer } from '../onboarding/projectAnalyzer.js';
 import { AgentsGenerator } from '../onboarding/agentsGenerator.js';
-import { resolvePromptValue, SysPromptError } from '../utils/sysPrompt.js';
 import {
-  formatToolSignature,
   formatExplorationLabel,
-  formatToolResultsBatch,
-  describeInstruction,
   formatElapsedTime,
   formatTokens
 } from './agent/AgentFormatter.js';
@@ -142,76 +119,76 @@ import { ProviderConfigManager } from './agent/ProviderConfigManager.js';
 import { ReactionParser } from './agent/ReactionParser.js';
 import { ShellSuggestionProvider } from './agent/ShellSuggestionProvider.js';
 import { SimpleChatHandler, type SimpleChatAgent } from './agent/SimpleChatHandler.js';
-import {
-  buildToolLoopCallSignature,
-  buildToolLoopResultSignature,
-  getToolCallLabel,
-  truncateToolLoopSignature,
-} from './agent/ToolLoopSignature.js';
 import { McpStartupCoordinator } from './agent/McpStartupCoordinator.js';
+import { MentionResolver } from './agent/MentionResolver.js';
+import { SystemPromptBuilder } from './agent/SystemPromptBuilder.js';
+import { runAgentReactLoop, type AgentReactLoopHost } from './agent/ReactLoopRunner.js';
+import { initializeAgentDependencies, type AgentDependencyHost } from './agent/AgentDependencyComposer.js';
+import { runAgentInstruction, type AgentInstructionHost } from './agent/InstructionRunner.js';
+import {
+  agentSleep,
+  injectAgentContinuationMessage,
+  installAgentPersistentConsoleBridge,
+  isAgentContextOverflowError,
+  isAgentRetryableSessionError,
+  setupAgentEscListener,
+  setupAgentPersistentInputInterruptHandlers,
+  shouldUsePassiveAgentSessionRetry,
+  startAgentPreparationStatus,
+  type AgentInputTurnHost,
+} from './agent/InputTurnCoordinator.js';
+import { buildSessionBootstrap } from './agent/SessionBootstrapBuilder.js';
 import { AutoReportManager } from '../reporting/AutoReportManager.js';
 import { isLikelyFilePathSlashInput } from './slashInputDetection.js';
 import { SuggestionEngine } from './SuggestionEngine.js';
 
-/**
- * Error thrown when the ReAct loop is aborted by internal loop guards
- * (e.g. repeated tool-call violations or consecutive empty responses).
- * Not retryable — the caller should surface the failure to the user.
- */
-class LoopAbortedError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'LoopAbortedError';
-  }
-}
-
 export class AutohandAgent {
-  private mentionContexts: { path: string; contents: string }[] = [];
-  private contextWindow: number;
+  private contextWindow!: number;
   private contextPercentLeft = 100;
-  private ignoreFilter: GitIgnoreParser;
+  private ignoreFilter!: GitIgnoreParser;
   private statusListener?: (snapshot: AgentStatusSnapshot) => void;
   private outputListener?: (event: AgentOutputEvent) => void;
   private confirmationCallback?: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<PermissionPromptResponse>;
-  private conversation: ConversationManager;
-  private toolManager: ToolManager;
-  private actionExecutor: ActionExecutor;
-  private toolsRegistry: ToolsRegistry;
-  private slashHandler: SlashCommandHandler;
-  private sessionManager: SessionManager;
-  private projectManager: ProjectManager;
+  private conversation!: ConversationManager;
+  private toolManager!: ToolManager;
+  private actionExecutor!: ActionExecutor;
+  private toolsRegistry!: ToolsRegistry;
+  private slashHandler!: SlashCommandHandler;
+  private sessionManager!: SessionManager;
+  private projectManager!: ProjectManager;
   private toolOutputQueue: Promise<void> = Promise.resolve();
-  private memoryManager: MemoryManager;
-  private permissionManager: PermissionManager;
-  private hookManager: HookManager;
-  private delegator: AgentDelegator;
-  private feedbackManager: FeedbackManager;
-  private telemetryManager: TelemetryManager;
-  private skillsRegistry: SkillsRegistry;
-  private communityClient: CommunitySkillsClient;
-  private mcpManager: McpClientManager;
-  private mcpStartupCoordinator: McpStartupCoordinator;
+  private memoryManager!: MemoryManager;
+  private permissionManager!: PermissionManager;
+  private hookManager!: HookManager;
+  private delegator!: AgentDelegator;
+  private feedbackManager!: FeedbackManager;
+  private telemetryManager!: TelemetryManager;
+  private skillsRegistry!: SkillsRegistry;
+  private communityClient!: CommunitySkillsClient;
+  private mcpManager!: McpClientManager;
+  private mcpStartupCoordinator!: McpStartupCoordinator;
   /** Background MCP connection promise - resolves when all servers finish connecting */
   private mcpReady: Promise<void> | null = null;
   private activeAbortController: AbortController | null = null;
-  private workspaceFileCollector: WorkspaceFileCollector;
-  private providerConfigManager: ProviderConfigManager;
-  private reactionParser: ReactionParser;
-  private simpleChatHandler: SimpleChatHandler;
+  private workspaceFileCollector!: WorkspaceFileCollector;
+  private mentionResolver!: MentionResolver;
+  private providerConfigManager!: ProviderConfigManager;
+  private reactionParser!: ReactionParser;
+  private simpleChatHandler!: SimpleChatHandler;
   private isInstructionActive = false;
   private hasPrintedExplorationHeader = false;
-  private activeProvider: ProviderName;
-  private errorLogger: ErrorLogger;
-  private autoReportManager: AutoReportManager;
-  private notificationService: NotificationService;
+  private activeProvider!: ProviderName;
+  private errorLogger!: ErrorLogger;
+  private autoReportManager!: AutoReportManager;
+  private notificationService!: NotificationService;
   private versionCheckResult?: VersionCheckResult;
-  private teamManager: TeamManager;
-  private repeatManager: RepeatManager;
+  private teamManager!: TeamManager;
+  private repeatManager!: RepeatManager;
   private sessionWorktreeState: (SessionWorktreeInfo & { originalWorkspaceRoot: string }) | null = null;
   private suggestionEngine: SuggestionEngine | null = null;
   private pendingSuggestion: Promise<void> | null = null;
   private isStartupSuggestion = false;
-  private shellSuggestionProvider: ShellSuggestionProvider;
+  private shellSuggestionProvider!: ShellSuggestionProvider;
 
   private taskStartedAt: number | null = null;
   private totalTokensUsed = 0;
@@ -233,18 +210,18 @@ export class AutohandAgent {
   private interactiveAutomodeEnabled = false;
   private basePermissionMode: PermissionMode = 'interactive';
   private lastRenderedStatus = '';
-  private activityIndicator: ActivityIndicator;
+  private activityIndicator!: ActivityIndicator;
   private lastAssistantResponseForNotification = '';
-  private persistentInput: PersistentInput;
+  private persistentInput!: PersistentInput;
   private persistentInputActiveTurn = false;
   private currentInkAbortController: AbortController | null = null;
   private currentInkOnCancel: (() => void) | null = null;
 
   // New feature modules
-  private imageManager: ImageManager;
-  private intentDetector: IntentDetector;
-  private environmentBootstrap: EnvironmentBootstrap;
-  private codeQualityPipeline: CodeQualityPipeline;
+  private imageManager!: ImageManager;
+  private intentDetector!: IntentDetector;
+  private environmentBootstrap!: EnvironmentBootstrap;
+  private codeQualityPipeline!: CodeQualityPipeline;
   private lastIntent: Intent = 'diagnostic';
   private filesModifiedThisSession = false;
   private fileModCount = 0;
@@ -267,1070 +244,9 @@ export class AutohandAgent {
     private readonly files: FileActionManager,
     private readonly runtime: AgentRuntime
   ) {
-    const initialProvider = runtime.config.provider ?? 'openrouter';
-    const providerSettings = getProviderConfig(runtime.config, initialProvider);
-    const model = runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
-    this.contextWindow = getContextWindow(model);
-    this.interactiveAutomodeEnabled = runtime.options.interactiveAutoMode === true;
-    this.ignoreFilter = new GitIgnoreParser(runtime.workspaceRoot, []);
-    this.workspaceFileCollector = new WorkspaceFileCollector(runtime.workspaceRoot, this.ignoreFilter);
-    this.conversation = ConversationManager.getInstance();
-    this.shellSuggestionProvider = new ShellSuggestionProvider({
-      runtime: this.runtime,
-      conversation: this.conversation,
-      getLlm: () => this.llm,
-      getParallelismLimit: () => this.getParallelismLimit(),
-    });
-    this.simpleChatHandler = new SimpleChatHandler(this as unknown as SimpleChatAgent);
-
-    // Initialize suggestion engine if enabled in config.
-    // Derive allowed tools from the user's permission config so suggestions
-    // only propose actions the user can actually execute.
-    if (runtime.config.ui?.promptSuggestions !== false) {
-      const permMode = runtime.config.permissions?.mode ?? 'interactive';
-      const context = permMode === 'restricted' ? 'restricted' as const : 'cli' as const;
-      const toolFilter = createToolFilter(context);
-      const blacklist = runtime.config.permissions?.blacklist ?? [];
-      const fullyBlockedTools = new Set(
-        blacklist.filter(e => !e.includes(':')).map(e => e.trim())
-      );
-      const toolNames = DEFAULT_TOOL_DEFINITIONS
-        .map(t => t.name)
-        .filter(name => toolFilter.isAllowed(name) && !fullyBlockedTools.has(name));
-      this.suggestionEngine = new SuggestionEngine(this.llm, {
-        allowedTools: toolNames,
-        debugLogger: (message: string) => this.writeDebugLine(message),
-      });
-    }
-
-    this.toolsRegistry = new ToolsRegistry();
-    this.memoryManager = new MemoryManager(runtime.workspaceRoot);
-
-    // Initialize context orchestrator for auto-compaction
-    // Default enabled, can be toggled with --no-cc or /cc command
-    this.contextOrchestrator = new ContextOrchestrator({
-      model,
-      conversationManager: this.conversation,
-      llm: this.llm,
-      memoryManager: this.memoryManager,
-      enabled: runtime.options.contextCompact !== false,
-      onCrop: (count, reason) => {
-        if (this.contextOrchestrator.isEnabled() && count > 0) {
-          console.log(chalk.cyan(`ℹ Context optimized: ${reason}`));
-        }
-      },
-      onWarning: (usage) => {
-        console.log(chalk.yellow(`⚠ Context at ${Math.round(usage.usagePercent * 100)}%`));
-      },
-      onOverflow: (usage) => {
-        console.log(chalk.yellow(`⚠ Context overflow at ${Math.round(usage.usagePercent * 100)}%`));
-      },
-    });
-
-    // Initialize new feature modules
-    this.imageManager = new ImageManager();
-    this.intentDetector = new IntentDetector();
-    this.environmentBootstrap = new EnvironmentBootstrap();
-    this.codeQualityPipeline = new CodeQualityPipeline();
-    this.notificationService = new NotificationService();
-    this.reactionParser = new ReactionParser({
-      cleanupModelResponse: (content) => this.cleanupModelResponse(content),
-    });
-
-    this.activityIndicator = new ActivityIndicator({
-      activityVerbs: runtime.config.ui?.activityVerbs,
-      activitySymbol: runtime.config.ui?.activitySymbol,
-    });
-
-    // Create permission manager with persistence callback and local project support
-    this.permissionManager = new PermissionManager({
-      settings: runtime.config.permissions,
-      workspaceRoot: runtime.workspaceRoot,
-      onPersist: async (settings) => {
-        runtime.config.permissions = settings;
-        await saveConfig(runtime.config);
-      }
-    });
-    this.basePermissionMode = this.permissionManager.getMode();
-    this.syncInteractiveAutomodePermissions();
-
-    // Initialize local project settings (async, but non-blocking)
-    this.permissionManager.initLocalSettings().catch(() => {
-      // Ignore errors - local settings are optional
-    });
-
-    // Create hook manager with persistence callback
-    this.hookManager = new HookManager({
-      settings: runtime.config.hooks,
-      workspaceRoot: runtime.workspaceRoot,
-      onPersist: async () => {
-        runtime.config.hooks = this.hookManager.getSettings();
-        await saveConfig(runtime.config);
-      },
-      onHookOutput: (result) => {
-        // In RPC mode, stdout must only contain JSON-RPC messages
-        // Hook output would break the protocol, so suppress it
-        if (runtime.isRpcMode) {
-          return;
-        }
-        // Suppress hook output when a modal is active to avoid corrupting
-        // the alternate screen buffer. The output will be shown after the
-        // modal closes via onAfterModal.
-        if (this.modalActive) {
-          return;
-        }
-        // Route hook output through promptNotify so it renders above the
-        // active composer instead of interleaving with readline output.
-        if (result.stdout && !result.response) {
-          promptNotify(chalk.dim(`[hook:${result.hook.event}] ${result.stdout}`));
-        }
-        if (result.stderr && !result.blockingError) {
-          promptNotify(chalk.yellow(`[hook:${result.hook.event}] ${result.stderr}`));
-        }
-      }
-    });
-
-    // Initialize repeat manager for /repeat recurring prompts
-    this.repeatManager = new RepeatManager();
-    this.repeatManager.onTrigger(async (job) => {
-      // Emit schedule_triggered event for ACP/RPC clients
-      this.emitOutput({ type: 'schedule_triggered', content: job.prompt, scheduleId: job.id });
-
-      // If the agent is busy processing an instruction, queue for later.
-      // The main loop will pick it up when the current turn finishes.
-      if (this.isInstructionActive) {
-        this.pendingInkInstructions.push(job.prompt);
-        return;
-      }
-
-      // In non-interactive modes (RPC/ACP), run the instruction directly
-      if (this.runtime.isRpcMode) {
-        await this.runInstruction(job.prompt);
-        return;
-      }
-
-      // Agent is idle in interactive mode — interrupt the blocking prompt
-      // so the main loop can process the instruction through the normal flow.
-      promptInterrupt(job.prompt);
-    });
-
-    // Initialize team manager for /team, /tasks, /message commands
-    this.teamManager = new TeamManager({
-      leadSessionId: randomUUID(),
-      workspacePath: runtime.workspaceRoot,
-      onTeammateMessage: (from, msg) => {
-        if (msg.method === 'team.log') {
-          const { level, text } = msg.params as { level: string; text: string };
-          const prefix = level === 'error' ? chalk.red(`[${from}]`) : chalk.cyan(`[${from}]`);
-          this.emitOutput({ type: 'message', content: `${prefix} ${text}` });
-        }
-      },
-    });
-
-    this.actionExecutor = new ActionExecutor({
-      runtime,
-      files,
-      resolveWorkspacePath: (relativePath) => this.resolveWorkspacePath(relativePath),
-      confirmDangerousAction: async (message, context) => {
-        const result = await this.confirmDangerousAction(message, context);
-        return result.decision === 'allow_once' || result.decision === 'allow_session' || result.decision === 'allow_always_project' || result.decision === 'allow_always_user';
-      },
-      onExploration: (entry) => this.recordExploration(entry),
-      onToolOutput: (chunk) => this.handleToolOutput(chunk),
-      toolsRegistry: this.toolsRegistry,
-      getRegisteredTools: () => this.toolManager?.listDefinitions() ?? [],
-      memoryManager: this.memoryManager,
-      permissionManager: this.permissionManager,
-      onFileModified: (filePath?: string, changeType?: 'create' | 'modify' | 'delete') => this.markFilesModified(filePath, changeType),
-      onAskFollowup: (question, suggestedAnswers) => this.executeAskFollowupQuestion(question, suggestedAnswers),
-      onPlanCreated: (plan, filePath) => this.handlePlanCreated(plan, filePath),
-      onPermissionRequest: async (context) => {
-        const results = await this.hookManager.executeHooks('permission-request', {
-          tool: context.tool,
-          path: context.path,
-          args: context.args,
-          permissionType: 'tool_approval'
-        });
-
-        // Find the first hook with a decision
-        for (const result of results) {
-          if (result.response?.decision) {
-            return {
-              decision: result.response.decision,
-              reason: result.response.reason,
-              updatedInput: result.response.updatedInput
-            };
-          }
-        }
-        return undefined; // No decision from hooks
-      },
-      onReviewHook: async (event, context) => {
-        await this.hookManager.executeHooks(event as any, {
-          reviewPath: context.reviewPath,
-          reviewScope: context.reviewScope,
-          reviewInstructions: context.reviewInstructions,
-          reviewError: context.reviewError,
-        });
-      },
-      onModalPause: async <T>(fn: () => Promise<T>) => this.withModalPause(fn),
-      onLiveCommandStart: (command) => this.inkRenderer?.startLiveCommand(command) ?? '',
-      onLiveCommandOutput: (id, stream, chunk) => this.inkRenderer?.appendLiveCommandOutput(id, stream, chunk),
-      onLiveCommandRemove: (id) => this.inkRenderer?.removeLiveCommand(id),
-      onRequestDirectoryAccess: async (path, reason) => this.requestDirectoryAccess(path, reason),
-    });
-
-    this.activeProvider = runtime.config.provider ?? 'openrouter';
-    if (process.env.AUTOHAND_DEBUG === '1') {
-      const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
-      const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
-      console.log(`[DEBUG] Initial provider: ${this.activeProvider}, model: ${model}`);
-    }
-    // Determine client context for delegation
-    const delegatorContext = runtime.options.clientContext
-      ?? (runtime.options.restricted ? 'restricted' : 'cli');
-    this.delegator = new AgentDelegator(llm, this.actionExecutor, {
-      clientContext: delegatorContext,
-      maxDepth: 3,
-      onSubagentStop: async (context) => {
-        await this.hookManager.executeHooks('subagent-stop', {
-          subagentId: context.subagentId,
-          subagentName: context.subagentName,
-          subagentType: context.subagentType,
-          subagentSuccess: context.success,
-          subagentError: context.error,
-          subagentDuration: context.duration
-        });
-      }
-    });
-    this.errorLogger = new ErrorLogger(packageJson.version);
-    this.autoReportManager = new AutoReportManager(runtime.config, packageJson.version);
-    this.feedbackManager = new FeedbackManager({
-      apiBaseUrl: runtime.config.api?.baseUrl || 'https://api.autohand.ai',
-      cliVersion: packageJson.version
-    });
-    this.skillsRegistry = new SkillsRegistry(AUTOHAND_PATHS.skills);
-    this.telemetryManager = new TelemetryManager({
-      enabled: runtime.config.telemetry?.enabled === true,
-      apiBaseUrl: runtime.config.telemetry?.apiBaseUrl || 'https://api.autohand.ai',
-      enableSessionSync: runtime.config.telemetry?.enableSessionSync === true,
-      clientVersion: packageJson.version
-    });
-
-    // Initialize community skills client
-    const communitySettings = runtime.config.communitySkills ?? {};
-    this.communityClient = new CommunitySkillsClient({
-      apiBaseUrl: runtime.config.api?.baseUrl || 'https://api.autohand.ai',
-      enabled: communitySettings.enabled !== false,
-    });
-
-    // Initialize MCP client manager
-    this.mcpManager = new McpClientManager();
-    this.mcpStartupCoordinator = new McpStartupCoordinator({
-      isEnabled: () => this.runtime.config.mcp?.enabled !== false,
-      getConfiguredServers: () => this.runtime.config.mcp?.servers,
-      getRuntimeServers: () => this.mcpManager.listServers(),
-    });
-
-    // Wire telemetry and community client to skills registry
-    this.skillsRegistry.setTelemetryManager(this.telemetryManager);
-    this.skillsRegistry.setCommunityClient(this.communityClient);
-
-    // Initialize provider config manager for model selection and configuration
-    this.providerConfigManager = new ProviderConfigManager(
-      runtime,
-      () => this.llm,
-      (newLlm) => { this.llm = newLlm; },
-      () => this.activeProvider,
-      (provider) => {
-        this.activeProvider = provider;
-        this.syncProviderModelStatusLine(provider);
-        if (process.env.AUTOHAND_DEBUG === '1') {
-          const providerSettings = getProviderConfig(this.runtime.config, provider);
-          const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
-          console.log(`[DEBUG] Provider changed: ${provider}, model: ${model}`);
-        }
-      },
-      () => this.delegator,
-      (newDelegator) => { this.delegator = newDelegator; },
-      this.telemetryManager,
-      this.actionExecutor,
-      (contextWindow) => { this.contextWindow = contextWindow; },
-      () => { this.contextPercentLeft = 100; },
-      () => this.emitStatus()
-    );
-
-    const delegationTools: ToolDefinition[] = [
-      {
-        name: 'delegate_task',
-        description: 'Delegate a task to a specialized sub-agent (synchronous). Use /agents to list available agents.',
-        parameters: {
-          type: 'object',
-          properties: {
-            agent_name: { type: 'string', description: 'Name of the agent to delegate to' },
-            task: { type: 'string', description: 'Task description for the sub-agent' }
-          },
-          required: ['agent_name', 'task']
-        },
-        requiresApproval: false
-      },
-      {
-        name: 'delegate_parallel',
-        description: 'Run multiple sub-agents in parallel (max 5, swarm mode)',
-        parameters: {
-          type: 'object',
-          properties: {
-            tasks: {
-              type: 'array',
-              description: 'Array of delegation tasks',
-              items: {
-                type: 'object',
-                properties: {
-                  agent_name: { type: 'string', description: 'Name of the agent' },
-                  task: { type: 'string', description: 'Task for the agent' }
-                },
-                required: ['agent_name', 'task']
-              }
-            }
-          },
-          required: ['tasks']
-        },
-        requiresApproval: false
-      },
-      // Team coordination tools
-      {
-        name: 'create_team',
-        description: 'Create a named agent team for parallel work. Auto-profiles the project and returns available agents. Call this first, then add_teammate and create_task.',
-        parameters: {
-          type: 'object',
-          properties: {
-            name: { type: 'string', description: 'Short team name (e.g., "auth-refactor")' }
-          },
-          required: ['name']
-        },
-        requiresApproval: false
-      },
-      {
-        name: 'add_teammate',
-        description: 'Spawn a teammate process using an agent definition. The agent_name must match one from the Available Agents list.',
-        parameters: {
-          type: 'object',
-          properties: {
-            name: { type: 'string', description: 'Friendly name for this teammate' },
-            agent_name: { type: 'string', description: 'Agent definition to use (from Available Agents)' },
-            model: { type: 'string', description: 'Optional LLM model override' }
-          },
-          required: ['name', 'agent_name']
-        },
-        requiresApproval: false
-      },
-      {
-        name: 'create_task',
-        description: 'Add a task to the team task list. Tasks auto-assign to idle teammates.',
-        parameters: {
-          type: 'object',
-          properties: {
-            subject: { type: 'string', description: 'Short task title' },
-            description: { type: 'string', description: 'Full task description with acceptance criteria' },
-            blocked_by: { type: 'array', description: 'Task IDs that must complete first', items: { type: 'string' } }
-          },
-          required: ['subject', 'description']
-        },
-        requiresApproval: false
-      },
-      {
-        name: 'task_get',
-        description: 'Get a task from the active team by ID.',
-        parameters: {
-          type: 'object',
-          properties: {
-            task_id: { type: 'string', description: 'Task ID to retrieve' }
-          },
-          required: ['task_id']
-        },
-        requiresApproval: false
-      },
-      {
-        name: 'task_list',
-        description: 'List tasks from the active team, optionally filtered by status or owner.',
-        parameters: {
-          type: 'object',
-          properties: {
-            status: { type: 'string', description: 'Optional status filter', enum: ['pending', 'in_progress', 'completed'] },
-            owner: { type: 'string', description: 'Optional owner filter' }
-          }
-        },
-        requiresApproval: false
-      },
-      {
-        name: 'task_update',
-        description: 'Update an existing team task.',
-        parameters: {
-          type: 'object',
-          properties: {
-            task_id: { type: 'string', description: 'Task ID to update' },
-            subject: { type: 'string', description: 'Updated task title' },
-            description: { type: 'string', description: 'Updated task description' },
-            blocked_by: { type: 'array', description: 'Updated dependency task IDs', items: { type: 'string' } },
-            status: { type: 'string', description: 'Updated task status', enum: ['pending', 'in_progress', 'completed'] }
-          },
-          required: ['task_id']
-        },
-        requiresApproval: false
-      },
-      {
-        name: 'task_stop',
-        description: 'Stop an active team task and return it to pending.',
-        parameters: {
-          type: 'object',
-          properties: {
-            task_id: { type: 'string', description: 'Task ID to stop' }
-          },
-          required: ['task_id']
-        },
-        requiresApproval: false
-      },
-      {
-        name: 'task_output',
-        description: 'Store the latest progress note or output for a team task.',
-        parameters: {
-          type: 'object',
-          properties: {
-            task_id: { type: 'string', description: 'Task ID to update' },
-            output: { type: 'string', description: 'Latest progress note, result, or output summary' }
-          },
-          required: ['task_id', 'output']
-        },
-        requiresApproval: false
-      },
-      {
-        name: 'skill',
-        description: 'List, inspect, activate, or deactivate loaded skills. Activated skills are added to the session prompt.',
-        parameters: {
-          type: 'object',
-          properties: {
-            command: { type: 'string', description: 'Skill operation to perform', enum: ['list', 'info', 'activate', 'deactivate'] },
-            name: { type: 'string', description: 'Skill name for info, activate, or deactivate' }
-          },
-          required: ['command']
-        },
-        requiresApproval: false
-      },
-      {
-        name: 'sleep',
-        description: 'Pause execution briefly while waiting for another system or process to settle.',
-        parameters: {
-          type: 'object',
-          properties: {
-            seconds: { type: 'number', description: 'Seconds to wait (maximum 300)' },
-            reason: { type: 'string', description: 'Optional short reason for the wait' }
-          },
-          required: ['seconds']
-        },
-        requiresApproval: false
-      },
-      {
-        name: 'team_status',
-        description: 'Get current team status: members, tasks, progress, available agents.',
-        requiresApproval: false
-      },
-      {
-        name: 'send_team_message',
-        description: 'Send a message to a specific teammate.',
-        parameters: {
-          type: 'object',
-          properties: {
-            to: { type: 'string', description: 'Teammate name' },
-            content: { type: 'string', description: 'Message content' }
-          },
-          required: ['to', 'content']
-        },
-        requiresApproval: false
-      }
-    ];
-
-    // Determine client context - restricted mode maps to 'restricted' context
-    const clientContext = runtime.options.clientContext
-      ?? (runtime.options.restricted ? 'restricted' : 'cli');
-
-    // Block ask_followup_question in command mode (--prompt flag) since it requires interactive terminal
-    const customPolicy = runtime.options.prompt ? {
-      blockedTools: ['ask_followup_question']
-    } : undefined;
-
-    this.toolManager = new ToolManager({
-      maxConcurrency: runtime.config.agent?.parallelToolConcurrency ?? 5,
-      executor: async (action, context) => {
-        const startTime = Date.now();
-        const toolId = `tool_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-        // Execute pre-tool hooks
-        await this.hookManager.executeHooks('pre-tool', {
-          tool: action.type,
-          toolCallId: toolId,
-          args: action as Record<string, unknown>,
-        });
-
-        // Emit tool_start event for RPC mode
-        this.emitOutput({
-          type: 'tool_start',
-          toolId,
-          toolName: action.type,
-          toolArgs: action as Record<string, unknown>,
-        });
-
-        try {
-          let result: string | undefined;
-          if (action.type === 'delegate_task') {
-            result = await this.delegator.delegateTask(action.agent_name, action.task);
-          } else if (action.type === 'delegate_parallel') {
-            result = await this.delegator.delegateParallel(action.tasks);
-          } else if (action.type === 'create_team') {
-            // Handle existing team: same name → reuse, different name → replace
-            let team = this.teamManager.getTeam();
-            let created = false;
-            if (team && team.name !== action.name) {
-              // Different team requested — shutdown old, create new
-              await this.teamManager.shutdown();
-              team = null;
-            }
-            if (!team) {
-              team = this.teamManager.createTeam(action.name);
-              created = true;
-            }
-            // Auto-profile the project
-            const { ProjectProfiler } = await import('./teams/ProjectProfiler.js');
-            const profiler = new ProjectProfiler(this.runtime.workspaceRoot);
-            const profile = await profiler.analyze();
-            // List available agents
-            const { AgentRegistry } = await import('./agents/AgentRegistry.js');
-            const registry = AgentRegistry.getInstance();
-            await registry.loadAgents();
-            const agents = registry.getAllAgents().map(a => `  - ${a.name}: ${a.description}`).join('\n');
-            const header = created
-              ? `Team "${team.name}" created.`
-              : `Team "${team.name}" already active (reusing). Members: ${team.members.length}, Tasks: ${this.teamManager.tasks.listTasks().length}.`;
-            result = [
-              header,
-              `\nProject: ${profile.languages.join(', ')} | Frameworks: ${profile.frameworks.join(', ') || 'none'}`,
-              `Signals: ${profile.signals.map(s => `${s.type}(${s.severity})`).join(', ') || 'none'}`,
-              `\nAvailable agents:\n${agents || '  (none)'}`,
-              `\nNext: call add_teammate for each role, then create_task.`,
-            ].join('\n');
-          } else if (action.type === 'add_teammate') {
-            this.teamManager.addTeammate({ name: action.name, agentName: action.agent_name, model: action.model });
-            result = `Teammate "${action.name}" added (agent: ${action.agent_name}). Process spawning.`;
-          } else if (action.type === 'create_task') {
-            const task = this.teamManager.tasks.createTask({
-              subject: action.subject,
-              description: action.description,
-              blockedBy: action.blocked_by,
-            });
-            // Auto-assign to idle teammates
-            this.teamManager.tryAssignIdleTeammate();
-            result = `Task ${task.id}: "${task.subject}" created (status: ${task.status})`;
-          } else if (action.type === 'task_get') {
-            const task = this.teamManager.tasks.getTask(action.task_id);
-            result = task
-              ? JSON.stringify(task, null, 2)
-              : `Task "${action.task_id}" not found.`;
-          } else if (action.type === 'task_list') {
-            const filtered = this.teamManager.tasks
-              .listTasks()
-              .filter((task) => !action.status || task.status === action.status)
-              .filter((task) => !action.owner || task.owner === action.owner);
-            result = JSON.stringify(filtered, null, 2);
-          } else if (action.type === 'task_update') {
-            const task = this.teamManager.tasks.updateTask(action.task_id, {
-              subject: action.subject,
-              description: action.description,
-              blockedBy: action.blocked_by,
-              status: action.status,
-            });
-            result = `Task ${task.id} updated.\n${JSON.stringify(task, null, 2)}`;
-          } else if (action.type === 'task_stop') {
-            const existingTask = this.teamManager.tasks.getTask(action.task_id);
-            if (!existingTask) {
-              result = `Task "${action.task_id}" not found.`;
-            } else {
-              const previousOwner = existingTask.owner;
-              const task = this.teamManager.tasks.stopTask(action.task_id);
-              if (previousOwner) {
-                try {
-                  this.teamManager.sendMessageTo(
-                    previousOwner,
-                    'lead',
-                    `Stop working on ${task.id} (${task.subject}) and return to idle.`,
-                  );
-                } catch {
-                  // Best-effort notification only; task state update is authoritative.
-                }
-              }
-              result = `Task ${task.id} stopped and returned to pending.\n${JSON.stringify(task, null, 2)}`;
-            }
-          } else if (action.type === 'task_output') {
-            const task = this.teamManager.tasks.setTaskOutput(action.task_id, action.output);
-            result = `Task ${task.id} output updated.\n${JSON.stringify(task, null, 2)}`;
-          } else if (action.type === 'skill') {
-            result = this.handleSkillTool(action);
-          } else if (action.type === 'sleep') {
-            result = await this.executeSleepTool(action.seconds, action.reason);
-          } else if (action.type === 'team_status') {
-            const team = this.teamManager.getTeam();
-            if (!team) {
-              result = 'No active team. Use create_team first.';
-            } else {
-              const status = this.teamManager.getStatus();
-              const members = team.members.map(m => `  ${m.name} (${m.agentName}) - ${m.status}`).join('\n');
-              const tasks = this.teamManager.tasks.listTasks();
-              const taskLines = tasks.map(t => {
-                const owner = t.owner ? ` -> ${t.owner}` : '';
-                const blocked = t.blockedBy.length > 0 ? ` (blocked by: ${t.blockedBy.join(', ')})` : '';
-                return `  [${t.status}] ${t.id}: ${t.subject}${owner}${blocked}`;
-              }).join('\n');
-              result = `Team: ${team.name} (${status.memberCount} members, ${status.tasksDone}/${status.tasksTotal} done)\n\nMembers:\n${members}\n\nTasks:\n${taskLines || '  (none)'}`;
-            }
-          } else if (action.type === 'send_team_message') {
-            this.teamManager.sendMessageTo(action.to, 'lead', action.content);
-            result = `Message sent to ${action.to}.`;
-          } else if (action.type === 'enter_worktree') {
-            result = await this.enterSessionWorktree(action.name);
-          } else if (action.type === 'exit_worktree') {
-            result = await this.exitSessionWorktree(action.keep);
-          } else if (action.type === 'cron_create') {
-            const cron = intervalToCron(action.interval);
-            const expiresInMs = action.expires_in ? shorthandToMs(action.expires_in) : undefined;
-            const expiryLabel = action.expires_in ? shorthandToHuman(action.expires_in) : '3 days';
-            const job = this.repeatManager.schedule(
-              action.prompt,
-              cron.intervalMs,
-              cron.cronExpression,
-              cron.humanReadable,
-              {
-                maxRuns: action.max_runs,
-                expiresInMs,
-              },
-            );
-            const lines = [
-              'Recurring job scheduled.',
-              `Job ID: ${job.id}`,
-              `Prompt: ${job.prompt}`,
-              `Cadence: ${cron.humanReadable}`,
-              `Cron: ${cron.cronExpression}`,
-            ];
-            if (action.max_runs !== undefined) {
-              lines.push(`Limit: ${action.max_runs} runs`);
-            }
-            if (cron.roundedNote) {
-              lines.push(`Note: ${cron.roundedNote}`);
-            }
-            lines.push(`Expires: ${expiryLabel}`);
-            result = lines.join('\n');
-          } else if (action.type === 'cron_delete') {
-            const cancelled = this.repeatManager.cancel(action.schedule_id);
-            result = cancelled
-              ? `Cancelled schedule ${action.schedule_id}.`
-              : `No active schedule found with ID "${action.schedule_id}".`;
-          } else if (action.type === 'list_schedules') {
-            const jobs = this.repeatManager.list();
-            if (jobs.length === 0) {
-              result = 'No active scheduled jobs.';
-            } else {
-              const lines = jobs.map(j =>
-                `[${j.id}] "${j.prompt}" — ${j.humanInterval} (runs: ${j.runCount}${j.maxRuns ? '/' + j.maxRuns : ''}, expires: ${new Date(j.expiresAt).toLocaleString()})`
-              ).join('\n');
-              result = `${lines}\n\nTo cancel a job, tell the user to run: /repeat cancel <job-id>`;
-            }
-          } else if (action.type === 'cancel_schedule') {
-            const id = (action as { schedule_id: string }).schedule_id;
-            if (!id) {
-              result = 'Error: schedule_id is required.';
-            } else {
-              const cancelled = this.repeatManager.cancel(id);
-              result = cancelled ? `Cancelled schedule ${id}.` : `No active schedule found with ID "${id}".`;
-            }
-          } else if (action.type === 'exit_plan_mode') {
-            result = await this.handleExitPlanMode((action as { summary?: string }).summary);
-          } else if (action.type === 'install_agent_skill') {
-            const skillName = (action as { name: string }).name;
-            if (!skillName) {
-              result = 'Error: install_agent_skill requires a "name" argument.';
-            } else {
-              const scope = (action as { scope?: 'project' | 'user' }).scope ?? 'project';
-              const activate = (action as { activate?: boolean }).activate !== false;
-              const cache = new CommunitySkillsCache();
-              const fetcher = new GitHubRegistryFetcher();
-              const registry = await fetchRegistryWithFallback(cache, fetcher);
-              if (!registry) {
-                result = 'Failed to fetch community skills registry. Please check your internet connection.';
-              } else {
-                const skill = fetcher.findSkill(registry.skills, skillName);
-                if (!skill) {
-                  const similar = fetcher.findSimilarSkills(registry.skills, skillName, 3);
-                  let msg = `Skill not found: "${skillName}".`;
-                  if (similar.length > 0) {
-                    msg += `\nDid you mean: ${similar.map((s) => s.name).join(', ')}`;
-                  }
-                  result = msg;
-                } else {
-                  const installResult = await installSkillWithSecurity(
-                    {
-                      skillsRegistry: this.skillsRegistry,
-                      workspaceRoot: this.runtime.workspaceRoot,
-                      hookManager: this.hookManager,
-                      isNonInteractive: true,
-                    },
-                    skill,
-                    cache,
-                    fetcher,
-                    scope,
-                  );
-                  if (activate && !installResult.includes('Failed') && !installResult.includes('Blocked') && !installResult.includes('blocked') && !installResult.includes('Denied')) {
-                    // Try to activate after successful install
-                    try {
-                      const activateResult = this.skillsRegistry.activateSkill(skill.name);
-                      if (activateResult) {
-                        result = `${installResult}\n\nActivated skill: ${skill.name}`;
-                      } else {
-                        result = `${installResult}\n\nNote: skill installed but could not be activated automatically.`;
-                      }
-                    } catch {
-                      result = `${installResult}\n\nNote: skill installed but activation failed.`;
-                    }
-                  } else {
-                    result = installResult;
-                  }
-                }
-              }
-            }
-          } else if (McpClientManager.isMcpTool(action.type)) {
-            // Ensure MCP servers have finished connecting before dispatching
-            if (this.mcpReady) await this.mcpReady;
-            // Route MCP tool calls to the MCP client manager
-            const parsed = McpClientManager.parseMcpToolName(action.type);
-            if (parsed) {
-              const { ...mcpArgs } = action as Record<string, unknown>;
-              const mcpResult = await this.mcpManager.callTool(parsed.serverName, parsed.toolName, mcpArgs);
-              result = typeof mcpResult === 'string' ? mcpResult : JSON.stringify(mcpResult);
-            } else {
-              result = `Invalid MCP tool name: ${action.type}`;
-            }
-          } else {
-            result = await this.actionExecutor.execute(action, context);
-          }
-          // Record action name for auto-mode tracking
-          this.recordExecutedAction(action.type);
-
-          // Track successful tool use
-          await this.telemetryManager.trackToolUse({
-            tool: action.type,
-            success: true,
-            duration: Date.now() - startTime
-          });
-
-          // Execute post-tool hooks (success)
-          await this.hookManager.executeHooks('post-tool', {
-            tool: action.type,
-            toolCallId: toolId,
-            args: action as Record<string, unknown>,
-            success: true,
-            output: result,
-            duration: Date.now() - startTime,
-          });
-
-          // Emit tool_end event for RPC mode
-          this.emitOutput({
-            type: 'tool_end',
-            toolId,
-            toolName: action.type,
-            toolSuccess: true,
-            toolOutput: result,
-          });
-
-          return result ?? '';
-        } catch (error) {
-          // Track failed tool use
-          await this.telemetryManager.trackToolUse({
-            tool: action.type,
-            success: false,
-            duration: Date.now() - startTime,
-            error: (error as Error).message
-          });
-
-          // Execute post-tool hooks (failure)
-          await this.hookManager.executeHooks('post-tool', {
-            tool: action.type,
-            toolCallId: toolId,
-            args: action as Record<string, unknown>,
-            success: false,
-            output: (error as Error).message,
-            duration: Date.now() - startTime,
-          });
-
-          // Emit tool_end event with error for RPC mode
-          this.emitOutput({
-            type: 'tool_end',
-            toolId,
-            toolName: action.type,
-            toolSuccess: false,
-            toolOutput: (error as Error).message,
-          });
-
-          throw error;
-        }
-      },
-      confirmApproval: (message, context) => this.confirmDangerousAction(message, context),
-      definitions: [...DEFAULT_TOOL_DEFINITIONS, ...delegationTools],
-      clientContext,
-      customPolicy
-    });
-
-    this.sessionManager = new SessionManager();
-    this.projectManager = new ProjectManager();
-
-    // Ink 7 + React 19 is the default interactive UI. Do not let stale
-    // config.ui.useInkRenderer values force the legacy composer.
-    this.useInkRenderer = shouldUseInkRenderer() && runtime.isRpcMode !== true;
-
-    // Initialize UIManager based on config
-    this.initializeUIManager();
-
-    // Initialize persistent input for queuing messages while agent works.
-    // Default to terminal regions so the boxed composer stays visible during turns.
-    // Allow disabling via env for troubleshooting terminals with region issues.
-    // TODO: Migrate to use UIManager exclusively - this is kept for backward compatibility during transition
-    const disableTerminalRegions = process.env.AUTOHAND_TERMINAL_REGIONS === '0';
-    this.persistentInput = createPersistentInput({
-      maxQueueSize: 10,
-      silentMode: disableTerminalRegions,
-      workspaceRoot: this.runtime.workspaceRoot,
-      resolveShellSuggestion: (input) => this.resolveLlmShellSuggestion(input),
-      suggestionProvider: () => this.suggestionEngine?.getSuggestion() ?? undefined,
-    });
-
-    this.persistentInput.on('queued', (text: string, count: number) => {
-      const preview = text.length > 30 ? text.slice(0, 27) + '...' : text;
-      const usingTerminalRegions = this.isUsingTerminalRegionsForActiveTurn();
-      if (this.inkRenderer) {
-        this.inkRenderer.addQueuedInstruction(text);
-      } else if (usingTerminalRegions) {
-        // In terminal-regions mode, PersistentInput already renders queued feedback.
-        return;
-      } else if (this.runtime.spinner) {
-        this.runtime.spinner.stop();
-        console.log(chalk.cyan(`✓ Queued: "${preview}" (${count} pending)`));
-        this.runtime.spinner.start();
-        this.lastRenderedStatus = '';
-        this.forceRenderSpinner();
-      }
-    });
-
-    // Handle immediate commands (! shell, / slash) from PersistentInput - bypass queue.
-    // Route output through writeAbove() when terminal regions are active so it
-    // appears in the scroll region above the fixed input box (not on top of it).
-    this.persistentInput.on('immediate-command', (text: string) => {
-      const routeOpts = {
-        persistentInputActiveTurn: this.persistentInputActiveTurn,
-        terminalRegionsDisabled: process.env.AUTOHAND_TERMINAL_REGIONS === '0',
-        writeAbove: (t: string) => this.persistentInput.writeAbove(t),
-      };
-
-      if (isShellCommand(text)) {
-        const cmd = parseShellCommand(text);
-        this.executeImmediateShellCommandForComposer(cmd, routeOpts)
-          .then((result) => {
-            if (!result.success) {
-              routeOutput(chalk.red(result.error || 'Command failed'), routeOpts);
-            }
-          })
-          .catch((error: Error) => {
-            routeOutput(chalk.red(error.message || 'Command failed'), routeOpts);
-          });
-      } else if (text.startsWith('/') && !isLikelyFilePathSlashInput(text)) {
-        const { command, args } = this.parseSlashCommand(text);
-        this.handleSlashCommand(command, args)
-          .then((handled) => {
-            if (handled !== null) {
-              routeOutput(handled, routeOpts);
-            }
-          })
-          .catch((err: Error) => {
-            routeOutput(chalk.red(`\nCommand error: ${err.message}`), routeOpts);
-        });
-      }
-    });
-
-    this.persistentInput.on('plan-mode-toggled', (enabled: boolean) => {
-      const statusLine = this.formatStatusLine();
-      this.persistentInput.setStatusLine(statusLine);
-
-      const message = formatPlanModeToggleMessage(enabled);
-
-      const usingTerminalRegions = this.isUsingTerminalRegionsForActiveTurn();
-      if (usingTerminalRegions) {
-        this.persistentInput.render();
-      }
-
-      if (usingTerminalRegions) {
-        this.persistentInput.writeAbove(`${message}\n`);
-      } else if (this.runtime.spinner) {
-        const wasSpinning = this.runtime.spinner.isSpinning;
-        if (wasSpinning) {
-          this.runtime.spinner.stop();
-        }
-        console.log(`\n${message}`);
-        if (wasSpinning) {
-          this.runtime.spinner.start();
-        }
-      } else {
-        console.log(`\n${message}`);
-      }
-
-      this.lastRenderedStatus = '';
-      if (!this.inkRenderer) {
-        this.forceRenderSpinner();
-      }
-    });
-
-    // Create context object with getter for currentSession (dynamic access)
-    const sessionMgr = this.sessionManager;
-    const filesMgr = this.files;
-    const runtimeRef = this.runtime;
-    const slashContext = {
-      promptModelSelection: () => this.providerConfigManager.promptModelSelection(),
-      createAgentsFile: () => this.createAgentsFile(),
-      sessionManager: this.sessionManager,
-      memoryManager: this.memoryManager,
-      permissionManager: this.permissionManager,
-      hookManager: this.hookManager,
-      skillsRegistry: this.skillsRegistry,
-      mcpManager: this.mcpManager,
-      llm: this.llm,
-      workspaceRoot: runtime.workspaceRoot,
-      model: model,
-      resetConversation: async () => {
-        await this.resetConversationContext();
-        await this.injectSessionBootstrap();
-      },
-      undoFileMutation: () => this.files.undoLast(),
-      removeLastTurn: () => this.conversation.removeLastTurn(),
-      // Status command context
-      provider: this.activeProvider,
-      config: runtime.config,
-      getContextPercentLeft: () => this.contextPercentLeft,
-      getTotalTokensUsed: () => this.totalTokensUsed,
-      isInteractiveAutomodeEnabled: () => this.interactiveAutomodeEnabled,
-      setInteractiveAutomodeEnabled: (enabled: boolean) => this.setInteractiveAutomodeEnabled(enabled),
-      // Share command needs current session - use getter for dynamic access
-      get currentSession() {
-        return sessionMgr.getCurrentSession() ?? undefined;
-      },
-      // Add-dir command context
-      fileManager: this.files,
-      get additionalDirs() {
-        return runtimeRef.additionalDirs ?? [];
-      },
-      addAdditionalDir: (dir: string) => {
-        filesMgr.addAdditionalDirectory(dir);
-        if (!runtimeRef.additionalDirs) {
-          runtimeRef.additionalDirs = [];
-        }
-        if (!runtimeRef.additionalDirs.includes(dir)) {
-          runtimeRef.additionalDirs.push(dir);
-        }
-      },
-      // Context compaction toggle for /cc command
-      toggleContextCompaction: () => this.toggleContextCompaction(),
-      isContextCompactionEnabled: () => this.isContextCompactionEnabled(),
-      // Non-interactive mode (RPC/ACP) - guards interactive commands
-      isNonInteractive: runtime.isRpcMode === true,
-      onBeforeModal: async () => {
-        if (process.env.AUTOHAND_DEBUG === '1') {
-          console.log(`[DEBUG] onBeforeModal: inkRenderer exists=${!!this.inkRenderer}, persistentInputActive=${this.persistentInputActiveTurn}`);
-        }
-        this.modalActive = true;
-        if (this.inkRenderer) {
-          this.inkRenderer.pause();
-          // Yield a macrotask so React 19's Scheduler flushes any pending passive
-          // effect cleanup from the just-unmounted Ink instance. Without this, the
-          // modal's useInput effect can run before the previous Composer's cleanup,
-          // causing both to appear simultaneously.
-          await new Promise<void>((resolve) => setImmediate(resolve));
-        }
-        if (this.persistentInputActiveTurn) {
-          this.persistentInput.pauseForModal();
-        }
-      },
-      onAfterModal: async () => {
-        if (process.env.AUTOHAND_DEBUG === '1') {
-          console.log(`[DEBUG] onAfterModal: inkRenderer exists=${!!this.inkRenderer}, persistentInputActive=${this.persistentInputActiveTurn}`);
-        }
-        this.modalActive = false;
-        if (this.persistentInputActiveTurn) {
-          try {
-            this.persistentInput.resumeFromModal();
-          } catch {
-            // Best effort — continue to resume InkRenderer
-          }
-        }
-        if (this.inkRenderer) {
-          await this.inkRenderer.resume();
-        }
-        if (process.env.AUTOHAND_DEBUG === '1') {
-          console.log(`[DEBUG] onAfterModal completed`);
-        }
-      },
-      // After /learn recommends a skill, seed the next prompt with the install command
-      onTopRecommendation: (slug: string) => {
-        this.promptSeedInput = `/skills install @${slug}`;
-      },
-      // Team manager for /team, /tasks, /message commands
-      teamManager: this.teamManager,
-      // Repeat manager for /repeat recurring prompt scheduling
-      repeatManager: this.repeatManager,
-      // Queue an instruction to be sent to the LLM silently (e.g. /review)
-      queueInstruction: (instruction: string) => {
-        this.pendingInkInstructions.push(instruction);
-      },
-      // Set/clear YOLO mode for /yolo and /no-yolo commands
-      setYoloMode: (pattern: string | undefined) => {
-        this.runtime.options.yolo = pattern;
-        if (pattern) {
-          try {
-            const yoloPattern = parseYoloPattern(pattern);
-            const settings = buildPermissionSettingsFromYolo(yoloPattern);
-            if (settings.mode === 'unrestricted') {
-              this.permissionManager.setMode('unrestricted');
-              this.runtime.options.unrestricted = true;
-              this.runtime.options.yes = true;
-            } else {
-              this.permissionManager.setMode('interactive');
-              this.runtime.options.unrestricted = false;
-              this.runtime.options.yes = false;
-            }
-          } catch {
-            // Ignore malformed patterns
-          }
-        } else {
-          this.permissionManager.setMode(this.basePermissionMode ?? 'interactive');
-          this.runtime.options.unrestricted = false;
-          this.runtime.options.yes = false;
-        }
-      },
-      // Clear terminal / Ink UI for /clear and /new
-      clearScreen: () => {
-        if (this.inkRenderer?.isRunning()) {
-          this.inkRenderer.resetAndClearScreen();
-        } else {
-          process.stdout.write('\x1b[2J\x1b[H');
-        }
-      },
-    };
-    this.slashHandler = new SlashCommandHandler(slashContext, SLASH_COMMANDS);
+    initializeAgentDependencies(this as unknown as AgentDependencyHost, llm, files, runtime);
   }
 
-  /**
-   * Sync discovered MCP tools with tool definitions exposed to the LLM.
-   */
   private syncMcpTools(): void {
     const mcpTools = this.mcpManager.getAllTools();
     const toolDefs: ToolDefinition[] = mcpTools.map((tool) => ({
@@ -2434,7 +1350,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
 
     if (normalized) {
-      normalized = await this.resolveMentions(normalized);
+      normalized = await this.mentionResolver.resolve(normalized);
       return normalized;
     }
     return null;
@@ -2629,321 +1545,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   async runInstruction(instruction: string): Promise<boolean> {
-    this.isInstructionActive = true;
-    this.clearExplorationLog();
-    this.filesModifiedThisSession = false;
-    this.lastAssistantResponseForNotification = '';
-
-    // Check for directory mentions outside workspace and prompt for permissions
-    if (this.runtime.workspaceRoot && this.permissionManager) {
-      const dirPermissionOptions: DirectoryPermissionOptions = {
-        workspaceRoot: this.runtime.workspaceRoot,
-        permissionManager: this.permissionManager,
-        autoApprove: this.runtime.options.unrestricted || this.runtime.options.yes || false,
-      };
-      await checkAndPromptForDirectoryPermissions(instruction, dirPermissionOptions);
-    }
-
-    // Initialize task-level tracking
-    this.taskStartedAt = Date.now();
-    this.totalTokensUsed = 0;
-
-    // Detect user intent (diagnostic vs implementation)
-    const intentResult = this.intentDetector.detect(instruction);
-    this.lastIntent = intentResult.intent;
-
-    // Display mode indicator
-    this.displayIntentMode(intentResult);
-
-    // Run environment bootstrap for implementation mode
-    if (intentResult.intent === 'implementation') {
-      const bootstrapResult = await this.runEnvironmentBootstrap();
-      if (!bootstrapResult.success) {
-        console.log(chalk.red('\n[BLOCKED] Environment setup failed. Fix issues before proceeding.'));
-        this.isInstructionActive = false;
-        return false;
-      }
-    }
-
-    const abortController = new AbortController();
-    this.activeAbortController = abortController;
-    let canceledByUser = false;
-    let success = true;
-
-    const queueEnabled = this.runtime.config.agent?.enableRequestQueue !== false;
-    const canUsePersistentInput = process.stdout.isTTY && process.stdin.isTTY && queueEnabled;
-
-    // Initialize UI (InkRenderer or ora spinner)
-    // Pass abort controller for InkRenderer to handle ESC/Ctrl+C
-    await this.initializeUI(abortController, () => {
-      if (!canceledByUser) {
-        canceledByUser = true;
-        this.stopStatusUpdates();
-        this.stopUI();
-        // Don't console.log here — terminal regions may still be active,
-        // which routes output through writeAbove and corrupts the composer.
-        // The cancel message is printed in the finally block after cleanup.
-      }
-    }, canUsePersistentInput);
-
-    if (process.env.AUTOHAND_DEBUG === '1') {
-      console.log(`[DEBUG] runInstruction: after initializeUI, inkRenderer exists=${!!this.inkRenderer}, useInkRenderer=${this.useInkRenderer}`);
-    }
-
-    const shouldUsePersistentInput = canUsePersistentInput && !this.inkRenderer;
-    let cleanupConsoleBridge: () => void = () => {};
-
-    if (shouldUsePersistentInput) {
-      this.persistentInput.start();
-      this.persistentInputActiveTurn = true;
-      if (this.isUsingTerminalRegionsForActiveTurn() && this.runtime.spinner?.isSpinning) {
-        this.runtime.spinner.stop();
-      }
-      cleanupConsoleBridge = this.installPersistentConsoleBridge();
-      if (this.promptSeedInput && !this.persistentInput.getCurrentInput()) {
-        this.persistentInput.setCurrentInput(this.promptSeedInput);
-        this.promptSeedInput = '';
-      }
-      this.persistentInput.setStatusLine(this.formatStatusLine());
-    } else {
-      this.persistentInputActiveTurn = false;
-    }
-
-    // Print user instruction AFTER persistent input is started so it
-    // renders inside the scroll region (not overwritten by the fixed region).
-    this.printUserInstructionToChatLog(instruction);
-
-    // Only one input owner should handle interrupts:
-    // InkRenderer, PersistentInput, or fallback ESC listener.
-    const handleCancel = () => {
-      if (!canceledByUser) {
-        canceledByUser = true;
-        this.stopStatusUpdates();
-        this.stopUI();
-        // Don't console.log here — terminal regions may still be active,
-        // which routes output through writeAbove and corrupts the composer.
-        // The cancel message is printed in the finally block after cleanup.
-      }
-    };
-
-    const cleanupEsc = this.useInkRenderer
-      ? () => {} // No-op, Ink handles input
-      : shouldUsePersistentInput
-        ? this.setupPersistentInputInterruptHandlers(abortController, handleCancel)
-        : this.setupEscListener(abortController, handleCancel, true);
-    const stopPreparation = this.startPreparationStatus(instruction);
-    try {
-      const userMessage = await this.buildUserMessage(instruction);
-      stopPreparation();
-      this.setUIStatus('Reasoning with the AI (ReAct loop)...');
-      this.conversation.addMessage({ role: 'user', content: userMessage });
-
-      // Save user message to session
-      await this.saveUserMessage(instruction);
-
-      this.updateContextUsage(this.conversation.history());
-      await this.runReactLoop(abortController);
-
-      // Run quality pipeline after file modifications in implementation mode.
-      // Stop PersistentInput FIRST so quality output goes to raw stdout
-      // instead of being routed through writeAbove in scroll regions
-      // (which gets torn down in the finally block, making output invisible).
-      if (this.lastIntent === 'implementation' && this.filesModifiedThisSession) {
-        // Set modalActive to suppress hook output during quality checks.
-        // This prevents custom hooks (e.g., quality check hooks) from
-        // interfering with the terminal state while the UI is paused.
-        this.modalActive = true;
-        if (this.persistentInputActiveTurn) {
-          this.promptSeedInput = this.persistentInput.getCurrentInput();
-          this.persistentInput.stop();
-          this.persistentInputActiveTurn = false;
-        }
-        // Pause Ink renderer instead of destroying it. This releases stdin/stdout
-        // so spawned child processes (lint, test) work correctly, but preserves
-        // state so the composer reappears immediately after quality checks.
-        if (this.useInkRenderer && this.inkRenderer) {
-          this.inkRenderer.pause();
-        }
-        cleanupConsoleBridge();
-        cleanupConsoleBridge = () => {}; // Prevent double-cleanup in finally
-        await this.runQualityPipeline();
-        // Resume Ink so the composer is restored before runInstruction returns.
-        if (this.useInkRenderer && this.inkRenderer) {
-          await this.inkRenderer.resume();
-        }
-        this.modalActive = false;
-      }
-    } catch (error) {
-      success = false;
-      if (abortController.signal.aborted) {
-        return false;
-      }
-
-      // Handle unconfigured provider by prompting for configuration
-      if (error instanceof ProviderNotConfiguredError) {
-        this.cleanupUI();
-        console.log(chalk.yellow(`\nNo provider is configured yet. Let's set one up!\n`));
-        await this.providerConfigManager.promptModelSelection();
-        // After configuration, retry the instruction
-        return this.runInstruction(instruction);
-      }
-
-      // Loop guard aborts are handled gracefully inside runReactLoop
-      // (fallback message already emitted to the user). Skip retries and
-      // error UI so we don't double-print failure messages.
-      if (error instanceof Error && error.name === 'LoopAbortedError') {
-        // Fall through to finally with success = false
-      } else {
-        // Session failure retry logic
-        const err = error instanceof Error ? error : new Error(String(error));
-        const maxRetries = this.runtime.config.agent?.sessionRetryLimit ?? 3;
-        const baseDelay = this.runtime.config.agent?.sessionRetryDelay ?? 1000;
-
-        if (this.isRetryableSessionError(err) && this.sessionRetryCount < maxRetries) {
-          this.sessionRetryCount++;
-
-          // Submit bug report to telemetry
-          await this.submitSessionFailureBugReport(err, this.sessionRetryCount, maxRetries);
-
-          // Show retry message to user
-          console.log(chalk.yellow(`\n⚠ Session encountered an error: ${err.message}`));
-          console.log(chalk.cyan(`  Attempting recovery (${this.sessionRetryCount}/${maxRetries})...`));
-
-          // Wait with exponential backoff (1.5x multiplier)
-          const delay = Math.max(
-            baseDelay * Math.pow(1.5, this.sessionRetryCount - 1),
-            err instanceof ApiError ? err.retryAfterMs ?? 0 : 0
-          );
-          await this.sleep(delay);
-
-          // Retry plain transport/service outages without mutating the prompt.
-          // Injecting "continue the task" guidance after a dropped connection
-          // causes the model to resume with extra behavioral instructions once
-          // the service comes back, which can snowball into unnecessary tool use.
-          if (!this.shouldUsePassiveSessionRetry(err)) {
-            this.injectContinuationMessage(err, this.sessionRetryCount);
-          }
-
-          // Retry the ReAct loop
-          try {
-            this.setUIStatus('Recovering session...');
-            await this.runReactLoop(abortController);
-
-            // If we get here, retry succeeded - reset counter
-            this.sessionRetryCount = 0;
-            success = true;
-            return success;
-          } catch (retryError) {
-            // Retry failed, will be caught by outer logic on next iteration
-            // or fall through to final failure if max retries exceeded
-            if (this.sessionRetryCount >= maxRetries) {
-              // Max retries exceeded, fall through to failure
-              this.sessionRetryCount = 0;
-            } else {
-              // Re-throw to trigger another retry attempt
-              throw retryError;
-            }
-          }
-        }
-
-        // Reset retry counter on non-retryable errors or max retries exceeded
-        this.sessionRetryCount = 0;
-
-        this.stopUI(true, 'Session failed');
-        // Emit error for RPC mode
-        const errorMessage = this.getDisplayErrorMessage(error);
-        this.emitOutput({ type: 'error', content: errorMessage });
-        if (error instanceof Error) {
-          console.error(chalk.red(errorMessage));
-        } else {
-          console.error(errorMessage);
-        }
-      }
-    } finally {
-      // IMPORTANT: Keep the console bridge active until AFTER terminal regions
-      // are disabled. Otherwise, in-flight streaming output bypasses writeAbove
-      // and writes directly to stdout while regions are still active, corrupting
-      // the fixed-region composer box (overlapping borders, leaked tool data).
-      cleanupEsc();
-      stopPreparation();
-      this.stopStatusUpdates();
-      const keepPersistentInputForNextTurn =
-        this.persistentInputActiveTurn &&
-        (this.persistentInput.hasQueued() || this.persistentInput.getCurrentInput().trim().length > 0);
-      if (this.persistentInputActiveTurn) {
-        this.promptSeedInput = this.persistentInput.getCurrentInput();
-      }
-      // Stop the spinner BEFORE disabling scroll regions. ora tracks its
-      // cursor position relative to the active scroll region; if regions are
-      // reset first, ora.stop() moves the cursor to an incorrect absolute
-      // row (typically row 1), causing the next prompt to render at the top.
-      // When using Ink, keep the renderer alive between turns to prevent the
-      // composer from disappearing and reappearing during back-to-back turns.
-      if (process.env.AUTOHAND_DEBUG === '1') {
-        console.log(`[DEBUG] runInstruction finally: useInkRenderer=${this.useInkRenderer}, inkRenderer exists=${!!this.inkRenderer}`);
-      }
-      this.cleanupUI(this.useInkRenderer);
-
-      if (this.persistentInputActiveTurn && !keepPersistentInputForNextTurn) {
-        this.persistentInput.stop();
-        this.persistentInputActiveTurn = false;
-      }
-
-      // Restore original console AFTER regions are disabled so no output
-      // leaks into the fixed-region area during the transition.
-      cleanupConsoleBridge();
-
-      // Print the cancel message AFTER terminal regions are torn down so it
-      // goes to normal stdout instead of being routed through writeAbove.
-      if (canceledByUser && !this.useInkRenderer) {
-        console.log('\n' + chalk.yellow('Request canceled by user (ESC).'));
-      }
-
-      // Ensure the cursor is on a fresh blank line after cleanup so the next
-      // prompt box doesn't overwrite the last output row.
-      if (process.stdout.isTTY && !this.useInkRenderer) {
-        process.stdout.write('\n');
-      }
-
-      // Show completion summary (skip if using Ink - it handles this via completionStats)
-      if (this.taskStartedAt && !canceledByUser && !this.useInkRenderer) {
-        this.printCompletionSummary(keepPersistentInputForNextTurn);
-      }
-
-      // Accumulate session tokens before resetting task
-      this.sessionTokensUsed += this.totalTokensUsed;
-
-      this.taskStartedAt = null;
-      this.isInstructionActive = false;
-      this.activeAbortController = null;
-      this.clearExplorationLog();
-    }
-    return success;
-  }
-
-  private async saveUserMessage(content: string): Promise<void> {
-    const session = this.sessionManager.getCurrentSession();
-    if (!session) return;
-
-    const message: SessionMessage = {
-      role: 'user',
-      content,
-      timestamp: new Date().toISOString()
-    };
-    await session.append(message);
-  }
-
-  private async saveAssistantMessage(content: string, toolCalls?: any[]): Promise<void> {
-    const session = this.sessionManager.getCurrentSession();
-    if (!session) return;
-
-    const message: SessionMessage = {
-      role: 'assistant',
-      content,
-      timestamp: new Date().toISOString(),
-      toolCalls
-    };
-    await session.append(message);
+    return runAgentInstruction(this as unknown as AgentInstructionHost, instruction);
   }
 
   private handleToolOutput(chunk: ToolOutputChunk): void {
@@ -3097,749 +1699,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async runReactLoop(abortController: AbortController): Promise<void> {
-    this.consecutiveCancellations = 0;
-
-    const debugMode = this.runtime.config.agent?.debug === true || process.env.AUTOHAND_DEBUG === '1';
-    if (debugMode) this.writeDebugLine('[AGENT DEBUG] runReactLoop started');
-
-    // Check if we're executing an accepted plan - bypass iteration limit
-    const planModeManager = getPlanModeManager();
-    const isExecutingPlan = planModeManager.isEnabled() && planModeManager.getPhase() === 'executing';
-
-    // For plan execution, use effectively unlimited iterations (user accepted the plan)
-    // Otherwise use configurable limit (default 100)
-    const maxIterations = isExecutingPlan
-      ? 1000
-      : (this.runtime.config.agent?.maxIterations ?? 100);
-
-    // Gate plan and exit_plan_mode tools: only register when plan mode is
-    // enabled and we are in the planning phase. This ensures the LLM literally
-    // cannot call these tools unless the user entered plan mode, preventing
-    // unsolicited plan generation.
-    if (planModeManager.isEnabled() && planModeManager.getPhase() === 'planning') {
-      if (!this.toolManager.listToolNames().includes('plan')) {
-        this.toolManager.register(PLAN_TOOL_DEFINITION);
-      }
-      if (!this.toolManager.listToolNames().includes('exit_plan_mode')) {
-        this.toolManager.register(EXIT_PLAN_MODE_TOOL_DEFINITION);
-      }
-    } else {
-      this.toolManager.unregister('plan');
-      this.toolManager.unregister('exit_plan_mode');
-    }
-
-    // Get all function definitions for native tool calling
-    let allTools = this.toolManager.toFunctionDefinitions();
-
-    // Gate web tools: only offer web_search/fetch_url/web_repo when a
-    // reliable search provider is configured (Brave/Parallel with API key,
-    // or Google). DuckDuckGo (the default) is unreliable and causes the LLM
-    // to get stuck in retry loops.
-    if (!isSearchConfigured()) {
-      const WEB_TOOLS = new Set(['web_search', 'fetch_url', 'web_repo']);
-      allTools = allTools.filter(t => !WEB_TOOLS.has(t.name));
-    }
-
-    if (debugMode) this.writeDebugLine(`[AGENT DEBUG] Loaded ${allTools.length} tools, maxIterations=${maxIterations}`);
-
-    // Start status updates for the main loop
-    this.startStatusUpdates();
-
-    // Check if thinking should be shown
-    const showThinking = this.runtime.config.ui?.showThinking !== false;
-    const identicalCallHardLimit = 6;
-    const identicalCallAndResultLimit = 3;
-    const forceNoToolsViolationLimit = 2;
-    const perToolFailureLimit = 2; // Max consecutive failures for same tool (regardless of args)
-    let lastToolCallSignature = '';
-    let identicalToolCallCount = 0;
-    let lastToolResultSignature = '';
-    let identicalToolResultCount = 0;
-    let forceNoToolsUntilResponse = false;
-    let forceNoToolsViolationCount = 0;
-    const toolConsecutiveFailures = new Map<string, number>();
-    let needsReflection = false; // Set after tool execution; cleared when model reflects
-    const reflectionViolationLimit = 2;
-    let reflectionViolationCount = 0;
-
-    for (let iteration = 0; iteration < maxIterations; iteration += 1) {
-      // Check for abort at the start of each iteration
-      if (abortController.signal.aborted) {
-        if (debugMode) this.writeDebugLine('[AGENT DEBUG] Abort detected at loop start, breaking');
-        break;
-      }
-
-      // Filter tools by relevance to reduce token overhead
-      const messages = this.conversation.history();
-      let tools = filterToolsByRelevance(allTools, messages);
-
-      // Filter tools for plan mode (read-only tools only during planning phase)
-      const planModeManager = getPlanModeManager();
-      if (planModeManager.isEnabled() && planModeManager.getPhase() === 'planning') {
-        const readOnlyTools = new Set(planModeManager.getReadOnlyTools());
-        tools = tools.filter(t => readOnlyTools.has(t.name));
-        if (debugMode) {
-          this.writeDebugLine(`[AGENT DEBUG] Plan mode active: filtered to ${tools.length} read-only tools`);
-        }
-      }
-
-      if (forceNoToolsUntilResponse) {
-        tools = [];
-      }
-
-      // Use ContextOrchestrator for smart auto-compaction
-      const model = this.runtime.options.model ?? getProviderConfig(this.runtime.config, this.activeProvider)?.model ?? 'unconfigured';
-      this.contextOrchestrator.setModel(model);
-
-      const prepared = await this.contextOrchestrator.prepareRequest(
-        tools,
-        iteration,
-        this.runtime.spinner,
-      );
-
-      if (prepared.wasCropped) {
-        console.log(chalk.cyan(`ℹ Auto-compacted ${prepared.croppedCount} messages`));
-        if (prepared.summary) {
-          console.log(chalk.gray(`   Summary preserved in context`));
-        }
-      }
-
-      this.updateContextUsage(prepared.messages, tools);
-
-      // Keep spinner active without switching to a non-boxed status renderer.
-      this.ensureSpinnerRunning();
-      if (!this.inkRenderer) {
-        this.forceRenderSpinner();
-      }
-      // Get messages with images included for multimodal support
-      const messagesWithImages = await this.getMessagesWithImages();
-
-      if (debugMode) this.writeDebugLine(`[AGENT DEBUG] Calling LLM with ${messagesWithImages.length} messages, ${tools.length} tools`);
-
-      let completion;
-      try {
-        // ACP and CLI can override thinking level at runtime; fall back to env and then normal.
-        const runtimeThinking = this.runtime.options.thinking;
-        const thinkingLevel = (
-          typeof runtimeThinking === 'string' && ['none', 'normal', 'extended'].includes(runtimeThinking)
-            ? runtimeThinking
-            : process.env.AUTOHAND_THINKING_LEVEL
-        ) as 'none' | 'normal' | 'extended' | undefined ?? 'normal';
-
-        completion = await this.llm.complete({
-          messages: messagesWithImages,
-          temperature: this.runtime.options.temperature ?? 0.2,
-          model: this.runtime.options.model,
-          signal: abortController.signal,
-          tools: tools.length > 0 ? tools : undefined,
-          toolChoice: tools.length > 0 ? 'auto' : undefined,
-          maxTokens: 16000,  // Allow large outputs for file generation
-          thinkingLevel,
-        });
-        if (debugMode) this.writeDebugLine(`[AGENT DEBUG] LLM returned: content length=${completion.content?.length ?? 0}, toolCalls=${completion.toolCalls?.length ?? 0}`);
-      } catch (llmError) {
-        const errMsg = llmError instanceof Error ? llmError.message : String(llmError);
-        const errStack = llmError instanceof Error ? llmError.stack : '';
-        if (debugMode) this.writeDebugLine(`[AGENT DEBUG] LLM ERROR: ${errMsg}`);
-        if (debugMode) this.writeDebugLine(`[AGENT DEBUG] LLM STACK: ${errStack}`);
-
-        // Detect context overflow (400 from API) and auto-compact before retrying
-        if (this.isContextOverflowError(llmError instanceof Error ? llmError : errMsg)) {
-          // Auto-report context overflow (fire-and-forget)
-          this.autoReportManager.reportError(
-            llmError instanceof Error ? llmError : new Error(errMsg),
-            {
-              errorType: 'context_overflow',
-              model: this.runtime.options.model,
-              provider: this.activeProvider,
-              conversationLength: this.conversation.history().length,
-              contextUsagePercent: Math.round((1 - this.contextPercentLeft / 100) * 100),
-            }
-          ).catch(() => {});
-
-          this.runtime.spinner?.stop();
-          console.log(chalk.yellow('\n⚠ Context too long for model, auto-compacting...'));
-
-          // Delegate to ContextOrchestrator for aggressive overflow recovery
-          const overflowResult = await this.contextOrchestrator.handleOverflow(tools);
-          if (overflowResult.croppedCount > 0) {
-            console.log(chalk.gray(`   Compacted ${overflowResult.croppedCount} messages, retrying...`));
-            continue; // Retry the current iteration with compacted context
-          }
-        }
-
-        throw llmError;
-      }
-
-      // Track token usage from response and immediately update UI
-      if (completion.usage) {
-        this.totalTokensUsed += completion.usage.totalTokens;
-        // Immediately render updated token count
-        this.forceRenderSpinner();
-      }
-
-      const payload = this.parseAssistantResponse(completion);
-      if (debugMode) this.writeDebugLine(`[AGENT DEBUG] Parsed payload: finalResponse=${!!payload.finalResponse}, thought=${!!payload.thought}, toolCalls=${payload.toolCalls?.length ?? 0}`);
-      const assistantMessage: LLMMessage = { role: 'assistant', content: completion.content };
-      if (completion.toolCalls?.length) {
-        assistantMessage.tool_calls = completion.toolCalls;
-      }
-      this.conversation.addMessage(assistantMessage);
-      await this.saveAssistantMessage(completion.content, payload.toolCalls);
-      this.updateContextUsage(this.conversation.history(), tools);
-
-      // Debug: show what the model returned (helps diagnose response issues)
-      if (debugMode) {
-        console.log(chalk.yellow(`\n[DEBUG] Iteration ${iteration}:`));
-        console.log(chalk.yellow(`  - toolCalls: ${payload.toolCalls?.length ?? 0}`));
-        console.log(chalk.yellow(`  - thought: ${payload.thought?.slice(0, 100) || '(none)'}`));
-        console.log(chalk.yellow(`  - finalResponse: ${payload.finalResponse?.slice(0, 100) || '(none)'}`));
-        console.log(chalk.yellow(`  - raw content: ${completion.content?.slice(0, 200) || '(empty)'}`));
-        console.log(chalk.yellow(`  - finishReason: ${completion.finishReason ?? '(none)'}`));
-      }
-
-      // Detect truncated responses - some models silently cut off at max_tokens
-      if (completion.finishReason === 'length' && !payload.finalResponse) {
-        if (debugMode) this.writeDebugLine('[AGENT DEBUG] Response truncated (finishReason=length), asking model to continue');
-        this.conversation.addSystemNote(
-          '[System] Your previous response was truncated due to output length limits. ' +
-          'Please continue from where you left off. If you were making a tool call, retry it.'
-        );
-        continue;
-      }
-
-      // Show what the LLM is doing for visibility
-      const toolCount = payload.toolCalls?.length ?? 0;
-      // Response could come from finalResponse, response, or thought (when no tool calls)
-      const hasResponse = Boolean(payload.finalResponse || payload.response || (!toolCount && payload.thought));
-      const thoughtPreview = payload.thought?.slice(0, 80) || '';
-
-      if (!payload.toolCalls?.length) {
-        forceNoToolsViolationCount = 0;
-      }
-
-      if (this.inkRenderer) {
-        if (toolCount > 0) {
-          const toolNames = payload.toolCalls!.map(t => t.tool).join(', ');
-          this.inkRenderer.setStatus(`Calling: ${toolNames}`);
-        } else if (hasResponse) {
-          this.inkRenderer.setStatus('Responding...');
-        } else if (thoughtPreview) {
-          this.inkRenderer.setStatus(`Thinking: ${thoughtPreview}...`);
-        }
-      } else {
-        // Console mode: show iteration status
-        if (iteration > 0) {
-          const status = toolCount > 0
-            ? `→ Step ${iteration + 1}: calling ${toolCount} tool(s)`
-            : hasResponse
-              ? `→ Step ${iteration + 1}: preparing response`
-              : `→ Step ${iteration + 1}: thinking...`;
-          console.log(chalk.gray(status));
-        }
-      }
-
-      // Reflection loop guard: after tool results, the model MUST reflect before
-      // calling more tools. If it jumps straight to tool calls without a reflection
-      // (or a substantive thought that implicitly reflects), inject a system note.
-      if (needsReflection && payload.toolCalls && payload.toolCalls.length > 0) {
-        const hasReflection = Boolean(payload.reflection);
-        const thoughtIsSubstantive = (payload.thought?.length ?? 0) > 50;
-        if (!hasReflection && !thoughtIsSubstantive) {
-          reflectionViolationCount++;
-          if (reflectionViolationCount < reflectionViolationLimit) {
-            this.conversation.addSystemNote(
-              '[Reflection Required] You received tool results but did not reflect on them. ' +
-              'Before calling more tools, include a "reflection" field summarizing what you learned ' +
-              'from the previous tool outputs and how they inform your next action. ' +
-              'Alternatively, provide a substantive "thought" (50+ chars) that analyzes the results.'
-            );
-            if (debugMode) this.writeDebugLine('[AGENT DEBUG] Reflection guard triggered: model called tools without reflecting');
-            continue;
-          }
-          // After limit exceeded, allow the tool calls through (avoid infinite loop)
-          // and reset state so the counter doesn't grow unboundedly within this turn.
-          if (debugMode) this.writeDebugLine('[AGENT DEBUG] Reflection guard: violation limit exceeded, allowing tool calls');
-          needsReflection = false;
-          reflectionViolationCount = 0;
-        }
-      }
-      // Reflection satisfied (or not required)
-      if (needsReflection && (payload.reflection || (payload.thought?.length ?? 0) > 50 || !payload.toolCalls?.length)) {
-        needsReflection = false;
-        reflectionViolationCount = 0;
-      }
-
-      if (payload.toolCalls && payload.toolCalls.length > 0) {
-        const toolCallSignature = buildToolLoopCallSignature(payload.toolCalls);
-        if (toolCallSignature === lastToolCallSignature) {
-          identicalToolCallCount += 1;
-        } else {
-          lastToolCallSignature = toolCallSignature;
-          identicalToolCallCount = 1;
-          lastToolResultSignature = '';
-          identicalToolResultCount = 0;
-          forceNoToolsViolationCount = 0;
-        }
-
-        if (forceNoToolsUntilResponse) {
-          forceNoToolsViolationCount += 1;
-          this.conversation.addSystemNote(
-            '[Critical Loop Guard] You are still calling tools after being told to stop. ' +
-            'Do not call tools again. Provide your finalResponse now.'
-          );
-
-          if (forceNoToolsViolationCount >= forceNoToolsViolationLimit) {
-            this.stopStatusUpdates();
-            const loopFallback =
-              'I stopped repeated tool calls to prevent a loop and token waste. ' +
-              'Please confirm if you want a direct answer now or a narrower retry instruction.';
-            this.lastAssistantResponseForNotification = loopFallback;
-            this.setComposerIdle();
-            this.setComposerFinalResponse(loopFallback);
-            this.emitOutput({ type: 'message', content: loopFallback });
-            throw new LoopAbortedError('Repeated tool-call limit exceeded');
-          }
-
-          continue;
-        }
-
-        if (identicalToolCallCount >= identicalCallHardLimit) {
-          forceNoToolsUntilResponse = true;
-          this.conversation.addSystemNote(
-            `[Critical Loop Guard] Repeated tool call sequence detected (${identicalToolCallCount}x). ` +
-            `Last sequence: ${truncateToolLoopSignature(toolCallSignature)}. ` +
-            'Stop calling tools and provide your finalResponse using the current results.'
-          );
-          continue;
-        }
-
-        const cropCalls = payload.toolCalls.filter((call) => call.tool === 'smart_context_cropper');
-        const otherCalls = payload.toolCalls.filter((call) => call.tool !== 'smart_context_cropper');
-
-        // Collect all output lines for a single batch write
-        const outputLines: string[] = [];
-
-        // Extract thought for display
-        // Note: by this point, parseAssistantReactPayload has already extracted
-        // the thought string from JSON, so payload.thought is clean text.
-        const thought = showThinking && payload.thought
-          ? payload.thought
-          : undefined;
-
-        // Handle smart_context_cropper calls (add to conversation + collect output)
-        if (cropCalls.length) {
-          for (const call of cropCalls) {
-            const content = await this.handleSmartContextCrop(call);
-            this.conversation.addMessage({
-              role: 'tool',
-              name: 'smart_context_cropper',
-              content,
-              tool_call_id: call.id
-            });
-            await this.saveToolMessage('smart_context_cropper', content, call.id);
-            this.updateContextUsage(this.conversation.history(), tools);
-            outputLines.push(`${chalk.cyan('✂ smart_context_cropper')}`);
-            outputLines.push(chalk.gray(content));
-            outputLines.push('');
-          }
-        }
-
-        // Execute other tools
-        let results: Array<{ tool: AgentAction['type']; success: boolean; output?: string; error?: string }> = [];
-        if (otherCalls.length) {
-          let completedCount = 0;
-          const totalTools = otherCalls.length;
-          const charLimit = this.runtime.config.ui?.readFileCharLimit ?? 300;
-
-          // Execute all tools with progress callback
-          results = await this.toolManager.execute(otherCalls, (_index, _result) => {
-            completedCount++;
-            // Update spinner with progress count for parallel execution
-            if (totalTools > 1) {
-              this.setSpinnerStatus(`Running tools (${completedCount}/${totalTools})...`);
-            }
-          });
-
-          // Render tool outputs
-          if (this.inkRenderer) {
-            if (results.length > 1) {
-              // Grouped batch rendering for parallel tool calls
-              const batchItems = results.map((r, i) => {
-                const call = otherCalls[i];
-                return {
-                  tool: r.tool,
-                  label: getToolCallLabel(call),
-                  detail: r.success
-                    ? formatToolOutputForDisplay({ tool: r.tool, content: r.output ?? '', charLimit, filePath: call?.args?.path as string | undefined, command: call?.args?.command as string | undefined, commandArgs: call?.args?.args as string[] | undefined }).output
-                    : r.error ?? r.output ?? 'Tool failed',
-                  success: r.success
-                };
-              });
-              this.inkRenderer.addToolOutputBatch(batchItems, thought);
-            } else if (results.length === 1) {
-              // Single tool — use standard rendering
-              const r = results[0];
-              const call = otherCalls[0];
-              const filePath = call?.args?.path as string | undefined;
-              const command = call?.args?.command as string | undefined;
-              const commandArgs = call?.args?.args as string[] | undefined;
-              this.inkRenderer.addToolOutput(
-                r.tool,
-                r.success,
-                r.success
-                  ? formatToolOutputForDisplay({ tool: r.tool, content: r.output ?? '', charLimit, filePath, command, commandArgs }).output
-                  : r.error ?? r.output ?? 'Tool failed',
-                thought
-              );
-            }
-          } else {
-            // Ora mode: batch output
-            this.runtime.spinner?.stop();
-            outputLines.push(formatToolResultsBatch(results, charLimit, otherCalls, thought));
-          }
-
-          // Add tool messages to conversation after ALL tools complete (needs full ordered results)
-          for (let i = 0; i < results.length; i++) {
-            const result = results[i];
-            const content = result.success
-              ? result.output ?? '(no output)'
-              : result.error ?? result.output ?? 'Tool failed without error message';
-            this.conversation.addMessage({
-              role: 'tool',
-              name: result.tool,
-              content,
-              tool_call_id: otherCalls[i]?.id
-            });
-            await this.saveToolMessage(result.tool, content, otherCalls[i]?.id);
-          }
-          this.updateContextUsage(this.conversation.history(), tools);
-
-          // Mid-turn compaction: if tool outputs pushed us into critical territory,
-          // compact immediately instead of waiting for the next iteration's
-          // prepareRequest(). This prevents a single massive tool result from
-          // causing a context-overflow 400 on the next LLM call.
-          const midTurnCompacted = await this.contextOrchestrator.checkMidTurnCompaction(tools, iteration);
-          if (midTurnCompacted) {
-            if (debugMode) {
-              const midTurnUsage = calculateContextUsage(
-                this.conversation.history(),
-                tools,
-                this.runtime.options.model ?? ''
-              );
-              this.writeDebugLine(`[AGENT DEBUG] Mid-turn compaction triggered at ${Math.round(midTurnUsage.usagePercent * 100)}%`);
-            }
-            console.log(chalk.cyan(`ℹ Mid-turn compaction applied`));
-          }
-
-          // Detect when ALL tool calls were denied by the user
-          const allDenied = results.length > 0 && results.every(r =>
-            !r.success && (r.output === 'Tool execution skipped by user.' || r.error === 'Tool execution skipped by user.')
-          );
-          if (allDenied) {
-            const deniedTools = results.map(r => r.tool).join(', ');
-            this.conversation.addSystemNote(
-              `[IMPORTANT] The user has explicitly declined the following tool call(s): ${deniedTools}. ` +
-              `Do NOT retry the same tool(s) with the same arguments. The user said "No". ` +
-              `Instead, ask the user how they would like to proceed, or suggest an alternative approach. ` +
-              `If there is nothing else to do, provide your final response.`
-            );
-          }
-
-          // Track per-tool consecutive failures (catches loops where LLM varies args but same tool keeps failing)
-          for (const result of results) {
-            if (!result.success) {
-              const count = (toolConsecutiveFailures.get(result.tool) ?? 0) + 1;
-              toolConsecutiveFailures.set(result.tool, count);
-              if (count >= perToolFailureLimit) {
-                const errorSnippet = (result.error ?? result.output ?? '').slice(0, 200);
-                this.conversation.addSystemNote(
-                  `[Tool Failure Guard] The "${result.tool}" tool has failed ${count} times consecutively. ` +
-                  `Latest error: ${errorSnippet}\n` +
-                  `STOP using "${result.tool}". Do NOT retry it with different arguments. Instead:\n` +
-                  `- If you can answer from your own knowledge, provide a finalResponse directly.\n` +
-                  `- If the tool requires configuration (e.g., API key, provider), tell the user what to configure.\n` +
-                  `- If the task cannot be completed without this tool, explain the limitation to the user.`
-                );
-              }
-            } else {
-              toolConsecutiveFailures.delete(result.tool);
-            }
-          }
-
-          // Detect repeated ask_followup_question cancellations — force the LLM to stop asking
-          if (this.consecutiveCancellations >= 2) {
-            this.conversation.addSystemNote(
-              `[CRITICAL] The user has cancelled ask_followup_question ${this.consecutiveCancellations} times in a row. ` +
-              `STOP calling ask_followup_question immediately. Do NOT ask the user any more questions. ` +
-              `Provide your best final response now using the information you already have.`
-            );
-          }
-
-          const toolResultSignature = buildToolLoopResultSignature(results);
-          if (toolResultSignature === lastToolResultSignature) {
-            identicalToolResultCount += 1;
-          } else {
-            lastToolResultSignature = toolResultSignature;
-            identicalToolResultCount = 1;
-          }
-
-          if (
-            identicalToolCallCount >= identicalCallAndResultLimit &&
-            identicalToolResultCount >= identicalCallAndResultLimit
-          ) {
-            forceNoToolsUntilResponse = true;
-            this.conversation.addSystemNote(
-              '[Critical Loop Guard] Tool calls and outputs are repeating without progress. ' +
-              'Stop calling tools and provide your finalResponse now.'
-            );
-          }
-        }
-
-        // Output remaining items for Ora mode
-        if (!this.inkRenderer) {
-          if (outputLines.length > 0) {
-            console.log('\n' + outputLines.join('\n'));
-          }
-        }
-
-        // Record success/failure for each tool (async, non-blocking display)
-        if (results.length > 0) {
-          const sessionId = this.sessionManager.getCurrentSession()?.metadata.sessionId || 'unknown';
-          for (const result of results) {
-            if (result.success) {
-              await this.projectManager.recordSuccess(this.runtime.workspaceRoot, {
-                timestamp: new Date().toISOString(),
-                sessionId,
-                tool: result.tool,
-                context: 'Tool execution',
-                tags: [result.tool]
-              });
-            } else {
-              await this.projectManager.recordFailure(this.runtime.workspaceRoot, {
-                timestamp: new Date().toISOString(),
-                sessionId,
-                tool: result.tool,
-                error: result.error || 'Unknown error',
-                context: 'Tool execution',
-                tags: [result.tool]
-              });
-            }
-          }
-        }
-
-        // After tool execution, add a hint to encourage the model to respond
-        // This helps models that might get stuck in tool-calling loops
-        if (iteration > 0 && results.length > 0 && results.every(r => r.success)) {
-          // Only add hint if we've been calling tools for a while without a response
-          const recentMessages = this.conversation.history().slice(-6);
-          const toolResultCount = recentMessages.filter(m => m.role === 'tool').length;
-          if (toolResultCount >= 2) {
-            this.conversation.addSystemNote(
-              '[Reminder] Tool execution complete. Please analyze the results and provide your response to the user\'s original question. Do not call more tools unless absolutely necessary.'
-            );
-          }
-        }
-
-        // Search-specific throttling to prevent excessive sequential searches
-        const searchTools = ['find', 'search', 'search_with_context', 'semantic_search'];
-        const searchCallsThisIteration = otherCalls.filter(call => searchTools.includes(call.tool));
-
-        // Track search queries for this iteration
-        for (const call of searchCallsThisIteration) {
-          const query = String(call.args?.query || call.args?.pattern || 'unknown');
-          this.searchQueries.push(query);
-        }
-
-        // Add search limit warning if too many searches in one iteration
-        if (searchCallsThisIteration.length >= 3) {
-          this.conversation.addSystemNote(
-            '[Search Limit] You have made 3+ searches this iteration. Please analyze the search results before searching again. Consider combining patterns (e.g., `pattern1|pattern2`) if you need more information.'
-          );
-        }
-
-        // Add search history summary if accumulated too many searches
-        if (this.searchQueries.length > 5) {
-          const recentSearches = this.searchQueries.slice(-5).map(q => `"${q}"`).join(', ');
-          this.conversation.addSystemNote(
-            `[Search Summary] Recent searches: ${recentSearches}. Avoid repeating similar searches - analyze existing results first.`
-          );
-        }
-
-        // Mark that the next iteration must include reflection on these tool results
-        needsReflection = true;
-
-        // Check for abort after tool execution before continuing
-        if (abortController.signal.aborted) {
-          if (debugMode) this.writeDebugLine('[AGENT DEBUG] Abort detected after tools, breaking');
-          break;
-        }
-
-        continue;
-      }
-
-      // CRITICAL: Detect when model says it will act but didn't include tool calls
-      // This catches the common failure mode: "Let me now update X..." with empty toolCalls
-      const pendingResponse = payload.finalResponse || payload.response || '';
-      if (this.expressesIntentToAct(pendingResponse) && !payload.toolCalls?.length) {
-        // Model said it will do something but didn't call the tool - force it to actually act
-        const intentRetryKey = '__intentRetryCount';
-        const intentRetries = ((this as any)[intentRetryKey] ?? 0) + 1;
-        (this as any)[intentRetryKey] = intentRetries;
-
-        if (intentRetries < 3) {
-          this.conversation.addSystemNote(
-            `[System] ERROR: You said "${pendingResponse.slice(0, 100)}..." but did NOT include any tool calls. ` +
-            `You MUST include the actual tool call in toolCalls array. ` +
-            `Do NOT say "let me update X" - actually call write_file/search_replace/apply_patch with the changes. ` +
-            `Try again with the actual tool call.`
-          );
-          continue; // Force another iteration
-        }
-        // After 3 retries, fall through and show the response (better than infinite loop)
-        (this as any)[intentRetryKey] = 0;
-      } else {
-        // Reset counter on successful response
-        (this as any).__intentRetryCount = 0;
-      }
-
-      this.stopStatusUpdates();
-
-      // Extract the response - prioritize explicit response fields, but use thought as fallback
-      // when there are no tool calls (model might provide analysis in thought without finalResponse)
-      let rawResponse: string;
-      const usedThoughtAsResponse = Boolean(payload.thought) &&
-        !payload.finalResponse &&
-        !payload.response &&
-        !payload.toolCalls?.length;
-      if (payload.finalResponse) {
-        rawResponse = payload.finalResponse;
-      } else if (payload.response) {
-        rawResponse = payload.response;
-      } else if (!payload.toolCalls?.length && payload.thought) {
-        // No tool calls and no explicit response, but has thought - use thought as the response
-        rawResponse = payload.thought;
-      } else {
-        // Last resort: try to extract something useful from raw content
-        const cleanedContent = this.cleanupModelResponse(completion.content);
-        // If cleaned content looks like JSON, it's not a real response
-        rawResponse = cleanedContent.startsWith('{') ? '' : cleanedContent;
-      }
-      let response = this.cleanupModelResponse(rawResponse.trim());
-      if (!response && usedThoughtAsResponse && payload.thought) {
-        response = payload.thought.trim();
-      }
-
-      // If response is empty, try to get a proper response
-      // This applies on any iteration (including 0) to prevent silent exit on parse failure
-      if (!response) {
-        // Track consecutive empty responses to prevent infinite loops
-        const consecutiveEmptyKey = '__consecutiveEmpty';
-        const consecutiveEmpty = ((this as any)[consecutiveEmptyKey] ?? 0) + 1;
-        (this as any)[consecutiveEmptyKey] = consecutiveEmpty;
-
-        if (consecutiveEmpty >= 3) {
-          // After 3 retries, force a fallback and break out
-          if (debugMode) this.writeDebugLine('[AGENT DEBUG] Exiting after 3 consecutive empty responses');
-          console.log(chalk.yellow('\n⚠ Model not providing response after multiple attempts. Showing available context.'));
-          const fallback = payload.thought || 'The model did not provide a clear response. Please try rephrasing your question.';
-          this.lastAssistantResponseForNotification = fallback;
-          this.setComposerIdle();
-          this.setComposerFinalResponse(fallback);
-          (this as any)[consecutiveEmptyKey] = 0;
-          // Emit fallback for RPC mode
-          this.emitOutput({ type: 'message', content: fallback });
-          throw new LoopAbortedError('Model produced empty responses after multiple attempts');
-        }
-
-        this.conversation.addSystemNote(
-          `[System] IMPORTANT: You must now provide your finalResponse. The user is waiting for your analysis. Do not call any more tools - just provide your answer in the finalResponse field.`
-        );
-        continue;
-      }
-
-      // Reset consecutive empty counter on success
-      (this as any).__consecutiveEmpty = 0;
-      this.lastAssistantResponseForNotification = response;
-
-      // Emit output event for RPC mode
-      const suppressThinking = usedThoughtAsResponse && response.length > 0;
-      if (payload.thought && !suppressThinking) {
-        this.emitOutput({ type: 'thinking', thought: payload.thought });
-      }
-      this.emitOutput({ type: 'message', content: response });
-
-      if (this.inkRenderer) {
-        // InkRenderer: set final response
-        if (showThinking && payload.thought && !suppressThinking) {
-          this.inkRenderer.setThinking(payload.thought);
-        }
-        // Update final stats before stopping (session totals for completionStats)
-        this.inkRenderer.setElapsed(formatElapsedTime(this.sessionStartedAt));
-        this.inkRenderer.setTokens(formatTokens(this.sessionTokensUsed + this.totalTokensUsed));
-        this.inkRenderer.setWorking(false);
-        this.inkRenderer.setFinalResponse(response);
-      } else {
-        // Ora mode: stop spinner and output
-        this.runtime.spinner?.stop();
-        if (showThinking && payload.thought && !suppressThinking) {
-          // parseAssistantReactPayload already extracted thought from JSON
-          console.log(chalk.gray(`Thinking: ${payload.thought}`));
-          console.log();
-        }
-        if (usedThoughtAsResponse) {
-          // When thought was used as the response, prefix with "Thinking:" header
-          // so the user understands the model's internal reasoning became the reply
-          console.log(chalk.gray('Thinking: ') + response);
-        } else {
-          console.log(response);
-        }
-      }
-      return;
-    }
-    this.stopStatusUpdates();
-    this.runtime.spinner?.stop();
-    console.log(chalk.yellow(`\n⚠ Task exceeded ${maxIterations} tool iterations without completing.`));
-
-    // Try to get a final summary from the LLM instead of hard-throwing
-    try {
-      this.conversation.addSystemNote(
-        '[System] You have used all available iterations. Provide a final summary of what was accomplished and what remains to be done. Do not call any more tools.'
-      );
-
-      const summaryCompletion = await this.llm.complete({
-        messages: this.conversation.history(),
-        temperature: 0.2,
-        model: this.runtime.options.model,
-        maxTokens: 2000,
-      });
-
-      const summaryResponse = summaryCompletion.content?.trim();
-      if (summaryResponse) {
-        this.lastAssistantResponseForNotification = summaryResponse;
-        this.setComposerIdle();
-        this.setComposerFinalResponse(summaryResponse);
-        this.emitOutput({ type: 'message', content: summaryResponse });
-        return;
-      }
-    } catch {
-      // Summary call failed - fall through to static summary
-    }
-
-    // Last resort: show a static summary of what was accomplished
-    const { summarizeWithLLM } = await import('./context/summarizer.js');
-    const staticSummary = await summarizeWithLLM(
-      this.conversation.history().slice(1), // skip system prompt
-      this.llm,
-      this.memoryManager,
-    );
-    const fallbackMsg = `Task did not complete within ${maxIterations} iterations.\n\nProgress summary:\n${staticSummary}`;
-    this.lastAssistantResponseForNotification = fallbackMsg;
-    this.setComposerIdle();
-    this.setComposerFinalResponse(fallbackMsg);
-    this.emitOutput({ type: 'message', content: fallbackMsg });
+    return runAgentReactLoop(this as unknown as AgentReactLoopHost, abortController);
   }
-
   private getReactionParser(): ReactionParser {
     if (!this.reactionParser) {
       this.reactionParser = new ReactionParser({
@@ -3938,7 +1799,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       .filter(Boolean)
       .map(String);
 
-    const mentionContext = this.flushMentionContexts();
+    const mentionContext = this.mentionResolver.flush();
     if (mentionContext) {
       if (mentionContext.files.length) {
         this.recordExploration({ kind: 'read', target: mentionContext.files.join(', ') });
@@ -3950,545 +1811,15 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async buildSystemPrompt(): Promise<string> {
-    // Check for custom system prompt replacement (--sys-prompt)
-    if (this.runtime.options.sysPrompt) {
-      try {
-        const customPrompt = await resolvePromptValue(this.runtime.options.sysPrompt, {
-          cwd: this.runtime.workspaceRoot,
-        });
-        // Custom prompt completely replaces the default - no memories, AGENTS.md, or skills
-        return customPrompt;
-      } catch (error) {
-        if (error instanceof SysPromptError) {
-          console.error(chalk.red(`Error loading custom system prompt: ${error.message}`));
-          throw error;
-        }
-        throw error;
-      }
-    }
-
-    const toolDefs = this.toolManager?.listDefinitions() ?? [];
-    const toolSignatures = toolDefs.map(def => formatToolSignature(def)).join('\n');
-
-    const [memories, instructions] = await Promise.all([
-      this.memoryManager.getContextMemories(),
-      this.loadInstructionFiles(),
-    ]);
-
-    const authUser = this.runtime.config.auth?.user;
-
-    const parts: string[] = [
-      // ═══════════════════════════════════════════════════════════════════
-      // 1. IDENTITY & CORE STANDARDS
-      // ═══════════════════════════════════════════════════════════════════
-      'You are Autohand, an expert AI software engineer built for the command line.',
-      'You are the best engineer in the world. You write code that is clean, efficient, maintainable, and easy to understand.',
-      'You are a master of your craft and can solve any problem with precision and elegance.',
-      'Your goal: Gather necessary information, clarify uncertainties, and decisively execute. Never stop until the task is fully complete.',
-      '',
-      ...(authUser ? [
-        '## Current User',
-        `You are working with ${authUser.name || authUser.email}.`,
-        ''
-      ] : []),
-
-      // ═══════════════════════════════════════════════════════════════════
-      // 2. SINGLE SOURCE OF TRUTH (Critical Rule)
-      // ═══════════════════════════════════════════════════════════════════
-      '## CRITICAL: Single Source of Truth',
-      'Never speculate about code you have not opened. If the user references a specific file (e.g., utils.ts), you MUST read it before explaining or proposing fixes.',
-      'Do not rely on your training data for project-specific logic. Always inspect the actual code first.',
-      'If you need to edit a file, read it first using read_file tool. If you need to fix a bug, read the failing code first. No exceptions.',
-      '',
-
-      // ═══════════════════════════════════════════════════════════════════
-      // 3. WORKFLOW PHASES
-      // ═══════════════════════════════════════════════════════════════════
-      '## Workflow Phases',
-      '',
-      '### Phase 0: Intent Detection',
-      '- If you will make ANY file changes (edit/create/delete), you are in IMPLEMENTATION mode.',
-      '- Otherwise, you are in DIAGNOSTIC mode (analysis only).',
-      '- If unsure, ask one concise clarifying question.',
-      '',
-      '### Phase 1: Environment Hygiene (MANDATORY for implementation)',
-      'Before editing code, ensure the environment is ready:',
-      '1. Run `git_status` to check for uncommitted changes or conflicts.',
-      '2. If implementing, verify dependencies are installed (check for package.json/requirements.txt/etc).',
-      '3. If the repo is dirty or dependencies are missing, inform the user before proceeding.',
-      'Skip this phase for diagnostic-only tasks.',
-      '',
-      '### Phase 2: Discovery & Planning',
-      '1. Read ALL relevant files before planning. Use `glob` first for filename/path discovery, `find` for content discovery, then `read_file` once you know the exact file or region to inspect.',
-      '2. For multi-step tasks, use `todo_write` to create a structured plan. Mark tasks as "in_progress" or "completed" as you go.',
-      '3. Identify outputs, success criteria, edge cases, and potential blockers.',
-      '4. Prefer dedicated tools over `run_command` whenever a dedicated tool exists. Prefer `shell` over `run_command` for most commands - `shell` shows real-time output in a live TUI block. Use `run_command` only for quick commands where you don\'t need to monitor progress (e.g., `git status`, `echo`, simple queries).',
-      '5. If the user mentions a directory or path outside the current workspace scope, proactively call `request_directory_access` to request access',
-      '   - In yolo/auto-mode, access will be granted automatically',
-      '   - In interactive mode, the user will be asked to approve',
-      '   - Do not use `run_command` as a workaround for directory access',
-      '   - After access is granted, continue with dedicated file tools (read_file, glob, find, etc.).',
-      '',
-      '#### Search Optimization',
-      '- **NEW: Prefer `fff_find`** over `glob` for file path discovery. It uses frecency ranking (recent + frequent) and returns git-aware results.',
-      '- **NEW: Prefer `fff_grep`** over `find` for content/code discovery. It auto-detects regex, falls back to fuzzy on zero matches, classifies definitions, and includes git annotations.',
-      '- Use `fff_find` first when you need file discovery by filename, extension, or path pattern.',
-      '- Use `fff_grep` as the default code discovery tool for content, symbols, imports, and regex lookup.',
-      '- `fff_grep` features: smart-case, definition classification, context lines, git status annotations.',
-      '- Legacy tools `find` and `glob` are DEPRECATED and will be removed in v0.9.0. Migrate to `fff_*` tools.',
-      '- Use `fff_grep` and `fff_find` for all new searches.',
-      '- Use `read_file` after search identifies the exact file or region you need.',
-      '- Use `tool_search` if you are unsure which built-in tool best fits the current task.',
-      '- Prefer dedicated file tools (`fff_find`, `fff_grep`, `read_file`, `git_status`, `git_diff`) over `run_command` whenever they can accomplish the task.',
-      '- Combine related searches into a single regex pattern (e.g., `pattern1|pattern2`) instead of separate searches.',
-      '- Limit discovery searches to 2-3 per task. Analyze results before searching again.',
-      '- If a search returns no results, broaden the pattern rather than trying variations.',
-      '- The legacy tools `search`, `search_with_context`, and `semantic_search` are compatibility aliases. Prefer `fff_grep` or `find` for new tool calls.',
-      '- Examples:',
-      '  - File discovery: `fff_find(query="**/*.test.ts")` or `fff_find(query="auth controller")`',
-      '  - Content search: `fff_grep(query="UserController")` or `fff_grep(query="async function.*login")`',
-      '  - Legacy glob: `glob(pattern="**/*.test.ts")` (use only if fff_find unavailable)',
-      '  - Legacy find: `find(query="buildSystemPrompt", mode="exact")` (use only if fff_grep unavailable)',
-      '',
-      '### Phase 3: Implementation',
-      '1. Write code using `write_file`, `search_replace`, `apply_patch`, or `multi_file_edit`.',
-      '2. Make small, logical changes with clear reasoning in your "thought" field.',
-      '3. Destructive operations (delete_path, run_command with rm/sudo) require explicit user approval. Clearly justify them.',
-      '',
-      '### Phase 4: Verification (MANDATORY for implementation)',
-      'You are NOT done until you have validated your changes:',
-      '1. If a build system exists (package.json scripts, Makefile, etc.), run the build command.',
-      '2. If tests exist, run them. Fix any failures you caused.',
-      '3. Use `git_diff` to review your changes before declaring success.',
-      'Do not ask the user to fix broken code you introduced. Fix it yourself.',
-      '',
-      '### Phase 5: Completion Summary (MANDATORY)',
-      'When a task is complete, provide a clear summary:',
-      '1. **What was done**: List the key changes made (files created/modified/deleted).',
-      '2. **How it works**: Brief explanation of the implementation approach.',
-      '3. **Next steps** (if any): Suggest follow-up actions like testing, deployment, or related improvements.',
-      '',
-      'Keep summaries concise but informative. Use bullet points for clarity.',
-      'Example:',
-      '```',
-      '✓ Added user authentication:',
-      '  - Created src/auth/login.ts with JWT token handling',
-      '  - Updated src/routes/index.ts to include /login and /logout endpoints',
-      '  - Added bcrypt for password hashing',
-      '',
-      'Next: Run `npm test` to verify, then update your .env with JWT_SECRET.',
-      '```',
-      '',
-
-      // ═══════════════════════════════════════════════════════════════════
-      // 4. REACT PATTERN & TOOL USAGE
-      // ═══════════════════════════════════════════════════════════════════
-      '## ReAct Pattern (Reason + Reflect + Act)',
-      'You must follow the ReAct loop: think about the request, decide whether to call tools, execute them, REFLECT on the results, and only then respond or call more tools.',
-      '',
-      '### Reflect Before Acting',
-      'After receiving tool outputs (role=tool messages), you MUST reflect before taking the next action:',
-      '1. Summarize what the tool results tell you',
-      '2. Evaluate whether the results answer the user\'s question or if more tools are needed',
-      '3. Only then decide on the next tool call or final response',
-      '',
-      'Include your reflection in the "reflection" field of your response. This ensures you process observations before acting on them.',
-      '',
-      '### Available Tools',
-      'Use these tools with the specified arguments. Required parameters have no "?", optional parameters have "?".',
-      toolSignatures ? `\n${toolSignatures}\n` : 'Tools are resolved at runtime. Use tools_registry to inspect them.',
-      'If you need a capability not listed, define it as a `custom_command` (with name, command, args, description) before invoking it.',
-      'Do not override existing tool functionality when adding meta tools.',
-      '',
-      '### Response Format',
-      'Always reply with structured JSON:',
-      '{"thought": "your reasoning here", "reflection": "what you learned from tool results (required after tool outputs)", "toolCalls": [{"tool": "tool_name", "args": {...}}], "finalResponse": "your answer to the user"}',
-      '',
-      'Response Guidelines:',
-      '- If no tools are needed, set toolCalls to [] and provide finalResponse directly.',
-      '- When calling tools, you may omit finalResponse - you will see the tool outputs next.',
-      '- If independent tool calls do not depend on each other, batch them in the same response.',
-      '- CRITICAL: After receiving tool outputs (role=tool messages), you MUST:',
-      '  1. Analyze the results in context of the user\'s original request',
-      '  2. Provide a finalResponse that directly answers the user\'s question',
-      '  3. Only call more tools if genuinely needed to complete the task',
-      '- If the user asked a question (e.g., "check for typos", "find X", "tell me about Y"),',
-      '  you MUST provide an answer in finalResponse after gathering the necessary information.',
-      '- Do NOT stop after showing tool output - always conclude with analysis/answer.',
-      '- CRITICAL: If you intend to edit/write/create a file, PUT THE TOOL CALL IN toolCalls.',
-      '  Do NOT write "let me update X" in finalResponse without the actual tool call.',
-      '- Never include markdown fences (```json) around the JSON.',
-      '- Never hallucinate tools that do not exist.',
-      '',
-      '### Parallel Tool Calling',
-      'When you need multiple independent operations (reading several files, running multiple searches,',
-      'checking git status while reading a file), include ALL of them in a single toolCalls array.',
-      'You can include up to 5 tool calls per response. The system executes them in parallel.',
-      '',
-      'DO batch (independent): reading different files, multiple searches, git_status + read_file',
-      'DO NOT batch (dependent): read then edit same file, write A then write B that imports A',
-      '',
-      '### Tool Failure Handling',
-      'When a tool fails, do NOT retry the same tool with different arguments. Instead:',
-      '1. If the task is simple (jokes, general knowledge, explanations, opinions) — answer directly from your own knowledge without tools.',
-      '2. If the tool requires configuration (e.g., web_search needs a search provider API key), tell the user what to configure and answer from your own knowledge if possible.',
-      '3. If the tool failure is transient (timeout, network error), you may retry ONCE with the exact same arguments. Do not rephrase and retry.',
-      '4. After ANY tool failure, prefer providing a direct finalResponse over calling more tools.',
-      '',
-      '### Tool Call Examples',
-      'Always include ALL required parameters. Here are correct examples:',
-      '',
-      '// run_command - MUST include "command" argument:',
-      '{"tool": "run_command", "args": {"command": "npm test"}}',
-      '{"tool": "run_command", "args": {"command": "bun run build"}}',
-      '{"tool": "run_command", "args": {"command": "git status"}}',
-      '',
-      '// read_file - MUST include "path" argument:',
-      '{"tool": "read_file", "args": {"path": "src/index.ts"}}',
-      '',
-      '// write_file - MUST include "path" and "contents" arguments:',
-      '{"tool": "write_file", "args": {"path": "src/utils.ts", "contents": "export const foo = 1;"}}',
-      '',
-      '// custom_command - MUST include "name" and "command" arguments:',
-      '{"tool": "custom_command", "args": {"name": "lint_fix", "command": "eslint", "args": ["--fix", "."]}}',
-      '',
-
-      // ═══════════════════════════════════════════════════════════════════
-      // 5. TASK MANAGEMENT
-      // ═══════════════════════════════════════════════════════════════════
-      '## Task Management',
-      'Use the `todo_write` tool for ANY task with more than 2-3 steps. This keeps you organized and makes progress visible to the user.',
-      'If the user needs to run an interactive shell command themselves, tell them to use `! <command>` so it runs in the local session and the output stays in the conversation.',
-      'Example: If asked to "refactor the auth system," create a todo list with items like:',
-      '- Read existing auth code',
-      '- Identify refactoring opportunities',
-      '- Implement changes',
-      '- Run tests',
-      'Mark each item "in_progress" when you start it and "completed" when done.',
-      '',
-
-      // ═══════════════════════════════════════════════════════════════════
-      // 5.1. PLAN MODE (only shown when plan mode is enabled)
-      // ═══════════════════════════════════════════════════════════════════
-      ...(getPlanModeManager().isEnabled() ? [
-        '## Plan Mode',
-        'Plan mode is active. The user indicated that they do not want you to execute yet —',
-        'you MUST NOT make any edits, run non-readonly tools (including shell commands, git',
-        'operations that modify state, or changing configs), or otherwise make any changes to',
-        'the system. This supersedes any other instructions you have received.',
-        '',
-        'You may only use read-only tools to explore and understand the codebase.',
-        'When you are ready, call the `plan` tool to create a structured implementation plan.',
-        'You may call `plan` multiple times to refine your plan as you explore.',
-        'When you are satisfied with the plan, call `exit_plan_mode` to present it to the user',
-        'for approval. Do NOT call `exit_plan_mode` before creating a plan.',
-        'After calling `exit_plan_mode`, STOP. Do not call any more tools. Wait for the user',
-        'to accept or revise the plan before proceeding to execution.',
-        '',
-        '### Plan Format',
-        'When using the `plan` tool, the `notes` field MUST contain a numbered step-by-step plan.',
-        'Break the task into 3-10 concrete, actionable steps. Each step should be specific enough to execute independently.',
-        'NEVER submit a single sentence as the plan - always break it into multiple numbered steps.',
-        '',
-        'Example plan notes:',
-        '"1. Read the existing authentication code in src/auth/\\n2. Create JWT utility module at src/auth/jwt.ts\\n3. Add token generation and validation functions\\n4. Update login endpoint to use JWT\\n5. Write unit tests for JWT module\\n6. Run tests and verify"',
-        '',
-        'When presenting a plan, always include:',
-        '1. **Overview**: Brief summary of what will be accomplished',
-        '2. **Steps**: Numbered list of implementation steps',
-        '3. **Suggested TODO List**: A checkbox-style task list the user can copy',
-        '',
-        'For the Suggested TODO List, use markdown checkbox format:',
-        '```',
-        '## Suggested TODO List',
-        '- [ ] First task to complete',
-        '- [ ] Second task to complete',
-        '- [ ] Third task to complete',
-        '```',
-        '',
-        'This format renders as interactive checkboxes in the UI.',
-        'IMPORTANT: Always include the actual TODO items after the heading - never leave the list empty.',
-        '',
-      ] : []),
-
-      // ═══════════════════════════════════════════════════════════════════
-      // 5.5. DYNAMIC TOOL CREATION
-      // ═══════════════════════════════════════════════════════════════════
-      '## Dynamic Tool Creation (Meta-Tools)',
-      'You can create new reusable tools using `create_meta_tool`. Use this when:',
-      '- A task requires a reusable shell command pattern',
-      '- You need to extend your capabilities for the current project',
-      '- The user asks for a custom automation',
-      '',
-      'Example: Create a tool to count lines in files:',
-      'create_meta_tool(name="count_lines", description="Count lines in a file", parameters={"type": "object", "properties": {"path": {"type": "string"}}}, handler="wc -l {{path}}")',
-      '',
-      'The handler uses {{param}} syntax for parameter substitution.',
-      'Meta-tools are saved to ~/.autohand/tools/ and persist across sessions.',
-      'IMPORTANT: Do not create meta-tools that duplicate built-in functionality.',
-      '',
-
-      // ═══════════════════════════════════════════════════════════════════
-      // 6. MEMORY & PREFERENCES
-      // ═══════════════════════════════════════════════════════════════════
-      '## Memory & User Preferences',
-      'Use the `save_memory` tool to remember important user preferences and project conventions.',
-      'Automatically detect and save preferences when the user expresses them:',
-      '- "I prefer..." / "I like..." / "I want..." / "Always use..." / "Never use..."',
-      '- "Don\'t use..." / "Avoid..." / "I hate..."',
-      '- Coding style preferences (tabs vs spaces, semicolons, naming conventions)',
-      '- Framework/library preferences',
-      '- Any explicit instruction about how to work',
-      '',
-      'When saving, choose the appropriate level:',
-      '- `user`: Global preferences (applies to all projects)',
-      '- `project`: Project-specific conventions (applies only to current workspace)',
-      '',
-      'Example: User says "I prefer functional components over class components"',
-      '→ Call save_memory(fact="User prefers functional React components over class components", level="user")',
-      '',
-
-      // ═══════════════════════════════════════════════════════════════════
-      // 7. REPOSITORY CONVENTIONS
-      // ═══════════════════════════════════════════════════════════════════
-      '## Repository Conventions',
-      'Match existing code style, patterns, and naming conventions. Review similar modules before adding new ones.',
-      'Respect framework/library choices already present. Avoid superfluous documentation; keep changes consistent with repo standards.',
-      'Implement changes in the simplest way possible. Prefer clarity over cleverness.',
-      '',
-
-      // ═══════════════════════════════════════════════════════════════════
-      // 8. SAFETY & APPROVALS
-      // ═══════════════════════════════════════════════════════════════════
-      '## Safety',
-      'Destructive operations (delete_path, run_command with rm/sudo/dd) require explicit user approval.',
-      'Clearly justify risky actions in your "thought" field before calling them.',
-      'Respect workspace boundaries: never escape the workspace root.',
-      'Do not commit broken code. If you break the build, fix it before declaring success.',
-      '',
-
-      // ═══════════════════════════════════════════════════════════════════
-      // 9. COMPLETION CRITERIA
-      // ═══════════════════════════════════════════════════════════════════
-      '## Definition of Done',
-      'A task is complete only when:',
-      '- All requested functionality is implemented',
-      '- The code follows repository conventions',
-      '- The build passes (if applicable)',
-      '- Tests pass (if applicable)',
-      '- You have verified your changes with git_diff or similar',
-      '',
-      'Do not stop until all criteria are met. Do not ask the user to complete your work.',
-      '',
-      '## CRITICAL: Actions vs Words',
-      'NEVER say "let me update X" or "I will now edit Y" in finalResponse without ACTUALLY calling the tool.',
-      'If you intend to make a change, you MUST include the tool call in toolCalls array.',
-      'BAD: finalResponse says "Let me now update README.md" → but no write_file/search_replace in toolCalls',
-      'GOOD: toolCalls contains the actual edit → finalResponse summarizes what was done',
-      '',
-      'If you find yourself writing "let me...", "I will now...", "next I\'ll..." in finalResponse,',
-      'STOP and add the actual tool call instead. Actions speak louder than words.',
-      '',
-      '## SITREP — Status Report After Every Turn',
-      'After EVERY completed turn that involved tool calls or actions, provide a brief SITREP:',
-      '',
-      '**Format:**',
-      '```',
-      'SITREP:',
-      '- Done: [1-2 sentence summary of what was accomplished]',
-      '- Files: [list of files created/modified, if any]',
-      '- Status: [completed | in-progress | blocked]',
-      '- Next: [what happens next, or "awaiting instructions"]',
-      '```',
-      '',
-      'For multi-step tasks, also include:',
-      '- **How to verify**: Commands to run or steps to test the changes',
-      '',
-      'Keep the SITREP concise — 3-5 lines max. The user should never wonder "what just happened?".',
-      'If no tool calls were made (e.g. a simple Q&A), skip the SITREP.'
-    ];
-
-    // Add pre-authorized directories from --add-dir flag
-    if (this.runtime.additionalDirs && this.runtime.additionalDirs.length > 0) {
-      parts.push('', '## Pre-Authorized Directories');
-      parts.push('The following directories have been pre-authorized for access via --add-dir:');
-      for (const dir of this.runtime.additionalDirs) {
-        parts.push(`- ${dir}`);
-      }
-      parts.push('');
-      parts.push('You can read, write, and operate on files in these directories without requesting permission.');
-    }
-
-    if (memories) {
-      parts.push('', '## User Preferences & Memory', memories);
-    }
-
-    if (instructions.length) {
-      parts.push('', ...instructions);
-    }
-
-    // Add available skills (progressive disclosure - descriptions only)
-    const allSkills = this.skillsRegistry.listSkills();
-    if (allSkills.length > 0) {
-      parts.push('', '## Available Skills');
-      parts.push('Skills are specialized instruction packages. Use /skills use <name> to activate one.');
-      for (const skill of allSkills) {
-        const activeMarker = skill.isActive ? ' [ACTIVE]' : '';
-        parts.push(`- **${skill.name}**${activeMarker}: ${skill.description}`);
-      }
-    }
-
-    // Add active skills (full content loaded)
-    const activeSkills = this.skillsRegistry.getActiveSkills();
-    if (activeSkills.length > 0) {
-      parts.push('', '## Active Skills');
-      parts.push('The following skills are active and provide specialized instructions:');
-      for (const skill of activeSkills) {
-        parts.push('', `### Skill: ${skill.name}`, skill.body);
-      }
-    }
-
-    // List available agents for team formation
-    const { AgentRegistry } = await import('./agents/AgentRegistry.js');
-    const agentRegistry = AgentRegistry.getInstance();
-    await agentRegistry.loadAgents();
-    const allAgents = agentRegistry.getAllAgents();
-    if (allAgents.length > 0) {
-      parts.push('', '## Available Agents');
-      parts.push('These agents can be spawned as teammates using create_team + add_teammate:');
-      for (const agent of allAgents) {
-        parts.push(`- **${agent.name}**: ${agent.description}`);
-      }
-    }
-
-    // Show active team context if exists
-    const activeTeam = this.teamManager.getTeam();
-    if (activeTeam) {
-      parts.push('', '## Active Team: ' + activeTeam.name);
-      for (const m of activeTeam.members) {
-        parts.push(`- ${m.name} [${m.agentName}] ${m.status}`);
-      }
-    }
-
-    // Inject locale instruction for non-English users
-    let basePrompt = parts.join('\n');
-    basePrompt = injectLocaleIntoPrompt(basePrompt, getCurrentLocale());
-
-    // Check for system prompt append (--append-sys-prompt)
-    if (this.runtime.options.appendSysPrompt) {
-      try {
-        const appendContent = await resolvePromptValue(this.runtime.options.appendSysPrompt, {
-          cwd: this.runtime.workspaceRoot,
-        });
-        basePrompt = basePrompt + '\n\n' + appendContent;
-      } catch (error) {
-        if (error instanceof SysPromptError) {
-          console.error(chalk.red(`Error loading append system prompt: ${error.message}`));
-          throw error;
-        }
-        throw error;
-      }
-    }
-
-    return basePrompt;
-  }
-
-  private async resolveMentions(instruction: string): Promise<string> {
-    const mentionRegex = /@([A-Za-z0-9_./\\-]*)/g;
-    const matches: Array<{ start: number; end: number; token: string; seed: string }> = [];
-    let match: RegExpExecArray | null;
-    while ((match = mentionRegex.exec(instruction)) !== null) {
-      const token = match[0];
-      const seed = match[1] ?? '';
-      const start = match.index ?? 0;
-      const prevChar = start > 0 ? instruction[start - 1] : ' ';
-      if (prevChar && /[^\s\(\[]/.test(prevChar)) {
-        continue;
-      }
-      matches.push({ start, end: start + token.length, token, seed });
-    }
-
-    if (!matches.length) {
-      return instruction;
-    }
-
-    let result = '';
-    let lastIndex = 0;
-    for (const entry of matches) {
-      if (entry.start < lastIndex) {
-        continue;
-      }
-      result += instruction.slice(lastIndex, entry.start);
-      const replacement = await this.resolveMentionToken(entry.token, entry.seed);
-      if (replacement) {
-        result += replacement;
-      } else {
-        result += instruction.slice(entry.start, entry.end);
-      }
-      lastIndex = entry.end;
-    }
-    result += instruction.slice(lastIndex);
-    return result;
-  }
-
-  private async resolveMentionToken(token: string, seed: string): Promise<string | null> {
-    const normalizedSeed = seed.trim();
-    if (normalizedSeed && (await this.fileExists(normalizedSeed))) {
-      await this.captureMentionContext(normalizedSeed);
-      return normalizedSeed;
-    }
-
-    const workspaceFiles = await this.workspaceFileCollector.collectWorkspaceFiles();
-    if (!workspaceFiles.length) {
-      return normalizedSeed || null;
-    }
-
-    // showFilePalette is statically imported at the top of this file
-    const selection = await showFilePalette({
-      files: workspaceFiles,
-      statusLine: this.formatStatusLine().left,
-      seed: normalizedSeed
-    });
-    if (selection) {
-      await this.captureMentionContext(selection);
-      return selection;
-    }
-
-    return normalizedSeed || null;
-  }
-
-  private async fileExists(relativePath: string): Promise<boolean> {
-    const fullPath = path.resolve(this.runtime.workspaceRoot, relativePath);
-    if (!fullPath.startsWith(this.runtime.workspaceRoot)) {
-      return false;
-    }
-    const exists = await fs.pathExists(fullPath);
-    if (!exists) {
-      return false;
-    }
-    try {
-      const stats = await fs.stat(fullPath);
-      return stats.isFile();
-    } catch {
-      return false;
-    }
-  }
-
-  private async captureMentionContext(file: string): Promise<void> {
-    try {
-      const contents = await this.files.readFile(file);
-      this.mentionContexts.push({ path: file, contents: this.trimContext(contents) });
-    } catch (error) {
-      console.log(chalk.yellow(`Unable to read ${file} for context: ${(error as Error).message}`));
-    }
-  }
-
-  private trimContext(content: string): string {
-    const limit = 2000;
-    if (content.length > limit) {
-      return content.slice(0, limit) + '\n...trimmed';
-    }
-    return content;
+    return new SystemPromptBuilder({
+      runtime: this.runtime,
+      getToolDefinitions: () => this.toolManager?.listDefinitions() ?? [],
+      getContextMemories: () => this.memoryManager.getContextMemories(),
+      loadInstructionFiles: () => this.loadInstructionFiles(),
+      listSkills: () => this.skillsRegistry.listSkills(),
+      getActiveSkills: () => this.skillsRegistry.getActiveSkills(),
+      getTeam: () => this.teamManager.getTeam(),
+    }).build();
   }
 
   /**
@@ -4499,21 +1830,6 @@ If lint or tests fail, report the issues but do NOT commit.`;
   private async summarizeRemovedMessages(messages: LLMMessage[]): Promise<string> {
     const { summarizeWithLLM } = await import('./context/summarizer.js');
     return summarizeWithLLM(messages, this.llm, this.memoryManager);
-  }
-
-  private flushMentionContexts(): { block: string; files: string[] } | null {
-    if (!this.mentionContexts.length) {
-      return null;
-    }
-    const contexts = [...this.mentionContexts];
-    const block = contexts
-      .map((ctx) => `File: ${ctx.path}\n${ctx.contents}`)
-      .join('\n\n');
-    this.mentionContexts = [];
-    return {
-      block,
-      files: contexts.map((ctx) => ctx.path)
-    };
   }
 
   /**
@@ -5065,215 +2381,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private setupEscListener(controller: AbortController, onCancel: () => void, ctrlCInterrupt = false): () => void {
-    const input = process.stdin as NodeJS.ReadStream;
-    if (!input.isTTY) {
-      return () => { };
-    }
-    // Use safe version to prevent duplicate listener registration across turns
-    safeEmitKeypressEvents(input);
-    const supportsRaw = typeof input.setRawMode === 'function';
-    const wasRaw = (input as any).isRaw;
-    if (!wasRaw && supportsRaw) {
-      safeSetRawMode(input, true);
-    }
-    // promptOnce() pauses stdin during cleanup, so resume to keep queue capture alive mid-turn.
-    try {
-      input.resume();
-    } catch {
-      // Best effort, continue without failing interactive turn.
-    }
-    try {
-      input.setEncoding('utf8');
-    } catch {
-      // Best effort, continue without failing interactive turn.
-    }
-
-    let ctrlCCount = 0;
-    this.queueInput = '';
-    const enableQueue = this.runtime.config.agent?.enableRequestQueue !== false;
-    const enableEscQueueInput = enableQueue && !this.persistentInputActiveTurn;
-    const rawEnabled = supportsRaw ? Boolean((input as any).isRaw) : false;
-    const useLineQueueFallback = enableEscQueueInput && !rawEnabled;
-    let lastKeypressAt = 0;
-    let lineReader: readline.Interface | null = null;
-
-    const submitQueueInput = () => {
-      if (!this.queueInput.trim()) {
-        return;
-      }
-
-      const text = this.queueInput.trim();
-      this.queueInput = '';
-
-      // Shell commands (!) and slash commands (/) execute immediately, never queued.
-      // Route output through writeAbove() when terminal regions are active.
-      if (isImmediateCommand(text)) {
-        const routeOpts = {
-          persistentInputActiveTurn: this.persistentInputActiveTurn,
-          terminalRegionsDisabled: process.env.AUTOHAND_TERMINAL_REGIONS === '0',
-          writeAbove: (t: string) => this.persistentInput.writeAbove(t),
-        };
-
-        if (isShellCommand(text)) {
-          const cmd = parseShellCommand(text);
-          this.executeImmediateShellCommandForComposer(cmd, routeOpts)
-            .then((result) => {
-              if (!result.success) {
-                routeOutput(chalk.red(result.error || 'Command failed'), routeOpts);
-              }
-            })
-            .catch((error: Error) => {
-              routeOutput(chalk.red(error.message || 'Command failed'), routeOpts);
-            });
-        } else if (text.startsWith('/') && !isLikelyFilePathSlashInput(text)) {
-          const { command, args } = this.parseSlashCommand(text);
-          this.handleSlashCommand(command, args)
-            .then((handled) => {
-              if (handled !== null) {
-                routeOutput(handled, routeOpts);
-              }
-            })
-            .catch((err: Error) => {
-              routeOutput(chalk.red(`\nCommand error: ${err.message}`), routeOpts);
-            });
-        }
-        this.updateInputLine();
-        return;
-      }
-
-      const queue = (this.persistentInput as any).queue as Array<{ text: string; timestamp: number }>;
-      if (queue.length >= 10) {
-        this.updateInputLine();
-        return;
-      }
-      queue.push({ text, timestamp: Date.now() });
-
-      const preview = text.length > 30 ? text.slice(0, 27) + '...' : text;
-      if (this.runtime.spinner) {
-        this.runtime.spinner.text = chalk.cyan(`✓ Queued: "${preview}" (${this.persistentInput.getQueueLength()} pending)`);
-      }
-      this.updateInputLine();
-    };
-
-    const ingestTextChunk = (chunk: string) => {
-      if (!chunk) {
-        return;
-      }
-
-      const normalized = chunk.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-      const hasSubmit = normalized.includes('\n');
-      const printable = normalized.replace(/\n/g, '').replace(/[\x00-\x1F\x7F]/g, '');
-      if (printable) {
-        this.queueInput += printable;
-      }
-
-      if (hasSubmit) {
-        submitQueueInput();
-        return;
-      }
-
-      if (printable) {
-        this.updateInputLine();
-      }
-    };
-
-    const handler = (_str: string, key: readline.Key) => {
-      if (controller.signal.aborted) {
-        return;
-      }
-
-      // ESC to cancel
-      if (key?.name === 'escape') {
-        controller.abort();
-        onCancel();
-        return;
-      }
-
-      // Ctrl+C handling
-      if (ctrlCInterrupt && key?.name === 'c' && key.ctrl) {
-        ctrlCCount += 1;
-        if (ctrlCCount >= 2) {
-          controller.abort();
-          onCancel();
-        } else {
-          console.log(chalk.gray('Press Ctrl+C again to exit.'));
-        }
-        return;
-      }
-
-      if (enableEscQueueInput) {
-        if (useLineQueueFallback) {
-          return;
-        }
-
-        if (key?.name === 'return' || key?.name === 'enter') {
-          submitQueueInput();
-          return;
-        }
-
-        if (key?.name === 'backspace') {
-          this.queueInput = this.queueInput.slice(0, -1);
-          this.updateInputLine();
-          return;
-        }
-
-        if (key?.ctrl || key?.meta) {
-          return;
-        }
-
-        if (_str) {
-          lastKeypressAt = Date.now();
-        }
-        ingestTextChunk(_str);
-      }
-    };
-    const dataHandler = (chunk: string | Buffer) => {
-      if (controller.signal.aborted || !enableEscQueueInput) {
-        return;
-      }
-      const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-      const now = Date.now();
-      // In raw mode, emitKeypressEvents and the data event can both fire for the same bytes.
-      // Deduplicate those bursts to avoid double-queuing typed input.
-      if (now - lastKeypressAt < 30) {
-        return;
-      }
-      ingestTextChunk(text);
-    };
-    if (useLineQueueFallback) {
-      lineReader = readline.createInterface({
-        input,
-        crlfDelay: Infinity,
-        historySize: 0,
-        terminal: false,
-      });
-      lineReader.on('line', (line) => {
-        if (controller.signal.aborted) {
-          return;
-        }
-        this.queueInput = line;
-        submitQueueInput();
-      });
-    }
-
-    input.on('keypress', handler);
-    if (enableEscQueueInput && !useLineQueueFallback) {
-      input.on('data', dataHandler);
-    }
-
-    return () => {
-      input.off('keypress', handler);
-      if (enableEscQueueInput && !useLineQueueFallback) {
-        input.off('data', dataHandler);
-      }
-      lineReader?.close();
-      lineReader = null;
-      this.queueInput = ''; // Clear input on cleanup
-      if (!wasRaw && supportsRaw) {
-        safeSetRawMode(input, false);
-      }
-    };
+    return setupAgentEscListener(this as unknown as AgentInputTurnHost, controller, onCancel, ctrlCInterrupt);
   }
+
 
   /**
    * Wire ESC/Ctrl+C through PersistentInput while it owns stdin.
@@ -5283,184 +2393,63 @@ If lint or tests fail, report the issues but do NOT commit.`;
     controller: AbortController,
     onCancel: () => void
   ): () => void {
-    let ctrlCCount = 0;
-
-    const onEscape = () => {
-      if (controller.signal.aborted) {
-        return;
-      }
-      controller.abort();
-      onCancel();
-    };
-
-    const onCtrlC = () => {
-      if (controller.signal.aborted) {
-        return;
-      }
-      ctrlCCount += 1;
-      if (ctrlCCount >= 2) {
-        controller.abort();
-        onCancel();
-      } else {
-        console.log(chalk.gray('Press Ctrl+C again to exit.'));
-      }
-    };
-
-    this.persistentInput.on('escape', onEscape);
-    this.persistentInput.on('ctrl-c', onCtrlC);
-
-    return () => {
-      this.persistentInput.off('escape', onEscape);
-      this.persistentInput.off('ctrl-c', onCtrlC);
-    };
+    return setupAgentPersistentInputInterruptHandlers(this as unknown as AgentInputTurnHost, controller, onCancel);
   }
+
 
   private installPersistentConsoleBridge(): () => void {
-    if (this.persistentConsoleBridgeCleanup) {
-      return () => {};
-    }
-
-    if (!this.persistentInputActiveTurn || process.env.AUTOHAND_TERMINAL_REGIONS === '0') {
-      return () => {};
-    }
-
-    const originalLog = console.log;
-    const originalInfo = console.info;
-    const originalWarn = console.warn;
-    const originalError = console.error;
-
-    const bridgeWriter = (fallback: (...args: any[]) => void) => (...args: any[]) => {
-      if (!this.persistentInputActiveTurn || process.env.AUTOHAND_TERMINAL_REGIONS === '0') {
-        fallback(...args);
-        return;
-      }
-      const text = formatText(...args);
-      this.persistentInput.writeAbove(`${text}\n`);
-    };
-
-    console.log = bridgeWriter(originalLog);
-    console.info = bridgeWriter(originalInfo);
-    console.warn = bridgeWriter(originalWarn);
-    console.error = bridgeWriter(originalError);
-
-    const restore = () => {
-      console.log = originalLog;
-      console.info = originalInfo;
-      console.warn = originalWarn;
-      console.error = originalError;
-      this.persistentConsoleBridgeCleanup = null;
-    };
-
-    this.persistentConsoleBridgeCleanup = restore;
-    return restore;
+    return installAgentPersistentConsoleBridge(this as unknown as AgentInputTurnHost);
   }
+
 
   private startPreparationStatus(instruction: string): () => void {
-    const label = describeInstruction(instruction);
-    const startedAt = Date.now();
-    const update = () => {
-      const elapsed = formatElapsedTime(startedAt);
-      const status = `Preparing to ${label} (${elapsed} • esc to interrupt)`;
-      if (this.inkRenderer) {
-        this.inkRenderer.setStatus(status);
-        this.inkRenderer.setElapsed(elapsed);
-      } else if (this.runtime.spinner) {
-        this.setSpinnerStatus(status);
-      } else if (this.isUsingTerminalRegionsForActiveTurn()) {
-        this.setPersistentInputActivityLine(status);
-      }
-    };
-    update();
-    let stopped = false;
-    const interval = setInterval(update, 1000);
-    return () => {
-      if (stopped) {
-        return;
-      }
-      clearInterval(interval);
-      stopped = true;
-    };
+    return startAgentPreparationStatus(this as unknown as AgentInputTurnHost, instruction);
   }
+
 
   /**
    * Sleep helper for retry delays
    */
   private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return agentSleep(ms);
   }
+
 
   /**
    * Detect context-overflow errors from API 400 responses.
    * These are recoverable via auto-compaction and retry.
    */
   private isContextOverflowError(errorOrMessage: Error | string): boolean {
-    // Prefer structured ApiError when available
-    if (errorOrMessage instanceof ApiError) {
-      return errorOrMessage.code === 'context_overflow';
-    }
-
-    // String fallback for non-ApiError providers — use the shared classifier
-    const message = typeof errorOrMessage === 'string' ? errorOrMessage : errorOrMessage.message;
-    const classified = classifyApiError(0, message);
-    return classified.code === 'context_overflow';
+    return isAgentContextOverflowError(errorOrMessage);
   }
+
 
   /**
    * Categorize errors to determine retry behavior.
    * Returns true if the error is retryable.
    */
   private isRetryableSessionError(error: Error): boolean {
-    if (error instanceof ApiError) return error.retryable;
-    const classified = classifyApiError(0, error.message);
-    return classified.retryable;
+    return isAgentRetryableSessionError(error);
   }
+
 
   /**
    * Transport/service retries should simply wait and retry the same turn.
    * They must not inject extra continuation instructions back into the model.
    */
   private shouldUsePassiveSessionRetry(error: Error): boolean {
-    const code = error instanceof ApiError
-      ? error.code
-      : classifyApiError(0, error.message).code;
-
-    return (
-      code === 'network_error' ||
-      code === 'timeout' ||
-      code === 'rate_limited' ||
-      code === 'server_error'
-    );
+    return shouldUsePassiveAgentSessionRetry(error);
   }
+
 
   /**
    * Inject a continuation message into the conversation to help the LLM
    * recover from a failure and continue the task.
    */
   private injectContinuationMessage(error: Error, retryAttempt: number): void {
-    const continuationPrompts = [
-      // First retry: gentle continuation
-      `[System Recovery] An error occurred (${error.message}). Please continue from where you left off. ` +
-      `Review the conversation context and proceed with the next logical step. ` +
-      `If you were in the middle of a tool call, retry it. If you completed tools, provide your response.`,
-
-      // Second retry: more explicit
-      `[System Recovery - Attempt ${retryAttempt + 1}] The previous operation encountered an error. ` +
-      `Please analyze the current state and continue. Focus on completing the user's original request. ` +
-      `If needed, you can re-read files or re-execute commands to verify the current state.`,
-
-      // Third retry: most explicit with safety
-      `[System Recovery - Final Attempt] Multiple errors have occurred. ` +
-      `Please provide a status update to the user. If the task cannot be completed, ` +
-      `explain what was accomplished and what remains. Do not attempt complex operations - ` +
-      `focus on providing a helpful response.`
-    ];
-
-    const promptIndex = Math.min(retryAttempt, continuationPrompts.length - 1);
-    const continuationMessage = continuationPrompts[promptIndex];
-
-    // Add as a system note to preserve conversation flow
-    this.conversation.addSystemNote(continuationMessage);
+    injectAgentContinuationMessage(this as unknown as AgentInputTurnHost, error, retryAttempt);
   }
+
 
   /**
    * Submit a detailed bug report when a session failure occurs.
@@ -5581,6 +2570,32 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
     return result;
   }
+
+  private async saveUserMessage(content: string): Promise<void> {
+    const session = this.sessionManager.getCurrentSession();
+    if (!session) return;
+
+    const message: SessionMessage = {
+      role: 'user',
+      content,
+      timestamp: new Date().toISOString()
+    };
+    await session.append(message);
+  }
+
+  private async saveAssistantMessage(content: string, toolCalls?: any[]): Promise<void> {
+    const session = this.sessionManager.getCurrentSession();
+    if (!session) return;
+
+    const message: SessionMessage = {
+      role: 'assistant',
+      content,
+      timestamp: new Date().toISOString(),
+      toolCalls
+    };
+    await session.append(message);
+  }
+
 
   /**
    * Run code quality pipeline after file modifications
@@ -6436,7 +3451,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
   private async resetConversationContext(): Promise<void> {
     const systemPrompt = await this.buildSystemPrompt();
     this.conversation.reset(systemPrompt);
-    this.mentionContexts = [];
+    this.mentionResolver.clear();
     this.updateContextUsage(this.conversation.history());
   }
 
@@ -6448,46 +3463,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * notices buried system prompt content.
    */
   private async generateSessionBootstrap(): Promise<string> {
-    const parts: string[] = ['[Session Bootstrap]'];
-
-    // 1. Top memories (most relevant, limited to save tokens)
-    const memories = await this.memoryManager.getContextMemories(3);
-    if (memories) {
-      parts.push('', '## Memories & Preferences', memories);
-    }
-
-    // 2. AGENTS.md summary (first 20 lines — enough for conventions, not the full manifesto)
-    const agentsPath = path.join(this.runtime.workspaceRoot, 'AGENTS.md');
-    if (await fs.pathExists(agentsPath)) {
-      const content = await fs.readFile(agentsPath, 'utf-8');
-      const summary = content.split('\n').slice(0, 20).join('\n');
-      if (summary.trim()) {
-        parts.push('', '## Project Instructions (AGENTS.md)', summary);
-      }
-    }
-
-    // 3. Active skills
-    const activeSkills = this.skillsRegistry.getActiveSkills();
-    if (activeSkills.length > 0) {
-      parts.push('', '## Active Skills');
-      for (const skill of activeSkills) {
-        parts.push(`- **${skill.name}**: ${skill.description}`);
-      }
-    }
-
-    // 4. Lightweight project scan — key config files and top-level structure
-    const keyFiles = ['package.json', 'README.md', 'tsconfig.json', ' Cargo.toml', 'pyproject.toml', 'go.mod'];
-    const foundKeys: string[] = [];
-    for (const file of keyFiles) {
-      if (await fs.pathExists(path.join(this.runtime.workspaceRoot, file.trim()))) {
-        foundKeys.push(file.trim());
-      }
-    }
-    if (foundKeys.length > 0) {
-      parts.push('', `## Project Structure`, `Key files detected: ${foundKeys.join(', ')}`);
-    }
-
-    return parts.join('\n');
+    return buildSessionBootstrap({
+      workspaceRoot: this.runtime.workspaceRoot,
+      getContextMemories: (limit) => this.memoryManager.getContextMemories(limit),
+      getActiveSkills: () => this.skillsRegistry.getActiveSkills(),
+    });
   }
 
   /**

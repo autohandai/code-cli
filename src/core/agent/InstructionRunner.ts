@@ -1,0 +1,310 @@
+/**
+ * @license
+ * Copyright 2025 Autohand AI LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+import chalk from 'chalk';
+import { ProviderNotConfiguredError } from '../../providers/ProviderFactory.js';
+import { ApiError } from '../../providers/errors.js';
+import {
+  checkAndPromptForDirectoryPermissions,
+  type DirectoryPermissionOptions,
+} from '../../permissions/directoryPermissionPrompt.js';
+
+export interface AgentInstructionHost {
+  [key: string]: any;
+}
+
+export async function runAgentInstruction(host: AgentInstructionHost, instruction: string): Promise<boolean> {
+    host.isInstructionActive = true;
+    host.clearExplorationLog();
+    host.filesModifiedThisSession = false;
+    host.lastAssistantResponseForNotification = '';
+
+    // Check for directory mentions outside workspace and prompt for permissions
+    if (host.runtime.workspaceRoot && host.permissionManager) {
+      const dirPermissionOptions: DirectoryPermissionOptions = {
+        workspaceRoot: host.runtime.workspaceRoot,
+        permissionManager: host.permissionManager,
+        autoApprove: host.runtime.options.unrestricted || host.runtime.options.yes || false,
+      };
+      await checkAndPromptForDirectoryPermissions(instruction, dirPermissionOptions);
+    }
+
+    // Initialize task-level tracking
+    host.taskStartedAt = Date.now();
+    host.totalTokensUsed = 0;
+
+    // Detect user intent (diagnostic vs implementation)
+    const intentResult = host.intentDetector.detect(instruction);
+    host.lastIntent = intentResult.intent;
+
+    // Display mode indicator
+    host.displayIntentMode(intentResult);
+
+    // Run environment bootstrap for implementation mode
+    if (intentResult.intent === 'implementation') {
+      const bootstrapResult = await host.runEnvironmentBootstrap();
+      if (!bootstrapResult.success) {
+        console.log(chalk.red('\n[BLOCKED] Environment setup failed. Fix issues before proceeding.'));
+        host.isInstructionActive = false;
+        return false;
+      }
+    }
+
+    const abortController = new AbortController();
+    host.activeAbortController = abortController;
+    let canceledByUser = false;
+    let success = true;
+
+    const queueEnabled = host.runtime.config.agent?.enableRequestQueue !== false;
+    const canUsePersistentInput = process.stdout.isTTY && process.stdin.isTTY && queueEnabled;
+
+    // Initialize UI (InkRenderer or ora spinner)
+    // Pass abort controller for InkRenderer to handle ESC/Ctrl+C
+    await host.initializeUI(abortController, () => {
+      if (!canceledByUser) {
+        canceledByUser = true;
+        host.stopStatusUpdates();
+        host.stopUI();
+        // Don't console.log here — terminal regions may still be active,
+        // which routes output through writeAbove and corrupts the composer.
+        // The cancel message is printed in the finally block after cleanup.
+      }
+    }, canUsePersistentInput);
+
+    if (process.env.AUTOHAND_DEBUG === '1') {
+      console.log(`[DEBUG] runInstruction: after initializeUI, inkRenderer exists=${!!host.inkRenderer}, useInkRenderer=${host.useInkRenderer}`);
+    }
+
+    const shouldUsePersistentInput = canUsePersistentInput && !host.inkRenderer;
+    let cleanupConsoleBridge: () => void = () => {};
+
+    if (shouldUsePersistentInput) {
+      host.persistentInput.start();
+      host.persistentInputActiveTurn = true;
+      if (host.isUsingTerminalRegionsForActiveTurn() && host.runtime.spinner?.isSpinning) {
+        host.runtime.spinner.stop();
+      }
+      cleanupConsoleBridge = host.installPersistentConsoleBridge();
+      if (host.promptSeedInput && !host.persistentInput.getCurrentInput()) {
+        host.persistentInput.setCurrentInput(host.promptSeedInput);
+        host.promptSeedInput = '';
+      }
+      host.persistentInput.setStatusLine(host.formatStatusLine());
+    } else {
+      host.persistentInputActiveTurn = false;
+    }
+
+    // Print user instruction AFTER persistent input is started so it
+    // renders inside the scroll region (not overwritten by the fixed region).
+    host.printUserInstructionToChatLog(instruction);
+
+    // Only one input owner should handle interrupts:
+    // InkRenderer, PersistentInput, or fallback ESC listener.
+    const handleCancel = () => {
+      if (!canceledByUser) {
+        canceledByUser = true;
+        host.stopStatusUpdates();
+        host.stopUI();
+        // Don't console.log here — terminal regions may still be active,
+        // which routes output through writeAbove and corrupts the composer.
+        // The cancel message is printed in the finally block after cleanup.
+      }
+    };
+
+    const cleanupEsc = host.useInkRenderer
+      ? () => {} // No-op, Ink handles input
+      : shouldUsePersistentInput
+        ? host.setupPersistentInputInterruptHandlers(abortController, handleCancel)
+        : host.setupEscListener(abortController, handleCancel, true);
+    const stopPreparation = host.startPreparationStatus(instruction);
+    try {
+      const userMessage = await host.buildUserMessage(instruction);
+      stopPreparation();
+      host.setUIStatus('Reasoning with the AI (ReAct loop)...');
+      host.conversation.addMessage({ role: 'user', content: userMessage });
+
+      // Save user message to session
+      await host.saveUserMessage(instruction);
+
+      host.updateContextUsage(host.conversation.history());
+      await host.runReactLoop(abortController);
+
+      // Run quality pipeline after file modifications in implementation mode.
+      // Stop PersistentInput FIRST so quality output goes to raw stdout
+      // instead of being routed through writeAbove in scroll regions
+      // (which gets torn down in the finally block, making output invisible).
+      if (host.lastIntent === 'implementation' && host.filesModifiedThisSession) {
+        // Set modalActive to suppress hook output during quality checks.
+        // This prevents custom hooks (e.g., quality check hooks) from
+        // interfering with the terminal state while the UI is paused.
+        host.modalActive = true;
+        if (host.persistentInputActiveTurn) {
+          host.promptSeedInput = host.persistentInput.getCurrentInput();
+          host.persistentInput.stop();
+          host.persistentInputActiveTurn = false;
+        }
+        // Pause Ink renderer instead of destroying it. This releases stdin/stdout
+        // so spawned child processes (lint, test) work correctly, but preserves
+        // state so the composer reappears immediately after quality checks.
+        if (host.useInkRenderer && host.inkRenderer) {
+          host.inkRenderer.pause();
+        }
+        cleanupConsoleBridge();
+        cleanupConsoleBridge = () => {}; // Prevent double-cleanup in finally
+        await host.runQualityPipeline();
+        // Resume Ink so the composer is restored before runInstruction returns.
+        if (host.useInkRenderer && host.inkRenderer) {
+          await host.inkRenderer.resume();
+        }
+        host.modalActive = false;
+      }
+    } catch (error) {
+      success = false;
+      if (abortController.signal.aborted) {
+        return false;
+      }
+
+      // Handle unconfigured provider by prompting for configuration
+      if (error instanceof ProviderNotConfiguredError) {
+        host.cleanupUI();
+        console.log(chalk.yellow(`\nNo provider is configured yet. Let's set one up!\n`));
+        await host.providerConfigManager.promptModelSelection();
+        // After configuration, retry the instruction
+        return host.runInstruction(instruction);
+      }
+
+      // Loop guard aborts are handled gracefully inside runReactLoop
+      // (fallback message already emitted to the user). Skip retries and
+      // error UI so we don't double-print failure messages.
+      if (error instanceof Error && error.name === 'LoopAbortedError') {
+        // Fall through to finally with success = false
+      } else {
+        // Session failure retry logic
+        const err = error instanceof Error ? error : new Error(String(error));
+        const maxRetries = host.runtime.config.agent?.sessionRetryLimit ?? 3;
+        const baseDelay = host.runtime.config.agent?.sessionRetryDelay ?? 1000;
+
+        if (host.isRetryableSessionError(err) && host.sessionRetryCount < maxRetries) {
+          host.sessionRetryCount++;
+
+          // Submit bug report to telemetry
+          await host.submitSessionFailureBugReport(err, host.sessionRetryCount, maxRetries);
+
+          // Show retry message to user
+          console.log(chalk.yellow(`\n⚠ Session encountered an error: ${err.message}`));
+          console.log(chalk.cyan(`  Attempting recovery (${host.sessionRetryCount}/${maxRetries})...`));
+
+          // Wait with exponential backoff (1.5x multiplier)
+          const delay = Math.max(
+            baseDelay * Math.pow(1.5, host.sessionRetryCount - 1),
+            err instanceof ApiError ? err.retryAfterMs ?? 0 : 0
+          );
+          await host.sleep(delay);
+
+          // Retry plain transport/service outages without mutating the prompt.
+          // Injecting "continue the task" guidance after a dropped connection
+          // causes the model to resume with extra behavioral instructions once
+          // the service comes back, which can snowball into unnecessary tool use.
+          if (!host.shouldUsePassiveSessionRetry(err)) {
+            host.injectContinuationMessage(err, host.sessionRetryCount);
+          }
+
+          // Retry the ReAct loop
+          try {
+            host.setUIStatus('Recovering session...');
+            await host.runReactLoop(abortController);
+
+            // If we get here, retry succeeded - reset counter
+            host.sessionRetryCount = 0;
+            success = true;
+            return success;
+          } catch (retryError) {
+            // Retry failed, will be caught by outer logic on next iteration
+            // or fall through to final failure if max retries exceeded
+            if (host.sessionRetryCount >= maxRetries) {
+              // Max retries exceeded, fall through to failure
+              host.sessionRetryCount = 0;
+            } else {
+              // Re-throw to trigger another retry attempt
+              throw retryError;
+            }
+          }
+        }
+
+        // Reset retry counter on non-retryable errors or max retries exceeded
+        host.sessionRetryCount = 0;
+
+        host.stopUI(true, 'Session failed');
+        // Emit error for RPC mode
+        const errorMessage = host.getDisplayErrorMessage(error);
+        host.emitOutput({ type: 'error', content: errorMessage });
+        if (error instanceof Error) {
+          console.error(chalk.red(errorMessage));
+        } else {
+          console.error(errorMessage);
+        }
+      }
+    } finally {
+      // IMPORTANT: Keep the console bridge active until AFTER terminal regions
+      // are disabled. Otherwise, in-flight streaming output bypasses writeAbove
+      // and writes directly to stdout while regions are still active, corrupting
+      // the fixed-region composer box (overlapping borders, leaked tool data).
+      cleanupEsc();
+      stopPreparation();
+      host.stopStatusUpdates();
+      const keepPersistentInputForNextTurn =
+        host.persistentInputActiveTurn &&
+        (host.persistentInput.hasQueued() || host.persistentInput.getCurrentInput().trim().length > 0);
+      if (host.persistentInputActiveTurn) {
+        host.promptSeedInput = host.persistentInput.getCurrentInput();
+      }
+      // Stop the spinner BEFORE disabling scroll regions. ora tracks its
+      // cursor position relative to the active scroll region; if regions are
+      // reset first, ora.stop() moves the cursor to an incorrect absolute
+      // row (typically row 1), causing the next prompt to render at the top.
+      // When using Ink, keep the renderer alive between turns to prevent the
+      // composer from disappearing and reappearing during back-to-back turns.
+      if (process.env.AUTOHAND_DEBUG === '1') {
+        console.log(`[DEBUG] runInstruction finally: useInkRenderer=${host.useInkRenderer}, inkRenderer exists=${!!host.inkRenderer}`);
+      }
+      host.cleanupUI(host.useInkRenderer);
+
+      if (host.persistentInputActiveTurn && !keepPersistentInputForNextTurn) {
+        host.persistentInput.stop();
+        host.persistentInputActiveTurn = false;
+      }
+
+      // Restore original console AFTER regions are disabled so no output
+      // leaks into the fixed-region area during the transition.
+      cleanupConsoleBridge();
+
+      // Print the cancel message AFTER terminal regions are torn down so it
+      // goes to normal stdout instead of being routed through writeAbove.
+      if (canceledByUser && !host.useInkRenderer) {
+        console.log('\n' + chalk.yellow('Request canceled by user (ESC).'));
+      }
+
+      // Ensure the cursor is on a fresh blank line after cleanup so the next
+      // prompt box doesn't overwrite the last output row.
+      if (process.stdout.isTTY && !host.useInkRenderer) {
+        process.stdout.write('\n');
+      }
+
+      // Show completion summary (skip if using Ink - it handles this via completionStats)
+      if (host.taskStartedAt && !canceledByUser && !host.useInkRenderer) {
+        host.printCompletionSummary(keepPersistentInputForNextTurn);
+      }
+
+      // Accumulate session tokens before resetting task
+      host.sessionTokensUsed += host.totalTokensUsed;
+
+      host.taskStartedAt = null;
+      host.isInstructionActive = false;
+      host.activeAbortController = null;
+      host.clearExplorationLog();
+    }
+    return success;
+  }
+

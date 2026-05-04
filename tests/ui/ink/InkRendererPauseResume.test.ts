@@ -47,15 +47,18 @@ describe('InkRenderer pause/resume React 19 fix', () => {
 });
 
 describe('Agent.ts awaits inkRenderer.resume() calls', () => {
-  it('all inkRenderer.resume() calls are awaited in agent.ts', async () => {
-    const src = fs.readFileSync(
-      path.resolve(process.cwd(), 'src/core/agent.ts'),
-      'utf8',
-    );
+  const readAgentRuntimeSources = () => [
+    fs.readFileSync(path.resolve(process.cwd(), 'src/core/agent.ts'), 'utf8'),
+    fs.readFileSync(path.resolve(process.cwd(), 'src/core/agent/AgentDependencyComposer.ts'), 'utf8'),
+    fs.readFileSync(path.resolve(process.cwd(), 'src/core/agent/InstructionRunner.ts'), 'utf8'),
+  ].join('\n');
+
+  it('all inkRenderer.resume() calls are awaited in agent runtime sources', async () => {
+    const src = readAgentRuntimeSources();
 
     // Count non-awaited resume() calls (should be 0)
     // Match patterns that are NOT awaited
-    const nonAwaitedPattern = /(?<!await\s)this\.inkRenderer\.resume\(\)/g;
+    const nonAwaitedPattern = /(?<!await\s)(?:this|host)\.inkRenderer\.resume\(\)/g;
     const matches = src.match(nonAwaitedPattern);
 
     // All resume() calls should be awaited
@@ -64,7 +67,7 @@ describe('Agent.ts awaits inkRenderer.resume() calls', () => {
 
   it('onAfterModal is async to support await resume()', async () => {
     const src = fs.readFileSync(
-      path.resolve(process.cwd(), 'src/core/agent.ts'),
+      path.resolve(process.cwd(), 'src/core/agent/AgentDependencyComposer.ts'),
       'utf8',
     );
 
@@ -74,12 +77,12 @@ describe('Agent.ts awaits inkRenderer.resume() calls', () => {
 
   it('onAfterModal awaits inkRenderer.resume()', async () => {
     const src = fs.readFileSync(
-      path.resolve(process.cwd(), 'src/core/agent.ts'),
+      path.resolve(process.cwd(), 'src/core/agent/AgentDependencyComposer.ts'),
       'utf8',
     );
 
     // Verify onAfterModal awaits the resume call
-    expect(src).toMatch(/onAfterModal:[\s\S]*?await\s+this\.inkRenderer\.resume\(\)/);
+    expect(src).toMatch(/onAfterModal:[\s\S]*?await\s+host\.inkRenderer\.resume\(\)/);
   });
 });
 
