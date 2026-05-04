@@ -33,39 +33,39 @@ describe('Quality Pipeline modalActive flag', () => {
   it('should set modalActive=true before quality pipeline runs', async () => {
     // Read the source code to verify the fix
     const { readFileSync } = await import('node:fs');
-    const source = readFileSync('src/core/agent.ts', 'utf-8');
+    const source = readFileSync('src/core/agent/InstructionRunner.ts', 'utf-8');
 
     // Verify that modalActive is set to true before quality pipeline
-    expect(source).toContain('this.modalActive = true');
-    expect(source).toContain('this.modalActive = false');
+    expect(source).toContain('host.modalActive = true');
+    expect(source).toContain('host.modalActive = false');
 
     // Verify the pattern: modalActive=true before runQualityPipeline
     const qualityPipelineSection = source.substring(
-      source.indexOf('if (this.lastIntent === \'implementation\' && this.filesModifiedThisSession)'),
-      source.indexOf('await this.runQualityPipeline()') + 'await this.runQualityPipeline()'.length
+      source.indexOf('if (host.lastIntent === \'implementation\' && host.filesModifiedThisSession)'),
+      source.indexOf('await host.runQualityPipeline()') + 'await host.runQualityPipeline()'.length
     );
 
-    expect(qualityPipelineSection).toContain('this.modalActive = true');
+    expect(qualityPipelineSection).toContain('host.modalActive = true');
   });
 
   it('should set modalActive=false after quality pipeline completes', async () => {
     const { readFileSync } = await import('node:fs');
-    const source = readFileSync('src/core/agent.ts', 'utf-8');
+    const source = readFileSync('src/core/agent/InstructionRunner.ts', 'utf-8');
 
     // Find the section after runQualityPipeline call
-    const runQualityIndex = source.indexOf('await this.runQualityPipeline()');
+    const runQualityIndex = source.indexOf('await host.runQualityPipeline()');
     const afterQualitySection = source.substring(
       runQualityIndex,
       runQualityIndex + 300
     );
 
     // Verify modalActive is set to false after quality pipeline
-    expect(afterQualitySection).toContain('this.modalActive = false');
+    expect(afterQualitySection).toContain('host.modalActive = false');
   });
 
   it('should suppress hook output when modalActive is true', async () => {
     const { readFileSync } = await import('node:fs');
-    const source = readFileSync('src/core/agent.ts', 'utf-8');
+    const source = readFileSync('src/core/agent/AgentDependencyComposer.ts', 'utf-8');
 
     // Verify onHookOutput checks modalActive
     const onHookOutputSection = source.substring(
@@ -73,7 +73,7 @@ describe('Quality Pipeline modalActive flag', () => {
       source.indexOf('onHookOutput:') + 500
     );
 
-    expect(onHookOutputSection).toContain('if (this.modalActive)');
+    expect(onHookOutputSection).toContain('if (host.modalActive)');
     expect(onHookOutputSection).toContain('return;');
   });
 });
