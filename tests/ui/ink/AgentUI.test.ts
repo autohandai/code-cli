@@ -8,9 +8,12 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Key as InkKey } from 'ink';
 import { TextBuffer } from '../../../src/ui/textBuffer.js';
 import {
+  clearBareComposerTrigger,
+  consumeInkBracketedPasteInput,
   getComposerHelpLine,
   getTextBufferCursorOffset,
   handleInkTextBufferInput,
+  isBareComposerTrigger,
 } from '../../../src/ui/ink/AgentUI.js';
 
 function createInkKey(overrides: Partial<InkKey> = {}): InkKey {
@@ -69,6 +72,94 @@ describe('AgentUI TextBuffer integration helpers', () => {
 
     expect(result).toBe('submit');
     expect(buffer.getText()).toBe('line1');
+  });
+
+  it('treats raw DEL as backspace when Ink does not annotate the key', () => {
+    const buffer = new TextBuffer(20, 10, '/');
+
+    const result = handleInkTextBufferInput(buffer, '\x7f', createInkKey());
+
+    expect(result).toBe('handled');
+    expect(buffer.getText()).toBe('');
+  });
+
+  it('treats raw Ctrl+H as backspace when Ink does not annotate the key', () => {
+    const buffer = new TextBuffer(20, 10, '/a');
+
+    const result = handleInkTextBufferInput(buffer, '\b', createInkKey());
+
+    expect(result).toBe('handled');
+    expect(buffer.getText()).toBe('/');
+  });
+
+  it.each(['/', '@', '$', '!', '#'])(
+    'recognizes bare composer trigger %s as dismissible',
+    trigger => {
+      expect(isBareComposerTrigger(trigger)).toBe(true);
+      expect(isBareComposerTrigger(`  ${trigger}`)).toBe(true);
+    }
+  );
+
+  it.each(['/', '@', '$', '!', '#'])(
+    'does not treat %s inside normal text as a bare composer trigger',
+    trigger => {
+      expect(isBareComposerTrigger(`run ${trigger}`)).toBe(false);
+      expect(isBareComposerTrigger(`${trigger}query`)).toBe(false);
+    }
+  );
+
+  it.each(['/', '@', '$', '!', '#'])(
+    'clears bare composer trigger %s for escape dismissal',
+    trigger => {
+      const buffer = new TextBuffer(20, 10, trigger);
+
+      expect(clearBareComposerTrigger(buffer)).toBe(true);
+      expect(buffer.getText()).toBe('');
+    }
+  );
+
+  it.each(['/', '@', '$', '!', '#'])(
+    'treats forward Delete at the end of bare trigger %s as removal',
+    trigger => {
+      const buffer = new TextBuffer(20, 10, `  ${trigger}`);
+
+      const result = handleInkTextBufferInput(buffer, '\x1b[3~', createInkKey());
+
+      expect(result).toBe('handled');
+      expect(buffer.getText()).toBe('');
+    }
+  );
+});
+
+describe('AgentUI bracketed paste input', () => {
+  it('consumes complete bracketed paste sequences from Ink input', () => {
+    const pasteState = { isInPaste: false, buffer: '', hiddenContent: null };
+
+    const result = consumeInkBracketedPasteInput(
+      '\x1b[200~line1\nline2\nline3\nline4\nline5\x1b[201~',
+      pasteState
+    );
+
+    expect(result).toEqual({
+      handled: true,
+      completedText: 'line1\nline2\nline3\nline4\nline5',
+    });
+    expect(pasteState).toEqual({ isInPaste: false, buffer: '', hiddenContent: null });
+  });
+
+  it('buffers split bracketed paste sequences until the end marker arrives', () => {
+    const pasteState = { isInPaste: false, buffer: '', hiddenContent: null };
+
+    expect(consumeInkBracketedPasteInput('\x1b[200~line1\n', pasteState)).toEqual({
+      handled: true,
+    });
+    expect(pasteState.isInPaste).toBe(true);
+    expect(pasteState.buffer).toBe('line1\n');
+
+    const result = consumeInkBracketedPasteInput('line2\x1b[201~', pasteState);
+
+    expect(result).toEqual({ handled: true, completedText: 'line1\nline2' });
+    expect(pasteState).toEqual({ isInPaste: false, buffer: '', hiddenContent: null });
   });
 });
 

@@ -56,40 +56,8 @@ describe('Composer input guard after LLM response', () => {
   });
 });
 
-describe('useBufferedInput isActive logic', () => {
-  /**
-   * Replica of the isActive logic: `!isWorking || enableQueueInput`
-   * Buffered input should be active when idle (composing) or when
-   * working with queue enabled (pasting while LLM works).
-   */
-  function isActive(isWorking: boolean, enableQueueInput: boolean): boolean {
-    return !isWorking || enableQueueInput;
-  }
-
-  it('is active when idle regardless of queue setting', () => {
-    expect(isActive(false, true)).toBe(true);
-    expect(isActive(false, false)).toBe(true);
-  });
-
-  it('is active when working and queue-input is enabled', () => {
-    expect(isActive(true, true)).toBe(true);
-  });
-
-  it('is inactive when working and queue-input is disabled', () => {
-    expect(isActive(true, false)).toBe(false);
-  });
-
-  it('OLD BUG: isWorking && enableQueueInput was inactive when idle', () => {
-    // The old (buggy) logic: `isWorking && enableQueueInput`
-    const oldIsActive = (isWorking: boolean, enableQueueInput: boolean) =>
-      isWorking && enableQueueInput;
-
-    // When idle, old logic returned false — paste detection was off!
-    expect(oldIsActive(false, true)).toBe(false); // inactive! should be active
-    expect(oldIsActive(false, false)).toBe(false); // inactive! should be active
-  });
-
-  it('AgentUI source uses correct useBufferedInput isActive expression', () => {
+describe('AgentUI paste input ownership', () => {
+  it('AgentUI does not wire the dead useBufferedInput hook', () => {
     const fs = require('node:fs');
     const path = require('node:path');
     const src = fs.readFileSync(
@@ -97,10 +65,8 @@ describe('useBufferedInput isActive logic', () => {
       'utf8',
     );
 
-    // Must use the correct idle-or-queue-enabled logic
-    expect(src.includes('isActive: !state.isWorking || enableQueueInput,')).toBe(true);
-    // Must NOT contain the old buggy logic
-    expect(src.includes('isActive: state.isWorking && enableQueueInput,')).toBe(false);
+    expect(src.includes('useBufferedInput')).toBe(false);
+    expect(src.includes('consumeInkBracketedPasteInput(char, pasteStateRef.current)')).toBe(true);
   });
 
   it('AgentUI source passes isActive={true} to InputLine so input is visible when idle', () => {
