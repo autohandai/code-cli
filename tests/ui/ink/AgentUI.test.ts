@@ -245,6 +245,23 @@ describe('AgentUI layout stability', () => {
       getComposerHelpLine(false, 'autohand (OpenAI, gpt-4o)', '', '? shortcuts · / commands')
     ).toBe('autohand (OpenAI, gpt-4o) · ? shortcuts · / commands');
   });
+
+  it('appends custom help line segments after the defaults', () => {
+    expect(
+      getComposerHelpLine(false, '', '70% context left', '? shortcuts · / commands', {
+        segments: [{ id: 'workspace', text: 'repo: cli-3' }],
+      })
+    ).toBe('70% context left · ? shortcuts · / commands · repo: cli-3');
+  });
+
+  it('can replace default help line segments', () => {
+    expect(
+      getComposerHelpLine(false, 'autohand (OpenAI, gpt-4o)', '70% context left', '? shortcuts · / commands', {
+        replaceDefault: true,
+        segments: [{ id: 'custom', text: 'custom help' }],
+      })
+    ).toBe('custom help');
+  });
 });
 
 describe('AgentUI multiline input regression', () => {

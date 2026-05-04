@@ -1604,6 +1604,50 @@ describe('agent startup and active input UI', () => {
     }
   });
 
+  it('syncs the Ink status line from the active provider config', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const ui = { setProviderModel: vi.fn() };
+
+    agent.ui = ui;
+    agent.activeProvider = 'openai';
+    agent.runtime = {
+      config: {
+        openai: { apiKey: 'test-key', model: 'gpt-5.1-codex' },
+      },
+      options: {},
+    };
+
+    (agent as any).syncProviderModelStatusLine();
+
+    expect(ui.setProviderModel).toHaveBeenCalledWith('openai', 'gpt-5.1-codex');
+  });
+
+  it('updates the Ink status line when ACP changes the model', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const ui = { setProviderModel: vi.fn() };
+
+    agent.ui = ui;
+    agent.activeProvider = 'openrouter';
+    agent.runtime = {
+      config: {
+        provider: 'openrouter',
+        openrouter: { apiKey: 'test-key', model: 'old/model' },
+      },
+      options: {},
+    };
+    agent.llm = { setModel: vi.fn() };
+    agent.contextOrchestrator = { setModel: vi.fn() };
+    agent.emitStatus = vi.fn();
+
+    (agent as any).applyAcpModel('new/model');
+
+    expect(agent.runtime.config.openrouter.model).toBe('new/model');
+    expect(ui.setProviderModel).toHaveBeenCalledWith('openrouter', 'new/model');
+    expect(agent.llm.setModel).toHaveBeenCalledWith('new/model');
+    expect(agent.contextOrchestrator.setModel).toHaveBeenCalledWith('new/model');
+    expect(agent.emitStatus).toHaveBeenCalled();
+  });
+
   it('wires loaded skills into the Ink composer skill mention provider', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     let restoreStdoutTTY: () => void = () => {};

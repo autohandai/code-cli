@@ -3,11 +3,33 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { memo } from 'react';
+import { memo, type ReactNode } from 'react';
 import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/index.js';
+
+export type LineSegmentColor =
+  | 'text'
+  | 'muted'
+  | 'accent'
+  | 'success'
+  | 'warning'
+  | 'error'
+  | 'dim';
+
+export interface LineSegment {
+  id: string;
+  text: string;
+  color?: LineSegmentColor;
+  visible?: boolean;
+}
+
+export interface LineExtension {
+  segments?: LineSegment[];
+  replaceDefault?: boolean;
+  separator?: string;
+}
 
 export interface StatusLineProps {
   isWorking: boolean;
@@ -23,14 +45,116 @@ export interface StatusLineProps {
   provider?: string;
   /** Current LLM model name */
   model?: string;
+  /** Optional extension points for status-line text segments. */
+  lineExtension?: LineExtension;
 }
 
-function StatusLineComponent({ isWorking, status, elapsed, tokens, queueCount = 0 }: StatusLineProps) {
+export function resolveLineSegments(
+  defaults: LineSegment[],
+  extension?: LineExtension
+): { segments: LineSegment[]; separator: string } {
+  const extensionSegments = extension?.segments ?? [];
+  const segments = extension?.replaceDefault
+    ? extensionSegments
+    : [...defaults, ...extensionSegments];
+
+  return {
+    segments: segments.filter((segment) =>
+      segment.visible !== false && segment.text.trim().length > 0
+    ),
+    separator: extension?.separator ?? ' · ',
+  };
+}
+
+export function formatLineSegments(
+  defaults: LineSegment[],
+  extension?: LineExtension
+): string {
+  const { segments, separator } = resolveLineSegments(defaults, extension);
+  return segments.map((segment) => segment.text).join(separator);
+}
+
+function getSegmentColor(colors: ReturnType<typeof useTheme>['colors'], color?: LineSegmentColor): string | undefined {
+  switch (color) {
+    case 'accent':
+      return colors.accent;
+    case 'success':
+      return colors.success;
+    case 'warning':
+      return colors.warning;
+    case 'error':
+      return colors.error;
+    case 'dim':
+      return colors.dim;
+    case 'muted':
+      return colors.muted;
+    case 'text':
+    default:
+      return undefined;
+  }
+}
+
+function renderLineSegments(
+  segments: LineSegment[],
+  separator: string,
+  colors: ReturnType<typeof useTheme>['colors']
+): ReactNode[] {
+  return segments.flatMap((segment, index) => {
+    const nodes: ReactNode[] = [];
+    if (index > 0) {
+      nodes.push(<Text key={`${segment.id}:sep`} color={colors.muted}>{separator}</Text>);
+    }
+    nodes.push(
+      <Text key={segment.id} color={getSegmentColor(colors, segment.color)}>
+        {segment.text}
+      </Text>
+    );
+    return nodes;
+  });
+}
+
+function buildStatusSegments(
+  status: string,
+  elapsed: string | undefined,
+  tokens: string | undefined,
+  queueCount: number,
+  cancelHint: string
+): LineSegment[] {
+  const metrics = [elapsed, tokens].filter((part): part is string => Boolean(part));
+  return [
+    { id: 'status', text: status },
+    {
+      id: 'metrics',
+      text: metrics.length > 0 ? `(${metrics.join(' · ')})` : '',
+      color: 'muted',
+    },
+    {
+      id: 'queue',
+      text: queueCount > 0 ? `[${queueCount} queued]` : '',
+      color: 'accent',
+    },
+    { id: 'cancel', text: cancelHint, color: 'muted' },
+  ];
+}
+
+function StatusLineComponent({
+  isWorking,
+  status,
+  elapsed,
+  tokens,
+  queueCount = 0,
+  lineExtension,
+}: StatusLineProps) {
   const { colors } = useTheme();
   const { t } = useTranslation();
+  const defaultSegments = isWorking
+    ? buildStatusSegments(status, elapsed, tokens, queueCount, t('ui.escToCancel'))
+    : [];
+  const { segments, separator } = resolveLineSegments(defaultSegments, lineExtension);
 
   // Always render to maintain stable layout - show placeholder when not working
-  if (!isWorking) {
+  // and no custom status segments were supplied.
+  if (!isWorking && segments.length === 0) {
     return (
       <Box height={1}>
         <Text color={colors.dim}> </Text>
@@ -40,17 +164,15 @@ function StatusLineComponent({ isWorking, status, elapsed, tokens, queueCount = 
 
   return (
     <Box>
-      <Text color={colors.accent}>
-        <Spinner type="dots" />
-      </Text>
-      <Text> {status}</Text>
-      {elapsed && <Text color={colors.muted}> ({elapsed}</Text>}
-      {tokens && <Text color={colors.muted}> · {tokens}</Text>}
-      {elapsed && <Text color={colors.muted}>)</Text>}
-      {queueCount > 0 && (
-        <Text color={colors.accent}> [{queueCount} queued]</Text>
+      {isWorking && (
+        <>
+          <Text color={colors.accent}>
+            <Spinner type="dots" />
+          </Text>
+          <Text> </Text>
+        </>
       )}
-      <Text color={colors.muted}> · {t('ui.escToCancel')}</Text>
+      {renderLineSegments(segments, separator, colors)}
     </Box>
   );
 }
@@ -72,8 +194,9 @@ export const StatusLine = memo(StatusLineComponent, (prev, next) => {
            prev.contextTokens?.used === next.contextTokens?.used &&
            prev.contextTokens?.total === next.contextTokens?.total &&
            prev.provider === next.provider &&
-           prev.model === next.model;
+           prev.model === next.model &&
+           prev.lineExtension === next.lineExtension;
   }
   // When both are not working, can safely skip
-  return true;
+  return prev.lineExtension === next.lineExtension;
 });
