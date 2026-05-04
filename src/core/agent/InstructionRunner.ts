@@ -10,12 +10,110 @@ import {
   checkAndPromptForDirectoryPermissions,
   type DirectoryPermissionOptions,
 } from '../../permissions/directoryPermissionPrompt.js';
+import type { PermissionManager } from '../../permissions/PermissionManager.js';
+import type { AgentOutputEvent, AgentRuntime } from '../../types.js';
+import type { Intent, IntentResult } from '../IntentDetector.js';
 
-export interface AgentInstructionHost {
-  [key: string]: any;
+interface InstructionConversation {
+  addMessage(message: { role: 'user'; content: string }): void;
+  history(): unknown[];
 }
 
-export async function runAgentInstruction(host: AgentInstructionHost, instruction: string): Promise<boolean> {
+interface InstructionIntentDetector {
+  detect(instruction: string): IntentResult;
+}
+
+interface InstructionProviderConfigManager {
+  promptModelSelection(): Promise<void>;
+}
+
+interface InstructionPersistentInput {
+  start(): void;
+  stop(): void;
+  hasQueued(): boolean;
+  getCurrentInput(): string;
+  setCurrentInput(input: string): void;
+  setStatusLine(statusLine: string | { left: string; right?: string }): void;
+}
+
+interface InstructionInkRenderer {
+  pause(): void;
+  resume(): Promise<void> | void;
+}
+
+interface EnvironmentBootstrapResult {
+  success: boolean;
+}
+
+export interface AgentInstructionHost {
+  isInstructionActive: boolean;
+  filesModifiedThisSession: boolean;
+  lastAssistantResponseForNotification: string;
+  taskStartedAt: number | null;
+  totalTokensUsed: number;
+  lastIntent: Intent;
+  activeAbortController: AbortController | null;
+  persistentInputActiveTurn: boolean;
+  promptSeedInput: string;
+  useInkRenderer: boolean;
+  inkRenderer: InstructionInkRenderer | null;
+  modalActive: boolean;
+  sessionRetryCount: number;
+  sessionTokensUsed: number;
+  runtime: AgentRuntime;
+  permissionManager?: PermissionManager;
+  intentDetector: InstructionIntentDetector;
+  persistentInput: InstructionPersistentInput;
+  conversation: InstructionConversation;
+  providerConfigManager: InstructionProviderConfigManager;
+  clearExplorationLog(): void;
+  displayIntentMode(intentResult: IntentResult): void;
+  runEnvironmentBootstrap(): Promise<EnvironmentBootstrapResult>;
+  initializeUI(
+    abortController?: AbortController,
+    onCancel?: () => void,
+    suppressSpinner?: boolean
+  ): Promise<void>;
+  stopStatusUpdates(): void;
+  stopUI(failed?: boolean, message?: string): void;
+  isUsingTerminalRegionsForActiveTurn(): boolean;
+  installPersistentConsoleBridge(): () => void;
+  formatStatusLine(): { left: string; right?: string };
+  printUserInstructionToChatLog(instruction: string): void;
+  setupPersistentInputInterruptHandlers(
+    abortController: AbortController,
+    onCancel: () => void
+  ): () => void;
+  setupEscListener(
+    abortController: AbortController,
+    onCancel: () => void,
+    ctrlCInterrupt?: boolean
+  ): () => void;
+  startPreparationStatus(instruction: string): () => void;
+  buildUserMessage(instruction: string): Promise<string>;
+  setUIStatus(status: string): void;
+  saveUserMessage(instruction: string): Promise<void>;
+  updateContextUsage(history: unknown[]): void;
+  runReactLoop(abortController: AbortController): Promise<void>;
+  runQualityPipeline(): Promise<void>;
+  cleanupUI(keepInkAlive?: boolean): void;
+  runInstruction(instruction: string): Promise<boolean>;
+  isRetryableSessionError(error: Error): boolean;
+  submitSessionFailureBugReport(error: Error, attempt: number, maxRetries: number): Promise<void>;
+  sleep(ms: number): Promise<void>;
+  shouldUsePassiveSessionRetry(error: Error): boolean;
+  injectContinuationMessage(error: Error, attempt: number): void;
+  getDisplayErrorMessage(error: unknown): string;
+  emitOutput(event: AgentOutputEvent): void;
+  printCompletionSummary(regionsStillActive: boolean): void;
+}
+
+export class InstructionRunner {
+  constructor(private readonly host: AgentInstructionHost) {}
+
+  async run(instruction: string): Promise<boolean> {
+    const host = this.host;
+
     host.isInstructionActive = true;
     host.clearExplorationLog();
     host.filesModifiedThisSession = false;
@@ -307,4 +405,4 @@ export async function runAgentInstruction(host: AgentInstructionHost, instructio
     }
     return success;
   }
-
+}
