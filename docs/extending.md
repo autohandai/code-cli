@@ -124,6 +124,63 @@ Pass `undefined` to clear the extension state:
 renderer.setLineExtensions(undefined);
 ```
 
+### Example: Session Diff Stats
+
+Use a status-line extension for live session counters such as lines added and removed. If the counters are not self-explanatory in your flow, add a help-line segment that names the custom state.
+
+The line-extension API supports rendering these counters today. It does not calculate session diff stats for you; the feature or integration owns tracking `added` and `removed`, then pushes the current values into the renderer.
+
+```ts
+interface SessionDiffStats {
+  added: number;
+  removed: number;
+}
+
+function updateSessionDiffLines(stats: SessionDiffStats): void {
+  const hasChanges = stats.added > 0 || stats.removed > 0;
+
+  renderer.setLineExtensions({
+    status: {
+      segments: [
+        {
+          id: 'session-lines-added',
+          text: stats.added > 0 ? `+${stats.added} lines` : '',
+          color: 'success',
+        },
+        {
+          id: 'session-lines-removed',
+          text: stats.removed > 0 ? `-${stats.removed} lines` : '',
+          color: 'error',
+        },
+      ],
+    },
+    help: {
+      segments: [
+        {
+          id: 'session-diff-summary',
+          text: hasChanges
+            ? `session diff: +${stats.added} / -${stats.removed}`
+            : '',
+          color: 'muted',
+        },
+      ],
+    },
+  });
+}
+```
+
+With the default status line, a working turn might render as:
+
+```text
+Gathering context... · (12s · 4.2K tokens) · esc to cancel · +18 lines · -4 lines
+```
+
+The help line would still preserve the default provider, context, and command hint segments, then append:
+
+```text
+session diff: +18 / -4
+```
+
 ### Replace The Defaults
 
 Only replace defaults when the feature needs a fully custom line. This is useful for temporary modes where built-in provider, context, or cancel hints would be misleading.
