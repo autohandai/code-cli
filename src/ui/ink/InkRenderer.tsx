@@ -18,6 +18,8 @@ import type { SlashCommand } from '../../core/slashCommandTypes.js';
 import type { SkillMentionInfo } from '../mentionFilter.js';
 import { ThemeProvider } from '../theme/ThemeContext.js';
 import { I18nProvider } from '../i18n/index.js';
+import { inkRenderOptions } from '../inkRenderOptions.js';
+import { stripAnsiCodes } from '../displayUtils.js';
 import { safeSetRawMode } from '../rawMode.js';
 
 export interface InkRendererOptions {
@@ -268,7 +270,7 @@ export class InkRenderer {
           />
         </I18nProvider>
       </ThemeProvider>,
-      {
+      inkRenderOptions({
         // Ensure Ink handles stdin for input capture
         stdin: process.stdin,
         stdout: process.stdout,
@@ -278,7 +280,7 @@ export class InkRenderer {
         // Concurrent mode makes unmount() flush React 19 passive effects synchronously
         // so useInput cleanup runs before the next render() (modal or resume).
         concurrent: true
-      }
+      })
     );
   }
 
@@ -517,9 +519,9 @@ export class InkRenderer {
       this.pendingLiveOutput.set(id, pending);
     }
     if (stream === 'stdout') {
-      pending.stdout += chunk;
+      pending.stdout += stripAnsiCodes(chunk);
     } else {
-      pending.stderr += chunk;
+      pending.stderr += stripAnsiCodes(chunk);
     }
 
     // Schedule a flush if not already pending
@@ -677,14 +679,12 @@ export class InkRenderer {
       this.instance.unmount();
       this.instance = null;
 
-      // Safety net: ensure stdin is in a clean paused, non-raw state in case
-      // any third-party listener was attached outside of Ink's lifecycle.
-      // After concurrent unmount these listeners should already be gone, but
-      // we remove them explicitly to guarantee the modal gets exclusive stdin.
+      // Safety net: ensure stdin is in a clean paused, non-raw state before
+      // modal prompts take ownership. Do not remove global listeners here:
+      // Ink owns its own cleanup, and other integrations may share stdin.
       if (process.stdin.isTTY) {
         process.stdin.setRawMode(false);
       }
-      process.stdin.removeAllListeners('readable');
     }
   }
 
@@ -771,7 +771,7 @@ export class InkRenderer {
             />
           </I18nProvider>
         </ThemeProvider>,
-        {
+        inkRenderOptions({
           stdin: process.stdin,
           stdout: process.stdout,
           stderr: process.stderr,
@@ -780,7 +780,7 @@ export class InkRenderer {
           // Concurrent mode makes unmount() flush React 19 passive effects synchronously
           // so useInput cleanup runs before the next render() (modal or resume).
           concurrent: true
-        }
+        })
       );
       if (process.env.AUTOHAND_DEBUG === '1') {
         console.log(`[DEBUG] InkRenderer.resume: instance created successfully`);

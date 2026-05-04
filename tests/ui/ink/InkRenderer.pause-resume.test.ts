@@ -140,18 +140,17 @@ describe('InkRenderer pause/resume cycle', () => {
     expect(rawMode).toBe(true);
   });
 
-  it('should restore readable listener after pause/resume', async () => {
+  it('does not remove readable listeners it does not own during pause', async () => {
+    const sentinelListener = vi.fn();
+    process.stdin.addListener('readable', sentinelListener);
+
     renderer.start();
-    // Mocked render() doesn't add readable listeners, but resume() calls
-    // stdin.resume() which in a real Ink instance would re-register them.
-    // Verify the pause side: pause() removes all readable listeners.
     renderer.pause();
-    expect(readableListeners.length).toBe(0);
+
+    expect(readableListeners).toContain(sentinelListener);
+    expect(process.stdin.removeAllListeners).not.toHaveBeenCalledWith('readable');
 
     await renderer.resume();
-    // After resume, renderer is running again — the real Ink instance
-    // would re-add readable listeners via useInput. With our mock render
-    // we just verify the renderer is back in a running state.
     expect(renderer.isRunning()).toBe(true);
   });
 
