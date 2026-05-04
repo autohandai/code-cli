@@ -12,6 +12,7 @@ import readline from 'node:readline';
 import { AutohandAgent } from '../../src/core/agent.js';
 import { getPlanModeManager } from '../../src/commands/plan.js';
 import { ApiError } from '../../src/providers/errors.js';
+import { buildToolLoopCallSignature } from '../../src/core/agent/ToolLoopSignature.js';
 
 async function waitForAssertion(assertion: () => void, attempts = 20): Promise<void> {
   let lastError: unknown;
@@ -1570,12 +1571,11 @@ describe('agent startup and active input UI', () => {
   });
 
   it('buildToolLoopCallSignature is stable for key and call ordering', () => {
-    const agent = Object.create(AutohandAgent.prototype) as any;
-    const first = (agent as any).buildToolLoopCallSignature([
+    const first = buildToolLoopCallSignature([
       { id: '1', tool: 'git_log', args: { max_count: 1, oneline: true } },
       { id: '2', tool: 'find', args: { query: 'TODO', path: 'src', mode: 'exact' } },
     ]);
-    const second = (agent as any).buildToolLoopCallSignature([
+    const second = buildToolLoopCallSignature([
       { id: '2', tool: 'find', args: { path: 'src', query: 'TODO', mode: 'exact' } },
       { id: '1', tool: 'git_log', args: { oneline: true, max_count: 1 } },
     ]);
