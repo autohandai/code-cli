@@ -12,7 +12,7 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 import { showModal, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 import { FileActionManager } from '../actions/filesystem.js';
-import { saveConfig, getProviderConfig } from '../config.js';
+import { getProviderConfig } from '../config.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import { safeEmitKeypressEvents } from '../ui/inputPrompt.js';
 
@@ -45,7 +45,6 @@ import type {
   ExplorationEvent,
   ProviderName,
   ToolOutputChunk,
-  LoadedConfig
 } from '../types.js';
 
 import { AgentDelegator } from './agents/AgentDelegator.js';
@@ -58,7 +57,6 @@ import { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import { CommunitySkillsClient } from '../skills/CommunitySkillsClient.js';
 import { McpClientManager } from '../mcp/McpClientManager.js';
 import type { McpServerConfig } from '../mcp/types.js';
-import { getAuthClient } from '../auth/index.js';
 import { PersistentInput } from '../ui/persistentInput.js';
 import { t } from '../i18n/index.js';
 // InkRenderer type - using 'any' to avoid bun bundling ink at compile time
@@ -75,7 +73,6 @@ import { HookManager } from './HookManager.js';
 import { TeamManager } from './teams/TeamManager.js';
 import { RepeatManager } from './RepeatManager.js';
 import type { SessionWorktreeInfo } from '../utils/sessionWorktree.js';
-import { isExternalCallbackEnabled } from '../ui/promptCallback.js';
 import { ActivityIndicator } from '../ui/activityIndicator.js';
 import { NotificationService } from '../utils/notification.js';
 import { getPlanModeManager } from '../commands/plan.js';
@@ -189,6 +186,25 @@ import {
   updateAgentInputLine,
   withAgentModalPause,
 } from './agent/AgentUIRuntime.js';
+import {
+  closeAgentSession,
+  emitAgentOutput,
+  emitAgentStatus,
+  forceAgentIdleLogout,
+  getAgentCompletionNotificationBody,
+  getAgentNotificationGuards,
+  getAgentStatusSnapshot,
+  getAndResetAgentExecutedActions,
+  getAndResetAgentFileModCount,
+  markAgentFilesModified,
+  normalizeAgentCompletionNotificationBody,
+  recordAgentExecutedAction,
+  saveAgentAssistantMessage,
+  saveAgentUserMessage,
+  setAgentOutputListener,
+  setAgentStatusListener,
+  type AgentSessionAccountingHost,
+} from './agent/AgentSessionAccounting.js';
 import { AutoReportManager } from '../reporting/AutoReportManager.js';
 import { SuggestionEngine } from './SuggestionEngine.js';
 
@@ -750,100 +766,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Clears the local auth token, informs the user, and exits.
    */
   private async forceIdleLogout(): Promise<void> {
-    const idleMinutes = Math.round((Date.now() - this.lastActivityAt) / 60_000);
-    console.log();
-    console.log(chalk.yellow(`Session idle for ${idleMinutes} minutes — logging out for security.`));
-    console.log(chalk.gray('Run autohand again to start a new session.'));
-
-    // Clear auth from config
-    if (this.runtime.config.auth?.token) {
-      const authClient = getAuthClient();
-      try {
-        await authClient.logout(this.runtime.config.auth.token);
-      } catch {
-        // Server logout failed, but we still clear local token
-      }
-
-      const updatedConfig: LoadedConfig = {
-        ...this.runtime.config,
-        auth: undefined,
-      };
-      try {
-        await saveConfig(updatedConfig);
-      } catch {
-        // Ignore save errors during idle logout
-      }
-    }
-
-    // Save current session before exit
-    const session = this.sessionManager.getCurrentSession();
-    if (session) {
-      try {
-        await this.sessionManager.closeSession('Idle timeout — auto logout');
-      } catch {
-        // Ignore session save errors during forced logout
-      }
-    }
-
-    await this.closeSession();
+    return forceAgentIdleLogout(this as unknown as AgentSessionAccountingHost);
   }
 
   private async closeSession(): Promise<void> {
-    const CLEANUP_TIMEOUT_MS = 2500;
-
-    // Clean up persistent input immediately
-    this.persistentInput.dispose();
-
-    const session = this.sessionManager.getCurrentSession();
-
-    if (!session) {
-      console.log(chalk.gray('Ending Autohand session.'));
-      await Promise.race([
-        Promise.allSettled([
-          this.mcpManager.disconnectAll(),
-        ]),
-        new Promise((resolve) => setTimeout(resolve, CLEANUP_TIMEOUT_MS)),
-      ]);
-      await this.telemetryManager.shutdown().catch(() => {});
-      return;
-    }
-
-    // Save session locally first (fast, essential)
-    const messages = session.getMessages();
-    const lastUserMsg = messages.filter(m => m.role === 'user').slice(-1)[0];
-    const summary = lastUserMsg?.content.slice(0, 60) || 'Session complete';
-    await this.sessionManager.closeSession(summary);
-
-    // Print exit message immediately - user sees instant feedback
-    console.log(chalk.gray('\nEnding Autohand session.\n'));
-    console.log(chalk.cyan(`💾 Session saved: ${session.metadata.sessionId}`));
-    console.log(chalk.gray(`   Resume with: autohand resume ${session.metadata.sessionId}\n`));
-
-    const sessionDuration = Date.now() - this.sessionStartedAt;
-    const cleanupTasks = [
-      this.mcpManager.disconnectAll(),
-      this.hookManager.executeHooks('session-end', {
-        sessionId: session.metadata.sessionId,
-        sessionEndReason: 'quit',
-        duration: sessionDuration,
-      }),
-      this.telemetryManager.syncSession({
-        messages: messages.map(m => ({
-          role: m.role,
-          content: m.content,
-          timestamp: m.timestamp
-        })),
-        metadata: { workspaceRoot: this.runtime.workspaceRoot }
-      }),
-      this.telemetryManager.endSession('completed'),
-    ];
-
-    await Promise.race([
-      Promise.allSettled(cleanupTasks),
-      new Promise((resolve) => setTimeout(resolve, CLEANUP_TIMEOUT_MS)),
-    ]);
-
-    await this.telemetryManager.shutdown().catch(() => {});
+    return closeAgentSession(this as unknown as AgentSessionAccountingHost);
   }
 
   private async runReactLoop(abortController: AbortController): Promise<void> {
@@ -1470,28 +1397,15 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async saveUserMessage(content: string): Promise<void> {
-    const session = this.sessionManager.getCurrentSession();
-    if (!session) return;
-
-    const message: SessionMessage = {
-      role: 'user',
-      content,
-      timestamp: new Date().toISOString()
-    };
-    await session.append(message);
+    return saveAgentUserMessage(this as unknown as AgentSessionAccountingHost, content);
   }
 
   private async saveAssistantMessage(content: string, toolCalls?: any[]): Promise<void> {
-    const session = this.sessionManager.getCurrentSession();
-    if (!session) return;
-
-    const message: SessionMessage = {
-      role: 'assistant',
+    return saveAgentAssistantMessage(
+      this as unknown as AgentSessionAccountingHost,
       content,
-      timestamp: new Date().toISOString(),
       toolCalls
-    };
-    await session.append(message);
+    );
   }
 
 
@@ -1537,27 +1451,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Mark that files were modified during this session (called by action executor)
    */
   markFilesModified(filePath?: string, changeType?: 'create' | 'modify' | 'delete'): void {
-    this.filesModifiedThisSession = true;
-    this.fileModCount++;
-    if (filePath) {
-      this.modifiedFilePaths.add(filePath);
-    }
-    // Fire file-modified hook for automation/notifications
-    if (filePath && this.hookManager) {
-      this.hookManager.executeHooks('file-modified', {
-        path: filePath,
-        changeType: changeType || 'modify',
-      }).catch(() => {}); // Non-blocking
-    }
-
-    // Emit file_modified output event for RPC/ACP forwarding
-    if (filePath) {
-      this.emitOutput({
-        type: 'file_modified',
-        filePath,
-        changeType: changeType || 'modify',
-      });
-    }
+    return markAgentFilesModified(this as unknown as AgentSessionAccountingHost, filePath, changeType);
   }
 
   /**
@@ -1565,29 +1459,21 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Used by auto-mode to track per-iteration file changes.
    */
   getAndResetFileModCount(): { count: number; paths: string[] } {
-    const result = {
-      count: this.fileModCount,
-      paths: [...this.modifiedFilePaths],
-    };
-    this.fileModCount = 0;
-    this.modifiedFilePaths.clear();
-    return result;
+    return getAndResetAgentFileModCount(this as unknown as AgentSessionAccountingHost);
   }
 
   /**
    * Record an executed action name (tool call) for tracking.
    */
   recordExecutedAction(actionType: string): void {
-    this.executedActionNames.push(actionType);
+    return recordAgentExecutedAction(this as unknown as AgentSessionAccountingHost, actionType);
   }
 
   /**
    * Get and reset executed action names since last call.
    */
   getAndResetExecutedActions(): string[] {
-    const actions = [...this.executedActionNames];
-    this.executedActionNames = [];
-    return actions;
+    return getAndResetAgentExecutedActions(this as unknown as AgentSessionAccountingHost);
   }
 
   /**
@@ -2099,50 +1985,18 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
 
   private getNotificationGuards() {
-    return {
-      isRpcMode: !!this.runtime.isRpcMode,
-      hasConfirmationCallback: !!this.confirmationCallback,
-      isAutoConfirm: !!this.runtime.config.ui?.autoConfirm,
-      isYesMode: !!this.runtime.options.yes,
-      hasExternalCallback: isExternalCallbackEnabled(),
-      notificationsConfig: this.runtime.config.ui?.notifications,
-    };
+    return getAgentNotificationGuards(this as unknown as AgentSessionAccountingHost);
   }
 
   private getCompletionNotificationBody(): string {
-    const direct = this.normalizeCompletionNotificationBody(this.lastAssistantResponseForNotification);
-    if (direct) {
-      return direct;
-    }
-
-    const history = this.conversation.history();
-    for (let i = history.length - 1; i >= 0; i -= 1) {
-      const message = history[i];
-      if (message.role !== 'assistant' || typeof message.content !== 'string') {
-        continue;
-      }
-
-      const payload = this.parseAssistantReactPayload(message.content);
-      const candidate = this.normalizeCompletionNotificationBody(
-        payload.finalResponse ?? payload.response ?? payload.thought ?? message.content
-      );
-      if (candidate) {
-        return candidate;
-      }
-    }
-
-    return 'Task completed';
+    return getAgentCompletionNotificationBody(this as unknown as AgentSessionAccountingHost);
   }
 
   private normalizeCompletionNotificationBody(raw: string): string {
-    const cleaned = this.cleanupModelResponse(raw).replace(/\s+/g, ' ').trim();
-    if (!cleaned) {
-      return '';
-    }
-    if (cleaned.length <= 220) {
-      return cleaned;
-    }
-    return `${cleaned.slice(0, 219)}…`;
+    return normalizeAgentCompletionNotificationBody(
+      this as unknown as AgentSessionAccountingHost,
+      raw
+    );
   }
 
   private async confirmDangerousAction(
@@ -2229,12 +2083,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   setStatusListener(listener: (snapshot: AgentStatusSnapshot) => void): void {
-    this.statusListener = listener;
-    this.emitStatus();
+    return setAgentStatusListener(this as unknown as AgentSessionAccountingHost, listener);
   }
 
   setOutputListener(listener: (event: AgentOutputEvent) => void): void {
-    this.outputListener = listener;
+    return setAgentOutputListener(this as unknown as AgentSessionAccountingHost, listener);
   }
 
   /**
@@ -2304,24 +2157,14 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private emitOutput(event: AgentOutputEvent): void {
-    if (this.outputListener) {
-      this.outputListener(event);
-    }
+    return emitAgentOutput(this as unknown as AgentSessionAccountingHost, event);
   }
 
   private emitStatus(): void {
-    if (this.statusListener) {
-      this.statusListener(this.getStatusSnapshot());
-    }
+    return emitAgentStatus(this as unknown as AgentSessionAccountingHost);
   }
 
   getStatusSnapshot(): AgentStatusSnapshot {
-    const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
-    return {
-      model: this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured',
-      workspace: this.runtime.workspaceRoot,
-      contextPercent: this.contextPercentLeft,
-      tokensUsed: this.totalTokensUsed
-    };
+    return getAgentStatusSnapshot(this as unknown as AgentSessionAccountingHost);
   }
 }
