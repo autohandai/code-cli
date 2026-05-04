@@ -6,10 +6,7 @@
 import chalk from 'chalk';
 import fs from 'fs-extra';
 import path from 'node:path';
-import { execFile, spawnSync } from 'node:child_process';
-import { promisify } from 'node:util';
-
-const execFileAsync = promisify(execFile);
+import { spawnSync } from 'node:child_process';
 import { showModal, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 import { FileActionManager } from '../actions/filesystem.js';
 import { getProviderConfig } from '../config.js';
@@ -18,10 +15,6 @@ import { safeEmitKeypressEvents } from '../ui/inputPrompt.js';
 
 import { safeSetRawMode } from '../ui/rawMode.js';
 import type { UIManager } from '../ui/UIManager.js';
-import {
-  estimateMessagesTokens,
-  calculateContextUsage
-} from './context/tokenizer.js';
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
 import { getAutoCommitInfo } from '../actions/git.js';
 import { ConversationManager } from './conversationManager.js';
@@ -58,7 +51,6 @@ import { CommunitySkillsClient } from '../skills/CommunitySkillsClient.js';
 import { McpClientManager } from '../mcp/McpClientManager.js';
 import type { McpServerConfig } from '../mcp/types.js';
 import { PersistentInput } from '../ui/persistentInput.js';
-import { t } from '../i18n/index.js';
 // InkRenderer type - using 'any' to avoid bun bundling ink at compile time
 // The actual type comes from dynamic import at runtime
 type InkRenderer = any;
@@ -75,10 +67,7 @@ import { RepeatManager } from './RepeatManager.js';
 import type { SessionWorktreeInfo } from '../utils/sessionWorktree.js';
 import { ActivityIndicator } from '../ui/activityIndicator.js';
 import { NotificationService } from '../utils/notification.js';
-import { getPlanModeManager } from '../commands/plan.js';
 import type { VersionCheckResult } from '../utils/versionCheck.js';
-import { getInstallHint } from '../utils/versionCheck.js';
-import { runWithConcurrency, type ParallelTaskSpec } from '../utils/parallel.js';
 // New feature modules
 import { ImageManager } from './ImageManager.js';
 import { IntentDetector, type Intent, type IntentResult } from './IntentDetector.js';
@@ -110,7 +99,6 @@ import {
   startAgentPreparationStatus,
   type AgentInputTurnHost,
 } from './agent/InputTurnCoordinator.js';
-import { buildSessionBootstrap } from './agent/SessionBootstrapBuilder.js';
 import {
   attachAgentSession,
   clearAgentQueuesAndAbort,
@@ -186,6 +174,18 @@ import {
   updateAgentInputLine,
   withAgentModalPause,
 } from './agent/AgentUIRuntime.js';
+import {
+  buildAgentUserMessage,
+  collectAgentContextSummary,
+  formatAgentStatusLine,
+  generateAgentSessionBootstrap,
+  injectAgentProjectKnowledge,
+  injectAgentSessionBootstrap,
+  loadAgentInstructionFiles,
+  resetAgentConversationContext,
+  updateAgentContextUsage,
+  type AgentContextRuntimeHost,
+} from './agent/AgentContextRuntime.js';
 import {
   closeAgentSession,
   emitAgentOutput,
@@ -861,28 +861,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async buildUserMessage(instruction: string): Promise<string> {
-    const context = await this.collectContextSummary();
-
-    const userPromptParts = [
-      `Workspace: ${context.workspaceRoot}`,
-      context.gitStatus ? `Git status:\n${context.gitStatus}` : 'Git status: clean or unavailable.',
-      `Recent files: ${context.recentFiles.join(', ') || 'none'}`,
-      this.runtime.options.path ? `Target path: ${this.runtime.options.path}` : undefined,
-      `Options: dryRun=${this.runtime.options.dryRun ?? false}, yes=${this.runtime.options.yes ?? false}`,
-      `Instruction: ${instruction}`
-    ]
-      .filter(Boolean)
-      .map(String);
-
-    const mentionContext = this.mentionResolver.flush();
-    if (mentionContext) {
-      if (mentionContext.files.length) {
-        this.recordExploration({ kind: 'read', target: mentionContext.files.join(', ') });
-      }
-      userPromptParts.push(`Mentioned files context:\n${mentionContext.block}`);
-    }
-
-    return userPromptParts.join('\n\n');
+    return buildAgentUserMessage(this as unknown as AgentContextRuntimeHost, instruction);
   }
 
   private async buildSystemPrompt(): Promise<string> {
@@ -1119,90 +1098,15 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async collectContextSummary(): Promise<{ workspaceRoot: string; gitStatus?: string; recentFiles: string[] }> {
-    const [gitStatus, entries] = await Promise.all([
-      execFileAsync('git', ['status', '-sb'], {
-        cwd: this.runtime.workspaceRoot,
-        encoding: 'utf8',
-      })
-        .then(({ stdout }) => String(stdout || '').trim() || undefined)
-        .catch(() => undefined),
-      fs.readdir(this.runtime.workspaceRoot),
-    ]);
-    const recentFiles = entries
-      .filter((entry) => !this.ignoreFilter.isIgnored(entry))
-      .slice(0, 20);
-
-    return {
-      workspaceRoot: this.runtime.workspaceRoot,
-      gitStatus,
-      recentFiles
-    };
+    return collectAgentContextSummary(this as unknown as AgentContextRuntimeHost);
   }
 
   private async loadInstructionFiles(): Promise<string[]> {
-    const workspace = this.runtime.workspaceRoot;
-    const agentsPath = path.join(workspace, 'AGENTS.md');
-    const providerFile = this.activeProvider.includes('anthropic') || this.activeProvider === 'openrouter'
-      ? 'CLAUDE.md'
-      : this.activeProvider.includes('google')
-        ? 'GEMINI.md'
-        : null;
-    const tasks: ParallelTaskSpec<string | null>[] = [
-      {
-        label: 'agents_instructions',
-        run: async () => {
-          if (!(await fs.pathExists(agentsPath))) {
-            return null;
-          }
-          const content = await fs.readFile(agentsPath, 'utf-8');
-          return `## Project Instructions (AGENTS.md)\n${content}`;
-        },
-      },
-    ];
-
-    if (providerFile) {
-      const providerPath = path.join(workspace, providerFile);
-      tasks.push({
-        label: 'provider_instructions',
-        run: async () => {
-          if (!(await fs.pathExists(providerPath))) {
-            return null;
-          }
-          const content = await fs.readFile(providerPath, 'utf-8');
-          return `## Provider Instructions (${providerFile})\n${content}`;
-        },
-      });
-    }
-
-    const instructions = await runWithConcurrency(tasks, this.getParallelismLimit());
-    return instructions.filter((instruction): instruction is string => Boolean(instruction));
+    return loadAgentInstructionFiles(this as unknown as AgentContextRuntimeHost);
   }
 
   private async injectProjectKnowledge(): Promise<void> {
-    const knowledge = await this.projectManager.getKnowledge(this.runtime.workspaceRoot);
-    if (!knowledge) return;
-
-    const parts: string[] = [];
-
-    if (knowledge.antiPatterns.length > 0) {
-      parts.push('Avoid these past failures:');
-      knowledge.antiPatterns.forEach(p => {
-        parts.push(`- ${p.pattern}: ${p.reason} (confidence: ${p.confidence.toFixed(2)})`);
-      });
-    }
-
-    if (knowledge.bestPractices.length > 0) {
-      parts.push('Follow these successful patterns:');
-      knowledge.bestPractices.forEach(p => {
-        parts.push(`- ${p.pattern}: ${p.reason} (confidence: ${p.confidence.toFixed(2)})`);
-      });
-    }
-
-    if (parts.length > 0) {
-      this.conversation.addSystemNote(
-        `Project Knowledge:\n${parts.join('\n')}`
-      );
-    }
+    return injectAgentProjectKnowledge(this as unknown as AgentContextRuntimeHost);
   }
 
   private setupEscListener(controller: AbortController, onCancel: () => void, ctrlCInterrupt = false): () => void {
@@ -1800,33 +1704,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
     return withAgentModalPause(this, fn);
   }
 
-  private updateContextUsage(messages: LLMMessage[], tools?: any[]): void {
-    if (!this.contextWindow) {
-      return;
-    }
-
-    // Use comprehensive context calculation if tools provided
-    if (tools) {
-      const model = this.runtime.options.model ?? getProviderConfig(this.runtime.config, this.activeProvider)?.model ?? 'unconfigured';
-      const usage = calculateContextUsage(
-        messages,
-        tools,
-        model
-      );
-      this.contextPercentLeft = Math.round((1 - usage.usagePercent) * 100);
-    } else {
-      // Fallback to simple message estimation
-      const usage = estimateMessagesTokens(messages);
-      const percent = Math.max(0, Math.min(1 - usage / this.contextWindow, 1));
-      this.contextPercentLeft = Math.round(percent * 100);
-    }
-
-    // Update InkRenderer with context percentage
-    if (this.inkRenderer) {
-      this.inkRenderer.setContextPercent(this.contextPercentLeft);
-    }
-
-    this.emitStatus();
+  private updateContextUsage(messages: LLMMessage[], tools?: import('../types.js').FunctionDefinition[]): void {
+    return updateAgentContextUsage(this as unknown as AgentContextRuntimeHost, messages, tools);
   }
 
   /**
@@ -1876,29 +1755,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private formatStatusLine(): { left: string; right: string } {
-    const percent = Number.isFinite(this.contextPercentLeft)
-      ? Math.max(0, Math.min(100, this.contextPercentLeft))
-      : 100;
-
-    const queueCount = this.inkRenderer?.getQueueCount() ?? this.persistentInput.getQueueLength();
-    const queueStatus = queueCount > 0 ? ` · ${queueCount} queued` : '';
-
-    const planModeManager = getPlanModeManager();
-
-    // Plan mode indicator
-    const planIndicator = planModeManager.isEnabled()
-      ? chalk.bgCyan.black.bold(' PLAN ') + ' '
-      : '';
-
-    const left = `${planIndicator}${percent}% context left · ${t('ui.commandHint')}${queueStatus}`;
-
-    let right = '';
-    if (this.versionCheckResult?.updateAvailable) {
-      const hint = getInstallHint(this.versionCheckResult.channel);
-      right = chalk.yellow('Update available! ') + chalk.cyan(`Run: ${hint}`);
-    }
-
-    return { left, right };
+    return formatAgentStatusLine(this as unknown as AgentContextRuntimeHost);
   }
 
   private printUserInstructionToChatLog(instruction: string): void {
@@ -1935,10 +1792,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async resetConversationContext(): Promise<void> {
-    const systemPrompt = await this.buildSystemPrompt();
-    this.conversation.reset(systemPrompt);
-    this.mentionResolver.clear();
-    this.updateContextUsage(this.conversation.history());
+    return resetAgentConversationContext(this as unknown as AgentContextRuntimeHost);
   }
 
   /**
@@ -1949,11 +1803,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * notices buried system prompt content.
    */
   private async generateSessionBootstrap(): Promise<string> {
-    return buildSessionBootstrap({
-      workspaceRoot: this.runtime.workspaceRoot,
-      getContextMemories: (limit) => this.memoryManager.getContextMemories(limit),
-      getActiveSkills: () => this.skillsRegistry.getActiveSkills(),
-    });
+    return generateAgentSessionBootstrap(this as unknown as AgentContextRuntimeHost);
   }
 
   /**
@@ -1961,14 +1811,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * session start (new CLI invocation, /new, /clear, or resumed session).
    */
   private async injectSessionBootstrap(): Promise<void> {
-    try {
-      const bootstrap = await this.generateSessionBootstrap();
-      if (bootstrap && bootstrap.length > '[Session Bootstrap]'.length + 10) {
-        this.conversation.addSystemNote(bootstrap, '[Session Bootstrap]');
-      }
-    } catch {
-      // Bootstrap is best-effort; never block session start
-    }
+    return injectAgentSessionBootstrap(this as unknown as AgentContextRuntimeHost);
   }
 
   private availableProviders(): ProviderName[] {
