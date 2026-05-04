@@ -5,7 +5,6 @@
  */
 import React, { useState, useEffect, memo, useMemo, useRef, useCallback } from 'react';
 import { Box, Text, useInput, useApp, useStdout, type Key as InkKey } from 'ink';
-import { useBufferedInput, type BufferedKeyInfo } from '../useBufferedInput.js';
 import { StatusLine } from './StatusLine.js';
 import { LiveCommandBlock, ToolOutputStatic, ToolOutputBatchStatic, type LiveCommandEntry, type ToolOutputEntry, type ToolOutputBatchEntry, type ToolOutputItem } from './ToolOutput.js';
 import { InputLine } from './InputLine.js';
@@ -83,6 +82,19 @@ interface TextBufferKeyInfo {
 const INK_TEXTBUFFER_VIEWPORT_HEIGHT = 10;
 /** Debounce delay for image detection after input changes (ms) */
 const INK_IMAGE_SCAN_DELAY_MS = 150;
+const BRACKETED_PASTE_START = '\x1b[200~';
+const BRACKETED_PASTE_END = '\x1b[201~';
+
+export interface InkPasteState {
+  isInPaste: boolean;
+  buffer: string;
+  hiddenContent: string | null;
+}
+
+export interface InkPasteConsumeResult {
+  handled: boolean;
+  completedText?: string;
+}
 
 function getInkTextBufferViewportWidth(columns: number | undefined): number {
   return Math.max(1, getPromptBlockWidth(columns) - 4);
@@ -103,7 +115,11 @@ function mapInkKeyToTextBufferKey(input: string, key: InkKey): TextBufferKeyInfo
     name = 'return';
   } else if (key.backspace) {
     name = 'backspace';
+  } else if (input === '\x7f' || input === '\b') {
+    name = 'backspace';
   } else if (key.delete) {
+    name = 'delete';
+  } else if (input === '\x1b[3~') {
     name = 'delete';
   } else if (key.tab) {
     name = 'tab';
@@ -136,6 +152,79 @@ export function getTextBufferCursorOffset(buffer: TextBuffer): number {
   return offset + col;
 }
 
+const COMPOSER_TRIGGER_CHARS = new Set(['/', '@', '$', '!', '#']);
+const INVISIBLE_OR_WHITESPACE_RE = /[\s\u200B-\u200D\uFEFF]/u;
+
+function compactComposerTriggerText(text: string): string {
+  return Array.from(text)
+    .filter(char => !INVISIBLE_OR_WHITESPACE_RE.test(char))
+    .join('');
+}
+
+export function isBareComposerTrigger(text: string, cursorOffset = text.length): boolean {
+  const compactText = compactComposerTriggerText(text);
+  if (compactText.length !== 1 || !COMPOSER_TRIGGER_CHARS.has(compactText)) {
+    return false;
+  }
+
+  const compactBeforeCursor = compactComposerTriggerText(text.slice(0, cursorOffset));
+  return compactBeforeCursor === compactText;
+}
+
+export function clearBareComposerTrigger(buffer: TextBuffer): boolean {
+  if (!isBareComposerTrigger(buffer.getText(), getTextBufferCursorOffset(buffer))) {
+    return false;
+  }
+
+  buffer.setText('');
+  return true;
+}
+
+function isForwardDeleteKey(input: string, key: InkKey): boolean {
+  return key.delete || input === '\x1b[3~';
+}
+
+export function consumeInkBracketedPasteInput(
+  input: string,
+  pasteState: InkPasteState
+): InkPasteConsumeResult {
+  if (!input) {
+    return { handled: false };
+  }
+
+  if (pasteState.isInPaste) {
+    const endIndex = input.indexOf(BRACKETED_PASTE_END);
+    if (endIndex === -1) {
+      pasteState.buffer += input;
+      return { handled: true };
+    }
+
+    const completedText = pasteState.buffer + input.slice(0, endIndex);
+    pasteState.isInPaste = false;
+    pasteState.buffer = '';
+    return { handled: true, completedText };
+  }
+
+  const startIndex = input.indexOf(BRACKETED_PASTE_START);
+  if (startIndex === -1) {
+    return { handled: false };
+  }
+
+  const pasteStart = startIndex + BRACKETED_PASTE_START.length;
+  const afterStart = input.slice(pasteStart);
+  const endIndex = afterStart.indexOf(BRACKETED_PASTE_END);
+  if (endIndex === -1) {
+    pasteState.isInPaste = true;
+    pasteState.buffer = afterStart;
+    return { handled: true };
+  }
+
+  return {
+    handled: true,
+    completedText: afterStart.slice(0, endIndex),
+  };
+}
+
 export function handleInkTextBufferInput(
   buffer: TextBuffer,
   input: string,
@@ -143,6 +232,10 @@ export function handleInkTextBufferInput(
 ): KeyHandlerResult {
   if (isShiftEnterResidualSequence(input)) {
     buffer.insert('\n');
+    return 'handled';
+  }
+
+  if (isForwardDeleteKey(input, key) && clearBareComposerTrigger(buffer)) {
     return 'handled';
   }
 
@@ -242,11 +335,7 @@ export function AgentUI({
   const imageScanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   // Paste state tracking for bracketed paste mode
-  const pasteStateRef = useRef<{
-    isInPaste: boolean;
-    buffer: string;
-    hiddenContent: string | null;
-  }>({
+  const pasteStateRef = useRef<InkPasteState>({
     isInPaste: false,
     buffer: '',
     hiddenContent: null,
@@ -334,6 +423,27 @@ export function AgentUI({
       getInkTextBufferViewportWidth(columns),
       INK_TEXTBUFFER_VIEWPORT_HEIGHT
     );
+  }, []);
+
+  const dismissAutocompleteState = useCallback(() => {
+    slashVisibleRef.current = false;
+    slashSuggestionsRef.current = [];
+    slashStartIndexRef.current = null;
+    slashFullMatchRef.current = null;
+    setSlashVisible(false);
+    setSlashSuggestions([]);
+
+    skillVisibleRef.current = false;
+    skillSuggestionsRef.current = [];
+    skillStartIndexRef.current = null;
+    setSkillVisible(false);
+    setSkillSuggestions([]);
+
+    fileMentionVisibleRef.current = false;
+    fileMentionSuggestionsRef.current = [];
+    fileMentionStartIndexRef.current = null;
+    setFileMentionVisible(false);
+    setFileMentionSuggestions([]);
   }, []);
 
   // Subscribe to plan mode changes
@@ -593,6 +703,26 @@ export function AgentUI({
   const handleInput = useCallback((char: string, key: InkKey) => {
     syncBufferViewport();
 
+    const pasteResult = consumeInkBracketedPasteInput(char, pasteStateRef.current);
+    if (pasteResult.handled) {
+      if (pasteResult.completedText !== undefined) {
+        const display = getContentDisplay(pasteResult.completedText);
+        const pasteState = pasteStateRef.current;
+        const buffer = textBufferRef.current;
+
+        if (display.isPasted) {
+          pasteState.hiddenContent = display.actual;
+          buffer.insert(display.visual);
+        } else {
+          pasteState.hiddenContent = null;
+          buffer.insert(pasteResult.completedText);
+        }
+
+        syncInputFromBuffer();
+      }
+      return;
+    }
+
     // Handle Shift+Tab for plan mode toggle
     if (key.tab && key.shift) {
       const planModeManager = getPlanModeManager();
@@ -603,29 +733,18 @@ export function AgentUI({
     // Handle escape - cancel current operation
     if (key.escape) {
       // Close any open dropdowns/menus first before calling onEscape
-      if (slashVisibleRef.current) {
-        slashVisibleRef.current = false;
-        slashSuggestionsRef.current = [];
-        slashStartIndexRef.current = null;
-        slashFullMatchRef.current = null;
-        setSlashVisible(false);
-        setSlashSuggestions([]);
+      if (slashVisibleRef.current || skillVisibleRef.current || fileMentionVisibleRef.current) {
+        dismissAutocompleteState();
+        if (clearBareComposerTrigger(textBufferRef.current)) {
+          syncInputFromBuffer();
+          setCtrlCCount(0);
+        }
         return;
       }
-      if (skillVisibleRef.current) {
-        skillVisibleRef.current = false;
-        skillSuggestionsRef.current = [];
-        skillStartIndexRef.current = null;
-        setSkillVisible(false);
-        setSkillSuggestions([]);
-        return;
-      }
-      if (fileMentionVisibleRef.current) {
-        fileMentionVisibleRef.current = false;
-        fileMentionSuggestionsRef.current = [];
-        fileMentionStartIndexRef.current = null;
-        setFileMentionVisible(false);
-        setFileMentionSuggestions([]);
+      if (clearBareComposerTrigger(textBufferRef.current)) {
+        dismissAutocompleteState();
+        syncInputFromBuffer();
+        setCtrlCCount(0);
         return;
       }
       if (showShortcutsRef.current) {
@@ -837,6 +956,11 @@ export function AgentUI({
       // been flushed to React yet.
       const currentText = buffer.getText();
       const currentOffset = getTextBufferCursorOffset(buffer);
+      if (currentText.trim() === '') {
+        dismissAutocompleteState();
+        return;
+      }
+
       const provider = filesProviderRef.current;
       if (provider) {
         const mention = matchFileMention(currentText, currentOffset);
@@ -929,7 +1053,7 @@ export function AgentUI({
 
       return;
     }
-  }, [syncBufferViewport, syncInputFromBuffer, exit]);
+  }, [syncBufferViewport, syncInputFromBuffer, dismissAutocompleteState, exit]);
 
   // Extra safety: wrap in a ref so useInput never re-registers even if
   // the above callback identity changes unexpectedly.
@@ -940,42 +1064,6 @@ export function AgentUI({
   }, []);
 
   useInput(stableHandleInput);
-
-  // Enhanced buffered input for Kitty keyboard protocol and paste detection
-  // This supplements useInput with better escape sequence handling
-  useBufferedInput({
-    onInput: (input, key, info) => {
-      // Handle Kitty keyboard protocol events with full modifier details
-      if (info?.kittyEvent) {
-        // Kitty protocol provides precise key and modifier information
-        // We can use this for enhanced key combinations in the future
-        // For now, the standard useInput handler processes these
-      }
-      
-      // Handle paste events (bracketed paste mode)
-      if (info?.sequenceType === 'paste') {
-        const pasteState = pasteStateRef.current;
-        const display = getContentDisplay(input);
-        
-        if (display.isPasted) {
-          // Large paste (5+ lines): show indicator, store actual content
-          pasteState.hiddenContent = display.actual;
-          
-          // Insert the visual indicator into the buffer
-          const buffer = textBufferRef.current;
-          buffer.insert(display.visual);
-          syncInputFromBuffer();
-        } else {
-          // Small paste: insert normally
-          pasteState.hiddenContent = null;
-          const buffer = textBufferRef.current;
-          buffer.insert(input);
-          syncInputFromBuffer();
-        }
-      }
-    },
-    isActive: !state.isWorking || enableQueueInput,
-  });
 
   // Memoize tool outputs to prevent unnecessary re-renders
   // Static items use the entry id as key and never re-render
