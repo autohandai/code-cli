@@ -29,14 +29,14 @@ import {
 
 import { safeSetRawMode } from '../ui/rawMode.js';
 import { isShellCommand, isImmediateCommand, parseShellCommand, executeShellCommandAsync, executeStreamingShellCommand } from '../ui/shellCommand.js';
-import { showFilePalette } from '../ui/ink/modals/filePalette.js';
-import { createInkRenderer } from '../ui/ink/InkRenderer.js';
-import { showQuestionModal } from '../ui/ink/modals/questionModal.js';
-import { showPlanAcceptModal } from '../ui/ink/modals/planAcceptModal.js';
-import { showDirectoryAccessModal } from '../ui/ink/modals/directoryAccessModal.js';
-import { createInkUIManager, type InkUIManager } from '../ui/InkUIManager.js';
-import { createPlainUIManager, type PlainUIManager } from '../ui/PlainUIManager.js';
+import { showFilePalette } from '../ui/filePalette.js';
+import { showQuestionModal } from '../ui/questionModal.js';
+import { showPlanAcceptModal } from '../ui/planAcceptModal.js';
+import { showDirectoryAccessModal } from '../ui/directoryAccessModal.js';
+import { createInkUIManager } from '../ui/InkUIManager.js';
+import { createPlainUIManager } from '../ui/PlainUIManager.js';
 import type { UIManager } from '../ui/UIManager.js';
+import { shouldUseInkRenderer } from '../ui/inkMode.js';
 import {
   getContextWindow,
   estimateMessagesTokens,
@@ -139,20 +139,19 @@ import {
 } from './agent/AgentFormatter.js';
 import { WorkspaceFileCollector } from './agent/WorkspaceFileCollector.js';
 import { ProviderConfigManager } from './agent/ProviderConfigManager.js';
+import { ReactionParser } from './agent/ReactionParser.js';
+import { ShellSuggestionProvider } from './agent/ShellSuggestionProvider.js';
+import { SimpleChatHandler, type SimpleChatAgent } from './agent/SimpleChatHandler.js';
 import {
   buildToolLoopCallSignature,
   buildToolLoopResultSignature,
   getToolCallLabel,
   truncateToolLoopSignature,
 } from './agent/ToolLoopSignature.js';
+import { McpStartupCoordinator } from './agent/McpStartupCoordinator.js';
 import { AutoReportManager } from '../reporting/AutoReportManager.js';
 import { isLikelyFilePathSlashInput } from './slashInputDetection.js';
 import { SuggestionEngine } from './SuggestionEngine.js';
-import {
-  buildMcpStartupSummaryRows,
-  getAutoConnectMcpServerNames,
-  truncateMcpStartupError,
-} from './mcpStartupHistory.js';
 
 /**
  * Error thrown when the ReAct loop is aborted by internal loop guards
@@ -191,11 +190,14 @@ export class AutohandAgent {
   private skillsRegistry: SkillsRegistry;
   private communityClient: CommunitySkillsClient;
   private mcpManager: McpClientManager;
+  private mcpStartupCoordinator: McpStartupCoordinator;
   /** Background MCP connection promise - resolves when all servers finish connecting */
   private mcpReady: Promise<void> | null = null;
   private activeAbortController: AbortController | null = null;
   private workspaceFileCollector: WorkspaceFileCollector;
   private providerConfigManager: ProviderConfigManager;
+  private reactionParser: ReactionParser;
+  private simpleChatHandler: SimpleChatHandler;
   private isInstructionActive = false;
   private hasPrintedExplorationHeader = false;
   private activeProvider: ProviderName;
@@ -209,8 +211,7 @@ export class AutohandAgent {
   private suggestionEngine: SuggestionEngine | null = null;
   private pendingSuggestion: Promise<void> | null = null;
   private isStartupSuggestion = false;
-  private shellSuggestionAbortController: AbortController | null = null;
-  private shellSuggestionPackageContextCache: { value: string; expiresAt: number } | null = null;
+  private shellSuggestionProvider: ShellSuggestionProvider;
 
   private taskStartedAt: number | null = null;
   private totalTokensUsed = 0;
@@ -274,6 +275,13 @@ export class AutohandAgent {
     this.ignoreFilter = new GitIgnoreParser(runtime.workspaceRoot, []);
     this.workspaceFileCollector = new WorkspaceFileCollector(runtime.workspaceRoot, this.ignoreFilter);
     this.conversation = ConversationManager.getInstance();
+    this.shellSuggestionProvider = new ShellSuggestionProvider({
+      runtime: this.runtime,
+      conversation: this.conversation,
+      getLlm: () => this.llm,
+      getParallelismLimit: () => this.getParallelismLimit(),
+    });
+    this.simpleChatHandler = new SimpleChatHandler(this as unknown as SimpleChatAgent);
 
     // Initialize suggestion engine if enabled in config.
     // Derive allowed tools from the user's permission config so suggestions
@@ -325,6 +333,9 @@ export class AutohandAgent {
     this.environmentBootstrap = new EnvironmentBootstrap();
     this.codeQualityPipeline = new CodeQualityPipeline();
     this.notificationService = new NotificationService();
+    this.reactionParser = new ReactionParser({
+      cleanupModelResponse: (content) => this.cleanupModelResponse(content),
+    });
 
     this.activityIndicator = new ActivityIndicator({
       activityVerbs: runtime.config.ui?.activityVerbs,
@@ -514,6 +525,11 @@ export class AutohandAgent {
 
     // Initialize MCP client manager
     this.mcpManager = new McpClientManager();
+    this.mcpStartupCoordinator = new McpStartupCoordinator({
+      isEnabled: () => this.runtime.config.mcp?.enabled !== false,
+      getConfiguredServers: () => this.runtime.config.mcp?.servers,
+      getRuntimeServers: () => this.mcpManager.listServers(),
+    });
 
     // Wire telemetry and community client to skills registry
     this.skillsRegistry.setTelemetryManager(this.telemetryManager);
@@ -1070,8 +1086,9 @@ export class AutohandAgent {
     this.sessionManager = new SessionManager();
     this.projectManager = new ProjectManager();
 
-    // Check if Ink renderer is enabled
-    this.useInkRenderer = runtime.config.ui?.useInkRenderer === true;
+    // Ink 7 + React 19 is the default interactive UI. Do not let stale
+    // config.ui.useInkRenderer values force the legacy composer.
+    this.useInkRenderer = shouldUseInkRenderer() && runtime.isRpcMode !== true;
 
     // Initialize UIManager based on config
     this.initializeUIManager();
@@ -1359,10 +1376,6 @@ export class AutohandAgent {
   /** Promise that resolves when background init is complete */
   private initReady: Promise<void> | null = null;
   private initDone = false;
-  private mcpStartupAutoConnectServers: string[] = [];
-  private mcpStartupConnectStartedAt: number | null = null;
-  private mcpStartupSummaryPrinted = false;
-  private mcpStartupSummaryPending = false;
 
   private getParallelismLimit(): number {
     return this.runtime?.config?.agent?.parallelToolConcurrency ?? 5;
@@ -1389,16 +1402,7 @@ export class AutohandAgent {
       this.pendingInkInstructions.push(initialInstruction);
     }
 
-    // Prepare startup visibility for async MCP connections.
-    this.mcpStartupAutoConnectServers = getAutoConnectMcpServerNames(this.runtime.config.mcp?.servers);
-    this.mcpStartupConnectStartedAt = null;
-    this.mcpStartupSummaryPrinted = false;
-    this.mcpStartupSummaryPending = false;
-    if (this.runtime.config.mcp?.enabled !== false && this.mcpStartupAutoConnectServers.length > 0) {
-      const count = this.mcpStartupAutoConnectServers.length;
-      const label = count === 1 ? 'server' : 'servers';
-      console.log(chalk.gray(`MCP startup: connecting ${count} ${label} in background...`));
-    }
+    this.mcpStartupCoordinator.prepareForInteractiveStartup();
 
     // Start ALL initialization in background so prompt appears instantly.
     // The user can start typing while managers initialize.
@@ -1509,14 +1513,7 @@ export class AutohandAgent {
       }
       this.currentInkAbortController = null;
     }
-    if (this.shellSuggestionAbortController) {
-      try {
-        this.shellSuggestionAbortController.abort();
-      } catch {
-        // Ignore abort errors
-      }
-      this.shellSuggestionAbortController = null;
-    }
+    this.shellSuggestionProvider?.abort();
 
     // Stop any active team processes
     if (this.teamManager) {
@@ -1564,13 +1561,13 @@ export class AutohandAgent {
       // Servers connect asynchronously; tools become available once ready.
       // Does NOT block the main init pipeline or user prompt.
       if (this.runtime.config.mcp?.enabled !== false) {
-        this.mcpStartupConnectStartedAt = Date.now();
+        this.mcpStartupCoordinator.markConnectStarted();
         this.mcpReady = this.mcpManager
           .connectAll(this.runtime.config.mcp?.servers ?? [])
           .then(() => { this.syncMcpTools(); })
           .catch(() => { /* individual server errors already captured by connectAll */ })
           .finally(() => {
-            this.mcpStartupSummaryPending = true;
+            this.mcpStartupCoordinator.markSummaryPending();
           });
       }
 
@@ -1641,7 +1638,7 @@ export class AutohandAgent {
         .then(() => { this.syncMcpTools(); })
         .catch(() => {})
         .finally(() => {
-          this.mcpStartupSummaryPending = true;
+          this.mcpStartupCoordinator.markSummaryPending();
         });
     }
     // These must run sequentially after the parallel init
@@ -1895,9 +1892,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     if (this.useInkRenderer && !this.inkRenderer) {
       await this.initializeUI(undefined, undefined, true);
       // Set to idle state so the Composer accepts input immediately
-      if (this.ui) {
-        this.ui.setWorking(false);
-      }
+      this.setComposerIdle();
     }
 
     while (true) {
@@ -1968,7 +1963,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
             if (process.env.AUTOHAND_DEBUG === '1') {
               console.log(`[DEBUG] Entering idle-wait, setting working=false`);
             }
-            this.ui?.setWorking(false);
+            this.setComposerIdle();
 
             // Wait for the user to submit text in the Composer.
             // handleInkSubmittedInstruction resolves this promise when it
@@ -2088,9 +2083,9 @@ If lint or tests fail, report the issues but do NOT commit.`;
               if (process.env.AUTOHAND_DEBUG === '1') {
                 console.log(`[DEBUG] After slash command output: inkRenderer exists=${!!this.inkRenderer}, isRunning=${this.inkRenderer?.isRunning()}`);
               }
-              if (this.ui) {
-                this.ui.setWorking(false);
-                this.ui.clearInput();
+              if (this.ui || this.inkRenderer) {
+                this.setComposerIdle();
+                this.clearComposerInput();
                 // Return to the top of the loop so the idle-wait path can await
                 // the next Composer submission without falling through to
                 // instruction.startsWith('/') which would throw on null.
@@ -2445,184 +2440,19 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async resolveLlmShellSuggestion(inputLine: string): Promise<string | null> {
-    const trimmedInput = inputLine.trim();
-    if (!trimmedInput.startsWith('!')) {
-      return null;
-    }
+    return this.getShellSuggestionProvider().resolve(inputLine);
+  }
 
-    const partialCommand = parseShellCommand(trimmedInput);
-    if (!partialCommand) {
-      return null;
-    }
-
-    this.shellSuggestionAbortController?.abort();
-    const controller = new AbortController();
-    this.shellSuggestionAbortController = controller;
-    const timeout = setTimeout(() => controller.abort(), 1800);
-
-    try {
-      const [packageContext, gitStatus] = await runWithConcurrency([
-        { label: 'package_context', run: async () => this.getShellSuggestionPackageContext() },
-        { label: 'git_status', run: async () => this.getShellSuggestionGitStatus() },
-      ], this.getParallelismLimit());
-
-      const recentHistory = this.conversation
-        .history()
-        .slice(-6)
-        .map((message) => {
-          const content = String(message.content ?? '')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .slice(0, 220);
-          return `${message.role}: ${content}`;
-        })
-        .filter(Boolean)
-        .join('\n');
-
-      const completion = await this.llm.complete({
-        messages: [
-          {
-            role: 'system',
-            content: [
-              'You are a shell autocomplete engine for a coding CLI.',
-              'Return exactly ONE shell command completion for the current partial command.',
-              'Output only the command line, no quotes and no markdown.',
-              'Must start with "! " and should extend the current partial input.',
-              'Prefer commands valid for this repo package manager and scripts.',
-            ].join(' '),
-          },
-          {
-            role: 'user',
-            content: [
-              `Current partial input: ${trimmedInput}`,
-              packageContext ? `Package/dependency context:\n${packageContext}` : 'Package/dependency context: unavailable',
-              gitStatus ? `Uncommitted changes context:\n${gitStatus}` : 'Uncommitted changes context: unavailable',
-              recentHistory ? `Recent chat context:\n${recentHistory}` : 'Recent chat context: unavailable',
-            ].join('\n\n'),
-          },
-        ],
-        maxTokens: 80,
-        temperature: 0.1,
-        signal: controller.signal,
+  private getShellSuggestionProvider(): ShellSuggestionProvider {
+    if (!this.shellSuggestionProvider) {
+      this.shellSuggestionProvider = new ShellSuggestionProvider({
+        runtime: this.runtime,
+        conversation: this.conversation,
+        getLlm: () => this.llm,
+        getParallelismLimit: () => this.getParallelismLimit(),
       });
-
-      if (controller.signal.aborted) {
-        return null;
-      }
-
-      return this.normalizeShellSuggestionFromLlm(completion.content, trimmedInput);
-    } catch {
-      return null;
-    } finally {
-      clearTimeout(timeout);
-      if (this.shellSuggestionAbortController === controller) {
-        this.shellSuggestionAbortController = null;
-      }
     }
-  }
-
-  private normalizeShellSuggestionFromLlm(raw: string, partialInput: string): string | null {
-    if (!raw) {
-      return null;
-    }
-
-    const candidate = raw
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)[0]
-      ?.replace(/^`+|`+$/g, '')
-      ?.replace(/^\$+\s*/, '')
-      ?.trim();
-
-    if (!candidate) {
-      return null;
-    }
-
-    const normalized = candidate.startsWith('!')
-      ? candidate
-      : `! ${candidate}`;
-    const compact = normalized.replace(/\s+/g, ' ').trim();
-    const compactPartial = partialInput.replace(/\s+/g, ' ').trim();
-
-    if (!compact.toLowerCase().startsWith(compactPartial.toLowerCase())) {
-      return null;
-    }
-    if (compact.toLowerCase() === compactPartial.toLowerCase()) {
-      return null;
-    }
-
-    return compact;
-  }
-
-  private async getShellSuggestionGitStatus(): Promise<string> {
-    try {
-      const { stdout } = await execFileAsync(
-        'git',
-        ['status', '--short', '--branch'],
-        { cwd: this.runtime.workspaceRoot, encoding: 'utf8', timeout: 1200 }
-      );
-      return String(stdout || '').trim().slice(0, 1200);
-    } catch {
-      return '';
-    }
-  }
-
-  private async getShellSuggestionPackageContext(): Promise<string> {
-    const now = Date.now();
-    if (this.shellSuggestionPackageContextCache && this.shellSuggestionPackageContextCache.expiresAt > now) {
-      return this.shellSuggestionPackageContextCache.value;
-    }
-
-    const root = this.runtime.workspaceRoot;
-    const lines: string[] = [];
-    const existenceChecks = [
-      { label: 'bun.lockb', paths: ['bun.lockb', 'bun.lock'], manager: 'bun' },
-      { label: 'pnpm-lock.yaml', paths: ['pnpm-lock.yaml'], manager: 'pnpm' },
-      { label: 'yarn.lock', paths: ['yarn.lock'], manager: 'yarn' },
-      { label: 'package-lock.json', paths: ['package-lock.json'], manager: 'npm' },
-      { label: 'python-lockfiles', paths: ['pyproject.toml', 'requirements.txt', 'Pipfile'], manager: 'python' },
-      { label: 'Cargo.toml', paths: ['Cargo.toml'], manager: 'cargo' },
-      { label: 'go.mod', paths: ['go.mod'], manager: 'go' },
-    ] as const;
-
-    const managerChecks = await runWithConcurrency(
-      existenceChecks.map(({ label, paths, manager }) => ({
-        label,
-        run: async () => ({
-          manager,
-          present: (await Promise.all(paths.map((rel) => fs.pathExists(path.join(root, rel))))).some(Boolean),
-        }),
-      })),
-      this.getParallelismLimit(),
-    );
-
-    const managers = managerChecks
-      .filter((entry) => entry.present)
-      .map((entry) => entry.manager);
-
-    if (managers.length > 0) {
-      lines.push(`Detected package managers: ${Array.from(new Set(managers)).join(', ')}`);
-    }
-
-    try {
-      const packageJsonPath = path.join(root, 'package.json');
-      if (await fs.pathExists(packageJsonPath)) {
-        const pkg = await fs.readJson(packageJsonPath) as { scripts?: Record<string, string> };
-        const scripts = Object.keys(pkg.scripts ?? {});
-        if (scripts.length > 0) {
-          lines.push(`package.json scripts: ${scripts.slice(0, 20).join(', ')}`);
-        }
-      }
-    } catch {
-      // best effort
-    }
-
-    const value = lines.join('\n');
-    this.shellSuggestionPackageContextCache = {
-      value,
-      expiresAt: now + 30_000,
-    };
-    return value;
+    return this.shellSuggestionProvider;
   }
 
   private async handleMemoryStore(content: string): Promise<void> {
@@ -2780,76 +2610,21 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Fast path for conversational responses
    */
   private isSimpleChat(instruction: string): boolean {
-    const normalized = instruction.trim().toLowerCase();
-    if (!normalized) return false;
+    return this.getSimpleChatHandler().isSimpleChat(instruction);
+  }
 
-    // Keep fast-path scoped to obvious casual chat only.
-    // All coding/analysis tasks should go through the full ReAct loop.
-    if (normalized.length > 200) return false;
-    if (normalized.includes('@')) return false;
-    if (normalized.startsWith('/')) return false;
-    if (normalized.startsWith('!')) return false;
-
-    const codingOrActionKeywords = /\b(file|create|edit|delete|run|fix|implement|refactor|build|test|install|commit|push|read|write|search|find|list|show me|update|add|remove|change|modify|rename|copy|move|execute|deploy|check|analyze|review|debug|inspect|explore|look at|open|save)\b/i;
-    if (codingOrActionKeywords.test(normalized)) return false;
-
-    const casualPatterns = [
-      /^(hi|hello|hey|yo|sup|hola|bonjour|ola)\b/,
-      /^(thanks|thank you|thx|cool|nice|awesome|great|ok|okay)\b/,
-      /\b(tell me a joke|another joke|say something funny|make me laugh)\b/,
-      /\bwho are you\b/,
-      /\bwhat can you do\b/,
-      /^good (morning|afternoon|evening)\b/,
-    ];
-
-    return casualPatterns.some((pattern) => pattern.test(normalized));
+  private getSimpleChatHandler(): SimpleChatHandler {
+    if (!this.simpleChatHandler) {
+      this.simpleChatHandler = new SimpleChatHandler(this as unknown as SimpleChatAgent);
+    }
+    return this.simpleChatHandler;
   }
 
   /**
    * Handle simple chat without spinner/tools (fast path)
    */
   private async handleSimpleChat(instruction: string): Promise<boolean> {
-    this.isInstructionActive = true;
-
-    try {
-      // Add user message to conversation
-      this.conversation.addMessage({ role: 'user', content: instruction });
-      await this.saveUserMessage(instruction);
-
-      // Quick LLM call - no tools, no spinner
-      const completion = await this.llm.complete({
-        messages: this.conversation.history(),
-        tools: [],  // No tools for chat
-        maxTokens: 1000,
-        temperature: 0.7
-      });
-
-      // Parse the response (LLM returns JSON format)
-      const payload = this.parseAssistantResponse(completion);
-      const rawContent = (payload.finalResponse ?? payload.response ?? completion.content).trim();
-      const content = this.cleanupModelResponse(rawContent);
-      this.lastAssistantResponseForNotification = content;
-      console.log(content);
-
-      // Add to conversation and save
-      this.conversation.addMessage({ role: 'assistant', content: completion.content });
-      await this.saveAssistantMessage(completion.content);
-
-      // Track token usage
-      if (completion.usage) {
-        this.totalTokensUsed = completion.usage.totalTokens;
-      }
-
-      this.updateContextUsage(this.conversation.history());
-      return true;
-    } catch (error) {
-      if (error instanceof Error) {
-        console.error(chalk.red(error.message));
-      }
-      return false;
-    } finally {
-      this.isInstructionActive = false;
-    }
+    return this.getSimpleChatHandler().handle(instruction);
   }
 
   async runInstruction(instruction: string): Promise<boolean> {
@@ -3619,8 +3394,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
               'I stopped repeated tool calls to prevent a loop and token waste. ' +
               'Please confirm if you want a direct answer now or a narrower retry instruction.';
             this.lastAssistantResponseForNotification = loopFallback;
-            this.ui?.setWorking(false);
-            this.ui?.setFinalResponse(loopFallback);
+            this.setComposerIdle();
+            this.setComposerFinalResponse(loopFallback);
             this.emitOutput({ type: 'message', content: loopFallback });
             throw new LoopAbortedError('Repeated tool-call limit exceeded');
           }
@@ -3968,8 +3743,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
           console.log(chalk.yellow('\n⚠ Model not providing response after multiple attempts. Showing available context.'));
           const fallback = payload.thought || 'The model did not provide a clear response. Please try rephrasing your question.';
           this.lastAssistantResponseForNotification = fallback;
-          this.ui?.setWorking(false);
-          this.ui?.setFinalResponse(fallback);
+          this.setComposerIdle();
+          this.setComposerFinalResponse(fallback);
           (this as any)[consecutiveEmptyKey] = 0;
           // Emit fallback for RPC mode
           this.emitOutput({ type: 'message', content: fallback });
@@ -4041,8 +3816,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
       const summaryResponse = summaryCompletion.content?.trim();
       if (summaryResponse) {
         this.lastAssistantResponseForNotification = summaryResponse;
-        this.ui?.setWorking(false);
-        this.ui?.setFinalResponse(summaryResponse);
+        this.setComposerIdle();
+        this.setComposerFinalResponse(summaryResponse);
         this.emitOutput({ type: 'message', content: summaryResponse });
         return;
       }
@@ -4059,365 +3834,60 @@ If lint or tests fail, report the issues but do NOT commit.`;
     );
     const fallbackMsg = `Task did not complete within ${maxIterations} iterations.\n\nProgress summary:\n${staticSummary}`;
     this.lastAssistantResponseForNotification = fallbackMsg;
-    this.ui?.setWorking(false);
-    this.ui?.setFinalResponse(fallbackMsg);
+    this.setComposerIdle();
+    this.setComposerFinalResponse(fallbackMsg);
     this.emitOutput({ type: 'message', content: fallbackMsg });
   }
 
-  /**
-   * Parse LLM response, preferring native tool calls over JSON parsing.
-   * This enables reliable function calling when providers support it,
-   * while falling back to JSON parsing for providers without native support.
-   */
+  private getReactionParser(): ReactionParser {
+    if (!this.reactionParser) {
+      this.reactionParser = new ReactionParser({
+        cleanupModelResponse: (content) => this.cleanupModelResponse(content),
+      });
+    }
+    return this.reactionParser;
+  }
+
   private parseAssistantResponse(completion: LLMResponse): AssistantReactPayload {
-    if (completion.toolCalls?.length) {
-      // When using native tool calls, content might be JSON or plain text
-      // Try to extract thought and reflection from JSON, otherwise use content as-is
-      let thought: string | undefined;
-      let reflection: string | undefined;
-      if (completion.content) {
-        const trimmed = completion.content.trim();
-        if (trimmed.startsWith('{')) {
-          // Try to parse JSON and extract thought/reflection fields
-          try {
-            const parsed = JSON.parse(trimmed);
-            thought = typeof parsed.thought === 'string' ? parsed.thought : undefined;
-            reflection = typeof parsed.reflection === 'string' ? parsed.reflection : undefined;
-          } catch {
-            // Not valid JSON, use as plain text (but clean it)
-            thought = this.cleanupModelResponse(trimmed) || undefined;
-          }
-        } else {
-          // Plain text content
-          thought = trimmed || undefined;
-        }
-      }
-      return {
-        thought,
-        reflection,
-        toolCalls: completion.toolCalls.map(tc => {
-          const rawArgs = tc.function.arguments;
-          return {
-            id: tc.id,
-            tool: tc.function.name as AgentAction['type'],
-            args: this.safeParseToolArgs(rawArgs)
-          };
-        })
-      };
-    }
-
-    // Fallback: some models output <tool_call> XML tags in text content
-    // instead of using the native tool calling API
-    const xmlToolCalls = this.extractXmlToolCalls(completion.content);
-    if (xmlToolCalls.length > 0) {
-      // Strip tool_call blocks from content to extract any surrounding text as thought
-      const textOutside = completion.content
-        .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
-        .trim();
-      // Try to extract reflection from the surrounding text if it's JSON
-      let reflection: string | undefined;
-      if (textOutside.startsWith('{')) {
-        try {
-          const parsed = JSON.parse(textOutside);
-          reflection = typeof parsed.reflection === 'string' ? parsed.reflection : undefined;
-        } catch {
-          // Not JSON, no reflection
-        }
-      }
-      return {
-        thought: textOutside || undefined,
-        reflection,
-        toolCalls: xmlToolCalls
-      };
-    }
-
-    return this.parseAssistantReactPayload(completion.content);
+    return this.getReactionParser().parseAssistantResponse(completion);
   }
 
-  /**
-   * Extract tool calls from <tool_call> XML tags in text content.
-   * Some models output tool calls as:
-   *   <tool_call>{"name": "write_file", "arguments": {"path": "...", "contents": "..."}}</tool_call>
-   *
-   * Handles edge cases:
-   * - Multiple tool calls in one response
-   * - Truncated/retried tool calls (LLM outputs a partial <tool_call> then restarts)
-   * - Unclosed <tool_call> tags (no </tool_call>)
-   */
   private extractXmlToolCalls(content: string): ToolCallRequest[] {
-    if (!content?.includes('<tool_call>')) return [];
-
-    const calls: ToolCallRequest[] = [];
-
-    // Phase 1: Match closed <tool_call>...</tool_call> pairs
-    const closedRegex = /<tool_call>([\s\S]*?)<\/tool_call>/g;
-    let match;
-
-    while ((match = closedRegex.exec(content)) !== null) {
-      let inner = match[1].trim();
-
-      // Handle retried output: if inner contains another <tool_call>,
-      // the LLM retried mid-stream. Take content after the last tag.
-      const lastTagIdx = inner.lastIndexOf('<tool_call>');
-      if (lastTagIdx !== -1) {
-        inner = inner.substring(lastTagIdx + '<tool_call>'.length).trim();
-      }
-
-      const parsed = this.tryParseXmlToolCall(inner);
-      if (parsed) calls.push(parsed);
-    }
-
-    // Phase 2: Handle unclosed <tool_call> at end of content (no </tool_call>)
-    if (calls.length === 0) {
-      const lastOpen = content.lastIndexOf('<tool_call>');
-      if (lastOpen !== -1) {
-        const remaining = content.substring(lastOpen + '<tool_call>'.length).trim();
-        // Only attempt if there's JSON-like content
-        if (remaining.startsWith('{')) {
-          const parsed = this.tryParseXmlToolCall(remaining);
-          if (parsed) calls.push(parsed);
-        }
-      }
-    }
-
-    return calls;
+    return this.getReactionParser().extractXmlToolCalls(content);
   }
 
-  /**
-   * Try to parse a single tool call from JSON content extracted from a <tool_call> block.
-   */
   private tryParseXmlToolCall(json: string): ToolCallRequest | null {
-    try {
-      const parsed = JSON.parse(json);
-      const name = parsed.name || parsed.tool;
-      if (!name) return null;
-
-      // Arguments can be in "arguments" or "args" field, or at top level
-      let args = parsed.arguments || parsed.args;
-      if (!args || typeof args !== 'object') {
-        // Try top-level keys (excluding name/tool/id)
-        const topLevel: Record<string, unknown> = {};
-        for (const [key, value] of Object.entries(parsed)) {
-          if (!['name', 'tool', 'id', 'arguments', 'args'].includes(key)) {
-            topLevel[key] = value;
-          }
-        }
-        if (Object.keys(topLevel).length > 0) args = topLevel;
-      }
-
-      // If arguments is a string (double-encoded JSON), parse it
-      if (typeof args === 'string') {
-        try { args = JSON.parse(args); } catch { /* keep as-is */ }
-      }
-
-      return {
-        id: parsed.id || randomUUID(),
-        tool: name as AgentAction['type'],
-        args
-      };
-    } catch {
-      return null;
-    }
+    return this.getReactionParser().tryParseXmlToolCall(json);
   }
 
-  /**
-   * Safely parse tool arguments from JSON string
-   */
   private safeParseToolArgs(json: string): ToolCallRequest['args'] {
-    if (!json || typeof json !== 'string') {
-      console.error(chalk.yellow('⚠ Tool arguments empty or not a string'));
-      return undefined;
-    }
-
-    try {
-      const parsed = JSON.parse(json);
-      // Return the parsed object if it's valid, otherwise undefined
-      if (parsed && typeof parsed === 'object') {
-        return parsed;
-      }
-      console.error(chalk.yellow(`⚠ Tool arguments parsed but not an object: ${typeof parsed}`));
-      return undefined;
-    } catch (err) {
-      // Log the error with the raw JSON for debugging
-      console.error(chalk.yellow(`⚠ Failed to parse tool arguments: ${err instanceof Error ? err.message : String(err)}`));
-      console.error(chalk.gray(`  Raw JSON: ${json.slice(0, 200)}${json.length > 200 ? '...' : ''}`));
-      return undefined;
-    }
+    return this.getReactionParser().safeParseToolArgs(json);
   }
 
   private parseAssistantReactPayload(raw: string): AssistantReactPayload {
-    const jsonBlock = this.extractJson(raw);
-    if (!jsonBlock) {
-      return { finalResponse: raw.trim() };
-    }
-    try {
-      const parsed = JSON.parse(jsonBlock) as Record<string, unknown>;
-
-      // Check if this looks like our expected structured format
-      const hasExpectedFields =
-        'thought' in parsed ||
-        'toolCalls' in parsed ||
-        'finalResponse' in parsed ||
-        'response' in parsed;
-
-      if (hasExpectedFields) {
-        // Standard structured response format — also check for inline single tool call
-        // e.g. {"thought": "...", "tool": "write_file", "args": {...}}
-        const inlineToolCall = this.extractSingleToolCall(parsed);
-        const toolCalls = this.normalizeToolCalls(parsed.toolCalls);
-        if (inlineToolCall && !toolCalls.length) {
-          toolCalls.push(inlineToolCall);
-        }
-        return {
-          thought: typeof parsed.thought === 'string' ? parsed.thought : undefined,
-          reflection: typeof parsed.reflection === 'string' ? parsed.reflection : undefined,
-          toolCalls,
-          finalResponse:
-            (typeof parsed.finalResponse === 'string' ? parsed.finalResponse : undefined) ??
-            (typeof parsed.response === 'string' ? parsed.response : undefined),
-          response: typeof parsed.response === 'string' ? parsed.response : undefined
-        };
-      }
-
-      // Single tool call format: {"tool": "write_file", "args": {"path": "...", "contents": "..."}}
-      // Some models omit the wrapping toolCalls array and return a bare tool call object.
-      const singleToolCall = this.extractSingleToolCall(parsed);
-      if (singleToolCall) {
-        return {
-          thought: typeof parsed.thought === 'string' ? parsed.thought : undefined,
-          reflection: typeof parsed.reflection === 'string' ? parsed.reflection : undefined,
-          toolCalls: [singleToolCall],
-        };
-      }
-
-      // Handle non-standard JSON formats from various models
-      // Look for common content fields that models might use
-      const contentValue = this.extractContentFromUnstructuredJson(parsed);
-      if (contentValue) {
-        return { finalResponse: contentValue };
-      }
-
-      // If JSON doesn't match any known format, treat original raw as plain text
-      return { finalResponse: raw.trim() };
-    } catch {
-      // JSON parsing failed - try to extract thought and reflection from malformed JSON using regex
-      const thoughtMatch = raw.match(/"thought"\s*:\s*"([^"]+)"/);
-      const reflectionMatch = raw.match(/"reflection"\s*:\s*"([^"]+)"/);
-      const reflection = reflectionMatch?.[1];
-      if (thoughtMatch?.[1]) {
-        return {
-          thought: thoughtMatch[1],
-          reflection,
-          finalResponse: thoughtMatch[1],
-        };
-      }
-      // If it looks like JSON but we can't parse it, return empty to trigger retry
-      if (raw.trim().startsWith('{')) {
-        return reflection ? { reflection } : {};
-      }
-      return { finalResponse: raw.trim() };
-    }
+    return this.getReactionParser().parseAssistantReactPayload(raw);
   }
 
-  /**
-   * Extracts content from non-standard JSON response formats.
-   * Different models may return content in various fields like:
-   * - { "content": "..." }
-   * - { "text": "..." }
-   * - { "message": "..." }
-   * - { "answer": "..." }
-   * - { "output": "..." }
-   * - { "type": "chat", "content": "..." }
-   */
   private extractContentFromUnstructuredJson(parsed: Record<string, unknown>): string | undefined {
-    // Priority order for common content field names
-    const contentFields = ['content', 'text', 'message', 'answer', 'output', 'result', 'reply'];
-
-    for (const field of contentFields) {
-      const value = parsed[field];
-      if (typeof value === 'string' && value.trim()) {
-        return value.trim();
-      }
-    }
-
-    // Check for nested message structures like { message: { content: "..." } }
-    if (parsed.message && typeof parsed.message === 'object') {
-      const msg = parsed.message as Record<string, unknown>;
-      if (typeof msg.content === 'string' && msg.content.trim()) {
-        return msg.content.trim();
-      }
-    }
-
-    // Check for choices array format (OpenAI-like responses that slip through)
-    if (Array.isArray(parsed.choices) && parsed.choices.length > 0) {
-      const choice = parsed.choices[0] as Record<string, unknown>;
-      if (choice.message && typeof choice.message === 'object') {
-        const msg = choice.message as Record<string, unknown>;
-        if (typeof msg.content === 'string' && msg.content.trim()) {
-          return msg.content.trim();
-        }
-      }
-      if (typeof choice.text === 'string' && choice.text.trim()) {
-        return choice.text.trim();
-      }
-    }
-
-    return undefined;
+    return this.getReactionParser().extractContentFromUnstructuredJson(parsed);
   }
 
   private normalizeToolCalls(value: unknown): ToolCallRequest[] {
-    if (!Array.isArray(value)) {
-      return [];
-    }
-    return value
-      .map((entry) => this.toToolCall(entry))
-      .filter((call): call is ToolCallRequest => Boolean(call));
+    return this.getReactionParser().normalizeToolCalls(value);
   }
 
-  private toToolCall(entry: any): ToolCallRequest | null {
-    if (!entry || typeof entry.tool !== 'string') {
-      return null;
-    }
-
-    // Get args from entry.args if it exists and is an object
-    let args = entry.args && typeof entry.args === 'object' ? entry.args : undefined;
-
-    // Fallback: if args is undefined, check if tool arguments are at the top level
-    // This handles cases where the LLM formats as: {"tool": "write_file", "path": "...", "contents": "..."}
-    // instead of: {"tool": "write_file", "args": {"path": "...", "contents": "..."}}
-    if (!args) {
-      const topLevelArgs: Record<string, unknown> = {};
-      const reservedKeys = ['tool', 'id', 'args'];
-
-      for (const [key, value] of Object.entries(entry)) {
-        if (!reservedKeys.includes(key) && value !== undefined) {
-          topLevelArgs[key] = value;
-        }
-      }
-
-      if (Object.keys(topLevelArgs).length > 0) {
-        args = topLevelArgs;
-      }
-    }
-
-    return {
-      id: typeof entry.id === 'string' ? entry.id : randomUUID(),
-      tool: entry.tool as AgentAction['type'],
-      args
-    };
+  private toToolCall(entry: unknown): ToolCallRequest | null {
+    return this.getReactionParser().toToolCall(entry);
   }
 
-  /**
-   * Detect a single bare tool call in a parsed JSON object.
-   * Handles: {"tool": "write_file", "args": {...}} or flat-args variant.
-   * Returns null if the object doesn't look like a valid tool call.
-   */
   private extractSingleToolCall(parsed: Record<string, unknown>): ToolCallRequest | null {
-    if (typeof parsed.tool !== 'string' || !parsed.tool.trim()) {
-      return null;
-    }
-    return this.toToolCall(parsed);
+    return this.getReactionParser().extractSingleToolCall(parsed);
   }
+
+  private extractJson(raw: string): string | null {
+    return this.getReactionParser().extractJson(raw);
+  }
+
 
   private async handleSmartContextCrop(call: ToolCallRequest): Promise<string> {
     const args = (call.args ?? {}) as Record<string, unknown>;
@@ -5045,18 +4515,6 @@ If lint or tests fail, report the issues but do NOT commit.`;
     };
   }
 
-  private extractJson(raw: string): string | null {
-    const fenceMatch = raw.match(/```json\s*([\s\S]*?)```/i);
-    if (fenceMatch) {
-      return fenceMatch[1];
-    }
-    const braceIndex = raw.indexOf('{');
-    if (braceIndex !== -1) {
-      return raw.slice(braceIndex);
-    }
-    return null;
-  }
-
   /**
    * Detect if response text expresses intent to perform an action without having done it.
    * This catches phrases like "Let me update...", "I will now edit...", "Next I'll create..."
@@ -5131,8 +4589,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   /**
-   * Initialize the UIManager based on configuration.
-   * Creates either InkUIManager or PlainUIManager depending on useInkRenderer config.
+   * Initialize the UIManager for the active terminal mode.
+   * Ink is the default interactive UI; Plain is only used for non-TTY/fallback paths.
    */
   private initializeUIManager(): void {
     if (this.ui) {
@@ -5156,7 +4614,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
           // Ctrl+C handling - could trigger graceful shutdown
         },
         enableQueueInput: true,
-        filesProvider: () => this.workspaceFileCollector.getFiles(),
+        filesProvider: () => this.workspaceFileCollector.getCachedFiles(),
         slashCommands: SLASH_COMMANDS,
       });
       this.ui = inkUIManager;
@@ -5185,7 +4643,6 @@ If lint or tests fail, report the issues but do NOT commit.`;
       console.log(`[DEBUG] initializeUI: useInkRenderer=${this.useInkRenderer}, stdout.isTTY=${process.stdout.isTTY}, stdin.isTTY=${process.stdin.isTTY}`);
     }
     if (this.useInkRenderer && process.stdout.isTTY && process.stdin.isTTY) {
-      // createInkRenderer is statically imported at the top of this file
       try {
         // Update the shared abort controller reference so Ink's onEscape
         // always targets the current turn (even when reusing Ink across turns).
@@ -5195,49 +4652,10 @@ If lint or tests fail, report the issues but do NOT commit.`;
         const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
         const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
 
-        if (this.inkRenderer?.isRunning()) {
-          // Reuse existing InkRenderer — just transition back to working state.
-          // This avoids the composer disappear/reappear flicker between turns.
-          this.inkRenderer.setWorking(true, 'Gathering context...');
-          this.inkRenderer.setProviderModel(this.activeProvider, model);
-          this.runtime.inkRenderer = this.inkRenderer;
-          return;
-        }
-
-        // Create and start InkRenderer (only in TTY mode)
-        this.inkRenderer = createInkRenderer({
-          onInstruction: (text: string) => { void this.handleInkSubmittedInstruction(text); },
-          onEscape: () => {
-            // ESC cancels the current operation — always use the latest abort controller
-            const ctrl = this.currentInkAbortController;
-            if (ctrl && !ctrl.signal.aborted) {
-              ctrl.abort();
-              this.currentInkOnCancel?.();
-            }
-          },
-          onCtrlC: () => {
-            // Ctrl+C is handled by InkRenderer (first warns, second exits)
-            // We just need to abort on the second one
-          },
-          enableQueueInput: this.runtime.config.agent?.enableRequestQueue !== false,
-          filesProvider: () => this.workspaceFileCollector.getCachedFiles(),
-          slashCommands: SLASH_COMMANDS,
-          skillsProvider: () =>
-            this.skillsRegistry.listSkills().map((s) => ({
-              name: s.name,
-              description: s.description ?? '',
-              isActive: s.isActive,
-              source: s.source,
-            })),
-        });
-        // Seed provider/model BEFORE start() so they are baked into the
-        // initial render. Otherwise React 19 concurrent mount hasn't attached
-        // the wrapper ref by the time setProviderModel() runs synchronously,
-        // and the welcome helpline misses the "autohand (provider, model)"
-        // prefix until the first state-triggered re-render.
-        this.inkRenderer.setProviderModel(this.activeProvider, model);
-        this.inkRenderer.start();
-        this.inkRenderer.setWorking(true, 'Gathering context...');
+        this.ui?.setProviderModel?.(this.activeProvider, model);
+        await this.ui?.start();
+        this.inkRenderer = this.ui?.getInkRenderer?.() ?? this.inkRenderer;
+        this.ui?.setWorking(true, 'Gathering context...');
         this.runtime.inkRenderer = this.inkRenderer;
       } catch (err) {
         // Fall back to ora spinner if ink can't be loaded (e.g., standalone binary)
@@ -5281,6 +4699,23 @@ If lint or tests fail, report the issues but do NOT commit.`;
       // No spinner (suppressed when persistent input is used) — route directly
       this.setPersistentInputActivityLine(status);
     }
+  }
+
+  private setComposerIdle(): void {
+    if (this.inkRenderer?.isRunning()) {
+      this.inkRenderer.setWorking(false);
+    }
+    this.ui?.setWorking(false);
+  }
+
+  private clearComposerInput(): void {
+    this.inkRenderer?.clearInput();
+    this.ui?.clearInput();
+  }
+
+  private setComposerFinalResponse(response: string): void {
+    this.inkRenderer?.setFinalResponse(response);
+    this.ui?.setFinalResponse(response);
   }
 
   /**
@@ -5370,6 +4805,23 @@ If lint or tests fail, report the issues but do NOT commit.`;
     } else {
       console.log(message);
     }
+  }
+
+  notifyUser(message: string): void {
+    if (this.inkRenderer?.isRunning()) {
+      this.inkRenderer.setStatus(message);
+      return;
+    }
+
+    if (
+      this.persistentInputActiveTurn &&
+      process.env.AUTOHAND_TERMINAL_REGIONS !== '0'
+    ) {
+      this.persistentInput.writeAbove(`${chalk.yellow(message)}\n`);
+      return;
+    }
+
+    promptNotify(chalk.yellow(message));
   }
 
   /**
@@ -6963,70 +6415,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private flushMcpStartupSummaryIfPending(): void {
-    if (!this.mcpStartupSummaryPending) {
-      return;
-    }
-
-    this.mcpStartupSummaryPending = false;
-    this.printMcpStartupSummaryIfNeeded();
-  }
-
-  private printMcpStartupSummaryIfNeeded(): void {
-    if (this.mcpStartupSummaryPrinted) {
-      return;
-    }
-    if (this.runtime.config.mcp?.enabled === false) {
-      this.mcpStartupSummaryPrinted = true;
-      return;
-    }
-    if (this.mcpStartupAutoConnectServers.length === 0) {
-      this.mcpStartupSummaryPrinted = true;
-      return;
-    }
-
-    this.mcpStartupSummaryPrinted = true;
-
-    const rows = buildMcpStartupSummaryRows(
-      this.mcpStartupAutoConnectServers,
-      this.mcpManager.listServers()
-    );
-
-    const elapsed = this.mcpStartupConnectStartedAt
-      ? formatElapsedTime(this.mcpStartupConnectStartedAt)
-      : null;
-
-    const connected = rows.filter((row) => row.status === 'connected').length;
-    const failed = rows.filter((row) => row.status === 'error').length;
-    const disconnected = rows.filter((row) => row.status === 'disconnected').length;
-    const summaryParts = [
-      `${connected} connected`,
-      failed > 0 ? `${failed} failed` : null,
-      disconnected > 0 ? `${disconnected} disconnected` : null,
-    ].filter(Boolean).join(', ');
-    const elapsedSuffix = elapsed ? ` in ${elapsed}` : '';
-
-    console.log(chalk.bold('\n* MCP startup'));
-    console.log(chalk.gray(`  Async connection phase complete${elapsedSuffix} (${summaryParts})`));
-
-    for (const row of rows) {
-      if (row.status === 'connected') {
-        const toolLabel = row.toolCount === 1 ? 'tool' : 'tools';
-        console.log(`  ${chalk.green('✓')} ${row.name} connected (${row.toolCount} ${toolLabel})`);
-        continue;
-      }
-
-      if (row.status === 'error') {
-        const errorSuffix = row.error
-          ? `: ${truncateMcpStartupError(row.error)}`
-          : '';
-        console.log(`  ${chalk.red('✖')} ${row.name} failed${errorSuffix}`);
-        continue;
-      }
-
-      console.log(`  ${chalk.yellow('○')} ${row.name} not connected`);
-    }
-
-    console.log();
+    this.mcpStartupCoordinator.flushSummaryIfPending();
   }
 
   private async resetConversationContext(): Promise<void> {

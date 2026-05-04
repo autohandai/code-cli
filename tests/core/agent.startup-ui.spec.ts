@@ -273,16 +273,16 @@ describe('agent startup and active input UI', () => {
     expect(spinner.text).not.toContain('┌');
   });
 
-  it('flushMcpStartupSummaryIfPending prints once and clears pending flag', () => {
+  it('flushMcpStartupSummaryIfPending delegates to the MCP startup coordinator', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
-    agent.mcpStartupSummaryPending = true;
-    agent.printMcpStartupSummaryIfNeeded = vi.fn();
+    agent.mcpStartupCoordinator = {
+      flushSummaryIfPending: vi.fn(),
+    };
 
     (agent as any).flushMcpStartupSummaryIfPending();
     (agent as any).flushMcpStartupSummaryIfPending();
 
-    expect(agent.mcpStartupSummaryPending).toBe(false);
-    expect(agent.printMcpStartupSummaryIfNeeded).toHaveBeenCalledTimes(1);
+    expect(agent.mcpStartupCoordinator.flushSummaryIfPending).toHaveBeenCalledTimes(2);
   });
 
   it('setUIStatus keeps spinner output on one line', () => {
@@ -1481,6 +1481,58 @@ describe('agent startup and active input UI', () => {
     }
   });
 
+  it('sets the mounted Ink renderer idle before waiting for composer input', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const inkSetWorking = vi.fn();
+    const uiSetWorking = vi.fn();
+
+    agent.useInkRenderer = true;
+    agent.inkRenderer = null;
+    agent.ui = {
+      setWorking: uiSetWorking,
+    };
+    agent.initializeUI = vi.fn(async () => {
+      agent.inkRenderer = {
+        isRunning: () => true,
+        hasQueuedInstructions: () => false,
+        setWorking: inkSetWorking,
+      };
+    });
+    agent.pendingInkInstructions = [];
+    agent.persistentInputActiveTurn = false;
+    agent.persistentInput = {
+      hasQueued: () => false,
+      getCurrentInput: () => '',
+      stop: vi.fn(),
+    };
+    agent.shouldExit = false;
+    agent.runtime = {
+      workspaceRoot: process.cwd(),
+    };
+    agent.errorLogger = {
+      log: vi.fn(async () => {}),
+    };
+    agent.sessionManager = {
+      getCurrentSession: vi.fn(() => null),
+    };
+    agent.telemetryManager = {
+      endSession: vi.fn(async () => {}),
+    };
+
+    Object.defineProperty(agent, 'inkInstructionResolver', {
+      configurable: true,
+      get: () => null,
+      set: () => {
+        throw new Error('EPERM idle wait reached');
+      },
+    });
+
+    await (agent as any).runInteractiveLoop();
+
+    expect(inkSetWorking).toHaveBeenCalledWith(false);
+    expect(uiSetWorking).toHaveBeenCalledWith(false);
+  });
+
   it('does not print user instruction log in ink renderer mode', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -1495,6 +1547,53 @@ describe('agent startup and active input UI', () => {
       expect(agent.inkRenderer.addUserMessage).toHaveBeenCalledWith('do not echo');
     } finally {
       logSpy.mockRestore();
+    }
+  });
+
+  it('initializes Ink through UIManager instead of creating a second renderer owner', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const stdoutDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    const stdinDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    const renderer = { isRunning: () => true };
+    const ui = {
+      start: vi.fn(async () => {}),
+      setProviderModel: vi.fn(),
+      setWorking: vi.fn(),
+      getInkRenderer: vi.fn(() => renderer),
+    };
+
+    agent.useInkRenderer = true;
+    agent.inkRenderer = null;
+    agent.ui = ui;
+    agent.activeProvider = 'openrouter';
+    agent.runtime = {
+      config: {
+        provider: 'openrouter',
+        openrouter: { apiKey: 'test-key', model: 'openrouter/test-model' },
+      },
+      options: {},
+      inkRenderer: null,
+    };
+
+    try {
+      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+
+      await (agent as any).initializeUI(new AbortController(), vi.fn(), true);
+
+      expect(ui.setProviderModel).toHaveBeenCalledWith('openrouter', 'openrouter/test-model');
+      expect(ui.start).toHaveBeenCalledTimes(1);
+      expect(ui.setWorking).toHaveBeenCalledWith(true, 'Gathering context...');
+      expect(ui.getInkRenderer).toHaveBeenCalled();
+      expect(agent.inkRenderer).toBe(renderer);
+      expect(agent.runtime.inkRenderer).toBe(renderer);
+    } finally {
+      if (stdoutDescriptor) {
+        Object.defineProperty(process.stdout, 'isTTY', stdoutDescriptor);
+      }
+      if (stdinDescriptor) {
+        Object.defineProperty(process.stdin, 'isTTY', stdinDescriptor);
+      }
     }
   });
 
@@ -1617,16 +1716,17 @@ describe('agent startup and active input UI', () => {
 
     const prompt = await (agent as any).buildSystemPrompt();
 
-    expect(prompt).toContain('Use `glob` first when you need file path discovery by filename, extension, or directory pattern.');
-    expect(prompt).toContain('Use `find` as the default code discovery tool.');
-    expect(prompt).toContain('Use `find` for content, symbol, import, regex, and semantic lookup inside files.');
-    expect(prompt).toContain('Use `read_file` after `find` identifies the exact file or region you need.');
-    expect(prompt).toContain('Prefer `glob`, `find`, `read_file`, `git_status`, and `git_diff` over `run_command` whenever they can accomplish the task.');
+    expect(prompt).toContain('Prefer `fff_find`');
+    expect(prompt).toContain('Prefer `fff_grep`');
+    expect(prompt).toContain('Use `fff_find` first when you need file discovery by filename, extension, or path pattern.');
+    expect(prompt).toContain('Use `fff_grep` as the default code discovery tool for content, symbols, imports, and regex lookup.');
+    expect(prompt).toContain('Use `read_file` after search identifies the exact file or region you need.');
+    expect(prompt).toContain('Prefer dedicated file tools (`fff_find`, `fff_grep`, `read_file`, `git_status`, `git_diff`) over `run_command` whenever they can accomplish the task.');
     expect(prompt).toContain('The legacy tools `search`, `search_with_context`, and `semantic_search` are compatibility aliases');
-    expect(prompt).toContain('Glob: `glob(pattern="**/*.test.ts")`');
-    expect(prompt).toContain('Exact: `find(query="parallelToolConcurrency|maxConcurrency", mode="exact")`');
-    expect(prompt).toContain('Context: `find(query="buildSystemPrompt", context=8, mode="context")`');
-    expect(prompt).toContain('Semantic: `find(query="code discovery and tool selection", mode="semantic")`');
+    expect(prompt).toContain('File discovery: `fff_find(query="**/*.test.ts")`');
+    expect(prompt).toContain('Content search: `fff_grep(query="UserController")`');
+    expect(prompt).toContain('Legacy glob: `glob(pattern="**/*.test.ts")`');
+    expect(prompt).toContain('Legacy find: `find(query="buildSystemPrompt", mode="exact")`');
     expect(prompt).toContain('Prefer dedicated tools over `run_command` whenever a dedicated tool exists.');
     expect(prompt).toContain('If the user mentions a directory or path outside the current workspace scope, proactively call `request_directory_access` to request access');
     expect(prompt).toContain('Do not use `run_command` as a workaround for directory access');
@@ -1732,9 +1832,10 @@ describe('agent startup and active input UI', () => {
     agent.outputListener = emitSpy;
 
     try {
-      await (agent as any).runReactLoop(new AbortController());
+      await expect((agent as any).runReactLoop(new AbortController()))
+        .rejects
+        .toThrow('Repeated tool-call limit exceeded');
       expect(executeTools).toHaveBeenCalledTimes(3);
-      expect(llmComplete).toHaveBeenCalledTimes(5);
       expect(addSystemNote).toHaveBeenCalledWith(expect.stringContaining('Critical Loop Guard'));
       expect(emitSpy).toHaveBeenCalledWith(expect.objectContaining({
         type: 'message',
