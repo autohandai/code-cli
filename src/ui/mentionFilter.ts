@@ -67,9 +67,12 @@ export function buildSkillMentionSuggestions(
   limit = MENTION_SUGGESTION_LIMIT
 ): string[] {
   const trimmedSeed = seed.trim();
-  // Require filter text after $ — don't show all skills for bare $
   if (!trimmedSeed) {
-    return [];
+    const sorted = [...skills].sort((a, b) => {
+      if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    return sorted.slice(0, limit).map((skill) => skill.name);
   }
 
   const normalizedSeed = trimmedSeed.toLowerCase();
