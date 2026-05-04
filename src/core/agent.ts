@@ -10,24 +10,16 @@ import { execFile, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
-import ora from 'ora';
 import { showModal, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 import { FileActionManager } from '../actions/filesystem.js';
 import { saveConfig, getProviderConfig } from '../config.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
-import {
-  getPromptBlockWidth,
-  promptNotify,
-  safeEmitKeypressEvents
-} from '../ui/inputPrompt.js';
+import { safeEmitKeypressEvents } from '../ui/inputPrompt.js';
 
 import { safeSetRawMode } from '../ui/rawMode.js';
-import { isShellCommand, parseShellCommand, executeShellCommandAsync, executeStreamingShellCommand } from '../ui/shellCommand.js';
 import { showQuestionModal } from '../ui/questionModal.js';
 import { showPlanAcceptModal } from '../ui/planAcceptModal.js';
 import { showDirectoryAccessModal } from '../ui/directoryAccessModal.js';
-import { createInkUIManager } from '../ui/InkUIManager.js';
-import { createPlainUIManager } from '../ui/PlainUIManager.js';
 import type { UIManager } from '../ui/UIManager.js';
 import {
   getContextWindow,
@@ -36,13 +28,11 @@ import {
 } from './context/tokenizer.js';
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
 import { getAutoCommitInfo } from '../actions/git.js';
-import { SLASH_COMMANDS } from './slashCommands.js';
 import { ConversationManager } from './conversationManager.js';
 import { ContextOrchestrator } from './context/orchestrator.js';
 import { ToolManager } from './toolManager.js';
 import { ActionExecutor } from './actionExecutor.js';
 import { SlashCommandHandler } from './slashCommandHandler.js';
-import { createImmediateShellCommandBlockWriter, formatImmediateShellCommandHeader } from './immediateCommandRouter.js';
 import { isToolAllowedByYolo, normalizeYoloInput, parseYoloPattern } from '../permissions/yoloMode.js';
 import { SessionManager } from '../session/SessionManager.js';
 import { ProjectManager } from '../session/ProjectManager.js';
@@ -106,11 +96,7 @@ import { EnvironmentBootstrap, type BootstrapResult } from './EnvironmentBootstr
 import { CodeQualityPipeline } from './CodeQualityPipeline.js';
 import { ProjectAnalyzer as OnboardingProjectAnalyzer } from '../onboarding/projectAnalyzer.js';
 import { AgentsGenerator } from '../onboarding/agentsGenerator.js';
-import {
-  formatExplorationLabel,
-  formatElapsedTime,
-  formatTokens
-} from './agent/AgentFormatter.js';
+import { formatExplorationLabel } from './agent/AgentFormatter.js';
 import { WorkspaceFileCollector } from './agent/WorkspaceFileCollector.js';
 import { ProviderConfigManager } from './agent/ProviderConfigManager.js';
 import { ReactionParser } from './agent/ReactionParser.js';
@@ -152,6 +138,40 @@ import {
   runAgentInteractiveLoop,
 } from './agent/AgentLifecycleRunner.js';
 import { promptForAgentInstruction } from './agent/PromptInstructionReader.js';
+import {
+  addAgentUIToolOutput,
+  addAgentUIToolOutputs,
+  buildAgentSpinnerStatusText,
+  cleanupAgentUI,
+  clearAgentComposerInput,
+  ensureAgentSpinnerRunning,
+  executeAgentImmediateShellCommand,
+  executeAgentImmediateShellCommandForComposer,
+  executeAgentImmediateShellCommandForInk,
+  fitAgentSpinnerLine,
+  forceRenderAgentSpinner,
+  formatAgentSpinnerFooter,
+  handleAgentInkSubmittedInstruction,
+  initializeAgentUI,
+  initializeAgentUIManager,
+  initAgentFallbackSpinner,
+  isAgentUsingTerminalRegionsForActiveTurn,
+  notifyAgentUser,
+  printAgentCompletionSummary,
+  resumeAgentSpinnerAfterModalPause,
+  setAgentComposerFinalResponse,
+  setAgentComposerIdle,
+  setAgentPersistentInputActivityLine,
+  setAgentSpinnerStatus,
+  setAgentUIStatus,
+  showAgentFeedbackWithPause,
+  shouldAgentPreferPtyForImmediateShellCommands,
+  startAgentStatusUpdates,
+  stopAgentStatusUpdates,
+  stopAgentUI,
+  updateAgentInputLine,
+  withAgentModalPause,
+} from './agent/AgentUIRuntime.js';
 import { AutoReportManager } from '../reporting/AutoReportManager.js';
 import { SuggestionEngine } from './SuggestionEngine.js';
 
@@ -1014,48 +1034,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Ink is the default interactive UI; Plain is only used for non-TTY/fallback paths.
    */
   private initializeUIManager(): void {
-    if (this.ui) {
-      return; // Already initialized
-    }
-
-    const isTTY = process.stdout.isTTY && process.stdin.isTTY;
-
-    if (this.useInkRenderer && isTTY) {
-      // Create Ink UIManager
-      const inkUIManager = createInkUIManager({
-        onInstruction: (text: string) => { void this.handleInkSubmittedInstruction(text); },
-        onEscape: () => {
-          const ctrl = this.currentInkAbortController;
-          if (ctrl && !ctrl.signal.aborted) {
-            ctrl.abort();
-            this.currentInkOnCancel?.();
-          }
-        },
-        onCtrlC: () => {
-          // Ctrl+C handling - could trigger graceful shutdown
-        },
-        enableQueueInput: true,
-        filesProvider: () => this.workspaceFileCollector.getCachedFiles(),
-        slashCommands: SLASH_COMMANDS,
-        skillsProvider: () =>
-          this.skillsRegistry.listSkills().map((skill) => ({
-            name: skill.name,
-            description: skill.description ?? '',
-            isActive: skill.isActive,
-            source: skill.source,
-          })),
-      });
-      this.ui = inkUIManager;
-    } else {
-      // Create Plain UIManager
-      const disableTerminalRegions = process.env.AUTOHAND_TERMINAL_REGIONS === '0';
-      this.ui = createPlainUIManager({
-        workspaceRoot: this.runtime.workspaceRoot,
-        silentMode: disableTerminalRegions,
-        resolveShellSuggestion: (input) => this.resolveLlmShellSuggestion(input),
-        suggestionProvider: () => this.suggestionEngine?.getSuggestion() ?? undefined,
-      });
-    }
+    return initializeAgentUIManager(this);
   }
 
   /**
@@ -1076,102 +1055,40 @@ If lint or tests fail, report the issues but do NOT commit.`;
     onCancel?: () => void,
     suppressSpinner = false
   ): Promise<void> {
-    if (process.env.AUTOHAND_DEBUG === '1') {
-      console.log(`[DEBUG] initializeUI: useInkRenderer=${this.useInkRenderer}, stdout.isTTY=${process.stdout.isTTY}, stdin.isTTY=${process.stdin.isTTY}`);
-    }
-    if (this.useInkRenderer && process.stdout.isTTY && process.stdin.isTTY) {
-      try {
-        // Update the shared abort controller reference so Ink's onEscape
-        // always targets the current turn (even when reusing Ink across turns).
-        this.currentInkAbortController = abortController ?? null;
-        this.currentInkOnCancel = onCancel ?? null;
-
-        this.syncProviderModelStatusLine();
-        await this.ui?.start();
-        this.inkRenderer = this.ui?.getInkRenderer?.() ?? this.inkRenderer;
-        this.ui?.setWorking(true, 'Gathering context...');
-        this.runtime.inkRenderer = this.inkRenderer;
-      } catch (err) {
-        // Fall back to ora spinner if ink can't be loaded (e.g., standalone binary)
-        if (process.env.AUTOHAND_DEBUG === '1') {
-          console.log(`[DEBUG] InkRenderer initialization failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
-        this.useInkRenderer = false;
-        if (!suppressSpinner) {
-          this.initFallbackSpinner();
-        }
-      }
-    } else if (!suppressSpinner) {
-      this.initFallbackSpinner();
-    }
-    // In non-TTY mode (RPC), skip spinner entirely
+    return initializeAgentUI(this, abortController, onCancel, suppressSpinner);
   }
 
   /**
    * Initialize fallback ora spinner when InkRenderer can't be loaded.
    */
   private initFallbackSpinner(): void {
-    if (process.stdout.isTTY) {
-      const spinner = ora({
-        text: 'Gathering context...',
-        spinner: 'dots'
-      }).start();
-      this.runtime.spinner = spinner;
-    }
+    return initAgentFallbackSpinner(this);
   }
 
   /**
    * Update the UI status text.
    */
   private setUIStatus(status: string): void {
-    if (this.inkRenderer) {
-      this.inkRenderer.setStatus(status);
-    } else if (this.runtime.spinner) {
-      // setSpinnerStatus already handles terminal regions internally
-      this.setSpinnerStatus(status);
-    } else if (this.isUsingTerminalRegionsForActiveTurn()) {
-      // No spinner (suppressed when persistent input is used) — route directly
-      this.setPersistentInputActivityLine(status);
-    }
+    return setAgentUIStatus(this, status);
   }
 
   private setComposerIdle(): void {
-    if (this.inkRenderer?.isRunning()) {
-      this.inkRenderer.setWorking(false);
-    }
-    this.ui?.setWorking(false);
+    return setAgentComposerIdle(this);
   }
 
   private clearComposerInput(): void {
-    this.inkRenderer?.clearInput();
-    this.ui?.clearInput();
+    return clearAgentComposerInput(this);
   }
 
   private setComposerFinalResponse(response: string): void {
-    this.inkRenderer?.setFinalResponse(response);
-    this.ui?.setFinalResponse(response);
+    return setAgentComposerFinalResponse(this, response);
   }
 
   /**
    * Stop the UI and show completion state.
    */
   private stopUI(failed = false, message?: string): void {
-    if (this.inkRenderer) {
-      // Update final stats before stopping (session totals for completionStats)
-      this.inkRenderer.setElapsed(formatElapsedTime(this.sessionStartedAt));
-      this.inkRenderer.setTokens(formatTokens(this.sessionTokensUsed + this.totalTokensUsed));
-      this.inkRenderer.setWorking(false);
-      if (message) {
-        this.inkRenderer.setFinalResponse(message);
-      }
-      // Don't stop InkRenderer here - let it stay for final response display
-    } else if (this.runtime.spinner) {
-      if (failed && message) {
-        this.runtime.spinner.fail(message);
-      } else {
-        this.runtime.spinner.stop();
-      }
-    }
+    return stopAgentUI(this, failed, message);
   }
 
   /**
@@ -1182,40 +1099,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * flicker between back-to-back turns.
    */
   private cleanupUI(keepInkAlive = false): void {
-    if (process.env.AUTOHAND_DEBUG === '1') {
-      console.log(`[DEBUG] cleanupUI called: keepInkAlive=${keepInkAlive}, inkRenderer exists=${!!this.inkRenderer}`);
-    }
-    if (this.inkRenderer) {
-      if (keepInkAlive) {
-        // Transition to idle state instead of destroying Ink.
-        // Queued instructions stay in Ink so runInteractiveLoop can dequeue
-        // directly on the next iteration without a full unmount/remount cycle.
-        this.inkRenderer.setWorking(false);
-        if (process.env.AUTOHAND_DEBUG === '1') {
-          console.log(`[DEBUG] cleanupUI: set working to false`);
-        }
-      } else {
-        // Preserve queued instructions before stopping
-        while (this.inkRenderer.hasQueuedInstructions()) {
-          const instruction = this.inkRenderer.dequeueInstruction();
-          if (instruction) {
-            this.pendingInkInstructions.push(instruction);
-          }
-        }
-        if (process.env.AUTOHAND_DEBUG === '1') {
-          console.log(`[DEBUG] cleanupUI: stopping inkRenderer`);
-        }
-        this.inkRenderer.stop();
-        this.inkRenderer = null;
-        this.runtime.inkRenderer = undefined;
-        // Clear any pending resolver so the idle-wait promise doesn't hang
-        this.inkInstructionResolver = null;
-      }
-    }
-    if (this.runtime.spinner) {
-      this.runtime.spinner.stop();
-      this.runtime.spinner = undefined;
-    }
+    return cleanupAgentUI(this, keepInkAlive);
   }
 
   /**
@@ -1225,37 +1109,11 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * the composer.
    */
   private printCompletionSummary(regionsStillActive: boolean): void {
-    if (!this.taskStartedAt) return;
-    const elapsed = formatElapsedTime(this.taskStartedAt);
-    const tokens = formatTokens(this.totalTokensUsed);
-    const queueCount = this.pendingInkInstructions.length +
-      (this.inkRenderer?.getQueueCount() ?? 0) +
-      this.persistentInput.getQueueLength();
-    const queueStatus = queueCount > 0 ? ` · ${queueCount} queued` : '';
-    const message = chalk.gray(`Completed in ${elapsed} · ${tokens} used${queueStatus}`);
-
-    if (regionsStillActive) {
-      this.persistentInput.writeAbove(message + '\n');
-    } else {
-      console.log(message);
-    }
+    return printAgentCompletionSummary(this, regionsStillActive);
   }
 
   notifyUser(message: string): void {
-    if (this.inkRenderer?.isRunning()) {
-      this.inkRenderer.setStatus(message);
-      return;
-    }
-
-    if (
-      this.persistentInputActiveTurn &&
-      process.env.AUTOHAND_TERMINAL_REGIONS !== '0'
-    ) {
-      this.persistentInput.writeAbove(`${chalk.yellow(message)}\n`);
-      return;
-    }
-
-    promptNotify(chalk.yellow(message));
+    return notifyAgentUser(this, message);
   }
 
   /**
@@ -1266,135 +1124,47 @@ If lint or tests fail, report the issues but do NOT commit.`;
     trigger: string,
     sessionId?: string
   ): Promise<void> {
-    const needsPause = this.persistentInputActiveTurn;
-
-    if (needsPause) {
-      this.persistentInput.pause();
-    }
-
-    try {
-      if (trigger === 'gratitude') {
-        await this.feedbackManager.quickRating();
-      } else {
-        await this.feedbackManager.promptForFeedback(trigger as any, sessionId);
-      }
-    } catch {
-      // Feedback should never crash the session
-    } finally {
-      if (needsPause) {
-        this.persistentInput.resume();
-      }
-    }
+    return showAgentFeedbackWithPause(this, trigger, sessionId);
   }
 
   /**
    * Add tool output to the UI.
    */
   private addUIToolOutput(tool: string, success: boolean, output: string): void {
-    if (this.inkRenderer) {
-      this.inkRenderer.addToolOutput(tool, success, output);
-    }
-    // For ora mode, we use console.log (handled separately)
+    return addAgentUIToolOutput(this, tool, success, output);
   }
 
   /**
    * Add batched tool outputs to the UI.
    */
   private addUIToolOutputs(outputs: Array<{ tool: string; success: boolean; output: string; thought?: string }>): void {
-    if (this.inkRenderer) {
-      this.inkRenderer.addToolOutputs(outputs);
-    }
-    // For ora mode, we use console.log (handled separately)
+    return addAgentUIToolOutputs(this, outputs);
   }
 
   private async handleInkSubmittedInstruction(text: string): Promise<void> {
-    if (isShellCommand(text)) {
-      await this.executeImmediateShellCommand(parseShellCommand(text));
-      return;
-    }
-
-    this.inkRenderer?.addQueuedInstruction(text);
-
-    // If the interactive loop is idle-waiting for the next Composer input,
-    // resolve the promise so it can dequeue and process this instruction.
-    if (this.inkInstructionResolver) {
-      this.inkInstructionResolver();
-      this.inkInstructionResolver = null;
-    }
+    return handleAgentInkSubmittedInstruction(this, text);
   }
 
   private shouldPreferPtyForImmediateShellCommands(): boolean {
-    return false;
+    return shouldAgentPreferPtyForImmediateShellCommands(this);
   }
 
   private async executeImmediateShellCommand(
     shellCmd: string,
     routeOpts?: { persistentInputActiveTurn: boolean; terminalRegionsDisabled: boolean; writeAbove: (text: string) => void }
   ): Promise<{ success: boolean; output?: string; error?: string }> {
-    if (this.inkRenderer) {
-      return this.executeImmediateShellCommandForInk(shellCmd);
-    }
-
-    return this.executeImmediateShellCommandForComposer(shellCmd, routeOpts);
+    return executeAgentImmediateShellCommand(this, shellCmd, routeOpts);
   }
 
   private async executeImmediateShellCommandForComposer(
     shellCmd: string,
     routeOpts?: { persistentInputActiveTurn: boolean; terminalRegionsDisabled: boolean; writeAbove: (text: string) => void }
   ): Promise<{ success: boolean; output?: string; error?: string }> {
-    if (routeOpts) {
-      const writer = createImmediateShellCommandBlockWriter(shellCmd, routeOpts);
-      const result = await executeShellCommandAsync(shellCmd, this.runtime.workspaceRoot, undefined, {
-        onStdout: (chunk) => writer.pushStdout(chunk),
-        onStderr: (chunk) => writer.pushStderr(chunk),
-      });
-      writer.flush();
-      return result;
-    }
-
-    console.log(chalk.cyan(formatImmediateShellCommandHeader(shellCmd)));
-    const result = await executeShellCommandAsync(shellCmd, this.runtime.workspaceRoot, undefined, {
-      onStdout: (chunk) => process.stdout.write(chunk),
-      onStderr: (chunk) => process.stderr.write(chunk),
-    });
-    if (!result.success) {
-      console.log(chalk.red(result.error || 'Command failed'));
-    }
-    console.log();
-    return result;
+    return executeAgentImmediateShellCommandForComposer(this, shellCmd, routeOpts);
   }
 
   private async executeImmediateShellCommandForInk(shellCmd: string): Promise<{ success: boolean; output?: string; error?: string }> {
-    if (!this.inkRenderer) {
-      return { success: false, error: 'Ink renderer is unavailable' };
-    }
-
-    const commandId = this.inkRenderer.startLiveCommand(`! ${shellCmd}`);
-    if (process.env.AUTOHAND_DEBUG === '1') {
-      console.log(`[DEBUG] executeImmediateShellCommandForInk: started ${shellCmd}, commandId=${commandId}`);
-    }
-    const result = await executeStreamingShellCommand(shellCmd, this.runtime.workspaceRoot, {
-      onStdout: (chunk) => {
-        if (process.env.AUTOHAND_DEBUG === '1') {
-          console.log(`[DEBUG] onStdout chunk: ${JSON.stringify(chunk)}`);
-        }
-        this.inkRenderer?.appendLiveCommandOutput(commandId, 'stdout', chunk);
-      },
-      onStderr: (chunk) => {
-        if (process.env.AUTOHAND_DEBUG === '1') {
-          console.log(`[DEBUG] onStderr chunk: ${JSON.stringify(chunk)}`);
-        }
-        this.inkRenderer?.appendLiveCommandOutput(commandId, 'stderr', chunk);
-      },
-      preferPty: this.shouldPreferPtyForImmediateShellCommands(),
-      columns: process.stdout.columns,
-      rows: process.stdout.rows,
-    });
-    if (process.env.AUTOHAND_DEBUG === '1') {
-      console.log(`[DEBUG] executeImmediateShellCommandForInk: finished, result=${JSON.stringify(result)}`);
-    }
-    this.inkRenderer.finishLiveCommand(commandId, result.success, result.error);
-    return result;
+    return executeAgentImmediateShellCommandForInk(this, shellCmd);
   }
 
   private async collectContextSummary(): Promise<{ workspaceRoot: string; gitStatus?: string; recentFiles: string[] }> {
@@ -2196,190 +1966,54 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Triggers immediate re-render with current input
    */
   private updateInputLine(): void {
-    // Just trigger a render - the render function will use current queueInput
-    this.forceRenderSpinner();
+    return updateAgentInputLine(this);
   }
 
   /**
    * Force an immediate spinner render with current state
    */
   private forceRenderSpinner(): void {
-    if (!this.taskStartedAt) return;
-
-    const elapsed = formatElapsedTime(this.taskStartedAt);
-    // Show session total tokens (includes current task + previous tasks in session)
-    const sessionTotal = this.sessionTokensUsed + this.totalTokensUsed;
-    const tokens = formatTokens(sessionTotal);
-    const queueCount = this.inkRenderer?.getQueueCount() ?? this.persistentInput.getQueueLength();
-    const queueHint = queueCount > 0 ? ` [${queueCount} queued]` : '';
-    const verb = this.activityIndicator?.getVerb?.() ?? 'Working';
-    const statusLine = `${verb}... (esc to interrupt · ${elapsed} · ${tokens}${queueHint})`;
-    const footerLine = this.formatStatusLine();
-    this.persistentInput.setStatusLine(footerLine);
-    const usingTerminalRegions = this.isUsingTerminalRegionsForActiveTurn();
-
-    if (this.inkRenderer) {
-      // InkRenderer handles its own state updates
-      this.inkRenderer.setStatus(`${verb}...`);
-      this.inkRenderer.setElapsed(elapsed);
-      this.inkRenderer.setTokens(tokens);
-      return;
-    }
-
-    const promptWidth = getPromptBlockWidth(process.stdout.columns);
-    const footerText = this.formatSpinnerFooter(footerLine);
-    const cacheKey = `${statusLine}|${footerText}|${promptWidth}|${usingTerminalRegions ? 'regions' : 'spinner'}`;
-
-    // Only update if something actually changed
-    if (cacheKey === this.lastRenderedStatus) return;
-    this.lastRenderedStatus = cacheKey;
-
-    if (usingTerminalRegions) {
-      if (this.runtime.spinner?.isSpinning) {
-        this.runtime.spinner.stop();
-      }
-      this.setPersistentInputActivityLine(statusLine);
-      return;
-    }
-
-    if (!this.runtime.spinner) return;
-
-    const fullText = this.buildSpinnerStatusText(statusLine, footerText);
-    this.runtime.spinner.text = fullText;
+    return forceRenderAgentSpinner(this);
   }
 
   private formatSpinnerFooter(footer: { left: string; right?: string }): string {
-    return footer.left + (footer.right ? ` · ${footer.right}` : '');
+    return formatAgentSpinnerFooter(this, footer);
   }
 
   private buildSpinnerStatusText(statusLine: string, footerLine?: string): string {
-    const promptWidth = getPromptBlockWidth(process.stdout.columns);
-    // Ora prefixes the first line with the spinner glyph and a space.
-    // Reserve 2 columns so wrapped status lines do not corrupt redraw.
-    const statusWidth = Math.max(10, promptWidth - 2);
-    const combined = footerLine ? `${statusLine} · ${footerLine}` : statusLine;
-    return this.fitSpinnerLine(combined, statusWidth);
+    return buildAgentSpinnerStatusText(this, statusLine, footerLine);
   }
 
   private fitSpinnerLine(value: string, width: number): string {
-    const plain = value.replace(/\u001b\[[0-9;]*m/g, '').replace(/[\x00-\x1F\x7F]/g, '');
-    if (width <= 0) {
-      return '';
-    }
-    if (plain.length <= width) {
-      return plain;
-    }
-    if (width === 1) {
-      return '…';
-    }
-    return `${plain.slice(0, width - 1)}…`;
+    return fitAgentSpinnerLine(this, value, width);
   }
 
   private setSpinnerStatus(status: string): void {
-    const footerLine = this.formatStatusLine();
-    this.persistentInput.setStatusLine(footerLine);
-
-    if (this.isUsingTerminalRegionsForActiveTurn()) {
-      if (this.runtime.spinner?.isSpinning) {
-        this.runtime.spinner.stop();
-      }
-      this.setPersistentInputActivityLine(status);
-      return;
-    }
-
-    if (!this.runtime.spinner) {
-      return;
-    }
-
-    const footerText = footerLine.left + (footerLine.right ? ` · ${footerLine.right}` : '');
-    this.runtime.spinner.text = this.buildSpinnerStatusText(status, footerText);
+    return setAgentSpinnerStatus(this, status);
   }
 
   private startStatusUpdates(): void {
-    if (this.statusInterval) {
-      clearInterval(this.statusInterval);
-    }
-
-    // Reset tracking state
-    this.lastRenderedStatus = '';
-
-    // Pick a fresh verb and tip for this working session
-    this.activityIndicator?.next?.();
-
-    // Immediate initial render
-    this.forceRenderSpinner();
-
-    // Update every second for elapsed time, but forceRenderSpinner
-    // handles deduplication so frequent calls are fine
-    this.statusInterval = setInterval(() => {
-      this.forceRenderSpinner();
-    }, 1000); // Once per second is enough for time updates
-
-    if (process.stdout.isTTY && !this.resizeHandler) {
-      this.resizeHandler = () => {
-        this.lastRenderedStatus = '';
-        if (this.runtime.spinner?.isSpinning) {
-          this.runtime.spinner.stop();
-          if (!this.isUsingTerminalRegionsForActiveTurn()) {
-            this.runtime.spinner.start();
-          }
-        }
-        this.forceRenderSpinner();
-      };
-      process.stdout.on('resize', this.resizeHandler);
-    }
+    return startAgentStatusUpdates(this);
   }
 
   private stopStatusUpdates(): void {
-    if (this.statusInterval) {
-      clearInterval(this.statusInterval);
-      this.statusInterval = null;
-    }
-    if (this.resizeHandler) {
-      process.stdout.off('resize', this.resizeHandler);
-      this.resizeHandler = null;
-    }
-    if (this.isUsingTerminalRegionsForActiveTurn()) {
-      this.setPersistentInputActivityLine('');
-    }
+    return stopAgentStatusUpdates(this);
   }
 
   private isUsingTerminalRegionsForActiveTurn(): boolean {
-    return this.persistentInputActiveTurn &&
-      process.env.AUTOHAND_TERMINAL_REGIONS !== '0' &&
-      !this.useInkRenderer;
+    return isAgentUsingTerminalRegionsForActiveTurn(this);
   }
 
   private setPersistentInputActivityLine(activity: string): void {
-    const persistentInputWithActivity = this.persistentInput as {
-      setActivityLine?: (value: string) => void;
-    } | undefined;
-    persistentInputWithActivity?.setActivityLine?.(activity);
+    return setAgentPersistentInputActivityLine(this, activity);
   }
 
   private ensureSpinnerRunning(): void {
-    if (!this.runtime.spinner) {
-      return;
-    }
-    if (this.isUsingTerminalRegionsForActiveTurn()) {
-      if (this.runtime.spinner.isSpinning) {
-        this.runtime.spinner.stop();
-      }
-      return;
-    }
-    if (!this.runtime.spinner.isSpinning) {
-      this.runtime.spinner.start();
-    }
+    return ensureAgentSpinnerRunning(this);
   }
 
   private resumeSpinnerAfterModalPause(): void {
-    if (!this.runtime.spinner) {
-      return;
-    }
-    if (this.isUsingTerminalRegionsForActiveTurn()) {
-      return;
-    }
-    this.runtime.spinner.start();
+    return resumeAgentSpinnerAfterModalPause(this);
   }
 
   /**
@@ -2388,34 +2022,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * executeAskFollowupQuestion, and handlePlanCreated.
    */
   private async withModalPause<T>(fn: () => Promise<T>): Promise<T> {
-    this.stopStatusUpdates();
-
-    const spinnerWasSpinning = this.runtime.spinner?.isSpinning;
-    if (spinnerWasSpinning) {
-      this.runtime.spinner?.stop();
-    }
-
-    this.persistentInput.pause();
-
-    if (this.inkRenderer) {
-      this.inkRenderer.pause();
-    }
-
-    try {
-      return await fn();
-    } finally {
-      if (this.inkRenderer) {
-        await this.inkRenderer.resume();
-      }
-
-      this.persistentInput.resume();
-
-      if (spinnerWasSpinning && this.runtime.spinner) {
-        this.resumeSpinnerAfterModalPause();
-      }
-
-      this.startStatusUpdates();
-    }
+    return withAgentModalPause(this, fn);
   }
 
   private updateContextUsage(messages: LLMMessage[], tools?: any[]): void {
