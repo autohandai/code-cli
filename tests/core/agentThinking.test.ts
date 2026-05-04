@@ -6,6 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { AutohandAgent } from '../../src/core/agent.js';
+import { ReactionParser } from '../../src/core/agent/ReactionParser.js';
 
 /**
  * Access the private parseAssistantReactPayload method for testing.
@@ -16,28 +17,32 @@ function createMinimalAgent(): any {
   return agent;
 }
 
+function createParser(): ReactionParser {
+  return new ReactionParser();
+}
+
 describe('parseAssistantReactPayload thought extraction', () => {
   it('extracts thought from JSON {"thought": "..."} structure', () => {
-    const agent = createMinimalAgent();
+    const parser = createParser();
     const raw = '{"thought": "The user greeted me with hey there, let me think about how to respond."}';
-    const result = agent.parseAssistantReactPayload(raw);
+    const result = parser.parseAssistantReactPayload(raw);
 
     expect(result.thought).toBe('The user greeted me with hey there, let me think about how to respond.');
   });
 
   it('extracts thought and finalResponse from complete JSON payload', () => {
-    const agent = createMinimalAgent();
+    const parser = createParser();
     const raw = '{"thought": "Analyzing the request...", "finalResponse": "Here is the answer."}';
-    const result = agent.parseAssistantReactPayload(raw);
+    const result = parser.parseAssistantReactPayload(raw);
 
     expect(result.thought).toBe('Analyzing the request...');
     expect(result.finalResponse).toBe('Here is the answer.');
   });
 
   it('extracts thought with empty toolCalls and no finalResponse', () => {
-    const agent = createMinimalAgent();
+    const parser = createParser();
     const raw = '{"thought": "Let me consider this carefully.", "toolCalls": []}';
-    const result = agent.parseAssistantReactPayload(raw);
+    const result = parser.parseAssistantReactPayload(raw);
 
     expect(result.thought).toBe('Let me consider this carefully.');
     expect(result.toolCalls).toEqual([]);
@@ -45,19 +50,19 @@ describe('parseAssistantReactPayload thought extraction', () => {
   });
 
   it('treats plain text as finalResponse (not JSON)', () => {
-    const agent = createMinimalAgent();
+    const parser = createParser();
     const raw = 'Hello! How can I help you today?';
-    const result = agent.parseAssistantReactPayload(raw);
+    const result = parser.parseAssistantReactPayload(raw);
 
     expect(result.finalResponse).toBe('Hello! How can I help you today?');
     expect(result.thought).toBeUndefined();
   });
 
   it('handles malformed JSON by falling back to regex thought extraction', () => {
-    const agent = createMinimalAgent();
+    const parser = createParser();
     // Malformed JSON with complete quoted thought but missing closing brace
     const raw = '{"thought": "partial response here", "toolCalls": [';
-    const result = agent.parseAssistantReactPayload(raw);
+    const result = parser.parseAssistantReactPayload(raw);
 
     // Should extract thought via regex fallback (requires complete quoted value)
     expect(result.thought).toBe('partial response here');
@@ -67,9 +72,9 @@ describe('parseAssistantReactPayload thought extraction', () => {
 
 describe('usedThoughtAsResponse logic', () => {
   it('thought becomes the response when no finalResponse, response, or toolCalls', () => {
-    const agent = createMinimalAgent();
+    const parser = createParser();
     const raw = '{"thought": "The user said hi. I should respond warmly."}';
-    const payload = agent.parseAssistantReactPayload(raw);
+    const payload = parser.parseAssistantReactPayload(raw);
 
     // Simulate the usedThoughtAsResponse logic from agent.ts
     const usedThoughtAsResponse = Boolean(payload.thought) &&
@@ -98,9 +103,9 @@ describe('usedThoughtAsResponse logic', () => {
   });
 
   it('finalResponse takes priority over thought when both present', () => {
-    const agent = createMinimalAgent();
+    const parser = createParser();
     const raw = '{"thought": "thinking...", "finalResponse": "The actual answer."}';
-    const payload = agent.parseAssistantReactPayload(raw);
+    const payload = parser.parseAssistantReactPayload(raw);
 
     const usedThoughtAsResponse = Boolean(payload.thought) &&
       !payload.finalResponse &&
@@ -164,9 +169,9 @@ describe('cleanupModelResponse does not mangle thought text', () => {
 
 describe('parseAssistantReactPayload single tool call format', () => {
   it('wraps {"tool": "...", "args": {...}} into toolCalls array', () => {
-    const agent = createMinimalAgent();
+    const parser = createParser();
     const raw = '{"tool": "write_file", "args": {"path": "blog/post.md", "contents": "# Hello"}}';
-    const result = agent.parseAssistantReactPayload(raw);
+    const result = parser.parseAssistantReactPayload(raw);
 
     expect(result.toolCalls).toBeDefined();
     expect(result.toolCalls!.length).toBe(1);
@@ -177,9 +182,9 @@ describe('parseAssistantReactPayload single tool call format', () => {
   });
 
   it('wraps single tool call with flat args into toolCalls array', () => {
-    const agent = createMinimalAgent();
+    const parser = createParser();
     const raw = '{"tool": "read_file", "path": "/src/index.ts"}';
-    const result = agent.parseAssistantReactPayload(raw);
+    const result = parser.parseAssistantReactPayload(raw);
 
     expect(result.toolCalls).toBeDefined();
     expect(result.toolCalls!.length).toBe(1);
@@ -188,9 +193,9 @@ describe('parseAssistantReactPayload single tool call format', () => {
   });
 
   it('wraps single tool call with thought into toolCalls', () => {
-    const agent = createMinimalAgent();
+    const parser = createParser();
     const raw = '{"thought": "Creating blog post", "tool": "write_file", "args": {"path": "blog/post.md", "contents": "content"}}';
-    const result = agent.parseAssistantReactPayload(raw);
+    const result = parser.parseAssistantReactPayload(raw);
 
     // thought should be extracted AND tool call recognized
     expect(result.thought).toBe('Creating blog post');
@@ -200,10 +205,10 @@ describe('parseAssistantReactPayload single tool call format', () => {
   });
 
   it('does not treat random JSON with "tool" string value as tool call', () => {
-    const agent = createMinimalAgent();
+    const parser = createParser();
     // "tool" is present but not a tool name pattern — this is just data
     const raw = '{"message": "Use the tool panel", "tool": ""}';
-    const result = agent.parseAssistantReactPayload(raw);
+    const result = parser.parseAssistantReactPayload(raw);
 
     expect(result.toolCalls?.length ?? 0).toBe(0);
   });

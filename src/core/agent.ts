@@ -30,10 +30,8 @@ import type {
   AgentRuntime,
   AgentAction,
   LLMMessage,
-  LLMResponse,
   AgentStatusSnapshot,
   AgentOutputEvent,
-  AssistantReactPayload,
   ToolCallRequest,
   ExplorationEvent,
   ProviderName,
@@ -784,47 +782,6 @@ If lint or tests fail, report the issues but do NOT commit.`;
     }
     return this.reactionParser;
   }
-
-  private parseAssistantResponse(completion: LLMResponse): AssistantReactPayload {
-    return this.getReactionParser().parseAssistantResponse(completion);
-  }
-
-  private extractXmlToolCalls(content: string): ToolCallRequest[] {
-    return this.getReactionParser().extractXmlToolCalls(content);
-  }
-
-  private tryParseXmlToolCall(json: string): ToolCallRequest | null {
-    return this.getReactionParser().tryParseXmlToolCall(json);
-  }
-
-  private safeParseToolArgs(json: string): ToolCallRequest['args'] {
-    return this.getReactionParser().safeParseToolArgs(json);
-  }
-
-  private parseAssistantReactPayload(raw: string): AssistantReactPayload {
-    return this.getReactionParser().parseAssistantReactPayload(raw);
-  }
-
-  private extractContentFromUnstructuredJson(parsed: Record<string, unknown>): string | undefined {
-    return this.getReactionParser().extractContentFromUnstructuredJson(parsed);
-  }
-
-  private normalizeToolCalls(value: unknown): ToolCallRequest[] {
-    return this.getReactionParser().normalizeToolCalls(value);
-  }
-
-  private toToolCall(entry: unknown): ToolCallRequest | null {
-    return this.getReactionParser().toToolCall(entry);
-  }
-
-  private extractSingleToolCall(parsed: Record<string, unknown>): ToolCallRequest | null {
-    return this.getReactionParser().extractSingleToolCall(parsed);
-  }
-
-  private extractJson(raw: string): string | null {
-    return this.getReactionParser().extractJson(raw);
-  }
-
 
   private async handleSmartContextCrop(call: ToolCallRequest): Promise<string> {
     const args = (call.args ?? {}) as Record<string, unknown>;

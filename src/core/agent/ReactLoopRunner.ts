@@ -217,7 +217,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
         host.forceRenderSpinner();
       }
 
-      const payload = host.parseAssistantResponse(completion);
+      const payload = host.getReactionParser().parseAssistantResponse(completion);
       if (debugMode) host.writeDebugLine(`[AGENT DEBUG] Parsed payload: finalResponse=${!!payload.finalResponse}, thought=${!!payload.thought}, toolCalls=${payload.toolCalls?.length ?? 0}`);
       const assistantMessage: LLMMessage = { role: 'assistant', content: completion.content };
       if (completion.toolCalls?.length) {
@@ -778,4 +778,3 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
     host.setComposerFinalResponse(fallbackMsg);
     host.emitOutput({ type: 'message', content: fallbackMsg });
   }
-
