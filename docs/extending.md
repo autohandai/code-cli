@@ -1,6 +1,6 @@
-# Extending Autohand
+# Extending Autohand Code CLI
 
-This document covers extension points intended for developers working inside the Autohand CLI codebase or building integrations around its Ink UI.
+This document covers extension points intended for developers working inside the Autohand Code CLI codebase or building integrations around its Ink UI.
 
 ## Status And Help Lines
 
@@ -9,7 +9,11 @@ The Ink UI exposes extension points for the fixed status line and the composer h
 The shared types are exported from `src/ui/ink/index.ts`:
 
 ```ts
-import type { AgentUILineExtensions, LineExtension, LineSegment } from '../src/ui/ink/index.js';
+import type {
+  AgentUILineExtensions,
+  LineExtension,
+  LineSegment,
+} from "../src/ui/ink/index.js";
 ```
 
 ### Segment Model
@@ -20,7 +24,7 @@ Both lines use the same `LineExtension` shape:
 interface LineSegment {
   id: string;
   text: string;
-  color?: 'text' | 'muted' | 'accent' | 'success' | 'warning' | 'error' | 'dim';
+  color?: "text" | "muted" | "accent" | "success" | "warning" | "error" | "dim";
   visible?: boolean;
 }
 
@@ -31,49 +35,45 @@ interface LineExtension {
 }
 ```
 
-Segments with empty text, whitespace-only text, or `visible: false` are filtered out before rendering. By default, custom segments are appended after the built-in segments using the ` · ` separator. Set `replaceDefault: true` when the feature owns the full line for a mode or modal.
+Segments with empty text, whitespace-only text, or `visible: false` are filtered out before rendering. By default, custom segments are appended after the built-in segments using the `·` separator. Set `replaceDefault: true` when the feature owns the full line for a mode or modal.
 
 Use stable `id` values. They become React keys, so changing them on every render causes unnecessary footer redraws.
 
 ### Default Segments
 
-The status line renders while Autohand is working. Its built-in segment ids are:
+The status line renders while Autohand Code CLI is working. Its built-in segment ids are:
 
-| Segment | Meaning |
-| --- | --- |
-| `status` | Current activity label |
+| Segment   | Meaning                                      |
+| --------- | -------------------------------------------- |
+| `status`  | Current activity label                       |
 | `metrics` | Elapsed time and token count, when available |
-| `queue` | Queued request count, when non-zero |
-| `cancel` | Escape-to-cancel hint |
+| `queue`   | Queued request count, when non-zero          |
+| `cancel`  | Escape-to-cancel hint                        |
 
 The help line renders below the composer while idle or working. Its built-in segment ids are:
 
-| Segment | Meaning |
-| --- | --- |
-| `provider` | Current provider and model display |
-| `context` | Remaining context display |
-| `command-hint` | Shortcut and command hint |
+| Segment        | Meaning                            |
+| -------------- | ---------------------------------- |
+| `provider`     | Current provider and model display |
+| `context`      | Remaining context display          |
+| `command-hint` | Shortcut and command hint          |
 
 ### Configure At Renderer Creation
 
 Pass `lineExtensions` when creating the Ink renderer if the extension is known at startup:
 
 ```ts
-import { createInkRenderer } from '../src/ui/ink/index.js';
+import { createInkRenderer } from "../src/ui/ink/index.js";
 
 const renderer = createInkRenderer({
   onSubmit: handleSubmit,
   onCancel: handleCancel,
   lineExtensions: {
     status: {
-      segments: [
-        { id: 'workspace-index', text: 'indexing', color: 'accent' },
-      ],
+      segments: [{ id: "workspace-index", text: "indexing", color: "accent" }],
     },
     help: {
-      segments: [
-        { id: 'workspace', text: 'repo: cli-3', color: 'muted' },
-      ],
+      segments: [{ id: "workspace", text: "repo: cli-3", color: "muted" }],
     },
   },
 });
@@ -87,9 +87,9 @@ Use the renderer setters when the extra line state changes during a session:
 renderer.setStatusLineExtension({
   segments: [
     {
-      id: 'plan-mode',
-      text: planModeEnabled ? 'plan:on' : '',
-      color: 'accent',
+      id: "plan-mode",
+      text: planModeEnabled ? "plan:on" : "",
+      color: "accent",
     },
   ],
 });
@@ -97,9 +97,9 @@ renderer.setStatusLineExtension({
 renderer.setHelpLineExtension({
   segments: [
     {
-      id: 'active-profile',
+      id: "active-profile",
       text: `profile: ${profileName}`,
-      color: 'muted',
+      color: "muted",
     },
   ],
 });
@@ -110,10 +110,10 @@ To update both lines in one state transition, use `setLineExtensions`:
 ```ts
 renderer.setLineExtensions({
   status: {
-    segments: [{ id: 'sync', text: 'syncing', color: 'warning' }],
+    segments: [{ id: "sync", text: "syncing", color: "warning" }],
   },
   help: {
-    segments: [{ id: 'workspace', text: workspaceLabel }],
+    segments: [{ id: "workspace", text: workspaceLabel }],
   },
 });
 ```
@@ -128,45 +128,25 @@ renderer.setLineExtensions(undefined);
 
 Use a status-line extension for live session counters such as lines added and removed. If the counters are not self-explanatory in your flow, add a help-line segment that names the custom state.
 
-The line-extension API supports rendering these counters today. It does not calculate session diff stats for you; the feature or integration owns tracking `added` and `removed`, then pushes the current values into the renderer.
+Use `SessionDiffStatsTracker` to compute the numbers from the workspace. The tracker snapshots the current git diff and untracked files at construction time, so pre-existing dirty worktree changes are not counted as session changes. It counts tracked line changes from `git diff --numstat HEAD --` and counts lines in new untracked text files created after the baseline.
 
 ```ts
-interface SessionDiffStats {
-  added: number;
-  removed: number;
-}
+import { SessionDiffStatsTracker } from "../src/core/SessionDiffStatsTracker.js";
+import { startSessionDiffLineExtension } from "../src/ui/ink/index.js";
 
-function updateSessionDiffLines(stats: SessionDiffStats): void {
-  const hasChanges = stats.added > 0 || stats.removed > 0;
+const tracker = new SessionDiffStatsTracker(workspaceRoot);
+const sessionDiffLines = startSessionDiffLineExtension({
+  renderer,
+  tracker,
+  intervalMs: 1_000,
+});
 
-  renderer.setLineExtensions({
-    status: {
-      segments: [
-        {
-          id: 'session-lines-added',
-          text: stats.added > 0 ? `+${stats.added} lines` : '',
-          color: 'success',
-        },
-        {
-          id: 'session-lines-removed',
-          text: stats.removed > 0 ? `-${stats.removed} lines` : '',
-          color: 'error',
-        },
-      ],
-    },
-    help: {
-      segments: [
-        {
-          id: 'session-diff-summary',
-          text: hasChanges
-            ? `session diff: +${stats.added} / -${stats.removed}`
-            : '',
-          color: 'muted',
-        },
-      ],
-    },
-  });
-}
+// Call this after a known file-changing action if you want immediate feedback
+// instead of waiting for the next interval tick.
+sessionDiffLines.refresh();
+
+// Stop the interval during shutdown.
+sessionDiffLines.stop();
 ```
 
 With the default status line, a working turn might render as:
@@ -189,8 +169,8 @@ Only replace defaults when the feature needs a fully custom line. This is useful
 renderer.setHelpLineExtension({
   replaceDefault: true,
   segments: [
-    { id: 'wizard-step', text: 'setup: provider', color: 'accent' },
-    { id: 'wizard-hint', text: 'Enter to continue', color: 'muted' },
+    { id: "wizard-step", text: "setup: provider", color: "accent" },
+    { id: "wizard-hint", text: "Enter to continue", color: "muted" },
   ],
 });
 ```
@@ -200,12 +180,14 @@ renderer.setHelpLineExtension({
 For unit tests or non-Ink formatting, use the exported helpers:
 
 ```ts
-import { formatLineSegments, resolveLineSegments } from '../src/ui/ink/index.js';
+import {
+  formatLineSegments,
+  resolveLineSegments,
+} from "../src/ui/ink/index.js";
 
-const text = formatLineSegments(
-  [{ id: 'context', text: '70% context left' }],
-  { segments: [{ id: 'workspace', text: 'repo: cli-3' }] }
-);
+const text = formatLineSegments([{ id: "context", text: "70% context left" }], {
+  segments: [{ id: "workspace", text: "repo: cli-3" }],
+});
 
 // "70% context left · repo: cli-3"
 ```
