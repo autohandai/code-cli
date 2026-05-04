@@ -9,6 +9,7 @@
 import React, { useState, useCallback } from 'react';
 import { Box, Text, useInput, render } from 'ink';
 import { I18nProvider } from '../../i18n/index.js';
+import { inkRenderOptions } from '../../inkRenderOptions.js';
 
 export interface McpServerItem {
   name: string;
@@ -200,13 +201,12 @@ export async function showMcpServerList(
       if (instance) {
         instance.rerender(element);
       } else {
-        instance = render(element, {
+        instance = render(element, inkRenderOptions({
           stdin: process.stdin,
           stdout: process.stdout,
           stderr: process.stderr,
-          exitOnCtrlC: false,
-          concurrent: true
-        });
+          exitOnCtrlC: false
+        }));
       }
     };
 

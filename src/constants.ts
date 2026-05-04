@@ -19,7 +19,7 @@ export const AUTOHAND_HOME = process.env.AUTOHAND_HOME || path.join(os.homedir()
  * Subdirectory paths within AUTOHAND_HOME
  */
 export const AUTOHAND_PATHS = {
-  /** Configuration files (config.json, config.yaml, config.yml) */
+  /** Configuration files (config.toml, config.yaml, config.yml, config.json) */
   config: AUTOHAND_HOME,
 
   /** Session data storage */
@@ -65,6 +65,7 @@ export const AUTOHAND_PATHS = {
 export const AUTOHAND_FILES = {
   /** Main config file */
   configJson: path.join(AUTOHAND_HOME, 'config.json'),
+  configToml: path.join(AUTOHAND_HOME, 'config.toml'),
   configYaml: path.join(AUTOHAND_HOME, 'config.yaml'),
   configYml: path.join(AUTOHAND_HOME, 'config.yml'),
 

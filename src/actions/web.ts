@@ -833,7 +833,6 @@ async function browserProfileSearch(query: string, maxResults: number): Promise<
     ];
 
     let stdout = '';
-    let stderr = '';
     let killed = false;
 
     const proc = spawn(chromePath, args, {
@@ -849,9 +848,7 @@ async function browserProfileSearch(query: string, maxResults: number): Promise<
       }
     });
 
-    proc.stderr.on('data', (data: Buffer) => {
-      stderr += data.toString();
-    });
+    proc.stderr.resume();
 
     proc.on('close', (code) => {
       if (killed) {
@@ -883,7 +880,7 @@ async function browserProfileSearch(query: string, maxResults: number): Promise<
       }
     });
 
-    proc.on('error', (err) => {
+    proc.on('error', () => {
       // Launch failed, fall back to regular google search
       googleSearch(query, maxResults).then(resolve).catch(reject);
     });

@@ -75,6 +75,7 @@ import type { ProjectManager } from '../session/ProjectManager.js';
 import type { AgentAction, AgentRuntime, ExplorationEvent, ToolExecutionContext, ToolOutputChunk } from '../types.js';
 import type { FileActionManager } from '../actions/filesystem.js';
 import type { ToolDefinition } from './toolManager.js';
+import type { FFFSearchProvider } from '../search/fffSearchProvider.js';
 import { ToolsRegistry } from './toolsRegistry.js';
 import type { MemoryManager } from '../memory/MemoryManager.js';
 import { SecurityScanner } from './SecurityScanner.js';
@@ -163,6 +164,10 @@ export class ActionExecutor {
   private readonly onLiveCommandRemove?: AgentExecutorDeps['onLiveCommandRemove'];
   private readonly securityScanner: SecurityScanner;
   private readonly searchCache: Map<string, string> = new Map();
+  private fffSearchProviderPromise: Promise<FFFSearchProvider> | null = null;
+  private fffSearchWorkspaceRoot: string | null = null;
+  private fffSearchIdleTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly FFF_SEARCH_IDLE_TTL_MS = 60_000;
 
   constructor(private readonly deps: AgentExecutorDeps) {
     this.runtime = deps.runtime;
@@ -188,6 +193,46 @@ export class ActionExecutor {
     this.onLiveCommandOutput = deps.onLiveCommandOutput;
     this.onLiveCommandRemove = deps.onLiveCommandRemove;
     this.securityScanner = new SecurityScanner();
+  }
+
+  private async getFFFSearchProvider(): Promise<FFFSearchProvider> {
+    if (this.fffSearchIdleTimer) {
+      clearTimeout(this.fffSearchIdleTimer);
+      this.fffSearchIdleTimer = null;
+    }
+
+    const workspaceRoot = this.runtime.workspaceRoot;
+    if (this.fffSearchProviderPromise && this.fffSearchWorkspaceRoot === workspaceRoot) {
+      return this.fffSearchProviderPromise;
+    }
+
+    if (this.fffSearchProviderPromise) {
+      this.fffSearchProviderPromise.then((provider) => provider.destroy()).catch(() => {});
+    }
+
+    const { FFFSearchProvider } = await import('../search/fffSearchProvider.js');
+    this.fffSearchWorkspaceRoot = workspaceRoot;
+    this.fffSearchProviderPromise = FFFSearchProvider.create(workspaceRoot);
+    return this.fffSearchProviderPromise;
+  }
+
+  private scheduleFFFSearchProviderCleanup(): void {
+    if (!this.fffSearchProviderPromise) {
+      return;
+    }
+
+    if (this.fffSearchIdleTimer) {
+      clearTimeout(this.fffSearchIdleTimer);
+    }
+
+    this.fffSearchIdleTimer = setTimeout(() => {
+      const providerPromise = this.fffSearchProviderPromise;
+      this.fffSearchProviderPromise = null;
+      this.fffSearchWorkspaceRoot = null;
+      this.fffSearchIdleTimer = null;
+      providerPromise?.then((provider) => provider.destroy()).catch(() => {});
+    }, ActionExecutor.FFF_SEARCH_IDLE_TTL_MS);
+    this.fffSearchIdleTimer.unref?.();
   }
 
   /**
@@ -2250,8 +2295,7 @@ export class ActionExecutor {
   private async executeFFFGrep(
     action: Extract<AgentAction, { type: 'fff_grep' }>
   ): Promise<string> {
-    const { FFFSearchProvider } = await import('../search/fffSearchProvider.js');
-    const provider = await FFFSearchProvider.create(this.runtime.workspaceRoot);
+    const provider = await this.getFFFSearchProvider();
     try {
       return await provider.grep({
         query: action.query,
@@ -2264,22 +2308,21 @@ export class ActionExecutor {
         limit: action.limit,
       });
     } finally {
-      provider.destroy();
+      this.scheduleFFFSearchProviderCleanup();
     }
   }
 
   private async executeFFFFind(
     action: Extract<AgentAction, { type: 'fff_find' }>
   ): Promise<string> {
-    const { FFFSearchProvider } = await import('../search/fffSearchProvider.js');
-    const provider = await FFFSearchProvider.create(this.runtime.workspaceRoot);
+    const provider = await this.getFFFSearchProvider();
     try {
       return await provider.fileSearch({
         query: action.query,
         limit: action.limit,
       });
     } finally {
-      provider.destroy();
+      this.scheduleFFFSearchProviderCleanup();
     }
   }
 

@@ -577,10 +577,10 @@ describe('agent.ts deduplication', () => {
       const slashHandlerIdx = loopBody.indexOf("instruction.startsWith('/')");
       expect(slashHandlerIdx).toBeGreaterThan(-1);
 
-      // After the slash command output, look for the block that checks
-      // inkRenderer.isRunning() — it must use continue, not instruction = null.
+      // After the slash command output, look for the block that clears the
+      // current UI surface — it must use continue, not instruction = null.
       const afterSlash = loopBody.substring(slashHandlerIdx);
-      const inkRunningBlock = afterSlash.indexOf("if (this.inkRenderer?.isRunning())");
+      const inkRunningBlock = afterSlash.indexOf("if (this.ui || this.inkRenderer)");
       expect(inkRunningBlock).toBeGreaterThan(-1);
 
       const blockEnd = afterSlash.indexOf('}', inkRunningBlock);

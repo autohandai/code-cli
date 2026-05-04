@@ -157,7 +157,7 @@ export interface UISettings {
   showCompletionNotification?: boolean;
   /** Show LLM thinking/reasoning process (default: true) */
   showThinking?: boolean;
-  /** Use Ink-based renderer for flicker-free UI (experimental, default: false) */
+  /** Deprecated: Ink 7 + React 19 is now the default interactive UI and this setting is ignored. */
   useInkRenderer?: boolean;
   /** Ring terminal bell when task completes - shows badge on terminal tab (default: true) */
   terminalBell?: boolean;

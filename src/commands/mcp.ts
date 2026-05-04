@@ -6,6 +6,7 @@
  * MCP command - List and manage MCP (Model Context Protocol) servers
  */
 import chalk from 'chalk';
+import fs from 'fs-extra';
 import path from 'node:path';
 import { t } from '../i18n/index.js';
 import type { McpClientManager } from '../mcp/McpClientManager.js';
@@ -51,7 +52,15 @@ async function loadConfigForScope(
     throw new Error('Workspace root is required for project scope.');
   }
 
-  const projectConfigPath = path.join(workspaceRoot, PROJECT_DIR_NAME, 'config.json');
+  const projectConfigDir = path.join(workspaceRoot, PROJECT_DIR_NAME);
+  const candidates = ['config.toml', 'config.yaml', 'config.yml', 'config.json'].map((file) =>
+    path.join(projectConfigDir, file),
+  );
+  const existing = await Promise.all(candidates.map(async (candidate) =>
+    (await fs.pathExists(candidate)) ? candidate : null,
+  ));
+  const projectConfigPath = existing.find((candidate): candidate is string => Boolean(candidate)) ??
+    path.join(projectConfigDir, 'config.json');
   return { config: await loadConfig(projectConfigPath, workspaceRoot), scope };
 }
 

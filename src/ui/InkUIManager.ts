@@ -40,16 +40,17 @@ export class InkUIManager extends BaseUIManager implements UIManager {
       return;
     }
 
-    const { rendererFactory, ...rendererOptionBase } = this.options;
+    const { rendererFactory, onInstruction, ...rendererOptionBase } = this.options;
     const rendererOptions: InkRendererOptions = {
       ...rendererOptionBase,
       onInstruction: (text: string) => {
-        this.enqueueInstruction(text);
         if (this.inputWaiter) {
           const waiter = this.inputWaiter;
           this.inputWaiter = null;
           waiter(text);
+          return;
         }
+        onInstruction(text);
       },
     };
 

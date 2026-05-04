@@ -6,6 +6,7 @@
 import React, { useMemo, useState } from 'react';
 import { Box, Text, useInput, render } from 'ink';
 import { I18nProvider, useTranslation } from './i18n/index.js';
+import { inkRenderOptions } from './inkRenderOptions.js';
 
 export interface FilePaletteOptions {
   files: string[];
@@ -40,13 +41,12 @@ export async function showFilePalette(options: FilePaletteOptions): Promise<stri
           }}
         />
       </I18nProvider>,
-      {
+      inkRenderOptions({
         stdin: process.stdin,
         stdout: process.stdout,
         stderr: process.stderr,
-        exitOnCtrlC: false,
-        concurrent: true
-      }
+        exitOnCtrlC: false
+      })
     );
   });
 }
