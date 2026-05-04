@@ -74,11 +74,9 @@
   "devDependencies": {
     "@types/diff": "^8.0.0",
     "@types/fs-extra": "^11.0.4",
-    "@types/minimatch": "^6.0.0",
     "@types/node": "^25.6.0",
     "@types/node-notifier": "^8.0.5",
     "@types/react": "^19.2.5",
-    "@types/terminal-link": "^1.2.0",
     "@typescript-eslint/eslint-plugin": "^8.59.0",
     "@typescript-eslint/parser": "^8.59.0",
     "eslint": "^10.2.1",

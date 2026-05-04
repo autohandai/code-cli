@@ -8,7 +8,6 @@ import { Box, Text } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
 import { buildMultiLineRenderState } from '../inputPrompt.js';
 import { stripAnsiCodes } from '../displayUtils.js';
-import { getContentDisplay } from '../displayUtils.js';
 import type { InputBorderStyle } from '../box.js';
 
 function drawInkBorder(width: number, position: 'top' | 'bottom'): string {
@@ -45,7 +44,7 @@ function InputLineComponent({ value, cursorOffset, isActive, width, borderStyle 
 
   // Memoize display value processing
   const displayData = useMemo(() => {
-    const displayValue = getContentDisplay(value).visual;
+    const displayValue = value;
     const displayCursorOffset = Math.min(cursorOffset, displayValue.length);
     const { lines, cursorRow, cursorColumn } = buildMultiLineRenderState(
       displayValue,

@@ -402,7 +402,7 @@ describe('TerminalRegions', () => {
       regions.renderFixedRegion(tenLines, 0, 'status');
 
       expect(regions.getFixedLines()).toBe(5);
-      expect(output.writes.join('')).toContain('[Text pasted: 10 lines]');
+      expect(output.writes.join('')).toContain(`[Text pasted ${tenLines.length} chars]`);
     });
 
     it('renders all visible input lines with border decoration', () => {

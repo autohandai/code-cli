@@ -28,6 +28,8 @@ function createInkKey(overrides: Partial<InkKey> = {}): InkKey {
     rightArrow: false,
     pageDown: false,
     pageUp: false,
+    home: false,
+    end: false,
     return: false,
     escape: false,
     ctrl: false,
@@ -36,6 +38,10 @@ function createInkKey(overrides: Partial<InkKey> = {}): InkKey {
     backspace: false,
     delete: false,
     meta: false,
+    super: false,
+    hyper: false,
+    capsLock: false,
+    numLock: false,
     ...overrides,
   };
 }
@@ -137,7 +143,7 @@ describe('AgentUI TextBuffer integration helpers', () => {
 
 describe('AgentUI bracketed paste input', () => {
   it('consumes complete bracketed paste sequences from Ink input', () => {
-    const pasteState = { isInPaste: false, buffer: '', hiddenContent: null };
+    const pasteState = { isInPaste: false, buffer: '', hiddenContent: null, hiddenPlaceholder: null };
 
     const result = consumeInkBracketedPasteInput(
       '\x1b[200~line1\nline2\nline3\nline4\nline5\x1b[201~',
@@ -148,11 +154,11 @@ describe('AgentUI bracketed paste input', () => {
       handled: true,
       completedText: 'line1\nline2\nline3\nline4\nline5',
     });
-    expect(pasteState).toEqual({ isInPaste: false, buffer: '', hiddenContent: null });
+    expect(pasteState).toEqual({ isInPaste: false, buffer: '', hiddenContent: null, hiddenPlaceholder: null });
   });
 
   it('buffers split bracketed paste sequences until the end marker arrives', () => {
-    const pasteState = { isInPaste: false, buffer: '', hiddenContent: null };
+    const pasteState = { isInPaste: false, buffer: '', hiddenContent: null, hiddenPlaceholder: null };
 
     expect(consumeInkBracketedPasteInput('\x1b[200~line1\n', pasteState)).toEqual({
       handled: true,
@@ -163,7 +169,48 @@ describe('AgentUI bracketed paste input', () => {
     const result = consumeInkBracketedPasteInput('line2\x1b[201~', pasteState);
 
     expect(result).toEqual({ handled: true, completedText: 'line1\nline2' });
-    expect(pasteState).toEqual({ isInPaste: false, buffer: '', hiddenContent: null });
+    expect(pasteState).toEqual({ isInPaste: false, buffer: '', hiddenContent: null, hiddenPlaceholder: null });
+  });
+});
+
+describe('AgentUI paste placeholder resolution', () => {
+  it('resolves an untouched visible paste placeholder to the hidden content', async () => {
+    const { resolveInkComposerSubmitText } = await import('../../../src/ui/ink/AgentUI.js');
+    const hiddenContent = 'line1\nline2\nline3\nline4\nline5';
+    const hiddenPlaceholder = `[Text pasted ${hiddenContent.length} chars]`;
+
+    expect(
+      resolveInkComposerSubmitText(hiddenPlaceholder, {
+        hiddenContent,
+        hiddenPlaceholder,
+      })
+    ).toBe(hiddenContent);
+  });
+
+  it('resolves a paste placeholder inside surrounding typed text', async () => {
+    const { resolveInkComposerSubmitText } = await import('../../../src/ui/ink/AgentUI.js');
+    const hiddenContent = 'line1\nline2\nline3\nline4\nline5';
+    const hiddenPlaceholder = `[Text pasted ${hiddenContent.length} chars]`;
+
+    expect(
+      resolveInkComposerSubmitText(`please review ${hiddenPlaceholder} now`, {
+        hiddenContent,
+        hiddenPlaceholder,
+      })
+    ).toBe(`please review ${hiddenContent} now`);
+  });
+
+  it('does not submit stale hidden content after the placeholder is edited away', async () => {
+    const { resolveInkComposerSubmitText } = await import('../../../src/ui/ink/AgentUI.js');
+    const hiddenContent = 'line1\nline2\nline3\nline4\nline5';
+    const hiddenPlaceholder = `[Text pasted ${hiddenContent.length} chars]`;
+
+    expect(
+      resolveInkComposerSubmitText('typed replacement', {
+        hiddenContent,
+        hiddenPlaceholder,
+      })
+    ).toBe('typed replacement');
   });
 
   it('submits edited prompt text around compact pasted content', () => {
@@ -359,6 +406,18 @@ describe('AgentUI multiline input regression', () => {
     // Ctrl+E should go to end of current line
     handleInkTextBufferInput(buffer, 'e', createInkKey({ ctrl: true }));
     expect(buffer.getCursorCol()).toBe(5); // 'line3'.length
+  });
+
+  it('handles Ink 7 Home and End keys on multi-line content', () => {
+    const buffer = new TextBuffer(80, 10, 'line1\nline2');
+
+    expect(handleInkTextBufferInput(buffer, '', createInkKey({ home: true }))).toBe('handled');
+    expect(buffer.getCursorRow()).toBe(1);
+    expect(buffer.getCursorCol()).toBe(0);
+
+    expect(handleInkTextBufferInput(buffer, '', createInkKey({ end: true }))).toBe('handled');
+    expect(buffer.getCursorRow()).toBe(1);
+    expect(buffer.getCursorCol()).toBe('line2'.length);
   });
 
   it('handles word navigation (Ctrl+Left/Right) across multi-line content', () => {
