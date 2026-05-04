@@ -12,7 +12,12 @@
  */
 import React, { useState, useImperativeHandle, forwardRef, useCallback, useRef } from 'react';
 import { render, type Instance } from 'ink';
-import { AgentUI, createInitialUIState, type AgentUIState } from './AgentUI.js';
+import {
+  AgentUI,
+  createInitialUIState,
+  type AgentUILineExtensions,
+  type AgentUIState,
+} from './AgentUI.js';
 import type { LiveCommandEntry, ToolOutputEntry, ToolOutputBatchEntry, ToolOutputItem, BatchToolItem } from './ToolOutput.js';
 import type { SlashCommand } from '../../core/slashCommandTypes.js';
 import type { SkillMentionInfo } from '../mentionFilter.js';
@@ -35,6 +40,8 @@ export interface InkRendererOptions {
   slashCommands?: SlashCommand[];
   /** Provider for skill list used in $ mention autocomplete */
   skillsProvider?: () => SkillMentionInfo[];
+  /** Optional extension points for status/help lines. */
+  lineExtensions?: AgentUILineExtensions;
 }
 
 /**
@@ -57,6 +64,7 @@ interface AgentUIWrapperProps {
   filesProvider?: () => string[];
   slashCommands?: SlashCommand[];
   skillsProvider?: () => SkillMentionInfo[];
+  lineExtensions?: AgentUILineExtensions;
 }
 
 /**
@@ -77,6 +85,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       filesProvider,
       slashCommands,
       skillsProvider,
+      lineExtensions,
     } = props;
 
     const [state, setState] = useState<AgentUIState>(initialState);
@@ -112,6 +121,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         filesProvider={filesProvider}
         slashCommands={slashCommands}
         skillsProvider={skillsProvider}
+        lineExtensions={lineExtensions}
       />
     );
   }
@@ -210,7 +220,10 @@ export class InkRenderer {
 
   constructor(options: InkRendererOptions) {
     this.options = options;
-    this.state = createInitialUIState();
+    this.state = {
+      ...createInitialUIState(),
+      lineExtensions: options.lineExtensions,
+    };
     this.wrapperRef = React.createRef<AgentUIWrapperHandle>();
   }
 
@@ -271,6 +284,7 @@ export class InkRenderer {
             filesProvider={this.options.filesProvider}
             slashCommands={this.options.slashCommands}
             skillsProvider={this.options.skillsProvider}
+            lineExtensions={this.options.lineExtensions}
           />
         </I18nProvider>
       </ThemeProvider>,
@@ -650,6 +664,37 @@ export class InkRenderer {
    */
   setProviderModel(provider: string, model: string): void {
     this.updateState({ provider, model });
+  }
+
+  /**
+   * Replace all status/help line extension points.
+   */
+  setLineExtensions(lineExtensions: AgentUILineExtensions | undefined): void {
+    this.updateState({ lineExtensions });
+  }
+
+  /**
+   * Replace only the status-line extension point.
+   */
+  setStatusLineExtension(status: AgentUILineExtensions['status']): void {
+    this.updateState({
+      lineExtensions: {
+        ...this.state.lineExtensions,
+        status,
+      },
+    });
+  }
+
+  /**
+   * Replace only the composer help-line extension point.
+   */
+  setHelpLineExtension(help: AgentUILineExtensions['help']): void {
+    this.updateState({
+      lineExtensions: {
+        ...this.state.lineExtensions,
+        help,
+      },
+    });
   }
 
   /**

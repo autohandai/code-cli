@@ -5,7 +5,12 @@
  */
 import React, { useState, useEffect, memo, useMemo, useRef, useCallback } from 'react';
 import { Box, Text, useInput, useApp, useStdout, type Key as InkKey } from 'ink';
-import { StatusLine } from './StatusLine.js';
+import {
+  StatusLine,
+  formatLineSegments,
+  type LineExtension,
+  type LineSegment,
+} from './StatusLine.js';
 import { LiveCommandBlock, ToolOutputStatic, ToolOutputBatchStatic, type LiveCommandEntry, type ToolOutputEntry, type ToolOutputBatchEntry, type ToolOutputItem } from './ToolOutput.js';
 import { InputLine } from './InputLine.js';
 import { ThinkingOutput } from './ThinkingOutput.js';
@@ -51,6 +56,13 @@ export interface AgentUIState {
   provider?: string;
   /** Current LLM model name */
   model?: string;
+  /** Optional extension points for the fixed status/help lines. */
+  lineExtensions?: AgentUILineExtensions;
+}
+
+export interface AgentUILineExtensions {
+  status?: LineExtension;
+  help?: LineExtension;
 }
 
 export interface AgentUIProps {
@@ -69,6 +81,8 @@ export interface AgentUIProps {
   slashCommands?: SlashCommand[];
   /** Provider for skills used in $ mention autocomplete */
   skillsProvider?: () => SkillMentionInfo[];
+  /** Optional extension points for the fixed status/help lines. */
+  lineExtensions?: AgentUILineExtensions;
 }
 
 interface TextBufferKeyInfo {
@@ -289,22 +303,16 @@ export function getComposerHelpLine(
   _isWorking: boolean,
   providerDisplay: string,
   contextDisplay: string,
-  commandHint: string
+  commandHint: string,
+  lineExtension?: LineExtension
 ): string {
-  // Helpline is always visible (working or idle) so users keep
-  // shortcuts/provider/context context across the entire turn.
-  const parts: string[] = [];
-  if (providerDisplay) {
-    parts.push(providerDisplay);
-  }
-  if (contextDisplay) {
-    parts.push(contextDisplay);
-  }
-  if (commandHint) {
-    parts.push(commandHint);
-  }
+  const defaultSegments: LineSegment[] = [
+    { id: 'provider', text: providerDisplay },
+    { id: 'context', text: contextDisplay },
+    { id: 'command-hint', text: commandHint },
+  ];
 
-  return parts.join(' · ');
+  return formatLineSegments(defaultSegments, lineExtension);
 }
 
 /**
@@ -335,6 +343,7 @@ export function AgentUI({
   filesProvider,
   slashCommands,
   skillsProvider,
+  lineExtensions,
 }: AgentUIProps) {
   const { exit } = useApp();
   const { colors } = useTheme();
@@ -1178,6 +1187,7 @@ export function AgentUI({
     }
     return 'default';
   })();
+  const effectiveLineExtensions = state.lineExtensions ?? lineExtensions;
 
   return (
     <Box flexDirection="column">
@@ -1230,6 +1240,7 @@ export function AgentUI({
         contextPercent={state.contextPercent}
         provider={state.provider}
         model={state.model}
+        lineExtensions={effectiveLineExtensions}
         fileMentionDropdown={
           <FileMentionDropdown
             suggestions={fileMentionSuggestions}
@@ -1347,6 +1358,7 @@ interface StatusSectionProps {
   contextPercent?: number;
   provider?: string;
   model?: string;
+  lineExtension?: LineExtension;
 }
 
 const StatusSection = memo(function StatusSection({
@@ -1359,6 +1371,7 @@ const StatusSection = memo(function StatusSection({
   contextPercent,
   provider,
   model,
+  lineExtension,
 }: StatusSectionProps) {
   const { colors } = useTheme();
 
@@ -1378,6 +1391,7 @@ const StatusSection = memo(function StatusSection({
         contextPercent={contextPercent}
         provider={provider}
         model={model}
+        lineExtension={lineExtension}
       />
 
       {/* Info section - either queue or completion stats, stable position */}
@@ -1410,7 +1424,8 @@ const StatusSection = memo(function StatusSection({
          prev.completionStats?.elapsed === next.completionStats?.elapsed &&
          prev.completionStats?.tokens === next.completionStats?.tokens &&
          prev.provider === next.provider &&
-         prev.model === next.model;
+         prev.model === next.model &&
+         prev.lineExtension === next.lineExtension;
 });
 
 /**
@@ -1467,6 +1482,7 @@ interface HelpLineSectionProps {
   contextPercent?: number;
   provider?: string;
   model?: string;
+  lineExtension?: LineExtension;
 }
 
 const HelpLineSection = memo(function HelpLineSection({
@@ -1474,6 +1490,7 @@ const HelpLineSection = memo(function HelpLineSection({
   contextPercent,
   provider,
   model,
+  lineExtension,
 }: HelpLineSectionProps) {
   const { colors } = useTheme();
   const { t } = useTranslation();
@@ -1491,7 +1508,7 @@ const HelpLineSection = memo(function HelpLineSection({
   return (
     <Box>
       <Text color={colors.dim}>
-        {getComposerHelpLine(isWorking, providerDisplay, contextDisplay, t('ui.commandHint'))}
+        {getComposerHelpLine(isWorking, providerDisplay, contextDisplay, t('ui.commandHint'), lineExtension)}
       </Text>
     </Box>
   );
@@ -1499,7 +1516,8 @@ const HelpLineSection = memo(function HelpLineSection({
   return prev.isWorking === next.isWorking &&
          prev.contextPercent === next.contextPercent &&
          prev.provider === next.provider &&
-         prev.model === next.model;
+         prev.model === next.model &&
+         prev.lineExtension === next.lineExtension;
 });
 
 /**
@@ -1591,6 +1609,7 @@ interface FixedBottomProps {
   contextPercent?: number;
   provider?: string;
   model?: string;
+  lineExtensions?: AgentUILineExtensions;
   fileMentionDropdown?: React.ReactNode;
   slashCommandDropdown?: React.ReactNode;
   skillMentionDropdown?: React.ReactNode;
@@ -1616,6 +1635,7 @@ const FixedBottom = memo(function FixedBottom({
   contextPercent,
   provider,
   model,
+  lineExtensions,
   fileMentionDropdown,
   slashCommandDropdown,
   skillMentionDropdown,
@@ -1635,6 +1655,7 @@ const FixedBottom = memo(function FixedBottom({
         contextPercent={contextPercent}
         provider={provider}
         model={model}
+        lineExtension={lineExtensions?.status}
       />
       <InputLineWrapper
         isWorking={isWorking}
@@ -1653,6 +1674,7 @@ const FixedBottom = memo(function FixedBottom({
         contextPercent={contextPercent}
         provider={provider}
         model={model}
+        lineExtension={lineExtensions?.help}
       />
       <CtrlCWarning ctrlCCount={ctrlCCount} />
     </>
@@ -1681,5 +1703,6 @@ export function createInitialUIState(): AgentUIState {
     contextPercent: 100,
     provider: undefined,
     model: undefined,
+    lineExtensions: undefined,
   };
 }
