@@ -14,7 +14,7 @@ import { t } from '../i18n/index.js';
 
 interface IDEContext {
   workspaceRoot: string;
-  onBeforeModal?: () => void;
+  onBeforeModal?: () => Promise<void> | void;
   onAfterModal?: () => Promise<void> | void;
 }
 
@@ -99,7 +99,7 @@ export async function ide(ctx: IDEContext): Promise<string | null> {
     value: ide.kind,
   }));
 
-  ctx.onBeforeModal?.();
+  await ctx.onBeforeModal?.();
   let result: ModalOption | null;
   try {
     result = await showModal({

@@ -4,11 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { createContext, useContext, useMemo } from 'react';
+import React, { createContext, useContext, useMemo, useSyncExternalStore } from 'react';
 import type { FC, ReactNode } from 'react';
 import type { Theme } from './Theme.js';
 import type { ColorToken, ResolvedColors } from './types.js';
-import { getTheme, isThemeInitialized } from './Theme.js';
+import { getThemeSnapshot, subscribeThemeChanges } from './Theme.js';
 import { initTheme } from './loader.js';
 
 /**
@@ -65,13 +65,19 @@ export interface ThemeProviderProps {
  * Provides theme context to all child components.
  */
 export const ThemeProvider: FC<ThemeProviderProps> = ({ theme: providedTheme, themeName, children }) => {
+  const globalTheme = useSyncExternalStore(
+    subscribeThemeChanges,
+    getThemeSnapshot,
+    getThemeSnapshot
+  );
+
   const theme = useMemo(() => {
     // Use provided theme if available
     if (providedTheme) return providedTheme;
 
     // Try to get initialized global theme
-    if (isThemeInitialized()) {
-      return getTheme();
+    if (globalTheme) {
+      return globalTheme;
     }
 
     // Initialize theme if name provided
@@ -81,7 +87,7 @@ export const ThemeProvider: FC<ThemeProviderProps> = ({ theme: providedTheme, th
 
     // Initialize default theme
     return initTheme();
-  }, [providedTheme, themeName]);
+  }, [providedTheme, themeName, globalTheme]);
 
   const value = useMemo<ThemeContextValue>(
     () => ({

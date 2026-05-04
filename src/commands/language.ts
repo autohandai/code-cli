@@ -18,7 +18,7 @@ import {
 
 interface LanguageContext {
   config: LoadedConfig;
-  onBeforeModal?: () => void;
+  onBeforeModal?: () => Promise<void> | void;
   onAfterModal?: () => Promise<void> | void;
 }
 
@@ -40,7 +40,7 @@ export async function language(ctx: LanguageContext): Promise<string | null> {
     value: locale,
   }));
 
-  ctx.onBeforeModal?.();
+  await ctx.onBeforeModal?.();
   const result = await (async () => {
     try {
       return await showModal({

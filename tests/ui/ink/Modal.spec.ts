@@ -227,6 +227,19 @@ describe('showModal', () => {
 
     expect(writes).toEqual(['\x1b[?1049l', '\x1b[?2004h']);
   });
+
+  it('keeps modal unmount writes inside the alternate screen before cleanup', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const src = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/ui/ink/components/Modal.tsx'),
+      'utf8',
+    );
+
+    expect(src).toMatch(
+      /function unmountAndResolve[\s\S]*?instance\.unmount\(\);[\s\S]*?await instance\.waitUntilExit\(\);[\s\S]*?cleanupModalRender\(process\.stdout\);[\s\S]*?resolve\(value\);/
+    );
+  });
 });
 
 describe('Modal Options Processing', () => {
@@ -444,4 +457,20 @@ describe('showModal passive-effect cleanup yield (Ink 7 / React 19 regression)',
     expect(prepareIdx).toBeLessThan(yieldIdx);
     expect(yieldIdx).toBeLessThan(renderIdx);
   });
+
+  it.each(['showConfirm', 'showInput', 'showPassword'])(
+    '%s awaits the same cleanup yield before render()',
+    async (helperName) => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const src = fs.readFileSync(
+        path.resolve(process.cwd(), 'src/ui/ink/components/Modal.tsx'),
+        'utf8',
+      );
+
+      expect(src).toMatch(
+        new RegExp(`export async function ${helperName}[\\s\\S]*?prepareModalRender\\(process\\.stdout\\);[\\s\\S]*?setImmediate[\\s\\S]*?render\\(`)
+      );
+    }
+  );
 });
