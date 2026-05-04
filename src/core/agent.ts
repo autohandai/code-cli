@@ -543,6 +543,7 @@ export class AutohandAgent {
       () => this.activeProvider,
       (provider) => {
         this.activeProvider = provider;
+        this.syncProviderModelStatusLine(provider);
         if (process.env.AUTOHAND_DEBUG === '1') {
           const providerSettings = getProviderConfig(this.runtime.config, provider);
           const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
@@ -4638,6 +4639,15 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   /**
+   * Sync the active provider and model into the Ink status line.
+   */
+  private syncProviderModelStatusLine(provider: ProviderName = this.activeProvider): void {
+    const providerSettings = getProviderConfig(this.runtime.config, provider);
+    const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
+    this.ui?.setProviderModel?.(provider, model);
+  }
+
+  /**
    * Initialize the UI for a new instruction.
    * Uses InkRenderer when enabled, otherwise falls back to ora spinner.
    */
@@ -4656,10 +4666,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
         this.currentInkAbortController = abortController ?? null;
         this.currentInkOnCancel = onCancel ?? null;
 
-        const providerSettings = getProviderConfig(this.runtime.config, this.activeProvider);
-        const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
-
-        this.ui?.setProviderModel?.(this.activeProvider, model);
+        this.syncProviderModelStatusLine();
         await this.ui?.start();
         this.inkRenderer = this.ui?.getInkRenderer?.() ?? this.inkRenderer;
         this.ui?.setWorking(true, 'Gathering context...');
@@ -5853,6 +5860,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
     this.contextWindow = getContextWindow(modelId);
     this.contextOrchestrator.setModel(modelId);
     this.contextPercentLeft = 100;
+    this.syncProviderModelStatusLine(provider);
     this.emitStatus();
   }
 
