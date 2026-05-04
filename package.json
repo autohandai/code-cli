@@ -2,7 +2,7 @@
   "name": "autohand-cli",
   "version": "0.8.2",
   "license": "Apache-2.0",
-  "description": "Autohand interactive coding agent CLI powered by LLMs.",
+  "description": "Autohand Code CLI is a fast, terminal-native AI coding agent for planning, editing, testing, and automating software work.",
   "repository": {
     "type": "git",
     "url": "https://github.com/autohandai/code-cli.git"
