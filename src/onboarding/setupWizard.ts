@@ -1098,7 +1098,7 @@ export class SetupWizard {
     console.log();
 
     console.log(chalk.gray('  What was created:'));
-    console.log(chalk.white('  - ~/.autohand/config.json (your settings)'));
+    console.log(chalk.white('  - ~/.autohand/config.toml/yaml/json (your settings)'));
     if (this.state.agentsFileCreated) {
       console.log(chalk.white('  - AGENTS.md (project instructions for Autohand)'));
     }

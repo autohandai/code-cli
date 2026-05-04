@@ -335,7 +335,7 @@ Autohand includes 40+ tools for autonomous coding:
 
 ## Configuration
 
-Create `~/.autohand/config.json`:
+Create `~/.autohand/config.json` or use `config.toml`, `config.yaml`, or `config.yml`:
 
 ```json
 {
@@ -404,7 +404,7 @@ Autohand includes a permission system for sensitive operations:
 - **Unrestricted** (`--unrestricted`): No approval prompts
 - **Restricted** (`--restricted`): Denies all dangerous operations
 
-Configure granular permissions in `~/.autohand/config.json`:
+Configure granular permissions in `~/.autohand/config.toml/yaml/json`:
 
 ```json
 {
@@ -491,7 +491,7 @@ We welcome contributions! Please read our [Contributing Guide](CONTRIBUTING.md) 
 
 **Permission denied**: Check your file permissions and try running with appropriate privileges.
 
-**Model not working**: Verify your API key and model configuration in `~/.autohand/config.json`.
+**Model not working**: Verify your API key and model configuration in `~/.autohand/config.toml/yaml/json`.
 
 ### Getting Help
 

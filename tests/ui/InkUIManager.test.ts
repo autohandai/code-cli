@@ -57,15 +57,38 @@ describe('InkUIManager', () => {
     expect(manager.getInkRenderer()).toBe(renderer);
   });
 
-  it('resolves waitForInput from renderer-submitted instructions', async () => {
+  it('forwards renderer-submitted instructions to the agent callback', async () => {
     const renderer = createRenderer();
+    const onInstruction = vi.fn();
     let onRendererInstruction: ((text: string) => void) | undefined;
     const rendererFactory = vi.fn((options: InkRendererOptions) => {
       onRendererInstruction = options.onInstruction;
       return renderer;
     });
     const manager = new InkUIManager({
-      onInstruction: vi.fn(),
+      onInstruction,
+      onEscape: vi.fn(),
+      onCtrlC: vi.fn(),
+      rendererFactory,
+    } as InkUIManagerOptions);
+
+    await manager.start();
+    onRendererInstruction?.('slash prompt');
+
+    expect(onInstruction).toHaveBeenCalledWith('slash prompt');
+    expect(renderer.addQueuedInstruction).not.toHaveBeenCalled();
+  });
+
+  it('resolves waitForInput from renderer-submitted instructions', async () => {
+    const renderer = createRenderer();
+    const onInstruction = vi.fn();
+    let onRendererInstruction: ((text: string) => void) | undefined;
+    const rendererFactory = vi.fn((options: InkRendererOptions) => {
+      onRendererInstruction = options.onInstruction;
+      return renderer;
+    });
+    const manager = new InkUIManager({
+      onInstruction,
       onEscape: vi.fn(),
       onCtrlC: vi.fn(),
       rendererFactory,
@@ -76,7 +99,7 @@ describe('InkUIManager', () => {
     onRendererInstruction?.('queued prompt');
 
     await expect(input).resolves.toBe('queued prompt');
-    expect(renderer.addQueuedInstruction).toHaveBeenCalledWith('queued prompt');
+    expect(onInstruction).not.toHaveBeenCalled();
   });
 
   it('forwards lifecycle and display calls through the public manager API', async () => {

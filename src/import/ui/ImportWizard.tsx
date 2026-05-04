@@ -8,6 +8,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Box, Text, render, type Instance } from 'ink';
 import Spinner from 'ink-spinner';
 import { I18nProvider } from '../../ui/i18n/index.js';
+import { inkRenderOptions } from '../../ui/inkRenderOptions.js';
 import { showModal } from '../../ui/ink/components/Modal.js';
 import { showCategorySelector, CATEGORY_LABELS } from './CategorySelector.js';
 import { ImportProgressView } from './ImportProgress.js';
@@ -228,13 +229,12 @@ export async function showImportWizard(
         <I18nProvider>
           <ScanningSpinner source={importer!.displayName} />
         </I18nProvider>,
-        {
+        inkRenderOptions({
           stdin: process.stdin,
           stdout: process.stdout,
           stderr: process.stderr,
-          exitOnCtrlC: false,
-          concurrent: true
-        },
+          exitOnCtrlC: false
+        }),
       );
 
       importer!.scan().then((result) => {
@@ -295,13 +295,12 @@ export async function showImportWizard(
           }}
         />
       </I18nProvider>,
-      {
+      inkRenderOptions({
         stdin: process.stdin,
         stdout: process.stdout,
         stderr: process.stderr,
-        exitOnCtrlC: false,
-        concurrent: true
-      },
+        exitOnCtrlC: false
+      }),
     );
   });
 
@@ -311,13 +310,12 @@ export async function showImportWizard(
       <I18nProvider>
         <ImportSummary source={importer.displayName} result={result} />
       </I18nProvider>,
-      {
+      inkRenderOptions({
         stdin: process.stdin,
         stdout: process.stdout,
         stderr: process.stderr,
-        exitOnCtrlC: false,
-        concurrent: true
-      },
+        exitOnCtrlC: false
+      }),
     );
     // Give user a moment to read the summary
     await new Promise<void>((r) => setTimeout(r, 100));

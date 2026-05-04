@@ -31,6 +31,7 @@ import { PROJECT_DIR_NAME } from './constants.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessionWorktree.js';
 import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './utils/tmux.js';
 import { promptNotify } from './ui/inputPrompt.js';
+import { shouldUseInkRenderer } from './ui/inkMode.js';
 import { registerChromeCommand } from './browser/cliCommand.js';
 import { ASCII_FRIEND } from './utils/asciiArt.js';
 
@@ -81,10 +82,12 @@ function normalizeMcpScope(scopeInput?: string): McpConfigScope | null {
 
 async function resolveProjectConfigPath(workspaceRoot: string): Promise<string> {
   const projectConfigDir = path.join(workspaceRoot, PROJECT_DIR_NAME);
+  const tomlPath = path.join(projectConfigDir, 'config.toml');
   const yamlPath = path.join(projectConfigDir, 'config.yaml');
   const ymlPath = path.join(projectConfigDir, 'config.yml');
   const jsonPath = path.join(projectConfigDir, 'config.json');
 
+  if (await fs.pathExists(tomlPath)) return tomlPath;
   if (await fs.pathExists(yamlPath)) return yamlPath;
   if (await fs.pathExists(ymlPath)) return ymlPath;
   return jsonPath;
@@ -987,8 +990,9 @@ async function runCLI(options: CLIOptions): Promise<void> {
       console.log(chalk.gray(`Using git worktree: ${sessionWorktree.worktreePath}`));
       console.log(chalk.gray(`Branch: ${sessionWorktree.branchName}${sessionWorktree.createdBranch ? ' (new)' : ''}\n`));
     }
-    // Store whether Ink will be enabled so we can synchronize startup
-    const inkEnabled = config.ui?.useInkRenderer === true;
+    // Store whether Ink will be enabled so we can synchronize startup.
+    // Ink is code-defaulted, not controlled by stale config.ui.useInkRenderer.
+    const inkEnabled = shouldUseInkRenderer();
 
     // Initialize and start ping service (45-minute intervals for usage tracking)
     // This runs independently of telemetry opt-in for basic usage counting
@@ -1071,7 +1075,12 @@ async function runCLI(options: CLIOptions): Promise<void> {
                   // Notify the user but do NOT wipe local credentials automatically.
                   // The startup auth gate already trusts locally-valid tokens;
                   // destroying them here would force re-login on transient sync issues.
-                  promptNotify(chalk.yellow('Session sync failed. Run /logout and /login if you continue to see this message.'));
+                  const message = 'Session sync failed. Run /logout and /login if you continue to see this message.';
+                  if (agentHolder.current) {
+                    agentHolder.current.notifyUser(message);
+                  } else {
+                    promptNotify(chalk.yellow(message));
+                  }
                 },
               });
               syncService.start();

@@ -4,6 +4,10 @@
     "lib": ["ES2022"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "baseUrl": ".",
+    "paths": {
+      "@ff-labs/fff-bun": ["types/fff-bun.d.ts"]
+    },
     "rootDir": "src",
     "outDir": "dist",
     "esModuleInterop": true,

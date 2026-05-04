@@ -162,7 +162,7 @@ describe('showModal', () => {
     expect(result).toBeNull();
   });
 
-  it('disables bracketed paste and resets the scroll region before mount (Ink owns alt-screen)', async () => {
+  it('enters an isolated alternate screen before modal mount', async () => {
     const writes: string[] = [];
 
     Object.defineProperty(process.stdout, 'isTTY', {
@@ -179,14 +179,10 @@ describe('showModal', () => {
 
     prepareModalRender(process.stdout);
 
-    // Ink owns the alt-screen lifecycle via render({ alternateScreen: true }),
-    // so prepareModalRender only handles bits Ink does NOT manage: bracketed
-    // paste off (so pasted escapes don't leak into useInput) and the
-    // scroll-region reset (so xterm scroll-region state is sane).
-    expect(writes).toEqual(['\x1b[?2004l', '\x1B[r']);
+    expect(writes).toEqual(['\x1b[?2004l', '\x1B[r', '\x1b[?1049h\x1b[2J\x1b[H']);
   });
 
-  it('restores the main screen after modal cleanup', async () => {
+  it('restores the primary screen after modal cleanup', async () => {
     const writes: string[] = [];
 
     Object.defineProperty(process.stdout, 'isTTY', {
@@ -203,9 +199,7 @@ describe('showModal', () => {
 
     cleanupModalRender(process.stdout);
 
-    // Ink restores the primary buffer during instance.unmount(); cleanupModalRender
-    // only re-enables bracketed paste for the parent composer.
-    expect(writes).toEqual(['\x1b[?2004h']);
+    expect(writes).toEqual(['\x1b[?1049l', '\x1b[?2004h']);
   });
 });
 
@@ -425,4 +419,3 @@ describe('showModal passive-effect cleanup yield (Ink 7 / React 19 regression)',
     expect(yieldIdx).toBeLessThan(renderIdx);
   });
 });
-

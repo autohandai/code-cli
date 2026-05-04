@@ -32,6 +32,10 @@ async function importLoadConfig() {
   return mod.loadConfig;
 }
 
+async function importConfigModule() {
+  return import("../../src/config.js");
+}
+
 describe("configParser – error handling (Issue #3)", () => {
   let testDir: string;
 
@@ -285,6 +289,59 @@ describe("configParser – error handling (Issue #3)", () => {
 
     const result = await loadConfig(configPath);
     expect(result.provider).toBe("openrouter");
+  });
+
+  it("loads a valid TOML config without errors", async () => {
+    const tomlContent = [
+      'provider = "openrouter"',
+      '',
+      '[openrouter]',
+      'apiKey = "sk-test-key"',
+      'baseUrl = "https://openrouter.ai/api/v1"',
+      'model = "your-modelcard-id-here"',
+      '',
+      '[workspace]',
+      'allowDangerousOps = false',
+      '',
+      '[ui]',
+      'promptSuggestions = true',
+    ].join("\n");
+    const configPath = await writeTempConfig(testDir, "config.toml", tomlContent);
+    const loadConfig = await importLoadConfig();
+
+    const result = await loadConfig(configPath);
+
+    expect(result.provider).toBe("openrouter");
+    expect(result.openrouter?.apiKey).toBe("sk-test-key");
+    expect(result.workspace?.allowDangerousOps).toBe(false);
+    expect(result.ui?.promptSuggestions).toBe(true);
+  });
+
+  it("saves TOML config back as TOML when loaded from config.toml", async () => {
+    const configPath = await writeTempConfig(
+      testDir,
+      "config.toml",
+      [
+        'provider = "openrouter"',
+        '',
+        '[openrouter]',
+        'apiKey = "sk-test-key"',
+        'model = "anthropic/claude-sonnet-4-20250514"',
+      ].join("\n"),
+    );
+    const { loadConfig, saveConfig } = await importConfigModule();
+
+    const config = await loadConfig(configPath);
+    config.ui = { ...config.ui, theme: "dark", promptSuggestions: false };
+    await saveConfig(config);
+
+    const saved = await fse.readFile(configPath, "utf8");
+    expect(saved).toContain('provider = "openrouter"');
+    expect(saved).toContain("[openrouter]");
+    expect(saved).toContain('apiKey = "sk-test-key"');
+    expect(saved).toContain("[ui]");
+    expect(saved).toContain("promptSuggestions = false");
+    expect(saved.trim().startsWith("{")).toBe(false);
   });
 
   // ─── EACCES / EEXIST handling ─────────────────────────────────────────────

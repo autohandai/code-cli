@@ -8,6 +8,7 @@ import React from 'react';
 import { Box, Text, render } from 'ink';
 import { Modal, type ModalOption } from './ink/components/Modal.js';
 import { I18nProvider, useTranslation } from './i18n/index.js';
+import { inkRenderOptions } from './inkRenderOptions.js';
 
 export interface PlanAcceptOption {
   id: string;
@@ -126,13 +127,12 @@ export async function showPlanAcceptModal(
           }}
         />
       </I18nProvider>,
-      {
+      inkRenderOptions({
         stdin: process.stdin,
         stdout: process.stdout,
         stderr: process.stderr,
-        exitOnCtrlC: false,
-        concurrent: true
-      }
+        exitOnCtrlC: false
+      })
     );
   });
 }

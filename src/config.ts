@@ -20,6 +20,7 @@ import { autoInitTheme, themeExists } from "./ui/theme/index.js";
 import { loadLocalProjectSettings, type LocalProjectSettings } from "./permissions/localProjectPermissions.js";
 
 const DEFAULT_CONFIG_PATH = AUTOHAND_FILES.configJson;
+const TOML_CONFIG_PATH = AUTOHAND_FILES.configToml;
 const YAML_CONFIG_PATH = AUTOHAND_FILES.configYaml;
 const YML_CONFIG_PATH = AUTOHAND_FILES.configYml;
 const DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
@@ -40,12 +41,47 @@ interface LegacyConfigShape {
   [key: string]: unknown;
 }
 
+type TomlPrimitive = string | number | boolean;
+type TomlValue = TomlPrimitive | TomlPrimitive[] | TomlObject | TomlObject[];
+type TomlObject = { [key: string]: TomlValue };
+
+function normalizeProviderName(provider: unknown): ProviderName | undefined {
+  if (provider === undefined) {
+    return undefined;
+  }
+
+  if (provider === "vertex") {
+    return "vertexai";
+  }
+
+  const validProviders: readonly ProviderName[] = [
+    "openrouter",
+    "ollama",
+    "llamacpp",
+    "openai",
+    "mlx",
+    "llmgateway",
+    "azure",
+    "zai",
+    "vertexai",
+    "xai",
+    "cerebras",
+    "nvidia",
+  ];
+
+  if (typeof provider === "string" && validProviders.includes(provider as ProviderName)) {
+    return provider as ProviderName;
+  }
+
+  return undefined;
+}
+
 export function getDefaultConfigPath(): string {
   return DEFAULT_CONFIG_PATH;
 }
 
 /**
- * Detect config file path - checks for YAML first, then JSON
+ * Detect config file path - checks for TOML/YAML first, then JSON
  */
 async function detectConfigPath(customPath?: string): Promise<string> {
   if (customPath) {
@@ -57,7 +93,10 @@ async function detectConfigPath(customPath?: string): Promise<string> {
     return path.resolve(envPath);
   }
 
-  // Check for YAML configs first (user preference)
+  // Check for human-editable configs first (user preference)
+  if (await fs.pathExists(TOML_CONFIG_PATH)) {
+    return TOML_CONFIG_PATH;
+  }
   if (await fs.pathExists(YAML_CONFIG_PATH)) {
     return YAML_CONFIG_PATH;
   }
@@ -74,7 +113,7 @@ async function detectConfigPath(customPath?: string): Promise<string> {
  */
 async function checkConfigFilesExist(dir: string): Promise<string[]> {
   const files: string[] = [];
-  for (const filename of ["config.json", "config.yaml", "config.yml"]) {
+  for (const filename of ["config.json", "config.toml", "config.yaml", "config.yml"]) {
     const candidate = path.join(dir, filename);
     if (await fs.pathExists(candidate)) {
       files.push(filename);
@@ -89,6 +128,211 @@ async function checkConfigFilesExist(dir: string): Promise<string[]> {
 function isYamlFile(filePath: string): boolean {
   const ext = path.extname(filePath).toLowerCase();
   return ext === ".yaml" || ext === ".yml";
+}
+
+function isTomlFile(filePath: string): boolean {
+  return path.extname(filePath).toLowerCase() === ".toml";
+}
+
+function stripTomlComment(line: string): string {
+  let inSingle = false;
+  let inDouble = false;
+  let escaped = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (inDouble && char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (!inDouble && char === "'") {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (!inSingle && char === '"') {
+      inDouble = !inDouble;
+      continue;
+    }
+    if (!inSingle && !inDouble && char === "#") {
+      return line.slice(0, i).trim();
+    }
+  }
+
+  return line.trim();
+}
+
+function splitTomlPath(input: string): string[] {
+  return input
+    .split(".")
+    .map((part) => part.trim().replace(/^"(.*)"$/, "$1"))
+    .filter(Boolean);
+}
+
+function parseTomlValue(raw: string): TomlValue {
+  const value = raw.trim();
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    if (value.startsWith('"')) {
+      try {
+        return JSON.parse(value) as string;
+      } catch {
+        return value.slice(1, -1);
+      }
+    }
+    return value.slice(1, -1);
+  }
+  if (value === "true") return true;
+  if (value === "false") return false;
+  if (/^-?\d+(?:\.\d+)?$/.test(value)) return Number(value);
+  if (value.startsWith("[") && value.endsWith("]")) {
+    const inner = value.slice(1, -1).trim();
+    if (!inner) return [];
+    return inner
+      .split(",")
+      .map((entry) => parseTomlValue(entry.trim()))
+      .filter((entry): entry is TomlPrimitive => typeof entry !== "object");
+  }
+  return value;
+}
+
+function getOrCreateTomlSection(root: TomlObject, pathParts: string[]): TomlObject {
+  let current = root;
+  for (const part of pathParts) {
+    const existing = current[part];
+    if (Array.isArray(existing)) {
+      const last = existing[existing.length - 1];
+      if (last && typeof last === "object" && !Array.isArray(last)) {
+        current = last;
+        continue;
+      }
+    }
+    if (!existing || typeof existing !== "object" || Array.isArray(existing)) {
+      current[part] = {};
+    }
+    current = current[part] as TomlObject;
+  }
+  return current;
+}
+
+function getOrCreateTomlArraySection(root: TomlObject, pathParts: string[]): TomlObject {
+  const parent = getOrCreateTomlSection(root, pathParts.slice(0, -1));
+  const key = pathParts[pathParts.length - 1];
+  const existing = parent[key];
+  if (!Array.isArray(existing)) {
+    parent[key] = [];
+  }
+  const section: TomlObject = {};
+  (parent[key] as TomlObject[]).push(section);
+  return section;
+}
+
+function parseTomlConfig(content: string): AutohandConfig | LegacyConfigShape {
+  const root: TomlObject = {};
+  let current = root;
+  let hasData = false;
+
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = stripTomlComment(rawLine);
+    if (!line) continue;
+
+    const arraySection = line.match(/^\[\[([^\]]+)]]$/);
+    if (arraySection) {
+      current = getOrCreateTomlArraySection(root, splitTomlPath(arraySection[1]));
+      hasData = true;
+      continue;
+    }
+
+    const section = line.match(/^\[([^\]]+)]$/);
+    if (section) {
+      current = getOrCreateTomlSection(root, splitTomlPath(section[1]));
+      hasData = true;
+      continue;
+    }
+
+    const kv = line.match(/^([A-Za-z0-9_-]+)\s*=\s*(.+)$/);
+    if (!kv) {
+      throw new Error(`Invalid TOML line: ${rawLine.trim()}`);
+    }
+    current[kv[1]] = parseTomlValue(kv[2]);
+    hasData = true;
+  }
+
+  if (!hasData) {
+    throw new Error(
+      `Config file is empty or contains no valid data. ` +
+        `You can fix this by editing the file, or delete it and run 'autohand --setup' to recreate.`,
+    );
+  }
+
+  return root as AutohandConfig | LegacyConfigShape;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function formatTomlKey(key: string): string {
+  return /^[A-Za-z0-9_-]+$/.test(key) ? key : JSON.stringify(key);
+}
+
+function formatTomlValue(value: unknown): string | null {
+  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (Array.isArray(value) && value.every((entry) => !isPlainObject(entry) && !Array.isArray(entry))) {
+    return `[${value.map((entry) => formatTomlValue(entry)).filter((entry): entry is string => entry !== null).join(", ")}]`;
+  }
+  return null;
+}
+
+function stringifyTomlObject(data: Record<string, unknown>): string {
+  const lines: string[] = [];
+
+  const writeSection = (sectionPath: string[], section: Record<string, unknown>): void => {
+    const scalarEntries = Object.entries(section).filter(([, value]) => formatTomlValue(value) !== null);
+    if (sectionPath.length > 0) {
+      if (lines.length > 0) lines.push("");
+      lines.push(`[${sectionPath.map(formatTomlKey).join(".")}]`);
+    }
+    for (const [key, value] of scalarEntries) {
+      const formatted = formatTomlValue(value);
+      if (formatted !== null) {
+        lines.push(`${formatTomlKey(key)} = ${formatted}`);
+      }
+    }
+
+    for (const [key, value] of Object.entries(section)) {
+      if (isPlainObject(value)) {
+        writeSection([...sectionPath, key], value);
+      } else if (Array.isArray(value) && value.every(isPlainObject)) {
+        for (const item of value) {
+          if (lines.length > 0) lines.push("");
+          const childPath = [...sectionPath, key];
+          lines.push(`[[${childPath.map(formatTomlKey).join(".")}]]`);
+          for (const [childKey, childValue] of Object.entries(item)) {
+            const formatted = formatTomlValue(childValue);
+            if (formatted !== null) {
+              lines.push(`${formatTomlKey(childKey)} = ${formatted}`);
+            }
+          }
+          for (const [childKey, childValue] of Object.entries(item)) {
+            if (isPlainObject(childValue)) {
+              writeSection([...childPath, childKey], childValue);
+            }
+          }
+        }
+      }
+    }
+  };
+
+  writeSection([], data);
+  return `${lines.join("\n")}\n`;
 }
 
 /**
@@ -111,6 +355,10 @@ async function parseConfigFile(
       );
     }
     return parsed;
+  }
+
+  if (isTomlFile(configPath)) {
+    return parseTomlConfig(content);
   }
 
   return JSON.parse(content) as AutohandConfig | LegacyConfigShape;
@@ -150,7 +398,6 @@ export async function loadConfig(customPath?: string, workspaceRoot?: string): P
         theme: "dark",
         autoConfirm: false,
         promptSuggestions: true,
-        useInkRenderer: true,
       },
       telemetry: {
         enabled: false,
@@ -334,8 +581,8 @@ function normalizeConfig(
   }
 
   if (isModernConfig(config)) {
-    const provider = config.provider ?? "openrouter";
-    return { provider, ...config };
+    const provider = normalizeProviderName(config.provider) ?? "openrouter";
+    return { ...config, provider };
   }
 
   if (isLegacyConfig(config)) {
@@ -354,7 +601,6 @@ function normalizeConfig(
         autoConfirm: config.dry_run ?? false,
         theme: "dark",
         promptSuggestions: true,
-        useInkRenderer: true,
       },
     };
   }
@@ -373,6 +619,9 @@ function isModernConfig(
     typeof (config as AutohandConfig).mlx === "object" ||
     typeof (config as AutohandConfig).azure === "object" ||
     typeof (config as AutohandConfig).zai === "object" ||
+    typeof (config as AutohandConfig).vertexai === "object" ||
+    typeof (config as AutohandConfig).xai === "object" ||
+    typeof (config as AutohandConfig).cerebras === "object" ||
     typeof (config as AutohandConfig).nvidia === "object"
   );
 }
@@ -618,10 +867,13 @@ function defaultBaseUrlFor(
 
 export async function saveConfig(config: LoadedConfig): Promise<void> {
   const { configPath, ...data } = config;
+  delete (data as Partial<LoadedConfig>).isNewConfig;
 
   if (isYamlFile(configPath)) {
     const yamlContent = YAML.stringify(data, { indent: 2 });
     await fs.writeFile(configPath, yamlContent, "utf8");
+  } else if (isTomlFile(configPath)) {
+    await fs.writeFile(configPath, stringifyTomlObject(data as Record<string, unknown>), "utf8");
   } else {
     await fs.writeJson(configPath, data, { spaces: 2 });
   }

@@ -276,10 +276,7 @@ export class InkRenderer {
         stdout: process.stdout,
         stderr: process.stderr,
         // Let AgentUI handle Ctrl+C (clear text / warn-then-exit) instead of Ink forcing exit
-        exitOnCtrlC: false,
-        // Concurrent mode makes unmount() flush React 19 passive effects synchronously
-        // so useInput cleanup runs before the next render() (modal or resume).
-        concurrent: true
+        exitOnCtrlC: false
       })
     );
   }
@@ -671,11 +668,9 @@ export class InkRenderer {
       if (this.wrapperRef.current) {
         this.state = this.wrapperRef.current.getState();
       }
-      // unmount() in concurrent mode flushes React 19 passive effects
-      // synchronously, so useInput cleanup (raw-mode off + readable-listener
-      // removal) runs BEFORE the modal mounts. This is required so the modal's
-      // own useInput effect can attach a fresh readable listener and re-enable
-      // raw mode without racing the previous Composer's cleanup.
+      // Ink 7 schedules useInput cleanup through React's passive-effect queue.
+      // Callers yield a macrotask after pause() so the modal can attach a fresh
+      // readable listener and re-enable raw mode without racing the composer.
       this.instance.unmount();
       this.instance = null;
 
@@ -776,10 +771,7 @@ export class InkRenderer {
           stdout: process.stdout,
           stderr: process.stderr,
           // Let AgentUI handle Ctrl+C (clear text / warn-then-exit) instead of Ink forcing exit
-          exitOnCtrlC: false,
-          // Concurrent mode makes unmount() flush React 19 passive effects synchronously
-          // so useInput cleanup runs before the next render() (modal or resume).
-          concurrent: true
+          exitOnCtrlC: false
         })
       );
       if (process.env.AUTOHAND_DEBUG === '1') {

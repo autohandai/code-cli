@@ -9,6 +9,7 @@ import { Box, Text, useInput, render, type Instance } from 'ink';
 import { I18nProvider, useTranslation } from '../../i18n/index.js';
 import { disableBracketedPaste, enableBracketedPaste } from '../../displayUtils.js';
 import { resetScrollRegion } from '../../resetScrollRegion.js';
+import { inkRenderOptions } from '../../inkRenderOptions.js';
 
 /**
  * Represents an option in the modal.
@@ -111,6 +112,8 @@ export type ModalProps = SelectModalProps | ConfirmModalProps | InputModalProps 
 
 /** Internal value used to identify the "Other" option */
 const OTHER_VALUE = '__other__';
+const ENTER_ALTERNATE_SCREEN = '\x1b[?1049h\x1b[2J\x1b[H';
+const EXIT_ALTERNATE_SCREEN = '\x1b[?1049l';
 
 /**
  * Resolve initial cursor index for select/confirm modes.
@@ -137,10 +140,8 @@ function unmountAndResolve<T>(
   value: T,
   resolve: (value: T) => void
 ): void {
-  // With { alternateScreen: true, concurrent: true }, Ink owns the alt-screen
-  // lifecycle: unmount() exits alt-screen and discards every teardown write
-  // (log-update final frame, cli-cursor show, trailing newline, patched
-  // console output). Nothing from the modal can leak into the primary buffer.
+  // Keep cleanup after unmount so Ink's final frame and cursor restoration
+  // happen inside the modal's alternate screen, not the composer screen.
   instance.unmount();
   cleanupModalRender(process.stdout);
   resolve(value);
@@ -148,15 +149,16 @@ function unmountAndResolve<T>(
 
 export function prepareModalRender(output: NodeJS.WriteStream = process.stdout): void {
   // Bracketed paste is disabled while the modal is active so escape sequences
-  // from pasted text don't leak into Ink's useInput. Ink handles entering the
-  // alt-screen itself when render() is called with { alternateScreen: true }.
+  // from pasted text don't leak into Ink's useInput.
   disableBracketedPaste(output);
   resetScrollRegion();
+  output.write(ENTER_ALTERNATE_SCREEN);
 }
 
 export function cleanupModalRender(output: NodeJS.WriteStream = process.stdout): void {
-  // Ink restores the primary buffer during unmount(); we just re-enable
-  // bracketed paste for the parent composer.
+  // Ink 7 does not own an alternate-screen lifecycle; restore the primary
+  // composer screen explicitly, then re-enable bracketed paste.
+  output.write(EXIT_ALTERNATE_SCREEN);
   enableBracketedPaste(output);
 }
 
@@ -725,16 +727,12 @@ export async function showModal(
           }}
         />
       </I18nProvider>,
-      {
+      inkRenderOptions({
         stdin: process.stdin,
         stdout: process.stdout,
         stderr: process.stderr,
-        exitOnCtrlC: false,
-        concurrent: true,
-        // Ink owns alt-screen entry/exit so teardown writes are discarded
-        // and never leak the modal frame into the primary buffer.
-        alternateScreen: true
-      }
+        exitOnCtrlC: false
+      })
     );
   });
 }
@@ -793,14 +791,12 @@ export async function showConfirm(options: {
           }}
         />
       </I18nProvider>,
-      {
+      inkRenderOptions({
         stdin: process.stdin,
         stdout: process.stdout,
         stderr: process.stderr,
-        exitOnCtrlC: false,
-        concurrent: true,
-        alternateScreen: true
-      }
+        exitOnCtrlC: false
+      })
     );
   });
 }
@@ -858,14 +854,12 @@ export async function showInput(options: {
           }}
         />
       </I18nProvider>,
-      {
+      inkRenderOptions({
         stdin: process.stdin,
         stdout: process.stdout,
         stderr: process.stderr,
-        exitOnCtrlC: false,
-        concurrent: true,
-        alternateScreen: true
-      }
+        exitOnCtrlC: false
+      })
     );
   });
 }
@@ -920,14 +914,12 @@ export async function showPassword(options: {
           }}
         />
       </I18nProvider>,
-      {
+      inkRenderOptions({
         stdin: process.stdin,
         stdout: process.stdout,
         stderr: process.stderr,
-        exitOnCtrlC: false,
-        concurrent: true,
-        alternateScreen: true
-      }
+        exitOnCtrlC: false
+      })
     );
   });
 }

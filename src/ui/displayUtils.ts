@@ -7,12 +7,11 @@
  */
 
 /**
- * Matches all ANSI SGR escape sequences (colors, bold, etc.).
- * Uses the `/g` flag — safe for `.replace()` but stateful with `.test()` / `.exec()`.
- * Prefer `stripAnsiCodes()` for stripping; only import this if you need `.replace()`
- * with a custom replacement string.
+ * Matches ANSI escape sequences commonly emitted by shells, PTYs, and CLIs.
+ * Includes CSI control codes (colors, cursor movement, line clearing) and OSC
+ * sequences (window title, hyperlinks) terminated by BEL or ST.
  */
-const ANSI_PATTERN = /\u001b\[[0-9;]*m/g;
+const ANSI_PATTERN = /\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b\[[0-?]*[ -/]*[@-~]/g;
 
 /** Strip all ANSI SGR codes from a string */
 export function stripAnsiCodes(value: string): string {

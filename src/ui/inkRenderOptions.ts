@@ -5,10 +5,6 @@
  */
 import type { RenderOptions } from 'ink';
 
-type AutohandRenderOptions = RenderOptions & {
-  concurrent?: boolean;
-};
-
-export function inkRenderOptions(options: AutohandRenderOptions): RenderOptions {
+export function inkRenderOptions(options: RenderOptions): RenderOptions {
   return options;
 }

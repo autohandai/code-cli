@@ -5,35 +5,42 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const mockValidateSession = vi.fn();
-const mockLoadConfig = vi.fn();
-
 vi.mock('../../src/ui/ink/components/Modal.js', () => ({
   showModal: vi.fn(),
 }));
 
 vi.mock('../../src/auth/AuthClient.js', () => ({
-  AuthClient: vi.fn().mockImplementation(() => ({
-    validateSession: mockValidateSession,
-  })),
+  AuthClient: vi.fn(),
 }));
 
 vi.mock('../../src/config.js', () => ({
-  loadConfig: mockLoadConfig,
+  loadConfig: vi.fn(),
   saveConfig: vi.fn(),
 }));
 
 vi.mock('../../src/auth/index.js', () => ({
-  getAuthClient: vi.fn().mockImplementation(() => ({
-    validateSession: mockValidateSession,
-    initiateDeviceAuth: vi.fn().mockResolvedValue({ success: false, error: 'mock' }),
-    pollDeviceAuth: vi.fn(),
-  })),
+  getAuthClient: vi.fn(),
+}));
+
+vi.mock('../../src/utils/versionCheck.js', () => ({
+  checkForUpdates: vi.fn().mockResolvedValue({
+    currentVersion: '0.0.0',
+    latestVersion: null,
+    isUpToDate: true,
+    updateAvailable: false,
+    channel: 'stable',
+  }),
 }));
 
 import { showModal } from '../../src/ui/ink/components/Modal.js';
+import { AuthClient } from '../../src/auth/AuthClient.js';
 import { ensureAuthenticated } from '../../src/auth/ensureAuth.js';
+import { loadConfig } from '../../src/config.js';
 import type { LoadedConfig } from '../../src/types.js';
+
+const mockValidateSession = vi.fn();
+const mockLoadConfig = loadConfig as unknown as ReturnType<typeof vi.fn>;
+const mockAuthClient = AuthClient as unknown as ReturnType<typeof vi.fn>;
 
 describe('ensureAuthenticated', () => {
   let exitSpy: ReturnType<typeof vi.spyOn>;
@@ -41,6 +48,11 @@ describe('ensureAuthenticated', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAuthClient.mockImplementation(function AuthClientMock() {
+      return {
+        validateSession: mockValidateSession,
+      };
+    });
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
       throw new Error('PROCESS_EXIT');
     });

@@ -7,6 +7,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { Box, Text, useInput, render, type Instance } from 'ink';
 import { I18nProvider } from '../../ui/i18n/index.js';
+import { inkRenderOptions } from '../../ui/inkRenderOptions.js';
 import type { ImportCategory } from '../types.js';
 
 /**
@@ -199,13 +200,12 @@ export async function showCategorySelector(
           }}
         />
       </I18nProvider>,
-      {
+      inkRenderOptions({
         stdin: process.stdin,
         stdout: process.stdout,
         stderr: process.stderr,
-        exitOnCtrlC: false,
-        concurrent: true
-      },
+        exitOnCtrlC: false
+      }),
     );
   });
 }

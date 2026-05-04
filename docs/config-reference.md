@@ -1,6 +1,6 @@
 # Autohand Configuration Reference
 
-Complete reference for all configuration options in `~/.autohand/config.json` (or `.yaml`/`.yml`).
+Complete reference for all configuration options in `~/.autohand/config.json` (or `.toml`/`.yaml`/`.yml`).
 
 > **Tip:** Most settings below can be changed interactively using the `/settings` command instead of editing the file manually.
 
@@ -35,9 +35,10 @@ Complete reference for all configuration options in `~/.autohand/config.json` (o
 Autohand looks for configuration in this order:
 
 1. `AUTOHAND_CONFIG` environment variable (custom path)
-2. `~/.autohand/config.yaml`
-3. `~/.autohand/config.yml`
-4. `~/.autohand/config.json` (default)
+2. `~/.autohand/config.toml`
+3. `~/.autohand/config.yaml`
+4. `~/.autohand/config.yml`
+5. `~/.autohand/config.json` (default)
 
 You can also override the base directory:
 
@@ -52,7 +53,7 @@ export AUTOHAND_HOME=/custom/path  # Changes ~/.autohand to /custom/path
 | Variable                               | Description                                      | Example                          |
 | -------------------------------------- | ------------------------------------------------ | -------------------------------- |
 | `AUTOHAND_HOME`                        | Base directory for all Autohand data             | `/custom/path`                   |
-| `AUTOHAND_CONFIG`                      | Custom config file path                          | `/path/to/config.json`           |
+| `AUTOHAND_CONFIG`                      | Custom config file path                          | `/path/to/config.toml`           |
 | `AUTOHAND_API_URL`                     | API endpoint (overrides config)                  | `https://api.autohand.ai`        |
 | `AUTOHAND_SECRET`                      | Company/team secret key                          | `sk-xxx`                         |
 | `AUTOHAND_PERMISSION_CALLBACK_URL`     | URL for permission callback (experimental)       | `http://localhost:3000/callback` |
@@ -304,7 +305,6 @@ See [Workspace Safety](./workspace-safety.md) for full details.
     "readFileCharLimit": 300,
     "showCompletionNotification": true,
     "showThinking": true,
-    "useInkRenderer": false,
     "terminalBell": true,
     "checkForUpdates": true,
     "updateCheckInterval": 24
@@ -319,7 +319,6 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `readFileCharLimit`          | number   | `300`     | Max characters to display from read/find tool output (full content is still sent to the model) |
 | `showCompletionNotification` | boolean  | `true`    | Show system notification when task completes                                                   |
 | `showThinking`               | boolean  | `true`    | Display LLM's reasoning/thought process                                                        |
-| `useInkRenderer`             | boolean  | `false`   | Use Ink-based renderer for flicker-free UI (experimental)                                      |
 | `terminalBell`               | boolean  | `true`    | Ring terminal bell when task completes (shows badge on terminal tab/dock)                      |
 | `checkForUpdates`            | boolean  | `true`    | Check for CLI updates on startup                                                               |
 | `updateCheckInterval`        | number   | `24`      | Hours between update checks (uses cached result within interval)                               |
@@ -350,23 +349,19 @@ To disable:
 }
 ```
 
-### Ink Renderer (Experimental)
+### Ink Renderer
 
-When `useInkRenderer` is enabled, Autohand uses React-based terminal rendering (Ink) instead of the traditional ora spinner. This provides:
+Autohand uses the Ink 7 + React 19 renderer by default for interactive terminals. The legacy `ui.useInkRenderer` config field is ignored so old config files cannot force the plain terminal composer. Ink provides:
 
 - **Flicker-free output**: All UI updates are batched through React reconciliation
 - **Working queue feature**: Type instructions while the agent works
 - **Better input handling**: No conflicts between readline handlers
 - **Composable UI**: Foundation for future advanced UI features
 
-To enable:
+Emergency fallback for terminal compatibility:
 
-```json
-{
-  "ui": {
-    "useInkRenderer": true
-  }
-}
+```bash
+AUTOHAND_LEGACY_UI=1 autohand
 ```
 
 Note: This feature is experimental and may have edge cases. The default ora-based UI remains stable and fully functional.
@@ -1504,6 +1499,45 @@ sync:
   includeFeedback: false
 ```
 
+### TOML Format (`~/.autohand/config.toml`)
+
+```toml
+provider = "openrouter"
+
+[openrouter]
+apiKey = "sk-or-v1-your-key-here"
+baseUrl = "https://openrouter.ai/api/v1"
+model = "your-modelcard-id-here"
+
+[ollama]
+baseUrl = "http://localhost:11434"
+model = "llama3.2"
+
+[workspace]
+defaultRoot = "~/projects"
+allowDangerousOps = false
+
+[ui]
+theme = "dark"
+autoConfirm = false
+showCompletionNotification = true
+showThinking = true
+terminalBell = true
+checkForUpdates = true
+updateCheckInterval = 24
+
+[agent]
+maxIterations = 100
+enableRequestQueue = true
+debug = false
+
+[permissions]
+mode = "interactive"
+whitelist = ["run_command:npm *", "run_command:bun *"]
+blacklist = ["run_command:rm -rf /"]
+rememberSession = true
+```
+
 ---
 
 ## Directory Structure
@@ -1513,6 +1547,7 @@ Autohand stores data in `~/.autohand/` (or `$AUTOHAND_HOME`):
 ```
 ~/.autohand/
 ├── config.json          # Main configuration
+├── config.toml          # Alternative TOML config
 ├── config.yaml          # Alternative YAML config
 ├── device-id            # Unique device identifier
 ├── error.log            # Error log
