@@ -6,12 +6,12 @@ import type {
   AgentOutputEvent,
   AgentRuntime,
   AgentStatusSnapshot,
-  AssistantReactPayload,
   LoadedConfig,
   ProviderName,
 } from '../../types.js';
 import type { PermissionPromptResponse } from '../../permissions/types.js';
 import { isExternalCallbackEnabled } from '../../ui/promptCallback.js';
+import type { ReactionParser } from './ReactionParser.js';
 
 export interface AgentSessionAccountingHost {
   activeProvider: ProviderName;
@@ -32,7 +32,7 @@ export interface AgentSessionAccountingHost {
   mcpManager: { disconnectAll(): Promise<unknown> };
   modifiedFilePaths: Set<string>;
   outputListener?: (event: AgentOutputEvent) => void;
-  parseAssistantReactPayload(content: string): AssistantReactPayload;
+  getReactionParser(): ReactionParser;
   persistentInput: { dispose(): void };
   runtime: AgentRuntime;
   sessionManager: {
@@ -266,7 +266,7 @@ export function getAgentCompletionNotificationBody(host: AgentSessionAccountingH
       continue;
     }
 
-    const payload = host.parseAssistantReactPayload(message.content);
+    const payload = host.getReactionParser().parseAssistantReactPayload(message.content);
     const candidate = normalizeAgentCompletionNotificationBody(
       host,
       payload.finalResponse ?? payload.response ?? payload.thought ?? message.content

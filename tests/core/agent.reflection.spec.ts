@@ -11,31 +11,33 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AutohandAgent } from '../../src/core/agent.js';
+import { ReactionParser } from '../../src/core/agent/ReactionParser.js';
 import type { AssistantReactPayload } from '../../src/types.js';
 
 /* ── Helpers ──────────────────────────────────────────────── */
 
+function createParser(): ReactionParser {
+  return new ReactionParser({ cleanupModelResponse: (text) => text });
+}
+
 function createMinimalAgent(): any {
   const agent = Object.create(AutohandAgent.prototype);
-  (agent as any).safeParseToolArgs = (json: string) => {
-    try { return JSON.parse(json); } catch { return undefined; }
-  };
-  (agent as any).cleanupModelResponse = (text: string) => text;
+  agent.cleanupModelResponse = (text: string) => text;
   return agent;
 }
 
 /* ── Tests ────────────────────────────────────────────────── */
 
 describe('parseAssistantReactPayload reflection extraction', () => {
-  let agent: any;
+  let parser: ReactionParser;
 
   beforeEach(() => {
-    agent = createMinimalAgent();
+    parser = createParser();
   });
 
   it('extracts reflection from JSON payload', () => {
     const raw = '{"thought": "I need to check the file", "reflection": "The file exists but is empty, so I need to create content", "toolCalls": [{"tool": "write_file", "args": {"path": "src/foo.ts"}}]}';
-    const result: AssistantReactPayload = agent.parseAssistantReactPayload(raw);
+    const result: AssistantReactPayload = parser.parseAssistantReactPayload(raw);
 
     expect(result.thought).toBe('I need to check the file');
     expect(result.reflection).toBe('The file exists but is empty, so I need to create content');
@@ -44,7 +46,7 @@ describe('parseAssistantReactPayload reflection extraction', () => {
 
   it('extracts reflection alongside finalResponse', () => {
     const raw = '{"thought": "Analyzed the code", "reflection": "The bug is in line 42 - off by one error", "finalResponse": "The bug is on line 42."}';
-    const result: AssistantReactPayload = agent.parseAssistantReactPayload(raw);
+    const result: AssistantReactPayload = parser.parseAssistantReactPayload(raw);
 
     expect(result.reflection).toBe('The bug is in line 42 - off by one error');
     expect(result.finalResponse).toBe('The bug is on line 42.');
@@ -52,14 +54,14 @@ describe('parseAssistantReactPayload reflection extraction', () => {
 
   it('returns undefined reflection when not present', () => {
     const raw = '{"thought": "Thinking...", "toolCalls": []}';
-    const result: AssistantReactPayload = agent.parseAssistantReactPayload(raw);
+    const result: AssistantReactPayload = parser.parseAssistantReactPayload(raw);
 
     expect(result.reflection).toBeUndefined();
   });
 
   it('extracts reflection from single tool call format', () => {
     const raw = '{"thought": "Need to read", "reflection": "Previous search found the file at src/bar.ts", "tool": "read_file", "args": {"path": "src/bar.ts"}}';
-    const result: AssistantReactPayload = agent.parseAssistantReactPayload(raw);
+    const result: AssistantReactPayload = parser.parseAssistantReactPayload(raw);
 
     expect(result.reflection).toBe('Previous search found the file at src/bar.ts');
     expect(result.toolCalls).toHaveLength(1);
@@ -68,7 +70,7 @@ describe('parseAssistantReactPayload reflection extraction', () => {
 
   it('ignores non-string reflection values', () => {
     const raw = '{"thought": "Hmm", "reflection": 42, "finalResponse": "Done"}';
-    const result: AssistantReactPayload = agent.parseAssistantReactPayload(raw);
+    const result: AssistantReactPayload = parser.parseAssistantReactPayload(raw);
 
     expect(result.reflection).toBeUndefined();
   });
@@ -76,7 +78,7 @@ describe('parseAssistantReactPayload reflection extraction', () => {
   it('extracts reflection from malformed JSON via regex fallback', () => {
     // Malformed JSON (missing closing brace) with complete quoted thought and reflection
     const raw = '{"thought": "partial thought", "reflection": "partial reflection", "toolCalls": [';
-    const result: AssistantReactPayload = agent.parseAssistantReactPayload(raw);
+    const result: AssistantReactPayload = parser.parseAssistantReactPayload(raw);
 
     expect(result.thought).toBe('partial thought');
     expect(result.reflection).toBe('partial reflection');
@@ -85,7 +87,7 @@ describe('parseAssistantReactPayload reflection extraction', () => {
   it('extracts reflection alone when thought is missing in malformed JSON', () => {
     // Malformed JSON with only reflection (unusual but possible)
     const raw = '{"reflection": "standalone reflection", "toolCalls": [';
-    const result: AssistantReactPayload = agent.parseAssistantReactPayload(raw);
+    const result: AssistantReactPayload = parser.parseAssistantReactPayload(raw);
 
     expect(result.reflection).toBe('standalone reflection');
     expect(result.thought).toBeUndefined();
@@ -93,10 +95,10 @@ describe('parseAssistantReactPayload reflection extraction', () => {
 });
 
 describe('parseAssistantResponse reflection extraction (native tool calls)', () => {
-  let agent: any;
+  let parser: ReactionParser;
 
   beforeEach(() => {
-    agent = createMinimalAgent();
+    parser = createParser();
   });
 
   it('extracts reflection from JSON content with native tool calls', () => {
@@ -107,7 +109,7 @@ describe('parseAssistantResponse reflection extraction (native tool calls)', () 
         function: { name: 'read_file', arguments: '{"path": "config.json"}' }
       }]
     };
-    const result: AssistantReactPayload = agent.parseAssistantResponse(completion);
+    const result: AssistantReactPayload = parser.parseAssistantResponse(completion);
 
     expect(result.thought).toBe('Need to check');
     expect(result.reflection).toBe('The config shows the port is 8080');
@@ -122,7 +124,7 @@ describe('parseAssistantResponse reflection extraction (native tool calls)', () 
         function: { name: 'read_file', arguments: '{"path": "foo.ts"}' }
       }]
     };
-    const result: AssistantReactPayload = agent.parseAssistantResponse(completion);
+    const result: AssistantReactPayload = parser.parseAssistantResponse(completion);
 
     expect(result.thought).toBe('Let me read the file');
     expect(result.reflection).toBeUndefined();
@@ -136,7 +138,7 @@ describe('parseAssistantResponse reflection extraction (native tool calls)', () 
         function: { name: 'run_command', arguments: '{"command": "npm test"}' }
       }]
     };
-    const result: AssistantReactPayload = agent.parseAssistantResponse(completion);
+    const result: AssistantReactPayload = parser.parseAssistantResponse(completion);
 
     expect(result.thought).toBeUndefined();
     expect(result.reflection).toBe('The test passed, moving to next step');

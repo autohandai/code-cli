@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { AutohandAgent } from '../src/core/agent.js';
+import { ReactionParser } from '../src/core/agent/ReactionParser.js';
 
 /**
  * Tests for XML <tool_call> parsing in assistant responses.
@@ -18,29 +18,15 @@ import { AutohandAgent } from '../src/core/agent.js';
  * the session continuity.
  */
 
-// Access private methods for unit testing
-function getExtractXmlToolCalls(agent: AutohandAgent) {
-  return (agent as any).extractXmlToolCalls.bind(agent);
-}
-
-function getParseAssistantResponse(agent: AutohandAgent) {
-  return (agent as any).parseAssistantResponse.bind(agent);
-}
-
 describe('XML <tool_call> parsing', () => {
-  let agent: AutohandAgent;
+  let parser: ReactionParser;
   let extractXmlToolCalls: (content: string) => any[];
   let parseAssistantResponse: (completion: any) => any;
 
   beforeEach(() => {
-    // Create a minimal agent instance for testing private methods
-    agent = Object.create(AutohandAgent.prototype);
-    // Stub randomUUID used for generating IDs
-    (agent as any).safeParseToolArgs = (json: string) => {
-      try { return JSON.parse(json); } catch { return undefined; }
-    };
-    extractXmlToolCalls = getExtractXmlToolCalls(agent);
-    parseAssistantResponse = getParseAssistantResponse(agent);
+    parser = new ReactionParser();
+    extractXmlToolCalls = parser.extractXmlToolCalls.bind(parser);
+    parseAssistantResponse = parser.parseAssistantResponse.bind(parser);
   });
 
   describe('extractXmlToolCalls', () => {
@@ -243,12 +229,6 @@ describe('XML <tool_call> parsing', () => {
     });
 
     it('should fall through to JSON parsing when no XML tool calls', () => {
-      // Stub the parseAssistantReactPayload method
-      (agent as any).parseAssistantReactPayload = (content: string) => ({
-        finalResponse: content
-      });
-      (agent as any).extractJson = (_raw: string) => null;
-
       const completion = {
         content: 'Hello, how can I help?',
         toolCalls: undefined
