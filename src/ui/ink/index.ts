@@ -12,6 +12,13 @@ export {
   type LineSegmentColor,
   type StatusLineProps,
 } from './StatusLine.js';
+export {
+  createSessionDiffLineExtensions,
+  startSessionDiffLineExtension,
+  type SessionDiffLineExtensionController,
+  type SessionDiffLineExtensionOptions,
+  type SessionDiffLineExtensionRenderer,
+} from './sessionDiffLineExtensions.js';
 export { ToolOutput, ToolOutputList, type ToolOutputEntry, type ToolOutputProps, type ToolOutputListProps } from './ToolOutput.js';
 export { InputLine, type InputLineProps } from './InputLine.js';
 export { ThinkingOutput, type ThinkingOutputProps } from './ThinkingOutput.js';
