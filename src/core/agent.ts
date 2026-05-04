@@ -4,10 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
-import fs from 'fs-extra';
-import path from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { showModal, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
+import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import { FileActionManager } from '../actions/filesystem.js';
 import { getProviderConfig } from '../config.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
@@ -16,7 +13,6 @@ import { safeEmitKeypressEvents } from '../ui/inputPrompt.js';
 import { safeSetRawMode } from '../ui/rawMode.js';
 import type { UIManager } from '../ui/UIManager.js';
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
-import { getAutoCommitInfo } from '../actions/git.js';
 import { ConversationManager } from './conversationManager.js';
 import { ContextOrchestrator } from './context/orchestrator.js';
 import { ToolManager } from './toolManager.js';
@@ -70,8 +66,6 @@ import { ImageManager } from './ImageManager.js';
 import { IntentDetector, type Intent, type IntentResult } from './IntentDetector.js';
 import { EnvironmentBootstrap, type BootstrapResult } from './EnvironmentBootstrap.js';
 import { CodeQualityPipeline } from './CodeQualityPipeline.js';
-import { ProjectAnalyzer as OnboardingProjectAnalyzer } from '../onboarding/projectAnalyzer.js';
-import { AgentsGenerator } from '../onboarding/agentsGenerator.js';
 import { formatExplorationLabel } from './agent/AgentFormatter.js';
 import { WorkspaceFileCollector } from './agent/WorkspaceFileCollector.js';
 import { ProviderConfigManager } from './agent/ProviderConfigManager.js';
@@ -189,6 +183,17 @@ import {
   saveAgentToolMessage,
   type AgentToolOutputRuntimeHost,
 } from './agent/AgentToolOutputRuntime.js';
+import {
+  createAgentInstructionsFile,
+  displayAgentIntentMode,
+  handleAgentMemoryStore,
+  performAgentAutoCommit,
+  printAgentGitDiff,
+  runAgentEnvironmentBootstrap,
+  runAgentQualityPipeline,
+  undoAgentLastMutation,
+  type AgentProjectOperationsHost,
+} from './agent/AgentProjectOperations.js';
 import {
   closeAgentSession,
   emitAgentOutput,
@@ -447,53 +452,7 @@ export class AutohandAgent {
    * Auto-commit: Run lint, test, then use LLM to generate commit message
    */
   private async performAutoCommit(): Promise<void> {
-    const info = getAutoCommitInfo(this.runtime.workspaceRoot);
-
-    if (!info.canCommit) {
-      if (info.error !== 'No changes to commit') {
-        console.log(chalk.yellow(`\n⚠ Cannot auto-commit: ${info.error}`));
-      }
-      return;
-    }
-
-    console.log(chalk.cyan('\n🧠 Auto-commit: Changes detected'));
-    info.filesChanged.slice(0, 5).forEach(file => {
-      console.log(chalk.gray(`   ${file}`));
-    });
-    if (info.filesChanged.length > 5) {
-      console.log(chalk.gray(`   ... and ${info.filesChanged.length - 5} more files`));
-    }
-
-    // Build the auto-commit prompt for LLM
-    const autoCommitPrompt = `You have uncommitted changes in the repository. Please perform the following steps:
-
-1. **Lint**: Run the project's linter (try: bun run lint, npm run lint, or pnpm lint). If there are fixable issues, fix them.
-
-2. **Test**: Run the project's tests (try: bun run test, npm test, or pnpm test). If tests fail, do NOT proceed with commit.
-
-3. **Review Changes**: Use git diff to understand what changed.
-
-4. **Commit**: If lint passes and tests pass (or no test script exists), create a commit with a meaningful message that:
-   - Uses conventional commit format (feat:, fix:, docs:, refactor:, test:, chore:)
-   - Describes WHAT changed and WHY (not just "update files")
-   - Is concise but informative
-
-Changed files:
-${info.filesChanged.map(f => `- ${f}`).join('\n')}
-
-Diff summary:
-${info.diffSummary || 'Use git diff to see changes'}
-
-If lint or tests fail, report the issues but do NOT commit.`;
-
-    console.log(chalk.cyan('\n🔄 Running lint, test, and generating commit message...\n'));
-
-    // Run the auto-commit through the agent
-    try {
-      await this.runInstruction(autoCommitPrompt);
-    } catch (error) {
-      console.log(chalk.red(`\n✗ Auto-commit failed: ${(error as Error).message}`));
-    }
+    return performAgentAutoCommit(this as unknown as AgentProjectOperationsHost);
   }
 
   private async restoreSessionState(sessionId: string) {
@@ -540,89 +499,15 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async handleMemoryStore(content: string): Promise<void> {
-    if (!content) {
-      console.log(chalk.gray('Usage: # <text to remember>'));
-      console.log(chalk.gray('Example: # Always use TypeScript strict mode'));
-      return;
-    }
-
-    try {
-      const levelOptions: ModalOption[] = [
-        { label: 'Project level (.autohand/memory/) - specific to this project', value: 'project' },
-        { label: 'User level (~/.autohand/memory/) - available in all projects', value: 'user' }
-      ];
-
-      const levelResult = await showModal({
-        title: 'Where should this memory be stored?',
-        options: levelOptions
-      });
-
-      if (!levelResult) {
-        return;
-      }
-
-      const level = levelResult.value as 'project' | 'user';
-
-      // Check for similar memories first
-      const similar = await this.memoryManager.findSimilar(content, level);
-      if (similar && similar.score >= 0.6) {
-        console.log();
-        console.log(chalk.yellow('Found similar existing memory:'));
-        console.log(chalk.gray(`  "${similar.entry.content}"`));
-
-        const shouldUpdate = await showConfirm({
-          title: 'Update the existing memory instead of creating a new one?'
-        });
-
-        if (shouldUpdate) {
-          await this.memoryManager.updateMemory(similar.entry.id, content, level);
-          console.log(chalk.green('Memory updated.'));
-          return;
-        }
-      }
-
-      // Store new memory
-      await this.memoryManager.store(content, level);
-      console.log(chalk.green(`Memory saved to ${level} level.`));
-    } catch (error) {
-      // User cancelled
-      if ((error as any).isCanceled) {
-        return;
-      }
-      console.error(chalk.red('Failed to store memory:'), (error as Error).message);
-    }
+    return handleAgentMemoryStore(this as unknown as AgentProjectOperationsHost, content);
   }
 
   private printGitDiff(): void {
-    const status = spawnSync('git', ['status', '-sb'], {
-      cwd: this.runtime.workspaceRoot,
-      encoding: 'utf8'
-    });
-    if (status.status === 0 && status.stdout) {
-      console.log('\n' + chalk.cyan('Git status:'));
-      console.log(status.stdout.trim() + '\n');
-    }
-
-    const diff = spawnSync('git', ['diff', '--color=always'], {
-      cwd: this.runtime.workspaceRoot,
-      encoding: 'utf8'
-    });
-
-    if (diff.status === 0) {
-      console.log(chalk.cyan('Git diff:'));
-      console.log(diff.stdout || chalk.gray('No diff.'));
-    } else {
-      console.log(chalk.yellow('Unable to compute git diff. Is this a git repository?'));
-    }
+    return printAgentGitDiff(this as unknown as AgentProjectOperationsHost);
   }
 
   private async undoLastMutation(): Promise<void> {
-    try {
-      await this.files.undoLast();
-      console.log(chalk.green('Reverted last mutation.'));
-    } catch (error) {
-      console.log(chalk.yellow((error as Error).message));
-    }
+    return undoAgentLastMutation(this as unknown as AgentProjectOperationsHost);
   }
 
 
@@ -652,41 +537,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private async createAgentsFile(): Promise<void> {
-    const target = path.join(this.runtime.workspaceRoot, 'AGENTS.md');
-    if (await fs.pathExists(target)) {
-      console.log(chalk.gray('AGENTS.md already exists in this workspace.'));
-      return;
-    }
-
-    console.log(chalk.gray('Analyzing project structure...'));
-
-    // Use OnboardingProjectAnalyzer to detect project characteristics
-    const analyzer = new OnboardingProjectAnalyzer(this.runtime.workspaceRoot);
-    const projectInfo = await analyzer.analyze();
-
-    // Show what was detected
-    if (Object.keys(projectInfo).length > 0) {
-      console.log(chalk.gray('Detected:'));
-      if (projectInfo.language) {
-        console.log(chalk.white(`  - Language: ${projectInfo.language}`));
-      }
-      if (projectInfo.framework) {
-        console.log(chalk.white(`  - Framework: ${projectInfo.framework}`));
-      }
-      if (projectInfo.packageManager) {
-        console.log(chalk.white(`  - Package manager: ${projectInfo.packageManager}`));
-      }
-      if (projectInfo.testFramework) {
-        console.log(chalk.white(`  - Test framework: ${projectInfo.testFramework}`));
-      }
-    }
-
-    // Generate AGENTS.md content using the detected info
-    const generator = new AgentsGenerator();
-    const content = generator.generateContent(projectInfo);
-
-    await fs.writeFile(target, content, 'utf8');
-    console.log(chalk.green('Created AGENTS.md based on your project. Customize it to guide the agent.'));
+    return createAgentInstructionsFile(this as unknown as AgentProjectOperationsHost);
   }
 
   /**
@@ -1181,64 +1032,14 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Display the detected intent mode to the user (only in debug mode)
    */
   private displayIntentMode(result: IntentResult): void {
-    // Only show mode indicator when AUTOHAND_DEBUG=1
-    if (process.env.AUTOHAND_DEBUG !== '1') {
-      return;
-    }
-
-    if (result.intent === 'diagnostic') {
-      console.log(chalk.blue('[DIAG] Mode: Diagnostic (read-only analysis)'));
-      if (result.keywords.length > 0) {
-        const kws = result.keywords.slice(0, 3).join('", "');
-        console.log(chalk.gray(`       Detected: "${kws}"`));
-      }
-    } else {
-      console.log(chalk.yellow('[IMPL] Mode: Implementation'));
-      if (result.keywords.length > 0) {
-        const kws = result.keywords.slice(0, 3).join('", "');
-        console.log(chalk.gray(`       Detected: "${kws}"`));
-      }
-    }
-    console.log();
+    return displayAgentIntentMode(result);
   }
 
   /**
    * Run environment bootstrap before implementation
    */
   private async runEnvironmentBootstrap(): Promise<BootstrapResult> {
-    const isDebug = process.env.AUTOHAND_DEBUG === '1';
-
-    if (isDebug) {
-      console.log(chalk.cyan('[BOOTSTRAP] Running environment setup...'));
-    }
-
-    const result = await this.environmentBootstrap.run(this.runtime.workspaceRoot);
-
-    // Display results (only in debug mode, except for failures)
-    for (const step of result.steps) {
-      const status = step.status === 'success' ? chalk.green('[OK]')
-        : step.status === 'failed' ? chalk.red('[FAIL]')
-        : step.status === 'skipped' ? chalk.gray('[SKIP]')
-        : chalk.gray('[...]');
-
-      const duration = step.duration ? chalk.gray(`(${(step.duration / 1000).toFixed(1)}s)`) : '';
-      const detail = step.detail ? chalk.gray(` ${step.detail}`) : '';
-
-      // Always show failures, only show others in debug mode
-      if (step.status === 'failed' || isDebug) {
-        console.log(`  ${status} ${step.name.padEnd(14)} ${duration}${detail}`);
-      }
-
-      if (step.error) {
-        console.log(chalk.red(`       Error: ${step.error}`));
-      }
-    }
-
-    if (result.success && isDebug) {
-      console.log(chalk.green(`\n[READY] Environment ready (${(result.duration / 1000).toFixed(1)}s)\n`));
-    }
-
-    return result;
+    return runAgentEnvironmentBootstrap(this as unknown as AgentProjectOperationsHost);
   }
 
   private async saveUserMessage(content: string): Promise<void> {
@@ -1258,38 +1059,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
    * Run code quality pipeline after file modifications
    */
   private async runQualityPipeline(): Promise<void> {
-    console.log(chalk.cyan('\n[QUALITY] Running quality checks...'));
-
-    const result = await this.codeQualityPipeline.run(this.runtime.workspaceRoot);
-
-    // Display results
-    for (const check of result.checks) {
-      const status = check.status === 'passed' ? chalk.green('[OK]')
-        : check.status === 'failed' ? chalk.red('[FAIL]')
-        : check.status === 'skipped' ? chalk.gray('[SKIP]')
-        : chalk.gray('[...]');
-
-      const duration = check.duration ? chalk.gray(`(${(check.duration / 1000).toFixed(1)}s)`) : '';
-
-      console.log(`  ${status} ${check.name.padEnd(8)} ${check.command.padEnd(20)} ${duration}`);
-
-      // Show first few lines of error output
-      if (check.status === 'failed' && check.output) {
-        const errorLines = check.output.split('\n').slice(0, 3);
-        for (const line of errorLines) {
-          if (line.trim()) {
-            console.log(chalk.red(`       ${line}`));
-          }
-        }
-      }
-    }
-
-    // Summary
-    if (result.passed) {
-      console.log(chalk.green(`\n[PASS] ${result.summary} (${(result.duration / 1000).toFixed(1)}s)`));
-    } else {
-      console.log(chalk.red(`\n[FAIL] ${result.summary}`));
-    }
+    return runAgentQualityPipeline(this as unknown as AgentProjectOperationsHost);
   }
 
   /**
