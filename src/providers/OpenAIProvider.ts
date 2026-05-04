@@ -6,7 +6,7 @@
 
 import type { LLMProvider } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, LLMToolCall, LLMUsage, FunctionDefinition, ReasoningEffort, OpenAISettings, OpenAIChatGPTAuth } from '../types.js';
-import { ApiError, classifyApiError } from './errors.js';
+import { ApiError, classifyApiError, type ApiErrorCode } from './errors.js';
 import { isChatGPTAuthExpired, refreshChatGPTAuth } from './openaiAuth.js';
 
 interface OpenAIToolCall {
@@ -88,6 +88,34 @@ const VALID_REASONING_EFFORTS = new Set<string>(['none', 'low', 'medium', 'high'
 const OPENAI_API_BASE_URL = 'https://api.openai.com/v1';
 const OPENAI_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex';
 const DEFAULT_CODEX_INSTRUCTIONS = 'You are Autohand, a coding assistant. Follow the repository instructions and help the user complete software tasks.';
+
+const OPENAI_API_KEY_FRIENDLY_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
+    auth_failed:
+        'Authentication failed. Please verify your OpenAI API key in ~/.autohand/config.json.',
+    payment_required:
+        'Payment required. Please check your OpenAI account balance or billing settings.',
+    access_denied:
+        'Access denied. Your OpenAI API key may not have permission for this model.',
+    server_error:
+        'The OpenAI service encountered an error. Please try again later.',
+    network_error:
+        'Unable to connect to OpenAI. Please check your internet connection and OpenAI API configuration.',
+    timeout:
+        'The request timed out. The OpenAI service may be experiencing high load.',
+};
+
+const OPENAI_CHATGPT_FRIENDLY_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
+    auth_failed:
+        'ChatGPT authentication failed. Please sign in again.',
+    access_denied:
+        'Access denied. Your ChatGPT account may not have access to this model or Codex backend.',
+    server_error:
+        'The ChatGPT Codex service encountered an error. Please try again later.',
+    network_error:
+        'Unable to connect to ChatGPT Codex. Please check your internet connection.',
+    timeout:
+        'The request timed out. The ChatGPT Codex service may be experiencing high load.',
+};
 
 export class OpenAIProvider implements LLMProvider {
     private baseUrl: string;
@@ -213,7 +241,7 @@ export class OpenAIProvider implements LLMProvider {
             // Timeout
             if (err.name === 'AbortError') {
                 throw new ApiError(
-                    'Request timed out. The AI service may be experiencing high load.',
+                    'The request timed out. The OpenAI service may be experiencing high load.',
                     'timeout', 0, true,
                 );
             }
@@ -331,7 +359,7 @@ export class OpenAIProvider implements LLMProvider {
 
             if (err.name === 'AbortError') {
                 throw new ApiError(
-                    'Request timed out. The AI service may be experiencing high load.',
+                    'The request timed out. The ChatGPT Codex service may be experiencing high load.',
                     'timeout', 0, true,
                 );
             }
@@ -387,7 +415,26 @@ export class OpenAIProvider implements LLMProvider {
             }
         }
 
-        return classifyApiError(response.status, errorDetail, response.headers);
+        return this.withOpenAIMessage(classifyApiError(response.status, errorDetail, response.headers));
+    }
+
+    private withOpenAIMessage(error: ApiError): ApiError {
+        const messages = this.authMode === 'chatgpt'
+            ? OPENAI_CHATGPT_FRIENDLY_MESSAGES
+            : OPENAI_API_KEY_FRIENDLY_MESSAGES;
+        const friendlyMessage = messages[error.code];
+        if (!friendlyMessage) {
+            return error;
+        }
+
+        return new ApiError(
+            error.rawDetail ? `${friendlyMessage}\n${error.rawDetail}` : friendlyMessage,
+            error.code,
+            error.httpStatus,
+            error.retryable,
+            error.retryAfterMs,
+            error.rawDetail,
+        );
     }
 
     /**

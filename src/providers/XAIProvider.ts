@@ -6,7 +6,7 @@
 
 import type { LLMProvider } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, LLMToolCall, LLMUsage, FunctionDefinition } from '../types.js';
-import { ApiError, classifyApiError } from './errors.js';
+import { ApiError, classifyApiError, type ApiErrorCode } from './errors.js';
 
 /** Canonical list of supported xAI models — single source of truth. */
 export const XAI_MODELS = [
@@ -20,6 +20,37 @@ export const XAI_DEFAULT_MODEL = 'grok-4.20-reasoning';
 
 /** xAI API base URL. */
 const XAI_API_BASE_URL = 'https://api.x.ai/v1';
+
+const XAI_FRIENDLY_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
+    auth_failed:
+        'Authentication failed. Please verify your xAI API key in ~/.autohand/config.json.',
+    payment_required:
+        'Payment required. Please check your xAI account balance or billing settings.',
+    access_denied:
+        'Access denied. Your xAI API key may not have permission for this model.',
+    server_error:
+        'The xAI service encountered an error. Please try again later.',
+    network_error:
+        'Unable to connect to xAI. Please check your internet connection and xAI API configuration.',
+    timeout:
+        'The request timed out. The xAI service may be experiencing high load.',
+};
+
+function withXAIMessage(error: ApiError): ApiError {
+    const friendlyMessage = XAI_FRIENDLY_MESSAGES[error.code];
+    if (!friendlyMessage) {
+        return error;
+    }
+
+    return new ApiError(
+        error.rawDetail ? `${friendlyMessage}\n${error.rawDetail}` : friendlyMessage,
+        error.code,
+        error.httpStatus,
+        error.retryable,
+        error.retryAfterMs,
+        error.rawDetail,
+    );
+}
 
 /** xAI server-side tools — the built-in tool types the API supports. */
 export const XAI_SUPPORTED_TOOLS = [
@@ -193,12 +224,12 @@ export class XAIProvider implements LLMProvider {
             }
             if (err.name === 'AbortError') {
                 throw new ApiError(
-                    'Request timed out. The AI service may be experiencing high load.',
+                    'The request timed out. The xAI service may be experiencing high load.',
                     'timeout', 0, true,
                 );
             }
             throw new ApiError(
-                `Unable to connect to ${this.baseUrl}. Please check the URL and your API key.`,
+                `Unable to connect to ${this.baseUrl}. Please check the URL and your xAI API key.`,
                 'network_error', 0, true,
             );
         }
@@ -389,6 +420,6 @@ export class XAIProvider implements LLMProvider {
         } catch {
             try { errorDetail = await response.text(); } catch { /* ignore */ }
         }
-        return classifyApiError(response.status, errorDetail, response.headers);
+        return withXAIMessage(classifyApiError(response.status, errorDetail, response.headers));
     }
 }

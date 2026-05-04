@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OpenRouterClient } from '../../src/providers/OpenRouterClient.js';
 import { clearModelCapabilitiesCache } from '../../src/providers/modelCapabilities.js';
+import { ApiError } from '../../src/providers/errors.js';
 
 function jsonResponse(body: unknown, init?: ResponseInit): Response {
   return new Response(JSON.stringify(body), {
@@ -155,5 +156,28 @@ describe('OpenRouterClient', () => {
         content: '[Image #1] screenshot.png\n\nWhat is broken here?',
       },
     ]);
+  });
+
+  it('surfaces OpenRouter-specific authentication errors', async () => {
+    const client = new OpenRouterClient({
+      apiKey: 'invalid-key',
+      model: 'openai/gpt-4',
+    }, { maxRetries: 0 });
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(jsonResponse({
+      error: { message: 'Invalid API key' },
+    }, { status: 401 }));
+
+    try {
+      await client.complete({
+        messages: [{ role: 'user', content: 'hi' }],
+      });
+      throw new Error('Should have thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).code).toBe('auth_failed');
+      expect((error as Error).message).toContain('OpenRouter API key');
+      expect((error as Error).message).not.toContain('LLM Gateway');
+    }
   });
 });

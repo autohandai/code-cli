@@ -28,7 +28,11 @@ export class ZaiProvider implements LLMProvider {
       ...config,
       baseUrl: config.baseUrl ?? ZAI_DEFAULT_BASE_URL,
     };
-    this.client = new LLMGatewayClient(effectiveConfig, networkSettings);
+    this.client = new LLMGatewayClient(effectiveConfig, networkSettings, {
+      serviceName: 'Z.ai',
+      credentialName: 'Z.ai API key',
+      accountName: 'Z.ai account',
+    });
     this.model = config.model;
   }
 

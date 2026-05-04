@@ -56,19 +56,33 @@ const MAX_ALLOWED_RETRIES = 5;
 const DEFAULT_RETRY_DELAY = 1000;
 const DEFAULT_TIMEOUT = 30000;
 
+interface LLMGatewayCompatibleErrorLabels {
+  serviceName: string;
+  credentialName: string;
+  accountName: string;
+}
+
+const DEFAULT_ERROR_LABELS: LLMGatewayCompatibleErrorLabels = {
+  serviceName: "LLM Gateway",
+  credentialName: "LLM Gateway API key",
+  accountName: "LLM Gateway account",
+};
+
 /** User-friendly error messages that hide raw provider errors */
-const FRIENDLY_ERRORS: Record<number, string> = {
+function buildFriendlyErrors(labels: LLMGatewayCompatibleErrorLabels): Record<number, string> {
+  return {
   400: "The request was malformed. This often happens when the context is too long. Try /undo to remove recent turns or /new to start fresh.",
-  401: "Authentication failed. Please verify your LLM Gateway API key in ~/.autohand/config.json.",
-  402: "Payment required. Please check your LLM Gateway account balance or billing settings.",
-  403: "Access denied. Your API key may not have permission for this model.",
+  401: `Authentication failed. Please verify your ${labels.credentialName} in ~/.autohand/config.json.`,
+  402: `Payment required. Please check your ${labels.accountName} balance or billing settings.`,
+  403: `Access denied. Your ${labels.credentialName} may not have permission for this model.`,
   404: "The requested model was not found. Use /model to select a different one.",
   429: "Rate limit exceeded. Please wait a moment and try again, or choose a different model.",
-  500: "The LLM Gateway service encountered an internal error. Please try again later.",
-  502: "The LLM Gateway service is temporarily unavailable. Please try again in a few moments.",
-  503: "The LLM Gateway service is currently overloaded. Please try again later.",
-  504: "The request timed out. The service may be experiencing high load.",
+  500: `The ${labels.serviceName} service encountered an internal error. Please try again later.`,
+  502: `The ${labels.serviceName} service is temporarily unavailable. Please try again in a few moments.`,
+  503: `The ${labels.serviceName} service is currently overloaded. Please try again later.`,
+  504: `The request timed out. The ${labels.serviceName} service may be experiencing high load.`,
 };
+}
 
 export class LLMGatewayClient {
   private readonly apiKey: string;
@@ -77,11 +91,17 @@ export class LLMGatewayClient {
   private readonly maxRetries: number;
   private readonly retryDelay: number;
   private readonly timeout: number;
+  private readonly errorLabels: LLMGatewayCompatibleErrorLabels;
 
-  constructor(settings: LLMGatewaySettings, networkSettings?: NetworkSettings) {
+  constructor(
+    settings: LLMGatewaySettings,
+    networkSettings?: NetworkSettings,
+    errorLabels: LLMGatewayCompatibleErrorLabels = DEFAULT_ERROR_LABELS,
+  ) {
     this.apiKey = settings.apiKey ?? "";
     this.baseUrl = settings.baseUrl ?? DEFAULT_BASE_URL;
     this.defaultModel = settings.model;
+    this.errorLabels = errorLabels;
 
     // Network settings with sensible defaults and max limits
     const configuredRetries =
@@ -245,13 +265,13 @@ export class LLMGatewayClient {
       // Timeout
       if (err.name === "AbortError") {
         throw new Error(
-          "Request timed out. The LLM Gateway service may be experiencing high load."
+          `Request timed out. The ${this.errorLabels.serviceName} service may be experiencing high load.`
         );
       }
 
       // Network error - friendly message
       throw new Error(
-        "Unable to connect to LLM Gateway. Please check your internet connection."
+        `Unable to connect to ${this.errorLabels.serviceName}. Please check your internet connection.`
       );
     }
 
@@ -399,7 +419,7 @@ export class LLMGatewayClient {
     }
 
     // Return user-friendly message with details when available
-    const friendlyMessage = FRIENDLY_ERRORS[status];
+    const friendlyMessage = buildFriendlyErrors(this.errorLabels)[status];
     if (friendlyMessage) {
       return errorDetail
         ? `${friendlyMessage}\n${errorDetail}`
@@ -409,7 +429,7 @@ export class LLMGatewayClient {
     // For unknown errors, include status and details
     if (status >= 500) {
       const base =
-        "The LLM Gateway service is temporarily unavailable. Please try again later.";
+        `The ${this.errorLabels.serviceName} service is temporarily unavailable. Please try again later.`;
       return errorDetail ? `${base}\n(${status}: ${errorDetail})` : base;
     }
 

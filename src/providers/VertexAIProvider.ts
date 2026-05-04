@@ -15,7 +15,7 @@ import type {
 } from "../types.js";
 import type { LLMProvider } from "./LLMProvider.js";
 import { getGcloudAccessToken, clearGcloudTokenCache } from "../utils/gcloudAuth.js";
-import { ApiError, classifyApiError } from "./errors.js";
+import { ApiError, classifyApiError, type ApiErrorCode } from "./errors.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -58,6 +58,37 @@ const DEFAULT_MAX_RETRIES = 3;
 const MAX_ALLOWED_RETRIES = 5;
 const DEFAULT_RETRY_DELAY = 1000;
 const DEFAULT_TIMEOUT = 30000;
+
+const VERTEX_AI_FRIENDLY_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
+  auth_failed:
+    "Authentication failed. Please verify your Google Cloud Vertex AI auth token in ~/.autohand/config.json. If it came from gcloud, refresh it with `gcloud auth print-access-token`.",
+  payment_required:
+    "Payment required. Please check billing for the Google Cloud project configured for Vertex AI.",
+  access_denied:
+    "Access denied. Your Google Cloud credentials may not have permission to use Vertex AI or this model.",
+  server_error:
+    "The Google Cloud Vertex AI service encountered an error. Please try again later.",
+  network_error:
+    "Unable to connect to Google Cloud Vertex AI. Please check your internet connection and Vertex AI endpoint.",
+  timeout:
+    "The request timed out. The Google Cloud Vertex AI service may be experiencing high load.",
+};
+
+function withVertexAIMessage(error: ApiError): ApiError {
+  const friendlyMessage = VERTEX_AI_FRIENDLY_MESSAGES[error.code];
+  if (!friendlyMessage) {
+    return error;
+  }
+
+  return new ApiError(
+    error.rawDetail ? `${friendlyMessage}\n${error.rawDetail}` : friendlyMessage,
+    error.code,
+    error.httpStatus,
+    error.retryable,
+    error.retryAfterMs,
+    error.rawDetail,
+  );
+}
 
 /** Anthropic models that use the native Vertex AI endpoint */
 const ANTHROPIC_MODELS = [
@@ -403,14 +434,7 @@ export class VertexAIProvider implements LLMProvider {
 
       // Network error - use centralized classifier
       const classified = classifyApiError(0, err.message);
-      throw new ApiError(
-        classified.message,
-        classified.code,
-        classified.httpStatus,
-        classified.retryable,
-        classified.retryAfterMs,
-        classified.rawDetail,
-      );
+      throw withVertexAIMessage(classified);
     }
 
     if (!response.ok) {
@@ -542,8 +566,8 @@ export class VertexAIProvider implements LLMProvider {
       }
     }
 
-    // Use centralized classifier for consistent error handling across all providers
-    return classifyApiError(status, errorDetail, response.headers);
+    const classified = classifyApiError(status, errorDetail, response.headers);
+    return withVertexAIMessage(classified);
   }
 
   private isNonRetryableError(error: Error): boolean {
