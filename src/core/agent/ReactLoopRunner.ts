@@ -35,6 +35,10 @@ export interface AgentReactLoopHost {
   [key: string]: any;
 }
 
+export function formatComposerToolCallStatus(toolCount: number): string {
+  return toolCount === 1 ? 'Calling tool...' : `Calling ${toolCount} tools...`;
+}
+
 export async function runAgentReactLoop(host: AgentReactLoopHost, abortController: AbortController): Promise<void> {
     host.consecutiveCancellations = 0;
 
@@ -259,12 +263,11 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
 
       if (host.inkRenderer) {
         if (toolCount > 0) {
-          const toolNames = payload.toolCalls!.map((t: any) => t.tool).join(', ');
-          host.inkRenderer.setStatus(`Calling: ${toolNames}`);
+          host.inkRenderer.setStatus(formatComposerToolCallStatus(toolCount));
         } else if (hasResponse) {
           host.inkRenderer.setStatus('Responding...');
         } else if (thoughtPreview) {
-          host.inkRenderer.setStatus(`Thinking: ${thoughtPreview}...`);
+          host.inkRenderer.setStatus('Thinking...');
         }
       } else {
         // Console mode: show iteration status
