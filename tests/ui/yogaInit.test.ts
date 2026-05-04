@@ -7,41 +7,34 @@
 import { describe, it, expect } from 'vitest';
 
 /**
- * Tests for yoga-wasm-web initialization.
+ * Tests for yoga-layout initialization.
  *
- * The yoga-wasm-web/auto entry point must export a ready-to-use module
- * (with Node.create, Config, etc.), not a factory function.
- *
- * Bug: The node.js entry was patched to re-export the asm.js default,
- * which is a factory function `asm()`. Ink's dom.js does
- * `import Yoga from 'yoga-wasm-web/auto'` then `Yoga.Node.create()`.
- * If the default is a function instead of the initialized module,
- * `Yoga.Node` is undefined and we get:
- *   "undefined is not an object (evaluating 'asm.Node.create')"
+ * Ink 7 imports yoga-layout directly. The package must export a ready-to-use
+ * module with Node.create, Config, and the layout constants Ink expects.
  */
-describe('yoga-wasm-web/auto initialization', () => {
+describe('yoga-layout initialization', () => {
   it('should export a module object, not a function', async () => {
-    const Yoga = (await import('yoga-wasm-web/auto')).default;
+    const Yoga = (await import('yoga-layout')).default;
 
     expect(typeof Yoga).not.toBe('function');
     expect(typeof Yoga).toBe('object');
   });
 
   it('should have a Node property', async () => {
-    const Yoga = (await import('yoga-wasm-web/auto')).default;
+    const Yoga = (await import('yoga-layout')).default;
 
     expect(Yoga).toHaveProperty('Node');
     expect(Yoga.Node).toBeDefined();
   });
 
   it('should have Node.create as a callable function', async () => {
-    const Yoga = (await import('yoga-wasm-web/auto')).default;
+    const Yoga = (await import('yoga-layout')).default;
 
     expect(typeof Yoga.Node.create).toBe('function');
   });
 
   it('should create a yoga node without throwing', async () => {
-    const Yoga = (await import('yoga-wasm-web/auto')).default;
+    const Yoga = (await import('yoga-layout')).default;
 
     let node: any;
     expect(() => {
@@ -55,14 +48,14 @@ describe('yoga-wasm-web/auto initialization', () => {
   });
 
   it('should have a Config property', async () => {
-    const Yoga = (await import('yoga-wasm-web/auto')).default;
+    const Yoga = (await import('yoga-layout')).default;
 
     expect(Yoga).toHaveProperty('Config');
     expect(Yoga.Config).toBeDefined();
   });
 
   it('should export yoga layout constants', async () => {
-    const Yoga = (await import('yoga-wasm-web/auto')).default;
+    const Yoga = (await import('yoga-layout')).default;
 
     // Spot-check constants that Ink uses for layout
     expect(Yoga).toHaveProperty('DIRECTION_LTR');
@@ -72,7 +65,7 @@ describe('yoga-wasm-web/auto initialization', () => {
   });
 
   it('should create a node, set layout properties, and calculate layout', async () => {
-    const Yoga = (await import('yoga-wasm-web/auto')).default;
+    const Yoga = (await import('yoga-layout')).default;
 
     const root = Yoga.Node.create();
     root.setWidth(100);
@@ -104,8 +97,8 @@ describe('Ink render integration', () => {
 
     // This is the exact code path that triggers the bug:
     // render() → reconciler → createNode('ink-box') → Yoga.Node.create()
-    // If yoga-wasm-web/auto exports a function instead of an initialized module,
-    // this will throw "undefined is not an object (evaluating 'asm.Node.create')"
+    // If yoga-layout does not export a ready Yoga module, Ink cannot create
+    // layout nodes during render.
     let error: Error | null = null;
     try {
       const instance = render(
