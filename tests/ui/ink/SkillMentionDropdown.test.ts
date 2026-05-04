@@ -4,11 +4,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import React from 'react';
+import { render } from 'ink-testing-library';
 import { describe, it, expect } from 'vitest';
 import {
+  SkillMentionDropdown,
   matchSkillMention,
   buildSkillSuggestions,
 } from '../../../src/ui/ink/SkillMentionDropdown.js';
+import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 import type { SkillMentionInfo } from '../../../src/ui/mentionFilter.js';
 
 const skills: SkillMentionInfo[] = [
@@ -44,8 +48,24 @@ describe('matchSkillMention', () => {
 });
 
 describe('buildSkillSuggestions', () => {
-  it('returns empty list for empty seed', () => {
-    expect(buildSkillSuggestions('', skills)).toEqual([]);
+  it('returns the first skills for empty seed so bare $ opens the menu', () => {
+    expect(buildSkillSuggestions('', skills)).toEqual([
+      {
+        name: '$react-expert',
+        description: 'React 19 expert',
+        isActive: true,
+      },
+      {
+        name: '$rust',
+        description: 'Rust systems programming',
+        isActive: false,
+      },
+      {
+        name: '$typescript',
+        description: 'TypeScript best practices',
+        isActive: false,
+      },
+    ]);
   });
 
   it('returns matches with $ prefix on the name', () => {
@@ -71,5 +91,28 @@ describe('buildSkillSuggestions', () => {
 
   it('returns empty when no matches', () => {
     expect(buildSkillSuggestions('nonexistent-xyz', skills)).toEqual([]);
+  });
+});
+
+describe('SkillMentionDropdown rendering', () => {
+  it('renders bare $ suggestions in the Ink menu', () => {
+    const suggestions = buildSkillSuggestions('', skills);
+    const { lastFrame } = render(
+      React.createElement(
+        ThemeProvider,
+        null,
+        React.createElement(SkillMentionDropdown, {
+          suggestions,
+          activeIndex: 0,
+          visible: true,
+        })
+      )
+    );
+
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('$react-expert');
+    expect(frame).toContain('$rust');
+    expect(frame).toContain('$typescript');
+    expect(frame).toContain('Tab to accept');
   });
 });

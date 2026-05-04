@@ -1107,6 +1107,35 @@ export function AgentUI({
         }
       }
 
+      const skillProvider = skillsProviderRef.current;
+      if (skillProvider) {
+        const skillMention = matchSkillMention(currentText, currentOffset);
+        if (skillMention) {
+          const skillSuggs = buildSkillSuggestions(skillMention.seed, skillProvider());
+          if (skillSuggs.length > 0) {
+            skillStartIndexRef.current = skillMention.startIndex;
+            skillSuggestionsRef.current = skillSuggs;
+            skillVisibleRef.current = true;
+            skillActiveIndexRef.current = Math.min(skillActiveIndexRef.current, skillSuggs.length - 1);
+            setSkillSuggestions(skillSuggs);
+            setSkillVisible(true);
+            setSkillActiveIndex(prev => Math.min(prev, skillSuggs.length - 1));
+          } else {
+            skillVisibleRef.current = false;
+            skillSuggestionsRef.current = [];
+            skillStartIndexRef.current = null;
+            setSkillVisible(false);
+            setSkillSuggestions([]);
+          }
+        } else if (skillVisibleRef.current) {
+          skillVisibleRef.current = false;
+          skillSuggestionsRef.current = [];
+          skillStartIndexRef.current = null;
+          setSkillVisible(false);
+          setSkillSuggestions([]);
+        }
+      }
+
       return;
     }
   }, [syncBufferViewport, syncInputFromBuffer, dismissAutocompleteState, exit]);

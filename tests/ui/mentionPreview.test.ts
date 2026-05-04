@@ -333,7 +333,7 @@ describe('MentionPreview file selection', () => {
 });
 
 describe('MentionPreview skill filtering', () => {
-  it('filterSkills returns empty when seed is empty', async () => {
+  it('filterSkills returns the first skills when seed is empty', async () => {
     const { MentionPreview } = await import('../../src/ui/mentionPreview.js');
     const input = new Readable({ read() {} });
     (input as any).setRawMode = vi.fn();
@@ -342,7 +342,12 @@ describe('MentionPreview skill filtering', () => {
 
     const preview = new MentionPreview(rl, () => [], SAMPLE_COMMANDS, output, () => SAMPLE_SKILLS);
     const filterSkills = (preview as any).filterSkills.bind(preview);
-    expect(filterSkills('')).toEqual([]);
+    expect(filterSkills('')).toEqual([
+      'code-review',
+      'code-simplifier',
+      'debugger',
+      'design-consultation',
+    ]);
 
     preview.dispose();
     rl.close();

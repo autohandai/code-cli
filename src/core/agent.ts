@@ -4616,6 +4616,13 @@ If lint or tests fail, report the issues but do NOT commit.`;
         enableQueueInput: true,
         filesProvider: () => this.workspaceFileCollector.getCachedFiles(),
         slashCommands: SLASH_COMMANDS,
+        skillsProvider: () =>
+          this.skillsRegistry.listSkills().map((skill) => ({
+            name: skill.name,
+            description: skill.description ?? '',
+            isActive: skill.isActive,
+            source: skill.source,
+          })),
       });
       this.ui = inkUIManager;
     } else {

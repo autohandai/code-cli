@@ -1604,6 +1604,49 @@ describe('agent startup and active input UI', () => {
     }
   });
 
+  it('wires loaded skills into the Ink composer skill mention provider', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    let restoreStdoutTTY: () => void = () => {};
+    let restoreStdinTTY: () => void = () => {};
+
+    agent.useInkRenderer = true;
+    agent.ui = null;
+    agent.workspaceFileCollector = {
+      getCachedFiles: vi.fn(() => []),
+    };
+    agent.skillsRegistry = {
+      listSkills: vi.fn(() => [
+        {
+          name: 'code-review',
+          description: 'Review code changes',
+          isActive: true,
+          source: 'autohand-user',
+        },
+      ]),
+    };
+
+    try {
+      restoreStdoutTTY = overrideStreamTTY(process.stdout, true);
+      restoreStdinTTY = overrideStreamTTY(process.stdin, true);
+
+      (agent as any).initializeUIManager();
+
+      const options = (agent.ui as any).options;
+      expect(options.skillsProvider).toBeTypeOf('function');
+      expect(options.skillsProvider()).toEqual([
+        {
+          name: 'code-review',
+          description: 'Review code changes',
+          isActive: true,
+          source: 'autohand-user',
+        },
+      ]);
+    } finally {
+      restoreStdoutTTY();
+      restoreStdinTTY();
+    }
+  });
+
   it('handleInkSubmittedInstruction executes shell commands immediately instead of queueing them', async () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     agent.inkRenderer = {
