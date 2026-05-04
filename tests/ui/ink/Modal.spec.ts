@@ -10,6 +10,32 @@ import type { ModalOption, ModalProps, ShowModalOptions } from '../../../src/ui/
 // Mock process.stdout.isTTY for non-interactive tests
 const originalIsTTY = process.stdout.isTTY;
 
+describe('modal cancel input detection', () => {
+  it('recognizes Ink escape keys and raw ESC input', async () => {
+    const { isModalCancelInput } = await import('../../../src/ui/ink/components/Modal.js');
+
+    expect(isModalCancelInput('', { escape: true, ctrl: false })).toBe(true);
+    expect(isModalCancelInput('\x1b', { escape: false, ctrl: false })).toBe(true);
+  });
+
+  it('recognizes modern CSI-u Escape sequences', async () => {
+    const { isModalCancelInput } = await import('../../../src/ui/ink/components/Modal.js');
+
+    expect(isModalCancelInput('\x1b[27u', { escape: false, ctrl: false })).toBe(true);
+    expect(isModalCancelInput('\x1b[27;1u', { escape: false, ctrl: false })).toBe(true);
+    expect(isModalCancelInput('\x1b[27;2u', { escape: false, ctrl: false })).toBe(true);
+    expect(isModalCancelInput('\x1b[27;1~', { escape: false, ctrl: false })).toBe(true);
+  });
+
+  it('recognizes Ctrl+C as modal cancel but ignores ordinary text', async () => {
+    const { isModalCancelInput } = await import('../../../src/ui/ink/components/Modal.js');
+
+    expect(isModalCancelInput('c', { escape: false, ctrl: true })).toBe(true);
+    expect(isModalCancelInput('c', { escape: false, ctrl: false })).toBe(false);
+    expect(isModalCancelInput('x', { escape: false, ctrl: false })).toBe(false);
+  });
+});
+
 describe('Modal Types', () => {
   describe('ModalOption interface', () => {
     it('accepts minimal option with label and value', () => {

@@ -44,6 +44,14 @@ export interface PlanOptions {
   output?: (message: string) => void;
 }
 
+export function formatPlanModeToggleMessage(enabled: boolean): string {
+  if (enabled) {
+    return `${chalk.cyan('[PLAN]')} ${chalk.cyan('Plan mode active - tools are read-only')}`;
+  }
+
+  return `${chalk.gray('Plan mode')} ${chalk.red('OFF')}`;
+}
+
 export async function plan(_ctx: SlashCommandContext, args?: string, opts?: PlanOptions): Promise<string | null> {
   const manager = getPlanModeManager();
   const subcommand = args?.trim().toLowerCase();
@@ -57,9 +65,7 @@ export async function plan(_ctx: SlashCommandContext, args?: string, opts?: Plan
         return null;
       }
       manager.enable();
-      out(chalk.green('Plan mode enabled.'));
-      out(chalk.gray('Tools are now read-only. Use /plan off to disable.'));
-      out(chalk.gray('Tip: Press Shift+Tab twice to quickly toggle plan mode.'));
+      out(formatPlanModeToggleMessage(true));
       return null;
 
     case 'off':
@@ -69,8 +75,7 @@ export async function plan(_ctx: SlashCommandContext, args?: string, opts?: Plan
         return null;
       }
       manager.disable();
-      out(chalk.green('Plan mode disabled.'));
-      out(chalk.gray('Full tool access restored.'));
+      out(formatPlanModeToggleMessage(false));
       return null;
 
     case 'status':
@@ -81,12 +86,10 @@ export async function plan(_ctx: SlashCommandContext, args?: string, opts?: Plan
       // Toggle
       if (manager.isEnabled()) {
         manager.disable();
-        out(chalk.green('Plan mode disabled.'));
-        out(chalk.gray('Full tool access restored.'));
+        out(formatPlanModeToggleMessage(false));
       } else {
         manager.enable();
-        out(chalk.green('Plan mode enabled.'));
-        out(chalk.gray('Tools are now read-only.'));
+        out(formatPlanModeToggleMessage(true));
       }
       return null;
 

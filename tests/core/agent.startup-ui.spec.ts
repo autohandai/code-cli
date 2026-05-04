@@ -13,6 +13,7 @@ import { AutohandAgent } from '../../src/core/agent.js';
 import { getPlanModeManager } from '../../src/commands/plan.js';
 import { ApiError } from '../../src/providers/errors.js';
 import { buildToolLoopCallSignature } from '../../src/core/agent/ToolLoopSignature.js';
+import { setNodePtyLoaderForTests } from '../../src/ui/shellCommand.js';
 
 async function waitForAssertion(assertion: () => void, attempts = 20): Promise<void> {
   let lastError: unknown;
@@ -28,6 +29,26 @@ async function waitForAssertion(assertion: () => void, attempts = 20): Promise<v
   }
 
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+function overrideStreamTTY(
+  stream: NodeJS.ReadStream | NodeJS.WriteStream,
+  value: boolean
+): () => void {
+  const descriptor = Object.getOwnPropertyDescriptor(stream, 'isTTY');
+  Object.defineProperty(stream, 'isTTY', {
+    value,
+    configurable: true,
+    writable: true,
+  });
+
+  return () => {
+    if (descriptor) {
+      Object.defineProperty(stream, 'isTTY', descriptor);
+    } else {
+      delete (stream as typeof stream & { isTTY?: boolean }).isTTY;
+    }
+  };
 }
 
 describe('agent startup and active input UI', () => {
@@ -456,7 +477,7 @@ describe('agent startup and active input UI', () => {
       stop: vi.fn(),
       start: vi.fn(),
     };
-    const stdoutDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    let restoreStdoutTTY: () => void = () => {};
     const onSpy = vi.spyOn(process.stdout, 'on');
     const offSpy = vi.spyOn(process.stdout, 'off');
     const forceRender = vi.fn();
@@ -470,7 +491,7 @@ describe('agent startup and active input UI', () => {
     agent.resizeHandler = null;
 
     try {
-      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+      restoreStdoutTTY = overrideStreamTTY(process.stdout, true);
       (agent as any).startStatusUpdates();
       expect(onSpy).toHaveBeenCalled();
       const resizeCall = onSpy.mock.calls.find((call) => call[0] === 'resize');
@@ -487,9 +508,7 @@ describe('agent startup and active input UI', () => {
       expect(offSpy).toHaveBeenCalledWith('resize', handler);
       expect(agent.resizeHandler).toBeNull();
     } finally {
-      if (stdoutDescriptor) {
-        Object.defineProperty(process.stdout, 'isTTY', stdoutDescriptor);
-      }
+      restoreStdoutTTY();
       onSpy.mockRestore();
       offSpy.mockRestore();
       (agent as any).stopStatusUpdates();
@@ -1017,8 +1036,8 @@ describe('agent startup and active input UI', () => {
   it('installs console bridge after persistent input activation in runInstruction', async () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
 
-    const stdoutDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
-    const stdinDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    let restoreStdoutTTY: () => void = () => {};
+    let restoreStdinTTY: () => void = () => {};
 
     const stateAtBridgeInstall: boolean[] = [];
     const cleanupBridge = vi.fn();
@@ -1074,8 +1093,8 @@ describe('agent startup and active input UI', () => {
     agent.printUserInstructionToChatLog = vi.fn();
 
     try {
-      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
-      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+      restoreStdoutTTY = overrideStreamTTY(process.stdout, true);
+      restoreStdinTTY = overrideStreamTTY(process.stdin, true);
 
       await (agent as any).runInstruction('hello');
 
@@ -1092,12 +1111,8 @@ describe('agent startup and active input UI', () => {
       const printOrder = agent.printUserInstructionToChatLog.mock.invocationCallOrder[0];
       expect(printOrder).toBeGreaterThan(startOrder);
     } finally {
-      if (stdoutDescriptor) {
-        Object.defineProperty(process.stdout, 'isTTY', stdoutDescriptor);
-      }
-      if (stdinDescriptor) {
-        Object.defineProperty(process.stdin, 'isTTY', stdinDescriptor);
-      }
+      restoreStdoutTTY();
+      restoreStdinTTY();
     }
   });
 
@@ -1134,8 +1149,8 @@ describe('agent startup and active input UI', () => {
 
   it('retries transport outages without injecting continuation prompts back into the model', async () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
-    const stdoutDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
-    const stdinDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    let restoreStdoutTTY: () => void = () => {};
+    let restoreStdinTTY: () => void = () => {};
     const cleanupBridge = vi.fn();
     const cleanupEsc = vi.fn();
     const stopPreparation = vi.fn();
@@ -1209,8 +1224,8 @@ describe('agent startup and active input UI', () => {
     agent.sessionRetryCount = 0;
 
     try {
-      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
-      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+      restoreStdoutTTY = overrideStreamTTY(process.stdout, true);
+      restoreStdinTTY = overrideStreamTTY(process.stdin, true);
 
       const result = await (agent as any).runInstruction('hello');
 
@@ -1223,12 +1238,8 @@ describe('agent startup and active input UI', () => {
       expect(agent.sessionRetryCount).toBe(0);
     } finally {
       logSpy.mockRestore();
-      if (stdoutDescriptor) {
-        Object.defineProperty(process.stdout, 'isTTY', stdoutDescriptor);
-      }
-      if (stdinDescriptor) {
-        Object.defineProperty(process.stdin, 'isTTY', stdinDescriptor);
-      }
+      restoreStdoutTTY();
+      restoreStdinTTY();
     }
   });
 
@@ -1552,8 +1563,8 @@ describe('agent startup and active input UI', () => {
 
   it('initializes Ink through UIManager instead of creating a second renderer owner', async () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
-    const stdoutDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
-    const stdinDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    let restoreStdoutTTY: () => void = () => {};
+    let restoreStdinTTY: () => void = () => {};
     const renderer = { isRunning: () => true };
     const ui = {
       start: vi.fn(async () => {}),
@@ -1576,8 +1587,8 @@ describe('agent startup and active input UI', () => {
     };
 
     try {
-      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
-      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+      restoreStdoutTTY = overrideStreamTTY(process.stdout, true);
+      restoreStdinTTY = overrideStreamTTY(process.stdin, true);
 
       await (agent as any).initializeUI(new AbortController(), vi.fn(), true);
 
@@ -1588,12 +1599,8 @@ describe('agent startup and active input UI', () => {
       expect(agent.inkRenderer).toBe(renderer);
       expect(agent.runtime.inkRenderer).toBe(renderer);
     } finally {
-      if (stdoutDescriptor) {
-        Object.defineProperty(process.stdout, 'isTTY', stdoutDescriptor);
-      }
-      if (stdinDescriptor) {
-        Object.defineProperty(process.stdin, 'isTTY', stdinDescriptor);
-      }
+      restoreStdoutTTY();
+      restoreStdinTTY();
     }
   });
 
@@ -1623,7 +1630,7 @@ describe('agent startup and active input UI', () => {
     expect(agent.executeImmediateShellCommandForInk).not.toHaveBeenCalled();
   });
 
-  it('prefers PTY only when rendering shell output through the Ink live command block', () => {
+  it('does not force PTY for immediate Ink shell commands', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
 
     agent.inkRenderer = null;
@@ -1634,7 +1641,46 @@ describe('agent startup and active input UI', () => {
       appendLiveCommandOutput: vi.fn(),
       finishLiveCommand: vi.fn(),
     };
-    expect((agent as any).shouldPreferPtyForImmediateShellCommands()).toBe(true);
+    expect((agent as any).shouldPreferPtyForImmediateShellCommands()).toBe(false);
+  });
+
+  it('executes immediate Ink shell commands through the non-PTY streaming path', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    let restoreStdoutTTY: () => void = () => {};
+    let restoreStdinTTY: () => void = () => {};
+    const commandId = 'live-command-test';
+
+    restoreStdoutTTY = overrideStreamTTY(process.stdout, true);
+    restoreStdinTTY = overrideStreamTTY(process.stdin, true);
+    setNodePtyLoaderForTests(async () => {
+      throw new Error('node-pty should not be loaded for immediate Ink shell commands');
+    });
+
+    agent.runtime = {
+      workspaceRoot: process.cwd(),
+    };
+    agent.inkRenderer = {
+      startLiveCommand: vi.fn(() => commandId),
+      appendLiveCommandOutput: vi.fn(),
+      finishLiveCommand: vi.fn(),
+    };
+
+    try {
+      const result = await (agent as any).executeImmediateShellCommandForInk('pwd');
+
+      expect(result.success).toBe(true);
+      expect(agent.inkRenderer.startLiveCommand).toHaveBeenCalledWith('! pwd');
+      expect(agent.inkRenderer.appendLiveCommandOutput).toHaveBeenCalledWith(
+        commandId,
+        'stdout',
+        expect.stringContaining(process.cwd())
+      );
+      expect(agent.inkRenderer.finishLiveCommand).toHaveBeenCalledWith(commandId, true, undefined);
+    } finally {
+      setNodePtyLoaderForTests();
+      restoreStdoutTTY();
+      restoreStdinTTY();
+    }
   });
 
   it('routes immediate shell commands to the composer executor when Ink is disabled', async () => {

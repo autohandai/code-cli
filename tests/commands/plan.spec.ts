@@ -7,6 +7,10 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { plan, metadata, getPlanModeManager } from '../../src/commands/plan.js';
 import type { SlashCommandContext } from '../../src/core/slashCommandTypes.js';
 
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
+}
+
 describe('/plan command', () => {
   const mockCtx = {} as SlashCommandContext;
 
@@ -55,6 +59,16 @@ describe('/plan command', () => {
       await plan(mockCtx, '');
 
       expect(manager.isEnabled()).toBe(false);
+    });
+
+    it('prints only the canonical plan status when enabling plan mode', async () => {
+      const output: string[] = [];
+
+      await plan(mockCtx, '', { output: (message) => output.push(stripAnsi(message)) });
+
+      expect(output).toEqual(['[PLAN] Plan mode active - tools are read-only']);
+      expect(output.join('\n')).not.toContain('Plan mode enabled.');
+      expect(output.join('\n')).not.toContain('Tools are now read-only.');
     });
   });
 

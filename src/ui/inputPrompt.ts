@@ -19,7 +19,7 @@ import {
 } from './shellCommand.js';
 import type { SlashCommand } from '../core/slashCommands.js';
 import { MentionPreview } from './mentionPreview.js';
-import { getPlanModeManager } from '../commands/plan.js';
+import { formatPlanModeToggleMessage, getPlanModeManager } from '../commands/plan.js';
 import { safeSetRawMode } from './rawMode.js';
 import {
   type ImageMimeType,
@@ -2302,12 +2302,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         const wasEnabled = planModeManager.isEnabled();
         planModeManager.handleShiftTab();
 
-        // Show immediate feedback
-        if (wasEnabled) {
-          showPromptMessage(`${chalk.gray('Plan mode')} ${chalk.red('OFF')}`);
-        } else {
-          showPromptMessage(`${chalk.bgCyan.black.bold(' PLAN ')} ${chalk.cyan('Plan mode ON - read-only tools')}`);
-        }
+        showPromptMessage(formatPlanModeToggleMessage(!wasEnabled));
         return;
       }
 

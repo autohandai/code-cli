@@ -64,4 +64,38 @@ describe('InkRenderer clearQueue', () => {
     expect(renderer.getQueueCount()).toBe(0);
     expect(renderer.dequeueInstruction()).toBeUndefined();
   });
+
+  it('does not enqueue the same instruction twice before it is processed', () => {
+    renderer.addQueuedInstruction('/model');
+    renderer.addQueuedInstruction('/model');
+
+    expect(renderer.getQueueCount()).toBe(1);
+    expect(renderer.dequeueInstruction()).toBe('/model');
+    expect(renderer.dequeueInstruction()).toBeUndefined();
+  });
+
+  it('does not enqueue a late duplicate while the first submit is being processed', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1000);
+
+    renderer.addQueuedInstruction('/model');
+    expect(renderer.dequeueInstruction()).toBe('/model');
+
+    renderer.addQueuedInstruction('/model');
+
+    expect(renderer.getQueueCount()).toBe(0);
+  });
+
+  it('allows the same instruction again after the duplicate suppression window', () => {
+    let now = 1000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+
+    renderer.addQueuedInstruction('/model');
+    expect(renderer.dequeueInstruction()).toBe('/model');
+
+    now += 1000;
+    renderer.addQueuedInstruction('/model');
+
+    expect(renderer.getQueueCount()).toBe(1);
+    expect(renderer.dequeueInstruction()).toBe('/model');
+  });
 });
