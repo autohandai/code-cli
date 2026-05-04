@@ -77,7 +77,7 @@ import { MentionResolver } from './agent/MentionResolver.js';
 import { SystemPromptBuilder } from './agent/SystemPromptBuilder.js';
 import { runAgentReactLoop, type AgentReactLoopHost } from './agent/ReactLoopRunner.js';
 import { initializeAgentDependencies, type AgentDependencyHost } from './agent/AgentDependencyComposer.js';
-import { runAgentInstruction, type AgentInstructionHost } from './agent/InstructionRunner.js';
+import { InstructionRunner, type AgentInstructionHost } from './agent/InstructionRunner.js';
 import {
   agentSleep,
   injectAgentContinuationMessage,
@@ -270,6 +270,7 @@ export class AutohandAgent {
   private pendingSuggestion: Promise<void> | null = null;
   private isStartupSuggestion = false;
   private shellSuggestionProvider!: ShellSuggestionProvider;
+  private instructionRunner!: InstructionRunner;
 
   private taskStartedAt: number | null = null;
   private totalTokensUsed = 0;
@@ -326,6 +327,7 @@ export class AutohandAgent {
     private readonly runtime: AgentRuntime
   ) {
     initializeAgentDependencies(this as unknown as AgentDependencyHost, llm, files, runtime);
+    this.instructionRunner = new InstructionRunner(this as unknown as AgentInstructionHost);
   }
 
   private syncMcpTools(): void {
@@ -563,7 +565,8 @@ export class AutohandAgent {
   }
 
   async runInstruction(instruction: string): Promise<boolean> {
-    return runAgentInstruction(this as unknown as AgentInstructionHost, instruction);
+    this.instructionRunner ??= new InstructionRunner(this as unknown as AgentInstructionHost);
+    return this.instructionRunner.run(instruction);
   }
 
   private handleToolOutput(chunk: ToolOutputChunk): void {

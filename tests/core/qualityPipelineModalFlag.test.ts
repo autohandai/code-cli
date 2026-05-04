@@ -30,6 +30,21 @@ vi.mock('../../src/core/CodeQualityPipeline.js', () => ({
 }));
 
 describe('Quality Pipeline modalActive flag', () => {
+  it('uses a typed instruction runner port instead of an any host index signature', async () => {
+    const { readFileSync } = await import('node:fs');
+    const source = readFileSync('src/core/agent/InstructionRunner.ts', 'utf-8');
+    const agentSource = readFileSync('src/core/agent.ts', 'utf-8');
+
+    expect(source).toContain('export interface AgentInstructionHost');
+    expect(source).toContain('export class InstructionRunner');
+    expect(source).toContain('constructor(private readonly host: AgentInstructionHost)');
+    expect(source).not.toContain('[key: string]: any');
+    expect(agentSource).toContain('private instructionRunner!: InstructionRunner');
+    expect(agentSource).toContain('this.instructionRunner = new InstructionRunner');
+    expect(agentSource).toContain('this.instructionRunner ??= new InstructionRunner');
+    expect(agentSource).toContain('return this.instructionRunner.run(instruction)');
+  });
+
   it('should set modalActive=true before quality pipeline runs', async () => {
     // Read the source code to verify the fix
     const { readFileSync } = await import('node:fs');
