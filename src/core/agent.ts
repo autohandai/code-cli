@@ -139,6 +139,12 @@ import {
 } from './agent/AgentFormatter.js';
 import { WorkspaceFileCollector } from './agent/WorkspaceFileCollector.js';
 import { ProviderConfigManager } from './agent/ProviderConfigManager.js';
+import {
+  buildToolLoopCallSignature,
+  buildToolLoopResultSignature,
+  getToolCallLabel,
+  truncateToolLoopSignature,
+} from './agent/ToolLoopSignature.js';
 import { AutoReportManager } from '../reporting/AutoReportManager.js';
 import { isLikelyFilePathSlashInput } from './slashInputDetection.js';
 import { SuggestionEngine } from './SuggestionEngine.js';
@@ -3589,7 +3595,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
       }
 
       if (payload.toolCalls && payload.toolCalls.length > 0) {
-        const toolCallSignature = this.buildToolLoopCallSignature(payload.toolCalls);
+        const toolCallSignature = buildToolLoopCallSignature(payload.toolCalls);
         if (toolCallSignature === lastToolCallSignature) {
           identicalToolCallCount += 1;
         } else {
@@ -3626,7 +3632,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
           forceNoToolsUntilResponse = true;
           this.conversation.addSystemNote(
             `[Critical Loop Guard] Repeated tool call sequence detected (${identicalToolCallCount}x). ` +
-            `Last sequence: ${this.truncateToolLoopSignature(toolCallSignature)}. ` +
+            `Last sequence: ${truncateToolLoopSignature(toolCallSignature)}. ` +
             'Stop calling tools and provide your finalResponse using the current results.'
           );
           continue;
@@ -3687,7 +3693,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
                 const call = otherCalls[i];
                 return {
                   tool: r.tool,
-                  label: this.getToolCallLabel(call),
+                  label: getToolCallLabel(call),
                   detail: r.success
                     ? formatToolOutputForDisplay({ tool: r.tool, content: r.output ?? '', charLimit, filePath: call?.args?.path as string | undefined, command: call?.args?.command as string | undefined, commandArgs: call?.args?.args as string[] | undefined }).output
                     : r.error ?? r.output ?? 'Tool failed',
@@ -3794,7 +3800,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
             );
           }
 
-          const toolResultSignature = this.buildToolLoopResultSignature(results);
+          const toolResultSignature = buildToolLoopResultSignature(results);
           if (toolResultSignature === lastToolResultSignature) {
             identicalToolResultCount += 1;
           } else {
@@ -5106,99 +5112,6 @@ If lint or tests fail, report the issues but do NOT commit.`;
     cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
 
     return cleaned;
-  }
-
-  private buildToolLoopCallSignature(calls: ToolCallRequest[]): string {
-    return calls
-      .map((call) => {
-        const args = call.args === undefined ? '' : this.stableSerializeForLoop(call.args);
-        return `${call.tool}:${args}`;
-      })
-      .sort()
-      .join('|');
-  }
-
-  /**
-   * Extract a short label from a tool call's args for grouped display.
-   * e.g., read_file({path: "src/index.ts"}) → "src/index.ts"
-   */
-  private getToolCallLabel(call: { tool: string; args?: Record<string, unknown> }): string {
-    const args = call.args ?? {};
-    // File operations → path
-    if (args.path) return String(args.path);
-    if (args.file_path) return String(args.file_path);
-    // Commands → command + args
-    if (args.command) {
-      const cmd = String(args.command);
-      const cmdArgs = Array.isArray(args.args) ? args.args.join(' ') : '';
-      return cmdArgs ? `${cmd} ${cmdArgs}` : cmd;
-    }
-    // Search → query/pattern
-    if (args.query) return String(args.query);
-    if (args.pattern) return String(args.pattern);
-    // Delegation → task
-    if (args.task) return String(args.task).slice(0, 60);
-    // Fallback → first string arg
-    for (const val of Object.values(args)) {
-      if (typeof val === 'string' && val.length > 0) return val.slice(0, 80);
-    }
-    return call.tool;
-  }
-
-  private buildToolLoopResultSignature(
-    results: Array<{ tool: AgentAction['type']; success: boolean; output?: string; error?: string }>
-  ): string {
-    return results
-      .map((result) => {
-        const payload = result.success ? result.output : (result.error ?? result.output ?? '');
-        const normalized = this.normalizeToolLoopText(payload);
-        return `${result.tool}:${result.success ? 'ok' : 'err'}:${normalized}`;
-      })
-      .sort()
-      .join('|');
-  }
-
-  private stableSerializeForLoop(value: unknown): string {
-    const normalize = (input: unknown): unknown => {
-      if (Array.isArray(input)) {
-        return input.map((entry) => normalize(entry));
-      }
-      if (input && typeof input === 'object') {
-        const record = input as Record<string, unknown>;
-        const normalized: Record<string, unknown> = {};
-        for (const key of Object.keys(record).sort()) {
-          normalized[key] = normalize(record[key]);
-        }
-        return normalized;
-      }
-      return input;
-    };
-
-    try {
-      const serialized = JSON.stringify(normalize(value));
-      return serialized ?? String(value);
-    } catch {
-      return String(value);
-    }
-  }
-
-  private normalizeToolLoopText(value: string | undefined): string {
-    if (!value) {
-      return '';
-    }
-
-    return value
-      .replace(/\u001b\[[0-9;]*m/g, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 240);
-  }
-
-  private truncateToolLoopSignature(signature: string, maxLength = 180): string {
-    if (signature.length <= maxLength) {
-      return signature;
-    }
-    return `${signature.slice(0, Math.max(0, maxLength - 3))}...`;
   }
 
   private recordExploration(event: ExplorationEvent): void {
