@@ -10,24 +10,13 @@ vi.mock("../../src/utils/platform", () => ({
   isMLXSupported: vi.fn(() => false),
 }));
 
-const mockComplete = vi.fn();
-vi.mock("../../src/providers/LLMGatewayClient.js", () => ({
-  LLMGatewayClient: class {
-    constructor(
-      private config: any,
-      private networkSettings?: any
-    ) {}
-    setDefaultModel(_model: string) {}
-    async complete(request: any) {
-      return mockComplete(request);
-    }
-  },
-}));
-
 import { ZaiProvider } from "../../src/providers/ZaiProvider";
 
 describe("ZaiProvider", () => {
+  const originalFetch = globalThis.fetch;
+
   afterEach(() => {
+    globalThis.fetch = originalFetch;
     vi.clearAllMocks();
   });
 
@@ -82,11 +71,17 @@ describe("ZaiProvider", () => {
     expect(await provider.isAvailable()).toBe(true);
   });
 
-  it("delegates complete() to LLMGatewayClient", async () => {
-    mockComplete.mockResolvedValue({
-      content: "hello",
-      usage: { totalTokens: 10 },
+  it("delegates complete() through the Z.ai-compatible endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        id: "zai-response",
+        created: Date.now(),
+        choices: [{ message: { content: "hello" }, finish_reason: "stop" }],
+        usage: { total_tokens: 10 },
+      }),
     });
+    globalThis.fetch = fetchMock as typeof fetch;
 
     const provider = new ZaiProvider({
       apiKey: "test-key",
@@ -97,10 +92,38 @@ describe("ZaiProvider", () => {
       messages: [{ role: "user", content: "hi" }],
     });
 
-    expect(mockComplete).toHaveBeenCalledWith({
-      messages: [{ role: "user", content: "hi" }],
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.z.ai/api/paas/v4/chat/completions",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer test-key",
+        }),
+      })
+    );
     expect(result.content).toBe("hello");
+  });
+
+  it("surfaces Z.ai-specific authentication errors", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: () => Promise.resolve({ error: { message: "token expired or incorrect" } }),
+    }) as typeof fetch;
+
+    const provider = new ZaiProvider({
+      apiKey: "invalid-key",
+      model: "glm-4.5",
+    }, { maxRetries: 0 });
+
+    try {
+      await provider.complete({
+        messages: [{ role: "user", content: "hi" }],
+      });
+      throw new Error("Should have thrown");
+    } catch (error) {
+      expect((error as Error).message).toContain("Z.ai API key");
+      expect((error as Error).message).not.toContain("LLM Gateway");
+    }
   });
 
   it("updates model via setModel", () => {

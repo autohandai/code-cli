@@ -51,12 +51,12 @@ describe('OpenAIProvider', () => {
 
   describe('error handling', () => {
     it('throws ApiError with classifyApiError for non-ok responses', async () => {
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(
         new Response(JSON.stringify({ error: { message: 'Invalid API key provided' } }), {
           status: 401,
           headers: { 'Content-Type': 'application/json' },
         }),
-      );
+      ));
 
       await expect(provider.complete({ messages: [{ role: 'user', content: 'hi' }] }))
         .rejects.toThrow(ApiError);
@@ -66,6 +66,8 @@ describe('OpenAIProvider', () => {
       } catch (err) {
         expect(err).toBeInstanceOf(ApiError);
         expect((err as ApiError).code).toBe('auth_failed');
+        expect((err as Error).message).toContain('OpenAI API key');
+        expect((err as Error).message).not.toContain('LLM Gateway');
       }
     });
 

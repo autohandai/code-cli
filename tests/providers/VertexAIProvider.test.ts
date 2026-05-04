@@ -63,8 +63,8 @@ describe("VertexAIProvider", () => {
         ok: false,
         status: 401,
         headers: new Headers(),
-        json: async () => ({ error: { message: "Unauthorized" } }),
-        text: async () => "Unauthorized",
+        json: async () => ({ error: { message: "token expired or incorrect" } }),
+        text: async () => "token expired or incorrect",
       });
 
       try {
@@ -75,6 +75,9 @@ describe("VertexAIProvider", () => {
         expect((error as ApiError).code).toBe("auth_failed");
         expect((error as ApiError).httpStatus).toBe(401);
         expect((error as ApiError).retryable).toBe(false);
+        expect((error as Error).message).toContain("Google Cloud Vertex AI auth token");
+        expect((error as Error).message).not.toContain("LLM Gateway");
+        expect((error as Error).message).not.toContain("API key");
       }
     });
 

@@ -13,7 +13,7 @@ import type {
   FunctionDefinition,
   LLMMessage,
 } from "../types.js";
-import { ApiError, classifyApiError } from "./errors.js";
+import { ApiError, classifyApiError, type ApiErrorCode } from "./errors.js";
 import { modelSupportsImages } from "./modelCapabilities.js";
 
 /**
@@ -95,7 +95,36 @@ const MAX_ALLOWED_RETRIES = 5;
 const DEFAULT_RETRY_DELAY = 1000;
 const DEFAULT_TIMEOUT = 30000;
 
-// FRIENDLY_ERRORS removed — now centralized in ./errors.ts (FRIENDLY_MESSAGES)
+const OPENROUTER_FRIENDLY_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
+  auth_failed:
+    "Authentication failed. Please verify your OpenRouter API key in ~/.autohand/config.json.",
+  payment_required:
+    "Payment required. Please check your OpenRouter account balance or billing settings.",
+  access_denied:
+    "Access denied. Your OpenRouter API key may not have permission for this model.",
+  server_error:
+    "The OpenRouter service encountered an error. Please try again later.",
+  network_error:
+    "Unable to connect to OpenRouter. Please check your internet connection.",
+  timeout:
+    "The request timed out. The OpenRouter service may be experiencing high load.",
+};
+
+function withOpenRouterMessage(error: ApiError): ApiError {
+  const friendlyMessage = OPENROUTER_FRIENDLY_MESSAGES[error.code];
+  if (!friendlyMessage) {
+    return error;
+  }
+
+  return new ApiError(
+    error.rawDetail ? `${friendlyMessage}\n${error.rawDetail}` : friendlyMessage,
+    error.code,
+    error.httpStatus,
+    error.retryable,
+    error.retryAfterMs,
+    error.rawDetail,
+  );
+}
 
 export class OpenRouterClient {
   private readonly apiKey: string;
@@ -288,14 +317,14 @@ export class OpenRouterClient {
       // Timeout
       if (err.name === "AbortError") {
         throw new ApiError(
-          "Request timed out. The AI service may be experiencing high load.",
+          "The request timed out. The OpenRouter service may be experiencing high load.",
           'timeout', 0, true,
         );
       }
 
       // Network error - friendly message
       throw new ApiError(
-        "Unable to connect to the AI service. Please check your internet connection.",
+        "Unable to connect to OpenRouter. Please check your internet connection.",
         'network_error', 0, true,
       );
     }
@@ -366,7 +395,7 @@ export class OpenRouterClient {
       }
     }
 
-    return classifyApiError(status, errorDetail, response.headers);
+    return withOpenRouterMessage(classifyApiError(status, errorDetail, response.headers));
   }
 
   private isNonRetryableError(error: Error): boolean {

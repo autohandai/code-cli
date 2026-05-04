@@ -215,6 +215,34 @@ describe('LLMGatewayClient', () => {
       })).rejects.toThrow(/Authentication failed/);
     });
 
+    it('should support provider-specific authentication wording for LLM Gateway-compatible APIs', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: () => Promise.resolve({ error: { message: 'token expired or incorrect' } })
+      });
+
+      const settings: LLMGatewaySettings = {
+        apiKey: 'invalid-key',
+        model: 'glm-4.5'
+      };
+      const client = new LLMGatewayClient(settings, { maxRetries: 0 }, {
+        serviceName: 'Z.ai',
+        credentialName: 'Z.ai API key',
+        accountName: 'Z.ai account',
+      });
+
+      try {
+        await client.complete({
+          messages: [{ role: 'user', content: 'Hello' }]
+        });
+        expect.fail('Should have thrown');
+      } catch (error) {
+        expect((error as Error).message).toContain('Z.ai API key');
+        expect((error as Error).message).not.toContain('LLM Gateway');
+      }
+    });
+
     it('should throw friendly error on 429 rate limit', async () => {
       global.fetch = vi.fn().mockResolvedValue({
         ok: false,

@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NVIDIAClient } from '../../src/providers/NVIDIAClient.js';
+import { ApiError } from '../../src/providers/errors.js';
 import type { NvidiaAISettings, NetworkSettings } from '../../src/types.js';
 
 describe('NVIDIAClient', () => {
@@ -277,7 +278,7 @@ describe('NVIDIAClient', () => {
       );
     });
 
-    it('should throw friendly error on 401 authentication failure', async () => {
+    it('should throw structured NVIDIA-specific error on 401 authentication failure', async () => {
       global.fetch = vi.fn().mockResolvedValue({
         ok: false,
         status: 401,
@@ -290,9 +291,17 @@ describe('NVIDIAClient', () => {
       };
       const client = new NVIDIAClient(settings, { maxRetries: 0 });
 
-      await expect(client.complete({
-        messages: [{ role: 'user', content: 'Hello' }]
-      })).rejects.toThrow(/Authentication failed/);
+      try {
+        await client.complete({
+          messages: [{ role: 'user', content: 'Hello' }]
+        });
+        expect.fail('Should have thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        expect((error as ApiError).code).toBe('auth_failed');
+        expect((error as Error).message).toContain('NVIDIA API key');
+        expect((error as Error).message).not.toContain('LLM Gateway');
+      }
     });
 
     it('should throw error for payload too large', async () => {

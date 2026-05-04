@@ -13,6 +13,7 @@ import type {
   FunctionDefinition,
   NvidiaChatTemplateKwargs,
 } from "../types.js";
+import { ApiError, classifyApiError } from "./errors.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -226,7 +227,7 @@ export class NVIDIAClient {
     }
 
     if (!response.ok) {
-      throw new Error(await this.buildFriendlyError(response));
+      throw await this.buildFriendlyError(response);
     }
 
     if (isStreaming) {
@@ -339,7 +340,7 @@ export class NVIDIAClient {
     };
   }
 
-  private async buildFriendlyError(response: Response): Promise<string> {
+  private async buildFriendlyError(response: Response): Promise<ApiError> {
     const status = response.status;
 
     let errorDetail = "";
@@ -358,28 +359,63 @@ export class NVIDIAClient {
     }
 
     const friendlyMessage = FRIENDLY_ERRORS[status];
+    const classified = classifyApiError(status, errorDetail, response.headers);
     if (friendlyMessage) {
-      return errorDetail ? `${friendlyMessage}\n${errorDetail}` : friendlyMessage;
+      return new ApiError(
+        errorDetail ? `${friendlyMessage}\n${errorDetail}` : friendlyMessage,
+        classified.code,
+        classified.httpStatus,
+        classified.retryable,
+        classified.retryAfterMs,
+        errorDetail,
+      );
     }
 
     if (status >= 500) {
       const base = "The NVIDIA service is temporarily unavailable. Please try again later.";
-      return errorDetail ? `${base}\n(${status}: ${errorDetail})` : base;
+      return new ApiError(
+        errorDetail ? `${base}\n(${status}: ${errorDetail})` : base,
+        classified.code,
+        classified.httpStatus,
+        classified.retryable,
+        classified.retryAfterMs,
+        errorDetail,
+      );
     }
 
     if (status >= 400) {
       const base = "The request could not be processed.";
-      return errorDetail
+      const message = errorDetail
         ? `${base} (${status}: ${errorDetail})`
         : `${base} (HTTP ${status}) Please try again or adjust your prompt.`;
+      return new ApiError(
+        message,
+        classified.code,
+        classified.httpStatus,
+        classified.retryable,
+        classified.retryAfterMs,
+        errorDetail,
+      );
     }
 
-    return errorDetail
+    const message = errorDetail
       ? `An unexpected error occurred: ${errorDetail}`
       : "An unexpected error occurred. Please try again.";
+    return new ApiError(
+      message,
+      classified.code,
+      classified.httpStatus,
+      classified.retryable,
+      classified.retryAfterMs,
+      errorDetail,
+    );
   }
 
   private isNonRetryableError(error: Error): boolean {
+    if (error instanceof ApiError) {
+      return !error.retryable;
+    }
+
     const message = error.message.toLowerCase();
 
     if (message.includes("cancelled") || message.includes("aborted")) {
