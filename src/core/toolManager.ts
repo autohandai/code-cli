@@ -15,8 +15,27 @@ import {
   normalizePermissionPromptResponse,
   type PermissionPromptResponse,
 } from '../permissions/types.js';
-import { ToolFilter, type ClientContext, type ToolPolicy } from './toolFilter.js';
+import {
+  getToolCategory,
+  ToolFilter,
+  type ClientContext,
+  type ToolCategory,
+  type ToolPolicy
+} from './toolFilter.js';
 import { getPlanModeManager } from '../commands/plan.js';
+
+type ReadyToolExecutionTask = {
+  call: ToolCallRequest;
+  index: number;
+};
+
+const SEQUENTIAL_TOOL_CATEGORIES = new Set<ToolCategory>([
+  'write',
+  'create',
+  'delete',
+  'git_write',
+  'shell'
+]);
 
 export interface ToolParameter {
   type: string;
@@ -1699,7 +1718,7 @@ export class ToolManager {
 
     // Phase 1: Pre-flight + Approval (sequential)
     // Categorize each call as rejected, denied, or ready-to-execute
-    const readyToExecute: Array<{ call: ToolCallRequest; index: number }> = [];
+    const readyToExecute: ReadyToolExecutionTask[] = [];
 
     for (let i = 0; i < toolCalls.length; i++) {
       const call = toolCalls[i];
@@ -1803,11 +1822,10 @@ export class ToolManager {
       readyToExecute.push({ call, index: i });
     }
 
-    // Phase 2: Parallel execution of approved calls
+    // Phase 2: Scheduled execution of approved calls
     if (readyToExecute.length > 0) {
-      const execResults = await this.executeWithConcurrency(
+      const execResults = await this.executeScheduled(
         readyToExecute,
-        this.maxConcurrency,
         onToolComplete
       );
       for (const [index, result] of execResults) {
@@ -1820,10 +1838,65 @@ export class ToolManager {
   }
 
   /**
+   * Execute approved calls in model order while preserving safe parallelism.
+   *
+   * Read-only batches can run concurrently. Mutating tools are ordering
+   * barriers because they may affect following reads or other writes.
+   */
+  private async executeScheduled(
+    tasks: ReadyToolExecutionTask[],
+    onToolComplete?: (index: number, result: ToolExecutionResult) => void
+  ): Promise<Map<number, ToolExecutionResult>> {
+    const results = new Map<number, ToolExecutionResult>();
+    let parallelBatch: ReadyToolExecutionTask[] = [];
+
+    const mergeResults = (batchResults: Map<number, ToolExecutionResult>) => {
+      for (const [index, result] of batchResults) {
+        results.set(index, result);
+      }
+    };
+
+    const flushParallelBatch = async () => {
+      if (parallelBatch.length === 0) {
+        return;
+      }
+      const batchResults = await this.executeWithConcurrency(
+        parallelBatch,
+        this.maxConcurrency,
+        onToolComplete
+      );
+      mergeResults(batchResults);
+      parallelBatch = [];
+    };
+
+    for (const task of tasks) {
+      if (!this.shouldExecuteSequentially(task.call)) {
+        parallelBatch.push(task);
+        continue;
+      }
+
+      await flushParallelBatch();
+      const sequentialResult = await this.executeWithConcurrency(
+        [task],
+        1,
+        onToolComplete
+      );
+      mergeResults(sequentialResult);
+    }
+
+    await flushParallelBatch();
+    return results;
+  }
+
+  private shouldExecuteSequentially(call: ToolCallRequest): boolean {
+    return SEQUENTIAL_TOOL_CATEGORIES.has(getToolCategory(call.tool));
+  }
+
+  /**
    * Execute tool calls with a concurrency limit using a worker-pool pattern.
    */
   private async executeWithConcurrency(
-    tasks: Array<{ call: ToolCallRequest; index: number }>,
+    tasks: ReadyToolExecutionTask[],
     maxConcurrency: number,
     onToolComplete?: (index: number, result: ToolExecutionResult) => void
   ): Promise<Map<number, ToolExecutionResult>> {
