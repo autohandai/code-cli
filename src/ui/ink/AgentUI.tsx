@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import React, { useState, useEffect, memo, useMemo, useRef, useCallback } from 'react';
-import { Box, Text, useInput, useApp, useStdout, type Key as InkKey } from 'ink';
+import { Box, Text, useInput, useStdout, type Key as InkKey } from 'ink';
 import {
   StatusLine,
   formatLineSegments,
@@ -345,7 +345,6 @@ export function AgentUI({
   skillsProvider,
   lineExtensions,
 }: AgentUIProps) {
-  const { exit } = useApp();
   const { colors } = useTheme();
   const { t } = useTranslation();
   const [input, setInput] = useState(state.currentInput || '');
@@ -821,18 +820,15 @@ export function AgentUI({
         return;
       }
 
-      // Input is empty - handle exit flow (ESC is for canceling operations)
+      // Input is empty - mirror /quit after the warning so the agent can run
+      // its graceful session shutdown path instead of only unmounting Ink.
       // Use functional update to avoid dependency on ctrlCCount
       setCtrlCCount(prev => {
         if (prev === 0) {
           onCtrlCRef.current();
           return 1;
         } else {
-          // Defer exit() to break out of React's render-phase state computation.
-          // Ink's useApp().exit() calls setState on the App component; triggering
-          // that from inside a functional updater causes React 19 to warn about
-          // nested component updates during render.
-          setImmediate(exit);
+          setImmediate(() => onInstructionRef.current('/quit'));
           return prev;
         }
       });
@@ -1147,7 +1143,7 @@ export function AgentUI({
 
       return;
     }
-  }, [syncBufferViewport, syncInputFromBuffer, dismissAutocompleteState, exit]);
+  }, [syncBufferViewport, syncInputFromBuffer, dismissAutocompleteState]);
 
   // Extra safety: wrap in a ref so useInput never re-registers even if
   // the above callback identity changes unexpectedly.
