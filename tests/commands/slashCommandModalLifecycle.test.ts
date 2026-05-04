@@ -43,6 +43,23 @@ describe('/model command modal lifecycle', () => {
     expect(callOrder).toEqual(['before', 'prompt', 'after']);
   });
 
+  it('awaits async onBeforeModal before opening the model picker', async () => {
+    const callOrder: string[] = [];
+    const ctx = {
+      promptModelSelection: vi.fn(async () => { callOrder.push('prompt'); }),
+      onBeforeModal: vi.fn(async () => {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        callOrder.push('before');
+      }),
+      onAfterModal: vi.fn(() => { callOrder.push('after'); }),
+    };
+
+    const { model } = await import('../../src/commands/model.js');
+    await model(ctx);
+
+    expect(callOrder).toEqual(['before', 'prompt', 'after']);
+  });
+
   it('calls onAfterModal even when promptModelSelection throws', async () => {
     const ctx = {
       promptModelSelection: vi.fn(async () => { throw new Error('boom'); }),
@@ -319,4 +336,3 @@ describe('InkRenderer pause/resume during modal lifecycle (Ink 7 regression)', (
     expect(mockInkRenderer.resume).toHaveBeenCalledTimes(1);
   });
 });
-

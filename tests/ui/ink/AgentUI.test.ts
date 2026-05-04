@@ -9,11 +9,15 @@ import type { Key as InkKey } from 'ink';
 import { TextBuffer } from '../../../src/ui/textBuffer.js';
 import {
   clearBareComposerTrigger,
+  clearInkComposerInputForSubmit,
+  clearInkHiddenPastes,
   consumeInkBracketedPasteInput,
   getComposerHelpLine,
   getTextBufferCursorOffset,
   handleInkTextBufferInput,
   isBareComposerTrigger,
+  resolveInkHiddenPastes,
+  storeInkHiddenPaste,
 } from '../../../src/ui/ink/AgentUI.js';
 
 function createInkKey(overrides: Partial<InkKey> = {}): InkKey {
@@ -160,6 +164,61 @@ describe('AgentUI bracketed paste input', () => {
 
     expect(result).toEqual({ handled: true, completedText: 'line1\nline2' });
     expect(pasteState).toEqual({ isInPaste: false, buffer: '', hiddenContent: null });
+  });
+
+  it('submits edited prompt text around compact pasted content', () => {
+    const pasteState = { isInPaste: false, buffer: '', hiddenContent: null };
+    const actual = 'line1\nline2\nline3\nline4\nline5';
+    const visual = '[Text pasted: 5 lines]';
+
+    storeInkHiddenPaste(pasteState, visual, actual);
+
+    expect(resolveInkHiddenPastes(`fix this ${visual} and explain`, pasteState)).toBe(
+      `fix this ${actual} and explain`
+    );
+  });
+
+  it('does not submit pasted content when the compact marker was deleted', () => {
+    const pasteState = { isInPaste: false, buffer: '', hiddenContent: null };
+
+    storeInkHiddenPaste(pasteState, '[Text pasted: 5 lines]', 'line1\nline2\nline3\nline4\nline5');
+
+    expect(resolveInkHiddenPastes('fix this and explain', pasteState)).toBe('fix this and explain');
+  });
+
+  it('clears hidden pasted content after submit', () => {
+    const pasteState = { isInPaste: false, buffer: '', hiddenContent: null };
+
+    storeInkHiddenPaste(pasteState, '[Text pasted: 5 lines]', 'line1\nline2\nline3\nline4\nline5');
+    clearInkHiddenPastes(pasteState);
+
+    expect(pasteState).toEqual({
+      isInPaste: false,
+      buffer: '',
+      hiddenContent: null,
+      hiddenPastes: [],
+    });
+  });
+
+  it('clears composer state synchronously before queued slash command processing can pause the modal', () => {
+    const buffer = new TextBuffer(20, 10, '/model');
+    const pasteState = { isInPaste: false, buffer: '', hiddenContent: null };
+    const calls: string[] = [];
+
+    clearInkComposerInputForSubmit(buffer, pasteState, {
+      setInput: (value) => calls.push(`setInput:${value}`),
+      setCursorOffset: (value) => calls.push(`setCursorOffset:${value}`),
+      onInputChange: (value) => calls.push(`onInputChange:${value}`),
+      clearPendingInputSync: () => calls.push('clearPendingInputSync'),
+    });
+
+    expect(buffer.getText()).toBe('');
+    expect(calls).toEqual([
+      'clearPendingInputSync',
+      'setInput:',
+      'setCursorOffset:0',
+      'onInputChange:',
+    ]);
   });
 });
 

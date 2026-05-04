@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { Box, Text, useInput, render, type Instance } from 'ink';
+import { Box, Text, useInput, render, type Instance, type Key as InkKey } from 'ink';
 import { I18nProvider, useTranslation } from '../../i18n/index.js';
 import { disableBracketedPaste, enableBracketedPaste } from '../../displayUtils.js';
 import { resetScrollRegion } from '../../resetScrollRegion.js';
@@ -133,6 +133,22 @@ export function resolveInitialCursor(
   }
 
   return Math.max(0, Math.min(optionsLength - 1, Math.floor(initialIndex)));
+}
+
+export function isModalCancelInput(char: string, key: Pick<InkKey, 'escape' | 'ctrl'>): boolean {
+  if (key.escape) {
+    return true;
+  }
+
+  if (char === '\x1b' || char === '\u001b') {
+    return true;
+  }
+
+  if (char === 'c' && key.ctrl) {
+    return true;
+  }
+
+  return /^\x1b\[27(?:;\d+)?[u~]$/.test(char);
 }
 
 function unmountAndResolve<T>(
@@ -311,7 +327,7 @@ function Modal(props: ModalProps) {
 
   useInput((char, key) => {
     // ESC cancels
-    if (key.escape) {
+    if (isModalCancelInput(char, key)) {
       if (mode === 'select' && isCustomMode) {
         setIsCustomMode(false);
         setCustomInput('');

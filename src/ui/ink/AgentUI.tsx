@@ -89,6 +89,7 @@ export interface InkPasteState {
   isInPaste: boolean;
   buffer: string;
   hiddenContent: string | null;
+  hiddenPastes?: Array<{ visual: string; actual: string }>;
 }
 
 export interface InkPasteConsumeResult {
@@ -225,6 +226,48 @@ export function consumeInkBracketedPasteInput(
   };
 }
 
+export function storeInkHiddenPaste(
+  pasteState: InkPasteState,
+  visual: string,
+  actual: string
+): void {
+  pasteState.hiddenContent = actual;
+  pasteState.hiddenPastes = [...(pasteState.hiddenPastes ?? []), { visual, actual }];
+}
+
+export function clearInkHiddenPastes(pasteState: InkPasteState): void {
+  pasteState.hiddenContent = null;
+  pasteState.hiddenPastes = [];
+}
+
+export function resolveInkHiddenPastes(text: string, pasteState: InkPasteState): string {
+  let resolved = text;
+
+  for (const paste of pasteState.hiddenPastes ?? []) {
+    resolved = resolved.replace(paste.visual, paste.actual);
+  }
+
+  return resolved;
+}
+
+export function clearInkComposerInputForSubmit(
+  buffer: TextBuffer,
+  pasteState: InkPasteState,
+  options: {
+    setInput: (value: string) => void;
+    setCursorOffset: (value: number) => void;
+    onInputChange?: (value: string) => void;
+    clearPendingInputSync?: () => void;
+  }
+): void {
+  buffer.setText('');
+  clearInkHiddenPastes(pasteState);
+  options.clearPendingInputSync?.();
+  options.setInput('');
+  options.setCursorOffset(0);
+  options.onInputChange?.('');
+}
+
 export function handleInkTextBufferInput(
   buffer: TextBuffer,
   input: string,
@@ -339,6 +382,7 @@ export function AgentUI({
     isInPaste: false,
     buffer: '',
     hiddenContent: null,
+    hiddenPastes: [],
   });
 
   // Refs for stable input handler access — prevents useInput re-registration
@@ -367,6 +411,8 @@ export function AgentUI({
   onToggleLiveCommandExpandedRef.current = onToggleLiveCommandExpanded;
   const onInstructionRef = useRef(onInstruction);
   onInstructionRef.current = onInstruction;
+  const onInputChangeRef = useRef(onInputChange);
+  onInputChangeRef.current = onInputChange;
   const filesProviderRef = useRef(filesProvider);
   filesProviderRef.current = filesProvider;
   const slashCommandsRef = useRef(slashCommands);
@@ -711,10 +757,9 @@ export function AgentUI({
         const buffer = textBufferRef.current;
 
         if (display.isPasted) {
-          pasteState.hiddenContent = display.actual;
+          storeInkHiddenPaste(pasteState, display.visual, display.actual);
           buffer.insert(display.visual);
         } else {
-          pasteState.hiddenContent = null;
           buffer.insert(pasteResult.completedText);
         }
 
@@ -933,17 +978,28 @@ export function AgentUI({
     if (result === 'submit') {
       const pasteState = pasteStateRef.current;
       
-      // Use hidden content (actual pasted text) if available, otherwise use buffer text
-      let text = pasteState.hiddenContent || buffer.getText();
+      // Keep the compact paste marker editable in the Composer while resolving
+      // it back to the actual pasted text only at submit time.
+      let text = resolveInkHiddenPastes(buffer.getText(), pasteState);
       text = text.trim();
       
       if (!text) {
         return;
       }
+      clearInkComposerInputForSubmit(buffer, pasteState, {
+        setInput,
+        setCursorOffset,
+        onInputChange: onInputChangeRef.current,
+        clearPendingInputSync: () => {
+          pendingInputSyncRef.current = null;
+          if (inputSyncTimerRef.current) {
+            clearTimeout(inputSyncTimerRef.current);
+            inputSyncTimerRef.current = null;
+          }
+        },
+      });
+      dismissAutocompleteState();
       onInstructionRef.current(text);
-      buffer.setText('');
-      pasteState.hiddenContent = null; // Clear paste state after submit
-      syncInputFromBuffer();
       return;
     }
 

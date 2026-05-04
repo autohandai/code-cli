@@ -192,6 +192,8 @@ export class InkRenderer {
   /** Flush interval in ms - batches rapid output to prevent flickering */
   private static readonly LIVE_OUTPUT_FLUSH_INTERVAL_MS = 100;
 
+  private static readonly DUPLICATE_INSTRUCTION_SUPPRESSION_MS = 1000;
+
   /** Resize handler reference for cleanup */
   private resizeHandler: (() => void) | null = null;
 
@@ -203,6 +205,8 @@ export class InkRenderer {
 
   /** Cleanup function for stdout sync-output patch */
   private unpatchedStdout: (() => void) | null = null;
+
+  private lastQueuedInstruction: { text: string; at: number } | null = null;
 
   constructor(options: InkRendererOptions) {
     this.options = options;
@@ -666,7 +670,13 @@ export class InkRenderer {
     if (this.instance) {
       // Sync state from wrapper before unmounting
       if (this.wrapperRef.current) {
-        this.state = this.wrapperRef.current.getState();
+        const currentInput = this.state.currentInput;
+        const queuedInstructions = this.state.queuedInstructions;
+        this.state = {
+          ...this.wrapperRef.current.getState(),
+          currentInput,
+          queuedInstructions,
+        };
       }
       // Ink 7 schedules useInput cleanup through React's passive-effect queue.
       // Callers yield a macrotask after pause() so the modal can attach a fresh
@@ -784,6 +794,15 @@ export class InkRenderer {
    * Add a queued instruction
    */
   addQueuedInstruction(instruction: string): void {
+    const now = Date.now();
+    if (
+      this.lastQueuedInstruction?.text === instruction &&
+      now - this.lastQueuedInstruction.at < InkRenderer.DUPLICATE_INSTRUCTION_SUPPRESSION_MS
+    ) {
+      return;
+    }
+
+    this.lastQueuedInstruction = { text: instruction, at: now };
     this.updateState({
       queuedInstructions: [...this.state.queuedInstructions, instruction]
     });

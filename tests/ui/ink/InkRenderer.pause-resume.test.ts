@@ -213,4 +213,44 @@ describe('InkRenderer pause/resume cycle', () => {
     expect(renderer.getState().userMessages).toEqual(['post-modal prompt']);
   });
 
+  it('preserves the renderer-owned current input when pausing during submit', () => {
+    renderer.start();
+
+    (renderer as any).state = {
+      ...renderer.getState(),
+      currentInput: '',
+    };
+    (renderer as any).wrapperRef.current = {
+      updateState: vi.fn(),
+      getState: () => ({
+        ...renderer.getState(),
+        currentInput: '/model',
+      }),
+    };
+
+    renderer.pause();
+
+    expect(renderer.getState().currentInput).toBe('');
+  });
+
+  it('preserves the renderer-owned queue when pausing after dequeue', () => {
+    renderer.start();
+
+    (renderer as any).state = {
+      ...renderer.getState(),
+      queuedInstructions: [],
+    };
+    (renderer as any).wrapperRef.current = {
+      updateState: vi.fn(),
+      getState: () => ({
+        ...renderer.getState(),
+        queuedInstructions: ['/model'],
+      }),
+    };
+
+    renderer.pause();
+
+    expect(renderer.getState().queuedInstructions).toEqual([]);
+  });
+
 });

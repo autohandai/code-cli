@@ -11,10 +11,10 @@ import { t } from '../i18n/index.js';
  */
 export async function model(ctx: {
   promptModelSelection: () => Promise<void>;
-  onBeforeModal?: () => void;
+  onBeforeModal?: () => Promise<void> | void;
   onAfterModal?: () => Promise<void> | void;
 }): Promise<string | null> {
-  ctx.onBeforeModal?.();
+  await ctx.onBeforeModal?.();
   try {
     await ctx.promptModelSelection();
     return null;

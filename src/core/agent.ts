@@ -116,7 +116,7 @@ import { WorktreeManager } from '../actions/worktree.js';
 import { confirm as unifiedConfirm, isExternalCallbackEnabled } from '../ui/promptCallback.js';
 import { ActivityIndicator } from '../ui/activityIndicator.js';
 import { NotificationService } from '../utils/notification.js';
-import { getPlanModeManager, plan as planCommand } from '../commands/plan.js';
+import { formatPlanModeToggleMessage, getPlanModeManager, plan as planCommand } from '../commands/plan.js';
 import type { VersionCheckResult } from '../utils/versionCheck.js';
 import { getInstallHint } from '../utils/versionCheck.js';
 import { runWithConcurrency, type ParallelTaskSpec } from '../utils/parallel.js';
@@ -1162,9 +1162,7 @@ export class AutohandAgent {
       const statusLine = this.formatStatusLine();
       this.persistentInput.setStatusLine(statusLine);
 
-      const message = enabled
-        ? `${chalk.bgCyan.black.bold(' PLAN ')} ${chalk.cyan('Plan mode ON - read-only tools')}`
-        : `${chalk.gray('Plan mode')} ${chalk.red('OFF')}`;
+      const message = formatPlanModeToggleMessage(enabled);
 
       const usingTerminalRegions = this.isUsingTerminalRegionsForActiveTurn();
       if (usingTerminalRegions) {
@@ -2047,6 +2045,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
 
             // /quit and /exit are handled above (line 1795)
             if (command !== '/quit' && command !== '/exit') {
+              this.clearComposerInput();
+
               // Echo the slash command to the chat log so it's visible.
               // Skip the echo for /plan in Ink mode to avoid stdout corruption.
               if (!(command === '/plan' && this.inkRenderer?.isRunning())) {
@@ -4890,7 +4890,7 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 
   private shouldPreferPtyForImmediateShellCommands(): boolean {
-    return Boolean(this.inkRenderer);
+    return false;
   }
 
   private async executeImmediateShellCommand(
