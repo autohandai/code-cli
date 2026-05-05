@@ -620,12 +620,16 @@ export async function ensureNativeHostInstalled(options?: {
 }): Promise<void> {
   const homeDir = AUTOHAND_HOME;
   const chromeManifest = getManifestTarget('chrome', process.platform, homeDir);
+  const expectedExtensionIds = [options?.extensionId].filter((id): id is string => Boolean(id));
+  const expectedAllowedOrigins = expectedExtensionIds.map((extensionId) => `chrome-extension://${extensionId}/`);
+  const hostScriptPath = path.join(getBrowserDataRoot(homeDir), 'host.js');
 
   // If the Chrome manifest already exists and its host script is reachable
-  // with a valid shebang, don't overwrite.
+  // with a valid shebang and it is paired with the current extension id,
+  // don't overwrite.
   if (await pathExists(chromeManifest.manifestPath)) {
     try {
-      const manifest = await readJson(chromeManifest.manifestPath) as { path?: string };
+      const manifest = await readJson(chromeManifest.manifestPath) as { path?: string; allowed_origins?: string[] };
       if (manifest.path && await pathExists(manifest.path)) {
         // Check shebang is a valid Node.js interpreter (not bun, not the autohand binary itself)
         const firstLine = (await readFile(manifest.path, 'utf8')).split('\n')[0] ?? '';
@@ -636,7 +640,10 @@ export async function ensureNativeHostInstalled(options?: {
           ? shebangParts.slice(1).find((part) => !part.startsWith('-'))?.split('/').pop()?.toLowerCase() ?? ''
           : commandBase;
         const isValidShebang = envTarget === 'node';
-        if (isValidShebang) {
+        const hasExpectedOrigin = expectedAllowedOrigins.length === 0
+          || expectedAllowedOrigins.every((origin) => manifest.allowed_origins?.includes(origin));
+        const pointsAtManagedHost = path.resolve(manifest.path) === path.resolve(hostScriptPath);
+        if (isValidShebang && hasExpectedOrigin && pointsAtManagedHost) {
           return; // Already installed with valid host
         }
       }
@@ -648,9 +655,8 @@ export async function ensureNativeHostInstalled(options?: {
   // No valid manifest found — install fresh
   const { command, args } = resolveCliLaunchSpec();
 
-  const extensionIds = [options?.extensionId].filter((id): id is string => Boolean(id));
   await installNativeHost({
-    extensionIds,
+    extensionIds: expectedExtensionIds,
     cliCommand: command,
     cliArgPrefix: args.length ? args : undefined,
   });

@@ -26,6 +26,7 @@ import { I18nProvider } from '../i18n/index.js';
 import { inkRenderOptions } from '../inkRenderOptions.js';
 import { stripAnsiCodes } from '../displayUtils.js';
 import { safeSetRawMode } from '../rawMode.js';
+import type { ChatLogMessage } from '../../session/chatLog.js';
 
 export interface InkRendererOptions {
   onInstruction: (text: string) => void;
@@ -353,12 +354,23 @@ export class InkRenderer {
    * When stopping work, captures elapsed/tokens as completion stats
    */
   setWorking(isWorking: boolean, status = ''): void {
+    const archivedFinalResponse = isWorking
+      ? this.state.finalResponse?.trim()
+      : undefined;
     const updates: Partial<AgentUIState> = {
       isWorking,
       status,
       // Clear final response when starting new work
-      finalResponse: isWorking ? null : this.state.finalResponse
+      finalResponse: isWorking ? null : this.state.finalResponse,
+      thinking: isWorking ? null : this.state.thinking,
     };
+
+    if (archivedFinalResponse) {
+      updates.chatMessages = [
+        ...this.state.chatMessages,
+        { role: 'assistant', content: archivedFinalResponse },
+      ];
+    }
 
     // When stopping work, save completion stats from current elapsed/tokens
     if (!isWorking && (this.state.elapsed || this.state.tokens)) {
@@ -402,7 +414,17 @@ export class InkRenderer {
    */
   addUserMessage(message: string): void {
     this.updateState({
-      userMessages: [...this.state.userMessages, message]
+      userMessages: [...this.state.userMessages, message],
+      chatMessages: [...this.state.chatMessages, { role: 'user', content: message }],
+    });
+  }
+
+  setChatMessages(messages: ChatLogMessage[]): void {
+    this.updateState({
+      chatMessages: messages,
+      userMessages: messages
+        .filter((message) => message.role === 'user')
+        .map((message) => message.content),
     });
   }
 

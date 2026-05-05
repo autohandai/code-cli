@@ -10,6 +10,7 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import type { SessionManager } from '../session/SessionManager.js';
 import type { SessionMetadata, SessionMessage } from '../session/types.js';
+import { buildSessionChatLog, formatChatLogPreview } from '../session/chatLog.js';
 import { AUTOHAND_PATHS } from '../constants.js';
 
 export const metadata = {
@@ -103,12 +104,13 @@ export async function resume(ctx: {
     workspaceRoot?: string;
     onBeforeModal?: () => Promise<void> | void;
     onAfterModal?: () => Promise<void> | void;
+    restoreSession?: (sessionId: string) => Promise<void>;
 }): Promise<string | null> {
     const sessionId = ctx.args[0];
 
     // If session ID provided directly, use it
     if (sessionId) {
-        return resumeSession(ctx.sessionManager, sessionId);
+        return resumeSession(ctx.sessionManager, sessionId, ctx.restoreSession);
     }
 
     // Otherwise, show interactive session picker filtered by current project
@@ -179,7 +181,7 @@ export async function resume(ctx: {
             return null;
         }
 
-        return resumeSession(ctx.sessionManager, result.value);
+        return resumeSession(ctx.sessionManager, result.value, ctx.restoreSession);
 
     } catch (error) {
         // Handle unexpected errors
@@ -193,7 +195,8 @@ export async function resume(ctx: {
  */
 async function resumeSession(
     sessionManager: SessionManager,
-    sessionId: string
+    sessionId: string,
+    restoreSession?: (sessionId: string) => Promise<void>
 ): Promise<string | null> {
     try {
         const session = await sessionManager.loadSession(sessionId);
@@ -216,28 +219,19 @@ async function resumeSession(
             console.log(chalk.cyan('Recent conversation:'));
             console.log(chalk.gray('─'.repeat(60)));
 
-            const recentMessages = messages.slice(-5);
+            const recentMessages = buildSessionChatLog(messages).slice(-5);
             for (const msg of recentMessages) {
                 const role = msg.role === 'user'
                     ? chalk.green('You')
-                    : msg.role === 'assistant'
-                        ? chalk.blue('Assistant')
-                        : chalk.gray(msg.role);
+                    : chalk.blue('Assistant');
 
-                // Skip tool messages in preview
-                if (msg.role === 'tool') continue;
-
-                const preview = msg.content
-                    .replace(/\n/g, ' ')
-                    .replace(/\s+/g, ' ')
-                    .slice(0, 100);
-                const truncated = msg.content.length > 100 ? '...' : '';
-
-                console.log(`${role}: ${chalk.white(preview)}${truncated}`);
+                console.log(`${role}: ${chalk.white(formatChatLogPreview(msg.content))}`);
             }
             console.log(chalk.gray('─'.repeat(60)));
             console.log();
         }
+
+        await restoreSession?.(sessionId);
 
         console.log(chalk.green('Session resumed. Continue typing to chat.\n'));
 

@@ -8,6 +8,27 @@ import { describe, expect, it } from 'vitest';
 import { InkRenderer } from '../../../src/ui/ink/InkRenderer.js';
 
 describe('InkRenderer live command blocks', () => {
+  it('archives a completed final response before the next user turn starts', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+
+    renderer.addUserMessage('tell me a good joke about dogs');
+    renderer.setFinalResponse('What do dogs use after a bath? A hair dryer.');
+
+    renderer.setWorking(true, 'Reasoning...');
+    renderer.addUserMessage('another about monkeys');
+
+    expect(renderer.getState().finalResponse).toBeNull();
+    expect(renderer.getState().chatMessages).toEqual([
+      { role: 'user', content: 'tell me a good joke about dogs' },
+      { role: 'assistant', content: 'What do dogs use after a bath? A hair dryer.' },
+      { role: 'user', content: 'another about monkeys' },
+    ]);
+  });
+
   it('tracks a running command and finalizes it into tool output', () => {
     const renderer = new InkRenderer({
       onInstruction: () => {},

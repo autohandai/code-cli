@@ -32,6 +32,7 @@ import { getPromptBlockWidth, isShiftEnterResidualSequence, processImagesInText 
 import { renderTerminalMarkdown } from '../../core/immediateCommandRouter.js';
 import { buildFileMentionSuggestions } from '../mentionFilter.js';
 import { getContentDisplay } from '../displayUtils.js';
+import type { ChatLogMessage } from '../../session/chatLog.js';
 
 export interface AgentUIState {
   isWorking: boolean;
@@ -44,6 +45,8 @@ export interface AgentUIState {
   queuedInstructions: string[];
   /** User messages displayed in the conversation */
   userMessages: string[];
+  /** Completed user/assistant turns displayed in order. */
+  chatMessages: ChatLogMessage[];
   currentInput: string;
   finalResponse: string | null;
   /** Completion stats shown after work finishes */
@@ -1225,12 +1228,24 @@ export function AgentUI({
         <LiveCommandBlock key={item.id} entry={item} />
       ))}
 
-      {/* User messages - displayed with styled background */}
-      {state.userMessages.map((message, idx) => (
-        <UserMessage key={`user-${idx}`}>
-          {message}
-        </UserMessage>
-      ))}
+      {/* Completed chat history */}
+      {state.chatMessages.length > 0
+        ? state.chatMessages.map((message, idx) => (
+          message.role === 'user' ? (
+            <UserMessage key={`chat-user-${idx}`}>
+              {message.content}
+            </UserMessage>
+          ) : (
+            <Box key={`chat-assistant-${idx}`} marginTop={1}>
+              <Text>{renderTerminalMarkdown(message.content)}</Text>
+            </Box>
+          )
+        ))
+        : state.userMessages.map((message, idx) => (
+          <UserMessage key={`user-${idx}`}>
+            {message}
+          </UserMessage>
+        ))}
 
       {/* Tool outputs - rendered dynamically so Ink manages them during resize.
           Components are memoized so React skips execution when data is unchanged. */}
@@ -1717,6 +1732,7 @@ export function createInitialUIState(): AgentUIState {
     thinking: null,
     queuedInstructions: [],
     userMessages: [],
+    chatMessages: [],
     currentInput: '',
     finalResponse: null,
     completionStats: null,

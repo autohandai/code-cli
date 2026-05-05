@@ -85,6 +85,8 @@ export interface SlashCommandContext {
     setYoloMode?: (pattern: string | undefined) => void;
     /** Clear the terminal screen / Ink UI (used by /clear, /new) */
     clearScreen?: () => void;
+    /** Restore an existing session into the active conversation and UI. */
+    restoreSession?: (sessionId: string) => Promise<void>;
 }
 
 export interface SlashCommandSubcommand {

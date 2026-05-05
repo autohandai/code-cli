@@ -14,6 +14,7 @@ import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { isShellCommand, parseShellCommand } from '../../ui/shellCommand.js';
 import { plan as planCommand } from '../../commands/plan.js';
 import { runWithConcurrency } from '../../utils/parallel.js';
+import { buildSessionChatLog } from '../../session/chatLog.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -329,6 +330,7 @@ export async function restoreAgentSessionState(host: AgentLifecycleHost, session
     await host.resetConversationContext();
     await host.injectSessionBootstrap();
     const messages = session.getMessages();
+    host.restoredChatMessages = buildSessionChatLog(messages);
     for (const msg of messages) {
       if (msg.role === 'system') {
         if (!msg.content.startsWith('You are Autohand')) {
@@ -360,6 +362,9 @@ export async function restoreAgentSessionState(host: AgentLifecycleHost, session
 
     await host.injectProjectKnowledge();
     host.updateContextUsage(host.conversation.history());
+    if (host.inkRenderer?.setChatMessages) {
+      host.inkRenderer.setChatMessages(host.restoredChatMessages);
+    }
     return session;
   }
 
@@ -418,23 +423,9 @@ export async function resumeAgentSession(host: AgentLifecycleHost, sessionId: st
   }
 
 export function logAgentQueuedProcessingMessage(host: AgentLifecycleHost, instruction: string, remaining = 0): void {
-    const preview = `${instruction.slice(0, 50)}${instruction.length > 50 ? '...' : ''}`;
-    const headline = chalk.cyan(`▶ Processing queued request: "${preview}"`);
-    const detail = remaining > 0 ? chalk.gray(`  ${remaining} more request(s) queued`) : '';
-    const usingTerminalRegions = host.isUsingTerminalRegionsForActiveTurn();
-
-    if (usingTerminalRegions) {
-      host.persistentInput.writeAbove(`${headline}\n`);
-      if (detail) {
-        host.persistentInput.writeAbove(`${detail}\n`);
-      }
-      return;
-    }
-
-    console.log(`\n${headline}`);
-    if (detail) {
-      console.log(detail);
-    }
+    void host;
+    void instruction;
+    void remaining;
   }
 
 export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise<void> {
@@ -443,6 +434,10 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
     // and then switching to Ink after the first prompt.
     if (host.useInkRenderer && !host.inkRenderer) {
       await host.initializeUI(undefined, undefined, true);
+      if (host.restoredChatMessages?.length && host.inkRenderer?.setChatMessages) {
+        host.inkRenderer.setChatMessages(host.restoredChatMessages);
+        host.restoredChatMessages = [];
+      }
       // Set to idle state so the Composer accepts input immediately
       host.setComposerIdle();
     }

@@ -81,15 +81,57 @@ describe('Resume Command', () => {
         loadSession: vi.fn().mockResolvedValue(mockSession),
         listSessions: vi.fn()
       };
+      const restoreSession = vi.fn().mockResolvedValue(undefined);
 
       const result = await resume({
         sessionManager: mockSessionManager as any,
-        args: ['test-session-id']
+        args: ['test-session-id'],
+        restoreSession
       });
 
       expect(result).toBeNull();
       expect(mockSessionManager.loadSession).toHaveBeenCalledWith('test-session-id');
       expect(mockSessionManager.listSessions).not.toHaveBeenCalled();
+      expect(restoreSession).toHaveBeenCalledWith('test-session-id');
+    });
+
+    it('shows clean assistant answers in the recent conversation preview', async () => {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const mockSession = {
+        metadata: {
+          sessionId: 'test-session-id',
+          projectPath: '/test/project',
+          createdAt: new Date().toISOString(),
+          summary: 'Greeting session'
+        },
+        getMessages: () => [
+          { role: 'user', content: 'Hey there', timestamp: new Date().toISOString() },
+          {
+            role: 'assistant',
+            content: JSON.stringify({
+              thought: 'The user is greeting me casually.',
+              finalResponse: 'Hey! Good to see you.'
+            }),
+            timestamp: new Date().toISOString()
+          }
+        ]
+      };
+
+      const mockSessionManager = {
+        loadSession: vi.fn().mockResolvedValue(mockSession),
+        listSessions: vi.fn()
+      };
+
+      await resume({
+        sessionManager: mockSessionManager as any,
+        args: ['test-session-id']
+      });
+
+      const output = logSpy.mock.calls.map(call => String(call[0])).join('\n');
+      expect(output).toContain('You: Hey there');
+      expect(output).toContain('Assistant: Hey! Good to see you.');
+      expect(output).not.toContain('"thought"');
+      expect(output).not.toContain('The user is greeting me casually');
     });
 
     it('should return null if session not found', async () => {

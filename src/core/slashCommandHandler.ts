@@ -119,6 +119,7 @@ export class SlashCommandHandler {
             workspaceRoot: this.ctx.workspaceRoot,
             onBeforeModal: this.ctx.onBeforeModal,
             onAfterModal: this.ctx.onAfterModal,
+            restoreSession: this.ctx.restoreSession,
           });
         }
         case '/sessions': {
