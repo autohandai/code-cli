@@ -8,7 +8,26 @@ import { getProviderConfig } from '../../config.js';
 import { isSearchConfigured } from '../../actions/web.js';
 import { formatToolOutputForDisplay } from '../../ui/toolOutput.js';
 import { getPlanModeManager } from '../../commands/plan.js';
-import type { AgentAction, LLMMessage } from '../../types.js';
+import type {
+  AgentAction,
+  AgentOutputEvent,
+  AgentRuntime,
+  AssistantReactPayload,
+  FunctionDefinition,
+  LLMMessage,
+  LLMResponse,
+  ProviderName,
+  ToolCallRequest,
+  ToolExecutionResult,
+} from '../../types.js';
+import type { LLMProvider } from '../../providers/LLMProvider.js';
+import type { MemoryManager } from '../../memory/MemoryManager.js';
+import type { AutoReportManager } from '../../reporting/AutoReportManager.js';
+import type { ProjectManager } from '../../session/ProjectManager.js';
+import type { SessionManager } from '../../session/SessionManager.js';
+import type { ConversationManager } from '../conversationManager.js';
+import type { ContextOrchestrator } from '../context/orchestrator.js';
+import type { ToolManager } from '../toolManager.js';
 import { calculateContextUsage } from '../context/tokenizer.js';
 import { filterToolsByRelevance } from '../toolFilter.js';
 import { EXIT_PLAN_MODE_TOOL_DEFINITION, PLAN_TOOL_DEFINITION } from '../toolManager.js';
@@ -31,8 +50,69 @@ class LoopAbortedError extends Error {
   }
 }
 
+export interface ReactLoopInkRenderer {
+  setStatus(status: string): void;
+  addToolOutputBatch(
+    items: Array<{ tool: AgentAction['type']; label: string; detail: string; success: boolean }>,
+    thought?: string,
+  ): void;
+  addToolOutput(
+    tool: AgentAction['type'],
+    success: boolean,
+    output: string,
+    thought?: string,
+  ): void;
+  setThinking(thought: string | null): void;
+  setElapsed(elapsed: string): void;
+  setTokens(tokens: string): void;
+  setWorking(isWorking: boolean): void;
+  setFinalResponse(response: string): void;
+}
+
 export interface AgentReactLoopHost {
-  [key: string]: any;
+  activeProvider?: ProviderName;
+  autoReportManager: Pick<AutoReportManager, 'reportError'>;
+  consecutiveCancellations: number;
+  contextOrchestrator: Pick<
+    ContextOrchestrator,
+    'checkMidTurnCompaction' | 'handleOverflow' | 'prepareRequest' | 'setModel'
+  >;
+  contextPercentLeft: number;
+  conversation: Pick<ConversationManager, 'addMessage' | 'addSystemNote' | 'history'>;
+  inkRenderer: ReactLoopInkRenderer | null;
+  lastAssistantResponseForNotification: string;
+  llm: LLMProvider;
+  memoryManager?: MemoryManager;
+  projectManager: Pick<ProjectManager, 'recordFailure' | 'recordSuccess'>;
+  runtime: AgentRuntime;
+  searchQueries: string[];
+  sessionManager: Pick<SessionManager, 'getCurrentSession'>;
+  sessionStartedAt: number;
+  sessionTokensUsed: number;
+  toolManager: Pick<
+    ToolManager,
+    'execute' | 'listToolNames' | 'register' | 'toFunctionDefinitions' | 'unregister'
+  >;
+  totalTokensUsed: number;
+
+  cleanupModelResponse(content: string): string;
+  emitOutput(event: AgentOutputEvent): void;
+  ensureSpinnerRunning(): void;
+  expressesIntentToAct(text: string): boolean;
+  forceRenderSpinner(): void;
+  getMessagesWithImages(): Promise<LLMMessage[]>;
+  getReactionParser(): { parseAssistantResponse(completion: LLMResponse): AssistantReactPayload };
+  handleSmartContextCrop(call: ToolCallRequest): Promise<string>;
+  isContextOverflowError(errorOrMessage: Error | string): boolean;
+  saveAssistantMessage(content: string, toolCalls?: ToolCallRequest[]): Promise<void>;
+  saveToolMessage(name: AgentAction['type'], content: string, toolCallId?: string): Promise<void>;
+  setComposerFinalResponse(response: string): void;
+  setComposerIdle(): void;
+  setSpinnerStatus(status: string): void;
+  startStatusUpdates(): void;
+  stopStatusUpdates(): void;
+  updateContextUsage(messages: LLMMessage[], tools?: FunctionDefinition[]): void;
+  writeDebugLine(message: string): void;
 }
 
 export function formatComposerToolCallStatus(toolCount: number): string {
@@ -102,7 +182,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
     // to get stuck in retry loops.
     if (!isSearchConfigured()) {
       const WEB_TOOLS = new Set(['web_search', 'fetch_url', 'web_repo']);
-      allTools = allTools.filter((t: any) => !WEB_TOOLS.has(t.name));
+      allTools = allTools.filter((tool) => !WEB_TOOLS.has(tool.name));
     }
 
     if (debugMode) host.writeDebugLine(`[AGENT DEBUG] Loaded ${allTools.length} tools, maxIterations=${maxIterations}`);
@@ -127,6 +207,8 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
     const reflectionViolationLimit = 2;
     let reflectionViolationCount = 0;
     let deferredFinalResponseCount = 0;
+    let intentRetryCount = 0;
+    let consecutiveEmptyResponseCount = 0;
 
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
       // Check for abort at the start of each iteration
@@ -379,8 +461,8 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
           continue;
         }
 
-        const cropCalls = payload.toolCalls.filter((call: any) => call.tool === 'smart_context_cropper');
-        const otherCalls = payload.toolCalls.filter((call: any) => call.tool !== 'smart_context_cropper');
+        const cropCalls = payload.toolCalls.filter((call) => call.tool === 'smart_context_cropper');
+        const otherCalls = payload.toolCalls.filter((call) => call.tool !== 'smart_context_cropper');
 
         // Collect all output lines for a single batch write
         const outputLines: string[] = [];
@@ -411,14 +493,14 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
         }
 
         // Execute other tools
-        let results: Array<{ tool: AgentAction['type']; success: boolean; output?: string; error?: string }> = [];
+        let results: ToolExecutionResult[] = [];
         if (otherCalls.length) {
           let completedCount = 0;
           const totalTools = otherCalls.length;
           const charLimit = host.runtime.config.ui?.readFileCharLimit ?? 300;
 
           // Execute all tools with progress callback
-          results = await host.toolManager.execute(otherCalls, (_index: number, _result: any) => {
+          results = await host.toolManager.execute(otherCalls, (_index: number, _result: ToolExecutionResult) => {
             completedCount++;
             // Update spinner with progress count for parallel execution
             if (totalTools > 1) {
@@ -598,7 +680,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
         if (iteration > 0 && results.length > 0 && results.every(r => r.success)) {
           // Only add hint if we've been calling tools for a while without a response
           const recentMessages = host.conversation.history().slice(-6);
-          const toolResultCount = recentMessages.filter((m: any) => m.role === 'tool').length;
+          const toolResultCount = recentMessages.filter((message) => message.role === 'tool').length;
           if (toolResultCount >= 2) {
             host.conversation.addSystemNote(
               '[Reminder] Tool execution complete. Please analyze the results and provide your response to the user\'s original question. Do not call more tools unless absolutely necessary.'
@@ -608,7 +690,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
 
         // Search-specific throttling to prevent excessive sequential searches
         const searchTools = ['find', 'search', 'search_with_context', 'semantic_search'];
-        const searchCallsThisIteration = otherCalls.filter((call: any) => searchTools.includes(call.tool));
+        const searchCallsThisIteration = otherCalls.filter((call) => searchTools.includes(call.tool));
 
         // Track search queries for this iteration
         for (const call of searchCallsThisIteration) {
@@ -648,11 +730,9 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
       const pendingResponse = payload.finalResponse || payload.response || '';
       if (host.expressesIntentToAct(pendingResponse) && !payload.toolCalls?.length) {
         // Model said it will do something but didn't call the tool - force it to actually act
-        const intentRetryKey = '__intentRetryCount';
-        const intentRetries = ((host as any)[intentRetryKey] ?? 0) + 1;
-        (host as any)[intentRetryKey] = intentRetries;
+        intentRetryCount += 1;
 
-        if (intentRetries < 3) {
+        if (intentRetryCount < 3) {
           host.conversation.addSystemNote(
             `[System] ERROR: You said "${pendingResponse.slice(0, 100)}..." but did NOT include any tool calls. ` +
             `You MUST include the actual tool call in toolCalls array. ` +
@@ -662,10 +742,10 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
           continue; // Force another iteration
         }
         // After 3 retries, fall through and show the response (better than infinite loop)
-        (host as any)[intentRetryKey] = 0;
+        intentRetryCount = 0;
       } else {
         // Reset counter on successful response
-        (host as any).__intentRetryCount = 0;
+        intentRetryCount = 0;
       }
 
       // Extract the response - prioritize explicit response fields, but use thought as fallback
@@ -697,11 +777,9 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
       // This applies on any iteration (including 0) to prevent silent exit on parse failure
       if (!response) {
         // Track consecutive empty responses to prevent infinite loops
-        const consecutiveEmptyKey = '__consecutiveEmpty';
-        const consecutiveEmpty = ((host as any)[consecutiveEmptyKey] ?? 0) + 1;
-        (host as any)[consecutiveEmptyKey] = consecutiveEmpty;
+        consecutiveEmptyResponseCount += 1;
 
-        if (consecutiveEmpty >= 3) {
+        if (consecutiveEmptyResponseCount >= 3) {
           // After 3 retries, force a fallback and break out
           if (debugMode) host.writeDebugLine('[AGENT DEBUG] Exiting after 3 consecutive empty responses');
           host.stopStatusUpdates();
@@ -710,7 +788,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
           host.lastAssistantResponseForNotification = fallback;
           host.setComposerIdle();
           host.setComposerFinalResponse(fallback);
-          (host as any)[consecutiveEmptyKey] = 0;
+          consecutiveEmptyResponseCount = 0;
           // Emit fallback for RPC mode
           host.emitOutput({ type: 'message', content: fallback });
           throw new LoopAbortedError('Model produced empty responses after multiple attempts');
@@ -739,7 +817,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
       host.stopStatusUpdates();
 
       // Reset consecutive empty counter on success
-      (host as any).__consecutiveEmpty = 0;
+      consecutiveEmptyResponseCount = 0;
       host.lastAssistantResponseForNotification = response;
 
       // Emit output event for RPC mode

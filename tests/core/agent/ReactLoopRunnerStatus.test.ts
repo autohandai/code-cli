@@ -6,6 +6,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
+  type AgentReactLoopHost,
   formatComposerToolCallStatus,
   isDeferredFinalResponse,
   runAgentReactLoop,
@@ -13,6 +14,14 @@ import {
 import { ReactionParser } from '../../../src/core/agent/ReactionParser.js';
 
 describe('ReactLoopRunner composer status', () => {
+  it('keeps the react loop behind an explicit typed host adapter', () => {
+    const loopSource = readFileSync('src/core/agent/ReactLoopRunner.ts', 'utf-8');
+    const agentSource = readFileSync('src/core/agent.ts', 'utf-8');
+
+    expect(loopSource).not.toContain('[key: string]: any');
+    expect(agentSource).not.toContain('runAgentReactLoop(this as unknown as AgentReactLoopHost');
+  });
+
   it('does not include model-provided tool names in composer status', () => {
     expect(formatComposerToolCallStatus(1)).toBe('Calling tool...');
     expect(formatComposerToolCallStatus(3)).toBe('Calling 3 tools...');
@@ -80,8 +89,13 @@ describe('ReactLoopRunner composer status', () => {
 
     const host = {
       activeProvider: undefined,
+      autoReportManager: {
+        reportError: vi.fn(async () => {}),
+      },
       contextPercentLeft: 100,
       contextOrchestrator: {
+        checkMidTurnCompaction: vi.fn(async () => false),
+        handleOverflow: vi.fn(async () => ({ croppedCount: 0 })),
         setModel: vi.fn(),
         prepareRequest: vi.fn(async () => ({
           messages: [],
@@ -105,14 +119,19 @@ describe('ReactLoopRunner composer status', () => {
       cleanupModelResponse: (content: string) => content.trim(),
       emitOutput,
       ensureSpinnerRunning: vi.fn(),
-      executedActionNames: [],
       expressesIntentToAct: vi.fn(() => false),
       forceRenderSpinner: vi.fn(),
       getMessagesWithImages: vi.fn(async () => []),
       getReactionParser: () => parser,
+      handleSmartContextCrop: vi.fn(async () => ''),
       inkRenderer: null,
       isContextOverflowError: vi.fn(() => false),
       llm: { complete: llmComplete },
+      memoryManager: undefined,
+      projectManager: {
+        recordFailure: vi.fn(async () => {}),
+        recordSuccess: vi.fn(async () => {}),
+      },
       runtime: {
         config: {
           agent: { maxIterations: 5, debug: false },
@@ -122,18 +141,29 @@ describe('ReactLoopRunner composer status', () => {
         spinner: { stop: vi.fn() },
       },
       saveAssistantMessage: vi.fn(async () => {}),
+      saveToolMessage: vi.fn(async () => {}),
       searchQueries: [],
+      sessionManager: {
+        getCurrentSession: vi.fn(() => null),
+      },
+      sessionStartedAt: Date.now(),
       sessionTokensUsed: 0,
       startStatusUpdates: vi.fn(),
       stopStatusUpdates: vi.fn(),
+      setComposerFinalResponse: vi.fn(),
+      setComposerIdle: vi.fn(),
+      setSpinnerStatus: vi.fn(),
       toolManager: {
         listToolNames: vi.fn(() => []),
         toFunctionDefinitions: vi.fn(() => []),
+        execute: vi.fn(async () => []),
+        register: vi.fn(),
         unregister: vi.fn(() => true),
       },
       totalTokensUsed: 0,
       updateContextUsage: vi.fn(),
-    };
+      writeDebugLine: vi.fn(),
+    } satisfies AgentReactLoopHost;
 
     try {
       await runAgentReactLoop(host, new AbortController());
