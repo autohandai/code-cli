@@ -32,3 +32,6 @@ docs/superpowers/
 .superpowers/
 .vitest/vitest/*.*
 .vitest/vitest/results.json
+Agent-sdk.code-workspace
+code-cli-across.code-workspace
+tuistory_extract.md
