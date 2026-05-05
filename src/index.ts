@@ -1147,7 +1147,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
 
     // Handle --chrome flag: trigger Chrome handoff before entering interactive mode
     if (options.chrome) {
-      // Ensure native host is installed and paired to the current extension id.
+      // Ensure native host is installed and paired to the configured extension id.
       const { ensureNativeHostInstalled, createBrowserHandoff, buildChromeOpenUrl, openChromeContinuation } = await import('./browser/chrome.js');
       const extensionId = config.chrome?.extensionId;
       await ensureNativeHostInstalled({ extensionId }).catch(() => {});

@@ -51,6 +51,8 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
           // Ctrl+C handling - could trigger graceful shutdown
         },
         enableQueueInput: true,
+        onImageDetected: (data: Buffer, mimeType: string, filename?: string) =>
+          host.imageManager.add(data, mimeType, filename),
         filesProvider: () => host.workspaceFileCollector.getCachedFiles(),
         slashCommands: SLASH_COMMANDS,
         skillsProvider: () =>
