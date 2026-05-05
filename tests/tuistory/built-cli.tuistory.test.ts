@@ -7,17 +7,24 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
 import packageJson from '../../package.json' with { type: 'json' };
+import { SLASH_COMMANDS } from '../../src/core/slashCommands.js';
 import {
+  clearComposerInput,
+  createMockOllamaServer,
   createTempAutohandHome,
+  dismissAutocompleteMenu,
   exitInteractive,
   expectCleanExit,
   launchBuiltAutohand,
   waitForExit,
+  type CreateTempAutohandHomeOptions,
+  type MockOllamaServer,
   type TuistoryTempState,
 } from './helpers/autohandTuistory.js';
 
 const sessions: Session[] = [];
 const tempStates: TuistoryTempState[] = [];
+const mockServers: MockOllamaServer[] = [];
 
 async function trackSession(sessionPromise: Promise<Session>): Promise<Session> {
   const session = await sessionPromise;
@@ -25,9 +32,18 @@ async function trackSession(sessionPromise: Promise<Session>): Promise<Session> 
   return session;
 }
 
+async function typeLikeUser(session: Session, text: string): Promise<void> {
+  for (const char of text) {
+    await session.type(char);
+  }
+}
+
 afterEach(async () => {
   for (const session of sessions.splice(0)) {
     session.close();
+  }
+  for (const server of mockServers.splice(0)) {
+    await server.close();
   }
   for (const state of tempStates.splice(0)) {
     await state.cleanup();
@@ -66,13 +82,17 @@ describe('built CLI Tuistory smoke tests', () => {
 });
 
 describe('interactive built CLI Tuistory tests', () => {
-  async function launchInteractive(): Promise<Session> {
-    const state = await createTempAutohandHome();
+  async function launchInteractive(options: {
+    config?: CreateTempAutohandHomeOptions['config'];
+    env?: Record<string, string | undefined>;
+  } = {}): Promise<Session> {
+    const state = await createTempAutohandHome({ config: options.config });
     tempStates.push(state);
     return await trackSession(
       launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
         autohandHome: state.autohandHome,
         cwd: state.workspaceRoot,
+        env: options.env,
         waitForDataTimeout: 15_000,
       })
     );
@@ -122,6 +142,93 @@ describe('interactive built CLI Tuistory tests', () => {
 
     expect(output).toContain('/help');
     expect(output).toMatch(/Available|commands/i);
+
+    await exitInteractive(session);
+  });
+
+  it('opens every registered slash command suggestion and dismisses the menu with Escape', async () => {
+    const session = await launchInteractive();
+    const slashCommands = Array.from(
+      new Set(SLASH_COMMANDS.map((command) => command.command))
+    ).sort();
+
+    await waitForComposer(session);
+
+    for (const command of slashCommands) {
+      await typeLikeUser(session, command);
+      const menuScreen = await session.text({
+        timeout: 10_000,
+        waitFor: (text) => text.includes(command) && text.includes('Tab to accept'),
+      });
+
+      expect(menuScreen).toContain(command);
+      await dismissAutocompleteMenu(session);
+      const dismissedScreen = await session.text({ trimEnd: true });
+      expect(dismissedScreen).not.toContain('Tab to accept');
+
+      await clearComposerInput(session);
+    }
+
+    await exitInteractive(session);
+  }, 120_000);
+
+  it('selects the fifth theme and renders the expected Sandy colors', async () => {
+    const session = await launchInteractive({
+      env: {
+        NO_COLOR: undefined,
+        FORCE_COLOR: '3',
+        COLORTERM: 'truecolor',
+        TERM: 'xterm-256color',
+      },
+    });
+
+    await waitForComposer(session);
+    await session.type('/theme');
+    await session.press('enter');
+    await session.waitForText('Select a theme:', { timeout: 10_000 });
+    await session.press('5');
+    await session.waitForText("Theme changed to 'sandy'", { timeout: 10_000 });
+    await session.waitForText('Theme preview:', { timeout: 10_000 });
+
+    const output = session.readAll();
+    const rawOutput = session.getRawOutput();
+
+    expect(output).toContain("Theme changed to 'sandy'");
+    expect(output).toContain('● accent');
+    expect(rawOutput).toContain('[38;2;196;92;62m');
+
+    await exitInteractive(session);
+  });
+
+  it('selects Ollama and applies the first listed model to the status line', async () => {
+    const selectedModel = 'tuistory-first:latest';
+    const ollamaServer = await createMockOllamaServer([selectedModel, 'tuistory-second:latest']);
+    mockServers.push(ollamaServer);
+    const session = await launchInteractive({
+      config: {
+        provider: 'openrouter',
+        ollama: {
+          baseUrl: ollamaServer.baseUrl,
+          model: 'previous-ollama:latest',
+        },
+      },
+    });
+
+    await waitForComposer(session);
+    await session.type('/model');
+    await session.press('enter');
+    await session.waitForText('Choose an LLM provider', { timeout: 10_000 });
+    await session.press('7');
+    await session.waitForText('Select a model', { timeout: 10_000 });
+    await session.press('enter');
+    await session.waitForText(`Using ollama model ${selectedModel}`, { timeout: 10_000 });
+    await session.text({
+      timeout: 10_000,
+      waitFor: (text) => text.includes(`autohand (Ollama, ${selectedModel})`),
+    });
+
+    const screen = await session.text({ trimEnd: true });
+    expect(screen).toContain(`autohand (Ollama, ${selectedModel})`);
 
     await exitInteractive(session);
   });

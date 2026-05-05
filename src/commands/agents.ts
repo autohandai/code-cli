@@ -12,6 +12,9 @@ export const metadata = {
     command: '/agents',
     description: t('commands.agents.description'),
     implemented: true,
+    subcommands: [
+        { name: 'new', description: 'create a new sub-agent from a description' },
+    ],
     prd: 'prd/sub_agents_architecture.md'
 };
 

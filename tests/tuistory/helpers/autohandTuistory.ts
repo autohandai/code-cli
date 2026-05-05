@@ -6,9 +6,18 @@
 
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
+import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { launchTerminal, type Session } from 'tuistory';
+
+type JsonRecord = Record<string, unknown>;
+
+function recordOrEmpty(value: unknown): JsonRecord {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as JsonRecord
+    : {};
+}
 
 export interface TuistoryTempState {
   autohandHome: string;
@@ -27,11 +36,20 @@ export interface LaunchBuiltAutohandOptions {
   waitForDataTimeout?: number;
 }
 
+export interface CreateTempAutohandHomeOptions {
+  config?: JsonRecord;
+}
+
+export interface MockOllamaServer {
+  baseUrl: string;
+  close: () => Promise<void>;
+}
+
 export function repoRoot(): string {
   return path.resolve(import.meta.dirname, '../../..');
 }
 
-export async function createTempAutohandHome(): Promise<TuistoryTempState> {
+export async function createTempAutohandHome(options: CreateTempAutohandHomeOptions = {}): Promise<TuistoryTempState> {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'autohand-tuistory-'));
   const autohandHome = path.join(tempRoot, 'home');
   const workspaceRoot = path.join(tempRoot, 'workspace');
@@ -41,35 +59,51 @@ export async function createTempAutohandHome(): Promise<TuistoryTempState> {
   await mkdir(workspaceRoot, { recursive: true });
   execFileSync('git', ['init'], { cwd: workspaceRoot, stdio: 'ignore' });
 
-  await writeFile(
-    configPath,
-    JSON.stringify(
-      {
-        provider: 'openrouter',
-        openrouter: {
-          apiKey: 'tuistory-test-api-key',
-          model: 'openai/gpt-4o-mini',
-        },
-        auth: {
-          token: 'tuistory-test-token',
-          expiresAt: '2099-01-01T00:00:00.000Z',
-          user: {
-            id: 'tuistory-test-user',
-            email: 'tuistory@example.com',
-            name: 'Tuistory Test',
-          },
-        },
-        sync: {
-          enabled: false,
-        },
-        ui: {
-          checkForUpdates: false,
-        },
+  const baseConfig: JsonRecord = {
+    provider: 'openrouter',
+    openrouter: {
+      apiKey: 'tuistory-test-api-key',
+      model: 'openai/gpt-4o-mini',
+    },
+    auth: {
+      token: 'tuistory-test-token',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      user: {
+        id: 'tuistory-test-user',
+        email: 'tuistory@example.com',
+        name: 'Tuistory Test',
       },
-      null,
-      2
-    )
-  );
+    },
+    sync: {
+      enabled: false,
+    },
+    ui: {
+      checkForUpdates: false,
+    },
+  };
+  const overrideConfig = options.config ?? {};
+  const config = {
+    ...baseConfig,
+    ...overrideConfig,
+    openrouter: {
+      ...recordOrEmpty(baseConfig.openrouter),
+      ...recordOrEmpty(overrideConfig.openrouter),
+    },
+    auth: {
+      ...recordOrEmpty(baseConfig.auth),
+      ...recordOrEmpty(overrideConfig.auth),
+    },
+    sync: {
+      ...recordOrEmpty(baseConfig.sync),
+      ...recordOrEmpty(overrideConfig.sync),
+    },
+    ui: {
+      ...recordOrEmpty(baseConfig.ui),
+      ...recordOrEmpty(overrideConfig.ui),
+    },
+  };
+
+  await writeFile(configPath, JSON.stringify(config, null, 2));
   await writeFile(path.join(workspaceRoot, 'package.json'), '{"name":"tuistory-workspace","version":"0.0.0"}\n');
 
   return {
@@ -78,6 +112,43 @@ export async function createTempAutohandHome(): Promise<TuistoryTempState> {
     workspaceRoot,
     cleanup: async () => {
       await rm(tempRoot, { recursive: true, force: true });
+    },
+  };
+}
+
+export async function createMockOllamaServer(models: string[]): Promise<MockOllamaServer> {
+  const server = createServer((request, response) => {
+    if (request.url === '/api/tags') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ models: models.map((name) => ({ name })) }));
+      return;
+    }
+
+    response.writeHead(404, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Mock Ollama server did not bind to a TCP port.');
+  }
+
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    close: async () => {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error?: Error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
     },
   };
 }
@@ -143,4 +214,20 @@ export async function exitInteractive(session: Session): Promise<void> {
 
   await waitForExit(session);
   expectCleanExit(session);
+}
+
+export async function clearComposerInput(session: Session): Promise<void> {
+  await session.press(['ctrl', 'c']);
+  await session.text({
+    timeout: 10_000,
+    waitFor: (text) => text.includes('Plan, search'),
+  });
+}
+
+export async function dismissAutocompleteMenu(session: Session): Promise<void> {
+  await session.press('escape');
+  await session.text({
+    timeout: 10_000,
+    waitFor: (text) => !text.includes('Tab to accept'),
+  });
 }

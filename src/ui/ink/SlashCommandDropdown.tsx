@@ -87,8 +87,8 @@ export const SlashCommandDropdown = memo(SlashCommandDropdownComponent, (prev, n
  */
 export function matchSlashCommand(text: string, cursorOffset: number): { seed: string; startIndex: number } | null {
   const beforeCursor = text.slice(0, cursorOffset);
-  // Match / at start of input or after whitespace, followed by word chars
-  const match = /(?:^|\s)(\/([A-Za-z0-9_-]*))$/.exec(beforeCursor);
+  // Match / at start of input or after whitespace, followed by command chars.
+  const match = /(?:^|\s)(\/([A-Za-z0-9_?-]*))$/.exec(beforeCursor);
   if (!match) return null;
   // We want the / and everything after it
   const fullMatch = match[1]!; // e.g. "/mo"
