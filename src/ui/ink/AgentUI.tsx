@@ -1332,7 +1332,7 @@ const DynamicContent = memo(function DynamicContent({
   return (
     <>
       {/* Thinking output */}
-      <ThinkingOutput thought={thinking} />
+      <ThinkingOutput thought={isWorking ? thinking : null} />
 
       {/* Final response (when not working) */}
       {content && (

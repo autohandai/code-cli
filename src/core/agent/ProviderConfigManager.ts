@@ -21,6 +21,7 @@ import {
 } from "../../providers/llamaCppSetup.js";
 import { ZAI_MODELS, ZAI_DEFAULT_BASE_URL } from "../../providers/ZaiProvider.js";
 import { NVIDIA_MODELS, NVIDIA_DEFAULT_BASE_URL } from "../../providers/NVIDIAProvider.js";
+import { DEEPSEEK_MODELS, DEEPSEEK_DEFAULT_BASE_URL } from "../../providers/DeepSeekProvider.js";
 import { VERTEX_AI_CODING_MODELS } from "../../providers/VertexAIProvider.js";
 import { sanitizeModelId } from "../../providers/errors.js";
 import { saveConfig, getProviderConfig } from "../../config.js";
@@ -89,7 +90,7 @@ export class ProviderConfigManager {
             : "";
         // Add hosted indicator for cloud providers
         const hostedNote =
-          ["openrouter", "openai", "llmgateway", "azure", "zai", "nvidia"].includes(name)
+          ["openrouter", "openai", "llmgateway", "azure", "zai", "nvidia", "deepseek"].includes(name)
             ? chalk.gray(" (" + t("providers.config.hosted") + ")")
             : "";
         return {
@@ -171,7 +172,8 @@ export class ProviderConfigManager {
       provider === "llmgateway" ||
       provider === "zai" ||
       provider === "xai" ||
-      provider === "nvidia"
+      provider === "nvidia" ||
+      provider === "deepseek"
     ) {
       return !!config.apiKey && config.apiKey !== "replace-me";
     }
@@ -217,6 +219,9 @@ export class ProviderConfigManager {
         break;
       case "nvidia":
         await this.configureNvidia();
+        break;
+      case "deepseek":
+        await this.configureDeepSeek();
         break;
     }
   }
@@ -979,7 +984,7 @@ export class ProviderConfigManager {
       const currentModel =
         this.runtime.options.model ?? currentSettings?.model ?? "";
 
-      // For cloud providers (openai, openrouter, llmgateway, azure, zai, vertexai, xai, nvidia), offer to change API key as well
+      // For cloud providers, offer to change API key as well.
       if (
         provider === "openai" ||
         provider === "openrouter" ||
@@ -988,7 +993,8 @@ export class ProviderConfigManager {
         provider === "zai" ||
         provider === "vertexai" ||
         provider === "xai" ||
-        provider === "nvidia"
+        provider === "nvidia" ||
+        provider === "deepseek"
       ) {
         if (provider === "vertexai") {
           await this.changeVertexAISettings(currentModel, currentSettings as VertexAISettings | null);
@@ -1066,6 +1072,73 @@ export class ProviderConfigManager {
       await this.applyModelChange(provider, model.trim(), currentModel);
     } catch (error) {
       // Cancellation is now handled inline
+      throw error;
+    }
+  }
+
+  /**
+   * Configure DeepSeek provider (API key + model)
+   */
+  private async configureDeepSeek(): Promise<void> {
+    try {
+      console.log(chalk.cyan(t("providers.wizard.deepseek.title")));
+      console.log(
+        chalk.gray(
+          t("providers.config.apiKeyUrl", {
+            url: t("providers.wizard.deepseek.apiKeyUrl"),
+          }) + "\n",
+        ),
+      );
+
+      const apiKey = await showPassword({
+        title: t("providers.config.enterApiKey", {
+          provider: t("providers.deepseek"),
+        }),
+        placeholder: t("ui.apiKeyPlaceholder"),
+      });
+
+      if (!apiKey) {
+        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+        return;
+      }
+
+      const modelChoices: ModalOption[] = DEEPSEEK_MODELS.map((model) => ({
+        label: model,
+        value: model,
+      }));
+
+      const result = await showModal({
+        title: t("providers.config.selectModel"),
+        options: modelChoices,
+      });
+
+      if (!result) {
+        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+        return;
+      }
+
+      const model = result.value as string;
+
+      this.runtime.config.deepseek = {
+        apiKey,
+        baseUrl: DEEPSEEK_DEFAULT_BASE_URL,
+        model,
+      };
+
+      this.runtime.config.provider = "deepseek";
+      this.runtime.options.model = model;
+      await saveConfig(this.runtime.config);
+      this.resetLlmClient("deepseek", model);
+
+      console.log(
+        chalk.green(
+          "\n✓ " +
+            t("providers.config.configuredSuccessfully", {
+              provider: t("providers.deepseek"),
+            }),
+        ),
+      );
+    } catch (error) {
       throw error;
     }
   }
@@ -1551,7 +1624,7 @@ export class ProviderConfigManager {
   }
 
   private async changeCloudProviderSettings(
-    provider: "openai" | "openrouter" | "llmgateway" | "azure" | "zai" | "xai" | "nvidia",
+    provider: "openai" | "openrouter" | "llmgateway" | "azure" | "zai" | "xai" | "nvidia" | "deepseek",
     currentModel: string,
     currentSettings: {
       apiKey?: string;
@@ -1682,6 +1755,7 @@ export class ProviderConfigManager {
         xai: "https://console.x.ai/keys",
         cerebras: "https://cloud.cerebras.ai/platform/",
         nvidia: "https://build.nvidia.com/api-key",
+        deepseek: "https://platform.deepseek.com/api_keys",
       };
       const keyUrl = keyUrlMap[provider];
       console.log(
@@ -1822,6 +1896,29 @@ export class ProviderConfigManager {
         }
 
         newModel = result.value as string;
+      } else if (provider === "deepseek") {
+        const modelOptions: ModalOption[] = DEEPSEEK_MODELS.map((name) => ({
+          label: name,
+          value: name,
+        }));
+        const currentIndex = Math.max(
+          0,
+          DEEPSEEK_MODELS.indexOf(currentModel as (typeof DEEPSEEK_MODELS)[number]),
+        );
+        const result = await showModal({
+          title: t("providers.config.selectModel"),
+          options: modelOptions,
+          initialIndex: currentIndex,
+        });
+
+        if (!result) {
+          console.log(
+            chalk.gray("\n" + t("providers.config.settingsChangeCancelled")),
+          );
+          return;
+        }
+
+        newModel = result.value as string;
       } else if (provider === "azure") {
         console.log(
           chalk.gray(t("providers.wizard.azure.deploymentChangeHint")),
@@ -1908,6 +2005,7 @@ export class ProviderConfigManager {
         zai: ZAI_DEFAULT_BASE_URL,
         xai: "https://api.x.ai/v1",
         nvidia: NVIDIA_DEFAULT_BASE_URL,
+        deepseek: DEEPSEEK_DEFAULT_BASE_URL,
       };
       const baseUrl = baseUrlMap[provider];
 
@@ -1933,6 +2031,12 @@ export class ProviderConfigManager {
         };
       } else if (provider === "zai") {
         this.runtime.config.zai = {
+          apiKey: newApiKey,
+          baseUrl,
+          model: newModel,
+        };
+      } else if (provider === "deepseek") {
+        this.runtime.config.deepseek = {
           apiKey: newApiKey,
           baseUrl,
           model: newModel,
@@ -2008,7 +2112,7 @@ export class ProviderConfigManager {
    * Validate API key by making a test request to the provider
    */
   private async validateApiKey(
-    provider: "openai" | "openrouter" | "llmgateway" | "azure" | "zai" | "xai" | "cerebras" | "nvidia",
+    provider: "openai" | "openrouter" | "llmgateway" | "azure" | "zai" | "xai" | "cerebras" | "nvidia" | "deepseek",
     apiKey: string,
   ): Promise<{ valid: boolean; error?: string; hint?: string }> {
     // Azure keys can't be easily validated without resource/deployment info
@@ -2025,6 +2129,7 @@ export class ProviderConfigManager {
         xai: "https://api.x.ai/v1",
         cerebras: "https://api.cerebras.ai/v1",
         nvidia: NVIDIA_DEFAULT_BASE_URL,
+        deepseek: DEEPSEEK_DEFAULT_BASE_URL,
       };
       const baseUrl = baseUrlMap[provider];
 
@@ -2067,6 +2172,7 @@ export class ProviderConfigManager {
         xai: "https://console.x.ai/keys",
         cerebras: "https://cloud.cerebras.ai/platform/",
         nvidia: "https://build.nvidia.com/api-key",
+        deepseek: "https://platform.deepseek.com/api_keys",
       };
 
       if (status === 401) {
@@ -2210,6 +2316,9 @@ export class ProviderConfigManager {
       nvidia:
         this.runtime.config.nvidia ??
         (this.runtime.config.nvidia = { apiKey: "", model }),
+      deepseek:
+        this.runtime.config.deepseek ??
+        (this.runtime.config.deepseek = { apiKey: "", model }),
     };
     cfgMap[provider].model = model;
     this.setActiveProvider(provider);

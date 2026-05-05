@@ -304,7 +304,12 @@ export class InkRenderer {
    */
   stop(): void {
     if (this.instance) {
-      this.instance.unmount();
+      const instance = this.instance;
+      try {
+        instance.clear();
+      } finally {
+        instance.unmount();
+      }
       this.instance = null;
     }
 
@@ -732,9 +737,7 @@ export class InkRenderer {
       // Safety net: ensure stdin is in a clean paused, non-raw state before
       // modal prompts take ownership. Do not remove global listeners here:
       // Ink owns its own cleanup, and other integrations may share stdin.
-      if (process.stdin.isTTY) {
-        process.stdin.setRawMode(false);
-      }
+      safeSetRawMode(process.stdin, false);
     }
   }
 

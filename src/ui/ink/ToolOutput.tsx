@@ -15,7 +15,7 @@ export interface ToolOutputEntry {
   success: boolean;
   output: string;
   timestamp: number;
-  /** Thought/reasoning shown before the tool (what the agent is about to do) */
+  /** Internal model reasoning captured with the tool call; not rendered in completed history. */
   thought?: string;
 }
 
@@ -77,19 +77,12 @@ export interface ToolOutputProps {
 
 function ToolOutputComponent({ entry }: ToolOutputProps) {
   const { colors } = useTheme();
-  const { tool, success, output, thought } = entry;
+  const { tool, success, output } = entry;
 
-  // Clean thought - skip if it looks like JSON
-  const cleanThought = thought && !thought.trim().startsWith('{') ? thought : undefined;
-  const renderedThought = cleanThought ? renderTerminalMarkdown(cleanThought) : undefined;
   const renderedOutput = output ? renderTerminalMarkdown(output) : '';
 
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {/* Show thought/reasoning before tool if present */}
-      {renderedThought && (
-        <Text color={colors.text}>{renderedThought}</Text>
-      )}
       <Box>
         <Text color={success ? colors.success : colors.error}>{success ? '✔' : '✖'}</Text>
         <Text bold> {tool}</Text>
@@ -127,18 +120,12 @@ export const ToolOutput = memo(ToolOutputComponent, (prev, next) => {
  */
 function ToolOutputStaticComponent({ entry }: ToolOutputProps) {
   const { colors } = useTheme();
-  const { tool, success, output, thought } = entry;
+  const { tool, success, output } = entry;
 
-  // Clean thought - skip if it looks like JSON
-  const cleanThought = thought && !thought.trim().startsWith('{') ? thought : undefined;
-  const renderedThought = cleanThought ? renderTerminalMarkdown(cleanThought) : undefined;
   const renderedOutput = output ? renderTerminalMarkdown(output) : '';
 
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {renderedThought && (
-        <Text color={colors.text}>{renderedThought}</Text>
-      )}
       <Box>
         <Text color={success ? colors.success : colors.error}>{success ? '✔' : '✖'}</Text>
         <Text bold> {tool}</Text>
@@ -175,18 +162,10 @@ const MAX_VISIBLE_PER_GROUP = 4;
  */
 function ToolOutputBatchStaticComponent({ entry }: { entry: ToolOutputBatchEntry }) {
   const { colors } = useTheme();
-  const { thought, groups } = entry;
-
-  const cleanThought = thought && !thought.trim().startsWith('{') ? thought : undefined;
-  const renderedThought = cleanThought ? renderTerminalMarkdown(cleanThought) : undefined;
-  const totalItems = groups.reduce((sum, g) => sum + g.items.length, 0);
+  const { groups } = entry;
 
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {renderedThought && (
-        <Text color={colors.text}>{renderedThought}</Text>
-      )}
-
       {groups.map((group, gi) => {
         const isLastGroup = gi === groups.length - 1;
         const visible = group.items.slice(0, MAX_VISIBLE_PER_GROUP);

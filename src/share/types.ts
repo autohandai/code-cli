@@ -60,7 +60,7 @@ export interface ShareSessionMetadata {
   sessionId: string;
   /** Project name */
   projectName: string;
-  /** Model used (e.g., "anthropic/claude-sonnet-4-20250514") */
+  /** Model used (e.g., "anthropic/claude-4-sonnet") */
   model: string;
   /** Provider name */
   provider: string;

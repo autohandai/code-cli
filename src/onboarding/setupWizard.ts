@@ -18,6 +18,7 @@ import { ProviderFactory } from '../providers/ProviderFactory.js';
 import { ZAI_MODELS, ZAI_DEFAULT_BASE_URL } from '../providers/ZaiProvider.js';
 import { VERTEX_AI_CODING_MODELS } from '../providers/VertexAIProvider.js';
 import { CEREBRAS_MODELS, CEREBRAS_DEFAULT_BASE_URL } from '../providers/CerebrasProvider.js';
+import { DEEPSEEK_MODELS, DEEPSEEK_DEFAULT_BASE_URL } from '../providers/DeepSeekProvider.js';
 import { authenticateOpenAIChatGPT, isChatGPTAuthExpired } from '../providers/openaiAuth.js';
 import { installLlamaCpp, probeLlamaCppEnvironment } from '../providers/llamaCppSetup.js';
 import { ProjectAnalyzer } from './projectAnalyzer.js';
@@ -540,6 +541,26 @@ export class SetupWizard {
         value: modelName,
       }));
       const defaultIndex = Math.max(0, CEREBRAS_MODELS.indexOf(defaultModel as (typeof CEREBRAS_MODELS)[number]));
+      const result = await showModal({
+        title: t('providers.config.selectModel'),
+        options,
+        initialIndex: defaultIndex >= 0 ? defaultIndex : 0,
+      });
+
+      if (!result) {
+        return null;
+      }
+
+      this.state.model = result.value as string;
+      return this.state.model;
+    }
+
+    if (provider === 'deepseek') {
+      const options: ModalOption[] = DEEPSEEK_MODELS.map((modelName) => ({
+        label: modelName,
+        value: modelName,
+      }));
+      const defaultIndex = Math.max(0, DEEPSEEK_MODELS.indexOf(defaultModel as (typeof DEEPSEEK_MODELS)[number]));
       const result = await showModal({
         title: t('providers.config.selectModel'),
         options,
@@ -1864,7 +1885,7 @@ export class SetupWizard {
   // Helper methods
 
   private requiresApiKey(provider: ProviderName): boolean {
-    return provider === 'openrouter' || provider === 'llmgateway' || provider === 'zai' || provider === 'vertexai' || provider === 'xai' || provider === 'cerebras' || provider === 'nvidia';
+    return provider === 'openrouter' || provider === 'llmgateway' || provider === 'zai' || provider === 'vertexai' || provider === 'xai' || provider === 'cerebras' || provider === 'nvidia' || provider === 'deepseek';
   }
 
   private getProviderDisplayName(provider: ProviderName): string {
@@ -1881,7 +1902,8 @@ export class SetupWizard {
       openai: t('providers.wizard.openai.apiKeyUrl'),
       llmgateway: t('providers.wizard.llmgateway.apiKeyUrl'),
       zai: t('providers.wizard.zai.apiKeyUrl'),
-      nvidia: t('providers.wizard.nvidia.apiKeyUrl')
+      nvidia: t('providers.wizard.nvidia.apiKeyUrl'),
+      deepseek: t('providers.wizard.deepseek.apiKeyUrl')
     };
     return urls[provider] || '';
   }
@@ -1899,7 +1921,8 @@ export class SetupWizard {
       vertexai: 'zai-org/glm-5-maas',
       xai: 'grok-4.20-reasoning',
       cerebras: 'zai-glm-4.7',
-      nvidia: 'mistralai/mixtral-8x7b-instruct-v0.1'
+      nvidia: 'mistralai/mixtral-8x7b-instruct-v0.1',
+      deepseek: 'deepseek-v4-flash'
     };
     return defaults[provider] || '';
   }
@@ -1917,7 +1940,8 @@ export class SetupWizard {
       vertexai: 'https://aiplatform.googleapis.com',
       xai: 'https://api.x.ai/v1',
       cerebras: CEREBRAS_DEFAULT_BASE_URL,
-      nvidia: 'https://integrate.api.nvidia.com/v1'
+      nvidia: 'https://integrate.api.nvidia.com/v1',
+      deepseek: DEEPSEEK_DEFAULT_BASE_URL
     };
     return urls[provider] || '';
   }
