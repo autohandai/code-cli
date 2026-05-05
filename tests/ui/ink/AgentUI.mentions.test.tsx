@@ -219,7 +219,7 @@ describe('AgentUI Ctrl+C exit handling', () => {
     await new Promise(r => setImmediate(r));
 
     stdin.write('\x03');
-    await new Promise(r => setImmediate(r));
+    await new Promise(r => setTimeout(r, 50));
 
     expect(onInstruction).not.toHaveBeenCalled();
     expect(lastFrame()).toContain('Press Ctrl+C again to exit');

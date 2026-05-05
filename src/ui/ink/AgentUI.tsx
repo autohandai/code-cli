@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import React, { useState, useEffect, memo, useMemo, useRef, useCallback } from 'react';
-import { Box, Text, useInput, useStdout, type Key as InkKey } from 'ink';
+import { Box, Text, useInput, useWindowSize, type Key as InkKey } from 'ink';
 import {
   StatusLine,
   formatLineSegments,
@@ -551,9 +551,8 @@ export function AgentUI({
     onInputChange?.(input);
   }, [input, onInputChange]);
 
-  // Sync viewport on every render since Ink handles resize layout via its own
-  // process.stdout 'resize' listener. The textarea width is derived from
-  // process.stdout.columns at render time.
+  // Sync viewport on every render. Terminal resize now flows through
+  // useWindowSize(), which gives React a real update when stdout emits resize.
   useEffect(() => {
     syncBufferViewport();
   }, [syncBufferViewport]);
@@ -1195,12 +1194,13 @@ export function AgentUI({
     [state.liveCommands]
   );
 
-  // Calculate input width for InputLine directly from stdout columns.
+  // Calculate input width from a resize-aware hook. useStdout() only exposes
+  // the stream object; it does not subscribe React to column changes.
   // With synchronized-output patching (InkRenderer), rapid resize re-renders
   // are batched atomically, so the old 100ms debounce is no longer needed
   // and was actually causing a layout lag during drag-resize.
-  const { stdout } = useStdout();
-  const inputWidth = getPromptBlockWidth(stdout.columns);
+  const windowSize = useWindowSize();
+  const inputWidth = getPromptBlockWidth(windowSize.columns);
 
   // Compute border style to match readline/terminal regions behavior
   const inputBorderStyle: InputBorderStyle = (() => {
