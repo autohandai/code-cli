@@ -12,6 +12,8 @@ import chalk from 'chalk';
 import fs from 'fs-extra';
 import { resolveRipgrepCommand } from '../utils/ripgrep.js';
 
+const GIT_COMMAND_TIMEOUT_MS = 5_000;
+
 export interface ToolCheck {
   name: string;
   command: string;
@@ -240,7 +242,7 @@ function runGitCommand(args: string[], cwd: string): Promise<string | undefined>
     try {
       const proc = spawn('git', args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
       let stdout = '';
-      const timeout = setTimeout(() => { proc.kill(); resolve(undefined); }, 5000);
+      const timeout = setTimeout(() => { proc.kill(); resolve(undefined); }, GIT_COMMAND_TIMEOUT_MS);
 
       proc.stdout?.on('data', (chunk) => { stdout += chunk.toString(); });
       proc.on('close', (code) => {
@@ -259,12 +261,30 @@ function runGitCommand(args: string[], cwd: string): Promise<string | undefined>
  * Handles repos with no commits (uses symbolic-ref as fallback)
  */
 async function getGitBranch(workspaceRoot: string): Promise<string | undefined> {
+  const headBranch = readGitHeadBranch(workspaceRoot);
+  if (headBranch) return headBranch;
+
   // Try rev-parse first (works when there are commits)
   const branch = await runGitCommand(['rev-parse', '--abbrev-ref', 'HEAD'], workspaceRoot);
   if (branch) return branch;
 
   // Fall back to symbolic-ref (works for repos with no commits)
   return runGitCommand(['symbolic-ref', '--short', 'HEAD'], workspaceRoot);
+}
+
+function readGitHeadBranch(workspaceRoot: string): string | undefined {
+  try {
+    const head = fs.readFileSync(`${workspaceRoot}/.git/HEAD`, 'utf8').trim();
+    const refPrefix = 'ref: refs/heads/';
+    if (head.startsWith(refPrefix)) {
+      const branch = head.slice(refPrefix.length).trim();
+      return branch || undefined;
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
 }
 
 /**

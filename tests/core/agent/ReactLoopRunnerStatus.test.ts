@@ -37,6 +37,21 @@ describe('ReactLoopRunner composer status', () => {
     expect(isDeferredFinalResponse('This repo is a TypeScript CLI built with React and Ink.')).toBe(false);
     expect(
       isDeferredFinalResponse(
+        'Let me explain why this repo exits early: the model returned a planning sentence instead of an answer.',
+      ),
+    ).toBe(false);
+    expect(
+      isDeferredFinalResponse(
+        'Let me summarize: the CLI is TypeScript, Ink, Bun, and Vitest.',
+      ),
+    ).toBe(false);
+    expect(
+      isDeferredFinalResponse(
+        'I can now answer: the branch is read from .git/HEAD first.',
+      ),
+    ).toBe(false);
+    expect(
+      isDeferredFinalResponse(
         'Here is the summary:\n- TypeScript CLI\n- Ink UI\n- Vitest tests',
       ),
     ).toBe(false);

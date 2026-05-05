@@ -135,6 +135,16 @@ describe('Git Auto-Init for Empty Directories', () => {
       const result = await runStartupChecks(tempDir);
       expect(result.workspace.branch).toBeDefined();
     });
+
+    it('detects branch directly from git HEAD when git commands are unavailable', async () => {
+      await fs.ensureDir(path.join(tempDir, '.git'));
+      await fs.writeFile(path.join(tempDir, '.git', 'HEAD'), 'ref: refs/heads/feature/startup-check\n');
+
+      const result = await runStartupChecks(tempDir);
+
+      expect(result.workspace.isGitRepo).toBe(true);
+      expect(result.workspace.branch).toBe('feature/startup-check');
+    });
   });
 
   describe('workspace path validation', () => {
