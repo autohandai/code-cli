@@ -101,6 +101,12 @@ const INK_TEXTBUFFER_VIEWPORT_HEIGHT = 10;
 const INK_IMAGE_SCAN_DELAY_MS = 150;
 const BRACKETED_PASTE_START = '\x1b[200~';
 const BRACKETED_PASTE_END = '\x1b[201~';
+const CHAT_HISTORY_RESERVED_ROWS = 8;
+
+interface ChatHistoryItem {
+  index: number;
+  message: ChatLogMessage;
+}
 
 export interface InkPasteState {
   isInPaste: boolean;
@@ -205,6 +211,38 @@ export function clearBareComposerTrigger(buffer: TextBuffer): boolean {
 
 function isForwardDeleteKey(input: string, key: InkKey): boolean {
   return key.delete || input === '\x1b[3~';
+}
+
+function isPageUpKey(input: string, key: InkKey): boolean {
+  return key.pageUp || input === '\x1b[5~' || input === '[5~';
+}
+
+function isPageDownKey(input: string, key: InkKey): boolean {
+  return key.pageDown || input === '\x1b[6~' || input === '[6~';
+}
+
+export function getChatHistoryVisibleCount(rows: number | undefined): number {
+  return Math.max(1, (rows ?? 24) - CHAT_HISTORY_RESERVED_ROWS);
+}
+
+export function clampChatScrollOffset(
+  totalItems: number,
+  visibleItems: number,
+  offset: number
+): number {
+  return Math.max(0, Math.min(offset, Math.max(0, totalItems - visibleItems)));
+}
+
+export function getChatHistoryViewport<T>(
+  items: T[],
+  visibleItems: number,
+  scrollOffset: number
+): T[] {
+  const count = Math.max(1, visibleItems);
+  const offset = clampChatScrollOffset(items.length, count, scrollOffset);
+  const end = Math.max(0, items.length - offset);
+  const start = Math.max(0, end - count);
+  return items.slice(start, end);
 }
 
 export function consumeInkBracketedPasteInput(
@@ -386,6 +424,7 @@ export function AgentUI({
   const [slashActiveIndex, setSlashActiveIndex] = useState(0);
   const [slashVisible, setSlashVisible] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [chatScrollOffset, setChatScrollOffset] = useState(0);
   const slashStartIndexRef = useRef<number | null>(null);
   const slashFullMatchRef = useRef<string | null>(null);
 
@@ -457,6 +496,8 @@ export function AgentUI({
   slashActiveIndexRef.current = slashActiveIndex;
   const showShortcutsRef = useRef(showShortcuts);
   showShortcutsRef.current = showShortcuts;
+  const chatHistoryItemCountRef = useRef(0);
+  const chatHistoryVisibleCountRef = useRef(1);
   const skillsProviderRef = useRef(skillsProvider);
   skillsProviderRef.current = skillsProvider;
   const skillVisibleRef = useRef(skillVisible);
@@ -869,6 +910,21 @@ export function AgentUI({
       return;
     }
 
+    if (isWorkingRef.current && (isPageUpKey(char, key) || isPageDownKey(char, key))) {
+      const visibleCount = chatHistoryVisibleCountRef.current;
+      const itemCount = chatHistoryItemCountRef.current;
+
+      if (itemCount > visibleCount) {
+        setChatScrollOffset(prev => {
+          const next = isPageUpKey(char, key)
+            ? prev + visibleCount
+            : prev - visibleCount;
+          return clampChatScrollOffset(itemCount, visibleCount, next);
+        });
+      }
+      return;
+    }
+
     // Block input only when working AND queue-input is disabled.
     // When idle (isWorking=false), always allow input so the user can
     // compose their next prompt.
@@ -1201,6 +1257,53 @@ export function AgentUI({
   // and was actually causing a layout lag during drag-resize.
   const windowSize = useWindowSize();
   const inputWidth = getPromptBlockWidth(windowSize.columns);
+  const chatHistoryItems = useMemo<ChatHistoryItem[]>(() => {
+    const sourceMessages = state.chatMessages.length > 0
+      ? state.chatMessages
+      : state.userMessages.map((content): ChatLogMessage => ({ role: 'user', content }));
+
+    return sourceMessages.map((message, index) => ({ index, message }));
+  }, [state.chatMessages, state.userMessages]);
+  const chatHistoryVisibleCount = getChatHistoryVisibleCount(windowSize.rows);
+  const visibleChatHistoryItems = useMemo(
+    () => getChatHistoryViewport(
+      chatHistoryItems,
+      chatHistoryVisibleCount,
+      chatScrollOffset
+    ),
+    [chatHistoryItems, chatHistoryVisibleCount, chatScrollOffset]
+  );
+  chatHistoryItemCountRef.current = chatHistoryItems.length;
+  chatHistoryVisibleCountRef.current = chatHistoryVisibleCount;
+
+  useEffect(() => {
+    setChatScrollOffset(prev =>
+      clampChatScrollOffset(chatHistoryItems.length, chatHistoryVisibleCount, prev)
+    );
+  }, [chatHistoryItems.length, chatHistoryVisibleCount]);
+
+  useEffect(() => {
+    if (!state.isWorking) {
+      setChatScrollOffset(0);
+    }
+  }, [state.isWorking]);
+  const chatIncludesToolOutput = useMemo(() =>
+    state.chatMessages.some((message) => message.role === 'tool'),
+    [state.chatMessages]
+  );
+  const chatIncludesFinalResponse = useMemo(() => {
+    const finalResponse = state.finalResponse?.trim();
+    if (!finalResponse || state.isWorking) {
+      return false;
+    }
+    return state.chatMessages.some((message) =>
+      message.role === 'assistant' && message.content === finalResponse
+    );
+  }, [state.chatMessages, state.finalResponse, state.isWorking]);
+  const chatIncludesCompletion = useMemo(() =>
+    state.chatMessages.some((message) => message.role === 'completion'),
+    [state.chatMessages]
+  );
 
   // Compute border style to match readline/terminal regions behavior
   const inputBorderStyle: InputBorderStyle = (() => {
@@ -1229,27 +1332,34 @@ export function AgentUI({
       ))}
 
       {/* Completed chat history */}
-      {state.chatMessages.length > 0
-        ? state.chatMessages.map((message, idx) => (
-          message.role === 'user' ? (
-            <UserMessage key={`chat-user-${idx}`}>
-              {message.content}
-            </UserMessage>
-          ) : (
-            <Box key={`chat-assistant-${idx}`} marginTop={1}>
-              <Text>{renderTerminalMarkdown(message.content)}</Text>
-            </Box>
-          )
-        ))
-        : state.userMessages.map((message, idx) => (
-          <UserMessage key={`user-${idx}`}>
-            {message}
+      {visibleChatHistoryItems.map(({ message, index }) => (
+        message.role === 'user' ? (
+          <UserMessage key={`chat-user-${index}`}>
+            {message.content}
           </UserMessage>
-        ))}
+        ) : message.role === 'tool' ? (
+          <ToolOutputStatic
+            key={`chat-tool-${index}`}
+            entry={{
+              id: `chat-tool-${index}`,
+              tool: message.tool ?? 'tool',
+              success: message.success ?? true,
+              output: message.content,
+              timestamp: index,
+            }}
+          />
+        ) : message.role === 'completion' ? (
+          <CompletionHistoryMessage key={`chat-completion-${index}`} content={message.content} />
+        ) : (
+          <Box key={`chat-assistant-${index}`} marginTop={1}>
+            <Text>{renderTerminalMarkdown(message.content)}</Text>
+          </Box>
+        )
+      ))}
 
       {/* Tool outputs - rendered dynamically so Ink manages them during resize.
           Components are memoized so React skips execution when data is unchanged. */}
-      {toolOutputItems.map((item: ToolOutputItem) => (
+      {!chatIncludesToolOutput && toolOutputItems.map((item: ToolOutputItem) => (
         item.type === 'batch'
           ? <ToolOutputBatchStatic key={item.id} entry={item as ToolOutputBatchEntry} />
           : <ToolOutputStatic key={item.id} entry={item as ToolOutputEntry} />
@@ -1258,7 +1368,7 @@ export function AgentUI({
       {/* Dynamic content section */}
       <DynamicContent
         thinking={state.thinking}
-        finalResponse={state.finalResponse}
+        finalResponse={chatIncludesFinalResponse ? null : state.finalResponse}
         isWorking={state.isWorking}
       />
 
@@ -1269,7 +1379,7 @@ export function AgentUI({
         elapsed={state.elapsed}
         tokens={state.tokens}
         queuedInstructions={state.queuedInstructions}
-        completionStats={state.completionStats}
+        completionStats={chatIncludesCompletion ? null : state.completionStats}
         enableQueueInput={enableQueueInput}
         input={input}
         cursorOffset={cursorOffset}
@@ -1379,6 +1489,19 @@ const DynamicContent = memo(function DynamicContent({
   return prev.thinking === next.thinking &&
          prev.finalResponse === next.finalResponse &&
          prev.isWorking === next.isWorking;
+});
+
+const CompletionHistoryMessage = memo(function CompletionHistoryMessage({
+  content,
+}: {
+  content: string;
+}) {
+  const { colors } = useTheme();
+  return (
+    <Box marginTop={1}>
+      <Text color={colors.muted}>{content}</Text>
+    </Box>
+  );
 });
 
 /**

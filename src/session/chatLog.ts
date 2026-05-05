@@ -6,8 +6,10 @@
 import type { SessionMessage } from './types.js';
 
 export interface ChatLogMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'tool' | 'completion';
   content: string;
+  tool?: string;
+  success?: boolean;
 }
 
 function decodeJsonStringLiteral(value: string): string {

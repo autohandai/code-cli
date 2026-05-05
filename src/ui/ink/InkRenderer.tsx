@@ -366,10 +366,24 @@ export class InkRenderer {
     };
 
     if (archivedFinalResponse) {
-      updates.chatMessages = [
-        ...this.state.chatMessages,
-        { role: 'assistant', content: archivedFinalResponse },
-      ];
+      let lastUserIndex = -1;
+      for (let index = this.state.chatMessages.length - 1; index >= 0; index--) {
+        if (this.state.chatMessages[index]?.role === 'user') {
+          lastUserIndex = index;
+          break;
+        }
+      }
+      const alreadyArchived = this.state.chatMessages
+        .slice(lastUserIndex + 1)
+        .some((message) =>
+          message.role === 'assistant' && message.content === archivedFinalResponse
+        );
+      if (!alreadyArchived) {
+        updates.chatMessages = [
+          ...this.state.chatMessages,
+          { role: 'assistant', content: archivedFinalResponse },
+        ];
+      }
     }
 
     // When stopping work, save completion stats from current elapsed/tokens
@@ -419,6 +433,17 @@ export class InkRenderer {
     });
   }
 
+  addAssistantMessage(message: string): void {
+    const content = message.trim();
+    if (!content) {
+      return;
+    }
+
+    this.updateState({
+      chatMessages: [...this.state.chatMessages, { role: 'assistant', content }],
+    });
+  }
+
   setChatMessages(messages: ChatLogMessage[]): void {
     this.updateState({
       chatMessages: messages,
@@ -441,7 +466,11 @@ export class InkRenderer {
       thought
     };
     this.updateState({
-      toolOutputs: [...this.state.toolOutputs, entry]
+      toolOutputs: [...this.state.toolOutputs, entry],
+      chatMessages: [
+        ...this.state.chatMessages,
+        { role: 'tool', tool, success, content: output },
+      ],
     });
   }
 
@@ -459,7 +488,16 @@ export class InkRenderer {
       thought: i === 0 ? o.thought : undefined
     }));
     this.updateState({
-      toolOutputs: [...this.state.toolOutputs, ...entries]
+      toolOutputs: [...this.state.toolOutputs, ...entries],
+      chatMessages: [
+        ...this.state.chatMessages,
+        ...entries.map((entry) => ({
+          role: 'tool' as const,
+          tool: entry.tool,
+          success: entry.success,
+          content: entry.output,
+        })),
+      ],
     });
   }
 
@@ -493,7 +531,21 @@ export class InkRenderer {
     };
 
     this.updateState({
-      toolOutputs: [...this.state.toolOutputs, entry]
+      toolOutputs: [...this.state.toolOutputs, entry],
+      chatMessages: [
+        ...this.state.chatMessages,
+        {
+          role: 'tool',
+          tool: 'tools',
+          success: entry.allSuccess,
+          content: groups.map((group) => {
+            const lines = group.items.map((item) =>
+              item.detail ? `  ${item.label} - ${item.detail}` : `  ${item.label}`
+            );
+            return `${group.tool}${group.items.length > 1 ? ` (${group.items.length})` : ''}\n${lines.join('\n')}`;
+          }).join('\n'),
+        },
+      ],
     });
   }
 
@@ -653,7 +705,16 @@ export class InkRenderer {
 
     this.updateState({
       liveCommands: this.state.liveCommands.filter((item) => item.id !== id),
-      toolOutputs: [...this.state.toolOutputs, finalizedEntry]
+      toolOutputs: [...this.state.toolOutputs, finalizedEntry],
+      chatMessages: [
+        ...this.state.chatMessages,
+        {
+          role: 'tool',
+          tool: finalizedEntry.tool,
+          success,
+          content: finalizedEntry.output,
+        },
+      ],
     });
   }
 
@@ -942,7 +1003,23 @@ export class InkRenderer {
    * Set the final response (displayed when not working)
    */
   setFinalResponse(response: string): void {
-    this.updateState({ finalResponse: response });
+    const trimmed = response.trim();
+    const chatMessages = [...this.state.chatMessages];
+    if (trimmed) {
+      const lastMessage = chatMessages[chatMessages.length - 1];
+      if (lastMessage?.role !== 'assistant' || lastMessage.content !== trimmed) {
+        chatMessages.push({ role: 'assistant', content: trimmed });
+      }
+    }
+    if (this.state.completionStats) {
+      const completionContent = `Completed in ${this.state.completionStats.elapsed} · ${this.state.completionStats.tokens}`;
+      const lastMessage = chatMessages[chatMessages.length - 1];
+      if (lastMessage?.role !== 'completion' || lastMessage.content !== completionContent) {
+        chatMessages.push({ role: 'completion', content: completionContent });
+      }
+    }
+
+    this.updateState({ finalResponse: response, chatMessages });
   }
 
   /**
