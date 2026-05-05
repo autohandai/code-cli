@@ -1689,6 +1689,44 @@ describe('agent startup and active input UI', () => {
     }
   });
 
+  it('wires the image manager into Ink composer image detection', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    let restoreStdoutTTY: () => void = () => {};
+    let restoreStdinTTY: () => void = () => {};
+    const imageData = Buffer.from('fake-png-data');
+
+    agent.useInkRenderer = true;
+    agent.ui = null;
+    agent.workspaceFileCollector = {
+      getCachedFiles: vi.fn(() => []),
+    };
+    agent.skillsRegistry = {
+      listSkills: vi.fn(() => []),
+    };
+    agent.imageManager = {
+      add: vi.fn(() => 42),
+    };
+
+    try {
+      restoreStdoutTTY = overrideStreamTTY(process.stdout, true);
+      restoreStdinTTY = overrideStreamTTY(process.stdin, true);
+
+      (agent as any).initializeUIManager();
+
+      const options = (agent.ui as any).options;
+      expect(options.onImageDetected).toBeTypeOf('function');
+      expect(options.onImageDetected(imageData, 'image/png', 'Screenshot.png')).toBe(42);
+      expect(agent.imageManager.add).toHaveBeenCalledWith(
+        imageData,
+        'image/png',
+        'Screenshot.png'
+      );
+    } finally {
+      restoreStdoutTTY();
+      restoreStdinTTY();
+    }
+  });
+
   it('handleInkSubmittedInstruction executes shell commands immediately instead of queueing them', async () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     agent.inkRenderer = {

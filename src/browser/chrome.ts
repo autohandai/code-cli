@@ -389,6 +389,18 @@ export function buildNativeHostManifest(options: {
   };
 }
 
+function extensionIdFromAllowedOrigin(origin: string): string | null {
+  const match = /^chrome-extension:\/\/([^/]+)\/$/.exec(origin);
+  return match?.[1] ?? null;
+}
+
+function mergeExtensionIds(extensionIds: string[], allowedOrigins: string[] | undefined): string[] {
+  const existingIds = (allowedOrigins ?? [])
+    .map(extensionIdFromAllowedOrigin)
+    .filter((id): id is string => Boolean(id));
+  return Array.from(new Set([...existingIds, ...extensionIds].filter(Boolean)));
+}
+
 function resolveNodePath(): string {
   // Don't use bun or the compiled autohand binary as the shebang —
   // Chrome native messaging host scripts must use Node.js because they
@@ -623,6 +635,7 @@ export async function ensureNativeHostInstalled(options?: {
   const expectedExtensionIds = [options?.extensionId].filter((id): id is string => Boolean(id));
   const expectedAllowedOrigins = expectedExtensionIds.map((extensionId) => `chrome-extension://${extensionId}/`);
   const hostScriptPath = path.join(getBrowserDataRoot(homeDir), 'host.js');
+  let installExtensionIds = expectedExtensionIds;
 
   // If the Chrome manifest already exists and its host script is reachable
   // with a valid shebang and it is paired with the current extension id,
@@ -630,6 +643,7 @@ export async function ensureNativeHostInstalled(options?: {
   if (await pathExists(chromeManifest.manifestPath)) {
     try {
       const manifest = await readJson(chromeManifest.manifestPath) as { path?: string; allowed_origins?: string[] };
+      installExtensionIds = mergeExtensionIds(expectedExtensionIds, manifest.allowed_origins);
       if (manifest.path && await pathExists(manifest.path)) {
         // Check shebang is a valid Node.js interpreter (not bun, not the autohand binary itself)
         const firstLine = (await readFile(manifest.path, 'utf8')).split('\n')[0] ?? '';
@@ -656,7 +670,7 @@ export async function ensureNativeHostInstalled(options?: {
   const { command, args } = resolveCliLaunchSpec();
 
   await installNativeHost({
-    extensionIds: expectedExtensionIds,
+    extensionIds: installExtensionIds,
     cliCommand: command,
     cliArgPrefix: args.length ? args : undefined,
   });

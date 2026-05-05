@@ -449,8 +449,8 @@ describe('browser/chrome', () => {
 
   // Regression: ensureNativeHostInstalled must repair stale manifests even
   // when the referenced host file is reachable. A valid shebang is not enough:
-  // Chrome will reject the host if allowed_origins is still paired to an old
-  // extension id such as ext123.
+  // Chrome will reject the host if allowed_origins is paired to another
+  // extension id.
   it('repairs manifest when the allowed origin does not match the extension id', async () => {
     const { getManifestTarget } = await import('../../src/browser/chrome.js');
     const target = getManifestTarget('chrome');
@@ -475,17 +475,20 @@ describe('browser/chrome', () => {
         description: 'test',
         path: hostPath,
         type: 'stdio',
-        allowed_origins: ['chrome-extension://ext123/'],
+        allowed_origins: ['chrome-extension://oldextensionid/'],
       });
 
       // Re-import to get fresh module
       const { ensureNativeHostInstalled } = await import('../../src/browser/chrome.js');
 
-      await ensureNativeHostInstalled({ extensionId: 'testid' });
+      await ensureNativeHostInstalled({ extensionId: 'newextensionid' });
 
       const manifest = await readJson(target.manifestPath);
       expect(manifest.path).not.toBe(hostPath);
-      expect(manifest.allowed_origins).toEqual(['chrome-extension://testid/']);
+      expect(manifest.allowed_origins).toEqual([
+        'chrome-extension://oldextensionid/',
+        'chrome-extension://newextensionid/',
+      ]);
       expect(await pathExists(manifest.path)).toBe(true);
     } finally {
       // Restore original manifest
