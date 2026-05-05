@@ -10,6 +10,7 @@ Autohand supports multiple LLM providers, giving you flexibility to choose betwe
   - [OpenRouter](#openrouter)
   - [OpenAI](#openai)
   - [LLM Gateway](#llm-gateway)
+  - [DeepSeek](#deepseek)
   - [Z.ai](#zai)
 - [Local Providers](#local-providers)
   - [Ollama](#ollama)
@@ -47,8 +48,9 @@ EOF
 | Provider        | Type  | Cost        | Latency | Best For                                        |
 | --------------- | ----- | ----------- | ------- | ----------------------------------------------- |
 | **OpenRouter**  | Cloud | Pay-per-use | Low     | Access to 100+ models, recommended default      |
-| **OpenAI**      | Cloud | Pay-per-use | Low     | Direct OpenAI access, GPT-4o, o1 models         |
+| **OpenAI**      | Cloud | Pay-per-use | Low     | Direct OpenAI access, GPT-5, o3 models          |
 | **LLM Gateway** | Cloud | Pay-per-use | Low     | Unified API for multiple providers              |
+| **DeepSeek**    | Cloud | Pay-per-use | Low     | DeepSeek V4 Flash and V4 Pro models             |
 | **Z.ai**        | Cloud | Pay-per-use | Low     | GLM-4.5 series models, CogView image generation |
 | **Ollama**      | Local | Free        | Medium  | Privacy-focused, offline work                   |
 | **llama.cpp**   | Local | Free        | Low     | Performance-focused local inference             |
@@ -81,22 +83,22 @@ OpenRouter provides a unified API to access 100+ models from various providers (
 | Model | Description |
 |-------|-------------|
 | `your-modelcard-id-here` | Best balance of speed and capability |
-| `anthropic/claude-3-opus` | Most capable Claude model |
-| `openai/gpt-4o` | OpenAI's flagship model |
-| `google/gemini-pro-1.5` | Google's latest model |
+| `anthropic/claude-5-opus` | Most capable Claude model |
+| `openai/gpt-5` | OpenAI's flagship model |
+| `google/gemini-3.0-pro` | Google's latest model |
 | `meta-llama/llama-3.1-70b-instruct` | Open-source alternative |
 
 **Switching Models:**
 
 ```
-/model anthropic/claude-3-opus
+/model anthropic/claude-5-opus
 ```
 
 ---
 
 ### OpenAI
 
-Direct access to OpenAI's API for GPT-4o, o1, and other OpenAI models.
+Direct access to OpenAI's API for GPT-5, o3, and other OpenAI models.
 
 **Setup:**
 
@@ -131,8 +133,8 @@ Or use ChatGPT auth:
 **Available Models:**
 | Model | Description |
 |-------|-------------|
-| `gpt-4o` | Flagship multimodal model |
-| `gpt-4o-mini` | Faster, cheaper alternative |
+| `gpt-5` | Flagship multimodal model |
+| `gpt-5-mini` | Faster, cheaper alternative |
 | `gpt-4-turbo` | Previous generation flagship |
 | `o1-preview` | Advanced reasoning model |
 | `o1-mini` | Faster reasoning model |
@@ -154,7 +156,7 @@ LLM Gateway provides a unified API for multiple LLM providers with a single inte
   "provider": "llmgateway",
   "llmgateway": {
     "apiKey": "your-llmgateway-api-key",
-    "model": "gpt-4o"
+    "model": "gpt-5"
   }
 }
 ```
@@ -162,13 +164,13 @@ LLM Gateway provides a unified API for multiple LLM providers with a single inte
 **Supported Models:**
 | Model | Provider |
 |-------|----------|
-| `gpt-4o` | OpenAI |
-| `gpt-4o-mini` | OpenAI |
+| `gpt-5` | OpenAI |
+| `gpt-5-mini` | OpenAI |
 | `gpt-4-turbo` | OpenAI |
-| `claude-3-5-sonnet-20241022` | Anthropic |
-| `claude-3-5-haiku-20241022` | Anthropic |
-| `gemini-1.5-pro` | Google |
-| `gemini-1.5-flash` | Google |
+| `claude-5-sonnet` | Anthropic |
+| `claude-5-haiku` | Anthropic |
+| `gemini-3.0-pro` | Google |
+| `gemini-3.0-flash` | Google |
 
 **Benefits:**
 
@@ -185,10 +187,52 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -d '{
-    "model": "gpt-4o",
+    "model": "gpt-5",
     "messages": [
       {"role": "user", "content": "Hello!"}
     ]
+  }'
+```
+
+---
+
+### DeepSeek
+
+DeepSeek provides an OpenAI-compatible chat completions API for DeepSeek V4 Flash, V4 Pro, and the legacy `deepseek-chat` / `deepseek-reasoner` model IDs.
+
+**Setup:**
+
+1. Get your API key at [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys)
+2. Configure Autohand:
+
+```json
+{
+  "provider": "deepseek",
+  "deepseek": {
+    "apiKey": "your-deepseek-api-key",
+    "model": "deepseek-v4-flash"
+  }
+}
+```
+
+**Available Models:**
+
+| Model                 | Description                                      |
+| --------------------- | ------------------------------------------------ |
+| `deepseek-v4-flash`   | Current fast V4 model, recommended default       |
+| `deepseek-v4-pro`     | Current stronger V4 model                        |
+| `deepseek-chat`       | Legacy non-thinking alias, deprecated 2026-07-24 |
+| `deepseek-reasoner`   | Legacy thinking alias, deprecated 2026-07-24     |
+
+**Example Usage:**
+
+```bash
+curl -X POST "https://api.deepseek.com/chat/completions" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
+  -d '{
+    "model": "deepseek-v4-flash",
+    "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
 
@@ -366,8 +410,8 @@ Use the `/model` command to switch providers or models:
 
 ```
 /model                           # List available models
-/model gpt-4o                    # Switch to GPT-4o
-/model anthropic/claude-3-opus   # Switch to Claude Opus
+/model gpt-5                     # Switch to GPT-5
+/model anthropic/claude-5-opus   # Switch to Claude Opus
 ```
 
 When you pick `openai`, Autohand now lets you choose between `API key` and `ChatGPT account` authentication.
@@ -377,7 +421,7 @@ When you pick `openai`, Autohand now lets you choose between `API key` and `Chat
 Override the default provider for a single session:
 
 ```bash
-autohand --model gpt-4o
+autohand --model gpt-5
 ```
 
 ### Editing Config
@@ -389,7 +433,7 @@ Update `~/.autohand/config.json`:
   "provider": "llmgateway",
   "llmgateway": {
     "apiKey": "your-key",
-    "model": "claude-3-5-sonnet-20241022"
+    "model": "claude-5-sonnet"
   }
 }
 ```

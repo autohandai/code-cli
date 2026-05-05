@@ -102,6 +102,7 @@ Active LLM provider to use.
 | `"openai"`     | OpenAI API directly          |
 | `"mlx"`        | MLX on Apple Silicon (local) |
 | `"llmgateway"` | LLM Gateway unified API      |
+| `"deepseek"`   | DeepSeek API                 |
 
 ### `openrouter`
 
@@ -252,6 +253,26 @@ LLM Gateway supports models from multiple providers including:
 - OpenAI: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`
 `claude-3-5-haiku-20241022`
 - Google: `gemini-1.5-pro`, `gemini-1.5-flash`
+
+### `deepseek`
+
+DeepSeek provider configuration. The API is OpenAI-compatible and uses `https://api.deepseek.com` as its base URL.
+
+```json
+{
+  "deepseek": {
+    "apiKey": "your-deepseek-api-key",
+    "baseUrl": "https://api.deepseek.com",
+    "model": "deepseek-v4-flash"
+  }
+}
+```
+
+| Field     | Type   | Required | Default                    | Description                                                    |
+| --------- | ------ | -------- | -------------------------- | -------------------------------------------------------------- |
+| `apiKey`  | string | Yes      | -                          | DeepSeek API key                                               |
+| `baseUrl` | string | No       | `https://api.deepseek.com` | API endpoint                                                   |
+| `model`   | string | Yes      | -                          | Model name, for example `deepseek-v4-flash` or `deepseek-v4-pro` |
 
 ---
 
