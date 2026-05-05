@@ -167,7 +167,7 @@ Session History
  ID                       Date                  Project           Model                       Messages
 ────────────────────────────────────────────────────────────────────────────────────────────────────────
  abc123def456...           Jan 15, 3:42 PM       my-project        claude-sonnet-4             24 msgs [active]
- xyz789ghi012...           Jan 14, 10:15 AM      api-server        gpt-4o                      18 msgs
+ xyz789ghi012...           Jan 14, 10:15 AM      api-server        gpt-5                       18 msgs
 ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 Page 1 of 3 (42 sessions)
