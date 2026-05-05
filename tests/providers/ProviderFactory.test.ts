@@ -19,7 +19,7 @@ describe("ProviderFactory", () => {
   });
 
   describe("getProviderNames()", () => {
-    it("should always include openrouter, ollama, openai, llamacpp, llmgateway, azure, zai", () => {
+    it("should always include openrouter, ollama, openai, llamacpp, llmgateway, azure, zai, deepseek", () => {
       const providers = ProviderFactory.getProviderNames();
 
       expect(providers).toContain("openrouter");
@@ -29,6 +29,7 @@ describe("ProviderFactory", () => {
       expect(providers).toContain("llmgateway");
       expect(providers).toContain("azure");
       expect(providers).toContain("zai");
+      expect(providers).toContain("deepseek");
     });
 
     it("should always include azure in provider list", () => {
@@ -54,6 +55,7 @@ describe("ProviderFactory", () => {
         "ollama",
         "llmgateway",
         "llamacpp",
+        "deepseek",
         "cerebras",
         "azure",
       ]);
@@ -154,11 +156,35 @@ describe("ProviderFactory", () => {
       expect(provider.getName()).toBe("unconfigured");
     });
 
+    it("should create DeepSeekProvider when deepseek is configured", () => {
+      const config: AutohandConfig = {
+        provider: "deepseek",
+        deepseek: {
+          apiKey: "test-deepseek-key",
+          model: "deepseek-v4-flash",
+        },
+      };
+
+      const provider = ProviderFactory.create(config);
+
+      expect(provider.getName()).toBe("deepseek");
+    });
+
+    it("should return UnconfiguredProvider when deepseek config is missing", () => {
+      const config: AutohandConfig = {
+        provider: "deepseek",
+      };
+
+      const provider = ProviderFactory.create(config);
+
+      expect(provider.getName()).toBe("unconfigured");
+    });
+
     it("should default to openrouter when no provider specified", () => {
       const config: AutohandConfig = {
         openrouter: {
           apiKey: "test-key",
-          model: "anthropic/claude-sonnet-4-20250514",
+          model: "anthropic/claude-4-sonnet",
         },
       };
 
@@ -195,6 +221,10 @@ describe("ProviderFactory", () => {
 
     it("should return true for zai", () => {
       expect(ProviderFactory.isValidProvider("zai")).toBe(true);
+    });
+
+    it("should return true for deepseek", () => {
+      expect(ProviderFactory.isValidProvider("deepseek")).toBe(true);
     });
 
     it("should return false for invalid provider", () => {

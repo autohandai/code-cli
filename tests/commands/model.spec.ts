@@ -209,7 +209,7 @@ describe("Cloud Provider Settings", () => {
     });
 
     it("should have default model for OpenRouter", () => {
-      const defaultModel = "anthropic/claude-sonnet-4-20250514";
+      const defaultModel = "anthropic/claude-4-sonnet";
       expect(defaultModel).toContain("anthropic");
       expect(defaultModel).toContain("claude");
     });

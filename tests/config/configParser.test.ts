@@ -121,6 +121,26 @@ describe("configParser – error handling (Issue #3)", () => {
     expect(message).toMatch(/Failed to parse config/);
   });
 
+  it("loads JSON configs that start with a UTF-8 byte order mark", async () => {
+    const configPath = await writeTempConfig(
+      testDir,
+      "config.json",
+      `\uFEFF${JSON.stringify({
+        provider: "openrouter",
+        openrouter: {
+          apiKey: "sk-test-key",
+          baseUrl: "https://openrouter.ai/api/v1",
+          model: "your-modelcard-id-here",
+        },
+      })}`,
+    );
+    const loadConfig = await importLoadConfig();
+
+    const result = await loadConfig(configPath);
+
+    expect(result.provider).toBe("openrouter");
+  });
+
   // ─── YAML ──────────────────────────────────────────────────────────────────
 
   it("returns a friendly error for an empty YAML file (YAML.parse returns null)", async () => {
@@ -278,6 +298,27 @@ describe("configParser – error handling (Issue #3)", () => {
     expect(result.provider).toBe("openrouter");
   });
 
+  it("loads DeepSeek config and applies the default DeepSeek base URL", async () => {
+    const configPath = await writeTempConfig(
+      testDir,
+      "config.json",
+      JSON.stringify({
+        provider: "deepseek",
+        deepseek: {
+          apiKey: "deepseek-api-key-12345",
+          model: "deepseek-v4-flash",
+        },
+      }),
+    );
+    const { getProviderConfig, loadConfig } = await importConfigModule();
+
+    const result = await loadConfig(configPath);
+    const providerConfig = getProviderConfig(result, "deepseek");
+
+    expect(result.provider).toBe("deepseek");
+    expect(providerConfig?.baseUrl).toBe("https://api.deepseek.com");
+  });
+
   it("loads a valid YAML config without errors", async () => {
     const yamlContent = `provider: openrouter\nopenrouter:\n  apiKey: sk-test-key\n  baseUrl: https://openrouter.ai/api/v1\n  model: your-modelcard-id-here\n`;
     const configPath = await writeTempConfig(
@@ -326,7 +367,7 @@ describe("configParser – error handling (Issue #3)", () => {
         '',
         '[openrouter]',
         'apiKey = "sk-test-key"',
-        'model = "anthropic/claude-sonnet-4-20250514"',
+        'model = "anthropic/claude-4-sonnet"',
       ].join("\n"),
     );
     const { loadConfig, saveConfig } = await importConfigModule();

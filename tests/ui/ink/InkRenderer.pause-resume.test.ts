@@ -36,8 +36,12 @@ vi.mock('ink', () => {
 vi.mock('../../../src/ui/rawMode.js', () => ({
   safeSetRawMode: (input: any, mode: boolean) => {
     if (input?.isTTY && typeof input.setRawMode === 'function') {
-      input.setRawMode(mode);
-      return true;
+      try {
+        input.setRawMode(mode);
+        return true;
+      } catch {
+        return false;
+      }
     }
     return false;
   },
@@ -152,6 +156,32 @@ describe('InkRenderer pause/resume cycle', () => {
 
     await renderer.resume();
     expect(renderer.isRunning()).toBe(true);
+  });
+
+  it('does not throw when raw mode cannot be disabled during pause', () => {
+    renderer.start();
+    const setRawMode = process.stdin.setRawMode as unknown as ReturnType<typeof vi.fn>;
+    setRawMode.mockImplementationOnce(() => {
+      throw new Error('setRawMode failed with errno: 9');
+    });
+
+    expect(() => renderer.pause()).not.toThrow();
+    expect(renderer.isRunning()).toBe(false);
+  });
+
+  it('clears the last composer frame before unmounting on stop', () => {
+    renderer.start();
+    const instance = (renderer as any).instance as {
+      clear: ReturnType<typeof vi.fn>;
+      unmount: ReturnType<typeof vi.fn>;
+    };
+
+    renderer.stop();
+
+    expect(instance.clear).toHaveBeenCalledTimes(1);
+    expect(instance.clear.mock.invocationCallOrder[0]).toBeLessThan(
+      instance.unmount.mock.invocationCallOrder[0]
+    );
   });
 
   it('should accept input after a working turn completes', async () => {

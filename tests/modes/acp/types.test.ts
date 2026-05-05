@@ -321,8 +321,9 @@ describe("parseAvailableModels()", () => {
     expect(models).toContain("your-modelcard-id-here");
     expect(models).toContain("your-modelcard-id-here");
     expect(models).toContain("openai/gpt-4o");
-    expect(models).toContain("google/gemini-2.0-flash-001");
-    expect(models).toContain("deepseek/deepseek-chat-v3-0324");
+    expect(models).toContain("openai/gpt-5");
+    expect(models).toContain("google/gemini-3.0-pro");
+    expect(models).toContain("deepseek/deepseek-v4");
   });
 
   it("places the configured model first when it exists", () => {
@@ -422,15 +423,15 @@ describe("resolveDefaultModel()", () => {
   it("returns fallback model when provider config has no model", () => {
     const config = makeConfig({ openrouter: undefined } as any);
 
-    expect(resolveDefaultModel(config)).toBe("anthropic/claude-sonnet-4-20250514");
+    expect(resolveDefaultModel(config)).toBe("anthropic/claude-5-sonnet");
   });
 
   it("defaults to openrouter when provider is not specified", () => {
     const config = makeConfig({
       provider: undefined,
-      openrouter: { apiKey: "sk-test", model: "openai/gpt-4o" },
+      openrouter: { apiKey: "sk-test", model: "openai/gpt-5" },
     });
 
-    expect(resolveDefaultModel(config)).toBe("openai/gpt-4o");
+    expect(resolveDefaultModel(config)).toBe("openai/gpt-5");
   });
 });

@@ -40,13 +40,13 @@ describe('SDK Control RPC Methods', () => {
   describe('setModel', () => {
     it('should set model', async () => {
       const params: SetModelParams = {
-        model: 'anthropic/claude-sonnet-4-20250514',
+        model: 'anthropic/claude-4-sonnet',
       };
 
       const result = await adapter.handleSetModel(params);
 
       expect(result.success).toBe(true);
-      expect(result.currentModel).toBe('anthropic/claude-sonnet-4-20250514');
+      expect(result.currentModel).toBe('anthropic/claude-4-sonnet');
     });
 
     it('should reset model to undefined', async () => {
