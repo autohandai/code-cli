@@ -579,6 +579,7 @@ export const metadata = {
     { name: 'list', description: 'List available tools from servers' },
     { name: 'add', description: 'Add a server to config' },
     { name: 'remove', description: 'Remove a server from config' },
+    { name: 'install', description: t('commands.mcp.installDescription') },
   ],
 };
 

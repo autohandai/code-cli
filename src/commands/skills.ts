@@ -641,6 +641,7 @@ export const metadata = {
     { name: 'trending', description: 'Show trending community skills' },
     { name: 'remove', description: 'Remove an installed skill' },
     { name: 'info', description: 'Show detailed skill info' },
+    { name: 'new', description: 'Create a new project skill' },
   ],
 };
 
