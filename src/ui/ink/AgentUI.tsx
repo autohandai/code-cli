@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import React, { useState, useEffect, memo, useMemo, useRef, useCallback } from 'react';
-import { Box, Text, useInput, useWindowSize, type Key as InkKey } from 'ink';
+import { Box, Static, Text, useInput, useWindowSize, type Key as InkKey } from 'ink';
 import {
   StatusLine,
   formatLineSegments,
@@ -47,6 +47,8 @@ export interface AgentUIState {
   userMessages: string[];
   /** Completed user/assistant turns displayed in order. */
   chatMessages: ChatLogMessage[];
+  /** Number of chat messages already committed to terminal scrollback by a previous Ink mount. */
+  staticChatMessageOffset: number;
   currentInput: string;
   finalResponse: string | null;
   /** Completion stats shown after work finishes */
@@ -101,7 +103,6 @@ const INK_TEXTBUFFER_VIEWPORT_HEIGHT = 10;
 const INK_IMAGE_SCAN_DELAY_MS = 150;
 const BRACKETED_PASTE_START = '\x1b[200~';
 const BRACKETED_PASTE_END = '\x1b[201~';
-const CHAT_HISTORY_RESERVED_ROWS = 8;
 
 interface ChatHistoryItem {
   index: number;
@@ -211,38 +212,6 @@ export function clearBareComposerTrigger(buffer: TextBuffer): boolean {
 
 function isForwardDeleteKey(input: string, key: InkKey): boolean {
   return key.delete || input === '\x1b[3~';
-}
-
-function isPageUpKey(input: string, key: InkKey): boolean {
-  return key.pageUp || input === '\x1b[5~' || input === '[5~';
-}
-
-function isPageDownKey(input: string, key: InkKey): boolean {
-  return key.pageDown || input === '\x1b[6~' || input === '[6~';
-}
-
-export function getChatHistoryVisibleCount(rows: number | undefined): number {
-  return Math.max(1, (rows ?? 24) - CHAT_HISTORY_RESERVED_ROWS);
-}
-
-export function clampChatScrollOffset(
-  totalItems: number,
-  visibleItems: number,
-  offset: number
-): number {
-  return Math.max(0, Math.min(offset, Math.max(0, totalItems - visibleItems)));
-}
-
-export function getChatHistoryViewport<T>(
-  items: T[],
-  visibleItems: number,
-  scrollOffset: number
-): T[] {
-  const count = Math.max(1, visibleItems);
-  const offset = clampChatScrollOffset(items.length, count, scrollOffset);
-  const end = Math.max(0, items.length - offset);
-  const start = Math.max(0, end - count);
-  return items.slice(start, end);
 }
 
 export function consumeInkBracketedPasteInput(
@@ -424,7 +393,6 @@ export function AgentUI({
   const [slashActiveIndex, setSlashActiveIndex] = useState(0);
   const [slashVisible, setSlashVisible] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const [chatScrollOffset, setChatScrollOffset] = useState(0);
   const slashStartIndexRef = useRef<number | null>(null);
   const slashFullMatchRef = useRef<string | null>(null);
 
@@ -496,8 +464,6 @@ export function AgentUI({
   slashActiveIndexRef.current = slashActiveIndex;
   const showShortcutsRef = useRef(showShortcuts);
   showShortcutsRef.current = showShortcuts;
-  const chatHistoryItemCountRef = useRef(0);
-  const chatHistoryVisibleCountRef = useRef(1);
   const skillsProviderRef = useRef(skillsProvider);
   skillsProviderRef.current = skillsProvider;
   const skillVisibleRef = useRef(skillVisible);
@@ -910,21 +876,6 @@ export function AgentUI({
       return;
     }
 
-    if (isWorkingRef.current && (isPageUpKey(char, key) || isPageDownKey(char, key))) {
-      const visibleCount = chatHistoryVisibleCountRef.current;
-      const itemCount = chatHistoryItemCountRef.current;
-
-      if (itemCount > visibleCount) {
-        setChatScrollOffset(prev => {
-          const next = isPageUpKey(char, key)
-            ? prev + visibleCount
-            : prev - visibleCount;
-          return clampChatScrollOffset(itemCount, visibleCount, next);
-        });
-      }
-      return;
-    }
-
     // Block input only when working AND queue-input is disabled.
     // When idle (isWorking=false), always allow input so the user can
     // compose their next prompt.
@@ -1264,29 +1215,14 @@ export function AgentUI({
 
     return sourceMessages.map((message, index) => ({ index, message }));
   }, [state.chatMessages, state.userMessages]);
-  const chatHistoryVisibleCount = getChatHistoryVisibleCount(windowSize.rows);
-  const visibleChatHistoryItems = useMemo(
-    () => getChatHistoryViewport(
-      chatHistoryItems,
-      chatHistoryVisibleCount,
-      chatScrollOffset
-    ),
-    [chatHistoryItems, chatHistoryVisibleCount, chatScrollOffset]
+  const staticChatMessageOffset = Math.min(
+    Math.max(0, state.staticChatMessageOffset),
+    chatHistoryItems.length
   );
-  chatHistoryItemCountRef.current = chatHistoryItems.length;
-  chatHistoryVisibleCountRef.current = chatHistoryVisibleCount;
-
-  useEffect(() => {
-    setChatScrollOffset(prev =>
-      clampChatScrollOffset(chatHistoryItems.length, chatHistoryVisibleCount, prev)
-    );
-  }, [chatHistoryItems.length, chatHistoryVisibleCount]);
-
-  useEffect(() => {
-    if (!state.isWorking) {
-      setChatScrollOffset(0);
-    }
-  }, [state.isWorking]);
+  const staticChatHistoryItems = useMemo(
+    () => chatHistoryItems.slice(staticChatMessageOffset),
+    [chatHistoryItems, staticChatMessageOffset]
+  );
   const chatIncludesToolOutput = useMemo(() =>
     state.chatMessages.some((message) => message.role === 'tool'),
     [state.chatMessages]
@@ -1331,31 +1267,11 @@ export function AgentUI({
         <LiveCommandBlock key={item.id} entry={item} />
       ))}
 
-      {/* Completed chat history */}
-      {visibleChatHistoryItems.map(({ message, index }) => (
-        message.role === 'user' ? (
-          <UserMessage key={`chat-user-${index}`}>
-            {message.content}
-          </UserMessage>
-        ) : message.role === 'tool' ? (
-          <ToolOutputStatic
-            key={`chat-tool-${index}`}
-            entry={{
-              id: `chat-tool-${index}`,
-              tool: message.tool ?? 'tool',
-              success: message.success ?? true,
-              output: message.content,
-              timestamp: index,
-            }}
-          />
-        ) : message.role === 'completion' ? (
-          <CompletionHistoryMessage key={`chat-completion-${index}`} content={message.content} />
-        ) : (
-          <Box key={`chat-assistant-${index}`} marginTop={1}>
-            <Text>{renderTerminalMarkdown(message.content)}</Text>
-          </Box>
-        )
-      ))}
+      <Static items={staticChatHistoryItems}>
+        {({ message, index }) => (
+          <ChatHistoryMessage key={`chat-${index}`} message={message} index={index} />
+        )}
+      </Static>
 
       {/* Tool outputs - rendered dynamically so Ink manages them during resize.
           Components are memoized so React skips execution when data is unchanged. */}
@@ -1489,6 +1405,46 @@ const DynamicContent = memo(function DynamicContent({
   return prev.thinking === next.thinking &&
          prev.finalResponse === next.finalResponse &&
          prev.isWorking === next.isWorking;
+});
+
+const ChatHistoryMessage = memo(function ChatHistoryMessage({
+  message,
+  index,
+}: {
+  message: ChatLogMessage;
+  index: number;
+}) {
+  if (message.role === 'user') {
+    return (
+      <UserMessage>
+        {message.content}
+      </UserMessage>
+    );
+  }
+
+  if (message.role === 'tool') {
+    return (
+      <ToolOutputStatic
+        entry={{
+          id: `chat-tool-${index}`,
+          tool: message.tool ?? 'tool',
+          success: message.success ?? true,
+          output: message.content,
+          timestamp: index,
+        }}
+      />
+    );
+  }
+
+  if (message.role === 'completion') {
+    return <CompletionHistoryMessage content={message.content} />;
+  }
+
+  return (
+    <Box marginTop={1}>
+      <Text>{renderTerminalMarkdown(message.content)}</Text>
+    </Box>
+  );
 });
 
 const CompletionHistoryMessage = memo(function CompletionHistoryMessage({
@@ -1856,6 +1812,7 @@ export function createInitialUIState(): AgentUIState {
     queuedInstructions: [],
     userMessages: [],
     chatMessages: [],
+    staticChatMessageOffset: 0,
     currentInput: '',
     finalResponse: null,
     completionStats: null,
