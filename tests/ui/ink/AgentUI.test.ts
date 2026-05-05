@@ -4,7 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import React from 'react';
+import { cleanup, render } from 'ink-testing-library';
 import type { Key as InkKey } from 'ink';
 import { TextBuffer } from '../../../src/ui/textBuffer.js';
 import {
@@ -19,6 +21,37 @@ import {
   resolveInkHiddenPastes,
   storeInkHiddenPaste,
 } from '../../../src/ui/ink/AgentUI.js';
+import { AgentUI, createInitialUIState } from '../../../src/ui/ink/AgentUI.js';
+import { I18nProvider } from '../../../src/ui/i18n/index.js';
+import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
+import { getPromptBlockWidth } from '../../../src/ui/inputPrompt.js';
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '');
+}
+
+function setStdoutColumns(stdout: { columns: number; rows?: number }, columns: number): void {
+  Object.defineProperty(stdout, 'columns', {
+    configurable: true,
+    get: () => columns,
+  });
+  Object.defineProperty(stdout, 'rows', {
+    configurable: true,
+    get: () => 24,
+  });
+}
+
+function getComposerTopBorderWidth(frame: string | undefined): number {
+  const line = stripAnsi(frame ?? '')
+    .split('\n')
+    .find((item) => item.startsWith('┌'));
+
+  if (!line) {
+    throw new Error('composer top border was not rendered');
+  }
+
+  return line.length;
+}
 
 function createInkKey(overrides: Partial<InkKey> = {}): InkKey {
   return {
@@ -45,6 +78,10 @@ function createInkKey(overrides: Partial<InkKey> = {}): InkKey {
     ...overrides,
   };
 }
+
+afterEach(() => {
+  cleanup();
+});
 
 describe('AgentUI TextBuffer integration helpers', () => {
   it('inserts text at the cursor after arrow navigation', () => {
@@ -139,6 +176,41 @@ describe('AgentUI TextBuffer integration helpers', () => {
       expect(buffer.getText()).toBe('');
     }
   );
+});
+
+describe('AgentUI terminal resize rendering', () => {
+  it('recomputes the composer width when stdout emits resize', async () => {
+    const state = {
+      ...createInitialUIState(),
+      currentInput: 'resize check',
+    };
+    const instance = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+          })
+        )
+      )
+    );
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(getComposerTopBorderWidth(instance.lastFrame())).toBe(getPromptBlockWidth(100));
+
+    setStdoutColumns(instance.stdout, 42);
+    instance.stdout.emit('resize');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(getComposerTopBorderWidth(instance.lastFrame())).toBe(getPromptBlockWidth(42));
+  });
 });
 
 describe('AgentUI bracketed paste input', () => {
