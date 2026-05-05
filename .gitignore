@@ -13,6 +13,7 @@ dev-build.sh
 bun.lock
 .vitest/vitest/*
 .vitest/
+.vitest-tuistory/
 .agent/
 # Environment variables (API secrets)
 .env

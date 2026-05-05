@@ -194,6 +194,8 @@ export interface AgentSettings {
   debug?: boolean;
   /** Max tool calls to execute in parallel per iteration (default: 5, set 1 for sequential) */
   parallelToolConcurrency?: number;
+  /** Cache local tool schema selection for equivalent turns (default: true) */
+  toolSelectionCache?: boolean;
 }
 
 export interface TelemetrySettings {

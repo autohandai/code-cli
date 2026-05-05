@@ -6,17 +6,27 @@
 import { describe, it, expect } from 'vitest';
 import {
   createToolFilter,
+  filterToolsByRelevance,
+  formatToolCapabilityCatalog,
   getToolCategory,
 } from '../src/core/toolFilter.js';
+import type { LLMMessage } from '../src/types.js';
 import type { ToolDefinition } from '../src/core/toolManager.js';
 
 describe('ToolFilter', () => {
   const sampleTools: ToolDefinition[] = [
     { name: 'read_file', description: 'Read a file' },
+    { name: 'fff_find', description: 'Find files by name or path' },
+    { name: 'fff_grep', description: 'Search file contents' },
+    { name: 'tool_search', description: 'Search available tools' },
+    { name: 'ask_followup_question', description: 'Ask the user a question' },
     { name: 'write_file', description: 'Write a file' },
+    { name: 'apply_patch', description: 'Apply a patch' },
     { name: 'delete_path', description: 'Delete a path', requiresApproval: true },
     { name: 'run_command', description: 'Run shell command', requiresApproval: true },
+    { name: 'shell', description: 'Run a live shell command', requiresApproval: true },
     { name: 'git_status', description: 'Show git status' },
+    { name: 'git_diff', description: 'Show git diff' },
     { name: 'git_push', description: 'Push to remote', requiresApproval: true },
     { name: 'list_tree', description: 'List directory tree' },
     { name: 'plan', description: 'Create a plan' }
@@ -25,6 +35,8 @@ describe('ToolFilter', () => {
   describe('getToolCategory', () => {
     it('returns correct categories for known tools', () => {
       expect(getToolCategory('read_file')).toBe('read');
+      expect(getToolCategory('fff_find')).toBe('read');
+      expect(getToolCategory('fff_grep')).toBe('read');
       expect(getToolCategory('write_file')).toBe('write');
       expect(getToolCategory('delete_path')).toBe('delete');
       expect(getToolCategory('run_command')).toBe('shell');
@@ -169,6 +181,109 @@ describe('ToolFilter', () => {
       expect(summary.categories).not.toContain('shell');
       expect(summary.allowed).toContain('read_file');
       expect(summary.blocked).toContain('run_command');
+    });
+  });
+
+  describe('compact relevance filtering', () => {
+    const functionTools = sampleTools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+    }));
+
+    it('keeps only the compact core for a simple conversational prompt', () => {
+      const messages: LLMMessage[] = [{ role: 'user', content: 'hello, what can you do?' }];
+
+      const filtered = filterToolsByRelevance(functionTools, messages, { cache: false });
+      const names = filtered.map((tool) => tool.name);
+
+      expect(names).toEqual(expect.arrayContaining([
+        'tool_search',
+        'read_file',
+        'fff_find',
+        'fff_grep',
+        'ask_followup_question',
+      ]));
+      expect(names).not.toContain('write_file');
+      expect(names).not.toContain('apply_patch');
+      expect(names).not.toContain('run_command');
+      expect(names).not.toContain('git_push');
+    });
+
+    it('hydrates edit, verification, and git-read tools for implementation requests', () => {
+      const messages: LLMMessage[] = [{ role: 'user', content: 'fix the failing test and show me the diff' }];
+
+      const filtered = filterToolsByRelevance(functionTools, messages, { cache: false });
+      const names = filtered.map((tool) => tool.name);
+
+      expect(names).toEqual(expect.arrayContaining([
+        'read_file',
+        'fff_grep',
+        'apply_patch',
+        'write_file',
+        'git_status',
+        'git_diff',
+        'run_command',
+        'shell',
+      ]));
+      expect(names).not.toContain('git_push');
+    });
+
+    it('hydrates edit tools for add, build, document, and config requests', () => {
+      const messages: LLMMessage[] = [{ role: 'user', content: 'build this plan: add a config option and document it' }];
+
+      const filtered = filterToolsByRelevance(functionTools, messages, { cache: false });
+      const names = filtered.map((tool) => tool.name);
+
+      expect(names).toEqual(expect.arrayContaining([
+        'apply_patch',
+        'write_file',
+      ]));
+    });
+
+    it('uses recent tool_search arguments to hydrate matching schemas on the next turn', () => {
+      const messages: LLMMessage[] = [
+        { role: 'user', content: 'which tool should I use to patch a file?' },
+        {
+          role: 'assistant',
+          content: '',
+          tool_calls: [{
+            id: 'call-1',
+            type: 'function',
+            function: {
+              name: 'tool_search',
+              arguments: JSON.stringify({ query: 'apply patch edit file' }),
+            },
+          }],
+        },
+      ];
+
+      const filtered = filterToolsByRelevance(functionTools, messages, { cache: false });
+      const names = filtered.map((tool) => tool.name);
+
+      expect(names).toContain('apply_patch');
+      expect(names).toContain('write_file');
+    });
+
+    it('can cache selected tool names for repeated equivalent requests', () => {
+      const messages: LLMMessage[] = [{ role: 'user', content: 'fix the lint error' }];
+
+      const first = filterToolsByRelevance(functionTools, messages, { cache: true });
+      const second = filterToolsByRelevance([...functionTools].reverse(), messages, { cache: true });
+
+      expect(second.map((tool) => tool.name)).toEqual(first.map((tool) => tool.name));
+    });
+  });
+
+  describe('tool capability catalog', () => {
+    it('summarizes tool families without embedding argument schemas', () => {
+      const catalog = formatToolCapabilityCatalog(sampleTools);
+
+      expect(catalog).toContain('filesystem');
+      expect(catalog).toContain('read_file');
+      expect(catalog).toContain('apply_patch');
+      expect(catalog).not.toContain('query: string');
+      expect(catalog).not.toContain('contents: string');
     });
   });
 });

@@ -219,7 +219,9 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
 
       // Filter tools by relevance to reduce token overhead
       const messages = host.conversation.history();
-      let tools = filterToolsByRelevance(allTools, messages);
+      let tools = filterToolsByRelevance(allTools, messages, {
+        cache: host.runtime.config.agent?.toolSelectionCache !== false,
+      });
 
       // Filter tools for plan mode (read-only tools only during planning phase)
       const planModeManager = getPlanModeManager();

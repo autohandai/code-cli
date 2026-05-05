@@ -21,13 +21,15 @@
     "assets"
   ],
   "scripts": {
-    "go": "bun run build && ./install-local.sh && echo \"COMPLETED\"",
+    "go": "./install-local.sh && echo \"COMPLETED\"",
     "build": "tsup",
-    "dev": "bun src/index.ts",
+    "dev": "env -i PATH=\"/Users/igorcosta/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin\" HOME=\"$HOME\" bun src/index.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "proof": "bun run lint && bun run typecheck && bun run test",
+    "proof": "eslint . && tsc --noEmit && node --max-old-space-size=8192 ./node_modules/vitest/vitest.mjs run",
     "test": "node --max-old-space-size=8192 ./node_modules/vitest/vitest.mjs run",
+    "test:tuistory": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run --config vitest.tuistory.config.ts",
+    "proof:build-tuistory": "tsup && node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run --config vitest.tuistory.config.ts",
     "start": "node dist/index.js",
     "compile:macos-arm64": "bun build ./src/index.ts --compile --target=bun-darwin-arm64 --outfile ./binaries/autohand-macos-arm64",
     "compile:macos-x64": "bun build ./src/index.ts --compile --target=bun-darwin-x64 --outfile ./binaries/autohand-macos-x64",
@@ -90,6 +92,7 @@
     "strip-ansi": "^7.2.0",
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",
+    "tuistory": "^0.4.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.5"
   },

@@ -9,7 +9,7 @@ import { getPlanModeManager } from '../../commands/plan.js';
 import { resolvePromptValue, SysPromptError } from '../../utils/sysPrompt.js';
 import type { AgentRuntime } from '../../types.js';
 import type { ToolDefinition } from '../toolManager.js';
-import { formatToolSignature } from './AgentFormatter.js';
+import { formatToolCapabilityCatalog } from '../toolFilter.js';
 
 interface PromptSkillSummary {
   name: string;
@@ -58,7 +58,7 @@ export class SystemPromptBuilder {
     }
 
     const toolDefs = this.options.getToolDefinitions();
-    const toolSignatures = toolDefs.map(def => formatToolSignature(def)).join('\n');
+    const toolCatalog = formatToolCapabilityCatalog(toolDefs);
 
     const [memories, instructions] = await Promise.all([
       this.options.getContextMemories(),
@@ -173,9 +173,15 @@ export class SystemPromptBuilder {
       'Include your reflection in the "reflection" field of your response. This ensures you process observations before acting on them.',
       '',
       '### Available Tools',
-      'Use these tools with the specified arguments. Required parameters have no "?", optional parameters have "?".',
-      toolSignatures ? `\n${toolSignatures}\n` : 'Tools are resolved at runtime. Use tools_registry to inspect them.',
-      'If you need a capability not listed, define it as a `custom_command` (with name, command, args, description) before invoking it.',
+      'Exact tool schemas are selected per request based on the user intent and recent tool results.',
+      'The native tool list for the current request is the source of truth for callable arguments.',
+      'Use `tool_search` when you need a capability that is not currently exposed.',
+      '',
+      '### Tool Capability Catalog',
+      toolCatalog || 'Tools are resolved at runtime. Use tools_registry to inspect them.',
+      '',
+      'If you need a capability not listed, use `tool_search` before guessing a tool name.',
+      'If you need a reusable capability, define it as a `custom_command` (with name, command, args, description) before invoking it.',
       'Do not override existing tool functionality when adding meta tools.',
       '',
       '### Response Format',
