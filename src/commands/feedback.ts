@@ -264,7 +264,7 @@ async function sendFeedbackToApi(
     const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
 
     try {
-        const response = await fetch(`${apiBaseUrl}/v1/feedback/`, {
+        const response = await fetch(getFeedbackSubmitUrl(apiBaseUrl), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -299,6 +299,10 @@ function getFeedbackApiBaseUrl(ctx: FeedbackContext): string {
     return process.env.AUTOHAND_API_URL?.trim()
         || ctx.config?.api?.baseUrl?.trim()
         || DEFAULT_API_BASE_URL;
+}
+
+function getFeedbackSubmitUrl(apiBaseUrl: string): string {
+    return `${apiBaseUrl.replace(/\/+$/, '')}/v1/feedback`;
 }
 
 function formatFeedbackApiError(status: number, rawBody: string): string {

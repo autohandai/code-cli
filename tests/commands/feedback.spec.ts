@@ -42,6 +42,7 @@ vi.mock('chalk', () => ({
 
 // Must import after mocks are set up
 import { feedback } from '../../src/commands/feedback.js';
+import { FeedbackApiClient } from '../../src/feedback/FeedbackApiClient.js';
 import { safePrompt } from '../../src/utils/prompt.js';
 
 describe('feedback command', () => {
@@ -172,8 +173,7 @@ describe('feedback command', () => {
       const url = fetchCall[0];
 
       // Should use api.autohand.ai as base URL
-      expect(url).toContain('https://api.autohand.ai');
-      expect(url).toContain('/v1/feedback');
+      expect(url).toBe('https://api.autohand.ai/v1/feedback');
     });
 
     it('should include required fields matching API schema', async () => {
@@ -228,7 +228,30 @@ describe('feedback command', () => {
 
       const fetchCall = mockFetch.mock.calls[0];
       const url = fetchCall[0] as string;
-      expect(url).toContain('https://custom-api.example.com/v1/feedback');
+      expect(url).toBe('https://custom-api.example.com/v1/feedback');
+    });
+
+    it('should send prompted feedback to the slashless API endpoint', async () => {
+      const client = new FeedbackApiClient({
+        baseUrl: 'https://api.example.test',
+        offlineQueue: false,
+      });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true, id: 'prompted-feedback' }),
+      });
+
+      await client.submit({
+        npsScore: 5,
+        recommend: true,
+        reason: 'Useful prompts',
+        timestamp: '2026-05-05T00:00:00.000Z',
+        triggerType: 'interaction_count',
+      });
+
+      expect(mockFetch).toHaveBeenCalled();
+      expect(mockFetch.mock.calls[0][0]).toBe('https://api.example.test/v1/feedback');
     });
 
     it('should discard feedback when user skips rating', async () => {
