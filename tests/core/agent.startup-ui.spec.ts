@@ -1116,7 +1116,7 @@ describe('agent startup and active input UI', () => {
     }
   });
 
-  it('routes queued-processing message above composer when terminal regions are active', () => {
+  it('does not print queued-processing messages into interactive chat output', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const writeAbove = vi.fn();
     const originalEnv = process.env.AUTOHAND_TERMINAL_REGIONS;
@@ -1133,9 +1133,7 @@ describe('agent startup and active input UI', () => {
 
       (agent as any).logQueuedProcessingMessage('tell me if I have future', 1);
 
-      expect(writeAbove).toHaveBeenCalledTimes(2);
-      expect(writeAbove.mock.calls[0]?.[0]).toContain('Processing queued request');
-      expect(writeAbove.mock.calls[1]?.[0]).toContain('1 more request(s) queued');
+      expect(writeAbove).not.toHaveBeenCalled();
       expect(logSpy).not.toHaveBeenCalled();
     } finally {
       if (originalEnv === undefined) {

@@ -83,6 +83,25 @@ describe('AgentUI live command block', () => {
     expect(output).not.toContain('User requested to run');
   });
 
+  it('renders completed chat history before the active final response', () => {
+    const state = createInitialUIState();
+    state.isWorking = false;
+    state.chatMessages = [
+      { role: 'user', content: 'tell me a good joke about dogs' },
+      { role: 'assistant', content: 'Why did the dog sit in the shade? It did not want to be a hot dog.' },
+      { role: 'user', content: 'another about monkeys' },
+    ];
+    state.finalResponse = 'What do you call a monkey in a minefield? A baboom!';
+
+    const { lastFrame } = renderAgentUI(state);
+
+    const output = stripAnsi(lastFrame());
+    expect(output).toContain('tell me a good joke about dogs');
+    expect(output).toContain('Why did the dog sit in the shade?');
+    expect(output).toContain('another about monkeys');
+    expect(output).toContain('What do you call a monkey in a minefield?');
+  });
+
   it('renders a running shell command block above the composer', () => {
     const state = createInitialUIState();
     state.isWorking = true;

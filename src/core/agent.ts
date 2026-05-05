@@ -20,6 +20,7 @@ import { ActionExecutor } from './actionExecutor.js';
 import { SlashCommandHandler } from './slashCommandHandler.js';
 import { SessionManager } from '../session/SessionManager.js';
 import { ProjectManager } from '../session/ProjectManager.js';
+import type { ChatLogMessage } from '../session/chatLog.js';
 import { ToolsRegistry } from './toolsRegistry.js';
 import type {
   AgentRuntime,
@@ -283,6 +284,7 @@ export class AutohandAgent {
   private inkRenderer: InkRenderer | null = null;
   private useInkRenderer = false;
   private pendingInkInstructions: string[] = [];
+  private restoredChatMessages: ChatLogMessage[] = [];
   private inkInstructionResolver: (() => void) | null = null;
   private readlinePromptActive = false;
   private modalActive = false;

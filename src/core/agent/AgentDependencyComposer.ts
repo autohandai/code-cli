@@ -1024,6 +1024,9 @@ export function initializeAgentDependencies(
         await host.resetConversationContext();
         await host.injectSessionBootstrap();
       },
+      restoreSession: async (sessionId: string) => {
+        await host.restoreSessionState(sessionId);
+      },
       undoFileMutation: () => host.files.undoLast(),
       removeLastTurn: () => host.conversation.removeLastTurn(),
       // Status command context

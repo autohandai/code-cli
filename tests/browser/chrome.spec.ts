@@ -447,11 +447,11 @@ describe('browser/chrome', () => {
     expect(noneLeft).toBeNull();
   });
 
-  // Regression: ensureNativeHostInstalled must NOT overwrite an existing
-  // manifest whose host file is reachable. Previously it always reinstalled
-  // when the CLI-generated host.js had a stale shebang, destroying a
-  // manually configured dev manifest pointing to a valid host.
-  it('does not overwrite manifest when host file is reachable', async () => {
+  // Regression: ensureNativeHostInstalled must repair stale manifests even
+  // when the referenced host file is reachable. A valid shebang is not enough:
+  // Chrome will reject the host if allowed_origins is still paired to an old
+  // extension id such as ext123.
+  it('repairs manifest when the allowed origin does not match the extension id', async () => {
     const { getManifestTarget } = await import('../../src/browser/chrome.js');
     const target = getManifestTarget('chrome');
 
@@ -475,18 +475,18 @@ describe('browser/chrome', () => {
         description: 'test',
         path: hostPath,
         type: 'stdio',
-        allowed_origins: ['chrome-extension://testid/'],
+        allowed_origins: ['chrome-extension://ext123/'],
       });
 
       // Re-import to get fresh module
       const { ensureNativeHostInstalled } = await import('../../src/browser/chrome.js');
 
-      // Should NOT overwrite because the host file exists
       await ensureNativeHostInstalled({ extensionId: 'testid' });
 
-      // Verify the manifest still points to our custom host
       const manifest = await readJson(target.manifestPath);
-      expect(manifest.path).toBe(hostPath);
+      expect(manifest.path).not.toBe(hostPath);
+      expect(manifest.allowed_origins).toEqual(['chrome-extension://testid/']);
+      expect(await pathExists(manifest.path)).toBe(true);
     } finally {
       // Restore original manifest
       if (originalManifest) {
