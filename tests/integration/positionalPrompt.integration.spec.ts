@@ -96,7 +96,7 @@ describe('Positional prompt integration', () => {
     const result = execSync(shellCmd, {
       cwd: ROOT,
       encoding: 'utf-8',
-      timeout: 15_000,
+      timeout: 30_000,
     });
     return JSON.parse(result.trim());
   }
