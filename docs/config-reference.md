@@ -436,16 +436,38 @@ Control agent behavior and iteration limits.
   "agent": {
     "maxIterations": 100,
     "enableRequestQueue": true,
+    "toolSelectionCache": true,
     "debug": false
   }
 }
 ```
 
-| Field                | Type    | Default | Description                                                       |
-| -------------------- | ------- | ------- | ----------------------------------------------------------------- |
-| `maxIterations`      | number  | `100`   | Maximum tool iterations per user request before stopping          |
-| `enableRequestQueue` | boolean | `true`  | Allow users to type and queue requests while agent is working     |
-| `debug`              | boolean | `false` | Enable verbose debug output (logs agent internal state to stderr) |
+| Field                | Type    | Default | Description                                                                    |
+| -------------------- | ------- | ------- | ------------------------------------------------------------------------------ |
+| `maxIterations`      | number  | `100`   | Maximum tool iterations per user request before stopping                       |
+| `enableRequestQueue` | boolean | `true`  | Allow users to type and queue requests while agent is working                  |
+| `toolSelectionCache` | boolean | `true`  | Cache local per-turn tool schema selection for equivalent tool-selection input |
+| `debug`              | boolean | `false` | Enable verbose debug output (logs agent internal state to stderr)              |
+
+### Tool Schema Selection
+
+Autohand does not send every full tool schema on every LLM request. The system prompt includes a compact tool capability catalog, and each request exposes only a small set of concrete schemas selected from:
+
+- Core discovery tools such as `tool_search`, `read_file`, `fff_find`, and `fff_grep`
+- Intent-matched tools for editing, verification, git, browser, web, dependency, or project-tracking work
+- Tools requested through recent `tool_search` calls or explicitly mentioned by name
+
+This avoids the large upfront context cost of sending all tool schemas before the user intent is known. `toolSelectionCache` controls only the local selector cache for equivalent turns; it does not perform a pre-user LLM warmup and does not force a large cached prompt prefix.
+
+To disable the local selector cache:
+
+```json
+{
+  "agent": {
+    "toolSelectionCache": false
+  }
+}
+```
 
 ### Debug Mode
 
@@ -1382,6 +1404,7 @@ autohand --no-chrome       # Start with browser bridge disabled
   "agent": {
     "maxIterations": 100,
     "enableRequestQueue": true,
+    "toolSelectionCache": true,
     "debug": false
   },
   "permissions": {
@@ -1466,6 +1489,7 @@ ui:
 agent:
   maxIterations: 100
   enableRequestQueue: true
+  toolSelectionCache: true
   debug: false
 
 permissions:
@@ -1550,6 +1574,7 @@ updateCheckInterval = 24
 [agent]
 maxIterations = 100
 enableRequestQueue = true
+toolSelectionCache = true
 debug = false
 
 [permissions]

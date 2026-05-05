@@ -73,6 +73,9 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   team_status: 'meta',
   send_team_message: 'meta',
   ask_followup_question: 'meta',
+  find_agent_skills: 'meta',
+  request_directory_access: 'meta',
+  exit_plan_mode: 'meta',
   cron_create: 'meta',
   cron_delete: 'meta',
   list_schedules: 'meta',
@@ -80,6 +83,8 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
 
   // Read operations
   read_file: 'read',
+  fff_find: 'read',
+  fff_grep: 'read',
   find: 'read',
   glob: 'read',
   search: 'read',
@@ -107,6 +112,12 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   // Delete operations
   delete_path: 'delete',
   remove_dependency: 'delete',
+  package_info: 'read',
+
+  // Web read operations
+  web_search: 'read',
+  fetch_url: 'read',
+  web_repo: 'read',
 
   // Git read operations
   git_diff: 'git_read',
@@ -392,9 +403,13 @@ import type { LLMMessage, FunctionDefinition } from '../types.js';
 export type RelevanceCategory =
   | 'always'      // Always include (core operations)
   | 'filesystem'  // File operations
+  | 'editing'     // File mutation operations
   | 'git_basic'   // Basic git operations
   | 'git_advanced'// Advanced git (worktree, rebase, cherry-pick)
   | 'search'      // Search operations
+  | 'verification'// Shell/build/test operations
+  | 'web'         // Web search/fetch/repo reads
+  | 'browser'     // Browser automation
   | 'dependencies'// Package management
   | 'meta'             // Planning, memory, delegation
   | 'project_tracking'; // Issue/PR tracking
@@ -405,27 +420,37 @@ export type RelevanceCategory =
 const RELEVANCE_CATEGORIES: Record<string, RelevanceCategory> = {
   // Always include
   read_file: 'always',
-  write_file: 'always',
-  find: 'always',
-  glob: 'always',
-  search: 'always',
-  list_tree: 'always',
+  fff_find: 'always',
+  fff_grep: 'always',
+  tool_search: 'always',
+  ask_followup_question: 'always',
+  find_agent_skills: 'always',
+  tools_registry: 'always',
+  request_directory_access: 'always',
   plan: 'always',
-  run_command: 'always',
+  exit_plan_mode: 'always',
   todo_write: 'always',
 
   // Filesystem
+  find: 'filesystem',
+  glob: 'filesystem',
+  search: 'filesystem',
+  list_tree: 'filesystem',
+  file_stats: 'filesystem',
+  checksum: 'filesystem',
+
+  // Editing
+  write_file: 'editing',
   append_file: 'filesystem',
-  apply_patch: 'filesystem',
+  apply_patch: 'editing',
   create_directory: 'filesystem',
   delete_path: 'filesystem',
   rename_path: 'filesystem',
   copy_path: 'filesystem',
-  search_replace: 'filesystem',
-  format_file: 'filesystem',
-  file_stats: 'filesystem',
-  checksum: 'filesystem',
-  multi_file_edit: 'filesystem',
+  search_replace: 'editing',
+  format_file: 'editing',
+  multi_file_edit: 'editing',
+  notebook_edit: 'editing',
   search_with_context: 'search',
   semantic_search: 'search',
 
@@ -443,7 +468,7 @@ const RELEVANCE_CATEGORIES: Record<string, RelevanceCategory> = {
   git_apply_patch: 'git_basic',
   git_fetch: 'git_basic',
   git_pull: 'git_basic',
-  git_push: 'git_basic',
+  git_push: 'git_advanced',
   git_stash: 'git_basic',
   git_stash_list: 'git_basic',
   git_stash_pop: 'git_basic',
@@ -474,15 +499,40 @@ const RELEVANCE_CATEGORIES: Record<string, RelevanceCategory> = {
   // Dependencies
   add_dependency: 'dependencies',
   remove_dependency: 'dependencies',
+  package_info: 'dependencies',
+
+  // Verification and shell
+  run_command: 'verification',
+  shell: 'verification',
+
+  // Web
+  web_search: 'web',
+  fetch_url: 'web',
+  web_repo: 'web',
+
+  // Browser
+  browser_screenshot: 'browser',
+  browser_click: 'browser',
+  browser_type: 'browser',
+  browser_navigate: 'browser',
+  browser_scroll: 'browser',
+  browser_find_element: 'browser',
+  browser_press_key: 'browser',
+  browser_get_page_context: 'browser',
+  browser_get_element: 'browser',
+  browser_wait_for_element: 'browser',
+  browser_read_console: 'browser',
+  browser_read_network: 'browser',
+  browser_get_tabs: 'browser',
+  browser_get_tab_groups: 'browser',
+  browser_execute_js: 'browser',
 
   // Meta
-  tools_registry: 'meta',
-  tool_search: 'meta',
   save_memory: 'meta',
   recall_memory: 'meta',
   smart_context_cropper: 'meta',
   create_meta_tool: 'meta',
-  custom_command: 'meta',
+  custom_command: 'verification',
   delegate_task: 'meta',
   delegate_parallel: 'meta',
   create_team: 'meta',
@@ -497,8 +547,6 @@ const RELEVANCE_CATEGORIES: Record<string, RelevanceCategory> = {
   exit_worktree: 'meta',
   team_status: 'meta',
   send_team_message: 'meta',
-  ask_followup_question: 'always', // User interaction should always be available when in interactive mode
-  find_agent_skills: 'always', // Skill search should always be available so the LLM can explore community skills
   cron_create: 'meta',
   cron_delete: 'meta',
   list_schedules: 'meta',
@@ -513,28 +561,108 @@ const RELEVANCE_CATEGORIES: Record<string, RelevanceCategory> = {
  */
 const CATEGORY_TRIGGERS: Record<RelevanceCategory, string[]> = {
   always: [],
-  filesystem: ['file', 'directory', 'folder', 'create', 'delete', 'rename', 'copy', 'move', 'format', 'edit'],
+  filesystem: ['file', 'directory', 'folder', 'create', 'delete', 'rename', 'copy', 'move', 'format', 'path', 'open'],
+  editing: ['fix', 'edit', 'change', 'modify', 'patch', 'write', 'implement', 'refactor', 'update', 'replace', 'create', 'delete', 'remove', 'format', 'add', 'build', 'document', 'docs', 'config', 'configure'],
   git_basic: ['git', 'commit', 'branch', 'diff', 'status', 'stash', 'pull', 'push'],
-  git_advanced: ['merge', 'rebase', 'cherry-pick', 'worktree', 'reset'],
-  search: ['search', 'find', 'grep', 'look for', 'locate', 'where is'],
-  dependencies: ['dependency', 'dependencies', 'package', 'npm', 'install', 'yarn', 'bun add'],
+  git_advanced: ['merge', 'rebase', 'cherry-pick', 'worktree', 'reset', 'push', 'force-push'],
+  search: ['search', 'find', 'grep', 'look for', 'locate', 'where is', 'symbol', 'definition'],
+  verification: ['test', 'tests', 'build', 'lint', 'typecheck', 'verify', 'run', 'command', 'script', 'proof', 'install'],
+  web: ['web', 'url', 'http', 'https', 'fetch', 'search internet', 'latest', 'docs', 'documentation', 'changelog'],
+  browser: ['browser', 'chrome', 'page', 'tab', 'click', 'screenshot', 'console', 'network'],
+  dependencies: ['dependency', 'dependencies', 'package', 'npm', 'install', 'yarn', 'bun add', 'cargo add', 'pip install'],
   meta: ['tool', 'delegate', 'agent', 'remember', 'memory', 'recall',
          'team', 'teammate', 'together', 'engineers', 'crew', 'collaborate'],
   project_tracking: ['issue', 'issues', 'pr', 'pull request', 'assigned', 'tracker', 'bug', 'feature request', 'milestone', 'review'],
 };
+
+const TOOL_SELECTION_CACHE_LIMIT = 100;
+const toolSelectionCache = new Map<string, string[]>();
+
+export interface ToolRelevanceOptions {
+  /** Local cache for equivalent tool-selection inputs. Default: true. */
+  cache?: boolean;
+}
+
+const CATALOG_LABELS: Record<RelevanceCategory, string> = {
+  always: 'core',
+  filesystem: 'filesystem',
+  editing: 'editing',
+  git_basic: 'git',
+  git_advanced: 'advanced git',
+  search: 'search',
+  verification: 'verification',
+  web: 'web',
+  browser: 'browser',
+  dependencies: 'dependencies',
+  meta: 'coordination',
+  project_tracking: 'project tracking',
+};
+
+function extractRecentToolArguments(message: LLMMessage): string {
+  if (!message.tool_calls?.length) {
+    return '';
+  }
+
+  return message.tool_calls
+    .map((call) => call.function.arguments)
+    .join(' ');
+}
+
+function getRecentSelectionText(messages: LLMMessage[]): string {
+  return messages
+    .slice(-8)
+    .map((message) => `${message.content ?? ''} ${extractRecentToolArguments(message)}`)
+    .join(' ')
+    .toLowerCase();
+}
+
+function stableToolCacheKey(tools: FunctionDefinition[], messages: LLMMessage[]): string {
+  const toolNames = tools.map((tool) => tool.name).sort().join(',');
+  return `${toolNames}\n${getRecentSelectionText(messages)}`;
+}
+
+function rememberToolSelection(key: string, names: string[]): void {
+  if (toolSelectionCache.size >= TOOL_SELECTION_CACHE_LIMIT) {
+    const oldestKey = toolSelectionCache.keys().next().value as string | undefined;
+    if (oldestKey) {
+      toolSelectionCache.delete(oldestKey);
+    }
+  }
+  toolSelectionCache.set(key, names);
+}
+
+function restoreCachedSelection(tools: FunctionDefinition[], names: string[]): FunctionDefinition[] {
+  const byName = new Map(tools.map((tool) => [tool.name, tool]));
+  return names
+    .map((name) => byName.get(name))
+    .filter((tool): tool is FunctionDefinition => Boolean(tool));
+}
+
+function matchesToolByText(tool: FunctionDefinition, recentText: string): boolean {
+  if (!recentText) {
+    return false;
+  }
+
+  const normalizedName = tool.name.toLowerCase();
+  const spacedName = normalizedName.replace(/_/g, ' ');
+  if (recentText.includes(normalizedName) || recentText.includes(spacedName)) {
+    return true;
+  }
+
+  return tool.description
+    .toLowerCase()
+    .split(/[^a-z0-9_/-]+/)
+    .filter((token) => token.length >= 5)
+    .some((token) => recentText.includes(token));
+}
 
 /**
  * Detect which relevance categories are needed based on conversation
  */
 export function detectRelevantCategories(messages: LLMMessage[]): Set<RelevanceCategory> {
   const categories = new Set<RelevanceCategory>(['always']);
-
-  // Look at recent messages
   const recentMessages = messages.slice(-8);
-  const recentText = recentMessages
-    .map(m => m.content ?? '')
-    .join(' ')
-    .toLowerCase();
+  const recentText = getRecentSelectionText(messages);
 
   // Check for trigger keywords
   for (const [category, triggers] of Object.entries(CATEGORY_TRIGGERS)) {
@@ -569,15 +697,49 @@ export function detectRelevantCategories(messages: LLMMessage[]): Set<RelevanceC
  */
 export function filterToolsByRelevance(
   tools: FunctionDefinition[],
-  messages: LLMMessage[]
+  messages: LLMMessage[],
+  options: ToolRelevanceOptions = {},
 ): FunctionDefinition[] {
-  const relevantCategories = detectRelevantCategories(messages);
+  const cacheEnabled = options.cache !== false;
+  const cacheKey = cacheEnabled ? stableToolCacheKey(tools, messages) : '';
+  const cachedNames = cacheEnabled ? toolSelectionCache.get(cacheKey) : undefined;
+  if (cachedNames) {
+    return restoreCachedSelection(tools, cachedNames);
+  }
 
-  return tools.filter(tool => {
+  const relevantCategories = detectRelevantCategories(messages);
+  const recentText = getRecentSelectionText(messages);
+
+  const selected = tools.filter(tool => {
     const category = RELEVANCE_CATEGORIES[tool.name];
-    // Include if category is relevant or if tool is unknown (be safe)
-    return !category || relevantCategories.has(category);
+    if (category && relevantCategories.has(category)) {
+      return true;
+    }
+
+    return matchesToolByText(tool, recentText);
   });
+
+  if (cacheEnabled) {
+    rememberToolSelection(cacheKey, selected.map((tool) => tool.name));
+  }
+
+  return selected;
+}
+
+export function formatToolCapabilityCatalog(tools: ToolDefinition[]): string {
+  const grouped = new Map<string, string[]>();
+  for (const tool of tools) {
+    const relevance = RELEVANCE_CATEGORIES[tool.name] ?? 'meta';
+    const label = CATALOG_LABELS[relevance];
+    const existing = grouped.get(label) ?? [];
+    existing.push(tool.name);
+    grouped.set(label, existing);
+  }
+
+  return [...grouped.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([label, names]) => `- ${label}: ${[...new Set(names)].sort().join(', ')}`)
+    .join('\n');
 }
 
 /**

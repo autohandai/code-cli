@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { SystemPromptBuilder } from '../../../src/core/agent/SystemPromptBuilder.js';
 
 describe('SystemPromptBuilder', () => {
-  it('includes the tool-choice rubric and runtime tool signatures', async () => {
+  it('includes the tool-choice rubric and compact tool catalog without runtime schemas', async () => {
     const builder = new SystemPromptBuilder({
       runtime: {
         options: {},
@@ -38,7 +38,11 @@ describe('SystemPromptBuilder', () => {
     expect(prompt).toContain('Prefer `fff_grep`');
     expect(prompt).toContain('Use `read_file` after search identifies the exact file or region you need.');
     expect(prompt).toContain('Legacy find: `find(query="buildSystemPrompt", mode="exact")`');
-    expect(prompt).toContain('find(query: string)');
+    expect(prompt).toContain('### Tool Capability Catalog');
+    expect(prompt).toContain('find');
+    expect(prompt).not.toContain('find(query: string)');
+    expect(prompt).not.toContain('Text or pattern to find');
+    expect(prompt).toContain('Exact tool schemas are selected per request');
     expect(prompt).toContain('Reflect Before Acting');
   });
 });

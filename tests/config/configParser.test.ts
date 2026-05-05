@@ -298,6 +298,61 @@ describe("configParser – error handling (Issue #3)", () => {
     expect(result.provider).toBe("openrouter");
   });
 
+  it("creates new JSON config with tool selection cache enabled by default", async () => {
+    const configPath = path.join(testDir, "config.json");
+    const loadConfig = await importLoadConfig();
+
+    const result = await loadConfig(configPath);
+    const saved = await fse.readJson(configPath);
+
+    expect(result.agent?.toolSelectionCache).toBe(true);
+    expect(saved.agent.toolSelectionCache).toBe(true);
+  });
+
+  it("loads explicit tool selection cache opt-out from config", async () => {
+    const configPath = await writeTempConfig(
+      testDir,
+      "config.json",
+      JSON.stringify({
+        provider: "openrouter",
+        openrouter: {
+          apiKey: "sk-test-key",
+          baseUrl: "https://openrouter.ai/api/v1",
+          model: "your-modelcard-id-here",
+        },
+        agent: {
+          toolSelectionCache: false,
+        },
+      }),
+    );
+    const loadConfig = await importLoadConfig();
+
+    const result = await loadConfig(configPath);
+
+    expect(result.agent?.toolSelectionCache).toBe(false);
+  });
+
+  it("rejects non-boolean tool selection cache config", async () => {
+    const configPath = await writeTempConfig(
+      testDir,
+      "config.json",
+      JSON.stringify({
+        provider: "openrouter",
+        openrouter: {
+          apiKey: "sk-test-key",
+          baseUrl: "https://openrouter.ai/api/v1",
+          model: "your-modelcard-id-here",
+        },
+        agent: {
+          toolSelectionCache: "yes",
+        },
+      }),
+    );
+    const loadConfig = await importLoadConfig();
+
+    await expect(loadConfig(configPath)).rejects.toThrow(/agent\.toolSelectionCache must be boolean/);
+  });
+
   it("loads DeepSeek config and applies the default DeepSeek base URL", async () => {
     const configPath = await writeTempConfig(
       testDir,

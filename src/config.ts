@@ -410,6 +410,9 @@ export async function loadConfig(customPath?: string, workspaceRoot?: string): P
       autoReport: {
         enabled: true,
       },
+      agent: {
+        toolSelectionCache: true,
+      },
     };
 
     // Create config silently with safe defaults
@@ -684,6 +687,16 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
       typeof config.ui.promptSuggestions !== "boolean"
     ) {
       throw new Error(`ui.promptSuggestions must be boolean in ${configPath}`);
+    }
+  }
+
+  // Validate agent config
+  if (config.agent) {
+    if (
+      config.agent.toolSelectionCache !== undefined &&
+      typeof config.agent.toolSelectionCache !== "boolean"
+    ) {
+      throw new Error(`agent.toolSelectionCache must be boolean in ${configPath}`);
     }
   }
 
