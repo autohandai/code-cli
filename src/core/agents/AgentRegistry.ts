@@ -9,6 +9,7 @@ import os from 'os';
 import path from 'path';
 import { z } from 'zod';
 import { AUTOHAND_PATHS } from '../../constants.js';
+import type { ExternalAgentsConfig } from '../../types.js';
 
 // Schema for Agent Configuration
 export const AgentConfigSchema = z.object({
@@ -100,6 +101,17 @@ export class AgentRegistry {
         this.externalPaths = paths.map(p =>
             p.startsWith('~') ? path.join(os.homedir(), p.slice(1)) : p
         );
+    }
+
+    /**
+     * Apply external agent settings from the loaded Autohand config.
+     */
+    public configureExternalAgents(config?: ExternalAgentsConfig): void {
+        if (config?.enabled !== true) {
+            this.setExternalPaths([]);
+            return;
+        }
+        this.setExternalPaths(config.paths ?? []);
     }
 
     /**
@@ -214,7 +226,7 @@ export class AgentRegistry {
                 source,
                 description: parsed.description || `Agent ${name}`,
                 systemPrompt: parsed.systemPrompt,
-                tools: parsed.tools,
+                tools: parsed.tools.length > 0 ? parsed.tools : ['*'],
                 model: parsed.model,
             };
             if (!this.agents.has(name)) {

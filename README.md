@@ -315,6 +315,7 @@ Autohand Code CLI includes 40+ tools for autonomous coding:
 
 `tools_registry` - List all available tools with descriptions.
 `tool_search` - Search tools by capability, name, or description.
+`create_meta_tool` - Create reusable user- or project-scoped shell-backed tools that load in future sessions.
 
 ### Notebooks
 

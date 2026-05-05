@@ -1196,6 +1196,13 @@ export class AutohandAgent {
   }
 
   /**
+   * Get the dynamic tools registry for non-interactive management surfaces.
+   */
+  getToolsRegistry(): ToolsRegistry {
+    return this.toolsRegistry;
+  }
+
+  /**
    * Get the memory manager for memory extraction and storage
    */
   getMemoryManager(): MemoryManager {

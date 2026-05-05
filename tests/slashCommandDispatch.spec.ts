@@ -58,6 +58,11 @@ describe('slash command dispatch – output vs instruction', () => {
     expect(commands).toContain('/mcp install');
   });
 
+  it('/tools is registered in SLASH_COMMANDS', () => {
+    const commands = SLASH_COMMANDS.map(c => c.command);
+    expect(commands).toContain('/tools');
+  });
+
   it('all SLASH_COMMANDS entries have required fields', () => {
     for (const cmd of SLASH_COMMANDS) {
       expect(cmd.command).toBeTruthy();

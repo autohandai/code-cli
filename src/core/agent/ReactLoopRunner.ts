@@ -28,6 +28,7 @@ import type { SessionManager } from '../../session/SessionManager.js';
 import type { ConversationManager } from '../conversationManager.js';
 import type { ContextOrchestrator } from '../context/orchestrator.js';
 import type { ToolManager } from '../toolManager.js';
+import type { ToolsRegistry } from '../toolsRegistry.js';
 import { calculateContextUsage } from '../context/tokenizer.js';
 import { filterToolsByRelevance } from '../toolFilter.js';
 import { EXIT_PLAN_MODE_TOOL_DEFINITION, PLAN_TOOL_DEFINITION } from '../toolManager.js';
@@ -43,6 +44,7 @@ import {
   truncateToolLoopSignature,
 } from './ToolLoopSignature.js';
 import { isAutohandDebugEnabled } from '../../utils/debugLog.js';
+import { syncDynamicRuntimeExtensions } from './dynamicRuntimeExtensions.js';
 
 class LoopAbortedError extends Error {
   constructor(message: string) {
@@ -92,8 +94,9 @@ export interface AgentReactLoopHost {
   sessionTokensUsed: number;
   toolManager: Pick<
     ToolManager,
-    'execute' | 'listToolNames' | 'register' | 'toFunctionDefinitions' | 'unregister'
+    'execute' | 'listToolNames' | 'register' | 'registerMetaTools' | 'toFunctionDefinitions' | 'unregister'
   >;
+  toolsRegistry?: ToolsRegistry;
   totalTokensUsed: number;
 
   cleanupModelResponse(content: string): string;
@@ -174,17 +177,24 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
       host.toolManager.unregister('exit_plan_mode');
     }
 
-    // Get all function definitions for native tool calling
-    let allTools = host.toolManager.toFunctionDefinitions();
+    const refreshRuntimeTools = async () => {
+      await syncDynamicRuntimeExtensions(host, host.runtime);
+      let definitions = host.toolManager.toFunctionDefinitions();
 
-    // Gate web tools: only offer web_search/fetch_url/web_repo when a
-    // reliable search provider is configured (Brave/Parallel with API key,
-    // or Google). DuckDuckGo (the default) is unreliable and causes the LLM
-    // to get stuck in retry loops.
-    if (!isSearchConfigured()) {
-      const WEB_TOOLS = new Set(['web_search', 'fetch_url', 'web_repo']);
-      allTools = allTools.filter((tool) => !WEB_TOOLS.has(tool.name));
-    }
+      // Gate web tools: only offer web_search/fetch_url/web_repo when a
+      // reliable search provider is configured (Brave/Parallel with API key,
+      // or Google). DuckDuckGo (the default) is unreliable and causes the LLM
+      // to get stuck in retry loops.
+      if (!isSearchConfigured()) {
+        const WEB_TOOLS = new Set(['web_search', 'fetch_url', 'web_repo']);
+        definitions = definitions.filter((tool) => !WEB_TOOLS.has(tool.name));
+      }
+
+      return definitions;
+    };
+
+    // Get all function definitions for native tool calling
+    let allTools = await refreshRuntimeTools();
 
     if (debugMode) host.writeDebugLine(`[AGENT DEBUG] Loaded ${allTools.length} tools, maxIterations=${maxIterations}`);
 
@@ -562,6 +572,9 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
               tool_call_id: otherCalls[i]?.id
             });
             await host.saveToolMessage(result.tool, content, otherCalls[i]?.id);
+          }
+          if (results.some((result) => result.success && result.tool === 'create_meta_tool')) {
+            allTools = await refreshRuntimeTools();
           }
           host.updateContextUsage(host.conversation.history(), tools);
 

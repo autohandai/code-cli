@@ -23,6 +23,7 @@ Each command is a separate TypeScript file that exports:
 | `/memory` | `memory.ts` | Manage project/user memory |
 | `/feedback` | `feedback.ts` | Submit feedback |
 | `/agents` | `agents.ts` | Manage sub-agents |
+| `/tools` | `tools.ts` | Manage persisted meta-tools |
 
 ## Adding a New Command
 

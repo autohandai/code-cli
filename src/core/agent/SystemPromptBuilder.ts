@@ -10,6 +10,7 @@ import { resolvePromptValue, SysPromptError } from '../../utils/sysPrompt.js';
 import type { AgentRuntime } from '../../types.js';
 import type { ToolDefinition } from '../toolManager.js';
 import { formatToolCapabilityCatalog } from '../toolFilter.js';
+import { configureAgentRegistry } from './dynamicRuntimeExtensions.js';
 
 interface PromptSkillSummary {
   name: string;
@@ -300,7 +301,8 @@ export class SystemPromptBuilder {
       '',
       'The handler uses {{param}} syntax for parameter substitution.',
       'Meta-tools are saved to ~/.autohand/tools/ and persist across sessions.',
-      'IMPORTANT: Do not create meta-tools that duplicate built-in functionality.',
+      'Before creating a meta-tool, use `tool_search` or `tools_registry` to check whether a suitable built-in or persisted meta-tool already exists.',
+      'IMPORTANT: Reuse existing tools whenever possible. Duplicate or near-duplicate meta-tools are rejected at runtime.',
       '',
 
       '## Memory & User Preferences',
@@ -408,8 +410,7 @@ export class SystemPromptBuilder {
       }
     }
 
-    const { AgentRegistry } = await import('../agents/AgentRegistry.js');
-    const agentRegistry = AgentRegistry.getInstance();
+    const agentRegistry = configureAgentRegistry(runtime);
     await agentRegistry.loadAgents();
     const allAgents = agentRegistry.getAllAgents();
     if (allAgents.length > 0) {

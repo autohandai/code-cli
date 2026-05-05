@@ -1657,7 +1657,8 @@ Autohand stores data in `~/.autohand/` (or `$AUTOHAND_HOME`):
 <project>/.autohand/
 ├── settings.local.json  # Local project permissions (gitignore this)
 ├── memory/              # Project-specific memory
-└── skills/              # Project-specific skills
+├── skills/              # Project-specific skills
+└── tools/               # Project-specific meta-tools
 ```
 
 ---

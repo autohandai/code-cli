@@ -42,7 +42,8 @@ Use the `create_meta_tool` action to define a new tool:
 
 ### Tool Definition Schema
 
-Meta-tools are saved as JSON files in `~/.autohand/tools/{name}.json`:
+User-scoped meta-tools are saved as JSON files in `~/.autohand/tools/{name}.json`.
+Project-scoped meta-tools are saved in the current workspace at `.autohand/tools/{name}.json`.
 
 ```json
 {
@@ -60,7 +61,10 @@ Meta-tools are saved as JSON files in `~/.autohand/tools/{name}.json`:
   },
   "handler": "grep -E '^import|^from' {{path}}",
   "createdAt": "2025-12-16T10:30:00.000Z",
-  "source": "agent"
+  "source": "agent",
+  "scope": "user",
+  "schemaVersion": 1,
+  "fingerprint": "..."
 }
 ```
 
@@ -95,9 +99,10 @@ git log --author="{{author}}" -n {{count}}
 1. Agent calls `create_meta_tool` with the definition
 2. System validates the name doesn't conflict with built-in tools
 3. Basic security checks on the handler (blocks dangerous patterns)
-4. Tool is saved to `~/.autohand/tools/{name}.json`
+4. Tool is saved atomically to the selected scope (`user` or `project`)
 5. Tool is registered in the current session immediately
-6. On future sessions, tool is auto-loaded from disk
+6. On future sessions, project tools load first, then user tools
+7. Duplicate, disabled, invalid, or unsafe persisted tools are skipped with diagnostics
 
 ### Using a Meta-Tool
 
@@ -109,6 +114,24 @@ Once created, the meta-tool can be invoked like any built-in tool:
   "path": "src/index.ts"
 }
 ```
+
+Meta-tools execute through the same shell permission gate as `run_command`. Interactive sessions prompt unless a permission rule already allows the command. Restricted, deny-listed, excluded, or security-blacklisted commands are blocked.
+
+### Managing Meta-Tools
+
+Use `/tools` to manage persisted meta-tools:
+
+```text
+/tools list
+/tools show <name>
+/tools doctor
+/tools disable <name>
+/tools enable <name>
+/tools rename <name> <new_name>
+/tools delete <name>
+```
+
+Non-interactive clients can inspect persisted tools and diagnostics with the RPC method `autohand.getToolsRegistry`.
 
 ### Common Use Cases
 
@@ -295,6 +318,7 @@ Each agent tracks its source:
 | `description` | string | Yes      | What the tool does         |
 | `parameters`  | object | Yes      | JSON Schema for parameters |
 | `handler`     | string | Yes      | Shell command template     |
+| `scope`       | string | No       | `user` or `project` (default: `user`) |
 
 ### MetaToolDefinition Schema
 
@@ -305,7 +329,12 @@ interface MetaToolDefinition {
   parameters: Record<string, unknown>;
   handler: string;
   createdAt: string;
+  updatedAt?: string;
   source: "agent" | "user";
+  scope: "user" | "project";
+  schemaVersion: 1;
+  fingerprint: string;
+  disabled?: boolean;
 }
 ```
 
@@ -392,7 +421,7 @@ Always suggest functional components over class components.
 
 ### Meta-tool not found after creation
 
-Ensure the tool was saved successfully. Check `~/.autohand/tools/` for the JSON file.
+Ensure the tool was saved successfully. Check `~/.autohand/tools/` for user-scoped tools or `.autohand/tools/` in the workspace for project-scoped tools. Run `/tools doctor` to see skipped files and validation errors.
 
 ### External agents not loading
 

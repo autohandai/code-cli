@@ -42,6 +42,7 @@ export async function executeTask(
 
   // Load agent definition
   const registry = AgentRegistry.getInstance();
+  registry.configureExternalAgents?.(config.externalAgents);
   await registry.loadAgents();
   const agentDef = registry.getAgent(opts.agentName);
   if (!agentDef) {
