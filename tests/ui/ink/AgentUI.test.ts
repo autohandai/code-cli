@@ -41,21 +41,6 @@ function setStdoutColumns(stdout: { columns: number; rows?: number }, columns: n
   });
 }
 
-function setStdoutSize(
-  stdout: { columns: number; rows?: number },
-  columns: number,
-  rows: number,
-): void {
-  Object.defineProperty(stdout, 'columns', {
-    configurable: true,
-    get: () => columns,
-  });
-  Object.defineProperty(stdout, 'rows', {
-    configurable: true,
-    get: () => rows,
-  });
-}
-
 function getComposerTopBorderWidth(frame: string | undefined): number {
   const line = stripAnsi(frame ?? '')
     .split('\n')
@@ -229,18 +214,19 @@ describe('AgentUI terminal resize rendering', () => {
 });
 
 describe('AgentUI processing chat scrollback', () => {
-  it('keeps PageUp available to browse older chat while work is in progress', async () => {
+  it('does not replay chat messages already committed by a previous Ink mount', () => {
     const state = {
       ...createInitialUIState(),
       isWorking: true,
       status: 'Thinking...',
+      staticChatMessageOffset: 4,
       chatMessages: Array.from({ length: 6 }, (_, index) => ({
         role: index % 2 === 0 ? 'user' : 'assistant',
         content: `chat item ${index + 1}`,
       })),
     };
 
-    const instance = render(
+    const { lastFrame } = render(
       React.createElement(
         I18nProvider,
         null,
@@ -257,22 +243,11 @@ describe('AgentUI processing chat scrollback', () => {
       )
     );
 
-    setStdoutSize(instance.stdout, 80, 12);
-    instance.stdout.emit('resize');
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    await new Promise<void>((resolve) => setImmediate(resolve));
-
-    const bottomFrame = stripAnsi(instance.lastFrame() ?? '');
-    expect(bottomFrame).toContain('chat item 6');
-    expect(bottomFrame).not.toContain('chat item 1');
-
-    instance.stdin.write('\x1b[5~');
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    await new Promise<void>((resolve) => setImmediate(resolve));
-
-    const scrolledFrame = stripAnsi(instance.lastFrame() ?? '');
-    expect(scrolledFrame).toContain('chat item 1');
-    expect(scrolledFrame).not.toContain('chat item 6');
+    const output = stripAnsi(lastFrame() ?? '');
+    expect(output).toContain('chat item 5');
+    expect(output).toContain('chat item 6');
+    expect(output).not.toContain('chat item 1');
+    expect(output).not.toContain('chat item 4');
   });
 });
 

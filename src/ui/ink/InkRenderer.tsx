@@ -447,6 +447,7 @@ export class InkRenderer {
   setChatMessages(messages: ChatLogMessage[]): void {
     this.updateState({
       chatMessages: messages,
+      staticChatMessageOffset: 0,
       userMessages: messages
         .filter((message) => message.role === 'user')
         .map((message) => message.content),
@@ -869,26 +870,21 @@ export class InkRenderer {
       // Create fresh ref for new instance
       this.wrapperRef = React.createRef<AgentUIWrapperHandle>();
 
-      // CRITICAL: drop already-committed Static history before mounting the
-      // new Ink instance.
+      // CRITICAL: do not replay already-committed Static history before
+      // mounting the new Ink instance.
       //
       // Why: every time we unmount/remount Ink (on every modal cycle), the
       // FRESH Ink instance has no memory of what the PREVIOUS instance
-      // committed to scrollback. If we hand it back the same userMessages /
-      // toolOutputs, it cheerfully re-commits all of them as new <Static>
-      // items below the originals — giving the user duplicated chat history
-      // on every /theme, /model, /settings cycle.
+      // committed to scrollback. If we hand it the same full chat array with
+      // no offset, it cheerfully re-commits everything below the originals.
       //
-      // The original items are already in the terminal's scrollback buffer
-      // (committed by the previous Ink instance's onRender). They will not
-      // re-flow on resize, but that's a one-time loss per pause/resume and
-      // far less painful than seeing every prior message duplicated.
-      //
-      // We deliberately keep `liveCommands` (active commands shouldn't be
-      // possible while a modal is open, but if any were they'd be lost on
-      // the renderer side, which is correct behavior).
+      // The original items remain in the terminal's scrollback buffer
+      // (committed by the previous Ink instance's onRender). Keep the
+      // transcript in state for dedupe/suppression logic, but advance the
+      // static offset so only future chat messages are emitted.
       this.state = {
         ...this.state,
+        staticChatMessageOffset: this.state.chatMessages.length,
         userMessages: [],
         toolOutputs: [],
       };
