@@ -18,6 +18,7 @@ import { VertexAIProvider } from './VertexAIProvider.js';
 import { XAIProvider } from './XAIProvider.js';
 import { CerebrasProvider } from './CerebrasProvider.js';
 import { NVIDIAProvider } from './NVIDIAProvider.js';
+import { DeepSeekProvider } from './DeepSeekProvider.js';
 import { isMLXSupported } from '../utils/platform.js';
 import type { AutohandConfig, ProviderName } from '../types.js';
 
@@ -135,6 +136,12 @@ export class ProviderFactory {
                 }
                 return new NVIDIAProvider(config.nvidia, config.network);
 
+            case 'deepseek':
+                if (!config.deepseek) {
+                    return new UnconfiguredProvider('deepseek');
+                }
+                return new DeepSeekProvider(config.deepseek, config.network);
+
             case 'openrouter':
             default:
                 if (!config.openrouter) {
@@ -149,8 +156,8 @@ export class ProviderFactory {
      * MLX is only included on Apple Silicon (macOS + arm64).
      */
     static getProviderNames(): ProviderName[] {
-        // Sorted DESC by display name: Z.ai, xAI, Vertex AI, NVIDIA, OpenRouter, OpenAI, Ollama, MLX, LLM Gateway, llama.cpp, Cerebras, Azure
-        const providers: ProviderName[] = ['zai', 'xai', 'vertexai', 'nvidia', 'openrouter', 'openai', 'ollama', 'llmgateway', 'llamacpp', 'cerebras', 'azure'];
+        // Sorted DESC by display name: Z.ai, xAI, Vertex AI, NVIDIA, OpenRouter, OpenAI, Ollama, MLX, LLM Gateway, llama.cpp, DeepSeek, Cerebras, Azure
+        const providers: ProviderName[] = ['zai', 'xai', 'vertexai', 'nvidia', 'openrouter', 'openai', 'ollama', 'llmgateway', 'llamacpp', 'deepseek', 'cerebras', 'azure'];
         if (isMLXSupported()) {
             providers.push('mlx');
         }
@@ -163,7 +170,7 @@ export class ProviderFactory {
      * MLX is always a valid provider name, but may not be available on non-Apple Silicon systems.
      */
     static isValidProvider(name: string): name is ProviderName {
-        const allProviders: ProviderName[] = ['openrouter', 'ollama', 'openai', 'llamacpp', 'mlx', 'llmgateway', 'azure', 'zai', 'vertexai', 'xai', 'cerebras', 'nvidia'];
+        const allProviders: ProviderName[] = ['openrouter', 'ollama', 'openai', 'llamacpp', 'mlx', 'llmgateway', 'azure', 'zai', 'vertexai', 'xai', 'cerebras', 'nvidia', 'deepseek'];
         return allProviders.includes(name as ProviderName);
     }
 }
