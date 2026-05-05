@@ -39,6 +39,28 @@ export function formatComposerToolCallStatus(toolCount: number): string {
   return toolCount === 1 ? 'Calling tool...' : `Calling ${toolCount} tools...`;
 }
 
+export function isDeferredFinalResponse(response: string): boolean {
+  const trimmed = response.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  const hasAnswerStructure =
+    trimmed.includes('\n') ||
+    /:\s+\S{12,}/.test(trimmed) ||
+    /(^|\n)\s*[-*]\s+\S/.test(trimmed);
+  if (hasAnswerStructure) {
+    return false;
+  }
+
+  const patterns = [
+    /\bi (now )?have (a )?(comprehensive|clear|good|enough|solid) (understanding|picture|context|information)\b.{0,120}\b(let me|i('ll| will)|i can now)\b.{0,50}\b(provide|give|summarize|explain|tell|answer)\b/i,
+    /^\s*(let me|i('ll| will)|i can now|now i('ll| will))\b.{0,50}\b(provide|give|summarize|explain|tell|answer)\b/i,
+  ];
+
+  return patterns.some((pattern) => pattern.test(trimmed));
+}
+
 export async function runAgentReactLoop(host: AgentReactLoopHost, abortController: AbortController): Promise<void> {
     host.consecutiveCancellations = 0;
 
@@ -104,6 +126,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
     let needsReflection = false; // Set after tool execution; cleared when model reflects
     const reflectionViolationLimit = 2;
     let reflectionViolationCount = 0;
+    let deferredFinalResponseCount = 0;
 
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
       // Check for abort at the start of each iteration
@@ -645,8 +668,6 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
         (host as any).__intentRetryCount = 0;
       }
 
-      host.stopStatusUpdates();
-
       // Extract the response - prioritize explicit response fields, but use thought as fallback
       // when there are no tool calls (model might provide analysis in thought without finalResponse)
       let rawResponse: string;
@@ -683,6 +704,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
         if (consecutiveEmpty >= 3) {
           // After 3 retries, force a fallback and break out
           if (debugMode) host.writeDebugLine('[AGENT DEBUG] Exiting after 3 consecutive empty responses');
+          host.stopStatusUpdates();
           console.log(chalk.yellow('\n⚠ Model not providing response after multiple attempts. Showing available context.'));
           const fallback = payload.thought || 'The model did not provide a clear response. Please try rephrasing your question.';
           host.lastAssistantResponseForNotification = fallback;
@@ -699,6 +721,22 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
         );
         continue;
       }
+
+      if (isDeferredFinalResponse(response)) {
+        deferredFinalResponseCount += 1;
+        if (deferredFinalResponseCount < 3) {
+          host.conversation.addSystemNote(
+            `[System] IMPORTANT: Your previous finalResponse was not an answer: "${response.slice(0, 160)}". ` +
+            'Do not announce that you will summarize or answer. Provide the actual finalResponse now with concrete findings for the user.'
+          );
+          continue;
+        }
+        response = 'The model stopped before providing a usable answer. Please retry the request.';
+      } else {
+        deferredFinalResponseCount = 0;
+      }
+
+      host.stopStatusUpdates();
 
       // Reset consecutive empty counter on success
       (host as any).__consecutiveEmpty = 0;
