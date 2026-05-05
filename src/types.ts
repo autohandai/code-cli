@@ -934,6 +934,12 @@ export interface ToolRegistryEntry {
   requiresApproval?: boolean;
   approvalMessage?: string;
   source: 'builtin' | 'meta';
+  scope?: 'user' | 'project';
+  disabled?: boolean;
+  createdAt?: string;
+  schemaVersion?: number;
+  handlerPreview?: string;
+  reuseHint?: string;
 }
 
 export type AgentAction =
@@ -1069,7 +1075,7 @@ export type AgentAction =
   }
   | { type: 'save_memory'; fact: string; level?: 'user' | 'project' }
   | { type: 'recall_memory'; query?: string; level?: 'user' | 'project' }
-  | { type: 'create_meta_tool'; name: string; description: string; parameters: Record<string, unknown>; handler: string }
+  | { type: 'create_meta_tool'; name: string; description: string; parameters: Record<string, unknown>; handler: string; scope?: 'user' | 'project' }
   | { type: 'delegate_task'; agent_name: string; task: string }
   | { type: 'delegate_parallel'; tasks: Array<{ agent_name: string; task: string }> }
   // Team coordination tools

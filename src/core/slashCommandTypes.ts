@@ -16,6 +16,7 @@ import type { McpClientManager } from '../mcp/McpClientManager.js';
 import type { TeamManager } from './teams/TeamManager.js';
 import type { RepeatManager } from './RepeatManager.js';
 import type { LoadedConfig, ProviderName } from '../types.js';
+import type { ToolsRegistry } from './toolsRegistry.js';
 
 export interface SlashCommandContext {
     listWorkspaceFiles?: () => Promise<void>;
@@ -45,6 +46,8 @@ export interface SlashCommandContext {
     getTotalTokensUsed?: () => number;
     /** Skills registry for /skills commands */
     skillsRegistry?: SkillsRegistry;
+    /** Meta-tools registry for /tools commands */
+    toolsRegistry?: ToolsRegistry;
     /** Auto-mode manager for /automode commands */
     automodeManager?: AutomodeManager;
     /** Interactive auto-mode toggle state for /automode commands */

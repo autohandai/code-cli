@@ -53,6 +53,7 @@ import * as reviewCmd from '../commands/review.js';
 import * as prReviewCmd from '../commands/pr-review.js';
 import * as setupCmd from '../commands/setup.js';
 import * as yoloCmd from '../commands/yolo.js';
+import * as toolsCmd from '../commands/tools.js';
 
 import type { SlashCommand } from './slashCommandTypes.js';
 export type { SlashCommand } from './slashCommandTypes.js';
@@ -115,4 +116,5 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   prReviewCmd.metadata,
   setupCmd.metadata,
   yoloCmd.metadata,
+  toolsCmd.metadata,
 ] as (SlashCommand | undefined)[]).filter((cmd): cmd is SlashCommand => cmd != null && typeof cmd.command === 'string');

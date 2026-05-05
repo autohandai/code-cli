@@ -7,6 +7,7 @@
 import chalk from 'chalk';
 import { t } from '../i18n/index.js';
 import { AgentRegistry } from '../core/agents/AgentRegistry.js';
+import { loadConfig } from '../config.js';
 
 export const metadata = {
     command: '/agents',
@@ -20,6 +21,8 @@ export const metadata = {
 
 export async function handler(): Promise<string> {
     const registry = AgentRegistry.getInstance();
+    const config = await loadConfig(undefined, process.cwd());
+    registry.configureExternalAgents(config.externalAgents);
     await registry.loadAgents();
     const agents = registry.getAllAgents();
 

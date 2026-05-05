@@ -4,7 +4,7 @@
  * Spec: https://www.jsonrpc.org/specification
  */
 import type { PermissionPromptDecision, PermissionPromptResult } from '../../permissions/types.js';
-import type { McpServerConfigEntry } from '../../types.js';
+import type { McpServerConfigEntry, ToolRegistryEntry } from '../../types.js';
 
 // ============================================================================
 // JSON-RPC 2.0 Base Types
@@ -140,6 +140,7 @@ export const RPC_METHODS = {
   APPLY_FLAG_SETTINGS: 'autohand.applyFlagSettings',
   GET_SUPPORTED_MODELS: 'autohand.getSupportedModels',
   GET_SUPPORTED_COMMANDS: 'autohand.getSupportedCommands',
+  GET_TOOLS_REGISTRY: 'autohand.getToolsRegistry',
   GET_CONTEXT_USAGE: 'autohand.getContextUsage',
   RELOAD_PLUGINS: 'autohand.reloadPlugins',
   GET_ACCOUNT_INFO: 'autohand.getAccountInfo',
@@ -1324,6 +1325,17 @@ export interface GetSupportedModelsResult {
  */
 export interface GetSupportedCommandsResult {
   commands: string[];
+}
+
+/**
+ * Result for getToolsRegistry
+ */
+export interface GetToolsRegistryResult {
+  tools: ToolRegistryEntry[];
+  diagnostics: Array<{
+    file: string;
+    reason: string;
+  }>;
 }
 
 /**

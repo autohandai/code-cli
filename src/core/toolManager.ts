@@ -927,7 +927,8 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
         name: { type: 'string', description: 'Tool name in snake_case (e.g., analyze_imports, count_lines)' },
         description: { type: 'string', description: 'Clear description of what the tool does' },
         parameters: { type: 'object', description: 'JSON Schema defining tool parameters' },
-        handler: { type: 'string', description: 'Shell command template with {{param}} placeholders (e.g., "grep -E {{pattern}} {{path}}")' }
+        handler: { type: 'string', description: 'Shell command template with {{param}} placeholders (e.g., "grep -E {{pattern}} {{path}}")' },
+        scope: { type: 'string', description: 'Where to persist the tool: "user" for all workspaces or "project" for this repository only', enum: ['user', 'project'] }
       },
       required: ['name', 'description', 'parameters', 'handler']
     }

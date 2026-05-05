@@ -417,6 +417,7 @@ export function parseAvailableModels(config: LoadedConfig): string[] {
   // Popular models that work with OpenRouter
   const popularModels = [
     "openrouter/auto",
+    "anthropic/claude-sonnet-4-20250514",
     "openai/gpt-4o",
     "openai/gpt-5",
     "google/gemini-3.0-pro",
