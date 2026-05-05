@@ -304,10 +304,10 @@ describe('glob tool', () => {
       expect(source).toContain("glob: 'read'");
     });
 
-    it('glob is mapped to always relevance category', async () => {
+    it('glob is mapped to filesystem relevance category', async () => {
       const { readFileSync } = await import('node:fs');
       const source = readFileSync('src/core/toolFilter.ts', 'utf-8');
-      expect(source).toContain("glob: 'always'");
+      expect(source).toContain("glob: 'filesystem'");
     });
   });
 
