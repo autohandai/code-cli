@@ -47,7 +47,7 @@ export class OpenRouterProvider implements LLMProvider {
     }
 
     return [
-      "anthropic/claude-sonnet-4-20250514",
+      "anthropic/claude-4-sonnet",
       "anthropic/claude-3-opus",
       "google/gemini-pro-1.5",
       "openai/gpt-4o",
