@@ -753,7 +753,12 @@ export class InkRenderer {
       // Ink 7 schedules useInput cleanup through React's passive-effect queue.
       // Callers yield a macrotask after pause() so the modal can attach a fresh
       // readable listener and re-enable raw mode without racing the composer.
-      this.instance.unmount();
+      const instance = this.instance;
+      try {
+        instance.clear();
+      } finally {
+        instance.unmount();
+      }
       this.instance = null;
 
       // Safety net: ensure stdin is in a clean paused, non-raw state before

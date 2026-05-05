@@ -184,6 +184,21 @@ describe('InkRenderer pause/resume cycle', () => {
     );
   });
 
+  it('clears the last composer frame before unmounting on pause', () => {
+    renderer.start();
+    const instance = (renderer as any).instance as {
+      clear: ReturnType<typeof vi.fn>;
+      unmount: ReturnType<typeof vi.fn>;
+    };
+
+    renderer.pause();
+
+    expect(instance.clear).toHaveBeenCalledTimes(1);
+    expect(instance.clear.mock.invocationCallOrder[0]).toBeLessThan(
+      instance.unmount.mock.invocationCallOrder[0]
+    );
+  });
+
   it('should accept input after a working turn completes', async () => {
     renderer.start();
     expect(renderer.isRunning()).toBe(true);
