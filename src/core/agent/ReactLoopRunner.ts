@@ -47,15 +47,15 @@ export function isDeferredFinalResponse(response: string): boolean {
 
   const hasAnswerStructure =
     trimmed.includes('\n') ||
-    /:\s+\S{12,}/.test(trimmed) ||
+    /:\s+\S[\s\S]{11,}/.test(trimmed) ||
     /(^|\n)\s*[-*]\s+\S/.test(trimmed);
   if (hasAnswerStructure) {
     return false;
   }
 
   const patterns = [
-    /\bi (now )?have (a )?(comprehensive|clear|good|enough|solid) (understanding|picture|context|information)\b.{0,120}\b(let me|i('ll| will)|i can now)\b.{0,50}\b(provide|give|summarize|explain|tell|answer)\b/i,
-    /^\s*(let me|i('ll| will)|i can now|now i('ll| will))\b.{0,50}\b(provide|give|summarize|explain|tell|answer)\b/i,
+    /\bi (now )?have (a )?(comprehensive|clear|good|enough|solid) (understanding|picture|context|information)\b.{0,120}\b(let me|i('ll| will)|i can now)\b.{0,80}\b(provide|give|summarize|explain|tell|answer)\b.{0,80}\b(to|for) (the )?(user|you)\b/i,
+    /^\s*(let me|i('ll| will)|i can now|now i('ll| will))\b.{0,50}\b(provide|give|summarize|explain|tell|answer)\b.{0,80}\b(to|for) (the )?(user|you)\.?$/i,
   ];
 
   return patterns.some((pattern) => pattern.test(trimmed));
