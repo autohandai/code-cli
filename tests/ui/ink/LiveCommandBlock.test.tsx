@@ -9,7 +9,7 @@ import React from 'react';
 import { render } from 'ink-testing-library';
 import { PassThrough } from 'node:stream';
 import { AgentUI, createInitialUIState } from '../../../src/ui/ink/AgentUI.js';
-import { LiveCommandBlock } from '../../../src/ui/ink/ToolOutput.js';
+import { LiveCommandBlock, ToolOutputStatic } from '../../../src/ui/ink/ToolOutput.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 import { I18nProvider } from '../../../src/ui/i18n/index.js';
 
@@ -45,6 +45,44 @@ function renderAgentUI(state: ReturnType<typeof createInitialUIState>) {
 }
 
 describe('AgentUI live command block', () => {
+  it('does not keep completed thinking text in the chat transcript', () => {
+    const state = createInitialUIState();
+    state.isWorking = false;
+    state.thinking = 'User is asking for positive aspects of the current repository.';
+    state.finalResponse = 'This repo has strong TUI test coverage.';
+
+    const { lastFrame } = renderAgentUI(state);
+
+    const output = stripAnsi(lastFrame());
+    expect(output).toContain('This repo has strong TUI test coverage.');
+    expect(output).not.toContain('User is asking for positive aspects');
+    expect(output).not.toContain('Thinking:');
+  });
+
+  it('does not render model thought narration as completed tool history', () => {
+    const { lastFrame } = render(
+      <I18nProvider>
+        <ThemeProvider>
+          <ToolOutputStatic
+            entry={{
+              id: 'tool-1',
+              tool: 'run_command',
+              success: true,
+              output: '$ pwd\n/Users/igorcosta/Documents/autohand/cli-3',
+              timestamp: Date.now(),
+              thought: "User requested to run the `pwd` command, so I'll use the run_command tool.",
+            }}
+          />
+        </ThemeProvider>
+      </I18nProvider>
+    );
+
+    const output = stripAnsi(lastFrame());
+    expect(output).toContain('run_command');
+    expect(output).toContain('/Users/igorcosta/Documents/autohand/cli-3');
+    expect(output).not.toContain('User requested to run');
+  });
+
   it('renders a running shell command block above the composer', () => {
     const state = createInitialUIState();
     state.isWorking = true;

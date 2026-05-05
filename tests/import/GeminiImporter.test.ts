@@ -135,7 +135,7 @@ describe('GeminiImporter', () => {
 
       vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
         if (String(p).endsWith('settings.json')) {
-          return JSON.stringify({ theme: 'dark', model: 'gemini-2.0-flash' }) as never;
+          return JSON.stringify({ theme: 'dark', model: 'gemini-3.0-pro' }) as never;
         }
         throw new Error('not found');
       });

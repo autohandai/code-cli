@@ -47,7 +47,7 @@ function createMessage(role: LLMMessage['role'], contentLength: number): LLMMess
 describe('context/tokenizer', () => {
   describe('getContextWindow', () => {
     it('returns known model context windows', () => {
-      expect(getContextWindow('anthropic/claude-sonnet-4-20250514')).toBe(200_000);
+      expect(getContextWindow('anthropic/claude-4-sonnet')).toBe(200_000);
       expect(getContextWindow('openai/gpt-4o-mini')).toBe(128_000);
     });
 
@@ -517,7 +517,7 @@ describe('context/orchestrator', () => {
 
   describe('setModel', () => {
     it('updates the model', () => {
-      orchestrator.setModel('anthropic/claude-sonnet-4-20250514');
+      orchestrator.setModel('anthropic/claude-4-sonnet');
       const usage = orchestrator.getUsage(mockTools);
       expect(usage.contextWindow).toBe(200_000);
     });

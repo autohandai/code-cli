@@ -1757,11 +1757,13 @@ describe('agent startup and active input UI', () => {
 
       expect(result.success).toBe(true);
       expect(agent.inkRenderer.startLiveCommand).toHaveBeenCalledWith('! pwd');
+      const stdoutChunk = String(agent.inkRenderer.appendLiveCommandOutput.mock.calls[0]?.[2] ?? '').trim();
       expect(agent.inkRenderer.appendLiveCommandOutput).toHaveBeenCalledWith(
         commandId,
         'stdout',
-        expect.stringContaining(process.cwd())
+        expect.any(String)
       );
+      expect(stdoutChunk.toLowerCase()).toBe(process.cwd().toLowerCase());
       expect(agent.inkRenderer.finishLiveCommand).toHaveBeenCalledWith(commandId, true, undefined);
     } finally {
       setNodePtyLoaderForTests();
@@ -2269,5 +2271,50 @@ describe('agent startup and active input UI', () => {
     expect(syncSession.mock.invocationCallOrder[0]).toBeLessThan(shutdown.mock.invocationCallOrder[0]);
     expect(endSession.mock.invocationCallOrder[0]).toBeLessThan(shutdown.mock.invocationCallOrder[0]);
     logSpy.mockRestore();
+  });
+
+  it('closeSession tears down the active Ink composer before printing exit output', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const inkStop = vi.fn();
+    const inkRenderer = {
+      hasQueuedInstructions: vi.fn(() => false),
+      stop: inkStop,
+    };
+
+    agent.inkRenderer = inkRenderer;
+    agent.runtime = { workspaceRoot: process.cwd(), inkRenderer };
+    agent.pendingInkInstructions = [];
+    agent.persistentInput = { dispose: vi.fn() };
+    agent.mcpManager = { disconnectAll: vi.fn(async () => {}) };
+    agent.hookManager = { executeHooks: vi.fn(async () => {}) };
+    agent.telemetryManager = {
+      syncSession: vi.fn(async () => {}),
+      endSession: vi.fn(async () => {}),
+      shutdown: vi.fn(async () => {}),
+    };
+    agent.sessionStartedAt = Date.now() - 1000;
+    agent.sessionManager = {
+      getCurrentSession: vi.fn(() => ({
+        metadata: { sessionId: 'session-123' },
+        getMessages: () => [
+          { role: 'user', content: 'hello', timestamp: new Date().toISOString() },
+        ],
+      })),
+      closeSession: vi.fn(async () => {}),
+    };
+
+    try {
+      await (agent as any).closeSession();
+
+      expect(inkStop).toHaveBeenCalledTimes(1);
+      expect(agent.inkRenderer).toBeNull();
+      expect(agent.runtime.inkRenderer).toBeUndefined();
+      expect(inkStop.mock.invocationCallOrder[0]).toBeLessThan(
+        logSpy.mock.invocationCallOrder[0]
+      );
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 });

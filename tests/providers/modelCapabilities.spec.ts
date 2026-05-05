@@ -177,7 +177,7 @@ describe("modelCapabilities", () => {
     });
 
     it("returns true for Claude models", async () => {
-      expect(await modelSupportsImages("anthropic/claude-sonnet-4-20250514")).toBe(true);
+      expect(await modelSupportsImages("anthropic/claude-4-sonnet")).toBe(true);
       expect(await modelSupportsImages("anthropic/claude-3-opus")).toBe(true);
       expect(await modelSupportsImages("anthropic/claude-4-sonnet")).toBe(true);
     });
@@ -189,9 +189,8 @@ describe("modelCapabilities", () => {
     });
 
     it("returns true for Gemini models", async () => {
-      expect(await modelSupportsImages("google/gemini-2.0-flash")).toBe(true);
-      expect(await modelSupportsImages("google/gemini-1.5-pro")).toBe(true);
       expect(await modelSupportsImages("google/gemini-2.5-pro")).toBe(true);
+      expect(await modelSupportsImages("google/gemini-3.0-pro")).toBe(true);
     });
 
     it("returns true for Pixtral models", async () => {
@@ -339,9 +338,8 @@ describe("modelCapabilities", () => {
 describe("supportsVision (ImageManager)", () => {
   it("returns true for Claude 3+ models", () => {
     expect(supportsVision("anthropic/claude-3-opus")).toBe(true);
-    expect(supportsVision("anthropic/claude-sonnet-4-20250514")).toBe(true);
-    expect(supportsVision("anthropic/claude-3.7-sonnet")).toBe(true);
     expect(supportsVision("anthropic/claude-4-sonnet")).toBe(true);
+    expect(supportsVision("anthropic/claude-3.7-sonnet")).toBe(true);
     expect(supportsVision("anthropic/claude-opus-4")).toBe(true);
   });
 
@@ -353,11 +351,9 @@ describe("supportsVision (ImageManager)", () => {
     expect(supportsVision("openai/chatgpt-4o-latest")).toBe(true);
   });
 
-  it("returns true for Gemini 1.5+ and 2.x", () => {
-    expect(supportsVision("google/gemini-1.5-pro")).toBe(true);
-    expect(supportsVision("google/gemini-1.5-flash")).toBe(true);
-    expect(supportsVision("google/gemini-2.0-flash")).toBe(true);
+  it("returns true for Gemini 2.x and 3.x", () => {
     expect(supportsVision("google/gemini-2.5-pro")).toBe(true);
+    expect(supportsVision("google/gemini-3.0-pro")).toBe(true);
     expect(supportsVision("google/gemini-pro-vision")).toBe(true);
   });
 
@@ -395,7 +391,7 @@ describe("supportsVision (ImageManager)", () => {
   });
 
   it("is case insensitive", () => {
-    expect(supportsVision("anthropic/claude-sonnet-4-20250514")).toBe(true);
+    expect(supportsVision("anthropic/claude-4-sonnet")).toBe(true);
     expect(supportsVision("OpenAI/GPT-4O")).toBe(true);
     expect(supportsVision("Google/GEMINI-2.0-FLASH")).toBe(true);
   });

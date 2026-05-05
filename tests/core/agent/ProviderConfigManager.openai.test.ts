@@ -40,6 +40,7 @@ vi.mock("../../../src/i18n/index.js", () => ({
     const map: Record<string, string> = {
       "providers.zai": "Z.ai",
       "providers.llmgateway": "LLM Gateway",
+      "providers.deepseek": "DeepSeek",
       "providers.openrouter": "OpenRouter",
       "providers.openai": "OpenAI",
       "providers.ollama": "Ollama",
@@ -177,6 +178,21 @@ describe("ProviderConfigManager openai auth mode", () => {
     expect(mockSaveConfig).toHaveBeenCalledOnce();
   });
 
+  it("configures DeepSeek with current DeepSeek API models", async () => {
+    mockShowPassword.mockResolvedValueOnce("deepseek-key-long-enough");
+    mockShowModal.mockResolvedValueOnce({ value: "deepseek-v4-pro" });
+
+    await (manager as any).configureDeepSeek();
+
+    expect(runtime.config.deepseek).toEqual({
+      apiKey: "deepseek-key-long-enough",
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-pro",
+    });
+    expect(runtime.config.provider).toBe("deepseek");
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
+  });
+
   it("shows user-facing provider names in provider selection", async () => {
     runtime.config.provider = "zai";
     runtime.config.zai = {
@@ -192,5 +208,6 @@ describe("ProviderConfigManager openai auth mode", () => {
     const options = mockShowModal.mock.calls[0][0].options;
     expect(options.some((option: { label: string }) => option.label.includes("Z.ai"))).toBe(true);
     expect(options.some((option: { label: string }) => option.label.includes("LLM Gateway"))).toBe(true);
+    expect(options.some((option: { label: string }) => option.label.includes("DeepSeek"))).toBe(true);
   });
 });

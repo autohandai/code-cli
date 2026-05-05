@@ -383,4 +383,55 @@ describe("Vertex AI Configuration Persistence E2E", () => {
       expect(mockShowModal).not.toHaveBeenCalled();
     });
   });
+
+  describe("DeepSeek (standard API key provider with model selection)", () => {
+    it("should persist DeepSeek config with apiKey, model, and baseUrl", async () => {
+      mockShowModal
+        .mockResolvedValueOnce({ value: "en" })
+        .mockResolvedValueOnce({ value: "deepseek" })
+        .mockResolvedValueOnce({ value: "deepseek-v4-pro" })
+        .mockResolvedValueOnce({ value: "interactive" });
+
+      mockShowPassword.mockResolvedValueOnce("deepseek-api-key-12345");
+
+      mockShowConfirm
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+
+      const wizard = new SetupWizard("/test/workspace");
+      const result = await wizard.run({ skipWelcome: true });
+
+      expect(result.success).toBe(true);
+      expect(result.config.provider).toBe("deepseek");
+      expect(result.config.deepseek?.apiKey).toBe("deepseek-api-key-12345");
+      expect(result.config.deepseek?.model).toBe("deepseek-v4-pro");
+      expect(result.config.deepseek?.baseUrl).toBe("https://api.deepseek.com");
+    });
+
+    it("should be recognized as configured when DeepSeek config exists with apiKey", async () => {
+      const existingConfig = {
+        configPath: "/test/.autohand/config.json",
+        provider: "deepseek" as const,
+        deepseek: {
+          apiKey: "deepseek-valid-api-key",
+          model: "deepseek-v4-flash",
+          baseUrl: "https://api.deepseek.com",
+        },
+      };
+
+      const wizard = new SetupWizard("/test/workspace", existingConfig);
+      const result = await wizard.run();
+
+      expect(result.success).toBe(true);
+      expect(result.skippedSteps).toContain("provider");
+      expect(result.skippedSteps).toContain("apiKey");
+      expect(mockShowModal).not.toHaveBeenCalled();
+    });
+  });
 });
