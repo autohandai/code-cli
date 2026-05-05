@@ -34,6 +34,7 @@ const mockAgent = {
     messageCount: 12,
   }),
   getMcpManager: vi.fn().mockReturnValue(mockMcpManager),
+  getToolsRegistry: vi.fn(),
   getPermissionManager: vi.fn().mockReturnValue(mockPermissionManager),
   getFileManager: vi.fn(),
   getHookManager: vi.fn(),
@@ -85,6 +86,7 @@ describe('RPC Adapter - P2 Handlers', () => {
     // Re-establish mocks after clearAllMocks
     mockAgent.getSessionManager.mockReturnValue(mockSessionManager);
     mockAgent.getMcpManager.mockReturnValue(mockMcpManager);
+    mockAgent.getToolsRegistry.mockReturnValue(undefined);
     mockAgent.getPermissionManager.mockReturnValue(mockPermissionManager);
     mockAgent.getImageManager.mockReturnValue({ clear: vi.fn() });
     mockAgent.getStatusSnapshot.mockReturnValue({ tokensUsed: 0, contextPercent: 0, model: 'test' });
@@ -338,6 +340,41 @@ describe('RPC Adapter - P2 Handlers', () => {
       const result = adapter.handleMcpListTools('req_1');
 
       expect(result.tools[0].serverName).toBe('my_server');
+    });
+  });
+
+  describe('handleGetToolsRegistry()', () => {
+    it('returns persisted meta-tools and diagnostics for non-interactive clients', () => {
+      mockAgent.getToolsRegistry.mockReturnValue({
+        listMetaTools: vi.fn().mockReturnValue([
+          {
+            name: 'count_lines',
+            description: 'Count lines',
+            handler: 'wc -l {{path}}',
+            scope: 'project',
+            disabled: false,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            schemaVersion: 1,
+          }
+        ]),
+        getDiagnostics: vi.fn().mockReturnValue([
+          { file: '/workspace/.autohand/tools/bad.json', reason: 'invalid meta-tool definition' }
+        ])
+      });
+
+      const result = adapter.handleGetToolsRegistry();
+
+      expect(result.tools).toEqual([
+        expect.objectContaining({
+          name: 'count_lines',
+          source: 'meta',
+          scope: 'project',
+          handlerPreview: 'wc -l {{path}}'
+        })
+      ]);
+      expect(result.diagnostics).toEqual([
+        { file: '/workspace/.autohand/tools/bad.json', reason: 'invalid meta-tool definition' }
+      ]);
     });
   });
 });

@@ -67,6 +67,7 @@ import type {
   ApplyFlagSettingsResult,
   GetSupportedModelsResult,
   GetSupportedCommandsResult,
+  GetToolsRegistryResult,
   GetContextUsageResult,
   ReloadPluginsResult,
   GetAccountInfoResult,
@@ -1977,6 +1978,31 @@ export class RPCAdapter {
           serverName: parsed?.serverName ?? 'unknown',
         };
       }),
+    };
+  }
+
+  /**
+   * List persisted meta-tools and registry diagnostics for non-interactive clients.
+   */
+  handleGetToolsRegistry(): GetToolsRegistryResult {
+    const registry = this.agent?.getToolsRegistry?.();
+    if (!registry) {
+      return { tools: [], diagnostics: [] };
+    }
+
+    return {
+      tools: registry.listMetaTools({ includeDisabled: true }).map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        source: 'meta',
+        scope: tool.scope,
+        disabled: tool.disabled,
+        createdAt: tool.createdAt,
+        schemaVersion: tool.schemaVersion,
+        handlerPreview: tool.handler.length > 140 ? `${tool.handler.slice(0, 137)}...` : tool.handler,
+        reuseHint: `Use ${tool.name} instead of creating another tool for: ${tool.description}`,
+      })),
+      diagnostics: registry.getDiagnostics(),
     };
   }
 

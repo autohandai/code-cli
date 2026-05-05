@@ -490,6 +490,10 @@ export class SlashCommandHandler {
           const { toggleYolo } = await import('../commands/yolo.js');
           return toggleYolo(this.ctx);
         }
+        case '/tools': {
+          const { tools } = await import('../commands/tools.js');
+          return tools({ toolsRegistry: this.ctx.toolsRegistry }, args);
+        }
         default:
           this.printUnsupported(command);
           return null;

@@ -7,12 +7,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AgentRuntime } from '../src/types.js';
 import type { FileActionManager } from '../src/actions/filesystem.js';
 import { ActionExecutor } from '../src/core/actionExecutor.js';
+import type { MetaToolDefinition } from '../src/core/toolsRegistry.js';
 import * as gitActions from '../src/actions/git.js';
 import * as commandActions from '../src/actions/command.js';
 import * as modalComponents from '../src/ui/ink/components/Modal.js';
 import type { ToolDefinition } from '../src/core/toolManager.js';
 import { execSync } from 'node:child_process';
 import { PlanFileStorage } from '../src/modes/planMode/PlanFileStorage.js';
+import { PermissionManager } from '../src/permissions/PermissionManager.js';
 
 // Mock execSync for security scanner tests
 vi.mock('node:child_process', async () => {
@@ -2454,6 +2456,221 @@ describe('ActionExecutor', () => {
       expect(registry.listTools).toHaveBeenCalledWith(tools);
       expect(parsed).toHaveLength(1);
       expect(parsed[0]).toMatchObject({ name: 'delegate_task' });
+    });
+
+    it('notifies the active session after creating a meta-tool', async () => {
+      const savedTool: MetaToolDefinition = {
+        schemaVersion: 1,
+        name: 'count_lines',
+        description: 'Count lines in a file',
+        parameters: {
+          type: 'object',
+          properties: { path: { type: 'string' } },
+          required: ['path']
+        },
+        handler: 'wc -l {{path}}',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        fingerprint: '1234567890abcdef',
+        source: 'agent'
+      };
+      const registry = {
+        listTools: vi.fn().mockResolvedValue([]),
+        getMetaTool: vi.fn().mockReturnValue(undefined),
+        getAllMetaTools: vi.fn().mockReturnValue([]),
+        saveMetaTool: vi.fn().mockResolvedValue(savedTool)
+      };
+      const onMetaToolCreated = vi.fn();
+      const executor = new ActionExecutor({
+        runtime: createRuntime(),
+        files: createFiles() as FileActionManager,
+        resolveWorkspacePath: (rel) => `/repo/${rel}`,
+        confirmDangerousAction: vi.fn().mockResolvedValue(true),
+        toolsRegistry: registry as any,
+        getRegisteredTools: () => [],
+        onMetaToolCreated
+      });
+
+      await executor.execute({
+        type: 'create_meta_tool',
+        name: 'count_lines',
+        description: 'Count lines in a file',
+        parameters: {
+          type: 'object',
+          properties: { path: { type: 'string' } },
+          required: ['path']
+        },
+        handler: 'wc -l {{path}}'
+      } as any);
+
+      expect(registry.saveMetaTool).toHaveBeenCalledWith(expect.objectContaining({
+        schemaVersion: 1,
+        name: 'count_lines',
+        description: 'Count lines in a file',
+        parameters: {
+          type: 'object',
+          properties: { path: { type: 'string' } },
+          required: ['path']
+        },
+        handler: 'wc -l {{path}}',
+        fingerprint: expect.any(String),
+        source: 'agent'
+      }));
+      expect(onMetaToolCreated).toHaveBeenCalledWith(savedTool);
+    });
+
+    it('rejects meta-tool names that cannot be safely persisted as tool files', async () => {
+      const registry = {
+        listTools: vi.fn().mockResolvedValue([]),
+        getMetaTool: vi.fn().mockReturnValue(undefined),
+        getAllMetaTools: vi.fn().mockReturnValue([]),
+        saveMetaTool: vi.fn()
+      };
+      const executor = new ActionExecutor({
+        runtime: createRuntime(),
+        files: createFiles() as FileActionManager,
+        resolveWorkspacePath: (rel) => `/repo/${rel}`,
+        confirmDangerousAction: vi.fn().mockResolvedValue(true),
+        toolsRegistry: registry as any,
+        getRegisteredTools: () => []
+      });
+
+      await expect(executor.execute({
+        type: 'create_meta_tool',
+        name: '../escape',
+        description: 'Bad tool',
+        parameters: { type: 'object', properties: {} },
+        handler: 'echo nope'
+      } as any)).rejects.toThrow('snake_case');
+      expect(registry.saveMetaTool).not.toHaveBeenCalled();
+    });
+
+    it('shell-escapes every meta-tool parameter substitution', async () => {
+      const runCommandSpy = vi.spyOn(commandActions, 'runCommand').mockResolvedValue({
+        stdout: 'ok',
+        stderr: '',
+        code: 0
+      });
+      const registry = {
+        listTools: vi.fn().mockResolvedValue([]),
+        getMetaTool: vi.fn().mockReturnValue({
+          schemaVersion: 1,
+          name: 'echo_path',
+          description: 'Echo path',
+          parameters: {
+            type: 'object',
+            properties: { path: { type: 'string' } },
+            required: ['path']
+          },
+          handler: 'printf %s {{path}}',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          fingerprint: '1234567890abcdef',
+          source: 'user'
+        })
+      };
+      const executor = new ActionExecutor({
+        runtime: createRuntime(),
+        files: createFiles() as FileActionManager,
+        resolveWorkspacePath: (rel) => `/repo/${rel}`,
+        confirmDangerousAction: vi.fn().mockResolvedValue(true),
+        toolsRegistry: registry as any,
+        getRegisteredTools: () => []
+      });
+
+      const result = await executor.execute({ type: 'echo_path', path: 'src/index.ts' } as any);
+
+      expect(runCommandSpy).toHaveBeenCalledWith(
+        "printf %s 'src/index.ts'",
+        [],
+        '/repo',
+        expect.objectContaining({ shell: true })
+      );
+      expect(result).toContain("$ printf %s 'src/index.ts'");
+    });
+
+    it('blocks meta-tool execution when shell command permission is denied', async () => {
+      const runCommandSpy = vi.spyOn(commandActions, 'runCommand').mockResolvedValue({
+        stdout: 'should not run',
+        stderr: '',
+        code: 0
+      });
+      const registry = {
+        listTools: vi.fn().mockResolvedValue([]),
+        getMetaTool: vi.fn().mockReturnValue({
+          schemaVersion: 1,
+          name: 'print_env',
+          description: 'Print environment',
+          parameters: { type: 'object', properties: {} },
+          handler: 'printenv',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          fingerprint: '1234567890abcdef',
+          source: 'user',
+          scope: 'user'
+        })
+      };
+      const executor = new ActionExecutor({
+        runtime: createRuntime(),
+        files: createFiles() as FileActionManager,
+        resolveWorkspacePath: (rel) => `/repo/${rel}`,
+        confirmDangerousAction: vi.fn().mockResolvedValue(true),
+        permissionManager: new PermissionManager({ mode: 'interactive' }),
+        toolsRegistry: registry as any,
+        getRegisteredTools: () => []
+      });
+
+      const result = await executor.execute({ type: 'print_env' } as any);
+
+      expect(result).toContain('Blocked');
+      expect(result).toContain('blacklisted');
+      expect(runCommandSpy).not.toHaveBeenCalled();
+    });
+
+    it('asks for approval before running an interactive meta-tool shell command', async () => {
+      const runCommandSpy = vi.spyOn(commandActions, 'runCommand').mockResolvedValue({
+        stdout: 'ok',
+        stderr: '',
+        code: 0
+      });
+      const confirmDangerousAction = vi.fn().mockResolvedValue(false);
+      const registry = {
+        listTools: vi.fn().mockResolvedValue([]),
+        getMetaTool: vi.fn().mockReturnValue({
+          schemaVersion: 1,
+          name: 'echo_path',
+          description: 'Echo path',
+          parameters: {
+            type: 'object',
+            properties: { path: { type: 'string' } },
+            required: ['path']
+          },
+          handler: 'printf %s {{path}}',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          fingerprint: '1234567890abcdef',
+          source: 'user',
+          scope: 'user'
+        })
+      };
+      const executor = new ActionExecutor({
+        runtime: createRuntime(),
+        files: createFiles() as FileActionManager,
+        resolveWorkspacePath: (rel) => `/repo/${rel}`,
+        confirmDangerousAction,
+        permissionManager: new PermissionManager({ mode: 'interactive', rememberSession: false }),
+        toolsRegistry: registry as any,
+        getRegisteredTools: () => []
+      });
+
+      const result = await executor.execute({ type: 'echo_path', path: 'src/index.ts' } as any);
+
+      expect(confirmDangerousAction).toHaveBeenCalledWith(
+        expect.stringContaining('Run meta-tool echo_path'),
+        expect.objectContaining({ tool: 'run_command', command: "printf %s 'src/index.ts'" })
+      );
+      expect(result).toContain('Skipped running meta-tool echo_path');
+      expect(runCommandSpy).not.toHaveBeenCalled();
     });
   });
 

@@ -79,7 +79,9 @@ export class SubAgent {
         // 2. Apply context filtering
         // 3. Add delegation tools if depth allows
         const allowedTools = new Set(config.tools);
-        let definitions = DEFAULT_TOOL_DEFINITIONS.filter(def => allowedTools.has(def.name));
+        let definitions = allowedTools.has('*')
+            ? [...DEFAULT_TOOL_DEFINITIONS]
+            : DEFAULT_TOOL_DEFINITIONS.filter(def => allowedTools.has(def.name));
 
         // Add delegation tools if sub-agent can delegate further
         if (canDelegate) {

@@ -24,7 +24,7 @@ import { SLASH_COMMANDS } from '../slashCommands.js';
 import { parseYoloPattern, buildPermissionSettingsFromYolo } from '../../permissions/yoloMode.js';
 import { SessionManager } from '../../session/SessionManager.js';
 import { ProjectManager } from '../../session/ProjectManager.js';
-import { ToolsRegistry } from '../toolsRegistry.js';
+import { createToolsRegistry } from '../toolsRegistry.js';
 import type { AgentRuntime } from '../../types.js';
 import { AgentDelegator } from '../agents/AgentDelegator.js';
 import { ErrorLogger } from '../errorLogger.js';
@@ -63,6 +63,7 @@ import { AutoReportManager } from '../../reporting/AutoReportManager.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { SuggestionEngine } from '../SuggestionEngine.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
+import { configureAgentRegistry } from './dynamicRuntimeExtensions.js';
 
 export interface AgentDependencyHost {
   [key: string]: any;
@@ -117,7 +118,8 @@ export function initializeAgentDependencies(
       });
     }
 
-    host.toolsRegistry = new ToolsRegistry();
+    configureAgentRegistry(runtime);
+    host.toolsRegistry = createToolsRegistry(runtime.workspaceRoot);
     host.memoryManager = new MemoryManager(runtime.workspaceRoot);
 
     // Initialize context orchestrator for auto-compaction
@@ -291,6 +293,9 @@ export function initializeAgentDependencies(
       onLiveCommandOutput: (id, stream, chunk) => host.inkRenderer?.appendLiveCommandOutput(id, stream, chunk),
       onLiveCommandRemove: (id) => host.inkRenderer?.removeLiveCommand(id),
       onRequestDirectoryAccess: async (path, reason) => host.requestDirectoryAccess(path, reason),
+      onMetaToolCreated: () => {
+        host.toolManager?.registerMetaTools(host.toolsRegistry.toToolDefinitions());
+      },
     });
 
     host.activeProvider = runtime.config.provider ?? 'openrouter';
@@ -1019,6 +1024,7 @@ export function initializeAgentDependencies(
       permissionManager: host.permissionManager,
       hookManager: host.hookManager,
       skillsRegistry: host.skillsRegistry,
+      toolsRegistry: host.toolsRegistry,
       mcpManager: host.mcpManager,
       llm: host.llm,
       workspaceRoot: runtime.workspaceRoot,

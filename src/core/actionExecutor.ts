@@ -76,7 +76,8 @@ import type { AgentAction, AgentRuntime, ExplorationEvent, ToolExecutionContext,
 import type { FileActionManager } from '../actions/filesystem.js';
 import type { ToolDefinition } from './toolManager.js';
 import type { FFFSearchProvider } from '../search/fffSearchProvider.js';
-import { ToolsRegistry } from './toolsRegistry.js';
+import { ToolsRegistry, createToolsRegistry, type MetaToolDefinition } from './toolsRegistry.js';
+import { MetaToolService } from './metaTools/MetaToolService.js';
 import type { MemoryManager } from '../memory/MemoryManager.js';
 import { SecurityScanner } from './SecurityScanner.js';
 import { execSync } from 'node:child_process';
@@ -104,6 +105,7 @@ export interface ActionExecutorOptions {
   sessionId?: string;
   onExploration?: (entry: ExplorationEvent) => void;
   toolsRegistry?: ToolsRegistry;
+  metaToolService?: MetaToolService;
   getRegisteredTools?: () => ToolDefinition[];
   permissionManager?: PermissionManager;
   memoryManager?: MemoryManager;
@@ -135,6 +137,7 @@ export interface ActionExecutorOptions {
   onLiveCommandStart?: (command: string) => string;
   onLiveCommandOutput?: (id: string, stream: 'stdout' | 'stderr', chunk: string) => void;
   onLiveCommandRemove?: (id: string) => void;
+  onMetaToolCreated?: (definition: MetaToolDefinition) => void;
 }
 
 type AgentExecutorDeps = ActionExecutorOptions;
@@ -148,6 +151,7 @@ export class ActionExecutor {
   private readonly sessionId?: string;
   private readonly logExploration?: (entry: ExplorationEvent) => void;
   private readonly toolsRegistry: ToolsRegistry;
+  private readonly metaToolService: MetaToolService;
   private readonly getRegisteredTools: () => ToolDefinition[];
   private readonly permissionManager: PermissionManager;
   private readonly memoryManager?: MemoryManager;
@@ -162,6 +166,7 @@ export class ActionExecutor {
   private readonly onLiveCommandStart?: AgentExecutorDeps['onLiveCommandStart'];
   private readonly onLiveCommandOutput?: AgentExecutorDeps['onLiveCommandOutput'];
   private readonly onLiveCommandRemove?: AgentExecutorDeps['onLiveCommandRemove'];
+  private readonly onMetaToolCreated?: AgentExecutorDeps['onMetaToolCreated'];
   private readonly securityScanner: SecurityScanner;
   private readonly searchCache: Map<string, string> = new Map();
   private fffSearchProviderPromise: Promise<FFFSearchProvider> | null = null;
@@ -177,7 +182,8 @@ export class ActionExecutor {
     this.projectManager = deps.projectManager;
     this.sessionId = deps.sessionId;
     this.logExploration = deps.onExploration;
-    this.toolsRegistry = deps.toolsRegistry ?? new ToolsRegistry();
+    this.toolsRegistry = deps.toolsRegistry ?? createToolsRegistry(deps.runtime.workspaceRoot);
+    this.metaToolService = deps.metaToolService ?? new MetaToolService(this.toolsRegistry);
     this.getRegisteredTools = deps.getRegisteredTools ?? (() => []);
     this.permissionManager = deps.permissionManager ?? new PermissionManager(deps.runtime.config.permissions);
     this.memoryManager = deps.memoryManager;
@@ -192,6 +198,7 @@ export class ActionExecutor {
     this.onLiveCommandStart = deps.onLiveCommandStart;
     this.onLiveCommandOutput = deps.onLiveCommandOutput;
     this.onLiveCommandRemove = deps.onLiveCommandRemove;
+    this.onMetaToolCreated = deps.onMetaToolCreated;
     this.securityScanner = new SecurityScanner();
   }
 
@@ -1623,73 +1630,22 @@ export class ActionExecutor {
         return formatted;
       }
       case 'create_meta_tool': {
-        // Validate required fields
-        if (!action.name || !action.description || !action.handler) {
-          throw new Error('create_meta_tool requires name, description, and handler');
-        }
-
-        // Check for conflicts with built-in tools
-        const builtInNames = this.getRegisteredTools().map(t => t.name);
-        if (builtInNames.includes(action.name as typeof builtInNames[number])) {
-          throw new Error(`Cannot create meta-tool "${action.name}": conflicts with built-in tool`);
-        }
-
-        // Validate handler (comprehensive security check)
-        const dangerousPatterns: Array<{ pattern: RegExp; description: string }> = [
-          // Destructive file operations
-          { pattern: /rm\s+(-[rf]+\s+)*\/(?!\w)/i, description: 'rm with root path' },
-          { pattern: /rm\s+.*--no-preserve-root/i, description: 'rm --no-preserve-root' },
-          { pattern: /dd\s+.*(?:of|if)=\/dev\/[sh]d/i, description: 'dd to disk device' },
-          { pattern: /mkfs\./i, description: 'filesystem format' },
-          { pattern: /wipefs/i, description: 'disk wipe' },
-
-          // Privilege escalation
-          { pattern: /\bsudo\s/i, description: 'sudo command' },
-          { pattern: /\bsu\s+-?\s*\w/i, description: 'su command' },
-          { pattern: /chmod\s+[0-7]*7[0-7]*/i, description: 'world-writable chmod' },
-          { pattern: /chown\s+root/i, description: 'chown to root' },
-
-          // Remote code execution
-          { pattern: /curl\s+.*\|\s*(ba)?sh/i, description: 'curl | bash' },
-          { pattern: /wget\s+.*\|\s*(ba)?sh/i, description: 'wget | sh' },
-          { pattern: /\beval\s+[`$]/i, description: 'eval with expansion' },
-
-          // Fork bomb and resource exhaustion
-          { pattern: /:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;/i, description: 'fork bomb' },
-          { pattern: /while\s+true.*do.*done/i, description: 'infinite loop' },
-
-          // Reverse shell indicators
-          { pattern: /nc\s+.*-e\s*\/bin/i, description: 'netcat reverse shell' },
-          { pattern: /ncat\s+.*-e\s*\/bin/i, description: 'ncat reverse shell' },
-          { pattern: /bash\s+-i\s+>&?\s*\/dev\/tcp/i, description: 'bash reverse shell' },
-
-          // Dangerous network operations
-          { pattern: /iptables\s+-F/i, description: 'flush firewall rules' },
-
-          // Crypto operations that could lock out user
-          { pattern: /gpg\s+.*--encrypt.*-r\s+\S+\s+\//i, description: 'gpg encrypt root' },
-        ];
-
-        for (const { pattern, description } of dangerousPatterns) {
-          if (pattern.test(action.handler)) {
-            throw new Error(`Handler contains dangerous pattern: ${description}`);
-          }
-        }
-
-        // Save to registry
-        await this.toolsRegistry.saveMetaTool({
+        const result = await this.metaToolService.createMetaTool({
           name: action.name,
           description: action.description,
           parameters: action.parameters ?? { type: 'object', properties: {} },
           handler: action.handler,
-          source: 'agent'
-        });
+          source: 'agent',
+          scope: action.scope ?? 'user'
+        }, this.getRegisteredTools());
+        const metaTool = result.definition;
+        this.onMetaToolCreated?.(metaTool);
 
-        console.log(chalk.green(`\n🔧 Created meta-tool: ${action.name}`));
+        console.log(chalk.green(`\n🔧 ${result.status === 'created' ? 'Created' : 'Reused'} meta-tool: ${metaTool.name}`));
         console.log(chalk.gray(`   ${action.description}`));
         console.log(chalk.gray(`   Handler: ${action.handler}`));
 
-        return `Created meta-tool "${action.name}" - available in this and future sessions`;
+        return result.message;
       }
       // Web Search Operations
       case 'web_search': {
@@ -2377,11 +2333,6 @@ export class ActionExecutor {
   }
 
   /**
-   * Shell metacharacters that could enable command injection
-   */
-  private static readonly SHELL_METACHARACTERS = /[|;&$`><(){}[\]!#*?~'"\\]/;
-
-  /**
    * Safely escape a value for shell interpolation
    * Uses single quotes which prevent all shell expansion except for single quotes themselves
    */
@@ -2414,28 +2365,76 @@ export class ActionExecutor {
         throw new Error(`Missing required parameter "${paramName}" for meta-tool "${metaTool.name}"`);
       }
 
-      const stringValue = String(value);
-
-      // Security: Check for shell metacharacters and properly escape
-      let safeValue: string;
-      if (ActionExecutor.SHELL_METACHARACTERS.test(stringValue)) {
-        // Use proper shell escaping via single quotes
-        safeValue = this.shellEscape(stringValue);
-        console.log(chalk.yellow(`   ⚠ Parameter "${paramName}" contains shell metacharacters, escaped for safety`));
-      } else {
-        // Simple alphanumeric values don't need escaping
-        safeValue = stringValue;
-      }
-
+      const safeValue = this.shellEscape(String(value));
+      command = command.replace(new RegExp(`(["'])\\{\\{${paramName}\\}\\}\\1`, 'g'), safeValue);
       command = command.replace(new RegExp(`\\{\\{${paramName}\\}\\}`, 'g'), safeValue);
     }
 
     console.log(chalk.cyan(`\n🔧 Running meta-tool: ${metaTool.name}`));
     console.log(chalk.gray(`   $ ${command}`));
 
+    const permissionContext: PermissionContext = {
+      tool: 'run_command',
+      command,
+      description: `Meta-tool ${metaTool.name}: ${metaTool.description}`,
+    };
+    const decision = this.permissionManager.checkPermission(permissionContext);
+    if (decision.reason === 'blacklisted'
+      || decision.reason === 'mode_restricted'
+      || decision.reason === 'pattern_denied'
+      || decision.reason === 'not_in_available'
+      || decision.reason === 'excluded'
+      || decision.reason === 'deny_list'
+      || decision.reason === 'session_deny_list'
+      || decision.reason === 'project_deny_list'
+      || decision.reason === 'user_deny_list') {
+      return `Blocked: Cannot run meta-tool ${metaTool.name} (${decision.reason})`;
+    }
+
+    if (!decision.allowed) {
+      const hookResult = await this.checkPermissionHook({
+        tool: 'run_command',
+        command,
+        args,
+      });
+
+      if (hookResult.blocked) {
+        return `Blocked: ${hookResult.reason}`;
+      }
+
+      if (hookResult.allowed !== undefined) {
+        await this.permissionManager.recordDecision(permissionContext, hookResult.allowed);
+        if (!hookResult.allowed) {
+          return `Denied: ${hookResult.reason ?? `meta-tool ${metaTool.name}`}`;
+        }
+      } else {
+        const confirmed = await this.confirmDangerousAction(
+          `Run meta-tool ${metaTool.name}?`,
+          { tool: 'run_command', command }
+        );
+        await this.permissionManager.recordDecision(permissionContext, confirmed);
+        if (!confirmed) {
+          return `Skipped running meta-tool ${metaTool.name}`;
+        }
+      }
+    }
+
     // Execute via shell (meta-tools expect shell syntax for piping, etc.)
-    const result = await runCommand(command, [], this.runtime.workspaceRoot, { shell: true });
-    return [`$ ${command}`, result.stdout, result.stderr].filter(Boolean).join('\n');
+    const result = await runCommand(command, [], this.runtime.workspaceRoot, {
+      shell: true,
+      timeout: 120_000
+    });
+    const stdout = this.truncateMetaToolOutput(result.stdout);
+    const stderr = this.truncateMetaToolOutput(result.stderr);
+    return [`$ ${command}`, stdout, stderr].filter(Boolean).join('\n');
+  }
+
+  private truncateMetaToolOutput(output: string): string {
+    const limit = 200_000;
+    if (output.length <= limit) {
+      return output;
+    }
+    return `${output.slice(0, limit)}\n[meta-tool output truncated at ${limit} characters]`;
   }
 
   private applySearchReplaceBlocks(content: string, blocks: string): string {

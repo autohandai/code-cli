@@ -4,27 +4,84 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import fs from 'fs-extra';
+import nodeFs from 'node:fs/promises';
 import path from 'node:path';
 import type { ToolRegistryEntry } from '../types.js';
 import type { ToolDefinition } from './toolManager.js';
-import { AUTOHAND_PATHS } from '../constants.js';
+import { AUTOHAND_PATHS, PROJECT_DIR_NAME } from '../constants.js';
+import {
+  META_TOOL_NAME_PATTERN,
+  type MetaToolDefinition,
+  type MetaToolScope,
+  fingerprintMetaTool,
+  normalizeMetaToolDefinition
+} from './metaTools/schema.js';
+import { assertSafeMetaToolHandler } from './metaTools/safety.js';
 
-export interface MetaToolDefinition {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-  handler: string;
-  createdAt: string;
-  source: 'agent' | 'user';
+export type { MetaToolDefinition } from './metaTools/schema.js';
+
+export interface ToolsRegistryLocation {
+  scope: MetaToolScope;
+  dir: string;
+}
+
+export interface MetaToolDiagnostic {
+  file: string;
+  reason: string;
+}
+
+export interface MetaToolListOptions {
+  includeDisabled?: boolean;
+}
+
+interface MetaToolRecord {
+  definition: MetaToolDefinition;
+  filePath: string;
+}
+
+function locationKey(scope: MetaToolScope, name: string): string {
+  return `${scope}:${name}`;
+}
+
+function normalizeLocations(input?: string | ToolsRegistryLocation[]): ToolsRegistryLocation[] {
+  if (Array.isArray(input)) {
+    return input;
+  }
+  return [{ scope: 'user', dir: input ?? AUTOHAND_PATHS.tools }];
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function createToolsRegistry(workspaceRoot?: string, userToolsDir = AUTOHAND_PATHS.tools): ToolsRegistry {
+  const locations: ToolsRegistryLocation[] = workspaceRoot
+    ? [
+        { scope: 'project', dir: path.join(workspaceRoot, PROJECT_DIR_NAME, 'tools') },
+        { scope: 'user', dir: userToolsDir },
+      ]
+    : [{ scope: 'user', dir: userToolsDir }];
+  return new ToolsRegistry(locations);
 }
 
 export class ToolsRegistry {
   private metaToolCache: Map<string, MetaToolDefinition> = new Map();
+  private metaToolRecords: Map<string, MetaToolRecord> = new Map();
+  private diagnostics: MetaToolDiagnostic[] = [];
 
-  constructor(private readonly toolsDir = AUTOHAND_PATHS.tools) { }
+  constructor(locations?: string | ToolsRegistryLocation[]) {
+    this.locations = normalizeLocations(locations);
+  }
+
+  private readonly locations: ToolsRegistryLocation[];
 
   async initialize(): Promise<void> {
-    await fs.ensureDir(this.toolsDir);
+    this.metaToolCache.clear();
+    this.metaToolRecords.clear();
+    this.diagnostics = [];
+    for (const location of this.locations) {
+      await fs.ensureDir(location.dir);
+    }
     await this.loadMetaToolDefinitions();
   }
 
@@ -53,7 +110,13 @@ export class ToolsRegistry {
       entries.push({
         name: tool.name,
         description: tool.description,
-        source: 'meta'
+        source: 'meta',
+        scope: tool.scope,
+        disabled: tool.disabled,
+        createdAt: tool.createdAt,
+        schemaVersion: tool.schemaVersion,
+        handlerPreview: tool.handler.length > 140 ? `${tool.handler.slice(0, 137)}...` : tool.handler,
+        reuseHint: `Use ${tool.name} instead of creating another tool for: ${tool.description}`
       });
       seen.add(name);
     }
@@ -61,15 +124,30 @@ export class ToolsRegistry {
     return entries;
   }
 
-  async saveMetaTool(definition: Omit<MetaToolDefinition, 'createdAt'>): Promise<MetaToolDefinition> {
-    const fullDef: MetaToolDefinition = {
-      ...definition,
-      createdAt: new Date().toISOString()
-    };
+  async saveMetaTool(definition: MetaToolDefinition): Promise<MetaToolDefinition> {
+    const fullDef = normalizeMetaToolDefinition(definition);
+    if (!fullDef) {
+      throw new Error(`Invalid meta-tool definition for "${definition.name}"`);
+    }
+    assertSafeMetaToolHandler(fullDef.handler);
 
-    const filePath = path.join(this.toolsDir, `${definition.name}.json`);
-    await fs.writeJson(filePath, fullDef, { spaces: 2 });
-    this.metaToolCache.set(definition.name, fullDef);
+    const location = this.getLocationForScope(fullDef.scope);
+    const filePath = path.join(location.dir, `${fullDef.name}.json`);
+    const release = await this.acquireLock(location.dir, fullDef.name);
+    try {
+      const existing = await this.readDefinition(filePath);
+      if (existing) {
+        if (existing.fingerprint === fullDef.fingerprint) {
+          this.upsertRecord(existing, filePath);
+          return existing;
+        }
+        throw new Error(`Meta-tool "${fullDef.name}" already exists in ${fullDef.scope} scope`);
+      }
+      await this.writeDefinition(filePath, fullDef);
+    } finally {
+      await release();
+    }
+    this.upsertRecord(fullDef, filePath);
 
     return fullDef;
   }
@@ -84,6 +162,78 @@ export class ToolsRegistry {
 
   getAllMetaTools(): MetaToolDefinition[] {
     return Array.from(this.metaToolCache.values());
+  }
+
+  listMetaTools(options: MetaToolListOptions = {}): MetaToolDefinition[] {
+    if (!options.includeDisabled) {
+      return this.getAllMetaTools();
+    }
+    return Array.from(this.metaToolRecords.values()).map((record) => record.definition);
+  }
+
+  getDiagnostics(): MetaToolDiagnostic[] {
+    return [...this.diagnostics];
+  }
+
+  async deleteMetaTool(name: string, scope?: MetaToolScope): Promise<MetaToolDefinition> {
+    const record = this.findRecord(name, scope);
+    if (!record) {
+      throw new Error(`Meta-tool "${name}" not found`);
+    }
+    await fs.remove(record.filePath);
+    this.deleteRecord(record.definition);
+    return record.definition;
+  }
+
+  async setMetaToolDisabled(name: string, disabled: boolean, scope?: MetaToolScope): Promise<MetaToolDefinition> {
+    const record = this.findRecord(name, scope);
+    if (!record) {
+      throw new Error(`Meta-tool "${name}" not found`);
+    }
+    const updated = {
+      ...record.definition,
+      disabled,
+      updatedAt: new Date().toISOString(),
+    };
+    await this.writeDefinition(record.filePath, updated);
+    this.upsertRecord(updated, record.filePath);
+    this.rebuildActiveCache();
+    return updated;
+  }
+
+  async renameMetaTool(name: string, newName: string, scope?: MetaToolScope): Promise<MetaToolDefinition> {
+    if (!META_TOOL_NAME_PATTERN.test(newName)) {
+      throw new Error('new name must be snake_case and start with a lowercase letter');
+    }
+    const record = this.findRecord(name, scope);
+    if (!record) {
+      throw new Error(`Meta-tool "${name}" not found`);
+    }
+    if (this.findRecord(newName)) {
+      throw new Error(`Meta-tool "${newName}" already exists`);
+    }
+
+    const renamed = {
+      ...record.definition,
+      name: newName,
+      updatedAt: new Date().toISOString(),
+    };
+    const normalized = normalizeMetaToolDefinition({
+      ...renamed,
+      fingerprint: fingerprintMetaTool(renamed),
+    });
+    if (!normalized) {
+      throw new Error(`Invalid meta-tool definition for "${newName}"`);
+    }
+
+    const location = this.getLocationForScope(normalized.scope);
+    const nextFilePath = path.join(location.dir, `${newName}.json`);
+    await this.writeDefinition(nextFilePath, normalized);
+    await fs.remove(record.filePath);
+    this.deleteRecord(record.definition);
+    this.upsertRecord(normalized, nextFilePath);
+    this.rebuildActiveCache();
+    return normalized;
   }
 
   toToolDefinitions(): ToolDefinition[] {
@@ -103,43 +253,136 @@ export class ToolsRegistry {
   }
 
   private async loadMetaToolDefinitions(): Promise<void> {
-    try {
-      const exists = await fs.pathExists(this.toolsDir);
-      if (!exists) {
-        return;
-      }
-
-      const files = await fs.readdir(this.toolsDir);
-
-      for (const file of files) {
-        if (!file.endsWith('.json')) {
+    for (const location of this.locations) {
+      try {
+        const exists = await fs.pathExists(location.dir);
+        if (!exists) {
           continue;
         }
-        const fullPath = path.join(this.toolsDir, file);
-        try {
-          const data = await fs.readJson(fullPath);
-          if (this.isValidMetaTool(data)) {
-            this.metaToolCache.set(data.name, data);
+
+        const files = await fs.readdir(location.dir);
+
+        for (const file of files) {
+          if (!file.endsWith('.json')) {
+            continue;
           }
-        } catch {
-          // Skip invalid files
+          const fullPath = path.join(location.dir, file);
+          try {
+            const data = normalizeMetaToolDefinition({
+              ...(await fs.readJson(fullPath)),
+              scope: location.scope,
+            });
+            if (data) {
+              assertSafeMetaToolHandler(data.handler);
+              this.metaToolRecords.set(locationKey(data.scope, data.name), { definition: data, filePath: fullPath });
+            } else {
+              this.diagnostics.push({ file: fullPath, reason: 'invalid meta-tool definition' });
+            }
+          } catch (error) {
+            const reason = error instanceof Error ? error.message : 'invalid meta-tool file';
+            this.diagnostics.push({ file: fullPath, reason });
+          }
         }
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'tools directory could not be read';
+        this.diagnostics.push({ file: location.dir, reason });
       }
-    } catch {
-      // Tools directory doesn't exist yet
+    }
+    this.rebuildActiveCache();
+  }
+
+  private getLocationForScope(scope: MetaToolScope): ToolsRegistryLocation {
+    const location = this.locations.find((candidate) => candidate.scope === scope);
+    if (!location) {
+      throw new Error(`No tools directory configured for ${scope} scope`);
+    }
+    return location;
+  }
+
+  private async readDefinition(filePath: string): Promise<MetaToolDefinition | null> {
+    if (!await fs.pathExists(filePath)) {
+      return null;
+    }
+    return normalizeMetaToolDefinition(await fs.readJson(filePath));
+  }
+
+  private async writeDefinition(filePath: string, definition: MetaToolDefinition): Promise<void> {
+    const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+    try {
+      await fs.ensureDir(path.dirname(filePath));
+      await fs.outputFile(tempPath, `${JSON.stringify(definition, null, 2)}\n`, { mode: 0o600 });
+      const handle = await nodeFs.open(tempPath, 'r');
+      try {
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await nodeFs.rename(tempPath, filePath);
+    } catch (error) {
+      await fs.remove(tempPath).catch(() => {});
+      throw error;
     }
   }
 
-  private isValidMetaTool(candidate: unknown): candidate is MetaToolDefinition {
-    if (!candidate || typeof candidate !== 'object') {
-      return false;
+  private async acquireLock(dir: string, name: string): Promise<() => Promise<void>> {
+    await fs.ensureDir(dir);
+    const lockPath = path.join(dir, `${name}.lock`);
+    for (let attempt = 0; attempt < 40; attempt++) {
+      try {
+        const handle = await nodeFs.open(lockPath, 'wx', 0o600);
+        await handle.close();
+        return async () => {
+          await fs.remove(lockPath).catch(() => {});
+        };
+      } catch (error) {
+        const code = typeof error === 'object' && error && 'code' in error
+          ? (error as { code?: string }).code
+          : undefined;
+        if (code === 'EEXIST') {
+          await delay(25);
+          continue;
+        }
+        throw error;
+      }
     }
-    const value = candidate as Record<string, unknown>;
-    return (
-      typeof value.name === 'string' &&
-      typeof value.description === 'string' &&
-      typeof value.handler === 'string' &&
-      typeof value.parameters === 'object'
-    );
+    throw new Error(`Timed out waiting for meta-tool lock "${name}"`);
   }
+
+  private upsertRecord(definition: MetaToolDefinition, filePath: string): void {
+    this.metaToolRecords.set(locationKey(definition.scope, definition.name), { definition, filePath });
+    this.rebuildActiveCache();
+  }
+
+  private deleteRecord(definition: MetaToolDefinition): void {
+    this.metaToolRecords.delete(locationKey(definition.scope, definition.name));
+    this.rebuildActiveCache();
+  }
+
+  private findRecord(name: string, scope?: MetaToolScope): MetaToolRecord | undefined {
+    if (scope) {
+      return this.metaToolRecords.get(locationKey(scope, name));
+    }
+    for (const location of this.locations) {
+      const record = this.metaToolRecords.get(locationKey(location.scope, name));
+      if (record) {
+        return record;
+      }
+    }
+    return undefined;
+  }
+
+  private rebuildActiveCache(): void {
+    this.metaToolCache.clear();
+    for (const location of this.locations) {
+      for (const record of this.metaToolRecords.values()) {
+        if (record.definition.scope !== location.scope || record.definition.disabled) {
+          continue;
+        }
+        if (!this.metaToolCache.has(record.definition.name)) {
+          this.metaToolCache.set(record.definition.name, record.definition);
+        }
+      }
+    }
+  }
+
 }
