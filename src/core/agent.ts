@@ -612,8 +612,55 @@ export class AutohandAgent {
   }
 
   private async runReactLoop(abortController: AbortController): Promise<void> {
-    return runAgentReactLoop(this as unknown as AgentReactLoopHost, abortController);
+    return runAgentReactLoop(this.createReactLoopHost(), abortController);
   }
+
+  private createReactLoopHost(): AgentReactLoopHost {
+    const agent = this;
+
+    return {
+      get activeProvider() { return agent.activeProvider; },
+      autoReportManager: agent.autoReportManager,
+      get consecutiveCancellations() { return agent.consecutiveCancellations; },
+      set consecutiveCancellations(value) { agent.consecutiveCancellations = value; },
+      contextOrchestrator: agent.contextOrchestrator,
+      get contextPercentLeft() { return agent.contextPercentLeft; },
+      conversation: agent.conversation,
+      get inkRenderer() { return agent.inkRenderer as AgentReactLoopHost['inkRenderer']; },
+      get lastAssistantResponseForNotification() { return agent.lastAssistantResponseForNotification; },
+      set lastAssistantResponseForNotification(value) { agent.lastAssistantResponseForNotification = value; },
+      llm: agent.llm,
+      memoryManager: agent.memoryManager,
+      projectManager: agent.projectManager,
+      runtime: agent.runtime,
+      searchQueries: agent.searchQueries,
+      sessionManager: agent.sessionManager,
+      get sessionStartedAt() { return agent.sessionStartedAt; },
+      get sessionTokensUsed() { return agent.sessionTokensUsed; },
+      toolManager: agent.toolManager,
+      get totalTokensUsed() { return agent.totalTokensUsed; },
+      set totalTokensUsed(value) { agent.totalTokensUsed = value; },
+      cleanupModelResponse: (content) => agent.cleanupModelResponse(content),
+      emitOutput: (event) => agent.emitOutput(event),
+      ensureSpinnerRunning: () => agent.ensureSpinnerRunning(),
+      expressesIntentToAct: (text) => agent.expressesIntentToAct(text),
+      forceRenderSpinner: () => agent.forceRenderSpinner(),
+      getMessagesWithImages: () => agent.getMessagesWithImages(),
+      getReactionParser: () => agent.getReactionParser(),
+      handleSmartContextCrop: (call) => agent.handleSmartContextCrop(call),
+      isContextOverflowError: (errorOrMessage) => agent.isContextOverflowError(errorOrMessage),
+      saveAssistantMessage: (content, toolCalls) => agent.saveAssistantMessage(content, toolCalls),
+      saveToolMessage: (name, content, toolCallId) => agent.saveToolMessage(name, content, toolCallId),
+      setComposerFinalResponse: (response) => agent.setComposerFinalResponse(response),
+      setComposerIdle: () => agent.setComposerIdle(),
+      setSpinnerStatus: (status) => agent.setSpinnerStatus(status),
+      startStatusUpdates: () => agent.startStatusUpdates(),
+      stopStatusUpdates: () => agent.stopStatusUpdates(),
+      updateContextUsage: (messages, tools) => agent.updateContextUsage(messages, tools),
+      writeDebugLine: (message) => agent.writeDebugLine(message),
+    };
+  }
+
   private getReactionParser(): ReactionParser {
     if (!this.reactionParser) {
       this.reactionParser = new ReactionParser({
