@@ -594,9 +594,14 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
 
             // /quit and /exit are handled above (line 1795)
             if (command !== '/quit' && command !== '/exit') {
+              const isInkRunning = host.inkRenderer?.isRunning();
+
               // Echo the slash command to the chat log so it's visible.
-              // Skip the echo for /plan in Ink mode to avoid stdout corruption.
-              if (!(command === '/plan' && host.inkRenderer?.isRunning())) {
+              // In Ink mode this must stay inside the renderer; raw stdout
+              // fights the composer and duplicates the input frame.
+              if (isInkRunning) {
+                host.inkRenderer.addUserMessage(instruction);
+              } else if (command !== '/plan') {
                 console.log(chalk.white(`\n› ${instruction}`));
               }
 
@@ -622,7 +627,9 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
               if (process.env.AUTOHAND_DEBUG === '1') {
                 console.log(`[DEBUG] After runSlashCommandWithInput: inkRenderer exists=${!!host.inkRenderer}, isRunning=${host.inkRenderer?.isRunning()}`);
               }
-              if (handled !== null) {
+              if (handled !== null && host.inkRenderer?.isRunning()) {
+                host.inkRenderer.addAssistantMessage(handled);
+              } else if (handled !== null) {
                 console.log(renderTerminalMarkdown(handled));
               }
               // Ensure the renderer is in idle state so the Composer accepts input
@@ -684,7 +691,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         // Update activity timestamp on every user interaction
         host.lastActivityAt = Date.now();
 
-        if (instruction === '/exit' || instruction === '/quit') {
+        if (instruction.trim() === '/exit' || instruction.trim() === '/quit') {
           // Fire-and-forget: don't block quit on telemetry
           host.telemetryManager.trackCommand({ command: instruction }).catch(() => {});
           const trigger = host.feedbackManager.shouldPrompt({ sessionEnding: true });

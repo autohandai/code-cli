@@ -29,6 +29,7 @@ function createContext() {
 const DEFAULT_COMMANDS: SlashCommand[] = [
   { command: '/model', description: 'choose model', implemented: true },
   { command: '/init', description: 'init agents', implemented: true },
+  { command: '/about', description: 'about', implemented: true },
   { command: '/ide', description: 'connect ide', implemented: true },
 ];
 
@@ -95,5 +96,19 @@ describe('SlashCommandHandler', () => {
       onBeforeModal: ctx.onBeforeModal,
       onAfterModal: ctx.onAfterModal,
     }));
+  });
+
+  it('returns /about output instead of printing through the active composer', async () => {
+    const ctx = createContext();
+    const handler = new SlashCommandHandler(ctx as any, DEFAULT_COMMANDS);
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const result = await handler.handle('/about');
+
+    expect(result).toContain('Autohand');
+    expect(spy).not.toHaveBeenCalled();
+    expect(ctx.onBeforeModal).not.toHaveBeenCalled();
+    expect(ctx.onAfterModal).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 });

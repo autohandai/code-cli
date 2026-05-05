@@ -245,7 +245,7 @@ function runGitCommand(args: string[], cwd: string): Promise<string | undefined>
       proc.stdout?.on('data', (chunk) => { stdout += chunk.toString(); });
       proc.on('close', (code) => {
         clearTimeout(timeout);
-        resolve(code === 0 && stdout.trim() ? stdout.trim() : undefined);
+        resolve(code === 0 ? stdout.trim() : undefined);
       });
       proc.on('error', () => { clearTimeout(timeout); resolve(undefined); });
     } catch {

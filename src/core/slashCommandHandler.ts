@@ -77,12 +77,7 @@ export class SlashCommandHandler {
         }
         case '/about': {
           const { about } = await import('../commands/about.js');
-          await this.ctx.onBeforeModal?.();
-          try {
-            return about();
-          } finally {
-            await this.ctx.onAfterModal?.();
-          }
+          return about();
         }
         case '/agents': {
           const { handler } = await import('../commands/agents.js');

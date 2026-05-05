@@ -29,6 +29,37 @@ describe('InkRenderer live command blocks', () => {
     ]);
   });
 
+  it('keeps completed turns in chronological transcript order', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+
+    renderer.addUserMessage('where am I?');
+    renderer.setThinking('Need to inspect the current directory.');
+    renderer.addToolOutput('run_command', true, '$ pwd\n/tmp/project');
+    renderer.setElapsed('1s');
+    renderer.setTokens('10 tokens');
+    renderer.setWorking(false);
+    renderer.setFinalResponse('You are in /tmp/project.');
+    renderer.setWorking(true, 'Reasoning...');
+    renderer.addUserMessage('thanks');
+
+    expect(renderer.getState().chatMessages).toEqual([
+      { role: 'user', content: 'where am I?' },
+      {
+        role: 'tool',
+        tool: 'run_command',
+        success: true,
+        content: '$ pwd\n/tmp/project',
+      },
+      { role: 'assistant', content: 'You are in /tmp/project.' },
+      { role: 'completion', content: 'Completed in 1s · 10 tokens' },
+      { role: 'user', content: 'thanks' },
+    ]);
+  });
+
   it('tracks a running command and finalizes it into tool output', () => {
     const renderer = new InkRenderer({
       onInstruction: () => {},
