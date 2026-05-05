@@ -685,6 +685,7 @@
     "xai": "xAI (Grok)",
     "cerebras": "Cerebras AI",
     "nvidia": "NVIDIA AI Cloud",
+    "deepseek": "DeepSeek",
     "openaiAuth": {
       "chooseTitle": "Choose how to connect OpenAI",
       "apiKeyLabel": "Use API key",
@@ -714,7 +715,8 @@
       "vertexai": "Cloud - Google Cloud Vertex AI (Gemini, Claude, GLM models)",
       "xai": "Cloud - xAI Grok models with web search, X search, and code execution",
       "cerebras": "Cloud - Cerebras AI with GLM and Qwen models",
-      "nvidia": "Cloud - NVIDIA NIM models (Llama, Phi, Gemma, Mixtral, etc.)"
+      "nvidia": "Cloud - NVIDIA NIM models (Llama, Phi, Gemma, Mixtral, etc.)",
+      "deepseek": "Cloud - DeepSeek API models (V4 Flash, V4 Pro, reasoning)"
     },
     "config": {
       "chooseProvider": "Choose an LLM provider",
@@ -833,6 +835,11 @@
         "title": "NVIDIA AI Cloud Configuration",
         "apiKeyUrl": "https://build.nvidia.com/api-key",
         "enterModel": "Select an NVIDIA model"
+      },
+      "deepseek": {
+        "title": "DeepSeek Configuration",
+        "apiKeyUrl": "https://platform.deepseek.com/api_keys",
+        "enterModel": "Select a DeepSeek model"
       },
       "azure": {
         "title": "Azure OpenAI Configuration",

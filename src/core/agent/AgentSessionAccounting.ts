@@ -55,6 +55,7 @@ export interface AgentSessionAccountingHost {
   };
   totalTokensUsed: number;
   cleanupModelResponse(raw: string): string;
+  cleanupUI?(keepInkAlive?: boolean): void;
   closeSession(): Promise<void>;
   emitOutput(event: AgentOutputEvent): void;
   emitStatus(): void;
@@ -101,6 +102,7 @@ export async function forceAgentIdleLogout(host: AgentSessionAccountingHost): Pr
 }
 
 export async function closeAgentSession(host: AgentSessionAccountingHost): Promise<void> {
+  host.cleanupUI?.(false);
   host.persistentInput.dispose();
 
   const session = host.sessionManager.getCurrentSession();

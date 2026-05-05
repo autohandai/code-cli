@@ -19,6 +19,7 @@ interface DiffBaseline {
 
 const ZERO_STATS: SessionDiffStats = { added: 0, removed: 0 };
 const MAX_UNTRACKED_FILE_BYTES = 1024 * 1024;
+const GIT_COMMAND_TIMEOUT_MS = 10_000;
 
 export class SessionDiffStatsTracker {
   private readonly baseline: DiffBaseline;
@@ -75,7 +76,7 @@ export class SessionDiffStatsTracker {
       cwd: this.workspaceRoot,
       encoding: 'utf8',
       maxBuffer: 1024 * 1024,
-      timeout: 2_000,
+      timeout: GIT_COMMAND_TIMEOUT_MS,
     });
 
     if (result.error || result.status !== 0) {

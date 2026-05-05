@@ -30,6 +30,7 @@ const DEFAULT_OPENAI_URL = "https://api.openai.com/v1";
 const DEFAULT_MLX_URL = "http://localhost:8080";
 const DEFAULT_LLMGATEWAY_URL = "https://api.llmgateway.io/v1";
 const DEFAULT_ZAI_URL = "https://api.z.ai/api/paas/v4";
+const DEFAULT_DEEPSEEK_URL = "https://api.deepseek.com";
 
 interface LegacyConfigShape {
   api_key?: string;
@@ -67,6 +68,7 @@ function normalizeProviderName(provider: unknown): ProviderName | undefined {
     "xai",
     "cerebras",
     "nvidia",
+    "deepseek",
   ];
 
   if (typeof provider === "string" && validProviders.includes(provider as ProviderName)) {
@@ -341,7 +343,10 @@ function stringifyTomlObject(data: Record<string, unknown>): string {
 async function parseConfigFile(
   configPath: string,
 ): Promise<AutohandConfig | LegacyConfigShape> {
-  const content = await fs.readFile(configPath, "utf8");
+  const rawContent = await fs.readFile(configPath, "utf8");
+  const content = rawContent.charCodeAt(0) === 0xfeff
+    ? rawContent.slice(1)
+    : rawContent;
 
   if (isYamlFile(configPath)) {
     const parsed = YAML.parse(content) as
@@ -388,7 +393,7 @@ export async function loadConfig(customPath?: string, workspaceRoot?: string): P
       openrouter: {
         apiKey: "",
         baseUrl: "https://openrouter.ai/api/v1",
-        model: "anthropic/claude-sonnet-4-20250514",
+        model: "openrouter/auto",
       },
       workspace: {
         defaultRoot: process.cwd(),
@@ -591,7 +596,7 @@ function normalizeConfig(
       openrouter: {
         apiKey: config.api_key ?? "replace-me",
         baseUrl: config.base_url ?? DEFAULT_BASE_URL,
-        model: config.model ?? "anthropic/claude-sonnet-4-20250514",
+        model: "anthropic/claude-4-sonnet",
       },
       workspace: {
         defaultRoot: process.cwd(),
@@ -622,7 +627,8 @@ function isModernConfig(
     typeof (config as AutohandConfig).vertexai === "object" ||
     typeof (config as AutohandConfig).xai === "object" ||
     typeof (config as AutohandConfig).cerebras === "object" ||
-    typeof (config as AutohandConfig).nvidia === "object"
+    typeof (config as AutohandConfig).nvidia === "object" ||
+    typeof (config as AutohandConfig).deepseek === "object"
   );
 }
 
@@ -779,6 +785,7 @@ export function getProviderConfig(
     xai: config.xai,
     cerebras: config.cerebras,
     nvidia: config.nvidia,
+    deepseek: config.deepseek,
   };
 
   const entry = configByProvider[chosen];
@@ -809,7 +816,8 @@ export function getProviderConfig(
     chosen === "openrouter" ||
     chosen === "llmgateway" ||
     chosen === "zai" ||
-    chosen === "nvidia"
+    chosen === "nvidia" ||
+    chosen === "deepseek"
   ) {
     const { apiKey, model } = entry as ProviderSettings;
     if (!apiKey || apiKey === "replace-me" || !model) {
@@ -848,6 +856,7 @@ function defaultBaseUrlFor(
   if (provider === "openrouter") return DEFAULT_BASE_URL;
   if (provider === "llmgateway") return DEFAULT_LLMGATEWAY_URL;
   if (provider === "zai") return DEFAULT_ZAI_URL;
+  if (provider === "deepseek") return DEFAULT_DEEPSEEK_URL;
   const p = port ? port.toString() : undefined;
   switch (provider) {
     case "ollama":

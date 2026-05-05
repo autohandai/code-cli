@@ -12,7 +12,7 @@ import { CONTEXT_ENV_VARS } from './types.js';
 
 /** Known model context windows */
 const MODEL_CONTEXT: Record<string, number> = {
-  "anthropic/claude-sonnet-4-20250514": 200_000,
+  "anthropic/claude-4-sonnet": 200_000,
   "anthropic/claude-3-opus": 200_000,
   "anthropic/claude-3-haiku": 200_000,
   "anthropic/claude-opus-4": 200_000,
@@ -25,9 +25,11 @@ const MODEL_CONTEXT: Record<string, number> = {
   "google/gemini-pro": 128_000,
   "google/gemini-2.0-flash": 1_000_000,
   "google/gemini-2.5-pro": 1_000_000,
+  "google/gemini-3.0-pro": 1_000_000,
   "deepseek/deepseek-r1": 64_000,
   "deepseek/deepseek-r1-0528-qwen3-8b:free": 8_000,
   "deepseek/deepseek-coder": 16_000,
+  "deepseek/deepseek-v4": 128_000,
 };
 
 /** Safety margin to prevent hitting exact limits (10% reserved) */

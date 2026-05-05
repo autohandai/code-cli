@@ -416,12 +416,13 @@ export function parseAvailableModels(config: LoadedConfig): string[] {
 
   // Popular models that work with OpenRouter
   const popularModels = [
-    "anthropic/claude-sonnet-4-20250514",
+    "openrouter/auto",
     "openai/gpt-4o",
-    "google/gemini-2.0-flash-001",
-    "deepseek/deepseek-chat-v3-0324",
-    "anthropic/claude-sonnet-4-20250514",
-    "anthropic/claude-opus-4-20250514",
+    "openai/gpt-5",
+    "google/gemini-3.0-pro",
+    "deepseek/deepseek-v4",
+    "anthropic/claude-5-sonnet",
+    "anthropic/claude-5-opus",
   ];
 
   for (const m of popularModels) {
@@ -448,5 +449,5 @@ export function resolveDefaultMode(config?: LoadedConfig): string {
 export function resolveDefaultModel(config: LoadedConfig): string {
   const providerName = config.provider ?? "openrouter";
   const providerConfig = (config as Record<string, any>)[providerName];
-  return providerConfig?.model ?? "anthropic/claude-sonnet-4-20250514";
+  return providerConfig?.model ?? "anthropic/claude-5-sonnet";
 }

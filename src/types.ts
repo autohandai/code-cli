@@ -30,7 +30,7 @@ type Primitive = string | number | boolean | null;
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
-export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure' | 'zai' | 'vertexai' | 'xai' | 'cerebras' | 'nvidia';
+export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure' | 'zai' | 'vertexai' | 'xai' | 'cerebras' | 'nvidia' | 'deepseek';
 
 export type AzureAuthMethod = 'api-key' | 'entra-id' | 'managed-identity';
 export type OpenAIAuthMode = 'api-key' | 'chatgpt';
@@ -86,6 +86,10 @@ export interface AzureSettings extends ProviderSettings {
 }
 
 export interface ZaiSettings extends ProviderSettings {
+  apiKey: string;
+}
+
+export interface DeepSeekSettings extends ProviderSettings {
   apiKey: string;
 }
 
@@ -622,6 +626,8 @@ export interface AutohandConfig {
   cerebras?: CerebrasSettings;
   /** NVIDIA AI Cloud settings (NVIDIA NIM models) */
   nvidia?: NvidiaAISettings;
+  /** DeepSeek API settings */
+  deepseek?: DeepSeekSettings;
   workspace?: WorkspaceSettings;
   ui?: UISettings;
   agent?: AgentSettings;
