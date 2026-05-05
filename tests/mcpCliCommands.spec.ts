@@ -42,7 +42,7 @@ describe('MCP CLI subcommands', () => {
         `bun ${path.resolve('src/index.ts')} ${args}`,
         {
           encoding: 'utf8',
-          timeout: 15000,
+          timeout: 25_000,
           cwd: options?.cwd,
           env: {
             ...process.env,

@@ -242,7 +242,7 @@ describe('browser/chrome', () => {
     // produces output on stdout (the forwarded CLI response).  Under heavy
     // parallel test load the CLI child can take much longer to start and
     // emit its JSON-RPC line, so a fixed delay is inherently racy.
-    const OUTPUT_TIMEOUT_MS = 8000;
+    const OUTPUT_TIMEOUT_MS = 15000;
     await new Promise<void>((resolve) => {
       const timeout = setTimeout(resolve, OUTPUT_TIMEOUT_MS);
       const interval = setInterval(() => {

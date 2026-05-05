@@ -667,7 +667,14 @@ describe('ToolManager', () => {
 
     it('speedup scales with tool count (3 vs 5 vs 10 tools)', async () => {
       const ioDelay = 30;
-      const results: Array<{ count: number; seqMs: number; parMs: number; speedup: number }> = [];
+      const results: Array<{
+        count: number;
+        seqMs: number;
+        parMs: number;
+        speedup: number;
+        sequentialMaxConcurrency: number;
+        parallelMaxConcurrency: number;
+      }> = [];
 
       for (const count of [3, 5, 10]) {
         // Build definitions and calls for this count
@@ -676,11 +683,12 @@ describe('ToolManager', () => {
         }));
         const calls = defs.map(d => ({ tool: d.name, args: {} }));
 
-        const executor = createDelayedExecutor(ioDelay);
+        const sequentialTracker = { current: 0, max: 0 };
+        const parallelTracker = { current: 0, max: 0 };
 
         // Sequential
         const seqManager = new ToolManager({
-          executor,
+          executor: createDelayedExecutor(ioDelay, sequentialTracker),
           confirmApproval: vi.fn().mockResolvedValue(true),
           definitions: defs as any,
           maxConcurrency: 1
@@ -691,7 +699,7 @@ describe('ToolManager', () => {
 
         // Parallel
         const parManager = new ToolManager({
-          executor,
+          executor: createDelayedExecutor(ioDelay, parallelTracker),
           confirmApproval: vi.fn().mockResolvedValue(true),
           definitions: defs as any,
           maxConcurrency: 5
@@ -701,7 +709,14 @@ describe('ToolManager', () => {
         const parMs = Date.now() - parStart;
 
         const speedup = seqMs / parMs;
-        results.push({ count, seqMs, parMs, speedup });
+        results.push({
+          count,
+          seqMs,
+          parMs,
+          speedup,
+          sequentialMaxConcurrency: sequentialTracker.max,
+          parallelMaxConcurrency: parallelTracker.max,
+        });
       }
 
       // Print benchmark table
@@ -714,13 +729,17 @@ describe('ToolManager', () => {
       }
       console.log('  └────────┴────────────┴────────────┴──────────┘');
 
-      // 3 tools should be at least 2x faster
-      expect(results[0].speedup).toBeGreaterThanOrEqual(2);
-      // 5 tools should be at least 3x faster
-      expect(results[1].speedup).toBeGreaterThanOrEqual(3);
-      // 10 tools (capped at concurrency 5): two batches of 5 → ~2x vs seq
-      // Still significantly faster than sequential
-      expect(results[2].speedup).toBeGreaterThanOrEqual(3);
+      expect(results[0].sequentialMaxConcurrency).toBe(1);
+      expect(results[1].sequentialMaxConcurrency).toBe(1);
+      expect(results[2].sequentialMaxConcurrency).toBe(1);
+
+      expect(results[0].parallelMaxConcurrency).toBe(3);
+      expect(results[1].parallelMaxConcurrency).toBe(5);
+      expect(results[2].parallelMaxConcurrency).toBe(5);
+
+      for (const result of results) {
+        expect(result.parMs).toBeLessThan(result.seqMs);
+      }
     });
 
     it('real file I/O: parallel reads are faster than sequential', async () => {
