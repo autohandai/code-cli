@@ -168,7 +168,7 @@ export class FeedbackApiClient {
     const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
 
     try {
-      const response = await fetch(`${this.config.baseUrl}/v1/feedback/`, {
+      const response = await fetch(this.getFeedbackSubmitUrl(), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -197,6 +197,10 @@ export class FeedbackApiClient {
 
       throw error;
     }
+  }
+
+  private getFeedbackSubmitUrl(): string {
+    return `${this.config.baseUrl.replace(/\/+$/, '')}/v1/feedback`;
   }
 
   // ============ Offline Queue ============
