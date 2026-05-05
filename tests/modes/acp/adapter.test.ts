@@ -1065,11 +1065,11 @@ describe("AutohandAcpAdapter", () => {
 
       const result = await adapter.unstable_setSessionModel({
         sessionId: session.sessionId,
-        modelId: "openai/gpt-4o",
+        modelId: "openai/gpt-5",
       } as any);
 
       expect(result).toEqual({});
-      expect(mockAgent.applyAcpModel).toHaveBeenCalledWith("openai/gpt-4o");
+      expect(mockAgent.applyAcpModel).toHaveBeenCalledWith("openai/gpt-5");
 
       stderrSpy.mockRestore();
     });
