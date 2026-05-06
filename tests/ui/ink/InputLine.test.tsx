@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import React from 'react';
+import chalk from 'chalk';
+import { renderToString } from 'ink';
 import { render } from 'ink-testing-library';
 import { InputLine } from '../../../src/ui/ink/InputLine.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
@@ -240,6 +242,26 @@ describe('InputLine cursor positioning', () => {
     const output = stripAnsi(lastFrame());
     expect(output).toContain('hello');
     expect(output).toContain('world');
+  });
+
+  it('renders a visible reverse-video cursor at the cursor offset', () => {
+    const originalChalkLevel = chalk.level;
+    let output = '';
+
+    try {
+      chalk.level = 3;
+
+      output = renderToString(
+        <ThemeProvider>
+          <InputLine value="hello" cursorOffset={2} isActive width={80} />
+        </ThemeProvider>,
+        { columns: 80 }
+      );
+    } finally {
+      chalk.level = originalChalkLevel;
+    }
+
+    expect(output).toContain('\u001b[7ml');
   });
 
   it('handles empty input with cursor at start', () => {
