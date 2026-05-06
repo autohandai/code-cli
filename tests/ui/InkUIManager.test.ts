@@ -79,6 +79,30 @@ describe('InkUIManager', () => {
     expect(renderer.addQueuedInstruction).not.toHaveBeenCalled();
   });
 
+  it('passes composer suggestion callbacks through to InkRenderer', async () => {
+    const renderer = createRenderer();
+    const suggestionProvider = vi.fn(() => 'Run the test suite');
+    const resolveShellSuggestion = vi.fn(async () => '! git status');
+    const rendererFactory = vi.fn((_options: InkRendererOptions) => renderer);
+    const manager = new InkUIManager({
+      onInstruction: vi.fn(),
+      onEscape: vi.fn(),
+      onCtrlC: vi.fn(),
+      suggestionProvider,
+      resolveShellSuggestion,
+      rendererFactory,
+    } as InkUIManagerOptions);
+
+    await manager.start();
+
+    expect(rendererFactory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        suggestionProvider,
+        resolveShellSuggestion,
+      })
+    );
+  });
+
   it('resolves waitForInput from renderer-submitted instructions', async () => {
     const renderer = createRenderer();
     const onInstruction = vi.fn();

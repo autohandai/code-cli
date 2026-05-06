@@ -42,6 +42,12 @@ export interface InkRendererOptions {
   slashCommands?: SlashCommand[];
   /** Provider for skill list used in $ mention autocomplete */
   skillsProvider?: () => SkillMentionInfo[];
+  /** Base path used for shell path completion. Defaults to process.cwd(). */
+  workspaceRoot?: string;
+  /** Lazy provider for the current next-step suggestion shown as ghost text. */
+  suggestionProvider?: () => string | undefined;
+  /** Optional async LLM resolver for ! command suggestions. */
+  resolveShellSuggestion?: (input: string) => Promise<string | null>;
   /** Optional extension points for status/help lines. */
   lineExtensions?: AgentUILineExtensions;
 }
@@ -66,6 +72,9 @@ interface AgentUIWrapperProps {
   filesProvider?: () => string[];
   slashCommands?: SlashCommand[];
   skillsProvider?: () => SkillMentionInfo[];
+  workspaceRoot?: string;
+  suggestionProvider?: () => string | undefined;
+  resolveShellSuggestion?: (input: string) => Promise<string | null>;
   lineExtensions?: AgentUILineExtensions;
 }
 
@@ -87,6 +96,9 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       filesProvider,
       slashCommands,
       skillsProvider,
+      workspaceRoot,
+      suggestionProvider,
+      resolveShellSuggestion,
       lineExtensions,
     } = props;
 
@@ -123,6 +135,9 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         filesProvider={filesProvider}
         slashCommands={slashCommands}
         skillsProvider={skillsProvider}
+        workspaceRoot={workspaceRoot}
+        suggestionProvider={suggestionProvider}
+        resolveShellSuggestion={resolveShellSuggestion}
         lineExtensions={lineExtensions}
       />
     );
@@ -286,6 +301,9 @@ export class InkRenderer {
             filesProvider={this.options.filesProvider}
             slashCommands={this.options.slashCommands}
             skillsProvider={this.options.skillsProvider}
+            workspaceRoot={this.options.workspaceRoot}
+            suggestionProvider={this.options.suggestionProvider}
+            resolveShellSuggestion={this.options.resolveShellSuggestion}
             lineExtensions={this.options.lineExtensions}
           />
         </I18nProvider>
@@ -794,6 +812,21 @@ export class InkRenderer {
     this.updateState({ currentInput: '' });
   }
 
+  setPendingSuggestion(pendingSuggestion?: Promise<void>): void {
+    if (!pendingSuggestion) {
+      return;
+    }
+
+    pendingSuggestion.then(() => {
+      const currentInput = this.wrapperRef.current?.getState().currentInput ?? this.state.currentInput;
+      if (currentInput.trim().length > 0 || !this.options.suggestionProvider?.()) {
+        return;
+      }
+
+      this.updateState({ suggestionRefreshId: Date.now() });
+    }).catch(() => {});
+  }
+
   /**
    * Pause input handling by stopping the renderer (preserves state)
    * Use this before external prompts that need stdin access
@@ -902,6 +935,10 @@ export class InkRenderer {
               filesProvider={this.options.filesProvider}
               slashCommands={this.options.slashCommands}
               skillsProvider={this.options.skillsProvider}
+              workspaceRoot={this.options.workspaceRoot}
+              suggestionProvider={this.options.suggestionProvider}
+              resolveShellSuggestion={this.options.resolveShellSuggestion}
+              lineExtensions={this.options.lineExtensions}
             />
           </I18nProvider>
         </ThemeProvider>,

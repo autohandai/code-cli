@@ -73,6 +73,7 @@ export async function runAgentInteractive(host: AgentLifecycleHost, initialInstr
         });
       })();
       host.persistentInput.setPendingSuggestion(host.pendingSuggestion);
+      host.inkRenderer?.setPendingSuggestion?.(host.pendingSuggestion);
     }
 
     // Install exit signal handlers to stop queue processing immediately on SIGINT/SIGTERM
@@ -452,6 +453,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
       }
       // Set to idle state so the Composer accepts input immediately
       host.setComposerIdle();
+      host.inkRenderer?.setPendingSuggestion?.(host.pendingSuggestion ?? undefined);
     }
 
     while (true) {
@@ -725,6 +727,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         if (host.suggestionEngine) {
           host.pendingSuggestion = host.suggestionEngine.generate(host.conversation.history());
           host.persistentInput.setPendingSuggestion(host.pendingSuggestion);
+          host.inkRenderer?.setPendingSuggestion?.(host.pendingSuggestion);
         }
 
         // Fire stop hook after turn completes (non-blocking)

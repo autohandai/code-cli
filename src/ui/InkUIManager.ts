@@ -21,6 +21,9 @@ export interface InkUIManagerOptions {
   filesProvider?: () => string[];
   slashCommands?: SlashCommand[];
   skillsProvider?: () => SkillMentionInfo[];
+  workspaceRoot?: string;
+  suggestionProvider?: () => string | undefined;
+  resolveShellSuggestion?: (input: string) => Promise<string | null>;
   rendererFactory?: (options: InkRendererOptions) => InkRenderer;
 }
 

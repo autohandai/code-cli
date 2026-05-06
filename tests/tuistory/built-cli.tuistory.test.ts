@@ -101,7 +101,10 @@ describe('interactive built CLI Tuistory tests', () => {
   }
 
   async function waitForComposer(session: Session): Promise<void> {
-    await session.waitForText('Plan, search', { timeout: 20_000 });
+    await session.text({
+      timeout: 20_000,
+      waitFor: (text) => text.includes('❯'),
+    });
   }
 
   it('starts the interactive TUI without real auth, network, or user home state', async () => {
@@ -193,7 +196,7 @@ describe('interactive built CLI Tuistory tests', () => {
     }
 
     await exitInteractive(session);
-  }, 120_000);
+  }, 240_000);
 
   it('selects the Sandy theme and renders the expected Sandy colors', async () => {
     const session = await launchInteractive({

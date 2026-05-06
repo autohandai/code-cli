@@ -56,6 +56,12 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
           host.imageManager.add(data, mimeType, filename),
         filesProvider: () => host.workspaceFileCollector.getCachedFiles(),
         slashCommands: SLASH_COMMANDS,
+        workspaceRoot: host.runtime?.workspaceRoot,
+        resolveShellSuggestion: (input) =>
+          typeof host.resolveLlmShellSuggestion === 'function'
+            ? host.resolveLlmShellSuggestion(input)
+            : Promise.resolve(null),
+        suggestionProvider: () => host.suggestionEngine?.getSuggestion() ?? undefined,
         skillsProvider: () =>
           host.skillsRegistry.listSkills().map((skill: { name: string; description?: string; isActive: boolean; source: string }) => ({
             name: skill.name,
