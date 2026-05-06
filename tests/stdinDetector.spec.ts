@@ -170,4 +170,19 @@ describe('readPipedStdin', () => {
     const result = await promise;
     expect(result).toBe('within default');
   });
+
+  it('resolves immediately when stdin already ended before listeners attach', async () => {
+    const { readPipedStdin } = await import('../src/utils/stdinDetector.js');
+    const endedStdin = Object.assign(new EventEmitter(), {
+      readableEnded: true,
+      read: vi.fn(() => null),
+      resume: vi.fn(),
+      setEncoding: vi.fn(),
+    });
+
+    const result = await readPipedStdin(5_000, endedStdin as unknown as NodeJS.ReadableStream);
+
+    expect(result).toBe('');
+    expect(endedStdin.resume).not.toHaveBeenCalled();
+  });
 });

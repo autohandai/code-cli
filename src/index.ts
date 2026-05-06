@@ -30,8 +30,6 @@ import { resolveAutoModeLaunchMode } from './modes/autoModeRouting.js';
 import { PROJECT_DIR_NAME } from './constants.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessionWorktree.js';
 import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './utils/tmux.js';
-import { promptNotify } from './ui/inputPrompt.js';
-import { shouldUseInkRenderer } from './ui/inkMode.js';
 import { registerChromeCommand } from './browser/cliCommand.js';
 import { ASCII_FRIEND } from './utils/asciiArt.js';
 import {
@@ -117,22 +115,9 @@ async function loadConfigForMcpScope(scopeInput?: string): Promise<{ config: Loa
   const projectConfigPath = await resolveProjectConfigPath(process.cwd());
   return { config: await loadConfig(projectConfigPath, process.cwd()), scope };
 }
-import { FileActionManager } from './actions/filesystem.js';
-import { configureSearch } from './actions/web.js';
-import { ProviderFactory } from './providers/ProviderFactory.js';
-import { AutohandAgent } from './core/agent.js';
-import { runAutoSkillGeneration } from './skills/autoSkill.js';
-import { runRpcMode } from './modes/rpc/index.js';
-import { runAcpMode } from './modes/acp/index.js';
 import { normalizeMcpCommandForConfig } from './mcp/commandNormalization.js';
-import { SetupWizard } from './onboarding/index.js';
 import type { CLIOptions, AgentRuntime } from './types.js';
-import { safeSetRawMode } from './ui/rawMode.js';
-import {
-  buildPermissionSettingsFromYolo,
-  normalizeYoloInput,
-  parseYoloPattern,
-} from './permissions/yoloMode.js';
+import type { AutohandAgent } from './core/agent.js';
 
 /**
  * Validate auth token on startup
@@ -373,6 +358,7 @@ program
         process.exit(1);
       }
 
+      const { SetupWizard } = await import('./onboarding/index.js');
       const wizard = new SetupWizard(workspaceRoot, config);
       const result = await wizard.run({ skipWelcome: false });
 
@@ -455,12 +441,14 @@ program
 
     // RPC mode takes priority - auto-mode is handled via RPC methods when in RPC mode
     if (opts.mode === 'rpc') {
+      const { runRpcMode } = await import('./modes/rpc/index.js');
       await runRpcMode(opts);
       return;
     }
 
     // Native ACP mode - in-process Agent Client Protocol over stdio
     if (opts.mode === 'acp') {
+      const { runAcpMode } = await import('./modes/acp/index.js');
       await runAcpMode(opts);
       return;
     }
@@ -882,7 +870,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
     let config = await loadConfig(options.config, process.cwd());
     const originalWorkspaceRoot = resolveWorkspaceRoot(config, options.path);
     let workspaceRoot = originalWorkspaceRoot;
-    let sessionWorktree: ReturnType<typeof prepareSessionWorktree> | null = null;
+    let sessionWorktree: ReturnType<typeof import('./utils/sessionWorktree.js')['prepareSessionWorktree']> | null = null;
 
     // Initialize i18n with locale detection
     const { locale: detectedLocale } = detectLocale({
@@ -891,6 +879,11 @@ async function runCLI(options: CLIOptions): Promise<void> {
     });
     await initI18n(detectedLocale);
 
+    const {
+      buildPermissionSettingsFromYolo,
+      normalizeYoloInput,
+      parseYoloPattern,
+    } = await import('./permissions/yoloMode.js');
     const normalizedYolo = normalizeYoloInput(options.yolo as string | boolean | undefined);
     if (normalizedYolo) {
       try {
@@ -912,6 +905,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
 
     if (!providerConfig) {
       // No valid provider config - run the setup wizard
+      const { SetupWizard } = await import('./onboarding/index.js');
       const wizard = new SetupWizard(originalWorkspaceRoot, config);
       const result = await wizard.run({ skipWelcome: !config.isNewConfig });
 
@@ -1003,6 +997,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
     }
     // Store whether Ink will be enabled so we can synchronize startup.
     // Ink is code-defaulted, not controlled by stale config.ui.useInkRenderer.
+    const { shouldUseInkRenderer } = await import('./ui/inkMode.js');
     const inkEnabled = shouldUseInkRenderer();
 
     // Initialize and start ping service (45-minute intervals for usage tracking)
@@ -1090,6 +1085,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
                   if (agentHolder.current) {
                     agentHolder.current.notifyUser(message);
                   } else {
+                    const { promptNotify } = await import('./ui/inputPrompt.js');
                     promptNotify(chalk.yellow(message));
                   }
                 },
@@ -1131,12 +1127,15 @@ async function runCLI(options: CLIOptions): Promise<void> {
       config.agent.debug = true;
     }
 
+    const { ProviderFactory } = await import('./providers/ProviderFactory.js');
+    const { FileActionManager } = await import('./actions/filesystem.js');
     const llmProvider = ProviderFactory.create(config);
     const files = new FileActionManager(workspaceRoot, runtime.additionalDirs);
 
     // Handle --auto-skill flag
     if (options.autoSkill) {
       console.log(chalk.cyan('\nAuto-generating skills for this project...\n'));
+      const { runAutoSkillGeneration } = await import('./skills/autoSkill.js');
       const result = await runAutoSkillGeneration(workspaceRoot, llmProvider);
       if (!result.success) {
         console.log(chalk.yellow(result.error || 'Failed to generate skills'));
@@ -1146,12 +1145,14 @@ async function runCLI(options: CLIOptions): Promise<void> {
 
     // Configure web search provider from CLI flag, config file, or environment
     const searchConfig = config.search ?? {};
+    const { configureSearch } = await import('./actions/web.js');
     configureSearch({
       provider: options.searchEngine ?? searchConfig.provider ?? 'google',
       braveApiKey: searchConfig.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY,
       parallelApiKey: searchConfig.parallelApiKey ?? process.env.PARALLEL_API_KEY,
     });
 
+    const { AutohandAgent } = await import('./core/agent.js');
     const agent = new AutohandAgent(llmProvider, files, runtime);
     agentHolder.current = agent;
 
@@ -1432,6 +1433,7 @@ async function runLearnNonInteractive(opts: CLIOptions, subcommand: 'recommend' 
   await skillsRegistry.setWorkspace(workspaceRoot);
 
   // Initialize LLM provider
+  const { ProviderFactory } = await import('./providers/ProviderFactory.js');
   const llmProvider = ProviderFactory.create(config);
 
   // Initialize hook manager
@@ -1612,6 +1614,8 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
     }
   }
 
+  const { ProviderFactory } = await import('./providers/ProviderFactory.js');
+  const { FileActionManager } = await import('./actions/filesystem.js');
   const llmProvider = ProviderFactory.create(config);
   const files = new FileActionManager(workspaceRoot, additionalDirs);
 
@@ -1638,6 +1642,7 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
 
   // Configure web search provider
   const searchConfig = config.search ?? {};
+  const { configureSearch } = await import('./actions/web.js');
   configureSearch({
     provider: searchConfig.provider ?? 'google',
     braveApiKey: searchConfig.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY,
@@ -1645,6 +1650,7 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
   });
 
   try {
+    const { AutohandAgent } = await import('./core/agent.js');
     const agent = new AutohandAgent(llmProvider, files, runtime);
 
     // Run the instruction (changes will be batched in preview mode)
@@ -1812,10 +1818,13 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
   console.log();
 
   // Create LLM provider
+  const { ProviderFactory } = await import('./providers/ProviderFactory.js');
   const llmProvider = ProviderFactory.create(config);
 
   // Create file manager with effective workspace (worktree if available)
+  const { FileActionManager } = await import('./actions/filesystem.js');
   const files = new FileActionManager(effectiveWorkspace, additionalDirs);
+  const { safeSetRawMode } = await import('./ui/rawMode.js');
 
   // Set up ESC key handling for cancellation
   if (process.stdin.isTTY) {
@@ -1854,12 +1863,14 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
 
     // Configure web search provider
     const searchConfig = config.search ?? {};
+    const { configureSearch } = await import('./actions/web.js');
     configureSearch({
       provider: searchConfig.provider ?? 'google',
       braveApiKey: searchConfig.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY,
       parallelApiKey: searchConfig.parallelApiKey ?? process.env.PARALLEL_API_KEY,
     });
 
+    const { AutohandAgent } = await import('./core/agent.js');
     const agent = new AutohandAgent(llmProvider, files, runtime);
 
     // Define the iteration callback

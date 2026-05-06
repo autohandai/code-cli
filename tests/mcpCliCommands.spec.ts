@@ -6,13 +6,16 @@
  * Tests for MCP CLI subcommands (autohand mcp add/remove/list)
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import fs from 'fs-extra';
 import path from 'node:path';
 import os from 'node:os';
 import { PROJECT_DIR_NAME } from '../src/constants.js';
 
 // Use a temp config directory for isolation
+const ROOT = path.resolve(import.meta.dirname, '..');
+const CLI_ENTRY = path.join(ROOT, 'src/index.ts');
+const TSX_LOADER = path.join(ROOT, 'node_modules/tsx/dist/loader.mjs');
 const tmpDir = path.join(os.tmpdir(), `autohand-mcp-test-${Date.now()}`);
 const configPath = path.join(tmpDir, 'config.json');
 
@@ -37,27 +40,21 @@ describe('MCP CLI subcommands', () => {
     args: string,
     options?: { cwd?: string; env?: Record<string, string> }
   ): { stdout: string; exitCode: number } {
-    try {
-      const stdout = execSync(
-        `bun ${path.resolve('src/index.ts')} ${args}`,
-        {
-          encoding: 'utf8',
-          timeout: 25_000,
-          cwd: options?.cwd,
-          env: {
-            ...process.env,
-            AUTOHAND_CONFIG: configPath,
-            ...(options?.env ?? {}),
-          },
-        }
-      );
-      return { stdout, exitCode: 0 };
-    } catch (error: any) {
-      return {
-        stdout: (error.stdout?.toString() ?? '') + (error.stderr?.toString() ?? ''),
-        exitCode: error.status ?? 1,
-      };
-    }
+    const result = spawnSync(process.execPath, ['--import', TSX_LOADER, CLI_ENTRY, ...args.trim().split(/\s+/)], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 25_000,
+      cwd: options?.cwd,
+      env: {
+        ...process.env,
+        AUTOHAND_CONFIG: configPath,
+        ...(options?.env ?? {}),
+      },
+    });
+    return {
+      stdout: (result.stdout ?? '') + (result.stderr ?? ''),
+      exitCode: result.status ?? 1,
+    };
   }
 
   describe('mcp add', () => {

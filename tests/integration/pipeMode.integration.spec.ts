@@ -18,6 +18,7 @@ import os from 'node:os';
  */
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
+const SCRIPT_RUNNER = `${JSON.stringify(process.execPath)} --import tsx`;
 let tempDir: string;
 let scriptPath: string;
 
@@ -61,8 +62,8 @@ describe('Pipe mode integration', () => {
     const diffContent = 'diff --git a/file.ts\\n-old\\n+new';
 
     const result = execSync(
-      `printf '${diffContent}' | bun "${scriptPath}"`,
-      { cwd: ROOT, encoding: 'utf-8', timeout: 15_000 },
+      `printf '${diffContent}' | ${SCRIPT_RUNNER} "${scriptPath}"`,
+      { cwd: ROOT, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 15_000 },
     );
 
     const parsed = JSON.parse(result.trim());
@@ -76,8 +77,8 @@ describe('Pipe mode integration', () => {
 
   it('handles empty piped input gracefully', () => {
     const result = execSync(
-      `echo '' | bun "${scriptPath}"`,
-      { cwd: ROOT, encoding: 'utf-8', timeout: 15_000 },
+      `echo '' | ${SCRIPT_RUNNER} "${scriptPath}"`,
+      { cwd: ROOT, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 15_000 },
     );
 
     const parsed = JSON.parse(result.trim());
@@ -89,8 +90,8 @@ describe('Pipe mode integration', () => {
     const multiLine = 'commit abc123\\nauthor: test\\ndate: today\\n\\nfix: resolved the issue';
 
     const result = execSync(
-      `printf '${multiLine}' | bun "${scriptPath}"`,
-      { cwd: ROOT, encoding: 'utf-8', timeout: 15_000 },
+      `printf '${multiLine}' | ${SCRIPT_RUNNER} "${scriptPath}"`,
+      { cwd: ROOT, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 15_000 },
     );
 
     const parsed = JSON.parse(result.trim());
