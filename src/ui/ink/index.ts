@@ -31,3 +31,4 @@ export {
 } from './AgentUI.js';
 export { InkRenderer, createInkRenderer, type InkRendererOptions } from './InkRenderer.js';
 export { SlashCommandDropdown, matchSlashCommand, buildSlashSuggestions, buildSubcommandSuggestions, type SlashCommandSuggestion } from './SlashCommandDropdown.js';
+export { ShellCommandDropdown, buildShellCommandSuggestions, type ShellCommandSuggestion } from './ShellCommandDropdown.js';

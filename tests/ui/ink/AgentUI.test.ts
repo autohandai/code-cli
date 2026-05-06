@@ -214,6 +214,11 @@ describe('AgentUI terminal resize rendering', () => {
 });
 
 describe('AgentUI composer suggestions', () => {
+  const slashCommands = [
+    { command: '/help', description: 'Show help', implemented: true },
+    { command: '/model', description: 'Switch model', implemented: true },
+  ];
+
   it('renders next-step suggestion in the empty Ink composer', () => {
     const state = createInitialUIState();
     const { lastFrame } = render(
@@ -260,6 +265,95 @@ describe('AgentUI composer suggestions', () => {
     );
 
     expect(stripAnsi(lastFrame() ?? '')).toContain('! git status');
+  });
+
+  it('renders slash command suggestions for a bare slash in the Ink composer', async () => {
+    const state = {
+      ...createInitialUIState(),
+      currentInput: '/',
+    };
+    const { lastFrame } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+            slashCommands,
+          })
+        )
+      )
+    );
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const frame = stripAnsi(lastFrame() ?? '');
+    expect(frame).toContain('/help');
+    expect(frame).toContain('Tab to accept');
+  });
+
+  it('renders shell command suggestions for git templates in the Ink composer', async () => {
+    const state = {
+      ...createInitialUIState(),
+      currentInput: '! git',
+    };
+    const { lastFrame } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+          })
+        )
+      )
+    );
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const frame = stripAnsi(lastFrame() ?? '');
+    expect(frame).toContain('! git status');
+    expect(frame).toContain('! git diff');
+    expect(frame).toContain('Tab to accept');
+  });
+
+  it('renders ls -la as a shell suggestion for bare bang input', async () => {
+    const state = {
+      ...createInitialUIState(),
+      currentInput: '!',
+    };
+    const { lastFrame } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+          })
+        )
+      )
+    );
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const frame = stripAnsi(lastFrame() ?? '');
+    expect(frame).toContain('! ls -la');
+    expect(frame).toContain('Tab to accept');
   });
 });
 

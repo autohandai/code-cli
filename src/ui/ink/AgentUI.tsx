@@ -16,6 +16,7 @@ import { InputLine } from './InputLine.js';
 import { ThinkingOutput } from './ThinkingOutput.js';
 import { FileMentionDropdown, parseFileSuggestions, matchFileMention, type FileMentionSuggestion } from './FileMentionDropdown.js';
 import { SlashCommandDropdown, matchSlashCommand, buildSlashSuggestions, buildSubcommandSuggestions, type SlashCommandSuggestion } from './SlashCommandDropdown.js';
+import { ShellCommandDropdown, buildShellCommandSuggestions, type ShellCommandSuggestion } from './ShellCommandDropdown.js';
 import { SkillMentionDropdown, matchSkillMention, buildSkillSuggestions, type SkillSuggestion } from './SkillMentionDropdown.js';
 import type { SlashCommand } from '../../core/slashCommandTypes.js';
 import type { SkillMentionInfo } from '../mentionFilter.js';
@@ -413,6 +414,11 @@ export function AgentUI({
   const slashStartIndexRef = useRef<number | null>(null);
   const slashFullMatchRef = useRef<string | null>(null);
 
+  // Shell (!) autocomplete state
+  const [shellSuggestions, setShellSuggestions] = useState<ShellCommandSuggestion[]>([]);
+  const [shellActiveIndex, setShellActiveIndex] = useState(0);
+  const [shellVisible, setShellVisible] = useState(false);
+
   // Skill ($) mention autocomplete state
   const [skillSuggestions, setSkillSuggestions] = useState<SkillSuggestion[]>([]);
   const [skillActiveIndex, setSkillActiveIndex] = useState(0);
@@ -480,6 +486,12 @@ export function AgentUI({
   slashSuggestionsRef.current = slashSuggestions;
   const slashActiveIndexRef = useRef(slashActiveIndex);
   slashActiveIndexRef.current = slashActiveIndex;
+  const shellVisibleRef = useRef(shellVisible);
+  shellVisibleRef.current = shellVisible;
+  const shellSuggestionsRef = useRef(shellSuggestions);
+  shellSuggestionsRef.current = shellSuggestions;
+  const shellActiveIndexRef = useRef(shellActiveIndex);
+  shellActiveIndexRef.current = shellActiveIndex;
   const showShortcutsRef = useRef(showShortcuts);
   showShortcutsRef.current = showShortcuts;
   const skillsProviderRef = useRef(skillsProvider);
@@ -544,6 +556,11 @@ export function AgentUI({
     slashFullMatchRef.current = null;
     setSlashVisible(false);
     setSlashSuggestions([]);
+
+    shellVisibleRef.current = false;
+    shellSuggestionsRef.current = [];
+    setShellVisible(false);
+    setShellSuggestions([]);
 
     skillVisibleRef.current = false;
     skillSuggestionsRef.current = [];
@@ -697,6 +714,32 @@ export function AgentUI({
     setFileMentionVisible(true);
     setFileMentionActiveIndex(prev => Math.min(prev, matchingFiles.length - 1));
   }, [input, cursorOffset, filesProvider]);
+
+  // Update shell command suggestions when input changes
+  useEffect(() => {
+    const buffer = textBufferRef.current;
+    if (input !== buffer.getText() || cursorOffset !== getTextBufferCursorOffset(buffer)) {
+      return;
+    }
+
+    const trimmed = input.trim();
+    if (!trimmed.startsWith('!')) {
+      setShellVisible(false);
+      setShellSuggestions([]);
+      return;
+    }
+
+    const suggestions = buildShellCommandSuggestions(input, workspaceRoot);
+    if (suggestions.length === 0) {
+      setShellVisible(false);
+      setShellSuggestions([]);
+      return;
+    }
+
+    setShellSuggestions(suggestions);
+    setShellVisible(true);
+    setShellActiveIndex(prev => Math.min(prev, suggestions.length - 1));
+  }, [input, cursorOffset, workspaceRoot]);
 
   // Update slash command suggestions when input changes
   useEffect(() => {
@@ -875,7 +918,7 @@ export function AgentUI({
     // Handle escape - cancel current operation
     if (key.escape) {
       // Close any open dropdowns/menus first before calling onEscape
-      if (slashVisibleRef.current || skillVisibleRef.current || fileMentionVisibleRef.current) {
+      if (slashVisibleRef.current || shellVisibleRef.current || skillVisibleRef.current || fileMentionVisibleRef.current) {
         dismissAutocompleteState();
         if (clearBareComposerTrigger(textBufferRef.current)) {
           syncInputFromBuffer();
@@ -937,8 +980,8 @@ export function AgentUI({
       return;
     }
 
-    // Handle arrow keys for slash / skill / file mention navigation
-    // Priority: slash > skill > file mention (only one is ever visible)
+    // Handle arrow keys for slash / shell / skill / file mention navigation
+    // Priority: slash > shell > skill > file mention (only one is ever visible)
     if (slashVisibleRef.current && slashSuggestionsRef.current.length > 0) {
       if (key.upArrow) {
         setSlashActiveIndex(prev =>
@@ -949,6 +992,19 @@ export function AgentUI({
       if (key.downArrow) {
         setSlashActiveIndex(prev =>
           prev < slashSuggestionsRef.current.length - 1 ? prev + 1 : 0
+        );
+        return;
+      }
+    } else if (shellVisibleRef.current && shellSuggestionsRef.current.length > 0) {
+      if (key.upArrow) {
+        setShellActiveIndex(prev =>
+          prev > 0 ? prev - 1 : shellSuggestionsRef.current.length - 1
+        );
+        return;
+      }
+      if (key.downArrow) {
+        setShellActiveIndex(prev =>
+          prev < shellSuggestionsRef.current.length - 1 ? prev + 1 : 0
         );
         return;
       }
@@ -980,26 +1036,9 @@ export function AgentUI({
       }
     }
 
-    // Handle Tab for slash / skill / file mention acceptance
+    // Handle Tab for slash / shell / skill / file mention acceptance
     // Priority matches the arrow-key block above
     if (key.tab && !key.shift) {
-      if (skillVisibleRef.current && skillSuggestionsRef.current.length > 0 && skillStartIndexRef.current !== null) {
-        const suggestion = skillSuggestionsRef.current[skillActiveIndexRef.current];
-        if (suggestion) {
-          const buffer = textBufferRef.current;
-          const currentText = buffer.getText();
-          const beforeMention = currentText.slice(0, skillStartIndexRef.current);
-          const afterCursor = currentText.slice(getTextBufferCursorOffset(buffer));
-          const replacement = `${suggestion.name} `;
-          buffer.setText(beforeMention + replacement + afterCursor);
-          syncInputFromBuffer();
-
-          setSkillVisible(false);
-          setSkillSuggestions([]);
-          skillStartIndexRef.current = null;
-          return;
-        }
-      }
       if (slashVisibleRef.current && slashSuggestionsRef.current.length > 0 && slashStartIndexRef.current !== null) {
         const suggestion = slashSuggestionsRef.current[slashActiveIndexRef.current];
         if (suggestion) {
@@ -1018,6 +1057,35 @@ export function AgentUI({
           setSlashSuggestions([]);
           slashStartIndexRef.current = null;
           slashFullMatchRef.current = null;
+          return;
+        }
+      }
+      if (shellVisibleRef.current && shellSuggestionsRef.current.length > 0) {
+        const suggestion = shellSuggestionsRef.current[shellActiveIndexRef.current];
+        if (suggestion) {
+          const buffer = textBufferRef.current;
+          buffer.setText(suggestion.command);
+          syncInputFromBuffer();
+
+          setShellVisible(false);
+          setShellSuggestions([]);
+          return;
+        }
+      }
+      if (skillVisibleRef.current && skillSuggestionsRef.current.length > 0 && skillStartIndexRef.current !== null) {
+        const suggestion = skillSuggestionsRef.current[skillActiveIndexRef.current];
+        if (suggestion) {
+          const buffer = textBufferRef.current;
+          const currentText = buffer.getText();
+          const beforeMention = currentText.slice(0, skillStartIndexRef.current);
+          const afterCursor = currentText.slice(getTextBufferCursorOffset(buffer));
+          const replacement = `${suggestion.name} `;
+          buffer.setText(beforeMention + replacement + afterCursor);
+          syncInputFromBuffer();
+
+          setSkillVisible(false);
+          setSkillSuggestions([]);
+          skillStartIndexRef.current = null;
           return;
         }
       }
@@ -1298,6 +1366,29 @@ export function AgentUI({
         }
       }
 
+      const trimmedShellText = currentText.trim();
+      if (trimmedShellText.startsWith('!')) {
+        const shellSuggs = buildShellCommandSuggestions(currentText, workspaceRootRef.current);
+        if (shellSuggs.length > 0) {
+          shellSuggestionsRef.current = shellSuggs;
+          shellVisibleRef.current = true;
+          shellActiveIndexRef.current = Math.min(shellActiveIndexRef.current, shellSuggs.length - 1);
+          setShellSuggestions(shellSuggs);
+          setShellVisible(true);
+          setShellActiveIndex(prev => Math.min(prev, shellSuggs.length - 1));
+        } else if (shellVisibleRef.current) {
+          shellVisibleRef.current = false;
+          shellSuggestionsRef.current = [];
+          setShellVisible(false);
+          setShellSuggestions([]);
+        }
+      } else if (shellVisibleRef.current) {
+        shellVisibleRef.current = false;
+        shellSuggestionsRef.current = [];
+        setShellVisible(false);
+        setShellSuggestions([]);
+      }
+
       return;
     }
   }, [syncBufferViewport, syncInputFromBuffer, dismissAutocompleteState]);
@@ -1473,6 +1564,13 @@ export function AgentUI({
             suggestions={slashSuggestions}
             activeIndex={slashActiveIndex}
             visible={slashVisible && !state.isWorking}
+          />
+        }
+        shellCommandDropdown={
+          <ShellCommandDropdown
+            suggestions={shellSuggestions}
+            activeIndex={shellActiveIndex}
+            visible={shellVisible && !state.isWorking}
           />
         }
         inputWidth={inputWidth}
@@ -1853,6 +1951,21 @@ const SlashCommandWrapper = memo(function SlashCommandWrapper({
 });
 
 /**
+ * Shell command dropdown wrapper
+ */
+interface ShellCommandWrapperProps {
+  shellCommandDropdown?: React.ReactNode;
+}
+
+const ShellCommandWrapper = memo(function ShellCommandWrapper({
+  shellCommandDropdown,
+}: ShellCommandWrapperProps) {
+  return shellCommandDropdown ?? null;
+}, (prev, next) => {
+  return prev.shellCommandDropdown === next.shellCommandDropdown;
+});
+
+/**
  * Skill mention dropdown wrapper
  */
 interface SkillMentionWrapperProps {
@@ -1888,6 +2001,7 @@ interface FixedBottomProps {
   lineExtensions?: AgentUILineExtensions;
   fileMentionDropdown?: React.ReactNode;
   slashCommandDropdown?: React.ReactNode;
+  shellCommandDropdown?: React.ReactNode;
   skillMentionDropdown?: React.ReactNode;
   /** Terminal width for InputLine */
   inputWidth: number;
@@ -1916,6 +2030,7 @@ const FixedBottom = memo(function FixedBottom({
   lineExtensions,
   fileMentionDropdown,
   slashCommandDropdown,
+  shellCommandDropdown,
   skillMentionDropdown,
   inputWidth,
   borderStyle,
@@ -1949,6 +2064,7 @@ const FixedBottom = memo(function FixedBottom({
       />
       <FileMentionWrapper fileMentionDropdown={fileMentionDropdown} />
       <SlashCommandWrapper slashCommandDropdown={slashCommandDropdown} />
+      <ShellCommandWrapper shellCommandDropdown={shellCommandDropdown} />
       <SkillMentionWrapper skillMentionDropdown={skillMentionDropdown} />
       <ShortcutsHelpPanel visible={showShortcuts && !isWorking} />
       <HelpLineSection
