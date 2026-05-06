@@ -16,6 +16,7 @@ export type StdinType = 'tty' | 'pipe' | 'none';
 
 type ReadableStdin = NodeJS.ReadableStream & {
   readableEnded?: boolean;
+  resume?: () => unknown;
   setEncoding?: (encoding: BufferEncoding) => unknown;
 };
 
@@ -113,6 +114,10 @@ export function readPipedStdin(
     if (readable.readableEnded === true) {
       settle('');
       return;
+    }
+
+    if (typeof readable.resume === 'function') {
+      readable.resume();
     }
   });
 }

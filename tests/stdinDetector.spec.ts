@@ -185,4 +185,23 @@ describe('readPipedStdin', () => {
     expect(result).toBe('');
     expect(endedStdin.resume).not.toHaveBeenCalled();
   });
+
+  it('resumes a live stdin stream so EOF is observed', async () => {
+    const { readPipedStdin } = await import('../src/utils/stdinDetector.js');
+    const resumableStdin = Object.assign(new EventEmitter(), {
+      readableEnded: false,
+      resume: vi.fn(() => {
+        queueMicrotask(() => {
+          resumableStdin.emit('end');
+        });
+        return resumableStdin;
+      }),
+      setEncoding: vi.fn(),
+    });
+
+    const result = await readPipedStdin(10, resumableStdin as unknown as NodeJS.ReadableStream);
+
+    expect(result).toBe('');
+    expect(resumableStdin.resume).toHaveBeenCalledOnce();
+  });
 });
