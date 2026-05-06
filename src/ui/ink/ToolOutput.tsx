@@ -28,7 +28,7 @@ export interface LiveCommandEntry {
   isExpanded: boolean;
 }
 
-const LIVE_COMMAND_COLLAPSED_LINES = 12;
+const LIVE_COMMAND_COLLAPSED_LINES = 5;
 
 function getVisibleTail(text: string, maxLines: number): { lines: string[]; hiddenLineCount: number } {
   const normalized = text.trimEnd();
@@ -44,6 +44,51 @@ function getVisibleTail(text: string, maxLines: number): { lines: string[]; hidd
   return {
     lines: lines.slice(-maxLines),
     hiddenLineCount: lines.length - maxLines,
+  };
+}
+
+function getLines(text: string): string[] {
+  const normalized = text.trimEnd();
+  return normalized ? normalized.split('\n') : [];
+}
+
+function getCollapsedLiveCommandViews(
+  stdout: string,
+  stderr: string,
+  maxLines: number
+): {
+  stdoutView: { lines: string[]; hiddenLineCount: number };
+  stderrView: { lines: string[]; hiddenLineCount: number };
+} {
+  const stdoutLines = getLines(stdout);
+  const stderrLines = getLines(stderr);
+
+  if (stdoutLines.length === 0) {
+    return {
+      stdoutView: { lines: [], hiddenLineCount: 0 },
+      stderrView: getVisibleTail(stderr, maxLines),
+    };
+  }
+
+  if (stderrLines.length === 0) {
+    return {
+      stdoutView: getVisibleTail(stdout, maxLines),
+      stderrView: { lines: [], hiddenLineCount: 0 },
+    };
+  }
+
+  const stderrBudget = Math.min(stderrLines.length, Math.max(1, Math.floor(maxLines / 3)));
+  const stdoutBudget = Math.max(0, maxLines - stderrBudget);
+
+  return {
+    stdoutView: {
+      lines: stdoutBudget > 0 ? stdoutLines.slice(-stdoutBudget) : [],
+      hiddenLineCount: Math.max(0, stdoutLines.length - stdoutBudget),
+    },
+    stderrView: {
+      lines: stderrLines.slice(-stderrBudget),
+      hiddenLineCount: Math.max(0, stderrLines.length - stderrBudget),
+    },
   };
 }
 
@@ -242,14 +287,15 @@ export function ToolOutputList({ entries, maxVisible = 50 }: ToolOutputListProps
 
 export function LiveCommandBlock({ entry }: { entry: LiveCommandEntry }) {
   const { colors } = useTheme();
-  const stdoutView = entry.isExpanded
-    ? { lines: entry.stdout.trimEnd() ? entry.stdout.trimEnd().split('\n') : [], hiddenLineCount: 0 }
-    : getVisibleTail(entry.stdout, LIVE_COMMAND_COLLAPSED_LINES);
-  const stderrView = entry.isExpanded
-    ? { lines: entry.stderr.trimEnd() ? entry.stderr.trimEnd().split('\n') : [], hiddenLineCount: 0 }
-    : getVisibleTail(entry.stderr, Math.max(4, Math.floor(LIVE_COMMAND_COLLAPSED_LINES / 3)));
+  const { stdoutView, stderrView } = entry.isExpanded
+    ? {
+      stdoutView: { lines: getLines(entry.stdout), hiddenLineCount: 0 },
+      stderrView: { lines: getLines(entry.stderr), hiddenLineCount: 0 },
+    }
+    : getCollapsedLiveCommandViews(entry.stdout, entry.stderr, LIVE_COMMAND_COLLAPSED_LINES);
   const hiddenLineCount = stdoutView.hiddenLineCount + stderrView.hiddenLineCount;
   const hint = entry.isExpanded ? 'Ctrl+O collapse' : 'Ctrl+O expand';
+  const hasVisibleOutput = stdoutView.lines.length > 0 || stderrView.lines.length > 0;
 
   return (
     <Box flexDirection="column" marginBottom={1}>
@@ -262,15 +308,23 @@ export function LiveCommandBlock({ entry }: { entry: LiveCommandEntry }) {
       ) : (
         <Text color={colors.muted}>{hint}</Text>
       )}
-      {stdoutView.lines.length > 0 ? (
-        <Text color={colors.toolOutput}>{renderTerminalMarkdown(stdoutView.lines.join('\n'))}</Text>
-      ) : null}
-      {stderrView.lines.length > 0 ? (
-        <Box flexDirection="column">
-          <Text color={colors.error}>stderr</Text>
-          <Text color={colors.error}>{renderTerminalMarkdown(stderrView.lines.join('\n'))}</Text>
-        </Box>
-      ) : null}
+      <Box flexDirection="column" borderStyle="single" borderColor={colors.borderMuted} paddingX={1}>
+        {hasVisibleOutput ? (
+          <>
+            {stdoutView.lines.length > 0 ? (
+              <Text color={colors.toolOutput}>{renderTerminalMarkdown(stdoutView.lines.join('\n'))}</Text>
+            ) : null}
+            {stderrView.lines.length > 0 ? (
+              <Box flexDirection="column">
+                <Text color={colors.error}>stderr</Text>
+                <Text color={colors.error}>{renderTerminalMarkdown(stderrView.lines.join('\n'))}</Text>
+              </Box>
+            ) : null}
+          </>
+        ) : (
+          <Text color={colors.muted}>No output yet</Text>
+        )}
+      </Box>
     </Box>
   );
 }
