@@ -143,8 +143,35 @@ describe('AgentUI live command block', () => {
 
     const output = stripAnsi(lastFrame());
     expect(output).toContain('line 16');
-    expect(output).not.toContain('line 4');
+    expect(output).toContain('line 12');
+    expect(output).not.toContain('line 11');
     expect(output).toContain('Ctrl+O expand');
+  });
+
+  it('renders an empty live command body while waiting for output', () => {
+    const entry = {
+      id: 'cmd-1',
+      command: '! node --check tetris.js',
+      stdout: '',
+      stderr: '',
+      startedAt: Date.now(),
+      isExpanded: false,
+    };
+
+    const { lastFrame } = render(
+      <I18nProvider>
+        <ThemeProvider>
+          <LiveCommandBlock entry={entry} />
+        </ThemeProvider>
+      </I18nProvider>
+    );
+
+    const output = stripAnsi(lastFrame());
+    expect(output).toContain('Running ! node --check tetris.js');
+    expect(output).toContain('No output yet');
+    expect(output).toContain('Ctrl+O expand');
+    expect(output).toContain('┌');
+    expect(output).toContain('└');
   });
 
   it('shows full live command output when expanded', () => {
