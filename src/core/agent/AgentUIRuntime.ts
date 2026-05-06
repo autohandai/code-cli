@@ -61,7 +61,7 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
           typeof host.resolveLlmShellSuggestion === 'function'
             ? host.resolveLlmShellSuggestion(input)
             : Promise.resolve(null),
-        suggestionProvider: () => host.suggestionEngine?.getSuggestion() ?? undefined,
+        suggestionProvider: () => host.suggestionEngine?.getNextPromptSuggestion() ?? undefined,
         skillsProvider: () =>
           host.skillsRegistry.listSkills().map((skill: { name: string; description?: string; isActive: boolean; source: string }) => ({
             name: skill.name,
@@ -78,7 +78,7 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
         workspaceRoot: host.runtime.workspaceRoot,
         silentMode: disableTerminalRegions,
         resolveShellSuggestion: (input) => host.resolveLlmShellSuggestion(input),
-        suggestionProvider: () => host.suggestionEngine?.getSuggestion() ?? undefined,
+        suggestionProvider: () => host.suggestionEngine?.getNextPromptSuggestion() ?? undefined,
       });
     }
   }

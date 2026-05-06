@@ -108,15 +108,13 @@ describe('SuggestionEngine', () => {
     }
   });
 
-  it('should truncate suggestions longer than 80 characters', async () => {
+  it('should reject suggestions outside the concise next-prompt shape', async () => {
     const longProvider = createMockProvider(
       'This is a really long suggestion that goes way beyond eighty characters and should be truncated to fit the prompt'
     );
     const longEngine = new SuggestionEngine(longProvider);
     await longEngine.generate([{ role: 'user', content: 'test' }]);
-    const suggestion = longEngine.getSuggestion();
-    expect(suggestion).not.toBeNull();
-    expect(suggestion!.length).toBeLessThanOrEqual(80);
+    expect(longEngine.getNextPromptSuggestion()).toBeNull();
   });
 
   it('should strip quotes and whitespace from LLM response', async () => {
@@ -158,6 +156,35 @@ describe('SuggestionEngine', () => {
 
     expect(planEngine.getSuggestion()).toBeNull();
   });
+
+  it.each([
+    ['evaluative text', 'looks good'],
+    ['assistant voice', "I'll run tests"],
+    ['assistant voice request', 'Let me check'],
+    ['question', 'Run tests?'],
+    ['markdown', '- Run tests'],
+    ['multiple sentences', 'Run tests. Commit changes.'],
+    ['meta text', 'No suggestion'],
+    ['silent meta text', 'stay silent'],
+    ['API-looking error', 'TypeError: Cannot read properties of undefined'],
+  ])('rejects %s from next-prompt suggestions', async (_label, response) => {
+    const filteredEngine = new SuggestionEngine(createMockProvider(response));
+
+    await filteredEngine.generate([{ role: 'user', content: 'test' }]);
+
+    expect(filteredEngine.getNextPromptSuggestion()).toBeNull();
+  });
+
+  it.each(['yes', 'no', 'continue', 'commit', 'push', 'stop'])(
+    'accepts common one-word action "%s"',
+    async (response) => {
+      const oneWordEngine = new SuggestionEngine(createMockProvider(response));
+
+      await oneWordEngine.generate([{ role: 'user', content: 'test' }]);
+
+      expect(oneWordEngine.getNextPromptSuggestion()).toBe(response);
+    },
+  );
 
   it('should accept an explicit suggestion field from a JSON response', async () => {
     const jsonProvider = createMockProvider('{"suggestion":"Run the focused Composer test"}');

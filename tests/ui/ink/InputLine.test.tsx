@@ -85,7 +85,7 @@ describe('InputLine', () => {
     expect(output).not.toContain('[K');
   });
 
-  it('renders next-step suggestion as the empty composer placeholder', () => {
+  it('renders next-prompt suggestion separately from the static placeholder', () => {
     const { lastFrame } = render(
       <ThemeProvider>
         <InputLine
@@ -93,13 +93,32 @@ describe('InputLine', () => {
           cursorOffset={0}
           isActive
           width={48}
-          suggestionText="Run the test suite"
+          placeholderText="Build anything"
+          nextPromptSuggestion="Run the test suite"
         />
       </ThemeProvider>
     );
     const output = stripAnsi(lastFrame());
 
     expect(output).toContain('Run the test suite');
+    expect(output).not.toContain('Build anything');
+  });
+
+  it('renders the static placeholder when no next-prompt suggestion exists', () => {
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <InputLine
+          value=""
+          cursorOffset={0}
+          isActive
+          width={48}
+          placeholderText="Build anything"
+        />
+      </ThemeProvider>
+    );
+    const output = stripAnsi(lastFrame());
+
+    expect(output).toContain('Build anything');
   });
 
   it('renders inline ghost suffix for shell command suggestions', () => {
@@ -244,7 +263,7 @@ describe('InputLine cursor positioning', () => {
     expect(output).toContain('world');
   });
 
-  it('renders a visible reverse-video cursor at the cursor offset', () => {
+  it('renders a visible styled cursor at the cursor offset', () => {
     const originalChalkLevel = chalk.level;
     let output = '';
 
@@ -261,7 +280,27 @@ describe('InputLine cursor positioning', () => {
       chalk.level = originalChalkLevel;
     }
 
-    expect(output).toContain('\u001b[7ml');
+    expect(output).toMatch(/he(?:\u001b\[[0-9;]*m)+l(?:\u001b\[[0-9;]*m)+lo/);
+  });
+
+  it('renders a visible block cursor after the last typed character', () => {
+    const originalChalkLevel = chalk.level;
+    let output = '';
+
+    try {
+      chalk.level = 3;
+
+      output = renderToString(
+        <ThemeProvider>
+          <InputLine value="hello" cursorOffset={5} isActive width={80} />
+        </ThemeProvider>,
+        { columns: 80 }
+      );
+    } finally {
+      chalk.level = originalChalkLevel;
+    }
+
+    expect(output).toMatch(/hello(?:\u001b\[[0-9;]*m)+ /);
   });
 
   it('handles empty input with cursor at start', () => {

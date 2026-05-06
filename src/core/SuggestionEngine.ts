@@ -7,7 +7,7 @@ import type { LLMProvider } from '../providers/LLMProvider.js';
 import type { LLMMessage } from '../types.js';
 import { isAutohandDebugEnabled } from '../utils/debugLog.js';
 
-const SUGGESTION_SYSTEM_PROMPT = `You are a coding assistant suggestion engine. Based on the recent conversation, suggest ONE short next action the user might want to take. Reply with ONLY the suggestion text — no quotes, no explanation, no markdown. Keep it under 60 characters.
+const SUGGESTION_SYSTEM_PROMPT = `You are a coding assistant suggestion engine. Based on the recent conversation, suggest ONE short next action the user might want to type next. Reply with ONLY the suggestion text — no quotes, no explanation, no markdown. Prefer 2-12 words.
 
 Examples of good suggestions:
 - Run the test suite
@@ -16,7 +16,7 @@ Examples of good suggestions:
 - Commit the changes
 - Review the diff before merging`;
 
-const STARTUP_SUGGESTION_PROMPT = `You are a coding assistant suggestion engine. Based on the project context below, suggest ONE short action the developer might want to start with. Reply with ONLY the suggestion text — no quotes, no explanation, no markdown. Keep it under 60 characters.
+const STARTUP_SUGGESTION_PROMPT = `You are a coding assistant suggestion engine. Based on the project context below, suggest ONE short action the developer might want to type next. Reply with ONLY the suggestion text — no quotes, no explanation, no markdown. Prefer 2-12 words.
 
 Focus on what's most actionable: uncommitted changes, recent work, failing tests, or natural next steps.
 
@@ -28,6 +28,7 @@ Examples of good startup suggestions:
 - Fix the merge conflict in config.ts`;
 
 const MAX_SUGGESTION_LENGTH = 80;
+const MAX_SUGGESTION_WORDS = 12;
 /** Max conversation messages included in the suggestion prompt (system prompt added on top). */
 const MAX_HISTORY_MESSAGES = 6; // 3 user+assistant pairs → 7 messages total sent to LLM
 /** Max characters per message to keep the suggestion prompt small and fast. */
@@ -35,6 +36,12 @@ const MAX_MESSAGE_CONTENT_LENGTH = 500;
 const STRUCTURED_AGENT_PAYLOAD_KEY_RE = /"?(thought|reflection|toolCalls|finalResponse|response)"?\s*:/i;
 const ASSISTANT_ANSWER_PREFIX_RE = /^(?:i\b|i['\u2019](?:m|ll|ve|d)\b|i\s+(?:am|can|cannot|can't|do|don't|did|found|fixed|have|haven't|need|was|will|won't|would)\b|here(?:'s|\s+is|\s+are)\b|sorry\b|sure\b|unfortunately\b|could\s+you\b)/i;
 const ASSISTANT_PLANNING_PREFIX_RE = /^(?:first,?\s+)?(?:let me|i['\u2019]ll|i will|i am going to|i['\u2019]m going to|now i['\u2019]ll|now i will)\b.{0,100}\b(?:start|begin|check|gather|inspect|analy[sz]e|review|perform|run|look at|read|find)\b/i;
+const COMMON_ONE_WORD_ACTIONS = new Set(['yes', 'no', 'continue', 'commit', 'push', 'stop']);
+const EVALUATIVE_TEXT_RE = /^(?:looks?\s+good|thanks?|thank\s+you|perfect|great|awesome|nice|cool|sounds\s+good|all\s+good|ok(?:ay)?)\.?$/i;
+const META_SUGGESTION_RE = /^(?:no\s+suggestion|no\s+action|nothing|none|null|undefined|n\/a|stay\s+silent|silent|do\s+not\s+suggest|no\s+next\s+step)\.?$/i;
+const API_OR_ERROR_OUTPUT_RE = /^(?:api\s+error|error|fatal|warning|traceback|stack\s+trace|http\s+\d{3}|[A-Z][A-Za-z]+Error:|cannot\s+read\s+properties|request\s+failed|response\s+status|status\s+\d{3})\b/i;
+const ERROR_TOKEN_RE = /\b(?:TypeError|ReferenceError|SyntaxError|RangeError|ECONNRESET|ENOTFOUND|ETIMEDOUT|EACCES|ENOENT|HTTP\s*\d{3})\b/;
+const MARKDOWN_RE = /(?:^|\n)\s*(?:[-*+]\s+|\d+\.\s+|#{1,6}\s+|>\s+)|```|`[^`]+`|\[[^\]]+\]\([^)]+\)|\*\*|__/;
 /**
  * Internal timeout for the background LLM call. Set higher than the user-facing
  * deadline in promptForInstruction (3s) so the request can finish in the background
@@ -96,7 +103,7 @@ export class SuggestionEngine {
 
   async generate(history: LLMMessage[]): Promise<void> {
     // Clear stale suggestion from previous turn immediately so that a lazy
-    // provider (e.g., `() => engine.getSuggestion()`) won't return outdated text
+    // provider (e.g., `() => engine.getNextPromptSuggestion()`) won't return outdated text
     // while the new LLM call is in flight.
     this.suggestion = null;
 
@@ -126,8 +133,12 @@ export class SuggestionEngine {
     }
   }
 
-  getSuggestion(): string | null {
+  getNextPromptSuggestion(): string | null {
     return this.suggestion;
+  }
+
+  getSuggestion(): string | null {
+    return this.getNextPromptSuggestion();
   }
 
   clear(): void {
@@ -221,15 +232,25 @@ function sanitizeSuggestion(raw: string): string | null {
     return null;
   }
 
-  if (looksLikeAssistantAnswer(cleaned) || looksLikeAssistantPlanning(cleaned)) {
+  if (
+    looksLikeAssistantAnswer(cleaned) ||
+    looksLikeAssistantPlanning(cleaned) ||
+    looksLikeQuestion(cleaned) ||
+    looksLikeMarkdown(cleaned) ||
+    looksLikeMultipleSentences(cleaned) ||
+    looksLikeMetaSuggestion(cleaned) ||
+    looksLikeApiOrErrorOutput(cleaned) ||
+    looksLikeEvaluativeText(cleaned)
+  ) {
     return null;
   }
 
-  if (cleaned.length > MAX_SUGGESTION_LENGTH) {
-    cleaned = cleaned.slice(0, MAX_SUGGESTION_LENGTH - 1) + '\u2026';
+  cleaned = cleaned.replace(/[.!]+$/g, '').replace(/\s+/g, ' ').trim();
+  if (!hasAcceptedWordShape(cleaned)) {
+    return null;
   }
 
-  return cleaned;
+  return cleaned.length > MAX_SUGGESTION_LENGTH ? null : cleaned;
 }
 
 function extractExplicitSuggestion(raw: string): string | undefined {
@@ -269,19 +290,46 @@ function looksLikeJsonPayload(raw: string): boolean {
 }
 
 function looksLikeAssistantAnswer(raw: string): boolean {
-  const words = raw.trim().split(/\s+/).filter(Boolean);
-  if (words.length < 8) {
-    return false;
-  }
-
   return ASSISTANT_ANSWER_PREFIX_RE.test(raw);
 }
 
 function looksLikeAssistantPlanning(raw: string): boolean {
-  const words = raw.trim().split(/\s+/).filter(Boolean);
-  if (words.length < 8) {
+  return ASSISTANT_PLANNING_PREFIX_RE.test(raw);
+}
+
+function looksLikeQuestion(raw: string): boolean {
+  return raw.includes('?');
+}
+
+function looksLikeMarkdown(raw: string): boolean {
+  return MARKDOWN_RE.test(raw);
+}
+
+function looksLikeMultipleSentences(raw: string): boolean {
+  return /[.!?]\s+["']?[A-Z0-9]/.test(raw.trim());
+}
+
+function looksLikeMetaSuggestion(raw: string): boolean {
+  return META_SUGGESTION_RE.test(raw.trim());
+}
+
+function looksLikeApiOrErrorOutput(raw: string): boolean {
+  return API_OR_ERROR_OUTPUT_RE.test(raw.trim()) || ERROR_TOKEN_RE.test(raw);
+}
+
+function looksLikeEvaluativeText(raw: string): boolean {
+  return EVALUATIVE_TEXT_RE.test(raw.trim());
+}
+
+function hasAcceptedWordShape(raw: string): boolean {
+  const words = raw.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > MAX_SUGGESTION_WORDS) {
     return false;
   }
 
-  return ASSISTANT_PLANNING_PREFIX_RE.test(raw);
+  if (words.length === 1) {
+    return COMMON_ONE_WORD_ACTIONS.has(words[0]?.toLowerCase() ?? '');
+  }
+
+  return true;
 }

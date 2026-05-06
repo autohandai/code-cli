@@ -154,6 +154,19 @@ interface PromptSuggestion {
   cursor: number;
 }
 
+export interface PromptSuggestionOptions {
+  placeholderText?: string;
+  nextPromptSuggestion?: string;
+  workspaceRoot?: string;
+  skillsProvider?: () => SkillMentionInfo[];
+}
+
+export interface PromptRenderOptions {
+  placeholderText?: string;
+  nextPromptSuggestion?: string;
+  inlineGhostSuffix?: string;
+}
+
 const HOT_TIP_LIMIT = 5;
 const SLASH_MATCH_EXACT = 0;
 const SLASH_MATCH_PREFIX = 1;
@@ -401,10 +414,11 @@ export function getPrimaryHotTipSuggestion(
   currentLine: string,
   files: string[],
   slashCommands: SlashCommand[],
-  suggestionText?: string,
+  options?: PromptSuggestionOptions | string,
   workspaceRoot?: string,
   skillsProvider?: () => SkillMentionInfo[],
 ): PromptSuggestion | null {
+  const normalizedOptions = normalizePromptSuggestionOptions(options, workspaceRoot, skillsProvider);
   const mentionMatch = /@([A-Za-z0-9_./\\-]*)$/.exec(currentLine);
   if (mentionMatch) {
     const seed = mentionMatch[1] ?? '';
@@ -418,9 +432,9 @@ export function getPrimaryHotTipSuggestion(
   }
 
   const skillMatch = /\$([A-Za-z0-9_-]*)$/.exec(currentLine);
-  if (skillMatch && skillsProvider) {
+  if (skillMatch && normalizedOptions.skillsProvider) {
     const seed = skillMatch[1] ?? '';
-    const skills = cachedSkillMentions ?? skillsProvider();
+    const skills = cachedSkillMentions ?? normalizedOptions.skillsProvider();
     if (cachedSkillMentions === undefined) {
       cachedSkillMentions = skills;
     }
@@ -435,8 +449,9 @@ export function getPrimaryHotTipSuggestion(
 
   const trimmed = currentLine.trim();
   if (!trimmed) {
-    if (suggestionText) {
-      return { line: suggestionText, cursor: suggestionText.length };
+    const nextPromptSuggestion = normalizedOptions.nextPromptSuggestion?.trim();
+    if (nextPromptSuggestion) {
+      return { line: nextPromptSuggestion, cursor: nextPromptSuggestion.length };
     }
     return { line: '/help ', cursor: 6 };
   }
@@ -472,7 +487,7 @@ export function getPrimaryHotTipSuggestion(
   }
 
   if (trimmed.startsWith('!')) {
-    const suggestion = getPrimaryShellCommandSuggestion(trimmed, { cwd: workspaceRoot });
+    const suggestion = getPrimaryShellCommandSuggestion(trimmed, { cwd: normalizedOptions.workspaceRoot });
     if (!suggestion) {
       return null;
     }
@@ -480,6 +495,26 @@ export function getPrimaryHotTipSuggestion(
   }
 
   return null;
+}
+
+function normalizePromptSuggestionOptions(
+  options?: PromptSuggestionOptions | string,
+  workspaceRoot?: string,
+  skillsProvider?: () => SkillMentionInfo[],
+): PromptSuggestionOptions {
+  if (typeof options === 'string') {
+    return {
+      nextPromptSuggestion: options,
+      workspaceRoot,
+      skillsProvider,
+    };
+  }
+
+  return {
+    ...options,
+    workspaceRoot: options?.workspaceRoot ?? workspaceRoot,
+    skillsProvider: options?.skillsProvider ?? skillsProvider,
+  };
 }
 
 export function getInlineGhostCompletionSuffix(
@@ -509,9 +544,7 @@ export function getInlineGhostCompletionSuffix(
     currentLine,
     files,
     slashCommands,
-    undefined,
-    workspaceRoot,
-    skillsProvider,
+    { workspaceRoot, skillsProvider },
   );
   if (!suggestion) {
     return null;
@@ -723,6 +756,10 @@ export function isPlainTabShortcut(str: string, key: readline.Key | undefined): 
   return key?.name === 'tab' || key?.sequence === '\t' || str === '\t';
 }
 
+function isRightArrowAcceptShortcut(key: readline.Key | undefined): boolean {
+  return key?.name === 'right';
+}
+
 /**
  * Detect Shift+Enter or Alt+Enter across different terminal protocols.
  *
@@ -835,9 +872,14 @@ function renderSegment(
   width: number,
   prefix: string,
   showPlaceholder: boolean,
-  suggestionText?: string,
-  inlineGhostSuffix?: string
+  renderOptions?: PromptRenderOptions | string,
+  legacyInlineGhostSuffix?: string
 ): SegmentRender {
+  const {
+    placeholderText,
+    nextPromptSuggestion,
+    inlineGhostSuffix,
+  } = normalizePromptRenderOptions(renderOptions, legacyInlineGhostSuffix);
   const sanitizedLine = sanitizeRenderLine(rawSegment);
   const normalizedLine = sanitizedLine.trim().length === 0 ? '' : sanitizedLine;
   const innerWidth = Math.max(1, width - 2);
@@ -851,9 +893,9 @@ function renderSegment(
   let ghostFragment = '';
 
   if (showPlaceholder && !normalizedLine) {
-    const placeholder = `${prefix}${PROMPT_PLACEHOLDER}`;
-    const displayPlaceholder = suggestionText
-      ? `${prefix}${suggestionText}`
+    const placeholder = `${prefix}${placeholderText}`;
+    const displayPlaceholder = nextPromptSuggestion?.trim()
+      ? `${prefix}${nextPromptSuggestion}`
       : placeholder;
     visibleText = chalk.gray(displayPlaceholder);
     cursorColumn = prefix.length;
@@ -917,6 +959,25 @@ function renderSegment(
   return { styledText, cursorColumn };
 }
 
+function normalizePromptRenderOptions(
+  options?: PromptRenderOptions | string,
+  legacyInlineGhostSuffix?: string
+): Required<PromptRenderOptions> {
+  if (typeof options === 'string') {
+    return {
+      placeholderText: PROMPT_PLACEHOLDER,
+      nextPromptSuggestion: options,
+      inlineGhostSuffix: legacyInlineGhostSuffix ?? '',
+    };
+  }
+
+  return {
+    placeholderText: options?.placeholderText ?? PROMPT_PLACEHOLDER,
+    nextPromptSuggestion: options?.nextPromptSuggestion ?? '',
+    inlineGhostSuffix: options?.inlineGhostSuffix ?? legacyInlineGhostSuffix ?? '',
+  };
+}
+
 /**
  * Build the visible prompt row and the corresponding cursor column.
  * Returns a boxed line (full terminal width) and a zero-based cursor column.
@@ -924,13 +985,13 @@ function renderSegment(
  * @param currentLine - Raw readline buffer content.
  * @param cursorPos - Current readline cursor offset within the line.
  * @param width - Terminal column width for the prompt block.
- * @param suggestionText - Ghost text shown as placeholder when input is empty.
+ * @param options - Static placeholder, empty-input next-prompt suggestion, and inline local ghost suffix.
  */
 export function buildPromptRenderState(
   currentLine: string,
   cursorPos: number,
   width: number,
-  suggestionText?: string,
+  options?: PromptRenderOptions | string,
   inlineGhostSuffix?: string
 ): PromptRenderState {
   const segment = renderSegment(
@@ -939,7 +1000,7 @@ export function buildPromptRenderState(
     width,
     PROMPT_INPUT_PREFIX,
     true,
-    suggestionText,
+    options,
     inlineGhostSuffix
   );
   const lineText = drawInputBox(segment.styledText, width);
@@ -957,9 +1018,10 @@ export function buildMultiLineRenderState(
   cursorPos: number,
   width: number,
   borderStyle: InputBorderStyle = 'default',
-  suggestionText?: string,
+  options?: PromptRenderOptions | string,
   inlineGhostSuffix?: string
 ): MultiLineRenderState {
+  const renderOptions = normalizePromptRenderOptions(options, inlineGhostSuffix);
   const { segments, separatorLengths } = splitMultilineSegments(currentLine);
   const innerWidth = Math.max(1, width - 2);
   const continuationPrefix = '  ';
@@ -975,8 +1037,7 @@ export function buildMultiLineRenderState(
         width,
         PROMPT_INPUT_PREFIX,
         true,
-        suggestionText,
-        inlineGhostSuffix
+        renderOptions
       );
       const lineText = drawInputBox(seg.styledText, width, undefined, borderStyle);
       const clampedCursor = Math.max(0, Math.min(width - 1, seg.cursorColumn + 1));
@@ -991,8 +1052,7 @@ export function buildMultiLineRenderState(
       width,
       PROMPT_INPUT_PREFIX,
       true,
-      suggestionText,
-      inlineGhostSuffix
+      renderOptions
     );
     const lineText = drawInputBox(seg.styledText, width, undefined, borderStyle);
     const clampedCursor = Math.max(0, Math.min(width - 1, seg.cursorColumn + 1));
@@ -1463,7 +1523,7 @@ export async function readInstruction(
   onImageDetected?: ImageDetectedCallback,
   workspaceRoot?: string,
   initialValue = '',
-  suggestionProvider?: () => string | undefined,
+  nextPromptSuggestionProvider?: () => string | undefined,
   resolveShellSuggestion?: (input: string) => Promise<string | null>,
   pendingSuggestion?: Promise<void>,
   skillsProvider?: () => SkillMentionInfo[]
@@ -1489,7 +1549,7 @@ export async function readInstruction(
         stdOutput,
         onImageDetected,
         workspaceRoot,
-        suggestionProvider,
+        nextPromptSuggestionProvider,
         resolveShellSuggestion,
         pendingSuggestion,
         skillsProvider,
@@ -1515,8 +1575,8 @@ interface PromptOnceOptions {
   stdOutput: NodeJS.WriteStream;
   onImageDetected?: ImageDetectedCallback;
   workspaceRoot?: string;
-  /** Lazy provider for suggestion text. Called on each render to get the latest value. */
-  suggestionProvider?: () => string | undefined;
+  /** Lazy provider for model-generated next-prompt text. Called on each render to get the latest value. */
+  nextPromptSuggestionProvider?: () => string | undefined;
   resolveShellSuggestion?: (input: string) => Promise<string | null>;
   /** Promise that resolves when a pending suggestion arrives, triggering a re-render. */
   pendingSuggestion?: Promise<void>;
@@ -1728,7 +1788,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     stdOutput,
     onImageDetected,
     workspaceRoot,
-    suggestionProvider,
+    nextPromptSuggestionProvider,
     resolveShellSuggestion,
     pendingSuggestion,
     skillsProvider,
@@ -1854,7 +1914,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       stdOutput,
       isResize,
       hasExistingPromptBlock,
-      suggestionProvider?.(),
+      nextPromptSuggestionProvider?.(),
       getInlineGhostSuffix(),
       getHelpPanelLines(),
       getSlashSuggestionLines()
@@ -1921,6 +1981,39 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       renderPromptSurface(false, true);
     }
 
+    function isTextBufferCursorAtEnd(): boolean {
+      const lines = textBuffer.getLines();
+      const lastLine = lines[lines.length - 1] ?? '';
+      return (
+        textBuffer.getCursorRow() === lines.length - 1 &&
+        textBuffer.getCursorCol() === Array.from(lastLine).length
+      );
+    }
+
+    function applyPromptSuggestion(suggestion: PromptSuggestion | null): boolean {
+      if (!suggestion) {
+        return false;
+      }
+
+      textBuffer.setText(suggestion.line);
+      syncReadlineFromBuffer();
+      renderActivePrompt();
+      return true;
+    }
+
+    function getCurrentPrimarySuggestion(): PromptSuggestion | null {
+      return getPrimaryHotTipSuggestion(
+        getCurrentText(),
+        filesProvider(),
+        slashCommands,
+        {
+          nextPromptSuggestion: nextPromptSuggestionProvider?.(),
+          workspaceRoot,
+          skillsProvider,
+        },
+      );
+    }
+
     // Coalesce renders: both _refreshLine and keypress handlers trigger renders,
     // but we only need one per event-loop tick.
     let renderScheduled = false;
@@ -1935,12 +2028,12 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
       });
     }
 
-    // When a background suggestion LLM call finishes, re-render the prompt
-    // so the ghost text placeholder updates from "Build anything" to the
-    // actual suggestion — but only if the user hasn't started typing yet.
+    // When a background next-prompt LLM call finishes, re-render the prompt
+    // so the empty-input suggestion updates without touching the static
+    // placeholder — but only if the user hasn't started typing yet.
     if (pendingSuggestion) {
       pendingSuggestion.then(() => {
-        if (!closed && getCurrentText() === '' && suggestionProvider?.()) {
+        if (!closed && getCurrentText() === '' && nextPromptSuggestionProvider?.()) {
           scheduleRender();
         }
       }).catch(() => {});
@@ -2406,6 +2499,12 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         return;
       }
 
+      if (mentionPreview.consumeHandledCompletion()) {
+        syncReadlineFromBuffer();
+        renderActivePrompt();
+        return;
+      }
+
       // ── Shift+Tab: plan mode toggle ───────────────────────────────────
       if (isShiftTabShortcut(_str, key)) {
         const planModeManager = getPlanModeManager();
@@ -2442,9 +2541,11 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
             currentInput,
             filesProvider(),
             slashCommands,
-            suggestionProvider?.(),
-            workspaceRoot,
-            skillsProvider,
+            {
+              nextPromptSuggestion: nextPromptSuggestionProvider?.(),
+              workspaceRoot,
+              skillsProvider,
+            },
           );
           let expectedInputAtResponse = currentInput;
 
@@ -2481,18 +2582,26 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
           return;
         }
 
-        const suggestion = getPrimaryHotTipSuggestion(
-          currentInput,
-          filesProvider(),
-          slashCommands,
-          suggestionProvider?.(),
-          workspaceRoot,
-          skillsProvider,
-        );
-        if (suggestion) {
-          textBuffer.setText(suggestion.line);
+        applyPromptSuggestion(getCurrentPrimarySuggestion());
+        return;
+      }
+
+      // ── Right Arrow: accept visible ghost/next-prompt suggestion at end ─
+      if (isRightArrowAcceptShortcut(key) && isTextBufferCursorAtEnd()) {
+        const currentInput = getCurrentText();
+        const trimmedInput = currentInput.trim();
+
+        if (!trimmedInput) {
+          applyPromptSuggestion(getCurrentPrimarySuggestion());
+          return;
+        }
+
+        const inlineGhostSuffix = getInlineGhostSuffix();
+        if (inlineGhostSuffix) {
+          textBuffer.setText(`${currentInput}${inlineGhostSuffix}`);
           syncReadlineFromBuffer();
           renderActivePrompt();
+          return;
         }
         return;
       }
@@ -2724,14 +2833,14 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
             textBuffer.setText('');
             syncReadlineFromBuffer();
             stdOutput.write('\n');
-            renderPromptLine(rl, getActiveStatusLine(), stdOutput, false, false, suggestionProvider?.());
+            renderPromptLine(rl, getActiveStatusLine(), stdOutput, false, false, nextPromptSuggestionProvider?.());
           })
           .catch((error: Error) => {
             writer.flush();
             stdOutput.write(`  └ ${chalk.red(error.message)}\n\n`);
             textBuffer.setText('');
             syncReadlineFromBuffer();
-            renderPromptLine(rl, getActiveStatusLine(), stdOutput, false, false, suggestionProvider?.());
+            renderPromptLine(rl, getActiveStatusLine(), stdOutput, false, false, nextPromptSuggestionProvider?.());
           });
         return;
       }
@@ -2849,7 +2958,7 @@ function renderPromptLine(
   output: NodeJS.WriteStream,
   isResize = false,
   hasExistingPromptBlock = true,
-  suggestionText?: string,
+  nextPromptSuggestion?: string,
   inlineGhostSuffix?: string,
   helpPanelLines?: string[],
   slashSuggestionLines?: string[]
@@ -2887,8 +2996,11 @@ function renderPromptLine(
     cursorPos,
     width,
     borderStyle,
-    suggestionText,
-    inlineGhostSuffix
+    {
+      placeholderText: PROMPT_PLACEHOLDER,
+      nextPromptSuggestion,
+      inlineGhostSuffix,
+    }
   );
   const topBorder = drawInputTopBorder(width, borderStyle);
   const bottomBorder = drawInputBottomBorder(width, borderStyle);

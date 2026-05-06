@@ -242,6 +242,32 @@ describe('AgentUI composer suggestions', () => {
     expect(stripAnsi(lastFrame() ?? '')).toContain('Run the test suite');
   });
 
+  it('does not render next-prompt suggestion while the assistant is working', () => {
+    const state = {
+      ...createInitialUIState(),
+      isWorking: true,
+    };
+    const { lastFrame } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+            suggestionProvider: () => 'Run the test suite',
+          })
+        )
+      )
+    );
+
+    expect(stripAnsi(lastFrame() ?? '')).not.toContain('Run the test suite');
+  });
+
   it('does not render the current assistant response as an empty-composer suggestion', () => {
     const answer = 'I do not have the ability to view images directly.';
     const state = {
