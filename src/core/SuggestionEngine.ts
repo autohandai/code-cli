@@ -34,6 +34,7 @@ const MAX_HISTORY_MESSAGES = 6; // 3 user+assistant pairs → 7 messages total s
 const MAX_MESSAGE_CONTENT_LENGTH = 500;
 const STRUCTURED_AGENT_PAYLOAD_KEY_RE = /"?(thought|reflection|toolCalls|finalResponse|response)"?\s*:/i;
 const ASSISTANT_ANSWER_PREFIX_RE = /^(?:i\b|i['\u2019](?:m|ll|ve|d)\b|i\s+(?:am|can|cannot|can't|do|don't|did|found|fixed|have|haven't|need|was|will|won't|would)\b|here(?:'s|\s+is|\s+are)\b|sorry\b|sure\b|unfortunately\b|could\s+you\b)/i;
+const ASSISTANT_PLANNING_PREFIX_RE = /^(?:first,?\s+)?(?:let me|i['\u2019]ll|i will|i am going to|i['\u2019]m going to|now i['\u2019]ll|now i will)\b.{0,100}\b(?:start|begin|check|gather|inspect|analy[sz]e|review|perform|run|look at|read|find)\b/i;
 /**
  * Internal timeout for the background LLM call. Set higher than the user-facing
  * deadline in promptForInstruction (3s) so the request can finish in the background
@@ -220,7 +221,7 @@ function sanitizeSuggestion(raw: string): string | null {
     return null;
   }
 
-  if (looksLikeAssistantAnswer(cleaned)) {
+  if (looksLikeAssistantAnswer(cleaned) || looksLikeAssistantPlanning(cleaned)) {
     return null;
   }
 
@@ -274,4 +275,13 @@ function looksLikeAssistantAnswer(raw: string): boolean {
   }
 
   return ASSISTANT_ANSWER_PREFIX_RE.test(raw);
+}
+
+function looksLikeAssistantPlanning(raw: string): boolean {
+  const words = raw.trim().split(/\s+/).filter(Boolean);
+  if (words.length < 8) {
+    return false;
+  }
+
+  return ASSISTANT_PLANNING_PREFIX_RE.test(raw);
 }
