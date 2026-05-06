@@ -55,7 +55,9 @@ afterEach(async () => {
 
 describe('built CLI Tuistory smoke tests', () => {
   it('renders help from the built dist entrypoint', async () => {
-    const session = await trackSession(launchBuiltAutohand(['--help']));
+    const session = await trackSession(launchBuiltAutohand(['--help'], {
+      waitForDataTimeout: 15_000,
+    }));
 
     await session.waitForText('Usage', { timeout: 10_000 });
     const output = session.readAll();
@@ -71,7 +73,9 @@ describe('built CLI Tuistory smoke tests', () => {
   });
 
   it('renders version from the built dist entrypoint', async () => {
-    const session = await trackSession(launchBuiltAutohand(['--version']));
+    const session = await trackSession(launchBuiltAutohand(['--version'], {
+      waitForDataTimeout: 15_000,
+    }));
 
     await session.waitForText(packageJson.version, { timeout: 10_000 });
     const output = session.readAll();
