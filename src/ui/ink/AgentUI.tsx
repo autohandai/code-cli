@@ -374,6 +374,41 @@ function hasPotentialImagePath(text: string): boolean {
   return false;
 }
 
+function normalizeComposerSuggestionCandidate(value: string | null | undefined): string {
+  return (value ?? '').trim().replace(/\s+/g, ' ');
+}
+
+function matchesCurrentAssistantResponseSuggestion(
+  suggestion: string,
+  state: AgentUIState
+): boolean {
+  const normalizedSuggestion = normalizeComposerSuggestionCandidate(suggestion);
+  if (!normalizedSuggestion) {
+    return false;
+  }
+
+  const assistantCandidates = [
+    state.finalResponse,
+    ...state.chatMessages
+      .filter((message) => message.role === 'assistant')
+      .map((message) => message.content),
+  ];
+
+  return assistantCandidates.some((candidate) => {
+    const normalizedCandidate = normalizeComposerSuggestionCandidate(candidate);
+    if (!normalizedCandidate) {
+      return false;
+    }
+    if (normalizedSuggestion === normalizedCandidate) {
+      return true;
+    }
+    if (normalizedSuggestion.endsWith('\u2026')) {
+      return normalizedCandidate.startsWith(normalizedSuggestion.slice(0, -1));
+    }
+    return false;
+  });
+}
+
 export function AgentUI({
   state,
   onInstruction,
@@ -1335,8 +1370,14 @@ export function AgentUI({
       return undefined;
     }
     const suggestion = suggestionProvider?.();
-    return suggestion?.trim() ? suggestion : undefined;
-  }, [input, suggestionProvider, state.suggestionRefreshId]);
+    if (!suggestion?.trim()) {
+      return undefined;
+    }
+    if (matchesCurrentAssistantResponseSuggestion(suggestion, state)) {
+      return undefined;
+    }
+    return suggestion;
+  }, [input, suggestionProvider, state.finalResponse, state.chatMessages, state.suggestionRefreshId]);
   const composerInlineGhostSuffix = useMemo(() => {
     if (!input || input.includes('\n')) {
       return undefined;
