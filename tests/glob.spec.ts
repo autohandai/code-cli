@@ -91,20 +91,19 @@ describe('glob tool', () => {
   });
 
   describe('tool definition', () => {
-    it('glob is registered in DEFAULT_TOOL_DEFINITIONS', async () => {
+    it('glob is not exposed in DEFAULT_TOOL_DEFINITIONS', async () => {
       const { DEFAULT_TOOL_DEFINITIONS } = await import('../src/core/toolManager.js');
       const globTool = DEFAULT_TOOL_DEFINITIONS.find((t) => t.name === 'glob');
-      expect(globTool).toBeDefined();
-      expect(globTool!.parameters!.properties).toHaveProperty('pattern');
-      expect(globTool!.parameters!.properties).toHaveProperty('patterns');
-      expect(globTool!.parameters!.properties).toHaveProperty('path');
-      expect(globTool!.parameters!.properties).toHaveProperty('limit');
+      expect(globTool).toBeUndefined();
     });
 
-    it('glob tool does not require approval', async () => {
+    it('fff_find is exposed as the default path search tool', async () => {
       const { DEFAULT_TOOL_DEFINITIONS } = await import('../src/core/toolManager.js');
-      const globTool = DEFAULT_TOOL_DEFINITIONS.find((t) => t.name === 'glob');
-      expect(globTool!.requiresApproval).toBeFalsy();
+      const fffFindTool = DEFAULT_TOOL_DEFINITIONS.find((t) => t.name === 'fff_find');
+      expect(fffFindTool).toBeDefined();
+      expect(fffFindTool!.parameters!.properties).toHaveProperty('query');
+      expect(fffFindTool!.parameters!.properties).toHaveProperty('limit');
+      expect(fffFindTool!.requiresApproval).toBeFalsy();
     });
   });
 

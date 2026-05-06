@@ -65,7 +65,7 @@ describe('FFFSearchProvider', () => {
     await expect(provider.grep({ query: 'answer' })).resolves.toBe(
       'Found 1 match:\n\nfunction main() {\nsrc/index.ts:12: const answer = 42;\n}'
     );
-    expect(grep).toHaveBeenCalledWith('answer', expect.objectContaining({ mode: 'smart' }));
+    expect(grep).toHaveBeenCalledWith('answer', expect.objectContaining({ mode: 'plain' }));
   });
 
   it('unwraps fff fileSearch Result objects and formats git-aware paths', async () => {
@@ -103,5 +103,28 @@ describe('FFFSearchProvider', () => {
     const provider = await FFFSearchProvider.create('/workspace');
 
     await expect(provider.grep({ query: 'boom' })).rejects.toThrow('native grep failed');
+  });
+
+  it('falls back instead of requiring FileFinder.create at runtime', async () => {
+    const { mkdtemp, rm, writeFile } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+    const workspace = await mkdtemp(join(tmpdir(), 'autohand-fff-fallback-'));
+    await writeFile(join(workspace, 'needle.ts'), 'export const needle = true;\n', 'utf8');
+
+    vi.doMock('@ff-labs/fff-bun', () => ({
+      FileFinder: class FileFinder {},
+    }));
+
+    try {
+      const { FFFSearchProvider } = await import('../../src/search/fffSearchProvider.js');
+      const provider = await FFFSearchProvider.create(workspace);
+
+      await expect(provider.fileSearch({ query: 'needle', limit: 2 })).resolves.toContain('needle.ts');
+
+      provider.destroy();
+    } finally {
+      await rm(workspace, { force: true, recursive: true });
+    }
   });
 });
