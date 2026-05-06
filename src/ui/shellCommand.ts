@@ -20,6 +20,7 @@ const DEFAULT_SHELL_TIMEOUT = 30000;
 
 const SHELL_HOT_TIP_SUGGESTIONS = [
   'git status',
+  'ls -la',
   'bun test',
   'bun run lint',
 ];
