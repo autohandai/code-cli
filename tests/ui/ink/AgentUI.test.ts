@@ -267,12 +267,9 @@ describe('AgentUI composer suggestions', () => {
     expect(stripAnsi(lastFrame() ?? '')).toContain('! git status');
   });
 
-  it('renders slash command suggestions for a bare slash in the Ink composer', async () => {
-    const state = {
-      ...createInitialUIState(),
-      currentInput: '/',
-    };
-    const { lastFrame } = render(
+  it('renders slash command suggestions for a typed bare slash in the Ink composer', async () => {
+    const state = createInitialUIState();
+    const { lastFrame, stdin } = render(
       React.createElement(
         I18nProvider,
         null,
@@ -290,14 +287,15 @@ describe('AgentUI composer suggestions', () => {
       )
     );
 
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    stdin.write('/');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
 
     const frame = stripAnsi(lastFrame() ?? '');
     expect(frame).toContain('/help');
     expect(frame).toContain('Tab to accept');
   });
 
-  it('renders shell command suggestions for git templates in the Ink composer', async () => {
+  it('renders only the next shell command suggestion for git input in the Ink composer', async () => {
     const state = {
       ...createInitialUIState(),
       currentInput: '! git',
@@ -323,16 +321,13 @@ describe('AgentUI composer suggestions', () => {
 
     const frame = stripAnsi(lastFrame() ?? '');
     expect(frame).toContain('! git status');
-    expect(frame).toContain('! git diff');
-    expect(frame).toContain('Tab to accept');
+    expect(frame).not.toContain('! git diff');
+    expect(frame).not.toContain('Tab to accept');
   });
 
-  it('renders ls -la as a shell suggestion for bare bang input', async () => {
-    const state = {
-      ...createInitialUIState(),
-      currentInput: '!',
-    };
-    const { lastFrame } = render(
+  it('renders only the next shell command suggestion for bare bang input', async () => {
+    const state = createInitialUIState();
+    const { lastFrame, stdin } = render(
       React.createElement(
         I18nProvider,
         null,
@@ -349,11 +344,13 @@ describe('AgentUI composer suggestions', () => {
       )
     );
 
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    stdin.write('!');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
 
     const frame = stripAnsi(lastFrame() ?? '');
-    expect(frame).toContain('! ls -la');
-    expect(frame).toContain('Tab to accept');
+    expect(frame).toContain('! git status');
+    expect(frame).not.toContain('! ls -la');
+    expect(frame).not.toContain('Tab to accept');
   });
 });
 
