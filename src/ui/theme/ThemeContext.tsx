@@ -9,7 +9,7 @@ import type { FC, ReactNode } from 'react';
 import type { Theme } from './Theme.js';
 import type { ColorToken, ResolvedColors } from './types.js';
 import { getThemeSnapshot, subscribeThemeChanges } from './Theme.js';
-import { initTheme } from './loader.js';
+import { loadTheme } from './loader.js';
 
 /**
  * Theme context value.
@@ -80,13 +80,13 @@ export const ThemeProvider: FC<ThemeProviderProps> = ({ theme: providedTheme, th
       return globalTheme;
     }
 
-    // Initialize theme if name provided
+    // Load a provider-local theme if name provided
     if (themeName) {
-      return initTheme(themeName);
+      return loadTheme(themeName);
     }
 
-    // Initialize default theme
-    return initTheme();
+    // Load default theme without mutating global theme during render
+    return loadTheme('dark');
   }, [providedTheme, themeName, globalTheme]);
 
   const value = useMemo<ThemeContextValue>(

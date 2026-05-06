@@ -322,6 +322,14 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 {
   "ui": {
     "theme": "dark",
+    "customThemes": {
+      "company": {
+        "colors": {
+          "accent": "#7c3aed",
+          "success": "#22c55e"
+        }
+      }
+    },
     "autoConfirm": false,
     "readFileCharLimit": 300,
     "showCompletionNotification": true,
@@ -333,16 +341,40 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 }
 ```
 
-| Field                        | Type     | Default   | Description                                                                                    |
-| ---------------------------- | -------- | --------- | ---------------------------------------------------------------------------------------------- | ------------------------------- |
-| `theme`                      | `"dark"` | `"light"` | `"dark"`                                                                                       | Color theme for terminal output |
-| `autoConfirm`                | boolean  | `false`   | Skip confirmation prompts for safe operations                                                  |
-| `readFileCharLimit`          | number   | `300`     | Max characters to display from read/find tool output (full content is still sent to the model) |
-| `showCompletionNotification` | boolean  | `true`    | Show system notification when task completes                                                   |
-| `showThinking`               | boolean  | `true`    | Display LLM's reasoning/thought process                                                        |
-| `terminalBell`               | boolean  | `true`    | Ring terminal bell when task completes (shows badge on terminal tab/dock)                      |
-| `checkForUpdates`            | boolean  | `true`    | Check for CLI updates on startup                                                               |
-| `updateCheckInterval`        | number   | `24`      | Hours between update checks (uses cached result within interval)                               |
+| Field                        | Type   | Default | Description                                                                                    |
+| ---------------------------- | ------ | ------- | ---------------------------------------------------------------------------------------------- |
+| `theme`                      | string | `"dark"` | Color theme for terminal output. Built-ins include `dark`, `light`, `dracula`, `sandy`, `tui`, `github-dark`, `turkey`, `brazil`, and `australia`. |
+| `customThemes`               | object | `{}`    | Inline custom theme definitions keyed by theme name. Set `theme` to the same key to use one.   |
+| `autoConfirm`                | boolean | `false` | Skip confirmation prompts for safe operations                                                  |
+| `readFileCharLimit`          | number | `300`   | Max characters to display from read/find tool output (full content is still sent to the model) |
+| `showCompletionNotification` | boolean | `true`  | Show system notification when task completes                                                   |
+| `showThinking`               | boolean | `true`  | Display LLM's reasoning/thought process                                                        |
+| `terminalBell`               | boolean | `true`  | Ring terminal bell when task completes (shows badge on terminal tab/dock)                      |
+| `checkForUpdates`            | boolean | `true`  | Check for CLI updates on startup                                                               |
+| `updateCheckInterval`        | number | `24`    | Hours between update checks (uses cached result within interval)                               |
+
+Custom themes can override any semantic color token. Missing tokens are inherited from the dark theme:
+
+```json
+{
+  "ui": {
+    "theme": "company",
+    "customThemes": {
+      "company": {
+        "vars": {
+          "brand": "#7c3aed",
+          "brandSoft": "#a78bfa"
+        },
+        "colors": {
+          "accent": "brand",
+          "borderAccent": "brandSoft",
+          "mdHeading": "brand"
+        }
+      }
+    }
+  }
+}
+```
 
 Note: `readFileCharLimit` only affects terminal display for `read_file`, `find`, and the legacy aliases `search` and `search_with_context`. Full content is still sent to the model and stored in tool messages.
 
@@ -1570,6 +1602,15 @@ showThinking = true
 terminalBell = true
 checkForUpdates = true
 updateCheckInterval = 24
+
+[ui.customThemes.company.vars]
+brand = "#7c3aed"
+brandSoft = "#a78bfa"
+
+[ui.customThemes.company.colors]
+accent = "brand"
+borderAccent = "brandSoft"
+mdHeading = "brand"
 
 [agent]
 maxIterations = 100

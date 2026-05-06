@@ -34,6 +34,17 @@ import { promptNotify } from './ui/inputPrompt.js';
 import { shouldUseInkRenderer } from './ui/inkMode.js';
 import { registerChromeCommand } from './browser/cliCommand.js';
 import { ASCII_FRIEND } from './utils/asciiArt.js';
+import {
+  formatInstallHint,
+  formatStartupBanner,
+  formatUpdateAvailable,
+  formatUpdateReady,
+  formatWelcomeGreeting,
+  formatWelcomeStatusLine,
+  formatWelcomeSuggestion,
+  formatWelcomeTitle,
+  formatWelcomeVersionPrefix,
+} from './ui/theme/startup.js';
 
 /**
  * Get git commit hash (short)
@@ -1265,7 +1276,7 @@ function printBanner(): void {
     // \x1b[2J = clear entire screen (visible only)
     // \x1b[H = move cursor to home position (top-left)
     process.stdout.write('\x1b[3J\x1b[2J\x1b[H');
-    console.log(chalk.gray(ASCII_FRIEND));
+    console.log(formatStartupBanner(ASCII_FRIEND));
   } else {
     console.log('autohand');
   }
@@ -1324,39 +1335,38 @@ function printWelcome(runtime: AgentRuntime, authUser?: AuthUser, versionCheck?:
   const dir = runtime.workspaceRoot;
 
   // Build version line with update status
-  let versionLine = `${chalk.bold('> Autohand')} v${getVersionString()}`;
+  let versionLine = formatWelcomeVersionPrefix(getVersionString());
   if (versionCheck) {
     if (versionCheck.isUpToDate) {
-      versionLine += chalk.green(' ✓ Up to date');
+      versionLine += formatUpdateReady();
     } else if (versionCheck.updateAvailable && versionCheck.latestVersion) {
-      versionLine += chalk.yellow(` ⬆ Update available: v${versionCheck.latestVersion}`);
+      versionLine += formatUpdateAvailable(versionCheck.latestVersion);
     }
   }
   console.log(versionLine);
 
   // Show upgrade hint if update available
   if (versionCheck?.updateAvailable) {
-    console.log(chalk.gray('  ↳ Run: ') + chalk.cyan(getInstallHint(versionCheck.channel)));
+    console.log(formatInstallHint(getInstallHint(versionCheck.channel)));
   }
 
   // Personalized greeting if logged in
   const isLoggedIn = !!(authUser || runtime.config.auth?.token);
   if (authUser) {
-    console.log(chalk.green(`Welcome back, ${authUser.name || authUser.email}!`));
+    console.log(formatWelcomeGreeting(authUser.name || authUser.email));
   }
 
   // Show CC status (default: ON unless --no-cc was passed)
   const ccEnabled = runtime.options.contextCompact !== false;
-  const ccStatus = ccEnabled ? chalk.green('[CC: ON]') : chalk.yellow('[CC: OFF]');
 
-  console.log(`${chalk.gray('model:')} ${chalk.cyan(model)}  ${ccStatus}  ${chalk.gray('| directory:')} ${chalk.cyan(dir)}`);
+  console.log(formatWelcomeStatusLine(model, ccEnabled, dir));
   console.log();
 
   // Build contextual suggestions based on auth state and available features
   const suggestions = buildWelcomeSuggestions(isLoggedIn, dir);
-  console.log(chalk.gray('To get started, describe a task or try one of these commands:'));
+  console.log(formatWelcomeTitle());
   for (const s of suggestions) {
-    console.log(chalk.cyan(s.command + ' ') + chalk.gray(s.description));
+    console.log(formatWelcomeSuggestion(s.command, s.description));
   }
 
   console.log();

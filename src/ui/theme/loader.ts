@@ -18,6 +18,33 @@ import { loadGhosttyTheme, detectGhosttyTheme } from './ghosttyLoader.js';
  */
 export const CUSTOM_THEMES_DIR = join(homedir(), '.autohand', 'themes');
 
+export interface ThemeSourceConfig {
+  inlineThemes?: Record<string, Partial<ThemeDefinition>>;
+}
+
+const configThemes = new Map<string, ThemeDefinition>();
+
+export function configureThemeSources(sources?: ThemeSourceConfig): void {
+  configThemes.clear();
+
+  if (!sources?.inlineThemes) {
+    return;
+  }
+
+  for (const [themeName, partialTheme] of Object.entries(sources.inlineThemes)) {
+    const normalizedName = themeName.trim();
+    if (!normalizedName) {
+      throw new ThemeLoadError('Config theme names must be non-empty', themeName);
+    }
+
+    const themeDefinition = validateAndMergeTheme(
+      { ...partialTheme, name: partialTheme.name || normalizedName },
+      normalizedName
+    );
+    configThemes.set(normalizedName, themeDefinition);
+  }
+}
+
 /**
  * Errors that can occur during theme loading.
  */
@@ -34,7 +61,7 @@ export class ThemeLoadError extends Error {
 
 /**
  * Load and initialize a theme by name.
- * Searches built-in themes first, then custom themes directory.
+ * Searches built-in themes first, then config themes, then custom theme files.
  */
 export function loadTheme(themeName: string): Theme {
   const definition = getThemeDefinition(themeName);
@@ -64,12 +91,17 @@ export function initTheme(themeName?: string): Theme {
 
 /**
  * Get theme definition by name.
- * Checks built-in themes first, then custom themes, then Ghostty themes.
+ * Checks built-in themes first, then config themes, custom themes, and Ghostty themes.
  */
 export function getThemeDefinition(themeName: string): ThemeDefinition {
   // Check built-in themes
   if (themeName in builtInThemes) {
     return builtInThemes[themeName];
+  }
+
+  const configTheme = configThemes.get(themeName);
+  if (configTheme) {
+    return configTheme;
   }
 
   // Check custom themes
@@ -256,13 +288,17 @@ export const CURATED_GHOSTTY_THEMES = [
 ];
 
 /**
- * List all available themes (built-in first, then curated Ghostty, then custom).
+ * List all available themes (built-in first, then config, curated Ghostty, then custom).
  * Only shows curated Ghostty themes in the selector — not the full 400+.
  * Users can still use any Ghostty theme by setting it in their config.
  */
 export function listAvailableThemes(): string[] {
   // Built-in themes first (sorted)
   const builtIn = Object.keys(builtInThemes).sort();
+
+  const config = Array.from(configThemes.keys())
+    .filter((name) => !builtIn.includes(name))
+    .sort();
 
   // Curated Ghostty themes (only if installed, sorted)
   const ghostty: string[] = [];
@@ -281,7 +317,7 @@ export function listAvailableThemes(): string[] {
       for (const file of files) {
         if (file.endsWith('.json')) {
           const name = file.slice(0, -5);
-          if (!builtIn.includes(name)) {
+          if (!builtIn.includes(name) && !config.includes(name)) {
             custom.push(name);
           }
         }
@@ -292,7 +328,7 @@ export function listAvailableThemes(): string[] {
   }
   custom.sort();
 
-  return [...builtIn, ...ghostty, ...custom];
+  return [...builtIn, ...config, ...ghostty, ...custom];
 }
 
 /**
@@ -300,6 +336,7 @@ export function listAvailableThemes(): string[] {
  */
 export function themeExists(themeName: string): boolean {
   if (themeName in builtInThemes) return true;
+  if (configThemes.has(themeName)) return true;
   const customPath = join(CUSTOM_THEMES_DIR, `${themeName}.json`);
   if (existsSync(customPath)) return true;
   return loadGhosttyTheme(themeName) !== null;

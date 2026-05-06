@@ -18,6 +18,7 @@ import {
   resolveColorValue,
   listAvailableThemes,
   themeExists,
+  configureThemeSources,
   detectTerminalBackground,
   ThemeLoadError,
 } from '../../../src/ui/theme/loader.js';
@@ -29,6 +30,10 @@ import { builtInThemes } from '../../../src/ui/theme/themes.js';
 const TEST_THEMES_DIR = join(tmpdir(), 'autohand-test-themes');
 
 describe('loadTheme()', () => {
+  afterEach(() => {
+    configureThemeSources();
+  });
+
   it('loads built-in dark theme', () => {
     const theme = loadTheme('dark');
 
@@ -45,6 +50,23 @@ describe('loadTheme()', () => {
 
   it('throws ThemeLoadError for unknown theme', () => {
     expect(() => loadTheme('nonexistent')).toThrow(ThemeLoadError);
+  });
+
+  it('loads inline themes registered from config', () => {
+    configureThemeSources({
+      inlineThemes: {
+        company: {
+          colors: {
+            accent: '#123456',
+          },
+        },
+      },
+    });
+
+    const theme = loadTheme('company');
+
+    expect(theme.name).toBe('company');
+    expect(theme.colors.accent).toBe('#123456');
   });
 
   it('returns Theme instance with resolved colors', () => {
@@ -277,6 +299,10 @@ describe('resolveColorValue()', () => {
 });
 
 describe('listAvailableThemes()', () => {
+  afterEach(() => {
+    configureThemeSources();
+  });
+
   it('includes built-in themes', () => {
     const themes = listAvailableThemes();
 
@@ -297,9 +323,28 @@ describe('listAvailableThemes()', () => {
     const restSorted = [...rest].sort();
     expect(rest).toEqual(restSorted);
   });
+
+  it('lists config themes after built-ins and before file themes', () => {
+    configureThemeSources({
+      inlineThemes: {
+        zed: { colors: { accent: '#112233' } },
+        alpha: { colors: { accent: '#445566' } },
+      },
+    });
+
+    const themes = listAvailableThemes();
+    const builtInNames = Object.keys(builtInThemes).sort();
+
+    expect(themes.slice(0, builtInNames.length)).toEqual(builtInNames);
+    expect(themes.slice(builtInNames.length, builtInNames.length + 2)).toEqual(['alpha', 'zed']);
+  });
 });
 
 describe('themeExists()', () => {
+  afterEach(() => {
+    configureThemeSources();
+  });
+
   it('returns true for dark theme', () => {
     expect(themeExists('dark')).toBe(true);
   });
@@ -310,6 +355,16 @@ describe('themeExists()', () => {
 
   it('returns false for unknown theme', () => {
     expect(themeExists('nonexistent-theme-xyz')).toBe(false);
+  });
+
+  it('returns true for inline config themes', () => {
+    configureThemeSources({
+      inlineThemes: {
+        company: { colors: { accent: '#123456' } },
+      },
+    });
+
+    expect(themeExists('company')).toBe(true);
   });
 });
 

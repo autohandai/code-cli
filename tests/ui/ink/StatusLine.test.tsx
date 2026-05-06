@@ -7,6 +7,8 @@
 import React from 'react';
 import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { StatusLine } from '../../../src/ui/ink/StatusLine.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 import { I18nProvider } from '../../../src/ui/i18n/index.js';
@@ -22,6 +24,16 @@ function renderStatusLine(props: React.ComponentProps<typeof StatusLine>) {
 }
 
 describe('StatusLine extensions', () => {
+  it('uses the theme ANSI formatter for status segments and separators', () => {
+    const source = readFileSync(
+      path.resolve(process.cwd(), 'src/ui/ink/StatusLine.tsx'),
+      'utf8'
+    );
+
+    expect(source).toContain("theme.fg('muted', separator)");
+    expect(source).toContain('theme.fg(getSegmentToken(segment.color), segment.text)');
+  });
+
   it('appends custom status segments after default status details', () => {
     const { lastFrame } = renderStatusLine({
       isWorking: true,

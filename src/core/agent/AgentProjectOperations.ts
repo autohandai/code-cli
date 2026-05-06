@@ -13,6 +13,7 @@ import type { BootstrapResult } from '../EnvironmentBootstrap.js';
 import type { IntentResult } from '../IntentDetector.js';
 import type { CodeQualityPipeline } from '../CodeQualityPipeline.js';
 import type { EnvironmentBootstrap } from '../EnvironmentBootstrap.js';
+import { isAutohandDebugEnabled, writeAutohandDebugLine } from '../../utils/debugLog.js';
 
 export interface AgentProjectOperationsHost {
   codeQualityPipeline: CodeQualityPipeline;
@@ -193,33 +194,33 @@ export async function createAgentInstructionsFile(host: AgentProjectOperationsHo
 }
 
 export function displayAgentIntentMode(result: IntentResult): void {
-  if (process.env.AUTOHAND_DEBUG !== '1') {
+  if (!isAutohandDebugEnabled()) {
     return;
   }
 
   if (result.intent === 'diagnostic') {
-    console.log(chalk.blue('[DIAG] Mode: Diagnostic (read-only analysis)'));
+    writeAutohandDebugLine(chalk.blue('[DIAG] Mode: Diagnostic (read-only analysis)'));
     if (result.keywords.length > 0) {
       const kws = result.keywords.slice(0, 3).join('", "');
-      console.log(chalk.gray(`       Detected: "${kws}"`));
+      writeAutohandDebugLine(chalk.gray(`       Detected: "${kws}"`));
     }
   } else {
-    console.log(chalk.yellow('[IMPL] Mode: Implementation'));
+    writeAutohandDebugLine(chalk.yellow('[IMPL] Mode: Implementation'));
     if (result.keywords.length > 0) {
       const kws = result.keywords.slice(0, 3).join('", "');
-      console.log(chalk.gray(`       Detected: "${kws}"`));
+      writeAutohandDebugLine(chalk.gray(`       Detected: "${kws}"`));
     }
   }
-  console.log();
+  writeAutohandDebugLine('');
 }
 
 export async function runAgentEnvironmentBootstrap(
   host: AgentProjectOperationsHost
 ): Promise<BootstrapResult> {
-  const isDebug = process.env.AUTOHAND_DEBUG === '1';
+  const isDebug = isAutohandDebugEnabled();
 
   if (isDebug) {
-    console.log(chalk.cyan('[BOOTSTRAP] Running environment setup...'));
+    writeAutohandDebugLine(chalk.cyan('[BOOTSTRAP] Running environment setup...'));
   }
 
   const result = await host.environmentBootstrap.run(host.runtime.workspaceRoot);
@@ -234,16 +235,16 @@ export async function runAgentEnvironmentBootstrap(
     const detail = step.detail ? chalk.gray(` ${step.detail}`) : '';
 
     if (step.status === 'failed' || isDebug) {
-      console.log(`  ${status} ${step.name.padEnd(14)} ${duration}${detail}`);
+      writeAutohandDebugLine(`  ${status} ${step.name.padEnd(14)} ${duration}${detail}`);
     }
 
     if (step.error) {
-      console.log(chalk.red(`       Error: ${step.error}`));
+      writeAutohandDebugLine(chalk.red(`       Error: ${step.error}`));
     }
   }
 
   if (result.success && isDebug) {
-    console.log(chalk.green(`\n[READY] Environment ready (${(result.duration / 1000).toFixed(1)}s)\n`));
+    writeAutohandDebugLine(chalk.green(`\n[READY] Environment ready (${(result.duration / 1000).toFixed(1)}s)\n`));
   }
 
   return result;

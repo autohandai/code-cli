@@ -8,6 +8,7 @@ import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/index.js';
+import type { Theme } from '../theme/Theme.js';
 
 export type LineSegmentColor =
   | 'text'
@@ -74,40 +75,38 @@ export function formatLineSegments(
   return segments.map((segment) => segment.text).join(separator);
 }
 
-function getSegmentColor(colors: ReturnType<typeof useTheme>['colors'], color?: LineSegmentColor): string | undefined {
+function getSegmentToken(color?: LineSegmentColor): Parameters<Theme['fg']>[0] {
   switch (color) {
     case 'accent':
-      return colors.accent;
+      return 'accent';
     case 'success':
-      return colors.success;
+      return 'success';
     case 'warning':
-      return colors.warning;
+      return 'warning';
     case 'error':
-      return colors.error;
+      return 'error';
     case 'dim':
-      return colors.dim;
+      return 'dim';
     case 'muted':
-      return colors.muted;
+      return 'muted';
     case 'text':
     default:
-      return undefined;
+      return 'text';
   }
 }
 
 function renderLineSegments(
   segments: LineSegment[],
   separator: string,
-  colors: ReturnType<typeof useTheme>['colors']
+  theme: Theme
 ): ReactNode[] {
   return segments.flatMap((segment, index) => {
     const nodes: ReactNode[] = [];
     if (index > 0) {
-      nodes.push(<Text key={`${segment.id}:sep`} color={colors.muted}>{separator}</Text>);
+      nodes.push(<Text key={`${segment.id}:sep`}>{theme.fg('muted', separator)}</Text>);
     }
     nodes.push(
-      <Text key={segment.id} color={getSegmentColor(colors, segment.color)}>
-        {segment.text}
-      </Text>
+      <Text key={segment.id}>{theme.fg(getSegmentToken(segment.color), segment.text)}</Text>
     );
     return nodes;
   });
@@ -145,7 +144,7 @@ function StatusLineComponent({
   queueCount = 0,
   lineExtension,
 }: StatusLineProps) {
-  const { colors } = useTheme();
+  const { colors, theme } = useTheme();
   const { t } = useTranslation();
   const defaultSegments = isWorking
     ? buildStatusSegments(status, elapsed, tokens, queueCount, t('ui.escToCancel'))
@@ -172,7 +171,7 @@ function StatusLineComponent({
           <Text> </Text>
         </>
       )}
-      {renderLineSegments(segments, separator, colors)}
+      {renderLineSegments(segments, separator, theme)}
     </Box>
   );
 }

@@ -29,7 +29,7 @@ function truncateVisible(text: string, maxWidth: number): string {
 }
 
 function FileMentionDropdownComponent({ suggestions, activeIndex, visible }: FileMentionDropdownProps) {
-  const { colors } = useTheme();
+  const { theme } = useTheme();
   const width = getPromptBlockWidth(process.stdout.columns);
 
   const displaySuggestions = useMemo(() => 
@@ -58,16 +58,14 @@ function FileMentionDropdownComponent({ suggestions, activeIndex, visible }: Fil
 
         return (
           <Box key={suggestion.path}>
-            <Text color={isSelected ? 'cyan' : undefined}>
-              {pointer} {isSelected ? filename : <Text color={colors.text}>{filename}</Text>}
-            </Text>
+            <Text>{theme.fg(isSelected ? 'accent' : 'text', `${pointer} ${filename}`)}</Text>
             {dir && (
-              <Text color={colors.muted}>  {dir}</Text>
+              <Text>{theme.fg('muted', `  ${dir}`)}</Text>
             )}
           </Box>
         );
       })}
-      <Text color={colors.dim}>  Tab to accept · ↑↓ to navigate</Text>
+      <Text>{theme.fg('dim', '  Tab to accept · ↑↓ to navigate')}</Text>
     </Box>
   );
 }

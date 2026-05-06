@@ -28,13 +28,13 @@ export interface InputLineProps {
 }
 
 function InputLineComponent({ value, cursorOffset, isActive, width, borderStyle = 'default' }: InputLineProps) {
-  const { colors } = useTheme();
+  const { theme } = useTheme();
 
-  const borderColor = borderStyle === 'plan'
-    ? colors.warning
+  const borderToken = borderStyle === 'plan'
+    ? 'warning'
     : borderStyle === 'shell'
-      ? colors.dim
-      : colors.borderAccent;
+      ? 'dim'
+      : 'borderAccent';
 
   // Memoize borders - only recalculate when width changes
   const borders = useMemo(() => ({
@@ -62,7 +62,7 @@ function InputLineComponent({ value, cursorOffset, isActive, width, borderStyle 
   if (!isActive) {
     return (
       <Box marginTop={1} height={3}>
-        <Text color={colors.dim}> </Text>
+        <Text>{theme.fg('dim', ' ')}</Text>
       </Box>
     );
   }
@@ -70,11 +70,11 @@ function InputLineComponent({ value, cursorOffset, isActive, width, borderStyle 
   // Active state mirrors the boxed prompt style from readline mode.
   return (
     <Box marginTop={1} flexDirection="column">
-      <Text color={borderColor} backgroundColor={colors.userMessageBg}>{borders.top}</Text>
+      <Text>{theme.fgBg(borderToken, 'userMessageBg', borders.top)}</Text>
       {displayData.plainLines.map((line, index) => (
-        <Text key={index} color={colors.userMessageText} backgroundColor={colors.userMessageBg}>{line}</Text>
+        <Text key={index}>{theme.fgBg('userMessageText', 'userMessageBg', line)}</Text>
       ))}
-      <Text color={borderColor} backgroundColor={colors.userMessageBg}>{borders.bottom}</Text>
+      <Text>{theme.fgBg(borderToken, 'userMessageBg', borders.bottom)}</Text>
     </Box>
   );
 }

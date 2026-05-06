@@ -36,6 +36,9 @@ export async function theme(ctx: ThemeContext): Promise<string | null> {
     sandy: 'Warm, earthy desert tones',
     tui: 'New Zealand-inspired colors',
     'github-dark': 'GitHub Dark terminal palette',
+    turkey: 'Turkish flag-inspired red, white, and turquoise palette',
+    brazil: 'Brazil-inspired green, gold, and blue palette',
+    australia: 'Australian coast, wattle, and eucalyptus palette',
     // Curated Ghostty themes
     'Atom One Dark': 'Atom editor dark theme',
     'Ayu Mirage': 'Soft dark with warm accents',
@@ -65,18 +68,33 @@ export async function theme(ctx: ThemeContext): Promise<string | null> {
     return { label, value: name, description };
   });
 
+  let result: ModalOption | null = null;
+  let selectedTheme: string | null = null;
+  let selectedThemePreview: ReturnType<typeof getTheme> | null = null;
+
   await ctx.onBeforeModal?.();
-  const result = await (async () => {
-    try {
-      return await showModal({
-        title: t('commands.theme.selectPrompt'),
-        options,
-        initialIndex: themes.indexOf(currentTheme)
-      });
-    } finally {
-      await ctx.onAfterModal?.();
+  try {
+    result = await showModal({
+      title: t('commands.theme.selectPrompt'),
+      options,
+      initialIndex: themes.indexOf(currentTheme)
+    });
+
+    if (result) {
+      const selected = result.value;
+
+      if (selected !== currentTheme) {
+        selectedThemePreview = initTheme(selected);
+
+        // Update config
+        ctx.config.ui = { ...ctx.config.ui, theme: selected };
+        await saveConfig(ctx.config);
+        selectedTheme = selected;
+      }
     }
-  })();
+  } finally {
+    await ctx.onAfterModal?.();
+  }
 
   if (!result) {
     console.log(chalk.gray('\nTheme selection cancelled.'));
@@ -90,20 +108,16 @@ export async function theme(ctx: ThemeContext): Promise<string | null> {
     return null;
   }
 
-  // Initialize the new theme
-  initTheme(selected);
-
-  // Update config
-  ctx.config.ui = { ...ctx.config.ui, theme: selected };
-  await saveConfig(ctx.config);
-
-  console.log(chalk.green(`\n✓ ${t('commands.theme.changed', { theme: selected })}`));
+  console.log(chalk.green(`\n✓ ${t('commands.theme.changed', { theme: selectedTheme ?? selected })}`));
 
   // Show preview of theme colors
-  const newTheme = getTheme();
+  const newTheme = selectedThemePreview ?? getTheme();
   console.log('\nTheme preview:');
   console.log(`  ${newTheme.fg('accent', '● accent')}  ${newTheme.fg('success', '● success')}  ${newTheme.fg('error', '● error')}  ${newTheme.fg('warning', '● warning')}`);
   console.log(`  ${newTheme.fg('muted', '● muted')}  ${newTheme.fg('dim', '● dim')}  ${newTheme.fg('text', '● text')}`);
+  if (newTheme.getColorMode() === 'none') {
+    console.log(chalk.yellow('  Color output is disabled by NO_COLOR or FORCE_COLOR=0 in your terminal environment.'));
+  }
   console.log();
 
   return null;
@@ -122,6 +136,9 @@ export async function themeInfo(): Promise<string | null> {
   console.log(chalk.cyan('\n🎨 Current Theme Info\n'));
   console.log(chalk.gray(`Name: ${chalk.white(currentTheme.name)}`));
   console.log(chalk.gray(`Color mode: ${chalk.white(currentTheme.getColorMode())}`));
+  if (currentTheme.getColorMode() === 'none') {
+    console.log(chalk.yellow('Color output is disabled by NO_COLOR or FORCE_COLOR=0 in your terminal environment.'));
+  }
   console.log(chalk.gray(`Custom themes dir: ${CUSTOM_THEMES_DIR}`));
   console.log();
 

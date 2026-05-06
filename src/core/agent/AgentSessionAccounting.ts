@@ -11,6 +11,7 @@ import type {
 } from '../../types.js';
 import type { PermissionPromptResponse } from '../../permissions/types.js';
 import { isExternalCallbackEnabled } from '../../ui/promptCallback.js';
+import { formatResumeHint, formatSessionEnding, formatSessionSaved } from '../../ui/theme/startup.js';
 import type { ReactionParser } from './ReactionParser.js';
 
 export interface AgentSessionAccountingHost {
@@ -108,7 +109,7 @@ export async function closeAgentSession(host: AgentSessionAccountingHost): Promi
   const session = host.sessionManager.getCurrentSession();
 
   if (!session) {
-    console.log(chalk.gray('Ending Autohand session.'));
+    console.log(formatSessionEnding());
     await Promise.race([
       Promise.allSettled([
         host.mcpManager.disconnectAll(),
@@ -124,9 +125,9 @@ export async function closeAgentSession(host: AgentSessionAccountingHost): Promi
   const summary = lastUserMsg?.content.slice(0, 60) || 'Session complete';
   await host.sessionManager.closeSession(summary);
 
-  console.log(chalk.gray('\nEnding Autohand session.\n'));
-  console.log(chalk.cyan(`\u{1F4BE} Session saved: ${session.metadata.sessionId}`));
-  console.log(chalk.gray(`   Resume with: autohand resume ${session.metadata.sessionId}\n`));
+  console.log(`\n${formatSessionEnding()}\n`);
+  console.log(formatSessionSaved(session.metadata.sessionId));
+  console.log(`${formatResumeHint(session.metadata.sessionId)}\n`);
 
   const sessionDuration = Date.now() - host.sessionStartedAt;
   const cleanupTasks = [

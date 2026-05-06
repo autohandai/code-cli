@@ -13,6 +13,7 @@ import {
 import type { PermissionManager } from '../../permissions/PermissionManager.js';
 import type { AgentOutputEvent, AgentRuntime } from '../../types.js';
 import type { Intent, IntentResult } from '../IntentDetector.js';
+import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 
 interface InstructionConversation {
   addMessage(message: { role: 'user'; content: string }): void;
@@ -106,6 +107,7 @@ export interface AgentInstructionHost {
   getDisplayErrorMessage(error: unknown): string;
   emitOutput(event: AgentOutputEvent): void;
   printCompletionSummary(regionsStillActive: boolean): void;
+  writeDebugLine?(message: string): void;
 }
 
 export class InstructionRunner {
@@ -172,9 +174,10 @@ export class InstructionRunner {
       }
     }, canUsePersistentInput);
 
-    if (process.env.AUTOHAND_DEBUG === '1') {
-      console.log(`[DEBUG] runInstruction: after initializeUI, inkRenderer exists=${!!host.inkRenderer}, useInkRenderer=${host.useInkRenderer}`);
-    }
+    writeAutohandDebugLine(
+      `[DEBUG] runInstruction: after initializeUI, inkRenderer exists=${!!host.inkRenderer}, useInkRenderer=${host.useInkRenderer}`,
+      host.writeDebugLine?.bind(host)
+    );
 
     const shouldUsePersistentInput = canUsePersistentInput && !host.inkRenderer;
     let cleanupConsoleBridge: () => void = () => {};
@@ -365,9 +368,10 @@ export class InstructionRunner {
       // row (typically row 1), causing the next prompt to render at the top.
       // When using Ink, keep the renderer alive between turns to prevent the
       // composer from disappearing and reappearing during back-to-back turns.
-      if (process.env.AUTOHAND_DEBUG === '1') {
-        console.log(`[DEBUG] runInstruction finally: useInkRenderer=${host.useInkRenderer}, inkRenderer exists=${!!host.inkRenderer}`);
-      }
+      writeAutohandDebugLine(
+        `[DEBUG] runInstruction finally: useInkRenderer=${host.useInkRenderer}, inkRenderer exists=${!!host.inkRenderer}`,
+        host.writeDebugLine?.bind(host)
+      );
       host.cleanupUI(host.useInkRenderer);
 
       if (host.persistentInputActiveTurn && !keepPersistentInputForNextTurn) {
