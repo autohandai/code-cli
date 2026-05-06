@@ -38,6 +38,8 @@ export interface LaunchBuiltAutohandOptions {
 
 export interface CreateTempAutohandHomeOptions {
   config?: JsonRecord;
+  initializeGit?: boolean;
+  writePackageJson?: boolean;
 }
 
 export interface MockOllamaServer {
@@ -57,7 +59,9 @@ export async function createTempAutohandHome(options: CreateTempAutohandHomeOpti
 
   await mkdir(autohandHome, { recursive: true });
   await mkdir(workspaceRoot, { recursive: true });
-  execFileSync('git', ['init'], { cwd: workspaceRoot, stdio: 'ignore' });
+  if (options.initializeGit ?? true) {
+    execFileSync('git', ['init'], { cwd: workspaceRoot, stdio: 'ignore' });
+  }
 
   const baseConfig: JsonRecord = {
     provider: 'openrouter',
@@ -104,7 +108,9 @@ export async function createTempAutohandHome(options: CreateTempAutohandHomeOpti
   };
 
   await writeFile(configPath, JSON.stringify(config, null, 2));
-  await writeFile(path.join(workspaceRoot, 'package.json'), '{"name":"tuistory-workspace","version":"0.0.0"}\n');
+  if (options.writePackageJson ?? true) {
+    await writeFile(path.join(workspaceRoot, 'package.json'), '{"name":"tuistory-workspace","version":"0.0.0"}\n');
+  }
 
   return {
     autohandHome,
