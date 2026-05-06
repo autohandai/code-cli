@@ -102,6 +102,7 @@ export class MentionPreview {
   private suspended = false;
   private lastSuggestions: string[] = [];
   private tabJustHandled = false;
+  private completionJustHandled = false;
   private skillsProvider: () => SkillMentionInfo[];
 
   // Dynamic offset from cursor to suggestion area, accounting for multi-line content
@@ -173,31 +174,58 @@ export class MentionPreview {
     // they reflect the current rl.line. Without this, a Tab pressed rapidly
     // after a character can use stale suggestion data because the deferred
     // setImmediate(updateSuggestions) hasn't fired yet.
-    if (this.isTabKey(_str, key) || key?.name === 'down' || key?.name === 'up') {
+    const isAcceptKey = this.isTabKey(_str, key) ||
+      key?.name === 'right' ||
+      key?.name === 'return' ||
+      key?.name === 'enter';
+
+    const beforeCursor = this.rl.line.slice(0, this.rl.cursor);
+    if (
+      (key?.name === 'return' || key?.name === 'enter') &&
+      this.slashCommands.some((command) => command.command === beforeCursor.trim())
+    ) {
+      return;
+    }
+
+    if (isAcceptKey || key?.name === 'down' || key?.name === 'up') {
       this.updateSuggestions();
     }
 
-    const beforeCursor = this.rl.line.slice(0, this.rl.cursor);
+    if (key?.name === 'escape') {
+      this.reset();
+      return;
+    }
 
-    // Tab and arrow keys must be handled synchronously (before readline processes them)
-    if (this.isTabKey(_str, key)) {
+    // Completion keys must be handled synchronously (before readline processes them).
+    if (isAcceptKey && (key?.name !== 'right' || this.rl.cursor === this.rl.line.length)) {
       if (this.mode === 'file' && this.fileSuggestions.length) {
         this.tabJustHandled = true;
+        this.completionJustHandled = true;
         this.insertFileSuggestion(beforeCursor, this.fileSuggestions[this.activeIndex]);
         return;
       }
       if (this.mode === 'slash' && this.slashMatches.length) {
+        const selected = this.slashMatches[this.activeIndex];
+        if (
+          (key?.name === 'return' || key?.name === 'enter') &&
+          selected &&
+          beforeCursor.trim() === selected.command
+        ) {
+          return;
+        }
         this.tabJustHandled = true;
-        this.insertSlashSuggestion(beforeCursor, this.slashMatches[this.activeIndex]);
+        this.completionJustHandled = true;
+        this.insertSlashSuggestion(beforeCursor, selected ?? this.slashMatches[0]!);
         return;
       }
       if (this.mode === 'skill' && this.skillMatches.length) {
         this.tabJustHandled = true;
+        this.completionJustHandled = true;
         this.insertSkillSuggestion(beforeCursor, this.skillMatches[this.activeIndex]);
         return;
       }
 
-      const mentionMatch = this.matchMention(beforeCursor);
+      const mentionMatch = this.isTabKey(_str, key) ? this.matchMention(beforeCursor) : null;
       if (mentionMatch) {
         const seed = mentionMatch[1] ?? '';
         const suggestions = this.filter(seed);
@@ -210,6 +238,7 @@ export class MentionPreview {
             this.activeIndex,
           );
           this.tabJustHandled = true;
+          this.completionJustHandled = true;
           this.insertFileSuggestion(beforeCursor, suggestions[this.activeIndex] ?? suggestions[0]);
         }
       }
@@ -314,6 +343,13 @@ export class MentionPreview {
 
   consumeHandledTab(): boolean {
     const handled = this.tabJustHandled;
+    this.tabJustHandled = false;
+    return handled;
+  }
+
+  consumeHandledCompletion(): boolean {
+    const handled = this.completionJustHandled;
+    this.completionJustHandled = false;
     this.tabJustHandled = false;
     return handled;
   }
@@ -502,12 +538,22 @@ export class MentionPreview {
   }
 
   private insertSlashSuggestion(beforeCursor: string, command: SlashCommand): void {
-    const seed = beforeCursor.slice(1);
-    const completion = command.command.replace('/', '');
-    const remainder = completion.slice(seed.length);
-    this.rl.write(remainder);
+    const afterCursor = this.rl.line.slice(this.rl.cursor);
+    const replacement = `${command.command} `;
+    const newLine = replacement + afterCursor;
+    const newCursorPos = replacement.length;
+
+    if (this.onFileSuggestionAccepted) {
+      this.onFileSuggestionAccepted(newLine, newCursorPos);
+    } else {
+      (this.rl as any).line = newLine;
+      (this.rl as any).cursor = newCursorPos;
+    }
+
     this.mode = null;
-    this.render([]);
+    this.slashMatches = [];
+    this.lastSuggestions = [];
+    this.clear();
   }
 
   private insertSkillSuggestion(beforeCursor: string, skill: SkillMentionInfo): void {

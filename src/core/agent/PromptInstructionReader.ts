@@ -35,8 +35,8 @@ export async function promptForAgentInstruction(host: AgentPromptInstructionHost
     // otherwise the default placeholder is shown.
     // Turns: wait up to 3s. The user is still reading output so a brief
     // wait for contextual ghost text is acceptable.
-    // Suggestion uses a lazy provider: each render cycle in the prompt reads
-    // the latest value via getSuggestion(). This eliminates the race condition
+    // Next-prompt suggestion uses a lazy provider: each render cycle in the
+    // prompt reads the latest value via getNextPromptSuggestion(). This eliminates the race condition
     // where the LLM takes >3s and the static snapshot was always undefined.
     // The pendingSuggestion promise triggers a re-render when it resolves,
     // so the ghost text appears as soon as the LLM responds — even if the
@@ -63,7 +63,7 @@ export async function promptForAgentInstruction(host: AgentPromptInstructionHost
         (data, mimeType, filename) => host.imageManager.add(data, mimeType, filename),
         host.runtime.workspaceRoot,
         initialValue,
-        () => engine?.getSuggestion() ?? undefined,
+        () => engine?.getNextPromptSuggestion() ?? undefined,
         (line) => host.resolveLlmShellSuggestion(line),
         pendingSuggestion ?? undefined,
         () =>

@@ -925,7 +925,7 @@ export function initializeAgentDependencies(
       silentMode: disableTerminalRegions,
       workspaceRoot: host.runtime.workspaceRoot,
       resolveShellSuggestion: (input) => host.resolveLlmShellSuggestion(input),
-      suggestionProvider: () => host.suggestionEngine?.getSuggestion() ?? undefined,
+      suggestionProvider: () => host.suggestionEngine?.getNextPromptSuggestion() ?? undefined,
     });
 
     host.persistentInput.on('queued', (text: string, count: number) => {

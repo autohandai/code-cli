@@ -293,31 +293,41 @@ describe('buildPromptRenderState', () => {
   });
 });
 
-describe('ghost text suggestion in placeholder', () => {
-  it('shows LLM suggestion as placeholder when input is empty and suggestion provided', async () => {
+describe('placeholder and next-prompt suggestion rendering', () => {
+  it('shows model next-prompt suggestion separately from the static placeholder', async () => {
     const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
-    const state = buildPromptRenderState('', 0, 80, 'Run the test suite');
+    const state = buildPromptRenderState('', 0, 80, {
+      placeholderText: 'Build anything',
+      nextPromptSuggestion: 'Run the test suite',
+    });
     expect(state.lineText).toContain('Run the test suite');
-    expect(state.lineText).not.toContain('Plan, search, build anything');
+    expect(state.lineText).not.toContain('Build anything');
   });
 
-  it('shows default placeholder when no suggestion provided', async () => {
+  it('shows static placeholder when no model next-prompt suggestion is provided', async () => {
     const { buildPromptRenderState, PROMPT_PLACEHOLDER } = await import('../../src/ui/inputPrompt.js');
-    const state = buildPromptRenderState('', 0, 80);
+    const state = buildPromptRenderState('', 0, 80, {
+      placeholderText: PROMPT_PLACEHOLDER,
+    });
     expect(state.lineText).toContain(PROMPT_PLACEHOLDER);
   });
 
-  it('ignores suggestion when user has typed content', async () => {
+  it('ignores model next-prompt suggestion when user has typed content', async () => {
     const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
-    const state = buildPromptRenderState('hello', 5, 80, 'Run the test suite');
+    const state = buildPromptRenderState('hello', 5, 80, {
+      placeholderText: 'Build anything',
+      nextPromptSuggestion: 'Run the test suite',
+    });
     expect(state.lineText).not.toContain('Run the test suite');
   });
 });
 
-describe('Tab accepts LLM suggestion on empty input', () => {
-  it('returns LLM suggestion when input is empty and suggestion provided', async () => {
+describe('Tab accepts model next-prompt suggestion on empty input', () => {
+  it('returns model next-prompt suggestion when input is empty and suggestion provided', async () => {
     const { getPrimaryHotTipSuggestion } = await import('../../src/ui/inputPrompt.js');
-    const suggestion = getPrimaryHotTipSuggestion('', [], [], 'Run the test suite');
+    const suggestion = getPrimaryHotTipSuggestion('', [], [], {
+      nextPromptSuggestion: 'Run the test suite',
+    });
     expect(suggestion).toEqual({
       line: 'Run the test suite',
       cursor: 18,
@@ -326,7 +336,9 @@ describe('Tab accepts LLM suggestion on empty input', () => {
 
   it('falls back to /help when no suggestion provided', async () => {
     const { getPrimaryHotTipSuggestion } = await import('../../src/ui/inputPrompt.js');
-    const suggestion = getPrimaryHotTipSuggestion('', [], []);
+    const suggestion = getPrimaryHotTipSuggestion('', [], [], {
+      placeholderText: 'Build anything',
+    });
     expect(suggestion).toEqual({ line: '/help ', cursor: 6 });
   });
 });
@@ -1462,6 +1474,180 @@ describe('idle prompt slash command submission', () => {
     // The boxed prompt teardown must also clear the visible slash suggestion row
     // before the command handler takes over the terminal.
     expect(clearLineSpy).toHaveBeenCalledTimes(6);
+  });
+
+  it('accepts the active slash suggestion on Enter without submitting stale partial text', async () => {
+    const writes: string[] = [];
+    const stdOutput = new EventEmitter() as NodeJS.WriteStream & { columns: number; write: (chunk: string | Buffer) => boolean };
+    stdOutput.columns = 120;
+    stdOutput.write = (chunk: string | Buffer) => {
+      writes.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
+      return true;
+    };
+
+    const stdInput = new EventEmitter() as NodeJS.ReadStream & {
+      isTTY: boolean;
+      setRawMode: (mode: boolean) => void;
+      setEncoding: (encoding: string) => void;
+      resume: () => void;
+      pause: () => void;
+      read: () => null;
+    };
+    stdInput.isTTY = true;
+    stdInput.setRawMode = vi.fn();
+    stdInput.setEncoding = vi.fn();
+    stdInput.resume = vi.fn();
+    stdInput.pause = vi.fn();
+    stdInput.read = vi.fn(() => null);
+
+    const rl = new EventEmitter() as readline.Interface & {
+      line: string;
+      cursor: number;
+      input: NodeJS.ReadStream;
+      output: NodeJS.WriteStream;
+      close: () => void;
+      pause: () => void;
+      resume: () => void;
+      prompt: () => void;
+      setPrompt: (prompt: string) => void;
+      write: (chunk: string) => void;
+      _refreshLine?: () => void;
+      _moveCursor?: () => void;
+    };
+    rl.line = '';
+    rl.cursor = 0;
+    rl.input = stdInput;
+    rl.output = stdOutput;
+    rl.close = vi.fn();
+    rl.pause = vi.fn();
+    rl.resume = vi.fn();
+    rl.prompt = vi.fn();
+    rl.setPrompt = vi.fn();
+    rl.write = vi.fn((chunk: string) => {
+      rl.line += chunk;
+      rl.cursor = rl.line.length;
+      return true as any;
+    });
+    rl._refreshLine = vi.fn();
+    rl._moveCursor = vi.fn();
+
+    vi.spyOn(readline, 'createInterface').mockReturnValue(rl);
+    vi.spyOn(readline, 'emitKeypressEvents').mockImplementation(() => undefined);
+    vi.spyOn(readline, 'cursorTo').mockImplementation(() => true as any);
+    vi.spyOn(readline, 'clearLine').mockImplementation(() => true as any);
+    vi.spyOn(readline, 'moveCursor').mockImplementation(() => true as any);
+
+    const { readInstruction, promptInterrupt } = await import('../../src/ui/inputPrompt.js');
+
+    const promptPromise = readInstruction(
+      () => [],
+      [{ command: '/model', description: 'Select a model', implemented: true }],
+      undefined,
+      { input: stdInput, output: stdOutput }
+    );
+
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const emitKey = (str: string, key: Partial<readline.Key>) => {
+      stdInput.emit('keypress', str, key);
+    };
+
+    for (const ch of '/mo') {
+      emitKey(ch, { sequence: ch, name: ch === '/' ? '/' as any : ch });
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+
+    emitKey('\r', { name: 'return', sequence: '\r' });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(rl.line).toBe('/model ');
+
+    promptInterrupt('done');
+    await expect(promptPromise).resolves.toBe('done');
+  });
+
+  it('accepts an empty-input next-prompt suggestion with Right Arrow', async () => {
+    const writes: string[] = [];
+    const stdOutput = new EventEmitter() as NodeJS.WriteStream & { columns: number; write: (chunk: string | Buffer) => boolean };
+    stdOutput.columns = 120;
+    stdOutput.write = (chunk: string | Buffer) => {
+      writes.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
+      return true;
+    };
+
+    const stdInput = new EventEmitter() as NodeJS.ReadStream & {
+      isTTY: boolean;
+      setRawMode: (mode: boolean) => void;
+      setEncoding: (encoding: string) => void;
+      resume: () => void;
+      pause: () => void;
+      read: () => null;
+    };
+    stdInput.isTTY = true;
+    stdInput.setRawMode = vi.fn();
+    stdInput.setEncoding = vi.fn();
+    stdInput.resume = vi.fn();
+    stdInput.pause = vi.fn();
+    stdInput.read = vi.fn(() => null);
+
+    const rl = new EventEmitter() as readline.Interface & {
+      line: string;
+      cursor: number;
+      input: NodeJS.ReadStream;
+      output: NodeJS.WriteStream;
+      close: () => void;
+      pause: () => void;
+      resume: () => void;
+      prompt: () => void;
+      setPrompt: (prompt: string) => void;
+      write: (chunk: string) => void;
+      _refreshLine?: () => void;
+      _moveCursor?: () => void;
+    };
+    rl.line = '';
+    rl.cursor = 0;
+    rl.input = stdInput;
+    rl.output = stdOutput;
+    rl.close = vi.fn();
+    rl.pause = vi.fn();
+    rl.resume = vi.fn();
+    rl.prompt = vi.fn();
+    rl.setPrompt = vi.fn();
+    rl.write = vi.fn((chunk: string) => {
+      rl.line += chunk;
+      rl.cursor = rl.line.length;
+      return true as any;
+    });
+    rl._refreshLine = vi.fn();
+    rl._moveCursor = vi.fn();
+
+    vi.spyOn(readline, 'createInterface').mockReturnValue(rl);
+    vi.spyOn(readline, 'emitKeypressEvents').mockImplementation(() => undefined);
+    vi.spyOn(readline, 'cursorTo').mockImplementation(() => true as any);
+    vi.spyOn(readline, 'clearLine').mockImplementation(() => true as any);
+    vi.spyOn(readline, 'moveCursor').mockImplementation(() => true as any);
+
+    const { readInstruction } = await import('../../src/ui/inputPrompt.js');
+
+    const promptPromise = readInstruction(
+      () => [],
+      [],
+      undefined,
+      { input: stdInput, output: stdOutput },
+      undefined,
+      undefined,
+      '',
+      () => 'Run the test suite'
+    );
+
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    stdInput.emit('keypress', '', { name: 'right', sequence: '\u001b[C' });
+    stdInput.emit('keypress', '\r', { name: 'return', sequence: '\r' });
+
+    await expect(promptPromise).resolves.toBe('Run the test suite');
   });
 });
 

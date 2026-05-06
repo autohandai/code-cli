@@ -96,7 +96,7 @@ export interface AgentUIProps {
   skillsProvider?: () => SkillMentionInfo[];
   /** Base path used for shell path completion. Defaults to process.cwd(). */
   workspaceRoot?: string;
-  /** Lazy provider for the current next-step suggestion shown as ghost text. */
+  /** Lazy provider for the model-generated empty-input next-prompt suggestion. */
   suggestionProvider?: () => string | undefined;
   /** Optional async LLM resolver for ! command suggestions. */
   resolveShellSuggestion?: (input: string) => Promise<string | null>;
@@ -593,6 +593,75 @@ export function AgentUI({
     setFileMentionSuggestions([]);
   }, []);
 
+  const acceptActiveAutocompleteSuggestion = useCallback((options?: { preserveExactSlashSubmit?: boolean }): boolean => {
+    if (slashVisibleRef.current && slashSuggestionsRef.current.length > 0 && slashStartIndexRef.current !== null) {
+      const suggestion = slashSuggestionsRef.current[slashActiveIndexRef.current];
+      if (!suggestion) {
+        return false;
+      }
+
+      const buffer = textBufferRef.current;
+      const currentText = buffer.getText();
+      if (options?.preserveExactSlashSubmit && currentText.trim() === suggestion.command) {
+        return false;
+      }
+
+      const beforeSlash = currentText.slice(0, slashStartIndexRef.current);
+      const afterCursor = currentText.slice(getTextBufferCursorOffset(buffer));
+      const replacement = `${suggestion.command} `;
+      buffer.setText(beforeSlash + replacement + afterCursor);
+      syncInputFromBuffer();
+
+      setSlashVisible(false);
+      setSlashSuggestions([]);
+      slashStartIndexRef.current = null;
+      slashFullMatchRef.current = null;
+      return true;
+    }
+
+    if (skillVisibleRef.current && skillSuggestionsRef.current.length > 0 && skillStartIndexRef.current !== null) {
+      const suggestion = skillSuggestionsRef.current[skillActiveIndexRef.current];
+      if (!suggestion) {
+        return false;
+      }
+
+      const buffer = textBufferRef.current;
+      const currentText = buffer.getText();
+      const beforeMention = currentText.slice(0, skillStartIndexRef.current);
+      const afterCursor = currentText.slice(getTextBufferCursorOffset(buffer));
+      const replacement = `${suggestion.name} `;
+      buffer.setText(beforeMention + replacement + afterCursor);
+      syncInputFromBuffer();
+
+      setSkillVisible(false);
+      setSkillSuggestions([]);
+      skillStartIndexRef.current = null;
+      return true;
+    }
+
+    if (fileMentionVisibleRef.current && fileMentionSuggestionsRef.current.length > 0 && fileMentionStartIndexRef.current !== null) {
+      const suggestion = fileMentionSuggestionsRef.current[fileMentionActiveIndexRef.current];
+      if (!suggestion) {
+        return false;
+      }
+
+      const buffer = textBufferRef.current;
+      const currentText = buffer.getText();
+      const beforeMention = currentText.slice(0, fileMentionStartIndexRef.current);
+      const afterCursor = currentText.slice(getTextBufferCursorOffset(buffer));
+      const replacement = `@${suggestion.path} `;
+      buffer.setText(beforeMention + replacement + afterCursor);
+      syncInputFromBuffer();
+
+      setFileMentionVisible(false);
+      setFileMentionSuggestions([]);
+      fileMentionStartIndexRef.current = null;
+      return true;
+    }
+
+    return false;
+  }, [syncInputFromBuffer]);
+
   // Subscribe to plan mode changes
   useEffect(() => {
     const planModeManager = getPlanModeManager();
@@ -1015,66 +1084,15 @@ export function AgentUI({
       }
     }
 
+    if ((key.return || key.rightArrow) && acceptActiveAutocompleteSuggestion({ preserveExactSlashSubmit: key.return })) {
+      return;
+    }
+
     // Handle Tab for slash / skill / file mention acceptance
     // Priority matches the arrow-key block above
     if (key.tab && !key.shift) {
-      if (slashVisibleRef.current && slashSuggestionsRef.current.length > 0 && slashStartIndexRef.current !== null) {
-        const suggestion = slashSuggestionsRef.current[slashActiveIndexRef.current];
-        if (suggestion) {
-          const buffer = textBufferRef.current;
-          const currentText = buffer.getText();
-          const beforeSlash = currentText.slice(0, slashStartIndexRef.current);
-          const afterCursor = currentText.slice(getTextBufferCursorOffset(buffer));
-          const replacement = `${suggestion.command} `;
-          const newText = beforeSlash + replacement + afterCursor;
-
-          buffer.setText(newText);
-          syncInputFromBuffer();
-
-          // Reset slash command state
-          setSlashVisible(false);
-          setSlashSuggestions([]);
-          slashStartIndexRef.current = null;
-          slashFullMatchRef.current = null;
-          return;
-        }
-      }
-      if (skillVisibleRef.current && skillSuggestionsRef.current.length > 0 && skillStartIndexRef.current !== null) {
-        const suggestion = skillSuggestionsRef.current[skillActiveIndexRef.current];
-        if (suggestion) {
-          const buffer = textBufferRef.current;
-          const currentText = buffer.getText();
-          const beforeMention = currentText.slice(0, skillStartIndexRef.current);
-          const afterCursor = currentText.slice(getTextBufferCursorOffset(buffer));
-          const replacement = `${suggestion.name} `;
-          buffer.setText(beforeMention + replacement + afterCursor);
-          syncInputFromBuffer();
-
-          setSkillVisible(false);
-          setSkillSuggestions([]);
-          skillStartIndexRef.current = null;
-          return;
-        }
-      }
-      if (fileMentionVisibleRef.current && fileMentionSuggestionsRef.current.length > 0 && fileMentionStartIndexRef.current !== null) {
-        const suggestion = fileMentionSuggestionsRef.current[fileMentionActiveIndexRef.current];
-        if (suggestion) {
-          const buffer = textBufferRef.current;
-          const currentText = buffer.getText();
-          const beforeMention = currentText.slice(0, fileMentionStartIndexRef.current);
-          const afterCursor = currentText.slice(getTextBufferCursorOffset(buffer));
-          const replacement = `@${suggestion.path} `;
-          const newText = beforeMention + replacement + afterCursor;
-          
-          buffer.setText(newText);
-          syncInputFromBuffer();
-          
-          // Reset file mention state
-          setFileMentionVisible(false);
-          setFileMentionSuggestions([]);
-          fileMentionStartIndexRef.current = null;
-          return;
-        }
+      if (acceptActiveAutocompleteSuggestion()) {
+        return;
       }
 
       const buffer = textBufferRef.current;
@@ -1106,9 +1124,10 @@ export function AgentUI({
           currentText,
           filesProviderRef.current?.() ?? [],
           slashCommandsRef.current ?? [],
-          undefined,
-          workspaceRootRef.current,
-          skillsProviderRef.current,
+          {
+            workspaceRoot: workspaceRootRef.current,
+            skillsProvider: skillsProviderRef.current,
+          },
         );
 
         let expectedInputAtResponse = currentText;
@@ -1145,6 +1164,39 @@ export function AgentUI({
       }
 
       return;
+    }
+
+    if (key.rightArrow) {
+      const buffer = textBufferRef.current;
+      const currentText = buffer.getText();
+      const cursorAtEnd = getTextBufferCursorOffset(buffer) === currentText.length;
+
+      if (cursorAtEnd) {
+        const trimmedText = currentText.trim();
+        if (trimmedText.length === 0) {
+          const suggestion = suggestionProviderRef.current?.();
+          if (suggestion?.trim()) {
+            buffer.setText(suggestion);
+            syncInputFromBuffer();
+            return;
+          }
+        } else {
+          const inlineGhostSuffix = getInlineGhostCompletionSuffix(
+            currentText,
+            filesProviderRef.current?.() ?? [],
+            slashCommandsRef.current ?? [],
+            workspaceRootRef.current,
+            llmInlineShellSuggestionRef.current,
+            skillsProviderRef.current,
+          );
+
+          if (inlineGhostSuffix) {
+            buffer.setText(`${currentText}${inlineGhostSuffix}`);
+            syncInputFromBuffer();
+            return;
+          }
+        }
+      }
     }
 
     // ── Toggle shortcut help on '?' when input is empty ──
@@ -1335,7 +1387,7 @@ export function AgentUI({
 
       return;
     }
-  }, [syncBufferViewport, syncInputFromBuffer, dismissAutocompleteState]);
+  }, [syncBufferViewport, syncInputFromBuffer, dismissAutocompleteState, acceptActiveAutocompleteSuggestion]);
 
   // Extra safety: wrap in a ref so useInput never re-registers even if
   // the above callback identity changes unexpectedly.
@@ -1365,8 +1417,14 @@ export function AgentUI({
   // and was actually causing a layout lag during drag-resize.
   const windowSize = useWindowSize();
   const inputWidth = getPromptBlockWidth(windowSize.columns);
-  const composerSuggestionText = useMemo(() => {
-    if (input.trim().length > 0) {
+  const composerNextPromptSuggestion = useMemo(() => {
+    if (
+      state.isWorking ||
+      input.trim().length > 0 ||
+      slashVisible ||
+      fileMentionVisible ||
+      skillVisible
+    ) {
       return undefined;
     }
     const suggestion = suggestionProvider?.();
@@ -1377,7 +1435,17 @@ export function AgentUI({
       return undefined;
     }
     return suggestion;
-  }, [input, suggestionProvider, state.finalResponse, state.chatMessages, state.suggestionRefreshId]);
+  }, [
+    input,
+    suggestionProvider,
+    state.finalResponse,
+    state.chatMessages,
+    state.suggestionRefreshId,
+    state.isWorking,
+    slashVisible,
+    fileMentionVisible,
+    skillVisible,
+  ]);
   const composerInlineGhostSuffix = useMemo(() => {
     if (!input || input.includes('\n')) {
       return undefined;
@@ -1518,7 +1586,7 @@ export function AgentUI({
         }
         inputWidth={inputWidth}
         borderStyle={inputBorderStyle}
-        suggestionText={composerSuggestionText}
+        nextPromptSuggestion={composerNextPromptSuggestion}
         inlineGhostSuffix={composerInlineGhostSuffix}
         showShortcuts={showShortcuts}
       />
@@ -1750,7 +1818,8 @@ interface InputLineWrapperProps {
   inputWidth: number;
   /** Border style for the input box */
   borderStyle?: InputBorderStyle;
-  suggestionText?: string;
+  placeholderText?: string;
+  nextPromptSuggestion?: string;
   inlineGhostSuffix?: string;
 }
 
@@ -1761,7 +1830,8 @@ const InputLineWrapper = memo(function InputLineWrapper({
   cursorOffset,
   inputWidth,
   borderStyle,
-  suggestionText,
+  placeholderText,
+  nextPromptSuggestion,
   inlineGhostSuffix,
 }: InputLineWrapperProps) {
   if (!enableQueueInput) {
@@ -1775,7 +1845,8 @@ const InputLineWrapper = memo(function InputLineWrapper({
       isActive={true}
       width={inputWidth}
       borderStyle={borderStyle}
-      suggestionText={suggestionText}
+      placeholderText={placeholderText}
+      nextPromptSuggestion={nextPromptSuggestion}
       inlineGhostSuffix={inlineGhostSuffix}
     />
   );
@@ -1786,7 +1857,8 @@ const InputLineWrapper = memo(function InputLineWrapper({
          prev.cursorOffset === next.cursorOffset &&
          prev.inputWidth === next.inputWidth &&
          prev.borderStyle === next.borderStyle &&
-         prev.suggestionText === next.suggestionText &&
+         prev.placeholderText === next.placeholderText &&
+         prev.nextPromptSuggestion === next.nextPromptSuggestion &&
          prev.inlineGhostSuffix === next.inlineGhostSuffix;
 });
 
@@ -1934,7 +2006,8 @@ interface FixedBottomProps {
   inputWidth: number;
   /** Border style for the input box */
   borderStyle?: InputBorderStyle;
-  suggestionText?: string;
+  placeholderText?: string;
+  nextPromptSuggestion?: string;
   inlineGhostSuffix?: string;
   /** Whether the shortcuts help panel is visible */
   showShortcuts: boolean;
@@ -1960,7 +2033,8 @@ const FixedBottom = memo(function FixedBottom({
   skillMentionDropdown,
   inputWidth,
   borderStyle,
-  suggestionText,
+  placeholderText,
+  nextPromptSuggestion,
   inlineGhostSuffix,
   showShortcuts,
 }: FixedBottomProps) {
@@ -1985,7 +2059,8 @@ const FixedBottom = memo(function FixedBottom({
         cursorOffset={cursorOffset}
         inputWidth={inputWidth}
         borderStyle={borderStyle}
-        suggestionText={suggestionText}
+        placeholderText={placeholderText}
+        nextPromptSuggestion={nextPromptSuggestion}
         inlineGhostSuffix={inlineGhostSuffix}
       />
       <FileMentionWrapper fileMentionDropdown={fileMentionDropdown} />

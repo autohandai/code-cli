@@ -25,8 +25,10 @@ export interface InputLineProps {
   width: number;
   /** Border style - mirrors readline/terminal regions behavior */
   borderStyle?: InputBorderStyle;
-  /** Empty-input next-step suggestion shown as placeholder text. */
-  suggestionText?: string;
+  /** Passive empty-input placeholder text. */
+  placeholderText?: string;
+  /** Model-generated empty-input next-prompt suggestion. */
+  nextPromptSuggestion?: string;
   /** Inline completion suffix shown after the current input. */
   inlineGhostSuffix?: string;
 }
@@ -37,7 +39,8 @@ function InputLineComponent({
   isActive,
   width,
   borderStyle = 'default',
-  suggestionText,
+  placeholderText,
+  nextPromptSuggestion,
   inlineGhostSuffix,
 }: InputLineProps) {
   const { theme } = useTheme();
@@ -63,15 +66,18 @@ function InputLineComponent({
       displayCursorOffset,
       width,
       borderStyle,
-      suggestionText,
-      inlineGhostSuffix
+      {
+        placeholderText,
+        nextPromptSuggestion,
+        inlineGhostSuffix,
+      }
     );
     return {
       plainLines: lines.map((line) => stripAnsiCodes(line)),
       cursorRow,
       cursorColumn,
     };
-  }, [value, cursorOffset, width, borderStyle, suggestionText, inlineGhostSuffix]);
+  }, [value, cursorOffset, width, borderStyle, placeholderText, nextPromptSuggestion, inlineGhostSuffix]);
 
   const renderContentLine = (line: string, index: number) => {
     if (index !== displayData.cursorRow) {
@@ -126,7 +132,8 @@ export const InputLine = memo(InputLineComponent, (prev, next) => {
     prev.isActive === next.isActive &&
     prev.width === next.width &&
     prev.borderStyle === next.borderStyle &&
-    prev.suggestionText === next.suggestionText &&
+    prev.placeholderText === next.placeholderText &&
+    prev.nextPromptSuggestion === next.nextPromptSuggestion &&
     prev.inlineGhostSuffix === next.inlineGhostSuffix
   );
 });
