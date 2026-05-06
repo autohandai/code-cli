@@ -22,7 +22,6 @@ export interface YoloPattern {
 const DEFAULT_YOLO_FILE_TOOLS = [
   'read_file',
   'write_file',
-  'multi_file_edit',
   'list_dir',
   'file_search',
   'grep_search',

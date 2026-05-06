@@ -599,7 +599,7 @@ When you approve a file operation (edit, write, delete), it's automatically save
   "version": 1,
   "permissions": {
     "whitelist": [
-      "multi_file_edit:src/components/Button.tsx",
+      "apply_patch:src/components/Button.tsx",
       "write_file:package.json",
       "run_command:bun test"
     ]
@@ -616,7 +616,7 @@ When you approve a file operation (edit, write, delete), it's automatically save
 
 **Pattern format:**
 
-- `tool_name:path` - For file operations (e.g., `multi_file_edit:src/file.ts`)
+- `tool_name:path` - For file operations (e.g., `apply_patch:src/file.ts`)
 - `tool_name:command args` - For commands (e.g., `run_command:npm test`)
 
 ### Viewing Permissions

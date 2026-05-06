@@ -800,31 +800,6 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
-    name: 'multi_file_edit',
-    description: 'Apply multiple edits to a file',
-    parameters: {
-      type: 'object',
-      properties: {
-        file_path: { type: 'string', description: 'Relative path to the file' },
-        edits: {
-          type: 'array',
-          description: 'Array of {old_string, new_string, replace_all?}',
-          items: {
-            type: 'object',
-            properties: {
-              old_string: { type: 'string', description: 'Text to replace' },
-              new_string: { type: 'string', description: 'Replacement text' },
-              replace_all: { type: 'boolean', description: 'Replace all occurrences (default: false)' }
-            },
-            required: ['old_string', 'new_string']
-          }
-        }
-      },
-      required: ['file_path', 'edits']
-    },
-    requiresApproval: true
-  },
-  {
     name: 'todo_write',
     description: 'Persist and update the todo list. Send the COMPLETE updated todo list each time (not incremental changes).',
     parameters: {
