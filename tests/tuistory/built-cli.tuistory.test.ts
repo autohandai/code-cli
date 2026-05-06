@@ -209,7 +209,7 @@ describe('interactive built CLI Tuistory tests', () => {
     await session.type('/theme');
     await session.press('enter');
     await session.waitForText('Select a theme:', { timeout: 10_000 });
-    await session.press('7');
+    await session.press('8');
     await session.waitForText("Theme changed to 'sandy'", { timeout: 10_000 });
     await session.waitForText('Theme preview:', { timeout: 10_000 });
 

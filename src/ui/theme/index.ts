@@ -84,6 +84,8 @@ export {
   darkTheme,
   lightTheme,
   githubDarkTheme,
+  cappadociaTheme,
+  rioTheme,
   turkeyTheme,
   brazilTheme,
   australiaTheme,

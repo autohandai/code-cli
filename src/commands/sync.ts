@@ -3,12 +3,12 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import chalk from 'chalk';
 import { t } from '../i18n/index.js';
 import readline from 'node:readline';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import { loadConfig, saveConfig } from '../config.js';
 import type { SyncService } from '../sync/SyncService.js';
+import { createCommandTheme } from './commandTheme.js';
 
 export const metadata = {
   command: '/sync',
@@ -47,8 +47,9 @@ export async function sync(ctx: SlashCommandContext): Promise<string | null> {
   const isLoggedIn = Boolean(config.auth?.token && config.auth?.user);
 
   if (!isLoggedIn) {
-    console.log(chalk.yellow('\nSettings sync requires authentication.'));
-    console.log(chalk.gray('Run /login to sign in and enable cloud sync.\n'));
+    const theme = createCommandTheme();
+    console.log(theme.warning('\nSettings sync requires authentication.'));
+    console.log(theme.muted('Run /login to sign in and enable cloud sync.\n'));
     return null;
   }
 
@@ -120,11 +121,12 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
     }
 
     const render = () => {
+      const theme = createCommandTheme();
       process.stdout.write('\x1B[2J\x1B[H');
 
       renderTabHeader(tabs, currentTab);
       renderTabContent(tabs[currentTab], data);
-      console.log(chalk.gray('\nEsc to exit | Tab to cycle | s: sync now | e: toggle enabled'));
+      console.log(theme.muted('\nEsc to exit | Tab to cycle | s: sync now | e: toggle enabled'));
     };
 
     const handler = async (_str: string, key: readline.Key) => {
@@ -157,19 +159,20 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
       if (char === 's') {
         // Trigger manual sync
         if (data.syncService) {
-          console.log(chalk.cyan('\nSyncing...'));
+          const theme = createCommandTheme();
+          console.log(theme.accent('\nSyncing...'));
           try {
             const result = await data.syncService.sync();
             if (result.success) {
-              console.log(chalk.green(`Sync complete! Uploaded: ${result.uploaded}, Downloaded: ${result.downloaded}`));
+              console.log(theme.success(`Sync complete! Uploaded: ${result.uploaded}, Downloaded: ${result.downloaded}`));
             } else {
-              console.log(chalk.red(`Sync failed: ${result.error}`));
+              console.log(theme.error(`Sync failed: ${result.error}`));
             }
             // Refresh data
             const config = await loadConfig();
             Object.assign(data, await gatherSyncData(ctx, config));
           } catch (err) {
-            console.log(chalk.red(`Sync error: ${err}`));
+            console.log(theme.error(`Sync error: ${err}`));
           }
           await sleep(1500);
           render();
@@ -185,11 +188,11 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
           config.sync = { ...config.sync, enabled: newEnabled };
           await saveConfig(config);
           data.enabled = newEnabled;
-          console.log(chalk.cyan(`\n${newEnabled ? t('commands.sync.enabled') : t('commands.sync.disabled')}`));
+          console.log(createCommandTheme().accent(`\n${newEnabled ? t('commands.sync.enabled') : t('commands.sync.disabled')}`));
           await sleep(1000);
           render();
         } catch (err) {
-          console.log(chalk.red(`Error toggling sync: ${err}`));
+          console.log(createCommandTheme().error(`Error toggling sync: ${err}`));
         }
         return;
       }
@@ -212,13 +215,14 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
 }
 
 function renderTabHeader(tabs: TabName[], currentIndex: number): void {
+  const theme = createCommandTheme();
   const header = tabs
     .map((tab, i) => {
-      return i === currentIndex ? chalk.bgWhite.black(` ${tab} `) : chalk.gray(` ${tab} `);
+      return i === currentIndex ? theme.selectedTab(tab) : theme.tab(tab);
     })
     .join('  ');
 
-  console.log(`Settings Sync: ${header}  ${chalk.gray('(tab to cycle)')}\n`);
+  console.log(`Settings Sync: ${header}  ${theme.muted('(tab to cycle)')}\n`);
 }
 
 function renderTabContent(tab: TabName, data: SyncData): void {
@@ -236,59 +240,62 @@ function renderTabContent(tab: TabName, data: SyncData): void {
 }
 
 function renderStatusTab(data: SyncData): void {
-  console.log(chalk.bold('Sync Status\n'));
+  const theme = createCommandTheme();
+  console.log(theme.bold('Sync Status\n'));
 
-  const statusIcon = data.enabled ? chalk.green('\u2713') : chalk.red('\u2717');
-  const runningIcon = data.isRunning ? chalk.green('\u2713') : chalk.yellow('\u25CB');
+  const statusIcon = data.enabled ? theme.success('\u2713') : theme.error('\u2717');
+  const runningIcon = data.isRunning ? theme.success('\u2713') : theme.warning('\u25CB');
 
-  console.log(`  ${chalk.cyan('Enabled'.padEnd(20))} ${statusIcon} ${data.enabled ? 'Yes' : 'No'}`);
-  console.log(`  ${chalk.cyan('Service Running'.padEnd(20))} ${runningIcon} ${data.isRunning ? 'Yes' : 'No'}`);
-  console.log(`  ${chalk.cyan('Last Sync'.padEnd(20))} ${data.lastSync ? formatDate(data.lastSync) : chalk.gray('Never')}`);
-  console.log(`  ${chalk.cyan('Files Tracked'.padEnd(20))} ${data.fileCount}`);
-  console.log(`  ${chalk.cyan('Total Size'.padEnd(20))} ${formatSize(data.totalSize)}`);
-  console.log(`  ${chalk.cyan('Sync Interval'.padEnd(20))} ${formatInterval(data.interval)}`);
+  console.log(`  ${theme.accent('Enabled'.padEnd(20))} ${statusIcon} ${data.enabled ? 'Yes' : 'No'}`);
+  console.log(`  ${theme.accent('Service Running'.padEnd(20))} ${runningIcon} ${data.isRunning ? 'Yes' : 'No'}`);
+  console.log(`  ${theme.accent('Last Sync'.padEnd(20))} ${data.lastSync ? formatDate(data.lastSync) : theme.muted('Never')}`);
+  console.log(`  ${theme.accent('Files Tracked'.padEnd(20))} ${data.fileCount}`);
+  console.log(`  ${theme.accent('Total Size'.padEnd(20))} ${formatSize(data.totalSize)}`);
+  console.log(`  ${theme.accent('Sync Interval'.padEnd(20))} ${formatInterval(data.interval)}`);
 }
 
 function renderSettingsTab(data: SyncData): void {
-  console.log(chalk.bold('Sync Settings\n'));
+  const theme = createCommandTheme();
+  console.log(theme.bold('Sync Settings\n'));
 
-  console.log(`  ${chalk.cyan('Enabled'.padEnd(25))} ${data.enabled ? chalk.green('true') : chalk.gray('false')}`);
-  console.log(`  ${chalk.cyan('Interval'.padEnd(25))} ${formatInterval(data.interval)}`);
-  console.log(`  ${chalk.cyan('Include Telemetry'.padEnd(25))} ${data.includeTelemetry ? chalk.green('true') : chalk.gray('false')}`);
-  console.log(`  ${chalk.cyan('Include Feedback'.padEnd(25))} ${data.includeFeedback ? chalk.green('true') : chalk.gray('false')}`);
+  console.log(`  ${theme.accent('Enabled'.padEnd(25))} ${data.enabled ? theme.success('true') : theme.muted('false')}`);
+  console.log(`  ${theme.accent('Interval'.padEnd(25))} ${formatInterval(data.interval)}`);
+  console.log(`  ${theme.accent('Include Telemetry'.padEnd(25))} ${data.includeTelemetry ? theme.success('true') : theme.muted('false')}`);
+  console.log(`  ${theme.accent('Include Feedback'.padEnd(25))} ${data.includeFeedback ? theme.success('true') : theme.muted('false')}`);
 
-  console.log(chalk.bold('\nWhat Gets Synced\n'));
-  console.log(chalk.gray('  \u2713 config.json (API keys encrypted)'));
-  console.log(chalk.gray('  \u2713 agents/ (custom agents)'));
-  console.log(chalk.gray('  \u2713 skills/ (custom skills)'));
-  console.log(chalk.gray('  \u2713 hooks/ (user hooks)'));
-  console.log(chalk.gray('  \u2713 memory/ (user memory)'));
-  console.log(chalk.gray('  \u2713 sessions/ (session history)'));
-  console.log(chalk.gray('  \u2713 projects/ (project knowledge)'));
+  console.log(theme.bold('\nWhat Gets Synced\n'));
+  console.log(theme.muted('  \u2713 config.json (API keys encrypted)'));
+  console.log(theme.muted('  \u2713 agents/ (custom agents)'));
+  console.log(theme.muted('  \u2713 skills/ (custom skills)'));
+  console.log(theme.muted('  \u2713 hooks/ (user hooks)'));
+  console.log(theme.muted('  \u2713 memory/ (user memory)'));
+  console.log(theme.muted('  \u2713 sessions/ (session history)'));
+  console.log(theme.muted('  \u2713 projects/ (project knowledge)'));
 
-  console.log(chalk.bold('\nNot Synced\n'));
-  console.log(chalk.gray('  \u2717 device-id (unique per device)'));
-  console.log(chalk.gray('  \u2717 error.log (local only)'));
-  console.log(chalk.gray('  \u2717 version-*.json (cache files)'));
+  console.log(theme.bold('\nNot Synced\n'));
+  console.log(theme.muted('  \u2717 device-id (unique per device)'));
+  console.log(theme.muted('  \u2717 error.log (local only)'));
+  console.log(theme.muted('  \u2717 version-*.json (cache files)'));
 }
 
 function renderActivityTab(data: SyncData): void {
-  console.log(chalk.bold('Recent Sync Activity\n'));
+  const theme = createCommandTheme();
+  console.log(theme.bold('Recent Sync Activity\n'));
 
   if (!data.lastSync) {
-    console.log(chalk.gray('  No sync activity yet.'));
-    console.log(chalk.gray('  Press "s" to trigger a manual sync.'));
+    console.log(theme.muted('  No sync activity yet.'));
+    console.log(theme.muted('  Press "s" to trigger a manual sync.'));
     return;
   }
 
-  console.log(`  ${chalk.cyan('Last successful sync:')} ${formatDate(data.lastSync)}`);
-  console.log(`  ${chalk.cyan('Files synced:')} ${data.fileCount}`);
-  console.log(`  ${chalk.cyan('Data transferred:')} ${formatSize(data.totalSize)}`);
+  console.log(`  ${theme.accent('Last successful sync:')} ${formatDate(data.lastSync)}`);
+  console.log(`  ${theme.accent('Files synced:')} ${data.fileCount}`);
+  console.log(`  ${theme.accent('Data transferred:')} ${formatSize(data.totalSize)}`);
 
-  console.log(chalk.bold('\nTips\n'));
-  console.log(chalk.gray('  - Sync runs automatically every 5 minutes'));
-  console.log(chalk.gray('  - Press "s" anytime to trigger a manual sync'));
-  console.log(chalk.gray('  - Cloud data takes priority on conflicts'));
+  console.log(theme.bold('\nTips\n'));
+  console.log(theme.muted('  - Sync runs automatically every 5 minutes'));
+  console.log(theme.muted('  - Press "s" anytime to trigger a manual sync'));
+  console.log(theme.muted('  - Cloud data takes priority on conflicts'));
 }
 
 function formatDate(isoString: string): string {

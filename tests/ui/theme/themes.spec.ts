@@ -9,8 +9,8 @@ import {
   darkTheme,
   lightTheme,
   githubDarkTheme,
-  turkeyTheme,
-  brazilTheme,
+  cappadociaTheme,
+  rioTheme,
   australiaTheme,
   builtInThemes,
   getBuiltInTheme,
@@ -165,8 +165,8 @@ describe('builtInThemes', () => {
   });
 
   it('contains country-inspired themes', () => {
-    expect(builtInThemes.turkey).toBe(turkeyTheme);
-    expect(builtInThemes.brazil).toBe(brazilTheme);
+    expect(builtInThemes.cappadocia).toBe(cappadociaTheme);
+    expect(builtInThemes.rio).toBe(rioTheme);
     expect(builtInThemes.australia).toBe(australiaTheme);
   });
 
@@ -187,6 +187,13 @@ describe('builtInThemes', () => {
       }
     }
   });
+
+  it('advertises renamed built-in theme keys only', () => {
+    expect(Object.keys(builtInThemes)).toContain('cappadocia');
+    expect(Object.keys(builtInThemes)).toContain('rio');
+    expect(Object.keys(builtInThemes)).not.toContain('turkey');
+    expect(Object.keys(builtInThemes)).not.toContain('brazil');
+  });
 });
 
 describe('getBuiltInTheme()', () => {
@@ -196,6 +203,11 @@ describe('getBuiltInTheme()', () => {
 
   it('returns light theme for "light"', () => {
     expect(getBuiltInTheme('light')).toBe(lightTheme);
+  });
+
+  it('maps legacy theme names to renamed built-ins', () => {
+    expect(getBuiltInTheme('turkey')).toBe(cappadociaTheme);
+    expect(getBuiltInTheme('brazil')).toBe(rioTheme);
   });
 
   it('returns undefined for unknown theme', () => {
