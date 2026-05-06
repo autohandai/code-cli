@@ -44,6 +44,17 @@ describe('Paste Integration', () => {
       expect(result.lineCount).toBe(10);
     });
 
+    it('should handle large single-line paste with indicator', () => {
+      const content = 'b'.repeat(1500);
+      const result = getContentDisplay(content);
+
+      expect(result.visual).toBe(expectedPasteToken(content));
+      expect(result.actual).toBe(content);
+      expect(result.isPasted).toBe(true);
+      expect(result.lineCount).toBe(1);
+      expect(result.charCount).toBe(Array.from(content).length);
+    });
+
     it('should handle very large paste (100 lines)', () => {
       const lines = Array(100).fill(0).map((_, i) => `line${i + 1}`).join('\n');
       const result = getContentDisplay(lines);
