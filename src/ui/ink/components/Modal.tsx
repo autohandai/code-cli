@@ -10,6 +10,8 @@ import { I18nProvider, useTranslation } from '../../i18n/index.js';
 import { disableBracketedPaste, enableBracketedPaste } from '../../displayUtils.js';
 import { resetScrollRegion } from '../../resetScrollRegion.js';
 import { inkRenderOptions } from '../../inkRenderOptions.js';
+import { ThemeProvider, useTheme } from '../../theme/ThemeContext.js';
+import type { ColorToken } from '../../theme/types.js';
 
 /**
  * Represents an option in the modal.
@@ -224,6 +226,7 @@ export function cleanupModalRender(output: NodeJS.WriteStream = process.stdout):
  */
 function Modal(props: ModalProps) {
   const { t } = useTranslation();
+  const { theme } = useTheme();
   const { title, logo, onCancel } = props;
 
   // Determine mode (default to 'select' for backward compatibility)
@@ -532,7 +535,7 @@ function Modal(props: ModalProps) {
       return (
         <>
           <Box>
-            <Text color="yellow">&gt; </Text>
+            <Text>{theme.fg('warning', '> ')}</Text>
             {displayValue ? (
               <Text>
                 {beforeCursor}
@@ -540,12 +543,12 @@ function Modal(props: ModalProps) {
                 {afterCursor}
               </Text>
             ) : (
-              <Text color="gray">{placeholderText}<Text inverse>{' '}</Text></Text>
+              <Text>{theme.fg('muted', placeholderText)}<Text inverse>{' '}</Text></Text>
             )}
           </Box>
           {validationError && (
             <Box marginTop={1}>
-              <Text color="red">{validationError}</Text>
+              <Text>{theme.fg('error', validationError)}</Text>
             </Box>
           )}
         </>
@@ -556,9 +559,9 @@ function Modal(props: ModalProps) {
     if (mode === 'select' && isCustomMode) {
       return (
         <Box>
-          <Text color="yellow">{t('ui.questionYourAnswer')}: </Text>
+          <Text>{theme.fg('warning', `${t('ui.questionYourAnswer')}: `)}</Text>
           <Text>{customInput}</Text>
-          <Text color="gray">{'\u2588'}</Text>
+          <Text>{theme.fg('muted', '\u2588')}</Text>
         </Box>
       );
     }
@@ -567,7 +570,7 @@ function Modal(props: ModalProps) {
     if (hasNoChoices) {
       return (
         <Box>
-          <Text color="gray">{t('ui.noOptionsAvailable')}</Text>
+          <Text>{theme.fg('muted', t('ui.noOptionsAvailable'))}</Text>
         </Box>
       );
     }
@@ -584,11 +587,11 @@ function Modal(props: ModalProps) {
       const isSelected = i === cursor;
       const isDisabled = choice.disabled;
 
-      let color: string | undefined;
+      let color: ColorToken | undefined;
       if (isDisabled) {
-        color = 'gray';
+        color = 'dim';
       } else if (isSelected) {
-        color = 'green';
+        color = 'accent';
       }
 
       const checkbox = isMultiSelect
@@ -597,13 +600,11 @@ function Modal(props: ModalProps) {
 
       return (
         <Box key={`${choice.value}-${i}`} flexDirection="column">
-          <Text color={color}>
-            {isSelected ? '\u25b8 ' : '  '}
-            {checkbox}{i + 1}. {choice.label}
-            {isDisabled ? ' (disabled)' : ''}
+          <Text>
+            {theme.fg(color ?? 'text', `${isSelected ? '\u25b8 ' : '  '}${checkbox}${i + 1}. ${choice.label}${isDisabled ? ' (disabled)' : ''}`)}
           </Text>
           {choice.description && (
-            <Text color="gray">     {choice.description}</Text>
+            <Text>{theme.fg('muted', `     ${choice.description}`)}</Text>
           )}
         </Box>
       );
@@ -612,11 +613,11 @@ function Modal(props: ModalProps) {
     return (
       <>
         {needsScroll && windowStart > 0 && (
-          <Text color="gray">  {'\u2191'} {windowStart} more above</Text>
+          <Text>{theme.fg('muted', `  \u2191 ${windowStart} more above`)}</Text>
         )}
         {items}
         {needsScroll && windowEnd < choices.length && (
-          <Text color="gray">  {'\u2193'} {choices.length - windowEnd} more below</Text>
+          <Text>{theme.fg('muted', `  \u2193 ${choices.length - windowEnd} more below`)}</Text>
         )}
       </>
     );
@@ -648,11 +649,11 @@ function Modal(props: ModalProps) {
           ))}
         </Box>
       )}
-      <Text color="cyan">{title}</Text>
+      <Text>{theme.fg('accent', title)}</Text>
       <Text> </Text>
       {renderContent()}
       <Text> </Text>
-      <Text color="gray">{renderHint()}</Text>
+      <Text>{theme.fg('muted', renderHint())}</Text>
     </Box>
   );
 }
@@ -729,25 +730,27 @@ export async function showModal(
 
     const instance = render(
       <I18nProvider>
-        <Modal
-          title={title}
-          logo={logo}
-          options={modalOptions}
-          allowCustomInput={allowCustomInput}
-          multiSelect={multiSelect}
-          maxVisible={maxVisible}
-          onToggle={onToggle}
-          onSelect={(option) => {
-            if (completed) return;
-            completed = true;
-            unmountAndResolve(instance, option, resolve);
-          }}
-          onCancel={() => {
-            if (completed) return;
-            completed = true;
-            unmountAndResolve(instance, null, resolve);
-          }}
-        />
+        <ThemeProvider>
+          <Modal
+            title={title}
+            logo={logo}
+            options={modalOptions}
+            allowCustomInput={allowCustomInput}
+            multiSelect={multiSelect}
+            maxVisible={maxVisible}
+            onToggle={onToggle}
+            onSelect={(option) => {
+              if (completed) return;
+              completed = true;
+              unmountAndResolve(instance, option, resolve);
+            }}
+            onCancel={() => {
+              if (completed) return;
+              completed = true;
+              unmountAndResolve(instance, null, resolve);
+            }}
+          />
+        </ThemeProvider>
       </I18nProvider>,
       inkRenderOptions({
         stdin: process.stdin,
@@ -796,24 +799,26 @@ export async function showConfirm(options: {
 
     const instance = render(
       <I18nProvider>
-        <Modal
-          mode="confirm"
-          title={options.title}
-          confirmText={options.confirmText}
-          cancelText={options.cancelText}
-          defaultValue={options.defaultValue}
-          onConfirm={(confirmed) => {
-            if (completed) return;
-            completed = true;
-            unmountAndResolve(instance, confirmed, resolve);
-          }}
-          onCancel={() => {
-            if (completed) return;
-            completed = true;
-            // Treat ESC as "No"
-            unmountAndResolve(instance, false, resolve);
-          }}
-        />
+        <ThemeProvider>
+          <Modal
+            mode="confirm"
+            title={options.title}
+            confirmText={options.confirmText}
+            cancelText={options.cancelText}
+            defaultValue={options.defaultValue}
+            onConfirm={(confirmed) => {
+              if (completed) return;
+              completed = true;
+              unmountAndResolve(instance, confirmed, resolve);
+            }}
+            onCancel={() => {
+              if (completed) return;
+              completed = true;
+              // Treat ESC as "No"
+              unmountAndResolve(instance, false, resolve);
+            }}
+          />
+        </ThemeProvider>
       </I18nProvider>,
       inkRenderOptions({
         stdin: process.stdin,
@@ -862,23 +867,25 @@ export async function showInput(options: {
 
     const instance = render(
       <I18nProvider>
-        <Modal
-          mode="input"
-          title={options.title}
-          placeholder={options.placeholder}
-          defaultValue={options.defaultValue}
-          validate={options.validate}
-          onSubmit={(value) => {
-            if (completed) return;
-            completed = true;
-            unmountAndResolve(instance, value, resolve);
-          }}
-          onCancel={() => {
-            if (completed) return;
-            completed = true;
-            unmountAndResolve(instance, null, resolve);
-          }}
-        />
+        <ThemeProvider>
+          <Modal
+            mode="input"
+            title={options.title}
+            placeholder={options.placeholder}
+            defaultValue={options.defaultValue}
+            validate={options.validate}
+            onSubmit={(value) => {
+              if (completed) return;
+              completed = true;
+              unmountAndResolve(instance, value, resolve);
+            }}
+            onCancel={() => {
+              if (completed) return;
+              completed = true;
+              unmountAndResolve(instance, null, resolve);
+            }}
+          />
+        </ThemeProvider>
       </I18nProvider>,
       inkRenderOptions({
         stdin: process.stdin,
@@ -925,22 +932,24 @@ export async function showPassword(options: {
 
     const instance = render(
       <I18nProvider>
-        <Modal
-          mode="password"
-          title={options.title}
-          placeholder={options.placeholder}
-          validate={options.validate}
-          onSubmit={(value) => {
-            if (completed) return;
-            completed = true;
-            unmountAndResolve(instance, value, resolve);
-          }}
-          onCancel={() => {
-            if (completed) return;
-            completed = true;
-            unmountAndResolve(instance, null, resolve);
-          }}
-        />
+        <ThemeProvider>
+          <Modal
+            mode="password"
+            title={options.title}
+            placeholder={options.placeholder}
+            validate={options.validate}
+            onSubmit={(value) => {
+              if (completed) return;
+              completed = true;
+              unmountAndResolve(instance, value, resolve);
+            }}
+            onCancel={() => {
+              if (completed) return;
+              completed = true;
+              unmountAndResolve(instance, null, resolve);
+            }}
+          />
+        </ThemeProvider>
       </I18nProvider>,
       inkRenderOptions({
         stdin: process.stdin,

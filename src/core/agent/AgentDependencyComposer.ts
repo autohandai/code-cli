@@ -62,6 +62,7 @@ import { MentionResolver } from './MentionResolver.js';
 import { AutoReportManager } from '../../reporting/AutoReportManager.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { SuggestionEngine } from '../SuggestionEngine.js';
+import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 
 export interface AgentDependencyHost {
   [key: string]: any;
@@ -293,11 +294,12 @@ export function initializeAgentDependencies(
     });
 
     host.activeProvider = runtime.config.provider ?? 'openrouter';
-    if (process.env.AUTOHAND_DEBUG === '1') {
-      const providerSettings = getProviderConfig(host.runtime.config, host.activeProvider);
-      const model = host.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
-      console.log(`[DEBUG] Initial provider: ${host.activeProvider}, model: ${model}`);
-    }
+    const initialDebugProviderSettings = getProviderConfig(host.runtime.config, host.activeProvider);
+    const initialDebugModel = host.runtime.options.model ?? initialDebugProviderSettings?.model ?? 'unconfigured';
+    writeAutohandDebugLine(
+      `[DEBUG] Initial provider: ${host.activeProvider}, model: ${initialDebugModel}`,
+      host.writeDebugLine?.bind(host)
+    );
     // Determine client context for delegation
     const delegatorContext = runtime.options.clientContext
       ?? (runtime.options.restricted ? 'restricted' : 'cli');
@@ -357,11 +359,9 @@ export function initializeAgentDependencies(
       (provider) => {
         host.activeProvider = provider;
         host.syncProviderModelStatusLine(provider);
-        if (process.env.AUTOHAND_DEBUG === '1') {
-          const providerSettings = getProviderConfig(host.runtime.config, provider);
-          const model = host.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
-          console.log(`[DEBUG] Provider changed: ${provider}, model: ${model}`);
-        }
+        const providerSettings = getProviderConfig(host.runtime.config, provider);
+        const model = host.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
+        writeAutohandDebugLine(`[DEBUG] Provider changed: ${provider}, model: ${model}`, host.writeDebugLine?.bind(host));
       },
       () => host.delegator,
       (newDelegator) => { host.delegator = newDelegator; },
@@ -1063,9 +1063,10 @@ export function initializeAgentDependencies(
       // Non-interactive mode (RPC/ACP) - guards interactive commands
       isNonInteractive: runtime.isRpcMode === true,
       onBeforeModal: async () => {
-        if (process.env.AUTOHAND_DEBUG === '1') {
-          console.log(`[DEBUG] onBeforeModal: inkRenderer exists=${!!host.inkRenderer}, persistentInputActive=${host.persistentInputActiveTurn}`);
-        }
+        writeAutohandDebugLine(
+          `[DEBUG] onBeforeModal: inkRenderer exists=${!!host.inkRenderer}, persistentInputActive=${host.persistentInputActiveTurn}`,
+          host.writeDebugLine?.bind(host)
+        );
         host.modalActive = true;
         if (host.inkRenderer) {
           host.inkRenderer.pause();
@@ -1080,9 +1081,10 @@ export function initializeAgentDependencies(
         }
       },
       onAfterModal: async () => {
-        if (process.env.AUTOHAND_DEBUG === '1') {
-          console.log(`[DEBUG] onAfterModal: inkRenderer exists=${!!host.inkRenderer}, persistentInputActive=${host.persistentInputActiveTurn}`);
-        }
+        writeAutohandDebugLine(
+          `[DEBUG] onAfterModal: inkRenderer exists=${!!host.inkRenderer}, persistentInputActive=${host.persistentInputActiveTurn}`,
+          host.writeDebugLine?.bind(host)
+        );
         host.modalActive = false;
         if (host.persistentInputActiveTurn) {
           try {
@@ -1094,9 +1096,7 @@ export function initializeAgentDependencies(
         if (host.inkRenderer) {
           await host.inkRenderer.resume();
         }
-        if (process.env.AUTOHAND_DEBUG === '1') {
-          console.log(`[DEBUG] onAfterModal completed`);
-        }
+        writeAutohandDebugLine('[DEBUG] onAfterModal completed', host.writeDebugLine?.bind(host));
       },
       // After /learn recommends a skill, seed the next prompt with the install command
       onTopRecommendation: (slug: string) => {

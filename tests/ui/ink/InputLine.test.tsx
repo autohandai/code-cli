@@ -5,10 +5,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import React from 'react';
 import { render } from 'ink-testing-library';
 import { InputLine } from '../../../src/ui/ink/InputLine.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
+import { initTheme } from '../../../src/ui/theme/index.js';
 
 function stripAnsi(value: string): string {
   return value.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
@@ -97,6 +100,18 @@ describe('InputLine themed variants', () => {
       writable: true,
       configurable: true,
     });
+    initTheme('dark');
+  });
+
+  it('uses the theme ANSI formatter for composer border, text, and background', () => {
+    const source = readFileSync(
+      path.resolve(process.cwd(), 'src/ui/ink/InputLine.tsx'),
+      'utf8'
+    );
+
+    expect(source).toContain("theme.fgBg(borderToken, 'userMessageBg', borders.top)");
+    expect(source).toContain("theme.fgBg('userMessageText', 'userMessageBg', line)");
+    expect(source).toContain("theme.fgBg(borderToken, 'userMessageBg', borders.bottom)");
   });
 
   it('renders default border style with boxed content', () => {

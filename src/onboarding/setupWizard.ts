@@ -731,13 +731,17 @@ export class SetupWizard {
     }
 
     // Built-in themes from src/ui/theme/themes.ts
-    const themes = ['dark', 'light', 'dracula', 'sandy', 'tui'];
+    const themes = ['dark', 'light', 'dracula', 'sandy', 'tui', 'github-dark', 'turkey', 'brazil', 'australia'];
     const themeDescriptions: Record<string, string> = {
       dark: 'Default dark theme',
       light: 'Light theme for light backgrounds',
       dracula: 'Popular Dracula color scheme',
       sandy: 'Warm, earthy desert tones',
-      tui: 'New Zealand inspired colors'
+      tui: 'New Zealand inspired colors',
+      'github-dark': 'GitHub Dark terminal palette',
+      turkey: 'Turkish flag-inspired red, white, and turquoise palette',
+      brazil: 'Brazil-inspired green, gold, and blue palette',
+      australia: 'Australian coast, wattle, and eucalyptus palette'
     };
 
     const themeOptions: ModalOption[] = themes.map(themeName => ({

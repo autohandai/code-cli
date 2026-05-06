@@ -9,6 +9,7 @@ import React from 'react';
 import { render } from 'ink-testing-library';
 import { TeamPanel } from '../../../src/ui/ink/TeamPanel.js';
 import { TeammateView } from '../../../src/ui/ink/TeammateView.js';
+import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 import type { Team, TeamTask } from '../../../src/core/teams/types.js';
 
 const mockTeam: Team = {
@@ -28,21 +29,25 @@ const mockTasks: TeamTask[] = [
   { id: 'task-003', subject: 'Add unit tests', description: 'Add missing unit tests', status: 'pending', blockedBy: ['task-002'], createdAt: '' },
 ];
 
+function renderWithTheme(element: React.ReactElement) {
+  return render(<ThemeProvider>{element}</ThemeProvider>);
+}
+
 describe('TeamPanel', () => {
   it('should render team name and status', () => {
-    const { lastFrame } = render(<TeamPanel team={mockTeam} tasks={mockTasks} />);
+    const { lastFrame } = renderWithTheme(<TeamPanel team={mockTeam} tasks={mockTasks} />);
     const output = lastFrame();
     expect(output).toContain('code-cleanup');
   });
 
   it('should render task count', () => {
-    const { lastFrame } = render(<TeamPanel team={mockTeam} tasks={mockTasks} />);
+    const { lastFrame } = renderWithTheme(<TeamPanel team={mockTeam} tasks={mockTasks} />);
     const output = lastFrame();
     expect(output).toContain('1/3 done');
   });
 
   it('should render task subjects', () => {
-    const { lastFrame } = render(<TeamPanel team={mockTeam} tasks={mockTasks} />);
+    const { lastFrame } = renderWithTheme(<TeamPanel team={mockTeam} tasks={mockTasks} />);
     const output = lastFrame();
     expect(output).toContain('Remove dead exports');
     expect(output).toContain('Write API docs');
@@ -50,14 +55,14 @@ describe('TeamPanel', () => {
   });
 
   it('should render teammate names', () => {
-    const { lastFrame } = render(<TeamPanel team={mockTeam} tasks={mockTasks} />);
+    const { lastFrame } = renderWithTheme(<TeamPanel team={mockTeam} tasks={mockTasks} />);
     const output = lastFrame();
     expect(output).toContain('hunter');
     expect(output).toContain('writer');
   });
 
   it('should handle empty tasks', () => {
-    const { lastFrame } = render(<TeamPanel team={mockTeam} tasks={[]} />);
+    const { lastFrame } = renderWithTheme(<TeamPanel team={mockTeam} tasks={[]} />);
     const output = lastFrame();
     expect(output).toContain('0/0 done');
     expect(output).toContain('No tasks yet');
@@ -66,7 +71,7 @@ describe('TeamPanel', () => {
 
 describe('TeammateView', () => {
   it('should render teammate name and status', () => {
-    const { lastFrame } = render(
+    const { lastFrame } = renderWithTheme(
       <TeammateView name="hunter" status="working" logs={[]} />
     );
     const output = lastFrame();
@@ -79,7 +84,7 @@ describe('TeammateView', () => {
       { level: 'info', text: 'Scanning for dead code...', timestamp: '10:00' },
       { level: 'info', text: 'Found 3 unused exports', timestamp: '10:01' },
     ];
-    const { lastFrame } = render(
+    const { lastFrame } = renderWithTheme(
       <TeammateView name="hunter" status="working" logs={logs} />
     );
     const output = lastFrame();
@@ -88,7 +93,7 @@ describe('TeammateView', () => {
   });
 
   it('should show waiting message when no logs', () => {
-    const { lastFrame } = render(
+    const { lastFrame } = renderWithTheme(
       <TeammateView name="hunter" status="spawning" logs={[]} />
     );
     const output = lastFrame();
@@ -101,7 +106,7 @@ describe('TeammateView', () => {
       text: `Line ${i}`,
       timestamp: '10:00',
     }));
-    const { lastFrame } = render(
+    const { lastFrame } = renderWithTheme(
       <TeammateView name="hunter" status="working" logs={logs} maxLines={5} />
     );
     const output = lastFrame();

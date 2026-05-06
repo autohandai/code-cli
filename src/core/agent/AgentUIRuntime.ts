@@ -12,6 +12,7 @@ import { executeShellCommandAsync, executeStreamingShellCommand, isShellCommand,
 import { createImmediateShellCommandBlockWriter, formatImmediateShellCommandHeader } from '../immediateCommandRouter.js';
 import { SLASH_COMMANDS } from '../slashCommands.js';
 import { formatElapsedTime, formatTokens } from './AgentFormatter.js';
+import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 
 export interface AgentUIRuntimeHost {
   [key: string]: any;
@@ -77,9 +78,10 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
   }
 
 export async function initializeAgentUI(host: AgentUIRuntimeHost, abortController?: AbortController, onCancel?: () => void, suppressSpinner = false): Promise<void> {
-    if (process.env.AUTOHAND_DEBUG === '1') {
-      console.log(`[DEBUG] initializeUI: useInkRenderer=${host.useInkRenderer}, stdout.isTTY=${process.stdout.isTTY}, stdin.isTTY=${process.stdin.isTTY}`);
-    }
+    writeAutohandDebugLine(
+      `[DEBUG] initializeUI: useInkRenderer=${host.useInkRenderer}, stdout.isTTY=${process.stdout.isTTY}, stdin.isTTY=${process.stdin.isTTY}`,
+      host.writeDebugLine?.bind(host)
+    );
     if (host.useInkRenderer && process.stdout.isTTY && process.stdin.isTTY) {
       try {
         // Update the shared abort controller reference so Ink's onEscape
@@ -94,9 +96,10 @@ export async function initializeAgentUI(host: AgentUIRuntimeHost, abortControlle
         host.runtime.inkRenderer = host.inkRenderer;
       } catch (err) {
         // Fall back to ora spinner if ink can't be loaded (e.g., standalone binary)
-        if (process.env.AUTOHAND_DEBUG === '1') {
-          console.log(`[DEBUG] InkRenderer initialization failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
+        writeAutohandDebugLine(
+          `[DEBUG] InkRenderer initialization failed: ${err instanceof Error ? err.message : String(err)}`,
+          host.writeDebugLine?.bind(host)
+        );
         host.useInkRenderer = false;
         if (!suppressSpinner) {
           host.initFallbackSpinner();
@@ -167,18 +170,17 @@ export function stopAgentUI(host: AgentUIRuntimeHost, failed = false, message?: 
   }
 
 export function cleanupAgentUI(host: AgentUIRuntimeHost, keepInkAlive = false): void {
-    if (process.env.AUTOHAND_DEBUG === '1') {
-      console.log(`[DEBUG] cleanupUI called: keepInkAlive=${keepInkAlive}, inkRenderer exists=${!!host.inkRenderer}`);
-    }
+    writeAutohandDebugLine(
+      `[DEBUG] cleanupUI called: keepInkAlive=${keepInkAlive}, inkRenderer exists=${!!host.inkRenderer}`,
+      host.writeDebugLine?.bind(host)
+    );
     if (host.inkRenderer) {
       if (keepInkAlive) {
         // Transition to idle state instead of destroying Ink.
         // Queued instructions stay in Ink so runInteractiveLoop can dequeue
         // directly on the next iteration without a full unmount/remount cycle.
         host.inkRenderer.setWorking(false);
-        if (process.env.AUTOHAND_DEBUG === '1') {
-          console.log(`[DEBUG] cleanupUI: set working to false`);
-        }
+        writeAutohandDebugLine('[DEBUG] cleanupUI: set working to false', host.writeDebugLine?.bind(host));
       } else {
         // Preserve queued instructions before stopping
         while (host.inkRenderer.hasQueuedInstructions()) {
@@ -187,9 +189,7 @@ export function cleanupAgentUI(host: AgentUIRuntimeHost, keepInkAlive = false): 
             host.pendingInkInstructions.push(instruction);
           }
         }
-        if (process.env.AUTOHAND_DEBUG === '1') {
-          console.log(`[DEBUG] cleanupUI: stopping inkRenderer`);
-        }
+        writeAutohandDebugLine('[DEBUG] cleanupUI: stopping inkRenderer', host.writeDebugLine?.bind(host));
         host.inkRenderer.stop();
         host.inkRenderer = null;
         host.runtime.inkRenderer = undefined;
@@ -330,29 +330,27 @@ export async function executeAgentImmediateShellCommandForInk(host: AgentUIRunti
     }
 
     const commandId = host.inkRenderer.startLiveCommand(`! ${shellCmd}`);
-    if (process.env.AUTOHAND_DEBUG === '1') {
-      console.log(`[DEBUG] executeImmediateShellCommandForInk: started ${shellCmd}, commandId=${commandId}`);
-    }
+    writeAutohandDebugLine(
+      `[DEBUG] executeImmediateShellCommandForInk: started ${shellCmd}, commandId=${commandId}`,
+      host.writeDebugLine?.bind(host)
+    );
     const result = await executeStreamingShellCommand(shellCmd, host.runtime.workspaceRoot, {
       onStdout: (chunk) => {
-        if (process.env.AUTOHAND_DEBUG === '1') {
-          console.log(`[DEBUG] onStdout chunk: ${JSON.stringify(chunk)}`);
-        }
+        writeAutohandDebugLine(`[DEBUG] onStdout chunk: ${JSON.stringify(chunk)}`, host.writeDebugLine?.bind(host));
         host.inkRenderer?.appendLiveCommandOutput(commandId, 'stdout', chunk);
       },
       onStderr: (chunk) => {
-        if (process.env.AUTOHAND_DEBUG === '1') {
-          console.log(`[DEBUG] onStderr chunk: ${JSON.stringify(chunk)}`);
-        }
+        writeAutohandDebugLine(`[DEBUG] onStderr chunk: ${JSON.stringify(chunk)}`, host.writeDebugLine?.bind(host));
         host.inkRenderer?.appendLiveCommandOutput(commandId, 'stderr', chunk);
       },
       preferPty: host.shouldPreferPtyForImmediateShellCommands(),
       columns: process.stdout.columns,
       rows: process.stdout.rows,
     });
-    if (process.env.AUTOHAND_DEBUG === '1') {
-      console.log(`[DEBUG] executeImmediateShellCommandForInk: finished, result=${JSON.stringify(result)}`);
-    }
+    writeAutohandDebugLine(
+      `[DEBUG] executeImmediateShellCommandForInk: finished, result=${JSON.stringify(result)}`,
+      host.writeDebugLine?.bind(host)
+    );
     host.inkRenderer.finishLiveCommand(commandId, result.success, result.error);
     return result;
   }

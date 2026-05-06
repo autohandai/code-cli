@@ -29,7 +29,7 @@ function truncateVisible(text: string, maxWidth: number): string {
 }
 
 function SlashCommandDropdownComponent({ suggestions, activeIndex, visible }: SlashCommandDropdownProps) {
-  const { colors } = useTheme();
+  const { theme } = useTheme();
   const width = getPromptBlockWidth(process.stdout.columns);
 
   const displaySuggestions = useMemo(() =>
@@ -58,16 +58,16 @@ function SlashCommandDropdownComponent({ suggestions, activeIndex, visible }: Sl
 
         return (
           <Box key={suggestion.command}>
-            <Text color={isSelected ? 'cyan' : undefined}>
-              {pointer} {isSelected ? cmd : <Text color={colors.text}>{cmd}</Text>}
+            <Text>
+              {theme.fg(isSelected ? 'accent' : 'text', `${pointer} ${cmd}`)}
             </Text>
             {desc && (
-              <Text color={colors.muted}>  {desc}</Text>
+              <Text>{theme.fg('muted', `  ${desc}`)}</Text>
             )}
           </Box>
         );
       })}
-      <Text color={colors.dim}>  Tab to accept · ↑↓ to navigate</Text>
+      <Text>{theme.fg('dim', '  Tab to accept · ↑↓ to navigate')}</Text>
     </Box>
   );
 }

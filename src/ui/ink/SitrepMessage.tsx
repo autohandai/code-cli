@@ -8,6 +8,7 @@
 import React, { memo, useMemo } from 'react';
 import { Box, Text, useStdout } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
+import type { ColorToken } from '../theme/types.js';
 
 export interface SitrepMessageProps {
   /** The summary of what was done */
@@ -26,10 +27,10 @@ export interface SitrepMessageProps {
  * Status color mapping
  */
 const STATUS_COLORS = {
-  completed: 'green',
-  'in-progress': 'yellow',
-  blocked: 'red',
-} as const;
+  completed: 'success',
+  'in-progress': 'warning',
+  blocked: 'error',
+} as const satisfies Record<SitrepMessageProps['status'], ColorToken>;
 
 const STATUS_ICONS = {
   completed: '✓',
@@ -48,11 +49,12 @@ const STATUS_ICONS = {
  * - Verification commands section
  */
 function SitrepMessageComponent({ done, files, status, next, verify }: SitrepMessageProps) {
-  const { colors } = useTheme();
+  const { colors, theme } = useTheme();
   const { stdout } = useStdout();
   const terminalWidth = stdout?.columns ?? 80;
 
-  const statusColor = STATUS_COLORS[status];
+  const statusToken = STATUS_COLORS[status];
+  const statusColor = colors[statusToken];
   const statusIcon = STATUS_ICONS[status];
 
   // Truncate long file paths if needed
@@ -71,26 +73,24 @@ function SitrepMessageComponent({ done, files, status, next, verify }: SitrepMes
     <Box marginTop={1} flexDirection="column" borderStyle="round" borderColor={statusColor} paddingX={1}>
       {/* Header with status */}
       <Box>
-        <Text bold color={statusColor}>
-          {statusIcon} SITREP
-        </Text>
-        <Text dimColor> — Status Report</Text>
+        <Text bold>{theme.fg(statusToken, `${statusIcon} SITREP`)}</Text>
+        <Text>{theme.fg('muted', ' — Status Report')}</Text>
       </Box>
 
       {/* Done section */}
       <Box marginTop={1}>
-        <Text bold color="cyan">Done: </Text>
+        <Text bold>{theme.fg('accent', 'Done: ')}</Text>
         <Text>{done}</Text>
       </Box>
 
       {/* Files section */}
       {displayFiles.length > 0 && (
         <Box marginTop={1} flexDirection="column">
-          <Text bold color="cyan">Files:</Text>
+          <Text bold>{theme.fg('accent', 'Files:')}</Text>
           {displayFiles.map((file, idx) => (
             <Box key={idx} paddingLeft={2}>
-              <Text dimColor>• </Text>
-              <Text color="blue">{file}</Text>
+              <Text>{theme.fg('muted', '• ')}</Text>
+              <Text>{theme.fg('mdLink', file)}</Text>
             </Box>
           ))}
         </Box>
@@ -98,12 +98,12 @@ function SitrepMessageComponent({ done, files, status, next, verify }: SitrepMes
 
       {/* Status and Next */}
       <Box marginTop={1}>
-        <Text bold color="cyan">Status: </Text>
-        <Text bold color={statusColor}>{status}</Text>
+        <Text bold>{theme.fg('accent', 'Status: ')}</Text>
+        <Text bold>{theme.fg(statusToken, status)}</Text>
         {next && (
           <>
-            <Text dimColor> → </Text>
-            <Text dimColor>{next}</Text>
+            <Text>{theme.fg('muted', ' → ')}</Text>
+            <Text>{theme.fg('muted', next)}</Text>
           </>
         )}
       </Box>
@@ -111,10 +111,10 @@ function SitrepMessageComponent({ done, files, status, next, verify }: SitrepMes
       {/* Verification section */}
       {verify && (
         <Box marginTop={1} flexDirection="column">
-          <Text bold color="cyan">Verify:</Text>
+          <Text bold>{theme.fg('accent', 'Verify:')}</Text>
           <Box paddingLeft={2}>
-            <Text dimColor>$ </Text>
-            <Text color="magenta">{verify}</Text>
+            <Text>{theme.fg('muted', '$ ')}</Text>
+            <Text>{theme.fg('mdCode', verify)}</Text>
           </Box>
         </Box>
       )}

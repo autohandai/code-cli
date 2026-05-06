@@ -12,8 +12,9 @@ import type { ErrorReport } from './types.js';
 import { AutoReportClient } from './AutoReportClient.js';
 import { ApiError } from '../providers/errors.js';
 import type { ApiErrorCode } from '../providers/errors.js';
+import { isAutohandDebugEnabled } from '../utils/debugLog.js';
 
-const isDebug = () => process.env.AUTOHAND_DEBUG === '1';
+const isDebug = () => isAutohandDebugEnabled();
 
 export class AutoReportManager {
   private readonly client: AutoReportClient;

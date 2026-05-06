@@ -5,6 +5,7 @@
  */
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import type { LLMMessage } from '../types.js';
+import { isAutohandDebugEnabled } from '../utils/debugLog.js';
 
 const SUGGESTION_SYSTEM_PROMPT = `You are a coding assistant suggestion engine. Based on the recent conversation, suggest ONE short next action the user might want to take. Reply with ONLY the suggestion text — no quotes, no explanation, no markdown. Keep it under 60 characters.
 
@@ -135,18 +136,38 @@ export class SuggestionEngine {
 
     const controller = new AbortController();
     this.abortController = controller;
-    const debug = process.env.AUTOHAND_DEBUG === '1';
+    const debug = isAutohandDebugEnabled();
 
     const timeout = setTimeout(() => controller.abort(), SUGGESTION_TIMEOUT_MS);
     const startTime = Date.now();
+    let removeAbortListener = () => {};
 
     try {
-      const response = await this.llm.complete({
-        messages,
-        maxTokens: 60,
-        temperature: 0.7,
-        signal: controller.signal,
+      const abortPromise = new Promise<never>((_, reject) => {
+        const onAbort = () => {
+          const error = new Error('Suggestion request aborted');
+          error.name = 'AbortError';
+          reject(error);
+        };
+
+        if (controller.signal.aborted) {
+          onAbort();
+          return;
+        }
+
+        controller.signal.addEventListener('abort', onAbort, { once: true });
+        removeAbortListener = () => controller.signal.removeEventListener('abort', onAbort);
       });
+
+      const response = await Promise.race([
+        this.llm.complete({
+          messages,
+          maxTokens: 60,
+          temperature: 0.7,
+          signal: controller.signal,
+        }),
+        abortPromise,
+      ]);
 
       if (controller.signal.aborted) {
         if (debug) this.debugLogger?.(`[SUGGESTION] Aborted after ${Date.now() - startTime}ms`);
@@ -171,6 +192,7 @@ export class SuggestionEngine {
         this.debugLogger?.(`[SUGGESTION] Error after ${Date.now() - startTime}ms: ${msg}`);
       }
     } finally {
+      removeAbortListener();
       clearTimeout(timeout);
       if (this.abortController === controller) {
         this.abortController = null;

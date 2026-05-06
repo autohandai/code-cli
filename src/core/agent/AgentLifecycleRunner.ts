@@ -15,6 +15,8 @@ import { isShellCommand, parseShellCommand } from '../../ui/shellCommand.js';
 import { plan as planCommand } from '../../commands/plan.js';
 import { runWithConcurrency } from '../../utils/parallel.js';
 import { buildSessionChatLog } from '../../session/chatLog.js';
+import { formatExitCleanup, formatForceExit } from '../../ui/theme/startup.js';
+import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -90,11 +92,11 @@ export function installAgentExitSignalHandlers(host: AgentLifecycleHost): void {
     const handleExitSignal = () => {
       if (host.shouldExit) {
         // Second signal - force immediate exit
-        console.log(chalk.gray('\nForce exiting...'));
+        console.log(formatForceExit());
         process.exit(0);
       }
       host.shouldExit = true;
-      console.log(chalk.gray('\nExiting - clearing queues and stopping...'));
+      console.log(formatExitCleanup());
       host.clearAllQueuesAndAbort();
     };
 
@@ -511,71 +513,54 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
           // instruction from the Composer instead of stopping the renderer and
           // falling back to readline. This keeps the Composer alive after
           // non-interactive slash commands like /help and /history.
-          if (process.env.AUTOHAND_DEBUG === '1') {
-            console.log(`[DEBUG] Idle check: inkRenderer exists=${!!host.inkRenderer}, isRunning=${host.inkRenderer?.isRunning()}`);
-          }
+          writeAutohandDebugLine(
+            `[DEBUG] Idle check: inkRenderer exists=${!!host.inkRenderer}, isRunning=${host.inkRenderer?.isRunning()}`,
+            host.writeDebugLine?.bind(host)
+          );
           if (host.inkRenderer?.isRunning()) {
             // Ensure the renderer is in idle (not working) state so the
             // Composer accepts input.
-            if (process.env.AUTOHAND_DEBUG === '1') {
-              console.log(`[DEBUG] Entering idle-wait, setting working=false`);
-            }
+            writeAutohandDebugLine('[DEBUG] Entering idle-wait, setting working=false', host.writeDebugLine?.bind(host));
             host.setComposerIdle();
 
             // Wait for the user to submit text in the Composer.
             // handleInkSubmittedInstruction resolves host promise when it
             // queues a new instruction.
-            if (process.env.AUTOHAND_DEBUG === '1') {
-              console.log(`[DEBUG] Waiting for resolver...`);
-            }
+            writeAutohandDebugLine('[DEBUG] Waiting for resolver...', host.writeDebugLine?.bind(host));
             await new Promise<void>(resolve => {
               host.inkInstructionResolver = resolve;
             });
-            if (process.env.AUTOHAND_DEBUG === '1') {
-              console.log(`[DEBUG] Resolver resolved`);
-            }
+            writeAutohandDebugLine('[DEBUG] Resolver resolved', host.writeDebugLine?.bind(host));
 
             // The instruction is now queued — dequeue it.
             if (host.inkRenderer?.hasQueuedInstructions()) {
               instruction = host.inkRenderer.dequeueInstruction() ?? null;
-              if (process.env.AUTOHAND_DEBUG === '1') {
-                console.log(`[DEBUG] Dequeued instruction: ${instruction}`);
-              }
+              writeAutohandDebugLine(`[DEBUG] Dequeued instruction: ${instruction}`, host.writeDebugLine?.bind(host));
             }
             // If we still don't have an instruction (race condition), loop
             // around and try again.
             if (!instruction) {
-              if (process.env.AUTOHAND_DEBUG === '1') {
-                console.log(`[DEBUG] No instruction after resolver, continuing`);
-              }
+              writeAutohandDebugLine('[DEBUG] No instruction after resolver, continuing', host.writeDebugLine?.bind(host));
               continue;
             }
           } else {
             // Ink is not running — drain any stale queued instructions and
             // fall back to readline.
-            if (process.env.AUTOHAND_DEBUG === '1') {
-              console.log(`[DEBUG] Ink not running, falling back to readline`);
-            }
+            writeAutohandDebugLine('[DEBUG] Ink not running, falling back to readline', host.writeDebugLine?.bind(host));
             if (host.inkRenderer) {
               while (host.inkRenderer.hasQueuedInstructions()) {
                 const qi = host.inkRenderer.dequeueInstruction();
                 if (qi) host.pendingInkInstructions.push(qi);
               }
-              if (process.env.AUTOHAND_DEBUG === '1') {
-                console.log(`[DEBUG] Stopping inkRenderer in fallback path`);
-              }
+              writeAutohandDebugLine('[DEBUG] Stopping inkRenderer in fallback path', host.writeDebugLine?.bind(host));
               host.inkRenderer.stop();
               host.inkRenderer = null;
               host.runtime.inkRenderer = undefined;
               host.inkInstructionResolver = null;
             }
-            if (process.env.AUTOHAND_DEBUG === '1') {
-              console.log(`[DEBUG] Calling promptForInstruction in readline mode`);
-            }
+            writeAutohandDebugLine('[DEBUG] Calling promptForInstruction in readline mode', host.writeDebugLine?.bind(host));
             instruction = await host.promptForInstruction();
-            if (process.env.AUTOHAND_DEBUG === '1') {
-              console.log(`[DEBUG] promptForInstruction returned: ${instruction}`);
-            }
+            writeAutohandDebugLine(`[DEBUG] promptForInstruction returned: ${instruction}`, host.writeDebugLine?.bind(host));
           }
         }
 
@@ -615,9 +600,10 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
                 console.log(chalk.white(`\n› ${instruction}`));
               }
 
-              if (process.env.AUTOHAND_DEBUG === '1') {
-                console.log(`[DEBUG] Before runSlashCommandWithInput: inkRenderer exists=${!!host.inkRenderer}, isRunning=${host.inkRenderer?.isRunning()}`);
-              }
+              writeAutohandDebugLine(
+                `[DEBUG] Before runSlashCommandWithInput: inkRenderer exists=${!!host.inkRenderer}, isRunning=${host.inkRenderer?.isRunning()}`,
+                host.writeDebugLine?.bind(host)
+              );
 
               // For /plan in Ink mode, redirect console output to user messages
               // to avoid stdout corruption that freezes the composer.
@@ -634,9 +620,10 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
                 handled = await host.runSlashCommandWithInput(command, args);
               }
 
-              if (process.env.AUTOHAND_DEBUG === '1') {
-                console.log(`[DEBUG] After runSlashCommandWithInput: inkRenderer exists=${!!host.inkRenderer}, isRunning=${host.inkRenderer?.isRunning()}`);
-              }
+              writeAutohandDebugLine(
+                `[DEBUG] After runSlashCommandWithInput: inkRenderer exists=${!!host.inkRenderer}, isRunning=${host.inkRenderer?.isRunning()}`,
+                host.writeDebugLine?.bind(host)
+              );
               if (handled !== null && host.inkRenderer?.isRunning()) {
                 host.inkRenderer.addAssistantMessage(handled);
               } else if (handled !== null) {
@@ -644,9 +631,10 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
               }
               // Ensure the renderer is in idle state so the Composer accepts input
               // after non-interactive slash commands like /help, /clear, /history
-              if (process.env.AUTOHAND_DEBUG === '1') {
-                console.log(`[DEBUG] After slash command output: inkRenderer exists=${!!host.inkRenderer}, isRunning=${host.inkRenderer?.isRunning()}`);
-              }
+              writeAutohandDebugLine(
+                `[DEBUG] After slash command output: inkRenderer exists=${!!host.inkRenderer}, isRunning=${host.inkRenderer?.isRunning()}`,
+                host.writeDebugLine?.bind(host)
+              );
               if (host.ui || host.inkRenderer) {
                 host.setComposerIdle();
                 host.clearComposerInput();

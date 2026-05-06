@@ -27,6 +27,7 @@ import { inkRenderOptions } from '../inkRenderOptions.js';
 import { stripAnsiCodes } from '../displayUtils.js';
 import { safeSetRawMode } from '../rawMode.js';
 import type { ChatLogMessage } from '../../session/chatLog.js';
+import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 
 export interface InkRendererOptions {
   onInstruction: (text: string) => void;
@@ -798,9 +799,7 @@ export class InkRenderer {
    * Use this before external prompts that need stdin access
    */
   pause(): void {
-    if (process.env.AUTOHAND_DEBUG === '1') {
-      console.log(`[DEBUG] InkRenderer.pause: instance exists=${!!this.instance}`);
-    }
+    writeAutohandDebugLine(`[DEBUG] InkRenderer.pause: instance exists=${!!this.instance}`);
     if (this.instance) {
       // Sync state from wrapper before unmounting
       if (this.wrapperRef.current) {
@@ -834,9 +833,7 @@ export class InkRenderer {
    * Resume input handling by restarting the renderer with preserved state
    */
   async resume(): Promise<void> {
-    if (process.env.AUTOHAND_DEBUG === '1') {
-      console.log(`[DEBUG] InkRenderer.resume: instance exists=${!!this.instance}`);
-    }
+    writeAutohandDebugLine(`[DEBUG] InkRenderer.resume: instance exists=${!!this.instance}`);
     if (!this.instance) {
       // Yield a macrotask so React 19's Scheduler flushes any pending passive
       // effect cleanup from a just-unmounted Ink instance (from pause()).
@@ -916,9 +913,7 @@ export class InkRenderer {
           exitOnCtrlC: false
         })
       );
-      if (process.env.AUTOHAND_DEBUG === '1') {
-        console.log(`[DEBUG] InkRenderer.resume: instance created successfully`);
-      }
+      writeAutohandDebugLine('[DEBUG] InkRenderer.resume: instance created successfully');
     }
   }
 

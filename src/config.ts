@@ -16,7 +16,7 @@ import type {
   VertexAISettings,
 } from "./types.js";
 import { AUTOHAND_FILES } from "./constants.js";
-import { autoInitTheme, themeExists } from "./ui/theme/index.js";
+import { autoInitTheme, configureThemeSources, themeExists } from "./ui/theme/index.js";
 import { loadLocalProjectSettings, type LocalProjectSettings } from "./permissions/localProjectPermissions.js";
 
 const DEFAULT_CONFIG_PATH = AUTOHAND_FILES.configJson;
@@ -448,6 +448,8 @@ export async function loadConfig(customPath?: string, workspaceRoot?: string): P
 
   // Merge environment variables for API settings
   const withEnv = mergeEnvVariables(withWorkspace);
+
+  configureThemeSources({ inlineThemes: withEnv.ui?.customThemes });
 
   validateConfig(withEnv, configPath);
 

@@ -4,13 +4,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect } from 'vitest';
+import React from 'react';
+import { render } from 'ink-testing-library';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
+  SlashCommandDropdown,
   matchSlashCommand,
   buildSlashSuggestions,
   buildSubcommandSuggestions,
 } from '../../../src/ui/ink/SlashCommandDropdown.js';
 import type { SlashCommand } from '../../../src/core/slashCommandTypes.js';
+import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
+import { initTheme } from '../../../src/ui/theme/index.js';
 
 const mockSlashCommands: SlashCommand[] = [
   { command: '/model', description: 'Switch AI model', implemented: true },
@@ -29,6 +36,37 @@ const mockSlashCommands: SlashCommand[] = [
 ];
 
 describe('SlashCommandDropdown utilities', () => {
+  afterEach(() => {
+    initTheme('dark');
+  });
+
+  it('emits selected theme ANSI for active command menu options', () => {
+    initTheme('sandy');
+
+    const { lastFrame } = render(
+      React.createElement(
+        ThemeProvider,
+        null,
+        React.createElement(SlashCommandDropdown, {
+          visible: true,
+          activeIndex: 0,
+          suggestions: [{ command: '/theme', description: 'Change theme' }],
+        })
+      )
+    );
+    const frame = lastFrame() ?? '';
+
+    expect(frame).toContain('/theme');
+    expect(frame).not.toContain('\x1b[36m');
+
+    const source = readFileSync(
+      path.resolve(process.cwd(), 'src/ui/ink/SlashCommandDropdown.tsx'),
+      'utf8'
+    );
+    expect(source).toContain("theme.fg(isSelected ? 'accent' : 'text'");
+    expect(source).not.toContain("color={isSelected ? 'cyan'");
+  });
+
   describe('matchSlashCommand', () => {
     it('returns null for input without slash', () => {
       expect(matchSlashCommand('hello world', 11)).toBeNull();

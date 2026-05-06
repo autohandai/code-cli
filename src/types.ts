@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { Ora } from 'ora';
+import type { ThemeDefinition } from './ui/theme/types.js';
 
 // InkRenderer type defined inline to avoid tsx dev mode issues with .tsx imports
 interface InkRendererInterface {
@@ -152,8 +153,10 @@ export interface NotificationConfig {
 }
 
 export interface UISettings {
-  /** Theme name: 'dark', 'light', or custom theme from ~/.autohand/themes/*.json */
+  /** Theme name: built-in, config-provided, Ghostty, or custom theme from ~/.autohand/themes/*.json */
   theme?: string;
+  /** Inline custom themes keyed by name for project/team config. */
+  customThemes?: Record<string, Partial<ThemeDefinition>>;
   autoConfirm?: boolean;
   /** Max characters to display from read/find tool output (full content still sent to the model) */
   readFileCharLimit?: number;

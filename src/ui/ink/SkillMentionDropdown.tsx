@@ -35,7 +35,7 @@ function truncateVisible(text: string, maxWidth: number): string {
 }
 
 function SkillMentionDropdownComponent({ suggestions, activeIndex, visible }: SkillMentionDropdownProps) {
-  const { colors } = useTheme();
+  const { theme } = useTheme();
   const width = getPromptBlockWidth(process.stdout.columns);
 
   const displaySuggestions = useMemo(
@@ -63,15 +63,15 @@ function SkillMentionDropdownComponent({ suggestions, activeIndex, visible }: Sk
 
         return (
           <Box key={suggestion.name}>
-            <Text color={isSelected ? 'cyan' : undefined}>
-              {pointer} {isSelected ? name : <Text color={colors.text}>{name}</Text>}
-              {suggestion.isActive ? <Text color={colors.success}> ●</Text> : null}
+            <Text>
+              {theme.fg(isSelected ? 'accent' : 'text', `${pointer} ${name}`)}
+              {suggestion.isActive ? theme.fg('success', ' ●') : null}
             </Text>
-            {desc && <Text color={colors.muted}>  {desc}</Text>}
+            {desc && <Text>{theme.fg('muted', `  ${desc}`)}</Text>}
           </Box>
         );
       })}
-      <Text color={colors.dim}>  Tab to accept · ↑↓ to navigate</Text>
+      <Text>{theme.fg('dim', '  Tab to accept · ↑↓ to navigate')}</Text>
     </Box>
   );
 }

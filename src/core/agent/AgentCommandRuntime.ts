@@ -21,6 +21,7 @@ import { safeSetRawMode } from '../../ui/rawMode.js';
 import { isToolAllowedByYolo, normalizeYoloInput, parseYoloPattern } from '../../permissions/yoloMode.js';
 import { normalizePermissionPromptResponse, type PermissionPromptResult } from '../../permissions/types.js';
 import type { Plan } from '../../modes/planMode/types.js';
+import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 
 export interface AgentCommandRuntimeHost {
   [key: string]: any;
@@ -77,9 +78,7 @@ export function applyAgentAcpModel(host: AgentCommandRuntimeHost, modelId: strin
       providerConfig.model = modelId;
     }
 
-    if (process.env.AUTOHAND_DEBUG === '1') {
-      console.log(`[DEBUG] Model changed via ACP: provider=${provider}, model=${modelId}`);
-    }
+    writeAutohandDebugLine(`[DEBUG] Model changed via ACP: provider=${provider}, model=${modelId}`, host.writeDebugLine?.bind(host));
 
     host.llm.setModel(modelId);
     host.contextWindow = getContextWindow(modelId);
