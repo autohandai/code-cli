@@ -238,25 +238,50 @@ describe('browser/chrome', () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
     child.stdin.write(payload.subarray(5));
 
-    // Instead of a fixed 300ms delay, wait until the host script actually
-    // produces output on stdout (the forwarded CLI response).  Under heavy
-    // parallel test load the CLI child can take much longer to start and
-    // emit its JSON-RPC line, so a fixed delay is inherently racy.
-    const OUTPUT_TIMEOUT_MS = 15000;
-    await new Promise<void>((resolve) => {
-      const timeout = setTimeout(resolve, OUTPUT_TIMEOUT_MS);
+    const parseNativeMessages = () => {
+      const output = Buffer.concat(stdoutChunks);
+      const messages: Array<Record<string, unknown>> = [];
+      let offset = 0;
+      while (offset + 4 <= output.length) {
+        const length = output.readUInt32LE(offset);
+        const bodyStart = offset + 4;
+        const bodyEnd = bodyStart + length;
+        if (bodyEnd > output.length) {
+          break;
+        }
+        messages.push(JSON.parse(output.subarray(bodyStart, bodyEnd).toString('utf8')) as Record<string, unknown>);
+        offset = bodyEnd;
+      }
+      return messages;
+    };
+
+    const hasAgentStartFrame = () => parseNativeMessages().some((message) => {
+      const payload = message.payload as { method?: unknown } | undefined;
+      return message.type === 'rpc' && payload?.method === 'autohand.agentStart';
+    });
+
+    const OUTPUT_TIMEOUT_MS = 30000;
+    const sawAgentStart = await new Promise<boolean>((resolve) => {
+      const timeout = setTimeout(() => {
+        clearInterval(interval);
+        resolve(false);
+      }, OUTPUT_TIMEOUT_MS);
       const interval = setInterval(() => {
-        if (stdoutChunks.length > 0) {
+        if (hasAgentStartFrame()) {
           clearTimeout(timeout);
           clearInterval(interval);
-          resolve();
+          resolve(true);
         }
       }, 50);
     });
 
-    // Small grace period so the host can finish writing the native messaging
-    // frame after we observed the first stdout chunk.
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    if (!sawAgentStart) {
+      const stderr = Buffer.concat(stderrChunks).toString('utf8');
+      throw new Error(
+        `Timed out waiting for native host agentStart frame. ` +
+        `stdoutBytes=${Buffer.concat(stdoutChunks).length}; stderr=${stderr || '(empty)'}`,
+      );
+    }
 
     const shutdownPayload = Buffer.from(JSON.stringify({ type: 'shutdown' }), 'utf8');
     const shutdownHeader = Buffer.alloc(4);
@@ -274,16 +299,7 @@ describe('browser/chrome', () => {
     expect(closeResult.code).toBe(0);
     expect(closeResult.signal).toBeNull();
 
-    const output = Buffer.concat(stdoutChunks);
-    const messages: Array<Record<string, unknown>> = [];
-    let offset = 0;
-    while (offset + 4 <= output.length) {
-      const length = output.readUInt32LE(offset);
-      const bodyStart = offset + 4;
-      const bodyEnd = bodyStart + length;
-      messages.push(JSON.parse(output.subarray(bodyStart, bodyEnd).toString('utf8')) as Record<string, unknown>);
-      offset = bodyEnd;
-    }
+    const messages = parseNativeMessages();
 
     expect(messages).toEqual(
       expect.arrayContaining([
