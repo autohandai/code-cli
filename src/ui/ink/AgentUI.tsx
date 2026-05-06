@@ -1581,7 +1581,7 @@ export function AgentUI({
           <SlashCommandDropdown
             suggestions={slashSuggestions}
             activeIndex={slashActiveIndex}
-            visible={slashVisible && !state.isWorking}
+            visible={slashVisible && enableQueueInput}
           />
         }
         inputWidth={inputWidth}
