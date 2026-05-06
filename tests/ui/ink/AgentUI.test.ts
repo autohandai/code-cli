@@ -350,6 +350,38 @@ describe('AgentUI composer suggestions', () => {
     expect(frame).toContain('Tab to accept');
   });
 
+  it('renders slash command suggestions while the assistant is working', async () => {
+    const state = {
+      ...createInitialUIState(),
+      isWorking: true,
+      status: 'Crunching...',
+    };
+    const { lastFrame, stdin } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+            slashCommands,
+          })
+        )
+      )
+    );
+
+    stdin.write('/');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    const frame = stripAnsi(lastFrame() ?? '');
+    expect(frame).toContain('/help');
+    expect(frame).toContain('Tab to accept');
+  });
+
   it('renders only the next shell command suggestion for git input in the Ink composer', async () => {
     const state = {
       ...createInitialUIState(),
