@@ -130,7 +130,7 @@ export class SystemPromptBuilder {
       '  - Content search: `fff_grep(query="UserController")` or `fff_grep(query="async function.*login")`',
       '',
       '### Phase 3: Implementation',
-      '1. Write code using `write_file`, `search_replace`, `apply_patch`, or `multi_file_edit`.',
+      '1. Write code using `apply_patch`, `write_file`, or `search_replace`.',
       '2. Make small, logical changes with clear reasoning in your "thought" field.',
       '3. Destructive operations (delete_path, run_command with rm/sudo) require explicit user approval. Clearly justify them.',
       '',

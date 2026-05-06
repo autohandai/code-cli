@@ -182,7 +182,6 @@ Skills can specify which tools they need via the `allowed-tools` field. Availabl
 | `delete_path` | Delete files/directories |
 | `rename_path` | Rename/move files |
 | `copy_path` | Copy files/directories |
-| `multi_file_edit` | Edit multiple files atomically |
 
 ### Git Operations
 

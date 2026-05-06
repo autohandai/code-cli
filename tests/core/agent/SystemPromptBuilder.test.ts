@@ -44,5 +44,7 @@ describe('SystemPromptBuilder', () => {
     expect(prompt).not.toContain('Text or pattern to find');
     expect(prompt).toContain('Exact tool schemas are selected per request');
     expect(prompt).toContain('Reflect Before Acting');
+    expect(prompt).toContain('Write code using `apply_patch`');
+    expect(prompt).not.toContain('multi_file_edit');
   });
 });
