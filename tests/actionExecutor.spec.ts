@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import stripAnsi from 'strip-ansi';
 import type { AgentRuntime } from '../src/types.js';
 import type { FileActionManager } from '../src/actions/filesystem.js';
 import { ActionExecutor } from '../src/core/actionExecutor.js';
@@ -955,6 +956,33 @@ describe('ActionExecutor', () => {
       } as any);
 
       expect(result).toContain('0%'); // in_progress doesn't count as completed
+    });
+
+    it('prints completed, active, and pending tasks in the progress output', async () => {
+      const readFile = vi.fn().mockRejectedValue(new Error('not found'));
+      const writeFile = vi.fn().mockResolvedValue(undefined);
+      const executor = createExecutor({ readFile, writeFile });
+      const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+      try {
+        await executor.execute({
+          type: 'todo_write',
+          tasks: [
+            { id: '1', title: 'Set up project shell', status: 'completed' },
+            { id: '2', title: 'Wire game state', status: 'in_progress' },
+            { id: '3', title: 'Persist high score', status: 'pending' }
+          ]
+        } as any);
+        const output = stripAnsi(log.mock.calls.map(([message]) => String(message)).join('\n'));
+        expect(output).toContain('✅ Completed Tasks:');
+        expect(output).toContain('✓ Set up project shell');
+        expect(output).toContain('🔄 Active Tasks:');
+        expect(output).toContain('• Wire game state');
+        expect(output).toContain('⏳ Pending Tasks:');
+        expect(output).toContain('○ Persist high score');
+      } finally {
+        log.mockRestore();
+      }
     });
 
     it('auto-generates ids for tasks without id', async () => {

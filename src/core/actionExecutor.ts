@@ -1582,26 +1582,49 @@ export class ActionExecutor {
           return 'Task list cleared (0 tasks)';
         }
 
-        const completed = allTodos.filter((t: any) => t.status === 'completed').length;
+        const completedTasks = allTodos.filter((t: any) => t.status === 'completed');
         const inProgress = allTodos.filter((t: any) => t.status === 'in_progress');
-        const pending = allTodos.filter((t: any) => t.status === 'pending').length;
+        const pendingTasks = allTodos.filter((t: any) => t.status === 'pending');
+        const completed = completedTasks.length;
+        const pending = pendingTasks.length;
 
         const percent = Math.round((completed / total) * 100);
         const barWidth = 20;
         const filled = Math.round((barWidth * percent) / 100);
         const bar = '█'.repeat(filled) + '░'.repeat(barWidth - filled);
 
-        console.log(chalk.cyan('\n📋 Task Progress:'));
-        console.log(`  ${chalk.green(bar)} ${percent}%`);
-        console.log(chalk.gray(`  ${completed} done · ${inProgress.length} in progress · ${pending} pending`));
+        const titleOf = (task: Record<string, unknown>): string => {
+          const title = task.title ?? task.content;
+          return typeof title === 'string' && title.trim().length > 0 ? title : 'Untitled task';
+        };
+        const outputLines = [
+          chalk.cyan('\n📋 Task Progress:'),
+          `  ${chalk.green(bar)} ${percent}%`,
+          chalk.gray(`  ${completed} done · ${inProgress.length} in progress · ${pending} pending`)
+        ];
 
-        if (inProgress.length > 0) {
-          console.log(chalk.yellow('\n  🔄 Active Tasks:'));
-          for (const task of inProgress) {
-            console.log(`    • ${(task as any).title || (task as any).content}`);
+        if (completedTasks.length > 0) {
+          outputLines.push('', chalk.green('  ✅ Completed Tasks:'));
+          for (const task of completedTasks) {
+            outputLines.push(chalk.green(`    ✓ ${titleOf(task)}`));
           }
         }
-        console.log();
+
+        if (inProgress.length > 0) {
+          outputLines.push('', chalk.yellow('  🔄 Active Tasks:'));
+          for (const task of inProgress) {
+            outputLines.push(chalk.yellow(`    • ${titleOf(task)}`));
+          }
+        }
+
+        if (pendingTasks.length > 0) {
+          outputLines.push('', chalk.cyan('  ⏳ Pending Tasks:'));
+          for (const task of pendingTasks) {
+            outputLines.push(chalk.dim(`    ○ ${titleOf(task)}`));
+          }
+        }
+
+        console.log(`${outputLines.join('\n')}\n`);
 
         return `Updated task list: ${percent}% complete (${completed}/${total})`;
       }
