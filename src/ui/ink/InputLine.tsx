@@ -73,6 +73,29 @@ function InputLineComponent({
     };
   }, [value, cursorOffset, width, borderStyle, suggestionText, inlineGhostSuffix]);
 
+  const renderContentLine = (line: string, index: number) => {
+    if (index !== displayData.cursorRow) {
+      return (
+        <Text key={index}>
+          {theme.fgBg('userMessageText', 'userMessageBg', line)}
+        </Text>
+      );
+    }
+
+    const cursorColumn = Math.max(0, Math.min(line.length - 1, displayData.cursorColumn));
+    const before = line.slice(0, cursorColumn);
+    const cursorChar = line[cursorColumn] ?? ' ';
+    const after = line.slice(cursorColumn + 1);
+
+    return (
+      <Box key={index}>
+        <Text>{theme.fgBg('userMessageText', 'userMessageBg', before)}</Text>
+        <Text inverse>{theme.fgBg('userMessageText', 'userMessageBg', cursorChar)}</Text>
+        <Text>{theme.fgBg('userMessageText', 'userMessageBg', after)}</Text>
+      </Box>
+    );
+  };
+
   // Keep space stable when queue input is inactive.
   if (!isActive) {
     return (
@@ -86,9 +109,7 @@ function InputLineComponent({
   return (
     <Box marginTop={1} flexDirection="column">
       <Text>{theme.fgBg(borderToken, 'userMessageBg', borders.top)}</Text>
-      {displayData.plainLines.map((line, index) => (
-        <Text key={index}>{theme.fgBg('userMessageText', 'userMessageBg', line)}</Text>
-      ))}
+      {displayData.plainLines.map(renderContentLine)}
       <Text>{theme.fgBg(borderToken, 'userMessageBg', borders.bottom)}</Text>
     </Box>
   );
