@@ -297,7 +297,7 @@ Autohand Code CLI includes 40+ tools for autonomous coding:
 
 ### File Operations
 
-`read_file`, `write_file`, `append_file`, `apply_patch`, `search`, `search_replace`, `semantic_search`, `list_tree`, `create_directory`, `delete_path`, `rename_path`, `copy_path`, `multi_file_edit`
+`read_file`, `write_file`, `append_file`, `apply_patch`, `search`, `search_replace`, `semantic_search`, `list_tree`, `create_directory`, `delete_path`, `rename_path`, `copy_path`
 
 ### Git Operations
 

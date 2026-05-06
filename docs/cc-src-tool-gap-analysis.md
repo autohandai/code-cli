@@ -31,7 +31,7 @@ The main gaps versus `cc-src` are not basic file/shell tools. They are orchestra
 | cc-src tool/category | Autohand equivalent | Gap | Priority |
 | --- | --- | --- | --- |
 | `FILE_READ_TOOL_NAME` | `read_file` | Covered | Low |
-| `FILE_EDIT_TOOL_NAME` | `apply_patch`, `multi_file_edit` style edits via executor paths | Covered, but naming differs | Low |
+| `FILE_EDIT_TOOL_NAME` | `apply_patch` style edits via executor paths | Covered, but naming differs | Low |
 | `FILE_WRITE_TOOL_NAME` | `write_file`, `append_file` | Covered | Low |
 | `GLOB_TOOL_NAME` | `glob` | Covered | Low |
 | `GREP_TOOL_NAME` | `find`, `search`, `search_with_context` | Covered, and broader | Low |
