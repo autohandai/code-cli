@@ -64,7 +64,7 @@ describe('ensureAuthenticated', () => {
     Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, writable: true });
   });
 
-  it('returns config immediately when server validates token', async () => {
+  it('returns config immediately for a locally valid token without blocking on server validation', async () => {
     const mockConfig: LoadedConfig = {
       configPath: '/tmp/config.json',
       auth: {
@@ -74,14 +74,11 @@ describe('ensureAuthenticated', () => {
       },
     };
 
-    mockValidateSession.mockResolvedValue({
-      authenticated: true,
-      user: { id: 'u1', email: 'test@example.com', name: 'Test' },
-    });
-
     const result = await ensureAuthenticated(mockConfig);
 
     expect(result.auth?.token).toBe('valid-token');
+    expect(AuthClient).not.toHaveBeenCalled();
+    expect(mockValidateSession).not.toHaveBeenCalled();
     expect(showModal).not.toHaveBeenCalled();
   });
 
@@ -100,6 +97,8 @@ describe('ensureAuthenticated', () => {
     const result = await ensureAuthenticated(mockConfig);
 
     expect(result.auth?.token).toBe('valid-token');
+    expect(AuthClient).not.toHaveBeenCalled();
+    expect(mockValidateSession).not.toHaveBeenCalled();
     expect(showModal).not.toHaveBeenCalled();
     expect(exitSpy).not.toHaveBeenCalled();
   });
@@ -151,10 +150,12 @@ describe('ensureAuthenticated', () => {
     const result = await ensureAuthenticated(mockConfig);
 
     expect(result.auth?.token).toBe('valid-token');
+    expect(AuthClient).not.toHaveBeenCalled();
+    expect(mockValidateSession).not.toHaveBeenCalled();
     expect(showModal).not.toHaveBeenCalled();
   });
 
-  it('updates user info when server returns fresh user data', async () => {
+  it('keeps cached user info on the startup fast path', async () => {
     const mockConfig: LoadedConfig = {
       configPath: '/tmp/config.json',
       auth: {
@@ -164,18 +165,15 @@ describe('ensureAuthenticated', () => {
       },
     };
 
-    mockValidateSession.mockResolvedValue({
-      authenticated: true,
-      user: { id: 'u1', email: 'new@example.com', name: 'New Name' },
-    });
-
     const result = await ensureAuthenticated(mockConfig);
 
-    expect(result.auth?.user?.email).toBe('new@example.com');
-    expect(result.auth?.user?.name).toBe('New Name');
+    expect(result.auth?.user?.email).toBe('old@example.com');
+    expect(result.auth?.user?.name).toBe('Old Name');
+    expect(AuthClient).not.toHaveBeenCalled();
+    expect(mockValidateSession).not.toHaveBeenCalled();
   });
 
-  it('uses a 5-second timeout for validation requests', async () => {
+  it('does not construct an auth client on the locally valid startup path', async () => {
     const { AuthClient } = await import('../../src/auth/AuthClient.js');
 
     const mockConfig: LoadedConfig = {
@@ -187,10 +185,8 @@ describe('ensureAuthenticated', () => {
       },
     };
 
-    mockValidateSession.mockResolvedValue({ authenticated: true });
-
     await ensureAuthenticated(mockConfig);
 
-    expect(AuthClient).toHaveBeenCalledWith(expect.objectContaining({ timeout: 5000 }));
+    expect(AuthClient).not.toHaveBeenCalled();
   });
 });
