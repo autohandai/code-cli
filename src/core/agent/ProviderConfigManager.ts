@@ -298,14 +298,20 @@ export class ProviderConfigManager {
       );
 
       // Try to fetch available models
-      const ollamaUrl = "http://localhost:11434";
+      const ollamaUrl =
+        this.runtime.config.ollama?.baseUrl?.replace(/\/+$/, "") ??
+        "http://localhost:11434";
       let availableModels: string[] = [];
 
       try {
         const response = await fetch(`${ollamaUrl}/api/tags`);
         if (response.ok) {
           const data = await response.json() as { models?: Array<{ name: string }> };
-          availableModels = data.models?.map((m: any) => m.name) || [];
+          availableModels =
+            data.models
+              ?.map((model) => model.name)
+              .filter((name): name is string => typeof name === "string" && name.length > 0) ??
+            [];
         }
       } catch {
         console.log(

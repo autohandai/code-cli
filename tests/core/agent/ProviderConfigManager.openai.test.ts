@@ -193,6 +193,32 @@ describe("ProviderConfigManager openai auth mode", () => {
     expect(mockSaveConfig).toHaveBeenCalledOnce();
   });
 
+  it("uses the configured Ollama base URL when selecting local models", async () => {
+    const ollamaBaseUrl = "http://127.0.0.1:4321";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        models: [{ name: "local-model:latest" }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    runtime.config.ollama = {
+      baseUrl: ollamaBaseUrl,
+      model: "previous-model:latest",
+    };
+    mockShowModal.mockResolvedValueOnce({ value: "local-model:latest" });
+
+    await (manager as unknown as { configureOllama: () => Promise<void> }).configureOllama();
+
+    expect(fetchMock).toHaveBeenCalledWith(`${ollamaBaseUrl}/api/tags`);
+    expect(runtime.config.ollama).toEqual({
+      baseUrl: ollamaBaseUrl,
+      model: "local-model:latest",
+    });
+    expect(runtime.config.provider).toBe("ollama");
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
+  });
+
   it("shows user-facing provider names in provider selection", async () => {
     runtime.config.provider = "zai";
     runtime.config.zai = {

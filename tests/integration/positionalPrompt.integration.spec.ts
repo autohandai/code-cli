@@ -18,6 +18,7 @@ import path from 'node:path';
 import os from 'node:os';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
+const SCRIPT_RUNNER = `${JSON.stringify(process.execPath)} --import tsx`;
 let tempDir: string;
 let scriptPath: string;
 
@@ -96,6 +97,7 @@ describe('Positional prompt integration', () => {
     const result = execSync(shellCmd, {
       cwd: ROOT,
       encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 30_000,
     });
     return JSON.parse(result.trim());
@@ -104,24 +106,24 @@ describe('Positional prompt integration', () => {
   // ---- Positional argument ----
 
   it('accepts positional argument as prompt', () => {
-    const parsed = run(`bun "${scriptPath}" "explain these changes"`);
+    const parsed = run(`${SCRIPT_RUNNER} "${scriptPath}" "explain these changes"`);
     expect(parsed.prompt).toBe('explain these changes');
     expect(parsed.positionalPrompt).toBe('explain these changes');
   });
 
   it('accepts -p flag as prompt', () => {
-    const parsed = run(`bun "${scriptPath}" -p "explain these changes"`);
+    const parsed = run(`${SCRIPT_RUNNER} "${scriptPath}" -p "explain these changes"`);
     expect(parsed.prompt).toBe('explain these changes');
     expect(parsed.positionalPrompt).toBeNull();
   });
 
   it('-p flag takes precedence over positional', () => {
-    const parsed = run(`bun "${scriptPath}" "from positional" -p "from flag"`);
+    const parsed = run(`${SCRIPT_RUNNER} "${scriptPath}" "from positional" -p "from flag"`);
     expect(parsed.prompt).toBe('from flag');
   });
 
   it('no arguments leaves prompt null', () => {
-    const parsed = run(`bun "${scriptPath}"`);
+    const parsed = run(`${SCRIPT_RUNNER} "${scriptPath}"`);
     expect(parsed.prompt).toBeNull();
     expect(parsed.positionalPrompt).toBeNull();
   });
@@ -129,13 +131,13 @@ describe('Positional prompt integration', () => {
   // ---- With --path flag ----
 
   it('positional argument works with --path', () => {
-    const parsed = run(`bun "${scriptPath}" "refactor this file" --path src/foo.ts`);
+    const parsed = run(`${SCRIPT_RUNNER} "${scriptPath}" "refactor this file" --path src/foo.ts`);
     expect(parsed.prompt).toBe('refactor this file');
     expect(parsed.path).toBe('src/foo.ts');
   });
 
   it('-p flag works with --path', () => {
-    const parsed = run(`bun "${scriptPath}" -p "fix the bug" --path src/index.ts`);
+    const parsed = run(`${SCRIPT_RUNNER} "${scriptPath}" -p "fix the bug" --path src/index.ts`);
     expect(parsed.prompt).toBe('fix the bug');
     expect(parsed.path).toBe('src/index.ts');
   });
@@ -143,7 +145,7 @@ describe('Positional prompt integration', () => {
   // ---- Pipe + positional ----
 
   it('pipe stdin combines with positional prompt', () => {
-    const parsed = run(`printf 'diff --git a/file.ts\\n-old\\n+new' | bun "${scriptPath}" "explain these changes"`);
+    const parsed = run(`printf 'diff --git a/file.ts\\n-old\\n+new' | ${SCRIPT_RUNNER} "${scriptPath}" "explain these changes"`);
     expect(parsed.stdinType).toBe('pipe');
     expect(parsed.pipedInput).toContain('diff --git a/file.ts');
     expect(parsed.instruction).toContain('explain these changes');
@@ -151,7 +153,7 @@ describe('Positional prompt integration', () => {
   });
 
   it('pipe stdin combines with -p flag', () => {
-    const parsed = run(`printf 'diff --git a/file.ts\\n-old\\n+new' | bun "${scriptPath}" -p "explain these changes"`);
+    const parsed = run(`printf 'diff --git a/file.ts\\n-old\\n+new' | ${SCRIPT_RUNNER} "${scriptPath}" -p "explain these changes"`);
     expect(parsed.stdinType).toBe('pipe');
     expect(parsed.pipedInput).toContain('diff --git a/file.ts');
     expect(parsed.instruction).toContain('explain these changes');
@@ -160,7 +162,7 @@ describe('Positional prompt integration', () => {
 
   it('pipe stdin with multi-line git log and positional prompt', () => {
     const log = 'abc1234 feat: add auth\\ndef5678 fix: race condition\\nghi9012 refactor: utils';
-    const parsed = run(`printf '${log}' | bun "${scriptPath}" "summarize recent changes"`);
+    const parsed = run(`printf '${log}' | ${SCRIPT_RUNNER} "${scriptPath}" "summarize recent changes"`);
     expect(parsed.instruction).toContain('summarize recent changes');
     expect(parsed.instruction).toContain('feat: add auth');
     expect(parsed.instruction).toContain('fix: race condition');
@@ -169,7 +171,7 @@ describe('Positional prompt integration', () => {
   // ---- Edge cases ----
 
   it('handles single-word positional prompt', () => {
-    const parsed = run(`bun "${scriptPath}" "review"`);
+    const parsed = run(`${SCRIPT_RUNNER} "${scriptPath}" "review"`);
     expect(parsed.prompt).toBe('review');
   });
 });

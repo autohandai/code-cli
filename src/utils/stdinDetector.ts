@@ -14,6 +14,11 @@ import { fstatSync as nodeFstatSync } from 'node:fs';
  */
 export type StdinType = 'tty' | 'pipe' | 'none';
 
+type ReadableStdin = NodeJS.ReadableStream & {
+  readableEnded?: boolean;
+  setEncoding?: (encoding: BufferEncoding) => unknown;
+};
+
 /**
  * Detect the type of stdin available to the process.
  *
@@ -60,12 +65,14 @@ export function readPipedStdin(
   stream: NodeJS.ReadableStream = process.stdin,
 ): Promise<string | null> {
   return new Promise<string | null>((resolve) => {
+    const readable = stream as ReadableStdin;
     const chunks: string[] = [];
     let settled = false;
 
     const cleanup = () => {
       stream.removeListener('data', onData);
       stream.removeListener('end', onEnd);
+      stream.removeListener('close', onEnd);
       stream.removeListener('error', onError);
     };
 
@@ -90,16 +97,22 @@ export function readPipedStdin(
     };
 
     // Set encoding so we receive strings instead of Buffers
-    if ('setEncoding' in stream && typeof (stream as NodeJS.ReadStream).setEncoding === 'function') {
-      (stream as NodeJS.ReadStream).setEncoding('utf-8');
+    if (typeof readable.setEncoding === 'function') {
+      readable.setEncoding('utf-8');
     }
 
     stream.on('data', onData);
     stream.on('end', onEnd);
+    stream.on('close', onEnd);
     stream.on('error', onError);
 
     const timer = setTimeout(() => {
       settle(null);
     }, timeoutMs);
+
+    if (readable.readableEnded === true) {
+      settle('');
+      return;
+    }
   });
 }
