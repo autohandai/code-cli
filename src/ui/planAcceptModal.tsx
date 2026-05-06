@@ -9,6 +9,7 @@ import { Box, Text, render } from 'ink';
 import { Modal, type ModalOption } from './ink/components/Modal.js';
 import { I18nProvider, useTranslation } from './i18n/index.js';
 import { inkRenderOptions } from './inkRenderOptions.js';
+import { ThemeProvider, useTheme } from './theme/ThemeContext.js';
 
 export interface PlanAcceptOption {
   id: string;
@@ -46,6 +47,7 @@ function PlanAcceptModalWrapper({
   onSubmit,
 }: PlanAcceptModalWrapperProps) {
   const { t } = useTranslation();
+  const { colors } = useTheme();
 
   // Convert PlanAcceptOptions to ModalOptions
   const modalOptions: ModalOption[] = [
@@ -91,7 +93,7 @@ function PlanAcceptModalWrapper({
         onCancel={handleCancel}
         allowCustomInput={true}
       />
-      <Text color="gray">
+      <Text color={colors.muted}>
         {t('ui.planEditHint')} · {displayPath}
       </Text>
     </Box>
@@ -116,16 +118,18 @@ export async function showPlanAcceptModal(
 
     const instance = render(
       <I18nProvider>
-        <PlanAcceptModalWrapper
-          planFilePath={planFilePath}
-          options={acceptOptions}
-          onSubmit={(result) => {
-            if (completed) return;
-            completed = true;
-            instance.unmount();
-            resolve(result);
-          }}
-        />
+        <ThemeProvider>
+          <PlanAcceptModalWrapper
+            planFilePath={planFilePath}
+            options={acceptOptions}
+            onSubmit={(result) => {
+              if (completed) return;
+              completed = true;
+              instance.unmount();
+              resolve(result);
+            }}
+          />
+        </ThemeProvider>
       </I18nProvider>,
       inkRenderOptions({
         stdin: process.stdin,

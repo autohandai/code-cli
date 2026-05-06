@@ -3,12 +3,12 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import chalk from 'chalk';
 import readline from 'node:readline';
 import { t } from '../i18n/index.js';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import type { AutohandConfig } from '../types.js';
 import { cleanupModalRender, prepareModalRender } from '../ui/ink/components/Modal.js';
+import { createCommandTheme } from './commandTheme.js';
 import packageJson from '../../package.json' with { type: 'json' };
 
 export const metadata = {
@@ -104,12 +104,13 @@ function renderStatusUI(data: StatusData): Promise<void> {
         }
 
         const render = () => {
+            const theme = createCommandTheme();
             // Clear screen and move cursor to top
             process.stdout.write('\x1B[2J\x1B[H');
 
             renderTabHeader(tabs, currentTab);
             renderTabContent(tabs[currentTab], data);
-            console.log(chalk.gray('\nEsc to exit'));
+            console.log(theme.muted('\nEsc to exit'));
         };
 
         let buffer = '';
@@ -205,13 +206,14 @@ function renderStatusUI(data: StatusData): Promise<void> {
 }
 
 function renderTabHeader(tabs: TabName[], currentIndex: number): void {
+    const theme = createCommandTheme();
     const header = tabs.map((tab, i) => {
         return i === currentIndex
-            ? chalk.bgWhite.black(` ${tab} `)
-            : chalk.gray(` ${tab} `);
+            ? theme.selectedTab(tab)
+            : theme.tab(tab);
     }).join('  ');
 
-    console.log(`Settings: ${header}  ${chalk.gray('(tab to cycle)')}\n`);
+    console.log(`Settings: ${header}  ${theme.muted('(tab to cycle)')}\n`);
 }
 
 function renderTabContent(tab: TabName, data: StatusData): void {
@@ -229,28 +231,30 @@ function renderTabContent(tab: TabName, data: StatusData): void {
 }
 
 function renderStatusTab(data: StatusData): void {
-    console.log(chalk.bold(`${t('commands.status.version')}:`), data.version);
-    console.log(chalk.bold(`${t('commands.status.sessionId')}:`), data.sessionId ?? chalk.gray('none'));
-    console.log(chalk.bold(`${t('commands.status.cwd')}:`), data.cwd);
-    console.log(chalk.bold(`${t('commands.status.provider')}:`), data.provider);
-    console.log(chalk.bold(`${t('commands.status.model')}:`), data.model);
+    const theme = createCommandTheme();
+    console.log(theme.bold(`${t('commands.status.version')}:`), data.version);
+    console.log(theme.bold(`${t('commands.status.sessionId')}:`), data.sessionId ?? theme.muted('none'));
+    console.log(theme.bold(`${t('commands.status.cwd')}:`), data.cwd);
+    console.log(theme.bold(`${t('commands.status.provider')}:`), data.provider);
+    console.log(theme.bold(`${t('commands.status.model')}:`), data.model);
     console.log(
-        chalk.bold('Context Compaction:'),
-        data.contextCompactionEnabled ? chalk.green('ON') : chalk.yellow('OFF')
+        theme.bold('Context Compaction:'),
+        data.contextCompactionEnabled ? theme.success('ON') : theme.warning('OFF')
     );
     console.log();
     console.log(
-        chalk.bold(`${t('commands.status.apiStatus')}:`),
-        data.apiConnected ? chalk.green(t('commands.status.connected')) : chalk.red(t('commands.status.disconnected'))
+        theme.bold(`${t('commands.status.apiStatus')}:`),
+        data.apiConnected ? theme.success(t('commands.status.connected')) : theme.error(t('commands.status.disconnected'))
     );
-    console.log(chalk.bold(`${t('commands.status.sessions')}:`), t('commands.status.total', { count: String(data.sessionsCount) }));
-    console.log(chalk.bold('Memory:'), 'user (~/.autohand/memory/), project (.autohand/memory/)');
+    console.log(theme.bold(`${t('commands.status.sessions')}:`), t('commands.status.total', { count: String(data.sessionsCount) }));
+    console.log(theme.bold('Memory:'), 'user (~/.autohand/memory/), project (.autohand/memory/)');
 }
 
 function renderConfigTab(data: StatusData): void {
+    const theme = createCommandTheme();
     const config = data.config;
 
-    console.log(chalk.bold('Autohand preferences\n'));
+    console.log(theme.bold('Autohand preferences\n'));
 
     const settings: Array<[string, string]> = [
         ['Theme', config?.ui?.theme ?? 'dark'],
@@ -264,26 +268,28 @@ function renderConfigTab(data: StatusData): void {
     ];
 
     for (const [name, value] of settings) {
-        console.log(`  ${chalk.cyan(name.padEnd(30))} ${value}`);
+        console.log(`  ${theme.accent(name.padEnd(30))} ${value}`);
     }
 }
 
 function renderUsageTab(data: StatusData): void {
+    const theme = createCommandTheme();
     const contextUsed = 100 - data.contextPercentLeft;
 
-    console.log(chalk.bold('Current session\n'));
+    console.log(theme.bold('Current session\n'));
 
     renderProgressBar('Context used', contextUsed, 100);
     console.log();
 
-    console.log(chalk.bold('Tokens used:'), formatTokens(data.totalTokensUsed));
+    console.log(theme.bold('Tokens used:'), formatTokens(data.totalTokensUsed));
 }
 
 function renderProgressBar(label: string, value: number, max: number): void {
+    const theme = createCommandTheme();
     const width = 30;
     const filled = Math.round((value / max) * width);
     const empty = width - filled;
-    const bar = chalk.cyan('\u2588'.repeat(filled)) + chalk.gray('\u2591'.repeat(empty));
+    const bar = theme.progressFilled('\u2588'.repeat(filled)) + theme.progressEmpty('\u2591'.repeat(empty));
     const percent = Math.round((value / max) * 100);
 
     console.log(label);

@@ -4,10 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { execSync } from 'node:child_process';
-import chalk from 'chalk';
 import terminalLink from 'terminal-link';
 import { t } from '../i18n/index.js';
-import { getTheme, isThemeInitialized } from '../ui/theme/Theme.js';
+import { createCommandTheme } from './commandTheme.js';
 import { ASCII_FRIEND } from '../utils/asciiArt.js';
 import packageJson from '../../package.json' with { type: 'json' };
 
@@ -49,53 +48,37 @@ function getVersionString(): string {
  * About command - shows information about Autohand
  */
 export async function about(): Promise<string | null> {
-  // Use theme if initialized, otherwise use fallback chalk colors
-  let accent: (text: string) => string;
-  let muted: (text: string) => string;
-  let text: (text: string) => string;
-
-  if (isThemeInitialized()) {
-    const theme = getTheme();
-    accent = (text: string) => chalk.hex(theme.colors.accent)(text);
-    muted = (text: string) => chalk.hex(theme.colors.muted)(text);
-    text = (str: string) => chalk.hex(theme.colors.text)(str);
-  } else {
-    // Fallback colors when theme not initialized
-    accent = (text: string) => chalk.cyan(text);
-    muted = (text: string) => chalk.gray(text);
-    text = (text: string) => chalk.white(text);
-  }
+  const theme = createCommandTheme();
 
   const lines: string[] = [
-    chalk.gray(ASCII_FRIEND),
+    theme.muted(ASCII_FRIEND),
     '',
-    accent(`${t('commands.about.title')} v${getVersionString()}`),
-    muted(t('commands.about.subtitle')),
+    theme.accent(`${t('commands.about.title')} v${getVersionString()}`),
+    theme.muted(t('commands.about.subtitle')),
     '',
   ];
 
-  // Links section - make them underlined and cyan to look clickable
   const websiteUrl = 'https://autohand.ai';
   const githubUrl = 'https://github.com/autohandai/';
   const docsUrl = 'https://docs.autohand.ai';
 
-  const websiteLink = terminalLink(chalk.cyan.underline('autohand.ai'), websiteUrl);
-  const githubLink = terminalLink(chalk.cyan.underline('github.com/autohandai/'), githubUrl);
-  const docsLink = terminalLink(chalk.cyan.underline('docs.autohand.ai'), docsUrl);
+  const websiteLink = terminalLink(theme.link('autohand.ai'), websiteUrl);
+  const githubLink = terminalLink(theme.link('github.com/autohandai/'), githubUrl);
+  const docsLink = terminalLink(theme.link('docs.autohand.ai'), docsUrl);
 
-  lines.push(`${text('🌐')} ${text(t('commands.about.website') + ':')}    ${websiteLink}`);
-  lines.push(`${text('📦')} ${text(t('commands.about.github') + ':')}     ${githubLink}`);
-  lines.push(`${text('📚')} ${text(t('commands.about.docs') + ':')}       ${docsLink}`);
+  lines.push(`${theme.text('🌐')} ${theme.text(t('commands.about.website') + ':')}    ${websiteLink}`);
+  lines.push(`${theme.text('📦')} ${theme.text(t('commands.about.github') + ':')}     ${githubLink}`);
+  lines.push(`${theme.text('📚')} ${theme.text(t('commands.about.docs') + ':')}       ${docsLink}`);
   lines.push('');
 
   // Contribution section
-  lines.push(text(`💡 ${t('commands.about.contribute')}`));
-  lines.push(text(`   • ${t('commands.about.feedback')}:     ${accent('/feedback')}`));
-  lines.push(text(`   • ${t('commands.about.submitPR')}:         ${accent('gh pr create')}`));
+  lines.push(theme.text(`💡 ${t('commands.about.contribute')}`));
+  lines.push(theme.text(`   • ${t('commands.about.feedback')}:     ${theme.accent('/feedback')}`));
+  lines.push(theme.text(`   • ${t('commands.about.submitPR')}:         ${theme.accent('gh pr create')}`));
 
   const issuesUrl = 'https://github.com/autohandai/code-cli/issues';
-  const issuesLink = terminalLink(chalk.cyan.underline('github.com/autohandai/code-cli/issues'), issuesUrl);
-  lines.push(text(`   • ${t('commands.about.reportIssues')}:     ${issuesLink}`));
+  const issuesLink = terminalLink(theme.link('github.com/autohandai/code-cli/issues'), issuesUrl);
+  lines.push(theme.text(`   • ${t('commands.about.reportIssues')}:     ${issuesLink}`));
 
   return lines.join('\n');
 }

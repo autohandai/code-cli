@@ -36,8 +36,8 @@ export async function theme(ctx: ThemeContext): Promise<string | null> {
     sandy: 'Warm, earthy desert tones',
     tui: 'New Zealand-inspired colors',
     'github-dark': 'GitHub Dark terminal palette',
-    turkey: 'Turkish flag-inspired red, white, and turquoise palette',
-    brazil: 'Brazil-inspired green, gold, and blue palette',
+    cappadocia: 'Cappadocia-inspired rose valleys, dawn sky, and balloon colors',
+    rio: 'Rio-inspired blue macaw, rainforest, and beach-light palette',
     australia: 'Australian coast, wattle, and eucalyptus palette',
     // Curated Ghostty themes
     'Atom One Dark': 'Atom editor dark theme',

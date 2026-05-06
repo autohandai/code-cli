@@ -10,7 +10,7 @@ import { homedir } from 'os';
 import type { ThemeDefinition, ThemeColors, ColorValue, ResolvedColors, ColorToken } from './types.js';
 import { COLOR_TOKENS, isHexColor, is256ColorIndex } from './types.js';
 import { Theme, setTheme, detectColorMode } from './Theme.js';
-import { builtInThemes, darkTheme, getDefaultThemeName } from './themes.js';
+import { builtInThemes, darkTheme, getBuiltInTheme, getDefaultThemeName, isBuiltInTheme } from './themes.js';
 import { loadGhosttyTheme, detectGhosttyTheme } from './ghosttyLoader.js';
 
 /**
@@ -95,8 +95,9 @@ export function initTheme(themeName?: string): Theme {
  */
 export function getThemeDefinition(themeName: string): ThemeDefinition {
   // Check built-in themes
-  if (themeName in builtInThemes) {
-    return builtInThemes[themeName];
+  const builtInTheme = getBuiltInTheme(themeName);
+  if (builtInTheme) {
+    return builtInTheme;
   }
 
   const configTheme = configThemes.get(themeName);
@@ -335,7 +336,7 @@ export function listAvailableThemes(): string[] {
  * Check if a theme exists.
  */
 export function themeExists(themeName: string): boolean {
-  if (themeName in builtInThemes) return true;
+  if (isBuiltInTheme(themeName)) return true;
   if (configThemes.has(themeName)) return true;
   const customPath = join(CUSTOM_THEMES_DIR, `${themeName}.json`);
   if (existsSync(customPath)) return true;

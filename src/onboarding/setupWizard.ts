@@ -8,6 +8,7 @@ import chalk from 'chalk';
 import { t, changeLanguage, detectLocale, SUPPORTED_LOCALES, LANGUAGE_DISPLAY_NAMES } from '../i18n/index.js';
 import type { SupportedLocale } from '../i18n/index.js';
 import { showModal, showInput, showPassword, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
+import { getBuiltInThemeNames } from '../ui/theme/index.js';
 import { ASCII_FRIEND } from '../utils/asciiArt.js';
 import fse from 'fs-extra';
 import { join } from 'path';
@@ -730,8 +731,7 @@ export class SetupWizard {
       return;
     }
 
-    // Built-in themes from src/ui/theme/themes.ts
-    const themes = ['dark', 'light', 'dracula', 'sandy', 'tui', 'github-dark', 'turkey', 'brazil', 'australia'];
+    const themes = getBuiltInThemeNames();
     const themeDescriptions: Record<string, string> = {
       dark: 'Default dark theme',
       light: 'Light theme for light backgrounds',
@@ -739,8 +739,8 @@ export class SetupWizard {
       sandy: 'Warm, earthy desert tones',
       tui: 'New Zealand inspired colors',
       'github-dark': 'GitHub Dark terminal palette',
-      turkey: 'Turkish flag-inspired red, white, and turquoise palette',
-      brazil: 'Brazil-inspired green, gold, and blue palette',
+      cappadocia: 'Cappadocia-inspired rose valleys, dawn sky, and balloon colors',
+      rio: 'Rio-inspired blue macaw, rainforest, and beach-light palette',
       australia: 'Australian coast, wattle, and eucalyptus palette'
     };
 

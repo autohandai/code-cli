@@ -7,6 +7,7 @@ import React, { useMemo, useState } from 'react';
 import { Box, Text, useInput, render } from 'ink';
 import { I18nProvider, useTranslation } from './i18n/index.js';
 import { inkRenderOptions } from './inkRenderOptions.js';
+import { ThemeProvider, useTheme } from './theme/ThemeContext.js';
 
 export interface FilePaletteOptions {
   files: string[];
@@ -27,19 +28,21 @@ export async function showFilePalette(options: FilePaletteOptions): Promise<stri
     let completed = false;
     const instance = render(
       <I18nProvider>
-        <FilePalette
-          files={files}
-          statusLine={statusLine}
-          seed={seed}
-          onSubmit={(value) => {
-            if (completed) {
-              return;
-            }
-            completed = true;
-            instance.unmount();
-            resolve(value);
-          }}
-        />
+        <ThemeProvider>
+          <FilePalette
+            files={files}
+            statusLine={statusLine}
+            seed={seed}
+            onSubmit={(value) => {
+              if (completed) {
+                return;
+              }
+              completed = true;
+              instance.unmount();
+              resolve(value);
+            }}
+          />
+        </ThemeProvider>
       </I18nProvider>,
       inkRenderOptions({
         stdin: process.stdin,
@@ -60,6 +63,7 @@ interface FilePaletteProps {
 
 function FilePalette({ files, statusLine, seed, onSubmit }: FilePaletteProps) {
   const { t } = useTranslation();
+  const { colors } = useTheme();
   const [value, setValue] = useState(seed ?? '');
   const [cursor, setCursor] = useState(0);
 
@@ -109,21 +113,21 @@ function FilePalette({ files, statusLine, seed, onSubmit }: FilePaletteProps) {
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      {statusLine ? <Text color="gray">{statusLine}</Text> : null}
-      <Text color="cyan">{t('ui.selectFile')}</Text>
+      {statusLine ? <Text color={colors.muted}>{statusLine}</Text> : null}
+      <Text color={colors.accent}>{t('ui.selectFile')}</Text>
       <Text>
-        <Text color="magenta">{t('ui.typeToFilter')}: </Text>
+        <Text color={colors.syntaxKeyword}>{t('ui.typeToFilter')}: </Text>
         <Text>{value || ' '}</Text>
       </Text>
       <Box flexDirection="column" marginTop={1}>
-        {filtered.length === 0 && <Text color="gray">{t('ui.noMatchingFiles')}</Text>}
+        {filtered.length === 0 && <Text color={colors.muted}>{t('ui.noMatchingFiles')}</Text>}
         {filtered.slice(0, 20).map((file, index) => (
-          <Text key={file} color={index === cursorIndex ? 'cyan' : undefined}>
+          <Text key={file} color={index === cursorIndex ? colors.accent : undefined}>
             {index === cursorIndex ? '▸' : ' '} {file}
           </Text>
         ))}
       </Box>
-      <Text color="gray">{t('ui.fileNavigateHint')}</Text>
+      <Text color={colors.muted}>{t('ui.fileNavigateHint')}</Text>
     </Box>
   );
 }

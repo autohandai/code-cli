@@ -48,6 +48,16 @@ describe('loadTheme()', () => {
     expect(theme.colors.accent).toBeDefined();
   });
 
+  it('loads renamed country-inspired built-in themes', () => {
+    expect(loadTheme('cappadocia').name).toBe('cappadocia');
+    expect(loadTheme('rio').name).toBe('rio');
+  });
+
+  it('keeps legacy theme names loadable for existing config files', () => {
+    expect(loadTheme('turkey').name).toBe('cappadocia');
+    expect(loadTheme('brazil').name).toBe('rio');
+  });
+
   it('throws ThemeLoadError for unknown theme', () => {
     expect(() => loadTheme('nonexistent')).toThrow(ThemeLoadError);
   });
@@ -308,6 +318,10 @@ describe('listAvailableThemes()', () => {
 
     expect(themes).toContain('dark');
     expect(themes).toContain('light');
+    expect(themes).toContain('cappadocia');
+    expect(themes).toContain('rio');
+    expect(themes).not.toContain('turkey');
+    expect(themes).not.toContain('brazil');
   });
 
   it('returns built-in themes first, each group sorted', () => {
@@ -351,6 +365,13 @@ describe('themeExists()', () => {
 
   it('returns true for light theme', () => {
     expect(themeExists('light')).toBe(true);
+  });
+
+  it('returns true for renamed and legacy built-in theme names', () => {
+    expect(themeExists('cappadocia')).toBe(true);
+    expect(themeExists('rio')).toBe(true);
+    expect(themeExists('turkey')).toBe(true);
+    expect(themeExists('brazil')).toBe(true);
   });
 
   it('returns false for unknown theme', () => {
