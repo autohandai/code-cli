@@ -902,7 +902,10 @@ export function initializeAgentDependencies(
 
     // Ink 7 + React 19 is the default interactive UI. Do not let stale
     // config.ui.useInkRenderer values force the legacy composer.
-    host.useInkRenderer = shouldUseInkRenderer() && runtime.isRpcMode !== true;
+    host.useInkRenderer = shouldUseInkRenderer()
+      && runtime.isRpcMode !== true
+      && runtime.isCommandMode !== true
+      && !runtime.options?.prompt;
 
     // Initialize UIManager based on config
     host.initializeUIManager();

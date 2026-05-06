@@ -275,53 +275,63 @@ export async function initializeAgentForRPC(host: AgentLifecycleHost): Promise<v
   }
 
 export async function runAgentCommandMode(host: AgentLifecycleHost, instruction: string): Promise<void> {
-    await host.initializeForRPC();
+    const previousCommandMode = host.runtime.isCommandMode;
+    const previousUseInkRenderer = host.useInkRenderer;
+    host.runtime.isCommandMode = true;
+    host.useInkRenderer = false;
 
-    const turnStartTime = Date.now();
-    await host.runInstruction(instruction);
+    try {
+      await host.initializeForRPC();
 
-    // Fire stop hook after turn completes (non-blocking)
-    const turnDuration = Date.now() - turnStartTime;
-    const session = host.sessionManager.getCurrentSession();
-    host.hookManager.executeHooks('stop', {
-      sessionId: session?.metadata.sessionId,
-      turnDuration,
-      tokensUsed: host.sessionTokensUsed,
-    }).catch(() => {
-      // Ignore hook errors - they shouldn't block the user
-    });
+      const turnStartTime = Date.now();
+      await host.runInstruction(instruction);
 
-    // Restore stdin to known state after hook execution
-    host.ensureStdinReady();
+      // Fire stop hook after turn completes (non-blocking)
+      const turnDuration = Date.now() - turnStartTime;
+      const session = host.sessionManager.getCurrentSession();
+      host.hookManager.executeHooks('stop', {
+        sessionId: session?.metadata.sessionId,
+        turnDuration,
+        tokensUsed: host.sessionTokensUsed,
+      }).catch(() => {
+        // Ignore hook errors - they shouldn't block the user
+      });
 
-    // Ring terminal bell to notify user (shows badge on terminal tab)
-    if (host.runtime.config.ui?.terminalBell !== false) {
-      process.stdout.write('\x07');
+      // Restore stdin to known state after hook execution
+      host.ensureStdinReady();
+
+      // Ring terminal bell to notify user (shows badge on terminal tab)
+      if (host.runtime.config.ui?.terminalBell !== false) {
+        process.stdout.write('\x07');
+      }
+
+      // Native OS notification for task completion
+      if (host.runtime.config.ui?.showCompletionNotification !== false) {
+        host.notificationService.notify(
+          { body: host.getCompletionNotificationBody(), reason: 'task_complete' },
+          host.getNotificationGuards()
+        ).catch(() => {});
+      }
+
+      if (host.runtime.options.autoCommit) {
+        await host.performAutoCommit();
+      }
+
+      // Fire session-end hook for command mode
+      await host.hookManager.executeHooks('session-end', {
+        sessionId: session?.metadata.sessionId,
+        sessionEndReason: 'exit',
+        duration: Date.now() - host.sessionStartedAt,
+      });
+
+      // Restore stdin after session-end hook
+      host.ensureStdinReady();
+
+      await host.telemetryManager.endSession('completed');
+    } finally {
+      host.runtime.isCommandMode = previousCommandMode;
+      host.useInkRenderer = previousUseInkRenderer;
     }
-
-    // Native OS notification for task completion
-    if (host.runtime.config.ui?.showCompletionNotification !== false) {
-      host.notificationService.notify(
-        { body: host.getCompletionNotificationBody(), reason: 'task_complete' },
-        host.getNotificationGuards()
-      ).catch(() => {});
-    }
-
-    if (host.runtime.options.autoCommit) {
-      await host.performAutoCommit();
-    }
-
-    // Fire session-end hook for command mode
-    await host.hookManager.executeHooks('session-end', {
-      sessionId: session?.metadata.sessionId,
-      sessionEndReason: 'exit',
-      duration: Date.now() - host.sessionStartedAt,
-    });
-
-    // Restore stdin after session-end hook
-    host.ensureStdinReady();
-
-    await host.telemetryManager.endSession('completed');
   }
 
 export async function restoreAgentSessionState(host: AgentLifecycleHost, sessionId: string) {
