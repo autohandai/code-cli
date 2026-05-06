@@ -109,6 +109,17 @@ describe('SlashCommandDropdown utilities', () => {
   });
 
   describe('buildSlashSuggestions', () => {
+    it('orders bare slash suggestions the same way as /help', () => {
+      const result = buildSlashSuggestions('', mockSlashCommands, 5);
+      expect(result.map((item) => item.command)).toEqual([
+        '/help',
+        '/learn',
+        '/model',
+        '/quit',
+        '/skills',
+      ]);
+    });
+
     it('returns empty array for empty seed (showing all would be too many)', () => {
       const result = buildSlashSuggestions('', mockSlashCommands, 5);
       // Empty seed should match all commands
@@ -131,7 +142,8 @@ describe('SlashCommandDropdown utilities', () => {
       // 'h' matches /help and /theme (the 'h' in 'theme' command name)
       const result = buildSlashSuggestions('h', mockSlashCommands);
       expect(result).toHaveLength(2);
-      expect(result[1].command).toBe('/help');
+      expect(result[0].command).toBe('/help');
+      expect(result[1].command).toBe('/theme');
     });
 
     it('respects the limit parameter', () => {

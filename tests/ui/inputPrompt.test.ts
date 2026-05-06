@@ -579,6 +579,14 @@ describe('buildSlashSuggestionLines', () => {
 
     // Should show up to HOT_TIP_LIMIT (5) commands
     expect(lines.length).toBe(5);
+    const stripped = lines.map((l: string) => l.replace(/\u001b\[[0-9;]*[A-Za-z]/g, ''));
+    expect(stripped.map((line) => line.match(/\/[a-z-?]+/)?.[0])).toEqual([
+      '/help',
+      '/learn',
+      '/login',
+      '/memory',
+      '/model',
+    ]);
   });
 
   it('marks first suggestion with a pointer symbol', async () => {

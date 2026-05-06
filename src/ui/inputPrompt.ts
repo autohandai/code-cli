@@ -156,6 +156,12 @@ interface PromptSuggestion {
 
 const HOT_TIP_LIMIT = 5;
 
+export function getHelpOrderedSlashCommands(slashCommands: SlashCommand[]): SlashCommand[] {
+  return slashCommands
+    .filter((cmd) => cmd.implemented && cmd.command !== '/?')
+    .sort((a, b) => a.command.localeCompare(b.command));
+}
+
 // Lazy-loaded skill cache for $ mention suggestions
 let cachedSkillMentions: SkillMentionInfo[] | undefined;
 
@@ -249,7 +255,7 @@ export function buildPromptHotTips(
     }
 
     const seed = trimmed.slice(1).toLowerCase();
-    const matches = slashCommands
+    const matches = getHelpOrderedSlashCommands(slashCommands)
       .filter((cmd) => cmd.command.slice(1).toLowerCase().includes(seed))
       .slice(0, HOT_TIP_LIMIT)
       .map((cmd) => ({
@@ -350,7 +356,7 @@ export function getPrimaryHotTipSuggestion(
     }
 
     const seed = trimmed.slice(1).toLowerCase();
-    const match = slashCommands.find((cmd) =>
+    const match = getHelpOrderedSlashCommands(slashCommands).find((cmd) =>
       cmd.command.slice(1).toLowerCase().includes(seed)
     );
     if (!match) {
@@ -496,7 +502,7 @@ export function buildSlashSuggestionLines(
 
   // Top-level command matching
   const seed = input.slice(1).toLowerCase();
-  const matches = slashCommands
+  const matches = getHelpOrderedSlashCommands(slashCommands)
     .filter((cmd) => cmd.command.slice(1).toLowerCase().includes(seed))
     .slice(0, HOT_TIP_LIMIT);
 
