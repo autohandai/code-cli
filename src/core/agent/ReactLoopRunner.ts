@@ -141,6 +141,7 @@ export function isDeferredFinalResponse(response: string): boolean {
     /\bi (now )?have (a )?(comprehensive|clear|good|enough|solid) (understanding|picture|context|information)\b.{0,120}\b(let me|i('ll| will)|i can now)\b.{0,80}\b(provide|give|summarize|explain|tell|answer)\b.{0,80}\b(to|for) (the )?(user|you)\b/i,
     /^\s*(let me|i('ll| will)|i can now|now i('ll| will))\b.{0,50}\b(provide|give|summarize|explain|tell|answer)\b.{0,80}\b(to|for) (the )?(user|you)\.?$/i,
     /^\s*(first,?\s+)?(let me|i('ll| will)|i am going to|i'm going to|now i('ll| will))\b.{0,100}\b(start|begin|check|gather|inspect|analy[sz]e|review|perform|run|look at|read|find)\b/i,
+    /^\s*i\s+(?:still\s+|also\s+)?need\s+to\s+(?:continue\s+)?(?:gather(?:ing)?|check(?:ing)?|inspect(?:ing)?|read(?:ing)?|search(?:ing)?|look(?:ing)? at|review(?:ing)?|analy[sz](?:e|ing)|run(?:ning)?|find(?:ing)?)\b/i,
   ];
 
   return patterns.some((pattern) => pattern.test(trimmed));
