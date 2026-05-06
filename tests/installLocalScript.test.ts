@@ -45,3 +45,21 @@ describe('local install scripts', () => {
     expect(installScript).not.toContain('bun run "compile:');
   });
 });
+
+describe('dependency install guardrails', () => {
+  it('pins tuistory because its patch releases can introduce broken transitive ranges', () => {
+    const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      devDependencies?: Record<string, string>;
+    };
+
+    expect(packageJson.devDependencies?.tuistory).toBe('0.4.0');
+  });
+
+  it('uses the committed Bun lockfile in GitHub workflows', () => {
+    for (const workflow of ['.github/workflows/ci.yml', '.github/workflows/release.yml']) {
+      const content = readFileSync(workflow, 'utf8');
+
+      expect(content).not.toMatch(/\bbun install(?!\s+--frozen-lockfile)/);
+    }
+  });
+});
