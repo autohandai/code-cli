@@ -156,7 +156,8 @@ export class InstructionRunner {
     let success = true;
 
     const queueEnabled = host.runtime.config.agent?.enableRequestQueue !== false;
-    const canUsePersistentInput = process.stdout.isTTY && process.stdin.isTTY && queueEnabled;
+    const isCommandMode = host.runtime.isCommandMode === true || Boolean(host.runtime.options?.prompt);
+    const canUsePersistentInput = !isCommandMode && process.stdout.isTTY && process.stdin.isTTY && queueEnabled;
 
     // Initialize UI (InkRenderer or ora spinner)
     // Pass abort controller for InkRenderer to handle ESC/Ctrl+C

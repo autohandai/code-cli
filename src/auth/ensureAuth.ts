@@ -108,10 +108,9 @@ async function runUpgrade(): Promise<void> {
  * Interactive — prompts the user to log in when no valid token exists.
  *
  * Flow:
- *  1. Token exists + not expired → validate via API (3 s timeout)
- *  2. Network error during validation → trust local token
- *  3. Invalid / missing / expired → launch interactive login
- *  4. After login, reload config. If still no token → exit(1)
+ *  1. Token exists + not expired locally → trust it immediately
+ *  2. Missing / expired → launch interactive login
+ *  3. After login, reload config. If still no token → exit(1)
  *
  * Returns the (possibly refreshed) config.
  */
@@ -123,26 +122,10 @@ export async function ensureAuthenticated(config: LoadedConfig): Promise<LoadedC
       return await promptLogin(config);
     }
 
-    // Validate with server using a short timeout
-    const client = new AuthClient({ timeout: 5000 });
-    try {
-      const result = await client.validateSession(config.auth.token);
-      if (result.authenticated) {
-        // Token is valid
-        if (result.user && config.auth) {
-          config.auth.user = result.user;
-        }
-        return config;
-      }
-      // Server says invalid, but token is not expired locally.
-      // Trust the local token rather than forcing re-login on transient
-      // server issues (e.g. flaky /me endpoint, deployment hiccups).
-      // The background validateAuthOnStartup will surface any real expiry.
-      return config;
-    } catch {
-      // Network error — trust local token
-      return config;
-    }
+    // Trust locally unexpired tokens on the startup path. runCLI starts a
+    // background validation/sync check after first paint so transient auth
+    // latency does not block the TUI or one-shot command mode.
+    return config;
   }
 
   // No token at all — need to login

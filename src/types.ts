@@ -1180,6 +1180,8 @@ export interface AgentRuntime {
   inkRenderer?: InkRendererInterface;
   /** True when running in RPC mode (stdout must be JSON-RPC only) */
   isRpcMode?: boolean;
+  /** True when running one-shot command mode via --prompt/positional prompt */
+  isCommandMode?: boolean;
 }
 
 export interface AgentStatusSnapshot {
