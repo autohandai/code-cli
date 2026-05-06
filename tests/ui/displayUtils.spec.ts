@@ -28,6 +28,17 @@ describe('getContentDisplay', () => {
     expect(result.charCount).toBe(Array.from(text).length);
   });
 
+  it('should show indicator for very long single-line pastes', () => {
+    const text = 'a'.repeat(1500);
+    const result = getContentDisplay(text);
+
+    expect(result.visual).toBe(expectedPasteToken(text));
+    expect(result.actual).toBe(text);
+    expect(result.isPasted).toBe(true);
+    expect(result.lineCount).toBe(1);
+    expect(result.charCount).toBe(Array.from(text).length);
+  });
+
   it('should handle single line correctly', () => {
     const text = 'single line';
     const result = getContentDisplay(text);
