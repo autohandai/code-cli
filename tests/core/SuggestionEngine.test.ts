@@ -126,6 +126,26 @@ describe('SuggestionEngine', () => {
     expect(quotedEngine.getSuggestion()).toBe('Run tests for auth module');
   });
 
+  it('should reject structured thought payloads instead of showing them as composer suggestions', async () => {
+    const thoughtProvider = createMockProvider(
+      '}{"thought":"The user is asking what tools I can use to check the web.","toolCalls":[],"finalResponse":"Use web search"}'
+    );
+    const thoughtEngine = new SuggestionEngine(thoughtProvider);
+
+    await thoughtEngine.generate([{ role: 'user', content: 'what tools can you check the web?' }]);
+
+    expect(thoughtEngine.getSuggestion()).toBeNull();
+  });
+
+  it('should accept an explicit suggestion field from a JSON response', async () => {
+    const jsonProvider = createMockProvider('{"suggestion":"Run the focused Composer test"}');
+    const jsonEngine = new SuggestionEngine(jsonProvider);
+
+    await jsonEngine.generate([{ role: 'user', content: 'test' }]);
+
+    expect(jsonEngine.getSuggestion()).toBe('Run the focused Composer test');
+  });
+
   it('should only send last N turns to keep prompt small', async () => {
     const longHistory = Array.from({ length: 20 }, (_, i) => ({
       role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',

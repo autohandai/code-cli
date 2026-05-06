@@ -32,6 +32,7 @@ const MAX_SUGGESTION_LENGTH = 80;
 const MAX_HISTORY_MESSAGES = 6; // 3 user+assistant pairs → 7 messages total sent to LLM
 /** Max characters per message to keep the suggestion prompt small and fast. */
 const MAX_MESSAGE_CONTENT_LENGTH = 500;
+const STRUCTURED_AGENT_PAYLOAD_KEY_RE = /"?(thought|reflection|toolCalls|finalResponse|response)"?\s*:/i;
 /**
  * Internal timeout for the background LLM call. Set higher than the user-facing
  * deadline in promptForInstruction (3s) so the request can finish in the background
@@ -209,9 +210,54 @@ function sanitizeSuggestion(raw: string): string | null {
     return null;
   }
 
+  const explicitSuggestion = extractExplicitSuggestion(cleaned);
+  if (explicitSuggestion !== undefined) {
+    return sanitizeSuggestion(explicitSuggestion);
+  }
+
+  if (STRUCTURED_AGENT_PAYLOAD_KEY_RE.test(cleaned) || looksLikeJsonPayload(cleaned)) {
+    return null;
+  }
+
   if (cleaned.length > MAX_SUGGESTION_LENGTH) {
     cleaned = cleaned.slice(0, MAX_SUGGESTION_LENGTH - 1) + '\u2026';
   }
 
   return cleaned;
+}
+
+function extractExplicitSuggestion(raw: string): string | undefined {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return undefined;
+    }
+
+    const record = parsed as Record<string, unknown>;
+    if (hasStructuredAgentPayloadKeys(record)) {
+      return undefined;
+    }
+
+    for (const key of ['suggestion', 'nextAction', 'action']) {
+      const value = record[key];
+      if (typeof value === 'string' && value.trim()) {
+        return value;
+      }
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
+}
+
+function hasStructuredAgentPayloadKeys(record: Record<string, unknown>): boolean {
+  return ['thought', 'reflection', 'toolCalls', 'finalResponse', 'response'].some((key) =>
+    Object.prototype.hasOwnProperty.call(record, key)
+  );
+}
+
+function looksLikeJsonPayload(raw: string): boolean {
+  const trimmed = raw.trim();
+  return trimmed.startsWith('{') || trimmed.startsWith('[') || trimmed.includes('}{') || trimmed.includes('{"');
 }
