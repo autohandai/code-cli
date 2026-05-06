@@ -109,6 +109,15 @@ describe('SlashCommandDropdown utilities', () => {
   });
 
   describe('buildSlashSuggestions', () => {
+    const fuzzySlashCommands: SlashCommand[] = [
+      { command: '/clear', description: 'Clear screen', implemented: true },
+      { command: '/formatters', description: 'List formatters', implemented: true },
+      { command: '/pr-review', description: 'Review a pull request', implemented: true },
+      { command: '/repeat', description: 'Manage repeat jobs', implemented: true },
+      { command: '/resume', description: 'Resume a session', implemented: true },
+      { command: '/review', description: 'Review current changes', implemented: true },
+    ];
+
     it('orders bare slash suggestions the same way as /help', () => {
       const result = buildSlashSuggestions('', mockSlashCommands, 5);
       expect(result.map((item) => item.command)).toEqual([
@@ -117,6 +126,25 @@ describe('SlashCommandDropdown utilities', () => {
         '/model',
         '/quit',
         '/skills',
+      ]);
+    });
+
+    it('ranks command prefix matches before weak substring matches', () => {
+      const result = buildSlashSuggestions('r', fuzzySlashCommands, 5);
+      expect(result.map((item) => item.command)).toEqual([
+        '/repeat',
+        '/resume',
+        '/review',
+        '/pr-review',
+        '/formatters',
+      ]);
+    });
+
+    it('ranks compact fuzzy matches by proximity before help order', () => {
+      const result = buildSlashSuggestions('rv', fuzzySlashCommands, 3);
+      expect(result.map((item) => item.command)).toEqual([
+        '/review',
+        '/pr-review',
       ]);
     });
 
