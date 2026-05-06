@@ -50,6 +50,11 @@ describe('ReactLoopRunner composer status', () => {
         'First, let me check the git status and recent changes more thoroughly.',
       ),
     ).toBe(true);
+    expect(
+      isDeferredFinalResponse(
+        'I need to continue gathering information for the comprehensive code review. The glob for test files returned nothing, so let me search differently.',
+      ),
+    ).toBe(true);
   });
 
   it('allows real concise answers and summaries', () => {
@@ -87,7 +92,7 @@ describe('ReactLoopRunner composer status', () => {
         id: 'deferred',
         created: 1,
         content:
-          "I'll perform a comprehensive code review of the workspace. Let me start by gathering context about the project structure and recent changes.",
+          'I need to continue gathering information for the comprehensive code review. The glob for test files returned nothing, so let me search differently.',
         raw: {},
       })
       .mockResolvedValueOnce({
