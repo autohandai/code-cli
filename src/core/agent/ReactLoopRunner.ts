@@ -42,6 +42,7 @@ import {
   getToolCallLabel,
   truncateToolLoopSignature,
 } from './ToolLoopSignature.js';
+import { isAutohandDebugEnabled } from '../../utils/debugLog.js';
 
 class LoopAbortedError extends Error {
   constructor(message: string) {
@@ -144,7 +145,7 @@ export function isDeferredFinalResponse(response: string): boolean {
 export async function runAgentReactLoop(host: AgentReactLoopHost, abortController: AbortController): Promise<void> {
     host.consecutiveCancellations = 0;
 
-    const debugMode = host.runtime.config.agent?.debug === true || process.env.AUTOHAND_DEBUG === '1';
+    const debugMode = host.runtime.config.agent?.debug === true || isAutohandDebugEnabled();
     if (debugMode) host.writeDebugLine('[AGENT DEBUG] runReactLoop started');
 
     // Check if we're executing an accepted plan - bypass iteration limit
@@ -340,12 +341,12 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
 
       // Debug: show what the model returned (helps diagnose response issues)
       if (debugMode) {
-        console.log(chalk.yellow(`\n[DEBUG] Iteration ${iteration}:`));
-        console.log(chalk.yellow(`  - toolCalls: ${payload.toolCalls?.length ?? 0}`));
-        console.log(chalk.yellow(`  - thought: ${payload.thought?.slice(0, 100) || '(none)'}`));
-        console.log(chalk.yellow(`  - finalResponse: ${payload.finalResponse?.slice(0, 100) || '(none)'}`));
-        console.log(chalk.yellow(`  - raw content: ${completion.content?.slice(0, 200) || '(empty)'}`));
-        console.log(chalk.yellow(`  - finishReason: ${completion.finishReason ?? '(none)'}`));
+        host.writeDebugLine(`[DEBUG] Iteration ${iteration}:`);
+        host.writeDebugLine(`[DEBUG]   - toolCalls: ${payload.toolCalls?.length ?? 0}`);
+        host.writeDebugLine(`[DEBUG]   - thought: ${payload.thought?.slice(0, 100) || '(none)'}`);
+        host.writeDebugLine(`[DEBUG]   - finalResponse: ${payload.finalResponse?.slice(0, 100) || '(none)'}`);
+        host.writeDebugLine(`[DEBUG]   - raw content: ${completion.content?.slice(0, 200) || '(empty)'}`);
+        host.writeDebugLine(`[DEBUG]   - finishReason: ${completion.finishReason ?? '(none)'}`);
       }
 
       // Detect truncated responses - some models silently cut off at max_tokens

@@ -9,6 +9,9 @@ import {
   darkTheme,
   lightTheme,
   githubDarkTheme,
+  turkeyTheme,
+  brazilTheme,
+  australiaTheme,
   builtInThemes,
   getBuiltInTheme,
   isBuiltInTheme,
@@ -161,14 +164,28 @@ describe('builtInThemes', () => {
     expect(builtInThemes.light).toBe(lightTheme);
   });
 
-  it('has exactly 6 built-in themes', () => {
-    expect(Object.keys(builtInThemes)).toHaveLength(6);
+  it('contains country-inspired themes', () => {
+    expect(builtInThemes.turkey).toBe(turkeyTheme);
+    expect(builtInThemes.brazil).toBe(brazilTheme);
+    expect(builtInThemes.australia).toBe(australiaTheme);
+  });
+
+  it('has exactly 9 built-in themes', () => {
+    expect(Object.keys(builtInThemes)).toHaveLength(9);
   });
 
   it('all themes have unique names', () => {
     const names = Object.values(builtInThemes).map((t) => t.name);
     const uniqueNames = new Set(names);
     expect(uniqueNames.size).toBe(names.length);
+  });
+
+  it('all built-in themes define every semantic color token', () => {
+    for (const theme of Object.values(builtInThemes)) {
+      for (const token of COLOR_TOKENS) {
+        expect(theme.colors[token], `${theme.name}.${token}`).toBeDefined();
+      }
+    }
   });
 });
 

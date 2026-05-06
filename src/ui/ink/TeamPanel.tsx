@@ -6,6 +6,8 @@
 import React, { memo } from 'react';
 import { Box, Text } from 'ink';
 import type { Team, TeamTask } from '../../core/teams/types.js';
+import { useTheme } from '../theme/ThemeContext.js';
+import type { ColorToken } from '../theme/types.js';
 
 export interface TeamPanelProps {
   team: Team;
@@ -13,26 +15,30 @@ export interface TeamPanelProps {
 }
 
 const StatusIcon = memo(({ status }: { status: string }) => {
+  const { theme } = useTheme();
+  const icon = (token: ColorToken, value: string) => <Text>{theme.fg(token, value)}</Text>;
+
   switch (status) {
-    case 'completed': return <Text color="green">✓</Text>;
-    case 'in_progress': return <Text color="yellow">●</Text>;
-    case 'working': return <Text color="yellow">●</Text>;
-    case 'idle': return <Text color="green">○</Text>;
-    case 'shutdown': return <Text color="red">×</Text>;
-    case 'spawning': return <Text color="gray">…</Text>;
-    default: return <Text color="gray">○</Text>;
+    case 'completed': return icon('success', '✓');
+    case 'in_progress': return icon('warning', '●');
+    case 'working': return icon('warning', '●');
+    case 'idle': return icon('success', '○');
+    case 'shutdown': return icon('error', '×');
+    case 'spawning': return icon('muted', '…');
+    default: return icon('muted', '○');
   }
 });
 StatusIcon.displayName = 'StatusIcon';
 
 export const TeamPanel = memo(({ team, tasks }: TeamPanelProps) => {
+  const { theme } = useTheme();
   const done = tasks.filter((t) => t.status === 'completed').length;
 
   return (
     <Box flexDirection="column" borderStyle="single" paddingX={1}>
       <Box justifyContent="space-between">
         <Text bold>Team: {team.name}</Text>
-        <Text color="gray">{team.status === 'active' ? '🟢' : '⚪'}</Text>
+        <Text>{theme.fg(team.status === 'active' ? 'success' : 'muted', team.status === 'active' ? '🟢' : '⚪')}</Text>
       </Box>
 
       {/* Task list */}
@@ -42,10 +48,10 @@ export const TeamPanel = memo(({ team, tasks }: TeamPanelProps) => {
           <Box key={task.id} gap={1}>
             <StatusIcon status={task.status} />
             <Text>{task.subject}</Text>
-            {task.owner && <Text color="cyan"> → {task.owner}</Text>}
+            {task.owner && <Text>{theme.fg('accent', ` → ${task.owner}`)}</Text>}
           </Box>
         ))}
-        {tasks.length === 0 && <Text color="gray">  No tasks yet</Text>}
+        {tasks.length === 0 && <Text>{theme.fg('muted', '  No tasks yet')}</Text>}
       </Box>
 
       {/* Members list */}
@@ -55,10 +61,10 @@ export const TeamPanel = memo(({ team, tasks }: TeamPanelProps) => {
           <Box key={member.name} gap={1}>
             <StatusIcon status={member.status} />
             <Text>{member.name}</Text>
-            <Text color="gray">({member.agentName})</Text>
+            <Text>{theme.fg('muted', `(${member.agentName})`)}</Text>
           </Box>
         ))}
-        {team.members.length === 0 && <Text color="gray">  No teammates yet</Text>}
+        {team.members.length === 0 && <Text>{theme.fg('muted', '  No teammates yet')}</Text>}
       </Box>
     </Box>
   );

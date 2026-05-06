@@ -8,6 +8,7 @@ import { readInstruction } from '../../ui/inputPrompt.js';
 import { renderTerminalMarkdown } from '../immediateCommandRouter.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { SLASH_COMMANDS } from '../slashCommands.js';
+import { isAutohandDebugEnabled, writeAutohandDebugLine } from '../../utils/debugLog.js';
 
 export interface AgentPromptInstructionHost {
   [key: string]: any;
@@ -44,7 +45,7 @@ export async function promptForAgentInstruction(host: AgentPromptInstructionHost
     host.isStartupSuggestion = false;
     host.pendingSuggestion = null;
 
-    const debugSuggestion = process.env.AUTOHAND_DEBUG === '1';
+    const debugSuggestion = isAutohandDebugEnabled();
     if (debugSuggestion) {
       const state = pendingSuggestion ? 'pending' : 'none';
       host.writeDebugLine(`[SUGGESTION] Provider mode — pending=${state}, engine=${host.suggestionEngine ? 'exists' : 'null'}`);
@@ -129,9 +130,7 @@ export async function promptForAgentInstruction(host: AgentPromptInstructionHost
           // Convert markdown formatting (**bold**, _italic_) to ANSI terminal codes
           console.log(renderTerminalMarkdown(handled));
         }
-        if (process.env.AUTOHAND_DEBUG === '1') {
-          console.log(`[DEBUG] promptForInstruction: slash command handled, returning null`);
-        }
+        writeAutohandDebugLine('[DEBUG] promptForInstruction: slash command handled, returning null', host.writeDebugLine?.bind(host));
         return null;
       }
     }

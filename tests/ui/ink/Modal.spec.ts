@@ -6,6 +6,9 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ModalOption, ModalProps, ShowModalOptions } from '../../../src/ui/ink/components/Modal.js';
+import { initTheme } from '../../../src/ui/theme/index.js';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 // Mock process.stdout.isTTY for non-interactive tests
 const originalIsTTY = process.stdout.isTTY;
@@ -37,6 +40,22 @@ describe('modal cancel input detection', () => {
 });
 
 describe('Modal Types', () => {
+  it('emits selected theme ANSI for modal title and selected options', async () => {
+    initTheme('sandy');
+
+    const source = readFileSync(
+      path.resolve(process.cwd(), 'src/ui/ink/components/Modal.tsx'),
+      'utf8'
+    );
+    expect(source).toContain("theme.fg('accent', title)");
+    expect(source).toContain('theme.fg(color ?? \'text\'');
+    expect(source).toContain('<ThemeProvider>');
+    expect(source).not.toContain('color="cyan"');
+    expect(source).not.toContain("color = 'green'");
+
+    initTheme('dark');
+  });
+
   describe('ModalOption interface', () => {
     it('accepts minimal option with label and value', () => {
       const option: ModalOption = {

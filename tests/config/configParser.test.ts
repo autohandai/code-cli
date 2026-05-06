@@ -413,6 +413,38 @@ describe("configParser – error handling (Issue #3)", () => {
     expect(result.ui?.promptSuggestions).toBe(true);
   });
 
+  it("registers inline custom themes from config before theme initialization", async () => {
+    const configPath = await writeTempConfig(
+      testDir,
+      "config.json",
+      JSON.stringify({
+        provider: "openrouter",
+        openrouter: {
+          apiKey: "sk-test-key",
+          model: "your-modelcard-id-here",
+        },
+        ui: {
+          theme: "company",
+          customThemes: {
+            company: {
+              colors: {
+                accent: "#123456",
+              },
+            },
+          },
+        },
+      }),
+    );
+    const loadConfig = await importLoadConfig();
+    const { getTheme } = await import("../../src/ui/theme/index.js");
+
+    const result = await loadConfig(configPath);
+
+    expect(result.ui?.theme).toBe("company");
+    expect(getTheme().name).toBe("company");
+    expect(getTheme().colors.accent).toBe("#123456");
+  });
+
   it("saves TOML config back as TOML when loaded from config.toml", async () => {
     const configPath = await writeTempConfig(
       testDir,

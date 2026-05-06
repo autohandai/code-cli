@@ -172,7 +172,7 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   }, 120_000);
 
-  it('selects the fifth theme and renders the expected Sandy colors', async () => {
+  it('selects the Sandy theme and renders the expected Sandy colors', async () => {
     const session = await launchInteractive({
       env: {
         NO_COLOR: undefined,
@@ -186,7 +186,7 @@ describe('interactive built CLI Tuistory tests', () => {
     await session.type('/theme');
     await session.press('enter');
     await session.waitForText('Select a theme:', { timeout: 10_000 });
-    await session.press('5');
+    await session.press('7');
     await session.waitForText("Theme changed to 'sandy'", { timeout: 10_000 });
     await session.waitForText('Theme preview:', { timeout: 10_000 });
 
@@ -196,6 +196,8 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(output).toContain("Theme changed to 'sandy'");
     expect(output).toContain('● accent');
     expect(rawOutput).toContain('[38;2;196;92;62m');
+    expect(rawOutput).toContain('[48;2;74;58;42m');
+    expect(rawOutput).toContain('[38;2;245;240;232m');
 
     await exitInteractive(session);
   });

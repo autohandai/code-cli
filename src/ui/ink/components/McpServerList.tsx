@@ -10,6 +10,8 @@ import React, { useState, useCallback } from 'react';
 import { Box, Text, useInput, render } from 'ink';
 import { I18nProvider } from '../../i18n/index.js';
 import { inkRenderOptions } from '../../inkRenderOptions.js';
+import { ThemeProvider, useTheme } from '../../theme/ThemeContext.js';
+import type { ColorToken } from '../../theme/types.js';
 
 export interface McpServerItem {
   name: string;
@@ -25,6 +27,7 @@ interface McpServerListProps {
 }
 
 function McpServerList({ servers, onToggle, onDone }: McpServerListProps) {
+  const { theme } = useTheme();
   const [cursor, setCursor] = useState(0);
   const [toggling, setToggling] = useState<string | null>(null);
 
@@ -62,23 +65,23 @@ function McpServerList({ servers, onToggle, onDone }: McpServerListProps) {
   if (servers.length === 0) {
     return (
       <Box flexDirection="column" paddingX={1}>
-        <Text color="cyan" bold>MCP Servers</Text>
+        <Text bold>{theme.fg('accent', 'MCP Servers')}</Text>
         <Text> </Text>
-        <Text color="gray">No MCP servers configured.</Text>
+        <Text>{theme.fg('muted', 'No MCP servers configured.')}</Text>
         <Text> </Text>
-        <Text color="gray">Add a server:  /mcp add {'<name>'} {'<command>'} [args...]</Text>
-        <Text color="gray">Browse:        /mcp install</Text>
+        <Text>{theme.fg('muted', 'Add a server:  /mcp add <name> <command> [args...]')}</Text>
+        <Text>{theme.fg('muted', 'Browse:        /mcp install')}</Text>
         <Text> </Text>
-        <Text color="gray">Press ESC or q to close</Text>
+        <Text>{theme.fg('muted', 'Press ESC or q to close')}</Text>
       </Box>
     );
   }
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text color="cyan" bold>MCP Servers</Text>
+      <Text bold>{theme.fg('accent', 'MCP Servers')}</Text>
       <Box marginBottom={1}>
-        <Text color="gray">{'─'.repeat(56)}</Text>
+        <Text>{theme.fg('muted', '─'.repeat(56))}</Text>
       </Box>
 
       {servers.map((server, i) => {
@@ -92,12 +95,12 @@ function McpServerList({ servers, onToggle, onDone }: McpServerListProps) {
               ? '●'
               : '○';
 
-        const statusColor =
+        const statusToken: ColorToken =
           server.status === 'connected'
-            ? 'green'
+            ? 'success'
             : server.status === 'error'
-              ? 'red'
-              : 'gray';
+              ? 'error'
+              : 'muted';
 
         const statusLabel =
           server.status === 'connected'
@@ -114,17 +117,15 @@ function McpServerList({ servers, onToggle, onDone }: McpServerListProps) {
         return (
           <Box key={server.name} flexDirection="column">
             <Box>
-              <Text color={isSelected ? 'yellow' : undefined}>
-                {isSelected ? '\u25b8 ' : '  '}
-              </Text>
-              <Text color={statusColor}>{statusIcon} </Text>
+              <Text>{theme.fg(isSelected ? 'warning' : 'muted', isSelected ? '\u25b8 ' : '  ')}</Text>
+              <Text>{theme.fg(statusToken, `${statusIcon} `)}</Text>
               <Text bold={isSelected}>{server.name.padEnd(24)}</Text>
-              <Text color={statusColor}>{isToggling ? 'toggling...' : statusLabel}</Text>
-              <Text color="gray">{toolsInfo}</Text>
+              <Text>{theme.fg(statusToken, isToggling ? 'toggling...' : statusLabel)}</Text>
+              <Text>{theme.fg('muted', toolsInfo)}</Text>
             </Box>
             {isSelected && server.status === 'error' && server.error && (
               <Box marginLeft={4}>
-                <Text color="red" dimColor>  {server.error}</Text>
+                <Text>{theme.fg('error', `  ${server.error}`)}</Text>
               </Box>
             )}
           </Box>
@@ -133,8 +134,8 @@ function McpServerList({ servers, onToggle, onDone }: McpServerListProps) {
 
       <Text> </Text>
       <Box flexDirection="column">
-        <Text color="gray">{'↑↓'} navigate  {'⏎/space'} toggle  {'q/esc'} close</Text>
-        <Text color="gray">Connected servers provide tools to the agent</Text>
+        <Text>{theme.fg('muted', '↑↓ navigate  ⏎/space toggle  q/esc close')}</Text>
+        <Text>{theme.fg('muted', 'Connected servers provide tools to the agent')}</Text>
       </Box>
     </Box>
   );
@@ -165,36 +166,40 @@ export async function showMcpServerList(
     const renderList = () => {
       const element = (
         <I18nProvider>
-          <McpServerList
-            servers={currentServers}
-            onToggle={async (name, status) => {
-              currentServers = await options.onToggle(name, status);
-              // Re-render with updated state
-              instance.rerender(
-                <I18nProvider>
-                  <McpServerList
-                    servers={currentServers}
-                    onToggle={async (n, s) => {
-                      currentServers = await options.onToggle(n, s);
-                      renderList();
-                    }}
-                    onDone={() => {
-                      if (completed) return;
-                      completed = true;
-                      instance.unmount();
-                      resolve();
-                    }}
-                  />
-                </I18nProvider>
-              );
-            }}
-            onDone={() => {
-              if (completed) return;
-              completed = true;
-              instance.unmount();
-              resolve();
-            }}
-          />
+          <ThemeProvider>
+            <McpServerList
+              servers={currentServers}
+              onToggle={async (name, status) => {
+                currentServers = await options.onToggle(name, status);
+                // Re-render with updated state
+                instance.rerender(
+                  <I18nProvider>
+                    <ThemeProvider>
+                      <McpServerList
+                        servers={currentServers}
+                        onToggle={async (n, s) => {
+                          currentServers = await options.onToggle(n, s);
+                          renderList();
+                        }}
+                        onDone={() => {
+                          if (completed) return;
+                          completed = true;
+                          instance.unmount();
+                          resolve();
+                        }}
+                      />
+                    </ThemeProvider>
+                  </I18nProvider>
+                );
+              }}
+              onDone={() => {
+                if (completed) return;
+                completed = true;
+                instance.unmount();
+                resolve();
+              }}
+            />
+          </ThemeProvider>
         </I18nProvider>
       );
 

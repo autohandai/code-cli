@@ -84,6 +84,9 @@ export {
   darkTheme,
   lightTheme,
   githubDarkTheme,
+  turkeyTheme,
+  brazilTheme,
+  australiaTheme,
   builtInThemes,
   getBuiltInTheme,
   isBuiltInTheme,
@@ -104,6 +107,7 @@ export {
   resolveColorValue,
   listAvailableThemes,
   themeExists,
+  configureThemeSources,
   detectTerminalBackground,
   autoInitTheme,
 } from './loader.js';
