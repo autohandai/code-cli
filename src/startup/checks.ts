@@ -13,6 +13,11 @@ import fs from 'fs-extra';
 import { resolveRipgrepCommand } from '../utils/ripgrep.js';
 
 const GIT_COMMAND_TIMEOUT_MS = 5_000;
+let toolCheckResultsPromise: Promise<CheckResult[]> | undefined;
+
+function getCurrentBunVersion(): string | undefined {
+  return (process.versions as NodeJS.ProcessVersions & { bun?: string }).bun;
+}
 
 export interface ToolCheck {
   name: string;
@@ -105,6 +110,18 @@ function checkTool(tool: ToolCheck): Promise<CheckResult> {
   const platform = os.platform() as 'darwin' | 'linux' | 'win32';
   const installHint = tool.installHints[platform] || tool.installHints.linux;
   const command = tool.command === 'rg' ? resolveRipgrepCommand() : tool.command;
+  const currentBunVersion = tool.command === 'bun' ? getCurrentBunVersion() : undefined;
+
+  if (tool.command === 'bun') {
+    return Promise.resolve({
+      name: tool.name,
+      installed: currentBunVersion !== undefined,
+      version: currentBunVersion,
+      required: tool.required,
+      description: tool.description,
+      installHint: currentBunVersion === undefined ? installHint : undefined,
+    });
+  }
 
   return new Promise<CheckResult>((resolve) => {
     try {
@@ -172,6 +189,13 @@ function checkTool(tool: ToolCheck): Promise<CheckResult> {
       });
     }
   });
+}
+
+function checkStartupTools(): Promise<CheckResult[]> {
+  toolCheckResultsPromise ??= Promise.all(
+    [...REQUIRED_TOOLS, ...OPTIONAL_TOOLS].map(tool => checkTool(tool))
+  );
+  return toolCheckResultsPromise;
 }
 
 /**
@@ -296,6 +320,10 @@ async function checkGitRepo(workspaceRoot: string): Promise<{ isGitRepo: boolean
   const gitDirExists = fs.existsSync(`${workspaceRoot}/.git`);
 
   if (gitDirExists) {
+    if (!fs.existsSync(`${workspaceRoot}/.git/HEAD`)) {
+      return { isGitRepo: true };
+    }
+
     // It's a git repo - get the branch name
     const branch = await getGitBranch(workspaceRoot);
     return {
@@ -308,7 +336,7 @@ async function checkGitRepo(workspaceRoot: string): Promise<{ isGitRepo: boolean
   if (isEmptyDirectory(workspaceRoot)) {
     const initResult = await runGitCommand(['init'], workspaceRoot);
 
-    if (initResult !== undefined) {
+    if (initResult !== undefined || fs.existsSync(`${workspaceRoot}/.git/HEAD`)) {
       // On macOS, create .gitignore with .DS_Store
       if (os.platform() === 'darwin') {
         try {
@@ -376,9 +404,8 @@ export async function runStartupChecks(workspaceRoot: string): Promise<StartupCh
   const warnings: string[] = [];
 
   // Run ALL tool checks + workspace checks in parallel
-  const allTools = [...REQUIRED_TOOLS, ...OPTIONAL_TOOLS];
   const [toolResults, workspaceCheck, gitCheck] = await Promise.all([
-    Promise.all(allTools.map(tool => checkTool(tool))),
+    checkStartupTools(),
     checkWorkspaceWritable(workspaceRoot),
     checkGitRepo(workspaceRoot),
   ]);

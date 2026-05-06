@@ -59,6 +59,19 @@ describe('Git Auto-Init for Empty Directories', () => {
       expect(result.workspace.initialized).toBeFalsy();
     });
 
+    it('does not wait on git commands when a .git directory has no HEAD', async () => {
+      await fs.ensureDir(path.join(tempDir, '.git'));
+
+      const start = performance.now();
+      const result = await runStartupChecks(tempDir);
+      const elapsedMs = performance.now() - start;
+
+      expect(result.workspace.isGitRepo).toBe(true);
+      expect(result.workspace.initialized).toBeFalsy();
+      expect(result.workspace.branch).toBeUndefined();
+      expect(elapsedMs).toBeLessThan(1_000);
+    });
+
     it('does NOT auto-init if directory has files', async () => {
       // Add a regular file
       await fs.writeFile(path.join(tempDir, 'README.md'), '# Project');
