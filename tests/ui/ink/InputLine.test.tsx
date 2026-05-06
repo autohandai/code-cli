@@ -20,7 +20,7 @@ function stripAnsi(value: string): string {
 function renderInputLine(value: string) {
   return render(
     <ThemeProvider>
-      <InputLine value={value} cursorOffset={value.length} isActive />
+      <InputLine value={value} cursorOffset={value.length} isActive width={24} />
     </ThemeProvider>
   );
 }
@@ -81,6 +81,41 @@ describe('InputLine', () => {
     expect(output).toContain('└');
     expect(output).toContain('┘');
     expect(output).not.toContain('[K');
+  });
+
+  it('renders next-step suggestion as the empty composer placeholder', () => {
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <InputLine
+          value=""
+          cursorOffset={0}
+          isActive
+          width={48}
+          suggestionText="Run the test suite"
+        />
+      </ThemeProvider>
+    );
+    const output = stripAnsi(lastFrame());
+
+    expect(output).toContain('Run the test suite');
+  });
+
+  it('renders inline ghost suffix for shell command suggestions', () => {
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <InputLine
+          value="! git s"
+          cursorOffset={7}
+          isActive
+          width={48}
+          borderStyle="shell"
+          inlineGhostSuffix="tatus"
+        />
+      </ThemeProvider>
+    );
+    const output = stripAnsi(lastFrame());
+
+    expect(output).toContain('! git status');
   });
 });
 describe('InputLine themed variants', () => {

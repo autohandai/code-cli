@@ -226,7 +226,7 @@ export async function clearComposerInput(session: Session): Promise<void> {
   await session.press(['ctrl', 'c']);
   await session.text({
     timeout: 10_000,
-    waitFor: (text) => text.includes('Plan, search'),
+    waitFor: (text) => text.includes('❯') && !text.includes('Tab to accept'),
   });
 }
 

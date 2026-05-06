@@ -25,9 +25,21 @@ export interface InputLineProps {
   width: number;
   /** Border style - mirrors readline/terminal regions behavior */
   borderStyle?: InputBorderStyle;
+  /** Empty-input next-step suggestion shown as placeholder text. */
+  suggestionText?: string;
+  /** Inline completion suffix shown after the current input. */
+  inlineGhostSuffix?: string;
 }
 
-function InputLineComponent({ value, cursorOffset, isActive, width, borderStyle = 'default' }: InputLineProps) {
+function InputLineComponent({
+  value,
+  cursorOffset,
+  isActive,
+  width,
+  borderStyle = 'default',
+  suggestionText,
+  inlineGhostSuffix,
+}: InputLineProps) {
   const { theme } = useTheme();
 
   const borderToken = borderStyle === 'plan'
@@ -49,14 +61,17 @@ function InputLineComponent({ value, cursorOffset, isActive, width, borderStyle 
     const { lines, cursorRow, cursorColumn } = buildMultiLineRenderState(
       displayValue,
       displayCursorOffset,
-      width
+      width,
+      borderStyle,
+      suggestionText,
+      inlineGhostSuffix
     );
     return {
       plainLines: lines.map((line) => stripAnsiCodes(line)),
       cursorRow,
       cursorColumn,
     };
-  }, [value, cursorOffset, width]);
+  }, [value, cursorOffset, width, borderStyle, suggestionText, inlineGhostSuffix]);
 
   // Keep space stable when queue input is inactive.
   if (!isActive) {
@@ -89,6 +104,8 @@ export const InputLine = memo(InputLineComponent, (prev, next) => {
     prev.cursorOffset === next.cursorOffset &&
     prev.isActive === next.isActive &&
     prev.width === next.width &&
-    prev.borderStyle === next.borderStyle
+    prev.borderStyle === next.borderStyle &&
+    prev.suggestionText === next.suggestionText &&
+    prev.inlineGhostSuffix === next.inlineGhostSuffix
   );
 });

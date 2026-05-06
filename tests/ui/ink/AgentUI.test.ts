@@ -213,6 +213,56 @@ describe('AgentUI terminal resize rendering', () => {
   });
 });
 
+describe('AgentUI composer suggestions', () => {
+  it('renders next-step suggestion in the empty Ink composer', () => {
+    const state = createInitialUIState();
+    const { lastFrame } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+            suggestionProvider: () => 'Run the test suite',
+          })
+        )
+      )
+    );
+
+    expect(stripAnsi(lastFrame() ?? '')).toContain('Run the test suite');
+  });
+
+  it('renders inline shell suggestion in the Ink composer', () => {
+    const state = {
+      ...createInitialUIState(),
+      currentInput: '! git s',
+    };
+    const { lastFrame } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+          })
+        )
+      )
+    );
+
+    expect(stripAnsi(lastFrame() ?? '')).toContain('! git status');
+  });
+});
+
 describe('AgentUI processing chat scrollback', () => {
   it('does not replay chat messages already committed by a previous Ink mount', () => {
     const state = {

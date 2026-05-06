@@ -28,7 +28,13 @@ import { getPlanModeManager } from '../../commands/plan.js';
 import type { InputBorderStyle } from '../box.js';
 import { TextBuffer } from '../textBuffer.js';
 import { handleTextBufferKey, type KeyHandlerResult } from '../textBufferKeyHandler.js';
-import { getPromptBlockWidth, isShiftEnterResidualSequence, processImagesInText } from '../inputPrompt.js';
+import {
+  getInlineGhostCompletionSuffix,
+  getPrimaryHotTipSuggestion,
+  getPromptBlockWidth,
+  isShiftEnterResidualSequence,
+  processImagesInText,
+} from '../inputPrompt.js';
 import { renderTerminalMarkdown } from '../../core/immediateCommandRouter.js';
 import { buildFileMentionSuggestions } from '../mentionFilter.js';
 import { getContentDisplay } from '../displayUtils.js';
@@ -63,6 +69,8 @@ export interface AgentUIState {
   model?: string;
   /** Optional extension points for the fixed status/help lines. */
   lineExtensions?: AgentUILineExtensions;
+  /** Monotonic refresh signal used when lazy suggestion providers resolve. */
+  suggestionRefreshId?: number;
 }
 
 export interface AgentUILineExtensions {
@@ -86,6 +94,12 @@ export interface AgentUIProps {
   slashCommands?: SlashCommand[];
   /** Provider for skills used in $ mention autocomplete */
   skillsProvider?: () => SkillMentionInfo[];
+  /** Base path used for shell path completion. Defaults to process.cwd(). */
+  workspaceRoot?: string;
+  /** Lazy provider for the current next-step suggestion shown as ghost text. */
+  suggestionProvider?: () => string | undefined;
+  /** Optional async LLM resolver for ! command suggestions. */
+  resolveShellSuggestion?: (input: string) => Promise<string | null>;
   /** Optional extension points for the fixed status/help lines. */
   lineExtensions?: AgentUILineExtensions;
 }
@@ -372,6 +386,9 @@ export function AgentUI({
   filesProvider,
   slashCommands,
   skillsProvider,
+  workspaceRoot,
+  suggestionProvider,
+  resolveShellSuggestion,
   lineExtensions,
 }: AgentUIProps) {
   const { colors } = useTheme();
@@ -400,6 +417,7 @@ export function AgentUI({
   const [skillSuggestions, setSkillSuggestions] = useState<SkillSuggestion[]>([]);
   const [skillActiveIndex, setSkillActiveIndex] = useState(0);
   const [skillVisible, setSkillVisible] = useState(false);
+  const [llmInlineShellSuggestion, setLlmInlineShellSuggestion] = useState<string | null>(null);
   const skillStartIndexRef = useRef<number | null>(null);
   const textBufferRef = useRef<TextBuffer>(
     new TextBuffer(
@@ -466,12 +484,21 @@ export function AgentUI({
   showShortcutsRef.current = showShortcuts;
   const skillsProviderRef = useRef(skillsProvider);
   skillsProviderRef.current = skillsProvider;
+  const workspaceRootRef = useRef(workspaceRoot);
+  workspaceRootRef.current = workspaceRoot;
+  const suggestionProviderRef = useRef(suggestionProvider);
+  suggestionProviderRef.current = suggestionProvider;
+  const resolveShellSuggestionRef = useRef(resolveShellSuggestion);
+  resolveShellSuggestionRef.current = resolveShellSuggestion;
+  const llmInlineShellSuggestionRef = useRef(llmInlineShellSuggestion);
+  llmInlineShellSuggestionRef.current = llmInlineShellSuggestion;
   const skillVisibleRef = useRef(skillVisible);
   skillVisibleRef.current = skillVisible;
   const skillSuggestionsRef = useRef(skillSuggestions);
   skillSuggestionsRef.current = skillSuggestions;
   const skillActiveIndexRef = useRef(skillActiveIndex);
   skillActiveIndexRef.current = skillActiveIndex;
+  const shellSuggestionRequestIdRef = useRef(0);
 
   // Throttled sync from buffer to React state to batch rapid keystrokes
   // and reduce re-render frequency during fast typing (16ms = ~60fps).
@@ -781,6 +808,33 @@ export function AgentUI({
     setSkillActiveIndex(prev => Math.min(prev, suggestions.length - 1));
   }, [input, cursorOffset]);
 
+  useEffect(() => {
+    const resolver = resolveShellSuggestionRef.current;
+    const trimmedInput = input.trim();
+    if (!resolver || !trimmedInput.startsWith('!') || !trimmedInput.slice(1).trim()) {
+      if (llmInlineShellSuggestionRef.current !== null) {
+        setLlmInlineShellSuggestion(null);
+      }
+      return;
+    }
+
+    const requestId = ++shellSuggestionRequestIdRef.current;
+    const timeout = setTimeout(() => {
+      resolver(input)
+        .then((suggestion) => {
+          if (requestId !== shellSuggestionRequestIdRef.current || inputRef.current !== input) {
+            return;
+          }
+          setLlmInlineShellSuggestion(suggestion ?? null);
+        })
+        .catch(() => {
+          // Best effort only; deterministic shell completions remain available.
+        });
+    }, 120);
+
+    return () => clearTimeout(timeout);
+  }, [input]);
+
   // Stable input handler that reads mutable values from refs.
   // Empty dependency array means useInput never re-registers, eliminating
   // a major source of flicker during rapid keystrokes.
@@ -987,6 +1041,74 @@ export function AgentUI({
           return;
         }
       }
+
+      const buffer = textBufferRef.current;
+      const currentText = buffer.getText();
+      const trimmedText = currentText.trim();
+
+      if (trimmedText.length === 0) {
+        const suggestion = suggestionProviderRef.current?.();
+        if (suggestion?.trim()) {
+          buffer.setText(suggestion);
+          syncInputFromBuffer();
+        }
+        return;
+      }
+
+      if (trimmedText.startsWith('!')) {
+        const llmSuggestion = llmInlineShellSuggestionRef.current;
+        if (
+          llmSuggestion &&
+          llmSuggestion.startsWith(currentText) &&
+          llmSuggestion !== currentText
+        ) {
+          buffer.setText(llmSuggestion);
+          syncInputFromBuffer();
+          return;
+        }
+
+        const immediateFallback = getPrimaryHotTipSuggestion(
+          currentText,
+          filesProviderRef.current?.() ?? [],
+          slashCommandsRef.current ?? [],
+          undefined,
+          workspaceRootRef.current,
+          skillsProviderRef.current,
+        );
+
+        let expectedInputAtResponse = currentText;
+        if (immediateFallback) {
+          buffer.setText(immediateFallback.line);
+          expectedInputAtResponse = immediateFallback.line;
+          syncInputFromBuffer();
+        }
+
+        const resolver = resolveShellSuggestionRef.current;
+        if (!resolver) {
+          return;
+        }
+
+        const requestId = ++shellSuggestionRequestIdRef.current;
+        resolver(currentText)
+          .then((llmResolvedSuggestion) => {
+            if (requestId !== shellSuggestionRequestIdRef.current) {
+              return;
+            }
+            const latestBuffer = textBufferRef.current;
+            if (latestBuffer.getText() !== expectedInputAtResponse) {
+              return;
+            }
+            if (llmResolvedSuggestion) {
+              latestBuffer.setText(llmResolvedSuggestion);
+              syncInputFromBuffer();
+            }
+          })
+          .catch(() => {
+            // Ignore LLM errors: immediate local fallback already applied above.
+          });
+        return;
+      }
+
       return;
     }
 
@@ -1208,6 +1330,34 @@ export function AgentUI({
   // and was actually causing a layout lag during drag-resize.
   const windowSize = useWindowSize();
   const inputWidth = getPromptBlockWidth(windowSize.columns);
+  const composerSuggestionText = useMemo(() => {
+    if (input.trim().length > 0) {
+      return undefined;
+    }
+    const suggestion = suggestionProvider?.();
+    return suggestion?.trim() ? suggestion : undefined;
+  }, [input, suggestionProvider, state.suggestionRefreshId]);
+  const composerInlineGhostSuffix = useMemo(() => {
+    if (!input || input.includes('\n')) {
+      return undefined;
+    }
+    return getInlineGhostCompletionSuffix(
+      input,
+      filesProvider?.() ?? [],
+      slashCommands ?? [],
+      workspaceRoot,
+      llmInlineShellSuggestion,
+      skillsProvider,
+    ) ?? undefined;
+  }, [
+    input,
+    filesProvider,
+    slashCommands,
+    workspaceRoot,
+    llmInlineShellSuggestion,
+    skillsProvider,
+    state.suggestionRefreshId,
+  ]);
   const chatHistoryItems = useMemo<ChatHistoryItem[]>(() => {
     const sourceMessages = state.chatMessages.length > 0
       ? state.chatMessages
@@ -1327,6 +1477,8 @@ export function AgentUI({
         }
         inputWidth={inputWidth}
         borderStyle={inputBorderStyle}
+        suggestionText={composerSuggestionText}
+        inlineGhostSuffix={composerInlineGhostSuffix}
         showShortcuts={showShortcuts}
       />
     </Box>
@@ -1557,6 +1709,8 @@ interface InputLineWrapperProps {
   inputWidth: number;
   /** Border style for the input box */
   borderStyle?: InputBorderStyle;
+  suggestionText?: string;
+  inlineGhostSuffix?: string;
 }
 
 const InputLineWrapper = memo(function InputLineWrapper({
@@ -1566,6 +1720,8 @@ const InputLineWrapper = memo(function InputLineWrapper({
   cursorOffset,
   inputWidth,
   borderStyle,
+  suggestionText,
+  inlineGhostSuffix,
 }: InputLineWrapperProps) {
   if (!enableQueueInput) {
     return null;
@@ -1578,6 +1734,8 @@ const InputLineWrapper = memo(function InputLineWrapper({
       isActive={true}
       width={inputWidth}
       borderStyle={borderStyle}
+      suggestionText={suggestionText}
+      inlineGhostSuffix={inlineGhostSuffix}
     />
   );
 }, (prev, next) => {
@@ -1586,7 +1744,9 @@ const InputLineWrapper = memo(function InputLineWrapper({
          prev.input === next.input &&
          prev.cursorOffset === next.cursorOffset &&
          prev.inputWidth === next.inputWidth &&
-         prev.borderStyle === next.borderStyle;
+         prev.borderStyle === next.borderStyle &&
+         prev.suggestionText === next.suggestionText &&
+         prev.inlineGhostSuffix === next.inlineGhostSuffix;
 });
 
 /**
@@ -1733,6 +1893,8 @@ interface FixedBottomProps {
   inputWidth: number;
   /** Border style for the input box */
   borderStyle?: InputBorderStyle;
+  suggestionText?: string;
+  inlineGhostSuffix?: string;
   /** Whether the shortcuts help panel is visible */
   showShortcuts: boolean;
 }
@@ -1757,6 +1919,8 @@ const FixedBottom = memo(function FixedBottom({
   skillMentionDropdown,
   inputWidth,
   borderStyle,
+  suggestionText,
+  inlineGhostSuffix,
   showShortcuts,
 }: FixedBottomProps) {
   return (
@@ -1780,6 +1944,8 @@ const FixedBottom = memo(function FixedBottom({
         cursorOffset={cursorOffset}
         inputWidth={inputWidth}
         borderStyle={borderStyle}
+        suggestionText={suggestionText}
+        inlineGhostSuffix={inlineGhostSuffix}
       />
       <FileMentionWrapper fileMentionDropdown={fileMentionDropdown} />
       <SlashCommandWrapper slashCommandDropdown={slashCommandDropdown} />
