@@ -244,7 +244,7 @@ export const CONTEXT_POLICIES: Record<ClientContext, ToolPolicy> = {
       'browser_read_console', 'browser_read_network', 'browser_get_tabs',
       'browser_get_tab_groups', 'browser_execute_js',
       // Basic file ops — restricted scope
-      'read_file', 'write_file', 'find', 'search', 'list_tree',
+      'read_file', 'write_file', 'fff_grep', 'fff_find', 'search', 'list_tree',
       // Web
       'web_search', 'fetch_url',
       // Communication

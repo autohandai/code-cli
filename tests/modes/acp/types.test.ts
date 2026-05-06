@@ -52,9 +52,10 @@ describe("TOOL_KIND_MAP", () => {
   });
 
   it('contains expected search tools with ToolKind "search"', () => {
+    expect(TOOL_KIND_MAP["fff_grep"]).toBe("search");
+    expect(TOOL_KIND_MAP["fff_find"]).toBe("search");
     expect(TOOL_KIND_MAP["find"]).toBe("search");
-    // Legacy search tools (search, search_with_context, semantic_search) have been
-    // consolidated into the unified 'find' tool with mode parameter
+    // find remains classified for compatibility, but fff_* tools are the exposed defaults.
   });
 
   it('contains expected edit tools with ToolKind "edit"', () => {
@@ -203,8 +204,10 @@ describe("DEFAULT_ACP_MODES", () => {
 describe("resolveToolKind()", () => {
   it("returns correct kind for known tools", () => {
     expect(resolveToolKind("read_file")).toBe("read");
+    expect(resolveToolKind("fff_grep")).toBe("search");
+    expect(resolveToolKind("fff_find")).toBe("search");
     expect(resolveToolKind("find")).toBe("search");
-    // Legacy 'search' tool removed - use 'find' with mode: 'exact' instead
+    // Legacy search tools remain classified for old transcripts.
     expect(resolveToolKind("write_file")).toBe("edit");
     expect(resolveToolKind("rename_path")).toBe("move");
     expect(resolveToolKind("delete_path")).toBe("delete");

@@ -18,7 +18,7 @@ vi.mock('fs-extra', () => ({
         '---',
         'name: code-reviewer',
         'description: test skill',
-        'allowed-tools: read_file find',
+        'allowed-tools: read_file fff_grep fff_find',
         '---',
         '',
         'You are a Staff-level Software Engineer performing a code review.',

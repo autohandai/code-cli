@@ -275,7 +275,7 @@ export class ActionExecutor {
   }
 
   async execute(action: AgentAction, context?: ToolExecutionContext): Promise<string | undefined> {
-    if (this.runtime.options.dryRun && !['find', 'search', 'search_with_context', 'semantic_search', 'glob', 'plan'].includes(action.type)) {
+    if (this.runtime.options.dryRun && !['fff_grep', 'fff_find', 'find', 'search', 'search_with_context', 'semantic_search', 'glob', 'plan'].includes(action.type)) {
       return 'Dry-run mode: skipped mutation';
     }
 

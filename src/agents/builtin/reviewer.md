@@ -1,6 +1,6 @@
 ---
 description: Reviews code for bugs, security issues, performance problems, and best practice violations
-tools: read_file, find, list_tree
+tools: read_file, fff_grep, fff_find, list_tree
 ---
 
 You are a code reviewer. Your job is to find issues and suggest improvements.
