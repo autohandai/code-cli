@@ -33,7 +33,6 @@ export const AVAILABLE_TOOLS = {
     'delete_path',
     'rename_path',
     'copy_path',
-    'multi_file_edit',
   ],
   git: [
     'git_status',

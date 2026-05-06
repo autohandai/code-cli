@@ -507,7 +507,7 @@ Quando você aprova uma operação de arquivo (editar, escrever, excluir), ela �
   "version": 1,
   "permissions": {
     "whitelist": [
-      "multi_file_edit:src/components/Button.tsx",
+      "apply_patch:src/components/Button.tsx",
       "write_file:package.json",
       "run_command:bun test"
     ]
@@ -524,7 +524,7 @@ Quando você aprova uma operação de arquivo (editar, escrever, excluir), ela �
 
 **Formato do padrão:**
 
-- `nome_ferramenta:caminho` - Para operações de arquivo (ex: `multi_file_edit:src/file.ts`)
+- `nome_ferramenta:caminho` - Para operações de arquivo (ex: `apply_patch:src/file.ts`)
 - `nome_ferramenta:comando args` - Para comandos (ex: `run_command:npm test`)
 
 ### Visualizando Permissões

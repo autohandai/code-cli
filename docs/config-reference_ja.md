@@ -506,7 +506,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
   "version": 1,
   "permissions": {
     "whitelist": [
-      "multi_file_edit:src/components/Button.tsx",
+      "apply_patch:src/components/Button.tsx",
       "write_file:package.json",
       "run_command:bun test"
     ]
@@ -523,7 +523,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 
 **パターン形式：**
 
-- `tool_name:path` - ファイル操作用（例：`multi_file_edit:src/file.ts`）
+- `tool_name:path` - ファイル操作用（例：`apply_patch:src/file.ts`）
 - `tool_name:command args` - コマンド用（例：`run_command:npm test`）
 
 ### 権限の表示
