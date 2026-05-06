@@ -155,11 +155,119 @@ interface PromptSuggestion {
 }
 
 const HOT_TIP_LIMIT = 5;
+const SLASH_MATCH_EXACT = 0;
+const SLASH_MATCH_PREFIX = 1;
+const SLASH_MATCH_WORD_PREFIX = 2;
+const SLASH_MATCH_SUBSTRING = 3;
+const SLASH_MATCH_FUZZY = 4;
+
+interface SlashCommandMatch {
+  command: SlashCommand;
+  rank: number;
+  firstIndex: number;
+  spread: number;
+  helpOrder: number;
+}
 
 export function getHelpOrderedSlashCommands(slashCommands: SlashCommand[]): SlashCommand[] {
   return slashCommands
     .filter((cmd) => cmd.implemented && cmd.command !== '/?')
     .sort((a, b) => a.command.localeCompare(b.command));
+}
+
+export function getRankedSlashCommandMatches(
+  seed: string,
+  slashCommands: SlashCommand[]
+): SlashCommand[] {
+  const normalizedSeed = seed.toLowerCase().trim();
+  const orderedCommands = getHelpOrderedSlashCommands(slashCommands);
+
+  if (!normalizedSeed) {
+    return orderedCommands;
+  }
+
+  return orderedCommands
+    .map((command, helpOrder): SlashCommandMatch | null => {
+      const commandName = command.command.slice(1).toLowerCase();
+      const match = rankSlashCommand(commandName, normalizedSeed);
+      return match ? { command, helpOrder, ...match } : null;
+    })
+    .filter((match): match is SlashCommandMatch => match !== null)
+    .sort((a, b) =>
+      a.rank - b.rank ||
+      a.firstIndex - b.firstIndex ||
+      a.spread - b.spread ||
+      a.helpOrder - b.helpOrder
+    )
+    .map((match) => match.command);
+}
+
+function rankSlashCommand(
+  commandName: string,
+  seed: string
+): Pick<SlashCommandMatch, 'rank' | 'firstIndex' | 'spread'> | null {
+  if (commandName === seed) {
+    return { rank: SLASH_MATCH_EXACT, firstIndex: 0, spread: seed.length };
+  }
+
+  if (commandName.startsWith(seed)) {
+    return { rank: SLASH_MATCH_PREFIX, firstIndex: 0, spread: seed.length };
+  }
+
+  const wordPrefixIndex = findSlashCommandWordPrefix(commandName, seed);
+  if (wordPrefixIndex !== -1) {
+    return { rank: SLASH_MATCH_WORD_PREFIX, firstIndex: wordPrefixIndex, spread: seed.length };
+  }
+
+  const substringIndex = commandName.indexOf(seed);
+  if (substringIndex !== -1) {
+    return { rank: SLASH_MATCH_SUBSTRING, firstIndex: substringIndex, spread: seed.length };
+  }
+
+  const fuzzyMatch = findSlashCommandFuzzyMatch(commandName, seed);
+  if (fuzzyMatch) {
+    return { rank: SLASH_MATCH_FUZZY, ...fuzzyMatch };
+  }
+
+  return null;
+}
+
+function findSlashCommandWordPrefix(commandName: string, seed: string): number {
+  for (let index = 1; index < commandName.length; index++) {
+    const previous = commandName[index - 1];
+    if ((previous === '-' || previous === '_' || previous === '?') && commandName.startsWith(seed, index)) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function findSlashCommandFuzzyMatch(
+  commandName: string,
+  seed: string
+): { firstIndex: number; spread: number } | null {
+  let searchFrom = 0;
+  let firstIndex = -1;
+  let lastIndex = -1;
+
+  for (const char of seed) {
+    const index = commandName.indexOf(char, searchFrom);
+    if (index === -1) {
+      return null;
+    }
+
+    if (firstIndex === -1) {
+      firstIndex = index;
+    }
+    lastIndex = index;
+    searchFrom = index + 1;
+  }
+
+  return {
+    firstIndex,
+    spread: lastIndex - firstIndex + 1,
+  };
 }
 
 // Lazy-loaded skill cache for $ mention suggestions
@@ -255,8 +363,7 @@ export function buildPromptHotTips(
     }
 
     const seed = trimmed.slice(1).toLowerCase();
-    const matches = getHelpOrderedSlashCommands(slashCommands)
-      .filter((cmd) => cmd.command.slice(1).toLowerCase().includes(seed))
+    const matches = getRankedSlashCommandMatches(seed, slashCommands)
       .slice(0, HOT_TIP_LIMIT)
       .map((cmd) => ({
         label: `Tab -> ${cmd.command}${cmd.description ? ` (${cmd.description})` : ''}`
@@ -356,9 +463,7 @@ export function getPrimaryHotTipSuggestion(
     }
 
     const seed = trimmed.slice(1).toLowerCase();
-    const match = getHelpOrderedSlashCommands(slashCommands).find((cmd) =>
-      cmd.command.slice(1).toLowerCase().includes(seed)
-    );
+    const match = getRankedSlashCommandMatches(seed, slashCommands)[0];
     if (!match) {
       return null;
     }
@@ -502,8 +607,7 @@ export function buildSlashSuggestionLines(
 
   // Top-level command matching
   const seed = input.slice(1).toLowerCase();
-  const matches = getHelpOrderedSlashCommands(slashCommands)
-    .filter((cmd) => cmd.command.slice(1).toLowerCase().includes(seed))
+  const matches = getRankedSlashCommandMatches(seed, slashCommands)
     .slice(0, HOT_TIP_LIMIT);
 
   if (matches.length === 0) {
