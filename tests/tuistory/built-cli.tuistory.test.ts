@@ -6,6 +6,8 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
+import fs from 'fs-extra';
+import path from 'node:path';
 import packageJson from '../../package.json' with { type: 'json' };
 import { SLASH_COMMANDS } from '../../src/core/slashCommands.js';
 import {
@@ -110,6 +112,27 @@ describe('interactive built CLI Tuistory tests', () => {
 
     expect(screen).toContain('Autohand');
     expect(screen).toContain('model:');
+
+    await exitInteractive(session);
+  });
+
+  it('auto-initializes git for an empty workspace before rendering the composer', async () => {
+    const state = await createTempAutohandHome({
+      initializeGit: false,
+      writePackageJson: false,
+    });
+    tempStates.push(state);
+    const session = await trackSession(
+      launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        waitForDataTimeout: 15_000,
+      })
+    );
+
+    await waitForComposer(session);
+
+    expect(await fs.pathExists(path.join(state.workspaceRoot, '.git'))).toBe(true);
 
     await exitInteractive(session);
   });
