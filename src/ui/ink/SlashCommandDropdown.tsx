@@ -6,7 +6,7 @@
 import React, { memo, useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
-import { getPromptBlockWidth } from '../inputPrompt.js';
+import { getHelpOrderedSlashCommands, getPromptBlockWidth } from '../inputPrompt.js';
 import type { SlashCommand } from '../../core/slashCommandTypes.js';
 
 export interface SlashCommandSuggestion {
@@ -109,7 +109,7 @@ export function buildSlashSuggestions(
   limit = MAX_SUGGESTIONS
 ): SlashCommandSuggestion[] {
   const lowerSeed = seed.toLowerCase();
-  const matches = slashCommands
+  const matches = getHelpOrderedSlashCommands(slashCommands)
     .filter((cmd) => cmd.command.slice(1).toLowerCase().includes(lowerSeed))
     .slice(0, limit);
 
