@@ -32,6 +32,17 @@ describe('Paste State Handling', () => {
       expect(result.actual).toBe(content);
     });
 
+    it('should return visual indicator for very long single-line pastes', () => {
+      const content = 'a'.repeat(1500);
+      const result = getContentDisplay(content);
+
+      expect(result.isPasted).toBe(true);
+      expect(result.visual).toBe(expectedPasteToken(content));
+      expect(result.actual).toBe(content);
+      expect(result.lineCount).toBe(1);
+      expect(result.charCount).toBe(Array.from(content).length);
+    });
+
     it('should handle empty content', () => {
       const result = getContentDisplay('');
       

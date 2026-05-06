@@ -60,9 +60,14 @@ export interface ContentDisplay {
   charCount: number;
 }
 
+const PASTE_LINE_THRESHOLD = 5;
+const PASTE_CHAR_THRESHOLD = 1500;
+
 /**
- * Determine how to display content based on line count.
- * Shows compact indicator for pastes with 5+ lines.
+ * Determine how to display content based on size.
+ * Shows compact indicator for large pastes that are either:
+ * - multi-line with at least `PASTE_LINE_THRESHOLD` lines
+ * - or very long single-line content with `PASTE_CHAR_THRESHOLD` or more chars
  */
 export function getContentDisplay(text: string): ContentDisplay {
   const charCount = Array.from(text).length;
@@ -80,7 +85,7 @@ export function getContentDisplay(text: string): ContentDisplay {
   const lines = text.split('\n');
   const lineCount = lines.length;
 
-  if (lineCount >= 5) {
+  if (lineCount >= PASTE_LINE_THRESHOLD || charCount >= PASTE_CHAR_THRESHOLD) {
     return {
       visual: `[Text pasted ${charCount} chars]`,
       actual: text,
