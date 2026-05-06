@@ -51,7 +51,7 @@ export async function review(ctx: ReviewCommandContext, args: string[] = []): Pr
   parts.push(
     '',
     '## Instructions',
-    'Start the review now. Use the available tools (read_file, find, list_tree, git_status, git_diff) to gather context, then deliver your 10-dimension review.',
+    'Start the review now. Use the available tools (read_file, fff_grep, fff_find, list_tree, git_status, git_diff) to gather context, then deliver your 10-dimension review.',
   );
 
   const prompt = parts.join('\n');

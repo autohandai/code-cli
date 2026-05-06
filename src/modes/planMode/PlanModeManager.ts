@@ -16,7 +16,8 @@ import type { Plan, PlanModeState, PlanPhase, PlanAcceptOption, PlanAcceptConfig
 const READ_ONLY_TOOLS = [
   // File reading
   'read_file',
-  'find',
+  'fff_grep',
+  'fff_find',
   'search',
   'search_with_context',
   'semantic_search',

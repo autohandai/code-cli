@@ -1843,10 +1843,10 @@ describe('agent startup and active input UI', () => {
   it('buildToolLoopCallSignature is stable for key and call ordering', () => {
     const first = buildToolLoopCallSignature([
       { id: '1', tool: 'git_log', args: { max_count: 1, oneline: true } },
-      { id: '2', tool: 'find', args: { query: 'TODO', path: 'src', mode: 'exact' } },
+      { id: '2', tool: 'fff_grep', args: { query: 'TODO', path: 'src' } },
     ]);
     const second = buildToolLoopCallSignature([
-      { id: '2', tool: 'find', args: { path: 'src', query: 'TODO', mode: 'exact' } },
+      { id: '2', tool: 'fff_grep', args: { path: 'src', query: 'TODO' } },
       { id: '1', tool: 'git_log', args: { oneline: true, max_count: 1 } },
     ]);
     expect(first).toBe(second);
@@ -1862,8 +1862,8 @@ describe('agent startup and active input UI', () => {
     };
     agent.toolManager = {
       listDefinitions: vi.fn(() => [{
-        name: 'find',
-        description: 'Find code, symbols, and matching context in the workspace',
+        name: 'fff_grep',
+        description: 'Search code, symbols, and matching context in the workspace',
         parameters: {
           type: 'object',
           properties: {
@@ -1887,8 +1887,8 @@ describe('agent startup and active input UI', () => {
 
     const prompt = await (agent as any).buildSystemPrompt();
 
-    expect(prompt).toContain('Prefer `fff_find`');
-    expect(prompt).toContain('Prefer `fff_grep`');
+    expect(prompt).toContain('Use `fff_find` for file path discovery.');
+    expect(prompt).toContain('Use `fff_grep` for content/code discovery.');
     expect(prompt).toContain('Use `fff_find` first when you need file discovery by filename, extension, or path pattern.');
     expect(prompt).toContain('Use `fff_grep` as the default code discovery tool for content, symbols, imports, and regex lookup.');
     expect(prompt).toContain('Use `read_file` after search identifies the exact file or region you need.');
@@ -1896,8 +1896,8 @@ describe('agent startup and active input UI', () => {
     expect(prompt).toContain('The legacy tools `search`, `search_with_context`, and `semantic_search` are compatibility aliases');
     expect(prompt).toContain('File discovery: `fff_find(query="**/*.test.ts")`');
     expect(prompt).toContain('Content search: `fff_grep(query="UserController")`');
-    expect(prompt).toContain('Legacy glob: `glob(pattern="**/*.test.ts")`');
-    expect(prompt).toContain('Legacy find: `find(query="buildSystemPrompt", mode="exact")`');
+    expect(prompt).not.toContain('Legacy glob:');
+    expect(prompt).not.toContain('Legacy find:');
     expect(prompt).toContain('Prefer dedicated tools over `run_command` whenever a dedicated tool exists.');
     expect(prompt).toContain('If the user mentions a directory or path outside the current workspace scope, proactively call `request_directory_access` to request access');
     expect(prompt).toContain('Do not use `run_command` as a workaround for directory access');

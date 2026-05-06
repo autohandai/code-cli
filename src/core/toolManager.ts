@@ -198,41 +198,8 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
-    name: 'find',
-    description: '[DEPRECATED] Use fff_grep instead. Find code, functions, variables, symbols in the workspace. mode=exact uses ripgrep, mode=context returns surrounding lines, mode=semantic does fuzzy retrieval. Legacy tool - will be removed in v0.9.0.',
-    parameters: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'Text, regex, symbol name, or concept to find' },
-        path: { type: 'string', description: 'Optional relative path to search in' },
-        mode: { type: 'string', description: 'Search strategy: auto, exact, context, or semantic', enum: ['auto', 'exact', 'context', 'semantic'] },
-        context: { type: 'number', description: 'Number of surrounding lines to include when you want nearby code context' },
-        limit: { type: 'number', description: 'Maximum number of results to return' },
-        window: { type: 'number', description: 'Snippet window size for semantic mode (default 400)' }
-      },
-      required: ['query']
-    }
-  },
-  {
-    name: 'glob',
-    description: '[DEPRECATED] Use fff_find instead. Fast file pattern matching powered by ripgrep. Returns file paths matching glob patterns. Legacy tool - will be removed in v0.9.0.',
-    parameters: {
-      type: 'object',
-      properties: {
-        pattern: { type: 'string', description: 'Glob pattern to match (e.g., "**/*.ts", "src/**/*.test.ts", "*.json")' },
-        patterns: {
-          type: 'array',
-          description: 'Multiple glob patterns to match simultaneously',
-          items: { type: 'string' }
-        },
-        path: { type: 'string', description: 'Directory to search in. Defaults to workspace root.' },
-        limit: { type: 'number', description: 'Maximum number of results to return (default: 100)' },
-      },
-    },
-  },
-  {
     name: 'fff_grep',
-    description: 'Content search with frecency ranking and definition detection. Auto-detects regex, falls back to fuzzy on zero matches, returns git annotations. Prefer this over find for content search.',
+    description: 'Content search with frecency ranking and definition detection when native FFF is available, plus a ripgrep-backed fallback. Use this for content search.',
     parameters: {
       type: 'object',
       properties: {
@@ -250,7 +217,7 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'fff_find',
-    description: 'Path and filename search with frecency ranking. Matches full repo-relative paths. Git-aware annotations. Prefer this over glob for finding specific files.',
+    description: 'Path and filename search with frecency ranking when native FFF is available, plus a ripgrep-backed fallback. Use this for file path discovery.',
     parameters: {
       type: 'object',
       properties: {
@@ -321,7 +288,7 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'run_command',
-    description: 'Execute a shell command in the user\'s shell with full pipe, redirect, and environment variable support. Cross-platform (bash/zsh on macOS/Linux, cmd/PowerShell on Windows). Prefer dedicated tools for file operations (read_file, write_file, find). For most commands, prefer the `shell` tool instead - it shows real-time output. Use this only for quick commands where you don\'t need progress monitoring.',
+    description: 'Execute a shell command in the user\'s shell with full pipe, redirect, and environment variable support. Cross-platform (bash/zsh on macOS/Linux, cmd/PowerShell on Windows). Prefer dedicated tools for file operations (read_file, write_file, fff_grep, fff_find). For most commands, prefer the `shell` tool instead - it shows real-time output. Use this only for quick commands where you don\'t need progress monitoring.',
     parameters: {
       type: 'object',
       properties: {

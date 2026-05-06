@@ -15,8 +15,8 @@ describe('SystemPromptBuilder', () => {
         config: {},
       },
       getToolDefinitions: () => [{
-        name: 'find',
-        description: 'Find code, symbols, and matching context in the workspace',
+        name: 'fff_grep',
+        description: 'Search code, symbols, and matching context in the workspace',
         parameters: {
           type: 'object',
           properties: {
@@ -34,13 +34,13 @@ describe('SystemPromptBuilder', () => {
 
     const prompt = await builder.build();
 
-    expect(prompt).toContain('Prefer `fff_find`');
-    expect(prompt).toContain('Prefer `fff_grep`');
+    expect(prompt).toContain('Use `fff_find` for file path discovery.');
+    expect(prompt).toContain('Use `fff_grep` for content/code discovery.');
     expect(prompt).toContain('Use `read_file` after search identifies the exact file or region you need.');
-    expect(prompt).toContain('Legacy find: `find(query="buildSystemPrompt", mode="exact")`');
+    expect(prompt).not.toContain('Legacy find:');
     expect(prompt).toContain('### Tool Capability Catalog');
-    expect(prompt).toContain('find');
-    expect(prompt).not.toContain('find(query: string)');
+    expect(prompt).toContain('fff_grep');
+    expect(prompt).not.toContain('fff_grep(query: string)');
     expect(prompt).not.toContain('Text or pattern to find');
     expect(prompt).toContain('Exact tool schemas are selected per request');
     expect(prompt).toContain('Reflect Before Acting');

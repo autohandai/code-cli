@@ -51,6 +51,15 @@ describe('ToolManager', () => {
     expect(names.has('plan')).toBe(false);
   });
 
+  it('exposes fff search tools instead of deprecated find and glob by default', () => {
+    const names = new Set(DEFAULT_TOOL_DEFINITIONS.map((tool) => tool.name));
+
+    expect(names.has('fff_grep')).toBe(true);
+    expect(names.has('fff_find')).toBe(true);
+    expect(names.has('find')).toBe(false);
+    expect(names.has('glob')).toBe(false);
+  });
+
   it('exports PLAN_TOOL_DEFINITION as standalone constant', () => {
     expect(PLAN_TOOL_DEFINITION).toBeDefined();
     expect(PLAN_TOOL_DEFINITION.name).toBe('plan');

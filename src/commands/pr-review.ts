@@ -30,7 +30,7 @@ function buildPrompt(workspaceRoot: string, prSelector: string, additionalFocus:
     '2. If no PR selector is provided, run `gh pr list` and choose the most relevant open pull request before continuing.',
     `3. Run \`${ghViewCommand}\` to gather PR metadata, changed files, title, base branch, and status.`,
     `4. Run \`${ghDiffCommand}\` to inspect the actual patch before reviewing.`,
-    '5. Use repository tools such as `read_file`, `find`, `git_diff`, and `git_status` to inspect the touched code paths in detail.',
+    '5. Use repository tools such as `read_file`, `fff_grep`, `fff_find`, `git_diff`, and `git_status` to inspect the touched code paths in detail.',
     '',
     '## Review Output',
     'Deliver findings first, ordered by severity, with concrete file references when possible.',
