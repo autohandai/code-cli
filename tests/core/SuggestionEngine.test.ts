@@ -148,6 +148,17 @@ describe('SuggestionEngine', () => {
     expect(answerEngine.getSuggestion()).toBeNull();
   });
 
+  it('should reject assistant planning sentences instead of showing them as composer suggestions', async () => {
+    const planProvider = createMockProvider(
+      'First, let me check the git status and recent changes more thoroughly.'
+    );
+    const planEngine = new SuggestionEngine(planProvider);
+
+    await planEngine.generate([{ role: 'user', content: '/review' }]);
+
+    expect(planEngine.getSuggestion()).toBeNull();
+  });
+
   it('should accept an explicit suggestion field from a JSON response', async () => {
     const jsonProvider = createMockProvider('{"suggestion":"Run the focused Composer test"}');
     const jsonEngine = new SuggestionEngine(jsonProvider);

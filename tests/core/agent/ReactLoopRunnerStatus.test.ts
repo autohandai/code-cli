@@ -40,6 +40,16 @@ describe('ReactLoopRunner composer status', () => {
         'I now have a comprehensive understanding of the repository. Let me provide a clear, informative summary about this repo to the user.',
       ),
     ).toBe(true);
+    expect(
+      isDeferredFinalResponse(
+        "I'll perform a comprehensive code review of the workspace. Let me start by gathering context about the project structure and recent changes.",
+      ),
+    ).toBe(true);
+    expect(
+      isDeferredFinalResponse(
+        'First, let me check the git status and recent changes more thoroughly.',
+      ),
+    ).toBe(true);
   });
 
   it('allows real concise answers and summaries', () => {
@@ -77,7 +87,7 @@ describe('ReactLoopRunner composer status', () => {
         id: 'deferred',
         created: 1,
         content:
-          'I now have a comprehensive understanding of the repository. Let me provide a clear, informative summary about this repo to the user.',
+          "I'll perform a comprehensive code review of the workspace. Let me start by gathering context about the project structure and recent changes.",
         raw: {},
       })
       .mockResolvedValueOnce({
