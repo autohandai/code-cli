@@ -389,6 +389,21 @@ describe('prompt hot tips', () => {
     expect(tips[0]?.label).toContain('Tab -> /help');
   });
 
+  it('prioritizes slash command prefixes before substring matches', async () => {
+    const { buildPromptHotTips } = await import('../../src/ui/inputPrompt.js');
+    const tips = buildPromptHotTips('/r', files, [
+      { command: '/clear', description: 'clear screen', implemented: true },
+      { command: '/repeat', description: 'manage repeat jobs', implemented: true },
+      { command: '/review', description: 'review changes', implemented: true },
+    ]);
+
+    expect(tips.map((tip: { label: string }) => tip.label)).toEqual([
+      'Tab -> /repeat (manage repeat jobs)',
+      'Tab -> /review (review changes)',
+      'Tab -> /clear (clear screen)',
+    ]);
+  });
+
   it('returns shell suggestions for shell mode', async () => {
     const { buildPromptHotTips } = await import('../../src/ui/inputPrompt.js');
     const tips = buildPromptHotTips('! bun', files, slashCommands);
