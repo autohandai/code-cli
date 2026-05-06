@@ -464,7 +464,7 @@ Ketika Anda menyetujui operasi file (edit, tulis, hapus), secara otomatis disimp
   "version": 1,
   "permissions": {
     "whitelist": [
-      "multi_file_edit:src/components/Button.tsx",
+      "apply_patch:src/components/Button.tsx",
       "write_file:package.json",
       "run_command:bun test"
     ]
@@ -481,7 +481,7 @@ Ketika Anda menyetujui operasi file (edit, tulis, hapus), secara otomatis disimp
 
 **Format pola:**
 
-- `nama_tool:path` - Untuk operasi file (mis. `multi_file_edit:src/file.ts`)
+- `nama_tool:path` - Untuk operasi file (mis. `apply_patch:src/file.ts`)
 - `nama_tool:perintah args` - Untuk perintah (mis. `run_command:npm test`)
 
 ### Melihat Izin

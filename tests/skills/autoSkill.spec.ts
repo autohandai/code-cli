@@ -25,6 +25,8 @@ describe('AVAILABLE_TOOLS', () => {
   it('exports categorized tool lists', () => {
     expect(AVAILABLE_TOOLS.file).toContain('read_file');
     expect(AVAILABLE_TOOLS.file).toContain('write_file');
+    expect(AVAILABLE_TOOLS.file).toContain('apply_patch');
+    expect(AVAILABLE_TOOLS.file).not.toContain('multi_file_edit');
     expect(AVAILABLE_TOOLS.git).toContain('git_status');
     expect(AVAILABLE_TOOLS.git).toContain('git_commit');
     expect(AVAILABLE_TOOLS.command).toContain('run_command');

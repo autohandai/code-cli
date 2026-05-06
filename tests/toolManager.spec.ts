@@ -60,6 +60,13 @@ describe('ToolManager', () => {
     expect(names.has('glob')).toBe(false);
   });
 
+  it('does not expose legacy multi_file_edit by default', () => {
+    const names = new Set(DEFAULT_TOOL_DEFINITIONS.map((tool) => tool.name));
+
+    expect(names.has('apply_patch')).toBe(true);
+    expect(names.has('multi_file_edit')).toBe(false);
+  });
+
   it('exports PLAN_TOOL_DEFINITION as standalone constant', () => {
     expect(PLAN_TOOL_DEFINITION).toBeDefined();
     expect(PLAN_TOOL_DEFINITION.name).toBe('plan');

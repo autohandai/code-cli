@@ -493,7 +493,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
   "version": 1,
   "permissions": {
     "whitelist": [
-      "multi_file_edit:src/components/Button.tsx",
+      "apply_patch:src/components/Button.tsx",
       "write_file:package.json",
       "run_command:bun test"
     ]
@@ -510,7 +510,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 
 **पैटर्न फॉर्मेट:**
 
-- `tool_name:path` - फाइल ऑपरेशन के लिए (जैसे `multi_file_edit:src/file.ts`)
+- `tool_name:path` - फाइल ऑपरेशन के लिए (जैसे `apply_patch:src/file.ts`)
 - `tool_name:command args` - कमांड के लिए (जैसे `run_command:npm test`)
 
 ### अनुमतियां देखना

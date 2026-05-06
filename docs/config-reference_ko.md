@@ -493,7 +493,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
   "version": 1,
   "permissions": {
     "whitelist": [
-      "multi_file_edit:src/components/Button.tsx",
+      "apply_patch:src/components/Button.tsx",
       "write_file:package.json",
       "run_command:bun test"
     ]
@@ -510,7 +510,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 
 **패턴 형식:**
 
-- `도구_이름:경로` - 파일 작업용 (예: `multi_file_edit:src/file.ts`)
+- `도구_이름:경로` - 파일 작업용 (예: `apply_patch:src/file.ts`)
 - `도구_이름:명령 인수` - 명령어용 (예: `run_command:npm test`)
 
 ---

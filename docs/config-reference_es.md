@@ -492,7 +492,7 @@ Cuando apruebas una operación de archivo (editar, escribir, eliminar), se guard
   "version": 1,
   "permissions": {
     "whitelist": [
-      "multi_file_edit:src/components/Button.tsx",
+      "apply_patch:src/components/Button.tsx",
       "write_file:package.json",
       "run_command:bun test"
     ]
@@ -509,7 +509,7 @@ Cuando apruebas una operación de archivo (editar, escribir, eliminar), se guard
 
 **Formato de patrón:**
 
-- `nombre_herramienta:ruta` - Para operaciones de archivo (ej. `multi_file_edit:src/file.ts`)
+- `nombre_herramienta:ruta` - Para operaciones de archivo (ej. `apply_patch:src/file.ts`)
 - `nombre_herramienta:comando args` - Para comandos (ej. `run_command:npm test`)
 
 ### Visualizando Permisos
