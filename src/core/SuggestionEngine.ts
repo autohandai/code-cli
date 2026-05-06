@@ -33,6 +33,7 @@ const MAX_HISTORY_MESSAGES = 6; // 3 user+assistant pairs → 7 messages total s
 /** Max characters per message to keep the suggestion prompt small and fast. */
 const MAX_MESSAGE_CONTENT_LENGTH = 500;
 const STRUCTURED_AGENT_PAYLOAD_KEY_RE = /"?(thought|reflection|toolCalls|finalResponse|response)"?\s*:/i;
+const ASSISTANT_ANSWER_PREFIX_RE = /^(?:i\b|i['\u2019](?:m|ll|ve|d)\b|i\s+(?:am|can|cannot|can't|do|don't|did|found|fixed|have|haven't|need|was|will|won't|would)\b|here(?:'s|\s+is|\s+are)\b|sorry\b|sure\b|unfortunately\b|could\s+you\b)/i;
 /**
  * Internal timeout for the background LLM call. Set higher than the user-facing
  * deadline in promptForInstruction (3s) so the request can finish in the background
@@ -219,6 +220,10 @@ function sanitizeSuggestion(raw: string): string | null {
     return null;
   }
 
+  if (looksLikeAssistantAnswer(cleaned)) {
+    return null;
+  }
+
   if (cleaned.length > MAX_SUGGESTION_LENGTH) {
     cleaned = cleaned.slice(0, MAX_SUGGESTION_LENGTH - 1) + '\u2026';
   }
@@ -260,4 +265,13 @@ function hasStructuredAgentPayloadKeys(record: Record<string, unknown>): boolean
 function looksLikeJsonPayload(raw: string): boolean {
   const trimmed = raw.trim();
   return trimmed.startsWith('{') || trimmed.startsWith('[') || trimmed.includes('}{') || trimmed.includes('{"');
+}
+
+function looksLikeAssistantAnswer(raw: string): boolean {
+  const words = raw.trim().split(/\s+/).filter(Boolean);
+  if (words.length < 8) {
+    return false;
+  }
+
+  return ASSISTANT_ANSWER_PREFIX_RE.test(raw);
 }

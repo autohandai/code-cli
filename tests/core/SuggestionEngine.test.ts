@@ -137,6 +137,17 @@ describe('SuggestionEngine', () => {
     expect(thoughtEngine.getSuggestion()).toBeNull();
   });
 
+  it('should reject verbose assistant answers instead of truncating them into composer suggestions', async () => {
+    const answerProvider = createMockProvider(
+      "I don't have the ability to view or analyze images directly. Could you please describe what's in the image?"
+    );
+    const answerEngine = new SuggestionEngine(answerProvider);
+
+    await answerEngine.generate([{ role: 'user', content: '[Image #1] what do you see?' }]);
+
+    expect(answerEngine.getSuggestion()).toBeNull();
+  });
+
   it('should accept an explicit suggestion field from a JSON response', async () => {
     const jsonProvider = createMockProvider('{"suggestion":"Run the focused Composer test"}');
     const jsonEngine = new SuggestionEngine(jsonProvider);
