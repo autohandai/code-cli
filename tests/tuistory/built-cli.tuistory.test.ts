@@ -10,6 +10,7 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import packageJson from '../../package.json' with { type: 'json' };
 import { SLASH_COMMANDS } from '../../src/core/slashCommands.js';
+import { getHelpOrderedSlashCommands } from '../../src/ui/inputPrompt.js';
 import {
   clearComposerInput,
   createMockOllamaServer,
@@ -147,12 +148,13 @@ describe('interactive built CLI Tuistory tests', () => {
     await session.type('/');
     await session.text({
       timeout: 10_000,
-      waitFor: (text) => text.includes('/model') || text.includes('/settings'),
+      waitFor: (text) => text.includes('Tab to accept') && text.includes('/about'),
     });
     const screen = await session.text({ trimEnd: true });
 
-    expect(screen).toContain('/help');
-    expect(screen).toMatch(/\/model|\/settings/);
+    expect(screen).toContain('/about');
+    expect(screen).toContain('/add-dir');
+    expect(screen).toContain('Tab to accept');
 
     await exitInteractive(session);
   });
@@ -174,9 +176,9 @@ describe('interactive built CLI Tuistory tests', () => {
 
   it('opens every registered slash command suggestion and dismisses the menu with Escape', async () => {
     const session = await launchInteractive();
-    const slashCommands = Array.from(
-      new Set(SLASH_COMMANDS.map((command) => command.command))
-    ).sort();
+    const slashCommands = getHelpOrderedSlashCommands(SLASH_COMMANDS).map(
+      (command) => command.command
+    );
 
     await waitForComposer(session);
 
