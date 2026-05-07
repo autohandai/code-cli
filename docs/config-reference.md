@@ -113,16 +113,18 @@ OpenRouter provider configuration.
   "openrouter": {
     "apiKey": "sk-or-v1-xxx",
     "baseUrl": "https://openrouter.ai/api/v1",
-    "model": "your-modelcard-id-here"
+    "model": "your-modelcard-id-here",
+    "contextWindow": 262144
   }
 }
 ```
 
-| Field     | Type   | Required | Default                        | Description                                       |
-| --------- | ------ | -------- | ------------------------------ | ------------------------------------------------- |
-| `apiKey`  | string | Yes      | -                              | Your OpenRouter API key                           |
-| `baseUrl` | string | No       | `https://openrouter.ai/api/v1` | API endpoint                                      |
-| `model`   | string | Yes      | -                              | Model identifier (e.g., `your-modelcard-id-here`) |
+| Field           | Type   | Required | Default                        | Description                                                                 |
+| --------------- | ------ | -------- | ------------------------------ | --------------------------------------------------------------------------- |
+| `apiKey`        | string | Yes      | -                              | Your OpenRouter API key                                                     |
+| `baseUrl`       | string | No       | `https://openrouter.ai/api/v1` | API endpoint                                                                |
+| `model`         | string | Yes      | -                              | Model identifier (e.g., `your-modelcard-id-here`)                           |
+| `contextWindow` | number | No       | Auto                           | Exact model context window. Autohand fills this from OpenRouter when known. |
 
 ### `ollama`
 
@@ -186,6 +188,7 @@ OpenAI can also use your ChatGPT subscription via Autohand's built-in OpenAI sig
   "openai": {
     "authMode": "chatgpt",
     "baseUrl": "https://api.openai.com/v1",
+    "contextWindow": 1050000,
     "model": "gpt-5.4",
     "chatgptAuth": {
       "accessToken": "...",
@@ -196,13 +199,14 @@ OpenAI can also use your ChatGPT subscription via Autohand's built-in OpenAI sig
 }
 ```
 
-| Field         | Type   | Required               | Default                     | Description                                     |
-| ------------- | ------ | ---------------------- | --------------------------- | ----------------------------------------------- |
-| `authMode`    | string | No                     | `api-key`                   | Authentication mode: `api-key` or `chatgpt`     |
-| `apiKey`      | string | Yes for `api-key` mode | -                           | OpenAI API key                                  |
-| `baseUrl`     | string | No                     | `https://api.openai.com/v1` | API endpoint                                    |
-| `model`       | string | Yes                    | -                           | Model name (e.g., `gpt-5.4`, `gpt-5.4-mini`)    |
-| `chatgptAuth` | object | Yes for `chatgpt` mode | -                           | Stored ChatGPT/Codex auth tokens and account id |
+| Field           | Type   | Required               | Default                     | Description                                                               |
+| --------------- | ------ | ---------------------- | --------------------------- | ------------------------------------------------------------------------- |
+| `authMode`      | string | No                     | `api-key`                   | Authentication mode: `api-key` or `chatgpt`                               |
+| `apiKey`        | string | Yes for `api-key` mode | -                           | OpenAI API key                                                            |
+| `baseUrl`       | string | No                     | `https://api.openai.com/v1` | API endpoint                                                              |
+| `model`         | string | Yes                    | -                           | Model name (e.g., `gpt-5.4`, `gpt-5.4-mini`)                              |
+| `contextWindow` | number | No                     | Auto                        | Exact model context window. Set this to override stale local assumptions. |
+| `chatgptAuth`   | object | Yes for `chatgpt` mode | -                           | Stored ChatGPT/Codex auth tokens and account id                           |
 
 ### `mlx`
 

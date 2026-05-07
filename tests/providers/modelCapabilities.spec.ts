@@ -6,6 +6,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   fetchOpenRouterModelCapabilities,
+  getOpenRouterCapabilityContextWindow,
+  getOpenRouterModelContextWindow,
   modelSupportsImages,
   getVisionModelIds,
   clearModelCapabilitiesCache,
@@ -159,6 +161,42 @@ describe("modelCapabilities", () => {
       } finally {
         (globalThis as any).fetch = originalFetch;
       }
+    });
+  });
+
+  describe("getOpenRouterModelContextWindow", () => {
+    it("reads context length from top provider metadata first", async () => {
+      const mockModels = {
+        data: [
+          {
+            id: "custom/model",
+            name: "Custom Model",
+            context_length: 128000,
+            top_provider: { context_length: 262144 },
+          },
+        ],
+      };
+
+      const originalFetch = globalThis.fetch;
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockModels),
+      });
+      (globalThis as any).fetch = fetchMock;
+
+      try {
+        await expect(getOpenRouterModelContextWindow("custom/model")).resolves.toBe(262144);
+      } finally {
+        (globalThis as any).fetch = originalFetch;
+      }
+    });
+
+    it("falls back to top-level context length", () => {
+      expect(getOpenRouterCapabilityContextWindow({
+        id: "custom/model",
+        name: "Custom Model",
+        context_length: 1048576,
+      })).toBe(1048576);
     });
   });
 

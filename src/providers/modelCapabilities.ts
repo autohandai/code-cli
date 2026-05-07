@@ -116,6 +116,22 @@ function getInputModalities(
   return [];
 }
 
+export function getOpenRouterCapabilityContextWindow(
+  capability?: OpenRouterModelCapability,
+): number | undefined {
+  const contextWindow = capability?.top_provider?.context_length ?? capability?.context_length;
+  return typeof contextWindow === 'number' && Number.isFinite(contextWindow) && contextWindow > 0
+    ? Math.floor(contextWindow)
+    : undefined;
+}
+
+export async function getOpenRouterModelContextWindow(
+  model: string,
+): Promise<number | undefined> {
+  const capability = await findCapabilityForModel(model);
+  return getOpenRouterCapabilityContextWindow(capability);
+}
+
 async function findCapabilityForModel(
   model: string,
 ): Promise<OpenRouterModelCapability | undefined> {

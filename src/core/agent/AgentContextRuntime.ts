@@ -198,7 +198,9 @@ export function updateAgentContextUsage(
     const usage = calculateContextUsage(
       messages,
       tools,
-      model
+      model,
+      undefined,
+      host.contextWindow
     );
     host.contextPercentLeft = Math.round((1 - usage.usagePercent) * 100);
   } else {
