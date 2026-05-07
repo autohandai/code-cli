@@ -65,6 +65,16 @@ describe('context/tokenizer', () => {
       expect(getContextWindow('unknown/model')).toBe(128_000);
     });
 
+    it('prefers configured provider context windows over inferred fallbacks', () => {
+      expect(getContextWindow('unknown/provider-model', 262_144)).toBe(262_144);
+      expect(getContextWindow('openai/gpt-5.5', 512_000)).toBe(512_000);
+    });
+
+    it('uses configured provider context windows when calculating usage', () => {
+      const usage = calculateContextUsage([], [], 'unknown/provider-model', undefined, 262_144);
+      expect(usage.contextWindow).toBe(262_144);
+    });
+
     it('respects AUTOHAND_CONTEXT_WINDOW env var override', () => {
       const orig = process.env[CONTEXT_ENV_VARS.CONTEXT_WINDOW];
       process.env[CONTEXT_ENV_VARS.CONTEXT_WINDOW] = '50000';
@@ -504,6 +514,14 @@ describe('context/orchestrator', () => {
       const usage = orchestrator.getUsage(mockTools);
       expect(usage.totalTokens).toBeGreaterThan(0);
       expect(usage.contextWindow).toBe(128_000);
+    });
+
+    it('uses configured context windows for usage and extended usage', () => {
+      orchestrator.setContextWindow(262_144);
+      conversationManager.addMessage({ role: 'user', content: 'Hello' });
+
+      expect(orchestrator.getUsage(mockTools).contextWindow).toBe(262_144);
+      expect(orchestrator.getExtendedUsage(mockTools).contextWindow).toBe(262_144);
     });
   });
 

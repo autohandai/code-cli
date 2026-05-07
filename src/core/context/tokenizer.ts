@@ -17,40 +17,16 @@ const MODEL_CONTEXT: Record<string, number> = {
   "anthropic/claude-3-haiku": 200_000,
   "anthropic/claude-opus-4": 200_000,
   "anthropic/claude-opus-4-7": 1_000_000,
-  "openai/gpt-5.5": 1_050_000,
-  "openai/gpt-5.5-pro": 1_050_000,
-  "openai/gpt-5.5-2026-04-23": 1_050_000,
-  "openai/gpt-5.5-pro-2026-04-23": 1_050_000,
-  "openai/gpt-5.4": 1_050_000,
-  "openai/gpt-5.4-pro": 1_050_000,
-  "openai/gpt-5.4-2026-03-05": 1_050_000,
-  "openai/gpt-5.4-mini": 400_000,
-  "openai/gpt-5.4-mini-2026-03-17": 400_000,
-  "openai/gpt-5.4-nano": 400_000,
-  "openai/gpt-5.4-nano-2026-03-17": 400_000,
-  "openai/gpt-5.3-codex": 400_000,
-  "openai/gpt-5.3-chat-latest": 128_000,
-  "openai/gpt-5": 400_000,
-  "openai/gpt-5-mini": 400_000,
-  "openai/gpt-5-nano": 400_000,
   "openai/gpt-4o-mini": 128_000,
   "openai/gpt-4o": 128_000,
   "openai/gpt-4.1": 200_000,
   "openai/o1": 200_000,
   "openai/o1-mini": 128_000,
-  "google/gemini-3.1-pro-preview": 1_000_000,
-  "google/gemini-3.1-flash-lite-preview": 1_000_000,
-  "google/gemini-3-flash-preview": 1_000_000,
-  "google/gemini-3.1-flash-image-preview": 128_000,
-  "google/gemini-3-pro-image-preview": 65_000,
   "tencent/hy3-preview:free": 262_144,
   "tencent/hy3-preview-20260421:free": 262_144,
-  "deepseek/deepseek-v4-pro": 1_000_000,
-  "deepseek/deepseek-v4-flash": 1_000_000,
   "deepseek/deepseek-r1": 64_000,
   "deepseek/deepseek-r1-0528-qwen3-8b:free": 8_000,
   "deepseek/deepseek-coder": 16_000,
-  "deepseek/deepseek-v4": 1_000_000,
 };
 
 /** Safety margin to prevent hitting exact limits (10% reserved) */
@@ -62,21 +38,67 @@ export const CONTEXT_WARNING_THRESHOLD = 0.8;
 /** Critical threshold for auto-cropping */
 export const CONTEXT_CRITICAL_THRESHOLD = 0.9;
 
+function parseContextWindowOverride(value?: number): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  return Math.floor(value);
+}
+
+function normalizeModelId(model: string): string {
+  return model.trim().toLowerCase().replace(/^openai\//, '').replace(/^google\//, '').replace(/^deepseek\//, '');
+}
+
+function inferContextWindow(model: string): number | undefined {
+  const normalized = normalizeModelId(model);
+
+  if (normalized.startsWith('gpt-5.5')) return 1_050_000;
+  if (normalized.startsWith('gpt-5.4') && !normalized.includes('mini') && !normalized.includes('nano')) return 1_050_000;
+  if (
+    normalized.startsWith('gpt-5.4-mini') ||
+    normalized.startsWith('gpt-5.4-nano') ||
+    normalized.startsWith('gpt-5.3-codex') ||
+    normalized === 'gpt-5' ||
+    normalized.startsWith('gpt-5-mini') ||
+    normalized.startsWith('gpt-5-nano')
+  ) {
+    return 400_000;
+  }
+  if (normalized.startsWith('gpt-5.3-chat')) return 128_000;
+
+  if (normalized.startsWith('gemini-3.1-flash-image')) return 128_000;
+  if (normalized.startsWith('gemini-3-pro-image')) return 65_000;
+  if (normalized.startsWith('gemini-3.1-pro') || normalized.startsWith('gemini-3.1-flash-lite') || normalized.startsWith('gemini-3-flash')) {
+    return 1_000_000;
+  }
+
+  if (normalized.startsWith('deepseek-v4')) return 1_000_000;
+
+  return undefined;
+}
+
 /**
  * Get context window size for a model.
  * Respects AUTOHAND_CONTEXT_WINDOW env var override.
  */
-export function getContextWindow(model: string): number {
+export function getContextWindow(model: string, configuredContextWindow?: number): number {
   const envOverride = process.env[CONTEXT_ENV_VARS.CONTEXT_WINDOW];
   if (envOverride) {
     const parsed = parseInt(envOverride, 10);
     if (!isNaN(parsed) && parsed > 0) return parsed;
   }
 
+  const configured = parseContextWindowOverride(configuredContextWindow);
+  if (configured) return configured;
+
   const normalized = model.toLowerCase();
   if (MODEL_CONTEXT[normalized]) {
     return MODEL_CONTEXT[normalized];
   }
+
+  const inferred = inferContextWindow(model);
+  if (inferred) return inferred;
+
   // Fuzzy match for model variants
   const fuzzy = Object.entries(MODEL_CONTEXT).find(
     ([name]) =>
@@ -89,8 +111,8 @@ export function getContextWindow(model: string): number {
 /**
  * Get safe context window (with safety margin)
  */
-export function getSafeContextWindow(model: string): number {
-  return Math.floor(getContextWindow(model) * SAFETY_MARGIN);
+export function getSafeContextWindow(model: string, configuredContextWindow?: number): number {
+  return Math.floor(getContextWindow(model, configuredContextWindow) * SAFETY_MARGIN);
 }
 
 /**
@@ -218,6 +240,7 @@ export function calculateContextUsage(
   tools: FunctionDefinition[],
   model: string,
   outputBudget = 16000,
+  configuredContextWindow?: number,
 ): ContextUsage {
   const envReserve = process.env[CONTEXT_ENV_VARS.RESERVE_TOKENS];
   if (envReserve) {
@@ -230,7 +253,7 @@ export function calculateContextUsage(
   const toolsTokens = estimateToolsTokens(tools, modelFamily);
   const totalTokens = messagesTokens + toolsTokens;
 
-  const contextWindow = getContextWindow(model);
+  const contextWindow = getContextWindow(model, configuredContextWindow);
   const cappedOutputBudget = Math.min(outputBudget, Math.floor(contextWindow * 0.25));
   const effectiveWindow = contextWindow - cappedOutputBudget;
   const safeWindow = Math.floor(effectiveWindow * SAFETY_MARGIN);

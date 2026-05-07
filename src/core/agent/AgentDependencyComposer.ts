@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { FileActionManager } from '../../actions/filesystem.js';
 import { saveConfig, getProviderConfig } from '../../config.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
+import { getOpenRouterModelContextWindow } from '../../providers/modelCapabilities.js';
 import { promptInterrupt, promptNotify } from '../../ui/inputPrompt.js';
 import { isShellCommand, parseShellCommand } from '../../ui/shellCommand.js';
 import { shouldUseInkRenderer } from '../../ui/inkMode.js';
@@ -78,7 +79,21 @@ export function initializeAgentDependencies(
     const initialProvider = runtime.config.provider ?? 'openrouter';
     const providerSettings = getProviderConfig(runtime.config, initialProvider);
     const model = runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
-    host.contextWindow = getContextWindow(model);
+    host.contextWindow = getContextWindow(model, providerSettings?.contextWindow);
+    if (initialProvider === 'openrouter' && !providerSettings?.contextWindow && model !== 'unconfigured') {
+      void getOpenRouterModelContextWindow(model)
+        .then((contextWindow) => {
+          if (!contextWindow || contextWindow === host.contextWindow) return;
+          host.contextWindow = contextWindow;
+          host.contextOrchestrator?.setContextWindow?.(contextWindow);
+          if (host.conversation) {
+            host.updateContextUsage?.(host.conversation.history());
+          }
+        })
+        .catch(() => {
+          // Provider metadata is best-effort; local inference remains the fallback.
+        });
+    }
     host.interactiveAutomodeEnabled = runtime.options.interactiveAutoMode === true;
     host.ignoreFilter = new GitIgnoreParser(runtime.workspaceRoot, []);
     host.workspaceFileCollector = new WorkspaceFileCollector(runtime.workspaceRoot, host.ignoreFilter);
@@ -126,6 +141,7 @@ export function initializeAgentDependencies(
     // Default enabled, can be toggled with --no-cc or /cc command
     host.contextOrchestrator = new ContextOrchestrator({
       model,
+      contextWindow: host.contextWindow,
       conversationManager: host.conversation,
       llm: host.llm,
       memoryManager: host.memoryManager,
@@ -372,7 +388,11 @@ export function initializeAgentDependencies(
       (newDelegator) => { host.delegator = newDelegator; },
       host.telemetryManager,
       host.actionExecutor,
-      (contextWindow) => { host.contextWindow = contextWindow; },
+      (contextWindow) => {
+        host.contextWindow = contextWindow;
+        host.contextOrchestrator.setContextWindow(contextWindow);
+        host.updateContextUsage?.(host.conversation.history());
+      },
       () => { host.contextPercentLeft = 100; },
       () => host.emitStatus()
     );

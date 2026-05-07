@@ -24,6 +24,7 @@ import { NVIDIA_MODELS, NVIDIA_DEFAULT_BASE_URL } from "../../providers/NVIDIAPr
 import { DEEPSEEK_MODELS, DEEPSEEK_DEFAULT_BASE_URL } from "../../providers/DeepSeekProvider.js";
 import { VERTEX_AI_CODING_MODELS } from "../../providers/VertexAIProvider.js";
 import { sanitizeModelId } from "../../providers/errors.js";
+import { getOpenRouterModelContextWindow } from "../../providers/modelCapabilities.js";
 import { saveConfig, getProviderConfig } from "../../config.js";
 import { getContextWindow } from "../../utils/context.js";
 import type {
@@ -66,6 +67,19 @@ export class ProviderConfigManager {
     private resetContextPercent: () => void,
     private emitStatus: () => void,
   ) {}
+
+  private async resolveContextWindow(provider: ProviderName, model: string): Promise<number> {
+    if (provider === "openrouter") {
+      try {
+        const contextWindow = await getOpenRouterModelContextWindow(model);
+        if (contextWindow) return contextWindow;
+      } catch {
+        // OpenRouter metadata is best-effort; fall back to local inference.
+      }
+    }
+
+    return getContextWindow(model);
+  }
 
   /**
    * Prompt user to select and configure an LLM provider
@@ -262,16 +276,22 @@ export class ProviderConfigManager {
         return;
       }
 
+      const sanitizedModel = sanitizeModelId(model);
+      const contextWindow = await this.resolveContextWindow("openrouter", sanitizedModel);
       this.runtime.config.openrouter = {
         apiKey,
         baseUrl: "https://openrouter.ai/api/v1",
-        model: sanitizeModelId(model),
+        model: sanitizedModel,
+        contextWindow,
       };
 
       this.runtime.config.provider = "openrouter";
-      this.runtime.options.model = model;
+      this.runtime.options.model = sanitizedModel;
       await saveConfig(this.runtime.config);
-      this.resetLlmClient("openrouter", model);
+      this.resetLlmClient("openrouter", sanitizedModel);
+      this.updateContextWindow(contextWindow);
+      this.resetContextPercent();
+      this.emitStatus();
 
       console.log(
         chalk.green(
@@ -1356,13 +1376,14 @@ export class ProviderConfigManager {
         endpoint: newEndpoint,
         model: newModel,
       };
+      const contextWindow = await this.resolveContextWindow("vertexai", newModel);
       this.runtime.config.provider = "vertexai";
       this.runtime.options.model = newModel;
 
       console.log(chalk.green("\n✓ " + t("providers.config.settingsUpdated", { provider: "Vertex AI" })));
       console.log(chalk.gray(`  Model: ${newModel}`));
 
-      this.updateContextWindow(getContextWindow(newModel));
+      this.updateContextWindow(contextWindow);
       this.resetContextPercent();
       this.resetLlmClient("vertexai", newModel);
       this.emitStatus();
@@ -1987,6 +2008,8 @@ export class ProviderConfigManager {
       reasoningEffort = await this.promptReasoningEffort();
     }
 
+    const contextWindow = await this.resolveContextWindow(provider, newModel);
+
     // Save the changes
     if (provider === "azure") {
       // Azure: preserve existing config, update model, deploymentName, and key
@@ -1998,6 +2021,7 @@ export class ProviderConfigManager {
         ...existing,
         model: newModel,
         deploymentName: newModel,
+        contextWindow,
         ...(newApiKey && { apiKey: newApiKey }),
       };
     } else {
@@ -2021,6 +2045,7 @@ export class ProviderConfigManager {
           ...(authMode === "chatgpt" ? { chatgptAuth } : { apiKey: newApiKey }),
           baseUrl,
           model: newModel,
+          contextWindow,
           ...(reasoningEffort !== undefined && { reasoningEffort }),
         };
       } else if (provider === "openrouter") {
@@ -2028,37 +2053,42 @@ export class ProviderConfigManager {
           apiKey: newApiKey,
           baseUrl,
           model: newModel,
+          contextWindow,
         };
       } else if (provider === "nvidia") {
         this.runtime.config.nvidia = {
           apiKey: newApiKey,
           baseUrl,
           model: newModel,
+          contextWindow,
         };
       } else if (provider === "zai") {
         this.runtime.config.zai = {
           apiKey: newApiKey,
           baseUrl,
           model: newModel,
+          contextWindow,
         };
       } else if (provider === "deepseek") {
         this.runtime.config.deepseek = {
           apiKey: newApiKey,
           baseUrl,
           model: newModel,
+          contextWindow,
         };
       } else {
         this.runtime.config.llmgateway = {
           apiKey: newApiKey,
           baseUrl,
           model: newModel,
+          contextWindow,
         };
       }
     }
     this.runtime.options.model = newModel;
     await saveConfig(this.runtime.config);
     this.resetLlmClient(provider, newModel);
-    this.updateContextWindow(getContextWindow(newModel));
+    this.updateContextWindow(contextWindow);
     this.resetContextPercent();
     this.emitStatus();
 
@@ -2251,12 +2281,13 @@ export class ProviderConfigManager {
     }
 
     const previousModel = this.runtime.options.model;
+    const contextWindow = await this.resolveContextWindow(provider, newModel);
     this.runtime.config.provider = provider;
     this.runtime.options.model = newModel;
-    this.setProviderModel(provider, newModel);
+    this.setProviderModel(provider, newModel, contextWindow);
     this.resetLlmClient(provider, newModel);
     await saveConfig(this.runtime.config);
-    this.updateContextWindow(getContextWindow(newModel));
+    this.updateContextWindow(contextWindow);
     this.resetContextPercent();
     this.emitStatus();
 
@@ -2277,7 +2308,7 @@ export class ProviderConfigManager {
   /**
    * Set provider and model in runtime config
    */
-  private setProviderModel(provider: ProviderName, model: string): void {
+  private setProviderModel(provider: ProviderName, model: string, contextWindow: number): void {
     const cfgMap: Record<ProviderName, any> = {
       openrouter:
         this.runtime.config.openrouter ??
@@ -2327,6 +2358,7 @@ export class ProviderConfigManager {
         (this.runtime.config.deepseek = { apiKey: "", model }),
     };
     cfgMap[provider].model = model;
+    cfgMap[provider].contextWindow = contextWindow;
     this.setActiveProvider(provider);
   }
 

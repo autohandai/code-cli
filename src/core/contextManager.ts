@@ -25,6 +25,8 @@ const SUMMARIZATION_THRESHOLD = 0.80; // Start summarizing older turns
 export interface ContextManagerOptions {
   /** Model name for context window lookup */
   model: string;
+  /** Exact context window from provider metadata or user config */
+  contextWindow?: number;
   /** Conversation manager instance */
   conversationManager: ConversationManager;
   /** LLM provider for intelligent summarization */
@@ -63,10 +65,12 @@ export class ContextManager {
   private memoryManager?: MemoryManager;
   private onCrop?: (croppedCount: number, reason: string) => void;
   private onWarning?: (usage: ContextUsage) => void;
+  private contextWindow?: number;
   private lastWarningUsage = 0;
 
   constructor(options: ContextManagerOptions) {
     this.model = options.model;
+    this.contextWindow = options.contextWindow;
     this.conversationManager = options.conversationManager;
     this.llm = options.llm;
     this.memoryManager = options.memoryManager;
@@ -81,14 +85,21 @@ export class ContextManager {
     this.model = model;
   }
 
+  setContextWindow(contextWindow?: number): void {
+    this.contextWindow = contextWindow;
+  }
+
+  private calculateUsage(messages: LLMMessage[], tools: FunctionDefinition[]): ContextUsage {
+    return calculateContextUsage(messages, tools, this.model, undefined, this.contextWindow);
+  }
+
   /**
    * Get current context usage
    */
   getUsage(tools: FunctionDefinition[]): ContextUsage {
-    return calculateContextUsage(
+    return this.calculateUsage(
       this.conversationManager.history(),
-      tools,
-      this.model
+      tools
     );
   }
 
@@ -103,7 +114,7 @@ export class ContextManager {
    */
   async prepareRequest(tools: FunctionDefinition[]): Promise<PrepareRequestResult> {
     let messages = this.conversationManager.history();
-    let usage = calculateContextUsage(messages, tools, this.model);
+    let usage = this.calculateUsage(messages, tools);
     let wasCropped = false;
     let croppedCount = 0;
     let summary: string | undefined;
@@ -113,7 +124,7 @@ export class ContextManager {
       const compressed = this.compressVerboseOutputs();
       if (compressed > 0) {
         messages = this.conversationManager.history();
-        usage = calculateContextUsage(messages, tools, this.model);
+        usage = this.calculateUsage(messages, tools);
       }
     }
 
@@ -122,7 +133,7 @@ export class ContextManager {
       const summarized = await this.summarizeOlderTurns(tools);
       if (summarized > 0) {
         messages = this.conversationManager.history();
-        usage = calculateContextUsage(messages, tools, this.model);
+        usage = this.calculateUsage(messages, tools);
         wasCropped = true;
         croppedCount = summarized;
       }
@@ -210,10 +221,9 @@ export class ContextManager {
     // When context is already tight (>85%), skip the LLM summarization
     // that consumes extra tokens and can time out. Static extraction is
     // faster, deterministic, and doesn't push us closer to the limit.
-    const currentUsage = calculateContextUsage(
+    const currentUsage = this.calculateUsage(
       this.conversationManager.history(),
-      _tools,
-      this.model
+      _tools
     );
     const summary = currentUsage.usagePercent > 0.85
       ? summarizeMessagesStatic(toSummarize)
@@ -329,7 +339,7 @@ export class ContextManager {
 
     // Recalculate usage
     const newMessages = this.conversationManager.history();
-    const newUsage = calculateContextUsage(newMessages, tools, this.model);
+    const newUsage = this.calculateUsage(newMessages, tools);
 
     return {
       messages: newMessages,
@@ -447,7 +457,7 @@ export class ContextManager {
    * Returns error message if invalid, undefined if OK
    */
   validatePayload(messages: LLMMessage[], tools: FunctionDefinition[]): string | undefined {
-    const usage = calculateContextUsage(messages, tools, this.model);
+    const usage = this.calculateUsage(messages, tools);
 
     if (usage.isExceeded) {
       return `Request would exceed context window. ` +

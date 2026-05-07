@@ -85,6 +85,8 @@ export interface StructuredSummary {
 export interface ContextOrchestratorOptions {
   /** Initial model name for context window lookup. */
   model: string;
+  /** Exact context window from provider metadata or user config. */
+  contextWindow?: number;
   /** Conversation manager instance. */
   conversationManager: ConversationManager;
   /** LLM provider for intelligent summarization. */

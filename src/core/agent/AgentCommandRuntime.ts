@@ -73,7 +73,7 @@ export function applyAgentAcpModel(host: AgentCommandRuntimeHost, modelId: strin
     host.runtime.options.model = modelId;
 
     const provider = host.activeProvider ?? host.runtime.config.provider ?? 'openrouter';
-    const providerConfig = host.runtime.config[provider] as { model?: string } | undefined;
+    const providerConfig = host.runtime.config[provider] as { model?: string; contextWindow?: number } | undefined;
     if (providerConfig) {
       providerConfig.model = modelId;
     }
@@ -81,8 +81,9 @@ export function applyAgentAcpModel(host: AgentCommandRuntimeHost, modelId: strin
     writeAutohandDebugLine(`[DEBUG] Model changed via ACP: provider=${provider}, model=${modelId}`, host.writeDebugLine?.bind(host));
 
     host.llm.setModel(modelId);
-    host.contextWindow = getContextWindow(modelId);
+    host.contextWindow = getContextWindow(modelId, providerConfig?.contextWindow);
     host.contextOrchestrator.setModel(modelId);
+    host.contextOrchestrator.setContextWindow?.(host.contextWindow);
     host.contextPercentLeft = 100;
     host.syncProviderModelStatusLine(provider);
     host.emitStatus();

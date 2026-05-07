@@ -60,9 +60,10 @@ export class ContextCompactor {
     tools: FunctionDefinition[],
     onCrop?: (croppedCount: number, reason: string) => void,
     onWarning?: (usage: ContextUsage) => void,
+    contextWindow?: number,
   ): Promise<CompactionResult> {
     let messages = this.conversationManager.history();
-    let usage = calculateContextUsage(messages, tools, model);
+    let usage = calculateContextUsage(messages, tools, model, undefined, contextWindow);
     let wasCropped = false;
     let croppedCount = 0;
     let summary: string | undefined;
@@ -72,16 +73,16 @@ export class ContextCompactor {
       const compressed = this.compressVerboseOutputs();
       if (compressed > 0) {
         messages = this.conversationManager.history();
-        usage = calculateContextUsage(messages, tools, model);
+        usage = calculateContextUsage(messages, tools, model, undefined, contextWindow);
       }
     }
 
     // Tier 2: At 80%+, summarize older turns with LLM-powered summarization
     if (usage.usagePercent >= SUMMARIZATION_THRESHOLD && !usage.isCritical) {
-      const summarized = await this.summarizeOlderTurns(tools, model);
+      const summarized = await this.summarizeOlderTurns(tools, model, contextWindow);
       if (summarized > 0) {
         messages = this.conversationManager.history();
-        usage = calculateContextUsage(messages, tools, model);
+        usage = calculateContextUsage(messages, tools, model, undefined, contextWindow);
         wasCropped = true;
         croppedCount = summarized;
       }
@@ -95,7 +96,7 @@ export class ContextCompactor {
 
     // Tier 3: At 90%+ (critical), aggressive priority-based cropping
     if (usage.isCritical || usage.isExceeded) {
-      const result = await this.autoCrop(tools, model, usage, onCrop);
+      const result = await this.autoCrop(tools, model, usage, onCrop, contextWindow);
       messages = result.messages;
       usage = result.usage;
       if (result.croppedCount > 0) {
@@ -141,7 +142,7 @@ export class ContextCompactor {
    * Summarize older conversation turns (Tier 2: 80%+)
    * Returns number of messages summarized
    */
-  private async summarizeOlderTurns(_tools: FunctionDefinition[], model: string): Promise<number> {
+  private async summarizeOlderTurns(_tools: FunctionDefinition[], model: string, contextWindow?: number): Promise<number> {
     const messages = this.conversationManager.history();
     const lastUserIndex = this.findLastUserMessageIndex(messages);
 
@@ -164,7 +165,9 @@ export class ContextCompactor {
     const currentUsage = calculateContextUsage(
       this.conversationManager.history(),
       _tools,
-      model
+      model,
+      undefined,
+      contextWindow
     );
     const summary = currentUsage.usagePercent > 0.85
       ? summarizeMessagesStatic(toSummarize)
@@ -188,6 +191,7 @@ export class ContextCompactor {
     model: string,
     currentUsage: ContextUsage,
     onCrop?: (croppedCount: number, reason: string) => void,
+    contextWindow?: number,
   ): Promise<{ messages: LLMMessage[]; usage: ContextUsage; croppedCount: number; summary?: string }> {
     const targetUsage = 0.65;
     const targetTokens = Math.floor(currentUsage.contextWindow * targetUsage);
@@ -258,7 +262,7 @@ export class ContextCompactor {
     onCrop?.(removed.length, `Cropped ${removed.length} messages (priority-based)`);
 
     const newMessages = this.conversationManager.history();
-    const newUsage = calculateContextUsage(newMessages, tools, model);
+    const newUsage = calculateContextUsage(newMessages, tools, model, undefined, contextWindow);
 
     return {
       messages: newMessages,
