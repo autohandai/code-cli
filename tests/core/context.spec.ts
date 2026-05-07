@@ -49,6 +49,8 @@ describe('context/tokenizer', () => {
     it('returns known model context windows', () => {
       expect(getContextWindow('anthropic/claude-4-sonnet')).toBe(200_000);
       expect(getContextWindow('openai/gpt-4o-mini')).toBe(128_000);
+      expect(getContextWindow('tencent/hy3-preview:free')).toBe(262_144);
+      expect(getContextWindow('tencent/hy3-preview-20260421:free')).toBe(262_144);
     });
 
     it('returns default 128k for unknown models', () => {
