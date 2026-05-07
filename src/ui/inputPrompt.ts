@@ -453,7 +453,7 @@ export function getPrimaryHotTipSuggestion(
     if (nextPromptSuggestion) {
       return { line: nextPromptSuggestion, cursor: nextPromptSuggestion.length };
     }
-    return { line: '/help ', cursor: 6 };
+    return null;
   }
 
   if (trimmed.startsWith('/')) {

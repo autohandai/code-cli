@@ -42,4 +42,17 @@ describe('ShellSuggestionProvider', () => {
     await expect(provider.resolve('regular prompt')).resolves.toBeNull();
     expect(complete).not.toHaveBeenCalled();
   });
+
+  it('uses deterministic local shell suggestions without calling the model', async () => {
+    const complete = vi.fn();
+    const provider = new ShellSuggestionProvider({
+      runtime: { workspaceRoot: process.cwd() },
+      conversation: { history: () => [] },
+      getLlm: () => ({ complete }) as never,
+      getParallelismLimit: () => 2,
+    });
+
+    await expect(provider.resolve('! bun')).resolves.toBe('! bun test');
+    expect(complete).not.toHaveBeenCalled();
+  });
 });
