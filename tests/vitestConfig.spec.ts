@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 interface VitestUserConfig {
   test?: {
+    exclude?: string[];
     maxConcurrency?: number;
     minWorkers?: number;
     maxWorkers?: number;
@@ -58,5 +59,11 @@ describe('vitest config', () => {
     expect(config.test?.maxWorkers).toBe(1);
     expect(config.poolOptions?.forks?.singleFork).toBe(true);
     expect(config.poolOptions?.forks?.execArgv).toContain('--max-old-space-size=8192');
+  });
+
+  it('keeps Tuistory tests on their dedicated built-CLI config', async () => {
+    const config = await loadVitestConfig(true);
+
+    expect(config.test?.exclude).toContain('tests/tuistory/**');
   });
 });

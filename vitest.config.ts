@@ -25,6 +25,7 @@ export default defineConfig({
       '**/.worktrees/**',
       '**/.claude/worktrees/**',
       '**/.{idea,git,cache,output,temp}/**',
+      'tests/tuistory/**',
     ],
   },
   poolOptions: {
