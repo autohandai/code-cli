@@ -44,6 +44,7 @@ const READ_ONLY_TOOLS = [
   'tools_registry',
   'tool_search',
   'plan',
+  'exit_plan_mode',
   'ask_followup_question',
 ];
 
