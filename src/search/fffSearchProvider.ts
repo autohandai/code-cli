@@ -10,6 +10,7 @@ import {
   type SearchResult,
 } from '@ff-labs/fff-bun';
 import { execFile } from 'node:child_process';
+import fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -17,6 +18,15 @@ import { promisify } from 'node:util';
 import { resolveRipgrepCommand } from '../utils/ripgrep.js';
 
 const execFileAsync = promisify(execFile);
+const FILE_WALK_IGNORED_DIRECTORIES = new Set([
+  '.git',
+  '.hg',
+  '.svn',
+  'node_modules',
+  'dist',
+  'build',
+  'coverage',
+]);
 
 export interface GrepParams {
   query: string;
@@ -386,11 +396,23 @@ class RipgrepSearchBackend implements SearchBackend {
       if (isNoMatchError(error)) {
         return 'No files found.';
       }
+      if (isMissingExecutableError(error)) {
+        return this.fileSearchWithFilesystemWalk(params);
+      }
       throw error;
     }
   }
 
   destroy(): void {}
+
+  private async fileSearchWithFilesystemWalk(params: FindParams): Promise<string> {
+    const files = await collectWorkspaceFiles(this.workspaceRoot);
+    const ranked = rankPaths(files, params.query).slice(0, params.limit ?? 50);
+    if (!ranked.length) {
+      return 'No files found.';
+    }
+    return ranked.join('\n');
+  }
 }
 
 function unwrap<T extends GrepResult | SearchResult | boolean | NativeHandle>(result: Result<T>): T {
@@ -481,6 +503,10 @@ function isNoMatchError(error: unknown): boolean {
   return exitCode === 1 || exitCode === '1';
 }
 
+function isMissingExecutableError(error: unknown): boolean {
+  return (error as { code?: string })?.code === 'ENOENT';
+}
+
 function formatPlainLines(lines: string[], limit: number, singular: string, plural: string): string {
   const limited = lines.slice(0, limit);
   const header =
@@ -521,4 +547,39 @@ function scorePath(file: string, terms: string[]): number {
   }
 
   return score;
+}
+
+async function collectWorkspaceFiles(workspaceRoot: string): Promise<string[]> {
+  const files: string[] = [];
+  await walkWorkspaceFiles(workspaceRoot, workspaceRoot, files);
+  return files;
+}
+
+async function walkWorkspaceFiles(
+  workspaceRoot: string,
+  currentDirectory: string,
+  files: string[],
+): Promise<void> {
+  let entries: Array<{ name: string; isDirectory(): boolean; isFile(): boolean }>;
+  try {
+    entries = await fs.readdir(currentDirectory, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      if (FILE_WALK_IGNORED_DIRECTORIES.has(entry.name)) {
+        continue;
+      }
+      await walkWorkspaceFiles(workspaceRoot, path.join(currentDirectory, entry.name), files);
+      continue;
+    }
+
+    if (!entry.isFile()) {
+      continue;
+    }
+
+    files.push(path.relative(workspaceRoot, path.join(currentDirectory, entry.name)).replace(/\\/g, '/'));
+  }
 }
