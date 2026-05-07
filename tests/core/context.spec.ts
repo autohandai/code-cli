@@ -48,7 +48,15 @@ describe('context/tokenizer', () => {
   describe('getContextWindow', () => {
     it('returns known model context windows', () => {
       expect(getContextWindow('anthropic/claude-4-sonnet')).toBe(200_000);
-      expect(getContextWindow('openai/gpt-4o-mini')).toBe(128_000);
+      expect(getContextWindow('openai/gpt-5.5')).toBe(1_050_000);
+      expect(getContextWindow('gpt-5.5-pro')).toBe(1_050_000);
+      expect(getContextWindow('openai/gpt-5.4')).toBe(1_050_000);
+      expect(getContextWindow('gpt-5.4-mini')).toBe(400_000);
+      expect(getContextWindow('openai/gpt-5.3-codex')).toBe(400_000);
+      expect(getContextWindow('google/gemini-3.1-pro-preview')).toBe(1_000_000);
+      expect(getContextWindow('gemini-3.1-flash-image-preview')).toBe(128_000);
+      expect(getContextWindow('deepseek-v4-pro')).toBe(1_000_000);
+      expect(getContextWindow('deepseek/deepseek-v4-flash')).toBe(1_000_000);
       expect(getContextWindow('tencent/hy3-preview:free')).toBe(262_144);
       expect(getContextWindow('tencent/hy3-preview-20260421:free')).toBe(262_144);
     });
@@ -77,6 +85,7 @@ describe('context/tokenizer', () => {
     it('identifies model families correctly', () => {
       expect(getModelFamily('anthropic/claude-sonnet-4')).toBe('claude');
       expect(getModelFamily('openai/gpt-4o')).toBe('openai');
+      expect(getModelFamily('openai/gpt-5.5')).toBe('openai');
       expect(getModelFamily('google/gemini-pro')).toBe('gemini');
       expect(getModelFamily('deepseek/deepseek-r1')).toBe('deepseek');
       expect(getModelFamily('unknown/model')).toBe('default');
