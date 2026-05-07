@@ -34,6 +34,7 @@ export class ContextOrchestrator {
   private compactor: ContextCompactor;
   private conversationManager: ConversationManager;
   private model: string;
+  private contextWindow?: number;
   private history: CompactionEntry[] = [];
   private onCrop?: (croppedCount: number, reason: string) => void;
   private onWarning?: (usage: ContextUsage) => void;
@@ -49,6 +50,7 @@ export class ContextOrchestrator {
     }
 
     this.model = options.model;
+    this.contextWindow = options.contextWindow;
     this.conversationManager = options.conversationManager;
     this.onCrop = options.onCrop;
     this.onWarning = options.onWarning;
@@ -66,6 +68,14 @@ export class ContextOrchestrator {
    */
   setModel(model: string): void {
     this.model = model;
+  }
+
+  setContextWindow(contextWindow?: number): void {
+    this.contextWindow = contextWindow;
+  }
+
+  private calculateUsage(messages: LLMMessage[], tools: FunctionDefinition[]): ContextUsage {
+    return calculateContextUsage(messages, tools, this.model, undefined, this.contextWindow);
   }
 
   /**
@@ -92,6 +102,7 @@ export class ContextOrchestrator {
         (usage) => {
           this.onWarning?.(usage);
         },
+        this.contextWindow,
       );
 
       if (prepared.wasCropped) {
@@ -104,7 +115,7 @@ export class ContextOrchestrator {
 
     // Legacy manual path (compaction disabled)
     const messages = this.conversationManager.history();
-    const contextUsage = calculateContextUsage(messages, tools, this.model);
+    const contextUsage = this.calculateUsage(messages, tools);
 
     // Auto-crop if at critical threshold (90%+)
     if (contextUsage.isCritical) {
@@ -129,7 +140,7 @@ export class ContextOrchestrator {
       }
 
       const newMessages = this.conversationManager.history();
-      const newUsage = calculateContextUsage(newMessages, tools, this.model);
+      const newUsage = this.calculateUsage(newMessages, tools);
       return {
         messages: newMessages,
         tools,
@@ -165,11 +176,7 @@ export class ContextOrchestrator {
       return false;
     }
 
-    const midTurnUsage = calculateContextUsage(
-      this.conversationManager.history(),
-      tools,
-      this.model,
-    );
+    const midTurnUsage = this.calculateUsage(this.conversationManager.history(), tools);
 
     if (!midTurnUsage.isCritical) {
       return false;
@@ -183,6 +190,8 @@ export class ContextOrchestrator {
           this.onCrop?.(count, reason);
         }
       },
+      undefined,
+      this.contextWindow,
     );
 
     if (prepared.wasCropped) {
@@ -201,7 +210,7 @@ export class ContextOrchestrator {
     tools: FunctionDefinition[],
   ): Promise<{ messages: LLMMessage[]; usage: ContextUsage; croppedCount: number; summary?: string }> {
     const messages = this.conversationManager.history();
-    const usage = calculateContextUsage(messages, tools, this.model);
+    const usage = this.calculateUsage(messages, tools);
 
     this.onOverflow?.(usage);
 
@@ -243,7 +252,7 @@ export class ContextOrchestrator {
     this.recordCompaction(removed.length, summary, 'overflow', usage);
 
     const newMessages = this.conversationManager.history();
-    const newUsage = calculateContextUsage(newMessages, tools, this.model);
+    const newUsage = this.calculateUsage(newMessages, tools);
     return { messages: newMessages, usage: newUsage, croppedCount: removed.length, summary };
   }
 
@@ -281,11 +290,7 @@ export class ContextOrchestrator {
    * Get current context usage.
    */
   getUsage(tools: FunctionDefinition[]): ContextUsage {
-    return calculateContextUsage(
-      this.conversationManager.history(),
-      tools,
-      this.model,
-    );
+    return this.calculateUsage(this.conversationManager.history(), tools);
   }
 
   /**

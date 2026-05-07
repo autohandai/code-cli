@@ -79,7 +79,7 @@ export interface AgentReactLoopHost {
   contextOrchestrator: Pick<
     ContextOrchestrator,
     'checkMidTurnCompaction' | 'handleOverflow' | 'prepareRequest' | 'setModel'
-  >;
+  > & Partial<Pick<ContextOrchestrator, 'setContextWindow'>>;
   contextPercentLeft: number;
   conversation: Pick<ConversationManager, 'addMessage' | 'addSystemNote' | 'history'>;
   inkRenderer: ReactLoopInkRenderer | null;
@@ -97,6 +97,7 @@ export interface AgentReactLoopHost {
     'execute' | 'listToolNames' | 'register' | 'registerMetaTools' | 'toFunctionDefinitions' | 'unregister'
   >;
   toolsRegistry?: ToolsRegistry;
+  contextWindow: number;
   totalTokensUsed: number;
 
   cleanupModelResponse(content: string): string;
@@ -253,6 +254,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
       // Use ContextOrchestrator for smart auto-compaction
       const model = host.runtime.options.model ?? getProviderConfig(host.runtime.config, host.activeProvider)?.model ?? 'unconfigured';
       host.contextOrchestrator.setModel(model);
+      host.contextOrchestrator.setContextWindow?.(host.contextWindow);
 
       const prepared = await host.contextOrchestrator.prepareRequest(
         tools,
@@ -590,7 +592,9 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
               const midTurnUsage = calculateContextUsage(
                 host.conversation.history(),
                 tools,
-                host.runtime.options.model ?? ''
+                host.runtime.options.model ?? '',
+                undefined,
+                host.contextWindow
               );
               host.writeDebugLine(`[AGENT DEBUG] Mid-turn compaction triggered at ${Math.round(midTurnUsage.usagePercent * 100)}%`);
             }

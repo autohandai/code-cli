@@ -43,6 +43,8 @@ export interface ProviderSettings {
   baseUrl?: string;
   port?: number;
   model: string;
+  /** Exact model context window from provider metadata or user config. */
+  contextWindow?: number;
   /** Reasoning effort level for reasoning-capable models (e.g., OpenAI) */
   reasoningEffort?: ReasoningEffort;
 }

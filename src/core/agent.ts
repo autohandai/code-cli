@@ -624,6 +624,8 @@ export class AutohandAgent {
       get consecutiveCancellations() { return agent.consecutiveCancellations; },
       set consecutiveCancellations(value) { agent.consecutiveCancellations = value; },
       contextOrchestrator: agent.contextOrchestrator,
+      get contextWindow() { return agent.contextWindow; },
+      set contextWindow(value) { agent.contextWindow = value; },
       get contextPercentLeft() { return agent.contextPercentLeft; },
       conversation: agent.conversation,
       get inkRenderer() { return agent.inkRenderer as AgentReactLoopHost['inkRenderer']; },
