@@ -82,4 +82,17 @@ describe('AgentUI paste input ownership', () => {
     // Must NOT hide input when idle
     expect(src.includes('isActive={isWorking}')).toBe(false);
   });
+
+  it('AgentUI wires the local shell command dropdown into the composer', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const src = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/ui/ink/AgentUI.tsx'),
+      'utf8',
+    );
+
+    expect(src.includes('ShellCommandDropdown')).toBe(true);
+    expect(src.includes('buildShellCommandSuggestions')).toBe(true);
+    expect(src.includes('shellCommandDropdown=')).toBe(true);
+  });
 });

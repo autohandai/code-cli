@@ -334,12 +334,12 @@ describe('Tab accepts model next-prompt suggestion on empty input', () => {
     });
   });
 
-  it('falls back to /help when no suggestion provided', async () => {
+  it('does not treat the static placeholder as an accepted suggestion', async () => {
     const { getPrimaryHotTipSuggestion } = await import('../../src/ui/inputPrompt.js');
     const suggestion = getPrimaryHotTipSuggestion('', [], [], {
       placeholderText: 'Build anything',
     });
-    expect(suggestion).toEqual({ line: '/help ', cursor: 6 });
+    expect(suggestion).toBeNull();
   });
 });
 
@@ -520,11 +520,11 @@ describe('prompt hot tips', () => {
     });
   });
 
-  it('returns /help as the primary suggestion for empty input', async () => {
+  it('returns no primary suggestion for empty input without a next-prompt suggestion', async () => {
     const { getPrimaryHotTipSuggestion } = await import('../../src/ui/inputPrompt.js');
     const suggestion = getPrimaryHotTipSuggestion('', files, slashCommands);
 
-    expect(suggestion).toEqual({ line: '/help ', cursor: 6 });
+    expect(suggestion).toBeNull();
   });
 
   it('builds contextual status text for ? help in the status line', async () => {

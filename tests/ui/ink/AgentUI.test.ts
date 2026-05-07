@@ -201,13 +201,13 @@ describe('AgentUI terminal resize rendering', () => {
       )
     );
 
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
     expect(getComposerTopBorderWidth(instance.lastFrame())).toBe(getPromptBlockWidth(100));
 
     setStdoutColumns(instance.stdout, 42);
     instance.stdout.emit('resize');
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
 
     expect(getComposerTopBorderWidth(instance.lastFrame())).toBe(getPromptBlockWidth(42));
   });
@@ -382,7 +382,7 @@ describe('AgentUI composer suggestions', () => {
     expect(frame).toContain('Tab to accept');
   });
 
-  it('renders only the next shell command suggestion for git input in the Ink composer', async () => {
+  it('renders local shell command dropdown suggestions for git input in the Ink composer', async () => {
     const state = {
       ...createInitialUIState(),
       currentInput: '! git',
@@ -404,15 +404,15 @@ describe('AgentUI composer suggestions', () => {
       )
     );
 
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
 
     const frame = stripAnsi(lastFrame() ?? '');
     expect(frame).toContain('! git status');
-    expect(frame).not.toContain('! git diff');
-    expect(frame).not.toContain('Tab to accept');
+    expect(frame).toContain('! git diff');
+    expect(frame).toContain('Tab to accept');
   });
 
-  it('renders only the next shell command suggestion for bare bang input', async () => {
+  it('renders local shell command dropdown suggestions for bare bang input', async () => {
     const state = createInitialUIState();
     const { lastFrame, stdin } = render(
       React.createElement(
@@ -436,8 +436,8 @@ describe('AgentUI composer suggestions', () => {
 
     const frame = stripAnsi(lastFrame() ?? '');
     expect(frame).toContain('! git status');
-    expect(frame).not.toContain('! ls -la');
-    expect(frame).not.toContain('Tab to accept');
+    expect(frame).toContain('! ls -la');
+    expect(frame).toContain('Tab to accept');
   });
 });
 
