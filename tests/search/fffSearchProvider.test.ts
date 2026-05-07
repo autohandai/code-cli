@@ -115,6 +115,9 @@ describe('FFFSearchProvider', () => {
     vi.doMock('@ff-labs/fff-bun', () => ({
       FileFinder: class FileFinder {},
     }));
+    vi.doMock('../../src/utils/ripgrep.js', () => ({
+      resolveRipgrepCommand: () => '__missing_rg_for_fff_fallback_test__',
+    }));
 
     try {
       const { FFFSearchProvider } = await import('../../src/search/fffSearchProvider.js');
