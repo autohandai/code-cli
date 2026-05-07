@@ -608,7 +608,7 @@ export function AgentUI({
     setShellSuggestions([]);
   }, []);
 
-  const acceptActiveAutocompleteSuggestion = useCallback((options?: { preserveExactSlashSubmit?: boolean }): boolean => {
+  const acceptActiveAutocompleteSuggestion = useCallback((options?: { preserveExactSlashSubmit?: boolean; acceptShell?: boolean }): boolean => {
     if (slashVisibleRef.current && slashSuggestionsRef.current.length > 0 && slashStartIndexRef.current !== null) {
       const suggestion = slashSuggestionsRef.current[slashActiveIndexRef.current];
       if (!suggestion) {
@@ -675,6 +675,10 @@ export function AgentUI({
     }
 
     if (shellVisibleRef.current && shellSuggestionsRef.current.length > 0) {
+      if (options?.acceptShell === false) {
+        return false;
+      }
+
       const suggestion = shellSuggestionsRef.current[shellActiveIndexRef.current];
       if (!suggestion) {
         return false;
@@ -1163,7 +1167,13 @@ export function AgentUI({
       }
     }
 
-    if ((key.return || key.rightArrow) && acceptActiveAutocompleteSuggestion({ preserveExactSlashSubmit: key.return })) {
+    if (
+      (key.return || key.rightArrow) &&
+      acceptActiveAutocompleteSuggestion({
+        preserveExactSlashSubmit: key.return,
+        acceptShell: !key.return,
+      })
+    ) {
       return;
     }
 
