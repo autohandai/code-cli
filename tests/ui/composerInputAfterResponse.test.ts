@@ -83,7 +83,7 @@ describe('AgentUI paste input ownership', () => {
     expect(src.includes('isActive={isWorking}')).toBe(false);
   });
 
-  it('AgentUI wires the local shell command dropdown into the composer', () => {
+  it('AgentUI does not wire shell command autocomplete into the composer', () => {
     const fs = require('node:fs');
     const path = require('node:path');
     const src = fs.readFileSync(
@@ -91,8 +91,8 @@ describe('AgentUI paste input ownership', () => {
       'utf8',
     );
 
-    expect(src.includes('ShellCommandDropdown')).toBe(true);
-    expect(src.includes('buildShellCommandSuggestions')).toBe(true);
-    expect(src.includes('shellCommandDropdown=')).toBe(true);
+    expect(src.includes('ShellCommandDropdown')).toBe(false);
+    expect(src.includes('buildShellCommandSuggestions')).toBe(false);
+    expect(src.includes('shellCommandDropdown=')).toBe(false);
   });
 });
