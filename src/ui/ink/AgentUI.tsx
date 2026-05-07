@@ -17,7 +17,6 @@ import { ThinkingOutput } from './ThinkingOutput.js';
 import { FileMentionDropdown, parseFileSuggestions, matchFileMention, type FileMentionSuggestion } from './FileMentionDropdown.js';
 import { SlashCommandDropdown, matchSlashCommand, buildSlashSuggestions, buildSubcommandSuggestions, type SlashCommandSuggestion } from './SlashCommandDropdown.js';
 import { SkillMentionDropdown, matchSkillMention, buildSkillSuggestions, type SkillSuggestion } from './SkillMentionDropdown.js';
-import { ShellCommandDropdown, buildShellCommandSuggestions, type ShellCommandSuggestion } from './ShellCommandDropdown.js';
 import type { SlashCommand } from '../../core/slashCommandTypes.js';
 import type { SkillMentionInfo } from '../mentionFilter.js';
 import { UserMessage } from './UserMessage.js';
@@ -99,7 +98,7 @@ export interface AgentUIProps {
   workspaceRoot?: string;
   /** Lazy provider for the model-generated empty-input next-prompt suggestion. */
   suggestionProvider?: () => string | undefined;
-  /** Optional async LLM resolver for ! command suggestions. */
+  /** Legacy resolver accepted for renderer compatibility; `!` input stays free-form. */
   resolveShellSuggestion?: (input: string) => Promise<string | null>;
   /** Optional extension points for the fixed status/help lines. */
   lineExtensions?: AgentUILineExtensions;
@@ -424,7 +423,6 @@ export function AgentUI({
   skillsProvider,
   workspaceRoot,
   suggestionProvider,
-  resolveShellSuggestion,
   lineExtensions,
 }: AgentUIProps) {
   const { colors } = useTheme();
@@ -453,10 +451,6 @@ export function AgentUI({
   const [skillSuggestions, setSkillSuggestions] = useState<SkillSuggestion[]>([]);
   const [skillActiveIndex, setSkillActiveIndex] = useState(0);
   const [skillVisible, setSkillVisible] = useState(false);
-  const [shellSuggestions, setShellSuggestions] = useState<ShellCommandSuggestion[]>([]);
-  const [shellActiveIndex, setShellActiveIndex] = useState(0);
-  const [shellVisible, setShellVisible] = useState(false);
-  const [llmInlineShellSuggestion, setLlmInlineShellSuggestion] = useState<string | null>(null);
   const skillStartIndexRef = useRef<number | null>(null);
   const textBufferRef = useRef<TextBuffer>(
     new TextBuffer(
@@ -527,24 +521,12 @@ export function AgentUI({
   workspaceRootRef.current = workspaceRoot;
   const suggestionProviderRef = useRef(suggestionProvider);
   suggestionProviderRef.current = suggestionProvider;
-  const resolveShellSuggestionRef = useRef(resolveShellSuggestion);
-  resolveShellSuggestionRef.current = resolveShellSuggestion;
-  const llmInlineShellSuggestionRef = useRef(llmInlineShellSuggestion);
-  llmInlineShellSuggestionRef.current = llmInlineShellSuggestion;
   const skillVisibleRef = useRef(skillVisible);
   skillVisibleRef.current = skillVisible;
   const skillSuggestionsRef = useRef(skillSuggestions);
   skillSuggestionsRef.current = skillSuggestions;
   const skillActiveIndexRef = useRef(skillActiveIndex);
   skillActiveIndexRef.current = skillActiveIndex;
-  const shellVisibleRef = useRef(shellVisible);
-  shellVisibleRef.current = shellVisible;
-  const shellSuggestionsRef = useRef(shellSuggestions);
-  shellSuggestionsRef.current = shellSuggestions;
-  const shellActiveIndexRef = useRef(shellActiveIndex);
-  shellActiveIndexRef.current = shellActiveIndex;
-  const shellSuggestionRequestIdRef = useRef(0);
-
   // Throttled sync from buffer to React state to batch rapid keystrokes
   // and reduce re-render frequency during fast typing (16ms = ~60fps).
   const inputSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -602,13 +584,9 @@ export function AgentUI({
     setFileMentionVisible(false);
     setFileMentionSuggestions([]);
 
-    shellVisibleRef.current = false;
-    shellSuggestionsRef.current = [];
-    setShellVisible(false);
-    setShellSuggestions([]);
   }, []);
 
-  const acceptActiveAutocompleteSuggestion = useCallback((options?: { preserveExactSlashSubmit?: boolean; acceptShell?: boolean }): boolean => {
+  const acceptActiveAutocompleteSuggestion = useCallback((options?: { preserveExactSlashSubmit?: boolean }): boolean => {
     if (slashVisibleRef.current && slashSuggestionsRef.current.length > 0 && slashStartIndexRef.current !== null) {
       const suggestion = slashSuggestionsRef.current[slashActiveIndexRef.current];
       if (!suggestion) {
@@ -671,25 +649,6 @@ export function AgentUI({
       setFileMentionVisible(false);
       setFileMentionSuggestions([]);
       fileMentionStartIndexRef.current = null;
-      return true;
-    }
-
-    if (shellVisibleRef.current && shellSuggestionsRef.current.length > 0) {
-      if (options?.acceptShell === false) {
-        return false;
-      }
-
-      const suggestion = shellSuggestionsRef.current[shellActiveIndexRef.current];
-      if (!suggestion) {
-        return false;
-      }
-
-      const buffer = textBufferRef.current;
-      buffer.setText(suggestion.command);
-      syncInputFromBuffer();
-
-      setShellVisible(false);
-      setShellSuggestions([]);
       return true;
     }
 
@@ -946,69 +905,6 @@ export function AgentUI({
     setSkillActiveIndex(prev => Math.min(prev, suggestions.length - 1));
   }, [input, cursorOffset]);
 
-  useEffect(() => {
-    const resolver = resolveShellSuggestionRef.current;
-    const trimmedInput = input.trim();
-    if (!resolver || !trimmedInput.startsWith('!') || !trimmedInput.slice(1).trim()) {
-      if (llmInlineShellSuggestionRef.current !== null) {
-        setLlmInlineShellSuggestion(null);
-      }
-      return;
-    }
-
-    const requestId = ++shellSuggestionRequestIdRef.current;
-    const timeout = setTimeout(() => {
-      resolver(input)
-        .then((suggestion) => {
-          if (requestId !== shellSuggestionRequestIdRef.current || inputRef.current !== input) {
-            return;
-          }
-          setLlmInlineShellSuggestion(suggestion ?? null);
-        })
-        .catch(() => {
-          // Best effort only; deterministic shell completions remain available.
-        });
-    }, 120);
-
-    return () => clearTimeout(timeout);
-  }, [input]);
-
-  // Update local shell command suggestions when input changes.
-  useEffect(() => {
-    const buffer = textBufferRef.current;
-    if (input !== buffer.getText() || cursorOffset !== getTextBufferCursorOffset(buffer)) {
-      return;
-    }
-
-    const trimmedInput = input.trim();
-    if (!trimmedInput.startsWith('!')) {
-      if (shellVisibleRef.current) {
-        shellVisibleRef.current = false;
-        shellSuggestionsRef.current = [];
-        setShellVisible(false);
-        setShellSuggestions([]);
-      }
-      return;
-    }
-
-    const suggestions = buildShellCommandSuggestions(input, workspaceRootRef.current, 5);
-    if (suggestions.length === 0) {
-      if (shellVisibleRef.current) {
-        shellVisibleRef.current = false;
-        shellSuggestionsRef.current = [];
-        setShellVisible(false);
-        setShellSuggestions([]);
-      }
-      return;
-    }
-
-    shellSuggestionsRef.current = suggestions;
-    shellVisibleRef.current = true;
-    setShellSuggestions(suggestions);
-    setShellVisible(true);
-    setShellActiveIndex(prev => Math.min(prev, suggestions.length - 1));
-  }, [input, cursorOffset]);
-
   // Stable input handler that reads mutable values from refs.
   // Empty dependency array means useInput never re-registers, eliminating
   // a major source of flicker during rapid keystrokes.
@@ -1049,7 +945,7 @@ export function AgentUI({
     // Handle escape - cancel current operation
     if (key.escape) {
       // Close any open dropdowns/menus first before calling onEscape
-      if (slashVisibleRef.current || skillVisibleRef.current || fileMentionVisibleRef.current || shellVisibleRef.current) {
+      if (slashVisibleRef.current || skillVisibleRef.current || fileMentionVisibleRef.current) {
         dismissAutocompleteState();
         if (clearBareComposerTrigger(textBufferRef.current)) {
           syncInputFromBuffer();
@@ -1152,26 +1048,12 @@ export function AgentUI({
         );
         return;
       }
-    } else if (shellVisibleRef.current && shellSuggestionsRef.current.length > 0) {
-      if (key.upArrow) {
-        setShellActiveIndex(prev =>
-          prev > 0 ? prev - 1 : shellSuggestionsRef.current.length - 1
-        );
-        return;
-      }
-      if (key.downArrow) {
-        setShellActiveIndex(prev =>
-          prev < shellSuggestionsRef.current.length - 1 ? prev + 1 : 0
-        );
-        return;
-      }
     }
 
     if (
       (key.return || key.rightArrow) &&
       acceptActiveAutocompleteSuggestion({
         preserveExactSlashSubmit: key.return,
-        acceptShell: !key.return,
       })
     ) {
       return;
@@ -1198,57 +1080,6 @@ export function AgentUI({
       }
 
       if (trimmedText.startsWith('!')) {
-        const llmSuggestion = llmInlineShellSuggestionRef.current;
-        if (
-          llmSuggestion &&
-          llmSuggestion.startsWith(currentText) &&
-          llmSuggestion !== currentText
-        ) {
-          buffer.setText(llmSuggestion);
-          syncInputFromBuffer();
-          return;
-        }
-
-        const immediateFallback = getPrimaryHotTipSuggestion(
-          currentText,
-          filesProviderRef.current?.() ?? [],
-          slashCommandsRef.current ?? [],
-          {
-            workspaceRoot: workspaceRootRef.current,
-            skillsProvider: skillsProviderRef.current,
-          },
-        );
-
-        let expectedInputAtResponse = currentText;
-        if (immediateFallback) {
-          buffer.setText(immediateFallback.line);
-          expectedInputAtResponse = immediateFallback.line;
-          syncInputFromBuffer();
-        }
-
-        const resolver = resolveShellSuggestionRef.current;
-        if (!resolver) {
-          return;
-        }
-
-        const requestId = ++shellSuggestionRequestIdRef.current;
-        resolver(currentText)
-          .then((llmResolvedSuggestion) => {
-            if (requestId !== shellSuggestionRequestIdRef.current) {
-              return;
-            }
-            const latestBuffer = textBufferRef.current;
-            if (latestBuffer.getText() !== expectedInputAtResponse) {
-              return;
-            }
-            if (llmResolvedSuggestion) {
-              latestBuffer.setText(llmResolvedSuggestion);
-              syncInputFromBuffer();
-            }
-          })
-          .catch(() => {
-            // Ignore LLM errors: immediate local fallback already applied above.
-          });
         return;
       }
 
@@ -1275,7 +1106,7 @@ export function AgentUI({
             filesProviderRef.current?.() ?? [],
             slashCommandsRef.current ?? [],
             workspaceRootRef.current,
-            llmInlineShellSuggestionRef.current,
+            undefined,
             skillsProviderRef.current,
           );
 
@@ -1473,28 +1304,6 @@ export function AgentUI({
           setSkillSuggestions([]);
         }
       }
-
-      if (currentText.trim().startsWith('!')) {
-        const shellSuggs = buildShellCommandSuggestions(currentText, workspaceRootRef.current, 5);
-        if (shellSuggs.length > 0) {
-          shellSuggestionsRef.current = shellSuggs;
-          shellVisibleRef.current = true;
-          setShellSuggestions(shellSuggs);
-          setShellVisible(true);
-          setShellActiveIndex(prev => Math.min(prev, shellSuggs.length - 1));
-        } else {
-          shellVisibleRef.current = false;
-          shellSuggestionsRef.current = [];
-          setShellVisible(false);
-          setShellSuggestions([]);
-        }
-      } else if (shellVisibleRef.current) {
-        shellVisibleRef.current = false;
-        shellSuggestionsRef.current = [];
-        setShellVisible(false);
-        setShellSuggestions([]);
-      }
-
       return;
     }
   }, [syncBufferViewport, syncInputFromBuffer, dismissAutocompleteState, acceptActiveAutocompleteSuggestion]);
@@ -1533,8 +1342,7 @@ export function AgentUI({
       input.trim().length > 0 ||
       slashVisible ||
       fileMentionVisible ||
-      skillVisible ||
-      shellVisible
+      skillVisible
     ) {
       return undefined;
     }
@@ -1556,10 +1364,12 @@ export function AgentUI({
     slashVisible,
     fileMentionVisible,
     skillVisible,
-    shellVisible,
   ]);
   const composerInlineGhostSuffix = useMemo(() => {
     if (!input || input.includes('\n')) {
+      return undefined;
+    }
+    if (input.trimStart().startsWith('!')) {
       return undefined;
     }
     return getInlineGhostCompletionSuffix(
@@ -1567,7 +1377,7 @@ export function AgentUI({
       filesProvider?.() ?? [],
       slashCommands ?? [],
       workspaceRoot,
-      llmInlineShellSuggestion,
+      undefined,
       skillsProvider,
     ) ?? undefined;
   }, [
@@ -1575,7 +1385,6 @@ export function AgentUI({
     filesProvider,
     slashCommands,
     workspaceRoot,
-    llmInlineShellSuggestion,
     skillsProvider,
     state.suggestionRefreshId,
   ]);
@@ -1694,13 +1503,6 @@ export function AgentUI({
             suggestions={slashSuggestions}
             activeIndex={slashActiveIndex}
             visible={slashVisible && enableQueueInput}
-          />
-        }
-        shellCommandDropdown={
-          <ShellCommandDropdown
-            suggestions={shellSuggestions}
-            activeIndex={shellActiveIndex}
-            visible={shellVisible && enableQueueInput}
           />
         }
         inputWidth={inputWidth}
@@ -2100,21 +1902,6 @@ const SkillMentionWrapper = memo(function SkillMentionWrapper({
 });
 
 /**
- * Shell command dropdown wrapper
- */
-interface ShellCommandWrapperProps {
-  shellCommandDropdown?: React.ReactNode;
-}
-
-const ShellCommandWrapper = memo(function ShellCommandWrapper({
-  shellCommandDropdown,
-}: ShellCommandWrapperProps) {
-  return shellCommandDropdown ?? null;
-}, (prev, next) => {
-  return prev.shellCommandDropdown === next.shellCommandDropdown;
-});
-
-/**
  * Fixed bottom section - status line, queue, input
  * Split into StatusSection and InputSection for better memoization
  */
@@ -2136,7 +1923,6 @@ interface FixedBottomProps {
   fileMentionDropdown?: React.ReactNode;
   slashCommandDropdown?: React.ReactNode;
   skillMentionDropdown?: React.ReactNode;
-  shellCommandDropdown?: React.ReactNode;
   /** Terminal width for InputLine */
   inputWidth: number;
   /** Border style for the input box */
@@ -2166,7 +1952,6 @@ const FixedBottom = memo(function FixedBottom({
   fileMentionDropdown,
   slashCommandDropdown,
   skillMentionDropdown,
-  shellCommandDropdown,
   inputWidth,
   borderStyle,
   placeholderText,
@@ -2202,7 +1987,6 @@ const FixedBottom = memo(function FixedBottom({
       <FileMentionWrapper fileMentionDropdown={fileMentionDropdown} />
       <SlashCommandWrapper slashCommandDropdown={slashCommandDropdown} />
       <SkillMentionWrapper skillMentionDropdown={skillMentionDropdown} />
-      <ShellCommandWrapper shellCommandDropdown={shellCommandDropdown} />
       <ShortcutsHelpPanel visible={showShortcuts && !isWorking} />
       <HelpLineSection
         isWorking={isWorking}

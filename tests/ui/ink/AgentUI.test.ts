@@ -297,7 +297,7 @@ describe('AgentUI composer suggestions', () => {
     expect(frame.match(/I do not have the ability to view images directly\./g)).toHaveLength(1);
   });
 
-  it('renders inline shell suggestion in the Ink composer', () => {
+  it('does not render inline shell suggestions in the Ink composer', () => {
     const state = {
       ...createInitialUIState(),
       currentInput: '! git s',
@@ -319,7 +319,7 @@ describe('AgentUI composer suggestions', () => {
       )
     );
 
-    expect(stripAnsi(lastFrame() ?? '')).toContain('! git status');
+    expect(stripAnsi(lastFrame() ?? '')).not.toContain('! git status');
   });
 
   it('renders slash command suggestions for a typed bare slash in the Ink composer', async () => {
@@ -382,7 +382,7 @@ describe('AgentUI composer suggestions', () => {
     expect(frame).toContain('Tab to accept');
   });
 
-  it('renders local shell command dropdown suggestions for git input in the Ink composer', async () => {
+  it('does not render shell command dropdown suggestions for git input in the Ink composer', async () => {
     const state = {
       ...createInitialUIState(),
       currentInput: '! git',
@@ -407,12 +407,12 @@ describe('AgentUI composer suggestions', () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 50));
 
     const frame = stripAnsi(lastFrame() ?? '');
-    expect(frame).toContain('! git status');
-    expect(frame).toContain('! git diff');
-    expect(frame).toContain('Tab to accept');
+    expect(frame).not.toContain('! git status');
+    expect(frame).not.toContain('! git diff');
+    expect(frame).not.toContain('Tab to accept');
   });
 
-  it('renders local shell command dropdown suggestions for bare bang input', async () => {
+  it('does not render shell command dropdown suggestions for bare bang input', async () => {
     const state = createInitialUIState();
     const { lastFrame, stdin } = render(
       React.createElement(
@@ -435,9 +435,9 @@ describe('AgentUI composer suggestions', () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 50));
 
     const frame = stripAnsi(lastFrame() ?? '');
-    expect(frame).toContain('! git status');
-    expect(frame).toContain('! ls -la');
-    expect(frame).toContain('Tab to accept');
+    expect(frame).not.toContain('! git status');
+    expect(frame).not.toContain('! ls -la');
+    expect(frame).not.toContain('Tab to accept');
   });
 
   it('submits arbitrary shell command input on Enter without accepting the active suggestion', async () => {
