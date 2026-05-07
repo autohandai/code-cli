@@ -18,7 +18,8 @@ import path from 'node:path';
 import os from 'node:os';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
-const SCRIPT_RUNNER = `${JSON.stringify(process.execPath)} --import tsx`;
+const TSX_LOADER = path.join(ROOT, 'node_modules/tsx/dist/loader.mjs');
+const SCRIPT_RUNNER = `${JSON.stringify(process.env.NODE_BINARY ?? 'node')} --import ${JSON.stringify(TSX_LOADER)}`;
 let tempDir: string;
 let scriptPath: string;
 
