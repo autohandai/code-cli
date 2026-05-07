@@ -28,6 +28,7 @@
     "lint": "eslint .",
     "proof": "eslint . && tsc --noEmit && node --max-old-space-size=8192 ./node_modules/vitest/vitest.mjs run",
     "test": "node --max-old-space-size=8192 ./node_modules/vitest/vitest.mjs run",
+    "test:ci": "node --max-old-space-size=8192 ./node_modules/vitest/vitest.mjs run --pool=threads --exclude 'tests/tuistory/**/*.tuistory.test.ts'",
     "test:tuistory": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run --config vitest.tuistory.config.ts",
     "proof:build-tuistory": "tsup && node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run --config vitest.tuistory.config.ts",
     "start": "node dist/index.js",

@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 interface VitestUserConfig {
   test?: {
     exclude?: string[];
+    fileParallelism?: boolean;
     maxConcurrency?: number;
     minWorkers?: number;
     maxWorkers?: number;
@@ -17,6 +18,9 @@ interface VitestUserConfig {
     forks?: {
       singleFork?: boolean;
       execArgv?: string[];
+    };
+    threads?: {
+      singleThread?: boolean;
     };
   };
 }
@@ -50,15 +54,17 @@ describe('vitest config', () => {
     expect(config.poolOptions?.forks?.singleFork).toBeUndefined();
   });
 
-  it('uses a single worker in CI to avoid worker-pool OOM exits', async () => {
+  it('uses a single thread in CI to avoid forked worker exits', async () => {
     const config = await loadVitestConfig(true);
 
-    expect(config.test?.pool).toBe('forks');
+    expect(config.test?.pool).toBe('threads');
     expect(config.test?.maxConcurrency).toBe(1);
     expect(config.test?.minWorkers).toBe(1);
     expect(config.test?.maxWorkers).toBe(1);
-    expect(config.poolOptions?.forks?.singleFork).toBe(true);
+    expect(config.test?.fileParallelism).toBe(false);
+    expect(config.poolOptions?.forks?.singleFork).toBeUndefined();
     expect(config.poolOptions?.forks?.execArgv).toContain('--max-old-space-size=8192');
+    expect(config.poolOptions?.threads?.singleThread).toBe(true);
   });
 
   it('keeps Tuistory tests on their dedicated built-CLI config', async () => {

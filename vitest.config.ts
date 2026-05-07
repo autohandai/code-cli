@@ -11,10 +11,11 @@ export default defineConfig({
     testTimeout: 30_000,
     hookTimeout: 30_000,
     maxConcurrency: workerCount,
-    // Keep local runs parallel while preventing CI worker-pool OOM exits.
-    pool: 'forks',
+    // Keep local runs parallel while avoiding CI fork worker exits after test completion.
+    pool: isCi ? 'threads' : 'forks',
     minWorkers: minWorkerCount,
     maxWorkers: workerCount,
+    fileParallelism: !isCi,
     silent: true,
     // Many tests intentionally print status updates; Vitest buffers that
     // output and can exhaust heap on large runs.
@@ -30,8 +31,10 @@ export default defineConfig({
   },
   poolOptions: {
     forks: {
-      ...(isCi ? { singleFork: true } : {}),
       execArgv: ['--max-old-space-size=8192'],
+    },
+    threads: {
+      singleThread: true,
     },
   },
 });

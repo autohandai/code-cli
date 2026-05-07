@@ -62,4 +62,14 @@ describe('dependency install guardrails', () => {
       expect(content).not.toMatch(/\bbun install(?!\s+--frozen-lockfile)/);
     }
   });
+
+  it('uses the dedicated single-thread Vitest mode in release CI', () => {
+    const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+    const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8');
+
+    expect(packageJson.scripts?.['test:ci']).toBe("node --max-old-space-size=8192 ./node_modules/vitest/vitest.mjs run --pool=threads --exclude 'tests/tuistory/**/*.tuistory.test.ts'");
+    expect(releaseWorkflow).toContain('run: bun run test:ci');
+  });
 });
