@@ -315,13 +315,14 @@ describe('PlanModeManager', () => {
       expect(tools).not.toContain('run_command');
     });
 
-    it('should include plan and ask_followup_question in read-only tools', async () => {
+    it('should include plan approval tools in read-only tools', async () => {
       const { PlanModeManager } = await import('../../../src/modes/planMode/PlanModeManager.js');
       const manager = new PlanModeManager();
 
       const tools = manager.getReadOnlyTools();
 
       expect(tools).toContain('plan');
+      expect(tools).toContain('exit_plan_mode');
       expect(tools).toContain('ask_followup_question');
     });
   });

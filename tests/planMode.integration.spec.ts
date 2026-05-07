@@ -369,6 +369,7 @@ describe('PlanModeManager tool filtering', () => {
     // Should include plan-related tools (plan is allowed in read-only list
     // when plan mode is enabled; it's gated at the ToolManager level)
     expect(tools).toContain('plan');
+    expect(tools).toContain('exit_plan_mode');
     expect(tools).toContain('ask_followup_question');
 
     // Should NOT include write operations
