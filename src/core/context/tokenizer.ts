@@ -17,21 +17,40 @@ const MODEL_CONTEXT: Record<string, number> = {
   "anthropic/claude-3-haiku": 200_000,
   "anthropic/claude-opus-4": 200_000,
   "anthropic/claude-opus-4-7": 1_000_000,
+  "openai/gpt-5.5": 1_050_000,
+  "openai/gpt-5.5-pro": 1_050_000,
+  "openai/gpt-5.5-2026-04-23": 1_050_000,
+  "openai/gpt-5.5-pro-2026-04-23": 1_050_000,
+  "openai/gpt-5.4": 1_050_000,
+  "openai/gpt-5.4-pro": 1_050_000,
+  "openai/gpt-5.4-2026-03-05": 1_050_000,
+  "openai/gpt-5.4-mini": 400_000,
+  "openai/gpt-5.4-mini-2026-03-17": 400_000,
+  "openai/gpt-5.4-nano": 400_000,
+  "openai/gpt-5.4-nano-2026-03-17": 400_000,
+  "openai/gpt-5.3-codex": 400_000,
+  "openai/gpt-5.3-chat-latest": 128_000,
+  "openai/gpt-5": 400_000,
+  "openai/gpt-5-mini": 400_000,
+  "openai/gpt-5-nano": 400_000,
   "openai/gpt-4o-mini": 128_000,
   "openai/gpt-4o": 128_000,
   "openai/gpt-4.1": 200_000,
   "openai/o1": 200_000,
   "openai/o1-mini": 128_000,
-  "google/gemini-pro": 128_000,
-  "google/gemini-2.0-flash": 1_000_000,
-  "google/gemini-2.5-pro": 1_000_000,
-  "google/gemini-3.0-pro": 1_000_000,
+  "google/gemini-3.1-pro-preview": 1_000_000,
+  "google/gemini-3.1-flash-lite-preview": 1_000_000,
+  "google/gemini-3-flash-preview": 1_000_000,
+  "google/gemini-3.1-flash-image-preview": 128_000,
+  "google/gemini-3-pro-image-preview": 65_000,
   "tencent/hy3-preview:free": 262_144,
   "tencent/hy3-preview-20260421:free": 262_144,
+  "deepseek/deepseek-v4-pro": 1_000_000,
+  "deepseek/deepseek-v4-flash": 1_000_000,
   "deepseek/deepseek-r1": 64_000,
   "deepseek/deepseek-r1-0528-qwen3-8b:free": 8_000,
   "deepseek/deepseek-coder": 16_000,
-  "deepseek/deepseek-v4": 128_000,
+  "deepseek/deepseek-v4": 1_000_000,
 };
 
 /** Safety margin to prevent hitting exact limits (10% reserved) */
@@ -81,7 +100,7 @@ export function getSafeContextWindow(model: string): number {
 export function getModelFamily(model: string): string {
   const normalized = model.toLowerCase();
   if (normalized.includes('claude')) return 'claude';
-  if (normalized.includes('gpt-4') || normalized.includes('o1') || normalized.includes('o3')) return 'openai';
+  if (normalized.includes('gpt-4') || normalized.includes('gpt-5') || normalized.includes('o1') || normalized.includes('o3')) return 'openai';
   if (normalized.includes('gemini')) return 'gemini';
   if (normalized.includes('deepseek')) return 'deepseek';
   return 'default';
