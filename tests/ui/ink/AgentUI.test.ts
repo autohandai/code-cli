@@ -439,6 +439,36 @@ describe('AgentUI composer suggestions', () => {
     expect(frame).toContain('! ls -la');
     expect(frame).toContain('Tab to accept');
   });
+
+  it('submits arbitrary shell command input on Enter without accepting the active suggestion', async () => {
+    const onInstruction = vi.fn();
+    const state = {
+      ...createInitialUIState(),
+      currentInput: '! git banana',
+    };
+    const { stdin } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction,
+            onEscape: () => {},
+            onCtrlC: () => {},
+          })
+        )
+      )
+    );
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    stdin.write('\r');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    expect(onInstruction).toHaveBeenCalledWith('! git banana');
+  });
 });
 
 describe('AgentUI processing chat scrollback', () => {
