@@ -26,6 +26,8 @@ const MODEL_CONTEXT: Record<string, number> = {
   "google/gemini-2.0-flash": 1_000_000,
   "google/gemini-2.5-pro": 1_000_000,
   "google/gemini-3.0-pro": 1_000_000,
+  "tencent/hy3-preview:free": 262_144,
+  "tencent/hy3-preview-20260421:free": 262_144,
   "deepseek/deepseek-r1": 64_000,
   "deepseek/deepseek-r1-0528-qwen3-8b:free": 8_000,
   "deepseek/deepseek-coder": 16_000,
