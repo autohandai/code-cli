@@ -76,6 +76,7 @@ const OPERATIONAL_ACTIONS = [
   'implement',
   'inspect',
   'look at',
+  'make',
   'modify',
   'patch',
   'read',
@@ -126,9 +127,26 @@ function splitStatements(normalized: string): string[] {
     .filter((line) => line.length > 0);
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function findPhraseIndex(statement: string, phrase: string): number {
+  const match = new RegExp(`(?:^|[ :])${escapeRegExp(phrase)}(?:[ :]|$)`).exec(statement);
+  if (!match) {
+    return -1;
+  }
+
+  return match[0].startsWith(' ') || match[0].startsWith(':') ? match.index + 1 : match.index;
+}
+
+function hasPhrase(statement: string, phrase: string): boolean {
+  return findPhraseIndex(statement, phrase) >= 0;
+}
+
 function findOperationalActionIndex(statement: string): number {
   const indexes = OPERATIONAL_ACTIONS
-    .map((action) => statement.indexOf(action))
+    .map((action) => findPhraseIndex(statement, action))
     .filter((index) => index >= 0);
 
   return indexes.length === 0 ? -1 : Math.min(...indexes);
@@ -145,7 +163,7 @@ function hasActionAnnouncement(statement: string): boolean {
   }
 
   const answerOpenerIndex = ANSWER_INTENT_OPENERS
-    .map((opener) => statement.indexOf(opener))
+    .map((opener) => findPhraseIndex(statement, opener))
     .filter((index) => index >= 0)
     .sort((a, b) => a - b)[0];
   if (answerOpenerIndex !== undefined && answerOpenerIndex <= actionIndex) {
@@ -153,7 +171,7 @@ function hasActionAnnouncement(statement: string): boolean {
   }
 
   return ACTION_INTENT_OPENERS.some((opener) => {
-    const openerIndex = statement.indexOf(opener);
+    const openerIndex = findPhraseIndex(statement, opener);
     return openerIndex >= 0 && openerIndex <= actionIndex;
   });
 }
@@ -174,16 +192,16 @@ function isOperationalNextStep(statement: string): boolean {
 }
 
 function isAnswerPromiseInsteadOfAnswer(statement: string): boolean {
-  const hasPromise = ANSWER_PROMISE_PHRASES.some((phrase) => statement.includes(phrase));
+  const hasPromise = ANSWER_PROMISE_PHRASES.some((phrase) => hasPhrase(statement, phrase));
   if (!hasPromise) {
     return false;
   }
 
   return (
-    statement.includes(' to the user') ||
-    statement.includes(' for the user') ||
-    statement.includes(' to you') ||
-    statement.includes(' for you')
+    hasPhrase(statement, 'to the user') ||
+    hasPhrase(statement, 'for the user') ||
+    hasPhrase(statement, 'to you') ||
+    hasPhrase(statement, 'for you')
   );
 }
 
@@ -204,7 +222,7 @@ export function classifyResponseCompletion({
     return { kind: 'final_answer' };
   }
 
-  if (BLOCKED_WITHOUT_TOOLS_PHRASES.some((phrase) => normalized.includes(phrase))) {
+  if (BLOCKED_WITHOUT_TOOLS_PHRASES.some((phrase) => hasPhrase(normalized, phrase))) {
     return {
       kind: 'invalid_deferred_action',
       reason: 'blocked_without_tools',

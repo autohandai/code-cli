@@ -658,7 +658,6 @@ export class AutohandAgent {
       cleanupModelResponse: (content) => agent.cleanupModelResponse(content),
       emitOutput: (event) => agent.emitOutput(event),
       ensureSpinnerRunning: () => agent.ensureSpinnerRunning(),
-      expressesIntentToAct: (text) => agent.expressesIntentToAct(text),
       forceRenderSpinner: () => agent.forceRenderSpinner(),
       getMessagesWithImages: () => agent.getMessagesWithImages(),
       getReactionParser: () => agent.getReactionParser(),
@@ -743,32 +742,6 @@ export class AutohandAgent {
   private async summarizeRemovedMessages(messages: LLMMessage[]): Promise<string> {
     const { summarizeWithLLM } = await import('./context/summarizer.js');
     return summarizeWithLLM(messages, this.llm, this.memoryManager);
-  }
-
-  /**
-   * Detect if response text expresses intent to perform an action without having done it.
-   * This catches phrases like "Let me update...", "I will now edit...", "Next I'll create..."
-   */
-  private expressesIntentToAct(text: string): boolean {
-    if (!text) return false;
-    // const _lower = text.toLowerCase();
-
-    // Patterns that indicate intent to perform a file operation
-    const intentPatterns = [
-      /\b(let me|i('ll| will)|now i('ll| will)|i('m| am) going to|let's|i need to|i should|i can now)\b.{0,30}\b(update|edit|modify|change|create|write|add|remove|delete|fix|refactor|implement|apply|patch)/i,
-      /\b(updating|editing|modifying|creating|writing|adding|removing|fixing|refactoring|implementing)\b.{0,20}\b(the file|readme|config|code|function|component)/i,
-      /\blet me (now )?make (the|these|those) (changes?|updates?|modifications?|edits?)/i,
-      /\bi('ll| will) (proceed|go ahead|start|begin) (to|and|with) (update|edit|modify|change|create|write)/i,
-      /\bnow (let me|i('ll| will)|i can) (update|edit|modify|create|write|add|fix)/i,
-    ];
-
-    for (const pattern of intentPatterns) {
-      if (pattern.test(text)) {
-        return true;
-      }
-    }
-
-    return false;
   }
 
   private cleanupModelResponse(content: string): string {

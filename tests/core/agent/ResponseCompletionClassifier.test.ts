@@ -56,6 +56,16 @@ describe('ResponseCompletionClassifier', () => {
     expect(result).toEqual({ kind: 'final_answer' });
   });
 
+  it.each([
+    'Let me explain the runtime architecture: ReactLoopRunner owns turn completion.',
+    'I will spread this across two bullets:\n- first point\n- second point',
+    'I can answer without reading files: this is a TypeScript CLI.',
+  ])('does not match operational action words inside larger words or answer phrasing', (response) => {
+    const result = classifyResponseCompletion({ response });
+
+    expect(result).toEqual({ kind: 'final_answer' });
+  });
+
   it('keeps the legacy deferred-response helper backed by the classifier', () => {
     expect(isDeferredFinalResponse('Let me run the tests now.')).toBe(true);
     expect(isDeferredFinalResponse('Let me explain: the tests failed before this change.')).toBe(false);
