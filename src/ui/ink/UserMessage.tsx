@@ -75,14 +75,17 @@ function wrapVisibleLine(line: string, width: number): string[] {
 function buildStyledRows(text: string, width: number): string[] {
   const rowWidth = Math.max(MIN_MESSAGE_WIDTH, width);
   const innerWidth = Math.max(1, rowWidth - 2);
+  const verticalPaddingRow = ' '.repeat(rowWidth);
 
-  return text
+  const contentRows = text
     .split('\n')
     .flatMap((line) => wrapVisibleLine(line, innerWidth))
     .map((line) => {
       const padding = Math.max(0, innerWidth - stringWidth(line));
       return ` ${line}${' '.repeat(padding)} `;
     });
+
+  return [verticalPaddingRow, ...contentRows, verticalPaddingRow];
 }
 
 /**
