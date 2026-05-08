@@ -329,7 +329,7 @@ describe('ReactLoopRunner composer status', () => {
         content: 'The codebase has src, tests, docs, and configuration files.',
       });
       expect(saveAssistantMessage).toHaveBeenCalledTimes(1);
-      expect(addSystemNote).toHaveBeenCalledWith(expect.stringContaining('emitted no finalResponse and no tool calls'));
+      expect(addSystemNote).toHaveBeenCalledWith(expect.stringContaining('emitted no usable finalResponse and no tool calls'));
       expect(addSystemNote).toHaveBeenCalledWith(expect.stringContaining('emit the required tool call'));
       expect(addSystemNote).not.toHaveBeenCalledWith(expect.stringContaining('Do not call any more tools'));
       expect(emitOutput).toHaveBeenCalledWith({

@@ -52,6 +52,7 @@ import {
   isDeferredFinalResponse,
 } from './ResponseCompletionClassifier.js';
 import type { ResponseCompletionHook } from './ResponseCompletionClassifier.js';
+import { evaluateAssistantTurn } from './TurnOutcomeEvaluator.js';
 
 class LoopAbortedError extends Error {
   constructor(message: string) {
@@ -158,10 +159,6 @@ export function formatComposerToolCallStatus(toolCount: number): string {
 
 export { isDeferredFinalResponse, classifyResponseCompletion };
 
-function assertNever(value: never): never {
-  throw new Error(`Unhandled response completion classification: ${JSON.stringify(value)}`);
-}
-
 export async function runAgentReactLoop(host: AgentReactLoopHost, abortController: AbortController): Promise<void> {
     host.consecutiveCancellations = 0;
 
@@ -236,6 +233,42 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
     let reflectionViolationCount = 0;
     let invalidDeferredActionCount = 0;
     let consecutiveEmptyResponseCount = 0;
+
+    const renderFinalResponse = (
+      response: string,
+      options: { thought?: string; usedThoughtAsResponse: boolean },
+    ): void => {
+      host.stopStatusUpdates();
+      consecutiveEmptyResponseCount = 0;
+      host.lastAssistantResponseForNotification = response;
+
+      const suppressThinking = options.usedThoughtAsResponse && response.length > 0;
+      if (options.thought && !suppressThinking) {
+        host.emitOutput({ type: 'thinking', thought: options.thought });
+      }
+      host.emitOutput({ type: 'message', content: response });
+
+      if (host.inkRenderer) {
+        if (showThinking && options.thought && !suppressThinking) {
+          host.inkRenderer.setThinking(options.thought);
+        }
+        host.inkRenderer.setElapsed(formatElapsedTime(host.taskStartedAt ?? host.sessionStartedAt));
+        host.inkRenderer.setTokens(formatTurnUsage(host.currentTurnActualUsage));
+        host.inkRenderer.setWorking(false);
+        host.inkRenderer.setFinalResponse(response);
+      } else {
+        host.runtime.spinner?.stop();
+        if (showThinking && options.thought && !suppressThinking) {
+          console.log(chalk.gray(`Thinking: ${options.thought}`));
+          console.log();
+        }
+        if (options.usedThoughtAsResponse) {
+          console.log(chalk.gray('Thinking: ') + response);
+        } else {
+          console.log(response);
+        }
+      }
+    };
 
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
       // Check for abort at the start of each iteration
@@ -370,68 +403,65 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
 
       const payload = host.getReactionParser().parseAssistantResponse(completion);
       if (debugMode) host.writeDebugLine(`[AGENT DEBUG] Parsed payload: finalResponse=${!!payload.finalResponse}, thought=${!!payload.thought}, toolCalls=${payload.toolCalls?.length ?? 0}`);
-      if (
-        !completion.content.trim() &&
-        !payload.finalResponse &&
-        !payload.response &&
-        !payload.thought &&
-        !payload.toolCalls?.length
-      ) {
-        consecutiveEmptyResponseCount += 1;
+      const turnOutcome = evaluateAssistantTurn({
+        completion,
+        payload,
+        cleanupModelResponse: host.cleanupModelResponse,
+        responseCompletionHooks: host.responseCompletionHooks,
+      });
 
-        if (consecutiveEmptyResponseCount >= 3) {
-          if (debugMode) host.writeDebugLine('[AGENT DEBUG] Exiting after 3 consecutive empty responses');
-          host.stopStatusUpdates();
-          console.log(chalk.yellow('\n⚠ Model not providing response after multiple attempts. Showing available context.'));
-          const fallback = 'The model did not provide a clear response. Please try rephrasing your question.';
-          host.lastAssistantResponseForNotification = fallback;
-          host.setComposerIdle();
-          host.setComposerFinalResponse(fallback);
-          consecutiveEmptyResponseCount = 0;
-          host.emitOutput({ type: 'message', content: fallback });
-          throw new LoopAbortedError('Model produced empty responses after multiple attempts');
+      if (turnOutcome.type === 'repair') {
+        if (turnOutcome.reason === 'invalid_deferred_action') {
+          invalidDeferredActionCount += 1;
+          if (invalidDeferredActionCount < 2) {
+            host.conversation.addSystemNote(turnOutcome.instruction);
+            continue;
+          }
+
+          host.autoReportManager.reportError(
+            new Error(`Invalid deferred finalResponse without tool calls: ${turnOutcome.telemetry?.reason ?? 'unknown'}`),
+            {
+              errorType: 'invalid_deferred_action',
+              model: host.runtime.options.model,
+              provider: host.activeProvider,
+              conversationLength: host.conversation.history().length,
+              context: {
+                responseCompletionKind: 'invalid_deferred_action',
+                reason: turnOutcome.telemetry?.reason ?? 'unknown',
+                excerpt: turnOutcome.telemetry?.excerpt ?? '',
+              },
+            }
+          ).catch(() => {});
+
+          renderFinalResponse('The model stopped before providing a usable answer. Please retry the request.', {
+            thought: payload.thought,
+            usedThoughtAsResponse: false,
+          });
+          return;
         }
 
-        host.conversation.addSystemNote(
-          '[System] ERROR: Your previous assistant turn emitted no finalResponse and no tool calls. ' +
-          'Either emit the required tool call now, or explain why no tool is needed and answer directly in finalResponse. ' +
-          'Do not return an empty assistant message.'
-        );
-        continue;
-      }
-      if (!payload.toolCalls?.length) {
-        const cleanedPreSaveContent = host.cleanupModelResponse(completion.content);
-        const preSaveRawResponse = payload.finalResponse ??
-          payload.response ??
-          payload.thought ??
-          (cleanedPreSaveContent.startsWith('{')
-            ? ''
-            : cleanedPreSaveContent);
-        const preSaveResponse = host.cleanupModelResponse(preSaveRawResponse.trim());
-        if (!preSaveResponse) {
+        if (turnOutcome.reason === 'empty_no_tool_response') {
           consecutiveEmptyResponseCount += 1;
 
           if (consecutiveEmptyResponseCount >= 3) {
             if (debugMode) host.writeDebugLine('[AGENT DEBUG] Exiting after 3 consecutive empty responses');
-            host.stopStatusUpdates();
             console.log(chalk.yellow('\n⚠ Model not providing response after multiple attempts. Showing available context.'));
             const fallback = payload.thought || 'The model did not provide a clear response. Please try rephrasing your question.';
-            host.lastAssistantResponseForNotification = fallback;
             host.setComposerIdle();
-            host.setComposerFinalResponse(fallback);
-            consecutiveEmptyResponseCount = 0;
-            host.emitOutput({ type: 'message', content: fallback });
+            renderFinalResponse(fallback, {
+              thought: payload.thought,
+              usedThoughtAsResponse: false,
+            });
             throw new LoopAbortedError('Model produced empty responses after multiple attempts');
           }
-
-          host.conversation.addSystemNote(
-            '[System] ERROR: Your previous assistant turn emitted no usable finalResponse and no tool calls. ' +
-            'Either emit the required tool call now, or explain why no tool is needed and answer directly in finalResponse. ' +
-            'Do not return another empty, JSON-only, or progress-only assistant message.'
-          );
-          continue;
         }
+
+        host.conversation.addSystemNote(turnOutcome.instruction);
+        continue;
       }
+
+      consecutiveEmptyResponseCount = 0;
+      invalidDeferredActionCount = 0;
       const assistantMessage: LLMMessage = { role: 'assistant', content: completion.content };
       if (completion.toolCalls?.length) {
         assistantMessage.tool_calls = completion.toolCalls;
@@ -448,16 +478,6 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
         host.writeDebugLine(`[DEBUG]   - finalResponse: ${payload.finalResponse?.slice(0, 100) || '(none)'}`);
         host.writeDebugLine(`[DEBUG]   - raw content: ${completion.content?.slice(0, 200) || '(empty)'}`);
         host.writeDebugLine(`[DEBUG]   - finishReason: ${completion.finishReason ?? '(none)'}`);
-      }
-
-      // Detect truncated responses - some models silently cut off at max_tokens
-      if (completion.finishReason === 'length' && !payload.finalResponse) {
-        if (debugMode) host.writeDebugLine('[AGENT DEBUG] Response truncated (finishReason=length), asking model to continue');
-        host.conversation.addSystemNote(
-          '[System] Your previous response was truncated due to output length limits. ' +
-          'Please continue from where you left off. If you were making a tool call, retry it.'
-        );
-        continue;
       }
 
       // Show what the LLM is doing for visibility
@@ -834,141 +854,13 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
         continue;
       }
 
-      // Extract the response - prioritize explicit response fields, but use thought as fallback
-      // when there are no tool calls (model might provide analysis in thought without finalResponse)
-      let rawResponse: string;
-      const usedThoughtAsResponse = Boolean(payload.thought) &&
-        !payload.finalResponse &&
-        !payload.response &&
-        !payload.toolCalls?.length;
-      if (payload.finalResponse) {
-        rawResponse = payload.finalResponse;
-      } else if (payload.response) {
-        rawResponse = payload.response;
-      } else if (!payload.toolCalls?.length && payload.thought) {
-        // No tool calls and no explicit response, but has thought - use thought as the response
-        rawResponse = payload.thought;
-      } else {
-        // Last resort: try to extract something useful from raw content
-        const cleanedContent = host.cleanupModelResponse(completion.content);
-        // If cleaned content looks like JSON, it's not a real response
-        rawResponse = cleanedContent.startsWith('{') ? '' : cleanedContent;
+      if (turnOutcome.type !== 'finish') {
+        throw new Error(`Unexpected non-final turn outcome after tool handling: ${turnOutcome.type}`);
       }
-      let response = host.cleanupModelResponse(rawResponse.trim());
-      if (!response && usedThoughtAsResponse && payload.thought) {
-        response = payload.thought.trim();
-      }
-
-      // If response is empty, try to get a proper response
-      // This applies on any iteration (including 0) to prevent silent exit on parse failure
-      if (!response) {
-        // Track consecutive empty responses to prevent infinite loops
-        consecutiveEmptyResponseCount += 1;
-
-        if (consecutiveEmptyResponseCount >= 3) {
-          // After 3 retries, force a fallback and break out
-          if (debugMode) host.writeDebugLine('[AGENT DEBUG] Exiting after 3 consecutive empty responses');
-          host.stopStatusUpdates();
-          console.log(chalk.yellow('\n⚠ Model not providing response after multiple attempts. Showing available context.'));
-          const fallback = payload.thought || 'The model did not provide a clear response. Please try rephrasing your question.';
-          host.lastAssistantResponseForNotification = fallback;
-          host.setComposerIdle();
-          host.setComposerFinalResponse(fallback);
-          consecutiveEmptyResponseCount = 0;
-          // Emit fallback for RPC mode
-          host.emitOutput({ type: 'message', content: fallback });
-          throw new LoopAbortedError('Model produced empty responses after multiple attempts');
-        }
-
-        host.conversation.addSystemNote(
-          '[System] ERROR: Your previous assistant turn emitted no usable finalResponse and no tool calls. ' +
-          'Either emit the required tool call now, or explain why no tool is needed and answer directly in finalResponse. ' +
-          'Do not return another empty, JSON-only, or progress-only assistant message.'
-        );
-        continue;
-      }
-
-      const completionClassification = classifyResponseCompletion({
-        response,
-        toolCalls: payload.toolCalls,
-      }, host.responseCompletionHooks);
-
-      switch (completionClassification.kind) {
-        case 'tool_call':
-        case 'final_answer':
-          invalidDeferredActionCount = 0;
-          break;
-
-        case 'invalid_deferred_action': {
-          invalidDeferredActionCount += 1;
-          if (invalidDeferredActionCount < 2) {
-            host.conversation.addSystemNote(
-              `[System] ERROR: Your previous finalResponse announced an action but emitted no tool calls: "${completionClassification.excerpt}". ` +
-              'Either emit the required tool call now, or explain why no tool is needed and answer directly in finalResponse. ' +
-              'Do not write another progress update, SITREP, or next-step note as the finalResponse.'
-            );
-            continue;
-          }
-          host.autoReportManager.reportError(
-            new Error(`Invalid deferred finalResponse without tool calls: ${completionClassification.reason}`),
-            {
-              errorType: 'invalid_deferred_action',
-              model: host.runtime.options.model,
-              provider: host.activeProvider,
-              conversationLength: host.conversation.history().length,
-              context: {
-                responseCompletionKind: completionClassification.kind,
-                reason: completionClassification.reason,
-                excerpt: completionClassification.excerpt,
-              },
-            }
-          ).catch(() => {});
-          response = 'The model stopped before providing a usable answer. Please retry the request.';
-          break;
-        }
-
-        default:
-          assertNever(completionClassification);
-      }
-
-      host.stopStatusUpdates();
-
-      // Reset consecutive empty counter on success
-      consecutiveEmptyResponseCount = 0;
-      host.lastAssistantResponseForNotification = response;
-
-      // Emit output event for RPC mode
-      const suppressThinking = usedThoughtAsResponse && response.length > 0;
-      if (payload.thought && !suppressThinking) {
-        host.emitOutput({ type: 'thinking', thought: payload.thought });
-      }
-      host.emitOutput({ type: 'message', content: response });
-
-      if (host.inkRenderer) {
-        // InkRenderer: set final response
-        if (showThinking && payload.thought && !suppressThinking) {
-          host.inkRenderer.setThinking(payload.thought);
-        }
-        host.inkRenderer.setElapsed(formatElapsedTime(host.taskStartedAt ?? host.sessionStartedAt));
-        host.inkRenderer.setTokens(formatTurnUsage(host.currentTurnActualUsage));
-        host.inkRenderer.setWorking(false);
-        host.inkRenderer.setFinalResponse(response);
-      } else {
-        // Ora mode: stop spinner and output
-        host.runtime.spinner?.stop();
-        if (showThinking && payload.thought && !suppressThinking) {
-          // parseAssistantReactPayload already extracted thought from JSON
-          console.log(chalk.gray(`Thinking: ${payload.thought}`));
-          console.log();
-        }
-        if (usedThoughtAsResponse) {
-          // When thought was used as the response, prefix with "Thinking:" header
-          // so the user understands the model's internal reasoning became the reply
-          console.log(chalk.gray('Thinking: ') + response);
-        } else {
-          console.log(response);
-        }
-      }
+      renderFinalResponse(turnOutcome.response, {
+        thought: payload.thought,
+        usedThoughtAsResponse: turnOutcome.usedThoughtAsResponse,
+      });
       return;
     }
     host.stopStatusUpdates();
