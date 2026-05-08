@@ -113,7 +113,7 @@ function InputLineComponent({
 
   // Active state mirrors the boxed prompt style from readline mode.
   return (
-    <Box marginTop={1} flexDirection="column">
+    <Box flexDirection="column">
       <Text>{theme.fgBg(borderToken, 'userMessageBg', borders.top)}</Text>
       {displayData.plainLines.map(renderContentLine)}
       <Text>{theme.fgBg(borderToken, 'userMessageBg', borders.bottom)}</Text>
