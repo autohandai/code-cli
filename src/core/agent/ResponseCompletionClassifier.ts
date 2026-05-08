@@ -34,6 +34,17 @@ export interface ResponseCompletionInput {
   toolCalls?: ToolCallRequest[];
 }
 
+export interface ResponseCompletionContext {
+  response: string;
+  toolCalls: readonly ToolCallRequest[];
+  normalized: string;
+  statements: readonly string[];
+}
+
+export type ResponseCompletionHook = (
+  context: ResponseCompletionContext
+) => ResponseCompletionClassification | undefined;
+
 const ACTION_INTENT_OPENERS = [
   'let me',
   'i ll',
@@ -209,19 +220,15 @@ function getExcerpt(response: string): string {
   return response.trim().replace(/\s+/g, ' ').slice(0, 240);
 }
 
-export function classifyResponseCompletion({
-  response,
-  toolCalls,
-}: ResponseCompletionInput): ResponseCompletionClassification {
-  if ((toolCalls?.length ?? 0) > 0) {
+function classifyToolCallCompletion({ toolCalls }: ResponseCompletionContext): ResponseCompletionClassification | undefined {
+  if (toolCalls.length > 0) {
     return { kind: 'tool_call' };
   }
 
-  const normalized = normalizeForClassification(response);
-  if (!normalized) {
-    return { kind: 'final_answer' };
-  }
+  return undefined;
+}
 
+function classifyBlockedWithoutTools({ normalized, response }: ResponseCompletionContext): ResponseCompletionClassification | undefined {
   if (BLOCKED_WITHOUT_TOOLS_PHRASES.some((phrase) => hasPhrase(normalized, phrase))) {
     return {
       kind: 'invalid_deferred_action',
@@ -230,7 +237,13 @@ export function classifyResponseCompletion({
     };
   }
 
-  const statements = splitStatements(normalized);
+  return undefined;
+}
+
+function classifyAnnouncedActionWithoutTools({
+  response,
+  statements,
+}: ResponseCompletionContext): ResponseCompletionClassification | undefined {
   if (
     statements.some((statement) =>
       hasActionAnnouncement(statement) ||
@@ -243,6 +256,37 @@ export function classifyResponseCompletion({
       reason: 'announced_action_without_tool',
       excerpt: getExcerpt(response),
     };
+  }
+
+  return undefined;
+}
+
+export const DEFAULT_RESPONSE_COMPLETION_HOOKS: readonly ResponseCompletionHook[] = [
+  classifyToolCallCompletion,
+  classifyBlockedWithoutTools,
+  classifyAnnouncedActionWithoutTools,
+] as const;
+
+export function classifyResponseCompletion(
+  {
+    response,
+    toolCalls,
+  }: ResponseCompletionInput,
+  hooks: readonly ResponseCompletionHook[] = DEFAULT_RESPONSE_COMPLETION_HOOKS,
+): ResponseCompletionClassification {
+  const normalized = normalizeForClassification(response);
+  const context: ResponseCompletionContext = {
+    response,
+    toolCalls: toolCalls ?? [],
+    normalized,
+    statements: normalized ? splitStatements(normalized) : [],
+  };
+
+  for (const hook of hooks) {
+    const classification = hook(context);
+    if (classification) {
+      return classification;
+    }
   }
 
   return { kind: 'final_answer' };
