@@ -4,7 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import React, { memo } from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useStdout } from 'ink';
+import stringWidth from 'string-width';
 import { useTheme } from '../theme/ThemeContext.js';
 
 export interface UserMessageProps {
@@ -18,6 +19,8 @@ const COLLAPSE_LINE_THRESHOLD = 15;
 const COLLAPSE_CHAR_THRESHOLD = 1500;
 const TRUNCATE_LINE_MIN = 5;
 const BYTE_SIZE_THRESHOLD = 1024;
+const DEFAULT_MESSAGE_WIDTH = 80;
+const MIN_MESSAGE_WIDTH = 20;
 
 type ContentType = 'Code block' | 'JSON' | 'Stack trace' | 'Log output' | 'Diff' | 'Text';
 
@@ -43,23 +46,77 @@ function formatByteSize(bytes: number): string {
   return `${bytes}B`;
 }
 
+function wrapVisibleLine(line: string, width: number): string[] {
+  if (line.length === 0) {
+    return [''];
+  }
+
+  const rows: string[] = [];
+  let current = '';
+  let currentWidth = 0;
+
+  for (const char of Array.from(line)) {
+    const charWidth = stringWidth(char);
+    if (current && currentWidth + charWidth > width) {
+      rows.push(current);
+      current = char;
+      currentWidth = charWidth;
+      continue;
+    }
+
+    current += char;
+    currentWidth += charWidth;
+  }
+
+  rows.push(current);
+  return rows;
+}
+
+function buildStyledRows(text: string, width: number): string[] {
+  const rowWidth = Math.max(MIN_MESSAGE_WIDTH, width);
+  const innerWidth = Math.max(1, rowWidth - 2);
+
+  return text
+    .split('\n')
+    .flatMap((line) => wrapVisibleLine(line, innerWidth))
+    .map((line) => {
+      const padding = Math.max(0, innerWidth - stringWidth(line));
+      return ` ${line}${' '.repeat(padding)} `;
+    });
+}
+
 /**
  * UserMessage displays a user's prompt with a styled background.
  * Similar to how Codex displays user messages with a light gray background.
  *
- * Uses Box width="100%" so Ink/Yoga manages the width correctly across
- * terminal resizes — no manual padding hacks that leave artifacts.
+ * Emits explicit themed ANSI rows so the gray background includes the
+ * surrounding cells, not only the message glyphs.
  */
 function UserMessageComponent({ children, isQueued = false }: UserMessageProps) {
-  const { colors } = useTheme();
+  const { theme } = useTheme();
+  const { stdout } = useStdout();
 
   const lines = children.split('\n');
   const lineCount = lines.length;
   const charCount = children.length;
   const byteSize = Buffer.byteLength(children, 'utf8');
+  const width = stdout.columns ?? DEFAULT_MESSAGE_WIDTH;
 
   const shouldCollapse = lineCount > COLLAPSE_LINE_THRESHOLD || charCount > COLLAPSE_CHAR_THRESHOLD;
   const shouldTruncate = !shouldCollapse && lineCount > TRUNCATE_LINE_MIN && lineCount <= COLLAPSE_LINE_THRESHOLD;
+  const renderMessage = (text: string) => (
+    <Box
+      marginTop={1}
+      width="100%"
+      flexDirection="column"
+    >
+      {buildStyledRows(text, width).map((row, index) => (
+        <Text key={index}>
+          {theme.bold(theme.fgBg('userMessageText', 'userMessageBg', row))}
+        </Text>
+      ))}
+    </Box>
+  );
 
   if (shouldCollapse) {
     const contentType = detectContentType(children);
@@ -72,59 +129,16 @@ function UserMessageComponent({ children, isQueued = false }: UserMessageProps) 
       parts.push(formatByteSize(byteSize));
     }
 
-    return (
-      <Box
-        marginTop={1}
-        paddingX={1}
-        width="100%"
-        flexDirection="column"
-      >
-        <Text
-          color={colors.userMessageBg || '#333333'}
-          backgroundColor={colors.userMessageText || '#ffffff'}
-          bold
-        >
-          {isQueued ? '(queued) ' : ''}{parts.join(' · ')}
-        </Text>
-      </Box>
-    );
+    return renderMessage(`${isQueued ? '(queued) ' : ''}${parts.join(' · ')}`);
   }
 
   if (shouldTruncate) {
     const displayText = lines.slice(0, TRUNCATE_LINE_MIN).join('\n') + '\n...';
 
-    return (
-      <Box
-        marginTop={1}
-        paddingX={1}
-        width="100%"
-      >
-        <Text
-          color={colors.userMessageBg || '#333333'}
-          backgroundColor={colors.userMessageText || '#ffffff'}
-          bold
-        >
-          {isQueued ? '(queued) ' : ''}{displayText}
-        </Text>
-      </Box>
-    );
+    return renderMessage(`${isQueued ? '(queued) ' : ''}${displayText}`);
   }
 
-  return (
-    <Box
-      marginTop={1}
-      paddingX={1}
-      width="100%"
-    >
-      <Text
-        color={colors.userMessageBg || '#333333'}
-        backgroundColor={colors.userMessageText || '#ffffff'}
-        bold
-      >
-        {isQueued ? '(queued) ' : ''}{children}
-      </Text>
-    </Box>
-  );
+  return renderMessage(`${isQueued ? '(queued) ' : ''}${children}`);
 }
 
 /**
