@@ -114,7 +114,6 @@ export interface AgentReactLoopHost {
   cleanupModelResponse(content: string): string;
   emitOutput(event: AgentOutputEvent): void;
   ensureSpinnerRunning(): void;
-  expressesIntentToAct(text: string): boolean;
   forceRenderSpinner(): void;
   getMessagesWithImages(): Promise<LLMMessage[]>;
   getReactionParser(): { parseAssistantResponse(completion: LLMResponse): AssistantReactPayload };
@@ -156,6 +155,10 @@ export function formatComposerToolCallStatus(toolCount: number): string {
 }
 
 export { isDeferredFinalResponse, classifyResponseCompletion };
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled response completion classification: ${JSON.stringify(value)}`);
+}
 
 export async function runAgentReactLoop(host: AgentReactLoopHost, abortController: AbortController): Promise<void> {
     host.consecutiveCancellations = 0;
@@ -823,28 +826,43 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
         response,
         toolCalls: payload.toolCalls,
       });
-      if (completionClassification.kind === 'invalid_deferred_action') {
-        invalidDeferredActionCount += 1;
-        if (invalidDeferredActionCount < 2) {
-          host.conversation.addSystemNote(
-            `[System] ERROR: Your previous finalResponse announced an action but emitted no tool calls: "${completionClassification.excerpt}". ` +
-            'Either emit the required tool call now, or explain why no tool is needed and answer directly in finalResponse. ' +
-            'Do not write another progress update, SITREP, or next-step note as the finalResponse.'
-          );
-          continue;
-        }
-        host.autoReportManager.reportError(
-          new Error(`Invalid deferred finalResponse without tool calls: ${completionClassification.reason}`),
-          {
-            errorType: 'invalid_deferred_action',
-            model: host.runtime.options.model,
-            provider: host.activeProvider,
-            conversationLength: host.conversation.history().length,
+
+      switch (completionClassification.kind) {
+        case 'tool_call':
+        case 'final_answer':
+          invalidDeferredActionCount = 0;
+          break;
+
+        case 'invalid_deferred_action': {
+          invalidDeferredActionCount += 1;
+          if (invalidDeferredActionCount < 2) {
+            host.conversation.addSystemNote(
+              `[System] ERROR: Your previous finalResponse announced an action but emitted no tool calls: "${completionClassification.excerpt}". ` +
+              'Either emit the required tool call now, or explain why no tool is needed and answer directly in finalResponse. ' +
+              'Do not write another progress update, SITREP, or next-step note as the finalResponse.'
+            );
+            continue;
           }
-        ).catch(() => {});
-        response = 'The model stopped before providing a usable answer. Please retry the request.';
-      } else {
-        invalidDeferredActionCount = 0;
+          host.autoReportManager.reportError(
+            new Error(`Invalid deferred finalResponse without tool calls: ${completionClassification.reason}`),
+            {
+              errorType: 'invalid_deferred_action',
+              model: host.runtime.options.model,
+              provider: host.activeProvider,
+              conversationLength: host.conversation.history().length,
+              context: {
+                responseCompletionKind: completionClassification.kind,
+                reason: completionClassification.reason,
+                excerpt: completionClassification.excerpt,
+              },
+            }
+          ).catch(() => {});
+          response = 'The model stopped before providing a usable answer. Please retry the request.';
+          break;
+        }
+
+        default:
+          assertNever(completionClassification);
       }
 
       host.stopStatusUpdates();

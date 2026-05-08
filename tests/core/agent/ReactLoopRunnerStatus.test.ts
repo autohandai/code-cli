@@ -152,7 +152,6 @@ describe('ReactLoopRunner composer status', () => {
       cleanupModelResponse: (content: string) => content.trim(),
       emitOutput,
       ensureSpinnerRunning: vi.fn(),
-      expressesIntentToAct: vi.fn(() => false),
       forceRenderSpinner: vi.fn(),
       getMessagesWithImages: vi.fn(async () => []),
       getReactionParser: () => parser,
@@ -261,6 +260,11 @@ describe('ReactLoopRunner composer status', () => {
           errorType: 'invalid_deferred_action',
           model: 'test-model',
           provider: 'openai',
+          context: expect.objectContaining({
+            excerpt: expect.stringContaining('blocked by no-tool constraint'),
+            reason: 'blocked_without_tools',
+            responseCompletionKind: 'invalid_deferred_action',
+          }),
         }),
       );
       expect(emitOutput).toHaveBeenCalledWith({
@@ -371,7 +375,6 @@ function createReactLoopTestHost(
     cleanupModelResponse: (content: string) => content.trim(),
     emitOutput: vi.fn(),
     ensureSpinnerRunning: vi.fn(),
-    expressesIntentToAct: vi.fn(() => false),
     forceRenderSpinner: vi.fn(),
     getMessagesWithImages: vi.fn(async () => []),
     getReactionParser: () => parser,
