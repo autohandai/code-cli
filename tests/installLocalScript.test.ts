@@ -31,7 +31,17 @@ describe('local install scripts', () => {
     };
     const devScript = packageJson.scripts?.dev ?? '';
 
-    expect(devScript).toBe('env -i PATH="/Users/igorcosta/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun src/index.ts');
+    expect(devScript).toBe('env -i PATH="/Users/igorcosta/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" AUTOHAND_DEBUG="$AUTOHAND_DEBUG" bun src/index.ts');
+  });
+
+  it('preserves AUTOHAND_DEBUG through the sanitized dev environment', () => {
+    const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+    const devScript = packageJson.scripts?.dev ?? '';
+
+    expect(devScript).toContain('env -i ');
+    expect(devScript).toContain('AUTOHAND_DEBUG="$AUTOHAND_DEBUG"');
   });
 
   localInstallScriptTest('compiles the installed binary without running nested package scripts', () => {

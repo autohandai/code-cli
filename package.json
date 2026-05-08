@@ -23,7 +23,7 @@
   "scripts": {
     "go": "./install-local.sh && echo \"COMPLETED\"",
     "build": "tsup",
-    "dev": "env -i PATH=\"/Users/igorcosta/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin\" HOME=\"$HOME\" bun src/index.ts",
+    "dev": "env -i PATH=\"/Users/igorcosta/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin\" HOME=\"$HOME\" AUTOHAND_DEBUG=\"$AUTOHAND_DEBUG\" bun src/index.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "proof": "eslint . && tsc --noEmit && node --max-old-space-size=8192 ./node_modules/vitest/vitest.mjs run",
