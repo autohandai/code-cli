@@ -10,15 +10,35 @@ import { render } from 'ink-testing-library';
 import { UserMessage } from '../../src/ui/ink/UserMessage.js';
 import { ThemeProvider } from '../../src/ui/theme/ThemeContext.js';
 import { I18nProvider } from '../../src/ui/i18n/index.js';
+import { Theme } from '../../src/ui/theme/Theme.js';
+import { COLOR_TOKENS, type ResolvedColors } from '../../src/ui/theme/types.js';
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '');
+}
 
 function renderWithProviders(element: React.ReactElement) {
+  const colors = createMockColors({
+    userMessageBg: '#9e9e9e',
+    userMessageText: '#f5f5f5',
+  });
+  const theme = new Theme('user-message-test', colors, 'truecolor');
+
   return render(
     <I18nProvider>
-      <ThemeProvider>
+      <ThemeProvider theme={theme}>
         {element}
       </ThemeProvider>
     </I18nProvider>
   );
+}
+
+function createMockColors(overrides: Partial<ResolvedColors> = {}): ResolvedColors {
+  const base: ResolvedColors = {} as ResolvedColors;
+  for (const token of COLOR_TOKENS) {
+    base[token] = '#ffffff';
+  }
+  return { ...base, ...overrides };
 }
 
 describe('UserMessage', () => {
@@ -27,6 +47,15 @@ describe('UserMessage', () => {
       const { lastFrame } = renderWithProviders(<UserMessage>Hello world</UserMessage>);
       const output = lastFrame();
       expect(output).toContain('Hello world');
+    });
+
+    it('applies the background to the row container instead of only the text', () => {
+      const { lastFrame } = renderWithProviders(<UserMessage>Hello world</UserMessage>);
+      const output = lastFrame();
+
+      expect(stripAnsi(output)).toContain(' Hello world');
+      expect(output).toContain('\u001b[48;2;158;158;158m');
+      expect(output).toContain('\u001b[38;2;245;245;245m');
     });
 
     it('renders queued messages with prefix', () => {
