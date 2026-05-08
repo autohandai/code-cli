@@ -276,6 +276,53 @@ describe('ReactLoopRunner composer status', () => {
     }
   });
 
+  it('uses host completion hooks before ending a no-tool turn', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const parser = new ReactionParser();
+    const addSystemNote = vi.fn();
+    const emitOutput = vi.fn();
+    const llmComplete = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: 'custom-invalid',
+        created: 1,
+        content: 'CUSTOM_DEFERRED_MARKER',
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'answer',
+        created: 2,
+        content: 'Finished with a real answer.',
+        raw: {},
+      });
+
+    const host = createReactLoopTestHost(llmComplete, parser);
+    host.conversation.addSystemNote = addSystemNote;
+    host.emitOutput = emitOutput;
+    host.responseCompletionHooks = [
+      ({ response }) => response === 'CUSTOM_DEFERRED_MARKER'
+        ? {
+            kind: 'invalid_deferred_action',
+            reason: 'announced_action_without_tool',
+            excerpt: response,
+          }
+        : undefined,
+    ];
+
+    try {
+      await runAgentReactLoop(host, new AbortController());
+
+      expect(llmComplete).toHaveBeenCalledTimes(2);
+      expect(addSystemNote).toHaveBeenCalledWith(expect.stringContaining('CUSTOM_DEFERRED_MARKER'));
+      expect(emitOutput).toHaveBeenCalledWith({
+        type: 'message',
+        content: 'Finished with a real answer.',
+      });
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it('accumulates actual provider usage for a turn', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const parser = new ReactionParser();

@@ -51,6 +51,7 @@ import {
   classifyResponseCompletion,
   isDeferredFinalResponse,
 } from './ResponseCompletionClassifier.js';
+import type { ResponseCompletionHook } from './ResponseCompletionClassifier.js';
 
 class LoopAbortedError extends Error {
   constructor(message: string) {
@@ -93,6 +94,7 @@ export interface AgentReactLoopHost {
   llm: LLMProvider;
   memoryManager?: MemoryManager;
   projectManager: Pick<ProjectManager, 'recordFailure' | 'recordSuccess'>;
+  responseCompletionHooks?: readonly ResponseCompletionHook[];
   runtime: AgentRuntime;
   searchQueries: string[];
   sessionManager: Pick<SessionManager, 'getCurrentSession'>;
@@ -825,7 +827,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
       const completionClassification = classifyResponseCompletion({
         response,
         toolCalls: payload.toolCalls,
-      });
+      }, host.responseCompletionHooks);
 
       switch (completionClassification.kind) {
         case 'tool_call':
