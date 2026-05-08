@@ -157,6 +157,15 @@ export function isDeferredFinalResponse(response: string): boolean {
     return false;
   }
 
+  const deferredActionPatterns = [
+    /\b(?:let me|i(?:['’]ll| will| am going to|['’]m going to| should| need to)|now i(?:['’]ll| will)|next[:,]?\s+i(?:['’]ll| will| should)|first,?\s+let me)\b.{0,140}\b(?:start|begin|check|gather|inspect|analy[sz]e|review|perform|run|look at|read|find|search|trace|debug|reproduce|replicate)\b/i,
+    /\b(?:status|sitrep)\s*:[\s\S]{0,260}\b(?:blocked|next)\b[\s\S]{0,180}\b(?:check|inspect|read|search|review|run|trace|debug|reproduce|replicate)\b/i,
+    /\bblocked by\b.{0,120}\b(?:no-tool|tool constraint|tools? unavailable)\b/i,
+  ];
+  if (deferredActionPatterns.some((pattern) => pattern.test(trimmed))) {
+    return true;
+  }
+
   const hasAnswerStructure =
     trimmed.includes('\n') ||
     /:\s+\S[\s\S]{11,}/.test(trimmed) ||
