@@ -11,11 +11,26 @@ import { getPromptBlockWidth, promptNotify } from '../../ui/inputPrompt.js';
 import { executeShellCommandAsync, executeStreamingShellCommand, isShellCommand, parseShellCommand } from '../../ui/shellCommand.js';
 import { createImmediateShellCommandBlockWriter, formatImmediateShellCommandHeader } from '../immediateCommandRouter.js';
 import { SLASH_COMMANDS } from '../slashCommands.js';
-import { formatElapsedTime, formatTokens } from './AgentFormatter.js';
+import { formatElapsedTime, formatSessionActualTokens, formatTurnUsage } from './AgentFormatter.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 
 export interface AgentUIRuntimeHost {
   [key: string]: any;
+}
+
+function getDisplayTurnUsage(host: AgentUIRuntimeHost) {
+  if (host.currentTurnActualUsage) {
+    return host.currentTurnActualUsage;
+  }
+  if (typeof host.totalTokensUsed === 'number' && host.totalTokensUsed > 0) {
+    return {
+      kind: 'actual' as const,
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: host.totalTokensUsed,
+    };
+  }
+  return undefined;
 }
 
 export interface ImmediateShellRouteOptions {
@@ -158,9 +173,8 @@ export function setAgentComposerFinalResponse(host: AgentUIRuntimeHost, response
 
 export function stopAgentUI(host: AgentUIRuntimeHost, failed = false, message?: string): void {
     if (host.inkRenderer) {
-      // Update final stats before stopping (session totals for completionStats)
-      host.inkRenderer.setElapsed(formatElapsedTime(host.sessionStartedAt));
-      host.inkRenderer.setTokens(formatTokens(host.sessionTokensUsed + host.totalTokensUsed));
+      host.inkRenderer.setElapsed(formatElapsedTime(host.taskStartedAt ?? host.sessionStartedAt));
+      host.inkRenderer.setTokens(formatTurnUsage(getDisplayTurnUsage(host)));
       host.inkRenderer.setWorking(false);
       if (message) {
         host.inkRenderer.setFinalResponse(message);
@@ -212,7 +226,7 @@ export function cleanupAgentUI(host: AgentUIRuntimeHost, keepInkAlive = false): 
 export function printAgentCompletionSummary(host: AgentUIRuntimeHost, regionsStillActive: boolean): void {
     if (!host.taskStartedAt) return;
     const elapsed = formatElapsedTime(host.taskStartedAt);
-    const tokens = formatTokens(host.totalTokensUsed);
+    const tokens = formatTurnUsage(getDisplayTurnUsage(host));
     const queueCount = host.pendingInkInstructions.length +
       (host.inkRenderer?.getQueueCount() ?? 0) +
       host.persistentInput.getQueueLength();
@@ -370,9 +384,14 @@ export function forceRenderAgentSpinner(host: AgentUIRuntimeHost): void {
     if (!host.taskStartedAt) return;
 
     const elapsed = formatElapsedTime(host.taskStartedAt);
-    // Show session total tokens (includes current task + previous tasks in session)
-    const sessionTotal = host.sessionTokensUsed + host.totalTokensUsed;
-    const tokens = formatTokens(sessionTotal);
+    const currentActual = host.currentTurnActualUsage?.kind === 'actual'
+      ? host.currentTurnActualUsage.totalTokens
+      : (host.currentTurnActualUsage ? 0 : (host.totalTokensUsed ?? 0));
+    const sessionStatus = host.sessionTokenUsageUnavailable || host.currentTurnHadUnavailableUsage
+      ? 'unavailable'
+      : 'actual';
+    const sessionTotal = (host.sessionActualTokensUsed ?? host.sessionTokensUsed ?? 0) + currentActual;
+    const tokens = formatSessionActualTokens(sessionTotal, sessionStatus);
     const queueCount = host.inkRenderer?.getQueueCount() ?? host.persistentInput.getQueueLength();
     const queueHint = queueCount > 0 ? ` [${queueCount} queued]` : '';
     const verb = host.activityIndicator?.getVerb?.() ?? 'Working';

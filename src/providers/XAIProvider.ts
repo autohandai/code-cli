@@ -7,6 +7,7 @@
 import type { LLMProvider } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, LLMToolCall, LLMUsage, FunctionDefinition } from '../types.js';
 import { ApiError, classifyApiError, type ApiErrorCode } from './errors.js';
+import { normalizeLLMUsage } from './usage.js';
 
 /** Canonical list of supported xAI models — single source of truth. */
 export const XAI_MODELS = [
@@ -373,14 +374,7 @@ export class XAIProvider implements LLMProvider {
     }
 
     private mapXAIUsage(usage?: XAIResponsesUsage): LLMUsage | undefined {
-        if (!usage) return undefined;
-        const input = usage.input_tokens ?? 0;
-        const output = usage.output_tokens ?? 0;
-        return {
-            promptTokens: input,
-            completionTokens: output,
-            totalTokens: usage.total_tokens ?? (input + output),
-        };
+        return normalizeLLMUsage(usage);
     }
 
     private async parseXAIStream(response: Response): Promise<XAIResponsesResponse> {

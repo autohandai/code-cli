@@ -292,10 +292,12 @@ export async function runAgentCommandMode(host: AgentLifecycleHost, instruction:
       // Fire stop hook after turn completes (non-blocking)
       const turnDuration = Date.now() - turnStartTime;
       const session = host.sessionManager.getCurrentSession();
+      const snapshot = host.getStatusSnapshot();
       host.hookManager.executeHooks('stop', {
         sessionId: session?.metadata.sessionId,
         turnDuration,
-        tokensUsed: host.sessionTokensUsed,
+        tokensUsed: snapshot.tokensUsed,
+        tokensUsageStatus: snapshot.tokensUsageStatus,
       }).catch(() => {
         // Ignore hook errors - they shouldn't block the user
       });
@@ -733,10 +735,12 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         // Fire stop hook after turn completes (non-blocking)
         const turnDuration = Date.now() - turnStartTime;
         const session = host.sessionManager.getCurrentSession();
+        const snapshot = host.getStatusSnapshot();
         host.hookManager.executeHooks('stop', {
           sessionId: session?.metadata.sessionId,
           turnDuration,
-          tokensUsed: host.sessionTokensUsed,
+          tokensUsed: snapshot.tokensUsed,
+          tokensUsageStatus: snapshot.tokensUsageStatus,
         }).catch(() => {
           // Ignore hook errors - they shouldn't block the user
         });

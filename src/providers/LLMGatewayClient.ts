@@ -7,13 +7,13 @@ import type {
   LLMRequest,
   LLMResponse,
   LLMToolCall,
-  LLMUsage,
   LLMGatewaySettings,
   NetworkSettings,
   FunctionDefinition,
   LLMMessage,
   NvidiaChatTemplateKwargs,
 } from "../types.js";
+import { normalizeLLMUsage } from "./usage.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -305,15 +305,7 @@ export class LLMGatewayClient {
       });
     }
 
-    // Parse token usage if present
-    let usage: LLMUsage | undefined;
-    if (json?.usage) {
-      usage = {
-        promptTokens: json.usage.prompt_tokens ?? 0,
-        completionTokens: json.usage.completion_tokens ?? 0,
-        totalTokens: json.usage.total_tokens ?? 0,
-      };
-    }
+    const usage = normalizeLLMUsage(json?.usage);
 
     return {
       id: json.id ?? "llmgateway-response",

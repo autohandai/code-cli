@@ -44,6 +44,8 @@ export interface SlashCommandContext {
     getContextPercentLeft?: () => number;
     /** Get current total tokens used (for /status) */
     getTotalTokensUsed?: () => number;
+    /** Get whether token usage is exact provider-reported usage or unavailable */
+    getTokenUsageStatus?: () => 'actual' | 'unavailable';
     /** Skills registry for /skills commands */
     skillsRegistry?: SkillsRegistry;
     /** Meta-tools registry for /tools commands */

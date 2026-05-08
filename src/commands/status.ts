@@ -8,6 +8,7 @@ import { t } from '../i18n/index.js';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import type { AutohandConfig } from '../types.js';
 import { cleanupModalRender, prepareModalRender } from '../ui/ink/components/Modal.js';
+import { formatSessionActualTokens } from '../core/agent/AgentFormatter.js';
 import { createCommandTheme } from './commandTheme.js';
 import packageJson from '../../package.json' with { type: 'json' };
 
@@ -29,6 +30,7 @@ interface StatusData {
     sessionsCount: number;
     contextPercentLeft: number;
     totalTokensUsed: number;
+    tokenUsageStatus: 'actual' | 'unavailable';
     config: AutohandConfig | undefined;
     contextCompactionEnabled: boolean;
 }
@@ -65,6 +67,7 @@ async function gatherStatusData(ctx: SlashCommandContext): Promise<StatusData> {
         sessionsCount: allSessions.length,
         contextPercentLeft: ctx.getContextPercentLeft?.() ?? 100,
         totalTokensUsed: ctx.getTotalTokensUsed?.() ?? 0,
+        tokenUsageStatus: ctx.getTokenUsageStatus?.() ?? 'actual',
         config: ctx.config,
         contextCompactionEnabled: ctx.isContextCompactionEnabled?.() ?? true,
     };
@@ -278,10 +281,10 @@ function renderUsageTab(data: StatusData): void {
 
     console.log(theme.bold('Current session\n'));
 
-    renderProgressBar('Context used', contextUsed, 100);
+    renderProgressBar('Context used (estimated)', contextUsed, 100);
     console.log();
 
-    console.log(theme.bold('Tokens used:'), formatTokens(data.totalTokensUsed));
+    console.log(theme.bold('Actual tokens used:'), formatSessionActualTokens(data.totalTokensUsed, data.tokenUsageStatus));
 }
 
 function renderProgressBar(label: string, value: number, max: number): void {
@@ -294,11 +297,4 @@ function renderProgressBar(label: string, value: number, max: number): void {
 
     console.log(label);
     console.log(`${bar}  ${percent}% used`);
-}
-
-function formatTokens(tokens: number): string {
-    if (tokens >= 1000) {
-        return `${(tokens / 1000).toFixed(1)}k tokens`;
-    }
-    return `${tokens} tokens`;
 }

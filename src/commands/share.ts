@@ -54,6 +54,7 @@ interface ShareContext {
   provider?: ProviderName;
   config?: LoadedConfig;
   getTotalTokensUsed?: () => number;
+  getTokenUsageStatus?: () => 'actual' | 'unavailable';
   getInputTokensUsed?: () => number;
   getOutputTokensUsed?: () => number;
   workspaceRoot: string;
@@ -97,6 +98,7 @@ export async function execute(
 
   // Calculate stats
   const totalTokens = context.getTotalTokensUsed?.() ?? 0;
+  const tokenUsageStatus = context.getTokenUsageStatus?.() ?? 'actual';
   const duration = calculateDuration(session.metadata.createdAt);
 
   // Show session preview
@@ -106,9 +108,9 @@ export async function execute(
   console.log(`  Project:   ${chalk.cyan(session.metadata.projectName)}`);
   console.log(`  Model:     ${chalk.cyan(context.model)}`);
   console.log(`  Messages:  ${chalk.cyan(messages.length)}`);
-  console.log(`  Tokens:    ${chalk.cyan(formatTokens(totalTokens))}`);
+  console.log(`  Tokens:    ${chalk.cyan(tokenUsageStatus === 'actual' ? formatTokens(totalTokens) : 'unavailable')}`);
   console.log(
-    `  Est. Cost: ${chalk.green(formatCost((totalTokens / 1000) * 0.003))}`
+    `  Est. Cost: ${chalk.green(tokenUsageStatus === 'actual' ? formatCost((totalTokens / 1000) * 0.003) : 'unavailable')}`
   );
   console.log(`  Duration:  ${chalk.cyan(formatDuration(duration))}`);
   console.log();

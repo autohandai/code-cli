@@ -240,6 +240,7 @@ Instruction processing complete.
   sessionId: string;
   stats: {
     tokensUsed: number;
+    tokensUsageStatus?: "actual" | "unavailable";
     duration: number;
     contextPercent: number;
   };
