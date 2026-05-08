@@ -220,6 +220,245 @@ describe('ReactLoopRunner composer status', () => {
     }
   });
 
+  it('repairs empty no-tool responses without saving them or forbidding tools', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const parser = new ReactionParser();
+    const addMessage = vi.fn();
+    const addSystemNote = vi.fn();
+    const emitOutput = vi.fn();
+    const saveAssistantMessage = vi.fn(async () => {});
+    const llmComplete = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: 'empty',
+        created: 1,
+        content: '',
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'answer',
+        created: 2,
+        content: 'The codebase has src, tests, docs, and configuration files.',
+        raw: {},
+      });
+
+    const host = {
+      activeProvider: undefined,
+      autoReportManager: {
+        reportError: vi.fn(async () => {}),
+      },
+      contextPercentLeft: 100,
+      contextOrchestrator: {
+        checkMidTurnCompaction: vi.fn(async () => false),
+        handleOverflow: vi.fn(async () => ({ croppedCount: 0 })),
+        setModel: vi.fn(),
+        prepareRequest: vi.fn(async () => ({
+          messages: [],
+          tools: [],
+          usage: {
+            totalTokens: 0,
+            usagePercent: 0,
+            isWarning: false,
+            isCritical: false,
+            isExceeded: false,
+          },
+          wasCropped: false,
+          croppedCount: 0,
+        })),
+      },
+      conversation: {
+        addMessage,
+        addSystemNote,
+        history: vi.fn(() => []),
+      },
+      cleanupModelResponse: (content: string) => content.trim(),
+      emitOutput,
+      ensureSpinnerRunning: vi.fn(),
+      forceRenderSpinner: vi.fn(),
+      getMessagesWithImages: vi.fn(async () => []),
+      getReactionParser: () => parser,
+      handleSmartContextCrop: vi.fn(async () => ''),
+      inkRenderer: null,
+      isContextOverflowError: vi.fn(() => false),
+      llm: { complete: llmComplete },
+      memoryManager: undefined,
+      projectManager: {
+        recordFailure: vi.fn(async () => {}),
+        recordSuccess: vi.fn(async () => {}),
+      },
+      runtime: {
+        config: {
+          agent: { maxIterations: 5, debug: false },
+          ui: { showThinking: false },
+        },
+        options: { model: 'test-model' },
+        spinner: { stop: vi.fn() },
+      },
+      saveAssistantMessage,
+      saveToolMessage: vi.fn(async () => {}),
+      searchQueries: [],
+      sessionManager: {
+        getCurrentSession: vi.fn(() => null),
+      },
+      sessionStartedAt: Date.now(),
+      sessionTokensUsed: 0,
+      startStatusUpdates: vi.fn(),
+      stopStatusUpdates: vi.fn(),
+      setComposerFinalResponse: vi.fn(),
+      setComposerIdle: vi.fn(),
+      setSpinnerStatus: vi.fn(),
+      toolManager: {
+        listToolNames: vi.fn(() => []),
+        toFunctionDefinitions: vi.fn(() => []),
+        execute: vi.fn(async () => []),
+        register: vi.fn(),
+        unregister: vi.fn(() => true),
+      },
+      totalTokensUsed: 0,
+      updateContextUsage: vi.fn(),
+      writeDebugLine: vi.fn(),
+    } satisfies AgentReactLoopHost;
+
+    try {
+      await runAgentReactLoop(host, new AbortController());
+
+      expect(llmComplete).toHaveBeenCalledTimes(2);
+      expect(addMessage).toHaveBeenCalledTimes(1);
+      expect(addMessage).toHaveBeenCalledWith({
+        role: 'assistant',
+        content: 'The codebase has src, tests, docs, and configuration files.',
+      });
+      expect(saveAssistantMessage).toHaveBeenCalledTimes(1);
+      expect(addSystemNote).toHaveBeenCalledWith(expect.stringContaining('emitted no finalResponse and no tool calls'));
+      expect(addSystemNote).toHaveBeenCalledWith(expect.stringContaining('emit the required tool call'));
+      expect(addSystemNote).not.toHaveBeenCalledWith(expect.stringContaining('Do not call any more tools'));
+      expect(emitOutput).toHaveBeenCalledWith({
+        type: 'message',
+        content: 'The codebase has src, tests, docs, and configuration files.',
+      });
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('does not save JSON-only no-tool responses that clean to empty', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const parser = new ReactionParser({
+      cleanupModelResponse: (content) => content.replace(/^\{\s*"toolCalls"\s*:\s*\[\s*\]\s*\}$/u, '').trim(),
+    });
+    const addMessage = vi.fn();
+    const addSystemNote = vi.fn();
+    const emitOutput = vi.fn();
+    const saveAssistantMessage = vi.fn(async () => {});
+    const llmComplete = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: 'json-only',
+        created: 1,
+        content: '{"toolCalls":[]}',
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'answer',
+        created: 2,
+        content: 'The codebase structure lives under src and tests.',
+        raw: {},
+      });
+
+    const host = {
+      activeProvider: undefined,
+      autoReportManager: {
+        reportError: vi.fn(async () => {}),
+      },
+      contextPercentLeft: 100,
+      contextOrchestrator: {
+        checkMidTurnCompaction: vi.fn(async () => false),
+        handleOverflow: vi.fn(async () => ({ croppedCount: 0 })),
+        setModel: vi.fn(),
+        prepareRequest: vi.fn(async () => ({
+          messages: [],
+          tools: [],
+          usage: {
+            totalTokens: 0,
+            usagePercent: 0,
+            isWarning: false,
+            isCritical: false,
+            isExceeded: false,
+          },
+          wasCropped: false,
+          croppedCount: 0,
+        })),
+      },
+      conversation: {
+        addMessage,
+        addSystemNote,
+        history: vi.fn(() => []),
+      },
+      cleanupModelResponse: (content: string) => content.replace(/^\{\s*"toolCalls"\s*:\s*\[\s*\]\s*\}$/u, '').trim(),
+      emitOutput,
+      ensureSpinnerRunning: vi.fn(),
+      forceRenderSpinner: vi.fn(),
+      getMessagesWithImages: vi.fn(async () => []),
+      getReactionParser: () => parser,
+      handleSmartContextCrop: vi.fn(async () => ''),
+      inkRenderer: null,
+      isContextOverflowError: vi.fn(() => false),
+      llm: { complete: llmComplete },
+      memoryManager: undefined,
+      projectManager: {
+        recordFailure: vi.fn(async () => {}),
+        recordSuccess: vi.fn(async () => {}),
+      },
+      runtime: {
+        config: {
+          agent: { maxIterations: 5, debug: false },
+          ui: { showThinking: false },
+        },
+        options: { model: 'test-model' },
+        spinner: { stop: vi.fn() },
+      },
+      saveAssistantMessage,
+      saveToolMessage: vi.fn(async () => {}),
+      searchQueries: [],
+      sessionManager: {
+        getCurrentSession: vi.fn(() => null),
+      },
+      sessionStartedAt: Date.now(),
+      sessionTokensUsed: 0,
+      startStatusUpdates: vi.fn(),
+      stopStatusUpdates: vi.fn(),
+      setComposerFinalResponse: vi.fn(),
+      setComposerIdle: vi.fn(),
+      setSpinnerStatus: vi.fn(),
+      toolManager: {
+        listToolNames: vi.fn(() => []),
+        toFunctionDefinitions: vi.fn(() => []),
+        execute: vi.fn(async () => []),
+        register: vi.fn(),
+        unregister: vi.fn(() => true),
+      },
+      totalTokensUsed: 0,
+      updateContextUsage: vi.fn(),
+      writeDebugLine: vi.fn(),
+    } satisfies AgentReactLoopHost;
+
+    try {
+      await runAgentReactLoop(host, new AbortController());
+
+      expect(llmComplete).toHaveBeenCalledTimes(2);
+      expect(addMessage).toHaveBeenCalledTimes(1);
+      expect(saveAssistantMessage).toHaveBeenCalledTimes(1);
+      expect(addSystemNote).toHaveBeenCalledWith(expect.stringContaining('no usable finalResponse and no tool calls'));
+      expect(addSystemNote).not.toHaveBeenCalledWith(expect.stringContaining('Do not call any more tools'));
+      expect(emitOutput).toHaveBeenCalledWith({
+        type: 'message',
+        content: 'The codebase structure lives under src and tests.',
+      });
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it('bounds repeated invalid deferred responses and reports telemetry', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const parser = new ReactionParser();

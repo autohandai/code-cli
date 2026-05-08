@@ -370,6 +370,68 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
 
       const payload = host.getReactionParser().parseAssistantResponse(completion);
       if (debugMode) host.writeDebugLine(`[AGENT DEBUG] Parsed payload: finalResponse=${!!payload.finalResponse}, thought=${!!payload.thought}, toolCalls=${payload.toolCalls?.length ?? 0}`);
+      if (
+        !completion.content.trim() &&
+        !payload.finalResponse &&
+        !payload.response &&
+        !payload.thought &&
+        !payload.toolCalls?.length
+      ) {
+        consecutiveEmptyResponseCount += 1;
+
+        if (consecutiveEmptyResponseCount >= 3) {
+          if (debugMode) host.writeDebugLine('[AGENT DEBUG] Exiting after 3 consecutive empty responses');
+          host.stopStatusUpdates();
+          console.log(chalk.yellow('\n⚠ Model not providing response after multiple attempts. Showing available context.'));
+          const fallback = 'The model did not provide a clear response. Please try rephrasing your question.';
+          host.lastAssistantResponseForNotification = fallback;
+          host.setComposerIdle();
+          host.setComposerFinalResponse(fallback);
+          consecutiveEmptyResponseCount = 0;
+          host.emitOutput({ type: 'message', content: fallback });
+          throw new LoopAbortedError('Model produced empty responses after multiple attempts');
+        }
+
+        host.conversation.addSystemNote(
+          '[System] ERROR: Your previous assistant turn emitted no finalResponse and no tool calls. ' +
+          'Either emit the required tool call now, or explain why no tool is needed and answer directly in finalResponse. ' +
+          'Do not return an empty assistant message.'
+        );
+        continue;
+      }
+      if (!payload.toolCalls?.length) {
+        const cleanedPreSaveContent = host.cleanupModelResponse(completion.content);
+        const preSaveRawResponse = payload.finalResponse ??
+          payload.response ??
+          payload.thought ??
+          (cleanedPreSaveContent.startsWith('{')
+            ? ''
+            : cleanedPreSaveContent);
+        const preSaveResponse = host.cleanupModelResponse(preSaveRawResponse.trim());
+        if (!preSaveResponse) {
+          consecutiveEmptyResponseCount += 1;
+
+          if (consecutiveEmptyResponseCount >= 3) {
+            if (debugMode) host.writeDebugLine('[AGENT DEBUG] Exiting after 3 consecutive empty responses');
+            host.stopStatusUpdates();
+            console.log(chalk.yellow('\n⚠ Model not providing response after multiple attempts. Showing available context.'));
+            const fallback = payload.thought || 'The model did not provide a clear response. Please try rephrasing your question.';
+            host.lastAssistantResponseForNotification = fallback;
+            host.setComposerIdle();
+            host.setComposerFinalResponse(fallback);
+            consecutiveEmptyResponseCount = 0;
+            host.emitOutput({ type: 'message', content: fallback });
+            throw new LoopAbortedError('Model produced empty responses after multiple attempts');
+          }
+
+          host.conversation.addSystemNote(
+            '[System] ERROR: Your previous assistant turn emitted no usable finalResponse and no tool calls. ' +
+            'Either emit the required tool call now, or explain why no tool is needed and answer directly in finalResponse. ' +
+            'Do not return another empty, JSON-only, or progress-only assistant message.'
+          );
+          continue;
+        }
+      }
       const assistantMessage: LLMMessage = { role: 'assistant', content: completion.content };
       if (completion.toolCalls?.length) {
         assistantMessage.tool_calls = completion.toolCalls;
@@ -819,7 +881,9 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
         }
 
         host.conversation.addSystemNote(
-          `[System] IMPORTANT: You must now provide your finalResponse. The user is waiting for your analysis. Do not call any more tools - just provide your answer in the finalResponse field.`
+          '[System] ERROR: Your previous assistant turn emitted no usable finalResponse and no tool calls. ' +
+          'Either emit the required tool call now, or explain why no tool is needed and answer directly in finalResponse. ' +
+          'Do not return another empty, JSON-only, or progress-only assistant message.'
         );
         continue;
       }
