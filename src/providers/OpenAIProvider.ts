@@ -91,6 +91,11 @@ interface OpenAIResponsesResponse {
     };
 }
 
+interface OpenAIResponsesCompletedEvent {
+    type?: 'response.completed';
+    response?: OpenAIResponsesResponse;
+}
+
 /** Canonical list of supported OpenAI models — single source of truth. */
 export const OPENAI_MODELS = [
     'gpt-5.5',
@@ -480,7 +485,7 @@ export class OpenAIProvider implements LLMProvider {
             }
 
             if (currentEvent === 'response.completed') {
-                completedData = JSON.parse(dataLine) as OpenAIResponsesResponse;
+                completedData = this.extractCompletedResponse(JSON.parse(dataLine));
                 break;
             }
         }
@@ -497,6 +502,19 @@ export class OpenAIProvider implements LLMProvider {
         }
 
         return completedData;
+    }
+
+    private extractCompletedResponse(eventData: unknown): OpenAIResponsesResponse {
+        if (
+            eventData &&
+            typeof eventData === 'object' &&
+            'response' in eventData &&
+            (eventData as OpenAIResponsesCompletedEvent).response
+        ) {
+            return (eventData as OpenAIResponsesCompletedEvent).response as OpenAIResponsesResponse;
+        }
+
+        return eventData as OpenAIResponsesResponse;
     }
 
     private async buildAuthHeaders(): Promise<Record<string, string>> {

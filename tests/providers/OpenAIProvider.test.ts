@@ -34,6 +34,22 @@ function sseResponse(completedPayload: Record<string, unknown>): Response {
   });
 }
 
+function wrappedResponsesSseResponse(responsePayload: Record<string, unknown>): Response {
+  const body = [
+    'event: response.created',
+    `data: ${JSON.stringify({ type: 'response.created', response: { id: responsePayload.id } })}`,
+    '',
+    'event: response.completed',
+    `data: ${JSON.stringify({ type: 'response.completed', response: responsePayload })}`,
+    '',
+  ].join('\n');
+
+  return new Response(body, {
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+  });
+}
+
 describe('OpenAIProvider', () => {
   let provider: OpenAIProvider;
 
@@ -912,6 +928,47 @@ describe('OpenAIProvider', () => {
         totalTokens: 8,
       });
       expect(result.finishReason).toBe('stop');
+    });
+
+    it('unwraps official Responses streaming completion events to preserve usage', async () => {
+      const chatgptProvider = new OpenAIProvider({
+        authMode: 'chatgpt',
+        model: 'gpt-5.4',
+        chatgptAuth: {
+          accessToken: 'chatgpt-access-token',
+          accountId: 'chatgpt-account-123',
+        },
+      });
+
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        wrappedResponsesSseResponse({
+          id: 'resp-wrapped',
+          created_at: 1234567890,
+          output: [
+            {
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: 'Wrapped OK.' }],
+            },
+          ],
+          usage: {
+            input_tokens: 11,
+            output_tokens: 4,
+            total_tokens: 15,
+          },
+        }),
+      );
+
+      const result = await chatgptProvider.complete({
+        messages: [{ role: 'user', content: 'hi' }],
+      });
+
+      expect(result.content).toBe('Wrapped OK.');
+      expect(result.usage).toEqual({
+        promptTokens: 11,
+        completionTokens: 4,
+        totalTokens: 15,
+      });
     });
 
     it('uses streamed output_text deltas when response.completed omits text content', async () => {
