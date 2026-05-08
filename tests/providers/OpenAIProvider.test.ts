@@ -137,6 +137,52 @@ describe('OpenAIProvider', () => {
   });
 
   describe('message serialization', () => {
+    it('serializes multimodal user content for OpenAI chat completions', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          id: 'resp-multimodal-chat',
+          created: 1234567890,
+          choices: [{
+            message: { role: 'assistant', content: 'I can see it.' },
+            finish_reason: 'stop',
+          }],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+      );
+
+      await provider.complete({
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: '[Image #1] what do you see?' },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: 'data:image/png;base64,ZmFrZS1pbWFnZQ==',
+                },
+              },
+            ] as unknown as string,
+          },
+        ],
+      });
+
+      const sentBody = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+      expect(sentBody.messages).toEqual([
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: '[Image #1] what do you see?' },
+            {
+              type: 'image_url',
+              image_url: {
+                url: 'data:image/png;base64,ZmFrZS1pbWFnZQ==',
+              },
+            },
+          ],
+        },
+      ]);
+    });
+
     it('should include tool_calls on assistant messages in request body', async () => {
       const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
         new Response(JSON.stringify({
@@ -353,6 +399,55 @@ describe('OpenAIProvider', () => {
           type: 'message',
           role: 'user',
           content: [{ type: 'input_text', text: 'hi' }],
+        },
+      ]);
+    });
+
+    it('serializes multimodal user content for codex responses input', async () => {
+      const chatgptProvider = new OpenAIProvider({
+        authMode: 'chatgpt',
+        model: 'gpt-5.4',
+        chatgptAuth: {
+          accessToken: 'chatgpt-access-token',
+          accountId: 'chatgpt-account-123',
+        },
+      });
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        sseResponse({
+          id: 'resp-chatgpt-multimodal',
+          created_at: 1234567890,
+          output_text: 'I can see it.',
+          output: [],
+        }),
+      );
+
+      await chatgptProvider.complete({
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: '[Image #1] what do you see?' },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: 'data:image/png;base64,ZmFrZS1pbWFnZQ==',
+                },
+              },
+            ] as unknown as string,
+          },
+        ],
+      });
+
+      const sentBody = JSON.parse(fetchSpy.mock.calls[0]?.[1]?.body as string);
+      expect(sentBody.input).toEqual([
+        {
+          type: 'message',
+          role: 'user',
+          content: [
+            { type: 'input_text', text: '[Image #1] what do you see?' },
+            { type: 'input_image', image_url: 'data:image/png;base64,ZmFrZS1pbWFnZQ==' },
+          ],
         },
       ]);
     });
