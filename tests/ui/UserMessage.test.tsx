@@ -58,6 +58,16 @@ describe('UserMessage', () => {
       expect(output).toContain('\u001b[38;2;245;245;245m');
     });
 
+    it('renders painted vertical padding above and below the message text', () => {
+      const { lastFrame } = renderWithProviders(<UserMessage>Hello world</UserMessage>);
+      const plainLines = stripAnsi(lastFrame()).split('\n');
+      const messageIndex = plainLines.findIndex((line) => line.includes('Hello world'));
+
+      expect(messageIndex).toBeGreaterThan(0);
+      expect(plainLines[messageIndex - 1]).toMatch(/^\s+$/);
+      expect(plainLines[messageIndex + 1]).toMatch(/^\s+$/);
+    });
+
     it('renders queued messages with prefix', () => {
       const { lastFrame } = renderWithProviders(<UserMessage isQueued>Test message</UserMessage>);
       const output = lastFrame();
