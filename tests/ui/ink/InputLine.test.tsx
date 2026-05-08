@@ -84,6 +84,13 @@ describe('InputLine', () => {
     expect(output).not.toContain('[K');
   });
 
+  it('renders the active composer without a leading blank row', () => {
+    const { lastFrame } = renderInputLine('');
+    const output = stripAnsi(lastFrame());
+
+    expect(output.split('\n')[0]).toMatch(/^┌/);
+  });
+
   it('renders next-prompt suggestion separately from the static placeholder', () => {
     const { lastFrame } = render(
       <ThemeProvider>
