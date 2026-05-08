@@ -5,7 +5,7 @@
  */
 
 import type { LLMProvider } from './LLMProvider.js';
-import type { LLMRequest, LLMResponse, LLMToolCall, FunctionDefinition, ReasoningEffort, OpenAISettings, OpenAIChatGPTAuth } from '../types.js';
+import type { ContentPart, LLMRequest, LLMResponse, LLMToolCall, FunctionDefinition, ReasoningEffort, OpenAISettings, OpenAIChatGPTAuth } from '../types.js';
 import { ApiError, classifyApiError, type ApiErrorCode } from './errors.js';
 import { isChatGPTAuthExpired, refreshChatGPTAuth } from './openaiAuth.js';
 import { normalizeLLMUsage } from './usage.js';
@@ -38,6 +38,23 @@ interface OpenAIChatResponse {
         total_tokens: number;
     };
 }
+
+type OpenAIProviderMessage = {
+    role: string;
+    content: string | ContentPart[];
+    name?: string;
+    tool_call_id?: string;
+    tool_calls?: LLMToolCall[];
+};
+
+type OpenAIChatContentPart =
+    | { type: 'text'; text: string }
+    | { type: 'image_url'; image_url: { url: string } };
+
+type OpenAIResponsesInputContentPart =
+    | { type: 'input_text'; text: string }
+    | { type: 'output_text'; text: string }
+    | { type: 'input_image'; image_url: string };
 
 interface OpenAIResponsesUsage {
     input_tokens?: number;
@@ -171,10 +188,10 @@ export class OpenAIProvider implements LLMProvider {
 
         const body: Record<string, unknown> = {
             model: request.model || this.model,
-            messages: request.messages.map((msg: { role: string; content: string; name?: string; tool_call_id?: string; tool_calls?: LLMToolCall[] }) => {
+            messages: request.messages.map((msg: OpenAIProviderMessage) => {
                 const mapped: Record<string, unknown> = {
                     role: msg.role === 'system' ? 'system' : msg.role === 'user' ? 'user' : msg.role === 'tool' ? 'tool' : 'assistant',
-                    content: msg.content
+                    content: this.toChatCompletionContent(msg.content),
                 };
                 // Include tool_calls on assistant messages so the API can match
                 // subsequent role:"tool" results to the calls that triggered them
@@ -514,7 +531,57 @@ export class OpenAIProvider implements LLMProvider {
         return (configBaseUrl || OPENAI_API_BASE_URL).replace(/\/$/, '');
     }
 
-    private toResponsesInputItems(msg: { role: string; content: string; name?: string; tool_call_id?: string; tool_calls?: LLMToolCall[] }): Array<Record<string, unknown>> {
+    private isContentPartsArray(content: string | ContentPart[]): content is ContentPart[] {
+        return Array.isArray(content);
+    }
+
+    private toChatCompletionContent(content: string | ContentPart[]): string | OpenAIChatContentPart[] {
+        if (!this.isContentPartsArray(content)) {
+            return content;
+        }
+
+        return content
+            .map((part): OpenAIChatContentPart | null => {
+                if (part.type === 'text') {
+                    return { type: 'text', text: part.text };
+                }
+                if (part.type === 'image_url') {
+                    return {
+                        type: 'image_url',
+                        image_url: part.image_url,
+                    };
+                }
+                return null;
+            })
+            .filter((part): part is OpenAIChatContentPart => part !== null);
+    }
+
+    private toResponsesMessageContent(role: string, content: string | ContentPart[]): OpenAIResponsesInputContentPart[] {
+        const textType = role === 'assistant' ? 'output_text' : 'input_text';
+
+        if (!this.isContentPartsArray(content)) {
+            return [{ type: textType, text: content }];
+        }
+
+        const parts: OpenAIResponsesInputContentPart[] = [];
+        for (const part of content) {
+            if (part.type === 'text') {
+                parts.push({ type: textType, text: part.text });
+                continue;
+            }
+
+            if (part.type === 'image_url' && role !== 'assistant') {
+                parts.push({
+                    type: 'input_image',
+                    image_url: part.image_url.url,
+                });
+            }
+        }
+
+        return parts;
+    }
+
+    private toResponsesInputItems(msg: OpenAIProviderMessage): Array<Record<string, unknown>> {
         const items: Array<Record<string, unknown>> = [];
 
         if (msg.role === 'system') {
@@ -531,11 +598,11 @@ export class OpenAIProvider implements LLMProvider {
         }
 
         if (msg.content) {
-            const contentType = msg.role === 'assistant' ? 'output_text' : 'input_text';
+            const content = this.toResponsesMessageContent(msg.role, msg.content);
             items.push({
                 type: 'message',
                 role: msg.role === 'tool' ? 'user' : msg.role,
-                content: [{ type: contentType, text: msg.content }],
+                content,
             });
         }
 
