@@ -52,6 +52,30 @@ import { authenticateOpenAIChatGPT } from "../../providers/openaiAuth.js";
  * Uses Ink Modal components for interactive prompts.
  */
 
+type CloudProviderWithSettings =
+  | "openai"
+  | "openrouter"
+  | "llmgateway"
+  | "azure"
+  | "zai"
+  | "xai"
+  | "nvidia"
+  | "deepseek";
+
+type CloudProviderSettingsAction =
+  | "model"
+  | "apiKey"
+  | "auth"
+  | "both"
+  | "reasoning";
+
+type ProviderSettingsSummary = {
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+  authToken?: string;
+};
+
 export class ProviderConfigManager {
   constructor(
     private runtime: AgentRuntime,
@@ -86,66 +110,255 @@ export class ProviderConfigManager {
    */
   async promptModelSelection(): Promise<void> {
     try {
-      // Show all providers with status indicators
-      // Use ProviderFactory to get platform-aware list (includes MLX on Apple Silicon)
-      const allProviders = ProviderFactory.getProviderNames();
-      const providerChoices: ModalOption[] = allProviders.map((name) => {
-        const isConfigured = this.isProviderConfigured(name);
-        const indicator = isConfigured ? chalk.green("●") : chalk.red("○");
-        const displayName = t(`providers.${name}`);
-        const current =
-          name === this.getActiveProvider()
-            ? chalk.cyan(" (" + t("providers.config.current") + ")")
-            : "";
-        // Add Apple Silicon indicator for MLX
-        const siliconNote =
-          name === "mlx"
-            ? chalk.gray(" (" + t("providers.config.appleSilicon") + ")")
-            : "";
-        // Add hosted indicator for cloud providers
-        const hostedNote =
-          ["openrouter", "openai", "llmgateway", "azure", "zai", "nvidia", "deepseek"].includes(name)
-            ? chalk.gray(" (" + t("providers.config.hosted") + ")")
-            : "";
-        return {
-          label: `${indicator} ${displayName}${current}${siliconNote}${hostedNote}`,
-          value: name,
-        };
-      });
-
-      const result = await showModal({
-        title: t("providers.config.chooseProvider"),
-        options: providerChoices,
-      });
-
-      if (!result) {
-        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+      const activeProvider = this.getActiveProvider();
+      if (activeProvider && this.isProviderConfigured(activeProvider)) {
+        await this.promptConfiguredProviderSettings(activeProvider);
         return;
       }
 
-      const selectedProvider = result.value as ProviderName;
-
-      // Check if provider needs configuration
-      if (!this.isProviderConfigured(selectedProvider)) {
-        console.log(
-          chalk.yellow(
-            "\n" +
-              t("providers.config.notConfigured", {
-                provider: selectedProvider,
-              }) +
-              "\n",
-          ),
-        );
-        await this.configureProvider(selectedProvider);
-        return;
-      }
-
-      // Provider is configured, let them change the model
-      await this.changeProviderModel(selectedProvider);
+      await this.promptProviderSelection();
     } catch (error) {
       // Re-throw unexpected errors (cancellation is now handled inline)
       throw error;
     }
+  }
+
+  private async promptProviderSelection(): Promise<void> {
+    // Use ProviderFactory to get platform-aware list (includes MLX on Apple Silicon).
+    const allProviders = ProviderFactory.getProviderNames();
+    const providerChoices: ModalOption[] = allProviders.map((name) => {
+      const isConfigured = this.isProviderConfigured(name);
+      const indicator = isConfigured ? chalk.green("●") : chalk.red("○");
+      const displayName = t(`providers.${name}`);
+      const current =
+        name === this.getActiveProvider()
+          ? chalk.cyan(" (" + t("providers.config.current") + ")")
+          : "";
+      const siliconNote =
+        name === "mlx"
+          ? chalk.gray(" (" + t("providers.config.appleSilicon") + ")")
+          : "";
+      const hostedNote =
+        this.isHostedProvider(name)
+          ? chalk.gray(" (" + t("providers.config.hosted") + ")")
+          : "";
+      return {
+        label: `${indicator} ${displayName}${current}${siliconNote}${hostedNote}`,
+        value: name,
+      };
+    });
+
+    const result = await showModal({
+      title: t("providers.config.chooseProvider"),
+      options: providerChoices,
+    });
+
+    if (!result) {
+      console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+      return;
+    }
+
+    const selectedProvider = result.value as ProviderName;
+
+    if (!this.isProviderConfigured(selectedProvider)) {
+      console.log(
+        chalk.yellow(
+          "\n" +
+            t("providers.config.notConfigured", {
+              provider: selectedProvider,
+            }) +
+            "\n",
+        ),
+      );
+      await this.configureProvider(selectedProvider);
+      return;
+    }
+
+    await this.changeProviderModel(selectedProvider);
+  }
+
+  private async promptConfiguredProviderSettings(
+    provider: ProviderName,
+  ): Promise<void> {
+    const currentSettings = getProviderConfig(this.runtime.config, provider);
+    const currentModel =
+      this.runtime.options.model ?? currentSettings?.model ?? "";
+
+    this.printProviderSettingsSummary(provider, currentModel, currentSettings);
+
+    const actionOptions = this.buildConfiguredProviderActions(provider);
+    const actionResult = await showModal({
+      title: t("providers.config.whatToChange"),
+      options: actionOptions,
+    });
+
+    if (!actionResult) {
+      console.log(
+        chalk.gray("\n" + t("providers.config.settingsChangeCancelled")),
+      );
+      return;
+    }
+
+    const action = actionResult.value as string;
+    if (action === "provider") {
+      await this.promptProviderSelection();
+      return;
+    }
+
+    if (this.isCloudSettingsProvider(provider)) {
+      await this.changeCloudProviderSettings(
+        provider,
+        currentModel,
+        currentSettings,
+        action as CloudProviderSettingsAction,
+      );
+      return;
+    }
+
+    if (provider === "vertexai") {
+      await this.changeVertexAISettings(
+        currentModel,
+        currentSettings as VertexAISettings | null,
+      );
+      return;
+    }
+
+    await this.changeProviderModel(provider);
+  }
+
+  private printProviderSettingsSummary(
+    provider: ProviderName,
+    currentModel: string,
+    currentSettings: ProviderSettingsSummary | null,
+  ): void {
+    const providerName = t(`providers.${provider}`);
+    console.log(
+      chalk.cyan(
+        "\n" + t("providers.config.settingsTitle", { provider: providerName }),
+      ),
+    );
+    console.log(
+      chalk.gray(
+        t("providers.config.currentModel", {
+          model: currentModel || t("providers.config.notSet"),
+        }),
+      ),
+    );
+
+    if (provider === "openai") {
+      const openAISettings = this.runtime.config.openai;
+      const reasoningEffort =
+        openAISettings?.reasoningEffort ?? t("providers.config.notSet");
+      console.log(
+        chalk.gray(
+          t("providers.config.reasoningEffortLabel", {
+            level: reasoningEffort,
+          }),
+        ),
+      );
+    }
+
+    const authSummary = this.getAuthSummary(provider, currentSettings);
+    if (authSummary) {
+      console.log(chalk.gray(authSummary + "\n"));
+    }
+  }
+
+  private getAuthSummary(
+    provider: ProviderName,
+    currentSettings: ProviderSettingsSummary | null,
+  ): string | null {
+    if (provider === "openai") {
+      const openAISettings = this.runtime.config.openai;
+      if (openAISettings?.authMode === "chatgpt") {
+        return t("providers.config.authTypeChatGPT");
+      }
+      const key = currentSettings?.apiKey
+        ? `...${currentSettings.apiKey.slice(-4)}`
+        : t("providers.config.notSet");
+      return t("providers.config.authTypeApiKey", { key });
+    }
+
+    if (provider === "vertexai") {
+      const key = currentSettings?.authToken
+        ? `...${currentSettings.authToken.slice(-8)}`
+        : t("providers.config.notSet");
+      return t("providers.config.currentAuthToken", { key });
+    }
+
+    if (this.isHostedProvider(provider)) {
+      const key = currentSettings?.apiKey
+        ? `...${currentSettings.apiKey.slice(-4)}`
+        : t("providers.config.notSet");
+      return t("providers.config.currentApiKey", { key });
+    }
+
+    return null;
+  }
+
+  private buildConfiguredProviderActions(provider: ProviderName): ModalOption[] {
+    if (provider === "openai") {
+      return [
+        {
+          label: t("providers.config.changeReasoningEffort"),
+          value: "reasoning",
+        },
+        { label: t("providers.config.changeModelOnly"), value: "model" },
+        { label: t("providers.openaiAuth.changeAuthOnly"), value: "auth" },
+        { label: t("providers.config.changeProvider"), value: "provider" },
+      ];
+    }
+
+    if (this.isCloudSettingsProvider(provider)) {
+      return [
+        { label: t("providers.config.changeModelOnly"), value: "model" },
+        { label: t("providers.config.changeApiKeyOnly"), value: "apiKey" },
+        { label: t("providers.config.changeProvider"), value: "provider" },
+      ];
+    }
+
+    if (provider === "vertexai") {
+      return [
+        { label: t("providers.config.changeModelOnly"), value: "model" },
+        { label: t("providers.config.changeApiKeyOnly"), value: "authToken" },
+        { label: t("providers.config.changeProvider"), value: "provider" },
+      ];
+    }
+
+    return [
+      { label: t("providers.config.changeModelOnly"), value: "model" },
+      { label: t("providers.config.changeProvider"), value: "provider" },
+    ];
+  }
+
+  private isCloudSettingsProvider(
+    provider: ProviderName,
+  ): provider is CloudProviderWithSettings {
+    return [
+      "openai",
+      "openrouter",
+      "llmgateway",
+      "azure",
+      "zai",
+      "xai",
+      "nvidia",
+      "deepseek",
+    ].includes(provider);
+  }
+
+  private isHostedProvider(provider: ProviderName): boolean {
+    return [
+      "openrouter",
+      "openai",
+      "llmgateway",
+      "azure",
+      "zai",
+      "vertexai",
+      "xai",
+      "cerebras",
+      "nvidia",
+      "deepseek",
+    ].includes(provider);
   }
 
   /**
@@ -1651,13 +1864,14 @@ export class ProviderConfigManager {
   }
 
   private async changeCloudProviderSettings(
-    provider: "openai" | "openrouter" | "llmgateway" | "azure" | "zai" | "xai" | "nvidia" | "deepseek",
+    provider: CloudProviderWithSettings,
     currentModel: string,
     currentSettings: {
       apiKey?: string;
       baseUrl?: string;
       model?: string;
     } | null,
+    forcedAction?: CloudProviderSettingsAction,
   ): Promise<void> {
     const providerName = t(`providers.${provider}`);
     const openAISettings =
@@ -1669,53 +1883,28 @@ export class ProviderConfigManager {
           ? `...${currentSettings.apiKey.slice(-4)}`
           : t("providers.config.notSet");
 
-    console.log(
-      chalk.cyan(
-        "\n" + t("providers.config.settingsTitle", { provider: providerName }),
-      ),
-    );
-    console.log(
-      chalk.gray(
-        t("providers.config.currentModel", {
-          model: currentModel || t("providers.config.notSet"),
-        }),
-      ),
-    );
-    console.log(
-      chalk.gray(
-        t("providers.config.currentApiKey", { key: maskedKey }) + "\n",
-      ),
-    );
-
-    const actionOptions: ModalOption[] =
-      provider === "openai"
-        ? [
-            { label: t("providers.config.changeModelOnly"), value: "model" },
-            { label: t("providers.openaiAuth.changeAuthOnly"), value: "auth" },
-            {
-              label: t("providers.openaiAuth.changeModelAndAuth"),
-              value: "both",
-            },
-          ]
-        : [
-            { label: t("providers.config.changeModelOnly"), value: "model" },
-            { label: t("providers.config.changeApiKeyOnly"), value: "apiKey" },
-            { label: t("providers.config.changeBoth"), value: "both" },
-          ];
-
-    const actionResult = await showModal({
-      title: t("providers.config.whatToChange"),
-      options: actionOptions,
-    });
-
-    if (!actionResult) {
+    if (!forcedAction) {
       console.log(
-        chalk.gray("\n" + t("providers.config.settingsChangeCancelled")),
+        chalk.cyan(
+          "\n" + t("providers.config.settingsTitle", { provider: providerName }),
+        ),
       );
-      return;
+      console.log(
+        chalk.gray(
+          t("providers.config.currentModel", {
+            model: currentModel || t("providers.config.notSet"),
+          }),
+        ),
+      );
+      console.log(
+        chalk.gray(
+          t("providers.config.currentApiKey", { key: maskedKey }) + "\n",
+        ),
+      );
     }
 
-    const action = actionResult.value as string;
+    const action = forcedAction ?? await this.promptCloudProviderSettingsAction(provider);
+    if (!action) return;
 
     let newModel = currentModel;
     let newApiKey = currentSettings?.apiKey || "";
@@ -1729,6 +1918,19 @@ export class ProviderConfigManager {
       provider === "openai"
         ? this.runtime.config.openai?.chatgptAuth
         : undefined;
+
+    let reasoningEffort: ReasoningEffort | undefined;
+    if (provider === "openai" && action === "reasoning") {
+      reasoningEffort = await this.promptReasoningEffort(
+        this.runtime.config.openai?.reasoningEffort,
+      );
+      if (!reasoningEffort) {
+        console.log(
+          chalk.gray("\n" + t("providers.config.settingsChangeCancelled")),
+        );
+        return;
+      }
+    }
 
     // Handle API key change
     if (provider === "openai" && (action === "auth" || action === "both")) {
@@ -2003,9 +2205,10 @@ export class ProviderConfigManager {
     }
 
     // Prompt for reasoning effort when changing OpenAI model
-    let reasoningEffort: ReasoningEffort | undefined;
     if (provider === "openai" && (action === "model" || action === "both")) {
-      reasoningEffort = await this.promptReasoningEffort();
+      reasoningEffort = await this.promptReasoningEffort(
+        this.runtime.config.openai?.reasoningEffort,
+      );
     }
 
     const contextWindow = await this.resolveContextWindow(provider, newModel);
@@ -2106,10 +2309,46 @@ export class ProviderConfigManager {
     );
   }
 
+  private async promptCloudProviderSettingsAction(
+    provider: CloudProviderWithSettings,
+  ): Promise<CloudProviderSettingsAction | null> {
+    const actionOptions: ModalOption[] =
+      provider === "openai"
+        ? [
+            { label: t("providers.config.changeModelOnly"), value: "model" },
+            { label: t("providers.openaiAuth.changeAuthOnly"), value: "auth" },
+            {
+              label: t("providers.openaiAuth.changeModelAndAuth"),
+              value: "both",
+            },
+          ]
+        : [
+            { label: t("providers.config.changeModelOnly"), value: "model" },
+            { label: t("providers.config.changeApiKeyOnly"), value: "apiKey" },
+            { label: t("providers.config.changeBoth"), value: "both" },
+          ];
+
+    const actionResult = await showModal({
+      title: t("providers.config.whatToChange"),
+      options: actionOptions,
+    });
+
+    if (!actionResult) {
+      console.log(
+        chalk.gray("\n" + t("providers.config.settingsChangeCancelled")),
+      );
+      return null;
+    }
+
+    return actionResult.value as CloudProviderSettingsAction;
+  }
+
   /**
    * Prompt user to select reasoning effort level for OpenAI models
    */
-  private async promptReasoningEffort(): Promise<ReasoningEffort | undefined> {
+  private async promptReasoningEffort(
+    currentEffort?: ReasoningEffort,
+  ): Promise<ReasoningEffort | undefined> {
     const options: ModalOption[] = [
       { label: "none", value: "none", description: "No extended reasoning" },
       {
@@ -2137,7 +2376,10 @@ export class ProviderConfigManager {
     const result = await showModal({
       title: t("providers.config.selectReasoningEffort"),
       options,
-      initialIndex: 3, // default to 'high'
+      initialIndex: Math.max(
+        0,
+        options.findIndex((option) => option.value === (currentEffort ?? "high")),
+      ),
     });
 
     if (!result) return undefined;

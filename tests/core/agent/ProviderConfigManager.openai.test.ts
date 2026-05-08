@@ -14,6 +14,7 @@ var mockEnsureOpenAIChatGPTAuth = vi.fn();
 var mockAuthenticateOpenAIChatGPT = vi.fn();
 
 vi.mock("../../../src/ui/ink/components/Modal.js", () => ({
+  showConfirm: vi.fn(),
   showModal: mockShowModal,
   showInput: mockShowInput,
   showPassword: mockShowPassword,
@@ -32,11 +33,12 @@ vi.mock("../../../src/config.js", () => ({
 vi.mock("../../../src/providers/openaiAuth.js", () => ({
   ensureOpenAIChatGPTAuth: mockEnsureOpenAIChatGPTAuth,
   authenticateOpenAIChatGPT: mockAuthenticateOpenAIChatGPT,
+  refreshChatGPTAuth: vi.fn(),
   isChatGPTAuthExpired: vi.fn(() => false),
 }));
 
 vi.mock("../../../src/i18n/index.js", () => ({
-  t: (key: string) => {
+  t: (key: string, params?: Record<string, string>) => {
     const map: Record<string, string> = {
       "providers.zai": "Z.ai",
       "providers.llmgateway": "LLM Gateway",
@@ -48,6 +50,19 @@ vi.mock("../../../src/i18n/index.js", () => ({
       "providers.config.hosted": "hosted",
       "providers.config.current": "current",
       "providers.config.appleSilicon": "Apple Silicon",
+      "providers.config.settingsTitle": `${params?.provider ?? "{{provider}}"} Settings`,
+      "providers.config.currentModel": `Current model: ${params?.model ?? "{{model}}"}`,
+      "providers.config.currentApiKey": `Current API key: ${params?.key ?? "{{key}}"}`,
+      "providers.config.authTypeApiKey": `Auth type: API Key: ${params?.key ?? "{{key}}"}`,
+      "providers.config.authTypeChatGPT": "Auth type: ChatGPT account",
+      "providers.config.reasoningEffortLabel": `Reasoning effort: ${params?.level ?? "{{level}}"}`,
+      "providers.config.whatToChange": "What would you like to change?",
+      "providers.config.changeModelOnly": "Change model",
+      "providers.config.changeApiKeyOnly": "Change API key",
+      "providers.config.changeProvider": "Change provider",
+      "providers.config.changeReasoningEffort": "Change reasoning effort",
+      "providers.config.notSet": "not set",
+      "providers.openaiAuth.changeAuthOnly": "Change authentication",
     };
     return map[key] ?? key;
   },
@@ -201,7 +216,7 @@ describe("ProviderConfigManager openai auth mode", () => {
         models: [{ name: "local-model:latest" }],
       }),
     });
-    vi.stubGlobal("fetch", fetchMock);
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
     runtime.config.ollama = {
       baseUrl: ollamaBaseUrl,
       model: "previous-model:latest",
@@ -219,13 +234,83 @@ describe("ProviderConfigManager openai auth mode", () => {
     expect(mockSaveConfig).toHaveBeenCalledOnce();
   });
 
-  it("shows user-facing provider names in provider selection", async () => {
-    runtime.config.provider = "zai";
-    runtime.config.zai = {
-      apiKey: "zai-key-long-enough",
-      model: "glm-4.5",
-      baseUrl: "https://api.z.ai/api/paas/v4",
+  it("opens the current provider settings menu when the active provider is configured", async () => {
+    runtime.config.provider = "openai";
+    runtime.config.openai = {
+      authMode: "api-key",
+      apiKey: "sk-openai-key-1234567890",
+      model: "gpt-5.4",
+      reasoningEffort: "xhigh",
     };
+    runtime.options.model = "gpt-5.4";
+
+    mockShowModal.mockResolvedValueOnce(null);
+
+    await manager.promptModelSelection();
+
+    const firstPrompt = mockShowModal.mock.calls[0][0];
+    expect(firstPrompt.title).toBe("What would you like to change?");
+    expect(firstPrompt.options.map((option: { value: string }) => option.value)).toEqual([
+      "reasoning",
+      "model",
+      "auth",
+      "provider",
+    ]);
+
+    const logOutput = consoleLogSpy.mock.calls
+      .map((call: unknown[]) => String(call[0] ?? ""))
+      .join("\n");
+    expect(logOutput).toContain("OpenAI Settings");
+    expect(logOutput).toContain("Current model: gpt-5.4");
+    expect(logOutput).toContain("Reasoning effort: xhigh");
+    expect(logOutput).toContain("Auth type: API Key: ...7890");
+  });
+
+  it("shows the provider list from current settings only after choosing change provider", async () => {
+    runtime.config.provider = "openai";
+    runtime.config.openai = {
+      authMode: "api-key",
+      apiKey: "sk-openai-key-1234567890",
+      model: "gpt-5.4",
+    };
+    runtime.options.model = "gpt-5.4";
+
+    mockShowModal
+      .mockResolvedValueOnce({ value: "provider" })
+      .mockResolvedValueOnce(null);
+
+    await manager.promptModelSelection();
+
+    expect(mockShowModal.mock.calls[0][0].title).toBe("What would you like to change?");
+    expect(mockShowModal.mock.calls[1][0].title).toBe("providers.config.chooseProvider");
+    const providerOptions = mockShowModal.mock.calls[1][0].options;
+    expect(providerOptions.some((option: { label: string }) => option.label.includes("OpenAI"))).toBe(true);
+    expect(providerOptions.some((option: { label: string }) => option.label.includes("Z.ai"))).toBe(true);
+  });
+
+  it("updates OpenAI reasoning effort from the configured provider menu", async () => {
+    runtime.config.provider = "openai";
+    runtime.config.openai = {
+      authMode: "api-key",
+      apiKey: "sk-openai-key-1234567890",
+      model: "gpt-5.4",
+      reasoningEffort: "high",
+    };
+    runtime.options.model = "gpt-5.4";
+
+    mockShowModal
+      .mockResolvedValueOnce({ value: "reasoning" })
+      .mockResolvedValueOnce({ value: "xhigh" });
+
+    await manager.promptModelSelection();
+
+    expect(runtime.config.openai.reasoningEffort).toBe("xhigh");
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
+    expect(mockShowModal.mock.calls[1][0].initialIndex).toBe(3);
+  });
+
+  it("shows user-facing provider names in provider selection when no active provider is configured", async () => {
+    runtime.config.provider = "zai";
 
     mockShowModal.mockResolvedValueOnce(null);
 
