@@ -55,6 +55,23 @@ describe('ReactLoopRunner composer status', () => {
         'I need to continue gathering information for the comprehensive code review. The glob for test files returned nothing, so let me search differently.',
       ),
     ).toBe(true);
+    expect(
+      isDeferredFinalResponse(
+        [
+          'Got it — that sounds like the autocomplete layer is now swallowing editor-editing keys.',
+          '',
+          'I’ll need to inspect the actual current implementation before changing anything, especially:',
+          '- src/ui/inputPrompt.ts',
+          '- src/ui/ink/AgentUI.tsx',
+          '- related Composer/input tests',
+          '',
+          'SITREP:',
+          '- Done: Confirmed this is a regression in key handling.',
+          '- Status: blocked by this turn’s no-tool constraint.',
+          '- Next: I should inspect the relevant input/autocomplete code.',
+        ].join('\n'),
+      ),
+    ).toBe(true);
   });
 
   it('allows real concise answers and summaries', () => {
