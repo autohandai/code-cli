@@ -13,7 +13,7 @@ describe('OpenAIProvider – reasoning effort & model list', () => {
   });
 
   describe('listModels', () => {
-    it('should return the GPT-5.4 model family', async () => {
+    it('should return the supported OpenAI model list', async () => {
       const provider = new OpenAIProvider({
         baseUrl: 'http://localhost:9999',
         apiKey: 'test-key',
@@ -25,6 +25,8 @@ describe('OpenAIProvider – reasoning effort & model list', () => {
     });
 
     it('OPENAI_MODELS constant contains expected models', () => {
+      expect(OPENAI_MODELS).toContain('gpt-5.5');
+      expect(OPENAI_MODELS).toContain('gpt-5.5-pro');
       expect(OPENAI_MODELS).toContain('gpt-5.4');
       expect(OPENAI_MODELS).toContain('gpt-5.4-pro');
       expect(OPENAI_MODELS).toContain('gpt-5.3-codex');
