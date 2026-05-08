@@ -544,10 +544,11 @@ export class OpenAIProvider implements LLMProvider {
         }
 
         if (msg.content) {
+            const contentType = msg.role === 'assistant' ? 'output_text' : 'input_text';
             items.push({
                 type: 'message',
                 role: msg.role === 'tool' ? 'user' : msg.role,
-                content: [{ type: 'input_text', text: msg.content }],
+                content: [{ type: contentType, text: msg.content }],
             });
         }
 

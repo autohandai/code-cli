@@ -572,7 +572,7 @@ describe('OpenAIProvider', () => {
         {
           type: 'message',
           role: 'assistant',
-          content: [{ type: 'input_text', text: 'Calling write_file' }],
+          content: [{ type: 'output_text', text: 'Calling write_file' }],
         },
         {
           type: 'function_call',
@@ -584,6 +584,53 @@ describe('OpenAIProvider', () => {
           type: 'function_call_output',
           call_id: 'call_1',
           output: 'done',
+        },
+      ]);
+    });
+
+    it('serializes prior assistant text responses as codex output_text items', async () => {
+      const chatgptProvider = new OpenAIProvider({
+        authMode: 'chatgpt',
+        model: 'gpt-5.4',
+        chatgptAuth: {
+          accessToken: 'chatgpt-access-token',
+          accountId: 'chatgpt-account-123',
+        },
+      });
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        sseResponse({
+          id: 'resp-chatgpt-followup',
+          created_at: 1234567890,
+          output_text: 'You are using gpt-5.4.',
+          output: [],
+        }),
+      );
+
+      await chatgptProvider.complete({
+        messages: [
+          { role: 'user', content: 'hey' },
+          { role: 'assistant', content: 'Hey Igor, I am here.' },
+          { role: 'user', content: 'which model are you?' },
+        ],
+      });
+
+      const sentBody = JSON.parse(fetchSpy.mock.calls[0]?.[1]?.body as string);
+      expect(sentBody.input).toEqual([
+        {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: 'hey' }],
+        },
+        {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'Hey Igor, I am here.' }],
+        },
+        {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: 'which model are you?' }],
         },
       ]);
     });
