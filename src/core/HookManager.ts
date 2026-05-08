@@ -36,6 +36,8 @@ export interface HookContext {
   mentionedFiles?: string[];
   /** Tokens used (for stop) */
   tokensUsed?: number;
+  /** Whether tokensUsed is actual provider-reported usage or unavailable */
+  tokensUsageStatus?: 'actual' | 'unavailable';
   /** Tool calls count (for stop) */
   toolCallsCount?: number;
   /** Error message (for session-error) */
@@ -493,6 +495,7 @@ export class HookManager {
 
     // Stop/response hooks
     if (context.tokensUsed !== undefined) env.HOOK_TOKENS = String(context.tokensUsed);
+    if (context.tokensUsageStatus !== undefined) env.HOOK_TOKENS_USAGE_STATUS = context.tokensUsageStatus;
     if (context.toolCallsCount !== undefined) env.HOOK_TOOL_CALLS_COUNT = String(context.toolCallsCount);
     if (context.toolCallsInTurn !== undefined) env.HOOK_TURN_TOOL_CALLS = String(context.toolCallsInTurn);
     if (context.turnDuration !== undefined) env.HOOK_TURN_DURATION = String(context.turnDuration);
@@ -566,6 +569,7 @@ export class HookManager {
       mentioned_files: context.mentionedFiles,
       // Stop/response context
       tokens_used: context.tokensUsed,
+      tokens_usage_status: context.tokensUsageStatus,
       tool_calls_count: context.toolCallsCount,
       turn_tool_calls: context.toolCallsInTurn,
       turn_duration: context.turnDuration,

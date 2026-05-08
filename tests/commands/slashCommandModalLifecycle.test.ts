@@ -212,6 +212,80 @@ describe('/status command screen isolation', () => {
       vi.restoreAllMocks();
     }
   });
+
+  it('labels context as estimated and shows unavailable actual token usage', async () => {
+    const { EventEmitter } = await import('node:events');
+    const originalStdin = process.stdin;
+    const originalStdout = process.stdout;
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const input = new EventEmitter() as NodeJS.ReadStream & {
+      isTTY: boolean;
+      isRaw: boolean;
+      setRawMode: (mode: boolean) => void;
+      setEncoding: (encoding: BufferEncoding) => void;
+      resume: () => void;
+      pause: () => void;
+      isPaused: () => boolean;
+    };
+    input.isTTY = true;
+    input.isRaw = false;
+    input.setRawMode = vi.fn((mode: boolean) => { input.isRaw = mode; });
+    input.setEncoding = vi.fn();
+    input.resume = vi.fn();
+    input.pause = vi.fn();
+    input.isPaused = vi.fn(() => false);
+
+    const output = new EventEmitter() as NodeJS.WriteStream & {
+      isTTY: boolean;
+      write: (chunk: string | Uint8Array) => boolean;
+    };
+    output.isTTY = false;
+    output.write = vi.fn(() => true);
+
+    Object.defineProperty(process, 'stdin', { value: input, writable: true, configurable: true });
+    Object.defineProperty(process, 'stdout', { value: output, writable: true, configurable: true });
+
+    const ctx = {
+      sessionManager: {
+        getCurrentSession: () => ({ metadata: { sessionId: 'session-1' } }),
+        listSessions: vi.fn(async () => []),
+      },
+      llm: {
+        isAvailable: vi.fn(async () => true),
+      },
+      workspaceRoot: '/tmp/workspace',
+      provider: 'openai',
+      model: 'gpt-test',
+      getContextPercentLeft: () => 97,
+      getTotalTokensUsed: () => 0,
+      getTokenUsageStatus: () => 'unavailable',
+      config: { ui: { theme: 'dark' } },
+      isContextCompactionEnabled: () => true,
+    };
+
+    try {
+      const { status } = await import('../../src/commands/status.js');
+      const statusPromise = status(ctx as any);
+
+      while (input.listenerCount('data') === 0) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      input.emit('data', '\t');
+      input.emit('data', '\t');
+      input.emit('data', '\u0003');
+      await statusPromise;
+
+      const rendered = consoleSpy.mock.calls.map((args) => args.join(' ')).join('\n');
+      expect(rendered).toContain('Context used (estimated)');
+      expect(rendered).toContain('Actual tokens used: unavailable');
+    } finally {
+      Object.defineProperty(process, 'stdin', { value: originalStdin, writable: true, configurable: true });
+      Object.defineProperty(process, 'stdout', { value: originalStdout, writable: true, configurable: true });
+      consoleSpy.mockRestore();
+      vi.restoreAllMocks();
+    }
+  });
 });
 
 describe('/language command modal lifecycle', () => {

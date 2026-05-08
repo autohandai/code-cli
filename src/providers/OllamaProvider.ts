@@ -10,12 +10,12 @@ import type {
     LLMResponse,
     LLMMessage,
     LLMToolCall,
-    LLMUsage,
     ProviderSettings,
     NetworkSettings,
     FunctionDefinition,
 } from '../types.js';
 import { ApiError, classifyApiError } from './errors.js';
+import { normalizeLLMUsage } from './usage.js';
 
 interface OllamaModel {
     name: string;
@@ -273,15 +273,10 @@ export class OllamaProvider implements LLMProvider {
             });
         }
 
-        // Parse token usage if present (Ollama uses different field names)
-        let usage: LLMUsage | undefined;
-        if (data.prompt_eval_count !== undefined || data.eval_count !== undefined) {
-            usage = {
-                promptTokens: data.prompt_eval_count ?? 0,
-                completionTokens: data.eval_count ?? 0,
-                totalTokens: (data.prompt_eval_count ?? 0) + (data.eval_count ?? 0)
-            };
-        }
+        const usage = normalizeLLMUsage({
+            prompt_tokens: data.prompt_eval_count,
+            completion_tokens: data.eval_count,
+        });
 
         return {
             id: `ollama-${Date.now()}`,

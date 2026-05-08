@@ -5,9 +5,10 @@
  */
 
 import type { LLMProvider } from './LLMProvider.js';
-import type { LLMRequest, LLMResponse, LLMToolCall, LLMUsage, FunctionDefinition, ReasoningEffort, OpenAISettings, OpenAIChatGPTAuth } from '../types.js';
+import type { LLMRequest, LLMResponse, LLMToolCall, FunctionDefinition, ReasoningEffort, OpenAISettings, OpenAIChatGPTAuth } from '../types.js';
 import { ApiError, classifyApiError, type ApiErrorCode } from './errors.js';
 import { isChatGPTAuthExpired, refreshChatGPTAuth } from './openaiAuth.js';
+import { normalizeLLMUsage } from './usage.js';
 
 interface OpenAIToolCall {
     id: string;
@@ -276,15 +277,7 @@ export class OpenAIProvider implements LLMProvider {
             }));
         }
 
-        // Parse token usage if present
-        let usage: LLMUsage | undefined;
-        if (data.usage) {
-            usage = {
-                promptTokens: data.usage.prompt_tokens,
-                completionTokens: data.usage.completion_tokens,
-                totalTokens: data.usage.total_tokens
-            };
-        }
+        const usage = normalizeLLMUsage(data.usage);
 
         return {
             id: data.id,
@@ -379,13 +372,7 @@ export class OpenAIProvider implements LLMProvider {
         const data = await this.parseCodexStream(response);
         const toolCalls = this.extractResponsesToolCalls(data.output);
         const content = this.extractResponsesContent(data);
-        const usage = data.usage
-            ? {
-                promptTokens: data.usage.input_tokens ?? 0,
-                completionTokens: data.usage.output_tokens ?? 0,
-                totalTokens: data.usage.total_tokens ?? ((data.usage.input_tokens ?? 0) + (data.usage.output_tokens ?? 0)),
-            }
-            : undefined;
+        const usage = normalizeLLMUsage(data.usage);
 
         return {
             id: data.id,

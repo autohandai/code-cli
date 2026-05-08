@@ -150,6 +150,7 @@ describe('RPC Hook Notifications', () => {
       expect(writtenNotifications[0].method).toBe('autohand.hook.postResponse');
       expect(writtenNotifications[0].params).toEqual({
         tokensUsed: 1500,
+        tokensUsageStatus: 'actual',
         toolCallsCount: 3,
         duration: 2500,
         timestamp: '2025-01-01T00:00:00.000Z',
@@ -160,8 +161,16 @@ describe('RPC Hook Notifications', () => {
       adapter.emitHookPostResponse(0, 0, 0);
 
       expect(writtenNotifications[0].params.tokensUsed).toBe(0);
+      expect(writtenNotifications[0].params.tokensUsageStatus).toBe('actual');
       expect(writtenNotifications[0].params.toolCallsCount).toBe(0);
       expect(writtenNotifications[0].params.duration).toBe(0);
+    });
+
+    it('can mark usage as unavailable without changing the numeric compatibility field', () => {
+      adapter.emitHookPostResponse(0, 0, 0, 'unavailable');
+
+      expect(writtenNotifications[0].params.tokensUsed).toBe(0);
+      expect(writtenNotifications[0].params.tokensUsageStatus).toBe('unavailable');
     });
   });
 

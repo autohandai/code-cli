@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
-import type { LLMMessage } from '../../types.js';
+import type { LLMMessage, TurnUsage } from '../../types.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
 import type { ReactionParser } from './ReactionParser.js';
 
@@ -18,6 +18,8 @@ export interface SimpleChatAgent {
   conversation: SimpleChatConversation;
   llm: LLMProvider;
   totalTokensUsed: number;
+  currentTurnActualUsage: TurnUsage;
+  currentTurnHadUnavailableUsage: boolean;
   lastAssistantResponseForNotification: string;
   saveUserMessage(content: string): Promise<void>;
   saveAssistantMessage(content: string): Promise<void>;
@@ -84,6 +86,18 @@ export class SimpleChatHandler {
 
       if (completion.usage) {
         this.agent.totalTokensUsed = completion.usage.totalTokens;
+        this.agent.currentTurnActualUsage = {
+          kind: 'actual',
+          promptTokens: completion.usage.promptTokens,
+          completionTokens: completion.usage.completionTokens,
+          totalTokens: completion.usage.totalTokens,
+        };
+      } else {
+        this.agent.currentTurnHadUnavailableUsage = true;
+        this.agent.currentTurnActualUsage = {
+          kind: 'unavailable',
+          reason: 'not_reported',
+        };
       }
 
       this.agent.updateContextUsage(this.agent.conversation.history());

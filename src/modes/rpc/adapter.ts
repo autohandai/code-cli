@@ -513,6 +513,7 @@ export class RPCAdapter {
               sessionId: this.sessionId || undefined,
               turnDuration,
               tokensUsed: snapshot?.tokensUsed ?? 0,
+              tokensUsageStatus: snapshot?.tokensUsageStatus,
             });
             process.stderr.write(`[RPC DEBUG] Stop hooks completed\n`);
 
@@ -520,7 +521,8 @@ export class RPCAdapter {
             this.emitHookStop(
               snapshot?.tokensUsed ?? 0,
               0, // toolCallsCount - not tracked per turn currently
-              turnDuration
+              turnDuration,
+              snapshot?.tokensUsageStatus
             );
             process.stderr.write(`[RPC DEBUG] HOOK_STOP emitted\n`);
           }
@@ -563,6 +565,7 @@ export class RPCAdapter {
         timestamp: createTimestamp(),
         contextPercent: this.contextPercent,
         tokensUsed: snapshot?.tokensUsed,
+        tokensUsageStatus: snapshot?.tokensUsageStatus,
         durationMs,
       });
       process.stderr.write(`[RPC DEBUG] TURN_END emitted successfully\n`);
@@ -599,6 +602,7 @@ export class RPCAdapter {
         timestamp: createTimestamp(),
         contextPercent: this.contextPercent,
         tokensUsed: snapshot?.tokensUsed,
+        tokensUsageStatus: snapshot?.tokensUsageStatus,
         durationMs,
       });
 
@@ -653,6 +657,7 @@ export class RPCAdapter {
           timestamp: createTimestamp(),
           contextPercent: this.contextPercent,
           tokensUsed: snapshot?.tokensUsed,
+          tokensUsageStatus: snapshot?.tokensUsageStatus,
           durationMs,
         });
       }
@@ -1206,9 +1211,10 @@ export class RPCAdapter {
    * Emit hook post-response notification
    * Called after receiving a response from the LLM
    */
-  emitHookPostResponse(tokensUsed: number, toolCallsCount: number, duration: number): void {
+  emitHookPostResponse(tokensUsed: number, toolCallsCount: number, duration: number, tokensUsageStatus: 'actual' | 'unavailable' = 'actual'): void {
     writeNotification(RPC_NOTIFICATIONS.HOOK_POST_RESPONSE, {
       tokensUsed,
+      tokensUsageStatus,
       toolCallsCount,
       duration,
       timestamp: createTimestamp(),
@@ -1232,9 +1238,10 @@ export class RPCAdapter {
    * Emit hook stop notification
    * Called when agent finishes responding to a turn
    */
-  emitHookStop(tokensUsed: number, toolCallsCount: number, duration: number): void {
+  emitHookStop(tokensUsed: number, toolCallsCount: number, duration: number, tokensUsageStatus: 'actual' | 'unavailable' = 'actual'): void {
     writeNotification(RPC_NOTIFICATIONS.HOOK_STOP, {
       tokensUsed,
+      tokensUsageStatus,
       toolCallsCount,
       duration,
       timestamp: createTimestamp(),

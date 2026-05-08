@@ -1062,7 +1062,13 @@ export function initializeAgentDependencies(
       provider: host.activeProvider,
       config: runtime.config,
       getContextPercentLeft: () => host.contextPercentLeft,
-      getTotalTokensUsed: () => host.totalTokensUsed,
+      getTotalTokensUsed: () => {
+        const currentTurnTokens = host.currentTurnActualUsage?.kind === 'actual'
+          ? host.currentTurnActualUsage.totalTokens
+          : 0;
+        return (host.sessionActualTokensUsed ?? host.sessionTokensUsed ?? 0) + currentTurnTokens;
+      },
+      getTokenUsageStatus: () => host.sessionTokenUsageUnavailable ? 'unavailable' as const : 'actual' as const,
       isInteractiveAutomodeEnabled: () => host.interactiveAutomodeEnabled,
       setInteractiveAutomodeEnabled: (enabled: boolean) => host.setInteractiveAutomodeEnabled(enabled),
       // Share command needs current session - use getter for dynamic access

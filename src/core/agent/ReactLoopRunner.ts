@@ -16,7 +16,9 @@ import type {
   FunctionDefinition,
   LLMMessage,
   LLMResponse,
+  LLMUsage,
   ProviderName,
+  TurnUsage,
   ToolCallRequest,
   ToolExecutionResult,
 } from '../../types.js';
@@ -34,7 +36,7 @@ import { filterToolsByRelevance } from '../toolFilter.js';
 import { EXIT_PLAN_MODE_TOOL_DEFINITION, PLAN_TOOL_DEFINITION } from '../toolManager.js';
 import {
   formatElapsedTime,
-  formatTokens,
+  formatTurnUsage,
   formatToolResultsBatch,
 } from './AgentFormatter.js';
 import {
@@ -92,6 +94,7 @@ export interface AgentReactLoopHost {
   sessionManager: Pick<SessionManager, 'getCurrentSession'>;
   sessionStartedAt: number;
   sessionTokensUsed: number;
+  taskStartedAt: number | null;
   toolManager: Pick<
     ToolManager,
     'execute' | 'listToolNames' | 'register' | 'registerMetaTools' | 'toFunctionDefinitions' | 'unregister'
@@ -99,6 +102,10 @@ export interface AgentReactLoopHost {
   toolsRegistry?: ToolsRegistry;
   contextWindow: number;
   totalTokensUsed: number;
+  currentTurnActualUsage: TurnUsage;
+  currentTurnHadUnavailableUsage: boolean;
+  sessionActualTokensUsed: number;
+  sessionTokenUsageUnavailable: boolean;
 
   cleanupModelResponse(content: string): string;
   emitOutput(event: AgentOutputEvent): void;
@@ -118,6 +125,26 @@ export interface AgentReactLoopHost {
   stopStatusUpdates(): void;
   updateContextUsage(messages: LLMMessage[], tools?: FunctionDefinition[]): void;
   writeDebugLine(message: string): void;
+}
+
+function addUsageToTurn(existing: TurnUsage, provider: ProviderName | undefined, usage: LLMUsage): TurnUsage {
+  if (existing.kind === 'actual') {
+    return {
+      kind: 'actual',
+      provider,
+      promptTokens: existing.promptTokens + usage.promptTokens,
+      completionTokens: existing.completionTokens + usage.completionTokens,
+      totalTokens: existing.totalTokens + usage.totalTokens,
+    };
+  }
+
+  return {
+    kind: 'actual',
+    provider,
+    promptTokens: usage.promptTokens,
+    completionTokens: usage.completionTokens,
+    totalTokens: usage.totalTokens,
+  };
 }
 
 export function formatComposerToolCallStatus(toolCount: number): string {
@@ -338,9 +365,21 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
 
       // Track token usage from response and immediately update UI
       if (completion.usage) {
+        host.currentTurnActualUsage = addUsageToTurn(
+          host.currentTurnActualUsage,
+          host.activeProvider,
+          completion.usage,
+        );
         host.totalTokensUsed += completion.usage.totalTokens;
         // Immediately render updated token count
         host.forceRenderSpinner();
+      } else {
+        host.currentTurnHadUnavailableUsage = true;
+        host.currentTurnActualUsage = {
+          kind: 'unavailable',
+          provider: host.activeProvider,
+          reason: 'not_reported',
+        };
       }
 
       const payload = host.getReactionParser().parseAssistantResponse(completion);
@@ -854,9 +893,8 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
         if (showThinking && payload.thought && !suppressThinking) {
           host.inkRenderer.setThinking(payload.thought);
         }
-        // Update final stats before stopping (session totals for completionStats)
-        host.inkRenderer.setElapsed(formatElapsedTime(host.sessionStartedAt));
-        host.inkRenderer.setTokens(formatTokens(host.sessionTokensUsed + host.totalTokensUsed));
+        host.inkRenderer.setElapsed(formatElapsedTime(host.taskStartedAt ?? host.sessionStartedAt));
+        host.inkRenderer.setTokens(formatTurnUsage(host.currentTurnActualUsage));
         host.inkRenderer.setWorking(false);
         host.inkRenderer.setFinalResponse(response);
       } else {

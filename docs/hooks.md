@@ -530,6 +530,7 @@ rpcClient.onNotification('autohand.hook.subagentStop', (params) => {
 ```typescript
 {
   tokensUsed: number;
+  tokensUsageStatus?: "actual" | "unavailable";
   toolCallsCount: number;
   duration: number;
   timestamp: string;

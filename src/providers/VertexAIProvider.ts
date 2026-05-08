@@ -7,7 +7,6 @@ import type {
   LLMRequest,
   LLMResponse,
   LLMToolCall,
-  LLMUsage,
   VertexAISettings,
   NetworkSettings,
   FunctionDefinition,
@@ -16,6 +15,7 @@ import type {
 import type { LLMProvider } from "./LLMProvider.js";
 import { getGcloudAccessToken, clearGcloudTokenCache } from "../utils/gcloudAuth.js";
 import { ApiError, classifyApiError, type ApiErrorCode } from "./errors.js";
+import { normalizeLLMUsage } from "./usage.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -469,15 +469,7 @@ export class VertexAIProvider implements LLMProvider {
       });
     }
 
-    // Parse token usage if present
-    let usage: LLMUsage | undefined;
-    if (json?.usage) {
-      usage = {
-        promptTokens: json.usage.prompt_tokens ?? 0,
-        completionTokens: json.usage.completion_tokens ?? 0,
-        totalTokens: json.usage.total_tokens ?? 0,
-      };
-    }
+    const usage = normalizeLLMUsage(json?.usage);
 
     return {
       id: json.id ?? "vertexai-response",
@@ -514,15 +506,7 @@ export class VertexAIProvider implements LLMProvider {
       }));
     }
 
-    // Parse token usage if present
-    let usage: LLMUsage | undefined;
-    if (json?.usage) {
-      usage = {
-        promptTokens: json.usage.input_tokens ?? 0,
-        completionTokens: json.usage.output_tokens ?? 0,
-        totalTokens: (json.usage.input_tokens ?? 0) + (json.usage.output_tokens ?? 0),
-      };
-    }
+    const usage = normalizeLLMUsage(json?.usage);
 
     // Map Anthropic stop_reason to finish_reason
     const stopReason = json?.stop_reason;
