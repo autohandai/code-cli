@@ -124,6 +124,7 @@ describe('ReactLoopRunner composer status', () => {
       autoReportManager: {
         reportError: vi.fn(async () => {}),
       },
+      consecutiveCancellations: 0,
       contextPercentLeft: 100,
       contextOrchestrator: {
         checkMidTurnCompaction: vi.fn(async () => false),
@@ -194,6 +195,9 @@ describe('ReactLoopRunner composer status', () => {
         registerMetaTools: vi.fn(),
         unregister: vi.fn(() => true),
       },
+      toolsRegistry: undefined,
+      contextWindow: 128000,
+      lastAssistantResponseForNotification: '',
       totalTokensUsed: 0,
       currentTurnActualUsage: { kind: 'unavailable', reason: 'not_reported' },
       currentTurnHadUnavailableUsage: false,
@@ -207,10 +211,61 @@ describe('ReactLoopRunner composer status', () => {
       await runAgentReactLoop(host, new AbortController());
 
       expect(llmComplete).toHaveBeenCalledTimes(2);
-      expect(addSystemNote).toHaveBeenCalledWith(expect.stringContaining('was not an answer'));
+      expect(addSystemNote).toHaveBeenCalledWith(expect.stringContaining('announced an action but emitted no tool calls'));
       expect(emitOutput).toHaveBeenCalledWith({
         type: 'message',
         content: 'This repo is a TypeScript CLI built with React, Ink, Bun, and Vitest.',
+      });
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('bounds repeated invalid deferred responses and reports telemetry', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const parser = new ReactionParser();
+    const addSystemNote = vi.fn();
+    const emitOutput = vi.fn();
+    const reportError = vi.fn(async () => {});
+    const setComposerFinalResponse = vi.fn();
+    const llmComplete = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: 'deferred-1',
+        created: 1,
+        content: 'Let me run the focused regression test before changing anything.',
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'deferred-2',
+        created: 2,
+        content: 'SITREP:\n- Status: blocked by no-tool constraint.\n- Next: inspect the React loop.',
+        raw: {},
+      });
+
+    const host = createReactLoopTestHost(llmComplete, parser);
+    host.activeProvider = 'openai';
+    host.autoReportManager.reportError = reportError;
+    host.conversation.addSystemNote = addSystemNote;
+    host.emitOutput = emitOutput;
+    host.setComposerFinalResponse = setComposerFinalResponse;
+
+    try {
+      await runAgentReactLoop(host, new AbortController());
+
+      expect(llmComplete).toHaveBeenCalledTimes(2);
+      expect(addSystemNote).toHaveBeenCalledTimes(1);
+      expect(reportError).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({
+          errorType: 'invalid_deferred_action',
+          model: 'test-model',
+          provider: 'openai',
+        }),
+      );
+      expect(emitOutput).toHaveBeenCalledWith({
+        type: 'message',
+        content: 'The model stopped before providing a usable answer. Please retry the request.',
       });
     } finally {
       logSpy.mockRestore();
@@ -288,6 +343,7 @@ function createReactLoopTestHost(
     autoReportManager: {
       reportError: vi.fn(async () => {}),
     },
+    consecutiveCancellations: 0,
     contextPercentLeft: 100,
     contextOrchestrator: {
       checkMidTurnCompaction: vi.fn(async () => false),
@@ -360,6 +416,7 @@ function createReactLoopTestHost(
     },
     toolsRegistry: undefined,
     contextWindow: 128000,
+    lastAssistantResponseForNotification: '',
     totalTokensUsed: 0,
     currentTurnActualUsage: { kind: 'unavailable', reason: 'not_reported' },
     currentTurnHadUnavailableUsage: false,

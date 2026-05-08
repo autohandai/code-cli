@@ -47,6 +47,10 @@ import {
 } from './ToolLoopSignature.js';
 import { isAutohandDebugEnabled } from '../../utils/debugLog.js';
 import { syncDynamicRuntimeExtensions } from './dynamicRuntimeExtensions.js';
+import {
+  classifyResponseCompletion,
+  isDeferredFinalResponse,
+} from './ResponseCompletionClassifier.js';
 
 class LoopAbortedError extends Error {
   constructor(message: string) {
@@ -151,38 +155,7 @@ export function formatComposerToolCallStatus(toolCount: number): string {
   return toolCount === 1 ? 'Calling tool...' : `Calling ${toolCount} tools...`;
 }
 
-export function isDeferredFinalResponse(response: string): boolean {
-  const trimmed = response.trim();
-  if (!trimmed) {
-    return false;
-  }
-
-  const deferredActionPatterns = [
-    /\b(?:let me|i(?:['’]ll| will| am going to|['’]m going to| should| need to)|now i(?:['’]ll| will)|next[:,]?\s+i(?:['’]ll| will| should)|first,?\s+let me)\b.{0,140}\b(?:start|begin|check|gather|inspect|analy[sz]e|review|perform|run|look at|read|find|search|trace|debug|reproduce|replicate)\b/i,
-    /\b(?:status|sitrep)\s*:[\s\S]{0,260}\b(?:blocked|next)\b[\s\S]{0,180}\b(?:check|inspect|read|search|review|run|trace|debug|reproduce|replicate)\b/i,
-    /\bblocked by\b.{0,120}\b(?:no-tool|tool constraint|tools? unavailable)\b/i,
-  ];
-  if (deferredActionPatterns.some((pattern) => pattern.test(trimmed))) {
-    return true;
-  }
-
-  const hasAnswerStructure =
-    trimmed.includes('\n') ||
-    /:\s+\S[\s\S]{11,}/.test(trimmed) ||
-    /(^|\n)\s*[-*]\s+\S/.test(trimmed);
-  if (hasAnswerStructure) {
-    return false;
-  }
-
-  const patterns = [
-    /\bi (now )?have (a )?(comprehensive|clear|good|enough|solid) (understanding|picture|context|information)\b.{0,120}\b(let me|i('ll| will)|i can now)\b.{0,80}\b(provide|give|summarize|explain|tell|answer)\b.{0,80}\b(to|for) (the )?(user|you)\b/i,
-    /^\s*(let me|i('ll| will)|i can now|now i('ll| will))\b.{0,50}\b(provide|give|summarize|explain|tell|answer)\b.{0,80}\b(to|for) (the )?(user|you)\.?$/i,
-    /^\s*(first,?\s+)?(let me|i('ll| will)|i am going to|i'm going to|now i('ll| will))\b.{0,100}\b(start|begin|check|gather|inspect|analy[sz]e|review|perform|run|look at|read|find)\b/i,
-    /^\s*i\s+(?:still\s+|also\s+)?need\s+to\s+(?:continue\s+)?(?:gather(?:ing)?|check(?:ing)?|inspect(?:ing)?|read(?:ing)?|search(?:ing)?|look(?:ing)? at|review(?:ing)?|analy[sz](?:e|ing)|run(?:ning)?|find(?:ing)?)\b/i,
-  ];
-
-  return patterns.some((pattern) => pattern.test(trimmed));
-}
+export { isDeferredFinalResponse, classifyResponseCompletion };
 
 export async function runAgentReactLoop(host: AgentReactLoopHost, abortController: AbortController): Promise<void> {
     host.consecutiveCancellations = 0;
@@ -256,8 +229,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
     let needsReflection = false; // Set after tool execution; cleared when model reflects
     const reflectionViolationLimit = 2;
     let reflectionViolationCount = 0;
-    let deferredFinalResponseCount = 0;
-    let intentRetryCount = 0;
+    let invalidDeferredActionCount = 0;
     let consecutiveEmptyResponseCount = 0;
 
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
@@ -795,29 +767,6 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
         continue;
       }
 
-      // CRITICAL: Detect when model says it will act but didn't include tool calls
-      // This catches the common failure mode: "Let me now update X..." with empty toolCalls
-      const pendingResponse = payload.finalResponse || payload.response || '';
-      if (host.expressesIntentToAct(pendingResponse) && !payload.toolCalls?.length) {
-        // Model said it will do something but didn't call the tool - force it to actually act
-        intentRetryCount += 1;
-
-        if (intentRetryCount < 3) {
-          host.conversation.addSystemNote(
-            `[System] ERROR: You said "${pendingResponse.slice(0, 100)}..." but did NOT include any tool calls. ` +
-            `You MUST include the actual tool call in toolCalls array. ` +
-            `Do NOT say "let me update X" - actually call write_file/search_replace/apply_patch with the changes. ` +
-            `Try again with the actual tool call.`
-          );
-          continue; // Force another iteration
-        }
-        // After 3 retries, fall through and show the response (better than infinite loop)
-        intentRetryCount = 0;
-      } else {
-        // Reset counter on successful response
-        intentRetryCount = 0;
-      }
-
       // Extract the response - prioritize explicit response fields, but use thought as fallback
       // when there are no tool calls (model might provide analysis in thought without finalResponse)
       let rawResponse: string;
@@ -870,18 +819,32 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
         continue;
       }
 
-      if (isDeferredFinalResponse(response)) {
-        deferredFinalResponseCount += 1;
-        if (deferredFinalResponseCount < 3) {
+      const completionClassification = classifyResponseCompletion({
+        response,
+        toolCalls: payload.toolCalls,
+      });
+      if (completionClassification.kind === 'invalid_deferred_action') {
+        invalidDeferredActionCount += 1;
+        if (invalidDeferredActionCount < 2) {
           host.conversation.addSystemNote(
-            `[System] IMPORTANT: Your previous finalResponse was not an answer: "${response.slice(0, 160)}". ` +
-            'Do not announce that you will summarize or answer. Provide the actual finalResponse now with concrete findings for the user.'
+            `[System] ERROR: Your previous finalResponse announced an action but emitted no tool calls: "${completionClassification.excerpt}". ` +
+            'Either emit the required tool call now, or explain why no tool is needed and answer directly in finalResponse. ' +
+            'Do not write another progress update, SITREP, or next-step note as the finalResponse.'
           );
           continue;
         }
+        host.autoReportManager.reportError(
+          new Error(`Invalid deferred finalResponse without tool calls: ${completionClassification.reason}`),
+          {
+            errorType: 'invalid_deferred_action',
+            model: host.runtime.options.model,
+            provider: host.activeProvider,
+            conversationLength: host.conversation.history().length,
+          }
+        ).catch(() => {});
         response = 'The model stopped before providing a usable answer. Please retry the request.';
       } else {
-        deferredFinalResponseCount = 0;
+        invalidDeferredActionCount = 0;
       }
 
       host.stopStatusUpdates();
