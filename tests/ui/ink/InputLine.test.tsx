@@ -9,7 +9,6 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import React from 'react';
 import chalk from 'chalk';
-import { renderToString } from 'ink';
 import { render } from 'ink-testing-library';
 import { InputLine } from '../../../src/ui/ink/InputLine.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
@@ -270,12 +269,12 @@ describe('InputLine cursor positioning', () => {
     try {
       chalk.level = 3;
 
-      output = renderToString(
+      const { lastFrame } = render(
         <ThemeProvider>
           <InputLine value="hello" cursorOffset={2} isActive width={80} />
-        </ThemeProvider>,
-        { columns: 80 }
+        </ThemeProvider>
       );
+      output = lastFrame() ?? '';
     } finally {
       chalk.level = originalChalkLevel;
     }
@@ -290,12 +289,12 @@ describe('InputLine cursor positioning', () => {
     try {
       chalk.level = 3;
 
-      output = renderToString(
+      const { lastFrame } = render(
         <ThemeProvider>
           <InputLine value="hello" cursorOffset={5} isActive width={80} />
-        </ThemeProvider>,
-        { columns: 80 }
+        </ThemeProvider>
       );
+      output = lastFrame() ?? '';
     } finally {
       chalk.level = originalChalkLevel;
     }

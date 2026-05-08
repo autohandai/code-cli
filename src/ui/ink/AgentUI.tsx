@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import React, { useState, useEffect, memo, useMemo, useRef, useCallback } from 'react';
-import { Box, Static, Text, useInput, useWindowSize, type Key as InkKey } from 'ink';
+import { Box, Static, Text, useInput, useStdout, type Key as InkKey } from 'ink';
 import {
   StatusLine,
   formatLineSegments,
@@ -117,6 +117,8 @@ const INK_TEXTBUFFER_VIEWPORT_HEIGHT = 10;
 const INK_IMAGE_SCAN_DELAY_MS = 150;
 const BRACKETED_PASTE_START = '\x1b[200~';
 const BRACKETED_PASTE_END = '\x1b[201~';
+const INK_HOME_KEY_INPUTS = new Set(['\x1b[H', '\x1bOH', '\x1b[1~', '\x1b[7~']);
+const INK_END_KEY_INPUTS = new Set(['\x1b[F', '\x1bOF', '\x1b[4~', '\x1b[8~']);
 
 interface ChatHistoryItem {
   index: number;
@@ -163,9 +165,9 @@ function mapInkKeyToTextBufferKey(input: string, key: InkKey): TextBufferKeyInfo
     name = 'delete';
   } else if (key.tab) {
     name = 'tab';
-  } else if (key.home) {
+  } else if (INK_HOME_KEY_INPUTS.has(input)) {
     name = 'home';
-  } else if (key.end) {
+  } else if (INK_END_KEY_INPUTS.has(input)) {
     name = 'end';
   } else if (key.ctrl && input === 'a') {
     name = 'a';
@@ -180,6 +182,32 @@ function mapInkKeyToTextBufferKey(input: string, key: InkKey): TextBufferKeyInfo
     shift: key.shift,
     sequence: input,
   };
+}
+
+function useTerminalWindowSize(): { columns: number | undefined; rows: number | undefined } {
+  const { stdout } = useStdout();
+  const [windowSize, setWindowSize] = useState(() => ({
+    columns: stdout.columns,
+    rows: stdout.rows,
+  }));
+
+  useEffect(() => {
+    const updateWindowSize = () => {
+      setWindowSize({
+        columns: stdout.columns,
+        rows: stdout.rows,
+      });
+    };
+
+    updateWindowSize();
+    stdout.on('resize', updateWindowSize);
+
+    return () => {
+      stdout.off('resize', updateWindowSize);
+    };
+  }, [stdout]);
+
+  return windowSize;
 }
 
 export function getTextBufferCursorOffset(buffer: TextBuffer): number {
@@ -682,8 +710,8 @@ export function AgentUI({
     onInputChange?.(input);
   }, [input, onInputChange]);
 
-  // Sync viewport on every render. Terminal resize now flows through
-  // useWindowSize(), which gives React a real update when stdout emits resize.
+  // Sync viewport on every render. Terminal resize flows through
+  // useTerminalWindowSize(), which gives React a real update when stdout emits resize.
   useEffect(() => {
     syncBufferViewport();
   }, [syncBufferViewport]);
@@ -1329,12 +1357,11 @@ export function AgentUI({
     [state.liveCommands]
   );
 
-  // Calculate input width from a resize-aware hook. useStdout() only exposes
-  // the stream object; it does not subscribe React to column changes.
+  // Calculate input width from a resize-aware hook.
   // With synchronized-output patching (InkRenderer), rapid resize re-renders
   // are batched atomically, so the old 100ms debounce is no longer needed
   // and was actually causing a layout lag during drag-resize.
-  const windowSize = useWindowSize();
+  const windowSize = useTerminalWindowSize();
   const inputWidth = getPromptBlockWidth(windowSize.columns);
   const composerNextPromptSuggestion = useMemo(() => {
     if (

@@ -61,8 +61,6 @@ function createInkKey(overrides: Partial<InkKey> = {}): InkKey {
     rightArrow: false,
     pageDown: false,
     pageUp: false,
-    home: false,
-    end: false,
     return: false,
     escape: false,
     ctrl: false,
@@ -71,10 +69,6 @@ function createInkKey(overrides: Partial<InkKey> = {}): InkKey {
     backspace: false,
     delete: false,
     meta: false,
-    super: false,
-    hyper: false,
-    capsLock: false,
-    numLock: false,
     ...overrides,
   };
 }
@@ -323,8 +317,11 @@ describe('AgentUI composer suggestions', () => {
   });
 
   it('renders slash command suggestions for a typed bare slash in the Ink composer', async () => {
-    const state = createInitialUIState();
-    const { lastFrame, stdin } = render(
+    const state = {
+      ...createInitialUIState(),
+      currentInput: '/',
+    };
+    const { lastFrame } = render(
       React.createElement(
         I18nProvider,
         null,
@@ -342,7 +339,6 @@ describe('AgentUI composer suggestions', () => {
       )
     );
 
-    stdin.write('/');
     await new Promise<void>((resolve) => setTimeout(resolve, 50));
 
     const frame = stripAnsi(lastFrame() ?? '');
@@ -355,8 +351,9 @@ describe('AgentUI composer suggestions', () => {
       ...createInitialUIState(),
       isWorking: true,
       status: 'Crunching...',
+      currentInput: '/',
     };
-    const { lastFrame, stdin } = render(
+    const { lastFrame } = render(
       React.createElement(
         I18nProvider,
         null,
@@ -374,7 +371,6 @@ describe('AgentUI composer suggestions', () => {
       )
     );
 
-    stdin.write('/');
     await new Promise<void>((resolve) => setTimeout(resolve, 50));
 
     const frame = stripAnsi(lastFrame() ?? '');
@@ -776,14 +772,14 @@ describe('AgentUI multiline input regression', () => {
     expect(buffer.getCursorCol()).toBe(5); // 'line3'.length
   });
 
-  it('handles Ink 7 Home and End keys on multi-line content', () => {
+  it('handles terminal Home and End escape sequences on multi-line content', () => {
     const buffer = new TextBuffer(80, 10, 'line1\nline2');
 
-    expect(handleInkTextBufferInput(buffer, '', createInkKey({ home: true }))).toBe('handled');
+    expect(handleInkTextBufferInput(buffer, '\x1b[H', createInkKey())).toBe('handled');
     expect(buffer.getCursorRow()).toBe(1);
     expect(buffer.getCursorCol()).toBe(0);
 
-    expect(handleInkTextBufferInput(buffer, '', createInkKey({ end: true }))).toBe('handled');
+    expect(handleInkTextBufferInput(buffer, '\x1b[F', createInkKey())).toBe('handled');
     expect(buffer.getCursorRow()).toBe(1);
     expect(buffer.getCursorCol()).toBe('line2'.length);
   });
