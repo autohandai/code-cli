@@ -90,6 +90,18 @@ code --install-extension AutohandAI.vscode-autohand
 
 Install from the [Zed Extensions](https://zed.dev/extensions/autohand-acp) marketplace.
 
+## Code Agent SDK
+
+Developers can also build on the same CLI-backed agent runtime through the [Code Agent SDK](https://github.com/autohandai/code-agent-sdk-typescript). Use it when you want Autohand Code CLI capabilities inside your own tools, services, workflows, or editor integrations.
+
+The Agent SDK is available in multiple beta language packages. Use the same CLI-backed SDK model from another programming language:
+
+- TypeScript - this package, with Agent, Run, streaming, and JSON helpers.
+- Go - idiomatic Go package with context.Context, typed events, and channel-based streaming.
+- Python - async Python package with async for event streams and typed Pydantic models.
+- Java - Java 21 records, sealed events, and virtual-thread-ready APIs.
+- Swift - SwiftPM package with Agent, Runner, async streams, tools, hooks, and permissions.
+
 ## Usage Modes
 
 ### Interactive Mode
