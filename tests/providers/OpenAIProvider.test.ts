@@ -771,5 +771,51 @@ describe('OpenAIProvider', () => {
       });
       expect(result.finishReason).toBe('stop');
     });
+
+    it('uses streamed output_text deltas when response.completed omits text content', async () => {
+      const chatgptProvider = new OpenAIProvider({
+        authMode: 'chatgpt',
+        model: 'gpt-5.4',
+        chatgptAuth: {
+          accessToken: 'chatgpt-access-token',
+          accountId: 'chatgpt-account-123',
+        },
+      });
+
+      const sseBody = [
+        'event: response.created',
+        'data: {"id":"resp-delta-only","object":"response"}',
+        '',
+        'event: response.output_text.delta',
+        'data: {"type":"response.output_text.delta","delta":"Hello"}',
+        '',
+        'event: response.output_text.delta',
+        'data: {"type":"response.output_text.delta","delta":" there."}',
+        '',
+        'event: response.completed',
+        `data: ${JSON.stringify({
+          id: 'resp-delta-only',
+          created_at: 1234567890,
+          output: [],
+          usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7 },
+        })}`,
+        '',
+      ].join('\n');
+
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(sseBody, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      );
+
+      const result = await chatgptProvider.complete({
+        messages: [{ role: 'user', content: 'hi' }],
+      });
+
+      expect(result.content).toBe('Hello there.');
+      expect(result.toolCalls).toEqual([]);
+      expect(result.finishReason).toBe('stop');
+    });
   });
 });

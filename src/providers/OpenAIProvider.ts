@@ -75,6 +75,8 @@ interface OpenAIResponsesResponse {
 
 /** Canonical list of supported OpenAI models — single source of truth. */
 export const OPENAI_MODELS = [
+    'gpt-5.5',
+    'gpt-5.5-pro',
     'gpt-5.4',
     'gpt-5.4-pro',
     'gpt-5.4-mini',
@@ -445,14 +447,36 @@ export class OpenAIProvider implements LLMProvider {
         const text = await response.text();
         let currentEvent = '';
         let completedData: OpenAIResponsesResponse | null = null;
+        let streamedOutputText = '';
 
         for (const line of text.split('\n')) {
             if (line.startsWith('event: ')) {
                 currentEvent = line.slice(7).trim();
                 continue;
             }
-            if (line.startsWith('data: ') && currentEvent === 'response.completed') {
-                completedData = JSON.parse(line.slice(6)) as OpenAIResponsesResponse;
+            if (!line.startsWith('data: ')) {
+                continue;
+            }
+
+            const dataLine = line.slice(6);
+            if (currentEvent === 'response.output_text.delta') {
+                const eventData = JSON.parse(dataLine) as Record<string, unknown>;
+                if (typeof eventData.delta === 'string') {
+                    streamedOutputText += eventData.delta;
+                }
+                continue;
+            }
+
+            if (currentEvent === 'response.output_text.done') {
+                const eventData = JSON.parse(dataLine) as Record<string, unknown>;
+                if (typeof eventData.text === 'string' && eventData.text.trim()) {
+                    streamedOutputText = eventData.text;
+                }
+                continue;
+            }
+
+            if (currentEvent === 'response.completed') {
+                completedData = JSON.parse(dataLine) as OpenAIResponsesResponse;
                 break;
             }
         }
@@ -462,6 +486,10 @@ export class OpenAIProvider implements LLMProvider {
                 'No response.completed event found in stream. The API response may be malformed.',
                 'invalid_request', 0, false,
             );
+        }
+
+        if (!this.extractResponsesContent(completedData) && streamedOutputText.trim()) {
+            completedData.output_text = streamedOutputText;
         }
 
         return completedData;
