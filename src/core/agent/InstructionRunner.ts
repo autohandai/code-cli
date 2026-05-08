@@ -11,7 +11,7 @@ import {
   type DirectoryPermissionOptions,
 } from '../../permissions/directoryPermissionPrompt.js';
 import type { PermissionManager } from '../../permissions/PermissionManager.js';
-import type { AgentOutputEvent, AgentRuntime } from '../../types.js';
+import type { AgentOutputEvent, AgentRuntime, TurnUsage } from '../../types.js';
 import type { Intent, IntentResult } from '../IntentDetector.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 
@@ -46,12 +46,25 @@ interface EnvironmentBootstrapResult {
   success: boolean;
 }
 
+function isActualTurnUsage(usage: TurnUsage): usage is Extract<TurnUsage, { kind: 'actual' }> {
+  return usage.kind === 'actual';
+}
+
+function readCompletedTurnUsage(host: AgentInstructionHost): TurnUsage {
+  return host.currentTurnActualUsage;
+}
+
 export interface AgentInstructionHost {
   isInstructionActive: boolean;
   filesModifiedThisSession: boolean;
   lastAssistantResponseForNotification: string;
   taskStartedAt: number | null;
   totalTokensUsed: number;
+  currentTurnActualUsage: TurnUsage;
+  currentTurnHadUnavailableUsage: boolean;
+  lastTurnActualUsage: TurnUsage;
+  sessionActualTokensUsed: number;
+  sessionTokenUsageUnavailable: boolean;
   lastIntent: Intent;
   activeAbortController: AbortController | null;
   persistentInputActiveTurn: boolean;
@@ -134,6 +147,12 @@ export class InstructionRunner {
     // Initialize task-level tracking
     host.taskStartedAt = Date.now();
     host.totalTokensUsed = 0;
+    host.currentTurnActualUsage = {
+      kind: 'unavailable',
+      provider: host.runtime.config.provider,
+      reason: 'not_reported',
+    };
+    host.currentTurnHadUnavailableUsage = false;
 
     // Detect user intent (diagnostic vs implementation)
     const intentResult = host.intentDetector.detect(instruction);
@@ -400,8 +419,15 @@ export class InstructionRunner {
         host.printCompletionSummary(keepPersistentInputForNextTurn);
       }
 
-      // Accumulate session tokens before resetting task
-      host.sessionTokensUsed += host.totalTokensUsed;
+      // Accumulate exact provider-reported session usage only when the whole turn reported usage.
+      const completedTurnUsage = readCompletedTurnUsage(host);
+      if (isActualTurnUsage(completedTurnUsage) && !host.currentTurnHadUnavailableUsage) {
+        host.sessionActualTokensUsed += completedTurnUsage.totalTokens;
+      } else {
+        host.sessionTokenUsageUnavailable = true;
+      }
+      host.lastTurnActualUsage = completedTurnUsage;
+      host.sessionTokensUsed = host.sessionActualTokensUsed;
 
       host.taskStartedAt = null;
       host.isInstructionActive = false;

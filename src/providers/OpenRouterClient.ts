@@ -7,7 +7,6 @@ import type {
   LLMRequest,
   LLMResponse,
   LLMToolCall,
-  LLMUsage,
   OpenRouterSettings,
   NetworkSettings,
   FunctionDefinition,
@@ -15,6 +14,7 @@ import type {
 } from "../types.js";
 import { ApiError, classifyApiError, type ApiErrorCode } from "./errors.js";
 import { modelSupportsImages } from "./modelCapabilities.js";
+import { normalizeLLMUsage } from "./usage.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -354,15 +354,7 @@ export class OpenRouterClient {
       });
     }
 
-    // Parse token usage if present
-    let usage: LLMUsage | undefined;
-    if (json?.usage) {
-      usage = {
-        promptTokens: json.usage.prompt_tokens ?? 0,
-        completionTokens: json.usage.completion_tokens ?? 0,
-        totalTokens: json.usage.total_tokens ?? 0,
-      };
-    }
+    const usage = normalizeLLMUsage(json?.usage);
 
     return {
       id: json.id ?? "autohand-local",

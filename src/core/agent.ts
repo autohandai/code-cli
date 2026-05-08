@@ -32,6 +32,7 @@ import type {
   ExplorationEvent,
   ProviderName,
   ToolOutputChunk,
+  TurnUsage,
 } from '../types.js';
 
 import { AgentDelegator } from './agents/AgentDelegator.js';
@@ -275,6 +276,11 @@ export class AutohandAgent {
 
   private taskStartedAt: number | null = null;
   private totalTokensUsed = 0;
+  private currentTurnActualUsage: TurnUsage = { kind: 'unavailable', reason: 'not_reported' };
+  private currentTurnHadUnavailableUsage = false;
+  private lastTurnActualUsage: TurnUsage = { kind: 'unavailable', reason: 'not_reported' };
+  private sessionActualTokensUsed = 0;
+  private sessionTokenUsageUnavailable = false;
   private statusInterval: NodeJS.Timeout | null = null;
   private resizeHandler: (() => void) | null = null;
   private sessionStartedAt: number = Date.now();
@@ -639,9 +645,16 @@ export class AutohandAgent {
       sessionManager: agent.sessionManager,
       get sessionStartedAt() { return agent.sessionStartedAt; },
       get sessionTokensUsed() { return agent.sessionTokensUsed; },
+      get taskStartedAt() { return agent.taskStartedAt; },
       toolManager: agent.toolManager,
       get totalTokensUsed() { return agent.totalTokensUsed; },
       set totalTokensUsed(value) { agent.totalTokensUsed = value; },
+      get currentTurnActualUsage() { return agent.currentTurnActualUsage; },
+      set currentTurnActualUsage(value) { agent.currentTurnActualUsage = value; },
+      get currentTurnHadUnavailableUsage() { return agent.currentTurnHadUnavailableUsage; },
+      set currentTurnHadUnavailableUsage(value) { agent.currentTurnHadUnavailableUsage = value; },
+      get sessionActualTokensUsed() { return agent.sessionActualTokensUsed; },
+      get sessionTokenUsageUnavailable() { return agent.sessionTokenUsageUnavailable; },
       cleanupModelResponse: (content) => agent.cleanupModelResponse(content),
       emitOutput: (event) => agent.emitOutput(event),
       ensureSpinnerRunning: () => agent.ensureSpinnerRunning(),

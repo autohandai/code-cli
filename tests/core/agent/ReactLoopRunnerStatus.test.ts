@@ -163,6 +163,7 @@ describe('ReactLoopRunner composer status', () => {
       },
       sessionStartedAt: Date.now(),
       sessionTokensUsed: 0,
+      taskStartedAt: Date.now(),
       startStatusUpdates: vi.fn(),
       stopStatusUpdates: vi.fn(),
       setComposerFinalResponse: vi.fn(),
@@ -173,9 +174,14 @@ describe('ReactLoopRunner composer status', () => {
         toFunctionDefinitions: vi.fn(() => []),
         execute: vi.fn(async () => []),
         register: vi.fn(),
+        registerMetaTools: vi.fn(),
         unregister: vi.fn(() => true),
       },
       totalTokensUsed: 0,
+      currentTurnActualUsage: { kind: 'unavailable', reason: 'not_reported' },
+      currentTurnHadUnavailableUsage: false,
+      sessionActualTokensUsed: 0,
+      sessionTokenUsageUnavailable: false,
       updateContextUsage: vi.fn(),
       writeDebugLine: vi.fn(),
     } satisfies AgentReactLoopHost;
@@ -193,4 +199,156 @@ describe('ReactLoopRunner composer status', () => {
       logSpy.mockRestore();
     }
   });
+
+  it('accumulates actual provider usage for a turn', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const parser = new ReactionParser();
+    const llmComplete = vi.fn().mockResolvedValueOnce({
+      id: 'answer',
+      created: 1,
+      content: 'Done.',
+      usage: {
+        promptTokens: 10,
+        completionTokens: 5,
+        totalTokens: 15,
+      },
+      raw: {},
+    });
+
+    const host = createReactLoopTestHost(llmComplete, parser);
+
+    try {
+      await runAgentReactLoop(host, new AbortController());
+
+      expect(host.currentTurnActualUsage).toEqual({
+        kind: 'actual',
+        provider: undefined,
+        promptTokens: 10,
+        completionTokens: 5,
+        totalTokens: 15,
+      });
+      expect(host.currentTurnHadUnavailableUsage).toBe(false);
+      expect(host.totalTokensUsed).toBe(15);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('marks missing provider usage as unavailable instead of zero', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const parser = new ReactionParser();
+    const llmComplete = vi.fn().mockResolvedValueOnce({
+      id: 'answer',
+      created: 1,
+      content: 'Done.',
+      raw: {},
+    });
+
+    const host = createReactLoopTestHost(llmComplete, parser);
+
+    try {
+      await runAgentReactLoop(host, new AbortController());
+
+      expect(host.currentTurnActualUsage).toEqual({
+        kind: 'unavailable',
+        provider: undefined,
+        reason: 'not_reported',
+      });
+      expect(host.currentTurnHadUnavailableUsage).toBe(true);
+      expect(host.totalTokensUsed).toBe(0);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
 });
+
+function createReactLoopTestHost(
+  llmComplete: ReturnType<typeof vi.fn>,
+  parser: ReactionParser,
+): AgentReactLoopHost {
+  return {
+    activeProvider: undefined,
+    autoReportManager: {
+      reportError: vi.fn(async () => {}),
+    },
+    contextPercentLeft: 100,
+    contextOrchestrator: {
+      checkMidTurnCompaction: vi.fn(async () => false),
+      handleOverflow: vi.fn(async () => ({ croppedCount: 0 })),
+      setModel: vi.fn(),
+      prepareRequest: vi.fn(async () => ({
+        messages: [],
+        tools: [],
+        usage: {
+          totalTokens: 0,
+          usagePercent: 0,
+          isWarning: false,
+          isCritical: false,
+          isExceeded: false,
+        },
+        wasCropped: false,
+        croppedCount: 0,
+      })),
+    },
+    conversation: {
+      addMessage: vi.fn(),
+      addSystemNote: vi.fn(),
+      history: vi.fn(() => []),
+    },
+    cleanupModelResponse: (content: string) => content.trim(),
+    emitOutput: vi.fn(),
+    ensureSpinnerRunning: vi.fn(),
+    expressesIntentToAct: vi.fn(() => false),
+    forceRenderSpinner: vi.fn(),
+    getMessagesWithImages: vi.fn(async () => []),
+    getReactionParser: () => parser,
+    handleSmartContextCrop: vi.fn(async () => ''),
+    inkRenderer: null,
+    isContextOverflowError: vi.fn(() => false),
+    llm: { complete: llmComplete },
+    memoryManager: undefined,
+    projectManager: {
+      recordFailure: vi.fn(async () => {}),
+      recordSuccess: vi.fn(async () => {}),
+    },
+    runtime: {
+      config: {
+        agent: { maxIterations: 5, debug: false },
+        ui: { showThinking: false },
+      },
+      options: { model: 'test-model' },
+      spinner: { stop: vi.fn() },
+    },
+    saveAssistantMessage: vi.fn(async () => {}),
+    saveToolMessage: vi.fn(async () => {}),
+    searchQueries: [],
+    sessionManager: {
+      getCurrentSession: vi.fn(() => null),
+    },
+    sessionStartedAt: Date.now(),
+    sessionTokensUsed: 0,
+    taskStartedAt: Date.now(),
+    startStatusUpdates: vi.fn(),
+    stopStatusUpdates: vi.fn(),
+    setComposerFinalResponse: vi.fn(),
+    setComposerIdle: vi.fn(),
+    setSpinnerStatus: vi.fn(),
+    toolManager: {
+      listToolNames: vi.fn(() => []),
+      toFunctionDefinitions: vi.fn(() => []),
+      execute: vi.fn(async () => []),
+      register: vi.fn(),
+      registerMetaTools: vi.fn(),
+      unregister: vi.fn(() => true),
+    },
+    toolsRegistry: undefined,
+    contextWindow: 128000,
+    totalTokensUsed: 0,
+    currentTurnActualUsage: { kind: 'unavailable', reason: 'not_reported' },
+    currentTurnHadUnavailableUsage: false,
+    sessionActualTokensUsed: 0,
+    sessionTokenUsageUnavailable: false,
+    updateContextUsage: vi.fn(),
+    writeDebugLine: vi.fn(),
+  } satisfies AgentReactLoopHost;
+}

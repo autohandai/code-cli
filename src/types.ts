@@ -917,6 +917,22 @@ export interface LLMUsage {
   totalTokens: number;
 }
 
+export type TokenUsageStatus = 'actual' | 'unavailable';
+
+export type TurnUsage =
+  | {
+      kind: 'actual';
+      provider?: ProviderName;
+      promptTokens: number;
+      completionTokens: number;
+      totalTokens: number;
+    }
+  | {
+      kind: 'unavailable';
+      provider?: ProviderName;
+      reason: 'not_reported';
+    };
+
 export interface LLMResponse {
   id: string;
   created: number;
@@ -1200,6 +1216,8 @@ export interface AgentStatusSnapshot {
   workspace: string;
   contextPercent: number;
   tokensUsed: number;
+  tokensUsageStatus?: TokenUsageStatus;
+  sessionTokensUsed?: number;
 }
 
 export interface AgentOutputEvent {

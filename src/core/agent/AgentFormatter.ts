@@ -6,7 +6,7 @@
 
 import chalk from 'chalk';
 import type { ToolDefinition } from '../toolManager.js';
-import type { AgentAction, ToolCallRequest, ExplorationEvent } from '../../types.js';
+import type { AgentAction, ToolCallRequest, ExplorationEvent, TurnUsage, TokenUsageStatus } from '../../types.js';
 import { formatToolOutputForDisplay } from '../../ui/toolOutput.js';
 
 /**
@@ -248,4 +248,18 @@ export function formatTokens(tokens: number): string {
     return `${(tokens / 1000).toFixed(1)}k tokens`;
   }
   return `${tokens} tokens`;
+}
+
+export function formatTurnUsage(usage?: TurnUsage): string {
+  if (usage?.kind === 'actual') {
+    return formatTokens(usage.totalTokens);
+  }
+  return 'tokens unavailable';
+}
+
+export function formatSessionActualTokens(tokens: number, status?: TokenUsageStatus): string {
+  if (status === 'unavailable') {
+    return 'unavailable';
+  }
+  return formatTokens(tokens);
 }

@@ -8,6 +8,8 @@ import type {
   AgentStatusSnapshot,
   LoadedConfig,
   ProviderName,
+  TokenUsageStatus,
+  TurnUsage,
 } from '../../types.js';
 import type { PermissionPromptResponse } from '../../permissions/types.js';
 import { isExternalCallbackEnabled } from '../../ui/promptCallback.js';
@@ -45,6 +47,7 @@ export interface AgentSessionAccountingHost {
     closeSession(summary: string): Promise<void>;
   };
   sessionStartedAt: number;
+  sessionTokensUsed?: number;
   statusListener?: (snapshot: AgentStatusSnapshot) => void;
   telemetryManager: {
     shutdown(): Promise<unknown>;
@@ -55,6 +58,10 @@ export interface AgentSessionAccountingHost {
     endSession(reason: string): Promise<unknown>;
   };
   totalTokensUsed: number;
+  currentTurnActualUsage: TurnUsage;
+  lastTurnActualUsage: TurnUsage;
+  sessionActualTokensUsed: number;
+  sessionTokenUsageUnavailable: boolean;
   cleanupModelResponse(raw: string): string;
   cleanupUI?(keepInkAlive?: boolean): void;
   closeSession(): Promise<void>;
@@ -328,10 +335,19 @@ export function emitAgentStatus(host: AgentSessionAccountingHost): void {
 
 export function getAgentStatusSnapshot(host: AgentSessionAccountingHost): AgentStatusSnapshot {
   const providerSettings = getProviderConfig(host.runtime.config, host.activeProvider);
+  const currentTurnTokens = host.currentTurnActualUsage?.kind === 'actual'
+    ? host.currentTurnActualUsage.totalTokens
+    : (host.currentTurnActualUsage ? 0 : (host.totalTokensUsed ?? 0));
+  const status: TokenUsageStatus = host.sessionTokenUsageUnavailable
+    ? 'unavailable'
+    : 'actual';
+  const sessionTokensUsed = (host.sessionActualTokensUsed ?? host.sessionTokensUsed ?? 0) + currentTurnTokens;
   return {
     model: host.runtime.options.model ?? providerSettings?.model ?? 'unconfigured',
     workspace: host.runtime.workspaceRoot,
     contextPercent: host.contextPercentLeft,
-    tokensUsed: host.totalTokensUsed,
+    tokensUsed: sessionTokensUsed,
+    tokensUsageStatus: status,
+    sessionTokensUsed,
   };
 }

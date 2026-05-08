@@ -7,13 +7,13 @@ import type {
   LLMRequest,
   LLMResponse,
   LLMToolCall,
-  LLMUsage,
   AzureAuthMethod,
   NetworkSettings,
   FunctionDefinition,
   LLMMessage,
 } from "../types.js";
 import { AzureTokenManager } from "./azure/tokenManager.js";
+import { normalizeLLMUsage } from "./usage.js";
 
 /**
  * Constructor options for AzureClient.
@@ -314,15 +314,7 @@ export class AzureClient {
       });
     }
 
-    // Parse token usage if present
-    let usage: LLMUsage | undefined;
-    if (json?.usage) {
-      usage = {
-        promptTokens: json.usage.prompt_tokens ?? 0,
-        completionTokens: json.usage.completion_tokens ?? 0,
-        totalTokens: json.usage.total_tokens ?? 0,
-      };
-    }
+    const usage = normalizeLLMUsage(json?.usage);
 
     return {
       id: json.id ?? "autohand-azure",

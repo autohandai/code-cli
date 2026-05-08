@@ -582,6 +582,7 @@ export interface TurnEndParams {
   turnId: string;
   timestamp: string;
   tokensUsed?: number;
+  tokensUsageStatus?: 'actual' | 'unavailable';
   durationMs?: number;
   contextPercent?: number;
 }
@@ -703,6 +704,7 @@ export interface HookPrePromptNotificationParams {
  */
 export interface HookPostResponseNotificationParams {
   tokensUsed: number;
+  tokensUsageStatus?: 'actual' | 'unavailable';
   toolCallsCount: number;
   duration: number;
   timestamp: string;
