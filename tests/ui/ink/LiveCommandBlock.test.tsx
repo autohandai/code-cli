@@ -148,6 +148,33 @@ describe('AgentUI live command block', () => {
     expect(output).toContain('Ctrl+O expand');
   });
 
+  it('prioritizes stderr in the collapsed live command viewport', () => {
+    const entry = {
+      id: 'cmd-1',
+      command: '! bun lint',
+      stdout: Array.from({ length: 20 }, (_, i) => `stdout ${i + 1}`).join('\n'),
+      stderr: Array.from({ length: 8 }, (_, i) => `stderr ${i + 1}`).join('\n'),
+      startedAt: Date.now(),
+      isExpanded: false,
+    };
+
+    const { lastFrame } = render(
+      <I18nProvider>
+        <ThemeProvider>
+          <LiveCommandBlock entry={entry} />
+        </ThemeProvider>
+      </I18nProvider>
+    );
+
+    const output = stripAnsi(lastFrame());
+    expect(output).toContain('stderr 8');
+    expect(output).toContain('stderr 4');
+    expect(output).not.toContain('stderr 3');
+    expect(output).not.toContain('stdout 20');
+    expect(output).toContain('showing last 5 lines');
+    expect(output).toContain('Ctrl+O expand');
+  });
+
   it('renders an empty live command body while waiting for output', () => {
     const entry = {
       id: 'cmd-1',

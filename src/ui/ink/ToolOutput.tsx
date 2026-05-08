@@ -62,6 +62,14 @@ function getCollapsedLiveCommandViews(
 } {
   const stdoutLines = getLines(stdout);
   const stderrLines = getLines(stderr);
+  const totalLines = stdoutLines.length + stderrLines.length;
+
+  if (totalLines <= maxLines) {
+    return {
+      stdoutView: { lines: stdoutLines, hiddenLineCount: 0 },
+      stderrView: { lines: stderrLines, hiddenLineCount: 0 },
+    };
+  }
 
   if (stdoutLines.length === 0) {
     return {
@@ -70,25 +78,16 @@ function getCollapsedLiveCommandViews(
     };
   }
 
-  if (stderrLines.length === 0) {
+  if (stderrLines.length > 0) {
     return {
-      stdoutView: getVisibleTail(stdout, maxLines),
-      stderrView: { lines: [], hiddenLineCount: 0 },
+      stdoutView: { lines: [], hiddenLineCount: stdoutLines.length },
+      stderrView: getVisibleTail(stderr, maxLines),
     };
   }
 
-  const stderrBudget = Math.min(stderrLines.length, Math.max(1, Math.floor(maxLines / 3)));
-  const stdoutBudget = Math.max(0, maxLines - stderrBudget);
-
   return {
-    stdoutView: {
-      lines: stdoutBudget > 0 ? stdoutLines.slice(-stdoutBudget) : [],
-      hiddenLineCount: Math.max(0, stdoutLines.length - stdoutBudget),
-    },
-    stderrView: {
-      lines: stderrLines.slice(-stderrBudget),
-      hiddenLineCount: Math.max(0, stderrLines.length - stderrBudget),
-    },
+    stdoutView: getVisibleTail(stdout, maxLines),
+    stderrView: { lines: [], hiddenLineCount: 0 },
   };
 }
 
