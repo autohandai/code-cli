@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_RESPONSE_COMPLETION_HOOKS,
   classifyResponseCompletion,
   isDeferredFinalResponse,
 } from '../../../src/core/agent/ResponseCompletionClassifier.js';
@@ -15,6 +16,52 @@ describe('ResponseCompletionClassifier', () => {
       response: 'I will inspect the file now.',
       toolCalls: [{ tool: 'read_file', args: { path: 'src/index.ts' } }],
     });
+
+    expect(result).toEqual({ kind: 'tool_call' });
+  });
+
+  it('runs completion hooks in order and stops at the first structural decision', () => {
+    const hookCalls: string[] = [];
+    const result = classifyResponseCompletion(
+      {
+        response: 'A custom validator wants this repaired.',
+      },
+      [
+        () => {
+          hookCalls.push('first');
+          return undefined;
+        },
+        ({ response }) => {
+          hookCalls.push('second');
+          return {
+            kind: 'invalid_deferred_action',
+            reason: 'announced_action_without_tool',
+            excerpt: response,
+          };
+        },
+        () => {
+          hookCalls.push('third');
+          return { kind: 'final_answer' };
+        },
+      ],
+    );
+
+    expect(result).toEqual({
+      kind: 'invalid_deferred_action',
+      reason: 'announced_action_without_tool',
+      excerpt: 'A custom validator wants this repaired.',
+    });
+    expect(hookCalls).toEqual(['first', 'second']);
+  });
+
+  it('keeps the default completion hooks ordered from structural to text-policy validation', () => {
+    const result = classifyResponseCompletion(
+      {
+        response: 'I will inspect the file now.',
+        toolCalls: [{ tool: 'read_file', args: { path: 'src/index.ts' } }],
+      },
+      DEFAULT_RESPONSE_COMPLETION_HOOKS,
+    );
 
     expect(result).toEqual({ kind: 'tool_call' });
   });
