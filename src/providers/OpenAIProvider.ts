@@ -188,6 +188,12 @@ export class OpenAIProvider implements LLMProvider {
         this.model = model;
     }
 
+    getCapabilities(): { nativeToolCalling: boolean } {
+        return {
+            nativeToolCalling: true,
+        };
+    }
+
     async listModels(): Promise<string[]> {
         return [...OPENAI_MODELS];
     }

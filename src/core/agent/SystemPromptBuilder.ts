@@ -30,6 +30,7 @@ interface PromptTeam {
 
 export interface SystemPromptBuilderOptions {
   runtime: AgentRuntime;
+  supportsNativeToolCalling?: boolean;
   getToolDefinitions: () => ToolDefinition[];
   getContextMemories: () => Promise<string>;
   loadInstructionFiles: () => Promise<string[]>;
@@ -60,6 +61,7 @@ export class SystemPromptBuilder {
 
     const toolDefs = this.options.getToolDefinitions();
     const toolCatalog = formatToolCapabilityCatalog(toolDefs);
+    const supportsNativeToolCalling = this.options.supportsNativeToolCalling === true;
 
     const [memories, instructions] = await Promise.all([
       this.options.getContextMemories(),
@@ -168,7 +170,9 @@ export class SystemPromptBuilder {
       '2. Evaluate whether the results answer the user\'s question or if more tools are needed',
       '3. Only then decide on the next tool call or final response',
       '',
-      'Include your reflection in the "reflection" field of your response. This ensures you process observations before acting on them.',
+      supportsNativeToolCalling
+        ? 'When using native tools, use the provider tool-call channel for the next action; when responding, answer in normal assistant text.'
+        : 'Include your reflection in the "reflection" field of your response. This ensures you process observations before acting on them.',
       '',
       '### Available Tools',
       'Exact tool schemas are selected per request based on the user intent and recent tool results.',
@@ -183,33 +187,7 @@ export class SystemPromptBuilder {
       'Do not override existing tool functionality when adding meta tools.',
       '',
       '### Response Format',
-      'Always reply with structured JSON:',
-      '{"thought": "your reasoning here", "reflection": "what you learned from tool results (required after tool outputs)", "toolCalls": [{"tool": "tool_name", "args": {...}}], "finalResponse": "your answer to the user"}',
-      '',
-      'Response Guidelines:',
-      '- If no tools are needed, set toolCalls to [] and provide finalResponse directly.',
-      '- When calling tools, you may omit finalResponse - you will see the tool outputs next.',
-      '- If independent tool calls do not depend on each other, batch them in the same response.',
-      '- CRITICAL: After receiving tool outputs (role=tool messages), you MUST:',
-      '  1. Analyze the results in context of the user\'s original request',
-      '  2. Provide a finalResponse that directly answers the user\'s question',
-      '  3. Only call more tools if genuinely needed to complete the task',
-      '- If the user asked a question (e.g., "check for typos", "find X", "tell me about Y"),',
-      '  you MUST provide an answer in finalResponse after gathering the necessary information.',
-      '- Do NOT stop after showing tool output - always conclude with analysis/answer.',
-      '- CRITICAL: If you intend to edit/write/create a file, PUT THE TOOL CALL IN toolCalls.',
-      '  Do NOT write "let me update X" in finalResponse without the actual tool call.',
-      '- Never include markdown fences (```json) around the JSON.',
-      '- Never hallucinate tools that do not exist.',
-      '',
-      '### Parallel Tool Calling',
-      'When you need multiple independent operations (reading several files, running multiple searches,',
-      'checking git status while reading a file), include ALL of them in a single toolCalls array.',
-      'You can include up to 5 tool calls per response. The system executes them in parallel.',
-      '',
-      'DO batch (independent): reading different files, multiple searches, git_status + read_file',
-      'DO NOT batch (dependent): read then edit same file, write A then write B that imports A',
-      '',
+      ...this.buildToolResponseFormatSection(supportsNativeToolCalling),
       '### Tool Failure Handling',
       'When a tool fails, do NOT retry the same tool with different arguments. Instead:',
       '1. If the task is simple (jokes, general knowledge, explanations, opinions) — answer directly from your own knowledge without tools.',
@@ -217,23 +195,7 @@ export class SystemPromptBuilder {
       '3. If the tool failure is transient (timeout, network error), you may retry ONCE with the exact same arguments. Do not rephrase and retry.',
       '4. After ANY tool failure, prefer providing a direct finalResponse over calling more tools.',
       '',
-      '### Tool Call Examples',
-      'Always include ALL required parameters. Here are correct examples:',
-      '',
-      '// run_command - MUST include "command" argument:',
-      '{"tool": "run_command", "args": {"command": "npm test"}}',
-      '{"tool": "run_command", "args": {"command": "bun run build"}}',
-      '{"tool": "run_command", "args": {"command": "git status"}}',
-      '',
-      '// read_file - MUST include "path" argument:',
-      '{"tool": "read_file", "args": {"path": "src/index.ts"}}',
-      '',
-      '// write_file - MUST include "path" and "contents" arguments:',
-      '{"tool": "write_file", "args": {"path": "src/utils.ts", "contents": "export const foo = 1;"}}',
-      '',
-      '// custom_command - MUST include "name" and "command" arguments:',
-      '{"tool": "custom_command", "args": {"name": "lint_fix", "command": "eslint", "args": ["--fix", "."]}}',
-      '',
+      ...this.buildToolCallExamplesSection(supportsNativeToolCalling),
 
       '## Task Management',
       'Use the `todo_write` tool for ANY task with more than 2-3 steps. This keeps you organized and makes progress visible to the user.',
@@ -343,13 +305,7 @@ export class SystemPromptBuilder {
       'Do not stop until all criteria are met. Do not ask the user to complete your work.',
       '',
       '## CRITICAL: Actions vs Words',
-      'NEVER say "let me update X" or "I will now edit Y" in finalResponse without ACTUALLY calling the tool.',
-      'If you intend to make a change, you MUST include the tool call in toolCalls array.',
-      'BAD: finalResponse says "Let me now update README.md" → but no write_file/search_replace in toolCalls',
-      'GOOD: toolCalls contains the actual edit → finalResponse summarizes what was done',
-      '',
-      'If you find yourself writing "let me...", "I will now...", "next I\'ll..." in finalResponse,',
-      'STOP and add the actual tool call instead. Actions speak louder than words.',
+      ...this.buildActionsVsWordsSection(supportsNativeToolCalling),
       '',
       '## SITREP — Status Report After Every Turn',
       'After EVERY completed turn that involved tool calls or actions, provide a brief SITREP:',
@@ -445,5 +401,111 @@ export class SystemPromptBuilder {
     }
 
     return basePrompt;
+  }
+
+  private buildToolResponseFormatSection(supportsNativeToolCalling: boolean): string[] {
+    if (supportsNativeToolCalling) {
+      return [
+        'Use the provider-native tool calling interface whenever you need to inspect files, run commands, or make changes.',
+        'Do not encode tool calls in JSON, XML, markdown, or prose.',
+        'For final answers, respond in normal assistant text. Do not wrap the answer in a JSON object.',
+        '',
+        'Response Guidelines:',
+        '- If no tools are needed, answer directly in normal assistant text.',
+        '- When calling tools, use the native tool-call channel and omit final prose until you have the tool results.',
+        '- After receiving tool outputs (role=tool messages), analyze the results and then either call another native tool or answer directly.',
+        '- If the user asked a question (e.g., "check for typos", "find X", "tell me about Y"), answer after gathering the necessary information.',
+        '- Do NOT stop after showing tool output - always conclude with analysis/answer.',
+        '- Never hallucinate tools that do not exist.',
+        '',
+        '### Parallel Tool Calling',
+        'Parallel independent native tool calls are encouraged when the operations do not depend on each other.',
+        'Use up to 5 tool calls per response when reading different files, running multiple searches, or checking git status while reading a file.',
+        '',
+        'DO batch (independent): reading different files, multiple searches, git_status + read_file',
+        'DO NOT batch (dependent): read then edit same file, write A then write B that imports A',
+        '',
+      ];
+    }
+
+    return [
+      'Always reply with structured JSON:',
+      '{"thought": "your reasoning here", "reflection": "what you learned from tool results (required after tool outputs)", "toolCalls": [{"tool": "tool_name", "args": {...}}], "finalResponse": "your answer to the user"}',
+      '',
+      'Response Guidelines:',
+      '- If no tools are needed, set toolCalls to [] and provide finalResponse directly.',
+      '- When calling tools, you may omit finalResponse - you will see the tool outputs next.',
+      '- If independent tool calls do not depend on each other, batch them in the same response.',
+      '- CRITICAL: After receiving tool outputs (role=tool messages), you MUST:',
+      '  1. Analyze the results in context of the user\'s original request',
+      '  2. Provide a finalResponse that directly answers the user\'s question',
+      '  3. Only call more tools if genuinely needed to complete the task',
+      '- If the user asked a question (e.g., "check for typos", "find X", "tell me about Y"),',
+      '  you MUST provide an answer in finalResponse after gathering the necessary information.',
+      '- Do NOT stop after showing tool output - always conclude with analysis/answer.',
+      '- CRITICAL: If you intend to edit/write/create a file, PUT THE TOOL CALL IN toolCalls.',
+      '  Do NOT write "let me update X" in finalResponse without the actual tool call.',
+      '- Never include markdown fences (```json) around the JSON.',
+      '- Never hallucinate tools that do not exist.',
+      '',
+      '### Parallel Tool Calling',
+      'When you need multiple independent operations (reading several files, running multiple searches,',
+      'checking git status while reading a file), include ALL of them in a single toolCalls array.',
+      'You can include up to 5 tool calls per response. The system executes them in parallel.',
+      '',
+      'DO batch (independent): reading different files, multiple searches, git_status + read_file',
+      'DO NOT batch (dependent): read then edit same file, write A then write B that imports A',
+      '',
+    ];
+  }
+
+  private buildToolCallExamplesSection(supportsNativeToolCalling: boolean): string[] {
+    if (supportsNativeToolCalling) {
+      return [];
+    }
+
+    return [
+      '### Tool Call Examples',
+      'Always include ALL required parameters. Here are correct examples:',
+      '',
+      '// run_command - MUST include "command" argument:',
+      '{"tool": "run_command", "args": {"command": "npm test"}}',
+      '{"tool": "run_command", "args": {"command": "bun run build"}}',
+      '{"tool": "run_command", "args": {"command": "git status"}}',
+      '',
+      '// read_file - MUST include "path" argument:',
+      '{"tool": "read_file", "args": {"path": "src/index.ts"}}',
+      '',
+      '// write_file - MUST include "path" and "contents" arguments:',
+      '{"tool": "write_file", "args": {"path": "src/utils.ts", "contents": "export const foo = 1;"}}',
+      '',
+      '// custom_command - MUST include "name" and "command" arguments:',
+      '{"tool": "custom_command", "args": {"name": "lint_fix", "command": "eslint", "args": ["--fix", "."]}}',
+      '',
+    ];
+  }
+
+  private buildActionsVsWordsSection(supportsNativeToolCalling: boolean): string[] {
+    if (supportsNativeToolCalling) {
+      return [
+        'NEVER say "let me update X" or "I will now edit Y" without ACTUALLY calling the native tool.',
+        'If you intend to make a change, use the provider-native tool-call channel.',
+        'BAD: response says "Let me now update README.md" with no native tool call',
+        'GOOD: native tool call performs the edit, then the final answer summarizes what was done',
+        '',
+        'If you find yourself writing "let me...", "I will now...", "next I\'ll..." as a final answer,',
+        'STOP and use the actual native tool call instead. Actions speak louder than words.',
+      ];
+    }
+
+    return [
+      'NEVER say "let me update X" or "I will now edit Y" in finalResponse without ACTUALLY calling the tool.',
+      'If you intend to make a change, you MUST include the tool call in toolCalls array.',
+      'BAD: finalResponse says "Let me now update README.md" → but no write_file/search_replace in toolCalls',
+      'GOOD: toolCalls contains the actual edit → finalResponse summarizes what was done',
+      '',
+      'If you find yourself writing "let me...", "I will now...", "next I\'ll..." in finalResponse,',
+      'STOP and add the actual tool call instead. Actions speak louder than words.',
+    ];
   }
 }

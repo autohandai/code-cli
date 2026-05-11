@@ -65,6 +65,12 @@ describe('OpenAIProvider', () => {
     vi.restoreAllMocks();
   });
 
+  it('reports native tool-calling support for prompt selection', () => {
+    expect(provider.getCapabilities()).toMatchObject({
+      nativeToolCalling: true,
+    });
+  });
+
   describe('error handling', () => {
     it('throws ApiError with classifyApiError for non-ok responses', async () => {
       vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(

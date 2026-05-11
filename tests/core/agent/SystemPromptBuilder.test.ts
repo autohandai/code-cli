@@ -7,8 +7,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { SystemPromptBuilder } from '../../../src/core/agent/SystemPromptBuilder.js';
 
 describe('SystemPromptBuilder', () => {
-  it('includes the tool-choice rubric and compact tool catalog without runtime schemas', async () => {
-    const builder = new SystemPromptBuilder({
+  function createBuilder(overrides: Partial<ConstructorParameters<typeof SystemPromptBuilder>[0]> = {}) {
+    return new SystemPromptBuilder({
       runtime: {
         options: {},
         workspaceRoot: process.cwd(),
@@ -30,7 +30,12 @@ describe('SystemPromptBuilder', () => {
       listSkills: vi.fn(() => []),
       getActiveSkills: vi.fn(() => []),
       getTeam: vi.fn(() => null),
+      ...overrides,
     });
+  }
+
+  it('includes the tool-choice rubric and compact tool catalog without runtime schemas', async () => {
+    const builder = createBuilder();
 
     const prompt = await builder.build();
 
@@ -46,5 +51,30 @@ describe('SystemPromptBuilder', () => {
     expect(prompt).toContain('Reflect Before Acting');
     expect(prompt).toContain('Write code using `apply_patch`');
     expect(prompt).not.toContain('multi_file_edit');
+  });
+
+  it('keeps the JSON toolCalls protocol for providers without native tool calling', async () => {
+    const prompt = await createBuilder({
+      supportsNativeToolCalling: false,
+    }).build();
+
+    expect(prompt).toContain('Always reply with structured JSON:');
+    expect(prompt).toContain('"toolCalls": [{"tool": "tool_name", "args": {...}}]');
+    expect(prompt).toContain('PUT THE TOOL CALL IN toolCalls');
+    expect(prompt).toContain('include ALL of them in a single toolCalls array');
+  });
+
+  it('uses a native-tool prompt contract for providers with native tool calling', async () => {
+    const prompt = await createBuilder({
+      supportsNativeToolCalling: true,
+    }).build();
+
+    expect(prompt).toContain('### Response Format');
+    expect(prompt).toContain('Use the provider-native tool calling interface whenever you need to inspect files, run commands, or make changes.');
+    expect(prompt).toContain('Do not encode tool calls in JSON, XML, markdown, or prose.');
+    expect(prompt).toContain('Parallel independent native tool calls are encouraged');
+    expect(prompt).not.toContain('Always reply with structured JSON:');
+    expect(prompt).not.toContain('"toolCalls": [{"tool": "tool_name", "args": {...}}]');
+    expect(prompt).not.toContain('PUT THE TOOL CALL IN toolCalls');
   });
 });
