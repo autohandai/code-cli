@@ -242,7 +242,7 @@ export function printAgentCompletionSummary(host: AgentUIRuntimeHost, regionsSti
 
 export function notifyAgentUser(host: AgentUIRuntimeHost, message: string): void {
     if (host.inkRenderer?.isRunning()) {
-      host.inkRenderer.setStatus(message);
+      host.inkRenderer.addNotification(message);
       return;
     }
 

@@ -368,6 +368,23 @@ describe('agent startup and active input UI', () => {
     }
   });
 
+  it('notifyUser does not replace the active Ink turn status', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const inkRenderer = {
+      isRunning: () => true,
+      setStatus: vi.fn(),
+      addNotification: vi.fn(),
+    };
+    agent.inkRenderer = inkRenderer;
+
+    agent.notifyUser('Session sync failed. Run /logout and /login if you continue to see this message.');
+
+    expect(inkRenderer.addNotification).toHaveBeenCalledWith(
+      'Session sync failed. Run /logout and /login if you continue to see this message.'
+    );
+    expect(inkRenderer.setStatus).not.toHaveBeenCalled();
+  });
+
   it('ensureSpinnerRunning does not restart ora while terminal regions are active', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const spinner = {

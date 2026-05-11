@@ -1649,9 +1649,26 @@ const ChatHistoryMessage = memo(function ChatHistoryMessage({
     return <CompletionHistoryMessage content={message.content} />;
   }
 
+  if (message.role === 'notification') {
+    return <NotificationHistoryMessage content={message.content} />;
+  }
+
   return (
     <Box marginTop={1}>
       <Text>{renderTerminalMarkdown(message.content)}</Text>
+    </Box>
+  );
+});
+
+const NotificationHistoryMessage = memo(function NotificationHistoryMessage({
+  content,
+}: {
+  content: string;
+}) {
+  const { colors } = useTheme();
+  return (
+    <Box marginTop={1}>
+      <Text color={colors.warning}>{content}</Text>
     </Box>
   );
 });
