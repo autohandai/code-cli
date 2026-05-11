@@ -463,6 +463,17 @@ export class InkRenderer {
     });
   }
 
+  addNotification(message: string): void {
+    const content = message.trim();
+    if (!content) {
+      return;
+    }
+
+    this.updateState({
+      chatMessages: [...this.state.chatMessages, { role: 'notification', content }],
+    });
+  }
+
   setChatMessages(messages: ChatLogMessage[]): void {
     this.updateState({
       chatMessages: messages,

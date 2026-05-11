@@ -378,6 +378,50 @@ describe('AgentUI composer suggestions', () => {
     expect(frame).toContain('Tab to accept');
   });
 
+  it('renders background notifications separately from the active work status', async () => {
+    const state = {
+      ...createInitialUIState(),
+      isWorking: true,
+      status: 'Parsing...',
+      elapsed: '0m 34s',
+      tokens: '40.7k tokens',
+      chatMessages: [
+        {
+          role: 'notification' as const,
+          content: 'Session sync failed. Run /logout and /login if you continue to see this message.',
+        },
+      ],
+    };
+    const { lastFrame } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+          })
+        )
+      )
+    );
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    const lines = stripAnsi(lastFrame() ?? '').split('\n');
+    const notificationLine = lines.find((line) => line.includes('Session sync failed'));
+    const statusLine = lines.find((line) => line.includes('Parsing...'));
+
+    expect(notificationLine).toBeDefined();
+    expect(notificationLine).not.toContain('esc to cancel');
+    expect(notificationLine).not.toContain('40.7k tokens');
+    expect(statusLine).toContain('Parsing...');
+    expect(statusLine).toContain('40.7k tokens');
+  });
+
   it('does not render shell command dropdown suggestions for git input in the Ink composer', async () => {
     const state = {
       ...createInitialUIState(),
