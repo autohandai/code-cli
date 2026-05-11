@@ -725,6 +725,7 @@ export class AutohandAgent {
   private async buildSystemPrompt(): Promise<string> {
     return new SystemPromptBuilder({
       runtime: this.runtime,
+      supportsNativeToolCalling: this.llm?.getCapabilities?.().nativeToolCalling === true,
       getToolDefinitions: () => this.toolManager?.listDefinitions() ?? [],
       getContextMemories: () => this.memoryManager.getContextMemories(),
       loadInstructionFiles: () => this.loadInstructionFiles(),
