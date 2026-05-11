@@ -69,9 +69,11 @@ interface OpenAIResponsesOutputText {
 
 interface OpenAIResponsesFunctionCall {
     type: 'function_call';
+    id?: string;
     call_id?: string;
     name: string;
     arguments: string;
+    status?: string;
 }
 
 interface OpenAIResponsesMessage {
@@ -83,7 +85,7 @@ interface OpenAIResponsesMessage {
 interface OpenAIResponsesResponse {
     id: string;
     created_at?: number;
-    output?: Array<OpenAIResponsesMessage | OpenAIResponsesFunctionCall | { type: string; [key: string]: unknown }>;
+    output?: OpenAIResponsesOutputItem[];
     output_text?: string;
     usage?: OpenAIResponsesUsage;
     incomplete_details?: {
@@ -91,9 +93,28 @@ interface OpenAIResponsesResponse {
     };
 }
 
+type OpenAIResponsesOutputItem =
+    | OpenAIResponsesMessage
+    | OpenAIResponsesFunctionCall
+    | { type: string; [key: string]: unknown };
+
 interface OpenAIResponsesCompletedEvent {
     type?: 'response.completed';
     response?: OpenAIResponsesResponse;
+}
+
+interface OpenAIResponsesOutputItemEvent {
+    type?: 'response.output_item.added' | 'response.output_item.done';
+    output_index?: number;
+    item?: OpenAIResponsesOutputItem;
+}
+
+interface OpenAIResponsesFunctionCallArgumentsDoneEvent {
+    type?: 'response.function_call_arguments.done';
+    item_id?: string;
+    output_index?: number;
+    name?: string;
+    arguments?: string;
 }
 
 /** Canonical list of supported OpenAI models — single source of truth. */
@@ -457,6 +478,7 @@ export class OpenAIProvider implements LLMProvider {
         let currentEvent = '';
         let completedData: OpenAIResponsesResponse | null = null;
         let streamedOutputText = '';
+        const streamedOutputItems = new Map<number, OpenAIResponsesOutputItem>();
 
         for (const line of text.split('\n')) {
             if (line.startsWith('event: ')) {
@@ -468,24 +490,38 @@ export class OpenAIProvider implements LLMProvider {
             }
 
             const dataLine = line.slice(6);
-            if (currentEvent === 'response.output_text.delta') {
-                const eventData = JSON.parse(dataLine) as Record<string, unknown>;
-                if (typeof eventData.delta === 'string') {
-                    streamedOutputText += eventData.delta;
+            const eventData = JSON.parse(dataLine) as unknown;
+            const eventType = this.getCodexStreamEventType(currentEvent, eventData);
+            const eventRecord = eventData && typeof eventData === 'object'
+                ? eventData as Record<string, unknown>
+                : {};
+
+            if (eventType === 'response.output_text.delta') {
+                if (typeof eventRecord.delta === 'string') {
+                    streamedOutputText += eventRecord.delta;
                 }
                 continue;
             }
 
-            if (currentEvent === 'response.output_text.done') {
-                const eventData = JSON.parse(dataLine) as Record<string, unknown>;
-                if (typeof eventData.text === 'string' && eventData.text.trim()) {
-                    streamedOutputText = eventData.text;
+            if (eventType === 'response.output_text.done') {
+                if (typeof eventRecord.text === 'string' && eventRecord.text.trim()) {
+                    streamedOutputText = eventRecord.text;
                 }
                 continue;
             }
 
-            if (currentEvent === 'response.completed') {
-                completedData = this.extractCompletedResponse(JSON.parse(dataLine));
+            if (eventType === 'response.output_item.added' || eventType === 'response.output_item.done') {
+                this.captureStreamedOutputItem(eventData, streamedOutputItems);
+                continue;
+            }
+
+            if (eventType === 'response.function_call_arguments.done') {
+                this.captureStreamedFunctionCallArguments(eventData, streamedOutputItems);
+                continue;
+            }
+
+            if (eventType === 'response.completed') {
+                completedData = this.extractCompletedResponse(eventData);
                 break;
             }
         }
@@ -497,11 +533,83 @@ export class OpenAIProvider implements LLMProvider {
             );
         }
 
+        if ((!Array.isArray(completedData.output) || completedData.output.length === 0) && streamedOutputItems.size > 0) {
+            completedData.output = [...streamedOutputItems.entries()]
+                .sort(([a], [b]) => a - b)
+                .map(([, item]) => item);
+        }
+
         if (!this.extractResponsesContent(completedData) && streamedOutputText.trim()) {
             completedData.output_text = streamedOutputText;
         }
 
         return completedData;
+    }
+
+    private getCodexStreamEventType(currentEvent: string, eventData: unknown): string {
+        if (currentEvent) {
+            return currentEvent;
+        }
+        if (eventData && typeof eventData === 'object' && 'type' in eventData) {
+            const type = (eventData as { type?: unknown }).type;
+            return typeof type === 'string' ? type : '';
+        }
+        return '';
+    }
+
+    private captureStreamedOutputItem(eventData: unknown, outputItems: Map<number, OpenAIResponsesOutputItem>): void {
+        if (!eventData || typeof eventData !== 'object') {
+            return;
+        }
+
+        const event = eventData as OpenAIResponsesOutputItemEvent;
+        if (!event.item || typeof event.output_index !== 'number') {
+            return;
+        }
+
+        const existing = outputItems.get(event.output_index);
+        if (existing?.type === 'function_call' && event.item.type === 'function_call') {
+            outputItems.set(event.output_index, {
+                ...existing,
+                ...event.item,
+                arguments: event.item.arguments || existing.arguments,
+            });
+            return;
+        }
+
+        outputItems.set(event.output_index, event.item);
+    }
+
+    private captureStreamedFunctionCallArguments(
+        eventData: unknown,
+        outputItems: Map<number, OpenAIResponsesOutputItem>,
+    ): void {
+        if (!eventData || typeof eventData !== 'object') {
+            return;
+        }
+
+        const event = eventData as OpenAIResponsesFunctionCallArgumentsDoneEvent;
+        if (typeof event.output_index !== 'number' || typeof event.name !== 'string' || typeof event.arguments !== 'string') {
+            return;
+        }
+
+        const existing = outputItems.get(event.output_index);
+        if (existing?.type === 'function_call') {
+            outputItems.set(event.output_index, {
+                ...existing,
+                name: event.name,
+                arguments: event.arguments,
+            });
+            return;
+        }
+
+        outputItems.set(event.output_index, {
+            type: 'function_call',
+            id: event.item_id,
+            call_id: event.item_id,
+            name: event.name,
+            arguments: event.arguments,
+        });
     }
 
     private extractCompletedResponse(eventData: unknown): OpenAIResponsesResponse {

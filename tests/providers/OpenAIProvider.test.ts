@@ -1016,5 +1016,102 @@ describe('OpenAIProvider', () => {
       expect(result.toolCalls).toEqual([]);
       expect(result.finishReason).toBe('stop');
     });
+
+    it('uses streamed function call items when response.completed omits output items', async () => {
+      const chatgptProvider = new OpenAIProvider({
+        authMode: 'chatgpt',
+        model: 'gpt-5.4',
+        chatgptAuth: {
+          accessToken: 'chatgpt-access-token',
+          accountId: 'chatgpt-account-123',
+        },
+      });
+
+      const sseBody = [
+        'event: response.created',
+        'data: {"id":"resp-streamed-tool","object":"response"}',
+        '',
+        'event: response.output_item.added',
+        `data: ${JSON.stringify({
+          type: 'response.output_item.added',
+          output_index: 0,
+          item: {
+            id: 'fc_123',
+            status: 'in_progress',
+            type: 'function_call',
+            call_id: 'call_123',
+            name: 'read_file',
+            arguments: '',
+          },
+        })}`,
+        '',
+        'event: response.function_call_arguments.done',
+        `data: ${JSON.stringify({
+          type: 'response.function_call_arguments.done',
+          item_id: 'fc_123',
+          output_index: 0,
+          name: 'read_file',
+          arguments: '{"path":"package.json"}',
+        })}`,
+        '',
+        'event: response.output_item.done',
+        `data: ${JSON.stringify({
+          type: 'response.output_item.done',
+          output_index: 0,
+          item: {
+            id: 'fc_123',
+            status: 'completed',
+            type: 'function_call',
+            call_id: 'call_123',
+            name: 'read_file',
+            arguments: '{"path":"package.json"}',
+          },
+        })}`,
+        '',
+        'event: response.completed',
+        `data: ${JSON.stringify({
+          type: 'response.completed',
+          response: {
+            id: 'resp-streamed-tool',
+            created_at: 1234567890,
+            output: [],
+            usage: { input_tokens: 20, output_tokens: 6, total_tokens: 26 },
+          },
+        })}`,
+        '',
+      ].join('\n');
+
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(sseBody, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      );
+
+      const result = await chatgptProvider.complete({
+        messages: [{ role: 'user', content: 'inspect package.json' }],
+        tools: [{
+          name: 'read_file',
+          description: 'Read a file',
+          parameters: {
+            type: 'object',
+            properties: {
+              path: { type: 'string' },
+            },
+          },
+        }],
+      });
+
+      expect(result.content).toBe('');
+      expect(result.toolCalls).toEqual([{
+        id: 'call_123',
+        type: 'function',
+        function: {
+          name: 'read_file',
+          arguments: '{"path":"package.json"}',
+        },
+      }]);
+      expect(result.finishReason).toBe('tool_calls');
+    });
   });
 });
