@@ -21,11 +21,11 @@ https://github.com/vadimdemedes/ink/tree/master/examples
 
 ## Project Overview
 
-* **Language**: TypeScript
-* **Framework**: React + Ink
-* **Package Manager**: bun
-* **Test Framework**: Vitest
-* **Build Tool**: tsup
+- **Language**: TypeScript
+- **Framework**: React + Ink
+- **Package Manager**: bun
+- **Test Framework**: Vitest
+- **Build Tool**: tsup
 
 ## Current Repository Architecture
 
@@ -33,37 +33,37 @@ https://github.com/vadimdemedes/ink/tree/master/examples
 
 The interactive runtime is now split across `src/core/agent` into focused layers:
 
-* `src/core/agent.ts` — `AutohandAgent` public surface and top-level execution entrypoint.
-* `src/core/agent/AgentLifecycleRunner.ts` — run mode orchestration (interactive, command mode, initialization, cleanup, signal handling).
-* `src/core/agent/InputTurnCoordinator.ts` — input capture, queueing, ESC/Ctrl+C handling.
-* `src/core/agent/AgentDependencyComposer.ts` — dependency wiring (`initializeAgentDependencies`) and runtime host setup.
-* `src/core/agent/AgentContextRuntime.ts` — session bootstrap and context snapshot construction.
-* `src/core/agent/SystemPromptBuilder.ts` — system prompt assembly and prompt-shaping.
-* `src/core/agent/ReactLoopRunner.ts` — tool-call driven execution loop and response orchestration.
-* `src/core/agent/InstructionRunner.ts` — single-instruction orchestration and completion flow.
-* `src/core/agent/AgentCommandRuntime.ts` — slash command handling and execution.
-* `src/core/agent/AgentProjectOperations.ts` — project-level operations (diff/commit/bootstrap quality hooks).
-* `src/core/agent/AgentUIRuntime.ts` — composer/TTY/prompt UI state updates and status messaging.
-* `src/core/agent/AgentSessionAccounting.ts` + `src/core/agent/AgentToolOutputRuntime.ts` — tool accounting, logging, and output shaping.
-* `src/core/agent/ProviderConfigManager.ts` / `WorkspaceFileCollector.ts` / `AgentProjectOperations.ts` — feature-specific adapters and support services.
+- `src/core/agent.ts` — `AutohandAgent` public surface and top-level execution entrypoint.
+- `src/core/agent/AgentLifecycleRunner.ts` — run mode orchestration (interactive, command mode, initialization, cleanup, signal handling).
+- `src/core/agent/InputTurnCoordinator.ts` — input capture, queueing, ESC/Ctrl+C handling.
+- `src/core/agent/AgentDependencyComposer.ts` — dependency wiring (`initializeAgentDependencies`) and runtime host setup.
+- `src/core/agent/AgentContextRuntime.ts` — session bootstrap and context snapshot construction.
+- `src/core/agent/SystemPromptBuilder.ts` — system prompt assembly and prompt-shaping.
+- `src/core/agent/ReactLoopRunner.ts` — tool-call driven execution loop and response orchestration.
+- `src/core/agent/InstructionRunner.ts` — single-instruction orchestration and completion flow.
+- `src/core/agent/AgentCommandRuntime.ts` — slash command handling and execution.
+- `src/core/agent/AgentProjectOperations.ts` — project-level operations (diff/commit/bootstrap quality hooks).
+- `src/core/agent/AgentUIRuntime.ts` — composer/TTY/prompt UI state updates and status messaging.
+- `src/core/agent/AgentSessionAccounting.ts` + `src/core/agent/AgentToolOutputRuntime.ts` — tool accounting, logging, and output shaping.
+- `src/core/agent/ProviderConfigManager.ts` / `WorkspaceFileCollector.ts` / `AgentProjectOperations.ts` — feature-specific adapters and support services.
 
 ### General layout guidance for contributions
 
-* Keep changes in `src/core/agent` scoped to the correct layer:
-  * orchestration vs input vs tool-execution vs UI rendering.
-* New behavior should prefer introducing or extending a focused module in `src/core/agent` before broadening into shared runtime or UI layers.
-* When touching cross-layer behavior, update the owning module in this list and any adjacent coordinator in this section.
+- Keep changes in `src/core/agent` scoped to the correct layer:
+  - orchestration vs input vs tool-execution vs UI rendering.
+- New behavior should prefer introducing or extending a focused module in `src/core/agent` before broadening into shared runtime or UI layers.
+- When touching cross-layer behavior, update the owning module in this list and any adjacent coordinator in this section.
 
 ---
 
 ## Commands
 
-* **Install**: `bun install`
-* **Dev**: `bun dev`
-* **Build**: `bun build`
-* **Test**: `bun test`
-* **Lint**: `bun lint`
-* **Proof**: `bun run proof`
+- **Install**: `bun install`
+- **Dev**: `bun dev`
+- **Build**: `bun build`
+- **Test**: `bun test`
+- **Lint**: `bun lint`
+- **Proof**: `bun run proof`
 
 Never skip `bun run proof` after completing work.
 
@@ -102,9 +102,13 @@ When fixing failing tests or a user-reported regression, follow this directive:
 4. confirm the fix through the relevant Tuistory test before final validation whenever a Tuistory use case applies
 5. create a commit after validation
 
-Commit titles must be meaningful and objective, written like a staff-level software engineer.
-Do not use abbreviated conventional prefixes such as `fix:`, `feat:`, or `bug:`.
-Keep the existing co-author trailer requirement for every commit.
+Rules for creating the commit after validation:
+
+- Commit messages must be meaningful and objective, written like a staff-level software engineer.
+- Do not use abbreviated conventional prefixes such as `fix:`, `feat:`, or `bug:`.
+- Add a short description of the changes like a Staff level engineer would do.
+- If you're fixing github issue, mention the issue id in the commit message, but do not start the message with the issue id.
+- Keep the existing co-author trailer requirement for every commit.
 
 ---
 
@@ -114,32 +118,32 @@ This project uses **Vitest**.
 
 ### Mandatory Rules
 
-* write tests before implementation
-* bug fixes must begin with a failing test
-* test critical paths and edge cases
-* use `describe` and `it`
-* mock external dependencies when needed
-* no untested production code
+- write tests before implementation
+- bug fixes must begin with a failing test
+- test critical paths and edge cases
+- use `describe` and `it`
+- mock external dependencies when needed
+- no untested production code
 
 ### Ink / TUI Testing
 
 For all TUI features:
 
-* use `ink-testing-library` for component and rendering tests
-* use `node-pty` for real terminal interaction tests
-* validate actual terminal output
-* test keyboard navigation flows
-* test snapshots for terminal screens
-* validate Ctrl+C and exit flows
+- use `ink-testing-library` for component and rendering tests
+- use `node-pty` for real terminal interaction tests
+- validate actual terminal output
+- test keyboard navigation flows
+- test snapshots for terminal screens
+- validate Ctrl+C and exit flows
 
 TUI testing is mandatory for:
 
-* menus
-* keyboard navigation
-* prompts
-* screen transitions
-* command help flows
-* interactive agent screens
+- menus
+- keyboard navigation
+- prompts
+- screen transitions
+- command help flows
+- interactive agent screens
 
 Unit tests alone are not sufficient for TUI features.
 
@@ -161,18 +165,18 @@ src/testing/
 
 ### Drivers
 
-* `ink-driver.ts` → fast render tests
-* `pty-driver.ts` → real interactive terminal tests
+- `ink-driver.ts` → fast render tests
+- `pty-driver.ts` → real interactive terminal tests
 
 ### Required PTY methods
 
-* `launch()`
-* `type(text)`
-* `enter()`
-* `up()`
-* `down()`
-* `ctrlC()`
-* `snapshot()`
+- `launch()`
+- `type(text)`
+- `enter()`
+- `up()`
+- `down()`
+- `ctrlC()`
+- `snapshot()`
 
 ### Scenario Testing
 
@@ -180,39 +184,39 @@ Scenario-based tests are preferred for end-to-end CLI validation.
 
 Example scenarios:
 
-* startup flow
-* help flow
-* auth flow
-* command navigation
-* agent execution flow
+- startup flow
+- help flow
+- auth flow
+- command navigation
+- agent execution flow
 
 ---
 
 ## React + Ink Guidelines
 
-* use functional components
-* use hooks
-* keep components focused
-* prefer composition
-* use interfaces for props
-* move shared logic into hooks
-* keep UI rendering pure
+- use functional components
+- use hooks
+- keep components focused
+- prefer composition
+- use interfaces for props
+- move shared logic into hooks
+- keep UI rendering pure
 
 ---
 
 ## Code Style
 
-* strict TypeScript always
-* avoid `any`
-* use `unknown` when truly required
-* use strong types and interfaces
-* keep functions small
-* keep modules focused
-* KISS
-* DRY
-* composable design
-* follow existing patterns
-* meaningful naming
+- strict TypeScript always
+- avoid `any`
+- use `unknown` when truly required
+- use strong types and interfaces
+- keep functions small
+- keep modules focused
+- KISS
+- DRY
+- composable design
+- follow existing patterns
+- meaningful naming
 
 Comments are only allowed for genuinely complex business logic.
 
@@ -220,12 +224,12 @@ Comments are only allowed for genuinely complex business logic.
 
 ## Constraints
 
-* do not modify files outside project directory
-* ask before breaking changes
-* do not delete files without confirmation
-* keep dependencies minimal
-* avoid new dependencies without strong reason
-* never commit secrets
+- do not modify files outside project directory
+- ask before breaking changes
+- do not delete files without confirmation
+- keep dependencies minimal
+- avoid new dependencies without strong reason
+- never commit secrets
 
 ---
 
