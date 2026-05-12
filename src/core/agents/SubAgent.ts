@@ -189,15 +189,18 @@ export class SubAgent {
 
         // Get function definitions for LLM function calling
         const tools = this.toolManager.toFunctionDefinitions();
+        const supportsNativeToolCalling = this.llm.getCapabilities?.().nativeToolCalling === true;
 
         const maxIterations = 10;
         for (let i = 0; i < maxIterations; i++) {
+            const requestTools = supportsNativeToolCalling && tools.length > 0 ? tools : undefined;
+
             const completion = await this.llm.complete({
                 messages: this.conversation.history(),
                 model: this.config.model,
                 temperature: 0.2,
-                tools: tools.length > 0 ? tools : undefined,
-                toolChoice: tools.length > 0 ? 'auto' : undefined
+                tools: requestTools,
+                toolChoice: requestTools ? 'auto' : undefined
             });
 
             // Prefer native tool calls if available
