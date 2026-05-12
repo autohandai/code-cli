@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 var mockCreateBrowserHandoff: ReturnType<typeof vi.fn>;
 var mockAttachBrowserHandoff: ReturnType<typeof vi.fn>;
@@ -99,6 +99,10 @@ describe('RPC Adapter - P2 Handlers', () => {
       'test-model',
       '/test/workspace'
     );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   // -------------------------------------------------------------------------
@@ -262,6 +266,31 @@ describe('RPC Adapter - P2 Handlers', () => {
       const result = adapter.handleYoloSet('req_1', { pattern: '*' });
 
       expect(result.expiresIn).toBeUndefined();
+    });
+
+    it('does not let an older YOLO timeout revert a newer YOLO grant', () => {
+      vi.useFakeTimers();
+
+      adapter.handleYoloSet('req_1', {
+        pattern: 'run_command',
+        timeoutSeconds: 5,
+      });
+      vi.advanceTimersByTime(4000);
+
+      adapter.handleYoloSet('req_2', {
+        pattern: 'write_file',
+        timeoutSeconds: 5,
+      });
+      vi.advanceTimersByTime(1000);
+
+      expect(mockPermissionManager.setMode).toHaveBeenCalledTimes(2);
+      expect(mockPermissionManager.setMode).toHaveBeenNthCalledWith(1, 'unrestricted');
+      expect(mockPermissionManager.setMode).toHaveBeenNthCalledWith(2, 'unrestricted');
+
+      vi.advanceTimersByTime(4000);
+
+      expect(mockPermissionManager.setMode).toHaveBeenCalledTimes(3);
+      expect(mockPermissionManager.setMode).toHaveBeenNthCalledWith(3, 'interactive');
     });
   });
 

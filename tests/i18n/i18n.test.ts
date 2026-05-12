@@ -209,6 +209,7 @@ describe('i18n module', () => {
       expect(t('languages.cs')).toContain('Czech');
       expect(t('languages.hu')).toContain('Hungarian');
       expect(t('languages.hi')).toContain('Hindi');
+      expect(t('languages.id')).toContain('Indonesian');
     });
 
     it('should have native script in language names', () => {
@@ -218,6 +219,7 @@ describe('i18n module', () => {
       expect(t('languages.ko')).toContain('한국어');
       expect(t('languages.ru')).toContain('Русский');
       expect(t('languages.hi')).toContain('हिन्दी');
+      expect(t('languages.id')).toContain('Bahasa Indonesia');
     });
   });
 
@@ -361,6 +363,16 @@ describe('i18n module', () => {
       expect(getCurrentLocale()).toBe('zh-cn');
       expect(t('common.loading')).toBe('加载中...');
       expect(t('welcome.banner')).toBe('欢迎使用 Autohand！');
+    });
+
+    it('should switch translations immediately when changing to Bahasa Indonesia', async () => {
+      await initI18n('en');
+      expect(t('common.yes')).toBe('Yes');
+
+      await changeLanguage('id');
+      expect(getCurrentLocale()).toBe('id');
+      expect(t('common.yes')).toBe('Ya');
+      expect(t('welcome.banner')).toBe('Selamat datang di Autohand!');
     });
 
     it('should show language change message in the new language', async () => {

@@ -16,8 +16,8 @@ import {
 
 describe('localeDetector', () => {
   describe('SUPPORTED_LOCALES', () => {
-    it('should contain all 16 supported locales', () => {
-      expect(SUPPORTED_LOCALES).toHaveLength(16);
+    it('should contain all 17 supported locales', () => {
+      expect(SUPPORTED_LOCALES).toHaveLength(17);
       expect(SUPPORTED_LOCALES).toContain('en');
       expect(SUPPORTED_LOCALES).toContain('zh-cn');
       expect(SUPPORTED_LOCALES).toContain('zh-tw');
@@ -34,6 +34,7 @@ describe('localeDetector', () => {
       expect(SUPPORTED_LOCALES).toContain('cs');
       expect(SUPPORTED_LOCALES).toContain('hu');
       expect(SUPPORTED_LOCALES).toContain('hi');
+      expect(SUPPORTED_LOCALES).toContain('id');
     });
   });
 
@@ -53,6 +54,7 @@ describe('localeDetector', () => {
       expect(LANGUAGE_DISPLAY_NAMES['ko']).toContain('한국어');
       expect(LANGUAGE_DISPLAY_NAMES['ru']).toContain('Русский');
       expect(LANGUAGE_DISPLAY_NAMES['hi']).toContain('हिन्दी');
+      expect(LANGUAGE_DISPLAY_NAMES.id).toContain('Bahasa Indonesia');
     });
   });
 
@@ -150,6 +152,11 @@ describe('localeDetector', () => {
         expect(normalizeLocale('ko-KR')).toBe('ko');
         expect(normalizeLocale('ko_KR')).toBe('ko');
       });
+
+      it('should map id-ID to id', () => {
+        expect(normalizeLocale('id-ID')).toBe('id');
+        expect(normalizeLocale('id_ID')).toBe('id');
+      });
     });
 
     describe('Chinese variant handling', () => {
@@ -241,6 +248,7 @@ describe('localeDetector', () => {
       expect(isValidLocale('zh-cn')).toBe(true);
       expect(isValidLocale('fr')).toBe(true);
       expect(isValidLocale('ja')).toBe(true);
+      expect(isValidLocale('id')).toBe(true);
     });
 
     it('should return false for unsupported locales', () => {
