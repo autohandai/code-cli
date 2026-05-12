@@ -196,6 +196,8 @@ export class RPCAdapter {
   // during long turns with no traffic.
   private keepaliveInterval: ReturnType<typeof setInterval> | null = null;
   private readonly KEEPALIVE_MS = 15_000;
+  private yoloRevertTimer: ReturnType<typeof setTimeout> | null = null;
+  private yoloRevertGeneration = 0;
   // Config reference for runtime settings changes
   private config: {
     permissionMode?: string;
@@ -1926,6 +1928,12 @@ export class RPCAdapter {
 
     try {
       // Set unrestricted mode
+      const revertGeneration = ++this.yoloRevertGeneration;
+      if (this.yoloRevertTimer) {
+        clearTimeout(this.yoloRevertTimer);
+        this.yoloRevertTimer = null;
+      }
+
       permissionManager.setMode('unrestricted');
       process.stderr.write(`[RPC] YOLO mode enabled with pattern: ${params.pattern}\n`);
 
@@ -1933,10 +1941,15 @@ export class RPCAdapter {
       if (params.timeoutSeconds && params.timeoutSeconds > 0) {
         expiresIn = params.timeoutSeconds;
         // Auto-revert to interactive mode after timeout
-        setTimeout(() => {
+        this.yoloRevertTimer = setTimeout(() => {
+          if (this.yoloRevertGeneration !== revertGeneration) {
+            return;
+          }
+          this.yoloRevertTimer = null;
           permissionManager.setMode('interactive');
           process.stderr.write(`[RPC] YOLO mode expired, reverted to interactive\n`);
         }, params.timeoutSeconds * 1000);
+        this.yoloRevertTimer.unref?.();
       }
 
       return { success: true, expiresIn };
