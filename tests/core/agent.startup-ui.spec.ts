@@ -385,6 +385,25 @@ describe('agent startup and active input UI', () => {
     expect(inkRenderer.setStatus).not.toHaveBeenCalled();
   });
 
+  it('notifyUser suppresses duplicate background warnings in one session', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const inkRenderer = {
+      isRunning: () => true,
+      setStatus: vi.fn(),
+      addNotification: vi.fn(),
+    };
+    agent.inkRenderer = inkRenderer;
+
+    const message = 'Session sync failed. Run /logout and /login if you continue to see this message.';
+
+    agent.notifyUser(message);
+    agent.notifyUser(message);
+
+    expect(inkRenderer.addNotification).toHaveBeenCalledTimes(1);
+    expect(inkRenderer.addNotification).toHaveBeenCalledWith(message);
+    expect(inkRenderer.setStatus).not.toHaveBeenCalled();
+  });
+
   it('ensureSpinnerRunning does not restart ora while terminal regions are active', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const spinner = {
