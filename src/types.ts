@@ -31,10 +31,12 @@ type Primitive = string | number | boolean | null;
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
-export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure' | 'zai' | 'vertexai' | 'xai' | 'cerebras' | 'nvidia' | 'deepseek';
+export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure' | 'zai' | 'vertexai' | 'xai' | 'cerebras' | 'nvidia' | 'deepseek' | 'bedrock';
 
 export type AzureAuthMethod = 'api-key' | 'entra-id' | 'managed-identity';
 export type OpenAIAuthMode = 'api-key' | 'chatgpt';
+export type BedrockApiMode = 'converse' | 'openai-chat' | 'openai-responses';
+export type BedrockAuthMode = 'aws-credentials' | 'bedrock-api-key';
 
 export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
 
@@ -94,6 +96,16 @@ export interface ZaiSettings extends ProviderSettings {
 
 export interface DeepSeekSettings extends ProviderSettings {
   apiKey: string;
+}
+
+export interface BedrockSettings extends ProviderSettings {
+  model: string;
+  region: string;
+  apiMode?: BedrockApiMode;
+  authMode?: BedrockAuthMode;
+  profile?: string;
+  endpoint?: string;
+  apiKey?: string;
 }
 
 /** xAI (xAI) settings for the xAI API. */
@@ -226,6 +238,8 @@ export interface FeatureFlagSettings {
   remoteOverrides?: Record<string, 'off'>;
   /** Enable the v2 usage dashboard command and /status usage panel. */
   usageV2?: boolean;
+  /** Enable AWS Bedrock provider support. */
+  awsBedrockProvider?: boolean;
 }
 
 export type PermissionMode = 'interactive' | 'unrestricted' | 'restricted' | 'external';
@@ -646,6 +660,8 @@ export interface AutohandConfig {
   nvidia?: NvidiaAISettings;
   /** DeepSeek API settings */
   deepseek?: DeepSeekSettings;
+  /** AWS Bedrock settings */
+  bedrock?: BedrockSettings;
   workspace?: WorkspaceSettings;
   ui?: UISettings;
   agent?: AgentSettings;

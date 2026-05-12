@@ -117,7 +117,7 @@ vi.mock("open", () => ({
 vi.mock("chalk", () => ({
   default: {
     gray: (s: string) => s,
-    cyan: { bold: (s: string) => s },
+    cyan: Object.assign((s: string) => s, { bold: (s: string) => s }),
     white: Object.assign((s: string) => s, { bold: (s: string) => s }),
     green: (s: string) => s,
     yellow: (s: string) => s,
@@ -488,6 +488,90 @@ describe("SetupWizard", () => {
           headers: { Authorization: "Bearer zai-test-key-long-enough" },
         }),
       );
+    });
+
+    it("should persist Bedrock Converse config with AWS credentials and no API key", async () => {
+      const wizard = new SetupWizard(testWorkspace);
+
+      mockShowModal
+        .mockResolvedValueOnce({ value: "en" }) // language
+        .mockResolvedValueOnce({ value: "bedrock" }) // provider
+        .mockResolvedValueOnce({ value: "converse" }) // API mode
+        .mockResolvedValueOnce({ value: "aws-credentials" }) // auth mode
+        .mockResolvedValueOnce({ value: "us.anthropic.claude-3-5-sonnet-20241022-v2:0" }) // model
+        .mockResolvedValueOnce({ value: "interactive" }); // permissions
+
+      mockShowInput
+        .mockResolvedValueOnce("us-west-2") // region
+        .mockResolvedValueOnce("enterprise-prod") // profile
+        .mockResolvedValueOnce(""); // endpoint
+
+      mockShowConfirm
+        .mockResolvedValueOnce(true) // remember
+        .mockResolvedValueOnce(true) // telemetry
+        .mockResolvedValueOnce(true) // autoReport
+        .mockResolvedValueOnce(false) // prefs
+        .mockResolvedValueOnce(false) // advanced
+        .mockResolvedValueOnce(false) // agents
+        .mockResolvedValueOnce(false) // registration
+        .mockResolvedValueOnce(true); // review
+
+      const result = await wizard.run({ skipWelcome: true });
+
+      expect(result.success).toBe(true);
+      expect(result.config.provider).toBe("bedrock");
+      expect(result.config.bedrock).toMatchObject({
+        model: "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+        region: "us-west-2",
+        apiMode: "converse",
+        authMode: "aws-credentials",
+        profile: "enterprise-prod",
+      });
+      expect(result.config.bedrock?.apiKey).toBeUndefined();
+      expect(mockShowPassword).not.toHaveBeenCalled();
+    });
+
+    it("should persist Bedrock OpenAI-compatible config with Bedrock API key", async () => {
+      const wizard = new SetupWizard(testWorkspace);
+
+      mockShowModal
+        .mockResolvedValueOnce({ value: "en" }) // language
+        .mockResolvedValueOnce({ value: "bedrock" }) // provider
+        .mockResolvedValueOnce({ value: "openai-chat" }) // API mode
+        .mockResolvedValueOnce({ value: "bedrock-api-key" }) // auth mode
+        .mockResolvedValueOnce({ value: "arn:aws:bedrock:us-east-1:123456789012:inference-profile/team-model" }) // model
+        .mockResolvedValueOnce({ value: "interactive" }); // permissions
+
+      mockShowPassword.mockResolvedValueOnce("bedrock-api-key-test");
+      mockShowInput
+        .mockResolvedValueOnce("us-east-1") // region
+        .mockResolvedValueOnce("") // profile
+        .mockResolvedValueOnce("https://vpce-12345.bedrock-runtime.us-east-1.vpce.amazonaws.com/openai/v1"); // endpoint
+
+      mockShowConfirm
+        .mockResolvedValueOnce(true) // remember
+        .mockResolvedValueOnce(true) // telemetry
+        .mockResolvedValueOnce(true) // autoReport
+        .mockResolvedValueOnce(false) // prefs
+        .mockResolvedValueOnce(false) // advanced
+        .mockResolvedValueOnce(false) // agents
+        .mockResolvedValueOnce(false) // registration
+        .mockResolvedValueOnce(true); // review
+
+      const result = await wizard.run({ skipWelcome: true });
+
+      expect(result.success).toBe(true);
+      expect(result.config.provider).toBe("bedrock");
+      expect(result.config.bedrock).toMatchObject({
+        model: "arn:aws:bedrock:us-east-1:123456789012:inference-profile/team-model",
+        region: "us-east-1",
+        apiMode: "openai-chat",
+        authMode: "bedrock-api-key",
+        apiKey: "bedrock-api-key-test",
+        endpoint: "https://vpce-12345.bedrock-runtime.us-east-1.vpce.amazonaws.com/openai/v1",
+      });
+      expect(result.config.bedrock).not.toHaveProperty("accessKeyId");
+      expect(result.config.bedrock).not.toHaveProperty("secretAccessKey");
     });
   });
 

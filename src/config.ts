@@ -14,6 +14,9 @@ import type {
   AzureSettings,
   OpenAISettings,
   VertexAISettings,
+  BedrockSettings,
+  BedrockApiMode,
+  BedrockAuthMode,
 } from "./types.js";
 import { AUTOHAND_FILES } from "./constants.js";
 import { autoInitTheme, configureThemeSources, themeExists } from "./ui/theme/index.js";
@@ -31,6 +34,7 @@ const DEFAULT_MLX_URL = "http://localhost:8080";
 const DEFAULT_LLMGATEWAY_URL = "https://api.llmgateway.io/v1";
 const DEFAULT_ZAI_URL = "https://api.z.ai/api/paas/v4";
 const DEFAULT_DEEPSEEK_URL = "https://api.deepseek.com";
+const DEFAULT_BEDROCK_REGION = "us-east-1";
 
 interface LegacyConfigShape {
   api_key?: string;
@@ -69,6 +73,7 @@ function normalizeProviderName(provider: unknown): ProviderName | undefined {
     "cerebras",
     "nvidia",
     "deepseek",
+    "bedrock",
   ];
 
   if (typeof provider === "string" && validProviders.includes(provider as ProviderName)) {
@@ -577,6 +582,17 @@ function mergeEnvVariables(config: AutohandConfig): AutohandConfig {
     };
   }
 
+  const envRegion = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION;
+  if (envRegion && config.bedrock) {
+    config = {
+      ...config,
+      bedrock: {
+        ...config.bedrock,
+        region: config.bedrock.region || envRegion,
+      },
+    };
+  }
+
   return config;
 }
 
@@ -633,7 +649,8 @@ function isModernConfig(
     typeof (config as AutohandConfig).xai === "object" ||
     typeof (config as AutohandConfig).cerebras === "object" ||
     typeof (config as AutohandConfig).nvidia === "object" ||
-    typeof (config as AutohandConfig).deepseek === "object"
+    typeof (config as AutohandConfig).deepseek === "object" ||
+    typeof (config as AutohandConfig).bedrock === "object"
   );
 }
 
@@ -801,6 +818,7 @@ export function getProviderConfig(
     cerebras: config.cerebras,
     nvidia: config.nvidia,
     deepseek: config.deepseek,
+    bedrock: config.bedrock,
   };
 
   const entry = configByProvider[chosen];
@@ -843,6 +861,8 @@ export function getProviderConfig(
     if (!authToken || !projectId || !model) {
       return null; // Incomplete config
     }
+  } else if (chosen === "bedrock") {
+    return normalizeBedrockProviderConfig(entry as BedrockSettings);
   } else {
     if (chosen === "llamacpp") {
       return {
@@ -884,9 +904,47 @@ function defaultBaseUrlFor(
       return p ? `http://localhost:${p}` : DEFAULT_MLX_URL;
     case "nvidia":
       return "https://integrate.api.nvidia.com/v1";
+    case "bedrock":
+      return `https://bedrock-runtime.${DEFAULT_BEDROCK_REGION}.amazonaws.com`;
     default:
       return undefined;
   }
+}
+
+function normalizeBedrockProviderConfig(
+  entry: BedrockSettings,
+): BedrockSettings | null {
+  const model = entry.model?.trim();
+  const region =
+    entry.region?.trim() ||
+    process.env.AWS_REGION ||
+    process.env.AWS_DEFAULT_REGION ||
+    DEFAULT_BEDROCK_REGION;
+  const apiMode: BedrockApiMode = entry.apiMode ?? "converse";
+  const authMode: BedrockAuthMode =
+    entry.authMode ?? (apiMode === "converse" ? "aws-credentials" : "bedrock-api-key");
+  const endpoint =
+    entry.endpoint?.replace(/\/+$/, "") ??
+    (apiMode === "converse"
+      ? `https://bedrock-runtime.${region}.amazonaws.com`
+      : `https://bedrock-runtime.${region}.amazonaws.com/openai/v1`);
+
+  if (!model || !region) {
+    return null;
+  }
+
+  if (authMode === "bedrock-api-key" && (!entry.apiKey || entry.apiKey === "replace-me")) {
+    return null;
+  }
+
+  return {
+    ...entry,
+    model,
+    region,
+    apiMode,
+    authMode,
+    endpoint,
+  };
 }
 
 export async function saveConfig(config: LoadedConfig): Promise<void> {

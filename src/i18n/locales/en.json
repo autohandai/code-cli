@@ -686,6 +686,7 @@
     "cerebras": "Cerebras AI",
     "nvidia": "NVIDIA AI Cloud",
     "deepseek": "DeepSeek",
+    "bedrock": "AWS Bedrock",
     "openaiAuth": {
       "chooseTitle": "Choose how to connect OpenAI",
       "apiKeyLabel": "Use API key",
@@ -716,7 +717,8 @@
       "xai": "Cloud - xAI Grok models with web search, X search, and code execution",
       "cerebras": "Cloud - Cerebras AI with GLM and Qwen models",
       "nvidia": "Cloud - NVIDIA NIM models (Llama, Phi, Gemma, Mixtral, etc.)",
-      "deepseek": "Cloud - DeepSeek API models (V4 Flash, V4 Pro, reasoning)"
+      "deepseek": "Cloud - DeepSeek API models (V4 Flash, V4 Pro, reasoning)",
+      "bedrock": "Cloud - AWS Bedrock enterprise models and OpenAI-compatible endpoints"
     },
     "config": {
       "chooseProvider": "Choose an LLM provider",
@@ -845,6 +847,29 @@
         "title": "DeepSeek Configuration",
         "apiKeyUrl": "https://platform.deepseek.com/api_keys",
         "enterModel": "Select a DeepSeek model"
+      },
+      "bedrock": {
+        "title": "AWS Bedrock Configuration",
+        "getStarted": "Connect to AWS Bedrock using Converse or Bedrock OpenAI-compatible inference endpoints.",
+        "apiKeyUrl": "https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html",
+        "awsCredentialsHint": "For Converse, use AWS credential-chain auth: aws configure sso, AWS_PROFILE, IAM role, container credentials, or instance metadata.",
+        "modelAccessHint": "Enable model access for the selected model in the AWS Bedrock console before using it.",
+        "apiKeyHint": "Bedrock API keys are only for Bedrock OpenAI-compatible endpoints. They are not OpenAI API keys.",
+        "chooseApiMode": "Choose Bedrock API mode",
+        "modeConverse": "Converse",
+        "modeConverseHint": "Bedrock-native API and the default enterprise mode.",
+        "modeOpenAIChat": "OpenAI Chat Completions",
+        "modeOpenAIChatHint": "OpenAI-compatible chat endpoint for migration paths.",
+        "modeOpenAIResponses": "OpenAI Responses",
+        "modeOpenAIResponsesHint": "OpenAI-compatible Responses endpoint for migration paths.",
+        "chooseAuthMode": "Choose Bedrock authentication",
+        "authAwsCredentials": "AWS credentials/profile",
+        "authAwsCredentialsHint": "Use the AWS SDK credential chain; Autohand does not store AWS access keys.",
+        "authBedrockApiKey": "Bedrock API key",
+        "authBedrockApiKeyHint": "Store a Bedrock API key for OpenAI-compatible Bedrock endpoints.",
+        "enterRegion": "Enter AWS region",
+        "enterProfile": "Optional AWS profile",
+        "enterEndpoint": "Optional custom/private endpoint"
       },
       "azure": {
         "title": "Azure OpenAI Configuration",

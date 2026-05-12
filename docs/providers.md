@@ -11,6 +11,7 @@ Autohand supports multiple LLM providers, giving you flexibility to choose betwe
   - [OpenAI](#openai)
   - [LLM Gateway](#llm-gateway)
   - [DeepSeek](#deepseek)
+  - [AWS Bedrock](#aws-bedrock)
   - [Z.ai](#zai)
 - [Local Providers](#local-providers)
   - [Ollama](#ollama)
@@ -51,6 +52,7 @@ EOF
 | **OpenAI**      | Cloud | Pay-per-use | Low     | Direct OpenAI access, GPT-5, o3 models          |
 | **LLM Gateway** | Cloud | Pay-per-use | Low     | Unified API for multiple providers              |
 | **DeepSeek**    | Cloud | Pay-per-use | Low     | DeepSeek V4 Flash and V4 Pro models             |
+| **AWS Bedrock** | Cloud | Pay-per-use | Low     | Enterprise AWS credential-chain and Bedrock APIs |
 | **Z.ai**        | Cloud | Pay-per-use | Low     | GLM-4.5 series models, CogView image generation |
 | **Ollama**      | Local | Free        | Medium  | Privacy-focused, offline work                   |
 | **llama.cpp**   | Local | Free        | Low     | Performance-focused local inference             |
@@ -235,6 +237,83 @@ curl -X POST "https://api.deepseek.com/chat/completions" \
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
+
+---
+
+### AWS Bedrock
+
+AWS Bedrock is available as `bedrock` for enterprise AWS customers. Autohand supports three inference modes:
+
+| Mode | Choose When |
+| --- | --- |
+| `converse` | Default Bedrock-native mode using AWS credential-chain auth and Bedrock Runtime `Converse`. |
+| `openai-chat` | You are migrating OpenAI Chat Completions clients to Bedrock OpenAI-compatible endpoints. |
+| `openai-responses` | You are migrating OpenAI Responses clients to Bedrock OpenAI-compatible endpoints. |
+
+For `converse`, configure AWS credentials outside Autohand. Autohand never stores AWS access key IDs or secret access keys. Good setup paths include:
+
+```bash
+aws configure sso
+AWS_PROFILE=enterprise-prod autohand
+```
+
+IAM roles, container credentials, and instance metadata also work through the AWS SDK credential chain. Before using a model, enable access for that model in the AWS Bedrock console for the selected region.
+
+**Converse with AWS profile:**
+
+```json
+{
+  "provider": "bedrock",
+  "bedrock": {
+    "apiMode": "converse",
+    "authMode": "aws-credentials",
+    "profile": "enterprise-prod",
+    "region": "us-east-1",
+    "model": "anthropic.claude-3-5-sonnet-20241022-v2:0"
+  }
+}
+```
+
+**OpenAI Chat Completions with Bedrock API key:**
+
+```yaml
+provider: bedrock
+bedrock:
+  apiMode: openai-chat
+  authMode: bedrock-api-key
+  apiKey: bedrock-api-key
+  region: us-east-1
+  model: openai.gpt-oss-120b-1:0
+```
+
+**OpenAI Responses with Bedrock API key and private endpoint:**
+
+```toml
+provider = "bedrock"
+
+[bedrock]
+apiMode = "openai-responses"
+authMode = "bedrock-api-key"
+apiKey = "bedrock-api-key"
+region = "us-west-2"
+endpoint = "https://vpce-abc123.bedrock-runtime.us-west-2.vpce.amazonaws.com/openai/v1"
+model = "arn:aws:bedrock:us-west-2:123456789012:inference-profile/us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+```
+
+Security note: Bedrock API keys are not OpenAI API keys. Never point Bedrock config at OpenAI base URLs.
+
+**Troubleshooting:**
+
+| Symptom | Fix |
+| --- | --- |
+| Missing AWS credentials | Run `aws configure sso`, set `AWS_PROFILE`, or run Autohand on AWS infrastructure with an IAM role. |
+| Missing region | Set `bedrock.region`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. |
+| Invalid Bedrock API key | Use a Bedrock API key only with `openai-chat` or `openai-responses`. |
+| Model access not enabled | Enable the model in the AWS Bedrock console for the selected region. |
+| Model not available in region | Switch `region`, choose a regional model, or use an inference profile or ARN. |
+| Unsupported API mode | Use `converse` for Bedrock-native models, or an OpenAI-compatible Bedrock model for OpenAI modes. |
+| Throttling or quota | Wait and retry, or request a Bedrock quota increase. |
+| Private endpoint/network failure | Check `endpoint`, VPC endpoint DNS, proxy, and AWS network policy. |
 
 ---
 

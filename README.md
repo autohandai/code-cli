@@ -19,7 +19,7 @@ Install it, run `autohand`, and describe the outcome you want in natural languag
 - **Planning + Tools**: Combines reasoning, file edits, shell commands, and web context in one loop
 - **Interactive REPL**: Smooth terminal experience with file mentions, slash commands, and keyboard shortcuts
 - **Modular Skills**: Extends workflows with specialized instruction packages
-- **Multi-Provider Support**: Works with OpenRouter, LLMGateway, OpenAI, DeepSeek, Azure Foundry Models, Z.ai, and local models
+- **Multi-Provider Support**: Works with OpenRouter, LLMGateway, OpenAI, AWS Bedrock, DeepSeek, Azure Foundry Models, Z.ai, and local models
 - **Git Integration**: Full version control support with automatic commits
 - **Cross-Platform**: Works on macOS, Linux, and Windows
 
@@ -377,6 +377,7 @@ Create `~/.autohand/config.json` or use `config.toml`, `config.yaml`, or `config
 | OpenRouter | `openrouter` | Access to Claude, GPT-4, Grok, etc. |
 | LLMGateway | `llmgateway` | Direct Claude API access            |
 | OpenAI     | `openai`     | GPT-4 and other models              |
+| AWS Bedrock | `bedrock`   | Bedrock Converse and OpenAI-compatible modes |
 | DeepSeek   | `deepseek`   | DeepSeek V4 Flash, V4 Pro, reasoning |
 | Ollama     | `ollama`     | Local models                        |
 | llama.cpp  | `llamacpp`   | Local inference                     |

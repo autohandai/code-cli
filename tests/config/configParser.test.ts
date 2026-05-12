@@ -298,6 +298,94 @@ describe("configParser – error handling (Issue #3)", () => {
     expect(result.provider).toBe("openrouter");
   });
 
+  it("loads Bedrock settings from JSON", async () => {
+    const configPath = await writeTempConfig(
+      testDir,
+      "config.json",
+      JSON.stringify({
+        provider: "bedrock",
+        bedrock: {
+          apiMode: "converse",
+          authMode: "aws-credentials",
+          profile: "enterprise-prod",
+          region: "us-east-1",
+          model: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        },
+      }),
+    );
+    const loadConfig = await importLoadConfig();
+
+    const result = await loadConfig(configPath);
+
+    expect(result.provider).toBe("bedrock");
+    expect(result.bedrock).toMatchObject({
+      apiMode: "converse",
+      authMode: "aws-credentials",
+      profile: "enterprise-prod",
+      region: "us-east-1",
+      model: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    });
+  });
+
+  it("loads Bedrock settings from YAML", async () => {
+    const configPath = await writeTempConfig(
+      testDir,
+      "config.yaml",
+      [
+        "provider: bedrock",
+        "bedrock:",
+        "  apiMode: openai-chat",
+        "  authMode: bedrock-api-key",
+        "  apiKey: bedrock-api-key",
+        "  region: us-east-1",
+        "  model: openai.gpt-oss-120b-1:0",
+      ].join("\n"),
+    );
+    const loadConfig = await importLoadConfig();
+
+    const result = await loadConfig(configPath);
+
+    expect(result.provider).toBe("bedrock");
+    expect(result.bedrock).toMatchObject({
+      apiMode: "openai-chat",
+      authMode: "bedrock-api-key",
+      apiKey: "bedrock-api-key",
+      region: "us-east-1",
+      model: "openai.gpt-oss-120b-1:0",
+    });
+  });
+
+  it("loads Bedrock settings from TOML", async () => {
+    const configPath = await writeTempConfig(
+      testDir,
+      "config.toml",
+      [
+        'provider = "bedrock"',
+        "",
+        "[bedrock]",
+        'apiMode = "openai-responses"',
+        'authMode = "bedrock-api-key"',
+        'apiKey = "bedrock-api-key"',
+        'region = "us-west-2"',
+        'endpoint = "https://bedrock-runtime.us-west-2.amazonaws.com/openai/v1"',
+        'model = "openai.gpt-oss-120b-1:0"',
+      ].join("\n"),
+    );
+    const loadConfig = await importLoadConfig();
+
+    const result = await loadConfig(configPath);
+
+    expect(result.provider).toBe("bedrock");
+    expect(result.bedrock).toMatchObject({
+      apiMode: "openai-responses",
+      authMode: "bedrock-api-key",
+      apiKey: "bedrock-api-key",
+      region: "us-west-2",
+      endpoint: "https://bedrock-runtime.us-west-2.amazonaws.com/openai/v1",
+      model: "openai.gpt-oss-120b-1:0",
+    });
+  });
+
   it("creates new JSON config with tool selection cache enabled by default", async () => {
     const configPath = path.join(testDir, "config.json");
     const loadConfig = await importLoadConfig();
