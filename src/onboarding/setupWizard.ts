@@ -13,13 +13,14 @@ import { ASCII_FRIEND } from '../utils/asciiArt.js';
 import fse from 'fs-extra';
 import { join } from 'path';
 
-import type { AutohandConfig, LoadedConfig, ProviderName, AzureSettings, AzureAuthMethod, PermissionMode, SearchProvider, ReasoningEffort, OpenAIAuthMode, OpenAIChatGPTAuth, OpenAISettings, VertexAISettings } from '../types.js';
+import type { AutohandConfig, LoadedConfig, ProviderName, AzureSettings, AzureAuthMethod, PermissionMode, SearchProvider, ReasoningEffort, OpenAIAuthMode, OpenAIChatGPTAuth, OpenAISettings, VertexAISettings, BedrockSettings, BedrockApiMode, BedrockAuthMode } from '../types.js';
 import { getProviderConfig } from '../config.js';
 import { ProviderFactory } from '../providers/ProviderFactory.js';
 import { ZAI_MODELS, ZAI_DEFAULT_BASE_URL } from '../providers/ZaiProvider.js';
 import { VERTEX_AI_CODING_MODELS } from '../providers/VertexAIProvider.js';
 import { CEREBRAS_MODELS, CEREBRAS_DEFAULT_BASE_URL } from '../providers/CerebrasProvider.js';
 import { DEEPSEEK_MODELS, DEEPSEEK_DEFAULT_BASE_URL } from '../providers/DeepSeekProvider.js';
+import { BEDROCK_DEFAULT_MODEL, BEDROCK_DEFAULT_REGION, BEDROCK_MODELS, resolveBedrockAuthMode, resolveBedrockEndpoint } from '../providers/BedrockProvider.js';
 import { authenticateOpenAIChatGPT, isChatGPTAuthExpired } from '../providers/openaiAuth.js';
 import { installLlamaCpp, probeLlamaCppEnvironment } from '../providers/llamaCppSetup.js';
 import { ProjectAnalyzer } from './projectAnalyzer.js';
@@ -80,6 +81,7 @@ interface OnboardingState {
   };
   azureConfig?: AzureSettings;
   vertexaiConfig?: VertexAISettings;
+  bedrockConfig?: BedrockSettings;
   permissionMode?: PermissionMode;
   rememberSession?: boolean;
   notifications?: {
@@ -187,6 +189,9 @@ export class SetupWizard {
       } else if (provider === 'vertexai') {
         const vertexaiResult = await this.promptVertexAIConfig();
         if (!vertexaiResult) return this.cancelled();
+      } else if (provider === 'bedrock') {
+        const bedrockResult = await this.promptBedrockConfig();
+        if (!bedrockResult) return this.cancelled();
       } else {
         if (provider === 'llamacpp') {
           const ready = await this.prepareLlamaCpp();
@@ -324,6 +329,10 @@ export class SetupWizard {
     if (provider === 'vertexai') {
       const vertexaiConfig = providerConfig as VertexAISettings;
       return !!(vertexaiConfig.authToken && vertexaiConfig.authToken.length >= 10);
+    }
+
+    if (provider === 'bedrock') {
+      return getProviderConfig(this.existingConfig, 'bedrock') !== null;
     }
 
     if (this.requiresApiKey(provider)) {
@@ -566,6 +575,24 @@ export class SetupWizard {
         title: t('providers.config.selectModel'),
         options,
         initialIndex: defaultIndex >= 0 ? defaultIndex : 0,
+      });
+
+      if (!result) {
+        return null;
+      }
+
+      this.state.model = result.value as string;
+      return this.state.model;
+    }
+
+    if (provider === 'bedrock') {
+      const result = await showModal({
+        title: t('providers.config.selectModel'),
+        options: BEDROCK_MODELS.map((modelName) => ({
+          label: modelName,
+          value: modelName,
+        })),
+        allowCustomInput: true,
       });
 
       if (!result) {
@@ -1018,6 +1045,8 @@ export class SetupWizard {
         };
       } else if (this.state.provider === 'vertexai' && this.state.vertexaiConfig) {
         config.vertexai = this.state.vertexaiConfig;
+      } else if (this.state.provider === 'bedrock' && this.state.bedrockConfig) {
+        config.bedrock = this.state.bedrockConfig;
       } else if (this.requiresApiKey(this.state.provider)) {
         (config as any)[this.state.provider] = {
           apiKey: this.state.apiKey,
@@ -1413,6 +1442,107 @@ export class SetupWizard {
     console.log();
 
     return true;
+  }
+
+  private async promptBedrockConfig(): Promise<boolean> {
+    this.state.currentStep = 'apiKey';
+
+    console.log(chalk.cyan('\n' + t('providers.wizard.bedrock.title')));
+    console.log(chalk.gray(t('providers.wizard.bedrock.getStarted') + '\n'));
+    console.log(chalk.gray('  ' + t('providers.wizard.bedrock.awsCredentialsHint')));
+    console.log(chalk.gray('  ' + t('providers.wizard.bedrock.modelAccessHint') + '\n'));
+
+    const existing = this.existingConfig?.bedrock;
+    const apiMode = await this.promptBedrockApiMode(existing?.apiMode);
+    if (!apiMode) return false;
+
+    const authMode = await this.promptBedrockAuthMode(apiMode, existing?.authMode);
+    if (!authMode) return false;
+
+    let apiKey = existing?.apiKey;
+    if (authMode === 'bedrock-api-key') {
+      console.log(chalk.gray('\n' + t('providers.wizard.bedrock.apiKeyHint') + '\n'));
+      apiKey = await showPassword({
+        title: t('providers.config.enterApiKey', { provider: this.getProviderDisplayName('bedrock') }),
+        placeholder: t('ui.apiKeyPlaceholder'),
+        validate: (val: string) => {
+          if (!val?.trim()) return t('providers.config.apiKeyRequired');
+          if (val.length < 10) return t('providers.config.apiKeyTooShort');
+          return true;
+        }
+      }) ?? undefined;
+      if (!apiKey) return false;
+    }
+
+    const region = await showInput({
+      title: t('providers.wizard.bedrock.enterRegion'),
+      defaultValue: existing?.region || process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || BEDROCK_DEFAULT_REGION
+    });
+    if (!region) return false;
+
+    const profile = await showInput({
+      title: t('providers.wizard.bedrock.enterProfile'),
+      defaultValue: existing?.profile || '',
+      placeholder: 'enterprise-prod'
+    });
+
+    const endpoint = await showInput({
+      title: t('providers.wizard.bedrock.enterEndpoint'),
+      defaultValue: existing?.endpoint || '',
+      placeholder: resolveBedrockEndpoint(apiMode, region)
+    });
+
+    const modelResult = await showModal({
+      title: t('providers.config.selectModel'),
+      options: BEDROCK_MODELS.map((name) => ({ label: name, value: name })),
+      allowCustomInput: true,
+      initialIndex: Math.max(0, [...BEDROCK_MODELS].indexOf((existing?.model || BEDROCK_DEFAULT_MODEL) as (typeof BEDROCK_MODELS)[number]))
+    });
+    if (!modelResult) return false;
+
+    const model = String(modelResult.value).trim();
+    this.state.provider = 'bedrock';
+    this.state.model = model;
+    this.state.bedrockConfig = {
+      model,
+      region: region.trim(),
+      apiMode,
+      authMode,
+      ...(profile?.trim() && { profile: profile.trim() }),
+      ...(endpoint?.trim() && { endpoint: endpoint.trim() }),
+      ...(authMode === 'bedrock-api-key' && apiKey ? { apiKey } : {})
+    };
+
+    console.log(chalk.green('\n✓ ' + t('providers.config.configuredSuccessfully', { provider: t('providers.bedrock') })));
+    console.log(chalk.gray('  ' + t('providers.config.modelLabel', { model })));
+    return true;
+  }
+
+  private async promptBedrockApiMode(current?: BedrockApiMode): Promise<BedrockApiMode | null> {
+    const options: ModalOption[] = [
+      { label: t('providers.wizard.bedrock.modeConverse'), value: 'converse', description: t('providers.wizard.bedrock.modeConverseHint') },
+      { label: t('providers.wizard.bedrock.modeOpenAIChat'), value: 'openai-chat', description: t('providers.wizard.bedrock.modeOpenAIChatHint') },
+      { label: t('providers.wizard.bedrock.modeOpenAIResponses'), value: 'openai-responses', description: t('providers.wizard.bedrock.modeOpenAIResponsesHint') }
+    ];
+    const result = await showModal({
+      title: t('providers.wizard.bedrock.chooseApiMode'),
+      options,
+      initialIndex: Math.max(0, options.findIndex((option) => option.value === (current || 'converse')))
+    });
+    return (result?.value as BedrockApiMode | undefined) ?? null;
+  }
+
+  private async promptBedrockAuthMode(apiMode: BedrockApiMode, current?: BedrockAuthMode): Promise<BedrockAuthMode | null> {
+    const authMode = resolveBedrockAuthMode(apiMode, current);
+    const options: ModalOption[] = apiMode === 'converse'
+      ? [{ label: t('providers.wizard.bedrock.authAwsCredentials'), value: 'aws-credentials', description: t('providers.wizard.bedrock.authAwsCredentialsHint') }]
+      : [{ label: t('providers.wizard.bedrock.authBedrockApiKey'), value: 'bedrock-api-key', description: t('providers.wizard.bedrock.authBedrockApiKeyHint') }];
+    const result = await showModal({
+      title: t('providers.wizard.bedrock.chooseAuthMode'),
+      options,
+      initialIndex: Math.max(0, options.findIndex((option) => option.value === authMode))
+    });
+    return (result?.value as BedrockAuthMode | undefined) ?? null;
   }
 
   /**
@@ -1907,7 +2037,8 @@ export class SetupWizard {
       llmgateway: t('providers.wizard.llmgateway.apiKeyUrl'),
       zai: t('providers.wizard.zai.apiKeyUrl'),
       nvidia: t('providers.wizard.nvidia.apiKeyUrl'),
-      deepseek: t('providers.wizard.deepseek.apiKeyUrl')
+      deepseek: t('providers.wizard.deepseek.apiKeyUrl'),
+      bedrock: t('providers.wizard.bedrock.apiKeyUrl')
     };
     return urls[provider] || '';
   }
@@ -1926,7 +2057,8 @@ export class SetupWizard {
       xai: 'grok-4.20-reasoning',
       cerebras: 'zai-glm-4.7',
       nvidia: 'mistralai/mixtral-8x7b-instruct-v0.1',
-      deepseek: 'deepseek-v4-flash'
+      deepseek: 'deepseek-v4-flash',
+      bedrock: BEDROCK_DEFAULT_MODEL
     };
     return defaults[provider] || '';
   }
@@ -1945,7 +2077,8 @@ export class SetupWizard {
       xai: 'https://api.x.ai/v1',
       cerebras: CEREBRAS_DEFAULT_BASE_URL,
       nvidia: 'https://integrate.api.nvidia.com/v1',
-      deepseek: DEEPSEEK_DEFAULT_BASE_URL
+      deepseek: DEEPSEEK_DEFAULT_BASE_URL,
+      bedrock: `https://bedrock-runtime.${BEDROCK_DEFAULT_REGION}.amazonaws.com`
     };
     return urls[provider] || '';
   }

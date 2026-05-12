@@ -19,7 +19,7 @@ describe("ProviderFactory", () => {
   });
 
   describe("getProviderNames()", () => {
-    it("should always include openrouter, ollama, openai, llamacpp, llmgateway, azure, zai, deepseek", () => {
+    it("should always include openrouter, ollama, openai, llamacpp, llmgateway, azure, zai, deepseek, bedrock", () => {
       const providers = ProviderFactory.getProviderNames();
 
       expect(providers).toContain("openrouter");
@@ -30,6 +30,7 @@ describe("ProviderFactory", () => {
       expect(providers).toContain("azure");
       expect(providers).toContain("zai");
       expect(providers).toContain("deepseek");
+      expect(providers).toContain("bedrock");
     });
 
     it("should always include azure in provider list", () => {
@@ -57,6 +58,7 @@ describe("ProviderFactory", () => {
         "llamacpp",
         "deepseek",
         "cerebras",
+        "bedrock",
         "azure",
       ]);
     });

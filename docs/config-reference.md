@@ -107,6 +107,7 @@ Active LLM provider to use.
 | `"mlx"`        | MLX on Apple Silicon (local) |
 | `"llmgateway"` | LLM Gateway unified API      |
 | `"deepseek"`   | DeepSeek API                 |
+| `"bedrock"`    | AWS Bedrock                  |
 
 ### `openrouter`
 
@@ -281,6 +282,56 @@ DeepSeek provider configuration. The API is OpenAI-compatible and uses `https://
 | `apiKey`  | string | Yes      | -                          | DeepSeek API key                                               |
 | `baseUrl` | string | No       | `https://api.deepseek.com` | API endpoint                                                   |
 | `model`   | string | Yes      | -                          | Model name, for example `deepseek-v4-flash` or `deepseek-v4-pro` |
+
+### `bedrock`
+
+AWS Bedrock provider configuration. `converse` is the default mode and uses the AWS SDK credential chain. OpenAI-compatible modes use Bedrock API keys and Bedrock OpenAI-compatible endpoints.
+
+```json
+{
+  "bedrock": {
+    "apiMode": "converse",
+    "authMode": "aws-credentials",
+    "profile": "enterprise-prod",
+    "region": "us-east-1",
+    "model": "anthropic.claude-3-5-sonnet-20241022-v2:0"
+  }
+}
+```
+
+```yaml
+provider: bedrock
+bedrock:
+  apiMode: openai-chat
+  authMode: bedrock-api-key
+  apiKey: bedrock-api-key
+  region: us-east-1
+  model: openai.gpt-oss-120b-1:0
+```
+
+```toml
+provider = "bedrock"
+
+[bedrock]
+apiMode = "openai-responses"
+authMode = "bedrock-api-key"
+apiKey = "bedrock-api-key"
+region = "us-west-2"
+endpoint = "https://vpce-abc123.bedrock-runtime.us-west-2.vpce.amazonaws.com/openai/v1"
+model = "arn:aws:bedrock:us-west-2:123456789012:inference-profile/us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+```
+
+| Field      | Type   | Required | Default | Description |
+| ---------- | ------ | -------- | ------- | ----------- |
+| `model`    | string | Yes      | -       | Bedrock model ID, inference profile ID, or ARN |
+| `region`   | string | Yes      | `AWS_REGION`, then `AWS_DEFAULT_REGION`, then `us-east-1` in setup | AWS region |
+| `apiMode`  | string | No       | `converse` | `converse`, `openai-chat`, or `openai-responses` |
+| `authMode` | string | No       | `aws-credentials` for `converse`, `bedrock-api-key` for OpenAI-compatible modes | Authentication mode |
+| `profile`  | string | No       | -       | Optional AWS profile for credential-chain auth |
+| `endpoint` | string | No       | Derived from mode and region | Custom/private Bedrock endpoint |
+| `apiKey`   | string | Yes for OpenAI-compatible modes | - | Bedrock API key. Do not use OpenAI API keys. |
+
+Run `aws configure sso` or set `AWS_PROFILE=enterprise-prod autohand` for profile-based AWS auth. IAM role, container, and instance metadata credentials are supported by the AWS SDK. Enable model access in the AWS console before using a model.
 
 ---
 
