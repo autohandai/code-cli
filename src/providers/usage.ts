@@ -30,8 +30,8 @@ export function normalizeLLMUsage(rawUsage: unknown): LLMUsage | undefined {
   }
 
   const usage = rawUsage as UsageRecord;
-  const promptTokens = readTokenCount(usage, ['prompt_tokens', 'input_tokens', 'promptTokens']);
-  const completionTokens = readTokenCount(usage, ['completion_tokens', 'output_tokens', 'completionTokens']);
+  const promptTokens = readTokenCount(usage, ['prompt_tokens', 'input_tokens', 'promptTokens', 'inputTokens']);
+  const completionTokens = readTokenCount(usage, ['completion_tokens', 'output_tokens', 'completionTokens', 'outputTokens']);
   const reportedTotal = readTokenCount(usage, ['total_tokens', 'totalTokens']);
 
   const hasAnyActualCount =

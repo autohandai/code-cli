@@ -131,6 +131,15 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     defaultEnabled: false,
   },
   {
+    id: 'aws_bedrock_provider',
+    label: 'AWS Bedrock provider',
+    description: 'Enable AWS Bedrock as a first-class model provider.',
+    stage: 'experimental',
+    configPath: 'features.awsBedrockProvider',
+    defaultEnabled: true,
+    requiresRestart: true,
+  },
+  {
     id: 'chrome_integration',
     label: 'Chrome integration',
     description: 'Start the browser bridge by default for Chrome extension handoff.',
