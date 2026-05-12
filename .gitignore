@@ -21,7 +21,6 @@ bun.lock
 .env.*.local
 .claude/
 .autohand/
-AGENTS.md
 prd/
 package-lock.json
 bin/
