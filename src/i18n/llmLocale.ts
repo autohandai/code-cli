@@ -26,6 +26,7 @@ const LANGUAGE_NAMES_FOR_LLM: Record<SupportedLocale, string> = {
   cs: 'Czech (Čeština)',
   hu: 'Hungarian (Magyar)',
   hi: 'Hindi (हिन्दी)',
+  id: 'Indonesian (Bahasa Indonesia)',
 };
 
 /**

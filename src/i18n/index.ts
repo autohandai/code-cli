@@ -33,13 +33,14 @@ import pl from './locales/pl.json' with { type: 'json' };
 import cs from './locales/cs.json' with { type: 'json' };
 import hu from './locales/hu.json' with { type: 'json' };
 import hi from './locales/hi.json' with { type: 'json' };
+import id from './locales/id.json' with { type: 'json' };
 
 const translations: Record<string, Record<string, unknown>> = {
   en, es, fr, it,
   'pt-br': ptBr,
   'zh-cn': zhCn,
   'zh-tw': zhTw,
-  de, ja, ko, ru, tr, pl, cs, hu, hi,
+  de, ja, ko, ru, tr, pl, cs, hu, hi, id,
 };
 
 let currentLocale: SupportedLocale = 'en';
