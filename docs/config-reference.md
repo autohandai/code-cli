@@ -4,6 +4,10 @@ Complete reference for all configuration options in `~/.autohand/config.json` (o
 
 > **Tip:** Most settings below can be changed interactively using the `/settings` command instead of editing the file manually.
 
+Localized references:
+
+- [Bahasa Indonesia](./config-reference_id.md)
+
 ## Table of Contents
 
 - [Configuration File Location](#configuration-file-location)
@@ -1764,7 +1768,7 @@ These flags override config file settings:
 
 | Flag                          | Description                                                                                    |
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
-| `--display-language <locale>` | Set display language (e.g., en, zh-cn, fr, de, ja)                                             |
+| `--display-language <locale>` | Set display language (e.g., en, id, zh-cn, fr, de, ja)                                         |
 | `--search-engine <provider>`  | Set web search provider (google, brave, duckduckgo, parallel)                                  |
 | `--cc, --context-compact`     | Enable context compaction (default: on)                                                        |
 | `--no-cc, --no-context-compact` | Disable context compaction                                                                    |

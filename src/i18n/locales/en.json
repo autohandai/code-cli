@@ -36,7 +36,7 @@
       "model": "Override the configured LLM model",
       "config": "Path to config file (default ~/.autohand/config.json)",
       "temperature": "Sampling temperature",
-      "displayLanguage": "Set display language (e.g., en, zh-cn, fr, de)",
+      "displayLanguage": "Set display language (e.g., en, id, zh-cn, fr, de)",
       "autoCommit": "Auto-commit with LLM-generated message",
       "unrestricted": "Run without any approval prompts",
       "restricted": "Deny all dangerous operations automatically",
@@ -1024,6 +1024,7 @@
     "pl": "Polski (Polish)",
     "cs": "Čeština (Czech)",
     "hu": "Magyar (Hungarian)",
-    "hi": "हिन्दी (Hindi)"
+    "hi": "हिन्दी (Hindi)",
+    "id": "Bahasa Indonesia (Indonesian)"
   }
 }
