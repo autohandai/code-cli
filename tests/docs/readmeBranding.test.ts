@@ -28,6 +28,15 @@ describe('README branding', () => {
     );
   });
 
+  it('links to the Bahasa Indonesia configuration reference', async () => {
+    const root = process.cwd();
+    const readme = await readFile(join(root, 'README.md'), 'utf8');
+    const indonesianConfigReference = await readFile(join(root, 'docs/config-reference_id.md'), 'utf8');
+
+    expect(readme).toContain('[Bahasa Indonesia](docs/config-reference_id.md)');
+    expect(indonesianConfigReference).toContain('# Referensi Konfigurasi Autohand');
+  });
+
   it('invites developers to use the CLI-backed Code Agent SDK packages', async () => {
     const readme = await readFile(join(process.cwd(), 'README.md'), 'utf8');
 

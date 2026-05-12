@@ -125,6 +125,13 @@ describe('llmLocale', () => {
         expect(result).toContain('Hindi');
         expect(result).toContain('हिन्दी');
       });
+
+      it('should include language preference header for Bahasa Indonesia', () => {
+        const result = buildLocaleInstruction('id');
+        expect(result).toContain('## Response Language Preference');
+        expect(result).toContain('Indonesian');
+        expect(result).toContain('Bahasa Indonesia');
+      });
     });
 
     describe('instruction content', () => {
@@ -233,7 +240,7 @@ describe('llmLocale', () => {
     describe('all supported locales', () => {
       const allLocales: SupportedLocale[] = [
         'en', 'zh-cn', 'zh-tw', 'fr', 'de', 'it', 'es',
-        'ja', 'ko', 'ru', 'pt-br', 'tr', 'pl', 'cs', 'hu', 'hi'
+        'ja', 'ko', 'ru', 'pt-br', 'tr', 'pl', 'cs', 'hu', 'hi', 'id'
       ];
 
       it.each(allLocales)('should handle %s locale correctly', (locale) => {
