@@ -277,10 +277,12 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/completion`      | Generate shell completion scripts    |
 | `/export`          | Export session to markdown/JSON/HTML |
 | `/status`          | Show workspace status                |
+| `/usage`           | Show usage dashboard (usage_v2)      |
 | `/login`           | Authenticate with Autohand Code API  |
 | `/logout`          | Sign out                             |
 | `/permissions`     | Manage tool permissions              |
 | `/hooks`           | Manage git hooks                     |
+| `/features`        | Toggle feature switches              |
 | `/settings`        | View configuration settings          |
 | `/theme`           | Change UI theme                      |
 | `/language`        | Change display language              |

@@ -61,6 +61,8 @@ import { SimpleChatHandler, type SimpleChatAgent } from './SimpleChatHandler.js'
 import { McpStartupCoordinator } from './McpStartupCoordinator.js';
 import { MentionResolver } from './MentionResolver.js';
 import { AutoReportManager } from '../../reporting/AutoReportManager.js';
+import { RemoteFeatureFlagManager } from '../../features/RemoteFeatureFlagManager.js';
+import { getFeatureState } from '../../features/featureRegistry.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { SuggestionEngine } from '../SuggestionEngine.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
@@ -351,6 +353,8 @@ export function initializeAgentDependencies(
       enableSessionSync: runtime.config.telemetry?.enableSessionSync === true,
       clientVersion: packageJson.version
     });
+    host.featureFlagManager = new RemoteFeatureFlagManager(runtime.config);
+    host.featureFlagManager.refreshFeatureFlags().catch(() => {});
 
     // Initialize community skills client
     const communitySettings = runtime.config.communitySkills ?? {};
@@ -390,6 +394,10 @@ export function initializeAgentDependencies(
       host.actionExecutor,
       (contextWindow) => {
         host.contextWindow = contextWindow;
+        const provider = host.activeProvider ?? host.runtime.config.provider ?? 'openrouter';
+        const providerSettings = getProviderConfig(host.runtime.config, provider);
+        const activeModel = host.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
+        host.contextOrchestrator.setModel(activeModel);
         host.contextOrchestrator.setContextWindow(contextWindow);
         host.updateContextUsage?.(host.conversation.history());
       },
@@ -1048,7 +1056,11 @@ export function initializeAgentDependencies(
       mcpManager: host.mcpManager,
       llm: host.llm,
       workspaceRoot: runtime.workspaceRoot,
-      model: model,
+      get model() {
+        const provider = host.activeProvider ?? runtime.config.provider ?? 'openrouter';
+        const providerSettings = getProviderConfig(runtime.config, provider);
+        return runtime.options.model ?? providerSettings?.model ?? model;
+      },
       resetConversation: async () => {
         await host.resetConversationContext();
         await host.injectSessionBootstrap();
@@ -1059,7 +1071,9 @@ export function initializeAgentDependencies(
       undoFileMutation: () => host.files.undoLast(),
       removeLastTurn: () => host.conversation.removeLastTurn(),
       // Status command context
-      provider: host.activeProvider,
+      get provider() {
+        return host.activeProvider;
+      },
       config: runtime.config,
       getContextPercentLeft: () => host.contextPercentLeft,
       getTotalTokensUsed: () => {
@@ -1069,6 +1083,16 @@ export function initializeAgentDependencies(
         return (host.sessionActualTokensUsed ?? host.sessionTokensUsed ?? 0) + currentTurnTokens;
       },
       getTokenUsageStatus: () => host.sessionTokenUsageUnavailable ? 'unavailable' as const : 'actual' as const,
+      getContextWindow: () => host.contextWindow,
+      isFeatureEnabled: (key: string, localDefault?: boolean) => {
+        const configDefault = getFeatureState(runtime.config, key)?.enabled ?? false;
+        return host.featureFlagManager?.isFeatureEnabled?.(key, localDefault ?? configDefault)
+          ?? localDefault
+          ?? configDefault;
+      },
+      trackFeatureActivation: (key: string, metadata?: Record<string, unknown>) => {
+        void host.featureFlagManager?.trackFeatureActivation?.(key, metadata);
+      },
       isInteractiveAutomodeEnabled: () => host.interactiveAutomodeEnabled,
       setInteractiveAutomodeEnabled: (enabled: boolean) => host.setInteractiveAutomodeEnabled(enabled),
       // Share command needs current session - use getter for dynamic access

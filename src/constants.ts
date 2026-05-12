@@ -83,6 +83,9 @@ export const AUTOHAND_FILES = {
 
   /** Session sync queue */
   sessionSyncQueue: path.join(AUTOHAND_PATHS.telemetry, 'session-sync-queue.json'),
+
+  /** Last successful remote feature flag evaluation */
+  featureFlagsCache: path.join(AUTOHAND_HOME, 'feature-flags.json'),
 } as const;
 
 /**

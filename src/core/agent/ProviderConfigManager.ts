@@ -2653,5 +2653,8 @@ export class ProviderConfigManager {
     });
     this.setDelegator(newDelegator);
     this.setActiveProvider(provider);
+    this.updateContextWindow(
+      getContextWindow(model, providerConfig?.contextWindow),
+    );
   }
 }

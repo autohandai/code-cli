@@ -88,6 +88,7 @@ describe("ProviderConfigManager openai auth mode", () => {
   let runtime: any;
   let manager: ProviderConfigManager;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+  let mockUpdateContextWindow: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -100,6 +101,7 @@ describe("ProviderConfigManager openai auth mode", () => {
       },
       options: {},
     };
+    mockUpdateContextWindow = vi.fn();
 
     manager = new ProviderConfigManager(
       runtime,
@@ -111,7 +113,7 @@ describe("ProviderConfigManager openai auth mode", () => {
       vi.fn(),
       { trackModelSwitch: vi.fn().mockResolvedValue(undefined) } as any,
       {} as any,
-      vi.fn(),
+      mockUpdateContextWindow,
       vi.fn(),
       vi.fn(),
     );
@@ -135,6 +137,7 @@ describe("ProviderConfigManager openai auth mode", () => {
     expect(runtime.config.openai.chatgptAuth.accountId).toBe(
       "chatgpt-account-123",
     );
+    expect(mockUpdateContextWindow).toHaveBeenCalledWith(1_050_000);
     expect(mockAuthenticateOpenAIChatGPT).toHaveBeenCalledOnce();
     expect(mockSaveConfig).toHaveBeenCalledOnce();
   });

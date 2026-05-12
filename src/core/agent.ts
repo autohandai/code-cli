@@ -224,6 +224,7 @@ export class AutohandAgent {
     '/agents-new', '/agents new', '/resume', '/theme', '/language',
     '/model', '/skills', '/skills install', '/skills-install',
     '/skills new', '/skills-new', '/mcp', '/mcp install', '/mcp-install',
+    '/features',
   ]);
 
   private contextWindow!: number;

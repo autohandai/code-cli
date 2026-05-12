@@ -84,8 +84,10 @@ The `/settings` command opens an interactive settings editor directly in the ter
 | `/login` | Authenticate with Autohand API |
 | `/logout` | Log out |
 | `/status` | Show session status |
+| `/usage` | Show model, provider, context, and usage limits when `usage_v2` is enabled |
 | `/permissions` | Manage tool permissions |
 | `/hooks` | Manage lifecycle hooks |
+| `/features` | Toggle feature switches with an interactive checkbox list |
 | `/skills` | List and manage skills |
 | `/skills use` | Activate a skill |
 | `/skills install` | Install community skills |
@@ -99,6 +101,14 @@ The `/settings` command opens an interactive settings editor directly in the ter
 | `/cc` | Context compaction |
 | `/search` | Search codebase |
 | `/settings` | Interactive settings editor — browse categories, edit values inline |
+
+## Feature Switches
+- [x] `autohand features list` prints a Codex-style table of feature id, lifecycle stage, and enabled state
+- [x] `autohand features status <feature>` shows one feature, its config path, default, and restart note
+- [x] `autohand features enable <feature>` and `autohand features disable <feature>` persist changes to config
+- [x] `autohand features refresh` downloads remote feature flags from the Autohand API
+- [x] `/features` opens an interactive checkbox list for toggling feature switches from the TUI
+- [x] Remote feature flags are cached in `~/.autohand/feature-flags.json` and refreshed after their API TTL expires
 
 ## Memory System
 - [x] Project memory in `.autohand/memory/`

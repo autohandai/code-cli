@@ -286,6 +286,90 @@ describe('/status command screen isolation', () => {
       vi.restoreAllMocks();
     }
   });
+
+  it('renders usage_v2 dashboard in the Usage tab when enabled', async () => {
+    const { EventEmitter } = await import('node:events');
+    const originalStdin = process.stdin;
+    const originalStdout = process.stdout;
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const input = new EventEmitter() as NodeJS.ReadStream & {
+      isTTY: boolean;
+      isRaw: boolean;
+      setRawMode: (mode: boolean) => void;
+      setEncoding: (encoding: BufferEncoding) => void;
+      resume: () => void;
+      pause: () => void;
+      isPaused: () => boolean;
+    };
+    input.isTTY = true;
+    input.isRaw = false;
+    input.setRawMode = vi.fn((mode: boolean) => { input.isRaw = mode; });
+    input.setEncoding = vi.fn();
+    input.resume = vi.fn();
+    input.pause = vi.fn();
+    input.isPaused = vi.fn(() => false);
+
+    const output = new EventEmitter() as NodeJS.WriteStream & {
+      isTTY: boolean;
+      write: (chunk: string | Uint8Array) => boolean;
+    };
+    output.isTTY = false;
+    output.write = vi.fn(() => true);
+
+    Object.defineProperty(process, 'stdin', { value: input, writable: true, configurable: true });
+    Object.defineProperty(process, 'stdout', { value: output, writable: true, configurable: true });
+
+    const ctx = {
+      sessionManager: {
+        getCurrentSession: () => ({ metadata: { sessionId: 'session-v2' } }),
+        listSessions: vi.fn(async () => []),
+      },
+      llm: {
+        isAvailable: vi.fn(async () => true),
+      },
+      workspaceRoot: '/tmp/workspace',
+      provider: 'openai',
+      model: 'gpt-5.5',
+      getContextPercentLeft: () => 90,
+      getContextWindow: () => 258000,
+      getTotalTokensUsed: () => 37500,
+      getTokenUsageStatus: () => 'actual',
+      config: {
+        provider: 'openai',
+        features: { usageV2: true },
+        openai: { apiKey: 'test', model: 'gpt-5.5', reasoningEffort: 'high', contextWindow: 258000 },
+        permissions: { mode: 'interactive' },
+        auth: { user: { id: 'u1', email: 'user@example.com', name: 'User' } },
+      },
+      isFeatureEnabled: () => true,
+      isContextCompactionEnabled: () => true,
+    };
+
+    try {
+      const { status } = await import('../../src/commands/status.js');
+      const statusPromise = status(ctx as any);
+
+      while (input.listenerCount('data') === 0) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      input.emit('data', '\t');
+      input.emit('data', '\t');
+      input.emit('data', '\u0003');
+      await statusPromise;
+
+      const rendered = consoleSpy.mock.calls.map((args) => args.join(' ')).join('\n');
+      expect(rendered).toContain('Context window:');
+      expect(rendered).toContain('90% left');
+      expect(rendered).toContain('37.5K used / 258K');
+      expect(rendered).toContain('Provider limits:');
+    } finally {
+      Object.defineProperty(process, 'stdin', { value: originalStdin, writable: true, configurable: true });
+      Object.defineProperty(process, 'stdout', { value: originalStdout, writable: true, configurable: true });
+      consoleSpy.mockRestore();
+      vi.restoreAllMocks();
+    }
+  });
 });
 
 describe('/language command modal lifecycle', () => {

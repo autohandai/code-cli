@@ -238,6 +238,10 @@ export class SlashCommandHandler {
             await this.ctx.onAfterModal?.();
           }
         }
+        case '/usage': {
+          const { usage } = await import('../commands/usage.js');
+          return usage(this.ctx);
+        }
         case '/login': {
           const { login } = await import('../commands/login.js');
           await this.ctx.onBeforeModal?.();
@@ -493,6 +497,20 @@ export class SlashCommandHandler {
         case '/tools': {
           const { tools } = await import('../commands/tools.js');
           return tools({ toolsRegistry: this.ctx.toolsRegistry }, args);
+        }
+        case '/features': {
+          const { features } = await import('../commands/features.js');
+          const subcommand = (args[0] ?? '').toLowerCase();
+          const opensModal = args.length === 0 || subcommand === 'list' || subcommand === 'ls';
+          if (opensModal) {
+            await this.ctx.onBeforeModal?.();
+            try {
+              return await features({ config: this.ctx.config, interactive: true }, args);
+            } finally {
+              await this.ctx.onAfterModal?.();
+            }
+          }
+          return features({ config: this.ctx.config, interactive: true }, args);
         }
         default:
           this.printUnsupported(command);

@@ -178,6 +178,38 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
+  it('runs the usage_v2 dashboard from the interactive TUI', async () => {
+    const session = await launchInteractive({
+      config: {
+        provider: 'openai',
+        openai: {
+          apiKey: 'tuistory-test-api-key',
+          model: 'gpt-5.5',
+          contextWindow: 258000,
+          reasoningEffort: 'high',
+        },
+        features: {
+          usageV2: true,
+        },
+      },
+    });
+
+    await waitForComposer(session);
+    await session.type('/usage');
+    await session.press('enter');
+    await session.waitForText('Context window:', { timeout: 10_000 });
+    const output = session.readAll();
+
+    expect(output).toContain('Model:');
+    expect(output).toContain('gpt-5.5');
+    expect(output).toContain('Provider:');
+    expect(output).toContain('openai');
+    expect(output).toContain('Context window:');
+    expect(output).toContain('Provider limits:');
+
+    await exitInteractive(session);
+  });
+
   it('opens every registered slash command suggestion and dismisses the menu with Escape', async () => {
     const session = await launchInteractive();
     const slashCommands = getHelpOrderedSlashCommands(SLASH_COMMANDS).map(

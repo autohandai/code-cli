@@ -25,6 +25,7 @@ import * as lint from '../commands/lint.js';
 import * as completion from '../commands/completion.js';
 import * as exportCmd from '../commands/export.js';
 import * as status from '../commands/status.js';
+import * as usage from '../commands/usage.js';
 import * as login from '../commands/login.js';
 import * as logout from '../commands/logout.js';
 import * as permissions from '../commands/permissions.js';
@@ -54,6 +55,7 @@ import * as prReviewCmd from '../commands/pr-review.js';
 import * as setupCmd from '../commands/setup.js';
 import * as yoloCmd from '../commands/yolo.js';
 import * as toolsCmd from '../commands/tools.js';
+import * as featuresCmd from '../commands/features.js';
 
 import type { SlashCommand } from './slashCommandTypes.js';
 export type { SlashCommand } from './slashCommandTypes.js';
@@ -82,6 +84,7 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   completion.metadata,
   exportCmd.metadata,
   status.metadata,
+  usage.metadata,
   login.metadata,
   logout.metadata,
   permissions.metadata,
@@ -117,4 +120,5 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   setupCmd.metadata,
   yoloCmd.metadata,
   toolsCmd.metadata,
+  featuresCmd.metadata,
 ] as (SlashCommand | undefined)[]).filter((cmd): cmd is SlashCommand => cmd != null && typeof cmd.command === 'string');

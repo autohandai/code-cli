@@ -217,6 +217,15 @@ export interface AutoReportSettings {
   enabled?: boolean;
 }
 
+export interface FeatureFlagSettings {
+  /** Remote feature flag environment (default: production) */
+  environment?: string;
+  /** Local opt-outs for remote feature flags. Users can only force remote-enabled flags off. */
+  remoteOverrides?: Record<string, 'off'>;
+  /** Enable the v2 usage dashboard command and /status usage panel. */
+  usageV2?: boolean;
+}
+
 export type PermissionMode = 'interactive' | 'unrestricted' | 'restricted' | 'external';
 
 export interface PermissionRule {
@@ -660,6 +669,8 @@ export interface AutohandConfig {
   sync?: SyncSettings;
   /** Auto-report settings (automatic error reporting to GitHub) */
   autoReport?: AutoReportSettings;
+  /** Local feature flag preferences and remote flag opt-outs */
+  features?: FeatureFlagSettings;
   /** Web search provider settings */
   search?: SearchSettings;
   /** MCP (Model Context Protocol) settings */
