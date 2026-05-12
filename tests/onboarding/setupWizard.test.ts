@@ -80,13 +80,14 @@ vi.mock("../../src/i18n/index.js", () => ({
   },
   changeLanguage: mockChangeLanguage,
   detectLocale: mockDetectLocale,
-  SUPPORTED_LOCALES: ["en", "fr", "de", "es", "ja"],
+  SUPPORTED_LOCALES: ["en", "fr", "de", "es", "ja", "id"],
   LANGUAGE_DISPLAY_NAMES: {
     en: "English",
     fr: "Français (French)",
     de: "Deutsch (German)",
     es: "Español (Spanish)",
     ja: "日本語 (Japanese)",
+    id: "Bahasa Indonesia (Indonesian)",
   },
 }));
 

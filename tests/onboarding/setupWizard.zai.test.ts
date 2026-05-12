@@ -50,8 +50,8 @@ vi.mock("../../src/i18n/index.js", () => ({
   },
   changeLanguage: mockChangeLanguage,
   detectLocale: mockDetectLocale,
-  SUPPORTED_LOCALES: ["en"],
-  LANGUAGE_DISPLAY_NAMES: { en: "English" },
+  SUPPORTED_LOCALES: ["en", "id"],
+  LANGUAGE_DISPLAY_NAMES: { en: "English", id: "Bahasa Indonesia (Indonesian)" },
 }));
 
 vi.mock("../../src/auth/index.js", () => ({
