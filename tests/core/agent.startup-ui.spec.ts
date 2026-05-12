@@ -2307,8 +2307,11 @@ describe('agent startup and active input UI', () => {
       () => new Promise<void>((resolve) => { resolveEnd = resolve; })
     );
     const shutdown = vi.fn(async () => {});
+    const startedAt = new Date('2026-05-13T10:00:00.000Z').getTime();
+    const endedAt = new Date('2026-05-13T10:01:30.000Z').getTime();
+    const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(endedAt);
 
-    agent.sessionStartedAt = Date.now() - 1000;
+    agent.sessionStartedAt = startedAt;
     agent.runtime = { workspaceRoot: process.cwd() };
     agent.persistentInput = { dispose: vi.fn() };
     agent.mcpManager = { disconnectAll };
@@ -2331,6 +2334,14 @@ describe('agent startup and active input UI', () => {
       expect(syncSession).toHaveBeenCalledTimes(1);
       expect(endSession).toHaveBeenCalledTimes(1);
     });
+    expect(syncSession).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: {
+        workspaceRoot: process.cwd(),
+        startTime: '2026-05-13T10:00:00.000Z',
+        endTime: '2026-05-13T10:01:30.000Z',
+        durationSeconds: 90,
+      },
+    }));
     expect(shutdown).not.toHaveBeenCalled();
 
     resolveDisconnect();
@@ -2342,6 +2353,7 @@ describe('agent startup and active input UI', () => {
     expect(shutdown).toHaveBeenCalledTimes(1);
     expect(syncSession.mock.invocationCallOrder[0]).toBeLessThan(shutdown.mock.invocationCallOrder[0]);
     expect(endSession.mock.invocationCallOrder[0]).toBeLessThan(shutdown.mock.invocationCallOrder[0]);
+    dateNowSpy.mockRestore();
     logSpy.mockRestore();
   });
 

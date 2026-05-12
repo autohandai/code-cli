@@ -102,6 +102,9 @@ export interface SessionSyncData {
   messageCount: number;
   totalTokens?: number;
   workspaceRoot?: string;
+  startTime?: string;
+  endTime?: string;
+  durationSeconds?: number;
 }
 
 export interface SkillUseData {

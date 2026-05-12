@@ -350,7 +350,8 @@ export function initializeAgentDependencies(
     host.telemetryManager = new TelemetryManager({
       enabled: runtime.config.telemetry?.enabled === true,
       apiBaseUrl: runtime.config.telemetry?.apiBaseUrl || 'https://api.autohand.ai',
-      enableSessionSync: runtime.config.telemetry?.enableSessionSync === true,
+      enableSessionSync: runtime.config.telemetry?.enableSessionSync !== false,
+      companySecret: runtime.config.telemetry?.companySecret || runtime.config.api?.companySecret || '',
       clientVersion: packageJson.version
     });
     host.featureFlagManager = new RemoteFeatureFlagManager(runtime.config);
