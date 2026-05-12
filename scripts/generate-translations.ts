@@ -63,6 +63,7 @@ const TARGET_LOCALES = [
   'cs',
   'hu',
   'hi',
+  'id',
 ];
 
 const LANGUAGE_NAMES: Record<string, string> = {
@@ -81,6 +82,7 @@ const LANGUAGE_NAMES: Record<string, string> = {
   cs: 'Czech',
   hu: 'Hungarian',
   hi: 'Hindi',
+  id: 'Indonesian',
 };
 
 const LOCALES_DIR = path.join(__dirname, '../src/i18n/locales');
