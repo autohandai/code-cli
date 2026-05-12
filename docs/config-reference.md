@@ -810,7 +810,7 @@ Telemetry is **disabled by default** (opt-in). Enable it to help improve Autohan
     "flushIntervalMs": 60000,
     "maxQueueSize": 500,
     "maxRetries": 3,
-    "enableSessionSync": false,
+    "enableSessionSync": true,
     "companySecret": ""
   }
 }
@@ -824,7 +824,7 @@ Telemetry is **disabled by default** (opt-in). Enable it to help improve Autohan
 | `flushIntervalMs`   | number  | `60000`                   | Flush interval in milliseconds (1 minute)     |
 | `maxQueueSize`      | number  | `500`                     | Maximum queue size before dropping old events |
 | `maxRetries`        | number  | `3`                       | Retry attempts for failed telemetry requests  |
-| `enableSessionSync` | boolean | `false`                   | Sync sessions to cloud for team features      |
+| `enableSessionSync` | boolean | `true`                    | Sync sessions to cloud for team features when telemetry is enabled |
 | `companySecret`     | string  | `""`                      | Company secret for API authentication         |
 
 ---
@@ -1465,7 +1465,7 @@ autohand --no-chrome       # Start with browser bridge disabled
     "flushIntervalMs": 60000,
     "maxQueueSize": 500,
     "maxRetries": 3,
-    "enableSessionSync": false
+    "enableSessionSync": true
   },
   "externalAgents": {
     "enabled": false,
@@ -1553,7 +1553,7 @@ telemetry:
   flushIntervalMs: 60000
   maxQueueSize: 500
   maxRetries: 3
-  enableSessionSync: false
+  enableSessionSync: true
 
 externalAgents:
   enabled: false

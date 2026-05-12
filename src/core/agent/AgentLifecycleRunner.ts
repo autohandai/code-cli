@@ -194,6 +194,7 @@ export async function performAgentBackgroundInit(host: AgentLifecycleHost): Prom
       host.feedbackManager.startSession();
       const providerSettings = getProviderConfig(host.runtime.config, host.activeProvider);
       const model = host.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
+      host.sessionStartedAt = Date.now();
       const [, session] = await Promise.all([
         host.resetConversationContext(),
         host.sessionManager.createSession(host.runtime.workspaceRoot, model),
@@ -208,7 +209,8 @@ export async function performAgentBackgroundInit(host: AgentLifecycleHost): Prom
         await host.telemetryManager.startSession(
           session.metadata.sessionId,
           model,
-          host.activeProvider
+          host.activeProvider,
+          host.sessionStartedAt
         );
       }
 
@@ -254,6 +256,7 @@ export async function initializeAgentForRPC(host: AgentLifecycleHost): Promise<v
     await host.skillsRegistry.setWorkspace(host.runtime.workspaceRoot);
     const providerSettings = getProviderConfig(host.runtime.config, host.activeProvider);
     const model = host.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
+    host.sessionStartedAt = Date.now();
     const [, session] = await Promise.all([
       host.resetConversationContext(),
       host.sessionManager.createSession(host.runtime.workspaceRoot, model),
@@ -266,7 +269,8 @@ export async function initializeAgentForRPC(host: AgentLifecycleHost): Promise<v
       await host.telemetryManager.startSession(
         session.metadata.sessionId,
         model,
-        host.activeProvider
+        host.activeProvider,
+        host.sessionStartedAt
       );
     }
 
@@ -389,11 +393,13 @@ export async function attachAgentSession(
 ): Promise<{ sessionId: string; model: string; workspaceRoot: string; messageCount: number }> {
     await host.initializeManagers();
     const session = await host.restoreSessionState(sessionId);
+    host.sessionStartedAt = Date.now();
 
     await host.telemetryManager.startSession(
       sessionId,
       session.metadata.model,
-      host.activeProvider
+      host.activeProvider,
+      host.sessionStartedAt
     );
 
     return {
@@ -410,6 +416,7 @@ export async function resumeAgentSession(host: AgentLifecycleHost, sessionId: st
 
     try {
       const session = await host.restoreSessionState(sessionId);
+      host.sessionStartedAt = Date.now();
 
       console.log(chalk.cyan(`\n📂 Resumed session ${sessionId}`));
 
@@ -417,7 +424,8 @@ export async function resumeAgentSession(host: AgentLifecycleHost, sessionId: st
       await host.telemetryManager.startSession(
         sessionId,
         session.metadata.model,
-        host.activeProvider
+        host.activeProvider,
+        host.sessionStartedAt
       );
 
       // Start interactive loop
@@ -432,7 +440,14 @@ export async function resumeAgentSession(host: AgentLifecycleHost, sessionId: st
       // Fallback to new session
       const providerSettings = getProviderConfig(host.runtime.config, host.activeProvider);
       const model = host.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
-      await host.sessionManager.createSession(host.runtime.workspaceRoot, model);
+      host.sessionStartedAt = Date.now();
+      const session = await host.sessionManager.createSession(host.runtime.workspaceRoot, model);
+      await host.telemetryManager.startSession(
+        session.metadata.sessionId,
+        model,
+        host.activeProvider,
+        host.sessionStartedAt
+      );
       await host.runInteractiveLoop();
     }
   }

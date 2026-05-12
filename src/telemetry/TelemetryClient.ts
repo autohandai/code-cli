@@ -27,7 +27,7 @@ export class TelemetryClient {
       flushIntervalMs: 60000, // 1 minute
       maxQueueSize: 500,
       maxRetries: 3,
-      enableSessionSync: false,
+      enableSessionSync: true,
       companySecret: '',
       clientType: 'cli',
       clientVersion: undefined,
@@ -262,6 +262,7 @@ export class TelemetryClient {
       totalTokens?: number;
       startTime?: string;
       endTime?: string;
+      durationSeconds?: number;
       workspaceRoot?: string;
     };
   }): Promise<{ success: boolean; id?: string; error?: string }> {
