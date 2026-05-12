@@ -89,6 +89,32 @@ describe('ToolManager', () => {
     expect(results[0]).toMatchObject({ tool: 'read_file', success: true, output: 'file contents' });
   });
 
+  it('rejects model-emitted schema keys as unavailable tools before execution', async () => {
+    const executor = vi.fn().mockResolvedValue('should not run');
+    const confirm = vi.fn().mockResolvedValue(true);
+    const manager = new ToolManager({ executor, confirmApproval: confirm, definitions: noopDefinitions as any });
+
+    const results = await manager.execute([
+      { tool: 'toolCalls' as any, args: {} },
+      { tool: 'finalResponse' as any, args: {} },
+    ]);
+
+    expect(executor).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(results).toEqual([
+      expect.objectContaining({
+        tool: 'toolCalls',
+        success: false,
+        error: expect.stringContaining("Tool 'toolCalls' is not available"),
+      }),
+      expect.objectContaining({
+        tool: 'finalResponse',
+        success: false,
+        error: expect.stringContaining("Tool 'finalResponse' is not available"),
+      }),
+    ]);
+  });
+
   it('enforces approval for dangerous tools', async () => {
     const executor = vi.fn();
     const confirm = vi.fn().mockResolvedValue(false);

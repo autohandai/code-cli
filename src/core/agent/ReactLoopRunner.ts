@@ -207,7 +207,11 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
       return definitions;
     };
 
-    // Get all function definitions for native tool calling
+    const supportsNativeToolCalling = host.llm.getCapabilities?.().nativeToolCalling === true;
+
+    // Get all function definitions for tool awareness and native tool calling.
+    // Providers without native support keep using Autohand's text protocol and
+    // must not receive OpenAI-style tool schemas in the API request.
     let allTools = await refreshRuntimeTools();
 
     if (debugMode) host.writeDebugLine(`[AGENT DEBUG] Loaded ${allTools.length} tools, maxIterations=${maxIterations}`);
@@ -337,13 +341,15 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
             : process.env.AUTOHAND_THINKING_LEVEL
         ) as 'none' | 'normal' | 'extended' | undefined ?? 'normal';
 
+        const requestTools = supportsNativeToolCalling && tools.length > 0 ? tools : undefined;
+
         completion = await host.llm.complete({
           messages: messagesWithImages,
           temperature: host.runtime.options.temperature ?? 0.2,
           model: host.runtime.options.model,
           signal: abortController.signal,
-          tools: tools.length > 0 ? tools : undefined,
-          toolChoice: tools.length > 0 ? 'auto' : undefined,
+          tools: requestTools,
+          toolChoice: requestTools ? 'auto' : undefined,
           maxTokens: 16000,  // Allow large outputs for file generation
           thinkingLevel,
         });

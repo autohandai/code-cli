@@ -1691,6 +1691,17 @@ export class ToolManager {
       }
 
       const definition = this.definitions.get(call.tool);
+      if (!definition) {
+        const result: ToolExecutionResult = {
+          tool: call.tool,
+          success: false,
+          error: `Tool '${call.tool}' is not available. Use tool_search or tools_registry to find an available tool.`
+        };
+        results.set(i, result);
+        onToolComplete?.(i, result);
+        continue;
+      }
+
       const requiresApproval = this.toolFilter.requiresApproval(call.tool, definition?.requiresApproval);
 
       if (requiresApproval) {
