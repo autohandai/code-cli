@@ -622,6 +622,94 @@ describe('ReactLoopRunner composer status', () => {
       logSpy.mockRestore();
     }
   });
+
+  it('does not send native tool schemas to providers without native tool-call capability', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const parser = new ReactionParser();
+    const llmComplete = vi.fn().mockResolvedValueOnce({
+      id: 'answer',
+      created: 1,
+      content: '{"finalResponse":"Done.","toolCalls":[]}',
+      raw: {},
+    });
+
+    const host = createReactLoopTestHost(llmComplete, parser);
+    host.activeProvider = 'openrouter';
+    host.toolManager.toFunctionDefinitions = vi.fn(() => [
+      {
+        name: 'read_file',
+        description: 'Read a file',
+        parameters: {
+          type: 'object',
+          properties: { path: { type: 'string' } },
+          required: ['path'],
+        },
+      },
+    ]);
+
+    try {
+      await runAgentReactLoop(host, new AbortController());
+
+      expect(llmComplete).toHaveBeenCalledWith(expect.not.objectContaining({
+        tools: expect.any(Array),
+        toolChoice: expect.anything(),
+      }));
+      expect(host.emitOutput).toHaveBeenCalledWith({
+        type: 'message',
+        content: 'Done.',
+      });
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('continues sending native tool schemas to providers with native tool-call capability', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const parser = new ReactionParser();
+    const llmComplete = vi.fn().mockResolvedValueOnce({
+      id: 'answer',
+      created: 1,
+      content: 'Done.',
+      raw: {},
+    });
+
+    const host = createReactLoopTestHost(llmComplete, parser);
+    host.activeProvider = 'openai';
+    host.llm = {
+      complete: llmComplete,
+      getName: () => 'openai',
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      isAvailable: vi.fn(async () => true),
+      listModels: vi.fn(async () => []),
+      setModel: vi.fn(),
+    };
+    host.toolManager.toFunctionDefinitions = vi.fn(() => [
+      {
+        name: 'read_file',
+        description: 'Read a file',
+        parameters: {
+          type: 'object',
+          properties: { path: { type: 'string' } },
+          required: ['path'],
+        },
+      },
+    ]);
+
+    try {
+      await runAgentReactLoop(host, new AbortController());
+
+      expect(llmComplete).toHaveBeenCalledWith(expect.objectContaining({
+        tools: [
+          expect.objectContaining({
+            name: 'read_file',
+          }),
+        ],
+        toolChoice: 'auto',
+      }));
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
 });
 
 function createReactLoopTestHost(
