@@ -50,13 +50,14 @@ vi.mock("../../src/i18n/localeDetector.js", () => ({
   detectLocale: mockDetectLocale,
   normalizeLocale: vi.fn((l: string) => l),
   isValidLocale: vi.fn(() => true),
-  SUPPORTED_LOCALES: ["en", "fr", "de", "es", "ja"],
+  SUPPORTED_LOCALES: ["en", "fr", "de", "es", "ja", "id"],
   LANGUAGE_DISPLAY_NAMES: {
     en: "English",
     fr: "Français (French)",
     de: "Deutsch (German)",
     es: "Español (Spanish)",
     ja: "日本語 (Japanese)",
+    id: "Bahasa Indonesia (Indonesian)",
   },
 }));
 
@@ -73,13 +74,14 @@ vi.mock("../../src/i18n/index.js", () => ({
   },
   changeLanguage: mockChangeLanguage,
   detectLocale: mockDetectLocale,
-  SUPPORTED_LOCALES: ["en", "fr", "de", "es", "ja"],
+  SUPPORTED_LOCALES: ["en", "fr", "de", "es", "ja", "id"],
   LANGUAGE_DISPLAY_NAMES: {
     en: "English",
     fr: "Français (French)",
     de: "Deutsch (German)",
     es: "Español (Spanish)",
     ja: "日本語 (Japanese)",
+    id: "Bahasa Indonesia (Indonesian)",
   },
 }));
 
