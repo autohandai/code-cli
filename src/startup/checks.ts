@@ -13,6 +13,7 @@ import fs from 'fs-extra';
 import { resolveRipgrepCommand } from '../utils/ripgrep.js';
 
 const GIT_COMMAND_TIMEOUT_MS = 5_000;
+const GIT_INIT_TIMEOUT_MS = 15_000;
 let toolCheckResultsPromise: Promise<CheckResult[]> | undefined;
 
 function getCurrentBunVersion(): string | undefined {
@@ -261,12 +262,12 @@ function isEmptyDirectory(dir: string): boolean {
 /**
  * Run a git command and return trimmed stdout, or undefined on failure
  */
-function runGitCommand(args: string[], cwd: string): Promise<string | undefined> {
+function runGitCommand(args: string[], cwd: string, timeoutMs: number = GIT_COMMAND_TIMEOUT_MS): Promise<string | undefined> {
   return new Promise((resolve) => {
     try {
       const proc = spawn('git', args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
       let stdout = '';
-      const timeout = setTimeout(() => { proc.kill(); resolve(undefined); }, GIT_COMMAND_TIMEOUT_MS);
+      const timeout = setTimeout(() => { proc.kill(); resolve(undefined); }, timeoutMs);
 
       proc.stdout?.on('data', (chunk) => { stdout += chunk.toString(); });
       proc.on('close', (code) => {
@@ -334,7 +335,7 @@ async function checkGitRepo(workspaceRoot: string): Promise<{ isGitRepo: boolean
 
   // Not a git repo - check if empty and auto-init
   if (isEmptyDirectory(workspaceRoot)) {
-    const initResult = await runGitCommand(['init'], workspaceRoot);
+    const initResult = await runGitCommand(['init'], workspaceRoot, GIT_INIT_TIMEOUT_MS);
 
     if (initResult !== undefined || fs.existsSync(`${workspaceRoot}/.git/HEAD`)) {
       // On macOS, create .gitignore with .DS_Store

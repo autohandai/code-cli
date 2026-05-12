@@ -220,7 +220,7 @@ program
   .option('--about', 'Show information about Autohand', false)
   .option('--feedback', 'Submit feedback', false)
   .option('--add-dir <path...>', 'Add additional directories to workspace scope (can be used multiple times)')
-  .option('--display-language <locale>', 'Set display language (e.g., en, zh-cn, fr, de, ja)')
+  .option('--display-language <locale>', 'Set display language (e.g., en, id, zh-cn, fr, de, ja)')
   .option('--cc, --context-compact', 'Enable context compaction (default: on)')
   .option('--no-cc, --no-context-compact', 'Disable context compaction')
   .option('--search-engine <provider>', 'Set web search provider (google, brave, duckduckgo, parallel)')
