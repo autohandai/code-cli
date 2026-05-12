@@ -53,7 +53,12 @@ export interface AgentSessionAccountingHost {
     shutdown(): Promise<unknown>;
     syncSession(payload: {
       messages: Array<{ role: string; content: string; timestamp: string }>;
-      metadata: { workspaceRoot: string };
+      metadata: {
+        workspaceRoot: string;
+        startTime?: string;
+        endTime?: string;
+        durationSeconds?: number;
+      };
     }): Promise<unknown>;
     endSession(reason: string): Promise<unknown>;
   };
@@ -136,7 +141,8 @@ export async function closeAgentSession(host: AgentSessionAccountingHost): Promi
   console.log(formatSessionSaved(session.metadata.sessionId));
   console.log(`${formatResumeHint(session.metadata.sessionId)}\n`);
 
-  const sessionDuration = Date.now() - host.sessionStartedAt;
+  const sessionEndedAt = Date.now();
+  const sessionDuration = Math.max(0, sessionEndedAt - host.sessionStartedAt);
   const cleanupTasks = [
     host.mcpManager.disconnectAll(),
     host.hookManager.executeHooks('session-end', {
@@ -150,7 +156,12 @@ export async function closeAgentSession(host: AgentSessionAccountingHost): Promi
         content: message.content,
         timestamp: message.timestamp,
       })),
-      metadata: { workspaceRoot: host.runtime.workspaceRoot },
+      metadata: {
+        workspaceRoot: host.runtime.workspaceRoot,
+        startTime: new Date(host.sessionStartedAt).toISOString(),
+        endTime: new Date(sessionEndedAt).toISOString(),
+        durationSeconds: Math.round(sessionDuration / 1000),
+      },
     }),
     host.telemetryManager.endSession('completed'),
   ];

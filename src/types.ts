@@ -208,8 +208,10 @@ export interface TelemetrySettings {
   enabled?: boolean;
   /** API endpoint (default: https://api.autohand.ai) */
   apiBaseUrl?: string;
-  /** Enable session sync to cloud (default: false, requires telemetry enabled) */
+  /** Enable session sync to cloud (default: true when telemetry is enabled) */
   enableSessionSync?: boolean;
+  /** Company secret for API authentication */
+  companySecret?: string;
 }
 
 export interface AutoReportSettings {

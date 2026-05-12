@@ -21,14 +21,19 @@ export class TelemetryManager {
   private client: TelemetryClient;
   private sessionId: string | null = null;
   private sessionStartTime: Date | null = null;
+  private heartbeatTimer: NodeJS.Timeout | null = null;
   private interactionCount = 0;
   private toolsUsed: Set<string> = new Set();
   private errorsCount = 0;
   private currentModel: string | null = null;
   private currentProvider: string | null = null;
+  private telemetryEnabled: boolean;
+  private readonly heartbeatIntervalMs: number;
 
   constructor(config: Partial<TelemetryConfig> = {}) {
     this.client = new TelemetryClient(config);
+    this.telemetryEnabled = config.enabled === true;
+    this.heartbeatIntervalMs = 60_000;
   }
 
   /**
@@ -68,14 +73,20 @@ export class TelemetryManager {
   /**
    * Start a new session
    */
-  async startSession(sessionId: string, model?: string, provider?: string): Promise<void> {
+  async startSession(
+    sessionId: string,
+    model?: string,
+    provider?: string,
+    startedAt?: number | string | Date
+  ): Promise<void> {
     this.sessionId = sessionId;
-    this.sessionStartTime = new Date();
+    this.sessionStartTime = this.normalizeSessionStartTime(startedAt);
     this.interactionCount = 0;
     this.toolsUsed.clear();
     this.errorsCount = 0;
     this.currentModel = model || null;
     this.currentProvider = provider || null;
+    this.startHeartbeatTimer();
 
     await this.trackEvent('session_start', {
       model,
@@ -90,9 +101,8 @@ export class TelemetryManager {
    * End current session
    */
   async endSession(status: 'completed' | 'crashed' | 'abandoned' = 'completed'): Promise<void> {
-    const duration = this.sessionStartTime
-      ? Math.round((Date.now() - this.sessionStartTime.getTime()) / 1000)
-      : 0;
+    this.stopHeartbeatTimer();
+    const duration = this.getSessionDurationSeconds();
 
     await this.trackEvent('session_end', {
       status,
@@ -228,9 +238,7 @@ export class TelemetryManager {
    */
   async trackHeartbeat(): Promise<void> {
     await this.trackEvent('heartbeat', {
-      uptime: this.sessionStartTime
-        ? Math.round((Date.now() - this.sessionStartTime.getTime()) / 1000)
-        : 0
+      uptime: this.getSessionDurationSeconds()
     });
   }
 
@@ -252,6 +260,11 @@ export class TelemetryManager {
       return { success: false, error: 'No active session' };
     }
 
+    const endTimeMs = Date.now();
+    const endTime = data.metadata?.endTime ?? new Date(endTimeMs).toISOString();
+    const startTime = data.metadata?.startTime ?? this.sessionStartTime?.toISOString();
+    const durationSeconds = data.metadata?.durationSeconds ?? this.getSessionDurationSeconds(endTimeMs);
+
     return this.client.uploadSession({
       sessionId: this.sessionId,
       messages: data.messages,
@@ -259,8 +272,9 @@ export class TelemetryManager {
         model: this.currentModel || undefined,
         provider: this.currentProvider || undefined,
         totalTokens: data.metadata?.totalTokens,
-        startTime: this.sessionStartTime?.toISOString(),
-        endTime: new Date().toISOString(),
+        startTime,
+        endTime,
+        durationSeconds,
         workspaceRoot: data.metadata?.workspaceRoot
       }
     });
@@ -290,9 +304,7 @@ export class TelemetryManager {
       interactionCount: this.interactionCount,
       toolsUsed: Array.from(this.toolsUsed),
       errorsCount: this.errorsCount,
-      sessionDuration: this.sessionStartTime
-        ? Math.round((Date.now() - this.sessionStartTime.getTime()) / 1000)
-        : 0
+      sessionDuration: this.getSessionDurationSeconds()
     };
   }
 
@@ -307,6 +319,8 @@ export class TelemetryManager {
    * Disable telemetry
    */
   disable(): void {
+    this.telemetryEnabled = false;
+    this.stopHeartbeatTimer();
     this.client.disable();
   }
 
@@ -314,6 +328,10 @@ export class TelemetryManager {
    * Enable telemetry
    */
   enable(): void {
+    this.telemetryEnabled = true;
+    if (this.sessionId) {
+      this.startHeartbeatTimer();
+    }
     this.client.enable();
   }
 
@@ -321,7 +339,42 @@ export class TelemetryManager {
    * Stop and cleanup
    */
   async shutdown(): Promise<void> {
+    this.stopHeartbeatTimer();
     this.client.stopFlushTimer();
     await this.client.syncAll();
+  }
+
+  private normalizeSessionStartTime(startedAt?: number | string | Date): Date {
+    if (startedAt instanceof Date) {
+      return Number.isFinite(startedAt.getTime()) ? startedAt : new Date(Date.now());
+    }
+
+    if (typeof startedAt === 'number' || typeof startedAt === 'string') {
+      const parsed = new Date(startedAt);
+      return Number.isFinite(parsed.getTime()) ? parsed : new Date(Date.now());
+    }
+
+    return new Date(Date.now());
+  }
+
+  private getSessionDurationSeconds(nowMs = Date.now()): number {
+    if (!this.sessionStartTime) return 0;
+    return Math.max(0, Math.round((nowMs - this.sessionStartTime.getTime()) / 1000));
+  }
+
+  private startHeartbeatTimer(): void {
+    this.stopHeartbeatTimer();
+    if (!this.telemetryEnabled) return;
+
+    this.heartbeatTimer = setInterval(() => {
+      this.trackHeartbeat().catch(() => {});
+    }, this.heartbeatIntervalMs);
+    this.heartbeatTimer.unref?.();
+  }
+
+  private stopHeartbeatTimer(): void {
+    if (!this.heartbeatTimer) return;
+    clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
   }
 }
