@@ -1783,6 +1783,20 @@ These flags override config file settings:
 | `--sys-prompt <value>`        | Replace entire system prompt (inline string or file path)                                      |
 | `--append-sys-prompt <value>` | Append to system prompt (inline string or file path)                                           |
 
+### Feature Switch Commands
+
+| Command                               | Description                                      |
+| ------------------------------------- | ------------------------------------------------ |
+| `autohand features list`              | List local and remote feature ids, source, lifecycle stage, and state |
+| `autohand features status <feature>`  | Show one feature switch, config path or remote metadata, and state |
+| `autohand features refresh`           | Download remote feature flags from the Autohand API |
+| `autohand features enable <feature>`  | Enable a config-backed feature switch            |
+| `autohand features disable <feature>` | Disable a config-backed feature switch           |
+
+Remote feature flags are fetched from `/v1/feature-flags/evaluate`, cached at `~/.autohand/feature-flags.json`, and refreshed after the API-provided TTL expires. Use `features.environment` to select a remote flag environment and `features.remoteOverrides` for local opt-outs of user-overridable remote flags.
+
+`usage_v2` is an experimental feature switch for the `/usage` dashboard and the enhanced `/status` Usage tab. Enable it with `autohand features enable usage_v2`.
+
 ---
 
 ## Slash Commands
@@ -1804,6 +1818,7 @@ Autohand provides a rich set of slash commands for interactive use. Type `/` in 
 | `/export`     | Export session to markdown/JSON/HTML                  |
 | `/share`      | Share current session                                 |
 | `/status`     | Show session status                                   |
+| `/usage`      | Show model, provider, context, and usage limits       |
 
 ### Model & Provider
 
@@ -1844,6 +1859,7 @@ Autohand provides a rich set of slash commands for interactive use. Type `/` in 
 | ------------- | ----------------------------------------------------- |
 | `/memory`     | View and manage stored memories                       |
 | `/settings`   | Configure Autohand settings                           |
+| `/features`   | Toggle feature switches                               |
 | `/sync`       | Sync settings across devices                          |
 | `/import`     | Import settings from a file                           |
 

@@ -12,6 +12,11 @@ vi.mock('../src/commands/ide.js', () => ({
   ide: mockIde,
 }));
 
+const mockFeatures = vi.fn();
+vi.mock('../src/commands/features.js', () => ({
+  features: mockFeatures,
+}));
+
 function createContext() {
   return {
     promptModelSelection: vi.fn().mockResolvedValue(undefined),
@@ -96,6 +101,28 @@ describe('SlashCommandHandler', () => {
       onBeforeModal: ctx.onBeforeModal,
       onAfterModal: ctx.onAfterModal,
     }));
+  });
+
+  it('pauses the active UI around the interactive /features list modal', async () => {
+    const ctx = createContext();
+    mockFeatures.mockResolvedValueOnce('Enabled usage_v2.');
+    const handler = new SlashCommandHandler(ctx as any, [
+      ...DEFAULT_COMMANDS,
+      { command: '/features', description: 'features', implemented: true },
+    ]);
+
+    const result = await handler.handle('/features', ['list']);
+
+    expect(result).toBe('Enabled usage_v2.');
+    expect(ctx.onBeforeModal).toHaveBeenCalledTimes(1);
+    expect(ctx.onAfterModal).toHaveBeenCalledTimes(1);
+    expect(mockFeatures).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: ctx.config,
+        interactive: true,
+      }),
+      ['list'],
+    );
   });
 
   it('returns /about output instead of printing through the active composer', async () => {

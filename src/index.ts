@@ -762,6 +762,87 @@ mcpCmd
     process.exit(0);
   });
 
+// ── Features subcommands ───────────────────────────────────────────────
+const featuresCmd = program
+  .command('features')
+  .description('List and toggle Autohand feature switches')
+  .action(async () => {
+    const { features } = await import('./commands/features.js');
+    const config = await loadConfig(program.opts<{ config?: string }>().config);
+    const result = await features({ config }, ['list']);
+    if (result) console.log(result);
+    process.exit(0);
+  });
+
+featuresCmd
+  .command('list')
+  .alias('ls')
+  .description('List feature switches and current state')
+  .action(async () => {
+    const { features } = await import('./commands/features.js');
+    const config = await loadConfig(program.opts<{ config?: string }>().config);
+    const result = await features({ config }, ['list']);
+    if (result) console.log(result);
+    process.exit(0);
+  });
+
+featuresCmd
+  .command('status <feature>')
+  .alias('show')
+  .description('Show one feature switch')
+  .action(async (featureId: string) => {
+    const { features } = await import('./commands/features.js');
+    const config = await loadConfig(program.opts<{ config?: string }>().config);
+    const result = await features({ config }, ['status', featureId]);
+    if (result?.startsWith('Unknown feature')) {
+      console.log(chalk.red(result));
+      process.exit(1);
+    }
+    if (result) console.log(result);
+    process.exit(0);
+  });
+
+featuresCmd
+  .command('refresh')
+  .description('Download remote feature flags from the Autohand API')
+  .action(async () => {
+    const { features } = await import('./commands/features.js');
+    const config = await loadConfig(program.opts<{ config?: string }>().config);
+    const result = await features({ config }, ['refresh']);
+    if (result) console.log(result);
+    process.exit(0);
+  });
+
+featuresCmd
+  .command('enable <feature>')
+  .description('Enable a feature switch')
+  .action(async (featureId: string) => {
+    const { setFeatureEnabled } = await import('./commands/features.js');
+    const config = await loadConfig(program.opts<{ config?: string }>().config);
+    const result = await setFeatureEnabled(config, featureId, true);
+    if (result.startsWith('Unknown feature')) {
+      console.log(chalk.red(result));
+      process.exit(1);
+    }
+    console.log(result);
+    process.exit(0);
+  });
+
+featuresCmd
+  .command('disable <feature>')
+  .description('Disable a feature switch')
+  .action(async (featureId: string) => {
+    const { setFeatureEnabled } = await import('./commands/features.js');
+    const config = await loadConfig(program.opts<{ config?: string }>().config);
+    const result = await setFeatureEnabled(config, featureId, false);
+    if (result.startsWith('Unknown feature')) {
+      console.log(chalk.red(result));
+      process.exit(1);
+    }
+    console.log(result);
+    process.exit(0);
+  });
+
 // ── Sessions subcommand ─────────────────────────────────────────────────
 program
   .command('sessions')

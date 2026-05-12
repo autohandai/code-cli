@@ -24,6 +24,8 @@ Each command is a separate TypeScript file that exports:
 | `/feedback` | `feedback.ts` | Submit feedback |
 | `/agents` | `agents.ts` | Manage sub-agents |
 | `/tools` | `tools.ts` | Manage persisted meta-tools |
+| `/features` | `features.ts` | List and toggle feature switches |
+| `/usage` | `usage.ts` | Show model, provider, context, and usage limits |
 
 ## Adding a New Command
 

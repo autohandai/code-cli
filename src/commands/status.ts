@@ -10,6 +10,7 @@ import type { AutohandConfig } from '../types.js';
 import { cleanupModalRender, prepareModalRender } from '../ui/ink/components/Modal.js';
 import { formatSessionActualTokens } from '../core/agent/AgentFormatter.js';
 import { createCommandTheme } from './commandTheme.js';
+import { formatUsageDashboard, gatherUsageDashboardData } from './usage.js';
 import packageJson from '../../package.json' with { type: 'json' };
 
 export const metadata = {
@@ -31,6 +32,7 @@ interface StatusData {
     contextPercentLeft: number;
     totalTokensUsed: number;
     tokenUsageStatus: 'actual' | 'unavailable';
+    usageV2Dashboard: string | null;
     config: AutohandConfig | undefined;
     contextCompactionEnabled: boolean;
 }
@@ -68,6 +70,9 @@ async function gatherStatusData(ctx: SlashCommandContext): Promise<StatusData> {
         contextPercentLeft: ctx.getContextPercentLeft?.() ?? 100,
         totalTokensUsed: ctx.getTotalTokensUsed?.() ?? 0,
         tokenUsageStatus: ctx.getTokenUsageStatus?.() ?? 'actual',
+        usageV2Dashboard: ctx.isFeatureEnabled?.('usage_v2', ctx.config?.features?.usageV2 === true)
+            ? formatUsageDashboard(gatherUsageDashboardData(ctx))
+            : null,
         config: ctx.config,
         contextCompactionEnabled: ctx.isContextCompactionEnabled?.() ?? true,
     };
@@ -277,6 +282,11 @@ function renderConfigTab(data: StatusData): void {
 
 function renderUsageTab(data: StatusData): void {
     const theme = createCommandTheme();
+    if (data.usageV2Dashboard) {
+        console.log(data.usageV2Dashboard);
+        return;
+    }
+
     const contextUsed = 100 - data.contextPercentLeft;
 
     console.log(theme.bold('Current session\n'));

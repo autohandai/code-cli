@@ -17,6 +17,7 @@ import type { TeamManager } from './teams/TeamManager.js';
 import type { RepeatManager } from './RepeatManager.js';
 import type { LoadedConfig, ProviderName } from '../types.js';
 import type { ToolsRegistry } from './toolsRegistry.js';
+import type { UsageLimitRow } from '../commands/usage.js';
 
 export interface SlashCommandContext {
     listWorkspaceFiles?: () => Promise<void>;
@@ -46,6 +47,14 @@ export interface SlashCommandContext {
     getTotalTokensUsed?: () => number;
     /** Get whether token usage is exact provider-reported usage or unavailable */
     getTokenUsageStatus?: () => 'actual' | 'unavailable';
+    /** Get current model context window in tokens */
+    getContextWindow?: () => number;
+    /** Get provider/account usage limits when available */
+    getUsageLimits?: () => UsageLimitRow[] | undefined;
+    /** Evaluate a feature flag using the active local/remote feature state */
+    isFeatureEnabled?: (key: string, localDefault?: boolean) => boolean;
+    /** Track feature activation without affecting command behavior */
+    trackFeatureActivation?: (key: string, metadata?: Record<string, unknown>) => void | Promise<void>;
     /** Skills registry for /skills commands */
     skillsRegistry?: SkillsRegistry;
     /** Meta-tools registry for /tools commands */
