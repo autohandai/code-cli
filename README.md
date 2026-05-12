@@ -186,7 +186,7 @@ autohand -p "refactor database queries" --dry-run
 | `--setup`                       |       | Run the setup wizard to configure or reconfigure Autohand Code CLI               |
 | `--about`                       |       | Show information about Autohand Code CLI                                         |
 | `--add-dir <path...>`           |       | Add additional directories to workspace scope (can be used multiple times)       |
-| `--display-language <locale>`   |       | Set display language (e.g., en, zh-cn, fr, de, ja)                               |
+| `--display-language <locale>`   |       | Set display language (e.g., en, id, zh-cn, fr, de, ja)                           |
 | `--cc, --context-compact`       |       | Enable context compaction (default: on)                                          |
 | `--no-cc, --no-context-compact` |       | Disable context compaction                                                       |
 | `--search-engine <provider>`    |       | Set web search provider (google, brave, duckduckgo, parallel)                    |
@@ -494,6 +494,7 @@ docker run -it autohand
 - [Agent Skills](docs/agent-skills.md) - Skills system guide
 - [Extending Autohand Code CLI](docs/extending.md) - Build tools, skills, hooks, MCP servers, and integrations
 - [Configuration Reference](docs/config-reference.md) - All config options
+  - [Bahasa Indonesia](docs/config-reference_id.md)
 - [Entire Integration](docs/entire-integration.md) - Session checkpointing with Entire
 
 ## Contributing
