@@ -18,6 +18,33 @@ export interface AgentUIRuntimeHost {
   [key: string]: any;
 }
 
+const USER_NOTIFICATION_DEDUPE_WINDOW_MS = 10 * 60 * 1000;
+
+function shouldSuppressDuplicateNotification(host: AgentUIRuntimeHost, message: string): boolean {
+  const now = Date.now();
+  const recentNotifications: Map<string, number> =
+    host.recentUserNotifications instanceof Map
+      ? host.recentUserNotifications
+      : new Map<string, number>();
+
+  host.recentUserNotifications = recentNotifications;
+
+  const previousAt = recentNotifications.get(message);
+  if (previousAt !== undefined && now - previousAt < USER_NOTIFICATION_DEDUPE_WINDOW_MS) {
+    return true;
+  }
+
+  recentNotifications.set(message, now);
+
+  for (const [content, shownAt] of recentNotifications) {
+    if (now - shownAt >= USER_NOTIFICATION_DEDUPE_WINDOW_MS) {
+      recentNotifications.delete(content);
+    }
+  }
+
+  return false;
+}
+
 function getDisplayTurnUsage(host: AgentUIRuntimeHost) {
   if (host.currentTurnActualUsage) {
     return host.currentTurnActualUsage;
@@ -241,8 +268,13 @@ export function printAgentCompletionSummary(host: AgentUIRuntimeHost, regionsSti
   }
 
 export function notifyAgentUser(host: AgentUIRuntimeHost, message: string): void {
+    const content = message.trim();
+    if (!content || shouldSuppressDuplicateNotification(host, content)) {
+      return;
+    }
+
     if (host.inkRenderer?.isRunning()) {
-      host.inkRenderer.addNotification(message);
+      host.inkRenderer.addNotification(content);
       return;
     }
 
@@ -250,11 +282,11 @@ export function notifyAgentUser(host: AgentUIRuntimeHost, message: string): void
       host.persistentInputActiveTurn &&
       process.env.AUTOHAND_TERMINAL_REGIONS !== '0'
     ) {
-      host.persistentInput.writeAbove(`${chalk.yellow(message)}\n`);
+      host.persistentInput.writeAbove(`${chalk.yellow(content)}\n`);
       return;
     }
 
-    promptNotify(chalk.yellow(message));
+    promptNotify(chalk.yellow(content));
   }
 
 export async function showAgentFeedbackWithPause(host: AgentUIRuntimeHost, trigger: string, sessionId?: string): Promise<void> {
