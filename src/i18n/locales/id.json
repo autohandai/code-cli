@@ -1,0 +1,100 @@
+{
+  "common": {
+    "error": "Kesalahan",
+    "warning": "Peringatan",
+    "success": "Berhasil",
+    "failed": "Gagal",
+    "cancelled": "Dibatalkan",
+    "continue": "Lanjutkan",
+    "yes": "Ya",
+    "no": "Tidak",
+    "done": "Selesai",
+    "loading": "Memuat...",
+    "pressEnter": "Tekan Enter untuk melanjutkan...",
+    "pressEscToCancel": "Tekan Esc untuk membatalkan",
+    "or": "atau",
+    "and": "dan",
+    "unknown": "Tidak diketahui",
+    "none": "Tidak ada",
+    "default": "Default",
+    "current": "saat ini",
+    "required": "wajib",
+    "optional": "opsional",
+    "enabled": "Aktif",
+    "disabled": "Nonaktif",
+    "on": "Aktif",
+    "off": "Nonaktif"
+  },
+  "cli": {
+    "description": "CLI agen coding otonom berbasis LLM",
+    "options": {
+      "displayLanguage": "Atur bahasa tampilan (mis., en, id, zh-cn, fr, de)"
+    }
+  },
+  "welcome": {
+    "banner": "Selamat datang di Autohand!",
+    "subtitle": "Agen coding AI super cepat Anda",
+    "version": "v{{version}}",
+    "updateAvailable": "Pembaruan tersedia: {{current}} -> {{latest}}. Jalankan 'npm i -g autohand' untuk memperbarui.",
+    "loggedInAs": "Masuk sebagai {{email}}",
+    "notLoggedIn": "Belum masuk",
+    "modelLine": "model: {{model}}",
+    "directoryLine": "direktori: {{directory}}",
+    "tips": {
+      "title": "Untuk memulai, jelaskan tugas atau coba salah satu perintah ini:",
+      "init": "/init - buat file AGENTS.md dengan instruksi untuk Autohand",
+      "help": "/help - tampilkan semua perintah yang tersedia",
+      "model": "/model - ubah model AI",
+      "language": "/language - ubah bahasa tampilan"
+    },
+    "shortcuts": {
+      "title": "Pintasan keyboard:",
+      "mention": "@ - sebut file untuk konteks",
+      "arrows": "Tombol panah - navigasi saran",
+      "tab": "Tab - lengkapi otomatis",
+      "escape": "Esc - batalkan operasi saat ini",
+      "ctrlC": "Ctrl+C - keluar"
+    }
+  },
+  "commands": {
+    "language": {
+      "description": "ubah bahasa tampilan",
+      "title": "Pilihan Bahasa",
+      "currentLanguage": "Bahasa saat ini: {{language}}",
+      "selectPrompt": "Pilih bahasa:",
+      "changed": "Bahasa diubah ke {{language}}",
+      "noChange": "Tidak ada perubahan."
+    },
+    "quit": {
+      "goodbye": "Sampai jumpa!"
+    }
+  },
+  "setup": {
+    "language": {
+      "title": "Pilihan Bahasa",
+      "description": "Pilih bahasa tampilan untuk Autohand.",
+      "prompt": "Pilih bahasa yang Anda inginkan:",
+      "detected": "Bahasa terdeteksi: {{language}}",
+      "changed": "Bahasa diubah ke {{language}}"
+    }
+  },
+  "languages": {
+    "en": "English",
+    "zh-cn": "简体中文 (Tionghoa Sederhana)",
+    "zh-tw": "繁體中文 (Tionghoa Tradisional)",
+    "fr": "Français (Prancis)",
+    "de": "Deutsch (Jerman)",
+    "it": "Italiano (Italia)",
+    "es": "Español (Spanyol)",
+    "ja": "日本語 (Jepang)",
+    "ko": "한국어 (Korea)",
+    "ru": "Русский (Rusia)",
+    "pt-br": "Português (Portugis Brasil)",
+    "tr": "Türkçe (Turki)",
+    "pl": "Polski (Polandia)",
+    "cs": "Čeština (Ceko)",
+    "hu": "Magyar (Hungaria)",
+    "hi": "हिन्दी (Hindi)",
+    "id": "Bahasa Indonesia (Indonesian)"
+  }
+}

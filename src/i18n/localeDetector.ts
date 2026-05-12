@@ -26,6 +26,7 @@ export const SUPPORTED_LOCALES = [
   'cs',
   'hu',
   'hi',
+  'id',
 ] as const;
 
 export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
@@ -50,6 +51,7 @@ export const LANGUAGE_DISPLAY_NAMES: Record<SupportedLocale, string> = {
   cs: 'Čeština (Czech)',
   hu: 'Magyar (Hungarian)',
   hi: 'हिन्दी (Hindi)',
+  id: 'Bahasa Indonesia (Indonesian)',
 };
 
 export interface LocaleDetectionResult {
