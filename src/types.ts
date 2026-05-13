@@ -741,6 +741,8 @@ export interface CLIOptions {
   unrestricted?: boolean;
   /** Run in restricted mode - deny all dangerous operations */
   restricted?: boolean;
+  /** Non-interactive /goal command input. Empty value prints goal status. */
+  goal?: string;
   /** Client context for tool filtering (default: 'cli') */
   clientContext?: ClientContext;
   /** Auto-commit with LLM-generated message (runs lint & test first) */
@@ -1009,6 +1011,48 @@ export type AgentAction =
     }
   | { type: 'tools_registry' }
   | { type: 'tool_search'; query: string; limit?: number }
+  | { type: 'get_goal' }
+  | {
+      type: 'create_goal';
+      objective: string;
+      token_budget?: number;
+      time_budget_seconds?: number;
+      min_tokens_before_wrap_up?: number;
+      min_time_seconds_before_wrap_up?: number;
+    }
+  | {
+      type: 'create_goal_from_template';
+      template: string;
+      flags?: Record<string, string>;
+      args?: string;
+      token_budget?: number;
+      time_budget_seconds?: number;
+      min_tokens_before_wrap_up?: number;
+      min_time_seconds_before_wrap_up?: number;
+    }
+  | {
+      type: 'update_goal';
+      objective?: string;
+      status?: string;
+      token_budget?: number | null;
+      time_budget_seconds?: number | null;
+      min_tokens_before_wrap_up?: number | null;
+      min_time_seconds_before_wrap_up?: number | null;
+    }
+  | { type: 'clear_goal' }
+  | { type: 'list_goal_templates' }
+  | {
+      type: 'enqueue_goal';
+      objective: string;
+      token_budget?: number;
+      time_budget_seconds?: number;
+      min_tokens_before_wrap_up?: number;
+      min_time_seconds_before_wrap_up?: number;
+    }
+  | { type: 'list_goal_queue' }
+  | { type: 'start_queued_goal' }
+  | { type: 'dequeue_goal'; rationale: string; authority: string }
+  | { type: 'remove_queued_goal'; queueId?: string; queue_id?: string }
   | {
       type: 'find';
       query: string;

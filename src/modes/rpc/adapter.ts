@@ -90,6 +90,8 @@ import { writeNotification, createTimestamp, generateId } from './protocol.js';
 import { ImageManager, type ImageMimeType } from '../../core/ImageManager.js';
 import { modelSupportsImages } from '../../providers/modelCapabilities.js';
 import { attachBrowserHandoff, attachLatestBrowserHandoff, createBrowserHandoff } from '../../browser/chrome.js';
+import { GoalManager } from '../../goals/GoalManager.js';
+import type { GoalStatus } from '../../goals/types.js';
 
 // ---------------------------------------------------------------------------
 // ApiErrorCode → RPC-specific error shape mapping
@@ -271,6 +273,74 @@ export class RPCAdapter {
       contextPercent: this.contextPercent,
       messageCount: this.conversation?.history().length ?? 0,
     };
+  }
+
+  async handleGoalGet(): Promise<unknown> {
+    return new GoalManager(this.workspace).getSnapshot();
+  }
+
+  async handleGoalCreate(params: {
+    objective: string;
+    token_budget?: number;
+    time_budget_seconds?: number;
+    min_tokens_before_wrap_up?: number;
+    min_time_seconds_before_wrap_up?: number;
+  }): Promise<unknown> {
+    return new GoalManager(this.workspace).createGoal({
+      objective: params.objective,
+      tokenBudget: params.token_budget,
+      timeBudgetSeconds: params.time_budget_seconds,
+      minTokensBeforeWrapUp: params.min_tokens_before_wrap_up,
+      minTimeSecondsBeforeWrapUp: params.min_time_seconds_before_wrap_up,
+    });
+  }
+
+  async handleGoalUpdate(params: {
+    objective?: string;
+    status?: string;
+    token_budget?: number | null;
+    time_budget_seconds?: number | null;
+    min_tokens_before_wrap_up?: number | null;
+    min_time_seconds_before_wrap_up?: number | null;
+  }): Promise<unknown> {
+    return new GoalManager(this.workspace).updateGoal({
+      objective: params.objective,
+      status: parseRpcGoalStatus(params.status),
+      tokenBudget: params.token_budget,
+      timeBudgetSeconds: params.time_budget_seconds,
+      minTokensBeforeWrapUp: params.min_tokens_before_wrap_up,
+      minTimeSecondsBeforeWrapUp: params.min_time_seconds_before_wrap_up,
+    });
+  }
+
+  async handleGoalClear(): Promise<unknown> {
+    return new GoalManager(this.workspace).clearGoal();
+  }
+
+  async handleGoalQueue(params: {
+    objective: string;
+    token_budget?: number;
+    time_budget_seconds?: number;
+    min_tokens_before_wrap_up?: number;
+    min_time_seconds_before_wrap_up?: number;
+  }): Promise<unknown> {
+    const manager = new GoalManager(this.workspace);
+    return manager.enqueueGoal({
+      objective: params.objective,
+      source: 'rpc',
+      tokenBudget: params.token_budget,
+      timeBudgetSeconds: params.time_budget_seconds,
+      minTokensBeforeWrapUp: params.min_tokens_before_wrap_up,
+      minTimeSecondsBeforeWrapUp: params.min_time_seconds_before_wrap_up,
+    });
+  }
+
+  async handleGoalStartQueued(): Promise<unknown> {
+    return new GoalManager(this.workspace).startQueuedGoal();
+  }
+
+  async handleGoalListTemplates(): Promise<unknown> {
+    return new GoalManager(this.workspace).listTemplates();
   }
 
   /**
@@ -2956,4 +3026,11 @@ export class RPCAdapter {
       };
     }
   }
+}
+
+function parseRpcGoalStatus(value: string | undefined): GoalStatus | undefined {
+  if (value === 'active' || value === 'paused' || value === 'complete' || value === 'budgetLimited') {
+    return value;
+  }
+  return undefined;
 }

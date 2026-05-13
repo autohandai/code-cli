@@ -85,6 +85,8 @@ import { PlanFileStorage } from '../modes/planMode/PlanFileStorage.js';
 import type { Plan, PlanStep } from '../modes/planMode/types.js';
 import { getPlanModeManager } from '../commands/plan.js';
 import { randomUUID } from 'node:crypto';
+import { GoalManager } from '../goals/GoalManager.js';
+import type { GoalStatus } from '../goals/types.js';
 
 /** Response from permission-request hook */
 export interface PermissionHookResponse {
@@ -656,6 +658,94 @@ export class ActionExecutor {
       case 'tools_registry': {
         const tools = await this.toolsRegistry.listTools(this.getRegisteredTools());
         return JSON.stringify(tools, null, 2);
+      }
+      case 'get_goal': {
+        const manager = new GoalManager(this.runtime.workspaceRoot);
+        return JSON.stringify(await manager.getSnapshot(), null, 2);
+      }
+      case 'list_goal_templates': {
+        const manager = new GoalManager(this.runtime.workspaceRoot);
+        return JSON.stringify(await manager.listTemplates(), null, 2);
+      }
+      case 'create_goal': {
+        const manager = new GoalManager(this.runtime.workspaceRoot);
+        const created = await manager.createGoal({
+          objective: action.objective,
+          tokenBudget: action.token_budget,
+          timeBudgetSeconds: action.time_budget_seconds,
+          minTokensBeforeWrapUp: action.min_tokens_before_wrap_up,
+          minTimeSecondsBeforeWrapUp: action.min_time_seconds_before_wrap_up,
+        });
+        return formatGoalToolResult(created);
+      }
+      case 'create_goal_from_template': {
+        const manager = new GoalManager(this.runtime.workspaceRoot);
+        const resolution = await import('../goals/templates.js').then((mod) => mod.resolveGoalTemplateByName(
+          this.runtime.workspaceRoot,
+          action.template,
+          action.flags ?? {},
+          action.args ?? '',
+        ));
+        if (!resolution.ok) {
+          return `Error: ${'notTemplate' in resolution ? `Unknown goal template '${action.template}'.` : resolution.error}`;
+        }
+        const created = await manager.createGoal({
+          objective: resolution.template.objective,
+          tokenBudget: action.token_budget,
+          timeBudgetSeconds: action.time_budget_seconds,
+          minTokensBeforeWrapUp: action.min_tokens_before_wrap_up,
+          minTimeSecondsBeforeWrapUp: action.min_time_seconds_before_wrap_up,
+        }, { replace: true });
+        return formatGoalToolResult(created);
+      }
+      case 'update_goal': {
+        const manager = new GoalManager(this.runtime.workspaceRoot);
+        const updated = await manager.updateGoal({
+          objective: action.objective,
+          status: parseGoalStatus(action.status),
+          tokenBudget: action.token_budget,
+          timeBudgetSeconds: action.time_budget_seconds,
+          minTokensBeforeWrapUp: action.min_tokens_before_wrap_up,
+          minTimeSecondsBeforeWrapUp: action.min_time_seconds_before_wrap_up,
+        });
+        return formatGoalToolResult(updated);
+      }
+      case 'clear_goal': {
+        const manager = new GoalManager(this.runtime.workspaceRoot);
+        return formatGoalToolResult(await manager.clearGoal());
+      }
+      case 'enqueue_goal': {
+        const manager = new GoalManager(this.runtime.workspaceRoot);
+        return formatGoalToolResult(await manager.enqueueGoal({
+          objective: action.objective,
+          source: 'tool',
+          tokenBudget: action.token_budget,
+          timeBudgetSeconds: action.time_budget_seconds,
+          minTokensBeforeWrapUp: action.min_tokens_before_wrap_up,
+          minTimeSecondsBeforeWrapUp: action.min_time_seconds_before_wrap_up,
+        }));
+      }
+      case 'list_goal_queue': {
+        const manager = new GoalManager(this.runtime.workspaceRoot);
+        const snapshot = await manager.getSnapshot();
+        return JSON.stringify({ goal: snapshot.goal, queue: snapshot.queue }, null, 2);
+      }
+      case 'start_queued_goal': {
+        const manager = new GoalManager(this.runtime.workspaceRoot);
+        return formatGoalToolResult(await manager.startQueuedGoal());
+      }
+      case 'dequeue_goal': {
+        const manager = new GoalManager(this.runtime.workspaceRoot);
+        return formatGoalToolResult(await manager.dequeueGoal({
+          rationale: action.rationale,
+          authority: action.authority,
+        }));
+      }
+      case 'remove_queued_goal': {
+        const manager = new GoalManager(this.runtime.workspaceRoot);
+        const queueId = action.queueId ?? action.queue_id;
+        if (!queueId) return 'Error: remove_queued_goal requires queueId.';
+        return formatGoalToolResult(await manager.removeQueuedGoal(queueId));
       }
       case 'tool_search': {
         const query = action.query?.trim();
@@ -2930,4 +3020,36 @@ export class ActionExecutor {
 
     return outputLines.join('\n');
   }
+}
+
+function parseGoalStatus(value: string | undefined): GoalStatus | undefined {
+  if (!value) return undefined;
+  if (value === 'active' || value === 'paused' || value === 'complete' || value === 'budgetLimited') {
+    return value;
+  }
+  return undefined;
+}
+
+function formatGoalToolResult(result: {
+  ok: boolean;
+  message?: string;
+  goal: unknown;
+  queue: unknown[];
+  queued?: unknown[];
+  started?: unknown;
+  dequeued?: unknown;
+  removed?: unknown;
+  telemetry?: unknown;
+}): string {
+  return JSON.stringify({
+    ok: result.ok,
+    message: result.message,
+    goal: result.goal,
+    queue: result.queue,
+    queued: result.queued,
+    started: result.started,
+    dequeued: result.dequeued,
+    removed: result.removed,
+    telemetry: result.telemetry,
+  }, null, 2);
 }
