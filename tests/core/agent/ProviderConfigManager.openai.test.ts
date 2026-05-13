@@ -291,6 +291,28 @@ describe("ProviderConfigManager openai auth mode", () => {
     expect(providerOptions.some((option: { label: string }) => option.label.includes("Z.ai"))).toBe(true);
   });
 
+  it("hides Bedrock from /model provider choices when the feature flag is disabled", async () => {
+    runtime.config.provider = "openai";
+    runtime.config.features = {
+      awsBedrockProvider: false,
+    };
+    runtime.config.openai = {
+      authMode: "api-key",
+      apiKey: "sk-openai-key-1234567890",
+      model: "gpt-5.4",
+    };
+    runtime.options.model = "gpt-5.4";
+
+    mockShowModal
+      .mockResolvedValueOnce({ value: "provider" })
+      .mockResolvedValueOnce(null);
+
+    await manager.promptModelSelection();
+
+    const providerOptions = mockShowModal.mock.calls[1][0].options;
+    expect(providerOptions.some((option: { value: string }) => option.value === "bedrock")).toBe(false);
+  });
+
   it("updates OpenAI reasoning effort from the configured provider menu", async () => {
     runtime.config.provider = "openai";
     runtime.config.openai = {

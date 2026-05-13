@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import { FileActionManager } from '../actions/filesystem.js';
 import { getProviderConfig } from '../config.js';
+import { isAwsBedrockProviderEnabled } from '../features/featureRegistry.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import { safeEmitKeypressEvents } from '../ui/inputPrompt.js';
 
@@ -1583,6 +1584,7 @@ export class AutohandAgent {
     if (this.runtime.config.mlx) providers.push('mlx');
     if (this.runtime.config.llmgateway) providers.push('llmgateway');
     if (this.runtime.config.zai) providers.push('zai');
+    if (this.runtime.config.bedrock && isAwsBedrockProviderEnabled(this.runtime.config)) providers.push('bedrock');
     return providers.length ? providers : ['openrouter'];
   }
 
