@@ -244,6 +244,8 @@ export interface FeatureFlagSettings {
   usageV2?: boolean;
   /** Enable AWS Bedrock provider support. */
   awsBedrockProvider?: boolean;
+  /** Enable the experimental persistent /goal surface across CLI, tools, RPC, and ACP. */
+  slashGoal?: boolean;
 }
 
 export type PermissionMode = 'interactive' | 'unrestricted' | 'restricted' | 'external';

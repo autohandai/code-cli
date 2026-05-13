@@ -16,6 +16,7 @@ import type {
   AgentOutputEvent,
   LLMToolCall,
   McpServerConfigEntry,
+  LoadedConfig,
 } from '../../types.js';
 import type {
   JsonRpcId,
@@ -92,6 +93,7 @@ import { modelSupportsImages } from '../../providers/modelCapabilities.js';
 import { attachBrowserHandoff, attachLatestBrowserHandoff, createBrowserHandoff } from '../../browser/chrome.js';
 import { GoalManager } from '../../goals/GoalManager.js';
 import type { GoalStatus } from '../../goals/types.js';
+import { GOAL_FEATURE_DISABLED_MESSAGE, isGoalFeatureEnabled } from '../../goals/feature.js';
 
 // ---------------------------------------------------------------------------
 // ApiErrorCode → RPC-specific error shape mapping
@@ -201,7 +203,7 @@ export class RPCAdapter {
   private yoloRevertTimer: ReturnType<typeof setTimeout> | null = null;
   private yoloRevertGeneration = 0;
   // Config reference for runtime settings changes
-  private config: {
+  private config: Partial<LoadedConfig> & {
     permissionMode?: string;
     model?: string;
     maxThinkingTokens?: number;
@@ -228,12 +230,14 @@ export class RPCAdapter {
     conversation: ConversationManager,
     model: string,
     workspace: string,
+    config?: LoadedConfig,
     mcpServerConfigs?: McpServerConfigEntry[]
   ): void {
     this.agent = agent;
     this.conversation = conversation;
     this.model = model;
     this.workspace = workspace;
+    this.config = config ? { ...config } : {};
     this.sessionId = generateId('session');
     this.mcpServerConfigs = mcpServerConfigs ?? [];
 
@@ -276,6 +280,7 @@ export class RPCAdapter {
   }
 
   async handleGoalGet(): Promise<unknown> {
+    if (!this.isGoalFeatureEnabled()) return this.goalFeatureDisabledResult();
     return new GoalManager(this.workspace).getSnapshot();
   }
 
@@ -286,6 +291,7 @@ export class RPCAdapter {
     min_tokens_before_wrap_up?: number;
     min_time_seconds_before_wrap_up?: number;
   }): Promise<unknown> {
+    if (!this.isGoalFeatureEnabled()) return this.goalFeatureDisabledResult();
     return new GoalManager(this.workspace).createGoal({
       objective: params.objective,
       tokenBudget: params.token_budget,
@@ -303,6 +309,7 @@ export class RPCAdapter {
     min_tokens_before_wrap_up?: number | null;
     min_time_seconds_before_wrap_up?: number | null;
   }): Promise<unknown> {
+    if (!this.isGoalFeatureEnabled()) return this.goalFeatureDisabledResult();
     return new GoalManager(this.workspace).updateGoal({
       objective: params.objective,
       status: parseRpcGoalStatus(params.status),
@@ -314,6 +321,7 @@ export class RPCAdapter {
   }
 
   async handleGoalClear(): Promise<unknown> {
+    if (!this.isGoalFeatureEnabled()) return this.goalFeatureDisabledResult();
     return new GoalManager(this.workspace).clearGoal();
   }
 
@@ -324,6 +332,7 @@ export class RPCAdapter {
     min_tokens_before_wrap_up?: number;
     min_time_seconds_before_wrap_up?: number;
   }): Promise<unknown> {
+    if (!this.isGoalFeatureEnabled()) return this.goalFeatureDisabledResult();
     const manager = new GoalManager(this.workspace);
     return manager.enqueueGoal({
       objective: params.objective,
@@ -336,11 +345,21 @@ export class RPCAdapter {
   }
 
   async handleGoalStartQueued(): Promise<unknown> {
+    if (!this.isGoalFeatureEnabled()) return this.goalFeatureDisabledResult();
     return new GoalManager(this.workspace).startQueuedGoal();
   }
 
   async handleGoalListTemplates(): Promise<unknown> {
+    if (!this.isGoalFeatureEnabled()) return this.goalFeatureDisabledResult();
     return new GoalManager(this.workspace).listTemplates();
+  }
+
+  private isGoalFeatureEnabled(): boolean {
+    return isGoalFeatureEnabled(this.config as LoadedConfig);
+  }
+
+  private goalFeatureDisabledResult(): { ok: false; message: string } {
+    return { ok: false, message: GOAL_FEATURE_DISABLED_MESSAGE };
   }
 
   /**

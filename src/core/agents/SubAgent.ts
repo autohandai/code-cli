@@ -8,11 +8,12 @@ import chalk from 'chalk';
 import { AgentDefinition } from './AgentRegistry.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
 import { ConversationManager } from '../conversationManager.js';
-import { ToolManager, DEFAULT_TOOL_DEFINITIONS, type ToolDefinition } from '../toolManager.js';
+import { ToolManager, DEFAULT_TOOL_DEFINITIONS, GOAL_TOOL_DEFINITIONS, type ToolDefinition } from '../toolManager.js';
 import { ToolFilter } from '../toolFilter.js';
 import { ActionExecutor } from '../actionExecutor.js';
 import { AgentDelegator } from './AgentDelegator.js';
-import type { AssistantReactPayload, ClientContext, LLMResponse } from '../../types.js';
+import type { AssistantReactPayload, ClientContext, LLMResponse, LoadedConfig } from '../../types.js';
+import { isGoalFeatureEnabled } from '../../goals/feature.js';
 
 /**
  * Options for creating a SubAgent with context inheritance
@@ -26,6 +27,8 @@ export interface SubAgentOptions {
     maxDepth: number;
     /** Max concurrent tool executions (passed from parent agent) */
     maxConcurrency?: number;
+    /** Active CLI config for feature-gated tools inherited by sub-agents. */
+    featureConfig?: LoadedConfig;
 }
 
 /** Tool definitions for delegation (added only if sub-agent can delegate further) */
@@ -79,9 +82,12 @@ export class SubAgent {
         // 2. Apply context filtering
         // 3. Add delegation tools if depth allows
         const allowedTools = new Set(config.tools);
+        const baseDefinitions = isGoalFeatureEnabled(options.featureConfig)
+            ? [...DEFAULT_TOOL_DEFINITIONS, ...GOAL_TOOL_DEFINITIONS]
+            : DEFAULT_TOOL_DEFINITIONS;
         let definitions = allowedTools.has('*')
-            ? [...DEFAULT_TOOL_DEFINITIONS]
-            : DEFAULT_TOOL_DEFINITIONS.filter(def => allowedTools.has(def.name));
+            ? [...baseDefinitions]
+            : baseDefinitions.filter(def => allowedTools.has(def.name));
 
         // Add delegation tools if sub-agent can delegate further
         if (canDelegate) {
@@ -97,7 +103,8 @@ export class SubAgent {
             this.delegator = new AgentDelegator(llm, actionExecutor, {
                 clientContext: options.clientContext,
                 currentDepth: options.depth,
-                maxDepth: options.maxDepth
+                maxDepth: options.maxDepth,
+                featureConfig: options.featureConfig,
             });
         }
 

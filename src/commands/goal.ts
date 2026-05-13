@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import { GoalManager } from '../goals/GoalManager.js';
 import type { SlashCommand, SlashCommandContext } from '../core/slashCommandTypes.js';
 import type { GoalMutationResult, GoalSnapshot } from '../goals/types.js';
+import { GOAL_FEATURE_DISABLED_MESSAGE, resolveGoalFeatureEnabled } from '../goals/feature.js';
 
 export const metadata: SlashCommand = {
   command: '/goal',
@@ -23,6 +24,11 @@ export const metadata: SlashCommand = {
 };
 
 export async function goal(ctx: SlashCommandContext, args: string[] = []): Promise<string> {
+  if (!resolveGoalFeatureEnabled(ctx.config, ctx.isFeatureEnabled)) {
+    return GOAL_FEATURE_DISABLED_MESSAGE;
+  }
+  await ctx.trackFeatureActivation?.('slash_goal', { surface: 'slash_command' });
+
   const manager = new GoalManager(ctx.workspaceRoot);
   const input = args.join(' ').trim();
   if (!input) {
@@ -79,7 +85,11 @@ export async function goal(ctx: SlashCommandContext, args: string[] = []): Promi
   }
 }
 
-export async function runGoalCli(workspaceRoot: string, rawInput?: string): Promise<string> {
+export async function runGoalCli(workspaceRoot: string, rawInput?: string, config?: SlashCommandContext['config']): Promise<string> {
+  if (!resolveGoalFeatureEnabled(config)) {
+    return GOAL_FEATURE_DISABLED_MESSAGE;
+  }
+
   const manager = new GoalManager(workspaceRoot);
   const input = rawInput?.trim() ?? '';
   if (!input) return formatSnapshot(await manager.getSnapshot());

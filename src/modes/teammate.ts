@@ -68,6 +68,7 @@ export async function executeTask(
     clientContext: 'cli',
     depth: 0,
     maxDepth: 2,
+    featureConfig: config,
   });
 
   return agent.run(task.description);

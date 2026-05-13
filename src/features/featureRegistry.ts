@@ -142,6 +142,14 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     requiresRestart: true,
   },
   {
+    id: 'slash_goal',
+    label: 'Slash goal',
+    description: 'Enable experimental persistent goals across /goal, --goal, tools, RPC, and ACP.',
+    stage: 'experimental',
+    configPath: 'features.slashGoal',
+    defaultEnabled: false,
+  },
+  {
     id: 'chrome_integration',
     label: 'Chrome integration',
     description: 'Start the browser bridge by default for Chrome extension handoff.',

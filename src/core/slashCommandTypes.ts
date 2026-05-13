@@ -55,6 +55,8 @@ export interface SlashCommandContext {
     isFeatureEnabled?: (key: string, localDefault?: boolean) => boolean;
     /** Track feature activation without affecting command behavior */
     trackFeatureActivation?: (key: string, metadata?: Record<string, unknown>) => void | Promise<void>;
+    /** Refresh feature-gated runtime surfaces after a feature toggle changes config. */
+    refreshFeatureGatedTools?: () => void;
     /** Skills registry for /skills commands */
     skillsRegistry?: SkillsRegistry;
     /** Meta-tools registry for /tools commands */

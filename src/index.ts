@@ -1564,6 +1564,12 @@ async function runLearnNonInteractive(opts: CLIOptions, subcommand: 'recommend' 
 
 async function runGoalFlag(opts: CLIOptions): Promise<void> {
   const config = (opts as any)._authConfig ?? await loadConfig(opts.config, process.cwd());
+  const { GOAL_FEATURE_DISABLED_MESSAGE, isGoalFeatureEnabled } = await import('./goals/feature.js');
+  if (!isGoalFeatureEnabled(config)) {
+    console.error(chalk.yellow(GOAL_FEATURE_DISABLED_MESSAGE));
+    process.exit(1);
+  }
+
   const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
   const workspacePathValidation = await validateWorkspacePath(workspaceRoot);
   if (!workspacePathValidation.valid) {
@@ -1577,7 +1583,7 @@ async function runGoalFlag(opts: CLIOptions): Promise<void> {
   }
 
   const { runGoalCli } = await import('./commands/goal.js');
-  const result = await runGoalCli(workspaceRoot, opts.goal ?? '');
+  const result = await runGoalCli(workspaceRoot, opts.goal ?? '', config);
   console.log(result);
 }
 

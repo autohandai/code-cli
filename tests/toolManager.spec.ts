@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, it, expect, vi } from 'vitest';
-import { DEFAULT_TOOL_DEFINITIONS, PLAN_TOOL_DEFINITION, ToolManager } from '../src/core/toolManager.js';
+import { DEFAULT_TOOL_DEFINITIONS, GOAL_TOOL_DEFINITIONS, PLAN_TOOL_DEFINITION, ToolManager } from '../src/core/toolManager.js';
 
 const noopDefinitions = [
   { name: 'read_file', description: 'read file' },
@@ -49,6 +49,15 @@ describe('ToolManager', () => {
   it('does NOT include plan tool in DEFAULT_TOOL_DEFINITIONS', () => {
     const names = new Set(DEFAULT_TOOL_DEFINITIONS.map((tool) => tool.name));
     expect(names.has('plan')).toBe(false);
+  });
+
+  it('keeps goal tools out of DEFAULT_TOOL_DEFINITIONS until slash_goal is enabled by the runtime', () => {
+    const defaultNames = new Set(DEFAULT_TOOL_DEFINITIONS.map((tool) => tool.name));
+    const goalNames = new Set(GOAL_TOOL_DEFINITIONS.map((tool) => tool.name));
+
+    expect(goalNames.has('create_goal')).toBe(true);
+    expect(defaultNames.has('create_goal')).toBe(false);
+    expect(defaultNames.has('get_goal')).toBe(false);
   });
 
   it('exposes fff search tools instead of deprecated find and glob by default', () => {

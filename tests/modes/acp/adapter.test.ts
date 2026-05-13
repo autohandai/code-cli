@@ -428,7 +428,7 @@ describe("AutohandAcpAdapter", () => {
       expect(configIds).toContain("context_compact");
     });
 
-    it("returns commands in _meta matching DEFAULT_ACP_COMMANDS", async () => {
+    it("returns feature-enabled commands in _meta", async () => {
       const result = await adapter.newSession(makeNewSessionRequest());
 
       expect(result._meta).toBeDefined();
@@ -437,7 +437,7 @@ describe("AutohandAcpAdapter", () => {
         name: string;
         description: string;
       }>;
-      expect(commands).toHaveLength(36);
+      expect(commands).toHaveLength(35);
 
       const cmdNames = commands.map((c) => c.name);
       expect(cmdNames).toContain("help");
@@ -447,6 +447,20 @@ describe("AutohandAcpAdapter", () => {
       expect(cmdNames).toContain("login");
       expect(cmdNames).toContain("logout");
       expect(cmdNames).toContain("learn");
+      expect(cmdNames).not.toContain("goal");
+    });
+
+    it("includes goal command metadata when slash_goal is enabled", async () => {
+      config.features = { slashGoal: true };
+
+      const result = await adapter.newSession(makeNewSessionRequest());
+      const commands = result._meta!.commands as Array<{
+        name: string;
+        description: string;
+      }>;
+
+      expect(commands).toHaveLength(36);
+      const cmdNames = commands.map((c) => c.name);
       expect(cmdNames).toContain("goal");
     });
 
