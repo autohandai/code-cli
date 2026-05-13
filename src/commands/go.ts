@@ -8,12 +8,15 @@ import chalk from 'chalk';
 import QRCode from 'qrcode';
 import terminalLink from 'terminal-link';
 import type { SlashCommand } from '../core/slashCommands.js';
+import { getAssistantChatLogContent } from '../session/chatLog.js';
 import type { Session, SessionManager } from '../session/SessionManager.js';
 import type { LoadedConfig, ProviderName } from '../types.js';
 import {
   getMobileApiBaseUrl,
   MobileHandoffClient,
   type MobileHandoffClientLike,
+  type MobileSessionSnapshot,
+  type MobileSessionSnapshotMessage,
 } from '../mobile/MobileHandoffClient.js';
 import { startMobileRelay } from '../mobile/MobileRelay.js';
 
@@ -33,6 +36,10 @@ interface GoContext {
   client?: MobileHandoffClientLike;
   enqueueInstruction?: (instruction: string) => void;
 }
+
+const MAX_MOBILE_SNAPSHOT_MESSAGES = 24;
+
+type GoMode = 'queue' | 'steer';
 
 function formatUrl(url: string): string {
   return terminalLink.isSupported ? terminalLink(url, url) : chalk.cyan.underline(url);
@@ -56,7 +63,57 @@ function nativeAppUrl(pairingUrl: string): string {
   return nativeUrl.toString();
 }
 
-export async function go(ctx: GoContext): Promise<string | null> {
+function buildMobileSessionSnapshot(session: Session): MobileSessionSnapshot {
+  const messages: MobileSessionSnapshotMessage[] = [];
+
+  for (const message of session.getMessages()) {
+    if (message.role === 'user') {
+      const content = message.content.trim();
+      if (content) {
+        messages.push({ role: 'user', content, timestamp: message.timestamp });
+      }
+      continue;
+    }
+
+    if (message.role === 'assistant') {
+      const content = getAssistantChatLogContent(message.content);
+      if (content) {
+        messages.push({ role: 'assistant', content, timestamp: message.timestamp });
+      }
+    }
+  }
+
+  const recentMessages = messages.slice(-MAX_MOBILE_SNAPSHOT_MESSAGES);
+  const firstUserMessage = messages.find((message) => message.role === 'user');
+  const title = firstUserMessage?.content
+    ? firstUserMessage.content.replace(/\s+/g, ' ').slice(0, 80)
+    : `Continue ${session.metadata.projectName}`;
+
+  return {
+    title,
+    summary: session.metadata.summary,
+    messageCount: session.metadata.messageCount,
+    lastActivity: session.metadata.lastActiveAt,
+    messages: recentMessages,
+  };
+}
+
+function parseMode(args: string[], canSteer: boolean): GoMode {
+  if (args.includes('--queue')) return 'queue';
+  if (args.includes('--steer')) return 'steer';
+  return canSteer ? 'steer' : 'queue';
+}
+
+export async function go(ctx: GoContext, args: string[] = []): Promise<string | null> {
+  const mode = parseMode(args, Boolean(ctx.enqueueInstruction));
+
+  if (mode === 'steer' && !ctx.enqueueInstruction) {
+    return [
+      chalk.yellow('Steer mode requires an interactive CLI session.'),
+      chalk.gray('Run /go --queue to create a durable queue-only handoff from this mode.'),
+    ].join('\n');
+  }
+
   const token = ctx.config?.auth?.token;
   if (!token) {
     return [
@@ -109,14 +166,18 @@ export async function go(ctx: GoContext): Promise<string | null> {
         hostname: os.hostname(),
         client: session.metadata.client,
         clientVersion: session.metadata.clientVersion,
+        sessionSnapshot: JSON.stringify(buildMobileSessionSnapshot(session)),
       },
     });
 
-    if (ctx.enqueueInstruction) {
+    if (mode === 'steer' && ctx.enqueueInstruction) {
       startMobileRelay({
         client,
         token,
         deviceId,
+        sessionId: session.metadata.sessionId,
+        pairingId: pairing.id,
+        mode,
         pollIntervalMs: pairing.pollIntervalMs,
         enqueueInstruction: ctx.enqueueInstruction,
       });
@@ -139,7 +200,8 @@ export async function go(ctx: GoContext): Promise<string | null> {
       `${chalk.gray('Simulator fallback:')} ${formatUrl(appUrl)}`,
       `${chalk.gray('Project:')} ${chalk.cyan(session.metadata.projectName)}`,
       `${chalk.gray('Session:')} ${chalk.cyan(session.metadata.sessionId)}`,
-      `${chalk.gray('Relay:')} ${ctx.enqueueInstruction ? chalk.green('listening for mobile prompts') : chalk.yellow('pairing only in this mode')}`,
+      `${chalk.gray('Mode:')} ${mode === 'steer' ? chalk.green('steer live') : chalk.yellow('queue')}`,
+      `${chalk.gray('Relay:')} ${mode === 'steer' ? chalk.green('listening for mobile prompts') : chalk.yellow('prompts will wait in the queue')}`,
       `${chalk.gray('Expires:')} ${chalk.cyan(formatExpiry(pairing.expiresAt))}`,
       '',
     ].join('\n');
