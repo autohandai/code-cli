@@ -190,6 +190,7 @@ program
   .option('-c, --auto-commit', 'Auto-commit with LLM-generated message (runs lint & test first)', false)
   .option('--unrestricted', 'Run without any approval prompts (use with caution)', false)
   .option('--restricted', 'Deny all dangerous operations automatically', false)
+  .option('--goal [input]', 'Run /goal non-interactively (status when omitted, otherwise same arguments as /goal)')
   .option('--auto-skill', 'Auto-generate skills based on project analysis', false)
   .option('--learn', 'Run /learn skill advisor non-interactively (analyze and install recommended skills)', false)
   .option('--learn-update', 'Re-analyze project and regenerate outdated LLM-generated skills', false)
@@ -243,6 +244,9 @@ program
     }
     if ((opts as Record<string, unknown>).autoMode === true) {
       opts.autoMode = undefined;
+    }
+    if ((opts as Record<string, unknown>).goal === true) {
+      opts.goal = '';
     }
 
     // Positional argument acts as prompt (e.g. autohand 'explain this')
@@ -415,6 +419,13 @@ program
     // Commander uses 'cc' for the flag name, we map it to 'contextCompact' for consistency
     if (opts.cc !== undefined) {
       opts.contextCompact = opts.cc;
+    }
+
+    if (opts.goal !== undefined) {
+      await runGoalFlag(opts);
+      if (!opts.prompt) {
+        return;
+      }
     }
 
 
@@ -1549,6 +1560,25 @@ async function runLearnNonInteractive(opts: CLIOptions, subcommand: 'recommend' 
   if (result) {
     console.log(result);
   }
+}
+
+async function runGoalFlag(opts: CLIOptions): Promise<void> {
+  const config = (opts as any)._authConfig ?? await loadConfig(opts.config, process.cwd());
+  const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
+  const workspacePathValidation = await validateWorkspacePath(workspaceRoot);
+  if (!workspacePathValidation.valid) {
+    console.error(chalk.red(`Error: ${workspacePathValidation.error}`));
+    process.exit(1);
+  }
+  const safetyCheck = checkWorkspaceSafety(workspaceRoot);
+  if (!safetyCheck.safe) {
+    printDangerousWorkspaceWarning(workspaceRoot, safetyCheck);
+    process.exit(1);
+  }
+
+  const { runGoalCli } = await import('./commands/goal.js');
+  const result = await runGoalCli(workspaceRoot, opts.goal ?? '');
+  console.log(result);
 }
 
 /**

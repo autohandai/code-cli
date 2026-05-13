@@ -524,6 +524,10 @@ export class SlashCommandHandler {
           }
           return features({ config: this.ctx.config, interactive: true }, args);
         }
+        case '/goal': {
+          const { goal } = await import('../commands/goal.js');
+          return goal(this.ctx, args);
+        }
         default:
           this.printUnsupported(command);
           return null;

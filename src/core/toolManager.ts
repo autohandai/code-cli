@@ -116,6 +116,111 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
+    name: 'get_goal',
+    description: 'Inspect the current persistent goal, queue, status, time and token budgets, and progress metadata. Use only for explicit goal-management requests.'
+  },
+  {
+    name: 'create_goal',
+    description: 'Create a persistent goal only when the user explicitly asks for durable goal tracking or long-running goal pursuit. Do not infer goals from ordinary tasks.',
+    parameters: {
+      type: 'object',
+      properties: {
+        objective: { type: 'string', description: 'Explicit user-requested goal objective' },
+        token_budget: { type: 'number', description: 'Optional positive token budget' },
+        time_budget_seconds: { type: 'number', description: 'Optional positive time budget in seconds' },
+        min_tokens_before_wrap_up: { type: 'number', description: 'Optional minimum tokens before normal completion is allowed' },
+        min_time_seconds_before_wrap_up: { type: 'number', description: 'Optional minimum time in seconds before normal completion is allowed' }
+      },
+      required: ['objective']
+    }
+  },
+  {
+    name: 'create_goal_from_template',
+    description: 'Resolve a reusable .pi-goals template and create the resulting persistent goal when the user explicitly requests a template/workflow goal.',
+    parameters: {
+      type: 'object',
+      properties: {
+        template: { type: 'string', description: 'Template name or alias' },
+        flags: { type: 'object', description: 'Template flag values' },
+        args: { type: 'string', description: 'Trailing template arguments' },
+        token_budget: { type: 'number', description: 'Optional positive token budget' },
+        time_budget_seconds: { type: 'number', description: 'Optional positive time budget in seconds' },
+        min_tokens_before_wrap_up: { type: 'number', description: 'Optional minimum tokens before normal completion is allowed' },
+        min_time_seconds_before_wrap_up: { type: 'number', description: 'Optional minimum time in seconds before normal completion is allowed' }
+      },
+      required: ['template']
+    }
+  },
+  {
+    name: 'update_goal',
+    description: 'Update the current goal when the user explicitly asks to edit, pause, resume, complete, or adjust budgets.',
+    parameters: {
+      type: 'object',
+      properties: {
+        objective: { type: 'string', description: 'Optional replacement objective' },
+        status: { type: 'string', description: 'Optional status', enum: ['active', 'paused', 'complete', 'budgetLimited'] },
+        token_budget: { type: 'number', description: 'Optional positive token budget; use clear_goal for removal requests' },
+        time_budget_seconds: { type: 'number', description: 'Optional positive time budget in seconds' },
+        min_tokens_before_wrap_up: { type: 'number', description: 'Optional token floor' },
+        min_time_seconds_before_wrap_up: { type: 'number', description: 'Optional time floor in seconds' }
+      }
+    }
+  },
+  {
+    name: 'clear_goal',
+    description: 'Clear the current persistent goal only when the user explicitly asks to clear, remove, delete, or dismiss it.'
+  },
+  {
+    name: 'list_goal_templates',
+    description: 'List reusable .pi-goals templates from bounded project template directories.'
+  },
+  {
+    name: 'enqueue_goal',
+    description: 'Add a persistent goal to the FIFO queue only when the user explicitly asks to queue later goal work.',
+    parameters: {
+      type: 'object',
+      properties: {
+        objective: { type: 'string', description: 'Goal objective to queue' },
+        token_budget: { type: 'number', description: 'Optional positive token budget' },
+        time_budget_seconds: { type: 'number', description: 'Optional positive time budget in seconds' },
+        min_tokens_before_wrap_up: { type: 'number', description: 'Optional token floor' },
+        min_time_seconds_before_wrap_up: { type: 'number', description: 'Optional time floor in seconds' }
+      },
+      required: ['objective']
+    }
+  },
+  {
+    name: 'list_goal_queue',
+    description: 'List queued goal objectives waiting to run after the active goal completes or clears.'
+  },
+  {
+    name: 'start_queued_goal',
+    description: 'Start the next queued direct goal after verifying no non-terminal goal is active. The queue item is removed only after goal creation succeeds.'
+  },
+  {
+    name: 'dequeue_goal',
+    description: 'Remove the first queued goal after it is truly satisfied or the user explicitly authorized removing it. Requires audit rationale and authority.',
+    parameters: {
+      type: 'object',
+      properties: {
+        rationale: { type: 'string', description: 'Why this queue head is being dequeued now' },
+        authority: { type: 'string', description: 'User authorization or completion evidence for dequeuing' }
+      },
+      required: ['rationale', 'authority']
+    }
+  },
+  {
+    name: 'remove_queued_goal',
+    description: 'Remove a specific queued goal by queue ID only when the user explicitly asks.',
+    parameters: {
+      type: 'object',
+      properties: {
+        queueId: { type: 'string', description: 'Queue ID to remove' }
+      },
+      required: ['queueId']
+    }
+  },
+  {
     name: 'ask_followup_question',
     description: 'Ask the user a follow-up question to gather clarification or preferences. Use when you need specific information to proceed. Include suggested answers when possible to guide the response. Only available in interactive and plan mode.',
     parameters: {

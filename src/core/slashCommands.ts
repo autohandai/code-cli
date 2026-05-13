@@ -57,6 +57,7 @@ import * as setupCmd from '../commands/setup.js';
 import * as yoloCmd from '../commands/yolo.js';
 import * as toolsCmd from '../commands/tools.js';
 import * as featuresCmd from '../commands/features.js';
+import * as goalCmd from '../commands/goal.js';
 
 import type { SlashCommand } from './slashCommandTypes.js';
 export type { SlashCommand } from './slashCommandTypes.js';
@@ -123,4 +124,5 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   yoloCmd.metadata,
   toolsCmd.metadata,
   featuresCmd.metadata,
+  goalCmd.metadata,
 ] as (SlashCommand | undefined)[]).filter((cmd): cmd is SlashCommand => cmd != null && typeof cmd.command === 'string');
