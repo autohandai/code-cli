@@ -1,0 +1,179 @@
+/**
+ * @license
+ * Copyright 2025 Autohand AI LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+import chalk from 'chalk';
+import { GoalManager } from '../goals/GoalManager.js';
+import type { SlashCommand, SlashCommandContext } from '../core/slashCommandTypes.js';
+import type { GoalMutationResult, GoalSnapshot } from '../goals/types.js';
+
+export const metadata: SlashCommand = {
+  command: '/goal',
+  description: 'Create, inspect, pause, resume, complete, clear, and queue persistent goals',
+  implemented: true,
+  subcommands: [
+    { name: 'queue', description: 'List queued goals or enqueue a goal' },
+    { name: 'pause', description: 'Pause the current goal' },
+    { name: 'resume', description: 'Resume a paused or queued goal' },
+    { name: 'complete', description: 'Mark the current goal complete' },
+    { name: 'clear', description: 'Clear the current goal' },
+    { name: 'templates', description: 'List reusable .pi-goals templates' },
+  ],
+};
+
+export async function goal(ctx: SlashCommandContext, args: string[] = []): Promise<string> {
+  const manager = new GoalManager(ctx.workspaceRoot);
+  const input = args.join(' ').trim();
+  if (!input) {
+    return formatSnapshot(await manager.getSnapshot());
+  }
+
+  const [subcommand, ...restArgs] = args;
+  const rest = restArgs.join(' ').trim();
+
+  switch (subcommand?.toLowerCase()) {
+    case 'queue':
+      return handleQueue(manager, rest);
+    case 'pause':
+      return formatMutation(await manager.updateGoal({ status: 'paused' }));
+    case 'resume': {
+      const snapshot = await manager.getSnapshot();
+      if (!snapshot.goal && snapshot.queue.length > 0) {
+        const started = await manager.startQueuedGoal();
+        if (started.ok && started.goal) {
+          queueGoalContinuation(ctx, started.goal.objective);
+        }
+        return formatMutation(started);
+      }
+      const resumed = await manager.updateGoal({ status: 'active' });
+      if (resumed.ok && resumed.goal) {
+        queueGoalContinuation(ctx, resumed.goal.objective);
+      }
+      return formatMutation(resumed);
+    }
+    case 'complete':
+      return formatMutation(await manager.updateGoal({ status: 'complete' }));
+    case 'clear':
+      return formatMutation(await manager.clearGoal());
+    case 'templates': {
+      const templates = await manager.listTemplates();
+      if (templates.length === 0) return 'No goal templates found in .pi-goals/ or .ai/.pi-goals/.';
+      return [
+        `Goal templates (${templates.length}):`,
+        ...templates.map((template) => {
+          const aliases = template.aliases.length ? ` aliases: ${template.aliases.join(', ')}` : '';
+          return `- ${template.name}${aliases}${template.description ? ` - ${template.description}` : ''}`;
+        }),
+      ].join('\n');
+    }
+    default: {
+      const resolved = await manager.resolveObjective(input);
+      if (!resolved.ok) return chalk.yellow(resolved.message);
+      const created = await manager.createGoal(resolved.input, { replace: false });
+      if (created.ok && created.goal) {
+        queueGoalContinuation(ctx, created.goal.objective);
+      }
+      return formatMutation(created);
+    }
+  }
+}
+
+export async function runGoalCli(workspaceRoot: string, rawInput?: string): Promise<string> {
+  const manager = new GoalManager(workspaceRoot);
+  const input = rawInput?.trim() ?? '';
+  if (!input) return formatSnapshot(await manager.getSnapshot());
+
+  const args = input.match(/"[^"]*"|'[^']*'|\S+/g)?.map(unquote) ?? [];
+  return goal({ workspaceRoot } as SlashCommandContext, args);
+}
+
+async function handleQueue(manager: GoalManager, rest: string): Promise<string> {
+  if (!rest) {
+    const snapshot = await manager.getSnapshot();
+    if (snapshot.queue.length === 0) return 'No queued goals.';
+    return formatQueue(snapshot);
+  }
+  return formatMutation(await manager.enqueueGoalBlock(rest, 'command'));
+}
+
+function queueGoalContinuation(ctx: SlashCommandContext, objective: string): void {
+  ctx.queueInstruction?.([
+    `Active goal: ${objective}`,
+    'Continue working toward this persistent goal until it is complete, blocked, paused, cleared, or budget-limited.',
+    'Use get_goal or update_goal when you need to inspect or modify the goal state.',
+  ].join('\n'));
+}
+
+function formatMutation(result: GoalMutationResult): string {
+  const lines = [result.ok ? chalk.green(result.message ?? 'Goal updated.') : chalk.yellow(result.message ?? 'Goal command failed.')];
+  if (result.goal) {
+    lines.push('');
+    lines.push(formatGoal(result.goal));
+  }
+  if (result.queued?.length) {
+    lines.push('');
+    lines.push(`Queued ${result.queued.length} goal${result.queued.length === 1 ? '' : 's'}:`);
+    for (const item of result.queued) {
+      lines.push(`- [${item.queueId}] ${item.objective}`);
+    }
+  }
+  if (result.started) {
+    lines.push(`Started queue item: ${result.started.queueId}`);
+  }
+  if (result.queue.length > 0 && !result.queued?.length) {
+    lines.push('');
+    lines.push(formatQueue({ queue: result.queue }));
+  }
+  return lines.join('\n');
+}
+
+function formatSnapshot(snapshot: GoalSnapshot): string {
+  if (!snapshot.goal && snapshot.queue.length === 0) {
+    return [
+      'No goal is currently set.',
+      'Use /goal <objective> to create one, or /goal queue <objective> to queue later work.',
+    ].join('\n');
+  }
+  const parts: string[] = [];
+  if (snapshot.goal) parts.push(formatGoal(snapshot.goal));
+  else parts.push('No active goal.');
+  if (snapshot.queue.length > 0) {
+    parts.push('');
+    parts.push(formatQueue(snapshot));
+  }
+  return parts.join('\n');
+}
+
+function formatGoal(goalState: NonNullable<GoalSnapshot['goal']>): string {
+  const lines = [
+    `Goal: ${goalState.objective}`,
+    `Status: ${goalState.status}`,
+    `ID: ${goalState.goalId}`,
+    `Elapsed: ${formatDuration(goalState.timeUsedSeconds)}`,
+    `Tokens: ${goalState.tokensUsed}${goalState.tokenBudget ? ` / ${goalState.tokenBudget}` : ''}`,
+  ];
+  if (goalState.timeBudgetSeconds) lines.push(`Time budget: ${formatDuration(goalState.timeBudgetSeconds)}`);
+  if (goalState.minTokensBeforeWrapUp) lines.push(`Token floor: ${goalState.minTokensBeforeWrapUp}`);
+  if (goalState.minTimeSecondsBeforeWrapUp) lines.push(`Time floor: ${formatDuration(goalState.minTimeSecondsBeforeWrapUp)}`);
+  return lines.join('\n');
+}
+
+function formatQueue(snapshot: Pick<GoalSnapshot, 'queue'>): string {
+  if (snapshot.queue.length === 0) return 'No queued goals.';
+  return [
+    `Queued goals (${snapshot.queue.length}):`,
+    ...snapshot.queue.map((item, index) => `${index + 1}. [${item.queueId}] ${item.objective}`),
+  ].join('\n');
+}
+
+function formatDuration(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(whole / 60);
+  const secs = whole % 60;
+  return minutes > 0 ? `${minutes}m ${secs}s` : `${secs}s`;
+}
+
+function unquote(value: string): string {
+  return value.replace(/^['"]|['"]$/g, '');
+}

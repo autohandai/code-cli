@@ -14,6 +14,7 @@ import type { PermissionManager } from '../../permissions/PermissionManager.js';
 import type { AgentOutputEvent, AgentRuntime, TurnUsage } from '../../types.js';
 import type { Intent, IntentResult } from '../IntentDetector.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
+import { GoalManager } from '../../goals/GoalManager.js';
 
 interface InstructionConversation {
   addMessage(message: { role: 'user'; content: string }): void;
@@ -428,6 +429,15 @@ export class InstructionRunner {
       }
       host.lastTurnActualUsage = completedTurnUsage;
       host.sessionTokensUsed = host.sessionActualTokensUsed;
+
+      try {
+        const turnTokens = isActualTurnUsage(completedTurnUsage) && !host.currentTurnHadUnavailableUsage
+          ? completedTurnUsage.totalTokens
+          : 0;
+        await new GoalManager(host.runtime.workspaceRoot).recordTurnUsage({ tokensUsed: turnTokens });
+      } catch {
+        // Goal accounting is best-effort and must never mask the turn result.
+      }
 
       host.taskStartedAt = null;
       host.isInstructionActive = false;

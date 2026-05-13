@@ -151,6 +151,13 @@ export const RPC_METHODS = {
   SET_CONTEXT_COMPACT: 'autohand.setContextCompact',
   // Setup wizard
   SETUP: 'autohand.setup',
+  GOAL_GET: 'autohand.goal.get',
+  GOAL_CREATE: 'autohand.goal.create',
+  GOAL_UPDATE: 'autohand.goal.update',
+  GOAL_CLEAR: 'autohand.goal.clear',
+  GOAL_QUEUE: 'autohand.goal.queue',
+  GOAL_START_QUEUED: 'autohand.goal.startQueued',
+  GOAL_LIST_TEMPLATES: 'autohand.goal.listTemplates',
 } as const;
 
 export type RpcMethod = (typeof RPC_METHODS)[keyof typeof RPC_METHODS];

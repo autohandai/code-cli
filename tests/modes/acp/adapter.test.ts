@@ -437,7 +437,7 @@ describe("AutohandAcpAdapter", () => {
         name: string;
         description: string;
       }>;
-      expect(commands).toHaveLength(35);
+      expect(commands).toHaveLength(36);
 
       const cmdNames = commands.map((c) => c.name);
       expect(cmdNames).toContain("help");
@@ -447,6 +447,7 @@ describe("AutohandAcpAdapter", () => {
       expect(cmdNames).toContain("login");
       expect(cmdNames).toContain("logout");
       expect(cmdNames).toContain("learn");
+      expect(cmdNames).toContain("goal");
     });
 
     it("initializes agent for RPC mode", async () => {

@@ -813,6 +813,53 @@ async function handleSingleRequest(
         break;
       }
 
+      case RPC_METHODS.GOAL_GET: {
+        result = await adapter.handleGoalGet();
+        break;
+      }
+
+      case RPC_METHODS.GOAL_CREATE: {
+        const goalParams = params as { objective?: string } | undefined;
+        if (!goalParams?.objective) {
+          if (shouldRespond) {
+            return createErrorResponse(id!, JSON_RPC_ERROR_CODES.INVALID_PARAMS, 'Missing required parameter: objective');
+          }
+          return null;
+        }
+        result = await adapter.handleGoalCreate(goalParams as any);
+        break;
+      }
+
+      case RPC_METHODS.GOAL_UPDATE: {
+        result = await adapter.handleGoalUpdate((params ?? {}) as any);
+        break;
+      }
+
+      case RPC_METHODS.GOAL_CLEAR: {
+        result = await adapter.handleGoalClear();
+        break;
+      }
+
+      case RPC_METHODS.GOAL_QUEUE: {
+        const queueParams = params as { objective?: string } | undefined;
+        if (!queueParams?.objective) {
+          result = await adapter.handleGoalGet();
+        } else {
+          result = await adapter.handleGoalQueue(queueParams as any);
+        }
+        break;
+      }
+
+      case RPC_METHODS.GOAL_START_QUEUED: {
+        result = await adapter.handleGoalStartQueued();
+        break;
+      }
+
+      case RPC_METHODS.GOAL_LIST_TEMPLATES: {
+        result = await adapter.handleGoalListTemplates();
+        break;
+      }
+
       case RPC_METHODS.SET_CONTEXT_COMPACT: {
         const compactParams = params as { enabled?: boolean } | undefined;
         if (compactParams?.enabled === undefined) {
