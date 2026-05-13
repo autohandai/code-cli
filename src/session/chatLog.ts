@@ -6,7 +6,7 @@
 import type { SessionMessage } from './types.js';
 
 export interface ChatLogMessage {
-  role: 'user' | 'assistant' | 'tool' | 'completion' | 'notification';
+  role: 'user' | 'assistant' | 'tool' | 'tool_call' | 'completion' | 'notification';
   content: string;
   tool?: string;
   success?: boolean;

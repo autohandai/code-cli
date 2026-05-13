@@ -60,6 +60,29 @@ describe('InkRenderer live command blocks', () => {
     ]);
   });
 
+  it('records tool-call starts in chat history before completed output', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+
+    renderer.addUserMessage('inspect the entrypoint');
+    renderer.addToolCall('read_file', 'src/index.ts');
+    renderer.addToolOutput('read_file', true, 'export async function main() {}');
+
+    expect(renderer.getState().chatMessages).toEqual([
+      { role: 'user', content: 'inspect the entrypoint' },
+      { role: 'tool_call', tool: 'read_file', content: 'src/index.ts' },
+      {
+        role: 'tool',
+        tool: 'read_file',
+        success: true,
+        content: 'export async function main() {}',
+      },
+    ]);
+  });
+
   it('does not move the previous assistant answer after an immediately echoed next prompt', () => {
     const renderer = new InkRenderer({
       onInstruction: () => {},

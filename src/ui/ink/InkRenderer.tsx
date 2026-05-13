@@ -476,6 +476,15 @@ export class InkRenderer {
     });
   }
 
+  addToolCall(tool: string, detail: string): void {
+    this.updateState({
+      chatMessages: [
+        ...this.state.chatMessages,
+        { role: 'tool_call', tool, content: detail.trim() },
+      ],
+    });
+  }
+
   /**
    * Add a tool output entry
    */

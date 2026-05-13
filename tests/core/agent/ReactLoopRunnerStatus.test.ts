@@ -34,6 +34,73 @@ describe('ReactLoopRunner composer status', () => {
     expect(shouldDisplayToolOutput({ ui: { silentToolOutput: true } } as any)).toBe(false);
   });
 
+  it('logs parsed tool calls to Ink by default before completed tool output', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const parser = new ReactionParser();
+    const addToolCall = vi.fn();
+    const addToolOutput = vi.fn();
+    const llmComplete = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: 'tool-call',
+        created: 1,
+        content: JSON.stringify({
+          thought: 'I need to inspect the entrypoint before answering.',
+          toolCalls: [
+            {
+              tool: 'read_file',
+              args: { path: 'src/index.ts' },
+            },
+          ],
+        }),
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'answer',
+        created: 2,
+        content: '{"finalResponse":"The entrypoint is src/index.ts."}',
+        raw: {},
+      });
+
+    const host = createReactLoopTestHost(llmComplete, parser);
+    host.runtime.config.ui = { showThinking: true, silentToolOutput: false };
+    host.inkRenderer = {
+      setStatus: vi.fn(),
+      addToolCall,
+      addToolOutputBatch: vi.fn(),
+      addToolOutput,
+      setThinking: vi.fn(),
+      setElapsed: vi.fn(),
+      setTokens: vi.fn(),
+      setWorking: vi.fn(),
+      setFinalResponse: vi.fn(),
+    };
+    host.toolManager.execute = vi.fn(async (_calls, onResult) => {
+      const result = {
+        tool: 'read_file' as const,
+        success: true,
+        output: 'console.log("hello");',
+      };
+      onResult(0, result);
+      return [result];
+    });
+
+    try {
+      await runAgentReactLoop(host, new AbortController());
+
+      expect(addToolCall).toHaveBeenCalledWith('read_file', 'src/index.ts');
+      expect(addToolCall.mock.invocationCallOrder[0]).toBeLessThan(addToolOutput.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER);
+      expect(addToolOutput).toHaveBeenCalledWith(
+        'read_file',
+        true,
+        expect.stringContaining('src/index.ts'),
+        'I need to inspect the entrypoint before answering.',
+      );
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it('does not interpolate model thought text into Ink status updates', () => {
     const source = readFileSync('src/core/agent/ReactLoopRunner.ts', 'utf-8');
 

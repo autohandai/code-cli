@@ -14,6 +14,7 @@ interface InkRendererInterface {
   setStatus(status: string): void;
   setElapsed(elapsed: string): void;
   setTokens(tokens: string): void;
+  addToolCall(tool: string, detail: string): void;
   addToolOutput(tool: string, success: boolean, output: string): void;
   addToolOutputs(outputs: Array<{ tool: string; success: boolean; output: string }>): void;
   clearToolOutputs(): void;
