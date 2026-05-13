@@ -97,6 +97,18 @@ describe('ResponseCompletionClassifier', () => {
     'I can now answer: the branch is read from .git/HEAD first.',
     'Here is the summary:\n- TypeScript CLI\n- Ink UI\n- Vitest tests',
     'This repo is a TypeScript CLI built with React and Ink.',
+    [
+      'Let me provide the tool list available to you:',
+      '- read_file: inspect files',
+      '- apply_patch: edit files',
+      '- shell: run commands',
+    ].join('\n'),
+    [
+      "I'll provide the tools I have for you:",
+      '- git_status and git_diff for repository state',
+      '- fff_grep and read_file for source inspection',
+      '- apply_patch for focused edits',
+    ].join('\n'),
   ])('classifies real final answers as final_answer', (response) => {
     const result = classifyResponseCompletion({ response });
 

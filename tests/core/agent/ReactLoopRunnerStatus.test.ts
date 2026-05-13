@@ -522,6 +522,43 @@ describe('ReactLoopRunner composer status', () => {
     }
   });
 
+  it('shows tool-list answers instead of the premature-stop fallback', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const parser = new ReactionParser();
+    const emitOutput = vi.fn();
+    const toolListAnswer = [
+      "I'll provide the tools I have for you:",
+      '- read_file and fff_grep for source inspection',
+      '- apply_patch for focused edits',
+      '- shell for validation commands',
+    ].join('\n');
+    const llmComplete = vi.fn().mockResolvedValueOnce({
+      id: 'tool-list-answer',
+      created: 1,
+      content: toolListAnswer,
+      raw: {},
+    });
+
+    const host = createReactLoopTestHost(llmComplete, parser);
+    host.emitOutput = emitOutput;
+
+    try {
+      await runAgentReactLoop(host, new AbortController());
+
+      expect(llmComplete).toHaveBeenCalledTimes(1);
+      expect(emitOutput).toHaveBeenCalledWith({
+        type: 'message',
+        content: toolListAnswer,
+      });
+      expect(emitOutput).not.toHaveBeenCalledWith({
+        type: 'message',
+        content: 'The model stopped before providing a usable answer. Please retry the request.',
+      });
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it('uses host completion hooks before ending a no-tool turn', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const parser = new ReactionParser();
