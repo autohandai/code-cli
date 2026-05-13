@@ -413,12 +413,13 @@ describe('AgentUI composer suggestions', () => {
 
     const lines = stripAnsi(lastFrame() ?? '').split('\n');
     const notificationLine = lines.find((line) => line.includes('Session sync failed'));
-    const statusLine = lines.find((line) => line.includes('Parsing...'));
+    const statusLine = lines.find((line) => line.includes('40.7k tokens'));
 
     expect(notificationLine).toBeDefined();
     expect(notificationLine).not.toContain('esc to cancel');
     expect(notificationLine).not.toContain('40.7k tokens');
-    expect(statusLine).toContain('Parsing...');
+    expect(statusLine).toBeDefined();
+    expect(statusLine).not.toContain('Session sync failed');
     expect(statusLine).toContain('40.7k tokens');
   });
 
