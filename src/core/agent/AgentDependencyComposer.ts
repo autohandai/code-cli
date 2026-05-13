@@ -1167,6 +1167,14 @@ export function initializeAgentDependencies(
       queueInstruction: (instruction: string) => {
         host.pendingInkInstructions.push(instruction);
       },
+      // Queue a remote instruction as if the user typed it into the interactive composer.
+      enqueueInstruction: (instruction: string) => {
+        if (host.inkRenderer) {
+          host.inkRenderer.addQueuedInstruction(instruction);
+        } else {
+          host.pendingInkInstructions.push(instruction);
+        }
+      },
       // Set/clear YOLO mode for /yolo and /no-yolo commands
       setYoloMode: (pattern: string | undefined) => {
         host.runtime.options.yolo = pattern;

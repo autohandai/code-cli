@@ -63,6 +63,11 @@ describe('slash command dispatch – output vs instruction', () => {
     expect(commands).toContain('/tools');
   });
 
+  it('/go is registered in SLASH_COMMANDS', () => {
+    const commands = SLASH_COMMANDS.map(c => c.command);
+    expect(commands).toContain('/go');
+  });
+
   it('all SLASH_COMMANDS entries have required fields', () => {
     for (const cmd of SLASH_COMMANDS) {
       expect(cmd.command).toBeTruthy();
@@ -83,6 +88,16 @@ describe('slash command dispatch – output vs instruction', () => {
     expect(result).toEqual(expect.any(String));
     expect(result).not.toBeNull();
     expect(result).toContain('MCP');
+  });
+
+  it('/go returns display output instead of an LLM instruction', async () => {
+    const ctx = createMinimalContext();
+    const handler = new SlashCommandHandler(ctx, SLASH_COMMANDS);
+
+    const result = await handler.handle('/go');
+
+    expect(result).toEqual(expect.any(String));
+    expect(result).toContain('/login');
   });
 
   // ── Core contract: promptForInstruction should print string results ───
