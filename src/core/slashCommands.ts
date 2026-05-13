@@ -36,6 +36,7 @@ import * as learn from '../commands/learn.js';
 import * as theme from '../commands/theme.js';
 import * as automode from '../commands/automode.js';
 import * as share from '../commands/share.js';
+import * as goCmd from '../commands/go.js';
 import * as sync from '../commands/sync.js';
 import * as addDir from '../commands/add-dir.js';
 import * as language from '../commands/language.js';
@@ -100,6 +101,7 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   theme.metadata,
   automode.metadata,
   share.metadata,
+  goCmd.metadata,
   sync.metadata,
   addDir.metadata,
   language.metadata,
