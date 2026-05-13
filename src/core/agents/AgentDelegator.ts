@@ -9,7 +9,7 @@ import { AgentRegistry } from './AgentRegistry.js';
 import { SubAgent, type SubAgentOptions } from './SubAgent.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
 import { ActionExecutor } from '../actionExecutor.js';
-import type { ClientContext } from '../../types.js';
+import type { ClientContext, LoadedConfig } from '../../types.js';
 
 /** Default maximum delegation depth to prevent infinite loops */
 const DEFAULT_MAX_DEPTH = 3;
@@ -39,6 +39,8 @@ export interface DelegatorOptions {
     maxDepth?: number;
     /** Callback fired when a subagent completes */
     onSubagentStop?: (context: SubagentStopContext) => Promise<void>;
+    /** Active CLI config for feature-gated tools inherited by sub-agents. */
+    featureConfig?: LoadedConfig;
 }
 
 export class AgentDelegator {
@@ -47,6 +49,7 @@ export class AgentDelegator {
     private readonly currentDepth: number;
     private readonly maxDepth: number;
     private readonly onSubagentStop?: (context: SubagentStopContext) => Promise<void>;
+    private readonly featureConfig?: LoadedConfig;
     private subagentCounter = 0;
 
     constructor(
@@ -59,6 +62,7 @@ export class AgentDelegator {
         this.currentDepth = options.currentDepth ?? 0;
         this.maxDepth = options.maxDepth ?? DEFAULT_MAX_DEPTH;
         this.onSubagentStop = options.onSubagentStop;
+        this.featureConfig = options.featureConfig;
     }
 
     private generateSubagentId(): string {
@@ -82,7 +86,8 @@ export class AgentDelegator {
         const subAgentOptions: SubAgentOptions = {
             clientContext: this.clientContext,
             depth: this.currentDepth + 1,
-            maxDepth: this.maxDepth
+            maxDepth: this.maxDepth,
+            featureConfig: this.featureConfig,
         };
 
         const subagentId = this.generateSubagentId();
@@ -139,7 +144,8 @@ export class AgentDelegator {
         const subAgentOptions: SubAgentOptions = {
             clientContext: this.clientContext,
             depth: this.currentDepth + 1,
-            maxDepth: this.maxDepth
+            maxDepth: this.maxDepth,
+            featureConfig: this.featureConfig,
         };
 
         const promises = tasks.map(async ({ agent_name, task }) => {

@@ -517,12 +517,16 @@ export class SlashCommandHandler {
           if (opensModal) {
             await this.ctx.onBeforeModal?.();
             try {
-              return await features({ config: this.ctx.config, interactive: true }, args);
+              const result = await features({ config: this.ctx.config, interactive: true }, args);
+              this.ctx.refreshFeatureGatedTools?.();
+              return result;
             } finally {
               await this.ctx.onAfterModal?.();
             }
           }
-          return features({ config: this.ctx.config, interactive: true }, args);
+          const result = await features({ config: this.ctx.config, interactive: true }, args);
+          this.ctx.refreshFeatureGatedTools?.();
+          return result;
         }
         case '/goal': {
           const { goal } = await import('../commands/goal.js');

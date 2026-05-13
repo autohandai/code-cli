@@ -77,4 +77,22 @@ describe('SystemPromptBuilder', () => {
     expect(prompt).not.toContain('"toolCalls": [{"tool": "tool_name", "args": {...}}]');
     expect(prompt).not.toContain('PUT THE TOOL CALL IN toolCalls');
   });
+
+  it('only includes persistent goal guidance when slash_goal is enabled', async () => {
+    const disabledPrompt = await createBuilder().build();
+    const enabledPrompt = await createBuilder({
+      runtime: {
+        options: {},
+        workspaceRoot: process.cwd(),
+        config: {
+          configPath: '/tmp/autohand-config.json',
+          features: { slashGoal: true },
+        },
+      },
+    }).build();
+
+    expect(disabledPrompt).not.toContain('### Persistent Goals');
+    expect(enabledPrompt).toContain('### Persistent Goals');
+    expect(enabledPrompt).toContain('create_goal');
+  });
 });

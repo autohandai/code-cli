@@ -17,7 +17,7 @@ import { GitIgnoreParser } from '../../utils/gitIgnore.js';
 import { createToolFilter } from '../toolFilter.js';
 import { ConversationManager } from '../conversationManager.js';
 import { ContextOrchestrator } from '../context/orchestrator.js';
-import { ToolManager, DEFAULT_TOOL_DEFINITIONS, type ToolDefinition } from '../toolManager.js';
+import { ToolManager, DEFAULT_TOOL_DEFINITIONS, GOAL_TOOL_DEFINITIONS, type ToolDefinition } from '../toolManager.js';
 import { ActionExecutor } from '../actionExecutor.js';
 import { SlashCommandHandler } from '../slashCommandHandler.js';
 import { routeOutput } from '../immediateCommandRouter.js';
@@ -63,6 +63,7 @@ import { MentionResolver } from './MentionResolver.js';
 import { AutoReportManager } from '../../reporting/AutoReportManager.js';
 import { RemoteFeatureFlagManager } from '../../features/RemoteFeatureFlagManager.js';
 import { getFeatureState } from '../../features/featureRegistry.js';
+import { isGoalFeatureEnabled } from '../../goals/feature.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { SuggestionEngine } from '../SuggestionEngine.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
@@ -114,6 +115,9 @@ export function initializeAgentDependencies(
       getParallelismLimit: () => host.getParallelismLimit(),
     });
     host.simpleChatHandler = new SimpleChatHandler(host as unknown as SimpleChatAgent);
+    const featureGatedToolDefinitions = isGoalFeatureEnabled(runtime.config)
+      ? [...DEFAULT_TOOL_DEFINITIONS, ...GOAL_TOOL_DEFINITIONS]
+      : DEFAULT_TOOL_DEFINITIONS;
 
     // Initialize suggestion engine if enabled in config.
     // Derive allowed tools from the user's permission config so suggestions
@@ -126,7 +130,7 @@ export function initializeAgentDependencies(
       const fullyBlockedTools = new Set(
         blacklist.filter(e => !e.includes(':')).map(e => e.trim())
       );
-      const toolNames = DEFAULT_TOOL_DEFINITIONS
+      const toolNames = featureGatedToolDefinitions
         .map(t => t.name)
         .filter(name => toolFilter.isAllowed(name) && !fullyBlockedTools.has(name));
       host.suggestionEngine = new SuggestionEngine(host.llm, {
@@ -330,6 +334,7 @@ export function initializeAgentDependencies(
     host.delegator = new AgentDelegator(llm, host.actionExecutor, {
       clientContext: delegatorContext,
       maxDepth: 3,
+      featureConfig: runtime.config,
       onSubagentStop: async (context) => {
         await host.hookManager.executeHooks('subagent-stop', {
           subagentId: context.subagentId,
@@ -927,7 +932,7 @@ export function initializeAgentDependencies(
         }
       },
       confirmApproval: (message, context) => host.confirmDangerousAction(message, context),
-      definitions: [...DEFAULT_TOOL_DEFINITIONS, ...delegationTools],
+      definitions: [...featureGatedToolDefinitions, ...delegationTools],
       clientContext,
       customPolicy
     });
@@ -1094,6 +1099,16 @@ export function initializeAgentDependencies(
       },
       trackFeatureActivation: (key: string, metadata?: Record<string, unknown>) => {
         void host.featureFlagManager?.trackFeatureActivation?.(key, metadata);
+      },
+      refreshFeatureGatedTools: () => {
+        const enabled = isGoalFeatureEnabled(runtime.config);
+        for (const definition of GOAL_TOOL_DEFINITIONS) {
+          if (enabled) {
+            host.toolManager.register(definition);
+          } else {
+            host.toolManager.unregister(definition.name);
+          }
+        }
       },
       isInteractiveAutomodeEnabled: () => host.interactiveAutomodeEnabled,
       setInteractiveAutomodeEnabled: (enabled: boolean) => host.setInteractiveAutomodeEnabled(enabled),

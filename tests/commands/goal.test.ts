@@ -20,6 +20,10 @@ describe('/goal command', () => {
     queued = [];
     ctx = {
       workspaceRoot,
+      config: {
+        configPath: path.join(workspaceRoot, 'config.json'),
+        features: { slashGoal: true },
+      },
       queueInstruction: (instruction) => queued.push(instruction),
     } as SlashCommandContext;
   });
@@ -41,6 +45,21 @@ describe('/goal command', () => {
     expect(result).toContain('Goal created');
     expect(result).toContain('finish release prep');
     expect(queued[0]).toContain('Active goal');
+  });
+
+  it('stays behind slash_goal when the feature is disabled', async () => {
+    const disabledCtx = {
+      ...ctx,
+      config: {
+        configPath: path.join(workspaceRoot, 'config.json'),
+      },
+      isFeatureEnabled: () => false,
+    } as SlashCommandContext;
+
+    const result = await goal(disabledCtx, ['finish release prep']);
+
+    expect(result).toContain('slash_goal');
+    expect(queued).toEqual([]);
   });
 
   it('lists an empty queue', async () => {

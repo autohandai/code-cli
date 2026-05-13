@@ -11,6 +11,7 @@ import type { AgentRuntime } from '../../types.js';
 import type { ToolDefinition } from '../toolManager.js';
 import { formatToolCapabilityCatalog } from '../toolFilter.js';
 import { configureAgentRegistry } from './dynamicRuntimeExtensions.js';
+import { isGoalFeatureEnabled } from '../../goals/feature.js';
 
 interface PromptSkillSummary {
   name: string;
@@ -62,6 +63,16 @@ export class SystemPromptBuilder {
     const toolDefs = this.options.getToolDefinitions();
     const toolCatalog = formatToolCapabilityCatalog(toolDefs);
     const supportsNativeToolCalling = this.options.supportsNativeToolCalling === true;
+    const goalPromptSection = isGoalFeatureEnabled(runtime.config)
+      ? [
+        '### Persistent Goals',
+        'The user can explicitly create durable goals with `/goal`, `--goal`, RPC/ACP slash commands, or natural-language requests such as "set a goal" or "queue this goal".',
+        'Use `create_goal`, `update_goal`, `clear_goal`, and goal queue tools only when the user explicitly asks for persistent goal management. Do not infer goals from ordinary tasks.',
+        'When working under an active goal, use `get_goal` if you need to inspect objective, queue, status, budgets, floors, or elapsed metadata. Mark a goal complete only after the objective is genuinely satisfied.',
+        'Before starting queued prose that looks like a reusable workflow, call `list_goal_templates`; use `create_goal_from_template` only when exactly one template fits and required values are available. Never discard queued work unless it is satisfied or explicitly removed.',
+        '',
+      ]
+      : [];
 
     const [memories, instructions] = await Promise.all([
       this.options.getContextMemories(),
@@ -186,12 +197,7 @@ export class SystemPromptBuilder {
       'If you need a reusable capability, define it as a `custom_command` (with name, command, args, description) before invoking it.',
       'Do not override existing tool functionality when adding meta tools.',
       '',
-      '### Persistent Goals',
-      'The user can explicitly create durable goals with `/goal`, `--goal`, RPC/ACP slash commands, or natural-language requests such as "set a goal" or "queue this goal".',
-      'Use `create_goal`, `update_goal`, `clear_goal`, and goal queue tools only when the user explicitly asks for persistent goal management. Do not infer goals from ordinary tasks.',
-      'When working under an active goal, use `get_goal` if you need to inspect objective, queue, status, budgets, floors, or elapsed metadata. Mark a goal complete only after the objective is genuinely satisfied.',
-      'Before starting queued prose that looks like a reusable workflow, call `list_goal_templates`; use `create_goal_from_template` only when exactly one template fits and required values are available. Never discard queued work unless it is satisfied or explicitly removed.',
-      '',
+      ...goalPromptSection,
       '### Response Format',
       ...this.buildToolResponseFormatSection(supportsNativeToolCalling),
       '### Tool Failure Handling',

@@ -87,6 +87,7 @@ import { getPlanModeManager } from '../commands/plan.js';
 import { randomUUID } from 'node:crypto';
 import { GoalManager } from '../goals/GoalManager.js';
 import type { GoalStatus } from '../goals/types.js';
+import { GOAL_FEATURE_DISABLED_MESSAGE, isGoalFeatureEnabled } from '../goals/feature.js';
 
 /** Response from permission-request hook */
 export interface PermissionHookResponse {
@@ -143,6 +144,19 @@ export interface ActionExecutorOptions {
 }
 
 type AgentExecutorDeps = ActionExecutorOptions;
+const GOAL_TOOL_TYPES = new Set<string>([
+  'get_goal',
+  'create_goal',
+  'create_goal_from_template',
+  'update_goal',
+  'clear_goal',
+  'list_goal_templates',
+  'enqueue_goal',
+  'list_goal_queue',
+  'start_queued_goal',
+  'dequeue_goal',
+  'remove_queued_goal',
+]);
 
 export class ActionExecutor {
   private readonly runtime: AgentExecutorDeps['runtime'];
@@ -281,6 +295,10 @@ export class ActionExecutor {
   }
 
   async execute(action: AgentAction, context?: ToolExecutionContext): Promise<string | undefined> {
+    if (GOAL_TOOL_TYPES.has(action.type) && !isGoalFeatureEnabled(this.runtime.config)) {
+      return GOAL_FEATURE_DISABLED_MESSAGE;
+    }
+
     if (this.runtime.options.dryRun && !['fff_grep', 'fff_find', 'find', 'search', 'search_with_context', 'semantic_search', 'glob', 'plan'].includes(action.type)) {
       return 'Dry-run mode: skipped mutation';
     }

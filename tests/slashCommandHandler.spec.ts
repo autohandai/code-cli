@@ -24,6 +24,7 @@ function createContext() {
     workspaceRoot: '/tmp/workspace',
     onBeforeModal: vi.fn(),
     onAfterModal: vi.fn(),
+    refreshFeatureGatedTools: vi.fn(),
     llm: {
       complete: vi.fn().mockResolvedValue({ id: 'test', created: Date.now(), content: '', raw: {} }),
       setDefaultModel: vi.fn()
@@ -116,6 +117,7 @@ describe('SlashCommandHandler', () => {
     expect(result).toBe('Enabled usage_v2.');
     expect(ctx.onBeforeModal).toHaveBeenCalledTimes(1);
     expect(ctx.onAfterModal).toHaveBeenCalledTimes(1);
+    expect(ctx.refreshFeatureGatedTools).toHaveBeenCalledTimes(1);
     expect(mockFeatures).toHaveBeenCalledWith(
       expect.objectContaining({
         config: ctx.config,
@@ -123,6 +125,22 @@ describe('SlashCommandHandler', () => {
       }),
       ['list'],
     );
+  });
+
+  it('refreshes feature-gated tools after non-modal /features toggles', async () => {
+    const ctx = createContext();
+    mockFeatures.mockResolvedValueOnce('Enabled slash_goal.');
+    const handler = new SlashCommandHandler(ctx as any, [
+      ...DEFAULT_COMMANDS,
+      { command: '/features', description: 'features', implemented: true },
+    ]);
+
+    const result = await handler.handle('/features', ['enable', 'slash_goal']);
+
+    expect(result).toBe('Enabled slash_goal.');
+    expect(ctx.refreshFeatureGatedTools).toHaveBeenCalledTimes(1);
+    expect(ctx.onBeforeModal).not.toHaveBeenCalled();
+    expect(ctx.onAfterModal).not.toHaveBeenCalled();
   });
 
   it('returns /about output instead of printing through the active composer', async () => {

@@ -30,6 +30,7 @@ describe('feature registry', () => {
     expect(ids).toContain('prompt_suggestions');
     expect(ids).toContain('request_queue');
     expect(ids).toContain('usage_v2');
+    expect(ids).toContain('slash_goal');
     expect(ids).toContain('chrome_integration');
   });
 
@@ -38,6 +39,7 @@ describe('feature registry', () => {
 
     expect(getFeatureState(config, 'mcp')?.enabled).toBe(true);
     expect(getFeatureState(config, 'chrome_integration')?.enabled).toBe(false);
+    expect(getFeatureState(config, 'slash_goal')?.enabled).toBe(false);
   });
 
   it('updates nested config paths without disturbing adjacent settings', () => {
@@ -120,6 +122,16 @@ describe('feature registry', () => {
       configPath: 'features.usageV2',
     }));
     expect(listFeatureStates(config, { remoteSnapshot }).filter((feature) => feature.id === 'usage_v2')).toHaveLength(1);
+  });
+
+  it('enables slash_goal through the local feature config path', () => {
+    const config = makeConfig();
+
+    const result = setFeatureState(config, 'slash_goal', true);
+
+    expect(result.ok).toBe(true);
+    expect(config.features?.slashGoal).toBe(true);
+    expect(getFeatureState(config, 'slash_goal')?.enabled).toBe(true);
   });
 
   it('does not let users force-enable a remotely disabled flag', () => {
