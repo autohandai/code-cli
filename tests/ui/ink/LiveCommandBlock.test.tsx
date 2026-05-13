@@ -120,6 +120,37 @@ describe('AgentUI live command block', () => {
     expect(output).toContain('\u001b[38;2;244;67;54m-const oldValue = true;');
   });
 
+  it('renders assistant diff fences as themed diff blocks without literal fences', () => {
+    const originalChalkLevel = chalk.level;
+    let output = '';
+
+    try {
+      chalk.level = 3;
+      const state = createInitialUIState();
+      state.chatMessages = [{
+        role: 'assistant',
+        content: [
+          'Changed lines:',
+          '',
+          '``` diff',
+          'tests/config/configParser.test.ts',
+          '-it("creates new JSON config with tool selection cache enabled by default", async () => {',
+          '+it("creates new JSON config with on-by-default runtime helpers", async () => {',
+          '```',
+        ].join('\n'),
+      }];
+
+      const { lastFrame } = renderAgentUI(state);
+      output = lastFrame() ?? '';
+    } finally {
+      chalk.level = originalChalkLevel;
+    }
+
+    expect(stripAnsi(output)).not.toContain('```');
+    expect(output).toContain('\u001b[38;2;76;175;80m+it("creates new JSON config with on-by-default runtime helpers"');
+    expect(output).toContain('\u001b[38;2;244;67;54m-it("creates new JSON config with tool selection cache enabled by default"');
+  });
+
   it('renders batched git diff details with theme diff colors', () => {
     const originalChalkLevel = chalk.level;
     let output = '';
