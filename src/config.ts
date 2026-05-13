@@ -408,6 +408,7 @@ export async function loadConfig(customPath?: string, workspaceRoot?: string): P
       ui: {
         theme: "dark",
         autoConfirm: false,
+        silentToolOutput: false,
         promptSuggestions: true,
       },
       telemetry: {
@@ -627,6 +628,7 @@ function normalizeConfig(
       ui: {
         autoConfirm: config.dry_run ?? false,
         theme: "dark",
+        silentToolOutput: false,
         promptSuggestions: true,
       },
     };

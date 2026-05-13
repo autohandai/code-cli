@@ -174,6 +174,8 @@ export interface UISettings {
   autoConfirm?: boolean;
   /** Max characters to display from read/find tool output (full content still sent to the model) */
   readFileCharLimit?: number;
+  /** Hide tool output blocks from terminal display while preserving transcript/model context (default: false) */
+  silentToolOutput?: boolean;
   /** Show notification when work is completed (default: true) */
   showCompletionNotification?: boolean;
   /** Show LLM thinking/reasoning process (default: true) */

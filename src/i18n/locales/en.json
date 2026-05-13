@@ -200,6 +200,8 @@
         "locale": "Language",
         "autoConfirm": "Auto-confirm actions",
         "autoConfirmDesc": "Skip confirmation prompts for tool actions",
+        "silentToolOutput": "Silent tool output",
+        "silentToolOutputDesc": "Hide tool output blocks in the terminal while preserving model context",
         "showThinking": "Show LLM thinking",
         "showThinkingDesc": "Display the model reasoning process",
         "terminalBell": "Terminal bell",
