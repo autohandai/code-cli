@@ -217,6 +217,17 @@ export class SlashCommandHandler {
           });
           return null;
         }
+        case '/go': {
+          const { go } = await import('../commands/go.js');
+          return go({
+            sessionManager: this.ctx.sessionManager,
+            currentSession: this.ctx.currentSession,
+            workspaceRoot: this.ctx.workspaceRoot,
+            model: this.ctx.model,
+            provider: this.ctx.provider,
+            config: this.ctx.config,
+          });
+        }
         case '/chrome': {
           const { chrome } = await import('../commands/chrome.js');
           return chrome(this.ctx, args);
