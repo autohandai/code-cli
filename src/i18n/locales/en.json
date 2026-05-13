@@ -212,6 +212,8 @@
         "showCompletionNotificationDesc": "Show OS notification when work completes",
         "promptSuggestions": "Prompt suggestions",
         "promptSuggestionsDesc": "Show LLM-generated next-step suggestions",
+        "activityVerbsEnabled": "Activity verbs",
+        "activityVerbsEnabledDesc": "Show rotating activity verbs while the agent is working",
         "activitySymbol": "Activity symbol",
         "activitySymbolDesc": "Symbol shown before activity verb",
         "updateCheckInterval": "Update check interval (hours)",

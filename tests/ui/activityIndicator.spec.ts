@@ -52,6 +52,17 @@ describe('ActivityIndicator', () => {
     expect(custom.getVerb()).toBe('Building');
   });
 
+  it('uses a neutral fixed verb when activity verbs are disabled', () => {
+    const custom = new ActivityIndicator({
+      activityVerbs: ['Gandalfing'],
+      activityVerbsEnabled: false,
+    });
+
+    expect(custom.getVerb()).toBe('Working');
+    expect(stripAnsi(custom.next())).toContain('Working...');
+    expect(stripAnsi(custom.next())).not.toContain('Gandalfing...');
+  });
+
   it('getTip returns just the tip string', () => {
     const tip = indicator.getTip();
     expect(tip).toBeTruthy();
