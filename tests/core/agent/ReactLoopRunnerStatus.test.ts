@@ -41,6 +41,15 @@ describe('ReactLoopRunner composer status', () => {
     expect(source).not.toContain('Calling: ${toolNames}');
   });
 
+  it('does not replace Ink activity verbs with tool lifecycle text', () => {
+    const source = readFileSync('src/core/agent/ReactLoopRunner.ts', 'utf-8');
+
+    expect(source).not.toContain('host.inkRenderer.setStatus(formatComposerToolCallStatus');
+    expect(source).not.toContain("host.inkRenderer.setStatus('Running tool...')");
+    expect(source).not.toContain("host.inkRenderer.setStatus('Responding...')");
+    expect(source).not.toContain("host.inkRenderer.setStatus('Thinking...')");
+  });
+
   it('detects meta final responses that promise an answer instead of answering', () => {
     expect(
       isDeferredFinalResponse(

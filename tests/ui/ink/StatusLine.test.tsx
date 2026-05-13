@@ -34,7 +34,7 @@ describe('StatusLine extensions', () => {
     expect(source).toContain('theme.fg(getSegmentToken(segment.color), segment.text)');
   });
 
-  it('keeps volatile activity text out of the active status line', () => {
+  it('keeps the rotating activity verb in the active status line', () => {
     const { lastFrame } = renderStatusLine({
       isWorking: true,
       status: 'Compiling...',
@@ -43,7 +43,7 @@ describe('StatusLine extensions', () => {
     });
 
     const frame = lastFrame() ?? '';
-    expect(frame).not.toContain('Compiling...');
+    expect(frame).toContain('Compiling...');
     expect(frame).toContain('5s');
     expect(frame).toContain('120 tokens');
     expect(frame).toContain('esc to cancel');
@@ -61,7 +61,7 @@ describe('StatusLine extensions', () => {
     });
 
     const frame = lastFrame() ?? '';
-    expect(frame).not.toContain('Working');
+    expect(frame).toContain('Working');
     expect(frame).toContain('5s');
     expect(frame).toContain('120 tokens');
     expect(frame).toContain('plan:on');

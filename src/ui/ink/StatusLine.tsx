@@ -113,7 +113,7 @@ function renderLineSegments(
 }
 
 function buildStatusSegments(
-  _status: string,
+  status: string,
   elapsed: string | undefined,
   tokens: string | undefined,
   queueCount: number,
@@ -121,6 +121,7 @@ function buildStatusSegments(
 ): LineSegment[] {
   const metrics = [elapsed, tokens].filter((part): part is string => Boolean(part));
   return [
+    { id: 'status', text: status },
     {
       id: 'metrics',
       text: metrics.length > 0 ? `(${metrics.join(' · ')})` : '',
