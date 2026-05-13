@@ -179,6 +179,8 @@ export interface UISettings {
   silentToolOutput?: boolean;
   /** Show notification when work is completed (default: true) */
   showCompletionNotification?: boolean;
+  /** Ask the model to include a concise completion report after action turns (default: true) */
+  completionReportEnabled?: boolean;
   /** Show LLM thinking/reasoning process (default: true) */
   showThinking?: boolean;
   /** Deprecated: Ink 7 + React 19 is now the default interactive UI and this setting is ignored. */

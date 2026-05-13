@@ -73,6 +73,31 @@ export class SystemPromptBuilder {
         '',
       ]
       : [];
+    const completionReportSection = runtime.config.ui?.completionReportEnabled === false
+      ? []
+      : [
+        '## Completion Report',
+        'After completed turns that involved actions, tools, edits, tests, commits, or memory writes, end with a concise completion report.',
+        'Prefer natural, useful engineering prose over a rigid template. Include only what matters.',
+        'For code work, include the details a staff engineer would expect:',
+        '- What changed',
+        '- Files changed when useful',
+        '- Tests, lint, proof, or build checks run',
+        '- Commit message if a commit was created',
+        '- Memory updates if memory was saved',
+        '- Remaining risk or next step if blocked',
+        '',
+        'Use this compact format when a structured report is clearer:',
+        '```',
+        'SITREP:',
+        '- Done: [1-2 sentence summary of what was accomplished]',
+        '- Files: [list of files created/modified, if any]',
+        '- Status: [completed | in-progress | blocked]',
+        '- Next: [what happens next, or "awaiting instructions"]',
+        '```',
+        '',
+        'Skip the completion report for simple Q&A or conversational turns without actions.',
+      ];
 
     const [memories, instructions] = await Promise.all([
       this.options.getContextMemories(),
@@ -319,23 +344,7 @@ export class SystemPromptBuilder {
       '## CRITICAL: Actions vs Words',
       ...this.buildActionsVsWordsSection(supportsNativeToolCalling),
       '',
-      '## SITREP — Status Report After Every Turn',
-      'After EVERY completed turn that involved tool calls or actions, provide a brief SITREP:',
-      '',
-      '**Format:**',
-      '```',
-      'SITREP:',
-      '- Done: [1-2 sentence summary of what was accomplished]',
-      '- Files: [list of files created/modified, if any]',
-      '- Status: [completed | in-progress | blocked]',
-      '- Next: [what happens next, or "awaiting instructions"]',
-      '```',
-      '',
-      'For multi-step tasks, also include:',
-      '- **How to verify**: Commands to run or steps to test the changes',
-      '',
-      'Keep the SITREP concise — 3-5 lines max. The user should never wonder "what just happened?".',
-      'If no tool calls were made (e.g. a simple Q&A), skip the SITREP.'
+      ...completionReportSection
     ];
 
     if (runtime.additionalDirs && runtime.additionalDirs.length > 0) {

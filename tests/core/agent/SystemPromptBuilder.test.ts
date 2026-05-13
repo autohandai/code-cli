@@ -95,4 +95,28 @@ describe('SystemPromptBuilder', () => {
     expect(enabledPrompt).toContain('### Persistent Goals');
     expect(enabledPrompt).toContain('create_goal');
   });
+
+  it('includes completion report guidance by default', async () => {
+    const prompt = await createBuilder().build();
+
+    expect(prompt).toContain('## Completion Report');
+    expect(prompt).toContain('For code work, include the details a staff engineer would expect');
+    expect(prompt).toContain('SITREP:');
+  });
+
+  it('omits completion report guidance when disabled in config', async () => {
+    const prompt = await createBuilder({
+      runtime: {
+        options: {},
+        workspaceRoot: process.cwd(),
+        config: {
+          configPath: '/tmp/autohand-config.json',
+          ui: { completionReportEnabled: false },
+        },
+      },
+    }).build();
+
+    expect(prompt).not.toContain('## Completion Report');
+    expect(prompt).not.toContain('SITREP:');
+  });
 });
