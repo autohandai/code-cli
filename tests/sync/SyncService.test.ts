@@ -151,6 +151,11 @@ describe('SyncService', () => {
 
       expect(result.success).toBe(true);
       expect(mockApiClient.initiateUpload).toHaveBeenCalled();
+      expect(mockApiClient.uploadFile).toHaveBeenCalledWith(
+        'https://example.com/upload/config.json',
+        expect.any(Buffer),
+        'test-token'
+      );
     });
 
     it('downloads files when remote has newer data', async () => {
@@ -200,6 +205,10 @@ describe('SyncService', () => {
       expect(result.success).toBe(true);
       expect(result.downloaded).toBe(1);
       expect(mockApiClient.initiateDownload).toHaveBeenCalled();
+      expect(mockApiClient.downloadFile).toHaveBeenCalledWith(
+        'https://example.com/download/config.json',
+        'test-token'
+      );
     });
 
     it('returns error if already syncing', async () => {

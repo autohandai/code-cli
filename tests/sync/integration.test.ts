@@ -188,6 +188,105 @@ describe("Sync Integration", () => {
         client.uploadFile("https://example.com/upload", largeContent),
       ).rejects.toThrow("exceeds max size");
     });
+
+    it("authenticates generated file upload URLs with the session token", async () => {
+      const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
+
+      const client = new SyncApiClient({
+        maxRetries: 1,
+      });
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+      });
+
+      await client.uploadFile(
+        "https://test-api.example.com/v1/sync/file/config.json",
+        Buffer.from("{}"),
+        "test-token",
+      );
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://test-api.example.com/v1/sync/file/config.json",
+        expect.objectContaining({
+          method: "PUT",
+          headers: expect.objectContaining({
+            Authorization: "Bearer test-token",
+          }),
+        }),
+      );
+    });
+
+    it("authenticates generated file download URLs with the session token", async () => {
+      const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
+
+      const client = new SyncApiClient({
+        maxRetries: 1,
+      });
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        arrayBuffer: () => Promise.resolve(Buffer.from("{}").buffer),
+      });
+
+      await client.downloadFile(
+        "https://test-api.example.com/v1/sync/file/config.json",
+        "test-token",
+      );
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://test-api.example.com/v1/sync/file/config.json",
+        expect.objectContaining({
+          method: "GET",
+          headers: expect.objectContaining({
+            Authorization: "Bearer test-token",
+          }),
+        }),
+      );
+    });
+
+    it("sends the manifest with every upload batch because the API validates each batch", async () => {
+      const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
+
+      const client = new SyncApiClient({
+        baseUrl: "https://test-api.example.com",
+        maxRetries: 1,
+      });
+      const files = Array.from({ length: 101 }, (_, index) => `file-${index}.json`);
+      const manifest = {
+        version: 1,
+        userId: "test-user",
+        lastModified: new Date().toISOString(),
+        files: files.map((filePath) => ({
+          path: filePath,
+          hash: "a".repeat(64),
+          size: 2,
+          modifiedAt: new Date().toISOString(),
+        })),
+        checksum: "checksum",
+      };
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ uploadUrls: {} }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ uploadUrls: {} }),
+        });
+
+      await client.initiateUpload("test-token", manifest, files);
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      const secondBatchBody = JSON.parse(mockFetch.mock.calls[1][1].body);
+      expect(secondBatchBody.manifest).toEqual(manifest);
+      expect(secondBatchBody.files).toEqual(["file-100.json"]);
+    });
   });
 
   describe("Encryption", () => {

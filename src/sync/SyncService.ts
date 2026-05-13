@@ -200,7 +200,7 @@ export class SyncService {
           if (!url) continue;
 
           try {
-            const content = await this.client.downloadFile(url);
+            const content = await this.client.downloadFile(url, this.authToken);
             const localPath = path.join(this.basePath, file.path);
 
             // Handle config.json specially - decrypt API keys
@@ -265,7 +265,7 @@ export class SyncService {
               content = await fs.readFile(localPath);
             }
 
-            await this.client.uploadFile(url, content);
+            await this.client.uploadFile(url, content, this.authToken);
             uploaded++;
             this.onEvent({ type: 'file_uploaded', path: file.path, size: content.length });
           } catch (error) {
@@ -609,7 +609,7 @@ export class SyncService {
           if (!url) continue;
 
           try {
-            const content = await this.client.downloadFile(url);
+            const content = await this.client.downloadFile(url, this.authToken);
             const localPath = path.join(this.basePath, file.path);
 
             if (file.path === 'config.json') {
@@ -652,7 +652,7 @@ export class SyncService {
               content = await fs.readFile(localPath);
             }
 
-            await this.client.uploadFile(url, content);
+            await this.client.uploadFile(url, content, this.authToken);
             uploaded++;
           } catch {
             // Continue with other files
