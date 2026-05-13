@@ -109,6 +109,15 @@ describe('ResponseCompletionClassifier', () => {
       '- fff_grep and read_file for source inspection',
       '- apply_patch for focused edits',
     ].join('\n'),
+    [
+      'I have tools for:',
+      '- **Codebase discovery**',
+      '  - Find files: `fff_find`',
+      '  - Search code/content: `fff_grep`',
+      '  - Read files, inspect tree, file stats/checksums',
+      '- **Editing**',
+      '  - Write/edit files: `write_file`, `apply_patch`, `search_replace`, `append_file`',
+    ].join('\n'),
   ])('classifies real final answers as final_answer', (response) => {
     const result = classifyResponseCompletion({ response });
 
