@@ -563,7 +563,27 @@ const CATEGORY_TRIGGERS: Record<RelevanceCategory, string[]> = {
   always: [],
   filesystem: ['file', 'directory', 'folder', 'create', 'delete', 'rename', 'copy', 'move', 'format', 'path', 'open'],
   editing: ['fix', 'edit', 'change', 'modify', 'patch', 'write', 'implement', 'refactor', 'update', 'replace', 'create', 'delete', 'remove', 'format', 'add', 'build', 'document', 'docs', 'config', 'configure'],
-  git_basic: ['git', 'commit', 'branch', 'diff', 'status', 'stash', 'pull', 'push'],
+  git_basic: [
+    'git',
+    'commit',
+    'branch',
+    'diff',
+    'status',
+    'stash',
+    'pull',
+    'push',
+    'recent changes',
+    'recent change',
+    'what changed',
+    'changes introduced',
+    'changes were introduced',
+    'changed recently',
+    'repo recently',
+    'repository recently',
+    'uncommitted',
+    'working tree',
+    'staged',
+  ],
   git_advanced: ['merge', 'rebase', 'cherry-pick', 'worktree', 'reset', 'push', 'force-push'],
   search: ['search', 'find', 'grep', 'look for', 'locate', 'where is', 'symbol', 'definition'],
   verification: ['test', 'tests', 'build', 'lint', 'typecheck', 'verify', 'run', 'command', 'script', 'proof', 'install'],
@@ -616,6 +636,22 @@ function getRecentSelectionText(messages: LLMMessage[]): string {
     .toLowerCase();
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function matchesCategoryTrigger(recentText: string, trigger: string): boolean {
+  if (!recentText || !trigger) {
+    return false;
+  }
+
+  if (trigger.includes(' ')) {
+    return recentText.includes(trigger);
+  }
+
+  return new RegExp(`\\b${escapeRegExp(trigger)}\\b`).test(recentText);
+}
+
 function stableToolCacheKey(tools: FunctionDefinition[], messages: LLMMessage[]): string {
   const toolNames = tools.map((tool) => tool.name).sort().join(',');
   return `${toolNames}\n${getRecentSelectionText(messages)}`;
@@ -666,7 +702,7 @@ export function detectRelevantCategories(messages: LLMMessage[]): Set<RelevanceC
 
   // Check for trigger keywords
   for (const [category, triggers] of Object.entries(CATEGORY_TRIGGERS)) {
-    if (triggers.some(trigger => recentText.includes(trigger))) {
+    if (triggers.some(trigger => matchesCategoryTrigger(recentText, trigger))) {
       categories.add(category as RelevanceCategory);
     }
   }
