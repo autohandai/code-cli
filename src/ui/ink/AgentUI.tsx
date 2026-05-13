@@ -11,7 +11,7 @@ import {
   type LineExtension,
   type LineSegment,
 } from './StatusLine.js';
-import { LiveCommandBlock, ToolOutputStatic, ToolOutputBatchStatic, type LiveCommandEntry, type ToolOutputEntry, type ToolOutputBatchEntry, type ToolOutputItem } from './ToolOutput.js';
+import { LiveCommandBlock, ToolOutputStatic, ToolOutputBatchStatic, ThemedDiffOutput, type LiveCommandEntry, type ToolOutputEntry, type ToolOutputBatchEntry, type ToolOutputItem } from './ToolOutput.js';
 import { InputLine } from './InputLine.js';
 import { ThinkingOutput } from './ThinkingOutput.js';
 import { FileMentionDropdown, parseFileSuggestions, matchFileMention, type FileMentionSuggestion } from './FileMentionDropdown.js';
@@ -123,6 +123,35 @@ const INK_END_KEY_INPUTS = new Set(['\x1b[F', '\x1bOF', '\x1b[4~', '\x1b[8~']);
 interface ChatHistoryItem {
   index: number;
   message: ChatLogMessage;
+}
+
+interface MarkdownDiffSegment {
+  type: 'text' | 'diff';
+  content: string;
+}
+
+const DIFF_FENCE_RE = /^```[ \t]*(?:diff|patch)[^\n]*\r?\n([\s\S]*?)^```[ \t]*$/gim;
+
+export function splitMarkdownDiffFences(content: string): MarkdownDiffSegment[] {
+  const segments: MarkdownDiffSegment[] = [];
+  let cursor = 0;
+
+  for (const match of content.matchAll(DIFF_FENCE_RE)) {
+    const start = match.index ?? 0;
+    const before = content.slice(cursor, start);
+    if (before) {
+      segments.push({ type: 'text', content: before });
+    }
+    segments.push({ type: 'diff', content: (match[1] ?? '').trimEnd() });
+    cursor = start + match[0].length;
+  }
+
+  const after = content.slice(cursor);
+  if (after) {
+    segments.push({ type: 'text', content: after });
+  }
+
+  return segments.length > 0 ? segments : [{ type: 'text', content }];
 }
 
 export interface InkPasteState {
@@ -1589,7 +1618,7 @@ const DynamicContent = memo(function DynamicContent({
         <>
           {content.before && (
             <Box marginTop={1}>
-              <Text>{renderTerminalMarkdown(content.before)}</Text>
+              <MarkdownDiffContent content={content.before} />
             </Box>
           )}
           {content.sitrep && (
@@ -1603,7 +1632,7 @@ const DynamicContent = memo(function DynamicContent({
           )}
           {content.after && (
             <Box marginTop={1}>
-              <Text>{renderTerminalMarkdown(content.after)}</Text>
+              <MarkdownDiffContent content={content.after} />
             </Box>
           )}
         </>
@@ -1655,7 +1684,29 @@ const ChatHistoryMessage = memo(function ChatHistoryMessage({
 
   return (
     <Box marginTop={1}>
-      <Text>{renderTerminalMarkdown(message.content)}</Text>
+      <MarkdownDiffContent content={message.content} />
+    </Box>
+  );
+});
+
+const MarkdownDiffContent = memo(function MarkdownDiffContent({
+  content,
+}: {
+  content: string;
+}) {
+  const segments = useMemo(() => splitMarkdownDiffFences(content), [content]);
+
+  return (
+    <Box flexDirection="column">
+      {segments.map((segment, index) => (
+        segment.type === 'diff'
+          ? <ThemedDiffOutput key={`diff-${index}`} output={segment.content} />
+          : (
+            <Text key={`text-${index}`}>
+              {renderTerminalMarkdown(segment.content.trim())}
+            </Text>
+          )
+      ))}
     </Box>
   );
 });
