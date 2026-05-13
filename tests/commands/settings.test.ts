@@ -10,6 +10,7 @@ import {
   getNestedValue,
   setNestedValue,
   setConfigSetting,
+  parseConfigSetArgs,
   getSettingsForCategory,
   formatSettingValue,
   type SettingCategory,
@@ -117,6 +118,15 @@ describe('SETTINGS_REGISTRY', () => {
       defaultValue: false,
     });
   });
+
+  it('exposes activity verbs as an on-by-default UI setting', () => {
+    const setting = SETTINGS_REGISTRY.find(s => s.key === 'ui.activityVerbsEnabled');
+    expect(setting).toMatchObject({
+      category: 'ui',
+      type: 'boolean',
+      defaultValue: true,
+    });
+  });
 });
 
 describe('setConfigSetting', () => {
@@ -130,6 +140,34 @@ describe('setConfigSetting', () => {
       value: true,
     });
     expect(config.ui.silentToolOutput).toBe(true);
+  });
+
+  it('maps verbs activity to ui.activityVerbsEnabled', () => {
+    const config = createMockConfig();
+
+    const result = setConfigSetting(config, 'verbs activity', 'false');
+
+    expect(result).toEqual({
+      key: 'ui.activityVerbsEnabled',
+      value: false,
+    });
+    expect(config.ui.activityVerbsEnabled).toBe(false);
+  });
+});
+
+describe('parseConfigSetArgs', () => {
+  it('keeps existing one-token setting keys working', () => {
+    expect(parseConfigSetArgs(['silent_tool_output', 'true'])).toEqual({
+      key: 'silent_tool_output',
+      value: 'true',
+    });
+  });
+
+  it('parses multi-word setting keys with the final token as the value', () => {
+    expect(parseConfigSetArgs(['verbs', 'activity', 'false'])).toEqual({
+      key: 'verbs activity',
+      value: 'false',
+    });
   });
 });
 

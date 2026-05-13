@@ -386,7 +386,7 @@ describe("configParser – error handling (Issue #3)", () => {
     });
   });
 
-  it("creates new JSON config with tool selection cache enabled by default", async () => {
+  it("creates new JSON config with on-by-default runtime helpers", async () => {
     const configPath = path.join(testDir, "config.json");
     const loadConfig = await importLoadConfig();
 
@@ -394,7 +394,9 @@ describe("configParser – error handling (Issue #3)", () => {
     const saved = await fse.readJson(configPath);
 
     expect(result.agent?.toolSelectionCache).toBe(true);
+    expect(result.ui?.activityVerbsEnabled).toBe(true);
     expect(saved.agent.toolSelectionCache).toBe(true);
+    expect(saved.ui.activityVerbsEnabled).toBe(true);
   });
 
   it("loads explicit tool selection cache opt-out from config", async () => {

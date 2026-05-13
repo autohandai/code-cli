@@ -409,6 +409,7 @@ export async function loadConfig(customPath?: string, workspaceRoot?: string): P
         theme: "dark",
         autoConfirm: false,
         silentToolOutput: false,
+        activityVerbsEnabled: true,
         promptSuggestions: true,
       },
       telemetry: {
@@ -629,6 +630,7 @@ function normalizeConfig(
         autoConfirm: config.dry_run ?? false,
         theme: "dark",
         silentToolOutput: false,
+        activityVerbsEnabled: true,
         promptSuggestions: true,
       },
     };
@@ -709,6 +711,12 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
       typeof config.ui.promptSuggestions !== "boolean"
     ) {
       throw new Error(`ui.promptSuggestions must be boolean in ${configPath}`);
+    }
+    if (
+      config.ui.activityVerbsEnabled !== undefined &&
+      typeof config.ui.activityVerbsEnabled !== "boolean"
+    ) {
+      throw new Error(`ui.activityVerbsEnabled must be boolean in ${configPath}`);
     }
   }
 

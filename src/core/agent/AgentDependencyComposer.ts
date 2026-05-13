@@ -173,6 +173,7 @@ export function initializeAgentDependencies(
 
     host.activityIndicator = new ActivityIndicator({
       activityVerbs: runtime.config.ui?.activityVerbs,
+      activityVerbsEnabled: runtime.config.ui?.activityVerbsEnabled,
       activitySymbol: runtime.config.ui?.activitySymbol,
     });
 

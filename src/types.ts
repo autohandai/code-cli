@@ -190,6 +190,8 @@ export interface UISettings {
   updateCheckInterval?: number;
   /** Custom activity verbs for working indicator (string for fixed, string[] for pool) */
   activityVerbs?: string | string[];
+  /** Show rotating activity verbs in the working indicator (default: true) */
+  activityVerbsEnabled?: boolean;
   /** Symbol shown before activity verb (default: '✳') */
   activitySymbol?: string;
   /** Display language locale (e.g., 'en', 'zh-cn', 'fr') */

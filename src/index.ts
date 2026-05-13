@@ -540,11 +540,12 @@ const configCmd = program
   });
 
 configCmd
-  .command('set <key> <value>')
-  .description('Set a config value, e.g. autohand config set silent_tool_output true')
-  .action(async (key: string, value: string) => {
+  .command('set <parts...>')
+  .description('Set a config value, e.g. autohand config set verbs activity false')
+  .action(async (parts: string[]) => {
     const config = await loadConfig(program.opts<{ config?: string }>().config);
-    const { setConfigSetting } = await import('./commands/settings.js');
+    const { parseConfigSetArgs, setConfigSetting } = await import('./commands/settings.js');
+    const { key, value } = parseConfigSetArgs(parts);
     const result = setConfigSetting(config, key, value);
     await saveConfig(config);
     console.log(chalk.green(`Set ${result.key} = ${String(result.value)}`));
