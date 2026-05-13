@@ -20,11 +20,13 @@ function completion(overrides: Partial<LLMResponse>): LLMResponse {
 function evaluate(overrides: {
   completion: Partial<LLMResponse>;
   payload: AssistantReactPayload;
+  responseCompletionHooks?: Parameters<typeof evaluateAssistantTurn>[0]['responseCompletionHooks'];
 }) {
   return evaluateAssistantTurn({
     completion: completion(overrides.completion),
     payload: overrides.payload,
     cleanupModelResponse: (content) => content.trim(),
+    responseCompletionHooks: overrides.responseCompletionHooks,
   });
 }
 
@@ -87,7 +89,7 @@ describe('TurnOutcomeEvaluator', () => {
     });
   });
 
-  it('repairs deferred action prose with no tool calls', () => {
+  it('finishes deferred-sounding prose by default', () => {
     const result = evaluate({
       completion: {
         content: 'I should inspect the codebase structure before answering.',
@@ -97,11 +99,38 @@ describe('TurnOutcomeEvaluator', () => {
       },
     });
 
+    expect(result).toEqual({
+      type: 'finish',
+      response: 'I should inspect the codebase structure before answering.',
+      usedThoughtAsResponse: false,
+      saveAssistantMessage: true,
+    });
+  });
+
+  it('allows explicit completion hooks to request a repair', () => {
+    const result = evaluate({
+      completion: {
+        content: 'CUSTOM_DEFERRED_MARKER',
+      },
+      payload: {
+        finalResponse: 'CUSTOM_DEFERRED_MARKER',
+      },
+      responseCompletionHooks: [
+        ({ response }) => response === 'CUSTOM_DEFERRED_MARKER'
+          ? {
+              kind: 'invalid_deferred_action',
+              reason: 'announced_action_without_tool',
+              excerpt: response,
+            }
+          : undefined,
+      ],
+    });
+
     expect(result).toMatchObject({
       type: 'repair',
       reason: 'invalid_deferred_action',
+      rejectedResponse: 'CUSTOM_DEFERRED_MARKER',
       saveAssistantMessage: false,
-      rejectedResponse: 'I should inspect the codebase structure before answering.',
     });
   });
 
