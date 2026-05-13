@@ -131,6 +131,77 @@ interface MarkdownDiffSegment {
 }
 
 const DIFF_FENCE_RE = /^```[ \t]*(?:diff|patch)[^\n]*\r?\n([\s\S]*?)^```[ \t]*$/gim;
+const GIT_INDEX_RE = /^index [0-9a-f]{4,}\.\.[0-9a-f]{4,}(?: [0-7]{6})?$/i;
+const HUNK_HEADER_RE = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/;
+
+function hasFileHeaderPair(lines: string[], index: number): boolean {
+  return /^---\s+/.test(lines[index] ?? '') && /^\+\+\+\s+/.test(lines[index + 1] ?? '');
+}
+
+function isRawDiffStart(lines: string[], index: number): boolean {
+  const line = lines[index] ?? '';
+  if (line.startsWith('diff --git ')) {
+    return true;
+  }
+  if (GIT_INDEX_RE.test(line)) {
+    return lines.slice(index + 1, index + 5).some((candidate, offset) =>
+      /^---\s+/.test(candidate) && /^\+\+\+\s+/.test(lines[index + 2 + offset] ?? '')
+    );
+  }
+  if (hasFileHeaderPair(lines, index)) {
+    return true;
+  }
+  if (HUNK_HEADER_RE.test(line)) {
+    return true;
+  }
+  return false;
+}
+
+function isRawDiffContinuation(line: string): boolean {
+  return line === '' ||
+    line.startsWith('diff --git ') ||
+    GIT_INDEX_RE.test(line) ||
+    /^---\s+/.test(line) ||
+    /^\+\+\+\s+/.test(line) ||
+    HUNK_HEADER_RE.test(line) ||
+    line.startsWith('+') ||
+    line.startsWith('-') ||
+    line.startsWith(' ') ||
+    line.startsWith('\\ No newline');
+}
+
+function splitRawDiffSegments(content: string): MarkdownDiffSegment[] {
+  const lines = content.split(/\r?\n/);
+  const segments: MarkdownDiffSegment[] = [];
+  let textLines: string[] = [];
+  let index = 0;
+
+  const flushText = (): void => {
+    if (textLines.length > 0) {
+      segments.push({ type: 'text', content: textLines.join('\n') });
+      textLines = [];
+    }
+  };
+
+  while (index < lines.length) {
+    if (!isRawDiffStart(lines, index)) {
+      textLines.push(lines[index] ?? '');
+      index += 1;
+      continue;
+    }
+
+    flushText();
+    const diffLines: string[] = [];
+    while (index < lines.length && isRawDiffContinuation(lines[index] ?? '')) {
+      diffLines.push(lines[index] ?? '');
+      index += 1;
+    }
+    segments.push({ type: 'diff', content: diffLines.join('\n').trimEnd() });
+  }
+
+  flushText();
+  return segments;
+}
 
 export function splitMarkdownDiffFences(content: string): MarkdownDiffSegment[] {
   const segments: MarkdownDiffSegment[] = [];
@@ -140,7 +211,7 @@ export function splitMarkdownDiffFences(content: string): MarkdownDiffSegment[] 
     const start = match.index ?? 0;
     const before = content.slice(cursor, start);
     if (before) {
-      segments.push({ type: 'text', content: before });
+      segments.push(...splitRawDiffSegments(before));
     }
     segments.push({ type: 'diff', content: (match[1] ?? '').trimEnd() });
     cursor = start + match[0].length;
@@ -148,7 +219,7 @@ export function splitMarkdownDiffFences(content: string): MarkdownDiffSegment[] 
 
   const after = content.slice(cursor);
   if (after) {
-    segments.push({ type: 'text', content: after });
+    segments.push(...splitRawDiffSegments(after));
   }
 
   return segments.length > 0 ? segments : [{ type: 'text', content }];
