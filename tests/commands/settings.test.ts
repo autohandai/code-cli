@@ -127,6 +127,15 @@ describe('SETTINGS_REGISTRY', () => {
       defaultValue: true,
     });
   });
+
+  it('exposes completion reports as an on-by-default UI setting', () => {
+    const setting = SETTINGS_REGISTRY.find(s => s.key === 'ui.completionReportEnabled');
+    expect(setting).toMatchObject({
+      category: 'ui',
+      type: 'boolean',
+      defaultValue: true,
+    });
+  });
 });
 
 describe('setConfigSetting', () => {
@@ -152,6 +161,42 @@ describe('setConfigSetting', () => {
       value: false,
     });
     expect(config.ui.activityVerbsEnabled).toBe(false);
+  });
+
+  it('maps sitrep to ui.completionReportEnabled', () => {
+    const config = createMockConfig();
+
+    const result = setConfigSetting(config, 'sitrep', 'false');
+
+    expect(result).toEqual({
+      key: 'ui.completionReportEnabled',
+      value: false,
+    });
+    expect(config.ui.completionReportEnabled).toBe(false);
+  });
+
+  it('maps completion_report to ui.completionReportEnabled', () => {
+    const config = createMockConfig();
+
+    const result = setConfigSetting(config, 'completion_report', 'true');
+
+    expect(result).toEqual({
+      key: 'ui.completionReportEnabled',
+      value: true,
+    });
+    expect(config.ui.completionReportEnabled).toBe(true);
+  });
+
+  it('maps completionReportEnabled to ui.completionReportEnabled', () => {
+    const config = createMockConfig();
+
+    const result = setConfigSetting(config, 'completionReportEnabled', 'false');
+
+    expect(result).toEqual({
+      key: 'ui.completionReportEnabled',
+      value: false,
+    });
+    expect(config.ui.completionReportEnabled).toBe(false);
   });
 });
 
