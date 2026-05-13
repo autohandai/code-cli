@@ -385,15 +385,7 @@ export class InkRenderer {
     };
 
     if (archivedFinalResponse) {
-      let lastUserIndex = -1;
-      for (let index = this.state.chatMessages.length - 1; index >= 0; index--) {
-        if (this.state.chatMessages[index]?.role === 'user') {
-          lastUserIndex = index;
-          break;
-        }
-      }
       const alreadyArchived = this.state.chatMessages
-        .slice(lastUserIndex + 1)
         .some((message) =>
           message.role === 'assistant' && message.content === archivedFinalResponse
         );
