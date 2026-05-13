@@ -115,26 +115,28 @@ export function evaluateAssistantTurn(input: TurnOutcomeInput): TurnOutcome {
     };
   }
 
-  const completionClassification = classifyResponseCompletion({
-    response,
-    toolCalls,
-  }, responseCompletionHooks);
+  if (responseCompletionHooks?.length) {
+    const completionClassification = classifyResponseCompletion({
+      response,
+      toolCalls,
+    }, responseCompletionHooks);
 
-  if (completionClassification.kind === 'invalid_deferred_action') {
-    return {
-      type: 'repair',
-      reason: 'invalid_deferred_action',
-      instruction:
-        `[System] ERROR: Your previous finalResponse announced an action but emitted no tool calls: "${completionClassification.excerpt}". ` +
-        'Either emit the required tool call now, or explain why no tool is needed and answer directly in finalResponse. ' +
-        'Do not write another progress update, SITREP, or next-step note as the finalResponse.',
-      saveAssistantMessage: false,
-      rejectedResponse: response,
-      telemetry: {
-        reason: completionClassification.reason,
-        excerpt: completionClassification.excerpt,
-      },
-    };
+    if (completionClassification.kind === 'invalid_deferred_action') {
+      return {
+        type: 'repair',
+        reason: 'invalid_deferred_action',
+        instruction:
+          `[System] ERROR: Your previous finalResponse announced an action but emitted no tool calls: "${completionClassification.excerpt}". ` +
+          'Either emit the required tool call now, or explain why no tool is needed and answer directly in finalResponse. ' +
+          'Do not write another progress update, SITREP, or next-step note as the finalResponse.',
+        saveAssistantMessage: false,
+        rejectedResponse: response,
+        telemetry: {
+          reason: completionClassification.reason,
+          excerpt: completionClassification.excerpt,
+        },
+      };
+    }
   }
 
   return {

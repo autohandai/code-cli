@@ -68,6 +68,18 @@ export class ReactionParser {
       };
     }
 
+    const legacyToolCalls = this.extractLegacyToolCalls(completion.content);
+    if (legacyToolCalls.length > 0) {
+      const textOutside = completion.content
+        .replace(/\[TOOL_CALL\][\s\S]*?\[\/TOOL_CALL\]/gi, '')
+        .trim();
+
+      return {
+        thought: textOutside || undefined,
+        toolCalls: legacyToolCalls,
+      };
+    }
+
     const xmlToolCalls = this.extractXmlToolCalls(completion.content);
     if (xmlToolCalls.length > 0) {
       const textOutside = completion.content
@@ -92,6 +104,118 @@ export class ReactionParser {
     }
 
     return this.parseAssistantReactPayload(completion.content);
+  }
+
+  extractLegacyToolCalls(content: string): ToolCallRequest[] {
+    if (!/\[TOOL_CALL\]/i.test(content)) return [];
+
+    const calls: ToolCallRequest[] = [];
+    const blockRegex = /\[TOOL_CALL\]([\s\S]*?)\[\/TOOL_CALL\]/gi;
+    let match: RegExpExecArray | null;
+
+    while ((match = blockRegex.exec(content)) !== null) {
+      const parsed = this.tryParseLegacyToolCall(match[1].trim());
+      if (parsed) calls.push(parsed);
+    }
+
+    return calls;
+  }
+
+  tryParseLegacyToolCall(raw: string): ToolCallRequest | null {
+    const jsonParsed = this.tryParseXmlToolCall(raw);
+    if (jsonParsed) return jsonParsed;
+
+    const toolMatch = raw.match(/\b(?:tool|name)\s*(?:=>|:)\s*["']([^"']+)["']/i);
+    const tool = toolMatch?.[1]?.trim();
+    if (!tool) return null;
+
+    const argsSource = this.extractLegacyArgsSource(raw);
+    const args = argsSource ? this.parseLegacyArgs(argsSource) : undefined;
+
+    return {
+      id: randomUUID(),
+      tool: tool as AgentAction['type'],
+      args: asToolArgs(args),
+    };
+  }
+
+  private extractLegacyArgsSource(raw: string): string | undefined {
+    const argsMatch = /\b(?:args|arguments)\s*(?:=>|:)\s*\{/i.exec(raw);
+    if (!argsMatch) return undefined;
+
+    const openBraceIndex = raw.indexOf('{', argsMatch.index);
+    if (openBraceIndex === -1) return undefined;
+
+    let depth = 0;
+    let inString: '"' | "'" | undefined;
+    let escaped = false;
+
+    for (let i = openBraceIndex; i < raw.length; i += 1) {
+      const char = raw[i];
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (char === '\\') {
+          escaped = true;
+        } else if (char === inString) {
+          inString = undefined;
+        }
+        continue;
+      }
+
+      if (char === '"' || char === "'") {
+        inString = char;
+        continue;
+      }
+
+      if (char === '{') {
+        depth += 1;
+      } else if (char === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          return raw.slice(openBraceIndex + 1, i).trim();
+        }
+      }
+    }
+
+    return raw.slice(openBraceIndex + 1).trim();
+  }
+
+  private parseLegacyArgs(source: string): ParsedRecord {
+    const args: ParsedRecord = {};
+    const argPattern = /(?:--)?([A-Za-z_][\w-]*)\s*(?:=>|:|=)?\s*(?:"([^"]*)"|'([^']*)'|(\[[\s\S]*?\]|\{[\s\S]*?\}|true|false|null|-?\d+(?:\.\d+)?))/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = argPattern.exec(source)) !== null) {
+      const rawKey = match[1];
+      const key = this.normalizeLegacyArgKey(rawKey);
+      const value = match[2] ?? match[3] ?? match[4] ?? '';
+      args[key] = this.parseLegacyArgValue(value);
+    }
+
+    return args;
+  }
+
+  private normalizeLegacyArgKey(key: string): string {
+    return key.replace(/-([a-z])/g, (_, char: string) => char.toUpperCase());
+  }
+
+  private parseLegacyArgValue(value: string): unknown {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    if (value === 'null') return null;
+    if (/^-?\d+(?:\.\d+)?$/.test(value)) return Number(value);
+
+    if (value.startsWith('{') || value.startsWith('[')) {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value;
+      }
+    }
+
+    return value;
   }
 
   /**

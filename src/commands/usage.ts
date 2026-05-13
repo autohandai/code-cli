@@ -12,6 +12,7 @@ import { getContextWindow as inferContextWindow } from '../core/context/tokenize
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import type { LoadedConfig, PermissionMode, ProviderName, ProviderSettings, ReasoningEffort } from '../types.js';
 import { createCommandTheme } from './commandTheme.js';
+import { formatAccount } from './accountDisplay.js';
 
 export const USAGE_V2_FLAG = 'usage_v2';
 
@@ -133,9 +134,9 @@ function resolveAgentsFile(workspaceRoot: string): string {
 }
 
 function resolveAccount(config?: LoadedConfig): string {
-  const email = config?.auth?.user?.email;
-  if (email) {
-    return email;
+  const account = formatAccount(config, '');
+  if (account) {
+    return account;
   }
 
   if (config?.openai?.authMode === 'chatgpt' && config.openai.chatgptAuth?.accountId) {
