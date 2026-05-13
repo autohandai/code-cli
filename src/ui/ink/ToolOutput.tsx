@@ -7,6 +7,7 @@ import React, { memo } from 'react';
 import { Box, Text } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
 import { renderTerminalMarkdown } from '../../core/immediateCommandRouter.js';
+import { stripAnsiCodes } from '../displayUtils.js';
 
 export interface ToolOutputEntry {
   id: string;
@@ -50,6 +51,43 @@ function getVisibleTail(text: string, maxLines: number): { lines: string[]; hidd
 function getLines(text: string): string[] {
   const normalized = text.trimEnd();
   return normalized ? normalized.split('\n') : [];
+}
+
+function isDiffTool(tool: string): boolean {
+  return tool === 'git_diff' || tool === 'git_diff_range';
+}
+
+function getDiffLineColor(
+  line: string,
+  colors: ReturnType<typeof useTheme>['colors']
+): string {
+  const trimmed = line.trimStart();
+
+  if (trimmed.startsWith('+') && !trimmed.startsWith('+++')) {
+    return colors.diffAdded;
+  }
+  if (trimmed.startsWith('-') && !trimmed.startsWith('---')) {
+    return colors.diffRemoved;
+  }
+  if (trimmed.startsWith('@@') || trimmed.startsWith('diff --git')) {
+    return colors.accent;
+  }
+  return colors.diffContext;
+}
+
+function ThemedDiffOutput({ output }: { output: string }) {
+  const { colors } = useTheme();
+  const plainLines = getLines(stripAnsiCodes(output));
+
+  return (
+    <Box flexDirection="column">
+      {plainLines.map((line, index) => (
+        <Text key={`${index}-${line}`} color={getDiffLineColor(line, colors)}>
+          {line || ' '}
+        </Text>
+      ))}
+    </Box>
+  );
 }
 
 function getCollapsedLiveCommandViews(
@@ -133,7 +171,9 @@ function ToolOutputComponent({ entry }: ToolOutputProps) {
       </Box>
       {output && (
         success ? (
-          <Text color={colors.toolOutput}>{renderedOutput}</Text>
+          isDiffTool(tool)
+            ? <ThemedDiffOutput output={output} />
+            : <Text color={colors.toolOutput}>{renderedOutput}</Text>
         ) : (
           <Box flexDirection="column">
             <Text color={colors.error}>┌─ Error ─────────────────────────────────</Text>
@@ -176,7 +216,9 @@ function ToolOutputStaticComponent({ entry }: ToolOutputProps) {
       </Box>
       {output && (
         success ? (
-          <Text color={colors.toolOutput}>{renderedOutput}</Text>
+          isDiffTool(tool)
+            ? <ThemedDiffOutput output={output} />
+            : <Text color={colors.toolOutput}>{renderedOutput}</Text>
         ) : (
           <Box flexDirection="column">
             <Text color={colors.error}>┌─ Error ─────────────────────────────────</Text>
@@ -232,14 +274,22 @@ function ToolOutputBatchStaticComponent({ entry }: { entry: ToolOutputBatchEntry
             {visible.map((item, ii) => {
               const isLast = ii === visible.length - 1 && hidden === 0;
               const connector = isLast && isLastGroup ? '  └ ' : '  ├ ';
+              const shouldRenderDiffDetail = item.detail && isDiffTool(item.tool);
               return (
-                <Box key={`${item.label}-${ii}`}>
-                  <Text color={colors.muted}>{connector}</Text>
-                  <Text color={item.success ? colors.toolOutput : colors.error}>
-                    {renderTerminalMarkdown(item.label)}
-                  </Text>
-                  {item.detail && (
-                    <Text color={colors.muted}> — {renderTerminalMarkdown(item.detail)}</Text>
+                <Box key={`${item.label}-${ii}`} flexDirection="column">
+                  <Box>
+                    <Text color={colors.muted}>{connector}</Text>
+                    <Text color={item.success ? colors.toolOutput : colors.error}>
+                      {renderTerminalMarkdown(item.label)}
+                    </Text>
+                    {item.detail && !shouldRenderDiffDetail && (
+                      <Text color={colors.muted}> — {renderTerminalMarkdown(item.detail)}</Text>
+                    )}
+                  </Box>
+                  {shouldRenderDiffDetail && (
+                    <Box marginLeft={4}>
+                      <ThemedDiffOutput output={item.detail ?? ''} />
+                    </Box>
                   )}
                 </Box>
               );

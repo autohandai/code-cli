@@ -8,8 +8,9 @@ import { describe, expect, it } from 'vitest';
 import React from 'react';
 import { render } from 'ink-testing-library';
 import { PassThrough } from 'node:stream';
+import chalk from 'chalk';
 import { AgentUI, createInitialUIState } from '../../../src/ui/ink/AgentUI.js';
-import { LiveCommandBlock, ToolOutputStatic } from '../../../src/ui/ink/ToolOutput.js';
+import { LiveCommandBlock, ToolOutputBatchStatic, ToolOutputStatic } from '../../../src/ui/ink/ToolOutput.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 import { I18nProvider } from '../../../src/ui/i18n/index.js';
 
@@ -81,6 +82,86 @@ describe('AgentUI live command block', () => {
     expect(output).toContain('run_command');
     expect(output).toContain('/Users/igorcosta/Documents/autohand/cli-3');
     expect(output).not.toContain('User requested to run');
+  });
+
+  it('renders git diff output with theme diff colors', () => {
+    const originalChalkLevel = chalk.level;
+    let output = '';
+
+    try {
+      chalk.level = 3;
+
+      const { lastFrame } = render(
+        <I18nProvider>
+          <ThemeProvider>
+            <ToolOutputStatic
+              entry={{
+                id: 'tool-1',
+                tool: 'git_diff',
+                success: true,
+                output: [
+                  'diff --git a/src/app.ts b/src/app.ts',
+                  '@@ -1,2 +1,2 @@',
+                  '-const oldValue = true;',
+                  '+const newValue = true;',
+                ].join('\n'),
+                timestamp: Date.now(),
+              }}
+            />
+          </ThemeProvider>
+        </I18nProvider>
+      );
+      output = lastFrame() ?? '';
+    } finally {
+      chalk.level = originalChalkLevel;
+    }
+
+    expect(output).toContain('\u001b[38;2;76;175;80m+const newValue = true;');
+    expect(output).toContain('\u001b[38;2;244;67;54m-const oldValue = true;');
+  });
+
+  it('renders batched git diff details with theme diff colors', () => {
+    const originalChalkLevel = chalk.level;
+    let output = '';
+
+    try {
+      chalk.level = 3;
+
+      const { lastFrame } = render(
+        <I18nProvider>
+          <ThemeProvider>
+            <ToolOutputBatchStatic
+              entry={{
+                id: 'tool-batch-1',
+                type: 'batch',
+                allSuccess: true,
+                timestamp: Date.now(),
+                groups: [{
+                  tool: 'git_diff',
+                  items: [{
+                    tool: 'git_diff',
+                    label: 'git_diff',
+                    detail: [
+                      'diff --git a/src/app.ts b/src/app.ts',
+                      '@@ -1,2 +1,2 @@',
+                      '-const oldValue = true;',
+                      '+const newValue = true;',
+                    ].join('\n'),
+                    success: true,
+                  }],
+                }],
+              }}
+            />
+          </ThemeProvider>
+        </I18nProvider>
+      );
+      output = lastFrame() ?? '';
+    } finally {
+      chalk.level = originalChalkLevel;
+    }
+
+    expect(output).toContain('\u001b[38;2;76;175;80m+const newValue = true;');
+    expect(output).toContain('\u001b[38;2;244;67;54m-const oldValue = true;');
   });
 
   it('renders completed chat history before the active final response', () => {
