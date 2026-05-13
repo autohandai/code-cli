@@ -515,6 +515,10 @@ describe('ReactLoopRunner composer status', () => {
       );
       expect(emitOutput).toHaveBeenCalledWith({
         type: 'message',
+        content: 'SITREP:\n- Status: blocked by no-tool constraint.\n- Next: inspect the React loop.',
+      });
+      expect(emitOutput).not.toHaveBeenCalledWith({
+        type: 'message',
         content: 'The model stopped before providing a usable answer. Please retry the request.',
       });
     } finally {

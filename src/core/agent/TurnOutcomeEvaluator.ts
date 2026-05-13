@@ -30,6 +30,7 @@ export type TurnOutcome =
       reason: TurnRepairReason;
       instruction: string;
       saveAssistantMessage: false;
+      rejectedResponse?: string;
       telemetry?: {
         reason: string;
         excerpt: string;
@@ -128,6 +129,7 @@ export function evaluateAssistantTurn(input: TurnOutcomeInput): TurnOutcome {
         'Either emit the required tool call now, or explain why no tool is needed and answer directly in finalResponse. ' +
         'Do not write another progress update, SITREP, or next-step note as the finalResponse.',
       saveAssistantMessage: false,
+      rejectedResponse: response,
       telemetry: {
         reason: completionClassification.reason,
         excerpt: completionClassification.excerpt,

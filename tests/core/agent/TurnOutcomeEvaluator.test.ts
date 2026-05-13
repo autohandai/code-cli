@@ -101,6 +101,7 @@ describe('TurnOutcomeEvaluator', () => {
       type: 'repair',
       reason: 'invalid_deferred_action',
       saveAssistantMessage: false,
+      rejectedResponse: 'I should inspect the codebase structure before answering.',
     });
   });
 

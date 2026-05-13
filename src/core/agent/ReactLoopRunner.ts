@@ -443,7 +443,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
             }
           ).catch(() => {});
 
-          renderFinalResponse('The model stopped before providing a usable answer. Please retry the request.', {
+          renderFinalResponse(turnOutcome.rejectedResponse || 'The model stopped before providing a usable answer. Please retry the request.', {
             thought: payload.thought,
             usedThoughtAsResponse: false,
           });
