@@ -392,6 +392,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
     "autoConfirm": false,
     "readFileCharLimit": 300,
     "silentToolOutput": false,
+    "activityVerbsEnabled": true,
     "showCompletionNotification": true,
     "showThinking": true,
     "terminalBell": true,
@@ -408,6 +409,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `autoConfirm`                | boolean | `false` | Skip confirmation prompts for safe operations                                                  |
 | `readFileCharLimit`          | number | `300`   | Max characters to display from read/find tool output (full content is still sent to the model) |
 | `silentToolOutput`           | boolean | `false` | Hide tool output blocks in the terminal while still preserving tool results for the model/session |
+| `activityVerbsEnabled`       | boolean | `true`  | Show rotating activity verbs like `Compiling...` while the agent is working |
 | `showCompletionNotification` | boolean | `true`  | Show system notification when task completes                                                   |
 | `showThinking`               | boolean | `true`  | Display LLM's reasoning/thought process                                                        |
 | `terminalBell`               | boolean | `true`  | Ring terminal bell when task completes (shows badge on terminal tab/dock)                      |
@@ -444,6 +446,13 @@ You can toggle silent tool output without editing the file:
 ```bash
 autohand config set silent_tool_output true
 autohand config set silent_tool_output false
+```
+
+You can toggle rotating activity verbs without editing the file:
+
+```bash
+autohand config set verbs activity true
+autohand config set verbs activity false
 ```
 
 ### Terminal Bell

@@ -33,9 +33,11 @@ const DEFAULT_VERBS: string[] = [
 ];
 
 const DEFAULT_SYMBOL = '✳';
+const DISABLED_VERB = 'Working';
 
 export interface ActivityConfig {
   activityVerbs?: string | string[];
+  activityVerbsEnabled?: boolean;
   activitySymbol?: string;
 }
 
@@ -47,10 +49,12 @@ export class ActivityIndicator {
   private shuffledVerbs: string[] = [];
   private symbol: string;
   private tips: TipsBag;
+  private verbsEnabled: boolean;
   private currentVerb = '';
   private currentTip = '';
 
   constructor(config?: ActivityConfig) {
+    this.verbsEnabled = config?.activityVerbsEnabled !== false;
     const rawVerbs = config?.activityVerbs;
     if (typeof rawVerbs === 'string') {
       this.verbs = [rawVerbs];
@@ -93,6 +97,9 @@ export class ActivityIndicator {
   }
 
   private pickVerb(): string {
+    if (!this.verbsEnabled) {
+      return DISABLED_VERB;
+    }
     if (this.verbs.length === 1) {
       return this.verbs[0];
     }

@@ -40,6 +40,12 @@ const SETTING_KEY_ALIASES: Record<string, string> = {
   silent_tool_output: 'ui.silentToolOutput',
   tool_output_silent: 'ui.silentToolOutput',
   ui_silent_tool_output: 'ui.silentToolOutput',
+  'verbs activity': 'ui.activityVerbsEnabled',
+  'activity verbs': 'ui.activityVerbsEnabled',
+  activity_verbs: 'ui.activityVerbsEnabled',
+  verbs_activity: 'ui.activityVerbsEnabled',
+  ui_activity_verbs: 'ui.activityVerbsEnabled',
+  ui_verbs_activity: 'ui.activityVerbsEnabled',
 };
 
 // ── Category Definitions ───────────────────────────────────────────────
@@ -68,6 +74,7 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
   { key: 'ui.checkForUpdates', labelKey: 'commands.settings.ui.checkForUpdates', descriptionKey: 'commands.settings.ui.checkForUpdatesDesc', category: 'ui', type: 'boolean', defaultValue: true },
   { key: 'ui.showCompletionNotification', labelKey: 'commands.settings.ui.showCompletionNotification', descriptionKey: 'commands.settings.ui.showCompletionNotificationDesc', category: 'ui', type: 'boolean', defaultValue: true },
   { key: 'ui.promptSuggestions', labelKey: 'commands.settings.ui.promptSuggestions', descriptionKey: 'commands.settings.ui.promptSuggestionsDesc', category: 'ui', type: 'boolean', defaultValue: true },
+  { key: 'ui.activityVerbsEnabled', labelKey: 'commands.settings.ui.activityVerbsEnabled', descriptionKey: 'commands.settings.ui.activityVerbsEnabledDesc', category: 'ui', type: 'boolean', defaultValue: true },
   { key: 'ui.activitySymbol', labelKey: 'commands.settings.ui.activitySymbol', descriptionKey: 'commands.settings.ui.activitySymbolDesc', category: 'ui', type: 'string', defaultValue: '\u2733' },
   { key: 'ui.updateCheckInterval', labelKey: 'commands.settings.ui.updateCheckInterval', descriptionKey: 'commands.settings.ui.updateCheckIntervalDesc', category: 'ui', type: 'number', defaultValue: 24 },
 
@@ -192,6 +199,15 @@ export function setConfigSetting(config: LoadedConfig, keyInput: string, rawValu
   const value = parseSettingValue(setting, rawValue);
   setNestedValue(config, setting.key, value);
   return { key: setting.key, value };
+}
+
+export function parseConfigSetArgs(parts: string[]): { key: string; value: string } {
+  if (parts.length < 2) {
+    throw new Error('Usage: autohand config set <key> <value>');
+  }
+  const value = parts[parts.length - 1];
+  const key = parts.slice(0, -1).join(' ');
+  return { key, value };
 }
 
 export function getSettingsForCategory(category: SettingCategory): SettingDef[] {
