@@ -120,6 +120,100 @@ describe('AgentUI live command block', () => {
     expect(output).toContain('\u001b[38;2;244;67;54m-const oldValue = true;');
   });
 
+  it('renders git diff chat history tool output with theme diff colors', () => {
+    const originalChalkLevel = chalk.level;
+    let output = '';
+
+    try {
+      chalk.level = 3;
+      const state = createInitialUIState();
+      state.chatMessages = [{
+        role: 'tool',
+        tool: 'git_diff',
+        success: true,
+        content: [
+          'Added 1 line, removed 1 line',
+          'diff --git a/src/app.ts b/src/app.ts',
+          'index 1111111..2222222 100644',
+          '--- a/src/app.ts',
+          '+++ b/src/app.ts',
+          '@@ -1,2 +1,2 @@',
+          '-const oldValue = true;',
+          '+const newValue = true;',
+        ].join('\n'),
+      }];
+
+      const { lastFrame } = renderAgentUI(state);
+      output = lastFrame() ?? '';
+    } finally {
+      chalk.level = originalChalkLevel;
+    }
+
+    expect(output).toContain('\u001b[38;2;76;175;80m+const newValue = true;');
+    expect(output).toContain('\u001b[38;2;244;67;54m-const oldValue = true;');
+  });
+
+  it('renders git diff colors from theme ANSI even when chalk colors are disabled', () => {
+    const originalChalkLevel = chalk.level;
+    let output = '';
+
+    try {
+      chalk.level = 0;
+
+      const { lastFrame } = render(
+        <I18nProvider>
+          <ThemeProvider>
+            <ToolOutputStatic
+              entry={{
+                id: 'tool-1',
+                tool: 'git_diff',
+                success: true,
+                output: [
+                  'diff --git a/src/app.ts b/src/app.ts',
+                  '-const oldValue = true;',
+                  '+const newValue = true;',
+                ].join('\n'),
+                timestamp: Date.now(),
+              }}
+            />
+          </ThemeProvider>
+        </I18nProvider>
+      );
+      output = lastFrame() ?? '';
+    } finally {
+      chalk.level = originalChalkLevel;
+    }
+
+    expect(output).toContain('\u001b[38;2;76;175;80m+const newValue = true;');
+    expect(output).toContain('\u001b[38;2;244;67;54m-const oldValue = true;');
+  });
+
+  it('uses the active theme palette for git diff colors', () => {
+    const { lastFrame } = render(
+      <I18nProvider>
+        <ThemeProvider themeName="dracula">
+          <ToolOutputStatic
+            entry={{
+              id: 'tool-1',
+              tool: 'git_diff',
+              success: true,
+              output: [
+                'diff --git a/src/app.ts b/src/app.ts',
+                '-const oldValue = true;',
+                '+const newValue = true;',
+              ].join('\n'),
+              timestamp: Date.now(),
+            }}
+          />
+        </ThemeProvider>
+      </I18nProvider>
+    );
+
+    const output = lastFrame() ?? '';
+    expect(output).toContain('\u001b[38;2;80;250;123m+const newValue = true;');
+    expect(output).toContain('\u001b[38;2;255;85;85m-const oldValue = true;');
+  });
+
   it('renders assistant diff fences as themed diff blocks without literal fences', () => {
     const originalChalkLevel = chalk.level;
     let output = '';

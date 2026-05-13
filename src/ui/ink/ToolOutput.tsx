@@ -6,6 +6,8 @@
 import React, { memo } from 'react';
 import { Box, Text } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
+import type { ResolvedColors } from '../theme/types.js';
+import { hexToRgb } from '../theme/Theme.js';
 import { renderTerminalMarkdown } from '../../core/immediateCommandRouter.js';
 import { stripAnsiCodes } from '../displayUtils.js';
 
@@ -59,7 +61,7 @@ function isDiffTool(tool: string): boolean {
 
 function getDiffLineColor(
   line: string,
-  colors: ReturnType<typeof useTheme>['colors']
+  colors: ResolvedColors
 ): string {
   const trimmed = line.trimStart();
 
@@ -81,6 +83,33 @@ function getDiffLineColor(
   return colors.diffContext;
 }
 
+function foregroundAnsi(color: string): string {
+  if (!color) {
+    return '';
+  }
+
+  const rgb = color.startsWith('#') ? hexToRgb(color) : null;
+  if (rgb) {
+    return `\x1b[38;2;${rgb.r};${rgb.g};${rgb.b}m`;
+  }
+
+  const index = Number(color);
+  if (Number.isInteger(index) && index >= 0 && index <= 255) {
+    return `\x1b[38;5;${index}m`;
+  }
+
+  return '';
+}
+
+function applyForeground(color: string, text: string): string {
+  const ansi = foregroundAnsi(color);
+  return ansi ? `${ansi}${text}\x1b[39m` : text;
+}
+
+function renderThemedDiffLine(line: string, colors: ResolvedColors): string {
+  return applyForeground(getDiffLineColor(line, colors), line || ' ');
+}
+
 export function ThemedDiffOutput({ output }: { output: string }) {
   const { colors } = useTheme();
   const plainLines = getLines(stripAnsiCodes(output));
@@ -88,9 +117,7 @@ export function ThemedDiffOutput({ output }: { output: string }) {
   return (
     <Box flexDirection="column">
       {plainLines.map((line, index) => (
-        <Text key={`${index}-${line}`} color={getDiffLineColor(line, colors)}>
-          {line || ' '}
-        </Text>
+        <Text key={`${index}-${line}`}>{renderThemedDiffLine(line, colors)}</Text>
       ))}
     </Box>
   );
