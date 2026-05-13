@@ -98,6 +98,18 @@ describe('formatToolOutputForDisplay', () => {
     expect(result.output).toContain('main');
   });
 
+  it('renders ask_followup_question answers without raw XML tags', () => {
+    const result = formatToolOutputForDisplay({
+      tool: 'ask_followup_question',
+      content: '<answer>Review the current uncommitted changes</answer>',
+      charLimit: 300,
+    });
+
+    expect(result.output).toBe('Answer: Review the current uncommitted changes');
+    expect(result.output).not.toContain('<answer>');
+    expect(result.output).not.toContain('</answer>');
+  });
+
   // ── tools_registry summary formatting ──────────────────────────────
 
   describe('tools_registry', () => {

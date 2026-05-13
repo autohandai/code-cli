@@ -22,6 +22,13 @@ const SUMMARY_TOOLS = new Set<AgentAction['type']>([
   'tools_registry'
 ]);
 
+function formatAskFollowupAnswer(content: string): string {
+  const trimmed = content.trim();
+  const answerMatch = trimmed.match(/^<answer>([\s\S]*)<\/answer>$/);
+  const answer = (answerMatch?.[1] ?? trimmed).trim() || 'No answer provided';
+  return `Answer: ${answer}`;
+}
+
 export interface ToolOutputDisplay {
   output: string;
   truncated: boolean;
@@ -63,6 +70,14 @@ function countLines(content: string): number {
 export function formatToolOutputForDisplay(options: FileToolOutputOptions): ToolOutputDisplay {
   const { tool, content, charLimit, filePath, command, commandArgs } = options;
   const totalChars = content.length;
+
+  if (tool === 'ask_followup_question') {
+    return {
+      output: formatAskFollowupAnswer(content),
+      truncated: false,
+      totalChars
+    };
+  }
 
   // For run_command and shell, show the command being executed
   if ((tool === 'run_command' || tool === 'shell') && command) {

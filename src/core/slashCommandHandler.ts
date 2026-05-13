@@ -226,7 +226,8 @@ export class SlashCommandHandler {
             model: this.ctx.model,
             provider: this.ctx.provider,
             config: this.ctx.config,
-          });
+            enqueueInstruction: this.ctx.enqueueInstruction,
+          }, args);
         }
         case '/chrome': {
           const { chrome } = await import('../commands/chrome.js');

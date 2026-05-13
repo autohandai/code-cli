@@ -24,11 +24,32 @@ export interface CreateMobilePairingPayload {
   metadata?: Record<string, unknown>;
 }
 
+export interface MobileSessionSnapshotMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp?: string;
+}
+
+export interface MobileSessionSnapshot {
+  title: string;
+  summary?: string;
+  messageCount: number;
+  lastActivity?: string;
+  messages: MobileSessionSnapshotMessage[];
+}
+
 export interface RegisterMobileDevicePayload {
   deviceId: string;
   clientType?: string;
   agentName?: string;
   metadata?: Record<string, unknown>;
+}
+
+export interface MobileRelayHeartbeatPayload {
+  sessionId: string;
+  deviceId: string;
+  pairingId?: string;
+  mode: 'queue' | 'steer';
 }
 
 export interface MobilePairing {
@@ -81,6 +102,7 @@ export interface MobileHandoffClientLike {
   getDeviceId(): Promise<string>;
   registerDevice(token: string, payload: RegisterMobileDevicePayload): Promise<void>;
   createPairing(token: string, payload: CreateMobilePairingPayload): Promise<MobilePairing>;
+  sendRelayHeartbeat(token: string, payload: MobileRelayHeartbeatPayload): Promise<void>;
   claimWork(token: string, deviceId: string): Promise<ClaimedWorkItem | null>;
 }
 
@@ -151,6 +173,20 @@ export class MobileHandoffClient implements MobileHandoffClientLike {
     }
 
     return data.pairing;
+  }
+
+  async sendRelayHeartbeat(token: string, payload: MobileRelayHeartbeatPayload): Promise<void> {
+    await this.request(`/v1/mobile/sessions/${encodeURIComponent(payload.sessionId)}/heartbeat`, token, {
+      method: 'POST',
+      body: JSON.stringify({
+        deviceId: payload.deviceId,
+        pairingId: payload.pairingId,
+        mode: payload.mode,
+      }),
+      headers: {
+        'X-Device-ID': payload.deviceId,
+      },
+    });
   }
 
   async claimWork(token: string, deviceId: string): Promise<ClaimedWorkItem | null> {

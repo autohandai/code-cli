@@ -29,6 +29,10 @@ function createSession(): Session {
       status: 'active',
       client: 'terminal',
     },
+    getMessages: vi.fn().mockReturnValue([
+      { role: 'user', content: 'Investigate mobile handoff', timestamp: '2026-05-13T00:00:01.000Z' },
+      { role: 'assistant', content: 'I found the pairing route.', timestamp: '2026-05-13T00:00:02.000Z' },
+    ]),
   } as Session;
 }
 
@@ -68,6 +72,7 @@ describe('/go command', () => {
     const client: MobileHandoffClientLike = {
       getDeviceId: vi.fn().mockResolvedValue('device-1'),
       registerDevice: vi.fn().mockResolvedValue(undefined),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue(undefined),
       createPairing: vi.fn().mockResolvedValue({
         id: 'pairing-1',
         pairingUrl: 'https://autohand.ai/code/go?pairing=pairing-1&token=secret',
@@ -102,7 +107,8 @@ describe('/go command', () => {
     expect(output).toContain('QR-CODE');
     expect(output).toContain('autohand-code://go?pairing=pairing-1&token=secret');
     expect(output).toContain('https://autohand.ai/code/go?pairing=pairing-1&token=secret');
-    expect(output).toContain('Relay: pairing only in this mode');
+    expect(output).toContain('Mode: queue');
+    expect(output).toContain('Relay: prompts will wait in the queue');
     expect(client.registerDevice).toHaveBeenCalledWith('token', expect.objectContaining({
       deviceId: 'device-1',
       clientType: 'cli',
@@ -118,13 +124,24 @@ describe('/go command', () => {
       workspacePath: '/Users/test/project',
       projectName: 'project',
       capabilities: ['prompt', 'approval', 'notifications'],
+      metadata: expect.objectContaining({
+        sessionSnapshot: expect.any(String),
+      }),
     }));
+    const payload = (client.createPairing as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    const snapshot = JSON.parse(String(payload.metadata?.sessionSnapshot));
+    expect(snapshot.title).toBe('Investigate mobile handoff');
+    expect(snapshot.messages).toEqual([
+      { role: 'user', content: 'Investigate mobile handoff', timestamp: '2026-05-13T00:00:01.000Z' },
+      { role: 'assistant', content: 'I found the pairing route.', timestamp: '2026-05-13T00:00:02.000Z' },
+    ]);
   });
 
   it('starts a relay listener when the interactive queue is available', async () => {
     const client: MobileHandoffClientLike = {
       getDeviceId: vi.fn().mockResolvedValue('device-1'),
       registerDevice: vi.fn().mockResolvedValue(undefined),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue(undefined),
       createPairing: vi.fn().mockResolvedValue({
         id: 'pairing-1',
         pairingUrl: 'https://autohand.ai/code/go?pairing=pairing-1&token=secret',
@@ -174,8 +191,72 @@ describe('/go command', () => {
     await Promise.resolve();
 
     expect(stripAnsi(result || '')).toContain('Relay: listening for mobile prompts');
+    expect(client.sendRelayHeartbeat).toHaveBeenCalledWith('token', {
+      sessionId: 'session-1',
+      deviceId: 'device-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+    });
     expect(client.claimWork).toHaveBeenCalledWith('token', 'device-1');
     expect(enqueueInstruction).toHaveBeenCalledWith('hello from iPhone');
+    stopMobileRelay();
+  });
+
+  it('keeps live steering active when relay heartbeat fails', async () => {
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      sendRelayHeartbeat: vi.fn().mockRejectedValue(new Error('heartbeat unavailable')),
+      createPairing: vi.fn().mockResolvedValue({
+        id: 'pairing-1',
+        pairingUrl: 'https://autohand.ai/code/go?pairing=pairing-1&token=secret',
+        expiresAt: '2026-05-13T00:10:00.000Z',
+        pollIntervalMs: 2000,
+        session: {
+          id: 'session-1',
+          deviceId: 'device-1',
+          workspacePath: '/Users/test/project',
+          projectName: 'project',
+          model: 'gpt-5.3-codex',
+          provider: 'openai',
+        },
+      }),
+      claimWork: vi.fn().mockResolvedValueOnce({
+        id: 'work-1',
+        repo: 'project',
+        branch: 'main',
+        prompt: 'review the diff from mobile',
+        priority: 0,
+        status: 'running',
+        agentId: null,
+        deviceId: 'device-1',
+        payload: null,
+        createdAt: '2026-05-13T00:00:00.000Z',
+        updatedAt: '2026-05-13T00:00:01.000Z',
+      }),
+    };
+    const enqueueInstruction = vi.fn();
+
+    const result = await go({
+      sessionManager: createSessionManager(createSession()),
+      workspaceRoot: '/Users/test/project',
+      model: 'gpt-5.3-codex',
+      provider: 'openai',
+      config: {
+        configPath: '/tmp/config.json',
+        auth: { token: 'token', user: { id: 'user-1', email: 'user@example.com', name: 'User' } },
+      },
+      client,
+      enqueueInstruction,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(stripAnsi(result || '')).toContain('Relay: listening for mobile prompts');
+    expect(client.sendRelayHeartbeat).toHaveBeenCalled();
+    expect(client.claimWork).toHaveBeenCalledWith('token', 'device-1');
+    expect(enqueueInstruction).toHaveBeenCalledWith('review the diff from mobile');
     stopMobileRelay();
   });
 });

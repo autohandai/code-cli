@@ -9,6 +9,9 @@ interface MobileRelayOptions {
   client: MobileHandoffClientLike;
   token: string;
   deviceId: string;
+  sessionId: string;
+  pairingId?: string;
+  mode: 'queue' | 'steer';
   pollIntervalMs: number;
   enqueueInstruction: (instruction: string) => void;
   onError?: (error: Error) => void;
@@ -48,6 +51,17 @@ async function pollOnce(options: MobileRelayOptions): Promise<void> {
 
   activeRelay.polling = true;
   try {
+    try {
+      await options.client.sendRelayHeartbeat(options.token, {
+        sessionId: options.sessionId,
+        deviceId: options.deviceId,
+        pairingId: options.pairingId,
+        mode: options.mode,
+      });
+    } catch (error) {
+      options.onError?.(error as Error);
+    }
+
     const work = await options.client.claimWork(options.token, options.deviceId);
     if (work?.prompt) {
       options.enqueueInstruction(work.prompt);
