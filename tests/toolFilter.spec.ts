@@ -229,6 +229,20 @@ describe('ToolFilter', () => {
       expect(names).not.toContain('git_push');
     });
 
+    it('hydrates git-read tools for natural recent-change questions', () => {
+      const messages: LLMMessage[] = [{ role: 'user', content: 'what changes were introduced in this repo recently?' }];
+
+      const filtered = filterToolsByRelevance(functionTools, messages, { cache: false });
+      const names = filtered.map((tool) => tool.name);
+
+      expect(names).toEqual(expect.arrayContaining([
+        'git_status',
+        'git_diff',
+      ]));
+      expect(names).not.toContain('write_file');
+      expect(names).not.toContain('apply_patch');
+    });
+
     it('hydrates edit tools for add, build, document, and config requests', () => {
       const messages: LLMMessage[] = [{ role: 'user', content: 'build this plan: add a config option and document it' }];
 
