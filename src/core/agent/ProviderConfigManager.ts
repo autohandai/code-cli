@@ -2911,6 +2911,7 @@ export class ProviderConfigManager {
     const newDelegator = new AgentDelegator(newLlm, this.actionExecutor, {
       clientContext: delegatorContext,
       maxDepth: 3,
+      featureConfig: this.runtime.config,
     });
     this.setDelegator(newDelegator);
     this.setActiveProvider(provider);

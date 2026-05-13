@@ -32,6 +32,10 @@ describe('RPC goal handlers', () => {
       { history: vi.fn().mockReturnValue([]) } as any,
       'test-model',
       workspaceRoot,
+      {
+        configPath: path.join(workspaceRoot, 'config.json'),
+        features: { slashGoal: true },
+      } as any,
     );
   });
 
@@ -56,5 +60,27 @@ describe('RPC goal handlers', () => {
     const started = await adapter.handleGoalStartQueued() as any;
     expect(started.goal.objective).toBe('queued rpc goal');
     expect(started.queue).toEqual([]);
+  });
+
+  it('returns a disabled result when slash_goal is off', async () => {
+    const disabledAdapter = new RPCAdapter();
+    disabledAdapter.initialize(
+      {
+        getImageManager: vi.fn(),
+        setStatusListener: vi.fn(),
+        setOutputListener: vi.fn(),
+      } as any,
+      { history: vi.fn().mockReturnValue([]) } as any,
+      'test-model',
+      workspaceRoot,
+      {
+        configPath: path.join(workspaceRoot, 'config.json'),
+      } as any,
+    );
+
+    const result = await disabledAdapter.handleGoalCreate({ objective: 'rpc goal' }) as any;
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('slash_goal');
   });
 });

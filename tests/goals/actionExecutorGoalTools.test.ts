@@ -20,7 +20,10 @@ describe('goal tools', () => {
     executor = new ActionExecutor({
       runtime: {
         workspaceRoot,
-        config: {},
+        config: {
+          configPath: path.join(workspaceRoot, 'config.json'),
+          features: { slashGoal: true },
+        },
         options: {},
       } as AgentRuntime,
       files: new FileActionManager(workspaceRoot),
@@ -55,5 +58,27 @@ describe('goal tools', () => {
 
     expect(started).toContain('Started queued goal');
     expect(started).toContain('queued via tool');
+  });
+
+  it('blocks goal tools when slash_goal is disabled', async () => {
+    const disabledExecutor = new ActionExecutor({
+      runtime: {
+        workspaceRoot,
+        config: {
+          configPath: path.join(workspaceRoot, 'config.json'),
+        },
+        options: {},
+      } as AgentRuntime,
+      files: new FileActionManager(workspaceRoot),
+      resolveWorkspacePath: (relativePath: string) => path.resolve(workspaceRoot, relativePath),
+      confirmDangerousAction: vi.fn().mockResolvedValue(true),
+    });
+
+    const result = await disabledExecutor.execute({
+      type: 'create_goal',
+      objective: 'should stay disabled',
+    });
+
+    expect(result).toContain('slash_goal');
   });
 });

@@ -263,6 +263,7 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
       conversation,
       options.model ?? config.openrouter?.model ?? 'unknown',
       workspaceRoot,
+      config,
       config.mcp?.servers
     );
 

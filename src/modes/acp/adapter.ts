@@ -49,11 +49,13 @@ import type { McpServerConfig } from '../../mcp/types.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from '../../utils/sessionWorktree.js';
 import { ApiError, classifyApiError, type ApiErrorCode } from '../../providers/errors.js';
 import type { SessionMessage } from '../../session/types.js';
+import { isGoalFeatureEnabled } from '../../goals/feature.js';
 
 import {
   ACP_HOOK_NOTIFICATIONS,
   DEFAULT_ACP_COMMANDS,
   DEFAULT_ACP_MODES,
+  type AcpCommand,
   type AcpSessionState,
   buildConfigOptions,
   parseAvailableModels,
@@ -112,6 +114,11 @@ export class AutohandAcpAdapter implements Agent {
       })),
       currentModelId: modelId,
     } as SessionModelState;
+  }
+
+  private getSessionCommands(config: LoadedConfig): AcpCommand[] {
+    if (isGoalFeatureEnabled(config)) return DEFAULT_ACP_COMMANDS;
+    return DEFAULT_ACP_COMMANDS.filter((cmd) => cmd.name !== 'goal');
   }
 
   private cloneConfigOptions(options: SessionConfigOption[]): SessionConfigOption[] {
@@ -447,7 +454,7 @@ export class AutohandAcpAdapter implements Agent {
       models: this.buildSessionModels(config, state.modelId),
       configOptions: this.getSessionConfigOptions(sessionId),
       _meta: {
-        commands: DEFAULT_ACP_COMMANDS.map((cmd) => ({
+        commands: this.getSessionCommands(config).map((cmd) => ({
           name: cmd.name,
           description: cmd.description,
         })),

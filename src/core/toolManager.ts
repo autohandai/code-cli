@@ -98,23 +98,7 @@ export interface ToolManagerOptions {
   maxConcurrency?: number;
 }
 
-export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
-  {
-    name: 'tools_registry',
-    description: 'List all available tools (built-in and meta)'
-  },
-  {
-    name: 'tool_search',
-    description: 'Search available tools by capability, name, or description. Use this when you need to discover the best built-in or meta tool for a task instead of guessing.',
-    parameters: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'Search terms for the capability or tool you need (e.g. "delegate agent", "git worktree", "browser screenshot")' },
-        limit: { type: 'number', description: 'Maximum matching tools to return (default: 10)' }
-      },
-      required: ['query']
-    }
-  },
+export const GOAL_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'get_goal',
     description: 'Inspect the current persistent goal, queue, status, time and token budgets, and progress metadata. Use only for explicit goal-management requests.'
@@ -218,6 +202,25 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
         queueId: { type: 'string', description: 'Queue ID to remove' }
       },
       required: ['queueId']
+    }
+  },
+];
+
+export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
+  {
+    name: 'tools_registry',
+    description: 'List all available tools (built-in and meta)'
+  },
+  {
+    name: 'tool_search',
+    description: 'Search available tools by capability, name, or description. Use this when you need to discover the best built-in or meta tool for a task instead of guessing.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search terms for the capability or tool you need (e.g. "delegate agent", "git worktree", "browser screenshot")' },
+        limit: { type: 'number', description: 'Maximum matching tools to return (default: 10)' }
+      },
+      required: ['query']
     }
   },
   {
@@ -1612,7 +1615,7 @@ export class ToolManager {
   registerMetaTools(toolDefinitions: ToolDefinition[]): void {
     for (const def of toolDefinitions) {
       // Skip if conflicts with a built-in tool
-      if (DEFAULT_TOOL_DEFINITIONS.some(d => d.name === def.name)) {
+      if (DEFAULT_TOOL_DEFINITIONS.some(d => d.name === def.name) || GOAL_TOOL_DEFINITIONS.some(d => d.name === def.name)) {
         continue;
       }
       this.definitions.set(def.name, def);
@@ -1636,7 +1639,7 @@ export class ToolManager {
    * Check if a tool name conflicts with built-in definitions
    */
   isBuiltInTool(name: string): boolean {
-    return DEFAULT_TOOL_DEFINITIONS.some(d => d.name === name);
+    return DEFAULT_TOOL_DEFINITIONS.some(d => d.name === name) || GOAL_TOOL_DEFINITIONS.some(d => d.name === name);
   }
 
   listToolNames(): AgentAction['type'][] {
