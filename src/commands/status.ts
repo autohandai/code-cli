@@ -11,6 +11,7 @@ import { cleanupModalRender, prepareModalRender } from '../ui/ink/components/Mod
 import { formatSessionActualTokens } from '../core/agent/AgentFormatter.js';
 import { createCommandTheme } from './commandTheme.js';
 import { formatUsageDashboard, gatherUsageDashboardData } from './usage.js';
+import { formatAccount } from './accountDisplay.js';
 import packageJson from '../../package.json' with { type: 'json' };
 
 export const metadata = {
@@ -27,6 +28,7 @@ interface StatusData {
     cwd: string;
     provider: string;
     model: string;
+    account: string;
     apiConnected: boolean;
     sessionsCount: number;
     contextPercentLeft: number;
@@ -65,6 +67,7 @@ async function gatherStatusData(ctx: SlashCommandContext): Promise<StatusData> {
         cwd: ctx.workspaceRoot,
         provider: ctx.provider ?? 'openrouter',
         model: ctx.model,
+        account: formatAccount(ctx.config),
         apiConnected,
         sessionsCount: allSessions.length,
         contextPercentLeft: ctx.getContextPercentLeft?.() ?? 100,
@@ -245,6 +248,7 @@ function renderStatusTab(data: StatusData): void {
     console.log(theme.bold(`${t('commands.status.cwd')}:`), data.cwd);
     console.log(theme.bold(`${t('commands.status.provider')}:`), data.provider);
     console.log(theme.bold(`${t('commands.status.model')}:`), data.model);
+    console.log(theme.bold('Account:'), data.account);
     console.log(
         theme.bold('Context Compaction:'),
         data.contextCompactionEnabled ? theme.success('ON') : theme.warning('OFF')

@@ -9,6 +9,8 @@ import { t } from '../i18n/index.js';
 import { createCommandTheme } from './commandTheme.js';
 import { ASCII_FRIEND } from '../utils/asciiArt.js';
 import packageJson from '../../package.json' with { type: 'json' };
+import type { LoadedConfig } from '../types.js';
+import { getUserGreetingName } from './accountDisplay.js';
 
 /**
  * Get git commit hash (short)
@@ -47,8 +49,9 @@ function getVersionString(): string {
 /**
  * About command - shows information about Autohand
  */
-export async function about(): Promise<string | null> {
+export async function about(ctx: { config?: LoadedConfig } = {}): Promise<string | null> {
   const theme = createCommandTheme();
+  const greetingName = getUserGreetingName(ctx.config);
 
   const lines: string[] = [
     theme.muted(ASCII_FRIEND),
@@ -57,6 +60,14 @@ export async function about(): Promise<string | null> {
     theme.muted(t('commands.about.subtitle')),
     '',
   ];
+
+  if (greetingName) {
+    lines.push(theme.text(`Hey ${greetingName}, here are a few suggestions for what you could do next:`));
+    lines.push(theme.text(`   • Review model, context, and account usage: ${theme.accent('/usage')}`));
+    lines.push(theme.text(`   • Check current session and runtime status: ${theme.accent('/status')}`));
+    lines.push(theme.text(`   • Discover feature toggles available to you: ${theme.accent('/features')}`));
+    lines.push('');
+  }
 
   const websiteUrl = 'https://autohand.ai';
   const githubUrl = 'https://github.com/autohandai/';

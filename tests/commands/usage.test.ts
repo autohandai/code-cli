@@ -74,7 +74,7 @@ describe('/usage command', () => {
     expect(output).toContain('Permissions:');
     expect(output).toContain('Workspace (on-request)');
     expect(output).toContain('Account:');
-    expect(output).toContain('user@example.com');
+    expect(output).toContain('Test User (user@example.com)');
     expect(output).toContain('Context window:');
     expect(output).toContain('90% left');
     expect(output).toContain('37.5K used / 258K');

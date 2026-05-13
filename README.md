@@ -289,6 +289,8 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/cc`              | Toggle context compaction            |
 | `/search`          | Search the web                       |
 | `/automode`        | Manage auto-mode                     |
+| `/goal`            | Set or review the current session goal |
+| `/go`              | Pair this session with the Autohand Code iOS app |
 | `/sync`            | Sync settings across devices         |
 | `/add-dir`         | Add additional workspace directory   |
 | `/plan`            | Create a task plan                   |

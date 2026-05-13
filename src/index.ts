@@ -327,7 +327,8 @@ program
       const { about } = await import('./commands/about.js');
       const { locale } = detectLocale();
       await initI18n(locale);
-      await about();
+      const config = await loadConfig(opts.config);
+      await about({ config });
       process.exit(0);
     }
 
