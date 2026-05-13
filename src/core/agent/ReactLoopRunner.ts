@@ -494,21 +494,12 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
       const toolCount = payload.toolCalls?.length ?? 0;
       // Response could come from finalResponse, response, or thought (when no tool calls)
       const hasResponse = Boolean(payload.finalResponse || payload.response || (!toolCount && payload.thought));
-      const thoughtPreview = payload.thought?.slice(0, 80) || '';
 
       if (!payload.toolCalls?.length) {
         forceNoToolsViolationCount = 0;
       }
 
-      if (host.inkRenderer) {
-        if (toolCount > 0) {
-          host.inkRenderer.setStatus(formatComposerToolCallStatus(toolCount));
-        } else if (hasResponse) {
-          host.inkRenderer.setStatus('Responding...');
-        } else if (thoughtPreview) {
-          host.inkRenderer.setStatus('Thinking...');
-        }
-      } else {
+      if (!host.inkRenderer) {
         // Console mode: show iteration status
         if (iteration > 0) {
           const status = toolCount > 0
@@ -655,14 +646,10 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
             );
           };
 
-          if (totalTools === 1 && host.inkRenderer) {
-            host.inkRenderer.setStatus('Running tool...');
-          }
-
           results = await host.toolManager.execute(otherCalls, (index: number, result: ToolExecutionResult) => {
             completedCount++;
             // Update spinner with progress count for parallel execution
-            if (totalTools > 1) {
+            if (totalTools > 1 && !host.inkRenderer) {
               host.setSpinnerStatus(`Running tools (${completedCount}/${totalTools})...`);
             }
             renderToolResult(result, otherCalls[index], completedCount === 1 ? thought : undefined);

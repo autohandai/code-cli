@@ -420,6 +420,7 @@ describe('AgentUI composer suggestions', () => {
     expect(notificationLine).not.toContain('40.7k tokens');
     expect(statusLine).toBeDefined();
     expect(statusLine).not.toContain('Session sync failed');
+    expect(statusLine).toContain('Parsing...');
     expect(statusLine).toContain('40.7k tokens');
   });
 
