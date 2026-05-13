@@ -202,9 +202,23 @@ function isOperationalNextStep(statement: string): boolean {
   );
 }
 
-function isAnswerPromiseInsteadOfAnswer(statement: string): boolean {
+function hasAnswerContinuation(statementIndex: number, statements: readonly string[]): boolean {
+  return statements
+    .slice(statementIndex + 1)
+    .some((statement) => statement.length > 8 && !isOperationalNextStep(statement));
+}
+
+function isAnswerPromiseInsteadOfAnswer(
+  statement: string,
+  statementIndex: number,
+  statements: readonly string[],
+): boolean {
   const hasPromise = ANSWER_PROMISE_PHRASES.some((phrase) => hasPhrase(statement, phrase));
   if (!hasPromise) {
+    return false;
+  }
+
+  if (statement.endsWith(':') && hasAnswerContinuation(statementIndex, statements)) {
     return false;
   }
 
@@ -245,10 +259,10 @@ function classifyAnnouncedActionWithoutTools({
   statements,
 }: ResponseCompletionContext): ResponseCompletionClassification | undefined {
   if (
-    statements.some((statement) =>
+    statements.some((statement, index) =>
       hasActionAnnouncement(statement) ||
       isOperationalNextStep(statement) ||
-      isAnswerPromiseInsteadOfAnswer(statement)
+      isAnswerPromiseInsteadOfAnswer(statement, index, statements)
     )
   ) {
     return {
