@@ -160,8 +160,7 @@ export class SyncApiClient {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            // Only include manifest on first batch
-            ...(batchIndex === 0 ? { manifest } : {}),
+            manifest,
             files: batch,
           }),
         }
@@ -187,19 +186,24 @@ export class SyncApiClient {
   /**
    * Upload a file to a pre-signed URL
    */
-  async uploadFile(uploadUrl: string, content: Buffer): Promise<void> {
+  async uploadFile(uploadUrl: string, content: Buffer, token?: string): Promise<void> {
     if (content.length > this.maxFileSize) {
       throw new Error(`File exceeds max size of ${this.maxFileSize} bytes`);
+    }
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': content.length.toString(),
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
     }
 
     const response = await this.fetchWithRetry(
       uploadUrl,
       {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/octet-stream',
-          'Content-Length': content.length.toString(),
-        },
+        headers,
         body: new Uint8Array(content),
       }
     );
@@ -301,10 +305,11 @@ export class SyncApiClient {
   /**
    * Download a file from a pre-signed URL
    */
-  async downloadFile(downloadUrl: string): Promise<Buffer> {
+  async downloadFile(downloadUrl: string, token?: string): Promise<Buffer> {
+    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
     const response = await this.fetchWithRetry(
       downloadUrl,
-      { method: 'GET' }
+      { method: 'GET', ...(headers ? { headers } : {}) }
     );
 
     if (!response.ok) {
