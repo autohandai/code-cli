@@ -75,7 +75,7 @@ function getDiffLineColor(
   return colors.diffContext;
 }
 
-function ThemedDiffOutput({ output }: { output: string }) {
+export function ThemedDiffOutput({ output }: { output: string }) {
   const { colors } = useTheme();
   const plainLines = getLines(stripAnsiCodes(output));
 
