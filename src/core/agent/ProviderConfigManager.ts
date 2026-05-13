@@ -133,7 +133,7 @@ export class ProviderConfigManager {
 
   private async promptProviderSelection(): Promise<void> {
     // Use ProviderFactory to get platform-aware list (includes MLX on Apple Silicon).
-    const allProviders = ProviderFactory.getProviderNames();
+    const allProviders = ProviderFactory.getProviderNames(this.runtime.config);
     const providerChoices: ModalOption[] = allProviders.map((name) => {
       const isConfigured = this.isProviderConfigured(name);
       const indicator = isConfigured ? chalk.green("●") : chalk.red("○");
@@ -458,6 +458,11 @@ export class ProviderConfigManager {
    * Configure a specific provider (dispatcher to provider-specific methods)
    */
   private async configureProvider(provider: ProviderName): Promise<void> {
+    if (!ProviderFactory.isValidProvider(provider, this.runtime.config)) {
+      console.log(chalk.yellow(`\nProvider "${provider}" is not available.`));
+      return;
+    }
+
     switch (provider) {
       case "openrouter":
         await this.configureOpenRouter();
@@ -1267,6 +1272,11 @@ export class ProviderConfigManager {
    */
   async changeProviderModel(provider: ProviderName): Promise<void> {
     try {
+      if (!ProviderFactory.isValidProvider(provider, this.runtime.config)) {
+        console.log(chalk.yellow(`\nProvider "${provider}" is not available.`));
+        return;
+      }
+
       const currentSettings = getProviderConfig(this.runtime.config, provider);
       const currentModel =
         this.runtime.options.model ?? currentSettings?.model ?? "";

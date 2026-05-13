@@ -367,7 +367,7 @@ export class SetupWizard {
   private async promptProvider(): Promise<ProviderName | null> {
     this.state.currentStep = 'provider';
 
-    const providers = ProviderFactory.getProviderNames();
+    const providers = ProviderFactory.getProviderNames(this.existingConfig);
 
     const options: ModalOption[] = providers.map(p => ({
       label: this.getProviderDisplayName(p),
@@ -393,8 +393,13 @@ export class SetupWizard {
       return null;
     }
 
-    this.state.provider = result.value as ProviderName;
-    return result.value as ProviderName;
+    const selectedProvider = result.value as ProviderName;
+    if (!ProviderFactory.isValidProvider(selectedProvider, this.existingConfig)) {
+      return null;
+    }
+
+    this.state.provider = selectedProvider;
+    return selectedProvider;
   }
 
   /**

@@ -20,6 +20,7 @@ import { CerebrasProvider } from './CerebrasProvider.js';
 import { NVIDIAProvider } from './NVIDIAProvider.js';
 import { DeepSeekProvider } from './DeepSeekProvider.js';
 import { BedrockProvider } from './BedrockProvider.js';
+import { isAwsBedrockProviderEnabled } from '../features/featureRegistry.js';
 import { isMLXSupported } from '../utils/platform.js';
 import type { AutohandConfig, ProviderName } from '../types.js';
 
@@ -69,6 +70,10 @@ export class ProviderFactory {
      */
     static create(config: AutohandConfig): LLMProvider {
         const providerName = config.provider || 'openrouter';
+
+        if (providerName === 'bedrock' && !isAwsBedrockProviderEnabled(config)) {
+            return new UnconfiguredProvider('bedrock');
+        }
 
         switch (providerName) {
             case 'ollama':
@@ -162,9 +167,12 @@ export class ProviderFactory {
      * Get all available provider names.
      * MLX is only included on Apple Silicon (macOS + arm64).
      */
-    static getProviderNames(): ProviderName[] {
+    static getProviderNames(config?: Pick<AutohandConfig, 'features'> | null): ProviderName[] {
         // Sorted DESC by display name: Z.ai, xAI, Vertex AI, NVIDIA, OpenRouter, OpenAI, Ollama, MLX, LLM Gateway, llama.cpp, DeepSeek, Cerebras, Bedrock, Azure
-        const providers: ProviderName[] = ['zai', 'xai', 'vertexai', 'nvidia', 'openrouter', 'openai', 'ollama', 'llmgateway', 'llamacpp', 'deepseek', 'cerebras', 'bedrock', 'azure'];
+        const providers: ProviderName[] = ['zai', 'xai', 'vertexai', 'nvidia', 'openrouter', 'openai', 'ollama', 'llmgateway', 'llamacpp', 'deepseek', 'cerebras', 'azure'];
+        if (isAwsBedrockProviderEnabled(config)) {
+            providers.splice(providers.indexOf('azure'), 0, 'bedrock');
+        }
         if (isMLXSupported()) {
             providers.push('mlx');
         }
@@ -176,7 +184,11 @@ export class ProviderFactory {
      * Note: This checks if the name is a valid provider type, not if it's available on this platform.
      * MLX is always a valid provider name, but may not be available on non-Apple Silicon systems.
      */
-    static isValidProvider(name: string): name is ProviderName {
+    static isValidProvider(name: string, config?: Pick<AutohandConfig, 'features'> | null): name is ProviderName {
+        if (name === 'bedrock' && !isAwsBedrockProviderEnabled(config)) {
+            return false;
+        }
+
         const allProviders: ProviderName[] = ['openrouter', 'ollama', 'openai', 'llamacpp', 'mlx', 'llmgateway', 'azure', 'zai', 'vertexai', 'xai', 'cerebras', 'nvidia', 'deepseek', 'bedrock'];
         return allProviders.includes(name as ProviderName);
     }

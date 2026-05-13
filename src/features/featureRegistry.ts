@@ -40,6 +40,8 @@ export interface FeatureRegistryOptions {
   remoteSnapshot?: RemoteFeatureFlagSnapshot | null;
 }
 
+export const AWS_BEDROCK_PROVIDER_FLAG = 'aws_bedrock_provider';
+
 export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
   {
     id: 'mcp',
@@ -131,7 +133,7 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     defaultEnabled: false,
   },
   {
-    id: 'aws_bedrock_provider',
+    id: AWS_BEDROCK_PROVIDER_FLAG,
     label: 'AWS Bedrock provider',
     description: 'Enable AWS Bedrock as a first-class model provider.',
     stage: 'experimental',
@@ -157,6 +159,11 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     defaultEnabled: false,
   },
 ] as const;
+
+export function isAwsBedrockProviderEnabled(config?: Pick<LoadedConfig, 'features'> | null): boolean {
+  const definition = FEATURE_REGISTRY.find((feature) => feature.id === AWS_BEDROCK_PROVIDER_FLAG);
+  return config?.features?.awsBedrockProvider ?? definition?.defaultEnabled ?? true;
+}
 
 const LOCAL_FEATURE_IDS = new Set(FEATURE_REGISTRY.map((feature) => feature.id));
 

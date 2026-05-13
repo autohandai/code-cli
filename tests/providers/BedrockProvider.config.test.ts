@@ -16,6 +16,24 @@ describe("Bedrock provider config", () => {
     expect(ProviderFactory.getProviderNames()).toContain("bedrock");
   });
 
+  it("hides bedrock provider surfaces when the feature flag is disabled", () => {
+    const config: AutohandConfig = {
+      provider: "bedrock",
+      features: {
+        awsBedrockProvider: false,
+      },
+      bedrock: {
+        model: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        region: "us-east-1",
+      },
+    };
+
+    expect(ProviderFactory.getProviderNames(config)).not.toContain("bedrock");
+    expect(ProviderFactory.isValidProvider("bedrock", config)).toBe(false);
+    expect(ProviderFactory.create(config).getName()).toBe("unconfigured");
+    expect(getProviderConfig(config, "bedrock")).toBeNull();
+  });
+
   it("creates a BedrockProvider when bedrock is configured", () => {
     const provider = ProviderFactory.create({
       provider: "bedrock",

@@ -21,6 +21,7 @@ import type {
 import { AUTOHAND_FILES } from "./constants.js";
 import { autoInitTheme, configureThemeSources, themeExists } from "./ui/theme/index.js";
 import { loadLocalProjectSettings, type LocalProjectSettings } from "./permissions/localProjectPermissions.js";
+import { isAwsBedrockProviderEnabled } from "./features/featureRegistry.js";
 
 const DEFAULT_CONFIG_PATH = AUTOHAND_FILES.configJson;
 const TOML_CONFIG_PATH = AUTOHAND_FILES.configToml;
@@ -804,6 +805,10 @@ export function getProviderConfig(
   provider?: ProviderName,
 ): ProviderSettings | null {
   const chosen = provider ?? config.provider ?? "openrouter";
+  if (chosen === "bedrock" && !isAwsBedrockProviderEnabled(config)) {
+    return null;
+  }
+
   const configByProvider: Record<ProviderName, ProviderSettings | undefined> = {
     openrouter: config.openrouter,
     ollama: config.ollama,

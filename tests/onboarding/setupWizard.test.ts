@@ -531,6 +531,25 @@ describe("SetupWizard", () => {
       expect(mockShowPassword).not.toHaveBeenCalled();
     });
 
+    it("should hide Bedrock from setup provider choices when the feature flag is disabled", async () => {
+      const wizard = new SetupWizard(testWorkspace, {
+        configPath: "/tmp/autohand-config.json",
+        features: {
+          awsBedrockProvider: false,
+        },
+      });
+
+      mockShowModal
+        .mockResolvedValueOnce({ value: "en" }) // language
+        .mockResolvedValueOnce(null); // provider
+
+      const result = await wizard.run({ skipWelcome: true });
+
+      expect(result.cancelled).toBe(true);
+      const providerOptions = mockShowModal.mock.calls[1][0].options;
+      expect(providerOptions.some((option: { value: string }) => option.value === "bedrock")).toBe(false);
+    });
+
     it("should persist Bedrock OpenAI-compatible config with Bedrock API key", async () => {
       const wizard = new SetupWizard(testWorkspace);
 
