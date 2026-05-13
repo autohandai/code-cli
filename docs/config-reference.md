@@ -391,6 +391,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
     },
     "autoConfirm": false,
     "readFileCharLimit": 300,
+    "silentToolOutput": false,
     "showCompletionNotification": true,
     "showThinking": true,
     "terminalBell": true,
@@ -406,6 +407,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `customThemes`               | object | `{}`    | Inline custom theme definitions keyed by theme name. Set `theme` to the same key to use one.   |
 | `autoConfirm`                | boolean | `false` | Skip confirmation prompts for safe operations                                                  |
 | `readFileCharLimit`          | number | `300`   | Max characters to display from read/find tool output (full content is still sent to the model) |
+| `silentToolOutput`           | boolean | `false` | Hide tool output blocks in the terminal while still preserving tool results for the model/session |
 | `showCompletionNotification` | boolean | `true`  | Show system notification when task completes                                                   |
 | `showThinking`               | boolean | `true`  | Display LLM's reasoning/thought process                                                        |
 | `terminalBell`               | boolean | `true`  | Ring terminal bell when task completes (shows badge on terminal tab/dock)                      |
@@ -435,7 +437,14 @@ Custom themes can override any semantic color token. Missing tokens are inherite
 }
 ```
 
-Note: `readFileCharLimit` only affects terminal display for `read_file`, `find`, and the legacy aliases `search` and `search_with_context`. Full content is still sent to the model and stored in tool messages.
+Note: `readFileCharLimit` and `silentToolOutput` only affect terminal display. Full content is still sent to the model and stored in tool messages.
+
+You can toggle silent tool output without editing the file:
+
+```bash
+autohand config set silent_tool_output true
+autohand config set silent_tool_output false
+```
 
 ### Terminal Bell
 

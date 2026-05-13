@@ -202,6 +202,10 @@ export class ActionExecutor {
     this.securityScanner = new SecurityScanner();
   }
 
+  private shouldDisplayToolOutput(): boolean {
+    return this.runtime.config.ui?.silentToolOutput !== true;
+  }
+
   private async getFFFSearchProvider(): Promise<FFFSearchProvider> {
     if (this.fffSearchIdleTimer) {
       clearTimeout(this.fffSearchIdleTimer);
@@ -845,6 +849,18 @@ export class ActionExecutor {
         // on Windows — matching the behavior of Claude Code and Gemini CLI.
         // Command + args are joined into a single shell string.
         const shellCmd = cmdStr;
+        const liveCommandId = !action.background && this.shouldDisplayToolOutput()
+          ? this.onLiveCommandStart?.(cmdStr)
+          : undefined;
+        const hasLiveDisplay = Boolean(liveCommandId);
+
+        const emitLiveOutput = (stream: 'stdout' | 'stderr', data: string): void => {
+          if (!hasLiveDisplay || !liveCommandId) {
+            return;
+          }
+          this.onLiveCommandOutput?.(liveCommandId, stream, data);
+        };
+
         try {
           result = await runCommand(
             shellCmd,
@@ -854,11 +870,23 @@ export class ActionExecutor {
               directory: action.directory,
               background: action.background,
               shell: true,
-              onStdout: (chunk) => emitOutput('stdout', chunk),
-              onStderr: (chunk) => emitOutput('stderr', chunk),
+              onStdout: (chunk) => {
+                emitOutput('stdout', chunk);
+                emitLiveOutput('stdout', chunk);
+              },
+              onStderr: (chunk) => {
+                emitOutput('stderr', chunk);
+                emitLiveOutput('stderr', chunk);
+              },
             }
           );
+          if (liveCommandId) {
+            this.onLiveCommandRemove?.(liveCommandId);
+          }
         } catch (err) {
+          if (liveCommandId) {
+            this.onLiveCommandRemove?.(liveCommandId);
+          }
           const error = err as NodeJS.ErrnoException;
           if (
             error.code === 'ENOENT' ||
@@ -897,7 +925,9 @@ export class ActionExecutor {
         }
 
         const cmdStr = `${action.command} ${(action.args ?? []).join(' ')}`.trim();
-        const commandId = this.onLiveCommandStart?.(cmdStr);
+        const commandId = this.shouldDisplayToolOutput()
+          ? this.onLiveCommandStart?.(cmdStr)
+          : undefined;
         const hasLiveDisplay = Boolean(commandId);
 
         if (hasLiveDisplay) {

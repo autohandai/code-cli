@@ -528,13 +528,25 @@ program
   });
 
 // ── Config subcommand ───────────────────────────────────────────────────
-program
+const configCmd = program
   .command('config')
-  .description('Configure Autohand settings (same as /settings in interactive mode)')
+  .description('Configure Autohand settings')
   .action(async () => {
-    const config = await loadConfig();
+    const config = await loadConfig(program.opts<{ config?: string }>().config);
     const { settings } = await import('./commands/settings.js');
     await settings({ config });
+    process.exit(0);
+  });
+
+configCmd
+  .command('set <key> <value>')
+  .description('Set a config value, e.g. autohand config set silent_tool_output true')
+  .action(async (key: string, value: string) => {
+    const config = await loadConfig(program.opts<{ config?: string }>().config);
+    const { setConfigSetting } = await import('./commands/settings.js');
+    const result = setConfigSetting(config, key, value);
+    await saveConfig(config);
+    console.log(chalk.green(`Set ${result.key} = ${String(result.value)}`));
     process.exit(0);
   });
 

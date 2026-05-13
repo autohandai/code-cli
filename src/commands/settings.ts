@@ -36,6 +36,12 @@ export interface SettingsCommandContext {
   config: LoadedConfig;
 }
 
+const SETTING_KEY_ALIASES: Record<string, string> = {
+  silent_tool_output: 'ui.silentToolOutput',
+  tool_output_silent: 'ui.silentToolOutput',
+  ui_silent_tool_output: 'ui.silentToolOutput',
+};
+
 // ── Category Definitions ───────────────────────────────────────────────
 
 export const SETTING_CATEGORIES: CategoryDef[] = [
@@ -56,6 +62,7 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
   { key: 'ui.theme', labelKey: 'commands.settings.ui.theme', category: 'ui', type: 'string', redirect: '/theme' },
   { key: 'ui.locale', labelKey: 'commands.settings.ui.locale', category: 'ui', type: 'string', redirect: '/language' },
   { key: 'ui.autoConfirm', labelKey: 'commands.settings.ui.autoConfirm', descriptionKey: 'commands.settings.ui.autoConfirmDesc', category: 'ui', type: 'boolean', defaultValue: false },
+  { key: 'ui.silentToolOutput', labelKey: 'commands.settings.ui.silentToolOutput', descriptionKey: 'commands.settings.ui.silentToolOutputDesc', category: 'ui', type: 'boolean', defaultValue: false },
   { key: 'ui.showThinking', labelKey: 'commands.settings.ui.showThinking', descriptionKey: 'commands.settings.ui.showThinkingDesc', category: 'ui', type: 'boolean', defaultValue: true },
   { key: 'ui.terminalBell', labelKey: 'commands.settings.ui.terminalBell', descriptionKey: 'commands.settings.ui.terminalBellDesc', category: 'ui', type: 'boolean', defaultValue: true },
   { key: 'ui.checkForUpdates', labelKey: 'commands.settings.ui.checkForUpdates', descriptionKey: 'commands.settings.ui.checkForUpdatesDesc', category: 'ui', type: 'boolean', defaultValue: true },
@@ -124,6 +131,67 @@ export function setNestedValue(obj: Record<string, any>, path: string, value: un
     current = current[parts[i]];
   }
   current[parts[parts.length - 1]] = value;
+}
+
+export function normalizeSettingKey(input: string): string {
+  const trimmed = input.trim();
+  if (SETTING_KEY_ALIASES[trimmed]) {
+    return SETTING_KEY_ALIASES[trimmed];
+  }
+  if (trimmed.startsWith('ui.') && SETTING_KEY_ALIASES[trimmed.replace(/\./g, '_')]) {
+    return SETTING_KEY_ALIASES[trimmed.replace(/\./g, '_')];
+  }
+  return trimmed;
+}
+
+function parseBooleanSetting(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) {
+    return true;
+  }
+  if (['false', '0', 'no', 'n', 'off'].includes(normalized)) {
+    return false;
+  }
+  throw new Error(`Expected a boolean value, got "${value}". Use true or false.`);
+}
+
+export function parseSettingValue(setting: SettingDef, rawValue: string): unknown {
+  switch (setting.type) {
+    case 'boolean':
+      return parseBooleanSetting(rawValue);
+    case 'number': {
+      const value = Number(rawValue);
+      if (!Number.isFinite(value)) {
+        throw new Error(`Expected a number for ${setting.key}, got "${rawValue}".`);
+      }
+      return value;
+    }
+    case 'enum':
+      if (!setting.enumValues?.includes(rawValue)) {
+        throw new Error(`Expected one of ${setting.enumValues?.join(', ') ?? '(none)'} for ${setting.key}.`);
+      }
+      return rawValue;
+    case 'password':
+    case 'string':
+      return rawValue;
+    default:
+      return rawValue;
+  }
+}
+
+export function setConfigSetting(config: LoadedConfig, keyInput: string, rawValue: string): { key: string; value: unknown } {
+  const key = normalizeSettingKey(keyInput);
+  const setting = SETTINGS_REGISTRY.find(s => s.key === key);
+  if (!setting) {
+    throw new Error(`Unknown setting "${keyInput}". Use /settings to browse configurable settings.`);
+  }
+  if (setting.redirect) {
+    throw new Error(`Setting "${setting.key}" is managed by ${setting.redirect}.`);
+  }
+
+  const value = parseSettingValue(setting, rawValue);
+  setNestedValue(config, setting.key, value);
+  return { key: setting.key, value };
 }
 
 export function getSettingsForCategory(category: SettingCategory): SettingDef[] {

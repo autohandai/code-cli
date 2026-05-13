@@ -267,6 +267,7 @@ function renderConfigTab(data: StatusData): void {
     const settings: Array<[string, string]> = [
         ['Theme', config?.ui?.theme ?? 'dark'],
         ['Auto-confirm', config?.ui?.autoConfirm ? 'true' : 'false'],
+        ['Silent tool output', config?.ui?.silentToolOutput === true ? 'true' : 'false'],
         ['Show thinking', config?.ui?.showThinking !== false ? 'true' : 'false'],
         ['Show completion notification', config?.ui?.showCompletionNotification !== false ? 'true' : 'false'],
         ['Permission mode', config?.permissions?.mode ?? 'interactive'],

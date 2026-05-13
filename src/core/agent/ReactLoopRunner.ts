@@ -42,7 +42,6 @@ import {
 import {
   buildToolLoopCallSignature,
   buildToolLoopResultSignature,
-  getToolCallLabel,
   truncateToolLoopSignature,
 } from './ToolLoopSignature.js';
 import { isAutohandDebugEnabled } from '../../utils/debugLog.js';
@@ -157,6 +156,10 @@ export function formatComposerToolCallStatus(toolCount: number): string {
   return toolCount === 1 ? 'Calling tool...' : `Calling ${toolCount} tools...`;
 }
 
+export function shouldDisplayToolOutput(config: { ui?: { silentToolOutput?: boolean } }): boolean {
+  return config.ui?.silentToolOutput !== true;
+}
+
 export { isDeferredFinalResponse, classifyResponseCompletion };
 
 export async function runAgentReactLoop(host: AgentReactLoopHost, abortController: AbortController): Promise<void> {
@@ -221,6 +224,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
 
     // Check if thinking should be shown
     const showThinking = host.runtime.config.ui?.showThinking !== false;
+    const displayToolOutput = shouldDisplayToolOutput(host.runtime.config);
     const identicalCallHardLimit = 6;
     const identicalCallAndResultLimit = 3;
     const forceNoToolsViolationLimit = 2;
@@ -630,47 +634,41 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
           const charLimit = host.runtime.config.ui?.readFileCharLimit ?? 300;
 
           // Execute all tools with progress callback
-          results = await host.toolManager.execute(otherCalls, (_index: number, _result: ToolExecutionResult) => {
+          const renderToolResult = (
+            result: ToolExecutionResult,
+            call: ToolCallRequest | undefined,
+            resultThought?: string,
+          ): void => {
+            if (!host.inkRenderer || !displayToolOutput) {
+              return;
+            }
+            const filePath = call?.args?.path as string | undefined;
+            const command = call?.args?.command as string | undefined;
+            const commandArgs = call?.args?.args as string[] | undefined;
+            host.inkRenderer.addToolOutput(
+              result.tool,
+              result.success,
+              result.success
+                ? formatToolOutputForDisplay({ tool: result.tool, content: result.output ?? '', charLimit, filePath, command, commandArgs }).output
+                : result.error ?? result.output ?? 'Tool failed',
+              resultThought,
+            );
+          };
+
+          if (totalTools === 1 && host.inkRenderer) {
+            host.inkRenderer.setStatus('Running tool...');
+          }
+
+          results = await host.toolManager.execute(otherCalls, (index: number, result: ToolExecutionResult) => {
             completedCount++;
             // Update spinner with progress count for parallel execution
             if (totalTools > 1) {
               host.setSpinnerStatus(`Running tools (${completedCount}/${totalTools})...`);
             }
+            renderToolResult(result, otherCalls[index], completedCount === 1 ? thought : undefined);
           });
 
-          // Render tool outputs
-          if (host.inkRenderer) {
-            if (results.length > 1) {
-              // Grouped batch rendering for parallel tool calls
-              const batchItems = results.map((r, i) => {
-                const call = otherCalls[i];
-                return {
-                  tool: r.tool,
-                  label: getToolCallLabel(call),
-                  detail: r.success
-                    ? formatToolOutputForDisplay({ tool: r.tool, content: r.output ?? '', charLimit, filePath: call?.args?.path as string | undefined, command: call?.args?.command as string | undefined, commandArgs: call?.args?.args as string[] | undefined }).output
-                    : r.error ?? r.output ?? 'Tool failed',
-                  success: r.success
-                };
-              });
-              host.inkRenderer.addToolOutputBatch(batchItems, thought);
-            } else if (results.length === 1) {
-              // Single tool — use standard rendering
-              const r = results[0];
-              const call = otherCalls[0];
-              const filePath = call?.args?.path as string | undefined;
-              const command = call?.args?.command as string | undefined;
-              const commandArgs = call?.args?.args as string[] | undefined;
-              host.inkRenderer.addToolOutput(
-                r.tool,
-                r.success,
-                r.success
-                  ? formatToolOutputForDisplay({ tool: r.tool, content: r.output ?? '', charLimit, filePath, command, commandArgs }).output
-                  : r.error ?? r.output ?? 'Tool failed',
-                thought
-              );
-            }
-          } else {
+          if (!host.inkRenderer && displayToolOutput) {
             // Ora mode: batch output
             host.runtime.spinner?.stop();
             outputLines.push(formatToolResultsBatch(results, charLimit, otherCalls, thought));
@@ -779,7 +777,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
         }
 
         // Output remaining items for Ora mode
-        if (!host.inkRenderer) {
+        if (!host.inkRenderer && displayToolOutput) {
           if (outputLines.length > 0) {
             console.log('\n' + outputLines.join('\n'));
           }

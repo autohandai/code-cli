@@ -9,6 +9,7 @@ import {
   SETTING_CATEGORIES,
   getNestedValue,
   setNestedValue,
+  setConfigSetting,
   getSettingsForCategory,
   formatSettingValue,
   type SettingCategory,
@@ -106,6 +107,29 @@ describe('SETTINGS_REGISTRY', () => {
   it('has no duplicate keys', () => {
     const keys = SETTINGS_REGISTRY.map(s => s.key);
     expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it('exposes silent tool output as an off-by-default UI setting', () => {
+    const setting = SETTINGS_REGISTRY.find(s => s.key === 'ui.silentToolOutput');
+    expect(setting).toMatchObject({
+      category: 'ui',
+      type: 'boolean',
+      defaultValue: false,
+    });
+  });
+});
+
+describe('setConfigSetting', () => {
+  it('maps silent_tool_output to ui.silentToolOutput', () => {
+    const config = createMockConfig();
+
+    const result = setConfigSetting(config, 'silent_tool_output', 'true');
+
+    expect(result).toEqual({
+      key: 'ui.silentToolOutput',
+      value: true,
+    });
+    expect(config.ui.silentToolOutput).toBe(true);
   });
 });
 
