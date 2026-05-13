@@ -34,7 +34,22 @@ describe('StatusLine extensions', () => {
     expect(source).toContain('theme.fg(getSegmentToken(segment.color), segment.text)');
   });
 
-  it('appends custom status segments after default status details', () => {
+  it('keeps volatile activity text out of the active status line', () => {
+    const { lastFrame } = renderStatusLine({
+      isWorking: true,
+      status: 'Compiling...',
+      elapsed: '5s',
+      tokens: '120 tokens',
+    });
+
+    const frame = lastFrame() ?? '';
+    expect(frame).not.toContain('Compiling...');
+    expect(frame).toContain('5s');
+    expect(frame).toContain('120 tokens');
+    expect(frame).toContain('esc to cancel');
+  });
+
+  it('appends custom status segments after default active-turn chrome', () => {
     const { lastFrame } = renderStatusLine({
       isWorking: true,
       status: 'Working',
@@ -46,7 +61,7 @@ describe('StatusLine extensions', () => {
     });
 
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('Working');
+    expect(frame).not.toContain('Working');
     expect(frame).toContain('5s');
     expect(frame).toContain('120 tokens');
     expect(frame).toContain('plan:on');

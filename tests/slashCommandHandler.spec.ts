@@ -138,4 +138,27 @@ describe('SlashCommandHandler', () => {
     expect(ctx.onAfterModal).not.toHaveBeenCalled();
     spy.mockRestore();
   });
+
+  it('passes auth config into /about output', async () => {
+    const ctx = {
+      ...createContext(),
+      config: {
+        configPath: '/tmp/autohand-config.json',
+        auth: {
+          token: 'test-token',
+          user: {
+            id: 'user-1',
+            email: 'igor@example.com',
+            name: 'Igor Costa',
+          },
+        },
+      },
+    };
+    const handler = new SlashCommandHandler(ctx as any, DEFAULT_COMMANDS);
+
+    const result = await handler.handle('/about');
+
+    expect(result).toContain('Hey Igor');
+    expect(result).toContain('/usage');
+  });
 });
