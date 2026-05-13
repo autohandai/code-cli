@@ -151,6 +151,7 @@ import {
   initializeAgentUI,
   initializeAgentUIManager,
   initAgentFallbackSpinner,
+  consumeAgentInkSubmittedInstructionEcho,
   isAgentUsingTerminalRegionsForActiveTurn,
   notifyAgentUser,
   printAgentCompletionSummary,
@@ -1527,6 +1528,9 @@ export class AutohandAgent {
 
     // Use InkRenderer if available
     if (this.useInkRenderer && this.inkRenderer) {
+      if (consumeAgentInkSubmittedInstructionEcho(this, normalized)) {
+        return;
+      }
       this.inkRenderer.addUserMessage(normalized);
       return;
     }

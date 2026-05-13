@@ -1403,6 +1403,20 @@ describe('agent startup and active input UI', () => {
     }
   });
 
+  it('does not duplicate an Ink instruction that was echoed on submit', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    agent.useInkRenderer = true;
+    agent.inkSubmittedInstructionEchoes = ['already visible'];
+    agent.inkRenderer = {
+      addUserMessage: vi.fn(),
+    };
+
+    (agent as any).printUserInstructionToChatLog('already visible');
+
+    expect(agent.inkRenderer.addUserMessage).not.toHaveBeenCalled();
+    expect(agent.inkSubmittedInstructionEchoes).toEqual([]);
+  });
+
   it('routes submitted user instruction above composer when terminal regions are active', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const writeAbove = vi.fn();
@@ -1787,6 +1801,41 @@ describe('agent startup and active input UI', () => {
 
     expect(agent.inkRenderer.addQueuedInstruction).toHaveBeenCalledWith('regular task');
     expect(agent.executeImmediateShellCommandForInk).not.toHaveBeenCalled();
+  });
+
+  it('handleInkSubmittedInstruction echoes idle Ink text before queue processing', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    agent.isInstructionActive = false;
+    agent.inkRenderer = {
+      addQueuedInstruction: vi.fn(),
+      addUserMessage: vi.fn(),
+      isRunning: vi.fn(() => true),
+    };
+    agent.executeImmediateShellCommandForInk = vi.fn(async () => {});
+
+    await (agent as any).handleInkSubmittedInstruction('regular task');
+
+    expect(agent.inkRenderer.addUserMessage).toHaveBeenCalledWith('regular task');
+    expect(agent.inkRenderer.addQueuedInstruction).toHaveBeenCalledWith('regular task');
+    expect(agent.inkRenderer.addUserMessage.mock.invocationCallOrder[0]).toBeLessThan(
+      agent.inkRenderer.addQueuedInstruction.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('handleInkSubmittedInstruction keeps active-turn input in the queue instead of the chat log', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    agent.isInstructionActive = true;
+    agent.inkRenderer = {
+      addQueuedInstruction: vi.fn(),
+      addUserMessage: vi.fn(),
+      isRunning: vi.fn(() => true),
+    };
+    agent.executeImmediateShellCommandForInk = vi.fn(async () => {});
+
+    await (agent as any).handleInkSubmittedInstruction('queued while working');
+
+    expect(agent.inkRenderer.addQueuedInstruction).toHaveBeenCalledWith('queued while working');
+    expect(agent.inkRenderer.addUserMessage).not.toHaveBeenCalled();
   });
 
   it('does not force PTY for immediate Ink shell commands', () => {
