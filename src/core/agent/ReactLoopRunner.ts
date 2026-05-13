@@ -62,6 +62,7 @@ class LoopAbortedError extends Error {
 
 export interface ReactLoopInkRenderer {
   setStatus(status: string): void;
+  addToolCall(tool: AgentAction['type'], detail: string): void;
   addToolOutputBatch(
     items: Array<{ tool: AgentAction['type']; label: string; detail: string; success: boolean }>,
     thought?: string,
@@ -158,6 +159,52 @@ export function formatComposerToolCallStatus(toolCount: number): string {
 
 export function shouldDisplayToolOutput(config: { ui?: { silentToolOutput?: boolean } }): boolean {
   return config.ui?.silentToolOutput !== true;
+}
+
+function getStringArg(args: ToolCallRequest['args'] | undefined, key: string): string | undefined {
+  const value = args?.[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function getStringArrayArg(args: ToolCallRequest['args'] | undefined, key: string): string[] {
+  const value = args?.[key];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim())
+    : [];
+}
+
+function truncateToolCallDetail(value: string, maxLength = 160): string {
+  return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
+}
+
+export function formatToolCallLogDetail(call: ToolCallRequest): string {
+  const args = call.args;
+  const path = getStringArg(args, 'path') ?? getStringArg(args, 'file') ?? getStringArg(args, 'cwd');
+  if (path) {
+    return truncateToolCallDetail(path);
+  }
+
+  const command = getStringArg(args, 'command') ?? getStringArg(args, 'cmd');
+  if (command) {
+    const commandArgs = getStringArrayArg(args, 'args');
+    return truncateToolCallDetail([command, ...commandArgs].join(' '));
+  }
+
+  const query = getStringArg(args, 'query') ?? getStringArg(args, 'pattern') ?? getStringArg(args, 'search_query');
+  if (query) {
+    return truncateToolCallDetail(query);
+  }
+
+  const url = getStringArg(args, 'url') ?? getStringArg(args, 'uri');
+  if (url) {
+    return truncateToolCallDetail(url);
+  }
+
+  if (!args || Object.keys(args).length === 0) {
+    return '';
+  }
+
+  return truncateToolCallDetail(JSON.stringify(args));
 }
 
 export { isDeferredFinalResponse, classifyResponseCompletion };
@@ -598,6 +645,12 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
         const thought = showThinking && payload.thought
           ? payload.thought
           : undefined;
+
+        if (host.inkRenderer && displayToolOutput) {
+          for (const call of payload.toolCalls) {
+            host.inkRenderer.addToolCall(call.tool, formatToolCallLogDetail(call));
+          }
+        }
 
         // Handle smart_context_cropper calls (add to conversation + collect output)
         if (cropCalls.length) {

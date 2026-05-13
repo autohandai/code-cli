@@ -1674,6 +1674,10 @@ const ChatHistoryMessage = memo(function ChatHistoryMessage({
     );
   }
 
+  if (message.role === 'tool_call') {
+    return <ToolCallHistoryMessage tool={message.tool ?? 'tool'} detail={message.content} />;
+  }
+
   if (message.role === 'completion') {
     return <CompletionHistoryMessage content={message.content} />;
   }
@@ -1685,6 +1689,24 @@ const ChatHistoryMessage = memo(function ChatHistoryMessage({
   return (
     <Box marginTop={1}>
       <MarkdownDiffContent content={message.content} />
+    </Box>
+  );
+});
+
+const ToolCallHistoryMessage = memo(function ToolCallHistoryMessage({
+  tool,
+  detail,
+}: {
+  tool: string;
+  detail: string;
+}) {
+  const { colors } = useTheme();
+
+  return (
+    <Box marginBottom={1}>
+      <Text color={colors.accent}>⠋</Text>
+      <Text bold> {tool}</Text>
+      {detail ? <Text color={colors.muted}> {detail}</Text> : null}
     </Box>
   );
 });
