@@ -151,6 +151,39 @@ describe('AgentUI live command block', () => {
     expect(output).toContain('\u001b[38;2;244;67;54m-it("creates new JSON config with tool selection cache enabled by default"');
   });
 
+  it('renders raw assistant unified diff text with theme diff colors', () => {
+    const originalChalkLevel = chalk.level;
+    let output = '';
+
+    try {
+      chalk.level = 3;
+      const state = createInitialUIState();
+      state.chatMessages = [{
+        role: 'assistant',
+        content: [
+          'index 6672471..e83154d 100644',
+          '--- a/tests/config.test.ts',
+          '+++ b/tests/config.test.ts',
+          '@@ -12,6 +12,10 @@ import { getProviderConfig, loadConfig } from \'../src/config\';',
+          ' import type { AutohandConfig } from \'../src/types\';',
+          '',
+          '+  it(\'creates new configs with completion reports enabled by default\', async () => {',
+          '+    expect(config.ui?.completionReportEnabled).toBe(true);',
+          '+  });',
+        ].join('\n'),
+      }];
+
+      const { lastFrame } = renderAgentUI(state);
+      output = lastFrame() ?? '';
+    } finally {
+      chalk.level = originalChalkLevel;
+    }
+
+    expect(output).toContain('\u001b[38;2;76;175;80m+  it(\'creates new configs with completion reports enabled by default\'');
+    expect(output).toMatch(/\u001b\[38;2;\d+;\d+;\d+m@@ -12,6 \+12,10 @@/);
+    expect(stripAnsi(output)).toContain('index 6672471..e83154d 100644');
+  });
+
   it('renders batched git diff details with theme diff colors', () => {
     const originalChalkLevel = chalk.level;
     let output = '';
