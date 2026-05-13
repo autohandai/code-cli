@@ -69,7 +69,13 @@ function getDiffLineColor(
   if (trimmed.startsWith('-') && !trimmed.startsWith('---')) {
     return colors.diffRemoved;
   }
-  if (trimmed.startsWith('@@') || trimmed.startsWith('diff --git')) {
+  if (
+    trimmed.startsWith('@@') ||
+    trimmed.startsWith('diff --git') ||
+    trimmed.startsWith('index ') ||
+    trimmed.startsWith('---') ||
+    trimmed.startsWith('+++')
+  ) {
     return colors.accent;
   }
   return colors.diffContext;
