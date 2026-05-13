@@ -410,6 +410,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `readFileCharLimit`          | number | `300`   | Max characters to display from read/find tool output (full content is still sent to the model) |
 | `silentToolOutput`           | boolean | `false` | Hide tool output blocks in the terminal while still preserving tool results for the model/session |
 | `activityVerbsEnabled`       | boolean | `true`  | Show rotating activity verbs like `Compiling...` while the agent is working |
+| `completionReportEnabled`    | boolean | `true`  | Ask the model to include a concise completion report after completed action turns |
 | `showCompletionNotification` | boolean | `true`  | Show system notification when task completes                                                   |
 | `showThinking`               | boolean | `true`  | Display LLM's reasoning/thought process                                                        |
 | `terminalBell`               | boolean | `true`  | Ring terminal bell when task completes (shows badge on terminal tab/dock)                      |
@@ -453,6 +454,13 @@ You can toggle rotating activity verbs without editing the file:
 ```bash
 autohand config set verbs activity true
 autohand config set verbs activity false
+```
+
+You can toggle completion reports, including the structured `SITREP` prompt, without editing the file:
+
+```bash
+autohand config set sitrep true
+autohand config set sitrep false
 ```
 
 ### Terminal Bell

@@ -210,6 +210,8 @@
         "checkForUpdatesDesc": "Check for CLI updates on startup",
         "showCompletionNotification": "Completion notifications",
         "showCompletionNotificationDesc": "Show OS notification when work completes",
+        "completionReportEnabled": "Completion reports",
+        "completionReportEnabledDesc": "Ask the model to summarize completed action turns",
         "promptSuggestions": "Prompt suggestions",
         "promptSuggestionsDesc": "Show LLM-generated next-step suggestions",
         "activityVerbsEnabled": "Activity verbs",
