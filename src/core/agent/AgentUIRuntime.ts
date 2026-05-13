@@ -19,6 +19,68 @@ export interface AgentUIRuntimeHost {
 }
 
 const USER_NOTIFICATION_DEDUPE_WINDOW_MS = 10 * 60 * 1000;
+const MAX_PENDING_INK_SUBMIT_ECHOES = 20;
+
+function normalizeSubmittedInstructionEcho(text: string): string {
+  return text.replace(/\r\n/g, '\n').trim();
+}
+
+function getPendingInkSubmittedInstructionEchoes(host: AgentUIRuntimeHost): string[] {
+  if (!Array.isArray(host.inkSubmittedInstructionEchoes)) {
+    host.inkSubmittedInstructionEchoes = [];
+  }
+  return host.inkSubmittedInstructionEchoes;
+}
+
+export function consumeAgentInkSubmittedInstructionEcho(host: AgentUIRuntimeHost, text: string): boolean {
+  const normalized = normalizeSubmittedInstructionEcho(text);
+  if (!normalized) {
+    return false;
+  }
+
+  const echoes = getPendingInkSubmittedInstructionEchoes(host);
+  const index = echoes.indexOf(normalized);
+  if (index === -1) {
+    return false;
+  }
+
+  echoes.splice(index, 1);
+  return true;
+}
+
+function shouldEchoInkSubmittedInstructionImmediately(host: AgentUIRuntimeHost, text: string): boolean {
+  const normalized = normalizeSubmittedInstructionEcho(text);
+  if (!normalized || normalized.startsWith('!') || normalized.startsWith('#')) {
+    return false;
+  }
+
+  if (host.isInstructionActive) {
+    return false;
+  }
+
+  if (!host.inkRenderer) {
+    return false;
+  }
+
+  return typeof host.inkRenderer.isRunning === 'function'
+    ? host.inkRenderer.isRunning()
+    : true;
+}
+
+function echoInkSubmittedInstructionImmediately(host: AgentUIRuntimeHost, text: string): void {
+  if (!shouldEchoInkSubmittedInstructionImmediately(host, text)) {
+    return;
+  }
+
+  const normalized = normalizeSubmittedInstructionEcho(text);
+  host.inkRenderer?.addUserMessage?.(normalized);
+
+  const echoes = getPendingInkSubmittedInstructionEchoes(host);
+  echoes.push(normalized);
+  if (echoes.length > MAX_PENDING_INK_SUBMIT_ECHOES) {
+    echoes.splice(0, echoes.length - MAX_PENDING_INK_SUBMIT_ECHOES);
+  }
+}
 
 function shouldSuppressDuplicateNotification(host: AgentUIRuntimeHost, message: string): boolean {
   const now = Date.now();
@@ -331,6 +393,7 @@ export async function handleAgentInkSubmittedInstruction(host: AgentUIRuntimeHos
       return;
     }
 
+    echoInkSubmittedInstructionImmediately(host, text);
     host.inkRenderer?.addQueuedInstruction(text);
 
     // If the interactive loop is idle-waiting for the next Composer input,

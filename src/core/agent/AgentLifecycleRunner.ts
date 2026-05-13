@@ -17,6 +17,7 @@ import { runWithConcurrency } from '../../utils/parallel.js';
 import { buildSessionChatLog } from '../../session/chatLog.js';
 import { formatExitCleanup, formatForceExit } from '../../ui/theme/startup.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
+import { consumeAgentInkSubmittedInstructionEcho } from './AgentUIRuntime.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -614,7 +615,9 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
               // In Ink mode this must stay inside the renderer; raw stdout
               // fights the composer and duplicates the input frame.
               if (isInkRunning) {
-                host.inkRenderer.addUserMessage(instruction);
+                if (!consumeAgentInkSubmittedInstructionEcho(host, instruction)) {
+                  host.inkRenderer.addUserMessage(instruction);
+                }
               } else if (command !== '/plan') {
                 console.log(chalk.white(`\n› ${instruction}`));
               }
