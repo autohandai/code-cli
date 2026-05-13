@@ -60,6 +60,30 @@ describe('InkRenderer live command blocks', () => {
     ]);
   });
 
+  it('does not move the previous assistant answer after an immediately echoed next prompt', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+
+    renderer.addUserMessage('tell me a joke');
+    renderer.setElapsed('2s');
+    renderer.setTokens('13.1k tokens');
+    renderer.setWorking(false);
+    renderer.setFinalResponse('Because it had too many unresolved dependencies.');
+
+    renderer.addUserMessage('what about this repo?');
+    renderer.setWorking(true, 'Bootstrapping...');
+
+    expect(renderer.getState().chatMessages).toEqual([
+      { role: 'user', content: 'tell me a joke' },
+      { role: 'assistant', content: 'Because it had too many unresolved dependencies.' },
+      { role: 'completion', content: 'Completed in 2s · 13.1k tokens' },
+      { role: 'user', content: 'what about this repo?' },
+    ]);
+  });
+
   it('stores notifications as display events without changing active status', () => {
     const renderer = new InkRenderer({
       onInstruction: () => {},
