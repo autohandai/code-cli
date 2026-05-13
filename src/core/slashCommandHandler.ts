@@ -77,7 +77,7 @@ export class SlashCommandHandler {
         }
         case '/about': {
           const { about } = await import('../commands/about.js');
-          return about();
+          return about(this.ctx);
         }
         case '/agents': {
           const { handler } = await import('../commands/agents.js');

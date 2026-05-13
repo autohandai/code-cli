@@ -340,7 +340,7 @@ describe('/status command screen isolation', () => {
         features: { usageV2: true },
         openai: { apiKey: 'test', model: 'gpt-5.5', reasoningEffort: 'high', contextWindow: 258000 },
         permissions: { mode: 'interactive' },
-        auth: { user: { id: 'u1', email: 'user@example.com', name: 'User' } },
+        auth: { token: 'test-token', user: { id: 'u1', email: 'user@example.com', name: 'User' } },
       },
       isFeatureEnabled: () => true,
       isContextCompactionEnabled: () => true,
@@ -359,6 +359,8 @@ describe('/status command screen isolation', () => {
       await statusPromise;
 
       const rendered = consoleSpy.mock.calls.map((args) => args.join(' ')).join('\n');
+      expect(rendered).toContain('Account:');
+      expect(rendered).toContain('User (user@example.com)');
       expect(rendered).toContain('Context window:');
       expect(rendered).toContain('90% left');
       expect(rendered).toContain('37.5K used / 258K');

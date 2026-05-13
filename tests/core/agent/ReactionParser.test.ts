@@ -57,6 +57,30 @@ describe('ReactionParser', () => {
     ]);
   });
 
+  it('parses OpenRouter bracketed tool calls instead of rendering them as text', () => {
+    const completion: LLMResponse = {
+      id: 'resp-openrouter',
+      created: 3,
+      content: `[TOOL_CALL]
+{tool => "git_diff", args => {
+  --path "README.md"
+}}
+[/TOOL_CALL]`,
+      raw: {},
+    };
+
+    const result = parser.parseAssistantResponse(completion);
+
+    expect(result.finalResponse).toBeUndefined();
+    expect(result.toolCalls).toEqual([
+      {
+        id: expect.any(String),
+        tool: 'git_diff',
+        args: { path: 'README.md' },
+      },
+    ]);
+  });
+
   it('preserves legacy bare single tool-call JSON top-level args', () => {
     const result = parser.parseAssistantReactPayload(
       '{"thought":"Need to inspect","tool":"read_file","path":"src/index.ts"}',
