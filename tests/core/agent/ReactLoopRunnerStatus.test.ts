@@ -105,24 +105,19 @@ describe('ReactLoopRunner composer status', () => {
     ).toBe(false);
   });
 
-  it('retries a deferred final response instead of ending the turn', async () => {
+  it('renders deferred-sounding text by default instead of spending a repair turn', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const parser = new ReactionParser();
     const addSystemNote = vi.fn();
     const emitOutput = vi.fn();
+    const deferredText =
+      'I need to continue gathering information for the comprehensive code review. The glob for test files returned nothing, so let me search differently.';
     const llmComplete = vi
       .fn()
       .mockResolvedValueOnce({
         id: 'deferred',
         created: 1,
-        content:
-          'I need to continue gathering information for the comprehensive code review. The glob for test files returned nothing, so let me search differently.',
-        raw: {},
-      })
-      .mockResolvedValueOnce({
-        id: 'answer',
-        created: 2,
-        content: 'This repo is a TypeScript CLI built with React, Ink, Bun, and Vitest.',
+        content: deferredText,
         raw: {},
       });
 
@@ -216,11 +211,11 @@ describe('ReactLoopRunner composer status', () => {
     try {
       await runAgentReactLoop(host, new AbortController());
 
-      expect(llmComplete).toHaveBeenCalledTimes(2);
-      expect(addSystemNote).toHaveBeenCalledWith(expect.stringContaining('announced an action but emitted no tool calls'));
+      expect(llmComplete).toHaveBeenCalledTimes(1);
+      expect(addSystemNote).not.toHaveBeenCalled();
       expect(emitOutput).toHaveBeenCalledWith({
         type: 'message',
-        content: 'This repo is a TypeScript CLI built with React, Ink, Bun, and Vitest.',
+        content: deferredText,
       });
     } finally {
       logSpy.mockRestore();
@@ -494,6 +489,18 @@ describe('ReactLoopRunner composer status', () => {
     host.conversation.addSystemNote = addSystemNote;
     host.emitOutput = emitOutput;
     host.setComposerFinalResponse = setComposerFinalResponse;
+    host.responseCompletionHooks = [
+      ({ response }) => response.includes('focused regression test') ||
+        response.includes('blocked by no-tool constraint')
+          ? {
+              kind: 'invalid_deferred_action',
+              reason: response.includes('blocked by no-tool constraint')
+                ? 'blocked_without_tools'
+                : 'announced_action_without_tool',
+              excerpt: response,
+            }
+          : undefined,
+    ];
 
     try {
       await runAgentReactLoop(host, new AbortController());
