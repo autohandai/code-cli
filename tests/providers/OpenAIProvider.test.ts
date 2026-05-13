@@ -705,6 +705,64 @@ describe('OpenAIProvider', () => {
       ]);
     });
 
+    it('omits dangling assistant tool calls from codex input items', async () => {
+      const chatgptProvider = new OpenAIProvider({
+        authMode: 'chatgpt',
+        model: 'gpt-5.4',
+        chatgptAuth: {
+          accessToken: 'chatgpt-access-token',
+          accountId: 'chatgpt-account-123',
+        },
+      });
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        sseResponse({
+          id: 'resp-chatgpt-dangling-tool',
+          created_at: 1234567890,
+          output_text: 'OK',
+          output: [],
+        }),
+      );
+
+      await chatgptProvider.complete({
+        messages: [
+          { role: 'user', content: 'Review the current diff' },
+          {
+            role: 'assistant',
+            content: 'Thank you for your feedback!!',
+            tool_calls: [{
+              id: 'call_missing_output',
+              type: 'function',
+              function: {
+                name: 'ask_followup_question',
+                arguments: '{"question":"What should I review?"}',
+              },
+            }],
+          },
+          { role: 'user', content: 'Review the current uncommitted changes' },
+        ],
+      });
+
+      const sentBody = JSON.parse(fetchSpy.mock.calls[0]?.[1]?.body as string);
+      expect(sentBody.input).toEqual([
+        {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: 'Review the current diff' }],
+        },
+        {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'Thank you for your feedback!!' }],
+        },
+        {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: 'Review the current uncommitted changes' }],
+        },
+      ]);
+    });
+
     it('serializes prior assistant text responses as codex output_text items', async () => {
       const chatgptProvider = new OpenAIProvider({
         authMode: 'chatgpt',

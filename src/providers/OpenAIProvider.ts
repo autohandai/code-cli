@@ -351,7 +351,7 @@ export class OpenAIProvider implements LLMProvider {
             stream: true,
             tool_choice: 'auto',
             parallel_tool_calls: true,
-            input: request.messages.flatMap((msg) => this.toResponsesInputItems(msg)),
+            input: this.toResponsesInputItems(request.messages),
         };
 
         if (this.reasoningEffort && VALID_REASONING_EFFORTS.has(this.reasoningEffort)) {
@@ -713,7 +713,32 @@ export class OpenAIProvider implements LLMProvider {
         return parts;
     }
 
-    private toResponsesInputItems(msg: OpenAIProviderMessage): Array<Record<string, unknown>> {
+    private toResponsesInputItems(messages: OpenAIProviderMessage[]): Array<Record<string, unknown>> {
+        const assistantToolCallIds = new Set<string>();
+        const toolOutputIds = new Set<string>();
+
+        for (const msg of messages) {
+            if (msg.role === 'assistant' && msg.tool_calls?.length) {
+                for (const toolCall of msg.tool_calls) {
+                    assistantToolCallIds.add(toolCall.id);
+                }
+            }
+            if (msg.role === 'tool' && msg.tool_call_id) {
+                toolOutputIds.add(msg.tool_call_id);
+            }
+        }
+
+        const matchedToolCallIds = new Set(
+            [...assistantToolCallIds].filter((id) => toolOutputIds.has(id)),
+        );
+
+        return messages.flatMap((msg) => this.toResponsesInputItemsForMessage(msg, matchedToolCallIds));
+    }
+
+    private toResponsesInputItemsForMessage(
+        msg: OpenAIProviderMessage,
+        matchedToolCallIds: Set<string>,
+    ): Array<Record<string, unknown>> {
         const items: Array<Record<string, unknown>> = [];
 
         if (msg.role === 'system') {
@@ -721,6 +746,9 @@ export class OpenAIProvider implements LLMProvider {
         }
 
         if (msg.role === 'tool' && msg.tool_call_id) {
+            if (!matchedToolCallIds.has(msg.tool_call_id)) {
+                return items;
+            }
             items.push({
                 type: 'function_call_output',
                 call_id: msg.tool_call_id,
@@ -740,6 +768,9 @@ export class OpenAIProvider implements LLMProvider {
 
         if (msg.role === 'assistant' && msg.tool_calls?.length) {
             for (const toolCall of msg.tool_calls) {
+                if (!matchedToolCallIds.has(toolCall.id)) {
+                    continue;
+                }
                 items.push({
                     type: 'function_call',
                     call_id: toolCall.id,
