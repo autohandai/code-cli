@@ -392,7 +392,9 @@ See [Workspace Safety](./workspace-safety.md) for full details.
     "autoConfirm": false,
     "readFileCharLimit": 300,
     "silentToolOutput": false,
+    "activityVerbs": ["Compiling", "Parsing", "Reviewing"],
     "activityVerbsEnabled": true,
+    "activitySymbol": "✳",
     "showCompletionNotification": true,
     "showThinking": true,
     "terminalBell": true,
@@ -409,7 +411,9 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `autoConfirm`                | boolean | `false` | Skip confirmation prompts for safe operations                                                  |
 | `readFileCharLimit`          | number | `300`   | Max characters to display from read/find tool output (full content is still sent to the model) |
 | `silentToolOutput`           | boolean | `false` | Hide tool output blocks in the terminal while still preserving tool results for the model/session |
+| `activityVerbs`              | string or string[] | built-in pool | Custom activity verb or verb pool for the working indicator, rendered as `Verb...` |
 | `activityVerbsEnabled`       | boolean | `true`  | Show rotating activity verbs like `Compiling...` while the agent is working |
+| `activitySymbol`             | string | `"✳"`   | Symbol shown before the activity verb in activity indicator output |
 | `completionReportEnabled`    | boolean | `true`  | Ask the model to include a concise completion report after completed action turns |
 | `showCompletionNotification` | boolean | `true`  | Show system notification when task completes                                                   |
 | `showThinking`               | boolean | `true`  | Display LLM's reasoning/thought process                                                        |
@@ -455,6 +459,27 @@ You can toggle rotating activity verbs without editing the file:
 autohand config set verbs activity true
 autohand config set verbs activity false
 ```
+
+Customize the verbs in the config file when you want a fixed status label or a small project-specific rotation:
+
+```json
+{
+  "ui": {
+    "activityVerbs": "Compiling"
+  }
+}
+```
+
+```json
+{
+  "ui": {
+    "activityVerbs": ["Indexing", "Reviewing", "Testing"],
+    "activitySymbol": ">"
+  }
+}
+```
+
+`activityVerbs` accepts either a single string or a non-empty string array. When `activityVerbsEnabled` is `false`, Autohand falls back to `Working...` instead of rotating through custom or built-in verbs.
 
 You can toggle completion reports, including the structured `SITREP` prompt, without editing the file:
 
