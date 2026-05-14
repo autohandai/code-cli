@@ -21,6 +21,15 @@ export interface AgentUIRuntimeHost {
 const USER_NOTIFICATION_DEDUPE_WINDOW_MS = 10 * 60 * 1000;
 const MAX_PENDING_INK_SUBMIT_ECHOES = 20;
 
+export function handleAgentCtrlCExitRequest(host: AgentUIRuntimeHost): void {
+  if (host.shouldExit) {
+    return;
+  }
+
+  host.shouldExit = true;
+  host.clearAllQueuesAndAbort();
+}
+
 function normalizeSubmittedInstructionEcho(text: string): string {
   return text.replace(/\r\n/g, '\n').trim();
 }
@@ -153,7 +162,7 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
           }
         },
         onCtrlC: () => {
-          // Ctrl+C handling - could trigger graceful shutdown
+          handleAgentCtrlCExitRequest(host);
         },
         enableQueueInput: true,
         onImageDetected: (data: Buffer, mimeType: string, filename?: string) =>
