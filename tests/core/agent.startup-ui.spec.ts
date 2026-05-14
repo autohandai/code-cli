@@ -1592,6 +1592,19 @@ describe('agent startup and active input UI', () => {
     expect(uiSetWorking).toHaveBeenCalledWith(false);
   });
 
+  it('closes the session before leaving the interactive loop after an exit request', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const closeSession = vi.fn(async () => {});
+
+    agent.useInkRenderer = false;
+    agent.shouldExit = true;
+    agent.closeSession = closeSession;
+
+    await (agent as any).runInteractiveLoop();
+
+    expect(closeSession).toHaveBeenCalledOnce();
+  });
+
   it('does not print user instruction log in ink renderer mode', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});

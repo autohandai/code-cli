@@ -5,7 +5,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { initializeAgentUI } from '../../../src/core/agent/AgentUIRuntime.js';
+import { handleAgentCtrlCExitRequest, initializeAgentUI } from '../../../src/core/agent/AgentUIRuntime.js';
 
 const originalDebug = process.env.AUTOHAND_DEBUG;
 
@@ -37,5 +37,31 @@ describe('AgentUIRuntime debug output', () => {
 
     expect(writeDebugLine).toHaveBeenCalledWith(expect.stringContaining('[DEBUG] initializeUI: useInkRenderer=false'));
     expect(consoleLogSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('AgentUIRuntime Ctrl+C exit request', () => {
+  it('marks the interactive loop for exit and delegates queue/abort cleanup', () => {
+    const clearAllQueuesAndAbort = vi.fn();
+    const host = {
+      shouldExit: false,
+      clearAllQueuesAndAbort,
+    };
+
+    handleAgentCtrlCExitRequest(host);
+
+    expect(host.shouldExit).toBe(true);
+    expect(clearAllQueuesAndAbort).toHaveBeenCalledOnce();
+  });
+
+  it('does not repeat cleanup after exit has already been requested', () => {
+    const host = {
+      shouldExit: true,
+      clearAllQueuesAndAbort: vi.fn(),
+    };
+
+    handleAgentCtrlCExitRequest(host);
+
+    expect(host.clearAllQueuesAndAbort).not.toHaveBeenCalled();
   });
 });

@@ -1000,6 +1000,46 @@ describe('AgentUI Ctrl+C behavior', () => {
 
     expect(buffer.getText()).toBe('');
   });
+
+  it('requests process exit instead of queueing /quit on second empty Ctrl+C while working', async () => {
+    const onInstruction = vi.fn();
+    const onCtrlC = vi.fn();
+    const state = {
+      ...createInitialUIState(),
+      isWorking: true,
+      status: 'Piping...',
+    };
+
+    const { stdin } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction,
+            onEscape: () => {},
+            onCtrlC,
+            enableQueueInput: true,
+          })
+        )
+      )
+    );
+
+    stdin.write('\x03');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    expect(onInstruction).not.toHaveBeenCalled();
+    expect(onCtrlC).not.toHaveBeenCalled();
+
+    stdin.write('\x03');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    expect(onInstruction).not.toHaveBeenCalledWith('/quit');
+    expect(onInstruction).not.toHaveBeenCalled();
+    expect(onCtrlC).toHaveBeenCalledOnce();
+  });
 });
 
 // =========================================================================

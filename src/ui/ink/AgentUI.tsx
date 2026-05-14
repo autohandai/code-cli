@@ -1108,15 +1108,14 @@ export function AgentUI({
         return;
       }
 
-      // Input is empty - mirror /quit after the warning so the agent can run
-      // its graceful session shutdown path instead of only unmounting Ink.
-      // Use functional update to avoid dependency on ctrlCCount
+      // Input is empty: first press shows the warning, second asks the host
+      // runtime to abort active work and exit instead of queueing /quit.
+      // Use functional update to avoid dependency on ctrlCCount.
       setCtrlCCount(prev => {
         if (prev === 0) {
-          onCtrlCRef.current();
           return 1;
         } else {
-          setImmediate(() => onInstructionRef.current('/quit'));
+          setImmediate(() => onCtrlCRef.current());
           return prev;
         }
       });

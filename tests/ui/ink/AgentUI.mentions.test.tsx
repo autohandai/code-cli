@@ -206,14 +206,16 @@ describe('AgentUI @ mention handling', () => {
 });
 
 describe('AgentUI Ctrl+C exit handling', () => {
-  it('submits /quit on the second Ctrl+C with an empty composer', async () => {
+  it('requests host exit on the second Ctrl+C with an empty composer', async () => {
     const onInstruction = vi.fn();
+    const onCtrlC = vi.fn();
     const { stdin, lastFrame } = renderAgentUIWithStdin({
       state: {
         ...createInitialUIState(),
         isWorking: false,
       },
       onInstruction,
+      onCtrlC,
     });
 
     await new Promise(r => setImmediate(r));
@@ -227,7 +229,8 @@ describe('AgentUI Ctrl+C exit handling', () => {
     stdin.write('\x03');
     await new Promise(r => setTimeout(r, 50));
 
-    expect(onInstruction).toHaveBeenCalledWith('/quit');
+    expect(onInstruction).not.toHaveBeenCalled();
+    expect(onCtrlC).toHaveBeenCalledOnce();
   });
 });
 
