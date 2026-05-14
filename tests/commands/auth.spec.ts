@@ -156,6 +156,36 @@ describe('login command', () => {
     expect(consoleOutput.some((line) => line.toLowerCase().includes('failed'))).toBe(true);
   });
 
+  it('stops polling when browser authorization is cancelled', async () => {
+    const mockConfig: LoadedConfig = {
+      configPath: '/home/user/.autohand/config.json',
+    };
+
+    const mockAuthClient = {
+      initiateDeviceAuth: vi.fn().mockResolvedValue({
+        success: true,
+        deviceCode: 'device-123',
+        userCode: 'ABC-123',
+        verificationUriComplete: 'https://auth.autohand.ai/device?code=ABC-123',
+        interval: 0.01,
+      }),
+      pollDeviceAuth: vi.fn().mockResolvedValue({
+        status: 'cancelled',
+        error: 'Device authorization was cancelled',
+      }),
+    };
+
+    (getAuthClient as ReturnType<typeof vi.fn>).mockReturnValue(mockAuthClient);
+
+    const { login } = await import('../../src/commands/login.js');
+    const result = await login({ config: mockConfig });
+
+    expect(result).toBeNull();
+    expect(mockAuthClient.pollDeviceAuth).toHaveBeenCalledTimes(1);
+    expect(consoleOutput.some((line) => line.includes('Authentication cancelled.'))).toBe(true);
+    expect(saveConfig).not.toHaveBeenCalled();
+  });
+
   it('falls back to manual browser instructions when xdg-open is unavailable', async () => {
     Object.defineProperty(process, 'platform', { value: 'linux' });
 

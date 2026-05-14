@@ -94,7 +94,7 @@ export class AuthClient {
       });
 
       clearTimeout(timeoutId);
-      const data = await response.json() as { success?: boolean; status?: 'pending' | 'authorized' | 'expired'; token?: string; user?: AuthUser; error?: string; message?: string };
+      const data = await response.json() as { success?: boolean; status?: 'pending' | 'authorized' | 'expired' | 'cancelled'; token?: string; user?: AuthUser; error?: string; message?: string };
 
       if (!response.ok && response.status !== 404) {
         return {

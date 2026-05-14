@@ -179,6 +179,12 @@ export async function login(ctx: LoginContext): Promise<string | null> {
       return null;
     }
 
+    if (pollResult.status === 'cancelled') {
+      process.stdout.write('\r' + ' '.repeat(20) + '\r');
+      console.log(chalk.yellow('Authentication cancelled. Run /login again when you are ready.'));
+      return null;
+    }
+
     // Continue polling if still pending
   }
 
