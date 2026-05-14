@@ -176,6 +176,17 @@ describe('InputLine themed variants', () => {
     expect(source).toContain("theme.fgBg(borderToken, 'userMessageBg', borders.bottom)");
   });
 
+  it('uses Ink cursor positioning instead of rendering a fake cursor glyph', () => {
+    const source = readFileSync(
+      path.resolve(process.cwd(), 'src/ui/ink/InputLine.tsx'),
+      'utf8'
+    );
+
+    expect(source).toContain('useCursor');
+    expect(source).toContain('setCursorPosition');
+    expect(source).not.toContain('<Text inverse>');
+  });
+
   it('renders default border style with boxed content', () => {
     const { lastFrame } = render(
       <ThemeProvider>
@@ -269,7 +280,7 @@ describe('InputLine cursor positioning', () => {
     expect(output).toContain('world');
   });
 
-  it('renders a visible styled cursor at the cursor offset', () => {
+  it('keeps text intact around the cursor offset', () => {
     const originalChalkLevel = chalk.level;
     let output = '';
 
@@ -286,10 +297,10 @@ describe('InputLine cursor positioning', () => {
       chalk.level = originalChalkLevel;
     }
 
-    expect(output).toMatch(/he(?:\u001b\[[0-9;]*m)+l(?:\u001b\[[0-9;]*m)+lo/);
+    expect(stripAnsi(output)).toContain('hello');
   });
 
-  it('renders a visible block cursor after the last typed character', () => {
+  it('keeps trailing cursor space available after the last typed character', () => {
     const originalChalkLevel = chalk.level;
     let output = '';
 
@@ -306,7 +317,7 @@ describe('InputLine cursor positioning', () => {
       chalk.level = originalChalkLevel;
     }
 
-    expect(output).toMatch(/hello(?:\u001b\[[0-9;]*m)+ /);
+    expect(stripAnsi(output)).toContain('hello');
   });
 
   it('handles empty input with cursor at start', () => {

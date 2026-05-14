@@ -3,8 +3,8 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { memo, useMemo } from 'react';
-import { Box, Text } from 'ink';
+import React, { memo, useEffect, useMemo, useRef } from 'react';
+import { Box, Text, useBoxMetrics, useCursor, type DOMElement } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
 import { buildMultiLineRenderState } from '../inputPrompt.js';
 import { stripAnsiCodes } from '../displayUtils.js';
@@ -15,6 +15,25 @@ function drawInkBorder(width: number, position: 'top' | 'bottom'): string {
   return position === 'top'
     ? `┌${'─'.repeat(innerWidth)}┐`
     : `└${'─'.repeat(innerWidth)}┘`;
+}
+
+function getAbsoluteInkPosition(node: DOMElement | null): { left: number; top: number } | null {
+  if (!node) {
+    return null;
+  }
+
+  let left = 0;
+  let top = 0;
+  let current: DOMElement | undefined = node;
+
+  while (current && current.nodeName !== 'ink-root') {
+    const layout = current.yogaNode?.getComputedLayout();
+    left += layout?.left ?? 0;
+    top += layout?.top ?? 0;
+    current = current.parentNode;
+  }
+
+  return { left, top };
 }
 
 export interface InputLineProps {
@@ -44,6 +63,9 @@ function InputLineComponent({
   inlineGhostSuffix,
 }: InputLineProps) {
   const { theme } = useTheme();
+  const rootRef = useRef<DOMElement>(null);
+  const boxMetrics = useBoxMetrics(rootRef as React.RefObject<DOMElement>);
+  const { setCursorPosition } = useCursor();
 
   const borderToken = borderStyle === 'plan'
     ? 'warning'
@@ -79,26 +101,43 @@ function InputLineComponent({
     };
   }, [value, cursorOffset, width, borderStyle, placeholderText, nextPromptSuggestion, inlineGhostSuffix]);
 
-  const renderContentLine = (line: string, index: number) => {
-    if (index !== displayData.cursorRow) {
-      return (
-        <Text key={index}>
-          {theme.fgBg('userMessageText', 'userMessageBg', line)}
-        </Text>
-      );
+  useEffect(() => {
+    if (!isActive || !boxMetrics.hasMeasured) {
+      setCursorPosition(undefined);
+      return;
     }
 
-    const cursorColumn = Math.max(0, Math.min(line.length - 1, displayData.cursorColumn));
-    const before = line.slice(0, cursorColumn);
-    const cursorChar = line[cursorColumn] ?? ' ';
-    const after = line.slice(cursorColumn + 1);
+    const position = getAbsoluteInkPosition(rootRef.current);
+    if (!position) {
+      setCursorPosition(undefined);
+      return;
+    }
 
+    setCursorPosition({
+      x: position.left + displayData.cursorColumn,
+      y: position.top + displayData.cursorRow + 1,
+    });
+
+    return () => {
+      setCursorPosition(undefined);
+    };
+  }, [
+    boxMetrics.hasMeasured,
+    boxMetrics.height,
+    boxMetrics.left,
+    boxMetrics.top,
+    boxMetrics.width,
+    displayData.cursorColumn,
+    displayData.cursorRow,
+    isActive,
+    setCursorPosition,
+  ]);
+
+  const renderContentLine = (line: string, index: number) => {
     return (
-      <Box key={index}>
-        <Text>{theme.fgBg('userMessageText', 'userMessageBg', before)}</Text>
-        <Text inverse>{theme.fgBg('userMessageText', 'userMessageBg', cursorChar)}</Text>
-        <Text>{theme.fgBg('userMessageText', 'userMessageBg', after)}</Text>
-      </Box>
+      <Text key={index}>
+        {theme.fgBg('userMessageText', 'userMessageBg', line)}
+      </Text>
     );
   };
 
@@ -113,7 +152,7 @@ function InputLineComponent({
 
   // Active state mirrors the boxed prompt style from readline mode.
   return (
-    <Box flexDirection="column">
+    <Box ref={rootRef} flexDirection="column">
       <Text>{theme.fgBg(borderToken, 'userMessageBg', borders.top)}</Text>
       {displayData.plainLines.map(renderContentLine)}
       <Text>{theme.fgBg(borderToken, 'userMessageBg', borders.bottom)}</Text>
