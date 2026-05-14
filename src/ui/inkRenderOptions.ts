@@ -6,5 +6,8 @@
 import type { RenderOptions } from 'ink';
 
 export function inkRenderOptions(options: RenderOptions): RenderOptions {
-  return options;
+  return {
+    maxFps: 60,
+    ...options,
+  };
 }

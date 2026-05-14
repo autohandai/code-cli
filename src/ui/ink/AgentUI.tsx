@@ -655,8 +655,9 @@ export function AgentUI({
   skillSuggestionsRef.current = skillSuggestions;
   const skillActiveIndexRef = useRef(skillActiveIndex);
   skillActiveIndexRef.current = skillActiveIndex;
-  // Throttled sync from buffer to React state to batch rapid keystrokes
-  // and reduce re-render frequency during fast typing (16ms = ~60fps).
+  // The TextBuffer is the keystroke source of truth. Sync it into React and
+  // the renderer owner immediately so pause/resume, submit, and external
+  // status updates cannot observe a stale composer draft.
   const inputSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingInputSyncRef = useRef<{ text: string; offset: number } | null>(null);
 
@@ -667,6 +668,7 @@ export function AgentUI({
     pendingInputSyncRef.current = null;
     setInput(pending.text);
     setCursorOffset(pending.offset);
+    onInputChangeRef.current?.(pending.text);
   }, []);
 
   const syncInputFromBuffer = useCallback(() => {
@@ -675,9 +677,7 @@ export function AgentUI({
       text: buffer.getText(),
       offset: getTextBufferCursorOffset(buffer),
     };
-    if (!inputSyncTimerRef.current) {
-      inputSyncTimerRef.current = setTimeout(flushInputSync, 16);
-    }
+    flushInputSync();
   }, [flushInputSync]);
 
   const lastColumnsRef = useRef(process.stdout.columns);

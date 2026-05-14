@@ -213,6 +213,33 @@ describe('AgentUI composer suggestions', () => {
     { command: '/model', description: 'Switch model', implemented: true },
   ];
 
+  it('syncs typed input to the renderer owner before the old throttle window', async () => {
+    const onInputChange = vi.fn();
+    const state = createInitialUIState();
+    const { stdin } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+            onInputChange,
+          })
+        )
+      )
+    );
+
+    stdin.write('a');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(onInputChange).toHaveBeenCalledWith('a');
+  });
+
   it('renders next-step suggestion in the empty Ink composer', () => {
     const state = createInitialUIState();
     const { lastFrame } = render(
