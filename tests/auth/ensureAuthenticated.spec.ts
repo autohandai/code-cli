@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import stringWidth from 'string-width';
 
 vi.mock('../../src/ui/ink/components/Modal.js', () => ({
   showModal: vi.fn(),
@@ -45,6 +46,7 @@ const mockAuthClient = AuthClient as unknown as ReturnType<typeof vi.fn>;
 describe('ensureAuthenticated', () => {
   let exitSpy: ReturnType<typeof vi.spyOn>;
   const originalIsTTY = process.stdout.isTTY;
+  const originalColumns = process.stdout.columns;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -62,6 +64,7 @@ describe('ensureAuthenticated', () => {
   afterEach(() => {
     exitSpy.mockRestore();
     Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, writable: true });
+    Object.defineProperty(process.stdout, 'columns', { value: originalColumns, writable: true, configurable: true });
   });
 
   it('returns config immediately for a locally valid token without blocking on server validation', async () => {
@@ -133,6 +136,23 @@ describe('ensureAuthenticated', () => {
 
     expect(showModal).toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it('passes terminal-width-aware logo art to the login modal', async () => {
+    const mockConfig: LoadedConfig = {
+      configPath: '/tmp/config.json',
+    };
+
+    Object.defineProperty(process.stdout, 'columns', { value: 40, writable: true, configurable: true });
+    mockLoadConfig.mockResolvedValue({ ...mockConfig });
+    (showModal as ReturnType<typeof vi.fn>).mockResolvedValue({ value: 'exit' });
+
+    await expect(ensureAuthenticated(mockConfig)).rejects.toThrow('PROCESS_EXIT');
+
+    const [{ logo }] = (showModal as ReturnType<typeof vi.fn>).mock.calls[0];
+    const logoLines = String(logo).split('\n').filter((line) => line.trim().length > 0);
+    expect(logoLines.some((line) => line.includes('()'))).toBe(true);
+    expect(logoLines.every((line) => stringWidth(line) <= 40)).toBe(true);
   });
 
   it('trusts local token on network error during validation', async () => {

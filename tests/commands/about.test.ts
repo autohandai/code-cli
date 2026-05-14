@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it } from 'vitest';
+import stringWidth from 'string-width';
 
 describe('/about command', () => {
   it('shows a personalized welcome and suggestions for signed-in users', async () => {
@@ -41,5 +42,15 @@ describe('/about command', () => {
 
     expect(output).not.toContain('Hey');
     expect(output).not.toContain('here are a few suggestions');
+  });
+
+  it('uses terminal-width-aware logo art', async () => {
+    const { about } = await import('../../src/commands/about.js');
+
+    const output = await about({ terminalColumns: 12 });
+    const logoLines = output!.split('\n').slice(0, 2);
+
+    expect(logoLines).toEqual(['o o o o', 'o o o o']);
+    expect(logoLines.every((line) => stringWidth(line) <= 12)).toBe(true);
   });
 });

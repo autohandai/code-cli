@@ -31,7 +31,7 @@ import { PROJECT_DIR_NAME } from './constants.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessionWorktree.js';
 import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './utils/tmux.js';
 import { registerChromeCommand } from './browser/cliCommand.js';
-import { ASCII_FRIEND } from './utils/asciiArt.js';
+import { getTerminalColumns, renderAutohandLogo } from './utils/asciiArt.js';
 import {
   formatInstallHint,
   formatStartupBanner,
@@ -1386,7 +1386,7 @@ function printBanner(): void {
     // \x1b[2J = clear entire screen (visible only)
     // \x1b[H = move cursor to home position (top-left)
     process.stdout.write('\x1b[3J\x1b[2J\x1b[H');
-    console.log(formatStartupBanner(ASCII_FRIEND));
+    console.log(formatStartupBanner(renderAutohandLogo({ columns: getTerminalColumns(process.stdout) })));
   } else {
     console.log('autohand');
   }
