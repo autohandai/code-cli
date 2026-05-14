@@ -477,6 +477,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
     while (true) {
       // Check if we should exit immediately (SIGINT/SIGTERM received)
       if (host.shouldExit) {
+        await host.closeSession();
         return;
       }
 
@@ -485,6 +486,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
 
         // Check shouldExit again before processing any queued items
         if (host.shouldExit) {
+          await host.closeSession();
           return;
         }
 
