@@ -57,6 +57,26 @@ function expectCursorAfterTypedText(screen: string, typedText: string): void {
   expect(cursorColumn, screen).toBeGreaterThanOrEqual(textColumn + typedText.length);
 }
 
+async function waitForInkCursorSequenceAfterTypedText(session: Session, typedText: string): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  const cursorColumn = typedText.length + 4;
+  const expectedSequence = `\u001b[${cursorColumn}G\u001b[?25h`;
+  let rawTail = '';
+
+  while (Date.now() < deadline) {
+    await session.waitIdle({ timeout: 15 }).catch(() => undefined);
+    rawTail = session.getRawOutput().slice(-2_000);
+
+    if (rawTail.includes(expectedSequence)) {
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+
+  expect(rawTail).toContain(expectedSequence);
+}
+
 function composerLineIncludes(screen: string, text: string): boolean {
   return screen.split('\n').some((line) => line.includes('│❯') && line.includes(text));
 }
@@ -144,7 +164,7 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
-  it('keeps the real terminal cursor at the typed prompt position while composing', async () => {
+  it('keeps only the real terminal cursor at the typed prompt position while composing', async () => {
     const session = await launchInteractive({
       config: {
         ui: {
@@ -162,12 +182,22 @@ describe('interactive built CLI Tuistory tests', () => {
       const screen = await session.text({
         timeout: 2_000,
         waitFor: (text) => composerLineIncludes(text, typedPrefix),
-        showCursor: true,
         trimEnd: true,
       });
 
       expect(screen).toContain(typedPrefix);
-      expectCursorAfterTypedText(screen, typedPrefix);
+      expect(screen).not.toContain(CURSOR_CHAR);
+
+      await waitForInkCursorSequenceAfterTypedText(session, typedPrefix);
+
+      const cursorScreen = await session.text({
+        immediate: true,
+        showCursor: true,
+        trimEnd: true,
+      });
+      if (cursorScreen.includes(CURSOR_CHAR)) {
+        expectCursorAfterTypedText(cursorScreen, typedPrefix);
+      }
     }
 
     await exitInteractive(session);

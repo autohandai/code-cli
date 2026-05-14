@@ -15,7 +15,7 @@ import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 import { initTheme } from '../../../src/ui/theme/index.js';
 
 function stripAnsi(value: string): string {
-  return value.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '').replace(/█/g, '');
+  return value.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
 }
 
 function renderInputLine(value: string) {
@@ -176,7 +176,7 @@ describe('InputLine themed variants', () => {
     expect(source).toContain("theme.fgBg(borderToken, 'userMessageBg', borders.bottom)");
   });
 
-  it('uses Ink cursor positioning with a rendered fallback cursor instead of inverse text', () => {
+  it('uses Ink cursor positioning without rendering a competing cursor glyph', () => {
     const source = readFileSync(
       path.resolve(process.cwd(), 'src/ui/ink/InputLine.tsx'),
       'utf8'
@@ -184,7 +184,8 @@ describe('InputLine themed variants', () => {
 
     expect(source).toContain('useCursor');
     expect(source).toContain('setCursorPosition');
-    expect(source).toContain('renderHardwareCursorFallback');
+    expect(source).not.toContain('renderHardwareCursorFallback');
+    expect(source).not.toContain('█');
     expect(source).not.toContain('<Text inverse>');
   });
 
