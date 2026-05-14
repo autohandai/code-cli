@@ -365,6 +365,14 @@ export function shouldUsePassiveAgentSessionRetry(error: Error): boolean {
   }
 
 export function injectAgentContinuationMessage(host: AgentInputTurnHost, error: Error, retryAttempt: number): void {
+    const conversation = host.conversation as {
+      isInitialized?: () => boolean;
+      addSystemNote(content: string): void;
+    };
+    if (typeof conversation.isInitialized === 'function' && !conversation.isInitialized()) {
+      return;
+    }
+
     const continuationPrompts = [
       // First retry: gentle continuation
       `[System Recovery] An error occurred (${error.message}). Please continue from where you left off. ` +
@@ -387,5 +395,5 @@ export function injectAgentContinuationMessage(host: AgentInputTurnHost, error: 
     const continuationMessage = continuationPrompts[promptIndex];
 
     // Add as a system note to preserve conversation flow
-    host.conversation.addSystemNote(continuationMessage);
+    conversation.addSystemNote(continuationMessage);
   }
