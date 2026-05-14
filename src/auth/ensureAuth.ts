@@ -9,7 +9,7 @@ import chalk from 'chalk';
 import { AuthClient } from './AuthClient.js';
 import { loadConfig } from '../config.js';
 import { showModal } from '../ui/ink/components/Modal.js';
-import { LOGO_LINES } from '../utils/asciiArt.js';
+import { getTerminalColumns, renderAutohandLogo } from '../utils/asciiArt.js';
 import { checkForUpdates } from '../utils/versionCheck.js';
 import packageJson from '../../package.json' with { type: 'json' };
 import type { LoadedConfig } from '../types.js';
@@ -193,7 +193,11 @@ async function promptLogin(config: LoadedConfig): Promise<LoadedConfig> {
       // Silently fail version check
     }
 
-    const logoWithVersion = [...LOGO_LINES, '', chalk.gray(versionStr)].join('\n');
+    const logo = renderAutohandLogo({
+      columns: getTerminalColumns(process.stdout),
+      includeWordmark: true,
+    });
+    const logoWithVersion = [logo, '', chalk.gray(versionStr)].join('\n');
     
     // Build options based on update availability
     const options = [
