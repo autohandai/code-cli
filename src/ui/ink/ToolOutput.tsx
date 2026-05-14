@@ -106,8 +106,59 @@ function applyForeground(color: string, text: string): string {
   return ansi ? `${ansi}${text}\x1b[39m` : text;
 }
 
+function renderDiffStatsLine(line: string, colors: ResolvedColors): string | null {
+  const match = line.trim().match(/^Added (.+), removed (.+)$/);
+  if (!match) {
+    return null;
+  }
+
+  return [
+    applyForeground(colors.diffContext, '  Added '),
+    applyForeground(colors.diffAdded, match[1]),
+    applyForeground(colors.diffContext, ', removed '),
+    applyForeground(colors.diffRemoved, match[2]),
+  ].join('');
+}
+
+function renderDiffGutter(
+  marker: string,
+  line: string,
+  color: string
+): string {
+  return applyForeground(color, `  ${marker} ${line || ' '}`);
+}
+
 function renderThemedDiffLine(line: string, colors: ResolvedColors): string {
-  return applyForeground(getDiffLineColor(line, colors), line || ' ');
+  const statsLine = renderDiffStatsLine(line, colors);
+  if (statsLine) {
+    return statsLine;
+  }
+
+  const trimmed = line.trimStart();
+
+  if (trimmed.startsWith('diff --git')) {
+    return renderDiffGutter('┌', line, colors.accent);
+  }
+  if (trimmed.startsWith('@@')) {
+    return renderDiffGutter('├', line, colors.accent);
+  }
+  if (
+    trimmed.startsWith('index ') ||
+    trimmed.startsWith('new file') ||
+    trimmed.startsWith('deleted file') ||
+    trimmed.startsWith('---') ||
+    trimmed.startsWith('+++')
+  ) {
+    return renderDiffGutter('│', line, colors.accent);
+  }
+  if (trimmed.startsWith('+') && !trimmed.startsWith('+++')) {
+    return renderDiffGutter('│', line, colors.diffAdded);
+  }
+  if (trimmed.startsWith('-') && !trimmed.startsWith('---')) {
+    return renderDiffGutter('│', line, colors.diffRemoved);
+  }
+
+  return renderDiffGutter('│', line, getDiffLineColor(line, colors));
 }
 
 export function ThemedDiffOutput({ output }: { output: string }) {
