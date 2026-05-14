@@ -9,7 +9,10 @@ import { describe, it, expect } from 'vitest';
 import { getContentDisplay } from '../../src/ui/displayUtils.js';
 
 function expectedPasteToken(text: string): string {
-  return `[Text pasted ${Array.from(text).length} chars]`;
+  const lineCount = text.split('\n').length;
+  return lineCount >= 5
+    ? `[Text Pasted +${lineCount} lines]`
+    : `[Text Pasted ${Array.from(text).length} chars]`;
 }
 
 describe('Paste State Handling', () => {

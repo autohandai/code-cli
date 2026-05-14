@@ -27,7 +27,7 @@ import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 import { getPromptBlockWidth } from '../../../src/ui/inputPrompt.js';
 
 function stripAnsi(value: string): string {
-  return value.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '');
+  return value.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/█/g, '');
 }
 
 function setStdoutColumns(stdout: { columns: number; rows?: number }, columns: number): void {

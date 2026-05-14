@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import React, { useState, useEffect, memo, useMemo, useRef, useCallback } from 'react';
-import { Box, Static, Text, useInput, useStdout, type Key as InkKey } from 'ink';
+import { Box, Static, Text, useInput, usePaste, useStdout, type Key as InkKey } from 'ink';
 import {
   StatusLine,
   formatLineSegments,
@@ -714,6 +714,28 @@ export function AgentUI({
 
   }, []);
 
+  const insertPastedText = useCallback((pastedText: string) => {
+    const imageDetector = onImageDetectedRef.current;
+    const processedText = imageDetector
+      ? processImagesInText(pastedText, imageDetector, { announce: false })
+      : pastedText;
+    const display = getContentDisplay(processedText);
+    const pasteState = pasteStateRef.current;
+    const buffer = textBufferRef.current;
+
+    if (display.isPasted) {
+      storeInkHiddenPaste(pasteState, display.visual, display.actual);
+      buffer.insert(display.visual);
+    } else {
+      clearInkHiddenPastes(pasteState);
+      buffer.insert(processedText);
+    }
+
+    syncInputFromBuffer();
+  }, [syncInputFromBuffer]);
+
+  usePaste(insertPastedText);
+
   const acceptActiveAutocompleteSuggestion = useCallback((options?: { preserveExactSlashSubmit?: boolean }): boolean => {
     if (slashVisibleRef.current && slashSuggestionsRef.current.length > 0 && slashStartIndexRef.current !== null) {
       const suggestion = slashSuggestionsRef.current[slashActiveIndexRef.current];
@@ -1042,23 +1064,7 @@ export function AgentUI({
     const pasteResult = consumeInkBracketedPasteInput(char, pasteStateRef.current);
     if (pasteResult.handled) {
       if (pasteResult.completedText !== undefined) {
-        const imageDetector = onImageDetectedRef.current;
-        const processedText = imageDetector
-          ? processImagesInText(pasteResult.completedText, imageDetector, { announce: false })
-          : pasteResult.completedText;
-        const display = getContentDisplay(processedText);
-        const pasteState = pasteStateRef.current;
-        const buffer = textBufferRef.current;
-
-        if (display.isPasted) {
-          storeInkHiddenPaste(pasteState, display.visual, display.actual);
-          buffer.insert(display.visual);
-        } else {
-          clearInkHiddenPastes(pasteState);
-          buffer.insert(processedText);
-        }
-
-        syncInputFromBuffer();
+        insertPastedText(pasteResult.completedText);
       }
       return;
     }
@@ -1433,7 +1439,7 @@ export function AgentUI({
       }
       return;
     }
-  }, [syncBufferViewport, syncInputFromBuffer, dismissAutocompleteState, acceptActiveAutocompleteSuggestion]);
+  }, [syncBufferViewport, syncInputFromBuffer, dismissAutocompleteState, acceptActiveAutocompleteSuggestion, insertPastedText]);
 
   // Extra safety: wrap in a ref so useInput never re-registers even if
   // the above callback identity changes unexpectedly.

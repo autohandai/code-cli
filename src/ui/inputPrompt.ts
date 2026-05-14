@@ -724,7 +724,7 @@ function formatSuggestionLines(
   });
 }
 
-const PASTED_REFERENCE_PATTERN = /\[Text pasted(?:\s+\d+\s+chars|:\s*\d+\s+lines)\]/;
+const PASTED_REFERENCE_PATTERN = /\[Text [Pp]asted(?:\s+\+?\d+\s+(?:chars|lines)|:\s*\d+\s+lines)\]/;
 
 export function removePastedReferenceFromLine(line: string): { line: string; cursor: number } | null {
   const match = PASTED_REFERENCE_PATTERN.exec(line);
