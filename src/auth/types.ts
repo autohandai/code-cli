@@ -29,7 +29,7 @@ export interface DeviceAuthInitResponse {
 /** Device authorization poll response */
 export interface DeviceAuthPollResponse {
   success: boolean;
-  status: 'pending' | 'authorized' | 'expired';
+  status: 'pending' | 'authorized' | 'expired' | 'cancelled';
   token?: string;
   user?: AuthUser;
   error?: string;
