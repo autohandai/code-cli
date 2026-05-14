@@ -3,7 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { Box, Text, useCursor, type DOMElement } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
 import { buildMultiLineRenderState } from '../inputPrompt.js';
@@ -38,23 +38,6 @@ function getAbsoluteInkPosition(
   return { left, top };
 }
 
-function renderHardwareCursorFallback(line: string, cursorColumn: number): string {
-  if (cursorColumn < 0 || cursorColumn >= line.length) {
-    return line;
-  }
-
-  // Some terminals let Ink hide the hardware cursor after redraws, so keep a
-  // visible cursor cell without dropping the character at the cursor offset.
-  const rightBorder = line.slice(-1);
-  const beforeRightBorder = line.slice(0, -1);
-  const shiftedContent = beforeRightBorder.slice(
-    cursorColumn,
-    Math.max(cursorColumn, beforeRightBorder.length - 1)
-  );
-
-  return `${beforeRightBorder.slice(0, cursorColumn)}█${shiftedContent}${rightBorder}`;
-}
-
 export interface InputLineProps {
   value: string;
   cursorOffset: number;
@@ -84,7 +67,6 @@ function InputLineComponent({
   const { theme } = useTheme();
   const rootRef = useRef<DOMElement>(null);
   const { setCursorPosition } = useCursor();
-  const [cursorVisible, setCursorVisible] = useState(true);
 
   const borderToken = borderStyle === 'plan'
     ? 'warning'
@@ -120,25 +102,6 @@ function InputLineComponent({
     };
   }, [value, cursorOffset, width, borderStyle, placeholderText, nextPromptSuggestion, inlineGhostSuffix]);
 
-  useEffect(() => {
-    if (!isActive) {
-      setCursorVisible(true);
-      return;
-    }
-
-    const timer = setInterval(() => {
-      setCursorVisible((visible) => !visible);
-    }, 530);
-
-    return () => {
-      clearInterval(timer);
-    };
-  }, [isActive]);
-
-  useEffect(() => {
-    setCursorVisible(true);
-  }, [value, cursorOffset]);
-
   const cursorPosition = (() => {
     if (!isActive) {
       return undefined;
@@ -152,18 +115,6 @@ function InputLineComponent({
   })();
 
   setCursorPosition(cursorPosition);
-
-  const renderedLines = useMemo(() => {
-    if (!isActive || !cursorVisible) {
-      return displayData.plainLines;
-    }
-
-    return displayData.plainLines.map((line, index) => (
-      index === displayData.cursorRow
-        ? renderHardwareCursorFallback(line, displayData.cursorColumn)
-        : line
-    ));
-  }, [cursorVisible, displayData.cursorColumn, displayData.cursorRow, displayData.plainLines, isActive]);
 
   const renderContentLine = (line: string, index: number) => {
     return (
@@ -186,7 +137,7 @@ function InputLineComponent({
   return (
     <Box ref={rootRef} flexDirection="column">
       <Text>{theme.fgBg(borderToken, 'userMessageBg', borders.top)}</Text>
-      {renderedLines.map(renderContentLine)}
+      {displayData.plainLines.map(renderContentLine)}
       <Text>{theme.fgBg(borderToken, 'userMessageBg', borders.bottom)}</Text>
     </Box>
   );
