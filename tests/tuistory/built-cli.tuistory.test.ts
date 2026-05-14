@@ -28,6 +28,7 @@ import {
 const sessions: Session[] = [];
 const tempStates: TuistoryTempState[] = [];
 const mockServers: MockOllamaServer[] = [];
+const CURSOR_CHAR = '█';
 
 async function trackSession(sessionPromise: Promise<Session>): Promise<Session> {
   const session = await sessionPromise;
@@ -39,6 +40,25 @@ async function typeLikeUser(session: Session, text: string): Promise<void> {
   for (const char of text) {
     await session.type(char);
   }
+}
+
+function expectCursorAfterTypedText(screen: string, typedText: string): void {
+  const typedLine = screen.split('\n').find((line) => (
+    line.includes('│❯') &&
+    line.includes(typedText)
+  ));
+
+  expect(typedLine, screen).toBeTruthy();
+  expect(typedLine?.includes(CURSOR_CHAR), screen).toBe(true);
+
+  const textColumn = typedLine?.indexOf(typedText) ?? -1;
+  const cursorColumn = typedLine?.indexOf(CURSOR_CHAR) ?? -1;
+
+  expect(cursorColumn, screen).toBeGreaterThanOrEqual(textColumn + typedText.length);
+}
+
+function composerLineIncludes(screen: string, text: string): boolean {
+  return screen.split('\n').some((line) => line.includes('│❯') && line.includes(text));
 }
 
 afterEach(async () => {
@@ -120,6 +140,90 @@ describe('interactive built CLI Tuistory tests', () => {
 
     expect(screen).toContain('Autohand');
     expect(screen).toContain('model:');
+
+    await exitInteractive(session);
+  });
+
+  it('keeps the real terminal cursor at the typed prompt position while composing', async () => {
+    const session = await launchInteractive({
+      config: {
+        ui: {
+          promptSuggestions: false,
+        },
+      },
+    });
+
+    await waitForComposer(session);
+
+    const prompt = 'ship the cursor';
+    for (let index = 0; index < prompt.length; index += 1) {
+      await session.type(prompt[index] ?? '');
+      const typedPrefix = prompt.slice(0, index + 1);
+      const screen = await session.text({
+        timeout: 2_000,
+        waitFor: (text) => composerLineIncludes(text, typedPrefix),
+        showCursor: true,
+        trimEnd: true,
+      });
+
+      expect(screen).toContain(typedPrefix);
+      expectCursorAfterTypedText(screen, typedPrefix);
+    }
+
+    await exitInteractive(session);
+  });
+
+  it('keeps multiline, large paste, and image paste placeholders intact in the real prompt', async () => {
+    const session = await launchInteractive({
+      config: {
+        ui: {
+          promptSuggestions: false,
+        },
+      },
+    });
+
+    await waitForComposer(session);
+    await session.type('first line');
+    await session.press(['shift', 'enter']);
+    await session.type('second line');
+
+    const multilineScreen = await session.text({
+      timeout: 10_000,
+      waitFor: (text) => text.includes('first line') && text.includes('second line'),
+      trimEnd: true,
+    });
+
+    expect(multilineScreen).toContain('first line');
+    expect(multilineScreen).toContain('second line');
+
+    await clearComposerInput(session);
+
+    const pastedText = Array.from({ length: 101 }, (_, index) => `pasted line ${index + 1}`)
+      .join('\n');
+    session.writeRaw(`\u001b[200~${pastedText}\u001b[201~`);
+
+    const largePasteScreen = await session.text({
+      timeout: 10_000,
+      waitFor: (text) => text.includes('[Text Pasted +101 lines]'),
+      trimEnd: true,
+    });
+
+    expect(largePasteScreen).toContain('[Text Pasted +101 lines]');
+    expect(largePasteScreen).not.toContain('pasted line 101');
+
+    await clearComposerInput(session);
+
+    session.writeRaw(
+      '\u001b[200~data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=\u001b[201~'
+    );
+
+    const imagePasteScreen = await session.text({
+      timeout: 10_000,
+      waitFor: (text) => /\[Image #\d+\]/.test(text),
+      trimEnd: true,
+    });
+
+    expect(imagePasteScreen).toMatch(/\[Image #\d+\]/);
 
     await exitInteractive(session);
   });

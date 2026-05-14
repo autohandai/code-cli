@@ -86,8 +86,12 @@ export function getContentDisplay(text: string): ContentDisplay {
   const lineCount = lines.length;
 
   if (lineCount >= PASTE_LINE_THRESHOLD || charCount >= PASTE_CHAR_THRESHOLD) {
+    const visual = lineCount >= PASTE_LINE_THRESHOLD
+      ? `[Text Pasted +${lineCount} lines]`
+      : `[Text Pasted ${charCount} chars]`;
+
     return {
-      visual: `[Text pasted ${charCount} chars]`,
+      visual,
       actual: text,
       isPasted: true,
       lineCount,
