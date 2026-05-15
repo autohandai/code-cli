@@ -11,7 +11,8 @@ import { getAuthClient } from '../auth/index.js';
 import { saveConfig } from '../config.js';
 import { AUTH_CONFIG } from '../constants.js';
 import type { LoadedConfig } from '../types.js';
-import { createSyncService, DEFAULT_SYNC_CONFIG } from '../sync/index.js';
+import { createSyncService, DEFAULT_SYNC_CONFIG, isMemorySyncPath } from '../sync/index.js';
+import type { SyncFileEntry } from '../sync/index.js';
 
 export const metadata = {
   command: '/login',
@@ -224,13 +225,23 @@ async function checkAndRestoreSyncData(
       return;
     }
 
-    // Cloud data exists - ask user if they want to restore
-    const fileCount = remoteManifest.files.length;
-    const totalSize = remoteManifest.files.reduce((sum, f) => sum + f.size, 0);
+    const memoryFiles = remoteManifest.files.filter((file) => isMemorySyncPath(file.path));
+    if (memoryFiles.length > 0) {
+      await restoreMemorySyncData(syncService, memoryFiles);
+    }
+
+    const consentRequiredFiles = remoteManifest.files.filter((file) => !isMemorySyncPath(file.path));
+    if (consentRequiredFiles.length === 0) {
+      return;
+    }
+
+    // Cloud data exists - ask user if they want to restore non-memory data.
+    const fileCount = consentRequiredFiles.length;
+    const totalSize = consentRequiredFiles.reduce((sum, f) => sum + f.size, 0);
     const sizeStr = formatSize(totalSize);
 
     console.log(chalk.cyan(`Found cloud sync data (${fileCount} files, ${sizeStr})`));
-    console.log(chalk.gray('This includes your settings, agents, skills, and memory.'));
+    console.log(chalk.gray('This includes your settings, agents, skills, sessions, and hooks.'));
     console.log();
 
     const result = await safePrompt<{ restore: boolean }>({
@@ -265,6 +276,17 @@ async function checkAndRestoreSyncData(
   } catch {
     // Silently fail - sync is not critical for login
     console.log(chalk.gray('Could not check cloud sync data.'));
+  }
+}
+
+async function restoreMemorySyncData(
+  syncService: ReturnType<typeof createSyncService>,
+  memoryFiles: SyncFileEntry[],
+): Promise<void> {
+  try {
+    await syncService.forceDownloadPaths(memoryFiles.map((file) => file.path));
+  } catch {
+    // Memory restore is automatic and should never block login.
   }
 }
 

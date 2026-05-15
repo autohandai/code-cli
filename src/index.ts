@@ -43,6 +43,7 @@ import {
   formatWelcomeTitle,
   formatWelcomeVersionPrefix,
 } from './ui/theme/startup.js';
+import { AgentsGenerator } from './onboarding/agentsGenerator.js';
 
 /**
  * Get git commit hash (short)
@@ -897,21 +898,8 @@ program
       console.log(chalk.yellow('AGENTS.md already exists in this workspace.'));
       process.exit(0);
     }
-    const template = [
-      '# AGENTS.md',
-      '',
-      '## Project Context',
-      'Describe your project here so the agent understands the codebase.',
-      '',
-      '## Coding Standards',
-      '- List your coding conventions',
-      '- Preferred patterns and practices',
-      '',
-      '## Important Files',
-      '- `src/index.ts` - Entry point',
-      '',
-    ].join('\n');
-    await fs.writeFile(agentsPath, template);
+    const generator = new AgentsGenerator();
+    await fs.writeFile(agentsPath, generator.generateContent({}));
     console.log(chalk.green(`Created ${agentsPath}`));
     process.exit(0);
   });

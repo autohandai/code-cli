@@ -24,6 +24,7 @@ export {
   SYNC_EXCLUDE_ALWAYS,
   SYNC_CONSENT_REQUIRED,
   SYNC_INCLUDE_DEFAULT,
+  isMemorySyncPath,
 } from './types.js';
 
 // Encryption

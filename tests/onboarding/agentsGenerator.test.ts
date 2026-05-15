@@ -15,6 +15,7 @@ describe('AgentsGenerator', () => {
 
       expect(content).toContain('# AGENTS.md');
       expect(content).toContain('## Project Overview');
+      expect(content).toContain('## Instruction Sources');
       expect(content).toContain('## Code Style');
       expect(content).toContain('## Constraints');
     });
@@ -244,6 +245,22 @@ describe('AgentsGenerator', () => {
     });
   });
 
+  describe('Instruction Sources Section', () => {
+    it('should require checking saved memories before implementation work', () => {
+      const generator = new AgentsGenerator();
+      const content = generator.generateContent({});
+
+      expect(content).toContain('Check saved memories and preferences before implementation work');
+    });
+
+    it('should state that AGENTS.md takes precedence over CLAUDE.md instructions', () => {
+      const generator = new AgentsGenerator();
+      const content = generator.generateContent({});
+
+      expect(content).toContain('AGENTS.md takes precedence over CLAUDE.md');
+    });
+  });
+
   describe('Full Project Generation', () => {
     it('should generate complete AGENTS.md for TypeScript/Next.js project', () => {
       const generator = new AgentsGenerator();
@@ -263,6 +280,7 @@ describe('AgentsGenerator', () => {
       expect(content).toContain('## Project Overview');
       expect(content).toContain('## Commands');
       expect(content).toContain('## Testing');
+      expect(content).toContain('## Instruction Sources');
       expect(content).toContain('## Code Style');
       expect(content).toContain('## Constraints');
 
