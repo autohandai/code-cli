@@ -8,6 +8,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import type { MemoryEntry, MemoryIndex, MemoryLevel, SimilarityMatch } from './types.js';
 import { AUTOHAND_PATHS, PROJECT_DIR_NAME } from '../constants.js';
+import { scheduleBackgroundSync } from '../sync/runtimeSyncService.js';
 
 const SIMILARITY_THRESHOLD = 0.6;
 
@@ -70,6 +71,7 @@ export class MemoryManager {
     const entryPath = path.join(dir, `${id}.json`);
     await fs.writeJson(entryPath, entry, { spaces: 2 });
     await this.updateIndex(level, entry);
+    scheduleBackgroundSync();
 
     return entry;
   }
@@ -92,6 +94,7 @@ export class MemoryManager {
 
     await fs.writeJson(entryPath, updated, { spaces: 2 });
     await this.updateIndex(level, updated);
+    scheduleBackgroundSync();
 
     return updated;
   }
@@ -152,6 +155,7 @@ export class MemoryManager {
     if (await fs.pathExists(entryPath)) {
       await fs.remove(entryPath);
       await this.removeFromIndex(level, id);
+      scheduleBackgroundSync();
     }
   }
 

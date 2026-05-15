@@ -118,7 +118,7 @@ describe('TelemetryManager', () => {
 
     await manager.syncSession({
       messages: [{ role: 'user', content: 'hello', timestamp: '2026-05-13T10:00:10.000Z' }],
-      metadata: { workspaceRoot: '/workspace/project' },
+      metadata: { workspaceRoot: '/workspace/project', totalTokens: 123 },
     });
 
     expect(uploadSessionSpy).toHaveBeenCalledWith(expect.objectContaining({
@@ -130,6 +130,7 @@ describe('TelemetryManager', () => {
         endTime: '2026-05-13T10:07:30.000Z',
         durationSeconds: 450,
         workspaceRoot: '/workspace/project',
+        totalTokens: 123,
       }),
     }));
   });

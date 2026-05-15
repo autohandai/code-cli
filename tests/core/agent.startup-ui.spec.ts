@@ -2397,12 +2397,12 @@ describe('agent startup and active input UI', () => {
       expect(endSession).toHaveBeenCalledTimes(1);
     });
     expect(syncSession).toHaveBeenCalledWith(expect.objectContaining({
-      metadata: {
+      metadata: expect.objectContaining({
         workspaceRoot: process.cwd(),
         startTime: '2026-05-13T10:00:00.000Z',
         endTime: '2026-05-13T10:01:30.000Z',
         durationSeconds: 90,
-      },
+      }),
     }));
     expect(shutdown).not.toHaveBeenCalled();
 

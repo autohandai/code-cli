@@ -8,6 +8,10 @@ import readline from 'node:readline';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import { loadConfig, saveConfig } from '../config.js';
 import type { SyncService } from '../sync/SyncService.js';
+import {
+  getSyncService as getRuntimeSyncService,
+  setSyncService as setRuntimeSyncService,
+} from '../sync/runtimeSyncService.js';
 import { createCommandTheme } from './commandTheme.js';
 
 export const metadata = {
@@ -31,15 +35,12 @@ interface SyncData {
   includeFeedback: boolean;
 }
 
-// Store reference to sync service from main
-let globalSyncService: SyncService | null = null;
-
 export function setSyncService(service: SyncService | null): void {
-  globalSyncService = service;
+  setRuntimeSyncService(service);
 }
 
 export function getSyncService(): SyncService | null {
-  return globalSyncService;
+  return getRuntimeSyncService();
 }
 
 export async function sync(ctx: SlashCommandContext): Promise<string | null> {
@@ -63,7 +64,7 @@ export async function sync(ctx: SlashCommandContext): Promise<string | null> {
 }
 
 async function gatherSyncData(ctx: SlashCommandContext, config: any): Promise<SyncData> {
-  const syncService = globalSyncService;
+  const syncService = getRuntimeSyncService();
   let status = {
     enabled: false,
     syncing: false,

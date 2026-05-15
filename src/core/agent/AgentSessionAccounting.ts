@@ -47,6 +47,8 @@ export interface AgentSessionAccountingHost {
     closeSession(summary: string): Promise<void>;
   };
   sessionStartedAt: number;
+  sessionSyncInFlight?: boolean;
+  sessionSyncTimer?: ReturnType<typeof setTimeout>;
   sessionTokensUsed?: number;
   statusListener?: (snapshot: AgentStatusSnapshot) => void;
   telemetryManager: {
@@ -58,6 +60,7 @@ export interface AgentSessionAccountingHost {
         startTime?: string;
         endTime?: string;
         durationSeconds?: number;
+        totalTokens?: number;
       };
     }): Promise<unknown>;
     endSession(reason: string): Promise<unknown>;
@@ -76,6 +79,83 @@ export interface AgentSessionAccountingHost {
 }
 
 const CLEANUP_TIMEOUT_MS = 2500;
+const SESSION_SYNC_DEBOUNCE_MS = 5000;
+
+type SyncableSession = {
+  getMessages(): SessionMessage[];
+  metadata: { sessionId: string };
+};
+
+function sessionTotalTokens(host: AgentSessionAccountingHost): number | undefined {
+  const candidates = [
+    host.sessionActualTokensUsed,
+    host.totalTokensUsed,
+    host.sessionTokensUsed,
+  ];
+  const value = candidates.find(
+    (candidate) => typeof candidate === 'number' && Number.isFinite(candidate) && candidate > 0
+  );
+  return typeof value === 'number' ? value : undefined;
+}
+
+function toSyncMessages(messages: SessionMessage[]): Array<{ role: string; content: string; timestamp: string }> {
+  return messages.map((message) => ({
+    role: message.role,
+    content: message.content,
+    timestamp: message.timestamp,
+  }));
+}
+
+function buildSessionSyncMetadata(host: AgentSessionAccountingHost, endTimeMs: number) {
+  const sessionDuration = Math.max(0, endTimeMs - host.sessionStartedAt);
+  return {
+    workspaceRoot: host.runtime.workspaceRoot,
+    startTime: new Date(host.sessionStartedAt).toISOString(),
+    endTime: new Date(endTimeMs).toISOString(),
+    durationSeconds: Math.round(sessionDuration / 1000),
+    totalTokens: sessionTotalTokens(host),
+  };
+}
+
+export async function syncAgentSessionSnapshot(
+  host: AgentSessionAccountingHost,
+  options: { force?: boolean; session?: SyncableSession; endTimeMs?: number } = {}
+): Promise<void> {
+  if (!options.force && host.sessionSyncInFlight) return;
+
+  const session = options.session ?? host.sessionManager.getCurrentSession();
+  if (!session) return;
+
+  const endTimeMs = options.endTimeMs ?? Date.now();
+  host.sessionSyncInFlight = true;
+  try {
+    await host.telemetryManager.syncSession({
+      messages: toSyncMessages(session.getMessages()),
+      metadata: buildSessionSyncMetadata(host, endTimeMs),
+    });
+  } finally {
+    host.sessionSyncInFlight = false;
+  }
+}
+
+export function scheduleAgentSessionSnapshotSync(host: AgentSessionAccountingHost): void {
+  if (host.sessionSyncTimer) {
+    clearTimeout(host.sessionSyncTimer);
+  }
+
+  const timer = setTimeout(() => {
+    host.sessionSyncTimer = undefined;
+    syncAgentSessionSnapshot(host).catch(() => {});
+  }, SESSION_SYNC_DEBOUNCE_MS);
+  timer.unref?.();
+  host.sessionSyncTimer = timer;
+}
+
+function clearScheduledSessionSnapshotSync(host: AgentSessionAccountingHost): void {
+  if (!host.sessionSyncTimer) return;
+  clearTimeout(host.sessionSyncTimer);
+  host.sessionSyncTimer = undefined;
+}
 
 export async function forceAgentIdleLogout(host: AgentSessionAccountingHost): Promise<void> {
   const idleMinutes = Math.round((Date.now() - host.lastActivityAt) / 60_000);
@@ -143,6 +223,8 @@ export async function closeAgentSession(host: AgentSessionAccountingHost): Promi
 
   const sessionEndedAt = Date.now();
   const sessionDuration = Math.max(0, sessionEndedAt - host.sessionStartedAt);
+  clearScheduledSessionSnapshotSync(host);
+
   const cleanupTasks = [
     host.mcpManager.disconnectAll(),
     host.hookManager.executeHooks('session-end', {
@@ -150,18 +232,10 @@ export async function closeAgentSession(host: AgentSessionAccountingHost): Promi
       sessionEndReason: 'quit',
       duration: sessionDuration,
     }),
-    host.telemetryManager.syncSession({
-      messages: messages.map((message) => ({
-        role: message.role,
-        content: message.content,
-        timestamp: message.timestamp,
-      })),
-      metadata: {
-        workspaceRoot: host.runtime.workspaceRoot,
-        startTime: new Date(host.sessionStartedAt).toISOString(),
-        endTime: new Date(sessionEndedAt).toISOString(),
-        durationSeconds: Math.round(sessionDuration / 1000),
-      },
+    syncAgentSessionSnapshot(host, {
+      force: true,
+      session,
+      endTimeMs: sessionEndedAt,
     }),
     host.telemetryManager.endSession('completed'),
   ];
@@ -187,6 +261,7 @@ export async function saveAgentUserMessage(
     timestamp: new Date().toISOString(),
   };
   await session.append(message);
+  scheduleAgentSessionSnapshotSync(host);
 }
 
 export async function saveAgentAssistantMessage(
@@ -204,6 +279,7 @@ export async function saveAgentAssistantMessage(
     toolCalls,
   };
   await session.append(message);
+  scheduleAgentSessionSnapshotSync(host);
 }
 
 export function markAgentFilesModified(
@@ -250,6 +326,7 @@ export function recordAgentExecutedAction(
   actionType: string
 ): void {
   host.executedActionNames.push(actionType);
+  scheduleAgentSessionSnapshotSync(host);
 }
 
 export function getAndResetAgentExecutedActions(
