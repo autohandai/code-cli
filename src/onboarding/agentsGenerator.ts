@@ -69,6 +69,9 @@ export class AgentsGenerator {
       }
     }
 
+    // Instruction sources
+    sections.push(this.generateInstructionSourcesSection());
+
     // Code Style
     sections.push(this.generateCodeStyleSection(info));
 
@@ -302,6 +305,21 @@ export class AgentsGenerator {
     }
 
     lines.push('');
+    return lines.join('\n');
+  }
+
+  /**
+   * Generate instruction sources section
+   */
+  private generateInstructionSourcesSection(): string {
+    const lines: string[] = [];
+    lines.push('## Instruction Sources');
+    lines.push('');
+    lines.push('- Check saved memories and preferences before implementation work.');
+    lines.push('- Follow this AGENTS.md file for repository-specific guidance.');
+    lines.push('- AGENTS.md takes precedence over CLAUDE.md when both files provide instructions.');
+    lines.push('');
+
     return lines.join('\n');
   }
 

@@ -166,6 +166,10 @@ export const SYNC_INCLUDE_DEFAULT = [
   'skills/',
 ] as const;
 
+export function isMemorySyncPath(filePath: string): boolean {
+  return filePath === 'memory' || filePath.startsWith('memory/');
+}
+
 /**
  * Sync service events for logging/telemetry
  */

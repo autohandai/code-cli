@@ -558,16 +558,55 @@ export class SyncService {
     }
 
     // Treat all remote files as downloads
+    return this.forceDownloadFiles(remoteManifest.files);
+  }
+
+  /**
+   * Force download a subset of cloud files by path.
+   */
+  async forceDownloadPaths(paths: string[]): Promise<SyncResult> {
+    const remoteManifest = await this.client.getRemoteManifest(this.authToken);
+
+    if (!remoteManifest) {
+      return {
+        success: false,
+        uploaded: 0,
+        downloaded: 0,
+        conflicts: 0,
+        error: 'No remote data to download',
+      };
+    }
+
+    const requestedPaths = new Set(paths);
+    const files = remoteManifest.files.filter((file) => requestedPaths.has(file.path));
+    return this.forceDownloadFiles(files);
+  }
+
+  private async forceDownloadFiles(files: SyncFileEntry[]): Promise<SyncResult> {
+    if (files.length === 0) {
+      return {
+        success: true,
+        uploaded: 0,
+        downloaded: 0,
+        conflicts: 0,
+      };
+    }
+
     const actions: SyncActions = {
       uploads: [],
-      downloads: remoteManifest.files,
+      downloads: files,
       conflicts: [],
       localDeletes: [],
       remoteDeletes: [],
     };
 
-    // Perform sync with these actions
-    return this.performSyncActions(actions, remoteManifest);
+    return this.performSyncActions(actions, {
+      version: MANIFEST_VERSION,
+      userId: this.userId,
+      lastModified: new Date().toISOString(),
+      files,
+      checksum: computeHash(JSON.stringify(files)),
+    });
   }
 
   /**

@@ -211,6 +211,65 @@ describe('SyncService', () => {
       );
     });
 
+    it('force downloads only requested memory paths', async () => {
+      await fs.ensureDir(tempDir);
+
+      const remoteManifest: SyncManifest = {
+        version: 1,
+        userId: 'test-user',
+        lastModified: new Date().toISOString(),
+        files: [
+          {
+            path: 'memory/preference.json',
+            hash: 'memory-hash',
+            size: 42,
+            modifiedAt: new Date().toISOString(),
+          },
+          {
+            path: 'config.json',
+            hash: 'config-hash',
+            size: 100,
+            modifiedAt: new Date().toISOString(),
+            encrypted: true,
+          },
+        ],
+        checksum: 'test-checksum',
+      };
+
+      const service = new SyncService({
+        authToken: 'test-token',
+        userId: 'test-user',
+        config: {
+          enabled: true,
+          interval: 300000,
+        },
+        apiClient: mockApiClient,
+      });
+
+      (service as any).basePath = tempDir;
+
+      (mockApiClient.getRemoteManifest as ReturnType<typeof vi.fn>).mockResolvedValue(remoteManifest);
+      (mockApiClient.initiateDownload as ReturnType<typeof vi.fn>).mockResolvedValue({
+        downloadUrls: {
+          'memory/preference.json': 'https://example.com/download/memory/preference.json',
+        },
+      });
+      (mockApiClient.downloadFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Buffer.from(JSON.stringify({ id: 'preference', content: 'Prefer concise output' }))
+      );
+
+      const result = await service.forceDownloadPaths(['memory/preference.json']);
+
+      expect(result.success).toBe(true);
+      expect(result.downloaded).toBe(1);
+      expect(mockApiClient.initiateDownload).toHaveBeenCalledWith(
+        'test-token',
+        ['memory/preference.json']
+      );
+      expect(await fs.pathExists(path.join(tempDir, 'config.json'))).toBe(false);
+      expect(await fs.pathExists(path.join(tempDir, 'memory', 'preference.json'))).toBe(true);
+    });
+
     it('returns error if already syncing', async () => {
       const service = new SyncService({
         authToken: 'test-token',
