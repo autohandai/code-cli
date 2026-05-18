@@ -105,7 +105,7 @@ describe('TelemetryManager', () => {
     expect(trackSpy).not.toHaveBeenCalled();
   });
 
-  it('includes canonical durationSeconds in synced session metadata', async () => {
+  it('includes canonical durationSeconds in synced active-session metadata without ending the session', async () => {
     const manager = new TelemetryManager({ enabled: true, enableSessionSync: true });
 
     await manager.startSession(
@@ -127,10 +127,38 @@ describe('TelemetryManager', () => {
         model: 'gpt-5',
         provider: 'openai',
         startTime: '2026-05-13T10:00:00.000Z',
-        endTime: '2026-05-13T10:07:30.000Z',
         durationSeconds: 450,
         workspaceRoot: '/workspace/project',
         totalTokens: 123,
+      }),
+    }));
+    expect(uploadSessionSpy.mock.calls[0][0].metadata).not.toHaveProperty('endTime');
+  });
+
+  it('preserves explicit endTime for final synced session metadata', async () => {
+    const manager = new TelemetryManager({ enabled: true, enableSessionSync: true });
+
+    await manager.startSession(
+      'session-1',
+      'gpt-5',
+      'openai',
+      new Date('2026-05-13T10:00:00.000Z')
+    );
+
+    await manager.syncSession({
+      messages: [{ role: 'user', content: 'done', timestamp: '2026-05-13T10:00:10.000Z' }],
+      metadata: {
+        workspaceRoot: '/workspace/project',
+        endTime: '2026-05-13T10:08:00.000Z',
+        durationSeconds: 480,
+      },
+    });
+
+    expect(uploadSessionSpy).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'session-1',
+      metadata: expect.objectContaining({
+        endTime: '2026-05-13T10:08:00.000Z',
+        durationSeconds: 480,
       }),
     }));
   });
