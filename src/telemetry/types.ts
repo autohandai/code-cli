@@ -58,6 +58,8 @@ export interface TelemetryConfig {
   enableSessionSync: boolean;
   /** Company secret for API authentication */
   companySecret: string;
+  /** Authenticated Autohand session token for user-scoped features */
+  authToken?: string;
   /** Client type (cli, vscode, zed) */
   clientType: ClientType;
   /** Client/extension version (for non-CLI clients) */

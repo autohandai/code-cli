@@ -106,15 +106,21 @@ function toSyncMessages(messages: SessionMessage[]): Array<{ role: string; conte
   }));
 }
 
-function buildSessionSyncMetadata(host: AgentSessionAccountingHost, endTimeMs: number) {
+function buildSessionSyncMetadata(
+  host: AgentSessionAccountingHost,
+  endTimeMs: number,
+  options: { final?: boolean } = {}
+) {
   const sessionDuration = Math.max(0, endTimeMs - host.sessionStartedAt);
-  return {
+  const metadata = {
     workspaceRoot: host.runtime.workspaceRoot,
     startTime: new Date(host.sessionStartedAt).toISOString(),
-    endTime: new Date(endTimeMs).toISOString(),
     durationSeconds: Math.round(sessionDuration / 1000),
     totalTokens: sessionTotalTokens(host),
   };
+  return options.final
+    ? { ...metadata, endTime: new Date(endTimeMs).toISOString() }
+    : metadata;
 }
 
 export async function syncAgentSessionSnapshot(
@@ -131,7 +137,7 @@ export async function syncAgentSessionSnapshot(
   try {
     await host.telemetryManager.syncSession({
       messages: toSyncMessages(session.getMessages()),
-      metadata: buildSessionSyncMetadata(host, endTimeMs),
+      metadata: buildSessionSyncMetadata(host, endTimeMs, { final: options.force }),
     });
   } finally {
     host.sessionSyncInFlight = false;
