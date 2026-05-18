@@ -67,11 +67,11 @@ describe('agent near-real-time session sync', () => {
       metadata: expect.objectContaining({
         workspaceRoot: '/workspace/project',
         startTime: '2026-05-13T10:00:00.000Z',
-        endTime: '2026-05-13T10:00:13.000Z',
-        durationSeconds: 13,
+        durationSeconds: 18,
         totalTokens: 42,
       }),
     });
+    expect(syncSession.mock.calls[0][0].metadata).not.toHaveProperty('endTime');
   });
 
   it('can force a final snapshot with canonical timing metadata', async () => {

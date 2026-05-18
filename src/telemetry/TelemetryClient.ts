@@ -266,8 +266,12 @@ export class TelemetryClient {
       workspaceRoot?: string;
     };
   }): Promise<{ success: boolean; id?: string; error?: string }> {
-    if (!this.config.enabled || !this.config.enableSessionSync) {
+    if (!this.config.enableSessionSync) {
       return { success: false, error: 'Session sync disabled' };
+    }
+
+    if (!this.config.authToken) {
+      return { success: false, error: 'Login required for session sync' };
     }
 
     const online = await this.isOnline();
@@ -292,14 +296,12 @@ export class TelemetryClient {
     }
 
     try {
-      // Build auth token: {device_id}.{company_secret}
-      const authToken = `${this.deviceId}.${this.config.companySecret}`;
-
       const response = await fetch(`${this.config.apiBaseUrl}/v1/history`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
+          'Authorization': `Bearer ${this.config.authToken}`,
+          'X-CLI-Version': this.config.clientVersion || 'unknown'
         },
         body: JSON.stringify({
           deviceId: this.deviceId,

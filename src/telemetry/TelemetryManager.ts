@@ -261,7 +261,6 @@ export class TelemetryManager {
     }
 
     const endTimeMs = Date.now();
-    const endTime = data.metadata?.endTime ?? new Date(endTimeMs).toISOString();
     const startTime = data.metadata?.startTime ?? this.sessionStartTime?.toISOString();
     const durationSeconds = data.metadata?.durationSeconds ?? this.getSessionDurationSeconds(endTimeMs);
 
@@ -273,7 +272,7 @@ export class TelemetryManager {
         provider: this.currentProvider || undefined,
         totalTokens: data.metadata?.totalTokens,
         startTime,
-        endTime,
+        ...(data.metadata?.endTime ? { endTime: data.metadata.endTime } : {}),
         durationSeconds,
         workspaceRoot: data.metadata?.workspaceRoot
       }
