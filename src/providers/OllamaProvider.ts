@@ -42,7 +42,7 @@ interface OllamaRequestToolCall {
 }
 
 interface OllamaChatResponse {
-    message: {
+    message?: {
         role: string;
         content: string;
         tool_calls?: OllamaToolCall[];
@@ -247,11 +247,12 @@ export class OllamaProvider implements LLMProvider {
         }
 
         const data = await response.json() as OllamaChatResponse;
+        const message = data.message ?? { role: 'assistant', content: '' };
 
         // Parse tool calls if present (Ollama returns arguments as object, not string)
         let toolCalls: LLMToolCall[] | undefined;
-        if (data.message.tool_calls && Array.isArray(data.message.tool_calls)) {
-            toolCalls = data.message.tool_calls.map((tc: OllamaToolCall, index: number) => {
+        if (message.tool_calls && Array.isArray(message.tool_calls)) {
+            toolCalls = message.tool_calls.map((tc: OllamaToolCall, index: number) => {
                 let argumentsStr: string;
                 try {
                     // Ollama returns arguments as object, convert to JSON string for consistency
@@ -281,7 +282,7 @@ export class OllamaProvider implements LLMProvider {
         return {
             id: `ollama-${Date.now()}`,
             created: Math.floor(new Date(data.created_at).getTime() / 1000),
-            content: data.message.content,
+            content: message.content,
             toolCalls,
             finishReason: toolCalls?.length ? 'tool_calls' : 'stop',
             usage,
@@ -550,7 +551,7 @@ export class OllamaProvider implements LLMProvider {
                 for (const line of lines) {
                     try {
                         const data: OllamaChatResponse = JSON.parse(line);
-                        fullContent += data.message.content;
+                        fullContent += data.message?.content ?? '';
                         lastData = data;
                         // Ollama signals completion via the JSON "done" field
                         if (data.done) {
