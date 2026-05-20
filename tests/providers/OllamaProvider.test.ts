@@ -155,6 +155,25 @@ describe('OllamaProvider', () => {
             );
         });
 
+        it('handles bare Ollama chat responses without a message wrapper', async () => {
+            const p = new OllamaProvider(config, { maxRetries: 0 });
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                json: async () => ({
+                    created_at: '2024-11-21T10:30:00Z',
+                    done: true
+                })
+            });
+
+            const response = await p.complete({
+                messages: [{ role: 'user', content: 'Hello' }]
+            });
+
+            expect(response.content).toBe('');
+            expect(response.toolCalls).toBeUndefined();
+            expect(response.finishReason).toBe('stop');
+        });
+
         it('should handle streaming responses', async () => {
             const mockStream = new ReadableStream({
                 start(controller) {
@@ -179,6 +198,30 @@ describe('OllamaProvider', () => {
             });
 
             expect(response.content).toContain('Hello');
+        });
+
+        it('honors bare Ollama stream chunks without a message wrapper', async () => {
+            const mockStream = new ReadableStream({
+                start(controller) {
+                    controller.enqueue(new TextEncoder().encode(
+                        '{"created_at":"2024-11-21T10:30:00Z","done":true}\n'
+                    ));
+                    controller.close();
+                }
+            });
+
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                body: mockStream
+            });
+
+            const response = await provider.complete({
+                messages: [{ role: 'user', content: 'Hello' }],
+                stream: true
+            });
+
+            expect(response.content).toBe('');
+            expect(response.finishReason).toBe('stop');
         });
 
         // -----------------------------------------------------------------------
