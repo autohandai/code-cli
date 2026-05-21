@@ -274,7 +274,7 @@ describe('inputPrompt', () => {
 
     it('falls back to default tips when no skillsProvider given', () => {
       const result = buildPromptHotTips('$', [], []);
-      expect(result.some((t) => t.label === 'Type /, @, or ! to switch suggestion mode')).toBe(true);
+      expect(result.some((t) => t.label === 'Type /, @, $, or ! to switch suggestion mode')).toBe(true);
     });
 
     it('works alongside @ mentions in same line', () => {

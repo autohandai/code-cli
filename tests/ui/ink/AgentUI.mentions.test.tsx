@@ -205,6 +205,36 @@ describe('AgentUI @ mention handling', () => {
   });
 });
 
+describe('AgentUI $ skill mention handling', () => {
+  it('renders skill mention suggestions for a bare $ trigger', async () => {
+    const { stdin, lastFrame } = renderAgentUIWithStdin({
+      skillsProvider: () => [
+        {
+          name: 'code-cli-guardian',
+          description: 'Code CLI production guidance',
+          isActive: true,
+          source: 'codex-user',
+        },
+        {
+          name: 'typescript-best-practices',
+          description: 'TypeScript implementation guidance',
+          isActive: false,
+          source: 'codex-user',
+        },
+      ],
+    });
+
+    await new Promise(r => setImmediate(r));
+    stdin.write('$');
+    await new Promise(r => setTimeout(r, 50));
+
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('$code-cli-guardian');
+    expect(frame).toContain('$typescript-best-practices');
+    expect(frame).toContain('Tab to accept');
+  });
+});
+
 describe('AgentUI Ctrl+C exit handling', () => {
   it('requests host exit on the second Ctrl+C with an empty composer', async () => {
     const onInstruction = vi.fn();

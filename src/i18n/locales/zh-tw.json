@@ -720,7 +720,7 @@
   },
   "ui": {
     "escToCancel": "esc 取消",
-    "commandHint": "? 快捷鍵 · / 指令 · @ 提及檔案 · ! 終端機",
+    "commandHint": "? 快捷鍵 · / 指令 · @ 提及檔案 · $ 技能 · ! 終端機",
     "ctrlCToExit": "再次按 Ctrl+C 退出",
     "noMatchingCommands": "沒有相符的命令。",
     "selectFile": "選擇檔案",

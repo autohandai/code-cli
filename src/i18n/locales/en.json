@@ -950,7 +950,7 @@
   "ui": {
     "cancel": "Cancel",
     "escToCancel": "esc to cancel",
-    "commandHint": "? shortcuts · / commands · @ mention files · ! terminal",
+    "commandHint": "? shortcuts · / commands · @ mention files · $ skills · ! terminal",
     "ctrlCToExit": "Press Ctrl+C again to exit",
     "noMatchingCommands": "No matching commands.",
     "selectFile": "Select a file",
