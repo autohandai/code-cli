@@ -66,9 +66,17 @@ Skills are discovered from multiple locations, with later sources taking precede
 |----------|-----------|-------------|
 | `~/.codex/skills/**/SKILL.md` | `codex-user` | User-level Codex skills (recursive) |
 | `~/.claude/skills/*/SKILL.md` | `claude-user` | User-level Claude skills (one level) |
+| `~/.agent/skills/**/SKILL.md` | `agent-user` | User-level shared agent skills (recursive) |
+| `~/.agents/skills/**/SKILL.md` | `agent-user` | User-level `npx skills` shared skills (recursive) |
 | `~/.autohand/skills/**/SKILL.md` | `autohand-user` | User-level Autohand skills (recursive) |
 | `<project>/.claude/skills/*/SKILL.md` | `claude-project` | Project-level Claude skills (one level) |
+| `<project>/skills/**/SKILL.md` | `agent-project` | Project-level shared skills (recursive) |
+| `<project>/.agent/skills/**/SKILL.md` | `agent-project` | Project-level shared agent skills (recursive) |
+| `<project>/.agents/skills/**/SKILL.md` | `agent-project` | Project-level shared agent skills (recursive) |
+| `<project>/<agent-dir>/skills/**/SKILL.md` | `agent-project` | Third-party agent project skills (recursive) |
 | `<project>/.autohand/skills/**/SKILL.md` | `autohand-project` | Project-level Autohand skills (recursive) |
+
+Supported third-party project skill directories include `.aider-desk/skills`, `.augment/skills`, `.bob/skills`, `.codeartsdoer/skills`, `.codebuddy/skills`, `.codemaker/skills`, `.codestudio/skills`, `.commandcode/skills`, `.continue/skills`, `.cortex/skills`, `.crush/skills`, `.devin/skills`, `.factory/skills`, `.forge/skills`, `.goose/skills`, `.hermes/skills`, `.junie/skills`, `.iflow/skills`, `.kilocode/skills`, `.kiro/skills`, `.kode/skills`, `.mcpjam/skills`, `.vibe/skills`, `.mux/skills`, `.openhands/skills`, `.pi/skills`, `.qoder/skills`, `.qwen/skills`, `.rovodev/skills`, `.roo/skills`, `.tabnine/agent/skills`, `.trae/skills`, `.windsurf/skills`, `.zencoder/skills`, `.neovate/skills`, `.pochi/skills`, and `.adal/skills`.
 
 ### Auto-Copy Behavior
 
@@ -78,6 +86,7 @@ Skills discovered from Codex or Claude locations are automatically copied to the
 - `<project>/.claude/skills/` → `<project>/.autohand/skills/`
 
 Existing skills in Autohand locations are never overwritten.
+Shared agent and third-party project skill directories are loaded in place; they are not automatically copied.
 
 ---
 

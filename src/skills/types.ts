@@ -17,6 +17,8 @@ export type SkillSource =
   | 'codex-project'    // <cwd>/.codex/skills/**/SKILL.md (recursive)
   | 'claude-user'      // ~/.claude/skills/*/SKILL.md (one level)
   | 'claude-project'   // <cwd>/.claude/skills/*/SKILL.md (one level)
+  | 'agent-user'       // ~/.agent(s)/skills/**/SKILL.md (recursive, npx skills)
+  | 'agent-project'    // <cwd> third-party agent skill directories (recursive)
   | 'autohand-user'    // ~/.autohand/skills/**/SKILL.md (recursive)
   | 'autohand-project' // <cwd>/.autohand/skills/**/SKILL.md (recursive)
   | 'community';       // Downloaded from community API

@@ -130,6 +130,35 @@ ${body}
         '$legacy-review',
       ]));
     });
+
+    it('loads npx skills user locations when default discovery is enabled', async () => {
+      const homeDir = path.join(tempRoot, 'test-default-user-home');
+      const autohandDir = path.join(homeDir, '.autohand', 'skills');
+      const agentDir = path.join(homeDir, '.agent', 'skills');
+      const agentsDir = path.join(homeDir, '.agents', 'skills');
+      await fs.ensureDir(autohandDir);
+      await fs.ensureDir(agentDir);
+      await fs.ensureDir(agentsDir);
+
+      await createSkill(agentDir, 'agent-singular-skill', 'Agent singular skill');
+      await createSkill(agentsDir, 'npx-skills-skill', 'npx skills shared skill');
+      await createSkill(autohandDir, 'autohand-skill', 'Autohand skill');
+
+      const registry = new SkillsRegistry(autohandDir, 'autohand-user', {
+        includeDefaultUserSkillLocations: true,
+        homeDir,
+      });
+      await registry.initialize();
+
+      const skills = registry.listSkills();
+      expect(skills.map(s => s.name)).toEqual(expect.arrayContaining([
+        'agent-singular-skill',
+        'npx-skills-skill',
+        'autohand-skill',
+      ]));
+      expect(registry.getSkill('agent-singular-skill')?.source).toBe('agent-user');
+      expect(registry.getSkill('npx-skills-skill')?.source).toBe('agent-user');
+    });
   });
 
   describe('skill activation', () => {
@@ -298,6 +327,52 @@ ${body}
       const skills = registry.listSkills();
       expect(skills.map(s => s.name)).toContain('user-global-skill');
       expect(skills.map(s => s.name)).toContain('project-local-skill');
+    });
+
+    it('loads project skills from generic and third-party agent skill directories', async () => {
+      const userDir = path.join(tempRoot, 'test-agent-workspace-user');
+      const wsRoot = path.join(tempRoot, 'test-agent-workspace-project');
+      const genericSkillsPath = path.join(wsRoot, 'skills');
+      const agentSkillsPath = path.join(wsRoot, '.agent', 'skills');
+      const agentsSkillsPath = path.join(wsRoot, '.agents', 'skills');
+      const openhandsSkillsPath = path.join(wsRoot, '.openhands', 'skills');
+      const tabnineSkillsPath = path.join(wsRoot, '.tabnine', 'agent', 'skills');
+      const autohandProjectSkillsPath = path.join(wsRoot, '.autohand', 'skills');
+
+      await fs.ensureDir(userDir);
+      await fs.ensureDir(genericSkillsPath);
+      await fs.ensureDir(agentSkillsPath);
+      await fs.ensureDir(agentsSkillsPath);
+      await fs.ensureDir(openhandsSkillsPath);
+      await fs.ensureDir(tabnineSkillsPath);
+      await fs.ensureDir(autohandProjectSkillsPath);
+
+      await createSkill(genericSkillsPath, 'generic-project-skill', 'Generic project skill');
+      await createSkill(agentSkillsPath, 'agent-project-skill', 'Agent project skill');
+      await createSkill(agentsSkillsPath, 'agents-project-skill', 'Agents project skill');
+      await createSkill(openhandsSkillsPath, 'openhands-skill', 'OpenHands skill');
+      await createSkill(tabnineSkillsPath, 'tabnine-skill', 'Tabnine skill');
+      await createSkill(openhandsSkillsPath, 'overlap-agent-skill', 'OpenHands copy');
+      await createSkill(autohandProjectSkillsPath, 'overlap-agent-skill', 'Autohand project copy');
+
+      const registry = new SkillsRegistry(userDir);
+      await registry.initialize();
+      await registry.setWorkspace(wsRoot);
+
+      const skills = registry.listSkills();
+      expect(skills.map(s => s.name)).toEqual(expect.arrayContaining([
+        'generic-project-skill',
+        'agent-project-skill',
+        'agents-project-skill',
+        'openhands-skill',
+        'tabnine-skill',
+        'overlap-agent-skill',
+      ]));
+      expect(registry.getSkill('generic-project-skill')?.source).toBe('agent-project');
+      expect(registry.getSkill('agent-project-skill')?.source).toBe('agent-project');
+      expect(registry.getSkill('tabnine-skill')?.source).toBe('agent-project');
+      expect(registry.getSkill('overlap-agent-skill')?.description).toBe('Autohand project copy');
+      expect(registry.getSkill('overlap-agent-skill')?.source).toBe('autohand-project');
     });
   });
 
