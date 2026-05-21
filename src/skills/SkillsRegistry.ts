@@ -6,7 +6,6 @@
  * SkillsRegistry - Manages skill discovery, loading, and activation
  */
 import fs from 'fs-extra';
-import os from 'node:os';
 import path from 'node:path';
 import { SkillParser } from './SkillParser.js';
 import type {
@@ -15,7 +14,12 @@ import type {
   SkillSimilarityMatch,
   SkillCopyResult,
 } from './types.js';
-import { AUTOHAND_PATHS, PROJECT_DIR_NAME } from '../constants.js';
+import {
+  AUTOHAND_PATHS,
+  PROJECT_DIR_NAME,
+  getProjectSkillLocations,
+  getUserSkillLocations,
+} from '../constants.js';
 import type { TelemetryManager } from '../telemetry/TelemetryManager.js';
 import type { SkillUseData } from '../telemetry/types.js';
 import type { CommunitySkillsClient, CommunitySkillPackage, BackupPayload } from './CommunitySkillsClient.js';
@@ -39,6 +43,8 @@ export interface SkillsRegistryOptions {
    * Custom registries default to their explicit directory only.
    */
   includeDefaultUserSkillLocations?: boolean;
+  /** Override the home directory used to resolve default user skill locations. */
+  homeDir?: string;
 }
 
 function sameResolvedPath(a: string, b: string): boolean {
@@ -47,20 +53,28 @@ function sameResolvedPath(a: string, b: string): boolean {
 
 function createDefaultUserSkillLocations(
   userSkillsDir: string,
-  defaultSource: SkillSource
+  defaultSource: SkillSource,
+  homeDir?: string
 ): SkillSearchLocation[] {
-  return [
-    { basePath: path.join(os.homedir(), '.codex', 'skills'), source: 'codex-user', recursive: true },
-    { basePath: path.join(os.homedir(), '.claude', 'skills'), source: 'claude-user', recursive: false },
-    { basePath: userSkillsDir, source: defaultSource, recursive: true },
-  ];
+  return getUserSkillLocations(homeDir, userSkillsDir).map((location) =>
+    sameResolvedPath(location.basePath, userSkillsDir)
+      ? { ...location, source: defaultSource }
+      : location
+  );
 }
 
 /**
  * Registry for managing Agent Skills
  */
-/** Vendor skill sources that indicate skills from codex/claude */
-const VENDOR_SOURCES: SkillSource[] = ['codex-user', 'claude-user', 'codex-project', 'claude-project'];
+/** Vendor skill sources that indicate externally managed skills. */
+const VENDOR_SOURCES: SkillSource[] = [
+  'codex-user',
+  'claude-user',
+  'codex-project',
+  'claude-project',
+  'agent-user',
+  'agent-project',
+];
 
 /**
  * Result of importing a community skill
@@ -257,7 +271,11 @@ export class SkillsRegistry {
       return [{ basePath: this.userSkillsDir, source: this.defaultSource, recursive: true }];
     }
 
-    return createDefaultUserSkillLocations(this.userSkillsDir, this.defaultSource);
+    return createDefaultUserSkillLocations(
+      this.userSkillsDir,
+      this.defaultSource,
+      this.options.homeDir
+    );
   }
 
   /**
@@ -266,13 +284,9 @@ export class SkillsRegistry {
   async setWorkspace(workspaceRoot: string): Promise<void> {
     this.workspaceRoot = workspaceRoot;
 
-    // Load Claude project skills (one level only)
-    const claudeProjectSkillsDir = path.join(workspaceRoot, '.claude', 'skills');
-    await this.loadFromDirectory(claudeProjectSkillsDir, 'claude-project', false);
-
-    // Load Autohand project skills (recursive)
-    const autohandProjectSkillsDir = path.join(workspaceRoot, PROJECT_DIR_NAME, 'skills');
-    await this.loadFromDirectory(autohandProjectSkillsDir, 'autohand-project', true);
+    for (const location of getProjectSkillLocations(workspaceRoot)) {
+      await this.loadFromDirectory(location.basePath, location.source, location.recursive);
+    }
   }
 
   /**
