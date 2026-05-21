@@ -7,7 +7,16 @@
 /**
  * Supported agent sources for import.
  */
-export type ImportSource = 'claude' | 'codex' | 'gemini' | 'cursor' | 'cline' | 'continue' | 'augment';
+export type ImportSource =
+  | 'claude'
+  | 'codex'
+  | 'gemini'
+  | 'cursor'
+  | 'cline'
+  | 'continue'
+  | 'augment'
+  | 'opencode'
+  | 'kimi';
 
 /**
  * Categories of data that can be imported from an agent.
@@ -113,7 +122,7 @@ export interface Importer {
  * All supported import sources.
  */
 export const IMPORT_SOURCES: readonly ImportSource[] = Object.freeze([
-  'claude', 'codex', 'gemini', 'cursor', 'cline', 'continue', 'augment',
+  'claude', 'codex', 'gemini', 'cursor', 'cline', 'continue', 'augment', 'opencode', 'kimi',
 ] as const);
 
 /**

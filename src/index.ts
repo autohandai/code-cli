@@ -942,7 +942,7 @@ program
 // ── Import subcommand ─────────────────────────────────────────────────
 program
   .command('import [source]')
-  .description('Import data from other coding agents (claude, codex, gemini, cursor, cline, continue, augment)')
+  .description('Import data from other coding agents (claude, codex, gemini, cursor, cline, continue, augment, opencode, kimi)')
   .option('--all', 'Import all available categories without prompting')
   .option('--categories <list>', 'Comma-separated list of categories to import (sessions,settings,skills,memory,mcp,hooks)', (val: string) => val.split(','))
   .option('--dry-run', 'Preview what would be imported without making changes')

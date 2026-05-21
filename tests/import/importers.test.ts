@@ -12,6 +12,8 @@ import { CursorImporter } from '../../src/import/importers/CursorImporter.js';
 import { ClineImporter } from '../../src/import/importers/ClineImporter.js';
 import { ContinueImporter } from '../../src/import/importers/ContinueImporter.js';
 import { AugmentImporter } from '../../src/import/importers/AugmentImporter.js';
+import { OpencodeImporter } from '../../src/import/importers/OpencodeImporter.js';
+import { KimiImporter } from '../../src/import/importers/KimiImporter.js';
 import { BaseImporter } from '../../src/import/importers/BaseImporter.js';
 
 // Mock fs-extra with all methods used by full importer implementations
@@ -44,6 +46,8 @@ const importerSpecs: ImporterSpec[] = [
   { Ctor: ClineImporter, name: 'cline', displayName: 'Cline', homePathSuffix: '.cline' },
   { Ctor: ContinueImporter, name: 'continue', displayName: 'Continue.dev', homePathSuffix: '.continue' },
   { Ctor: AugmentImporter, name: 'augment', displayName: 'Augment', homePathSuffix: '.augment' },
+  { Ctor: OpencodeImporter, name: 'opencode', displayName: 'OpenCode', homePathSuffix: 'opencode' },
+  { Ctor: KimiImporter, name: 'kimi', displayName: 'Kimi CLI', homePathSuffix: '.kimi' },
 ];
 
 describe('All importers – shared contract', () => {

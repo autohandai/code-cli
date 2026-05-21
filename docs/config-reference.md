@@ -1967,7 +1967,7 @@ Autohand provides a rich set of slash commands for interactive use. Type `/` in 
 | `/settings`   | Configure Autohand settings                           |
 | `/features`   | Toggle feature switches                               |
 | `/sync`       | Sync settings across devices                          |
-| `/import`     | Import settings from a file                           |
+| `/import`     | Import sessions, settings, MCP, memory, skills, and hooks from supported agents |
 
 ### Permissions & Hooks
 

@@ -119,6 +119,32 @@ describe('GeminiImporter', () => {
       expect(hooks).toBeDefined();
       expect(hooks!.count).toBe(2);
     });
+
+    it('should detect MCP servers from settings.json', async () => {
+      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+        const s = String(p);
+        if (s === GEMINI_HOME) return true;
+        if (s === path.join(GEMINI_HOME, 'settings.json')) return true;
+        if (s === path.join(GEMINI_HOME, 'GEMINI.md')) return false;
+        return false;
+      });
+
+      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
+        if (String(p).endsWith('settings.json')) {
+          return JSON.stringify({
+            mcpServers: {
+              docs: { command: 'docs-mcp' },
+            },
+          }) as never;
+        }
+        throw new Error('not found');
+      });
+
+      const result = await importer.scan();
+      const mcp = result.available.get('mcp');
+      expect(mcp).toBeDefined();
+      expect(mcp!.count).toBe(1);
+    });
   });
 
   // ---------------------------------------------------------------
@@ -155,7 +181,7 @@ describe('GeminiImporter', () => {
   // ---------------------------------------------------------------
   // import() – hooks
   // ---------------------------------------------------------------
-  describe('import() - hooks', () => {
+  describe('import() – hooks', () => {
     it('should extract hook configurations from settings.json', async () => {
       vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
         const s = String(p);
@@ -186,6 +212,41 @@ describe('GeminiImporter', () => {
 
       const result = await importer.import(['hooks']);
       expect(result.imported.get('hooks')!.skipped).toBe(1);
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // import() – MCP
+  // ---------------------------------------------------------------
+  describe('import() - mcp', () => {
+    it('should extract MCP servers from settings.json', async () => {
+      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+        const s = String(p);
+        if (s === GEMINI_HOME) return true;
+        if (s === path.join(GEMINI_HOME, 'settings.json')) return true;
+        return false;
+      });
+
+      vi.mocked(fse.readFile).mockImplementation(async (p: string) => {
+        if (String(p).endsWith('settings.json')) {
+          return JSON.stringify({
+            mcpServers: {
+              docs: { command: 'docs-mcp' },
+            },
+          }) as never;
+        }
+        throw new Error('not found');
+      });
+
+      const result = await importer.import(['mcp']);
+      expect(result.imported.get('mcp')!.success).toBe(1);
+      expect(fse.writeJson).toHaveBeenCalledWith(
+        expect.stringContaining('imported-gemini-mcp.json'),
+        expect.objectContaining({
+          mcpServers: expect.objectContaining({ docs: expect.any(Object) }),
+        }),
+        { spaces: 2 },
+      );
     });
   });
 

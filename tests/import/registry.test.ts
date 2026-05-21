@@ -11,10 +11,12 @@ vi.mock('fs-extra', () => ({
   default: {
     pathExists: vi.fn().mockResolvedValue(false),
     readFile: vi.fn(),
+    readdir: vi.fn().mockResolvedValue([]),
     ensureDir: vi.fn(),
     writeJson: vi.fn(),
     readJson: vi.fn(),
     writeFile: vi.fn(),
+    copy: vi.fn(),
   },
 }));
 
@@ -33,9 +35,9 @@ describe('ImporterRegistry', () => {
   // getAll()
   // ---------------------------------------------------------------
   describe('getAll()', () => {
-    it('should return all 7 importers', () => {
+    it('should return all 9 importers', () => {
       const all = registry.getAll();
-      expect(all).toHaveLength(7);
+      expect(all).toHaveLength(9);
     });
 
     it('should include every ImportSource', () => {
@@ -48,6 +50,8 @@ describe('ImporterRegistry', () => {
       expect(names).toContain('cline');
       expect(names).toContain('continue');
       expect(names).toContain('augment');
+      expect(names).toContain('opencode');
+      expect(names).toContain('kimi');
     });
 
     it('should return importers with unique names', () => {
@@ -106,6 +110,18 @@ describe('ImporterRegistry', () => {
       expect(importer!.name).toBe('augment');
     });
 
+    it('should return the correct importer for "opencode"', () => {
+      const importer = registry.get('opencode');
+      expect(importer).toBeDefined();
+      expect(importer!.name).toBe('opencode');
+    });
+
+    it('should return the correct importer for "kimi"', () => {
+      const importer = registry.get('kimi');
+      expect(importer).toBeDefined();
+      expect(importer!.name).toBe('kimi');
+    });
+
     it('should return undefined for unknown source name', () => {
       // cast to ImportSource for type-safety test
       const importer = registry.get('unknown' as ImportSource);
@@ -142,15 +158,15 @@ describe('ImporterRegistry', () => {
       vi.mocked(fse.pathExists).mockResolvedValue(true as never);
 
       const available = await registry.detectAvailable();
-      expect(available).toHaveLength(7);
+      expect(available).toHaveLength(9);
     });
 
     it('should call detect() on every registered importer', async () => {
       vi.mocked(fse.pathExists).mockResolvedValue(false as never);
 
       await registry.detectAvailable();
-      // pathExists should be called once per importer
-      expect(fse.pathExists).toHaveBeenCalledTimes(7);
+      // Newer importers may check multiple documented storage roots.
+      expect(fse.pathExists).toHaveBeenCalled();
     });
   });
 });

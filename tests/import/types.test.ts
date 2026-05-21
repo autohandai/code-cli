@@ -26,9 +26,9 @@ describe('Import types', () => {
   describe('ImportSource', () => {
     it('should accept all valid source strings', () => {
       const sources: ImportSource[] = [
-        'claude', 'codex', 'gemini', 'cursor', 'cline', 'continue', 'augment',
+        'claude', 'codex', 'gemini', 'cursor', 'cline', 'continue', 'augment', 'opencode', 'kimi',
       ];
-      expect(sources).toHaveLength(7);
+      expect(sources).toHaveLength(9);
     });
   });
 
@@ -42,8 +42,8 @@ describe('Import types', () => {
   });
 
   describe('IMPORT_SOURCES constant', () => {
-    it('should contain all 7 sources', () => {
-      expect(IMPORT_SOURCES).toHaveLength(7);
+    it('should contain all 9 sources', () => {
+      expect(IMPORT_SOURCES).toHaveLength(9);
     });
 
     it('should include every known source', () => {
@@ -54,6 +54,8 @@ describe('Import types', () => {
       expect(IMPORT_SOURCES).toContain('cline');
       expect(IMPORT_SOURCES).toContain('continue');
       expect(IMPORT_SOURCES).toContain('augment');
+      expect(IMPORT_SOURCES).toContain('opencode');
+      expect(IMPORT_SOURCES).toContain('kimi');
     });
 
     it('should be readonly', () => {

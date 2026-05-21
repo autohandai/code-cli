@@ -21,7 +21,7 @@ import { BaseImporter } from './BaseImporter.js';
  * Importer for Google Gemini CLI data (~/.gemini).
  *
  * Handles settings (settings.json with hook configurations),
- * hooks (BeforeAgent/AfterAgent/AfterTool sections), and memory (GEMINI.md).
+ * hooks (BeforeAgent/AfterAgent/AfterTool sections), MCP servers, and memory (GEMINI.md).
  */
 export class GeminiImporter extends BaseImporter {
   readonly name: ImportSource = 'gemini';
@@ -61,6 +61,14 @@ export class GeminiImporter extends BaseImporter {
             });
           }
         }
+
+        const mcpServers = this.extractMcpServers(settings);
+        if (mcpServers && Object.keys(mcpServers).length > 0) {
+          available.set('mcp', {
+            count: Object.keys(mcpServers).length,
+            description: `${Object.keys(mcpServers).length} Gemini MCP server${Object.keys(mcpServers).length !== 1 ? 's' : ''}`,
+          });
+        }
       } catch {
         // Cannot read settings for hook detection; skip
       }
@@ -94,6 +102,9 @@ export class GeminiImporter extends BaseImporter {
           break;
         case 'hooks':
           await this.importHooks(imported, errors, onProgress);
+          break;
+        case 'mcp':
+          await this.importMcp(imported, errors, onProgress);
           break;
         case 'memory':
           await this.importMemory(imported, errors, onProgress);
@@ -237,6 +248,72 @@ export class GeminiImporter extends BaseImporter {
   }
 
   // ---------------------------------------------------------------
+  // MCP
+  // ---------------------------------------------------------------
+
+  protected async importMcp(
+    imported: Map<ImportCategory, ImportCategoryResult>,
+    errors: ImportError[],
+    onProgress?: ProgressCallback,
+  ): Promise<void> {
+    const settingsPath = path.join(this.resolvedHomePath, 'settings.json');
+
+    if (!(await fse.pathExists(settingsPath))) {
+      imported.set('mcp', { success: 0, failed: 0, skipped: 1 });
+      return;
+    }
+
+    onProgress?.({
+      category: 'mcp',
+      current: 1,
+      total: 1,
+      item: 'mcpServers from settings.json',
+      status: 'importing',
+    });
+
+    try {
+      const settings = await this.safeReadJson(settingsPath);
+      const mcpServers = this.extractMcpServers(settings);
+
+      if (!mcpServers || Object.keys(mcpServers).length === 0) {
+        imported.set('mcp', { success: 0, failed: 0, skipped: 1 });
+        return;
+      }
+
+      const configDir = AUTOHAND_PATHS.config;
+      await fse.ensureDir(configDir);
+
+      await fse.writeJson(
+        path.join(configDir, 'imported-gemini-mcp.json'),
+        {
+          importedFrom: 'gemini',
+          importedAt: new Date().toISOString(),
+          mcpServers,
+        },
+        { spaces: 2 },
+      );
+
+      imported.set('mcp', { success: 1, failed: 0, skipped: 0 });
+
+      onProgress?.({
+        category: 'mcp',
+        current: 1,
+        total: 1,
+        item: 'mcpServers from settings.json',
+        status: 'done',
+      });
+    } catch (err) {
+      imported.set('mcp', { success: 0, failed: 1, skipped: 0 });
+      errors.push({
+        category: 'mcp',
+        item: 'mcpServers from settings.json',
+        error: err instanceof Error ? err.message : String(err),
+        retriable: false,
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------
   // Memory
   // ---------------------------------------------------------------
 
@@ -283,5 +360,22 @@ export class GeminiImporter extends BaseImporter {
         retriable: true,
       });
     }
+  }
+
+  private extractMcpServers(settings: Record<string, unknown>): Record<string, unknown> | undefined {
+    const direct = settings.mcpServers;
+    if (direct && typeof direct === 'object' && !Array.isArray(direct)) {
+      return direct as Record<string, unknown>;
+    }
+
+    const mcp = settings.mcp;
+    if (mcp && typeof mcp === 'object' && !Array.isArray(mcp)) {
+      const maybeServers = (mcp as Record<string, unknown>).servers ?? (mcp as Record<string, unknown>).mcpServers;
+      if (maybeServers && typeof maybeServers === 'object' && !Array.isArray(maybeServers)) {
+        return maybeServers as Record<string, unknown>;
+      }
+    }
+
+    return undefined;
   }
 }
