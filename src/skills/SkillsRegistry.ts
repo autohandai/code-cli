@@ -6,6 +6,7 @@
  * SkillsRegistry - Manages skill discovery, loading, and activation
  */
 import fs from 'fs-extra';
+import os from 'node:os';
 import path from 'node:path';
 import { SkillParser } from './SkillParser.js';
 import type {
@@ -14,12 +15,46 @@ import type {
   SkillSimilarityMatch,
   SkillCopyResult,
 } from './types.js';
-import { PROJECT_DIR_NAME } from '../constants.js';
+import { AUTOHAND_PATHS, PROJECT_DIR_NAME } from '../constants.js';
 import type { TelemetryManager } from '../telemetry/TelemetryManager.js';
 import type { SkillUseData } from '../telemetry/types.js';
 import type { CommunitySkillsClient, CommunitySkillPackage, BackupPayload } from './CommunitySkillsClient.js';
 
 const SIMILARITY_THRESHOLD = 0.3;
+
+export interface SkillSearchLocation {
+  basePath: string;
+  source: SkillSource;
+  recursive: boolean;
+}
+
+export interface SkillsRegistryOptions {
+  /**
+   * Overrides the user-level discovery locations. Tests and embedded callers can
+   * use this to keep discovery scoped to temporary directories.
+   */
+  userSkillLocations?: SkillSearchLocation[];
+  /**
+   * Production registries discover Codex/Claude/Autohand user skills together.
+   * Custom registries default to their explicit directory only.
+   */
+  includeDefaultUserSkillLocations?: boolean;
+}
+
+function sameResolvedPath(a: string, b: string): boolean {
+  return path.resolve(a) === path.resolve(b);
+}
+
+function createDefaultUserSkillLocations(
+  userSkillsDir: string,
+  defaultSource: SkillSource
+): SkillSearchLocation[] {
+  return [
+    { basePath: path.join(os.homedir(), '.codex', 'skills'), source: 'codex-user', recursive: true },
+    { basePath: path.join(os.homedir(), '.claude', 'skills'), source: 'claude-user', recursive: false },
+    { basePath: userSkillsDir, source: defaultSource, recursive: true },
+  ];
+}
 
 /**
  * Registry for managing Agent Skills
@@ -47,7 +82,8 @@ export class SkillsRegistry {
 
   constructor(
     private readonly userSkillsDir: string,
-    defaultSource: SkillSource = 'autohand-user'
+    defaultSource: SkillSource = 'autohand-user',
+    private readonly options: SkillsRegistryOptions = {}
   ) {
     this.defaultSource = defaultSource;
   }
@@ -204,7 +240,24 @@ export class SkillsRegistry {
    * Initialize the registry by loading skills from the user directory
    */
   async initialize(): Promise<void> {
-    await this.loadFromDirectory(this.userSkillsDir, this.defaultSource, true);
+    for (const location of this.getUserSkillLocations()) {
+      await this.loadFromDirectory(location.basePath, location.source, location.recursive);
+    }
+  }
+
+  private getUserSkillLocations(): SkillSearchLocation[] {
+    if (this.options.userSkillLocations) {
+      return this.options.userSkillLocations;
+    }
+
+    const includeDefaultLocations = this.options.includeDefaultUserSkillLocations
+      ?? sameResolvedPath(this.userSkillsDir, AUTOHAND_PATHS.skills);
+
+    if (!includeDefaultLocations) {
+      return [{ basePath: this.userSkillsDir, source: this.defaultSource, recursive: true }];
+    }
+
+    return createDefaultUserSkillLocations(this.userSkillsDir, this.defaultSource);
   }
 
   /**

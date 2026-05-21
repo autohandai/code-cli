@@ -720,7 +720,7 @@
   },
   "ui": {
     "escToCancel": "esc pro zrušení",
-    "commandHint": "? zkratky · / příkazy · @ zmínit soubory · ! terminál",
+    "commandHint": "? zkratky · / příkazy · @ zmínit soubory · $ dovednosti · ! terminál",
     "ctrlCToExit": "Stiskněte Ctrl+C znovu pro ukončení",
     "noMatchingCommands": "Žádné odpovídající příkazy.",
     "selectFile": "Vyberte soubor",

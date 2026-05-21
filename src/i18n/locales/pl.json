@@ -720,7 +720,7 @@
   },
   "ui": {
     "escToCancel": "esc aby anulować",
-    "commandHint": "? skróty · / polecenia · @ wspomnij pliki · ! terminal",
+    "commandHint": "? skróty · / polecenia · @ wspomnij pliki · $ umiejętności · ! terminal",
     "ctrlCToExit": "Naciśnij Ctrl+C ponownie, aby wyjść",
     "noMatchingCommands": "Brak pasujących poleceń.",
     "selectFile": "Wybierz plik",

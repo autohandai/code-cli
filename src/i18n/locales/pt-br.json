@@ -710,7 +710,7 @@
   },
   "ui": {
     "escToCancel": "esc para cancelar",
-    "commandHint": "? atalhos · / comandos · @ mencionar arquivos · ! terminal",
+    "commandHint": "? atalhos · / comandos · @ mencionar arquivos · $ skills · ! terminal",
     "ctrlCToExit": "Pressione Ctrl+C novamente para sair",
     "noMatchingCommands": "Nenhum comando correspondente.",
     "selectFile": "Selecionar um arquivo",
