@@ -122,17 +122,64 @@ export const SYNC_CONFIG = {
   timeout: 30000,
 } as const;
 
-/**
- * Skill search locations in order of precedence (later wins on collision)
- * Each entry specifies: path pattern, source type, and whether to search recursively
- */
-export const SKILL_LOCATIONS = [
-  { basePath: path.join(os.homedir(), '.codex', 'skills'), source: 'codex-user' as const, recursive: true },
-  { basePath: path.join(os.homedir(), '.claude', 'skills'), source: 'claude-user' as const, recursive: false },
-  // Project-level Claude skills are resolved at runtime with workspaceRoot
-  { basePath: AUTOHAND_PATHS.skills, source: 'autohand-user' as const, recursive: true },
-  // Project-level Autohand skills are resolved at runtime with workspaceRoot
+const THIRD_PARTY_PROJECT_SKILL_DIRS = [
+  '.aider-desk/skills',
+  '.augment/skills',
+  '.bob/skills',
+  '.codeartsdoer/skills',
+  '.codebuddy/skills',
+  '.codemaker/skills',
+  '.codestudio/skills',
+  '.commandcode/skills',
+  '.continue/skills',
+  '.cortex/skills',
+  '.crush/skills',
+  '.devin/skills',
+  '.factory/skills',
+  '.forge/skills',
+  '.goose/skills',
+  '.hermes/skills',
+  '.junie/skills',
+  '.iflow/skills',
+  '.kilocode/skills',
+  '.kiro/skills',
+  '.kode/skills',
+  '.mcpjam/skills',
+  '.vibe/skills',
+  '.mux/skills',
+  '.openhands/skills',
+  '.pi/skills',
+  '.qoder/skills',
+  '.qwen/skills',
+  '.rovodev/skills',
+  '.roo/skills',
+  '.tabnine/agent/skills',
+  '.trae/skills',
+  '.windsurf/skills',
+  '.zencoder/skills',
+  '.neovate/skills',
+  '.pochi/skills',
+  '.adal/skills',
+  '.agent/skills',
+  '.agents/skills',
+  'skills',
 ] as const;
+
+/**
+ * User skill search locations in order of precedence (later wins on collision).
+ * Each entry specifies: path pattern, source type, and whether to search recursively.
+ */
+export function getUserSkillLocations(homeDir = os.homedir(), autohandSkillsDir = AUTOHAND_PATHS.skills) {
+  return [
+    { basePath: path.join(homeDir, '.codex', 'skills'), source: 'codex-user' as const, recursive: true },
+    { basePath: path.join(homeDir, '.claude', 'skills'), source: 'claude-user' as const, recursive: false },
+    { basePath: path.join(homeDir, '.agent', 'skills'), source: 'agent-user' as const, recursive: true },
+    { basePath: path.join(homeDir, '.agents', 'skills'), source: 'agent-user' as const, recursive: true },
+    { basePath: autohandSkillsDir, source: 'autohand-user' as const, recursive: true },
+  ];
+}
+
+export const SKILL_LOCATIONS = getUserSkillLocations();
 
 /**
  * Get project-level skill locations for a given workspace root
@@ -140,6 +187,11 @@ export const SKILL_LOCATIONS = [
 export function getProjectSkillLocations(workspaceRoot: string) {
   return [
     { basePath: path.join(workspaceRoot, '.claude', 'skills'), source: 'claude-project' as const, recursive: false },
+    ...THIRD_PARTY_PROJECT_SKILL_DIRS.map((relativePath) => ({
+      basePath: path.join(workspaceRoot, relativePath),
+      source: 'agent-project' as const,
+      recursive: true,
+    })),
     { basePath: path.join(workspaceRoot, PROJECT_DIR_NAME, 'skills'), source: 'autohand-project' as const, recursive: true },
   ];
 }
