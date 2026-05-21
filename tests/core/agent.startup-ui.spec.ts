@@ -494,7 +494,7 @@ describe('agent startup and active input UI', () => {
       agent.queueInput = 'queued prompt text that is intentionally long';
       const text = (agent as any).buildSpinnerStatusText(
         'Working... (esc to interrupt · 00m 02s · 999999 tokens [12 queued]) and this keeps going',
-        '\u001b[46mPLAN\u001b[49m 100% context left · ? shortcuts · / commands · @ mention files · ! terminal'
+        '\u001b[46mPLAN\u001b[49m 100% context left · ? shortcuts · / commands · @ mention files · $ skills · ! terminal'
       );
 
       const plain = text.replace(/\u001b\[[0-9;]*m/g, '');

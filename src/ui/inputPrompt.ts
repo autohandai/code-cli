@@ -298,7 +298,7 @@ const CONTEXTUAL_HELP_ROWS: Array<{ left: string; right: string }> = [
   { left: '? toggles this shortcuts panel', right: 'shift + tab toggles plan mode' },
   { left: 'shift + enter inserts newline', right: 'alt + enter inserts newline' },
   { left: 'enter submits prompt', right: 'ctrl + c clears input / exits' },
-  { left: 'esc interrupts active turn', right: 'type /, @, or ! to switch mode' },
+  { left: 'esc interrupts active turn', right: 'type /, @, $, or ! to switch mode' },
 ];
 
 function truncatePlainText(value: string, width: number): string {
@@ -405,7 +405,7 @@ export function buildPromptHotTips(
     { label: 'Tab -> ! git status' },
     defaultFileTip,
     { label: 'Type $ for skills' },
-    { label: 'Type /, @, or ! to switch suggestion mode' },
+    { label: 'Type /, @, $, or ! to switch suggestion mode' },
     { label: 'Shift+Tab toggles plan mode' },
   ];
 }
@@ -570,7 +570,7 @@ export function buildContextualHelpPanelLines(
   const rightWidth = Math.max(12, panelWidth - leftWidth - gap);
   const tips = buildPromptHotTips(currentLine, files, slashCommands, undefined, skillsProvider);
   const primaryTip = tips[0]?.label ?? 'Tab -> /help';
-  const secondaryTip = tips[1]?.label ?? 'Type /, @, or ! to switch suggestion mode';
+  const secondaryTip = tips[1]?.label ?? 'Type /, @, $, or ! to switch suggestion mode';
 
   const formatCell = (value: string, cellWidth: number): string => {
     const plain = sanitizeRenderLine(value);

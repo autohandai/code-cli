@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { SkillsRegistry } from '../../src/skills/SkillsRegistry.js';
+import { buildSkillSuggestions } from '../../src/ui/ink/SkillMentionDropdown.js';
 
 describe('SkillsRegistry', () => {
   const tempRoot = path.join(os.tmpdir(), `skills-registry-test-${Date.now()}`);
@@ -85,6 +86,49 @@ ${body}
       expect(skills.length).toBe(2);
       expect(skills.map(s => s.name)).toContain('top-level-skill');
       expect(skills.map(s => s.name)).toContain('nested-skill');
+    });
+
+    it('loads configured user skill locations so $ composer mentions include Codex and Claude skills', async () => {
+      const codexDir = path.join(tempRoot, 'test-default-locations-codex');
+      const claudeDir = path.join(tempRoot, 'test-default-locations-claude');
+      const autohandDir = path.join(tempRoot, 'test-default-locations-autohand');
+      await fs.ensureDir(codexDir);
+      await fs.ensureDir(claudeDir);
+      await fs.ensureDir(autohandDir);
+
+      await createSkill(codexDir, 'code-cli-guardian', 'Code CLI production guidance');
+      await createSkill(claudeDir, 'legacy-review', 'Legacy review guidance');
+      await createSkill(codexDir, 'overlap-skill', 'Codex copy');
+      await createSkill(autohandDir, 'overlap-skill', 'Autohand copy');
+
+      const registry = new SkillsRegistry(autohandDir, 'autohand-user', {
+        userSkillLocations: [
+          { basePath: codexDir, source: 'codex-user', recursive: true },
+          { basePath: claudeDir, source: 'claude-user', recursive: false },
+          { basePath: autohandDir, source: 'autohand-user', recursive: true },
+        ],
+      });
+      await registry.initialize();
+
+      const skills = registry.listSkills();
+      expect(skills.map(s => s.name)).toEqual(expect.arrayContaining([
+        'code-cli-guardian',
+        'legacy-review',
+        'overlap-skill',
+      ]));
+      expect(registry.getSkill('overlap-skill')?.description).toBe('Autohand copy');
+      expect(registry.getSkill('overlap-skill')?.source).toBe('autohand-user');
+
+      const mentionSuggestions = buildSkillSuggestions('', skills.map(skill => ({
+        name: skill.name,
+        description: skill.description,
+        isActive: skill.isActive,
+        source: skill.source,
+      })));
+      expect(mentionSuggestions.map(suggestion => suggestion.name)).toEqual(expect.arrayContaining([
+        '$code-cli-guardian',
+        '$legacy-review',
+      ]));
     });
   });
 

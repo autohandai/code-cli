@@ -18,7 +18,7 @@ const SHORTCUT_ROWS: Array<{ left: string; right: string }> = [
   { left: '$ for skills', right: 'shift + tab toggles plan mode' },
   { left: 'shift + enter inserts newline', right: 'alt + enter inserts newline' },
   { left: 'enter submits prompt', right: 'ctrl + c clears input / exits' },
-  { left: 'esc interrupts active turn', right: 'type /, @, or ! to switch mode' },
+  { left: 'esc interrupts active turn', right: 'type /, @, $, or ! to switch mode' },
 ];
 
 export const ShortcutsHelpPanel = memo(function ShortcutsHelpPanel({

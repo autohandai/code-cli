@@ -720,7 +720,7 @@
   },
   "ui": {
     "escToCancel": "Esc zum Abbrechen",
-    "commandHint": "? Tastenkürzel · / Befehle · @ Dateien erwähnen · ! Terminal",
+    "commandHint": "? Tastenkürzel · / Befehle · @ Dateien erwähnen · $ Skills · ! Terminal",
     "ctrlCToExit": "Drücken Sie erneut Strg+C zum Beenden",
     "noMatchingCommands": "Keine passenden Befehle.",
     "selectFile": "Datei auswählen",

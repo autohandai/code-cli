@@ -720,7 +720,7 @@
   },
   "ui": {
     "escToCancel": "esc pour annuler",
-    "commandHint": "? raccourcis · / commandes · @ mentionner fichiers · ! terminal",
+    "commandHint": "? raccourcis · / commandes · @ mentionner fichiers · $ compétences · ! terminal",
     "ctrlCToExit": "Appuyez à nouveau sur Ctrl+C pour quitter",
     "noMatchingCommands": "Aucune commande correspondante.",
     "selectFile": "Sélectionner un fichier",

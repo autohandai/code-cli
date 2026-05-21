@@ -710,7 +710,7 @@
   },
   "ui": {
     "escToCancel": "iptal için esc",
-    "commandHint": "? kısayollar · / komutlar · @ dosya belirt · ! terminal",
+    "commandHint": "? kısayollar · / komutlar · @ dosya belirt · $ yetenekler · ! terminal",
     "ctrlCToExit": "Çıkmak için Ctrl+C'ye tekrar basın",
     "noMatchingCommands": "Eşleşen komut yok.",
     "selectFile": "Bir dosya seçin",
