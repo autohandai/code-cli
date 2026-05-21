@@ -302,7 +302,7 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/team`            | Manage team collaboration            |
 | `/tasks`           | List team tasks                      |
 | `/message`         | Send team message                    |
-| `/import`          | Import data from other agents        |
+| `/import`          | Import data from Claude, Codex, Gemini, Cursor, OpenCode, Kimi, and other agents |
 | `/repeat`          | Repeat previous actions              |
 | `/chrome`          | Chrome browser integration           |
 | `/review`          | Code review                          |

@@ -11,6 +11,8 @@ import { CursorImporter } from './importers/CursorImporter.js';
 import { ClineImporter } from './importers/ClineImporter.js';
 import { ContinueImporter } from './importers/ContinueImporter.js';
 import { AugmentImporter } from './importers/AugmentImporter.js';
+import { OpencodeImporter } from './importers/OpencodeImporter.js';
+import { KimiImporter } from './importers/KimiImporter.js';
 
 /**
  * Central registry for all agent importers.
@@ -30,6 +32,8 @@ export class ImporterRegistry {
     this.register(new ClineImporter());
     this.register(new ContinueImporter());
     this.register(new AugmentImporter());
+    this.register(new OpencodeImporter());
+    this.register(new KimiImporter());
   }
 
   /**
