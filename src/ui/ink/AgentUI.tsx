@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import React, { useState, useEffect, memo, useMemo, useRef, useCallback } from 'react';
-import { Box, Static, Text, useInput, usePaste, useStdout, type Key as InkKey } from 'ink';
+import { Box, Static, Text, useInput, useStdout, type Key as InkKey } from 'ink';
 import {
   StatusLine,
   formatLineSegments,
@@ -733,8 +733,6 @@ export function AgentUI({
 
     syncInputFromBuffer();
   }, [syncInputFromBuffer]);
-
-  usePaste(insertPastedText);
 
   const acceptActiveAutocompleteSuggestion = useCallback((options?: { preserveExactSlashSubmit?: boolean }): boolean => {
     if (slashVisibleRef.current && slashSuggestionsRef.current.length > 0 && slashStartIndexRef.current !== null) {

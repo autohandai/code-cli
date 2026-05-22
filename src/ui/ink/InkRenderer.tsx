@@ -313,7 +313,6 @@ export class InkRenderer {
         stdin: process.stdin,
         stdout: process.stdout,
         stderr: process.stderr,
-        interactive: true,
         // Let AgentUI handle Ctrl+C (clear text / warn-then-exit) instead of Ink forcing exit
         exitOnCtrlC: false
       })
@@ -959,7 +958,6 @@ export class InkRenderer {
           stdin: process.stdin,
           stdout: process.stdout,
           stderr: process.stderr,
-          interactive: true,
           // Let AgentUI handle Ctrl+C (clear text / warn-then-exit) instead of Ink forcing exit
           exitOnCtrlC: false
         })
