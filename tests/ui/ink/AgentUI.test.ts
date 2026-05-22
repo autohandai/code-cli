@@ -234,6 +234,7 @@ describe('AgentUI composer suggestions', () => {
       )
     );
 
+    await new Promise<void>((resolve) => setImmediate(resolve));
     stdin.write('a');
     await new Promise<void>((resolve) => setImmediate(resolve));
 
@@ -1055,6 +1056,7 @@ describe('AgentUI Ctrl+C behavior', () => {
       )
     );
 
+    await new Promise<void>((resolve) => setImmediate(resolve));
     stdin.write('\x03');
     await new Promise<void>((resolve) => setTimeout(resolve, 50));
     expect(onInstruction).not.toHaveBeenCalled();

@@ -182,6 +182,7 @@ describe('InputLine themed variants', () => {
       'utf8'
     );
 
+    expect(source).not.toContain('import { Box, Text, useCursor');
     expect(source).toContain('useCursor');
     expect(source).toContain('setCursorPosition');
     expect(source).not.toContain('renderHardwareCursorFallback');

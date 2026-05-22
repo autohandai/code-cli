@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { inkRenderOptions } from '../../src/ui/inkRenderOptions.js';
 
 const SOURCE_ROOT = path.join(process.cwd(), 'src');
-const UNSUPPORTED_INK_RENDER_OPTIONS = ['concurrent', 'alternateScreen'] as const;
+const UNSUPPORTED_INK_RENDER_OPTIONS = ['concurrent', 'alternateScreen', 'maxFps'] as const;
 
 async function collectSourceFiles(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -29,9 +29,9 @@ async function collectSourceFiles(dir: string): Promise<string[]> {
 }
 
 describe('Ink 7 render options', () => {
-  it('raises the default render cadence for responsive composer input', () => {
-    expect(inkRenderOptions({})).toMatchObject({ maxFps: 60 });
-    expect(inkRenderOptions({ maxFps: 24 })).toMatchObject({ maxFps: 24 });
+  it('returns only Ink-supported render options', () => {
+    expect(inkRenderOptions({})).toEqual({});
+    expect(inkRenderOptions({ exitOnCtrlC: false })).toEqual({ exitOnCtrlC: false });
   });
 
   it('does not pass unsupported render options to Ink', async () => {
