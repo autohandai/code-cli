@@ -91,6 +91,7 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
   // Agent Behavior
   { key: 'agent.maxIterations', labelKey: 'commands.settings.agent.maxIterations', descriptionKey: 'commands.settings.agent.maxIterationsDesc', category: 'agent', type: 'number', defaultValue: 100 },
   { key: 'agent.enableRequestQueue', labelKey: 'commands.settings.agent.enableRequestQueue', descriptionKey: 'commands.settings.agent.enableRequestQueueDesc', category: 'agent', type: 'boolean', defaultValue: true },
+  { key: 'agent.idleLogoutEnabled', labelKey: 'commands.settings.agent.idleLogoutEnabled', descriptionKey: 'commands.settings.agent.idleLogoutEnabledDesc', category: 'agent', type: 'boolean', defaultValue: true },
   { key: 'agent.sessionRetryLimit', labelKey: 'commands.settings.agent.sessionRetryLimit', descriptionKey: 'commands.settings.agent.sessionRetryLimitDesc', category: 'agent', type: 'number', defaultValue: 3 },
   { key: 'agent.sessionRetryDelay', labelKey: 'commands.settings.agent.sessionRetryDelay', descriptionKey: 'commands.settings.agent.sessionRetryDelayDesc', category: 'agent', type: 'number', defaultValue: 1000 },
   { key: 'agent.debug', labelKey: 'commands.settings.agent.debug', descriptionKey: 'commands.settings.agent.debugDesc', category: 'agent', type: 'boolean', defaultValue: false },

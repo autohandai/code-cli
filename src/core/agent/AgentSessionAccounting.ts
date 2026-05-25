@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import { getAuthClient } from '../../auth/index.js';
 import { getProviderConfig, saveConfig } from '../../config.js';
+import { AUTH_CONFIG } from '../../constants.js';
 import type { SessionMessage } from '../../session/types.js';
 import type {
   AgentOutputEvent,
@@ -80,6 +81,35 @@ export interface AgentSessionAccountingHost {
 
 const CLEANUP_TIMEOUT_MS = 2500;
 const SESSION_SYNC_DEBOUNCE_MS = 5000;
+
+type IdleLogoutEnv = {
+  AUTOHAND_NO_IDLE_LOGOUT?: string;
+};
+
+function isTruthyEnvValue(value: string | undefined): boolean {
+  return value === '1' || value === 'true' || value === 'yes' || value === 'on';
+}
+
+export function isAgentIdleLogoutEnabled(
+  runtime: AgentRuntime,
+  env: IdleLogoutEnv = process.env,
+): boolean {
+  if (runtime.options.idleLogout === false) return false;
+  if (runtime.config.agent?.idleLogoutEnabled === false) return false;
+  if (isTruthyEnvValue(env.AUTOHAND_NO_IDLE_LOGOUT?.toLowerCase())) return false;
+  return true;
+}
+
+export function shouldForceAgentIdleLogout(
+  runtime: AgentRuntime,
+  lastActivityAt: number,
+  now = Date.now(),
+  env: IdleLogoutEnv = process.env,
+): boolean {
+  if (!runtime.config.auth?.token) return false;
+  if (!isAgentIdleLogoutEnabled(runtime, env)) return false;
+  return now - lastActivityAt >= AUTH_CONFIG.idleTimeoutMs;
+}
 
 type SyncableSession = {
   getMessages(): SessionMessage[];
