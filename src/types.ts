@@ -32,7 +32,7 @@ type Primitive = string | number | boolean | null;
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
-export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure' | 'zai' | 'vertexai' | 'xai' | 'cerebras' | 'nvidia' | 'deepseek' | 'bedrock';
+export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'openaicompatible' | 'mlx' | 'llmgateway' | 'azure' | 'zai' | 'vertexai' | 'xai' | 'cerebras' | 'nvidia' | 'deepseek' | 'bedrock';
 
 export type AzureAuthMethod = 'api-key' | 'entra-id' | 'managed-identity';
 export type OpenAIAuthMode = 'api-key' | 'chatgpt';
@@ -72,6 +72,11 @@ export interface OpenAIChatGPTAuth {
 export interface OpenAISettings extends ProviderSettings {
   authMode?: OpenAIAuthMode;
   chatgptAuth?: OpenAIChatGPTAuth;
+}
+
+export interface OpenAICompatibleSettings extends ProviderSettings {
+  apiKey: string;
+  baseUrl: string;
 }
 
 export interface AzureSettings extends ProviderSettings {
@@ -653,6 +658,7 @@ export interface AutohandConfig {
   ollama?: ProviderSettings;
   llamacpp?: ProviderSettings;
   openai?: OpenAISettings;
+  openaicompatible?: OpenAICompatibleSettings;
   mlx?: ProviderSettings;
   llmgateway?: LLMGatewaySettings;
   /** Azure OpenAI settings */

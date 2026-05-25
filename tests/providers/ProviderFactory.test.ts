@@ -19,12 +19,13 @@ describe("ProviderFactory", () => {
   });
 
   describe("getProviderNames()", () => {
-    it("should always include openrouter, ollama, openai, llamacpp, llmgateway, azure, zai, deepseek, bedrock", () => {
+    it("should always include openrouter, ollama, openai, openaicompatible, llamacpp, llmgateway, azure, zai, deepseek, bedrock", () => {
       const providers = ProviderFactory.getProviderNames();
 
       expect(providers).toContain("openrouter");
       expect(providers).toContain("ollama");
       expect(providers).toContain("openai");
+      expect(providers).toContain("openaicompatible");
       expect(providers).toContain("llamacpp");
       expect(providers).toContain("llmgateway");
       expect(providers).toContain("azure");
@@ -53,6 +54,7 @@ describe("ProviderFactory", () => {
         "nvidia",
         "openrouter",
         "openai",
+        "openaicompatible",
         "ollama",
         "llmgateway",
         "llamacpp",
@@ -87,6 +89,21 @@ describe("ProviderFactory", () => {
           model: "gpt-4",
         },
       };
+
+      const provider = ProviderFactory.create(config);
+
+      expect(provider.getName()).toBe("openai");
+    });
+
+    it("should create OpenAIProvider when openaicompatible is configured", () => {
+      const config = {
+        provider: "openaicompatible",
+        openaicompatible: {
+          apiKey: "test-key",
+          model: "gpt-4o-mini",
+          baseUrl: "https://proxy.example.com/v1",
+        },
+      } as unknown as AutohandConfig;
 
       const provider = ProviderFactory.create(config);
 
@@ -207,6 +224,10 @@ describe("ProviderFactory", () => {
 
     it("should return true for openai", () => {
       expect(ProviderFactory.isValidProvider("openai")).toBe(true);
+    });
+
+    it("should return true for openaicompatible", () => {
+      expect(ProviderFactory.isValidProvider("openaicompatible")).toBe(true);
     });
 
     it("should return true for llamacpp", () => {

@@ -104,6 +104,7 @@ Active LLM provider to use.
 | `"ollama"`     | Local Ollama instance        |
 | `"llamacpp"`   | Local llama.cpp server       |
 | `"openai"`     | OpenAI API directly          |
+| `"openaicompatible"` | OpenAI-compatible API endpoint |
 | `"mlx"`        | MLX on Apple Silicon (local) |
 | `"llmgateway"` | LLM Gateway unified API      |
 | `"deepseek"`   | DeepSeek API                 |
@@ -212,6 +213,26 @@ OpenAI can also use your ChatGPT subscription via Autohand's built-in OpenAI sig
 | `model`         | string | Yes                    | -                           | Model name (e.g., `gpt-5.4`, `gpt-5.4-mini`)                              |
 | `contextWindow` | number | No                     | Auto                        | Exact model context window. Set this to override stale local assumptions. |
 | `chatgptAuth`   | object | Yes for `chatgpt` mode | -                           | Stored ChatGPT/Codex auth tokens and account id                           |
+
+### `openaicompatible`
+
+OpenAI-compatible provider configuration for custom gateways/proxies that expose an OpenAI-style API.
+
+```json
+{
+  "openaicompatible": {
+    "apiKey": "your-provider-key",
+    "baseUrl": "https://your-provider.example.com/v1",
+    "model": "gpt-4o-mini"
+  }
+}
+```
+
+| Field     | Type   | Required | Default                    | Description                                                        |
+| --------- | ------ | -------- | -------------------------- | ------------------------------------------------------------------ |
+| `apiKey`  | string | Yes      | -                          | API key from your OpenAI-compatible provider                       |
+| `baseUrl` | string | Yes      | -                          | OpenAI-compatible endpoint base URL (for example `.../v1`)         |
+| `model`   | string | Yes      | -                          | Model name supported by your provider                              |
 
 ### `mlx`
 

@@ -681,6 +681,7 @@
   "providers": {
     "openrouter": "OpenRouter",
     "openai": "OpenAI",
+    "openaicompatible": "OpenAI Compatible",
     "ollama": "Ollama",
     "llamacpp": "llama.cpp",
     "mlx": "MLX (Apple Silicon)",
@@ -713,6 +714,7 @@
     "hints": {
       "openrouter": "Cloud - Access to 100+ models (Claude, GPT-4, etc.)",
       "openai": "Cloud - Official OpenAI models (GPT-4o, o1, etc.)",
+      "openaicompatible": "Cloud - OpenAI-compatible APIs (custom endpoint)",
       "ollama": "Local - Run models on your machine (free)",
       "llamacpp": "Local - Fast inference with GGUF models",
       "mlx": "Local - Optimized for Apple Silicon Macs",
@@ -787,6 +789,10 @@
       },
       "openai": {
         "title": "OpenAI Configuration",
+        "apiKeyUrl": "https://platform.openai.com/api-keys"
+      },
+      "openaicompatible": {
+        "title": "OpenAI-Compatible Configuration",
         "apiKeyUrl": "https://platform.openai.com/api-keys"
       },
       "ollama": {

@@ -116,6 +116,36 @@ describe('getProviderConfig', () => {
     expect(result).toBeNull();
   });
 
+  it('returns openaicompatible settings only when api key, model, and base url are configured', () => {
+    const cfg = {
+      provider: 'openaicompatible',
+      openaicompatible: {
+        apiKey: 'compat-key',
+        model: 'gpt-4o-mini',
+        baseUrl: 'https://proxy.example.com/v1'
+      }
+    } as unknown as AutohandConfig;
+
+    const result = getProviderConfig(cfg, 'openaicompatible' as any);
+    expect(result).not.toBeNull();
+    expect(result!.apiKey).toBe('compat-key');
+    expect(result!.model).toBe('gpt-4o-mini');
+    expect(result!.baseUrl).toBe('https://proxy.example.com/v1');
+  });
+
+  it('returns null for openaicompatible when base url is missing', () => {
+    const cfg = {
+      provider: 'openaicompatible',
+      openaicompatible: {
+        apiKey: 'compat-key',
+        model: 'gpt-4o-mini'
+      }
+    } as unknown as AutohandConfig;
+
+    const result = getProviderConfig(cfg, 'openaicompatible' as any);
+    expect(result).toBeNull();
+  });
+
   it('returns nvidia settings when configured', () => {
     const cfg: AutohandConfig = {
       provider: 'nvidia',

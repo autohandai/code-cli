@@ -1585,6 +1585,7 @@ export class AutohandAgent {
     if (this.runtime.config.ollama) providers.push('ollama');
     if (this.runtime.config.llamacpp) providers.push('llamacpp');
     if (this.runtime.config.openai) providers.push('openai');
+    if (this.runtime.config.openaicompatible) providers.push('openaicompatible');
     if (this.runtime.config.mlx) providers.push('mlx');
     if (this.runtime.config.llmgateway) providers.push('llmgateway');
     if (this.runtime.config.zai) providers.push('zai');

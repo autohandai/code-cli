@@ -88,6 +88,12 @@ export class ProviderFactory {
                 }
                 return new OpenAIProvider(config.openai);
 
+            case 'openaicompatible':
+                if (!config.openaicompatible) {
+                    return new UnconfiguredProvider('openaicompatible');
+                }
+                return new OpenAIProvider(config.openaicompatible);
+
             case 'llamacpp':
                 if (!config.llamacpp) {
                     return new UnconfiguredProvider('llamacpp');
@@ -168,8 +174,8 @@ export class ProviderFactory {
      * MLX is only included on Apple Silicon (macOS + arm64).
      */
     static getProviderNames(config?: Pick<AutohandConfig, 'features'> | null): ProviderName[] {
-        // Sorted DESC by display name: Z.ai, xAI, Vertex AI, NVIDIA, OpenRouter, OpenAI, Ollama, MLX, LLM Gateway, llama.cpp, DeepSeek, Cerebras, Bedrock, Azure
-        const providers: ProviderName[] = ['zai', 'xai', 'vertexai', 'nvidia', 'openrouter', 'openai', 'ollama', 'llmgateway', 'llamacpp', 'deepseek', 'cerebras', 'azure'];
+        // Sorted DESC by display name: Z.ai, xAI, Vertex AI, NVIDIA, OpenRouter, OpenAI, OpenAI Compatible, Ollama, MLX, LLM Gateway, llama.cpp, DeepSeek, Cerebras, Bedrock, Azure
+        const providers: ProviderName[] = ['zai', 'xai', 'vertexai', 'nvidia', 'openrouter', 'openai', 'openaicompatible', 'ollama', 'llmgateway', 'llamacpp', 'deepseek', 'cerebras', 'azure'];
         if (isAwsBedrockProviderEnabled(config)) {
             providers.splice(providers.indexOf('azure'), 0, 'bedrock');
         }
@@ -189,7 +195,7 @@ export class ProviderFactory {
             return false;
         }
 
-        const allProviders: ProviderName[] = ['openrouter', 'ollama', 'openai', 'llamacpp', 'mlx', 'llmgateway', 'azure', 'zai', 'vertexai', 'xai', 'cerebras', 'nvidia', 'deepseek', 'bedrock'];
+        const allProviders: ProviderName[] = ['openrouter', 'ollama', 'openai', 'openaicompatible', 'llamacpp', 'mlx', 'llmgateway', 'azure', 'zai', 'vertexai', 'xai', 'cerebras', 'nvidia', 'deepseek', 'bedrock'];
         return allProviders.includes(name as ProviderName);
     }
 }
