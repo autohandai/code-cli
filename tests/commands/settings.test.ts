@@ -136,6 +136,15 @@ describe('SETTINGS_REGISTRY', () => {
       defaultValue: true,
     });
   });
+
+  it('exposes idle logout as an on-by-default agent setting', () => {
+    const setting = SETTINGS_REGISTRY.find(s => s.key === 'agent.idleLogoutEnabled');
+    expect(setting).toMatchObject({
+      category: 'agent',
+      type: 'boolean',
+      defaultValue: true,
+    });
+  });
 });
 
 describe('setConfigSetting', () => {

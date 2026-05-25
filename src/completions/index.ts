@@ -59,6 +59,7 @@ const DEFAULT_CONFIG: CompletionConfig = {
     { flag: '--temperature', description: 'Sampling temperature' },
     { flag: '--unrestricted', description: 'Skip all approval prompts' },
     { flag: '--restricted', description: 'Block all dangerous operations' },
+    { flag: '--no-idle-logout', description: 'Keep authenticated idle sessions alive' },
     { flag: '--help', description: 'Show help' },
     { flag: '--version', description: 'Show version' },
   ],

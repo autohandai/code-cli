@@ -191,6 +191,7 @@ program
   .option('-c, --auto-commit', 'Auto-commit with LLM-generated message (runs lint & test first)', false)
   .option('--unrestricted', 'Run without any approval prompts (use with caution)', false)
   .option('--restricted', 'Deny all dangerous operations automatically', false)
+  .option('--no-idle-logout', 'Disable authenticated idle logout for long-running agent sessions')
   .option('--goal [input]', 'Run /goal non-interactively (status when omitted, otherwise same arguments as /goal)')
   .option('--auto-skill', 'Auto-generate skills based on project analysis', false)
   .option('--learn', 'Run /learn skill advisor non-interactively (analyze and install recommended skills)', false)

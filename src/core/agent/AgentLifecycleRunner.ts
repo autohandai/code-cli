@@ -7,7 +7,6 @@ import chalk from 'chalk';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getProviderConfig } from '../../config.js';
-import { AUTH_CONFIG } from '../../constants.js';
 import type { LLMToolCall } from '../../types.js';
 import { renderTerminalMarkdown } from '../immediateCommandRouter.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
@@ -17,6 +16,7 @@ import { runWithConcurrency } from '../../utils/parallel.js';
 import { buildSessionChatLog } from '../../session/chatLog.js';
 import { formatExitCleanup, formatForceExit } from '../../ui/theme/startup.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
+import { shouldForceAgentIdleLogout } from './AgentSessionAccounting.js';
 import { consumeAgentInkSubmittedInstructionEcho } from './AgentUIRuntime.js';
 
 const execFileAsync = promisify(execFile);
@@ -701,13 +701,9 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
 
         // Check idle timeout — force logout if session has been idle too long.
         // Must check BEFORE updating lastActivityAt so the idle duration is accurate.
-        if (host.runtime.config.auth?.token) {
-          const idleMs = Date.now() - host.lastActivityAt;
-          const timeoutMs = AUTH_CONFIG.idleTimeoutMs;
-          if (idleMs >= timeoutMs) {
-            await host.forceIdleLogout();
-            return;
-          }
+        if (shouldForceAgentIdleLogout(host.runtime, host.lastActivityAt)) {
+          await host.forceIdleLogout();
+          return;
         }
 
         // Update activity timestamp on every user interaction

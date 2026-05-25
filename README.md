@@ -157,6 +157,7 @@ autohand -p "refactor database queries" --dry-run
 | `--auto-skill`                  |       | Auto-generate skills based on project analysis                                   |
 | `--unrestricted`                |       | Run without approval prompts (use with caution)                                  |
 | `--restricted`                  |       | Deny all dangerous operations automatically                                      |
+| `--no-idle-logout`              |       | Disable authenticated idle logout for long-running agent sessions                |
 | `--config <path>`               |       | Path to config file                                                              |
 | `--temperature <value>`         |       | Sampling temperature for LLM                                                     |
 | `--thinking [level]`            |       | Set thinking/reasoning depth (none, normal, extended)                            |

@@ -210,6 +210,8 @@ export interface AgentSettings {
   maxIterations?: number;
   /** Enable request queue - allow typing while agent works (default: true) */
   enableRequestQueue?: boolean;
+  /** Log out authenticated interactive sessions after idle timeout (default: true) */
+  idleLogoutEnabled?: boolean;
   /** Maximum session failure retries before giving up (default: 3) */
   sessionRetryLimit?: number;
   /** Delay in milliseconds between retries (default: 1000) */
@@ -746,6 +748,8 @@ export interface CLIOptions {
   unrestricted?: boolean;
   /** Run in restricted mode - deny all dangerous operations */
   restricted?: boolean;
+  /** Disable authenticated idle logout for this process when false */
+  idleLogout?: boolean;
   /** Non-interactive /goal command input. Empty value prints goal status. */
   goal?: string;
   /** Client context for tool filtering (default: 'cli') */

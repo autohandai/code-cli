@@ -5,6 +5,21 @@
  */
 import { describe, it, expect } from 'vitest';
 import { AUTH_CONFIG } from '../src/constants.js';
+import { shouldForceAgentIdleLogout } from '../src/core/agent/AgentSessionAccounting.js';
+import type { AgentRuntime } from '../src/types.js';
+
+function createRuntime(overrides: Partial<AgentRuntime> = {}): AgentRuntime {
+  return {
+    config: {
+      configPath: '/tmp/autohand-config.json',
+      auth: { token: 'token' },
+      ...(overrides.config ?? {}),
+    },
+    workspaceRoot: '/tmp/workspace',
+    options: {},
+    ...overrides,
+  } as AgentRuntime;
+}
 
 describe('AUTH_CONFIG.idleTimeoutMs', () => {
   it('is set to 30 minutes in milliseconds', () => {
@@ -42,5 +57,71 @@ describe('Idle timeout logic', () => {
     const idleMs = Date.now() - lastActivityAt;
     // At or beyond the threshold
     expect(idleMs >= idleTimeoutMs).toBe(true);
+  });
+
+  it('forces idle logout for authenticated sessions beyond the threshold by default', () => {
+    const now = 1_000_000;
+    const lastActivityAt = now - AUTH_CONFIG.idleTimeoutMs;
+
+    expect(shouldForceAgentIdleLogout(createRuntime(), lastActivityAt, now)).toBe(true);
+  });
+
+  it('does not force idle logout when the session is not authenticated', () => {
+    const now = 1_000_000;
+    const lastActivityAt = now - AUTH_CONFIG.idleTimeoutMs - 1;
+
+    expect(
+      shouldForceAgentIdleLogout(
+        createRuntime({ config: { configPath: '/tmp/autohand-config.json' } }),
+        lastActivityAt,
+        now,
+      ),
+    ).toBe(false);
+  });
+
+  it('does not force idle logout when config disables it', () => {
+    const now = 1_000_000;
+    const lastActivityAt = now - AUTH_CONFIG.idleTimeoutMs - 1;
+
+    expect(
+      shouldForceAgentIdleLogout(
+        createRuntime({
+          config: {
+            configPath: '/tmp/autohand-config.json',
+            auth: { token: 'token' },
+            agent: { idleLogoutEnabled: false },
+          },
+        }),
+        lastActivityAt,
+        now,
+      ),
+    ).toBe(false);
+  });
+
+  it('does not force idle logout when the CLI flag disables it', () => {
+    const now = 1_000_000;
+    const lastActivityAt = now - AUTH_CONFIG.idleTimeoutMs - 1;
+
+    expect(
+      shouldForceAgentIdleLogout(
+        createRuntime({ options: { idleLogout: false } }),
+        lastActivityAt,
+        now,
+      ),
+    ).toBe(false);
+  });
+
+  it('does not force idle logout when the environment disables it', () => {
+    const now = 1_000_000;
+    const lastActivityAt = now - AUTH_CONFIG.idleTimeoutMs - 1;
+
+    expect(
+      shouldForceAgentIdleLogout(
+        createRuntime(),
+        lastActivityAt,
+        now,
+        { AUTOHAND_NO_IDLE_LOGOUT: '1' },
+      ),
+    ).toBe(false);
   });
 });

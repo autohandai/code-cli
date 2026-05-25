@@ -579,6 +579,7 @@ Control agent behavior and iteration limits.
     "maxIterations": 100,
     "enableRequestQueue": true,
     "toolSelectionCache": true,
+    "idleLogoutEnabled": true,
     "debug": false
   }
 }
@@ -589,6 +590,7 @@ Control agent behavior and iteration limits.
 | `maxIterations`      | number  | `100`   | Maximum tool iterations per user request before stopping                       |
 | `enableRequestQueue` | boolean | `true`  | Allow users to type and queue requests while agent is working                  |
 | `toolSelectionCache` | boolean | `true`  | Cache local per-turn tool schema selection for equivalent tool-selection input |
+| `idleLogoutEnabled`  | boolean | `true`  | Log out authenticated interactive sessions after the idle timeout              |
 | `debug`              | boolean | `false` | Enable verbose debug output (logs agent internal state to stderr)              |
 
 ### Tool Schema Selection
@@ -610,6 +612,18 @@ To disable the local selector cache:
   }
 }
 ```
+
+To keep authenticated long-running agent sessions alive while they wait for work:
+
+```json
+{
+  "agent": {
+    "idleLogoutEnabled": false
+  }
+}
+```
+
+For a single process, use `autohand --no-idle-logout` or set `AUTOHAND_NO_IDLE_LOGOUT=1`.
 
 ### Debug Mode
 
@@ -1547,6 +1561,7 @@ autohand --no-chrome       # Start with browser bridge disabled
     "maxIterations": 100,
     "enableRequestQueue": true,
     "toolSelectionCache": true,
+    "idleLogoutEnabled": true,
     "debug": false
   },
   "permissions": {
@@ -1632,6 +1647,7 @@ agent:
   maxIterations: 100
   enableRequestQueue: true
   toolSelectionCache: true
+  idleLogoutEnabled: true
   debug: false
 
 permissions:
@@ -1726,6 +1742,7 @@ mdHeading = "brand"
 maxIterations = 100
 enableRequestQueue = true
 toolSelectionCache = true
+idleLogoutEnabled = true
 debug = false
 
 [permissions]
@@ -1799,6 +1816,7 @@ These flags override config file settings:
 | `--unrestricted`              | No approval prompts                                                                            |
 | `--restricted`                | Deny dangerous operations                                                                      |
 | `--permissions`               | Display current permission settings and exit                                                   |
+| `--no-idle-logout`            | Disable authenticated idle logout for long-running agent sessions                              |
 | `--yolo [pattern]`            | Auto-approve tool calls matching pattern (e.g., `allow:read,write` or `deny:delete`)           |
 | `--timeout <seconds>`         | Timeout in seconds for auto-approve mode                                                       |
 

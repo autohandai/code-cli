@@ -226,6 +226,8 @@
         "maxIterationsDesc": "Maximum tool iterations per request",
         "enableRequestQueue": "Request queue",
         "enableRequestQueueDesc": "Allow typing while agent works",
+        "idleLogoutEnabled": "Idle logout",
+        "idleLogoutEnabledDesc": "Log out authenticated sessions after the idle timeout",
         "sessionRetryLimit": "Session retry limit",
         "sessionRetryLimitDesc": "Max retries before giving up",
         "sessionRetryDelay": "Retry delay (ms)",
