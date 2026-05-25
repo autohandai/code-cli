@@ -142,6 +142,75 @@ describe("ProviderConfigManager openai auth mode", () => {
     expect(mockSaveConfig).toHaveBeenCalledOnce();
   });
 
+  it("allows configuring openai with a custom compatible base URL", async () => {
+    const customBaseUrl = "https://openai-proxy.example.com/v1";
+
+    mockShowModal
+      .mockResolvedValueOnce({ value: "api-key" })
+      .mockResolvedValueOnce({ value: "gpt-5.4" })
+      .mockResolvedValueOnce({ value: "high" });
+    mockShowPassword.mockResolvedValueOnce("sk-openai-key-1234567890");
+    mockShowInput.mockResolvedValueOnce(customBaseUrl);
+
+    await (manager as any).configureOpenAI();
+
+    expect(mockShowInput).toHaveBeenCalledOnce();
+    expect(runtime.config.openai).toMatchObject({
+      authMode: "api-key",
+      apiKey: "sk-openai-key-1234567890",
+      model: "gpt-5.4",
+      baseUrl: customBaseUrl,
+    });
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
+  });
+
+  it("configures openaicompatible with api-key auth semantics and custom base URL", async () => {
+    mockShowPassword.mockResolvedValueOnce("sk-openai-compat-1234567890");
+    mockShowInput
+      .mockResolvedValueOnce("https://proxy.example.com/v1")
+      .mockResolvedValueOnce("gpt-4o-mini");
+
+    await (manager as any).configureOpenAICompatible();
+
+    expect(runtime.config.provider).toBe("openaicompatible");
+    expect(runtime.config.openaicompatible).toMatchObject({
+      apiKey: "sk-openai-compat-1234567890",
+      baseUrl: "https://proxy.example.com/v1",
+      model: "gpt-4o-mini",
+    });
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
+  });
+
+  it("validates openaicompatible api key against the newly entered base URL", async () => {
+    runtime.config.provider = "openaicompatible";
+    runtime.config.openaicompatible = {
+      apiKey: "sk-openai-compat-old-1234567890",
+      baseUrl: "https://old-proxy.example.com/v1",
+      model: "gpt-4o-mini",
+    };
+    runtime.options.model = "gpt-4o-mini";
+
+    mockShowModal.mockResolvedValueOnce({ value: "apiKey" });
+    mockShowPassword.mockResolvedValueOnce("sk-openai-compat-new-1234567890");
+    mockShowInput.mockResolvedValueOnce("https://new-proxy.example.com/v1");
+
+    const validateApiKeySpy = vi
+      .spyOn(manager as any, "validateApiKey")
+      .mockResolvedValue({ valid: true });
+
+    await manager.promptModelSelection();
+
+    expect(validateApiKeySpy).toHaveBeenCalledWith(
+      "openaicompatible",
+      "sk-openai-compat-new-1234567890",
+      "https://new-proxy.example.com/v1",
+    );
+    expect(runtime.config.openaicompatible.baseUrl).toBe(
+      "https://new-proxy.example.com/v1",
+    );
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
+  });
+
   it("prints a visible sign-in status before starting chatgpt auth", async () => {
     mockAuthenticateOpenAIChatGPT.mockResolvedValue({
       accessToken: "chatgpt-access-token",
@@ -332,6 +401,87 @@ describe("ProviderConfigManager openai auth mode", () => {
     expect(runtime.config.openai.reasoningEffort).toBe("xhigh");
     expect(mockSaveConfig).toHaveBeenCalledOnce();
     expect(mockShowModal.mock.calls[1][0].initialIndex).toBe(3);
+  });
+
+  it.each(["model", "auth", "reasoning"] as const)(
+    "keeps a custom OpenAI baseUrl when changing %s settings",
+    async (settingsAction) => {
+      const customBaseUrl = "https://openai-proxy.example.com/v1";
+      let validateApiKeySpy: ReturnType<typeof vi.spyOn> | undefined;
+      runtime.config.provider = "openai";
+      runtime.config.openai = {
+        authMode: "api-key",
+        apiKey: "sk-openai-key-1234567890",
+        model: "gpt-5.4",
+        baseUrl: customBaseUrl,
+        reasoningEffort: "high",
+      };
+      runtime.options.model = "gpt-5.4";
+
+      if (settingsAction === "model") {
+        mockShowModal
+          .mockResolvedValueOnce({ value: "model" })
+          .mockResolvedValueOnce({ value: "gpt-5.4" })
+          .mockResolvedValueOnce({ value: "xhigh" });
+      }
+
+      if (settingsAction === "auth") {
+        mockShowModal
+          .mockResolvedValueOnce({ value: "auth" })
+          .mockResolvedValueOnce({ value: "api-key" });
+        mockShowPassword.mockResolvedValueOnce("sk-openai-key-0987654321");
+        validateApiKeySpy = vi.spyOn(manager as any, "validateApiKey").mockResolvedValue({
+          valid: true,
+        });
+      }
+
+      if (settingsAction === "reasoning") {
+        mockShowModal
+          .mockResolvedValueOnce({ value: "reasoning" })
+          .mockResolvedValueOnce({ value: "xhigh" });
+      }
+
+      await manager.promptModelSelection();
+
+      if (settingsAction === "auth") {
+        expect(validateApiKeySpy).toHaveBeenCalledWith(
+          "openai",
+          "sk-openai-key-0987654321",
+          customBaseUrl,
+        );
+      }
+
+      expect(runtime.config.openai.baseUrl).toBe(customBaseUrl);
+      expect(mockSaveConfig).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("switches OpenAI auth to chatgpt and resets baseUrl to codex endpoint", async () => {
+    const customBaseUrl = "https://openai-proxy.example.com/v1";
+    runtime.config.provider = "openai";
+    runtime.config.openai = {
+      authMode: "api-key",
+      apiKey: "sk-openai-key-1234567890",
+      model: "gpt-5.4",
+      baseUrl: customBaseUrl,
+      reasoningEffort: "high",
+    };
+    runtime.options.model = "gpt-5.4";
+
+    mockAuthenticateOpenAIChatGPT.mockResolvedValueOnce({
+      accessToken: "chatgpt-access-token",
+      accountId: "chatgpt-account-123",
+    });
+
+    mockShowModal
+      .mockResolvedValueOnce({ value: "auth" })
+      .mockResolvedValueOnce({ value: "chatgpt" });
+
+    await manager.promptModelSelection();
+
+    expect(runtime.config.openai.authMode).toBe("chatgpt");
+    expect(runtime.config.openai.baseUrl).toBe("https://chatgpt.com/backend-api/codex");
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
   });
 
   it("shows user-facing provider names in provider selection when no active provider is configured", async () => {

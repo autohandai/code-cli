@@ -62,6 +62,7 @@ import { authenticateOpenAIChatGPT } from "../../providers/openaiAuth.js";
 
 type CloudProviderWithSettings =
   | "openai"
+  | "openaicompatible"
   | "openrouter"
   | "llmgateway"
   | "azure"
@@ -85,6 +86,10 @@ type ProviderSettingsSummary = {
 };
 
 export class ProviderConfigManager {
+  private readonly openAIApiKeyDefaultBaseUrl = "https://api.openai.com/v1";
+
+  private readonly openAIChatGPTDefaultBaseUrl = "https://chatgpt.com/backend-api/codex";
+
   constructor(
     private runtime: AgentRuntime,
     private getLlm: () => LLMProvider,
@@ -376,6 +381,7 @@ export class ProviderConfigManager {
   ): provider is CloudProviderWithSettings {
     return [
       "openai",
+      "openaicompatible",
       "openrouter",
       "llmgateway",
       "azure",
@@ -390,6 +396,7 @@ export class ProviderConfigManager {
     return [
       "openrouter",
       "openai",
+      "openaicompatible",
       "llmgateway",
       "azure",
       "zai",
@@ -435,6 +442,15 @@ export class ProviderConfigManager {
       return !!openAIConfig.apiKey && openAIConfig.apiKey !== "replace-me";
     }
 
+    if (provider === "openaicompatible") {
+      return (
+        !!config.apiKey &&
+        config.apiKey !== "replace-me" &&
+        !!config.model &&
+        !!config.baseUrl
+      );
+    }
+
     if (
       provider === "openrouter" ||
       provider === "llmgateway" ||
@@ -475,6 +491,9 @@ export class ProviderConfigManager {
         break;
       case "openai":
         await this.configureOpenAI();
+        break;
+      case "openaicompatible":
+        await this.configureOpenAICompatible();
         break;
       case "mlx":
         await this.configureMLX();
@@ -769,7 +788,9 @@ export class ProviderConfigManager {
 
       let apiKey = "";
       let chatgptAuth;
+      let baseUrl = this.openAIApiKeyDefaultBaseUrl;
       if (authMode === "chatgpt") {
+        baseUrl = this.openAIChatGPTDefaultBaseUrl;
         try {
           console.log(chalk.gray(`\n${t("providers.openaiAuth.starting")}`));
           chatgptAuth = await authenticateOpenAIChatGPT({
@@ -819,6 +840,14 @@ export class ProviderConfigManager {
           console.log(chalk.gray("\n" + t("providers.config.cancelled")));
           return;
         }
+
+        const enteredBaseUrl = await showInput({
+          title: t("providers.config.changeBaseUrl"),
+          defaultValue:
+            this.runtime.config.openai?.baseUrl ??
+            this.openAIApiKeyDefaultBaseUrl,
+        });
+        baseUrl = enteredBaseUrl?.trim() || this.openAIApiKeyDefaultBaseUrl;
       }
 
       const modelChoices: ModalOption[] = OPENAI_MODELS.map((name) => ({
@@ -845,10 +874,7 @@ export class ProviderConfigManager {
         authMode,
         ...(authMode === "api-key" && { apiKey }),
         ...(authMode === "chatgpt" && { chatgptAuth }),
-        baseUrl:
-          authMode === "chatgpt"
-            ? "https://chatgpt.com/backend-api/codex"
-            : "https://api.openai.com/v1",
+        baseUrl,
         model,
         ...(reasoningEffort !== undefined && { reasoningEffort }),
       };
@@ -868,6 +894,87 @@ export class ProviderConfigManager {
       );
     } catch (error) {
       // Cancellation is now handled inline
+      throw error;
+    }
+  }
+
+  /**
+   * Configure OpenAI-compatible provider (API key + base URL + model)
+   */
+  private async configureOpenAICompatible(): Promise<void> {
+    try {
+      console.log(chalk.cyan(t("providers.wizard.openaicompatible.title")));
+      console.log(
+        chalk.gray(
+          t("providers.config.apiKeyUrl", {
+            url: t("providers.wizard.openaicompatible.apiKeyUrl"),
+          }) + "\n",
+        ),
+      );
+
+      const apiKey =
+        (await showPassword({
+          title: t("providers.config.enterApiKey", {
+            provider: t("providers.openaicompatible"),
+          }),
+          placeholder: t("ui.apiKeyPlaceholder"),
+        })) ?? "";
+
+      if (!apiKey) {
+        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+        return;
+      }
+
+      const baseUrlInput = await showInput({
+        title: t("providers.config.changeBaseUrl"),
+        defaultValue:
+          this.runtime.config.openaicompatible?.baseUrl ??
+          this.openAIApiKeyDefaultBaseUrl,
+      });
+
+      const baseUrl = baseUrlInput?.trim().replace(/\/+$/, "") ?? "";
+      if (!baseUrl) {
+        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+        return;
+      }
+
+      const model = await showInput({
+        title: t("providers.config.enterModelId"),
+        defaultValue:
+          this.runtime.config.openaicompatible?.model ?? "gpt-4o",
+      });
+
+      if (!model) {
+        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+        return;
+      }
+
+      const sanitizedModel = sanitizeModelId(model);
+      const contextWindow = await this.resolveContextWindow(
+        "openaicompatible",
+        sanitizedModel,
+      );
+      this.runtime.config.openaicompatible = {
+        apiKey,
+        baseUrl,
+        model: sanitizedModel,
+        contextWindow,
+      };
+
+      this.runtime.config.provider = "openaicompatible";
+      this.runtime.options.model = sanitizedModel;
+      await saveConfig(this.runtime.config);
+      this.resetLlmClient("openaicompatible", sanitizedModel);
+
+      console.log(
+        chalk.green(
+          "\n✓ " +
+            t("providers.config.configuredSuccessfully", {
+              provider: t("providers.openaicompatible"),
+            }),
+        ),
+      );
+    } catch (error) {
       throw error;
     }
   }
@@ -2163,6 +2270,7 @@ export class ProviderConfigManager {
 
     let newModel = currentModel;
     let newApiKey = currentSettings?.apiKey || "";
+    let newBaseUrl = currentSettings?.baseUrl || "";
     let authMode: OpenAIAuthMode | undefined =
       provider === "openai"
         ? this.runtime.config.openai?.authMode === "chatgpt"
@@ -2232,6 +2340,7 @@ export class ProviderConfigManager {
     ) {
       const keyUrlMap = {
         openai: "https://platform.openai.com/api-keys",
+        openaicompatible: "https://platform.openai.com/api-keys",
         openrouter: "https://openrouter.ai/keys",
         llmgateway: "https://llmgateway.io/dashboard",
         azure: "https://ai.azure.com",
@@ -2265,11 +2374,45 @@ export class ProviderConfigManager {
         return;
       }
 
+      if (provider === "openaicompatible") {
+        const baseUrlInput = await showInput({
+          title: t("providers.config.changeBaseUrl"),
+          defaultValue: newBaseUrl || this.openAIApiKeyDefaultBaseUrl,
+          validate: (val: string) => {
+            const trimmed = val?.trim();
+            if (!trimmed) return "Base URL is required";
+            try {
+              const parsed = new URL(trimmed);
+              if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+                return "Base URL must start with http:// or https://";
+              }
+              return true;
+            } catch {
+              return "Enter a valid URL";
+            }
+          },
+        });
+
+        if (!baseUrlInput) {
+          console.log(
+            chalk.gray("\n" + t("providers.config.settingsChangeCancelled")),
+          );
+          return;
+        }
+
+        newBaseUrl = baseUrlInput.trim().replace(/\/+$/, "");
+      }
+
       // Validate the API key
       console.log(chalk.gray("\n" + t("providers.config.validatingApiKey")));
       const validationResult = await this.validateApiKey(
         provider,
         apiKey.trim(),
+        provider === "openaicompatible"
+          ? newBaseUrl
+          : provider === "openai"
+            ? (this.runtime.config.openai?.baseUrl ?? currentSettings?.baseUrl)
+            : undefined,
       );
 
       if (!validationResult.valid) {
@@ -2483,11 +2626,25 @@ export class ProviderConfigManager {
         ...(newApiKey && { apiKey: newApiKey }),
       };
     } else {
+      const existingOpenAIBaseUrl =
+        provider === "openai"
+          ? (this.runtime.config.openai?.baseUrl ?? currentSettings?.baseUrl)
+          : undefined;
+      const openAIDefaultBaseUrl =
+        authMode === "chatgpt"
+          ? this.openAIChatGPTDefaultBaseUrl
+          : this.openAIApiKeyDefaultBaseUrl;
+      const shouldPreserveCustomOpenAIBaseUrl =
+        provider === "openai" &&
+        authMode !== "chatgpt" &&
+        !!existingOpenAIBaseUrl &&
+        existingOpenAIBaseUrl !== this.openAIApiKeyDefaultBaseUrl &&
+        existingOpenAIBaseUrl !== this.openAIChatGPTDefaultBaseUrl;
       const baseUrlMap = {
-        openai:
-          authMode === "chatgpt"
-            ? "https://chatgpt.com/backend-api/codex"
-            : "https://api.openai.com/v1",
+        openai: shouldPreserveCustomOpenAIBaseUrl
+          ? existingOpenAIBaseUrl
+          : openAIDefaultBaseUrl,
+        openaicompatible: newBaseUrl,
         openrouter: "https://openrouter.ai/api/v1",
         llmgateway: "https://api.llmgateway.io/v1",
         zai: ZAI_DEFAULT_BASE_URL,
@@ -2505,6 +2662,13 @@ export class ProviderConfigManager {
           model: newModel,
           contextWindow,
           ...(reasoningEffort !== undefined && { reasoningEffort }),
+        };
+      } else if (provider === "openaicompatible") {
+        this.runtime.config.openaicompatible = {
+          apiKey: newApiKey,
+          baseUrl,
+          model: newModel,
+          contextWindow,
         };
       } else if (provider === "openrouter") {
         this.runtime.config.openrouter = {
@@ -2645,8 +2809,9 @@ export class ProviderConfigManager {
    * Validate API key by making a test request to the provider
    */
   private async validateApiKey(
-    provider: "openai" | "openrouter" | "llmgateway" | "azure" | "zai" | "xai" | "cerebras" | "nvidia" | "deepseek",
+    provider: "openai" | "openaicompatible" | "openrouter" | "llmgateway" | "azure" | "zai" | "xai" | "cerebras" | "nvidia" | "deepseek",
     apiKey: string,
+    baseUrlOverride?: string,
   ): Promise<{ valid: boolean; error?: string; hint?: string }> {
     // Azure keys can't be easily validated without resource/deployment info
     if (provider === "azure") {
@@ -2656,6 +2821,7 @@ export class ProviderConfigManager {
     try {
       const baseUrlMap = {
         openai: "https://api.openai.com/v1",
+        openaicompatible: baseUrlOverride || this.openAIApiKeyDefaultBaseUrl,
         openrouter: "https://openrouter.ai/api/v1",
         llmgateway: "https://api.llmgateway.io/v1",
         zai: ZAI_DEFAULT_BASE_URL,
@@ -2699,6 +2865,7 @@ export class ProviderConfigManager {
 
       const keyUrlMap = {
         openai: "https://platform.openai.com/api-keys",
+        openaicompatible: "https://platform.openai.com/api-keys",
         openrouter: "https://openrouter.ai/keys",
         llmgateway: "https://llmgateway.io/dashboard",
         zai: "https://z.ai/api-keys",
@@ -2820,6 +2987,13 @@ export class ProviderConfigManager {
         (this.runtime.config.openai = {
           authMode: "api-key",
           apiKey: "",
+          model,
+        }),
+      openaicompatible:
+        this.runtime.config.openaicompatible ??
+        (this.runtime.config.openaicompatible = {
+          apiKey: "",
+          baseUrl: this.openAIApiKeyDefaultBaseUrl,
           model,
         }),
       mlx: this.runtime.config.mlx ?? (this.runtime.config.mlx = { model }),

@@ -7,7 +7,14 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { LoadedConfig } from "../../src/types";
 
-// Use vi.hoisted() to ensure mock functions are available when vi.mock is hoisted
+const viWithOptionalHoisted = vi as typeof vi & {
+  hoisted?: <T>(factory: () => T) => T;
+};
+
+if (typeof viWithOptionalHoisted.hoisted !== "function") {
+  viWithOptionalHoisted.hoisted = <T>(factory: () => T): T => factory();
+}
+
 const {
   mockShowModal,
   mockShowInput,
@@ -167,6 +174,36 @@ function setupCloudProviderMocks(
   apiKey: string,
   model: string,
 ) {
+  if (provider === "openai") {
+    // showModal calls: language, provider, auth mode, reasoning effort, permissions
+    mockShowModal
+      .mockResolvedValueOnce({ value: "en" }) // language
+      .mockResolvedValueOnce({ value: provider }) // provider
+      .mockResolvedValueOnce({ value: "api-key" }) // auth mode
+      .mockResolvedValueOnce({ value: "high" }) // reasoning effort
+      .mockResolvedValueOnce({ value: "interactive" }); // permissions
+
+    // showPassword: API key
+    mockShowPassword.mockResolvedValueOnce(apiKey);
+
+    // showInput: model
+    mockShowInput.mockResolvedValueOnce(model);
+
+    // showConfirm calls: custom base URL, remember, telemetry, autoReport, prefs, advanced, agents, registration, review
+    mockShowConfirm
+      .mockResolvedValueOnce(false) // keep default OpenAI base URL
+      .mockResolvedValueOnce(true) // remember session
+      .mockResolvedValueOnce(true) // telemetry
+      .mockResolvedValueOnce(true) // autoReport
+      .mockResolvedValueOnce(false) // preferences (skip)
+      .mockResolvedValueOnce(false) // advanced (skip)
+      .mockResolvedValueOnce(false) // agents (skip)
+      .mockResolvedValueOnce(false) // registration (skip)
+      .mockResolvedValueOnce(true); // review confirm
+
+    return;
+  }
+
   // showModal calls: language, provider, permissions
   mockShowModal
     .mockResolvedValueOnce({ value: "en" }) // language
@@ -250,7 +287,11 @@ describe("SetupWizard", () => {
     mockChangeLanguage.mockResolvedValue(undefined);
     // Default: fetch succeeds (for API validation + connection tests)
     mockFetch.mockResolvedValue({ ok: true, status: 200 });
-    vi.stubGlobal("fetch", mockFetch);
+    if (typeof vi.stubGlobal === "function") {
+      vi.stubGlobal("fetch", mockFetch);
+    } else {
+      globalThis.fetch = mockFetch as unknown as typeof fetch;
+    }
     mockProbeLlamaCppEnvironment.mockResolvedValue({
       installed: true,
       running: false,
@@ -906,6 +947,75 @@ describe("SetupWizard", () => {
       const result = await wizard.run({ skipWelcome: true });
 
       expect(result.config.openai?.baseUrl).toBe("https://api.openai.com/v1");
+    });
+
+    it("should persist a custom OpenAI-compatible base URL for OpenAI api-key auth", async () => {
+      const wizard = new SetupWizard(testWorkspace);
+
+      mockShowModal
+        .mockResolvedValueOnce({ value: "en" }) // language
+        .mockResolvedValueOnce({ value: "openai" }) // provider
+        .mockResolvedValueOnce({ value: "api-key" }) // auth mode
+        .mockResolvedValueOnce({ value: "high" }) // reasoning effort
+        .mockResolvedValueOnce({ value: "interactive" }); // permissions
+
+      mockShowPassword.mockResolvedValueOnce("sk-openai-test-key-long");
+
+      mockShowInput
+        .mockResolvedValueOnce("https://openai-gateway.example.com/v1") // custom base URL
+        .mockResolvedValueOnce("gpt-5.4"); // model
+
+      mockShowConfirm
+        .mockResolvedValueOnce(true) // customize OpenAI base URL
+        .mockResolvedValueOnce(true) // remember
+        .mockResolvedValueOnce(true) // telemetry
+        .mockResolvedValueOnce(true) // autoReport
+        .mockResolvedValueOnce(false) // prefs
+        .mockResolvedValueOnce(false) // advanced
+        .mockResolvedValueOnce(false) // agents
+        .mockResolvedValueOnce(false) // registration
+        .mockResolvedValueOnce(true); // review
+
+      const result = await wizard.run({ skipWelcome: true });
+
+      expect(result.success).toBe(true);
+      expect(result.config.openai?.baseUrl).toBe(
+        "https://openai-gateway.example.com/v1",
+      );
+    });
+
+    it("should persist api key, model, and base URL for openaicompatible", async () => {
+      const wizard = new SetupWizard(testWorkspace);
+
+      mockShowModal
+        .mockResolvedValueOnce({ value: "en" }) // language
+        .mockResolvedValueOnce({ value: "openaicompatible" }) // provider
+        .mockResolvedValueOnce({ value: "interactive" }); // permissions
+
+      mockShowPassword.mockResolvedValueOnce("sk-openai-compat-key-long");
+      mockShowInput
+        .mockResolvedValueOnce("https://openai-proxy.example.com/v1") // base URL
+        .mockResolvedValueOnce("gpt-4o-mini"); // model
+
+      mockShowConfirm
+        .mockResolvedValueOnce(true) // remember
+        .mockResolvedValueOnce(true) // telemetry
+        .mockResolvedValueOnce(true) // autoReport
+        .mockResolvedValueOnce(false) // prefs
+        .mockResolvedValueOnce(false) // advanced
+        .mockResolvedValueOnce(false) // agents
+        .mockResolvedValueOnce(false) // registration
+        .mockResolvedValueOnce(true); // review
+
+      const result = await wizard.run({ skipWelcome: true });
+
+      expect(result.success).toBe(true);
+      expect(result.config.provider).toBe("openaicompatible");
+      expect((result.config as any).openaicompatible).toMatchObject({
+        apiKey: "sk-openai-compat-key-long",
+        model: "gpt-4o-mini",
+        baseUrl: "https://openai-proxy.example.com/v1",
+      });
     });
 
     it("should set correct base URL for Ollama", async () => {

@@ -160,6 +160,7 @@ const { SetupWizard } = await import("../../src/onboarding/setupWizard");
 function setupOpenAIWithReasoningEffort(opts: {
   model: string;
   reasoningEffort: string;
+  customBaseUrl?: string;
 }) {
   // showModal calls: language, provider, auth mode, reasoning effort, permissions
   mockShowModal
@@ -172,11 +173,18 @@ function setupOpenAIWithReasoningEffort(opts: {
   // showPassword: API key
   mockShowPassword.mockResolvedValueOnce("sk-test-openai-key-long");
 
-  // showInput: model
-  mockShowInput.mockResolvedValueOnce(opts.model);
+  if (opts.customBaseUrl) {
+    mockShowInput
+      .mockResolvedValueOnce(opts.customBaseUrl)
+      .mockResolvedValueOnce(opts.model);
+  } else {
+    // showInput: model
+    mockShowInput.mockResolvedValueOnce(opts.model);
+  }
 
-  // showConfirm calls: remember, telemetry, autoReport, prefs, advanced, agents, registration, review
+  // showConfirm calls: custom base URL, remember, telemetry, autoReport, prefs, advanced, agents, registration, review
   mockShowConfirm
+    .mockResolvedValueOnce(Boolean(opts.customBaseUrl)) // customize OpenAI base URL
     .mockResolvedValueOnce(true) // remember session
     .mockResolvedValueOnce(true) // telemetry
     .mockResolvedValueOnce(true) // autoReport
@@ -258,6 +266,41 @@ describe("SetupWizard — Reasoning Effort", () => {
     expect(result.success).toBe(true);
     expect(result.config?.openai).toBeDefined();
     expect((result.config?.openai as any)?.reasoningEffort).toBe("medium");
+  });
+
+  it("should persist custom OpenAI base URL for api-key mode while keeping reasoning effort", async () => {
+    mockShowModal
+      .mockResolvedValueOnce({ value: "en" })
+      .mockResolvedValueOnce({ value: "openai" })
+      .mockResolvedValueOnce({ value: "api-key" })
+      .mockResolvedValueOnce({ value: "high" })
+      .mockResolvedValueOnce({ value: "interactive" });
+
+    mockShowPassword.mockResolvedValueOnce("sk-test-openai-key-long");
+
+    mockShowInput
+      .mockResolvedValueOnce("https://openai-compatible.example.com/v1")
+      .mockResolvedValueOnce("gpt-5.4");
+
+    mockShowConfirm
+      .mockResolvedValueOnce(true) // customize OpenAI base URL
+      .mockResolvedValueOnce(true) // remember session
+      .mockResolvedValueOnce(true) // telemetry
+      .mockResolvedValueOnce(true) // autoReport
+      .mockResolvedValueOnce(false) // preferences
+      .mockResolvedValueOnce(false) // advanced
+      .mockResolvedValueOnce(false) // agents
+      .mockResolvedValueOnce(false) // registration
+      .mockResolvedValueOnce(true); // review confirm
+
+    const wizard = new SetupWizard(testWorkspace);
+    const result = await wizard.run({ skipWelcome: true });
+
+    expect(result.success).toBe(true);
+    expect(result.config.openai?.baseUrl).toBe(
+      "https://openai-compatible.example.com/v1",
+    );
+    expect(result.config.openai?.reasoningEffort).toBe("high");
   });
 
   it("should NOT prompt reasoning effort for non-OpenAI providers", async () => {
@@ -353,6 +396,9 @@ describe("SetupWizard — Reasoning Effort", () => {
     expect(result.success).toBe(true);
     expect(mockAuthenticateOpenAIChatGPT).toHaveBeenCalledOnce();
     expect(result.config.openai?.authMode).toBe("chatgpt");
+    expect(result.config.openai?.baseUrl).toBe(
+      "https://chatgpt.com/backend-api/codex",
+    );
     expect(result.config.openai?.chatgptAuth?.accountId).toBe(
       "chatgpt-account-123",
     );
