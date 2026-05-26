@@ -1018,6 +1018,40 @@ describe("SetupWizard", () => {
       });
     });
 
+    it("should allow openaicompatible setup with endpoint and model when API key is not required", async () => {
+      const wizard = new SetupWizard(testWorkspace);
+
+      mockShowModal
+        .mockResolvedValueOnce({ value: "en" }) // language
+        .mockResolvedValueOnce({ value: "openaicompatible" }) // provider
+        .mockResolvedValueOnce({ value: "interactive" }); // permissions
+
+      mockShowPassword.mockResolvedValueOnce("");
+      mockShowInput
+        .mockResolvedValueOnce("https://openai-proxy.example.com/v1") // base URL
+        .mockResolvedValueOnce("gpt-4o-mini"); // model
+
+      mockShowConfirm
+        .mockResolvedValueOnce(true) // remember
+        .mockResolvedValueOnce(true) // telemetry
+        .mockResolvedValueOnce(true) // autoReport
+        .mockResolvedValueOnce(false) // prefs
+        .mockResolvedValueOnce(false) // advanced
+        .mockResolvedValueOnce(false) // agents
+        .mockResolvedValueOnce(false) // registration
+        .mockResolvedValueOnce(true); // review
+
+      const result = await wizard.run({ skipWelcome: true });
+
+      expect(result.success).toBe(true);
+      expect(result.config.provider).toBe("openaicompatible");
+      expect((result.config as any).openaicompatible).toMatchObject({
+        model: "gpt-4o-mini",
+        baseUrl: "https://openai-proxy.example.com/v1",
+      });
+      expect((result.config as any).openaicompatible.apiKey).toBeUndefined();
+    });
+
     it("should set correct base URL for Ollama", async () => {
       const wizard = new SetupWizard(testWorkspace);
       setupLocalProviderMocks("ollama", "llama3.2:latest");

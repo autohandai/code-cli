@@ -739,6 +739,7 @@
       "reasoningEffortLabel": "Reasoning effort: {{level}}",
       "enterModelId": "Enter the model ID",
       "enterApiKey": "Enter your {{provider}} API key",
+      "enterApiKeyOptional": "Enter your {{provider}} API key (leave blank if not required)",
       "apiKeyUrl": "Get your API key at: {{url}}",
       "modelChangeCancelled": "Model change cancelled.",
       "modelUnchanged": "Model unchanged.",

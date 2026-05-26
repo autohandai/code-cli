@@ -181,6 +181,23 @@ describe("ProviderConfigManager openai auth mode", () => {
     expect(mockSaveConfig).toHaveBeenCalledOnce();
   });
 
+  it("configures openaicompatible with endpoint and model when API key is omitted", async () => {
+    mockShowPassword.mockResolvedValueOnce("");
+    mockShowInput
+      .mockResolvedValueOnce("https://proxy.example.com/v1")
+      .mockResolvedValueOnce("gpt-4o-mini");
+
+    await (manager as any).configureOpenAICompatible();
+
+    expect(runtime.config.provider).toBe("openaicompatible");
+    expect(runtime.config.openaicompatible).toMatchObject({
+      baseUrl: "https://proxy.example.com/v1",
+      model: "gpt-4o-mini",
+    });
+    expect(runtime.config.openaicompatible?.apiKey).toBeUndefined();
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
+  });
+
   it("validates openaicompatible api key against the newly entered base URL", async () => {
     runtime.config.provider = "openaicompatible";
     runtime.config.openaicompatible = {

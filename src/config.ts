@@ -873,9 +873,18 @@ export function getProviderConfig(
     }
   } else if (chosen === "openaicompatible") {
     const { apiKey, model, baseUrl } = entry as ProviderSettings;
-    if (!apiKey || apiKey === "replace-me" || !model || !baseUrl) {
+    if (!model || !baseUrl) {
       return null;
     }
+
+    const sanitizedApiKey =
+      apiKey && apiKey !== "replace-me" ? apiKey : undefined;
+
+    return {
+      ...entry,
+      ...(sanitizedApiKey ? { apiKey: sanitizedApiKey } : {}),
+      baseUrl,
+    };
   } else if (
     chosen === "openrouter" ||
     chosen === "llmgateway" ||

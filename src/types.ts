@@ -75,7 +75,7 @@ export interface OpenAISettings extends ProviderSettings {
 }
 
 export interface OpenAICompatibleSettings extends ProviderSettings {
-  apiKey: string;
+  apiKey?: string;
   baseUrl: string;
 }
 

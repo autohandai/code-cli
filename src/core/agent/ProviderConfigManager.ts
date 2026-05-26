@@ -912,19 +912,6 @@ export class ProviderConfigManager {
         ),
       );
 
-      const apiKey =
-        (await showPassword({
-          title: t("providers.config.enterApiKey", {
-            provider: t("providers.openaicompatible"),
-          }),
-          placeholder: t("ui.apiKeyPlaceholder"),
-        })) ?? "";
-
-      if (!apiKey) {
-        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
-        return;
-      }
-
       const baseUrlInput = await showInput({
         title: t("providers.config.changeBaseUrl"),
         defaultValue:
@@ -937,6 +924,26 @@ export class ProviderConfigManager {
         console.log(chalk.gray("\n" + t("providers.config.cancelled")));
         return;
       }
+
+      const apiKeyInput = await showPassword({
+        title: t("providers.config.enterApiKeyOptional", {
+          provider: t("providers.openaicompatible"),
+        }),
+        placeholder: t("ui.apiKeyPlaceholder"),
+        validate: (val: string) => {
+          const trimmed = val?.trim();
+          if (!trimmed) return true;
+          if (trimmed.length < 10) return t("providers.config.apiKeyTooShort");
+          return true;
+        },
+      });
+
+      if (apiKeyInput === undefined || apiKeyInput === null) {
+        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+        return;
+      }
+
+      const apiKey = apiKeyInput.trim();
 
       const model = await showInput({
         title: t("providers.config.enterModelId"),
@@ -955,10 +962,10 @@ export class ProviderConfigManager {
         sanitizedModel,
       );
       this.runtime.config.openaicompatible = {
-        apiKey,
         baseUrl,
         model: sanitizedModel,
         contextWindow,
+        ...(apiKey ? { apiKey } : {}),
       };
 
       this.runtime.config.provider = "openaicompatible";
@@ -2361,18 +2368,25 @@ export class ProviderConfigManager {
         title: t("providers.config.enterApiKey", { provider: providerName }),
         placeholder: t("ui.apiKeyPlaceholder"),
         validate: (val: string) => {
-          if (!val?.trim()) return t("providers.config.apiKeyRequired");
-          if (val.length < 10) return t("providers.config.apiKeyTooShort");
+          const trimmed = val?.trim();
+          if (!trimmed) {
+            return provider === "openaicompatible"
+              ? true
+              : t("providers.config.apiKeyRequired");
+          }
+          if (trimmed.length < 10) return t("providers.config.apiKeyTooShort");
           return true;
         },
       });
 
-      if (!apiKey) {
+      if (apiKey === undefined || apiKey === null) {
         console.log(
           chalk.gray("\n" + t("providers.config.settingsChangeCancelled")),
         );
         return;
       }
+
+      const trimmedApiKey = apiKey.trim();
 
       if (provider === "openaicompatible") {
         const baseUrlInput = await showInput({
@@ -2403,26 +2417,32 @@ export class ProviderConfigManager {
         newBaseUrl = baseUrlInput.trim().replace(/\/+$/, "");
       }
 
-      // Validate the API key
-      console.log(chalk.gray("\n" + t("providers.config.validatingApiKey")));
-      const validationResult = await this.validateApiKey(
-        provider,
-        apiKey.trim(),
-        provider === "openaicompatible"
-          ? newBaseUrl
-          : provider === "openai"
-            ? (this.runtime.config.openai?.baseUrl ?? currentSettings?.baseUrl)
-            : undefined,
-      );
+      if (provider === "openaicompatible" && !trimmedApiKey) {
+        newApiKey = "";
+      } else {
+        // Validate the API key
+        console.log(chalk.gray("\n" + t("providers.config.validatingApiKey")));
+        const validationResult = await this.validateApiKey(
+          provider,
+          trimmedApiKey,
+          provider === "openaicompatible"
+            ? newBaseUrl
+            : provider === "openai"
+              ? (this.runtime.config.openai?.baseUrl ?? currentSettings?.baseUrl)
+              : undefined,
+        );
 
-      if (!validationResult.valid) {
-        console.log(chalk.red(`\n✗ ${validationResult.error}`));
-        console.log(chalk.gray(validationResult.hint || ""));
-        return;
+        if (!validationResult.valid) {
+          console.log(chalk.red(`\n✗ ${validationResult.error}`));
+          console.log(chalk.gray(validationResult.hint || ""));
+          return;
+        }
+
+        console.log(
+          chalk.green("✓ " + t("providers.config.apiKeyValid") + "\n"),
+        );
+        newApiKey = trimmedApiKey;
       }
-
-      console.log(chalk.green("✓ " + t("providers.config.apiKeyValid") + "\n"));
-      newApiKey = apiKey.trim();
     }
 
     // Handle model change
@@ -2665,10 +2685,10 @@ export class ProviderConfigManager {
         };
       } else if (provider === "openaicompatible") {
         this.runtime.config.openaicompatible = {
-          apiKey: newApiKey,
           baseUrl,
           model: newModel,
           contextWindow,
+          ...(newApiKey ? { apiKey: newApiKey } : {}),
         };
       } else if (provider === "openrouter") {
         this.runtime.config.openrouter = {

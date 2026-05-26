@@ -217,13 +217,15 @@ export class SetupWizard {
             await this.validateApiKeyDuringSetup();
           }
         } else if (provider === 'openaicompatible') {
-          const apiKey = await this.promptApiKey(provider);
-          if (apiKey === null) return this.cancelled();
-
           const baseUrlConfigured = await this.promptOpenAICompatibleBaseUrl();
           if (!baseUrlConfigured) return this.cancelled();
 
-          await this.validateApiKeyDuringSetup();
+          const apiKey = await this.promptApiKey(provider, { required: false });
+          if (apiKey === null) return this.cancelled();
+
+          if (apiKey) {
+            await this.validateApiKeyDuringSetup();
+          }
         } else if (this.requiresApiKey(provider)) {
           const apiKey = await this.promptApiKey(provider);
           if (apiKey === null) return this.cancelled();
@@ -444,8 +446,12 @@ export class SetupWizard {
   /**
    * Prompt for API key (cloud providers)
    */
-  private async promptApiKey(provider: ProviderName): Promise<string | null> {
+  private async promptApiKey(
+    provider: ProviderName,
+    options?: { required?: boolean },
+  ): Promise<string | null> {
     this.state.currentStep = 'apiKey';
+    const required = options?.required !== false;
 
     // Check for existing key
     const existingKey = this.getExistingApiKey(provider);
@@ -468,18 +474,22 @@ export class SetupWizard {
       title: t('providers.config.enterApiKey', { provider: this.getProviderDisplayName(provider) }),
       placeholder: t('ui.apiKeyPlaceholder'),
       validate: (val: string) => {
-        if (!val?.trim()) return t('providers.config.apiKeyRequired');
-        if (val.length < 10) return t('providers.config.apiKeyTooShort');
+        const trimmed = val?.trim();
+        if (!trimmed) {
+          return required ? t('providers.config.apiKeyRequired') : true;
+        }
+        if (trimmed.length < 10) return t('providers.config.apiKeyTooShort');
         return true;
       }
     });
 
-    if (!apiKey) {
+    if (apiKey === undefined || apiKey === null) {
       return null;
     }
 
-    this.state.apiKey = apiKey.trim();
-    return this.state.apiKey;
+    const trimmedApiKey = apiKey.trim();
+    this.state.apiKey = trimmedApiKey || undefined;
+    return trimmedApiKey;
   }
 
   private async promptOpenAIAuthMode(): Promise<OpenAIAuthMode | null> {
@@ -1134,9 +1144,9 @@ export class SetupWizard {
         };
       } else if (this.state.provider === 'openaicompatible') {
         config.openaicompatible = {
-          apiKey: this.state.apiKey ?? '',
           model: this.state.model ?? this.getDefaultModel('openaicompatible'),
           baseUrl: this.state.providerBaseUrl ?? this.getDefaultBaseUrl('openaicompatible'),
+          ...(this.state.apiKey ? { apiKey: this.state.apiKey } : {}),
         };
       } else if (this.state.provider === 'vertexai' && this.state.vertexaiConfig) {
         config.vertexai = this.state.vertexaiConfig;
@@ -2114,7 +2124,7 @@ export class SetupWizard {
   // Helper methods
 
   private requiresApiKey(provider: ProviderName): boolean {
-    return provider === 'openrouter' || provider === 'openaicompatible' || provider === 'llmgateway' || provider === 'zai' || provider === 'vertexai' || provider === 'xai' || provider === 'cerebras' || provider === 'nvidia' || provider === 'deepseek';
+    return provider === 'openrouter' || provider === 'llmgateway' || provider === 'zai' || provider === 'vertexai' || provider === 'xai' || provider === 'cerebras' || provider === 'nvidia' || provider === 'deepseek';
   }
 
   private getProviderDisplayName(provider: ProviderName): string {

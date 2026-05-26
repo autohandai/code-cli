@@ -156,6 +156,25 @@ describe('OpenAIProvider', () => {
         provider.complete({ messages: [{ role: 'user', content: 'hi' }], signal: controller.signal }),
       ).rejects.toMatchObject({ code: 'cancelled' });
     });
+
+    it('throws ApiError when endpoint returns 200 with malformed choices payload', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          id: 'resp-malformed',
+          created: 123,
+          choices: [],
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+
+      await expect(provider.complete({ messages: [{ role: 'user', content: 'hi' }] }))
+        .rejects.toMatchObject({
+          name: 'ApiError',
+          code: 'unknown',
+        });
+    });
   });
 
   describe('message serialization', () => {
@@ -333,6 +352,35 @@ describe('OpenAIProvider', () => {
       expect(assistantMsg.tool_calls).toBeDefined();
       expect(assistantMsg.tool_calls[0].function.arguments).toContain('font-family');
     });
+  });
+
+  it('omits Authorization header when api-key mode has no apiKey configured', async () => {
+    const noKeyProvider = new OpenAIProvider({
+      baseUrl: 'http://localhost:9999',
+      model: 'gpt-4o',
+    });
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        id: 'resp-no-key',
+        created: 123,
+        choices: [{
+          message: { role: 'assistant', content: 'ok' },
+          finish_reason: 'stop',
+        }],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    await noKeyProvider.complete({
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const requestHeaders = fetchSpy.mock.calls[0]?.[1]?.headers as Record<string, string>;
+    expect(requestHeaders.Authorization).toBeUndefined();
   });
 
   describe('chatgpt auth mode', () => {

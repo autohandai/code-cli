@@ -116,7 +116,7 @@ describe('getProviderConfig', () => {
     expect(result).toBeNull();
   });
 
-  it('returns openaicompatible settings only when api key, model, and base url are configured', () => {
+  it('returns openaicompatible settings when model and base url are configured', () => {
     const cfg = {
       provider: 'openaicompatible',
       openaicompatible: {
@@ -129,6 +129,22 @@ describe('getProviderConfig', () => {
     const result = getProviderConfig(cfg, 'openaicompatible' as any);
     expect(result).not.toBeNull();
     expect(result!.apiKey).toBe('compat-key');
+    expect(result!.model).toBe('gpt-4o-mini');
+    expect(result!.baseUrl).toBe('https://proxy.example.com/v1');
+  });
+
+  it('returns openaicompatible settings when api key is omitted', () => {
+    const cfg = {
+      provider: 'openaicompatible',
+      openaicompatible: {
+        model: 'gpt-4o-mini',
+        baseUrl: 'https://proxy.example.com/v1'
+      }
+    } as unknown as AutohandConfig;
+
+    const result = getProviderConfig(cfg, 'openaicompatible' as any);
+    expect(result).not.toBeNull();
+    expect(result!.apiKey).toBeUndefined();
     expect(result!.model).toBe('gpt-4o-mini');
     expect(result!.baseUrl).toBe('https://proxy.example.com/v1');
   });

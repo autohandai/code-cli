@@ -221,18 +221,20 @@ OpenAI-compatible provider configuration for custom gateways/proxies that expose
 ```json
 {
   "openaicompatible": {
-    "apiKey": "your-provider-key",
     "baseUrl": "https://your-provider.example.com/v1",
-    "model": "gpt-4o-mini"
+    "model": "gpt-4o-mini",
+    "apiKey": "your-provider-key"
   }
 }
 ```
 
 | Field     | Type   | Required | Default                    | Description                                                        |
 | --------- | ------ | -------- | -------------------------- | ------------------------------------------------------------------ |
-| `apiKey`  | string | Yes      | -                          | API key from your OpenAI-compatible provider                       |
+| `apiKey`  | string | No       | -                          | API key for endpoints that require bearer auth                     |
 | `baseUrl` | string | Yes      | -                          | OpenAI-compatible endpoint base URL (for example `.../v1`)         |
 | `model`   | string | Yes      | -                          | Model name supported by your provider                              |
+
+When `apiKey` is omitted, requests are sent without an `Authorization` header.
 
 ### `mlx`
 
