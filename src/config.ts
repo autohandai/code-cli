@@ -65,6 +65,7 @@ function normalizeProviderName(provider: unknown): ProviderName | undefined {
     "ollama",
     "llamacpp",
     "openai",
+    "openaicompatible",
     "mlx",
     "llmgateway",
     "azure",
@@ -649,6 +650,7 @@ function isModernConfig(
     typeof (config as AutohandConfig).ollama === "object" ||
     typeof (config as AutohandConfig).llamacpp === "object" ||
     typeof (config as AutohandConfig).openai === "object" ||
+    typeof (config as AutohandConfig).openaicompatible === "object" ||
     typeof (config as AutohandConfig).mlx === "object" ||
     typeof (config as AutohandConfig).azure === "object" ||
     typeof (config as AutohandConfig).zai === "object" ||
@@ -832,6 +834,7 @@ export function getProviderConfig(
     ollama: config.ollama,
     llamacpp: config.llamacpp,
     openai: config.openai,
+    openaicompatible: config.openaicompatible,
     mlx: config.mlx,
     llmgateway: config.llmgateway,
     azure: config.azure,
@@ -868,6 +871,20 @@ export function getProviderConfig(
         return null;
       }
     }
+  } else if (chosen === "openaicompatible") {
+    const { apiKey, model, baseUrl } = entry as ProviderSettings;
+    if (!model || !baseUrl) {
+      return null;
+    }
+
+    const sanitizedApiKey =
+      apiKey && apiKey !== "replace-me" ? apiKey : undefined;
+
+    return {
+      ...entry,
+      ...(sanitizedApiKey ? { apiKey: sanitizedApiKey } : {}),
+      baseUrl,
+    };
   } else if (
     chosen === "openrouter" ||
     chosen === "llmgateway" ||

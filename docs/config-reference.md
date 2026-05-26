@@ -104,6 +104,7 @@ Active LLM provider to use.
 | `"ollama"`     | Local Ollama instance        |
 | `"llamacpp"`   | Local llama.cpp server       |
 | `"openai"`     | OpenAI API directly          |
+| `"openaicompatible"` | OpenAI-compatible API endpoint |
 | `"mlx"`        | MLX on Apple Silicon (local) |
 | `"llmgateway"` | LLM Gateway unified API      |
 | `"deepseek"`   | DeepSeek API                 |
@@ -212,6 +213,28 @@ OpenAI can also use your ChatGPT subscription via Autohand's built-in OpenAI sig
 | `model`         | string | Yes                    | -                           | Model name (e.g., `gpt-5.4`, `gpt-5.4-mini`)                              |
 | `contextWindow` | number | No                     | Auto                        | Exact model context window. Set this to override stale local assumptions. |
 | `chatgptAuth`   | object | Yes for `chatgpt` mode | -                           | Stored ChatGPT/Codex auth tokens and account id                           |
+
+### `openaicompatible`
+
+OpenAI-compatible provider configuration for custom gateways/proxies that expose an OpenAI-style API.
+
+```json
+{
+  "openaicompatible": {
+    "baseUrl": "https://your-provider.example.com/v1",
+    "model": "gpt-4o-mini",
+    "apiKey": "your-provider-key"
+  }
+}
+```
+
+| Field     | Type   | Required | Default                    | Description                                                        |
+| --------- | ------ | -------- | -------------------------- | ------------------------------------------------------------------ |
+| `apiKey`  | string | No       | -                          | API key for endpoints that require bearer auth                     |
+| `baseUrl` | string | Yes      | -                          | OpenAI-compatible endpoint base URL (for example `.../v1`)         |
+| `model`   | string | Yes      | -                          | Model name supported by your provider                              |
+
+When `apiKey` is omitted, requests are sent without an `Authorization` header.
 
 ### `mlx`
 

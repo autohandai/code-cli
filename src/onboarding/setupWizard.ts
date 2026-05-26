@@ -210,6 +210,20 @@ export class SetupWizard {
           } else {
             const apiKey = await this.promptApiKey(provider);
             if (apiKey === null) return this.cancelled();
+
+            const baseUrlConfigured = await this.promptOpenAIApiKeyBaseUrl();
+            if (!baseUrlConfigured) return this.cancelled();
+
+            await this.validateApiKeyDuringSetup();
+          }
+        } else if (provider === 'openaicompatible') {
+          const baseUrlConfigured = await this.promptOpenAICompatibleBaseUrl();
+          if (!baseUrlConfigured) return this.cancelled();
+
+          const apiKey = await this.promptApiKey(provider, { required: false });
+          if (apiKey === null) return this.cancelled();
+
+          if (apiKey) {
             await this.validateApiKeyDuringSetup();
           }
         } else if (this.requiresApiKey(provider)) {
@@ -432,8 +446,12 @@ export class SetupWizard {
   /**
    * Prompt for API key (cloud providers)
    */
-  private async promptApiKey(provider: ProviderName): Promise<string | null> {
+  private async promptApiKey(
+    provider: ProviderName,
+    options?: { required?: boolean },
+  ): Promise<string | null> {
     this.state.currentStep = 'apiKey';
+    const required = options?.required !== false;
 
     // Check for existing key
     const existingKey = this.getExistingApiKey(provider);
@@ -456,18 +474,22 @@ export class SetupWizard {
       title: t('providers.config.enterApiKey', { provider: this.getProviderDisplayName(provider) }),
       placeholder: t('ui.apiKeyPlaceholder'),
       validate: (val: string) => {
-        if (!val?.trim()) return t('providers.config.apiKeyRequired');
-        if (val.length < 10) return t('providers.config.apiKeyTooShort');
+        const trimmed = val?.trim();
+        if (!trimmed) {
+          return required ? t('providers.config.apiKeyRequired') : true;
+        }
+        if (trimmed.length < 10) return t('providers.config.apiKeyTooShort');
         return true;
       }
     });
 
-    if (!apiKey) {
+    if (apiKey === undefined || apiKey === null) {
       return null;
     }
 
-    this.state.apiKey = apiKey.trim();
-    return this.state.apiKey;
+    const trimmedApiKey = apiKey.trim();
+    this.state.apiKey = trimmedApiKey || undefined;
+    return trimmedApiKey;
   }
 
   private async promptOpenAIAuthMode(): Promise<OpenAIAuthMode | null> {
@@ -515,6 +537,78 @@ export class SetupWizard {
       console.log(chalk.red(`\n  ${t('providers.openaiAuth.failed', { message })}`));
       throw error;
     }
+  }
+
+  private async promptOpenAIApiKeyBaseUrl(): Promise<boolean> {
+    const defaultBaseUrl = this.getDefaultBaseUrl('openai');
+    const existingBaseUrl = this.existingConfig?.openai?.authMode === 'api-key'
+      ? this.existingConfig.openai.baseUrl
+      : undefined;
+
+    const useCustomBaseUrl = await showConfirm({
+      title: 'Use a custom OpenAI-compatible base URL?',
+      defaultValue: false
+    });
+
+    if (!useCustomBaseUrl) {
+      this.state.providerBaseUrl = undefined;
+      return true;
+    }
+
+    const baseUrl = await showInput({
+      title: 'Enter OpenAI-compatible base URL',
+      defaultValue: existingBaseUrl ?? defaultBaseUrl,
+      validate: (val: string) => {
+        const trimmed = val?.trim();
+        if (!trimmed) return 'Base URL is required';
+        try {
+          const parsed = new URL(trimmed);
+          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return 'Base URL must start with http:// or https://';
+          }
+          return true;
+        } catch {
+          return 'Enter a valid URL';
+        }
+      }
+    });
+
+    if (!baseUrl) {
+      return false;
+    }
+
+    this.state.providerBaseUrl = baseUrl.trim().replace(/\/+$/, '');
+    return true;
+  }
+
+  private async promptOpenAICompatibleBaseUrl(): Promise<boolean> {
+    const defaultBaseUrl = this.getDefaultBaseUrl('openaicompatible');
+    const existingBaseUrl = this.existingConfig?.openaicompatible?.baseUrl;
+
+    const baseUrl = await showInput({
+      title: 'Enter OpenAI-compatible base URL',
+      defaultValue: existingBaseUrl ?? defaultBaseUrl,
+      validate: (val: string) => {
+        const trimmed = val?.trim();
+        if (!trimmed) return 'Base URL is required';
+        try {
+          const parsed = new URL(trimmed);
+          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return 'Base URL must start with http:// or https://';
+          }
+          return true;
+        } catch {
+          return 'Enter a valid URL';
+        }
+      }
+    });
+
+    if (!baseUrl) {
+      return false;
+    }
+
+    this.state.providerBaseUrl = baseUrl.trim().replace(/\/+$/, '');
+    return true;
   }
 
   /**
@@ -1045,8 +1139,14 @@ export class SetupWizard {
           authMode: 'api-key',
           apiKey: this.state.apiKey,
           model: this.state.model ?? this.getDefaultModel('openai'),
-          baseUrl: this.getDefaultBaseUrl('openai'),
+          baseUrl: this.state.providerBaseUrl ?? this.getDefaultBaseUrl('openai'),
           ...(this.state.reasoningEffort !== undefined && { reasoningEffort: this.state.reasoningEffort })
+        };
+      } else if (this.state.provider === 'openaicompatible') {
+        config.openaicompatible = {
+          model: this.state.model ?? this.getDefaultModel('openaicompatible'),
+          baseUrl: this.state.providerBaseUrl ?? this.getDefaultBaseUrl('openaicompatible'),
+          ...(this.state.apiKey ? { apiKey: this.state.apiKey } : {}),
         };
       } else if (this.state.provider === 'vertexai' && this.state.vertexaiConfig) {
         config.vertexai = this.state.vertexaiConfig;
@@ -1593,7 +1693,7 @@ export class SetupWizard {
     if (!this.state.provider || !this.state.apiKey) return;
     if (!this.requiresApiKey(this.state.provider)) return;
 
-    const baseUrl = this.getDefaultBaseUrl(this.state.provider);
+    const baseUrl = this.state.providerBaseUrl ?? this.getDefaultBaseUrl(this.state.provider);
     console.log(chalk.gray('\n  ' + t('setup.apiKeyValidation.validating')));
 
     try {
@@ -2039,6 +2139,7 @@ export class SetupWizard {
     const urls: Record<string, string> = {
       openrouter: t('providers.wizard.openrouter.apiKeyUrl'),
       openai: t('providers.wizard.openai.apiKeyUrl'),
+      openaicompatible: t('providers.wizard.openaicompatible.apiKeyUrl'),
       llmgateway: t('providers.wizard.llmgateway.apiKeyUrl'),
       zai: t('providers.wizard.zai.apiKeyUrl'),
       nvidia: t('providers.wizard.nvidia.apiKeyUrl'),
@@ -2052,6 +2153,7 @@ export class SetupWizard {
     const defaults: Record<ProviderName, string> = {
       openrouter: 'nvidia/nemotron-3-super-120b-a12b:free',
       openai: 'gpt-5.4',
+      openaicompatible: 'gpt-4o-mini',
       ollama: 'llama3.2:latest',
       llamacpp: 'local',
       mlx: 'mlx-community/Llama-3.2-3B-Instruct-4bit',
@@ -2072,6 +2174,7 @@ export class SetupWizard {
     const urls: Record<ProviderName, string> = {
       openrouter: 'https://openrouter.ai/api/v1',
       openai: 'https://api.openai.com/v1',
+      openaicompatible: 'https://api.openai.com/v1',
       ollama: 'http://localhost:11434',
       llamacpp: 'http://localhost:8080',
       mlx: 'http://localhost:8080',

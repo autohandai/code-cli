@@ -310,8 +310,18 @@ export class OpenAIProvider implements LLMProvider {
         }
 
         const data = await response.json() as OpenAIChatResponse;
-        const message = data.choices[0].message;
-        const finishReason = data.choices[0].finish_reason;
+        const firstChoice = data.choices?.[0];
+        if (!firstChoice?.message) {
+            throw new ApiError(
+                'Received an invalid response from the OpenAI-compatible endpoint. Expected choices[0].message.',
+                'unknown',
+                response.status,
+                false,
+            );
+        }
+
+        const message = firstChoice.message;
+        const finishReason = firstChoice.finish_reason;
 
         // Parse tool calls if present
         let toolCalls: LLMToolCall[] | undefined;
@@ -645,6 +655,10 @@ export class OpenAIProvider implements LLMProvider {
                 Authorization: `Bearer ${this.chatgptAuth.accessToken}`,
                 'chatgpt-account-id': this.chatgptAuth.accountId,
             };
+        }
+
+        if (!this.apiKey.trim()) {
+            return {};
         }
 
         return {
