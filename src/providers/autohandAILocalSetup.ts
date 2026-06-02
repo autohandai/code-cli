@@ -7,7 +7,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { runCommand } from '../actions/command.js';
-import { isMLXSupported } from '../utils/platform.js';
+import { getAvailableMemoryGb, isMLXSupported } from '../utils/platform.js';
 
 export interface AutohandAILocalModel {
   id: string;
@@ -86,6 +86,10 @@ const INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
 // readiness wait has to tolerate a multi-gigabyte download, not just process startup.
 const MODEL_LOAD_TIMEOUT_MS = 30 * 60 * 1000;
 const STARTUP_TIMEOUT_MS = 120_000;
+// Pin the MLX runtime so every local install is reproducible instead of drifting
+// to whatever mlx-lm is latest. Bump deliberately after validating a new release.
+const MLX_LM_PINNED_VERSION = '0.31.3';
+const MLX_LM_SPEC = `mlx-lm==${MLX_LM_PINNED_VERSION}`;
 const CODING_MODEL_PATTERN = /(code|coder|coding|codestral|devstral|starcoder|qwen|deepseek)/i;
 
 export const AUTOHAND_AI_LOCAL_CODING_MODEL_FALLBACKS: AutohandAILocalModel[] = [
@@ -146,27 +150,66 @@ async function commandExists(command: string, cwd: string): Promise<boolean> {
   }
 }
 
+/** Extract an mlx-lm version from `uv tool list`, `pipx list`, or `pip show` output. */
+function parseMlxLmVersion(output: string): string | undefined {
+  // "mlx-lm v0.31.3" (uv) or "mlx-lm 0.31.3" (pipx).
+  const direct = output.match(/mlx-lm[\s=v:]+(\d+\.\d+\.\d+)/i);
+  if (direct) return direct[1];
+  // "Version: 0.31.3" (pip show mlx-lm).
+  return output.match(/^Version:\s*(\d+\.\d+\.\d+)/im)?.[1];
+}
+
+/**
+ * Best-effort read of the installed mlx-lm version across the install methods we
+ * support. Returns undefined when it cannot be determined (so callers can avoid
+ * churning a working install).
+ */
+async function getInstalledMlxLmVersion(cwd: string): Promise<string | undefined> {
+  const probes: ReadonlyArray<{ command: string; args: string[] }> = [
+    { command: 'uv', args: ['tool', 'list'] },
+    { command: 'pipx', args: ['list', '--short'] },
+    { command: 'python3', args: ['-m', 'pip', 'show', 'mlx-lm'] },
+  ];
+
+  for (const probe of probes) {
+    if (!(await commandExists(probe.command, cwd))) continue;
+    try {
+      const result = await runCommand(probe.command, probe.args, cwd, {
+        timeout: 10_000,
+        env: localRuntimeEnv(),
+      });
+      if (result.code !== 0) continue;
+      const version = parseMlxLmVersion(result.stdout);
+      if (version) return version;
+    } catch {
+      // Try the next probe.
+    }
+  }
+
+  return undefined;
+}
+
 async function getMlxInstallCommand(cwd: string): Promise<AutohandAILocalInstallCommand> {
   if (await commandExists('uv', cwd)) {
     return {
       command: 'uv',
-      args: ['tool', 'install', 'mlx-lm'],
-      label: 'uv tool install mlx-lm',
+      args: ['tool', 'install', MLX_LM_SPEC],
+      label: `uv tool install ${MLX_LM_SPEC}`,
     };
   }
 
   if (await commandExists('pipx', cwd)) {
     return {
       command: 'pipx',
-      args: ['install', 'mlx-lm'],
-      label: 'pipx install mlx-lm',
+      args: ['install', MLX_LM_SPEC],
+      label: `pipx install ${MLX_LM_SPEC}`,
     };
   }
 
   return {
     command: 'python3',
-    args: ['-m', 'pip', 'install', '--user', 'mlx-lm'],
-    label: 'python3 -m pip install --user mlx-lm',
+    args: ['-m', 'pip', 'install', '--user', MLX_LM_SPEC],
+    label: `python3 -m pip install --user ${MLX_LM_SPEC}`,
   };
 }
 
@@ -249,6 +292,7 @@ function parseLlmfitRecommendations(stdout: string): AutohandAILocalModel[] {
     seen.add(id);
     const score = coerceNumber(candidate.score);
     const estimatedTokensPerSecond = coerceNumber(candidate.estimated_tps ?? candidate.estimatedTokensPerSecond);
+    const estimatedMemoryGb = coerceNumber(candidate.memory_required_gb ?? candidate.memoryRequiredGb);
     const parameterCount = typeof candidate.parameter_count === 'string'
       ? candidate.parameter_count
       : typeof candidate.parameterCount === 'string'
@@ -260,9 +304,11 @@ function parseLlmfitRecommendations(stdout: string): AutohandAILocalModel[] {
       label: modelLabel(id),
       description: [
         parameterCount ? `${parameterCount} coding model` : 'Coding-focused local model',
+        estimatedMemoryGb ? `${Math.round(estimatedMemoryGb)} GB` : undefined,
         estimatedTokensPerSecond ? `${estimatedTokensPerSecond} tok/s estimated` : undefined,
         score ? `llmfit score ${score}` : undefined,
       ].filter(Boolean).join(' · '),
+      estimatedMemoryGb,
       parameterCount,
       estimatedTokensPerSecond,
       score,
@@ -297,11 +343,22 @@ export async function probeAutohandAILocalEnvironment(
     };
   }
 
-  const [mlxServerInstalled, llmfitInstalled, running] = await Promise.all([
+  const [mlxServerBinary, llmfitInstalled, running] = await Promise.all([
     commandExists('mlx_lm.server', cwd),
     commandExists('llmfit', cwd),
     probeAutohandAILocalServer(baseUrl),
   ]);
+
+  // Verify the pinned version, not just presence. Only force a reinstall when we
+  // can positively read a mismatching version; if it can't be determined, trust
+  // the existing install rather than churning it on every launch.
+  let mlxServerInstalled = mlxServerBinary;
+  if (mlxServerBinary) {
+    const installedVersion = await getInstalledMlxLmVersion(cwd);
+    if (installedVersion && installedVersion !== MLX_LM_PINNED_VERSION) {
+      mlxServerInstalled = false;
+    }
+  }
 
   return {
     supported: true,
@@ -490,6 +547,24 @@ export async function ensureAutohandAILocalRuntime(
       port,
       serverCommand: `mlx_lm.server --model ${options.model.id} --port ${port}`,
     };
+  }
+
+  // Guard against loading a model the machine cannot currently hold. MLX loads
+  // weights into unified memory, so the model must fit in the memory actually
+  // available right now; starting a server for an oversized model would thrash
+  // or be killed before it ever serves.
+  const requiredGb = options.model.estimatedMemoryGb;
+  if (requiredGb) {
+    const availableGb = getAvailableMemoryGb();
+    if (requiredGb > availableGb) {
+      return {
+        ok: false,
+        model: options.model,
+        baseUrl,
+        port,
+        error: `${options.model.label} needs about ${Math.round(requiredGb)} GB of memory, but only ${Math.round(availableGb)} GB is available right now. Close other apps or choose a smaller local model.`,
+      };
+    }
   }
 
   const runningServerHasOtherModel = probe.running || await probeAutohandAILocalServer(baseUrl);

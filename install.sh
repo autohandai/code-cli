@@ -35,18 +35,23 @@ install_local_ai_runtime_if_requested() {
 
     info "Installing Autohand AI Local runtime..."
 
+    # Keep this pin in sync with MLX_LM_PINNED_VERSION in
+    # src/providers/autohandAILocalSetup.ts so the installer and the in-app setup
+    # wizard provision the same MLX runtime.
+    MLX_LM_SPEC="mlx-lm==0.31.3"
     if ! command -v mlx_lm.server >/dev/null 2>&1; then
         if command -v uv >/dev/null 2>&1; then
-            uv tool install mlx-lm
+            uv tool install "$MLX_LM_SPEC"
         elif command -v pipx >/dev/null 2>&1; then
-            pipx install mlx-lm
+            pipx install "$MLX_LM_SPEC"
         else
-            python3 -m pip install --user mlx-lm
+            python3 -m pip install --user "$MLX_LM_SPEC"
         fi
     fi
 
     if ! command -v llmfit >/dev/null 2>&1; then
-        curl -fsSL https://llmfit.axjns.dev/install.sh | sh
+        # --local installs to ~/.local/bin without sudo (no password prompt).
+        curl -fsSL https://llmfit.axjns.dev/install.sh | sh -s -- --local
     fi
 
     success "Autohand AI Local runtime installed."
