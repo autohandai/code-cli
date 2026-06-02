@@ -32,6 +32,8 @@ describe('feature registry', () => {
     expect(ids).toContain('request_queue');
     expect(ids).toContain('usage_v2');
     expect(ids).toContain('slash_goal');
+    expect(ids).toContain('experimental_fork');
+    expect(ids).toContain('experimental_clone');
     expect(ids).toContain('chrome_integration');
   });
 
@@ -41,6 +43,8 @@ describe('feature registry', () => {
     expect(getFeatureState(config, 'mcp')?.enabled).toBe(true);
     expect(getFeatureState(config, 'chrome_integration')?.enabled).toBe(false);
     expect(getFeatureState(config, 'slash_goal')?.enabled).toBe(false);
+    expect(getFeatureState(config, 'experimental_fork')?.enabled).toBe(false);
+    expect(getFeatureState(config, 'experimental_clone')?.enabled).toBe(false);
   });
 
   it('updates nested config paths without disturbing adjacent settings', () => {
@@ -204,6 +208,20 @@ describe('feature registry', () => {
     expect(result.ok).toBe(true);
     expect(config.features?.slashGoal).toBe(true);
     expect(getFeatureState(config, 'slash_goal')?.enabled).toBe(true);
+  });
+
+  it('enables experimental fork and clone through local feature config paths', () => {
+    const config = makeConfig();
+
+    const forkResult = setFeatureState(config, 'experimental_fork', true);
+    const cloneResult = setFeatureState(config, 'experimental_clone', true);
+
+    expect(forkResult.ok).toBe(true);
+    expect(cloneResult.ok).toBe(true);
+    expect(config.features?.experimentalFork).toBe(true);
+    expect(config.features?.experimentalClone).toBe(true);
+    expect(getFeatureState(config, 'experimental_fork')?.enabled).toBe(true);
+    expect(getFeatureState(config, 'experimental_clone')?.enabled).toBe(true);
   });
 
   it('does not let users force-enable a remotely disabled flag', () => {

@@ -14,6 +14,11 @@ import type {
 } from './types.js';
 import { AUTOHAND_PATHS } from '../constants.js';
 
+export interface BranchSessionOptions {
+    type: 'fork' | 'clone';
+    userMessageOrdinal?: number;
+}
+
 export class SessionManager {
     private readonly sessionsDir: string;
     private currentSession: Session | null = null;
@@ -60,7 +65,8 @@ export class SessionManager {
     }
 
     async loadSession(sessionId: string): Promise<Session> {
-        const sessionDir = path.join(this.sessionsDir, sessionId);
+        const resolvedSessionId = await this.resolveSessionReference(sessionId);
+        const sessionDir = path.join(this.sessionsDir, resolvedSessionId);
         if (!(await fs.pathExists(sessionDir))) {
             throw new Error(`Session not found: ${sessionId}`);
         }
@@ -71,6 +77,83 @@ export class SessionManager {
         await session.load();
 
         this.currentSession = session;
+        return session;
+    }
+
+    async resolveSessionReference(reference: string): Promise<string> {
+        const trimmed = reference.trim();
+        if (!trimmed) {
+            throw new Error('Session reference is required');
+        }
+
+        const asPath = path.resolve(trimmed);
+        if (await fs.pathExists(asPath)) {
+            const stat = await fs.stat(asPath);
+            const sessionDir = stat.isDirectory() ? asPath : path.dirname(asPath);
+            const metadataPath = path.join(sessionDir, 'metadata.json');
+            if (await fs.pathExists(metadataPath)) {
+                const metadata = await fs.readJson(metadataPath) as SessionMetadata;
+                return metadata.sessionId;
+            }
+        }
+
+        const directDir = path.join(this.sessionsDir, trimmed);
+        if (await fs.pathExists(path.join(directDir, 'metadata.json'))) {
+            return trimmed;
+        }
+
+        await this.loadIndex();
+        const candidates = this.index?.sessions.filter((session) => session.id.startsWith(trimmed)) ?? [];
+        if (candidates.length === 1) {
+            return candidates[0].id;
+        }
+        if (candidates.length > 1) {
+            throw new Error(`Ambiguous session reference: ${reference}`);
+        }
+
+        throw new Error(`Session not found: ${reference}`);
+    }
+
+    async branchSession(sourceReference: string, options: BranchSessionOptions): Promise<Session> {
+        const sourceSessionId = await this.resolveSessionReference(sourceReference);
+        const sourceSession = await this.loadSession(sourceSessionId);
+        const sourceMessages = sourceSession.getMessages();
+        const copiedMessages = selectBranchMessages(sourceMessages, options);
+        const createdAt = new Date().toISOString();
+        const sessionId = this.generateSessionId();
+        const sessionDir = path.join(this.sessionsDir, sessionId);
+        await fs.ensureDir(sessionDir);
+
+        const metadata: SessionMetadata = {
+            ...sourceSession.metadata,
+            sessionId,
+            createdAt,
+            lastActiveAt: createdAt,
+            closedAt: undefined,
+            messageCount: copiedMessages.length,
+            status: 'active',
+            exitCode: undefined,
+            branch: {
+                type: options.type,
+                sourceSessionId,
+                sourceMessageIndex: options.type === 'fork' && copiedMessages.length > 0
+                    ? copiedMessages.length - 1
+                    : undefined,
+                sourceUserMessageOrdinal: options.type === 'fork' ? options.userMessageOrdinal : undefined,
+                createdAt,
+            },
+        };
+
+        const session = new Session(sessionDir, metadata);
+        await session.replaceMessages(copiedMessages);
+        const sourceState = sourceSession.getState();
+        if (sourceState) {
+            await session.updateState(sourceState);
+        }
+        await session.save();
+
+        this.currentSession = session;
+        await this.addToIndex(session.metadata);
         return session;
     }
 
@@ -158,7 +241,14 @@ export class SessionManager {
             id: metadata.sessionId,
             projectPath: metadata.projectPath,
             createdAt: metadata.createdAt,
-            summary: metadata.summary
+            summary: metadata.summary,
+            importedFrom: metadata.importedFrom
+                ? {
+                    source: metadata.importedFrom.source,
+                    originalId: metadata.importedFrom.originalId,
+                }
+                : undefined,
+            branch: metadata.branch,
         });
 
         if (!this.index.byProject[metadata.projectPath]) {
@@ -175,10 +265,35 @@ export class SessionManager {
         const session = this.index.sessions.find(s => s.id === metadata.sessionId);
         if (session) {
             session.summary = metadata.summary;
+            session.branch = metadata.branch;
         }
 
         await this.saveIndex();
     }
+}
+
+function selectBranchMessages(messages: SessionMessage[], options: BranchSessionOptions): SessionMessage[] {
+    if (options.type === 'clone' || options.userMessageOrdinal === undefined) {
+        return [...messages];
+    }
+
+    if (!Number.isInteger(options.userMessageOrdinal) || options.userMessageOrdinal < 1) {
+        throw new Error('Fork message must be a positive user-message number');
+    }
+
+    let seenUserMessages = 0;
+    const selected: SessionMessage[] = [];
+    for (const message of messages) {
+        selected.push(message);
+        if (message.role === 'user') {
+            seenUserMessages += 1;
+            if (seenUserMessages === options.userMessageOrdinal) {
+                return selected;
+            }
+        }
+    }
+
+    throw new Error(`User message ${options.userMessageOrdinal} not found`);
 }
 
 export class Session {
@@ -214,6 +329,14 @@ export class Session {
         await this.ensureSessionDir();
         const conversationPath = path.join(this.sessionDir, 'conversation.jsonl');
         await fs.appendFile(conversationPath, JSON.stringify(message) + '\n');
+    }
+
+    async replaceMessages(messages: SessionMessage[]): Promise<void> {
+        this.messages = [...messages];
+        this.metadata.messageCount = this.messages.length;
+        const conversationPath = path.join(this.sessionDir, 'conversation.jsonl');
+        const content = this.messages.map((message) => JSON.stringify(message)).join('\n');
+        await fs.writeFile(conversationPath, content ? `${content}\n` : '');
     }
 
     async updateState(state: WorkspaceState): Promise<void> {
