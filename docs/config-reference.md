@@ -164,6 +164,7 @@ Active LLM provider to use.
 
 | Value          | Description                  |
 | -------------- | ---------------------------- |
+| `"autohandai"` | Autohand AI Cloud or Local   |
 | `"openrouter"` | OpenRouter API (default)     |
 | `"ollama"`     | Local Ollama instance        |
 | `"llamacpp"`   | Local llama.cpp server       |
@@ -200,6 +201,36 @@ To add or update bundled model choices, edit the relevant provider entry in `mod
 For a local override without changing the installed package, create `~/.autohand/models.json` or set `AUTOHAND_MODELS_CATALOG=/path/to/models.json`. Local override entries are merged ahead of the last valid downloaded catalog, which is merged ahead of bundled entries; all layers are deduplicated by model ID. OpenRouter and other providers with live model APIs still try live discovery first, then merge or fall back to catalog entries.
 
 Use `autohand update --models` or `autohand upgrade --models` to force an immediate refresh. Use `autohand --offline` or `AUTOHAND_OFFLINE=1` to disable automatic startup checks. `AUTOHAND_MODELS_URL` can select another compatible endpoint for development. See [Model catalog updates](model-catalog.md) for the cache, validation, fallback, and publication contracts.
+
+### `autohandai`
+
+Autohand AI provider configuration. Cloud mode uses Autohand-hosted OpenAI-compatible inference at `https://api.autohand.ai/v1`; Local mode uses Apple Silicon MLX inference.
+
+```json
+{
+  "autohandai": {
+    "plan": "cloud",
+    "authMode": "account",
+    "baseUrl": "https://api.autohand.ai/v1",
+    "model": "moa",
+    "contextWindow": 256000,
+    "reasoningEffort": "high"
+  }
+}
+```
+
+| Field            | Type                       | Required | Default                       | Description                                               |
+| ---------------- | -------------------------- | -------- | ----------------------------- | --------------------------------------------------------- |
+| `plan`           | `"cloud"` or `"local"`     | Yes      | `"cloud"`                     | Hosted Autohand AI or local MLX inference                 |
+| `authMode`       | `"account"` or `"api-key"` | Cloud    | `"account"` in CLI when logged in | CLI can use account auth; SDK Cloud must use API key |
+| `apiKey`         | string                     | SDK Cloud/API-key Cloud | -                   | Autohand AI API key                                       |
+| `baseUrl`        | string                     | No       | `https://api.autohand.ai/v1`  | OpenAI-compatible API endpoint                            |
+| `model`          | string                     | Yes      | `fantail`                     | `fantail`, `moa`, or a selected local MLX coding model    |
+| `contextWindow`  | number                     | No       | `16000` for Fantail, `256000` for Moa/Local | Model context window                      |
+| `reasoningEffort` | `"medium"`, `"high"`, or `"xhigh"` | Moa Cloud | `"high"` during setup | Moa thinking effort level |
+| `port`           | number                     | Local    | `8080`                        | Local MLX server port                                     |
+| `localModelPath` | string                     | No       | -                             | Downloaded local coding model path                        |
+| `serverCommand`  | string                     | No       | -                             | Local server start command                                |
 
 ### `openrouter`
 

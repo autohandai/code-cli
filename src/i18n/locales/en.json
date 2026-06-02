@@ -722,6 +722,7 @@
   },
   "providers": {
     "openrouter": "OpenRouter",
+    "autohandai": "Autohand AI",
     "openai": "OpenAI",
     "ollama": "Ollama",
     "llamacpp": "llama.cpp",
@@ -771,6 +772,7 @@
     },
     "hints": {
       "openrouter": "Cloud - Access to 100+ models (Claude, GPT-4, etc.)",
+      "autohandai": "Cloud or Local - Autohand-hosted Fantail models, or Apple Silicon MLX local inference",
       "openai": "Cloud - Official OpenAI models (GPT-4o, o1, etc.)",
       "ollama": "Local - Run models on your machine (free)",
       "llamacpp": "Local - Fast inference with GGUF models",
@@ -785,6 +787,25 @@
       "nvidia": "Cloud - NVIDIA NIM models (Llama, Phi, Gemma, Mixtral, etc.)",
       "deepseek": "Cloud - DeepSeek API models (V4 Flash, V4 Pro, reasoning)",
       "bedrock": "Cloud - AWS Bedrock enterprise models and OpenAI-compatible endpoints"
+    },
+    "autohandaiPlan": {
+      "choose": "Choose an Autohand AI plan",
+      "cloud": "Cloud",
+      "cloudDescription": "Use Autohand-hosted Fantail and Moa models at api.autohand.ai",
+      "local": "Local",
+      "localDescription": "Install MLX locally, choose a coding model your Mac can run, and start a local server",
+      "accountAuth": "Use your logged-in Autohand account",
+      "apiKeyRequiredForSdk": "Autohand AI SDK usage requires an API key.",
+      "mlxUnsupported": "Local Autohand AI requires a Mac with Apple Silicon.",
+      "mlxProbe": "Checking local MLX server...",
+      "mlxInstall": "Installing MLX local runtime...",
+      "mlxDownload": "Downloading the selected local coding model...",
+      "detectModels": "Detecting local coding models for this Mac",
+      "selectLocalModel": "Choose a local coding model",
+      "selectMoaEffort": "Choose Moa thinking effort",
+      "noLocalModels": "No local coding models were available for this machine.",
+      "localSetupFailed": "Autohand AI Local setup failed.",
+      "localConfigured": "Autohand AI Local configured and ready."
     },
     "config": {
       "chooseProvider": "Choose an LLM provider",
@@ -868,6 +889,10 @@
       "openrouter": {
         "title": "OpenRouter Configuration",
         "apiKeyUrl": "https://openrouter.ai/keys"
+      },
+      "autohandai": {
+        "title": "Autohand AI Configuration",
+        "apiKeyUrl": "https://api.autohand.ai/keys"
       },
       "openai": {
         "title": "OpenAI Configuration",

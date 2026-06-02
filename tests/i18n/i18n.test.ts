@@ -306,6 +306,7 @@ describe('i18n module', () => {
 
     it('should have all provider names', () => {
       expect(t('providers.openrouter')).toBe('OpenRouter');
+      expect(t('providers.autohandai')).toBe('Autohand AI');
       expect(t('providers.openai')).toBe('OpenAI');
       expect(t('providers.ollama')).toBe('Ollama');
       expect(t('providers.llamacpp')).toBe('llama.cpp');
@@ -314,6 +315,9 @@ describe('i18n module', () => {
 
     it('should have provider hints', () => {
       expect(t('providers.hints.openrouter')).toContain('Cloud');
+      expect(t('providers.hints.autohandai')).toContain('Cloud');
+      expect(t('providers.autohandaiPlan.cloud')).toBe('Cloud');
+      expect(t('providers.autohandaiPlan.local')).toBe('Local');
       expect(t('providers.hints.openai')).toContain('Cloud');
       expect(t('providers.hints.ollama')).toContain('Local');
       expect(t('providers.hints.llamacpp')).toContain('Local');

@@ -53,7 +53,8 @@ function normalizeModelId(model: string): string {
     .replace(/^google\//, '')
     .replace(/^deepseek\//, '')
     .replace(/^zai\//, '')
-    .replace(/^sakana\//, '');
+    .replace(/^sakana\//, '')
+    .replace(/^autohandai\//, '');
 }
 
 function inferContextWindow(model: string): number | undefined {
@@ -83,6 +84,9 @@ function inferContextWindow(model: string): number | undefined {
   if (normalized.startsWith('glm-5.2')) return 1_000_000;
   if (normalized.startsWith('glm-5.1')) return 200_000;
   if (normalized === 'fugu' || normalized === 'fugu-ultra') return 1_000_000;
+  if (normalized === 'fantail' || normalized.startsWith('fantail-')) return 16_000;
+  if (normalized === 'moa' || normalized.startsWith('moa-')) return 256_000;
+  if (normalized.startsWith('qwen') || normalized.includes('coder') || normalized.includes('codestral')) return 128_000;
 
   return undefined;
 }
@@ -135,6 +139,7 @@ export function getModelFamily(model: string): string {
   if (normalized.includes('gpt-4') || normalized.includes('gpt-5') || normalized.includes('o1') || normalized.includes('o3')) return 'openai';
   if (normalized.includes('gemini')) return 'gemini';
   if (normalized.includes('deepseek')) return 'deepseek';
+  if (normalized.includes('fantail') || normalized.includes('moa') || normalized.includes('autohandai')) return 'autohandai';
   return 'default';
 }
 
@@ -161,6 +166,7 @@ export function estimateTokens(text: string, modelFamily?: string): number {
     claude: 3.5,
     gemini: 4,
     deepseek: 3,
+    autohandai: 3.5,
     default: 3.5,
   };
 

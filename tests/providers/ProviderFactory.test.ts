@@ -19,9 +19,10 @@ describe("ProviderFactory", () => {
   });
 
   describe("getProviderNames()", () => {
-    it("should always include openrouter, ollama, openai, llamacpp, llmgateway, azure, zai, sakana, deepseek, bedrock", () => {
+    it("should always include autohandai, openrouter, ollama, openai, llamacpp, llmgateway, azure, zai, sakana, deepseek, bedrock", () => {
       const providers = ProviderFactory.getProviderNames();
 
+      expect(providers).toContain("autohandai");
       expect(providers).toContain("openrouter");
       expect(providers).toContain("ollama");
       expect(providers).toContain("openai");
@@ -48,6 +49,7 @@ describe("ProviderFactory", () => {
       const providers = ProviderFactory.getProviderNames();
       expect(providers).not.toContain("mlx");
       expect(providers).toEqual([
+        "autohandai",
         "zai",
         "xai",
         "vertexai",
@@ -198,6 +200,32 @@ describe("ProviderFactory", () => {
       expect(provider.getName()).toBe("unconfigured");
     });
 
+    it("should create AutohandAIProvider when autohandai cloud is configured", () => {
+      const config: AutohandConfig = {
+        provider: "autohandai",
+        autohandai: {
+          plan: "cloud",
+          authMode: "api-key",
+          apiKey: "test-autohand-key",
+          model: "fantail",
+        },
+      };
+
+      const provider = ProviderFactory.create(config);
+
+      expect(provider.getName()).toBe("autohandai");
+    });
+
+    it("should return UnconfiguredProvider when autohandai config is missing", () => {
+      const config: AutohandConfig = {
+        provider: "autohandai",
+      };
+
+      const provider = ProviderFactory.create(config);
+
+      expect(provider.getName()).toBe("unconfigured");
+    });
+
     it("should return UnconfiguredProvider when deepseek config is missing", () => {
       const config: AutohandConfig = {
         provider: "deepseek",
@@ -225,6 +253,10 @@ describe("ProviderFactory", () => {
   describe("isValidProvider()", () => {
     it("should return true for openrouter", () => {
       expect(ProviderFactory.isValidProvider("openrouter")).toBe(true);
+    });
+
+    it("should return true for autohandai", () => {
+      expect(ProviderFactory.isValidProvider("autohandai")).toBe(true);
     });
 
     it("should return true for ollama", () => {

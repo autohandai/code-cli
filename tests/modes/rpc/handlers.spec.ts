@@ -962,6 +962,13 @@ describe('RPC Adapter - Browser handoff', () => {
     vi.useRealTimers();
   });
 
+  it('returns Autohand AI Fantail models from supported models', async () => {
+    const result = await adapter.handleGetSupportedModels();
+
+    expect(result.models.map((model) => model.id)).toContain('fantail');
+    expect(result.models.map((model) => model.id)).toContain('moa');
+  });
+
   it('creates a browser handoff from the active session', async () => {
     mockCreateBrowserHandoff.mockResolvedValue({
       token: 'token-1',

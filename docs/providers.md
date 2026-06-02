@@ -52,6 +52,7 @@ Bundled provider model choices live in `src/providers/models.json` and packaged 
 
 | Provider        | Type  | Cost        | Latency | Best For                                        |
 | --------------- | ----- | ----------- | ------- | ----------------------------------------------- |
+| **Autohand AI** | Cloud/Local | Account, API key, or local | Low | Fantail ultra-fast coding, Moa thinking, or local MLX coding models |
 | **OpenRouter**  | Cloud | Pay-per-use | Low     | Access to 100+ models, recommended default      |
 | **OpenAI**      | Cloud | Pay-per-use | Low     | Direct OpenAI access, GPT-5, o3 models          |
 | **LLM Gateway** | Cloud | Pay-per-use | Low     | Unified API for multiple providers              |
@@ -67,6 +68,64 @@ Bundled provider model choices live in `src/providers/models.json` and packaged 
 ---
 
 ## Cloud Providers
+
+### Autohand AI
+
+Autohand AI is the preferred first-party provider. Use `autohandai` with `plan: "cloud"` for Autohand-hosted Fantail and Moa models at `https://api.autohand.ai/v1`, or `plan: "local"` for Apple Silicon MLX local inference.
+
+Cloud mode uses the OpenAI-compatible `/chat/completions` API and defaults to temperature `0.1`.
+
+| Model | Notes |
+| ----- | ----- |
+| `fantail` | Ultra-fast coding model, image input, tool calls, 16k input context |
+| `moa` | Thinking model, image input, medium/high/xhigh effort, 256k input context |
+
+CLI Cloud can use your logged-in Autohand account automatically. SDK Cloud usage must pass an Autohand AI API key (`AUTOHAND_AI_API_KEY`) so SDK workloads are tied to Autohand's API-key systems instead of silently borrowing CLI account auth.
+
+```json
+{
+  "provider": "autohandai",
+  "autohandai": {
+    "plan": "cloud",
+    "authMode": "account",
+    "baseUrl": "https://api.autohand.ai/v1",
+    "model": "moa",
+    "contextWindow": 256000,
+    "reasoningEffort": "high"
+  }
+}
+```
+
+For SDK/client-driven Cloud calls:
+
+```json
+{
+  "provider": "autohandai",
+  "autohandai": {
+    "plan": "cloud",
+    "authMode": "api-key",
+    "apiKey": "ah-...",
+    "baseUrl": "https://api.autohand.ai/v1",
+    "model": "fantail"
+  }
+}
+```
+
+Local mode requires macOS on Apple Silicon. When selected from `/model` or setup, Autohand checks for `mlx_lm.server` and `llmfit`, installs missing pieces, asks `llmfit` for coding-focused MLX models this Mac can run, downloads the selected model, starts the MLX OpenAI-compatible server, and persists the server command:
+
+```json
+{
+  "provider": "autohandai",
+  "autohandai": {
+    "plan": "local",
+    "baseUrl": "http://127.0.0.1:8080",
+    "port": 8080,
+    "model": "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit",
+    "contextWindow": 256000,
+    "serverCommand": "mlx_lm.server --model mlx-community/Qwen2.5-Coder-7B-Instruct-4bit --port 8080"
+  }
+}
+```
 
 ### OpenRouter
 

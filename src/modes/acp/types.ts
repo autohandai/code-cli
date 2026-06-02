@@ -476,7 +476,7 @@ export function parseAvailableModels(config: LoadedConfig): string[] {
     models.push(providerConfig.model);
   }
 
-  return mergeModelIds(models, getProviderModelIds("openrouter"));
+  return mergeModelIds(models, ["fantail", "moa", ...getProviderModelIds("openrouter")]);
 }
 
 /**

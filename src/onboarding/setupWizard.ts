@@ -13,7 +13,7 @@ import { ASCII_FRIEND } from '../utils/asciiArt.js';
 import fse from 'fs-extra';
 import { join } from 'path';
 
-import type { AutohandConfig, LoadedConfig, ProviderName, BuiltInProviderName, AzureSettings, AzureAuthMethod, PermissionMode, SearchProvider, ReasoningEffort, OpenAIAuthMode, OpenAIChatGPTAuth, OpenAISettings, XAIAuthMode, XAIOAuthAuth, XAISettings, VertexAISettings, BedrockSettings, BedrockApiMode, BedrockAuthMode } from '../types.js';
+import type { AutohandAIAuthMode, AutohandAIPlan, AutohandConfig, LoadedConfig, ProviderName, BuiltInProviderName, AzureSettings, AzureAuthMethod, PermissionMode, SearchProvider, ReasoningEffort, OpenAIAuthMode, OpenAIChatGPTAuth, OpenAISettings, XAIAuthMode, XAIOAuthAuth, XAISettings, VertexAISettings, BedrockSettings, BedrockApiMode, BedrockAuthMode } from '../types.js';
 import { getProviderConfig } from '../config.js';
 import { ProviderFactory } from '../providers/ProviderFactory.js';
 import { ZAI_MODELS, ZAI_DEFAULT_BASE_URL } from '../providers/ZaiProvider.js';
@@ -22,6 +22,20 @@ import { VERTEX_AI_CODING_MODELS } from '../providers/VertexAIProvider.js';
 import { CEREBRAS_MODELS, CEREBRAS_DEFAULT_BASE_URL } from '../providers/CerebrasProvider.js';
 import { DEEPSEEK_MODELS, DEEPSEEK_DEFAULT_BASE_URL } from '../providers/DeepSeekProvider.js';
 import { BEDROCK_DEFAULT_MODEL, BEDROCK_DEFAULT_REGION, BEDROCK_MODELS, resolveBedrockAuthMode, resolveBedrockEndpoint } from '../providers/BedrockProvider.js';
+import {
+  AUTOHAND_AI_CLOUD_MODELS,
+  AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS,
+  AUTOHAND_AI_DEFAULT_BASE_URL,
+  AUTOHAND_AI_MOA_CONTEXT_WINDOW,
+  AUTOHAND_AI_LOCAL_MODELS,
+  getAutohandAICloudModelContextWindow,
+} from '../providers/AutohandAIProvider.js';
+import {
+  ensureAutohandAILocalDependencies,
+  ensureAutohandAILocalRuntime,
+  recommendAutohandAILocalModels,
+} from '../providers/autohandAILocalSetup.js';
+import { runWithProgress } from '../ui/ink/components/SetupProgress.js';
 import { getProviderDefaultModel } from '../providers/modelCatalog.js';
 import { authenticateOpenAIChatGPT, isChatGPTAuthExpired } from '../providers/openaiAuth.js';
 import {
@@ -119,6 +133,11 @@ interface OnboardingState {
   xaiOAuthAuth?: XAIOAuthAuth;
   authToken?: string;
   authUser?: { id: string; email: string; name: string };
+  autohandAIPlan?: AutohandAIPlan;
+  autohandAIAuthMode?: AutohandAIAuthMode;
+  autohandAIAccountToken?: string;
+  autohandAILocalPort?: number;
+  autohandAILocalServerCommand?: string;
   skipped: OnboardingStep[];
   completed: boolean;
 }
@@ -199,6 +218,9 @@ export class SetupWizard {
       } else if (provider === 'vertexai') {
         const vertexaiResult = await this.promptVertexAIConfig();
         if (!vertexaiResult) return this.cancelled();
+      } else if (provider === 'autohandai') {
+        const configured = await this.promptAutohandAIConfig();
+        if (!configured) return this.cancelled();
       } else if (provider === 'bedrock') {
         const bedrockResult = await this.promptBedrockConfig();
         if (!bedrockResult) return this.cancelled();
@@ -357,6 +379,17 @@ export class SetupWizard {
     if (provider === 'vertexai') {
       const vertexaiConfig = providerConfig as VertexAISettings;
       return !!(vertexaiConfig.authToken && vertexaiConfig.authToken.length >= 10);
+    }
+
+    if (provider === 'autohandai') {
+      const autohandAIConfig = providerConfig as NonNullable<AutohandConfig['autohandai']>;
+      if (autohandAIConfig.plan === 'local') {
+        return Boolean(autohandAIConfig.model);
+      }
+      if (autohandAIConfig.authMode === 'account') {
+        return Boolean(autohandAIConfig.accountToken ?? this.existingConfig.auth?.token);
+      }
+      return Boolean(autohandAIConfig.apiKey && autohandAIConfig.apiKey !== 'replace-me' && autohandAIConfig.apiKey.length >= 10);
     }
 
     if (provider === 'bedrock') {
@@ -634,6 +667,31 @@ export class SetupWizard {
       return this.state.model;
     }
 
+    if (provider === 'autohandai') {
+      const options: ModalOption[] = AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS.map((model) => ({
+        label: model.label,
+        value: model.id,
+        description: model.description,
+      }));
+      const defaultIndex = Math.max(0, AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS.findIndex((model) => model.id === defaultModel));
+      const result = await showModal({
+        title: t('providers.config.selectModel'),
+        options,
+        initialIndex: defaultIndex,
+      });
+
+      if (!result) {
+        return null;
+      }
+
+      this.state.model = result.value as string;
+      if (this.state.model === 'moa') {
+        const effort = await this.promptAutohandAIMoaReasoningEffort();
+        if (effort) this.state.reasoningEffort = effort;
+      }
+      return this.state.model;
+    }
+
     if (provider === 'zai') {
       const options: ModalOption[] = ZAI_MODELS.map((modelName) => ({
         label: modelName,
@@ -792,6 +850,25 @@ export class SetupWizard {
     if (result) {
       this.state.reasoningEffort = result.value as ReasoningEffort;
     }
+  }
+
+  /**
+   * Prompt for Moa thinking effort level.
+   */
+  private async promptAutohandAIMoaReasoningEffort(): Promise<ReasoningEffort | undefined> {
+    const options: ModalOption[] = [
+      { label: 'medium', value: 'medium', description: 'Balanced thinking for everyday coding' },
+      { label: 'high', value: 'high', description: 'Deeper reasoning for complex changes' },
+      { label: 'xhigh', value: 'xhigh', description: 'Maximum thinking depth for difficult work' },
+    ];
+
+    const result = await showModal({
+      title: t('providers.autohandaiPlan.selectMoaEffort'),
+      options,
+      initialIndex: 1,
+    });
+
+    return result?.value as ReasoningEffort | undefined;
   }
 
   /**
@@ -1188,6 +1265,28 @@ export class SetupWizard {
         };
       } else if (this.state.provider === 'vertexai' && this.state.vertexaiConfig) {
         config.vertexai = this.state.vertexaiConfig;
+      } else if (this.state.provider === 'autohandai') {
+        config.autohandai =
+          this.state.autohandAIPlan === 'local'
+            ? {
+                plan: 'local',
+                model: this.state.model ?? AUTOHAND_AI_LOCAL_MODELS[0],
+                baseUrl: this.state.providerBaseUrl ?? 'http://localhost:8080',
+                port: this.state.autohandAILocalPort ?? 8080,
+                contextWindow: AUTOHAND_AI_MOA_CONTEXT_WINDOW,
+                serverCommand: this.state.autohandAILocalServerCommand,
+              }
+            : {
+                plan: 'cloud',
+                authMode: this.state.autohandAIAuthMode ?? 'api-key',
+                ...(this.state.autohandAIAuthMode === 'account'
+                  ? { accountToken: this.state.autohandAIAccountToken ?? this.existingConfig?.auth?.token }
+                  : { apiKey: this.state.apiKey }),
+                model: this.state.model ?? AUTOHAND_AI_CLOUD_MODELS[0],
+                baseUrl: AUTOHAND_AI_DEFAULT_BASE_URL,
+                 contextWindow: getAutohandAICloudModelContextWindow(this.state.model ?? AUTOHAND_AI_CLOUD_MODELS[0]),
+                 ...(this.state.reasoningEffort !== undefined && { reasoningEffort: this.state.reasoningEffort }),
+               };
       } else if (this.state.provider === 'bedrock' && this.state.bedrockConfig) {
         config.bedrock = this.state.bedrockConfig;
       } else if (this.requiresApiKey(this.state.provider)) {
@@ -1751,6 +1850,99 @@ export class SetupWizard {
     }
   }
 
+  private async promptAutohandAIConfig(): Promise<boolean> {
+    const planResult = await showModal({
+      title: t('providers.autohandaiPlan.choose'),
+      options: [
+        {
+          label: t('providers.autohandaiPlan.cloud'),
+          value: 'cloud',
+          description: t('providers.autohandaiPlan.cloudDescription'),
+        },
+        {
+          label: t('providers.autohandaiPlan.local'),
+          value: 'local',
+          description: t('providers.autohandaiPlan.localDescription'),
+        },
+      ],
+    });
+
+    if (!planResult) return false;
+
+    this.state.autohandAIPlan = planResult.value as AutohandAIPlan;
+
+    if (this.state.autohandAIPlan === 'local') {
+      const dependencies = await runWithProgress(
+        { title: t('providers.autohandaiPlan.choose') },
+        (onProgress) => ensureAutohandAILocalDependencies(this.workspaceRoot, onProgress),
+      );
+      if (!dependencies.ok) {
+        console.log(chalk.yellow('\n  ' + (dependencies.error ?? t('providers.autohandaiPlan.mlxUnsupported'))));
+        return false;
+      }
+
+      const localModels = await runWithProgress(
+        { title: t('providers.autohandaiPlan.detectModels') },
+        () => recommendAutohandAILocalModels(this.workspaceRoot),
+      );
+      const modelResult = await showModal({
+        title: t('providers.autohandaiPlan.selectLocalModel'),
+        options: localModels.map((model) => ({
+          label: model.label,
+          value: model.id,
+          description: model.description,
+        })),
+      });
+
+      if (!modelResult) return false;
+      const selectedModel = localModels.find((model) => model.id === modelResult.value) ?? localModels[0];
+      if (!selectedModel) {
+        console.log(chalk.yellow('\n  ' + t('providers.autohandaiPlan.noLocalModels')));
+        return false;
+      }
+
+      const runtime = await runWithProgress(
+        { title: t('providers.autohandaiPlan.selectLocalModel') },
+        (onProgress) => ensureAutohandAILocalRuntime(
+          {
+            cwd: this.workspaceRoot,
+            model: selectedModel,
+            baseUrl: dependencies.probe.baseUrl,
+            port: dependencies.probe.port,
+          },
+          onProgress,
+        ),
+      );
+
+      if (!runtime.ok) {
+        console.log(chalk.yellow('\n  ' + (runtime.error ?? t('providers.autohandaiPlan.localSetupFailed'))));
+        return false;
+      }
+
+      this.state.providerBaseUrl = runtime.baseUrl;
+      this.state.autohandAILocalPort = runtime.port;
+      this.state.autohandAILocalServerCommand = runtime.serverCommand;
+      this.state.model = runtime.model.id;
+      console.log(chalk.green('  ' + t('providers.autohandaiPlan.localConfigured')));
+      return true;
+    }
+
+    const accountToken = this.existingConfig?.auth?.token;
+    if (accountToken) {
+      this.state.autohandAIAuthMode = 'account';
+      this.state.autohandAIAccountToken = accountToken;
+      console.log(chalk.green('  ' + t('providers.autohandaiPlan.accountAuth')));
+    } else {
+      this.state.autohandAIAuthMode = 'api-key';
+      const apiKey = await this.promptApiKey('autohandai');
+      if (apiKey === null) return false;
+      await this.validateApiKeyDuringSetup();
+    }
+
+    const model = await this.promptModel('autohandai');
+    return Boolean(model);
+  }
+
   /**
    * Test local provider connection (Ollama, llama.cpp, MLX)
    */
@@ -1764,7 +1956,8 @@ export class SetupWizard {
     const endpoints: Record<string, string> = {
       ollama: `${baseUrl}/api/tags`,
       llamacpp: `${baseUrl}/health`,
-      mlx: `${baseUrl}/v1/models`
+      mlx: `${baseUrl}/v1/models`,
+      autohandai: `${baseUrl}/v1/models`
     };
 
     const endpoint = endpoints[provider];
@@ -2157,12 +2350,12 @@ export class SetupWizard {
    * Check if a provider is local (no API key, has server to test)
    */
   private isLocalProvider(provider: ProviderName): boolean {
-    return provider === 'ollama' || provider === 'llamacpp' || provider === 'mlx';
+    return provider === 'ollama' || provider === 'llamacpp' || provider === 'mlx' || (provider === 'autohandai' && this.state.autohandAIPlan === 'local');
   }
   // Helper methods
 
   private requiresApiKey(provider: ProviderName): boolean {
-    return provider === 'openrouter' || provider === 'llmgateway' || provider === 'zai' || provider === 'sakana' || provider === 'vertexai' || provider === 'xai' || provider === 'cerebras' || provider === 'nvidia' || provider === 'deepseek';
+    return provider === 'autohandai' || provider === 'openrouter' || provider === 'llmgateway' || provider === 'zai' || provider === 'sakana' || provider === 'vertexai' || provider === 'xai' || provider === 'cerebras' || provider === 'nvidia' || provider === 'deepseek';
   }
 
   private getProviderDisplayName(provider: ProviderName): string {
@@ -2176,6 +2369,7 @@ export class SetupWizard {
   private getApiKeyUrl(provider: ProviderName): string {
     const urls: Record<string, string> = {
       openrouter: t('providers.wizard.openrouter.apiKeyUrl'),
+      autohandai: t('providers.wizard.autohandai.apiKeyUrl'),
       openai: t('providers.wizard.openai.apiKeyUrl'),
       llmgateway: t('providers.wizard.llmgateway.apiKeyUrl'),
       zai: t('providers.wizard.zai.apiKeyUrl'),
@@ -2191,12 +2385,18 @@ export class SetupWizard {
     if (provider.startsWith('custom:')) {
       return '';
     }
+    if (provider === 'autohandai') {
+      return this.state.autohandAIPlan === 'local'
+        ? AUTOHAND_AI_LOCAL_MODELS[0]
+        : AUTOHAND_AI_CLOUD_MODELS[0];
+    }
     return getProviderDefaultModel(provider as BuiltInProviderName);
   }
 
   private getDefaultBaseUrl(provider: ProviderName): string {
     const urls: Record<ProviderName, string> = {
       openrouter: 'https://openrouter.ai/api/v1',
+      autohandai: this.state.autohandAIPlan === 'local' ? 'http://localhost:8080' : AUTOHAND_AI_DEFAULT_BASE_URL,
       openai: 'https://api.openai.com/v1',
       ollama: 'http://localhost:11434',
       llamacpp: 'http://localhost:8080',

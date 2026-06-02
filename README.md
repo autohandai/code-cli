@@ -440,17 +440,18 @@ Create `~/.autohand/config.json` or use `config.toml`, `config.yaml`, or `config
 
 ### Supported Providers
 
-| Provider    | Config Key   | Notes                                        |
-| ----------- | ------------ | -------------------------------------------- |
-| OpenRouter  | `openrouter` | Access to Claude, GPT-4, Grok, etc.          |
-| LLMGateway  | `llmgateway` | Direct Claude API access                     |
-| OpenAI      | `openai`     | GPT-4 and other models                       |
-| AWS Bedrock | `bedrock`    | Bedrock Converse and OpenAI-compatible modes |
-| DeepSeek    | `deepseek`   | DeepSeek V4 Flash, V4 Pro, reasoning         |
-| Ollama      | `ollama`     | Local models                                 |
-| llama.cpp   | `llamacpp`   | Local inference                              |
-| MLX         | `mlx`        | Apple Silicon optimized                      |
-| Z.ai        | `zai`        | High-performance inference                   |
+| Provider    | Config Key    | Notes                                                |
+| ----------- | ------------- | ---------------------------------------------------- |
+| Autohand AI | `autohandai`  | Cloud Fantail/Moa or guided local Apple Silicon MLX  |
+| OpenRouter  | `openrouter`  | Access to Claude, GPT-4, Grok, etc.                  |
+| LLMGateway  | `llmgateway`  | Direct Claude API access                             |
+| OpenAI      | `openai`      | GPT-4 and other models                               |
+| AWS Bedrock | `bedrock`     | Bedrock Converse and OpenAI-compatible modes         |
+| DeepSeek    | `deepseek`    | DeepSeek V4 Flash, V4 Pro, reasoning                 |
+| Ollama      | `ollama`      | Local models                                         |
+| llama.cpp   | `llamacpp`    | Local inference                                      |
+| MLX         | `mlx`         | Apple Silicon optimized                              |
+| Z.ai        | `zai`         | High-performance inference                           |
 
 ## Session Management
 

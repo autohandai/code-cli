@@ -226,6 +226,11 @@ describe("modelCapabilities", () => {
       expect(await modelSupportsImages("openai/chatgpt-4o-latest")).toBe(true);
     });
 
+    it("returns true for Autohand AI Cloud models", async () => {
+      expect(await modelSupportsImages("fantail")).toBe(true);
+      expect(await modelSupportsImages("autohandai/moa")).toBe(true);
+    });
+
     it("returns true for Gemini models", async () => {
       expect(await modelSupportsImages("google/gemini-2.5-pro")).toBe(true);
       expect(await modelSupportsImages("google/gemini-3.0-pro")).toBe(true);

@@ -3993,10 +3993,14 @@ export class RPCAdapter {
    */
   async handleGetSupportedModels(): Promise<GetSupportedModelsResult> {
     try {
-      const models = getAllCatalogModelOptions().map((model) => ({
+      const models = [
+        { id: 'fantail', displayName: 'Autohand AI Fantail' },
+        { id: 'moa', displayName: 'Autohand AI Moa (Thinking)' },
+        ...getAllCatalogModelOptions().map((model) => ({
         id: model.id,
         displayName: model.displayName ?? model.id,
-      }));
+        })),
+      ];
       return {
         models,
       };

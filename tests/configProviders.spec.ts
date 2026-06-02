@@ -8,6 +8,40 @@ import { getProviderConfig } from '../src/config.js';
 import type { AutohandConfig } from '../src/types.js';
 
 describe('getProviderConfig', () => {
+  it('returns autohandai cloud settings with the default base url', () => {
+    const cfg: AutohandConfig = {
+      provider: 'autohandai',
+      autohandai: {
+        plan: 'cloud',
+        authMode: 'api-key',
+        apiKey: 'ah-test-key',
+        model: 'fantail',
+      }
+    };
+
+    const result = getProviderConfig(cfg);
+    expect(result).not.toBeNull();
+    expect(result!.baseUrl).toBe('https://api.autohand.ai/v1');
+    expect(result!.model).toBe('fantail');
+    expect(result!.apiKey).toBe('ah-test-key');
+    expect(result!.contextWindow).toBe(16000);
+  });
+
+  it('returns null when autohandai sdk/api-key cloud config has no API key', () => {
+    const cfg: AutohandConfig = {
+      provider: 'autohandai',
+      autohandai: {
+        plan: 'cloud',
+        authMode: 'api-key',
+        apiKey: '',
+        model: 'fantail',
+      }
+    };
+
+    const result = getProviderConfig(cfg);
+    expect(result).toBeNull();
+  });
+
   it('returns openrouter settings when configured', () => {
     const cfg: AutohandConfig = {
       provider: 'openrouter',
