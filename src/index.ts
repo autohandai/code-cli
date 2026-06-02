@@ -33,6 +33,7 @@ import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessio
 import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './utils/tmux.js';
 import { registerChromeCommand } from './browser/cliCommand.js';
 import { prepareBareModeConfig } from './runtime/bareMode.js';
+import { getFeatureState } from './features/featureRegistry.js';
 import { getTerminalColumns, renderAutohandLogo } from './utils/asciiArt.js';
 import {
   formatInstallHint,
@@ -219,7 +220,8 @@ program
   .option('--timeout <seconds>', 'Timeout in seconds for auto-approve mode', parseInt)
   .option('--chrome', 'Enable Chrome browser integration (same as /chrome)')
   .option('--no-chrome', 'Disable Chrome browser integration')
-  .action(async (positionalPrompt: string | undefined, opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean | string; tmux?: boolean; setup?: boolean; about?: boolean; syncSettings?: string | boolean; cc?: boolean; searchEngine?: string; learn?: boolean; learnUpdate?: boolean }) => {
+  .option('--fork <pathOrId>', 'Create and resume a new session branch from an existing session reference')
+  .action(async (positionalPrompt: string | undefined, opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean | string; tmux?: boolean; setup?: boolean; about?: boolean; syncSettings?: string | boolean; cc?: boolean; searchEngine?: string; learn?: boolean; learnUpdate?: boolean; fork?: string }) => {
     // Clear screen immediately for Cursor-like behavior (before any output)
     if (process.stdout.isTTY && process.env.AUTOHAND_NO_BANNER !== '1') {
       process.stdout.write('\x1b[3J\x1b[2J\x1b[H');
@@ -1414,7 +1416,19 @@ async function runCLI(options: CLIOptions): Promise<void> {
       console.log(chalk.gray(`  Session: ${sessionId}\n`));
     }
 
-    if (options.prompt) {
+    if (options.fork) {
+      const forkEnabled = getFeatureState(config, 'experimental_fork')?.enabled === true;
+      if (!forkEnabled) {
+        console.error(chalk.red('The --fork flag is behind experimental_fork. Run /features enable experimental_fork, then try again.'));
+        process.exit(1);
+      }
+      const sessionManager = agent.getSessionManager();
+      await sessionManager.initialize();
+      const forked = await sessionManager.branchSession(options.fork, { type: 'fork' });
+      console.log(chalk.green(`\nForked session ${forked.metadata.sessionId}.`));
+      await agent.resumeSession(forked.metadata.sessionId);
+      process.exit(0);
+    } else if (options.prompt) {
       await agent.runCommandMode(options.prompt);
       // Explicitly exit after prompt mode to prevent hanging
       // Some managers may keep event loop alive

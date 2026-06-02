@@ -549,6 +549,18 @@ export class SlashCommandHandler {
           this.ctx.refreshFeatureGatedTools?.();
           return result;
         }
+        case '/fork': {
+          const { forkSession } = await import('../commands/sessionBranching.js');
+          return forkSession(this.ctx, args);
+        }
+        case '/clone': {
+          const { cloneSession } = await import('../commands/sessionBranching.js');
+          return cloneSession(this.ctx, args);
+        }
+        case '/tree': {
+          const { sessionTree } = await import('../commands/sessionBranching.js');
+          return sessionTree(this.ctx);
+        }
         case '/goal': {
           const { goal } = await import('../commands/goal.js');
           return goal(this.ctx, args);

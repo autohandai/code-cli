@@ -158,6 +158,22 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     defaultEnabled: false,
   },
   {
+    id: 'experimental_fork',
+    label: 'Experimental fork',
+    description: 'Enable branching a new session from the active session or an earlier user message.',
+    stage: 'experimental',
+    configPath: 'features.experimentalFork',
+    defaultEnabled: false,
+  },
+  {
+    id: 'experimental_clone',
+    label: 'Experimental clone',
+    description: 'Enable duplicating the active session branch into a new session.',
+    stage: 'experimental',
+    configPath: 'features.experimentalClone',
+    defaultEnabled: false,
+  },
+  {
     id: 'chrome_integration',
     label: 'Chrome integration',
     description: 'Start the browser bridge by default for Chrome extension handoff.',

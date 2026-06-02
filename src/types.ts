@@ -312,6 +312,10 @@ export interface FeatureFlagSettings {
   slashGoal?: boolean;
   /** Show real-time token usage (tokens up/down + context window occupancy) in the status line. */
   tokenUsageStatus?: boolean;
+  /** Enable the experimental /fork session branching surface. */
+  experimentalFork?: boolean;
+  /** Enable the experimental /clone session duplication surface. */
+  experimentalClone?: boolean;
 }
 
 export type PermissionMode = 'interactive' | 'unrestricted' | 'restricted' | 'external';
@@ -834,6 +838,8 @@ export interface CLIOptions {
   idleLogout?: boolean;
   /** Non-interactive /goal command input. Empty value prints goal status. */
   goal?: string;
+  /** Fork an existing session reference before entering the interactive loop. */
+  fork?: string;
   /** Client context for tool filtering (default: 'cli') */
   clientContext?: ClientContext;
   /** Auto-commit with LLM-generated message (runs lint & test first) */
