@@ -26,6 +26,7 @@ Each command is a separate TypeScript file that exports:
 | `/tools` | `tools.ts` | Manage persisted meta-tools |
 | `/features` | `features.ts` | List and toggle feature switches |
 | `/goal` | `goal.ts` | Manage persistent goals, budgets, templates, and queued goal work. Requires `slash_goal`. |
+| `/squad` | `squad.ts` | Open/manage the standalone Autohand Squad runtime. |
 | `/usage` | `usage.ts` | Show model, provider, context, and usage limits |
 
 ## Adding a New Command

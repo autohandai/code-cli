@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import fs from 'fs-extra';
 import { execFile } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { getPlanModeManager } from '../../commands/plan.js';
@@ -119,6 +120,11 @@ export async function collectAgentContextSummary(
 export async function loadAgentInstructionFiles(host: AgentContextRuntimeHost): Promise<string[]> {
   const workspace = host.runtime.workspaceRoot;
   const agentsPath = path.join(workspace, 'AGENTS.md');
+  const envAutohandHome = process.env.AUTOHAND_HOME?.trim();
+  const autohandHome = envAutohandHome
+    ? path.resolve(envAutohandHome.startsWith('~/') ? path.join(os.homedir(), envAutohandHome.slice(2)) : envAutohandHome)
+    : null;
+  const agentHomeInstructionsPath = autohandHome ? path.join(autohandHome, 'AGENTS.md') : null;
   const providerFile = host.activeProvider.includes('anthropic') || host.activeProvider === 'openrouter'
     ? 'CLAUDE.md'
     : host.activeProvider.includes('google')
@@ -136,6 +142,19 @@ export async function loadAgentInstructionFiles(host: AgentContextRuntimeHost): 
       },
     },
   ];
+
+  if (agentHomeInstructionsPath && path.resolve(agentHomeInstructionsPath) !== path.resolve(agentsPath)) {
+    tasks.push({
+      label: 'agent_profile_instructions',
+      run: async () => {
+        if (!(await fs.pathExists(agentHomeInstructionsPath))) {
+          return null;
+        }
+        const content = await fs.readFile(agentHomeInstructionsPath, 'utf-8');
+        return `## Agent Profile Instructions ($AUTOHAND_HOME/AGENTS.md)\n${content}`;
+      },
+    });
+  }
 
   if (providerFile) {
     const providerPath = path.join(workspace, providerFile);

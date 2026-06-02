@@ -213,6 +213,12 @@ export async function initializeAgentUI(host: AgentUIRuntimeHost, abortControlle
         host.inkRenderer = host.ui?.getInkRenderer?.() ?? host.inkRenderer;
         host.ui?.setWorking(true, 'Gathering context...');
         host.runtime.inkRenderer = host.inkRenderer;
+        
+        // Ensure fallback spinner is NOT initialized when Ink is active
+        if (host.runtime?.spinner) {
+          host.runtime.spinner.stop();
+          host.runtime.spinner = undefined;
+        }
       } catch (err) {
         // Fall back to ora spinner if ink can't be loaded (e.g., standalone binary)
         writeAutohandDebugLine(
@@ -225,12 +231,17 @@ export async function initializeAgentUI(host: AgentUIRuntimeHost, abortControlle
         }
       }
     } else if (!suppressSpinner) {
+      // Only initialize fallback spinner if Ink is not being used
       host.initFallbackSpinner();
     }
     // In non-TTY mode (RPC), skip spinner entirely
   }
 
 export function initAgentFallbackSpinner(host: AgentUIRuntimeHost): void {
+    // Only initialize fallback spinner if Ink is not active
+    if (host.inkRenderer) {
+      return;
+    }
     if (process.stdout.isTTY) {
       const spinner = ora({
         text: 'Gathering context...',
