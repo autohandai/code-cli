@@ -37,6 +37,7 @@ export class SlashCommandHandler {
     // Guard: interactive-only commands are not available in RPC/ACP mode
     const INTERACTIVE_ONLY = new Set([
       '/model', '/cc', '/search', '/theme', '/language', '/feedback', '/skills new', '/skills-new',
+      '/squad',
     ]);
     if (this.ctx.isNonInteractive && INTERACTIVE_ONLY.has(command)) {
       return `Command ${command} requires an interactive terminal. Use the dedicated RPC method or API instead.`;
@@ -531,6 +532,10 @@ export class SlashCommandHandler {
         case '/goal': {
           const { goal } = await import('../commands/goal.js');
           return goal(this.ctx, args);
+        }
+        case '/squad': {
+          const { squad } = await import('../commands/squad.js');
+          return squad({ workspaceRoot: this.ctx.workspaceRoot, config: this.ctx.config }, args);
         }
         default:
           this.printUnsupported(command);

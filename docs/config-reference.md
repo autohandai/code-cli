@@ -1965,6 +1965,7 @@ Autohand provides a rich set of slash commands for interactive use. Type `/` in 
 | ------------- | ----------------------------------------------------- |
 | `/agents`     | List available sub-agents                             |
 | `/agents-new` | Create a new agent via wizard                         |
+| `/squad`      | Open/manage the standalone Autohand Squad runtime     |
 | `/team`       | Manage team for parallel work                         |
 | `/tasks`      | Manage tasks in team                                  |
 | `/message`    | Send message to teammate                              |
