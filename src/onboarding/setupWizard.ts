@@ -1873,7 +1873,7 @@ export class SetupWizard {
 
     if (this.state.autohandAIPlan === 'local') {
       const dependencies = await runWithProgress(
-        { title: t('providers.autohandaiPlan.choose') },
+        { title: t('providers.autohandaiPlan.settingUpLocal') },
         (onProgress) => ensureAutohandAILocalDependencies(this.workspaceRoot, onProgress),
       );
       if (!dependencies.ok) {
@@ -1902,7 +1902,7 @@ export class SetupWizard {
       }
 
       const runtime = await runWithProgress(
-        { title: t('providers.autohandaiPlan.selectLocalModel') },
+        { title: t('providers.autohandaiPlan.startingLocal') },
         (onProgress) => ensureAutohandAILocalRuntime(
           {
             cwd: this.workspaceRoot,

@@ -8,6 +8,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 var mockRunCommand = vi.fn();
 var mockIsMLXSupported = vi.fn();
+var mockGetTotalMemoryGb = vi.fn();
+var mockGetFreeMemoryGb = vi.fn();
+var mockGetAvailableMemoryGb = vi.fn();
 
 vi.mock('../../src/actions/command.js', () => ({
   runCommand: mockRunCommand,
@@ -15,6 +18,9 @@ vi.mock('../../src/actions/command.js', () => ({
 
 vi.mock('../../src/utils/platform.js', () => ({
   isMLXSupported: mockIsMLXSupported,
+  getTotalMemoryGb: mockGetTotalMemoryGb,
+  getFreeMemoryGb: mockGetFreeMemoryGb,
+  getAvailableMemoryGb: mockGetAvailableMemoryGb,
 }));
 
 const {
@@ -29,6 +35,9 @@ describe('autohandai local setup', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsMLXSupported.mockReturnValue(true);
+    mockGetTotalMemoryGb.mockReturnValue(64);
+    mockGetFreeMemoryGb.mockReturnValue(48);
+    mockGetAvailableMemoryGb.mockReturnValue(48);
     globalThis.fetch = vi.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch;
   });
 
@@ -54,6 +63,52 @@ describe('autohandai local setup', () => {
     expect(probe.running).toBe(false);
     expect(probe.installPlan?.mlxServer.label).toContain('mlx-lm');
     expect(probe.installPlan?.llmfit.label).toContain('llmfit');
+  });
+
+  it('flags an outdated mlx-lm install for reinstall to the pinned version', async () => {
+    mockRunCommand.mockImplementation(async (cmd: string, args: string[]) => {
+      if (cmd === 'which') return { code: 0, stdout: '/opt/homebrew/bin/tool\n', stderr: '' };
+      if (cmd === 'uv' && args[0] === 'tool' && args[1] === 'list') {
+        return { code: 0, stdout: 'mlx-lm v0.20.0\nsome-other-tool v1.0.0\n', stderr: '' };
+      }
+      return { code: 0, stdout: '', stderr: '' };
+    });
+
+    const probe = await probeAutohandAILocalEnvironment('/repo');
+
+    // Present but stale → treated as not installed so it gets reinstalled at the pin.
+    expect(probe.mlxServerInstalled).toBe(false);
+    expect(probe.installPlan?.mlxServer.args.join(' ')).toMatch(/mlx-lm==\d+\.\d+\.\d+/);
+  });
+
+  it('accepts an mlx-lm install that already matches the pinned version', async () => {
+    mockRunCommand.mockImplementation(async (cmd: string, args: string[]) => {
+      if (cmd === 'which') return { code: 0, stdout: '/opt/homebrew/bin/tool\n', stderr: '' };
+      if (cmd === 'uv' && args[0] === 'tool' && args[1] === 'list') {
+        return { code: 0, stdout: 'mlx-lm v0.31.3\n', stderr: '' };
+      }
+      return { code: 0, stdout: '', stderr: '' };
+    });
+
+    const probe = await probeAutohandAILocalEnvironment('/repo');
+
+    expect(probe.mlxServerInstalled).toBe(true);
+  });
+
+  it('pins the mlx-lm version in the install plan for deterministic installs', async () => {
+    // uv is available; mlx server and llmfit are missing.
+    mockRunCommand.mockImplementation(async (cmd: string, args: string[]) => {
+      if (cmd === 'which' && args[0] === 'uv') return { code: 0, stdout: '/opt/homebrew/bin/uv\n', stderr: '' };
+      return { code: 1, stdout: '', stderr: '' };
+    });
+
+    const probe = await probeAutohandAILocalEnvironment('/repo');
+    const mlx = probe.installPlan?.mlxServer;
+
+    expect(mlx).toBeDefined();
+    // A pinned version keeps every install reproducible instead of drifting to
+    // whatever mlx-lm happens to be latest.
+    expect(mlx!.args.join(' ')).toMatch(/mlx-lm==\d+\.\d+\.\d+/);
   });
 
   it('uses llmfit recommendations and keeps coding-focused MLX models only', async () => {
@@ -188,6 +243,56 @@ describe('autohandai local setup', () => {
     expect(recommendCall).toBeDefined();
     const options = recommendCall![3] as { env?: Record<string, string> };
     expect(options.env?.PATH ?? '').toContain('.local/bin');
+  });
+
+  it('captures the llmfit memory estimate for recommended models', async () => {
+    mockRunCommand.mockImplementation(async (cmd: string, args: string[]) => {
+      if (cmd === 'which') return { code: 0, stdout: '/bin/tool\n', stderr: '' };
+      if (cmd === 'llmfit' && args[0] === 'recommend') {
+        return {
+          code: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            models: [
+              {
+                name: 'mlx-community/Qwen2.5-Coder-7B-Instruct-4bit',
+                memory_required_gb: 8.5,
+                mlx_sources: [{ repo: 'mlx-community/Qwen2.5-Coder-7B-Instruct-4bit' }],
+              },
+            ],
+          }),
+        };
+      }
+      return { code: 0, stdout: '', stderr: '' };
+    });
+
+    const models = await recommendAutohandAILocalModels('/repo');
+
+    expect(models[0]?.estimatedMemoryGb).toBe(8.5);
+  });
+
+  it('refuses to start the MLX server when the model needs more memory than the Mac has', async () => {
+    const big = {
+      ...AUTOHAND_AI_LOCAL_CODING_MODEL_FALLBACKS[0]!,
+      id: 'mlx-community/Huge-70B-4bit',
+      label: 'Huge 70B',
+      estimatedMemoryGb: 40,
+    };
+    mockGetAvailableMemoryGb.mockReturnValue(12); // only 12 GB free right now
+    mockRunCommand.mockImplementation(async (cmd: string) => {
+      if (cmd === 'which') return { code: 0, stdout: '/bin/tool\n', stderr: '' };
+      if (cmd === 'mlx_lm.server') return { code: null, stdout: '', stderr: '', backgroundPid: 99 };
+      return { code: 0, stdout: '', stderr: '' };
+    });
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('not running')) as unknown as typeof fetch;
+
+    const result = await ensureAutohandAILocalRuntime({ cwd: '/repo', model: big, port: 8080 });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/memory/i);
+    // Must fail fast without ever launching the server.
+    const startedServer = mockRunCommand.mock.calls.some(([cmd]: [string]) => cmd === 'mlx_lm.server');
+    expect(startedServer).toBe(false);
   });
 
   it('never uses llmfit to fetch MLX models and lets mlx_lm.server auto-download on load', async () => {

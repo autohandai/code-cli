@@ -76,8 +76,9 @@ describe('local install scripts', () => {
     expect(installScript).toContain('env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile');
     expect(installScript).toContain('INSTALL_PATH="$HOME/.local/bin/autohand"');
     expect(installScript).toContain('AUTOHAND_INSTALL_LOCAL_AI');
-    expect(installScript).toContain('uv tool install mlx-lm');
-    expect(installScript).toContain('curl -fsSL https://llmfit.axjns.dev/install.sh | sh');
+    expect(installScript).toContain('MLX_LM_SPEC="mlx-lm==0.31.3"');
+    expect(installScript).toContain('uv tool install "$MLX_LM_SPEC"');
+    expect(installScript).toContain('curl -fsSL https://llmfit.axjns.dev/install.sh | sh -s -- --local');
     expect(installScript).not.toContain('node ./node_modules/tsup/dist/cli-default.js');
     expect(installScript).not.toContain('bun run build');
     expect(installScript).not.toContain('bun run "compile:');

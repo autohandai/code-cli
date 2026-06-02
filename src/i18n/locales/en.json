@@ -801,6 +801,8 @@
       "mlxInstall": "Installing MLX local runtime...",
       "mlxDownload": "Downloading the selected local coding model...",
       "detectModels": "Detecting local coding models for this Mac",
+      "settingUpLocal": "Setting up Autohand AI Local",
+      "startingLocal": "Starting your local Autohand AI model",
       "selectLocalModel": "Choose a local coding model",
       "selectMoaEffort": "Choose Moa thinking effort",
       "noLocalModels": "No local coding models were available for this machine.",
