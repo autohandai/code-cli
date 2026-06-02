@@ -541,6 +541,48 @@ program
     process.exit(0);
   });
 
+program
+  .command('squad [args...]')
+  .description('Start and manage the standalone Autohand Squad runtime')
+  .allowUnknownOption(true)
+  .allowExcessArguments(true)
+  .action(async (args: string[] = []) => {
+    const rootOptions = program.opts<CLIOptions>();
+    const config = await loadConfig(rootOptions.config, process.cwd());
+    const workspaceRoot = resolveWorkspaceRoot(config, rootOptions.path);
+    const { runSquadCommand } = await import('./commands/squad.js');
+    const result = await runSquadCommand({ workspaceRoot, config }, args);
+    if (result.output) {
+      if (result.code === 0) {
+        console.log(result.output);
+      } else {
+        console.error(result.output);
+      }
+    }
+    process.exit(result.code);
+  });
+
+program
+  .command('queue [args...]')
+  .description('Show the local Autohand Squad queue')
+  .allowUnknownOption(true)
+  .allowExcessArguments(true)
+  .action(async (args: string[] = []) => {
+    const rootOptions = program.opts<CLIOptions>();
+    const config = await loadConfig(rootOptions.config, process.cwd());
+    const workspaceRoot = resolveWorkspaceRoot(config, rootOptions.path);
+    const { runSquadCommand } = await import('./commands/squad.js');
+    const result = await runSquadCommand({ workspaceRoot, config }, ['queue', ...args]);
+    if (result.output) {
+      if (result.code === 0) {
+        console.log(result.output);
+      } else {
+        console.error(result.output);
+      }
+    }
+    process.exit(result.code);
+  });
+
 // ── Config subcommand ───────────────────────────────────────────────────
 const configCmd = program
   .command('config')
