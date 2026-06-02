@@ -29,6 +29,18 @@ import {
   BEDROCK_MODELS,
   resolveBedrockAuthMode,
 } from "../../providers/BedrockProvider.js";
+import {
+  AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS,
+  AUTOHAND_AI_DEFAULT_BASE_URL,
+  AUTOHAND_AI_MOA_CONTEXT_WINDOW,
+  getAutohandAICloudModelContextWindow,
+} from "../../providers/AutohandAIProvider.js";
+import {
+  ensureAutohandAILocalDependencies,
+  ensureAutohandAILocalRuntime,
+  recommendAutohandAILocalModels,
+  renderAutohandAISetupProgress,
+} from "../../providers/autohandAILocalSetup.js";
 import { VERTEX_AI_CODING_MODELS } from "../../providers/VertexAIProvider.js";
 import { sanitizeModelId } from "../../providers/errors.js";
 import { getOpenRouterModelContextWindow } from "../../providers/modelCapabilities.js";
@@ -91,6 +103,7 @@ type CloudProviderWithSettings =
   | "openai"
   | "openrouter"
   | "llmgateway"
+  | "autohandai"
   | "azure"
   | "zai"
   | "sakana"
@@ -145,6 +158,10 @@ export class ProviderConfigManager {
       } catch {
         // OpenRouter metadata is best-effort; fall back to local inference.
       }
+    }
+
+    if (provider === "autohandai") {
+      return getAutohandAICloudModelContextWindow(model);
     }
 
     return getContextWindow(model);
@@ -533,6 +550,17 @@ export class ProviderConfigManager {
       return !!xaiConfig.apiKey && xaiConfig.apiKey !== "replace-me";
     }
 
+    if (provider === "autohandai") {
+      const authMode = this.runtime.config.autohandai?.authMode ?? "api-key";
+      if (this.runtime.config.autohandai?.plan === "local") {
+        return !!config.model;
+      }
+      if (authMode === "account") {
+        return !!(this.runtime.config.autohandai?.accountToken ?? this.runtime.config.auth?.token);
+      }
+      return !!config.apiKey && config.apiKey !== "replace-me";
+    }
+
     if (
       provider === "openrouter" ||
       provider === "llmgateway" ||
@@ -567,6 +595,9 @@ export class ProviderConfigManager {
     }
 
     switch (provider) {
+      case "autohandai":
+        await this.configureAutohandAI();
+        break;
       case "openrouter":
         await this.configureOpenRouter();
         break;
@@ -610,6 +641,174 @@ export class ProviderConfigManager {
         await this.configureBedrock();
         break;
     }
+  }
+
+  /**
+   * Configure Autohand AI provider (Cloud account/API-key or Local MLX).
+   */
+  private async configureAutohandAI(): Promise<void> {
+    const planResult = await showModal({
+      title: t("providers.autohandaiPlan.choose"),
+      options: [
+        {
+          label: t("providers.autohandaiPlan.cloud"),
+          value: "cloud",
+          description: t("providers.autohandaiPlan.cloudDescription"),
+        },
+        {
+          label: t("providers.autohandaiPlan.local"),
+          value: "local",
+          description: t("providers.autohandaiPlan.localDescription"),
+        },
+      ],
+    });
+
+    if (!planResult) {
+      console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+      return;
+    }
+
+    if (planResult.value === "local") {
+      await this.configureAutohandAILocal();
+      return;
+    }
+
+    const modelChoices: ModalOption[] = AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS.map((model) => ({
+      label: model.label,
+      value: model.id,
+      description: model.description,
+    }));
+    const modelResult = await showModal({
+      title: t("providers.config.selectModel"),
+      options: modelChoices,
+    });
+
+    if (!modelResult) {
+      console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+      return;
+    }
+
+    const model = modelResult.value as string;
+    const reasoningEffort = model === "moa" ? await this.promptAutohandAIMoaReasoningEffort() : undefined;
+    const contextWindow = getAutohandAICloudModelContextWindow(model);
+    const accountToken = this.runtime.config.auth?.token;
+    if (accountToken) {
+      this.runtime.config.autohandai = {
+        plan: "cloud",
+        authMode: "account",
+        accountToken,
+        baseUrl: AUTOHAND_AI_DEFAULT_BASE_URL,
+        model,
+        contextWindow,
+        ...(reasoningEffort !== undefined && { reasoningEffort }),
+      };
+    } else {
+      const apiKey = await showPassword({
+        title: t("providers.config.enterApiKey", {
+          provider: t("providers.autohandai"),
+        }),
+        placeholder: t("ui.apiKeyPlaceholder"),
+      });
+
+      if (!apiKey) {
+        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+        return;
+      }
+
+      this.runtime.config.autohandai = {
+        plan: "cloud",
+        authMode: "api-key",
+        apiKey,
+        baseUrl: AUTOHAND_AI_DEFAULT_BASE_URL,
+        model,
+        contextWindow,
+        ...(reasoningEffort !== undefined && { reasoningEffort }),
+      };
+    }
+
+    this.runtime.config.provider = "autohandai";
+    this.runtime.options.model = model;
+    await saveConfig(this.runtime.config);
+    this.resetLlmClient("autohandai", model);
+
+    console.log(
+      chalk.green(
+        "\n✓ " +
+          t("providers.config.configuredSuccessfully", {
+            provider: t("providers.autohandai"),
+          }),
+      ),
+    );
+  }
+
+  private async configureAutohandAILocal(): Promise<void> {
+    const dependencyResult = await ensureAutohandAILocalDependencies(
+      this.runtime.workspaceRoot,
+      (event) => console.log(chalk.gray(renderAutohandAISetupProgress(event))),
+    );
+
+    if (!dependencyResult.ok) {
+      console.log(chalk.red("\n" + (dependencyResult.error ?? t("providers.autohandaiPlan.localSetupFailed"))));
+      return;
+    }
+
+    console.log(chalk.gray(renderAutohandAISetupProgress({
+      phase: "recommend",
+      label: t("providers.autohandaiPlan.detectModels"),
+      progress: 0.42,
+    })));
+
+    const localModels = await recommendAutohandAILocalModels(this.runtime.workspaceRoot);
+    const localModelChoices: ModalOption[] = localModels.map((model) => ({
+      label: model.label,
+      value: model.id,
+      description: model.description,
+    }));
+    const localModelResult = await showModal({
+      title: t("providers.autohandaiPlan.selectLocalModel"),
+      options: localModelChoices,
+    });
+
+    if (!localModelResult) {
+      console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+      return;
+    }
+
+    const selectedLocalModel = localModels.find((model) => model.id === localModelResult.value) ?? localModels[0];
+    if (!selectedLocalModel) {
+      console.log(chalk.red("\n" + t("providers.autohandaiPlan.noLocalModels")));
+      return;
+    }
+
+    const runtimeResult = await ensureAutohandAILocalRuntime(
+      {
+        cwd: this.runtime.workspaceRoot,
+        model: selectedLocalModel,
+        baseUrl: dependencyResult.probe.baseUrl,
+        port: dependencyResult.probe.port,
+      },
+      (event) => console.log(chalk.gray(renderAutohandAISetupProgress(event))),
+    );
+
+    if (!runtimeResult.ok) {
+      console.log(chalk.red("\n" + (runtimeResult.error ?? t("providers.autohandaiPlan.localSetupFailed"))));
+      return;
+    }
+
+    const model = runtimeResult.model.id;
+    this.runtime.config.autohandai = {
+      plan: "local",
+      baseUrl: runtimeResult.baseUrl,
+      port: runtimeResult.port,
+      model,
+      contextWindow: AUTOHAND_AI_MOA_CONTEXT_WINDOW,
+      serverCommand: runtimeResult.serverCommand,
+    };
+    this.runtime.config.provider = "autohandai";
+    this.runtime.options.model = model;
+    await saveConfig(this.runtime.config);
+    this.resetLlmClient("autohandai", model);
+    console.log(chalk.green("\n✓ " + t("providers.autohandaiPlan.localConfigured")));
   }
 
   /**
@@ -1417,8 +1616,13 @@ export class ProviderConfigManager {
         provider === "xai" ||
         provider === "nvidia" ||
         provider === "deepseek" ||
+        provider === "autohandai" ||
         provider === "bedrock"
       ) {
+        if (provider === "autohandai" && this.runtime.config.autohandai?.plan === "local") {
+          await this.configureAutohandAILocal();
+          return;
+        }
         if (provider === "bedrock") {
           await this.configureBedrock();
           return;
@@ -2709,6 +2913,8 @@ export class ProviderConfigManager {
       apiKey?: string;
       baseUrl?: string;
       model?: string;
+      authMode?: string;
+      accountToken?: string;
     } | null,
     forcedAction?: CloudProviderSettingsAction,
   ): Promise<void> {
@@ -2818,6 +3024,7 @@ export class ProviderConfigManager {
         (action === "auth" || action === "both"))
     ) {
       const keyUrlMap: Partial<Record<Exclude<CloudProviderWithSettings, CustomProviderId>, string>> = {
+        autohandai: "https://api.autohand.ai/keys",
         openai: "https://platform.openai.com/api-keys",
         openrouter: "https://openrouter.ai/keys",
         llmgateway: "https://llmgateway.io/dashboard",
@@ -2882,6 +3089,30 @@ export class ProviderConfigManager {
           value: name,
         }));
         const currentIndex = Math.max(0, models.indexOf(currentModel));
+        const result = await showModal({
+          title: t("providers.config.selectModel"),
+          options: modelOptions,
+          initialIndex: currentIndex,
+        });
+
+        if (!result) {
+          console.log(
+            chalk.gray("\n" + t("providers.config.settingsChangeCancelled")),
+          );
+          return;
+        }
+
+        newModel = result.value as string;
+      } else if (provider === "autohandai") {
+        const modelOptions: ModalOption[] = AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS.map((model) => ({
+          label: model.label,
+          value: model.id,
+          description: model.description,
+        }));
+        const currentIndex = Math.max(
+          0,
+          AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS.findIndex((model) => model.id === currentModel),
+        );
         const result = await showModal({
           title: t("providers.config.selectModel"),
           options: modelOptions,
@@ -3132,9 +3363,13 @@ export class ProviderConfigManager {
           ? this.runtime.config.openai?.reasoningEffort
           : customSettings?.reasoningEffort,
       );
+    } else if (provider === "autohandai" && newModel === "moa" && (action === "model" || action === "both")) {
+      reasoningEffort = await this.promptAutohandAIMoaReasoningEffort();
     }
 
-    const contextWindow = await this.resolveContextWindow(provider, newModel);
+    const contextWindow = provider === "autohandai"
+      ? getAutohandAICloudModelContextWindow(newModel)
+      : await this.resolveContextWindow(provider, newModel);
 
     // Save the changes
     if (provider === "azure") {
@@ -3158,6 +3393,7 @@ export class ProviderConfigManager {
             : "https://api.openai.com/v1",
         openrouter: "https://openrouter.ai/api/v1",
         llmgateway: "https://api.llmgateway.io/v1",
+        autohandai: AUTOHAND_AI_DEFAULT_BASE_URL,
         zai: ZAI_DEFAULT_BASE_URL,
         sakana: SAKANA_DEFAULT_BASE_URL,
         xai: "https://api.x.ai/v1",
@@ -3203,6 +3439,30 @@ export class ProviderConfigManager {
           model: newModel,
           contextWindow,
         };
+      } else if (provider === "autohandai") {
+        const existing = this.runtime.config.autohandai;
+        const shouldUseAccount =
+          existing?.authMode === "account" &&
+          !(action === "apiKey" || action === "both");
+        this.runtime.config.autohandai = shouldUseAccount
+          ? {
+              plan: "cloud",
+              authMode: "account",
+              accountToken: existing?.accountToken ?? this.runtime.config.auth?.token,
+              baseUrl,
+              model: newModel,
+              contextWindow,
+              ...(reasoningEffort !== undefined && { reasoningEffort }),
+            }
+          : {
+              plan: "cloud",
+              authMode: "api-key",
+              apiKey: newApiKey,
+              baseUrl,
+              model: newModel,
+              contextWindow,
+              ...(reasoningEffort !== undefined && { reasoningEffort }),
+            };
       } else if (provider === "nvidia") {
         this.runtime.config.nvidia = {
           apiKey: newApiKey,
@@ -3339,10 +3599,42 @@ export class ProviderConfigManager {
   }
 
   /**
+   * Prompt user to select Moa thinking effort level.
+   */
+  private async promptAutohandAIMoaReasoningEffort(): Promise<ReasoningEffort | undefined> {
+    const options: ModalOption[] = [
+      {
+        label: "medium",
+        value: "medium",
+        description: "Balanced thinking for everyday coding",
+      },
+      {
+        label: "high",
+        value: "high",
+        description: "Deeper reasoning for complex changes",
+      },
+      {
+        label: "xhigh",
+        value: "xhigh",
+        description: "Maximum thinking depth for difficult work",
+      },
+    ];
+
+    const result = await showModal({
+      title: t("providers.autohandaiPlan.selectMoaEffort"),
+      options,
+      initialIndex: 1,
+    });
+
+    if (!result) return undefined;
+    return result.value as ReasoningEffort;
+  }
+
+  /**
    * Validate API key by making a test request to the provider
    */
   private async validateApiKey(
-    provider: "openai" | "openrouter" | "llmgateway" | "azure" | "zai" | "sakana" | "xai" | "cerebras" | "nvidia" | "deepseek",
+    provider: "openai" | "openrouter" | "llmgateway" | "azure" | "zai" | "sakana" | "xai" | "cerebras" | "nvidia" | "deepseek" | "autohandai",
     apiKey: string,
   ): Promise<{ valid: boolean; error?: string; hint?: string }> {
     // Azure keys can't be easily validated without resource/deployment info
@@ -3355,6 +3647,7 @@ export class ProviderConfigManager {
         openai: "https://api.openai.com/v1",
         openrouter: "https://openrouter.ai/api/v1",
         llmgateway: "https://api.llmgateway.io/v1",
+        autohandai: AUTOHAND_AI_DEFAULT_BASE_URL,
         zai: ZAI_DEFAULT_BASE_URL,
         sakana: SAKANA_DEFAULT_BASE_URL,
         xai: "https://api.x.ai/v1",
@@ -3399,6 +3692,7 @@ export class ProviderConfigManager {
         openai: "https://platform.openai.com/api-keys",
         openrouter: "https://openrouter.ai/keys",
         llmgateway: "https://llmgateway.io/dashboard",
+        autohandai: "https://api.autohand.ai/keys",
         zai: "https://z.ai/api-keys",
         sakana: "https://sakana.ai",
         xai: "https://console.x.ai/keys",
@@ -3574,6 +3868,15 @@ export class ProviderConfigManager {
       openrouter:
         this.runtime.config.openrouter ??
         (this.runtime.config.openrouter = { apiKey: "", model }),
+      autohandai:
+        this.runtime.config.autohandai ??
+        (this.runtime.config.autohandai = {
+          plan: "cloud",
+          authMode: "api-key",
+          apiKey: "",
+          baseUrl: AUTOHAND_AI_DEFAULT_BASE_URL,
+          model,
+        }),
       ollama:
         this.runtime.config.ollama ?? (this.runtime.config.ollama = { model }),
       llamacpp:

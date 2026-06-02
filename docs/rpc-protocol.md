@@ -111,6 +111,32 @@ Get current agent state.
 }
 ```
 
+Autohand AI state snapshots report `model` as the active Cloud or Local model, for example `fantail`, `moa`, or `mlx-community/Qwen2.5-Coder-7B-Instruct-4bit`. Clients can infer provider `autohandai` from configured provider state, `fantail`, `moa`, and `autohandai/*` IDs.
+
+### `autohand.getSupportedModels`
+Return models that SDK and ACP clients can present for switching.
+
+**Parameters:** None
+
+**Result:**
+```typescript
+{
+  models: Array<{ id: string; displayName: string }>;
+}
+```
+
+The list includes Autohand AI Cloud models: `fantail` and `moa`.
+
+### `autohand.modelSet`
+Set the active model for SDK/client-driven sessions.
+
+**Parameters:**
+```typescript
+{ model: string }
+```
+
+`fantail`, `moa`, and `autohandai/*` model IDs are treated as Autohand AI models. SDK Cloud clients must provide API-key-backed provider configuration through startup/apply flag settings rather than relying on CLI account auth.
+
 ### `autohand.getMessages`
 Get conversation history.
 

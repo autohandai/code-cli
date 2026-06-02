@@ -23,6 +23,7 @@ import { DeepSeekProvider } from './DeepSeekProvider.js';
 import { BedrockProvider } from './BedrockProvider.js';
 import { CustomOpenAICompatibleProvider } from './CustomOpenAICompatibleProvider.js';
 import { isAwsBedrockProviderEnabled } from '../features/featureRegistry.js';
+import { AutohandAIProvider } from './AutohandAIProvider.js';
 import { isMLXSupported } from '../utils/platform.js';
 import type { AutohandConfig, ExtensionProviderId, ProviderName } from '../types.js';
 import { getCustomProviderConfig, isCustomProviderName, toCustomProviderName } from './customProviders.js';
@@ -99,6 +100,15 @@ export class ProviderFactory {
         }
 
         switch (providerName) {
+            case 'autohandai':
+                if (!config.autohandai) {
+                    return new UnconfiguredProvider('autohandai');
+                }
+                return new AutohandAIProvider({
+                    ...config.autohandai,
+                    accountToken: config.autohandai.accountToken ?? config.auth?.token,
+                }, config.network);
+
             case 'ollama':
                 if (!config.ollama) {
                     return new UnconfiguredProvider('ollama');
@@ -197,8 +207,8 @@ export class ProviderFactory {
      * MLX is only included on Apple Silicon (macOS + arm64).
      */
     static getProviderNames(config?: Pick<AutohandConfig, 'features' | 'customProviders'> | null): ProviderName[] {
-        // Sorted DESC by display name: Z.ai, xAI, Vertex AI, Sakana.AI, NVIDIA, OpenRouter, OpenAI, Ollama, MLX, LLM Gateway, llama.cpp, DeepSeek, Cerebras, Bedrock, Azure
-        const providers: ProviderName[] = ['zai', 'xai', 'vertexai', 'sakana', 'nvidia', 'openrouter', 'openai', 'ollama', 'llmgateway', 'llamacpp', 'deepseek', 'cerebras', 'azure'];
+        // Sorted DESC by display name: Autohand AI, Z.ai, xAI, Vertex AI, Sakana.AI, NVIDIA, OpenRouter, OpenAI, Ollama, MLX, LLM Gateway, llama.cpp, DeepSeek, Cerebras, Bedrock, Azure
+        const providers: ProviderName[] = ['autohandai', 'zai', 'xai', 'vertexai', 'sakana', 'nvidia', 'openrouter', 'openai', 'ollama', 'llmgateway', 'llamacpp', 'deepseek', 'cerebras', 'azure'];
         if (isAwsBedrockProviderEnabled(config)) {
             providers.splice(providers.indexOf('azure'), 0, 'bedrock');
         }
@@ -235,7 +245,7 @@ export class ProviderFactory {
             return false;
         }
 
-        const allProviders: ProviderName[] = ['openrouter', 'ollama', 'openai', 'llamacpp', 'mlx', 'llmgateway', 'azure', 'zai', 'sakana', 'vertexai', 'xai', 'cerebras', 'nvidia', 'deepseek', 'bedrock'];
+        const allProviders: ProviderName[] = ['autohandai', 'openrouter', 'ollama', 'openai', 'llamacpp', 'mlx', 'llmgateway', 'azure', 'zai', 'sakana', 'vertexai', 'xai', 'cerebras', 'nvidia', 'deepseek', 'bedrock'];
         return allProviders.includes(name as ProviderName);
     }
 }

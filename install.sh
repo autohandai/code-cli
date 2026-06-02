@@ -23,6 +23,35 @@ warn() {
     printf "${YELLOW}%s${NC}\n" "$1"
 }
 
+install_local_ai_runtime_if_requested() {
+    if [ "${AUTOHAND_INSTALL_LOCAL_AI:-0}" != "1" ]; then
+        return 0
+    fi
+
+    if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
+        warn "Skipping Autohand AI Local runtime: MLX requires Apple Silicon macOS."
+        return 0
+    fi
+
+    info "Installing Autohand AI Local runtime..."
+
+    if ! command -v mlx_lm.server >/dev/null 2>&1; then
+        if command -v uv >/dev/null 2>&1; then
+            uv tool install mlx-lm
+        elif command -v pipx >/dev/null 2>&1; then
+            pipx install mlx-lm
+        else
+            python3 -m pip install --user mlx-lm
+        fi
+    fi
+
+    if ! command -v llmfit >/dev/null 2>&1; then
+        curl -fsSL https://llmfit.axjns.dev/install.sh | sh
+    fi
+
+    success "Autohand AI Local runtime installed."
+}
+
 main() {
     printf "${BLUE}"
     cat << 'EOF'
@@ -186,6 +215,15 @@ EOF
         echo "  autohand              # Start interactive mode"
         echo "  autohand --help       # Show all options"
         echo "  autohand login        # Sign in to your account"
+    fi
+
+    install_local_ai_runtime_if_requested
+
+    if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
+        echo ""
+        echo "Autohand AI Local:"
+        echo "  Run /model, choose Autohand AI, then Local."
+        echo "  To preinstall MLX and llmfit during install, set AUTOHAND_INSTALL_LOCAL_AI=1."
     fi
 
     echo ""

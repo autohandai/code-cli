@@ -20,6 +20,7 @@ import type {
   BedrockSettings,
   BedrockApiMode,
   BedrockAuthMode,
+  AutohandAISettings,
 } from "./types.js";
 import { AUTOHAND_FILES } from "./constants.js";
 import { autoInitTheme, configureThemeSources, themeExists } from "./ui/theme/index.js";
@@ -42,6 +43,9 @@ const DEFAULT_ZAI_URL = "https://api.z.ai/api/paas/v4";
 const DEFAULT_SAKANA_URL = "https://api.sakana.ai/v1";
 const DEFAULT_DEEPSEEK_URL = "https://api.deepseek.com";
 const DEFAULT_BEDROCK_REGION = "us-east-1";
+const DEFAULT_AUTOHAND_AI_URL = "https://api.autohand.ai/v1";
+const DEFAULT_AUTOHAND_AI_CONTEXT_WINDOW = 16_000;
+const DEFAULT_AUTOHAND_AI_MOA_CONTEXT_WINDOW = 256_000;
 
 interface LegacyConfigShape {
   api_key?: string;
@@ -75,6 +79,7 @@ function normalizeProviderName(provider: unknown): ProviderName | undefined {
   }
 
   const validProviders: readonly BuiltInProviderName[] = [
+    "autohandai",
     "openrouter",
     "ollama",
     "llamacpp",
@@ -585,6 +590,33 @@ function mergeEnvVariables(config: AutohandConfig): AutohandConfig {
     },
   };
 
+  if (
+    process.env.AUTOHAND_AI_API_KEY ||
+    process.env.AUTOHAND_AI_BASE_URL ||
+    process.env.AUTOHAND_AI_PLAN
+  ) {
+    const existing = config.autohandai ?? {
+      plan: "cloud" as const,
+      authMode: "api-key" as const,
+      model: process.env.AUTOHAND_MODEL || "fantail",
+      contextWindow: DEFAULT_AUTOHAND_AI_CONTEXT_WINDOW,
+    };
+    config = {
+      ...config,
+      autohandai: {
+        ...existing,
+        plan: process.env.AUTOHAND_AI_PLAN === "local" ? "local" : "cloud",
+        ...(process.env.AUTOHAND_AI_API_KEY && {
+          apiKey: process.env.AUTOHAND_AI_API_KEY,
+          authMode: "api-key" as const,
+        }),
+        ...(process.env.AUTOHAND_AI_BASE_URL && {
+          baseUrl: process.env.AUTOHAND_AI_BASE_URL,
+        }),
+      },
+    };
+  }
+
   // Resolve Azure env vars
   if (
     process.env.AZURE_OPENAI_KEY ||
@@ -635,6 +667,13 @@ function mergeEnvVariables(config: AutohandConfig): AutohandConfig {
   return config;
 }
 
+function defaultAutohandAIContextWindow(settings: AutohandAISettings): number {
+  if (settings.plan === "local" || settings.model === "moa") {
+    return DEFAULT_AUTOHAND_AI_MOA_CONTEXT_WINDOW;
+  }
+  return DEFAULT_AUTOHAND_AI_CONTEXT_WINDOW;
+}
+
 function normalizeConfig(
   config: AutohandConfig | LegacyConfigShape,
 ): AutohandConfig {
@@ -681,6 +720,7 @@ function isModernConfig(
 ): config is AutohandConfig {
   return (
     typeof (config as AutohandConfig).openrouter === "object" ||
+    typeof (config as AutohandConfig).autohandai === "object" ||
     typeof (config as AutohandConfig).ollama === "object" ||
     typeof (config as AutohandConfig).llamacpp === "object" ||
     typeof (config as AutohandConfig).openai === "object" ||
@@ -953,6 +993,7 @@ export function getProviderConfig(
 
   const builtInProvider = chosen as BuiltInProviderName;
   const configByProvider: Record<BuiltInProviderName, ProviderSettings | undefined> = {
+    autohandai: config.autohandai,
     openrouter: config.openrouter,
     ollama: config.ollama,
     llamacpp: config.llamacpp,
@@ -976,7 +1017,23 @@ export function getProviderConfig(
     return null;
   }
 
-  if (chosen === "openai") {
+  if (chosen === "autohandai") {
+    const autohandEntry = entry as AutohandAISettings;
+    const plan = autohandEntry.plan ?? "cloud";
+    if (!autohandEntry.model) {
+      return null;
+    }
+    if (plan === "cloud") {
+      const authMode = autohandEntry.authMode ?? "api-key";
+      if (authMode === "account") {
+        if (!autohandEntry.accountToken && !config.auth?.token) {
+          return null;
+        }
+      } else if (!autohandEntry.apiKey || autohandEntry.apiKey === "replace-me") {
+        return null;
+      }
+    }
+  } else if (chosen === "openai") {
     const openAIEntry = entry as OpenAISettings;
     if (!openAIEntry.model) {
       return null;
@@ -1043,6 +1100,9 @@ export function getProviderConfig(
   return {
     ...entry,
     baseUrl: entry.baseUrl ?? defaultBaseUrlFor(builtInProvider, entry.port),
+    ...(chosen === "autohandai" && {
+      contextWindow: entry.contextWindow ?? defaultAutohandAIContextWindow(entry as AutohandAISettings),
+    }),
   };
 }
 
@@ -1051,6 +1111,7 @@ function defaultBaseUrlFor(
   port?: number,
 ): string | undefined {
   if (provider === "openrouter") return DEFAULT_BASE_URL;
+  if (provider === "autohandai") return DEFAULT_AUTOHAND_AI_URL;
   if (provider === "llmgateway") return DEFAULT_LLMGATEWAY_URL;
   if (provider === "zai") return DEFAULT_ZAI_URL;
   if (provider === "sakana") return DEFAULT_SAKANA_URL;

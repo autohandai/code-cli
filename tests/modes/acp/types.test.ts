@@ -323,6 +323,8 @@ describe("parseAvailableModels()", () => {
     const config = makeConfig();
     const models = parseAvailableModels(config);
 
+    expect(models).toContain("fantail");
+    expect(models).toContain("moa");
     expect(models).toContain("your-modelcard-id-here");
     expect(models).toContain("your-modelcard-id-here");
     expect(models).toContain("openai/gpt-4o");
@@ -423,6 +425,20 @@ describe("resolveDefaultModel()", () => {
     } as any);
 
     expect(resolveDefaultModel(config)).toBe("llama3.2:latest");
+  });
+
+  it("returns model for autohandai provider settings", () => {
+    const config = makeConfig({
+      provider: "autohandai",
+      autohandai: {
+        plan: "cloud",
+        authMode: "api-key",
+        apiKey: "ah-test-key",
+        model: "moa",
+      },
+    } as any);
+
+    expect(resolveDefaultModel(config)).toBe("moa");
   });
 
   it("returns fallback model when provider config has no model", () => {

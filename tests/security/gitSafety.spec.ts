@@ -12,6 +12,44 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 
+/**
+ * Hermetic git environment for fixtures: ignore the developer's global/system
+ * config, never prompt on a terminal, and disable optional locks. Without this a
+ * fixture `git commit` can block indefinitely on GPG signing, a `core.hooksPath`
+ * hook, or a credential prompt — which under the full parallel suite manifested as
+ * an intermittent 30s `beforeEach` hook timeout. See the bounded `timeout` below
+ * so a single hung git invocation fails fast instead of consuming the whole hook.
+ */
+const HERMETIC_GIT_ENV: NodeJS.ProcessEnv = {
+  ...process.env,
+  HOME: os.tmpdir(),
+  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_CONFIG_SYSTEM: '/dev/null',
+  GIT_TERMINAL_PROMPT: '0',
+  GIT_OPTIONAL_LOCKS: '0',
+};
+
+function git(args: string[], cwd: string): ReturnType<typeof spawnSync> {
+  return spawnSync('git', args, {
+    cwd,
+    env: HERMETIC_GIT_ENV,
+    encoding: 'utf8',
+    timeout: 15_000,
+  });
+}
+
+async function initTestRepo(): Promise<string> {
+  const testDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-git-test-'));
+  git(['init', '-q'], testDir);
+  git(['config', 'user.email', 'test@test.com'], testDir);
+  git(['config', 'user.name', 'Test'], testDir);
+  git(['config', 'commit.gpgsign', 'false'], testDir);
+  await fs.writeFile(path.join(testDir, 'README.md'), '# Test');
+  git(['add', '.'], testDir);
+  git(['commit', '-q', '-m', 'Initial commit'], testDir);
+  return testDir;
+}
+
 describe('Git Safety', () => {
   describe('GIT_SAFETY constants', () => {
     it('should have PROTECTED_BRANCHES defined', () => {
@@ -53,15 +91,7 @@ describe('Git Safety', () => {
     let testDir: string;
 
     beforeEach(async () => {
-      testDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-git-test-'));
-      // Initialize a git repo
-      spawnSync('git', ['init'], { cwd: testDir });
-      spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: testDir });
-      spawnSync('git', ['config', 'user.name', 'Test'], { cwd: testDir });
-      // Create initial commit
-      await fs.writeFile(path.join(testDir, 'README.md'), '# Test');
-      spawnSync('git', ['add', '.'], { cwd: testDir });
-      spawnSync('git', ['commit', '-m', 'Initial commit'], { cwd: testDir });
+      testDir = await initTestRepo();
     });
 
     afterEach(async () => {
@@ -69,8 +99,7 @@ describe('Git Safety', () => {
     });
 
     it('should block force push to main branch', () => {
-      // Checkout main branch
-      spawnSync('git', ['checkout', '-b', 'main'], { cwd: testDir });
+      git(['checkout', '-b', 'main'], testDir);
 
       expect(() => {
         gitPush(testDir, 'origin', 'main', { force: true });
@@ -78,7 +107,7 @@ describe('Git Safety', () => {
     });
 
     it('should block force push to master branch', () => {
-      spawnSync('git', ['checkout', '-b', 'master'], { cwd: testDir });
+      git(['checkout', '-b', 'master'], testDir);
 
       expect(() => {
         gitPush(testDir, 'origin', 'master', { force: true });
@@ -86,7 +115,7 @@ describe('Git Safety', () => {
     });
 
     it('should block force push to develop branch', () => {
-      spawnSync('git', ['checkout', '-b', 'develop'], { cwd: testDir });
+      git(['checkout', '-b', 'develop'], testDir);
 
       expect(() => {
         gitPush(testDir, 'origin', 'develop', { force: true });
@@ -94,7 +123,7 @@ describe('Git Safety', () => {
     });
 
     it('should block force push to production branch', () => {
-      spawnSync('git', ['checkout', '-b', 'production'], { cwd: testDir });
+      git(['checkout', '-b', 'production'], testDir);
 
       expect(() => {
         gitPush(testDir, 'origin', 'production', { force: true });
@@ -102,7 +131,7 @@ describe('Git Safety', () => {
     });
 
     it('should allow force push to feature branches', () => {
-      spawnSync('git', ['checkout', '-b', 'feature/my-feature'], { cwd: testDir });
+      git(['checkout', '-b', 'feature/my-feature'], testDir);
 
       // This will fail because no remote, but should not throw protection error
       expect(() => {
@@ -111,7 +140,7 @@ describe('Git Safety', () => {
     });
 
     it('should include protected branches list in error message', () => {
-      spawnSync('git', ['checkout', '-b', 'main'], { cwd: testDir });
+      git(['checkout', '-b', 'main'], testDir);
 
       expect(() => {
         gitPush(testDir, 'origin', 'main', { force: true });
@@ -123,13 +152,7 @@ describe('Git Safety', () => {
     let testDir: string;
 
     beforeEach(async () => {
-      testDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-git-test-'));
-      spawnSync('git', ['init'], { cwd: testDir });
-      spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: testDir });
-      spawnSync('git', ['config', 'user.name', 'Test'], { cwd: testDir });
-      await fs.writeFile(path.join(testDir, 'README.md'), '# Test');
-      spawnSync('git', ['add', '.'], { cwd: testDir });
-      spawnSync('git', ['commit', '-m', 'Initial commit'], { cwd: testDir });
+      testDir = await initTestRepo();
     });
 
     afterEach(async () => {
@@ -137,7 +160,7 @@ describe('Git Safety', () => {
     });
 
     it('should block rebase when on main branch', () => {
-      spawnSync('git', ['checkout', '-b', 'main'], { cwd: testDir });
+      git(['checkout', '-b', 'main'], testDir);
 
       expect(() => {
         gitRebase(testDir, 'HEAD~1');
@@ -145,7 +168,7 @@ describe('Git Safety', () => {
     });
 
     it('should block rebase when on master branch', () => {
-      spawnSync('git', ['checkout', '-b', 'master'], { cwd: testDir });
+      git(['checkout', '-b', 'master'], testDir);
 
       expect(() => {
         gitRebase(testDir, 'HEAD~1');
@@ -153,7 +176,7 @@ describe('Git Safety', () => {
     });
 
     it('should block rebase when on develop branch', () => {
-      spawnSync('git', ['checkout', '-b', 'develop'], { cwd: testDir });
+      git(['checkout', '-b', 'develop'], testDir);
 
       expect(() => {
         gitRebase(testDir, 'HEAD~1');
@@ -161,7 +184,7 @@ describe('Git Safety', () => {
     });
 
     it('should suggest using merge instead', () => {
-      spawnSync('git', ['checkout', '-b', 'main'], { cwd: testDir });
+      git(['checkout', '-b', 'main'], testDir);
 
       expect(() => {
         gitRebase(testDir, 'HEAD~1');
@@ -169,11 +192,11 @@ describe('Git Safety', () => {
     });
 
     it('should allow rebase on feature branches', async () => {
-      spawnSync('git', ['checkout', '-b', 'feature/test'], { cwd: testDir });
+      git(['checkout', '-b', 'feature/test'], testDir);
       // Add another commit to rebase
       await fs.writeFile(path.join(testDir, 'file.txt'), 'content');
-      spawnSync('git', ['add', '.'], { cwd: testDir });
-      spawnSync('git', ['commit', '-m', 'Another commit'], { cwd: testDir });
+      git(['add', '.'], testDir);
+      git(['commit', '-q', '-m', 'Another commit'], testDir);
 
       // Should not throw protection error
       // May fail for other reasons but not the protection
@@ -189,13 +212,7 @@ describe('Git Safety', () => {
     let testDir: string;
 
     beforeEach(async () => {
-      testDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-git-test-'));
-      spawnSync('git', ['init'], { cwd: testDir });
-      spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: testDir });
-      spawnSync('git', ['config', 'user.name', 'Test'], { cwd: testDir });
-      await fs.writeFile(path.join(testDir, 'README.md'), '# Test');
-      spawnSync('git', ['add', '.'], { cwd: testDir });
-      spawnSync('git', ['commit', '-m', 'Initial commit'], { cwd: testDir });
+      testDir = await initTestRepo();
     });
 
     afterEach(async () => {
@@ -222,11 +239,11 @@ describe('Git Safety', () => {
 
     it('should allow merge of existing local branch', async () => {
       // Create a branch to merge
-      spawnSync('git', ['checkout', '-b', 'feature'], { cwd: testDir });
+      git(['checkout', '-b', 'feature'], testDir);
       await fs.writeFile(path.join(testDir, 'feature.txt'), 'feature content');
-      spawnSync('git', ['add', '.'], { cwd: testDir });
-      spawnSync('git', ['commit', '-m', 'Feature commit'], { cwd: testDir });
-      spawnSync('git', ['checkout', '-'], { cwd: testDir }); // Go back to previous branch
+      git(['add', '.'], testDir);
+      git(['commit', '-q', '-m', 'Feature commit'], testDir);
+      git(['checkout', '-'], testDir); // Go back to previous branch
 
       // Should not throw - merge should work
       const result = gitMerge(testDir, 'feature');
@@ -247,13 +264,7 @@ describe('Git Safety', () => {
     let testDir: string;
 
     beforeEach(async () => {
-      testDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-git-test-'));
-      spawnSync('git', ['init'], { cwd: testDir });
-      spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: testDir });
-      spawnSync('git', ['config', 'user.name', 'Test'], { cwd: testDir });
-      await fs.writeFile(path.join(testDir, 'README.md'), '# Test');
-      spawnSync('git', ['add', '.'], { cwd: testDir });
-      spawnSync('git', ['commit', '-m', 'Initial commit'], { cwd: testDir });
+      testDir = await initTestRepo();
     });
 
     afterEach(async () => {
@@ -261,7 +272,7 @@ describe('Git Safety', () => {
     });
 
     it('should block hard reset on main branch', () => {
-      spawnSync('git', ['checkout', '-b', 'main'], { cwd: testDir });
+      git(['checkout', '-b', 'main'], testDir);
 
       expect(() => {
         gitReset(testDir, 'hard', 'HEAD~1');
@@ -269,7 +280,7 @@ describe('Git Safety', () => {
     });
 
     it('should block hard reset on master branch', () => {
-      spawnSync('git', ['checkout', '-b', 'master'], { cwd: testDir });
+      git(['checkout', '-b', 'master'], testDir);
 
       expect(() => {
         gitReset(testDir, 'hard');
@@ -277,7 +288,7 @@ describe('Git Safety', () => {
     });
 
     it('should block hard reset on develop branch', () => {
-      spawnSync('git', ['checkout', '-b', 'develop'], { cwd: testDir });
+      git(['checkout', '-b', 'develop'], testDir);
 
       expect(() => {
         gitReset(testDir, 'hard', 'HEAD~1');
@@ -285,7 +296,7 @@ describe('Git Safety', () => {
     });
 
     it('should allow soft reset on protected branches', () => {
-      spawnSync('git', ['checkout', '-b', 'main'], { cwd: testDir });
+      git(['checkout', '-b', 'main'], testDir);
 
       // Soft reset should not throw
       const result = gitReset(testDir, 'soft');
@@ -293,7 +304,7 @@ describe('Git Safety', () => {
     });
 
     it('should allow mixed reset on protected branches', () => {
-      spawnSync('git', ['checkout', '-b', 'main'], { cwd: testDir });
+      git(['checkout', '-b', 'main'], testDir);
 
       // Mixed reset should not throw
       const result = gitReset(testDir, 'mixed');
@@ -301,11 +312,11 @@ describe('Git Safety', () => {
     });
 
     it('should allow hard reset on feature branches', async () => {
-      spawnSync('git', ['checkout', '-b', 'feature/test'], { cwd: testDir });
+      git(['checkout', '-b', 'feature/test'], testDir);
       // Add another commit to reset
       await fs.writeFile(path.join(testDir, 'file.txt'), 'content');
-      spawnSync('git', ['add', '.'], { cwd: testDir });
-      spawnSync('git', ['commit', '-m', 'Another commit'], { cwd: testDir });
+      git(['add', '.'], testDir);
+      git(['commit', '-q', '-m', 'Another commit'], testDir);
 
       // Hard reset on feature branch should work (returns git's output or our message)
       const result = gitReset(testDir, 'hard', 'HEAD~1');
@@ -313,7 +324,7 @@ describe('Git Safety', () => {
     });
 
     it('should include suggestion for alternatives in error message', () => {
-      spawnSync('git', ['checkout', '-b', 'main'], { cwd: testDir });
+      git(['checkout', '-b', 'main'], testDir);
 
       expect(() => {
         gitReset(testDir, 'hard');

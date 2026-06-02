@@ -13,12 +13,16 @@ var mockShowPassword = vi.fn();
 var mockSaveConfig = vi.fn();
 var mockEnsureOpenAIChatGPTAuth = vi.fn();
 var mockAuthenticateOpenAIChatGPT = vi.fn();
+var mockEnsureAutohandAILocalDependencies = vi.fn();
+var mockEnsureAutohandAILocalRuntime = vi.fn();
+var mockRecommendAutohandAILocalModels = vi.fn();
 
 vi.mock("../../../src/ui/ink/components/Modal.js", () => ({
   showConfirm: mockShowConfirm,
   showModal: mockShowModal,
   showInput: mockShowInput,
   showPassword: mockShowPassword,
+  showConfirm: mockShowConfirm,
 }));
 
 vi.mock("../../../src/config.js", () => ({
@@ -46,12 +50,28 @@ vi.mock("../../../src/providers/openaiAuth.js", () => ({
   isChatGPTAuthExpired: vi.fn(() => false),
 }));
 
+vi.mock("../../../src/providers/autohandAILocalSetup.js", () => ({
+  AUTOHAND_AI_LOCAL_CODING_MODEL_FALLBACKS: [
+    {
+      id: "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit",
+      label: "Qwen2.5 Coder 7B",
+      description: "Fast local coding model",
+      source: "curated",
+    },
+  ],
+  ensureAutohandAILocalDependencies: mockEnsureAutohandAILocalDependencies,
+  ensureAutohandAILocalRuntime: mockEnsureAutohandAILocalRuntime,
+  recommendAutohandAILocalModels: mockRecommendAutohandAILocalModels,
+  renderAutohandAISetupProgress: (event: { label: string }) => event.label,
+}));
+
 vi.mock("../../../src/i18n/index.js", () => ({
   t: (key: string, params?: Record<string, string>) => {
     const map: Record<string, string> = {
       "providers.zai": "Z.ai",
       "providers.sakana": "Sakana.AI",
       "providers.llmgateway": "LLM Gateway",
+      "providers.autohandai": "Autohand AI",
       "providers.deepseek": "DeepSeek",
       "providers.openrouter": "OpenRouter",
       "providers.openai": "OpenAI",
@@ -82,6 +102,9 @@ vi.mock("../../../src/i18n/index.js", () => ({
       "providers.custom.enterContextWindow": "Context window tokens",
       "providers.custom.configureReasoningEffort": "Configure reasoning effort?",
       "providers.custom.modelRequired": "Model ID is required",
+      "providers.autohandaiPlan.detectModels": "Detecting local coding models",
+      "providers.autohandaiPlan.selectLocalModel": "Choose a local coding model",
+      "providers.autohandaiPlan.selectMoaEffort": "Choose Moa thinking effort",
     };
     return map[key] ?? key;
   },
@@ -118,6 +141,7 @@ describe("ProviderConfigManager openai auth mode", () => {
         provider: "openrouter",
         openrouter: { apiKey: "test", model: "your-modelcard-id-here" },
       },
+      workspaceRoot: "/workspace",
       options: {},
     };
     mockUpdateContextWindow = vi.fn();
@@ -255,6 +279,141 @@ describe("ProviderConfigManager openai auth mode", () => {
     expect(mockSaveConfig).toHaveBeenCalledOnce();
   });
 
+  it("configures Autohand AI Cloud with account auth when logged in", async () => {
+    runtime.config.auth = { token: "account-session-token" };
+    mockShowModal
+      .mockResolvedValueOnce({ value: "cloud" })
+      .mockResolvedValueOnce({ value: "moa" })
+      .mockResolvedValueOnce({ value: "high" });
+
+    await (manager as any).configureAutohandAI();
+
+    expect(runtime.config.autohandai).toEqual({
+      plan: "cloud",
+      authMode: "account",
+      accountToken: "account-session-token",
+      baseUrl: "https://api.autohand.ai/v1",
+      model: "moa",
+      contextWindow: 256000,
+      reasoningEffort: "high",
+    });
+    expect(runtime.config.provider).toBe("autohandai");
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
+  });
+
+  it("configures Autohand AI Cloud with API key when not logged in", async () => {
+    mockShowModal
+      .mockResolvedValueOnce({ value: "cloud" })
+      .mockResolvedValueOnce({ value: "fantail" });
+    mockShowPassword.mockResolvedValueOnce("ah-api-key-long-enough");
+
+    await (manager as any).configureAutohandAI();
+
+    expect(runtime.config.autohandai).toEqual({
+      plan: "cloud",
+      authMode: "api-key",
+      apiKey: "ah-api-key-long-enough",
+      baseUrl: "https://api.autohand.ai/v1",
+      model: "fantail",
+      contextWindow: 16000,
+    });
+    expect(runtime.config.provider).toBe("autohandai");
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
+  });
+
+  it("configures Autohand AI Local by installing dependencies, selecting a llmfit model, and starting MLX", async () => {
+    const localModel = {
+      id: "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit",
+      label: "Qwen2.5 Coder 7B",
+      description: "Fast local coding model",
+      source: "llmfit",
+    };
+    mockEnsureAutohandAILocalDependencies.mockResolvedValueOnce({
+      ok: true,
+      probe: { baseUrl: "http://127.0.0.1:8080", port: 8080 },
+    });
+    mockRecommendAutohandAILocalModels.mockResolvedValueOnce([localModel]);
+    mockEnsureAutohandAILocalRuntime.mockResolvedValueOnce({
+      ok: true,
+      model: localModel,
+      baseUrl: "http://127.0.0.1:8080",
+      port: 8080,
+      serverCommand: "mlx_lm.server --model mlx-community/Qwen2.5-Coder-7B-Instruct-4bit --port 8080",
+    });
+    mockShowModal
+      .mockResolvedValueOnce({ value: "local" })
+      .mockResolvedValueOnce({ value: localModel.id });
+
+    await (manager as any).configureAutohandAI();
+
+    expect(mockEnsureAutohandAILocalDependencies).toHaveBeenCalledWith(
+      "/workspace",
+      expect.any(Function),
+    );
+    expect(runtime.config.autohandai).toEqual({
+      plan: "local",
+      baseUrl: "http://127.0.0.1:8080",
+      port: 8080,
+      model: localModel.id,
+      contextWindow: 256000,
+      serverCommand: "mlx_lm.server --model mlx-community/Qwen2.5-Coder-7B-Instruct-4bit --port 8080",
+    });
+    expect(runtime.config.provider).toBe("autohandai");
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Autohand AI Local on the local model-change path", async () => {
+    const localModel = {
+      id: "mlx-community/Qwen2.5-Coder-14B-Instruct-4bit",
+      label: "Qwen2.5 Coder 14B",
+      description: "Larger local coding model",
+      source: "llmfit",
+    };
+    runtime.config.provider = "autohandai";
+    runtime.config.autohandai = {
+      plan: "local",
+      baseUrl: "http://127.0.0.1:8080",
+      port: 8080,
+      model: "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit",
+      contextWindow: 256000,
+    };
+    runtime.options.model = "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit";
+    mockEnsureAutohandAILocalDependencies.mockResolvedValueOnce({
+      ok: true,
+      probe: { baseUrl: "http://127.0.0.1:8080", port: 8080 },
+    });
+    mockRecommendAutohandAILocalModels.mockResolvedValueOnce([localModel]);
+    mockEnsureAutohandAILocalRuntime.mockResolvedValueOnce({
+      ok: true,
+      model: localModel,
+      baseUrl: "http://127.0.0.1:8081",
+      port: 8081,
+      serverCommand: "mlx_lm.server --model mlx-community/Qwen2.5-Coder-14B-Instruct-4bit --port 8081",
+    });
+    mockShowModal.mockResolvedValueOnce({ value: localModel.id });
+
+    await manager.changeProviderModel("autohandai");
+
+    expect(runtime.config.autohandai).toEqual({
+      plan: "local",
+      baseUrl: "http://127.0.0.1:8081",
+      port: 8081,
+      model: localModel.id,
+      contextWindow: 256000,
+      serverCommand: "mlx_lm.server --model mlx-community/Qwen2.5-Coder-14B-Instruct-4bit --port 8081",
+    });
+    expect(mockEnsureAutohandAILocalRuntime).toHaveBeenCalledWith(
+      {
+        cwd: "/workspace",
+        model: localModel,
+        baseUrl: "http://127.0.0.1:8080",
+        port: 8080,
+      },
+      expect.any(Function),
+    );
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
+  });
+
   it("uses the configured Ollama base URL when selecting local models", async () => {
     const ollamaBaseUrl = "http://127.0.0.1:4321";
     const fetchMock = vi.fn().mockResolvedValue({
@@ -263,6 +422,7 @@ describe("ProviderConfigManager openai auth mode", () => {
         models: [{ name: "local-model:latest" }],
       }),
     });
+    const originalFetch = globalThis.fetch;
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     runtime.config.ollama = {
       baseUrl: ollamaBaseUrl,
@@ -270,15 +430,19 @@ describe("ProviderConfigManager openai auth mode", () => {
     };
     mockShowModal.mockResolvedValueOnce({ value: "local-model:latest" });
 
-    await (manager as unknown as { configureOllama: () => Promise<void> }).configureOllama();
+    try {
+      await (manager as unknown as { configureOllama: () => Promise<void> }).configureOllama();
 
-    expect(fetchMock).toHaveBeenCalledWith(`${ollamaBaseUrl}/api/tags`);
-    expect(runtime.config.ollama).toEqual({
-      baseUrl: ollamaBaseUrl,
-      model: "local-model:latest",
-    });
-    expect(runtime.config.provider).toBe("ollama");
-    expect(mockSaveConfig).toHaveBeenCalledOnce();
+      expect(fetchMock).toHaveBeenCalledWith(`${ollamaBaseUrl}/api/tags`);
+      expect(runtime.config.ollama).toEqual({
+        baseUrl: ollamaBaseUrl,
+        model: "local-model:latest",
+      });
+      expect(runtime.config.provider).toBe("ollama");
+      expect(mockSaveConfig).toHaveBeenCalledOnce();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it("opens the current provider settings menu when the active provider is configured", async () => {
@@ -388,6 +552,7 @@ describe("ProviderConfigManager openai auth mode", () => {
     const options = mockShowModal.mock.calls[0][0].options;
     expect(options.some((option: { label: string }) => option.label.includes("Z.ai"))).toBe(true);
     expect(options.some((option: { label: string }) => option.label.includes("Sakana.AI"))).toBe(true);
+    expect(options.some((option: { label: string }) => option.label.includes("Autohand AI"))).toBe(true);
     expect(options.some((option: { label: string }) => option.label.includes("LLM Gateway"))).toBe(true);
     expect(options.some((option: { label: string }) => option.label.includes("DeepSeek"))).toBe(true);
   });

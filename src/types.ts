@@ -32,7 +32,7 @@ type Primitive = string | number | boolean | null;
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
-export type BuiltInProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure' | 'zai' | 'sakana' | 'vertexai' | 'xai' | 'cerebras' | 'nvidia' | 'deepseek' | 'bedrock';
+export type BuiltInProviderName = 'autohandai' | 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure' | 'zai' | 'sakana' | 'vertexai' | 'xai' | 'cerebras' | 'nvidia' | 'deepseek' | 'bedrock';
 export type CustomProviderId = `custom:${string}`;
 export type ExtensionProviderId = `extension:${string}`;
 export type ProviderName = BuiltInProviderName | CustomProviderId | ExtensionProviderId;
@@ -82,6 +82,19 @@ export interface CustomProviderSettings extends ProviderSettings {
   models?: CustomProviderModel[];
   /** Hidden from provider selection without deleting saved credentials. */
   disabled?: boolean;
+}
+
+export type AutohandAIPlan = 'cloud' | 'local';
+export type AutohandAIAuthMode = 'account' | 'api-key';
+
+export interface AutohandAISettings extends ProviderSettings {
+  plan: AutohandAIPlan;
+  authMode?: AutohandAIAuthMode;
+  apiKey?: string;
+  /** Autohand account token for CLI-authenticated Cloud usage. SDKs must use apiKey. */
+  accountToken?: string;
+  localModelPath?: string;
+  serverCommand?: string;
 }
 
 export interface OpenRouterSettings extends ProviderSettings {
@@ -178,7 +191,7 @@ export interface NvidiaChatTemplateKwargs {
   thinking?: boolean;
   enable_thinking?: boolean;
   /** Reasoning effort level for DeepSeek models */
-  reasoning_effort?: 'low' | 'medium' | 'high';
+  reasoning_effort?: 'low' | 'medium' | 'high' | 'xhigh';
   /** Clear thinking output for Z.ai GLM models */
   clear_thinking?: boolean;
 }
@@ -766,6 +779,7 @@ export interface ChromeConfigSettings {
 
 export interface AutohandConfig {
   provider?: ProviderName;
+  autohandai?: AutohandAISettings;
   openrouter?: OpenRouterSettings;
   ollama?: ProviderSettings;
   llamacpp?: ProviderSettings;

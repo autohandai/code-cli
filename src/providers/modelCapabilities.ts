@@ -225,6 +225,15 @@ export async function modelSupportsImages(model: string): Promise<boolean> {
  * Covers all major vision-capable models across providers.
  */
 function quickVisionCheck(lowerModel: string): boolean {
+  if (
+    lowerModel === 'fantail' ||
+    lowerModel === 'moa' ||
+    lowerModel.startsWith('autohandai/fantail') ||
+    lowerModel.startsWith('autohandai/moa')
+  ) {
+    return true;
+  }
+
   // Anthropic Claude (all Claude 3+ models support vision)
   if (
     lowerModel.includes('claude-3') ||

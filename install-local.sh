@@ -137,3 +137,28 @@ echo ""
 echo "Try it out:"
 echo "  autohand --help"
 echo "  autohand"
+
+if [ "$OS" = "Darwin" ] && [ "$ARCH" = "arm64" ]; then
+    if [ "${AUTOHAND_INSTALL_LOCAL_AI:-0}" = "1" ]; then
+        echo ""
+        echo "Installing Autohand AI Local runtime..."
+        if ! command -v mlx_lm.server >/dev/null 2>&1; then
+            if command -v uv >/dev/null 2>&1; then
+                uv tool install mlx-lm
+            elif command -v pipx >/dev/null 2>&1; then
+                pipx install mlx-lm
+            else
+                python3 -m pip install --user mlx-lm
+            fi
+        fi
+        if ! command -v llmfit >/dev/null 2>&1; then
+            curl -fsSL https://llmfit.axjns.dev/install.sh | sh
+        fi
+        echo "✅ Autohand AI Local runtime installed"
+    else
+        echo ""
+        echo "Autohand AI Local:"
+        echo "  Run /model, choose Autohand AI, then Local."
+        echo "  To preinstall MLX and llmfit during install, set AUTOHAND_INSTALL_LOCAL_AI=1."
+    fi
+fi
