@@ -17,6 +17,11 @@ vi.mock('../src/commands/features.js', () => ({
   features: mockFeatures,
 }));
 
+const mockSquad = vi.fn();
+vi.mock('../src/commands/squad.js', () => ({
+  squad: mockSquad,
+}));
+
 function createContext() {
   return {
     promptModelSelection: vi.fn().mockResolvedValue(undefined),
@@ -37,6 +42,7 @@ const DEFAULT_COMMANDS: SlashCommand[] = [
   { command: '/init', description: 'init agents', implemented: true },
   { command: '/about', description: 'about', implemented: true },
   { command: '/ide', description: 'connect ide', implemented: true },
+  { command: '/squad', description: 'open squad', implemented: true },
 ];
 
 describe('SlashCommandHandler', () => {
@@ -178,5 +184,19 @@ describe('SlashCommandHandler', () => {
 
     expect(result).toContain('Hey Igor');
     expect(result).toContain('/usage');
+  });
+
+  it('passes workspace and args through to /squad', async () => {
+    const ctx = createContext();
+    mockSquad.mockResolvedValueOnce('Autohand Squad is ready.');
+    const handler = new SlashCommandHandler(ctx as any, DEFAULT_COMMANDS);
+
+    const result = await handler.handle('/squad', ['--port', '19999']);
+
+    expect(result).toBe('Autohand Squad is ready.');
+    expect(mockSquad).toHaveBeenCalledWith(
+      { workspaceRoot: '/tmp/workspace', config: undefined },
+      ['--port', '19999'],
+    );
   });
 });

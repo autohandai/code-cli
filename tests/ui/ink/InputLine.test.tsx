@@ -176,15 +176,26 @@ describe('InputLine themed variants', () => {
     expect(source).toContain("theme.fgBg(borderToken, 'userMessageBg', borders.bottom)");
   });
 
-  it('uses Ink cursor positioning without rendering a competing cursor glyph', () => {
+  it('uses Ink 7 useCursor (not a local reimplementation) and no rendered cursor glyph', () => {
+    // Regression guard: commit 611851c removed `useCursor` from the ink import
+    // and added a local reimplementation that wrote absolute terminal cursor
+    // escapes (`\x1b[y;xH`). That bypassed Ink's log-update coordination
+    // (buildReturnToBottom + buildCursorSuffix) and desynced frame-erase when
+    // output scrolled — producing a duplicate, frozen composer above the
+    // active one in short terminals. Ink 7.0.1 DOES export useCursor; we must
+    // use it so cursor positioning stays scroll-safe.
     const source = readFileSync(
       path.resolve(process.cwd(), 'src/ui/ink/InputLine.tsx'),
       'utf8'
     );
 
-    expect(source).not.toContain('import { Box, Text, useCursor');
-    expect(source).toContain('useCursor');
+    expect(source).toContain("import { Box, Text, useCursor");
     expect(source).toContain('setCursorPosition');
+    // No local useCursor reimplementation.
+    expect(source).not.toMatch(/function\s+useCursor\s*\(/);
+    // No raw absolute cursor escape writes — these are what caused the duplicate.
+    expect(source).not.toMatch(/stdout\.write\(`\\x1b\[\$\{/);
+    // Rendered cursor variants should also not be present (Ink owns the cursor).
     expect(source).not.toContain('renderHardwareCursorFallback');
     expect(source).not.toContain('█');
     expect(source).not.toContain('<Text inverse>');
