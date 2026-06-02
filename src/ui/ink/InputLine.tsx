@@ -3,8 +3,8 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { useEffect, useMemo, useRef } from 'react';
-import { Box, Text, useStdout, type DOMElement } from 'ink';
+import React, { useMemo, useRef } from 'react';
+import { Box, Text, useCursor, type DOMElement } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
 import { buildMultiLineRenderState } from '../inputPrompt.js';
 import { stripAnsiCodes } from '../displayUtils.js';
@@ -17,6 +17,11 @@ function drawInkBorder(width: number, position: 'top' | 'bottom'): string {
     : `└${'─'.repeat(innerWidth)}┘`;
 }
 
+// Sum yoga layout offsets up to ink-root. The returned coordinates are
+// relative to Ink's output origin, which is exactly what Ink's `useCursor`
+// expects. Ink's renderer moves the hardware cursor relative to the bottom of
+// its own output and calls buildReturnToBottom before every eraseLines, so
+// frame rewrites stay aligned even when the terminal scrolls.
 function getAbsoluteInkPosition(
   node: DOMElement | null
 ): { left: number; top: number } | null {
@@ -36,36 +41,6 @@ function getAbsoluteInkPosition(
   }
 
   return { left, top };
-}
-
-function useCursor(): { setCursorPosition: (position?: { x: number; y: number }) => void } {
-  const { stdout } = useStdout();
-  const pendingPositionRef = useRef<{ x: number; y: number } | undefined>(undefined);
-  const lastPositionRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    const position = pendingPositionRef.current;
-    if (!stdout.isTTY || !position) {
-      lastPositionRef.current = null;
-      return;
-    }
-
-    const x = Math.max(0, Math.floor(position.x));
-    const y = Math.max(0, Math.floor(position.y));
-    const key = `${x}:${y}`;
-    if (lastPositionRef.current === key) {
-      return;
-    }
-
-    lastPositionRef.current = key;
-    stdout.write(`\x1b[${y + 1};${x + 1}H`);
-  });
-
-  return {
-    setCursorPosition(position) {
-      pendingPositionRef.current = position;
-    },
-  };
 }
 
 export interface InputLineProps {
