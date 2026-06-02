@@ -47,6 +47,7 @@ const INTERACTIVE_SLASH_COMMANDS = new Set([
   '/agents-new', '/agents new', '/resume', '/theme', '/language',
   '/model', '/skills', '/skills install', '/skills-install',
   '/skills new', '/skills-new', '/mcp', '/mcp install', '/mcp-install',
+  '/squad',
 ]);
 
 export function applyAgentAcpMode(host: AgentCommandRuntimeHost, modeId: string): void {
