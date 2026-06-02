@@ -119,4 +119,40 @@ describe('SystemPromptBuilder', () => {
     expect(prompt).not.toContain('## Completion Report');
     expect(prompt).not.toContain('SITREP:');
   });
+
+  it('uses sysPrompt as a full replacement for project and agent-home instructions', async () => {
+    const prompt = await createBuilder({
+      runtime: {
+        options: { sysPrompt: 'Custom profile replacement only' },
+        workspaceRoot: process.cwd(),
+        config: {},
+      },
+      loadInstructionFiles: vi.fn(async () => [
+        '## Project Instructions (AGENTS.md)\nProject rules',
+        '## Agent Profile Instructions ($AUTOHAND_HOME/AGENTS.md)\nProfile map',
+      ]),
+    }).build();
+
+    expect(prompt).toBe('Custom profile replacement only');
+    expect(prompt).not.toContain('Project rules');
+    expect(prompt).not.toContain('Profile map');
+  });
+
+  it('appends appendSysPrompt after loaded project and agent profile instructions', async () => {
+    const prompt = await createBuilder({
+      runtime: {
+        options: { appendSysPrompt: 'Additional launch metadata' },
+        workspaceRoot: process.cwd(),
+        config: {},
+      },
+      loadInstructionFiles: vi.fn(async () => [
+        '## Project Instructions (AGENTS.md)\nProject rules',
+        '## Agent Profile Instructions ($AUTOHAND_HOME/AGENTS.md)\nProfile map',
+      ]),
+    }).build();
+
+    expect(prompt).toContain('Project rules');
+    expect(prompt).toContain('Profile map');
+    expect(prompt.endsWith('Additional launch metadata')).toBe(true);
+  });
 });
