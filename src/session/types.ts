@@ -34,6 +34,14 @@ export interface SessionMetadata {
         originalId: string;
         importedAt: string;
     };
+    /** Branch provenance: set when the session was forked or cloned from another session. */
+    branch?: {
+        type: 'fork' | 'clone';
+        sourceSessionId: string;
+        sourceMessageIndex?: number;
+        sourceUserMessageOrdinal?: number;
+        createdAt: string;
+    };
 }
 
 export interface SessionMessage {
@@ -64,6 +72,14 @@ export interface SessionIndex {
         importedFrom?: {
             source: string;
             originalId: string;
+        };
+        /** Branch provenance stored in index for fast tree rendering */
+        branch?: {
+            type: 'fork' | 'clone';
+            sourceSessionId: string;
+            sourceMessageIndex?: number;
+            sourceUserMessageOrdinal?: number;
+            createdAt: string;
         };
     }>;
     byProject: Record<string, string[]>;
