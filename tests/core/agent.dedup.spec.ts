@@ -557,6 +557,28 @@ describe('agent.ts deduplication', () => {
       ).toBe(true);
     });
 
+    it('runInteractiveLoop disables queued slash commands in bare mode before dispatch', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const src = fs.readFileSync(
+        path.resolve(process.cwd(), 'src/core/agent/AgentLifecycleRunner.ts'),
+        'utf8',
+      );
+
+      const loopMatch = src.match(/export async function runAgentInteractiveLoop\([^{]*\)[\s\S]*?(?=\nexport |\n$)/);
+      expect(loopMatch).not.toBeNull();
+      const loopBody = loopMatch![0];
+
+      const slashHandlerIdx = loopBody.indexOf("instruction.startsWith('/')");
+      const bareGuardIdx = loopBody.indexOf('host.runtime.options.bare', slashHandlerIdx);
+      const dispatchIdx = loopBody.indexOf('host.runSlashCommandWithInput', slashHandlerIdx);
+
+      expect(slashHandlerIdx).toBeGreaterThan(-1);
+      expect(bareGuardIdx).toBeGreaterThan(slashHandlerIdx);
+      expect(dispatchIdx).toBeGreaterThan(-1);
+      expect(bareGuardIdx).toBeLessThan(dispatchIdx);
+    });
+
     it('returns to idle-wait via continue after slash commands when Ink is running', () => {
       // After a non-interactive slash command (e.g. /help) the loop must
       // return to the top via continue so the idle-wait path can await the

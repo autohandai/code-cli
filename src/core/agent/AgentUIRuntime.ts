@@ -168,7 +168,7 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
         onImageDetected: (data: Buffer, mimeType: string, filename?: string) =>
           host.imageManager.add(data, mimeType, filename),
         filesProvider: () => host.workspaceFileCollector.getCachedFiles(),
-        slashCommands: SLASH_COMMANDS,
+        slashCommands: host.runtime?.options?.bare ? [] : SLASH_COMMANDS,
         workspaceRoot: host.runtime?.workspaceRoot,
         resolveShellSuggestion: (input) =>
           typeof host.resolveLlmShellSuggestion === 'function'

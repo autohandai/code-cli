@@ -16,6 +16,12 @@ export interface DynamicRuntimeExtensionHost {
 export function configureAgentRegistry(runtime: AgentRuntime): AgentRegistry {
   const registry = AgentRegistry.getInstance();
   registry.configureExternalAgents(runtime.config.externalAgents);
+  const inlineAgents = runtime.options?.inlineAgents;
+  if (inlineAgents?.length) {
+    registry.setSessionAgents(inlineAgents);
+  } else {
+    registry.clearSessionAgents();
+  }
   return registry;
 }
 

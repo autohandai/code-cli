@@ -16,6 +16,7 @@ import { runWithConcurrency } from '../../utils/parallel.js';
 import { buildSessionChatLog } from '../../session/chatLog.js';
 import { formatExitCleanup, formatForceExit } from '../../ui/theme/startup.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
+import { BARE_SLASH_COMMANDS_DISABLED_MESSAGE } from '../../runtime/bareMode.js';
 import { shouldForceAgentIdleLogout } from './AgentSessionAccounting.js';
 import { consumeAgentInkSubmittedInstructionEcho } from './AgentUIRuntime.js';
 
@@ -623,6 +624,23 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         // that path. Without host, /help etc. go through the full ReAct loop
         // which sends them to the LLM and leaves the composer frozen.
         if (instruction.startsWith('/')) {
+          if (host.runtime.options.bare && !isLikelyFilePathSlashInput(instruction)) {
+            if (host.inkRenderer?.isRunning()) {
+              if (!consumeAgentInkSubmittedInstructionEcho(host, instruction)) {
+                host.inkRenderer.addUserMessage(instruction);
+              }
+              host.inkRenderer.addAssistantMessage(BARE_SLASH_COMMANDS_DISABLED_MESSAGE);
+            } else {
+              console.log(chalk.gray(BARE_SLASH_COMMANDS_DISABLED_MESSAGE));
+            }
+            if (host.ui || host.inkRenderer) {
+              host.setComposerIdle();
+              host.clearComposerInput();
+              continue;
+            }
+            continue;
+          }
+
           const parsed = host.parseSlashCommand(instruction);
           const isKnownSlashCommand = host.isSlashCommandSupported(parsed.command);
           if (isKnownSlashCommand || !isLikelyFilePathSlashInput(instruction)) {

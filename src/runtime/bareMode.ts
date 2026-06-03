@@ -6,10 +6,13 @@
 import fs from 'fs-extra';
 import path from 'node:path';
 import type { CLIOptions, LoadedConfig } from '../types.js';
+import { looksLikeInlineAgents } from '../core/agents/AgentRegistry.js';
 
 export interface BareLoadedConfig extends LoadedConfig {
   pluginDir?: string;
 }
+
+export const BARE_SLASH_COMMANDS_DISABLED_MESSAGE = 'Slash commands are disabled in bare mode.';
 
 export function applyBareModeConfig(config: LoadedConfig, options: CLIOptions): BareLoadedConfig {
   const bareConfig: BareLoadedConfig = {
@@ -51,7 +54,7 @@ export function applyBareModeConfig(config: LoadedConfig, options: CLIOptions): 
       ...config.sync,
       enabled: false,
     },
-    externalAgents: options.agents
+    externalAgents: options.agents && !looksLikeInlineAgents(options.agents)
       ? { enabled: true, paths: [path.resolve(options.agents)] }
       : { enabled: false, paths: [] },
   };

@@ -45,6 +45,7 @@ import {
   formatWelcomeVersionPrefix,
 } from './ui/theme/startup.js';
 import { AgentsGenerator } from './onboarding/agentsGenerator.js';
+import { looksLikeInlineAgents, parseInlineAgents } from './core/agents/AgentRegistry.js';
 
 /**
  * Get git commit hash (short)
@@ -237,7 +238,7 @@ program
   .option('--append-system-prompt <value>', 'Append to system prompt (inline string or file path)')
   .option('--append-system-prompt-file <path>', 'Append file contents to system prompt')
   .option('--mcp-config <path>', 'Explicit MCP config file')
-  .option('--agents <path>', 'Explicit external agents directory')
+  .option('--agents <json|path>', 'Custom agents as inline JSON ({"reviewer":{"description":"...","prompt":"..."}}) or an external agents directory')
   .option('--plugin-dir <path>', 'Explicit plugin/meta-tool directory')
   .option('--yolo [pattern]', 'Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)')
   .option('--timeout <seconds>', 'Timeout in seconds for auto-approve mode', parseInt)
@@ -277,6 +278,18 @@ program
       opts.syncSettings = false;
       opts.contextCompact = false;
       opts.noChrome = true;
+    }
+
+    // `--agents` accepts inline JSON (Claude Code format) or a directory path.
+    // Parse and validate inline JSON up front so users get a clear error before
+    // the session starts; a path value is left untouched for the registry.
+    if (typeof opts.agents === 'string' && looksLikeInlineAgents(opts.agents)) {
+      try {
+        opts.inlineAgents = parseInlineAgents(opts.agents);
+      } catch (error) {
+        console.error(chalk.red(`Invalid --agents JSON: ${(error as Error).message}`));
+        process.exit(1);
+      }
     }
 
     // Positional argument acts as prompt (e.g. autohand 'explain this')

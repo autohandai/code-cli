@@ -1069,6 +1069,25 @@ describe('agent startup and active input UI', () => {
     expect(interactiveCommands.has('/help')).toBe(false);
   });
 
+  it('does not dispatch slash commands in bare mode', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    agent.runtime = {
+      options: { bare: true },
+      config: { agent: { enableRequestQueue: true } },
+    };
+    agent.slashHandler = {
+      handle: vi.fn().mockResolvedValue('help output'),
+      isCommandSupported: vi.fn().mockReturnValue(true),
+    };
+
+    await expect(agent.handleSlashCommand('/help', [])).resolves.toBe(
+      'Slash commands are disabled in bare mode.'
+    );
+    expect(agent.isSlashCommandSupported('/help')).toBe(false);
+    expect(agent.slashHandler.handle).not.toHaveBeenCalled();
+    expect(agent.slashHandler.isCommandSupported).not.toHaveBeenCalled();
+  });
+
   it('installs console bridge after persistent input activation in runInstruction', async () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
 

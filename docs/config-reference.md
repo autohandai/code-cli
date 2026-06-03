@@ -12,6 +12,7 @@ Localized references:
 
 - [Configuration File Location](#configuration-file-location)
 - [Environment Variables](#environment-variables)
+- [Bare Mode](#bare-mode)
 - [Provider Settings](#provider-settings)
 - [Workspace Settings](#workspace-settings)
 - [UI Settings](#ui-settings)
@@ -71,7 +72,7 @@ export AUTOHAND_HOME=/custom/path  # Changes ~/.autohand to /custom/path
 | `AUTOHAND_CLIENT_NAME`                 | Client/editor identifier (set by ACP extensions) | `zed`                            |
 | `AUTOHAND_CLIENT_VERSION`              | Client version (set by ACP extensions)           | `0.169.0`                        |
 | `AUTOHAND_CODE`                        | Environment detection flag (set automatically)   | `1`                              |
-| `AUTOHAND_CODE`                        | Environment detection flag (set automatically)   | `1`                              |
+| `AUTOHAND_CODE_SIMPLE`                 | Enable bare mode without passing `--bare`        | `1`                              |
 
 ### Thinking Level
 
@@ -89,6 +90,50 @@ This is typically set by ACP client extensions (like Zed) through the config dro
 # Example: Use extended thinking for complex tasks
 AUTOHAND_THINKING_LEVEL=extended autohand --prompt "refactor this module"
 ```
+
+---
+
+## Bare Mode
+
+Bare mode starts Autohand with only explicitly requested context and runtime integrations. Enable it with either:
+
+```bash
+autohand --bare
+AUTOHAND_CODE_SIMPLE=1 autohand
+```
+
+When `--bare` is passed, Autohand also sets `AUTOHAND_CODE_SIMPLE=1` for the running process.
+
+Bare mode disables automatic startup and interactive integrations:
+
+- hooks and hook notifications
+- LSP startup
+- plugin sync, plugin auto-loading, and meta-tool auto-loading
+- attribution, telemetry, session sync, auto-reporting, and background pings
+- automatic memory/session bootstrap context
+- background prompt suggestions, update checks, feature flag fetches, and model metadata prefetches
+- keychain and browser OAuth authentication fallback
+- automatic `AGENTS.md` and provider-instruction discovery
+- all slash commands, including a bare `/` typed in the prompt
+
+Slash-shaped absolute file paths, such as `/Users/alex/project/file.ts`, are still treated as normal prompt text. Command-shaped slash input, such as `/help`, `/model`, or `/mcp`, prints `Slash commands are disabled in bare mode.` and is not executed.
+
+Authentication in bare mode is explicit only. Autohand reads `AUTOHAND_API_KEY` first, then `auth.apiKeyHelper` if configured. It does not read keychain credentials or start OAuth/browser login. Third-party providers continue to use their provider-specific API keys and configuration.
+
+These explicit inputs remain available in bare mode:
+
+| Input                         | Description                                                               |
+| ----------------------------- | ------------------------------------------------------------------------- |
+| `--system-prompt <value>`     | Replace the system prompt with inline text or a path-like value           |
+| `--system-prompt-file <path>` | Replace the system prompt with file contents                              |
+| `--append-system-prompt <value>` | Append inline text or a path-like value to the system prompt           |
+| `--append-system-prompt-file <path>` | Append file contents to the system prompt                         |
+| `--add-dir <path...>`         | Add explicit directories to workspace scope                               |
+| `--mcp-config <path>`         | Load an explicit MCP config file                                          |
+| `--settings`                  | Open settings directly from the CLI flag                                  |
+| `--config <path>`             | Use an explicit Autohand config file                                      |
+| `--agents <json\|path>`       | Load explicit inline agents JSON or an explicit agents directory          |
+| `--plugin-dir <path>`         | Load an explicit plugin/meta-tool directory                               |
 
 ---
 
@@ -1808,6 +1853,7 @@ These flags override config file settings:
 | `-y, --yes`                   | Auto-confirm prompts                                                                           |
 | `--dry-run`                   | Preview without executing                                                                      |
 | `-d, --debug`                 | Enable verbose debug output                                                                    |
+| `--bare`                      | Minimal explicit mode; also sets `AUTOHAND_CODE_SIMPLE=1` and disables slash commands          |
 
 ### Permissions & Safety
 
@@ -1906,6 +1952,13 @@ These flags override config file settings:
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
 | `--sys-prompt <value>`        | Replace entire system prompt (inline string or file path)                                      |
 | `--append-sys-prompt <value>` | Append to system prompt (inline string or file path)                                           |
+| `--system-prompt <value>`     | Replace entire system prompt (inline string or file path)                                      |
+| `--system-prompt-file <path>` | Replace entire system prompt with file contents                                                |
+| `--append-system-prompt <value>` | Append to system prompt (inline string or file path)                                        |
+| `--append-system-prompt-file <path>` | Append file contents to system prompt                                                  |
+| `--mcp-config <path>`         | Load an explicit MCP config file                                                               |
+| `--agents <json\|path>`       | Load explicit inline agents JSON or an explicit agents directory                               |
+| `--plugin-dir <path>`         | Load an explicit plugin/meta-tool directory                                                    |
 
 ### Feature Switch Commands
 

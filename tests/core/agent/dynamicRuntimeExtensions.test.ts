@@ -8,7 +8,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentRuntime } from '../../../src/types.js';
-import { syncDynamicRuntimeExtensions } from '../../../src/core/agent/dynamicRuntimeExtensions.js';
+import {
+  configureAgentRegistry,
+  syncDynamicRuntimeExtensions,
+} from '../../../src/core/agent/dynamicRuntimeExtensions.js';
 import { ToolsRegistry } from '../../../src/core/toolsRegistry.js';
 import type { ToolDefinition, ToolManager } from '../../../src/core/toolManager.js';
 import { AgentRegistry } from '../../../src/core/agents/AgentRegistry.js';
@@ -82,5 +85,44 @@ describe('syncDynamicRuntimeExtensions', () => {
       })
     ]);
     expect(AgentRegistry.getInstance().getExternalPaths()).toEqual([externalAgentsDir]);
+  });
+
+  it('registers inline session agents passed through CLI options', () => {
+    const runtime = {
+      config: { configPath: '', externalAgents: { enabled: false, paths: [] } },
+      workspaceRoot: '/tmp',
+      options: {
+        inlineAgents: [
+          {
+            name: 'reviewer',
+            description: 'Reviews code',
+            systemPrompt: 'You are a code reviewer',
+            tools: ['*'],
+          },
+        ],
+      },
+    } as unknown as AgentRuntime;
+
+    configureAgentRegistry(runtime);
+
+    const reviewer = AgentRegistry.getInstance().getAgent('reviewer');
+    expect(reviewer).toMatchObject({ source: 'session', description: 'Reviews code' });
+  });
+
+  it('clears stale session agents when CLI provides none', () => {
+    const registry = AgentRegistry.getInstance();
+    registry.setSessionAgents([
+      { name: 'stale', description: 'd', systemPrompt: 'p', tools: ['*'] },
+    ]);
+
+    const runtime = {
+      config: { configPath: '', externalAgents: { enabled: false, paths: [] } },
+      workspaceRoot: '/tmp',
+      options: {},
+    } as unknown as AgentRuntime;
+
+    configureAgentRegistry(runtime);
+
+    expect(registry.getAgent('stale')).toBeUndefined();
   });
 });
