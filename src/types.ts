@@ -305,6 +305,8 @@ export interface AuthSettings {
   token?: string;
   user?: AuthUser;
   expiresAt?: string;
+  /** Command that prints an Autohand API key for bare mode authentication. */
+  apiKeyHelper?: string;
 }
 
 export interface CommunitySkillsSettings {
@@ -736,6 +738,8 @@ export type ClientContext = 'cli' | 'chrome' | 'slack' | 'api' | 'restricted';
 
 export interface CLIOptions {
   prompt?: string;
+  /** Minimal mode: disable featureful startup and require explicit context/auth. */
+  bare?: boolean;
   path?: string;
   yes?: boolean;
   dryRun?: boolean;
@@ -805,8 +809,18 @@ export interface CLIOptions {
   searchEngine?: SearchProvider;
   /** Replace entire system prompt (inline string or file path) */
   sysPrompt?: string;
+  /** File path that replaces the entire system prompt. Alias for sysPrompt. */
+  systemPromptFile?: string;
   /** Append to system prompt (inline string or file path) */
   appendSysPrompt?: string;
+  /** File path appended to the system prompt. Alias for appendSysPrompt. */
+  appendSystemPromptFile?: string;
+  /** Explicit MCP config file for bare mode or custom startup. */
+  mcpConfig?: string;
+  /** Explicit external agents directory for bare mode or custom startup. */
+  agents?: string;
+  /** Explicit plugin/meta-tool directory for bare mode or custom startup. */
+  pluginDir?: string;
   /** Thinking/reasoning depth level (none, normal, extended) */
   thinking?: string | boolean;
   /** Granular auto-approve pattern (e.g., 'allow:read,write') */

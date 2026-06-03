@@ -72,4 +72,20 @@ describe('loadAgentInstructionFiles agent profile instructions', () => {
     expect(instructions[0]).toContain('## Project Instructions (AGENTS.md)');
     expect(instructions[0]).not.toContain('Agent Profile Instructions');
   });
+
+  it('bare mode skips implicit AGENTS.md and provider instruction discovery', async () => {
+    const workspaceRoot = path.join(tempDir, 'workspace');
+    const agentHome = path.join(tempDir, 'agent-home');
+    await fs.ensureDir(workspaceRoot);
+    await fs.ensureDir(agentHome);
+    await fs.writeFile(path.join(workspaceRoot, 'AGENTS.md'), '# Project\n\nUse project rules.');
+    await fs.writeFile(path.join(workspaceRoot, 'CLAUDE.md'), '# Claude\n\nUse provider rules.');
+    await fs.writeFile(path.join(agentHome, 'AGENTS.md'), '# Profile\n\nUse profile rules.');
+    process.env.AUTOHAND_HOME = agentHome;
+
+    const host = hostFor(workspaceRoot);
+    host.runtime.options.bare = true;
+
+    await expect(loadAgentInstructionFiles(host)).resolves.toEqual([]);
+  });
 });

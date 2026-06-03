@@ -31,6 +31,7 @@ import { PROJECT_DIR_NAME } from './constants.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessionWorktree.js';
 import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './utils/tmux.js';
 import { registerChromeCommand } from './browser/cliCommand.js';
+import { prepareBareModeConfig } from './runtime/bareMode.js';
 import { getTerminalColumns, renderAutohandLogo } from './utils/asciiArt.js';
 import {
   formatInstallHint,
@@ -116,6 +117,7 @@ async function loadConfigForMcpScope(scopeInput?: string): Promise<{ config: Loa
   const projectConfigPath = await resolveProjectConfigPath(process.cwd());
   return { config: await loadConfig(projectConfigPath, process.cwd()), scope };
 }
+
 import { normalizeMcpCommandForConfig } from './mcp/commandNormalization.js';
 import type { CLIOptions, AgentRuntime } from './types.js';
 import type { AutohandAgent } from './core/agent.js';
@@ -180,6 +182,7 @@ program
   .version(getVersionString(), '-v, --version', 'output the current version')
   .argument('[prompt]', 'Run a single instruction in command mode (same as -p)')
   .option('-p, --prompt [text]', 'Run a single instruction in command mode')
+  .option('--bare', 'Minimal mode: skip hooks, LSP, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and AGENTS.md auto-discovery', false)
   .option('--path <path>', 'Workspace path to operate in')
   .option('-y, --yes', 'Auto-confirm risky actions', false)
   .option('--dry-run', 'Preview actions without applying mutations', false)
@@ -228,7 +231,14 @@ program
   .option('--no-cc, --no-context-compact', 'Disable context compaction')
   .option('--search-engine <provider>', 'Set web search provider (google, brave, duckduckgo, parallel)')
   .option('--sys-prompt <value>', 'Replace entire system prompt (inline string or file path)')
+  .option('--system-prompt <value>', 'Replace entire system prompt (inline string or file path)')
+  .option('--system-prompt-file <path>', 'Replace entire system prompt with file contents')
   .option('--append-sys-prompt <value>', 'Append to system prompt (inline string or file path)')
+  .option('--append-system-prompt <value>', 'Append to system prompt (inline string or file path)')
+  .option('--append-system-prompt-file <path>', 'Append file contents to system prompt')
+  .option('--mcp-config <path>', 'Explicit MCP config file')
+  .option('--agents <path>', 'Explicit external agents directory')
+  .option('--plugin-dir <path>', 'Explicit plugin/meta-tool directory')
   .option('--yolo [pattern]', 'Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)')
   .option('--timeout <seconds>', 'Timeout in seconds for auto-approve mode', parseInt)
   .option('--chrome', 'Enable Chrome browser integration (same as /chrome)')
@@ -249,6 +259,24 @@ program
     }
     if ((opts as Record<string, unknown>).goal === true) {
       opts.goal = '';
+    }
+    if ((opts as Record<string, unknown>).systemPrompt) {
+      opts.sysPrompt = String((opts as Record<string, unknown>).systemPrompt);
+    }
+    if (opts.systemPromptFile) {
+      opts.sysPrompt = opts.systemPromptFile;
+    }
+    if ((opts as Record<string, unknown>).appendSystemPrompt) {
+      opts.appendSysPrompt = String((opts as Record<string, unknown>).appendSystemPrompt);
+    }
+    if (opts.appendSystemPromptFile) {
+      opts.appendSysPrompt = opts.appendSystemPromptFile;
+    }
+    if (opts.bare) {
+      process.env.AUTOHAND_CODE_SIMPLE = '1';
+      opts.syncSettings = false;
+      opts.contextCompact = false;
+      opts.noChrome = true;
     }
 
     // Positional argument acts as prompt (e.g. autohand 'explain this')
@@ -405,7 +433,7 @@ program
     // --about, --permissions, --skill-install, and --learn* are exempt above.
     {
       let authConfig = await loadConfig(opts.config, process.cwd());
-      authConfig = await ensureAuthenticated(authConfig);
+      authConfig = await ensureAuthenticated(authConfig, { bare: opts.bare === true });
       // Propagate refreshed auth into the options so downstream code sees
       // the updated token (e.g. runCLI, runRpcMode, runAutoMode).
       (opts as any)._authConfig = authConfig;
@@ -1004,7 +1032,10 @@ program
 
 async function runCLI(options: CLIOptions): Promise<void> {
   try {
-    let config = await loadConfig(options.config, process.cwd());
+    let config = (options as any)._authConfig ?? await loadConfig(options.config, process.cwd());
+    if (options.bare) {
+      config = await prepareBareModeConfig(config, options);
+    }
     const originalWorkspaceRoot = resolveWorkspaceRoot(config, options.path);
     let workspaceRoot = originalWorkspaceRoot;
     let sessionWorktree: ReturnType<typeof import('./utils/sessionWorktree.js')['prepareSessionWorktree']> | null = null;
@@ -1139,17 +1170,19 @@ async function runCLI(options: CLIOptions): Promise<void> {
 
     // Initialize and start ping service (45-minute intervals for usage tracking)
     // This runs independently of telemetry opt-in for basic usage counting
-    initPingService({
-      cliVersion: packageJson.version,
-      clientType: 'cli',
-    });
-    startPingService();
+    if (!options.bare) {
+      initPingService({
+        cliVersion: packageJson.version,
+        clientType: 'cli',
+      });
+      startPingService();
 
-    // Stop ping service on process exit
-    const stopPing = () => stopPingService();
-    process.on('exit', stopPing);
-    process.on('SIGINT', stopPing);
-    process.on('SIGTERM', stopPing);
+      // Stop ping service on process exit
+      const stopPing = () => stopPingService();
+      process.on('exit', stopPing);
+      process.on('SIGINT', stopPing);
+      process.on('SIGTERM', stopPing);
+    }
 
     // Print welcome immediately with no version/auth info - don't block on network
     printWelcome(runtime, undefined, null);
@@ -1167,25 +1200,28 @@ async function runCLI(options: CLIOptions): Promise<void> {
 
     // Run startup checks synchronously before prompt to prevent output racing.
     // git init, tool checks etc. must finish printing BEFORE the prompt renders.
-    try {
-      const checkResults = await runStartupChecks(workspaceRoot);
-      printStartupCheckResults(checkResults);
-      if (!checkResults.allRequiredMet) {
-        console.log(chalk.yellow('Continuing anyway, but some features may not work correctly.\n'));
+    if (!options.bare) {
+      try {
+        const checkResults = await runStartupChecks(workspaceRoot);
+        printStartupCheckResults(checkResults);
+        if (!checkResults.allRequiredMet) {
+          console.log(chalk.yellow('Continuing anyway, but some features may not work correctly.\n'));
+        }
+      } catch {
+        // Non-critical - continue without startup check output
       }
-    } catch {
-      // Non-critical - continue without startup check output
     }
 
     // Run auth, version check, sync in background (fire-and-forget).
     // These are network-bound and should not block the prompt.
-    (async () => {
-      try {
-        const versionCheckPromise = config.ui?.checkForUpdates !== false
-          ? checkForUpdates(packageJson.version, {
-              checkIntervalHours: config.ui?.updateCheckInterval ?? 24,
-            })
-          : Promise.resolve(null);
+    if (!options.bare) {
+      (async () => {
+        try {
+          const versionCheckPromise = config.ui?.checkForUpdates !== false
+            ? checkForUpdates(packageJson.version, {
+                checkIntervalHours: config.ui?.updateCheckInterval ?? 24,
+              })
+            : Promise.resolve(null);
 
         const [authUser, versionResult] = await Promise.all([
           validateAuthOnStartup(config),
@@ -1242,10 +1278,11 @@ async function runCLI(options: CLIOptions): Promise<void> {
             }
           }
         }
-      } catch {
-        // Non-critical startup tasks - don't crash on failure
-      }
-    })();
+        } catch {
+          // Non-critical startup tasks - don't crash on failure
+        }
+      })();
+    }
 
     // Note: Git repo check is passed to the agent via runtime.
     // The agent/LLM can suggest initializing git if needed for complex tasks.

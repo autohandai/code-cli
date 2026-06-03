@@ -118,6 +118,10 @@ export async function collectAgentContextSummary(
 }
 
 export async function loadAgentInstructionFiles(host: AgentContextRuntimeHost): Promise<string[]> {
+  if (host.runtime.options.bare) {
+    return [];
+  }
+
   const workspace = host.runtime.workspaceRoot;
   const agentsPath = path.join(workspace, 'AGENTS.md');
   const envAutohandHome = process.env.AUTOHAND_HOME?.trim();
@@ -268,6 +272,10 @@ export async function resetAgentConversationContext(host: AgentContextRuntimeHos
 }
 
 export async function generateAgentSessionBootstrap(host: AgentContextRuntimeHost): Promise<string> {
+  if (host.runtime.options.bare) {
+    return '[Session Bootstrap]';
+  }
+
   return buildSessionBootstrap({
     workspaceRoot: host.runtime.workspaceRoot,
     getContextMemories: (limit) => host.memoryManager.getContextMemories(limit),

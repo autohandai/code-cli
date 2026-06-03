@@ -99,10 +99,12 @@ export class SystemPromptBuilder {
         'Skip the completion report for simple Q&A or conversational turns without actions.',
       ];
 
-    const [memories, instructions] = await Promise.all([
-      this.options.getContextMemories(),
-      this.options.loadInstructionFiles(),
-    ]);
+    const [memories, instructions] = runtime.options.bare
+      ? ['', [] as string[]]
+      : await Promise.all([
+          this.options.getContextMemories(),
+          this.options.loadInstructionFiles(),
+        ]);
 
     const authUser = runtime.config.auth?.user;
 
@@ -384,9 +386,12 @@ export class SystemPromptBuilder {
       }
     }
 
-    const agentRegistry = configureAgentRegistry(runtime);
-    await agentRegistry.loadAgents();
-    const allAgents = agentRegistry.getAllAgents();
+    const allAgents: Array<{ name: string; description: string }> = [];
+    if (!runtime.options.bare) {
+      const agentRegistry = configureAgentRegistry(runtime);
+      await agentRegistry.loadAgents();
+      allAgents.push(...agentRegistry.getAllAgents());
+    }
     if (allAgents.length > 0) {
       parts.push('', '## Available Agents');
       parts.push('These agents can be spawned as teammates using create_team + add_teammate:');

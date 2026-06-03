@@ -155,6 +155,20 @@ export function clearAgentQueuesAndAbort(host: AgentLifecycleHost): void {
   }
 
 export async function initializeAgentManagers(host: AgentLifecycleHost): Promise<void> {
+    if (host.runtime?.options?.bare === true) {
+      await runWithConcurrency([
+        { label: 'session_manager', run: async () => host.sessionManager.initialize() },
+        { label: 'skills_registry', run: async () => host.skillsRegistry.initialize() },
+        {
+          label: 'workspace_files',
+          run: async () => {
+            await host.workspaceFileCollector.collectWorkspaceFiles();
+          },
+        },
+      ], host.getParallelismLimit());
+      return;
+    }
+
     await runWithConcurrency([
       { label: 'session_manager', run: async () => host.sessionManager.initialize() },
       { label: 'project_manager', run: async () => host.projectManager.initialize() },
@@ -192,7 +206,9 @@ export async function performAgentBackgroundInit(host: AgentLifecycleHost): Prom
       // Phase 2: Sequential setup that depends on phase 1
 
       await host.skillsRegistry.setWorkspace(host.runtime.workspaceRoot);
-      host.feedbackManager.startSession();
+      if (host.runtime?.options?.bare !== true) {
+        host.feedbackManager.startSession();
+      }
       const providerSettings = getProviderConfig(host.runtime.config, host.activeProvider);
       const model = host.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
       host.sessionStartedAt = Date.now();
@@ -203,10 +219,12 @@ export async function performAgentBackgroundInit(host: AgentLifecycleHost): Prom
 
       // Inject explicit session bootstrap so the LLM is consciously aware of
       // memories, AGENTS.md, skills, and project context from the first turn.
-      await host.injectSessionBootstrap();
+      if (host.runtime?.options?.bare !== true) {
+        await host.injectSessionBootstrap();
+      }
 
       // Phase 3: Telemetry (no stdout output)
-      if (session) {
+      if (session && host.runtime?.options?.bare !== true) {
         await host.telemetryManager.startSession(
           session.metadata.sessionId,
           model,
@@ -233,10 +251,12 @@ export async function ensureAgentInitComplete(host: AgentLifecycleHost): Promise
 
       // Fire session-start hook now that the prompt is closed and stdout is clean
       const session = host.sessionManager.getCurrentSession();
-      await host.hookManager.executeHooks('session-start', {
-        sessionId: session?.metadata.sessionId,
-        sessionType: 'startup',
-      });
+      if (host.runtime?.options?.bare !== true) {
+        await host.hookManager.executeHooks('session-start', {
+          sessionId: session?.metadata.sessionId,
+          sessionType: 'startup',
+        });
+      }
     }
   }
 

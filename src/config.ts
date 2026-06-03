@@ -728,6 +728,10 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
     }
   }
 
+  if (config.auth?.apiKeyHelper !== undefined && typeof config.auth.apiKeyHelper !== "string") {
+    throw new Error(`auth.apiKeyHelper must be a string in ${configPath}`);
+  }
+
   // Validate agent config
   if (config.agent) {
     if (

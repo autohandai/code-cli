@@ -155,4 +155,22 @@ describe('SystemPromptBuilder', () => {
     expect(prompt).toContain('Profile map');
     expect(prompt.endsWith('Additional launch metadata')).toBe(true);
   });
+
+  it('bare mode omits implicit memories, discovered instructions, and discovered agents from the system prompt', async () => {
+    const prompt = await createBuilder({
+      runtime: {
+        options: { bare: true },
+        workspaceRoot: process.cwd(),
+        config: {},
+      },
+      getContextMemories: vi.fn(async () => 'Remember prior project conventions.'),
+      loadInstructionFiles: vi.fn(async () => [
+        '## Project Instructions (AGENTS.md)\nProject rules',
+      ]),
+    }).build();
+
+    expect(prompt).not.toContain('Remember prior project conventions.');
+    expect(prompt).not.toContain('Project rules');
+    expect(prompt).not.toContain('## Available Agents');
+  });
 });

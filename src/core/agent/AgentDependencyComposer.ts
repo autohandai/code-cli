@@ -83,7 +83,7 @@ export function initializeAgentDependencies(
     const providerSettings = getProviderConfig(runtime.config, initialProvider);
     const model = runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
     host.contextWindow = getContextWindow(model, providerSettings?.contextWindow);
-    if (initialProvider === 'openrouter' && !providerSettings?.contextWindow && model !== 'unconfigured') {
+    if (!runtime.options.bare && initialProvider === 'openrouter' && !providerSettings?.contextWindow && model !== 'unconfigured') {
       void getOpenRouterModelContextWindow(model)
         .then((contextWindow) => {
           if (!contextWindow || contextWindow === host.contextWindow) return;
@@ -122,7 +122,7 @@ export function initializeAgentDependencies(
     // Initialize suggestion engine if enabled in config.
     // Derive allowed tools from the user's permission config so suggestions
     // only propose actions the user can actually execute.
-    if (runtime.config.ui?.promptSuggestions !== false) {
+    if (!runtime.options.bare && runtime.config.ui?.promptSuggestions !== false) {
       const permMode = runtime.config.permissions?.mode ?? 'interactive';
       const context = permMode === 'restricted' ? 'restricted' as const : 'cli' as const;
       const toolFilter = createToolFilter(context);
@@ -140,7 +140,8 @@ export function initializeAgentDependencies(
     }
 
     configureAgentRegistry(runtime);
-    host.toolsRegistry = createToolsRegistry(runtime.workspaceRoot);
+    const pluginDir = (runtime.config as typeof runtime.config & { pluginDir?: string }).pluginDir;
+    host.toolsRegistry = createToolsRegistry(runtime.workspaceRoot, pluginDir ?? AUTOHAND_PATHS.tools);
     host.memoryManager = new MemoryManager(runtime.workspaceRoot);
 
     // Initialize context orchestrator for auto-compaction
@@ -362,7 +363,9 @@ export function initializeAgentDependencies(
       clientVersion: packageJson.version
     });
     host.featureFlagManager = new RemoteFeatureFlagManager(runtime.config);
-    host.featureFlagManager.refreshFeatureFlags().catch(() => {});
+    if (!runtime.options.bare) {
+      host.featureFlagManager.refreshFeatureFlags().catch(() => {});
+    }
 
     // Initialize community skills client
     const communitySettings = runtime.config.communitySkills ?? {};
