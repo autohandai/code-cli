@@ -13,6 +13,7 @@ import { isImmediateCommand, isShellCommand, parseShellCommand } from '../../ui/
 import { routeOutput } from '../immediateCommandRouter.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { describeInstruction, formatElapsedTime } from './AgentFormatter.js';
+import { BARE_SLASH_COMMANDS_DISABLED_MESSAGE } from '../../runtime/bareMode.js';
 
 export interface AgentInputTurnHost {
   [key: string]: any;
@@ -80,6 +81,12 @@ export function setupAgentEscListener(host: AgentInputTurnHost, controller: Abor
               routeOutput(chalk.red(error.message || 'Command failed'), routeOpts);
             });
         } else if (text.startsWith('/') && !isLikelyFilePathSlashInput(text)) {
+          if (host.runtime.options.bare) {
+            routeOutput(chalk.gray(BARE_SLASH_COMMANDS_DISABLED_MESSAGE), routeOpts);
+            host.updateInputLine();
+            return;
+          }
+
           const { command, args } = host.parseSlashCommand(text);
           host.handleSlashCommand(command, args)
             .then((handled: any) => {
