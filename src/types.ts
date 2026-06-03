@@ -736,6 +736,19 @@ export interface LoadedConfig extends AutohandConfig {
 /** Client context determines which tools are available */
 export type ClientContext = 'cli' | 'chrome' | 'slack' | 'api' | 'restricted';
 
+/**
+ * A custom agent injected for the lifetime of a single session via
+ * `--agents <json>`. Normalized from the Claude Code input format (which uses a
+ * `prompt` field) into the registry's `systemPrompt` shape.
+ */
+export interface InlineAgentDefinition {
+  name: string;
+  description: string;
+  systemPrompt: string;
+  tools: string[];
+  model?: string;
+}
+
 export interface CLIOptions {
   prompt?: string;
   /** Minimal mode: disable featureful startup and require explicit context/auth. */
@@ -817,8 +830,18 @@ export interface CLIOptions {
   appendSystemPromptFile?: string;
   /** Explicit MCP config file for bare mode or custom startup. */
   mcpConfig?: string;
-  /** Explicit external agents directory for bare mode or custom startup. */
+  /**
+   * Custom agents injected non-interactively. Accepts either inline JSON in the
+   * Claude Code format (`{"reviewer":{"description":"...","prompt":"..."}}`) or
+   * an external agents directory path.
+   */
   agents?: string;
+  /**
+   * Validated inline agent definitions parsed from `--agents <json>` at startup.
+   * Populated by the CLI when `agents` holds inline JSON, then registered as
+   * session-scoped agents on the runtime.
+   */
+  inlineAgents?: InlineAgentDefinition[];
   /** Explicit plugin/meta-tool directory for bare mode or custom startup. */
   pluginDir?: string;
   /** Thinking/reasoning depth level (none, normal, extended) */

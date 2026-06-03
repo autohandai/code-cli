@@ -22,6 +22,7 @@ import { isToolAllowedByYolo, normalizeYoloInput, parseYoloPattern } from '../..
 import { normalizePermissionPromptResponse, type PermissionPromptResult } from '../../permissions/types.js';
 import type { Plan } from '../../modes/planMode/types.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
+import { BARE_SLASH_COMMANDS_DISABLED_MESSAGE } from '../../runtime/bareMode.js';
 
 export interface AgentCommandRuntimeHost {
   [key: string]: any;
@@ -117,6 +118,10 @@ export async function connectAgentAcpMcpServers(host: AgentCommandRuntimeHost, c
   }
 
 export async function runAgentSlashCommandWithInput(host: AgentCommandRuntimeHost, command: string, args: string[]): Promise<string | null> {
+    if (host.runtime.options.bare) {
+      return BARE_SLASH_COMMANDS_DISABLED_MESSAGE;
+    }
+
     const queueEnabled = host.runtime.config.agent?.enableRequestQueue !== false;
     const isInteractive = INTERACTIVE_SLASH_COMMANDS.has(command);
     const canUsePersistentInput =
@@ -166,6 +171,10 @@ export async function runAgentSlashCommandWithInput(host: AgentCommandRuntimeHos
   }
 
 export async function handleAgentSlashCommand(host: AgentCommandRuntimeHost, command: string, args: string[] = []): Promise<string | null> {
+    if (host.runtime.options.bare) {
+      return BARE_SLASH_COMMANDS_DISABLED_MESSAGE;
+    }
+
     // /mcp depends on background startup state (notably MCP auto-connect).
     // Ensure startup init is settled before rendering server status/actions.
     if (command === '/mcp' || command === '/mcp install') {
@@ -185,6 +194,10 @@ export function isAgentSlashCommand(_host: AgentCommandRuntimeHost, input: strin
   }
 
 export function isAgentSlashCommandSupported(host: AgentCommandRuntimeHost, command: string): boolean {
+    if (host.runtime.options.bare) {
+      return false;
+    }
+
     return host.slashHandler.isCommandSupported(command);
   }
 

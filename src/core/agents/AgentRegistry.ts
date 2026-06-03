@@ -9,7 +9,7 @@ import os from 'os';
 import path from 'path';
 import { z } from 'zod';
 import { AUTOHAND_PATHS } from '../../constants.js';
-import type { ExternalAgentsConfig } from '../../types.js';
+import type { ExternalAgentsConfig, InlineAgentDefinition } from '../../types.js';
 
 // Schema for Agent Configuration
 export const AgentConfigSchema = z.object({
@@ -21,8 +21,75 @@ export const AgentConfigSchema = z.object({
 
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 
+/**
+ * Input schema for agents injected inline via `--agents <json>`.
+ * Matches the Claude Code format: a map of agent name to definition, where each
+ * definition uses `prompt` (mapped to the registry's `systemPrompt`).
+ */
+export const InlineAgentInputSchema = z.object({
+    description: z.string().min(1, 'agent "description" is required'),
+    prompt: z.string().min(1, 'agent "prompt" is required'),
+    tools: z.union([z.array(z.string()), z.string()]).optional(),
+    model: z.string().optional(),
+});
+
+export const InlineAgentsInputSchema = z
+    .record(z.string().min(1, 'agent name is required'), InlineAgentInputSchema)
+    .refine((value) => Object.keys(value).length > 0, { message: 'no agents defined' });
+
+export type InlineAgentInput = z.infer<typeof InlineAgentInputSchema>;
+
+/**
+ * Detect whether a `--agents` value is inline JSON (Claude Code style) rather
+ * than a filesystem path to an external agents directory.
+ */
+export function looksLikeInlineAgents(value: string): boolean {
+    return value.trim().startsWith('{');
+}
+
+function normalizeInlineTools(tools?: string[] | string): string[] {
+    const values = Array.isArray(tools)
+        ? tools
+        : typeof tools === 'string'
+            ? tools.split(',')
+            : [];
+    const cleaned = values.map((tool) => tool.trim()).filter(Boolean);
+    return cleaned.length > 0 ? cleaned : ['*'];
+}
+
+/**
+ * Parse and validate inline agent definitions supplied via `--agents <json>`.
+ * Accepts a JSON string or an already-parsed object and throws an Error with a
+ * human-readable message when the payload is malformed or fails validation.
+ */
+export function parseInlineAgents(input: string | Record<string, unknown>): InlineAgentDefinition[] {
+    let raw: unknown = input;
+    if (typeof input === 'string') {
+        try {
+            raw = JSON.parse(input);
+        } catch (error) {
+            throw new Error(`invalid JSON (${(error as Error).message})`);
+        }
+    }
+
+    const result = InlineAgentsInputSchema.safeParse(raw);
+    if (!result.success) {
+        const issue = result.error.issues[0];
+        const location = issue?.path?.length ? `${issue.path.join('.')}: ` : '';
+        throw new Error(`${location}${issue?.message ?? 'invalid agents definition'}`);
+    }
+
+    return Object.entries(result.data).map(([name, def]) => ({
+        name,
+        description: def.description,
+        systemPrompt: def.prompt,
+        tools: normalizeInlineTools(def.tools),
+        model: def.model,
+    }));
+}
+
 /** Source of an agent definition */
-export type AgentSource = 'builtin' | 'user' | 'external' | 'auto-generated';
+export type AgentSource = 'builtin' | 'user' | 'external' | 'auto-generated' | 'session';
 
 export interface AgentDefinition extends AgentConfig {
     name: string; // Derived from filename
@@ -79,6 +146,12 @@ function parseMarkdownAgent(content: string): {
 export class AgentRegistry {
     private static instance: AgentRegistry;
     private agents: Map<string, AgentDefinition> = new Map();
+    /**
+     * Session-scoped agents injected via `--agents <json>`. Kept separate from
+     * file-loaded agents so they survive `loadAgents()` (which clears `agents`)
+     * and take precedence over agents with the same name.
+     */
+    private sessionAgents: Map<string, AgentDefinition> = new Map();
     private agentsDir: string;
     private externalPaths: string[] = [];
 
@@ -182,11 +255,46 @@ export class AgentRegistry {
     }
 
     public getAgent(name: string): AgentDefinition | undefined {
-        return this.agents.get(name);
+        return this.sessionAgents.get(name) ?? this.agents.get(name);
     }
 
     public getAllAgents(): AgentDefinition[] {
-        return Array.from(this.agents.values());
+        const merged = new Map<string, AgentDefinition>();
+        for (const agent of this.agents.values()) {
+            merged.set(agent.name, agent);
+        }
+        // Session agents override file-based agents with the same name.
+        for (const agent of this.sessionAgents.values()) {
+            merged.set(agent.name, agent);
+        }
+        return Array.from(merged.values());
+    }
+
+    /**
+     * Replace the set of session-scoped agents (injected via `--agents <json>`).
+     * Passing an empty array clears any previously registered session agents.
+     */
+    public setSessionAgents(defs: InlineAgentDefinition[]): void {
+        this.sessionAgents.clear();
+        for (const def of defs) {
+            this.sessionAgents.set(def.name, {
+                name: def.name,
+                path: `<inline:${def.name}>`,
+                source: 'session',
+                description: def.description,
+                systemPrompt: def.systemPrompt,
+                tools: def.tools.length > 0 ? def.tools : ['*'],
+                model: def.model,
+            });
+        }
+    }
+
+    public clearSessionAgents(): void {
+        this.sessionAgents.clear();
+    }
+
+    public getSessionAgents(): AgentDefinition[] {
+        return Array.from(this.sessionAgents.values());
     }
 
     public getAgentsDirectory(): string {

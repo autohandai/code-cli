@@ -22,6 +22,7 @@ import { ActionExecutor } from '../actionExecutor.js';
 import { SlashCommandHandler } from '../slashCommandHandler.js';
 import { routeOutput } from '../immediateCommandRouter.js';
 import { SLASH_COMMANDS } from '../slashCommands.js';
+import { BARE_SLASH_COMMANDS_DISABLED_MESSAGE } from '../../runtime/bareMode.js';
 import { parseYoloPattern, buildPermissionSettingsFromYolo } from '../../permissions/yoloMode.js';
 import { SessionManager } from '../../session/SessionManager.js';
 import { ProjectManager } from '../../session/ProjectManager.js';
@@ -1006,6 +1007,11 @@ export function initializeAgentDependencies(
             routeOutput(chalk.red(error.message || 'Command failed'), routeOpts);
           });
       } else if (text.startsWith('/') && !isLikelyFilePathSlashInput(text)) {
+        if (host.runtime.options.bare) {
+          routeOutput(chalk.gray(BARE_SLASH_COMMANDS_DISABLED_MESSAGE), routeOpts);
+          return;
+        }
+
         const { command, args } = host.parseSlashCommand(text);
         host.handleSlashCommand(command, args)
           .then((handled: any) => {
@@ -1229,7 +1235,10 @@ export function initializeAgentDependencies(
         }
       },
     };
-    host.slashHandler = new SlashCommandHandler(slashContext, SLASH_COMMANDS);
+    host.slashHandler = new SlashCommandHandler(
+      slashContext,
+      host.runtime.options.bare ? [] : SLASH_COMMANDS
+    );
   }
 
   /**

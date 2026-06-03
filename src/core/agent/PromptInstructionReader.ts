@@ -9,6 +9,7 @@ import { renderTerminalMarkdown } from '../immediateCommandRouter.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { SLASH_COMMANDS } from '../slashCommands.js';
 import { isAutohandDebugEnabled, writeAutohandDebugLine } from '../../utils/debugLog.js';
+import { BARE_SLASH_COMMANDS_DISABLED_MESSAGE } from '../../runtime/bareMode.js';
 
 export interface AgentPromptInstructionHost {
   [key: string]: any;
@@ -57,7 +58,7 @@ export async function promptForAgentInstruction(host: AgentPromptInstructionHost
     try {
       input = await readInstruction(
         () => host.workspaceFileCollector.getCachedFiles(),
-        SLASH_COMMANDS,
+        host.runtime.options.bare ? [] : SLASH_COMMANDS,
         statusLine,
         {}, // default IO
         (data, mimeType, filename) => host.imageManager.add(data, mimeType, filename),
@@ -93,11 +94,20 @@ export async function promptForAgentInstruction(host: AgentPromptInstructionHost
     }
 
     if (normalized === '/') {
-      console.log(chalk.gray('Type a slash command name (e.g. /diff) and press Enter.'));
+      console.log(chalk.gray(
+        host.runtime.options.bare
+          ? BARE_SLASH_COMMANDS_DISABLED_MESSAGE
+          : 'Type a slash command name (e.g. /diff) and press Enter.'
+      ));
       return null;
     }
 
     if (normalized.startsWith('/')) {
+      if (host.runtime.options.bare && !isLikelyFilePathSlashInput(normalized)) {
+        console.log(chalk.gray(BARE_SLASH_COMMANDS_DISABLED_MESSAGE));
+        return null;
+      }
+
       // Always prioritize known slash commands, even when args contain '/'
       // (e.g. package specs like "@playwright/mcp@latest").
       const parsed = host.parseSlashCommand(normalized);
