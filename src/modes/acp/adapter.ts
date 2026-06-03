@@ -44,6 +44,7 @@ import { ConversationManager } from '../../core/conversationManager.js';
 import { FileActionManager } from '../../actions/filesystem.js';
 import { ProviderFactory } from '../../providers/ProviderFactory.js';
 import { loadConfig } from '../../config.js';
+import { prepareBareModeConfig } from '../../runtime/bareMode.js';
 import type { AgentOutputEvent, AgentRuntime, CLIOptions, LoadedConfig, LLMToolCall } from '../../types.js';
 import type { McpServerConfig } from '../../mcp/types.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from '../../utils/sessionWorktree.js';
@@ -90,7 +91,11 @@ export class AutohandAcpAdapter implements Agent {
 
   private async ensureConfig(): Promise<LoadedConfig> {
     if (!this.config) {
-      this.config = await loadConfig(undefined, process.cwd());
+      this.config = await prepareBareModeConfig(
+        (this.cliOptions as CLIOptions & { _authConfig?: LoadedConfig })._authConfig
+          ?? await loadConfig(this.cliOptions.config, process.cwd()),
+        this.cliOptions
+      );
     }
     return this.config;
   }
@@ -215,6 +220,7 @@ export class AutohandAcpAdapter implements Agent {
       config,
       workspaceRoot,
       options: {
+        bare: this.cliOptions.bare,
         yes: modeId === 'unrestricted' || modeId === 'full-access',
         unrestricted: modeId === 'unrestricted',
         restricted: modeId === 'restricted',
@@ -386,7 +392,7 @@ export class AutohandAcpAdapter implements Agent {
     this.clientCapabilities = params.clientCapabilities;
 
     // Load config once for the lifetime of the connection
-    this.config = await loadConfig(undefined, process.cwd());
+    this.config = await this.ensureConfig();
 
     return {
       protocolVersion: PROTOCOL_VERSION,

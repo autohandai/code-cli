@@ -13,7 +13,7 @@ import { getTerminalColumns, renderAutohandLogo } from '../utils/asciiArt.js';
 import { checkForUpdates } from '../utils/versionCheck.js';
 import packageJson from '../../package.json' with { type: 'json' };
 import type { LoadedConfig } from '../types.js';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { platform } from 'node:os';
 
 /**
@@ -114,7 +114,25 @@ async function runUpgrade(): Promise<void> {
  *
  * Returns the (possibly refreshed) config.
  */
-export async function ensureAuthenticated(config: LoadedConfig): Promise<LoadedConfig> {
+export async function ensureAuthenticated(
+  config: LoadedConfig,
+  options: { bare?: boolean } = {}
+): Promise<LoadedConfig> {
+  if (options.bare) {
+    const token = resolveBareModeApiKey(config);
+    if (!token) {
+      console.error(chalk.red('Bare mode requires AUTOHAND_API_KEY or auth.apiKeyHelper in --settings/config.'));
+      process.exit(1);
+    }
+    return {
+      ...config,
+      auth: {
+        ...config.auth,
+        token,
+      },
+    };
+  }
+
   // Fast path: token exists and hasn't expired locally
   if (config.auth?.token) {
     if (isTokenExpiredLocally(config)) {
@@ -130,6 +148,31 @@ export async function ensureAuthenticated(config: LoadedConfig): Promise<LoadedC
 
   // No token at all — need to login
   return await promptLogin(config);
+}
+
+function resolveBareModeApiKey(config: LoadedConfig): string | null {
+  const envToken = process.env.AUTOHAND_API_KEY?.trim();
+  if (envToken) {
+    return envToken;
+  }
+
+  const helper = config.auth?.apiKeyHelper?.trim();
+  if (!helper) {
+    return null;
+  }
+
+  const result = spawnSync(helper, {
+    shell: true,
+    encoding: 'utf8',
+    timeout: 5000,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  if (result.status !== 0 || result.error) {
+    return null;
+  }
+
+  const token = String(result.stdout || '').trim();
+  return token.length > 0 ? token : null;
 }
 
 /**

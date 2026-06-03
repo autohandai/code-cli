@@ -47,6 +47,7 @@ describe('ensureAuthenticated', () => {
   let exitSpy: ReturnType<typeof vi.spyOn>;
   const originalIsTTY = process.stdout.isTTY;
   const originalColumns = process.stdout.columns;
+  const originalApiKey = process.env.AUTOHAND_API_KEY;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -62,6 +63,11 @@ describe('ensureAuthenticated', () => {
   });
 
   afterEach(() => {
+    if (originalApiKey === undefined) {
+      delete process.env.AUTOHAND_API_KEY;
+    } else {
+      process.env.AUTOHAND_API_KEY = originalApiKey;
+    }
     exitSpy.mockRestore();
     Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, writable: true });
     Object.defineProperty(process.stdout, 'columns', { value: originalColumns, writable: true, configurable: true });
@@ -83,6 +89,31 @@ describe('ensureAuthenticated', () => {
     expect(AuthClient).not.toHaveBeenCalled();
     expect(mockValidateSession).not.toHaveBeenCalled();
     expect(showModal).not.toHaveBeenCalled();
+  });
+
+  it('bare mode authenticates from AUTOHAND_API_KEY without OAuth login', async () => {
+    process.env.AUTOHAND_API_KEY = 'bare-env-token';
+    const mockConfig: LoadedConfig = {
+      configPath: '/tmp/config.json',
+    };
+
+    const result = await ensureAuthenticated(mockConfig, { bare: true });
+
+    expect(result.auth?.token).toBe('bare-env-token');
+    expect(showModal).not.toHaveBeenCalled();
+    expect(AuthClient).not.toHaveBeenCalled();
+  });
+
+  it('bare mode fails closed instead of launching OAuth when no API key source exists', async () => {
+    delete process.env.AUTOHAND_API_KEY;
+    const mockConfig: LoadedConfig = {
+      configPath: '/tmp/config.json',
+    };
+
+    await expect(ensureAuthenticated(mockConfig, { bare: true })).rejects.toThrow('PROCESS_EXIT');
+
+    expect(showModal).not.toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
   it('trusts local token when server returns 401 but token is not expired locally', async () => {

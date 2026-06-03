@@ -12,6 +12,7 @@ import { FileActionManager } from '../../actions/filesystem.js';
 import { ProviderFactory } from '../../providers/ProviderFactory.js';
 import { loadConfig } from '../../config.js';
 import { checkAuthenticated } from '../../auth/index.js';
+import { prepareBareModeConfig } from '../../runtime/bareMode.js';
 import { checkWorkspaceSafety } from '../../startup/workspaceSafety.js';
 import { validateWorkspacePath } from '../../startup/checks.js';
 import {
@@ -19,7 +20,7 @@ import {
   parseYoloPattern,
   buildPermissionSettingsFromYolo,
 } from '../../permissions/yoloMode.js';
-import type { CLIOptions, AgentRuntime } from '../../types.js';
+import type { CLIOptions, AgentRuntime, LoadedConfig } from '../../types.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from '../../utils/sessionWorktree.js';
 import type {
   JsonRpcRequest,
@@ -124,7 +125,11 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
 
   try {
     // Load configuration
-    const config = await loadConfig(options.config, process.cwd());
+    const config = await prepareBareModeConfig(
+      (options as CLIOptions & { _authConfig?: LoadedConfig })._authConfig
+        ?? await loadConfig(options.config, process.cwd()),
+      options
+    );
 
     // Process --yolo flag BEFORE creating runtime (same as main CLI flow)
     const normalizedYolo = normalizeYoloInput(options.yolo as string | boolean | undefined);
