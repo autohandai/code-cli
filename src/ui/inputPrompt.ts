@@ -1853,6 +1853,19 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
   /** Helper to read current text from TextBuffer (the source of truth). */
   const getCurrentText = (): string => textBuffer.getText();
 
+  const getReadlineCursorOffset = (): number => {
+    const lines = textBuffer.getLines();
+    const cursorRow = textBuffer.getCursorRow();
+    const cursorCol = textBuffer.getCursorCol();
+    let offset = 0;
+
+    for (let i = 0; i < cursorRow; i++) {
+      offset += (lines[i] ?? '').length + NEWLINE_MARKER.length;
+    }
+
+    return offset + cursorCol;
+  };
+
   /**
    * Sync readline's internal buffer from TextBuffer so that code that reads
    * rl.line (suggestions, ghost text, mention preview, etc.) sees the correct value.
@@ -1865,7 +1878,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     // (they check for NEWLINE_MARKER to disable ghost text on multi-line)
     const flat = text.replace(/\n/g, NEWLINE_MARKER);
     rlAny.line = flat;
-    rlAny.cursor = flat.length;
+    rlAny.cursor = getReadlineCursorOffset();
   };
 
   const getInlineGhostSuffix = (): string | undefined => {

@@ -1198,6 +1198,10 @@ describe('multi-line state exports', () => {
 });
 
 describe('TextBuffer integration into inputPrompt', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('buildMultiLineRenderState handles real newlines identically to NEWLINE_MARKER', async () => {
     const { buildMultiLineRenderState, NEWLINE_MARKER } = await import('../../src/ui/inputPrompt.js');
     const stripAnsi = (s: string) => s.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
@@ -1263,6 +1267,90 @@ describe('TextBuffer integration into inputPrompt', () => {
 
     expect(state.cursorRow).toBe(1);
     expect(state.lineCount).toBe(2);
+  });
+
+  it('keeps readline cursor mirrored to the TextBuffer cursor during mid-line edits', async () => {
+    const stdOutput = new EventEmitter() as NodeJS.WriteStream & {
+      columns: number;
+      write: (chunk: string | Buffer) => boolean;
+    };
+    stdOutput.columns = 120;
+    stdOutput.write = vi.fn(() => true);
+
+    const stdInput = new EventEmitter() as NodeJS.ReadStream & {
+      isTTY: boolean;
+      setRawMode: (mode: boolean) => void;
+      setEncoding: (encoding: string) => void;
+      resume: () => void;
+      pause: () => void;
+      read: () => null;
+    };
+    stdInput.isTTY = true;
+    stdInput.setRawMode = vi.fn();
+    stdInput.setEncoding = vi.fn();
+    stdInput.resume = vi.fn();
+    stdInput.pause = vi.fn();
+    stdInput.read = vi.fn(() => null);
+
+    const rl = new EventEmitter() as readline.Interface & {
+      line: string;
+      cursor: number;
+      input: NodeJS.ReadStream;
+      output: NodeJS.WriteStream;
+      close: () => void;
+      pause: () => void;
+      resume: () => void;
+      prompt: () => void;
+      setPrompt: (prompt: string) => void;
+      _refreshLine?: () => void;
+      _moveCursor?: () => void;
+      _ttyWrite?: (s: string, key: readline.Key) => void;
+    };
+    rl.line = '';
+    rl.cursor = 0;
+    rl.input = stdInput;
+    rl.output = stdOutput;
+    rl.close = vi.fn();
+    rl.pause = vi.fn();
+    rl.resume = vi.fn();
+    rl.prompt = vi.fn();
+    rl.setPrompt = vi.fn();
+    rl._refreshLine = vi.fn();
+    rl._moveCursor = vi.fn();
+    rl._ttyWrite = vi.fn();
+
+    vi.spyOn(readline, 'createInterface').mockReturnValue(rl);
+    vi.spyOn(readline, 'emitKeypressEvents').mockImplementation(() => undefined);
+    vi.spyOn(readline, 'cursorTo').mockImplementation(() => true as any);
+    vi.spyOn(readline, 'clearLine').mockImplementation(() => true as any);
+    vi.spyOn(readline, 'moveCursor').mockImplementation(() => true as any);
+
+    const { readInstruction, promptInterrupt } = await import('../../src/ui/inputPrompt.js');
+
+    const promptPromise = readInstruction(() => [], [], undefined, { input: stdInput, output: stdOutput });
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const emitKey = (str: string, key: Partial<readline.Key>) => {
+      stdInput.emit('keypress', str, key);
+    };
+
+    for (const ch of 'hello') {
+      emitKey(ch, { sequence: ch, name: ch });
+    }
+    emitKey('', { name: 'left', sequence: '\u001b[D' });
+    emitKey('', { name: 'left', sequence: '\u001b[D' });
+
+    expect(rl.line).toBe('hello');
+    expect(rl.cursor).toBe(3);
+
+    emitKey('X', { sequence: 'X', name: 'X' });
+
+    expect(rl.line).toBe('helXlo');
+    expect(rl.cursor).toBe(4);
+
+    promptInterrupt('done');
+    await expect(promptPromise).resolves.toBe('done');
   });
 });
 
