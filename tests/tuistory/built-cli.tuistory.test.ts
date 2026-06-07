@@ -203,6 +203,33 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
+  it('keeps cursor editing natural when inserting in the middle of composer text', async () => {
+    const session = await launchInteractive({
+      config: {
+        ui: {
+          promptSuggestions: false,
+        },
+      },
+    });
+
+    await waitForComposer(session);
+    await session.type('hello');
+    await session.press('left');
+    await session.press('left');
+    await session.type('X');
+
+    const screen = await session.text({
+      timeout: 5_000,
+      waitFor: (text) => composerLineIncludes(text, 'helXlo'),
+      trimEnd: true,
+    });
+
+    expect(screen).toContain('helXlo');
+    expect(screen).not.toContain('helloX');
+
+    await exitInteractive(session);
+  });
+
   it('keeps multiline, large paste, and image paste placeholders intact in the real prompt', async () => {
     const session = await launchInteractive({
       config: {
