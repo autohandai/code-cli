@@ -10,7 +10,7 @@ import path from 'node:path';
 import React from 'react';
 import chalk from 'chalk';
 import { render } from 'ink-testing-library';
-import { InputLine } from '../../../src/ui/ink/InputLine.js';
+import { InputLine, resolveInputLineCursorPosition } from '../../../src/ui/ink/InputLine.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 import { initTheme } from '../../../src/ui/theme/index.js';
 
@@ -271,6 +271,16 @@ describe('InputLine cursor positioning', () => {
       writable: true,
       configurable: true,
     });
+  });
+
+  it('does not place the startup cursor at the output origin before layout is available', () => {
+    expect(resolveInputLineCursorPosition(true, null, { cursorRow: 0, cursorColumn: 2 })).toBeUndefined();
+  });
+
+  it('positions cursor relative to the measured composer layout', () => {
+    expect(
+      resolveInputLineCursorPosition(true, { left: 4, top: 6 }, { cursorRow: 0, cursorColumn: 2 })
+    ).toEqual({ x: 6, y: 7 });
   });
 
   it('positions cursor at end of text when cursorOffset equals text length', () => {
