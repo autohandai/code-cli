@@ -5,7 +5,13 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { drawInputBox, drawInputTopBorder, drawInputBottomBorder } from '../../src/ui/box.js';
+import {
+  drawInputBox,
+  drawInputTopBorder,
+  drawInputBottomBorder,
+  drawOpenInputLine,
+  drawOpenInputRule,
+} from '../../src/ui/box.js';
 
 /** Strip ALL CSI escape sequences (colors, cursor control, erase-in-line, etc.) */
 function stripAnsi(value: string): string {
@@ -157,6 +163,26 @@ describe('drawInputBottomBorder', () => {
     const rendered = drawInputBottomBorder(20);
     expect(rendered).toMatch(/\x1b\[48;2;\d+;\d+;\d+m/);
     expect(rendered.endsWith(RESET + CLEAR_EOL)).toBe(true);
+  });
+});
+
+describe('open composer rendering', () => {
+  it('renders horizontal rules without corner characters', () => {
+    const rendered = drawOpenInputRule(20);
+    const plain = stripAnsi(rendered);
+
+    expect(plain).toBe('─'.repeat(20));
+    expect(plain).not.toContain('┌');
+    expect(plain).not.toContain('┐');
+  });
+
+  it('renders prompt content without side borders', () => {
+    const rendered = drawOpenInputLine('❯ hello', 20);
+    const plain = stripAnsi(rendered);
+
+    expect(plain.length).toBe(20);
+    expect(plain.startsWith('❯ hello')).toBe(true);
+    expect(plain).not.toContain('│');
   });
 });
 

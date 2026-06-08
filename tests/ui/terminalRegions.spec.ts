@@ -51,15 +51,16 @@ describe('TerminalRegions', () => {
     getPlanModeManager().disable();
   });
 
-  it('renders boxed composer with placeholder when enabled', () => {
+  it('renders open composer rules with placeholder when enabled', () => {
     const output = createMockOutput();
     const regions = new TerminalRegions(output);
 
     regions.enable();
 
     const plain = stripAnsi(output.writes.join(''));
-    expect(plain).toContain('┌');
-    expect(plain).toContain('└');
+    expect(plain).toContain('─');
+    expect(plain).not.toContain('┌');
+    expect(plain).not.toContain('└');
     expect(plain).toContain('❯ Build anything');
     expect(output.writes.join('')).not.toContain('\x1b[1;1H');
   });
@@ -349,7 +350,6 @@ describe('TerminalRegions', () => {
 
       regions.updateInput('! git status');
       const joined = output.writes.join('');
-      expect(joined).toContain('\x1b[48;2;255;255;255m');
       expect(joined).toContain('\x1b[38;2;0;0;0m');
       expect(joined).not.toContain('\x1b[38;2;255;136;0m');
     } finally {
@@ -405,7 +405,7 @@ describe('TerminalRegions', () => {
       expect(output.writes.join('')).toContain('[Text Pasted +10 lines]');
     });
 
-    it('renders all visible input lines with border decoration', () => {
+    it('renders all visible input lines with open rule decoration', () => {
       const output = createMockOutput();
       const regions = new TerminalRegions(output);
       regions.enable();
@@ -416,9 +416,9 @@ describe('TerminalRegions', () => {
       const plain = stripAnsi(output.writes.join(''));
       expect(plain).toContain('alpha');
       expect(plain).toContain('beta');
-      // Should have both top and bottom borders
-      expect(plain).toContain('┌');
-      expect(plain).toContain('└');
+      expect(plain).toContain('─');
+      expect(plain).not.toContain('┌');
+      expect(plain).not.toContain('└');
     });
 
     it('updateInput also adjusts fixedLines for multi-line content', () => {

@@ -3,18 +3,15 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { Box, Text, useCursor, type DOMElement } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
 import { buildMultiLineRenderState } from '../inputPrompt.js';
 import { stripAnsiCodes } from '../displayUtils.js';
 import type { InputBorderStyle } from '../box.js';
 
-function drawInkBorder(width: number, position: 'top' | 'bottom'): string {
-  const innerWidth = Math.max(0, width - 2);
-  return position === 'top'
-    ? `┌${'─'.repeat(innerWidth)}┐`
-    : `└${'─'.repeat(innerWidth)}┘`;
+function drawInkRule(width: number): string {
+  return '─'.repeat(Math.max(0, width));
 }
 
 // Sum yoga layout offsets up to ink-root. The returned coordinates are
@@ -73,17 +70,24 @@ function InputLineComponent({
   const rootRef = useRef<DOMElement>(null);
   const { setCursorPosition } = useCursor();
 
+  useEffect(() => {
+    if (!isActive || process.stdout.isTTY !== true) {
+      return undefined;
+    }
+
+    process.stdout.write('\x1b[2 q');
+    return () => {
+      process.stdout.write('\x1b[0 q');
+    };
+  }, [isActive]);
+
   const borderToken = borderStyle === 'plan'
     ? 'warning'
     : borderStyle === 'shell'
       ? 'dim'
       : 'borderAccent';
 
-  // Memoize borders - only recalculate when width changes
-  const borders = useMemo(() => ({
-    top: drawInkBorder(width, 'top'),
-    bottom: drawInkBorder(width, 'bottom'),
-  }), [width]);
+  const rule = useMemo(() => drawInkRule(width), [width]);
 
   // Memoize display value processing
   const displayData = useMemo(() => {
@@ -138,12 +142,12 @@ function InputLineComponent({
     );
   }
 
-  // Active state mirrors the boxed prompt style from readline mode.
+  // Active state mirrors the open prompt style from readline mode.
   return (
     <Box ref={rootRef} flexDirection="column">
-      <Text>{theme.fgBg(borderToken, 'userMessageBg', borders.top)}</Text>
+      <Text>{theme.fgBg(borderToken, 'userMessageBg', rule)}</Text>
       {displayData.plainLines.map(renderContentLine)}
-      <Text>{theme.fgBg(borderToken, 'userMessageBg', borders.bottom)}</Text>
+      <Text>{theme.fgBg(borderToken, 'userMessageBg', rule)}</Text>
     </Box>
   );
 }

@@ -8,9 +8,8 @@
  */
 import chalk from 'chalk';
 import {
-  drawInputBottomBorder,
-  drawInputBox,
-  drawInputTopBorder,
+  drawOpenInputLine,
+  drawOpenInputRule,
   type InputBorderStyle
 } from './box.js';
 import { themedFg } from './theme/index.js';
@@ -90,8 +89,8 @@ export class TerminalRegions {
     const { height } = this.getDimensions();
     const scrollEnd = Math.max(1, height - this.fixedLines);
 
-    // Restore cursor visibility (may have been hidden for empty placeholder)
-    this.output.write(`${CSI}?25h`);
+    // Restore cursor visibility and terminal-default cursor shape.
+    this.output.write(`${CSI}0 q${CSI}?25h`);
 
     // Reset scroll region to full terminal
     this.output.write(`${CSI}r`);
@@ -181,7 +180,7 @@ export class TerminalRegions {
   /**
    * Render content in the fixed bottom region.
    * Supports multi-line input by splitting on `\n` and rendering
-   * each visible line as a separate boxed row.
+   * each visible line as a separate composer row.
    */
   renderFixedRegion(input = '', queueCount = 0, status = '', activity = '', suggestionText?: string): void {
     if (!this.isActive) return;
@@ -206,10 +205,10 @@ export class TerminalRegions {
     this.output.write(`${CSI}K`);
     this.output.write(this.formatActivityLine(activity, promptWidth));
 
-    // Top border
+    // Top rule
     this.output.write(`${CSI}${height - this.fixedLines + 2};1H`);
     this.output.write(`${CSI}K`);
-    this.output.write(drawInputTopBorder(promptWidth, borderStyle));
+    this.output.write(drawOpenInputRule(promptWidth, borderStyle));
 
     // Input lines (first line gets prompt prefix, continuation lines get indent)
     for (let i = 0; i < visibleLines; i++) {
@@ -220,13 +219,13 @@ export class TerminalRegions {
         : this.getContinuationContent(lineContent);
       this.output.write(`${CSI}${row};1H`);
       this.output.write(`${CSI}K`);
-      this.output.write(drawInputBox(content, promptWidth));
+      this.output.write(drawOpenInputLine(content, promptWidth, undefined, borderStyle));
     }
 
-    // Bottom border
+    // Bottom rule
     this.output.write(`${CSI}${height - 1};1H`);
     this.output.write(`${CSI}K`);
-    this.output.write(drawInputBottomBorder(promptWidth, borderStyle));
+    this.output.write(drawOpenInputRule(promptWidth, borderStyle));
 
     // Status
     this.output.write(`${CSI}${height};1H`);
@@ -238,7 +237,7 @@ export class TerminalRegions {
   /**
    * Update just the input text (faster than full render).
    * Handles multi-line input by adjusting the fixed region size and
-   * re-rendering all input rows with borders.
+   * re-rendering all input rows with rules.
    */
   updateInput(input: string, suggestionText?: string): void {
     if (!this.isActive) return;
@@ -261,10 +260,10 @@ export class TerminalRegions {
     const promptWidth = this.getPromptWidth(width);
     const borderStyle = this.getInputBorderStyle(input);
 
-    // Top border
+    // Top rule
     this.output.write(`${CSI}${height - this.fixedLines + 2};1H`);
     this.output.write(`${CSI}K`);
-    this.output.write(drawInputTopBorder(promptWidth, borderStyle));
+    this.output.write(drawOpenInputRule(promptWidth, borderStyle));
 
     // Input lines
     for (let i = 0; i < visibleLines; i++) {
@@ -275,13 +274,13 @@ export class TerminalRegions {
         : this.getContinuationContent(lineContent);
       this.output.write(`${CSI}${row};1H`);
       this.output.write(`${CSI}K`);
-      this.output.write(drawInputBox(content, promptWidth));
+      this.output.write(drawOpenInputLine(content, promptWidth, undefined, borderStyle));
     }
 
-    // Bottom border
+    // Bottom rule
     this.output.write(`${CSI}${height - 1};1H`);
     this.output.write(`${CSI}K`);
-    this.output.write(drawInputBottomBorder(promptWidth, borderStyle));
+    this.output.write(drawOpenInputRule(promptWidth, borderStyle));
 
     this.focusInputCursor();
   }
@@ -403,7 +402,7 @@ export class TerminalRegions {
       // looks frozen while background shell output is streaming above it.
       const cursorColumn = Math.max(1, Math.min(promptWidth, 1 + PROMPT_INPUT_PREFIX.length));
       const cursorRow = height - this.fixedLines + 3;
-      this.output.write(`${CSI}?25h`);
+      this.output.write(`${CSI}2 q${CSI}?25h`);
       this.output.write(`${CSI}${cursorRow};${cursorColumn}H`);
       return;
     }
@@ -422,7 +421,7 @@ export class TerminalRegions {
     // Cursor row: first input line is at (height - fixedLines + 3), offset by lastLineIndex
     const cursorRow = height - this.fixedLines + 3 + lastLineIndex;
 
-    this.output.write(`${CSI}?25h`); // show cursor
+    this.output.write(`${CSI}2 q${CSI}?25h`);
     this.output.write(`${CSI}${cursorRow};${cursorColumn}H`);
   }
 
