@@ -199,4 +199,24 @@ describe('SlashCommandHandler', () => {
       ['--port', '19999'],
     );
   });
+
+  it('pauses the active UI around /statusline', async () => {
+    const ctx = {
+      ...createContext(),
+      config: {
+        configPath: '/tmp/autohand-config.json',
+        provider: 'openrouter',
+      },
+    };
+    const handler = new SlashCommandHandler(ctx as any, [
+      ...DEFAULT_COMMANDS,
+      { command: '/statusline', description: 'configure status line', implemented: true },
+    ]);
+
+    const result = await handler.handle('/statusline');
+
+    expect(result).toBeNull();
+    expect(ctx.onBeforeModal).toHaveBeenCalledTimes(1);
+    expect(ctx.onAfterModal).toHaveBeenCalledTimes(1);
+  });
 });
