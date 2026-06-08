@@ -147,12 +147,12 @@ describe('pasted reference helpers', () => {
 });
 
 describe('renderPromptLine cursor positioning', () => {
-  it('cursor position includes +1 offset for left │ border', async () => {
+  it('positions the cursor after the prompt prefix and typed text', async () => {
     const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
 
-    // "the" typed → prefix (2) + 3 chars + 1 for left │ border = cursor at column 6
+    // "the" typed -> prefix (2) + 3 chars = cursor at column 5
     const state = buildPromptRenderState('the', 3, 80);
-    expect(state.cursorColumn).toBe(6);
+    expect(state.cursorColumn).toBe(5);
   });
 });
 
@@ -254,28 +254,26 @@ describe('buildPromptRenderState', () => {
     const state = buildPromptRenderState('', 0, 80);
 
     expect(state.lineText).toContain(PROMPT_PLACEHOLDER);
-    // prefix (2) + 1 for left │ border
-    expect(state.cursorColumn).toBe(3);
+    // prefix (2)
+    expect(state.cursorColumn).toBe(2);
   });
 
   it('positions cursor after typed content', async () => {
     const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
     const state = buildPromptRenderState('hello', 5, 80);
 
-    // prefix (2) + cursor at end (5) + 1 for left │ border
-    expect(state.cursorColumn).toBe(8);
+    // prefix (2) + cursor at end (5)
+    expect(state.cursorColumn).toBe(7);
   });
 
   it('keeps cursor within a centered scrolling window when editing long input', async () => {
     const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
-    const state = buildPromptRenderState('abcdefghijklmnopqrstuvwxyz', 10, 14);
+    const state = buildPromptRenderState('abcdefghijklmnopqrstuvwxyz', 12, 14);
     const plain = state.lineText.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
-    // Strip │ borders before checking inner content
-    const inner = plain.slice(1, -1).trimEnd();
+    const inner = plain.trimEnd();
 
     expect(inner.startsWith('…')).toBe(true);
     expect(inner.endsWith('…')).toBe(true);
-    // +1 for left │ border
     expect(state.cursorColumn).toBe(7);
   });
 
@@ -283,12 +281,10 @@ describe('buildPromptRenderState', () => {
     const { buildPromptRenderState } = await import('../../src/ui/inputPrompt.js');
     const state = buildPromptRenderState('abcdefghijklmnopqrstuvwxyz', 26, 14);
     const plain = state.lineText.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
-    // Strip │ borders before checking inner content
-    const inner = plain.slice(1, -1);
+    const inner = plain;
 
     expect(inner.startsWith('…')).toBe(true);
     expect(inner.endsWith('…')).toBe(false);
-    // +1 for left │ border
     expect(state.cursorColumn).toBe(13);
   });
 });
@@ -904,8 +900,8 @@ describe('buildMultiLineRenderState', () => {
     expect(state.lineCount).toBe(1);
     expect(state.lines.length).toBe(1);
     expect(state.cursorRow).toBe(0);
-    // prefix (2) + cursor at end (5) + 1 for border
-    expect(state.cursorColumn).toBe(8);
+    // prefix (2) + cursor at end (5)
+    expect(state.cursorColumn).toBe(7);
   });
 
   it('splits input into multiple lines at NEWLINE_MARKER', async () => {
@@ -956,7 +952,7 @@ describe('buildMultiLineRenderState', () => {
     // First line should contain the ❯ prefix
     expect(stripAnsi(state.lines[0])).toContain('❯');
     // Second line should NOT contain ❯ (uses space indent instead)
-    const secondInner = stripAnsi(state.lines[1]).slice(1, -1); // strip │ borders
+    const secondInner = stripAnsi(state.lines[1]);
     expect(secondInner.startsWith('  ')).toBe(true);
     expect(secondInner).toContain('second');
   });
@@ -981,8 +977,8 @@ describe('buildMultiLineRenderState', () => {
     expect(state.lineCount).toBeGreaterThan(1);
     expect(state.lines.length).toBe(state.lineCount);
 
-    const firstInner = stripAnsi(state.lines[0]).slice(1, -1);
-    const secondInner = stripAnsi(state.lines[1]).slice(1, -1);
+    const firstInner = stripAnsi(state.lines[0]);
+    const secondInner = stripAnsi(state.lines[1]);
     expect(firstInner.startsWith('❯ ')).toBe(true);
     expect(secondInner.startsWith('  ')).toBe(true);
   });
