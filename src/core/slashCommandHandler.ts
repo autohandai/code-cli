@@ -37,7 +37,7 @@ export class SlashCommandHandler {
     // Guard: interactive-only commands are not available in RPC/ACP mode
     const INTERACTIVE_ONLY = new Set([
       '/model', '/cc', '/search', '/theme', '/language', '/feedback', '/skills new', '/skills-new',
-      '/squad',
+      '/squad', '/statusline',
     ]);
     if (this.ctx.isNonInteractive && INTERACTIVE_ONLY.has(command)) {
       return `Command ${command} requires an interactive terminal. Use the dedicated RPC method or API instead.`;
@@ -173,6 +173,19 @@ export class SlashCommandHandler {
           await this.ctx.onBeforeModal?.();
           try {
             return await settings({ config: this.ctx.config });
+          } finally {
+            await this.ctx.onAfterModal?.();
+          }
+        }
+        case '/statusline': {
+          const { statusline } = await import('../commands/statusline.js');
+          if (!this.ctx.config) {
+            console.log(chalk.yellow('Config not available.'));
+            return null;
+          }
+          await this.ctx.onBeforeModal?.();
+          try {
+            return await statusline({ config: this.ctx.config });
           } finally {
             await this.ctx.onAfterModal?.();
           }

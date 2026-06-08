@@ -128,6 +128,15 @@ describe('SETTINGS_REGISTRY', () => {
     });
   });
 
+  it('exposes status line as a UI setting routed to /statusline', () => {
+    const setting = SETTINGS_REGISTRY.find(s => s.key === 'ui.statusLine');
+    expect(setting).toMatchObject({
+      category: 'ui',
+      type: 'string',
+      redirect: '/statusline',
+    });
+  });
+
   it('exposes completion reports as an on-by-default UI setting', () => {
     const setting = SETTINGS_REGISTRY.find(s => s.key === 'ui.completionReportEnabled');
     expect(setting).toMatchObject({

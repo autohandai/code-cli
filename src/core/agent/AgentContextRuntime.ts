@@ -18,7 +18,9 @@ import type { VersionCheckResult } from '../../utils/versionCheck.js';
 import { getInstallHint } from '../../utils/versionCheck.js';
 import { runWithConcurrency, type ParallelTaskSpec } from '../../utils/parallel.js';
 import { calculateContextUsage, estimateMessagesTokens } from '../context/tokenizer.js';
+import type { SessionDiffStatsTracker } from '../SessionDiffStatsTracker.js';
 import { buildSessionBootstrap } from './SessionBootstrapBuilder.js';
+import { formatStatusLineLeft, getConfigStatusLineSettings } from './StatusLineSettings.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -52,6 +54,7 @@ export interface AgentContextRuntimeHost {
     flush(): MentionContext | null;
   };
   persistentInput: { getQueueLength(): number };
+  sessionDiffStatsTracker?: Pick<SessionDiffStatsTracker, 'getStats'>;
   projectManager: {
     getKnowledge(workspaceRoot: string): Promise<ProjectKnowledge | null>;
   };
@@ -245,7 +248,6 @@ export function formatAgentStatusLine(host: AgentContextRuntimeHost): { left: st
     : 100;
 
   const queueCount = host.inkRenderer?.getQueueCount?.() ?? host.persistentInput.getQueueLength();
-  const queueStatus = queueCount > 0 ? ` \u00b7 ${queueCount} queued` : '';
 
   const planModeManager = getPlanModeManager();
 
@@ -253,7 +255,14 @@ export function formatAgentStatusLine(host: AgentContextRuntimeHost): { left: st
     ? chalk.bgCyan.black.bold(' PLAN ') + ' '
     : '';
 
-  const left = `${planIndicator}${percent}% context left \u00b7 ${t('ui.commandHint')}${queueStatus}`;
+  const left = formatStatusLineLeft({
+    contextPercentLeft: percent,
+    commandHint: t('ui.commandHint'),
+    queueCount,
+    settings: getConfigStatusLineSettings(host.runtime?.config),
+    planIndicator,
+    sessionDiffStats: host.sessionDiffStatsTracker?.getStats(),
+  });
 
   let right = '';
   if (host.versionCheckResult?.updateAvailable) {
