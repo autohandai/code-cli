@@ -102,6 +102,10 @@ export interface AgentUIProps {
   resolveShellSuggestion?: (input: string) => Promise<string | null>;
   /** Optional extension points for the fixed status/help lines. */
   lineExtensions?: AgentUILineExtensions;
+  /** Replace a queued instruction owned by the renderer. */
+  onReplaceQueuedInstruction?: (index: number, text: string) => void;
+  /** Remove a queued instruction owned by the renderer. */
+  onRemoveQueuedInstruction?: (index: number) => void;
 }
 
 interface TextBufferKeyInfo {
@@ -552,6 +556,8 @@ export function AgentUI({
   workspaceRoot,
   suggestionProvider,
   lineExtensions,
+  onReplaceQueuedInstruction,
+  onRemoveQueuedInstruction,
 }: AgentUIProps) {
   const { colors } = useTheme();
   const { t } = useTranslation();
@@ -560,6 +566,8 @@ export function AgentUI({
   const [ctrlCCount, setCtrlCCount] = useState(0);
   const [planModeIndicator, setPlanModeIndicator] = useState('');
   const [planModeStatusKey, setPlanModeStatusKey] = useState('');
+  const [queueSelectionIndex, setQueueSelectionIndex] = useState<number | null>(null);
+  const [editingQueueIndex, setEditingQueueIndex] = useState<number | null>(null);
   
   // File mention autocomplete state
   const [fileMentionSuggestions, setFileMentionSuggestions] = useState<FileMentionSuggestion[]>([]);
@@ -629,6 +637,16 @@ export function AgentUI({
   onInstructionRef.current = onInstruction;
   const onInputChangeRef = useRef(onInputChange);
   onInputChangeRef.current = onInputChange;
+  const onReplaceQueuedInstructionRef = useRef(onReplaceQueuedInstruction);
+  onReplaceQueuedInstructionRef.current = onReplaceQueuedInstruction;
+  const onRemoveQueuedInstructionRef = useRef(onRemoveQueuedInstruction);
+  onRemoveQueuedInstructionRef.current = onRemoveQueuedInstruction;
+  const queuedInstructionsRef = useRef(state.queuedInstructions);
+  queuedInstructionsRef.current = state.queuedInstructions;
+  const queueSelectionIndexRef = useRef(queueSelectionIndex);
+  queueSelectionIndexRef.current = queueSelectionIndex;
+  const editingQueueIndexRef = useRef(editingQueueIndex);
+  editingQueueIndexRef.current = editingQueueIndex;
   const onImageDetectedRef = useRef(onImageDetected);
   onImageDetectedRef.current = onImageDetected;
   const filesProviderRef = useRef(filesProvider);
@@ -843,6 +861,28 @@ export function AgentUI({
       syncInputFromBuffer();
     }
   }, [state.currentInput, syncInputFromBuffer]);
+
+  useEffect(() => {
+    const queueLength = state.queuedInstructions.length;
+    setQueueSelectionIndex((current) => {
+      if (current === null) {
+        return null;
+      }
+      if (queueLength === 0) {
+        return null;
+      }
+      return Math.min(current, queueLength - 1);
+    });
+    setEditingQueueIndex((current) => {
+      if (current === null) {
+        return null;
+      }
+      if (queueLength === 0) {
+        return null;
+      }
+      return Math.min(current, queueLength - 1);
+    });
+  }, [state.queuedInstructions.length]);
 
   // Reset ctrl+c count after 2 seconds
   useEffect(() => {
@@ -1085,6 +1125,20 @@ export function AgentUI({
         }
         return;
       }
+      if (queueSelectionIndexRef.current !== null || editingQueueIndexRef.current !== null) {
+        const wasEditingQueue = editingQueueIndexRef.current !== null;
+        queueSelectionIndexRef.current = null;
+        editingQueueIndexRef.current = null;
+        setQueueSelectionIndex(null);
+        setEditingQueueIndex(null);
+        if (wasEditingQueue) {
+          textBufferRef.current.setText('');
+          clearInkHiddenPastes(pasteStateRef.current);
+          syncInputFromBuffer();
+        }
+        setCtrlCCount(0);
+        return;
+      }
       if (clearBareComposerTrigger(textBufferRef.current)) {
         dismissAutocompleteState();
         syncInputFromBuffer();
@@ -1135,6 +1189,53 @@ export function AgentUI({
     // When idle (isWorking=false), always allow input so the user can
     // compose their next prompt.
     if (isWorkingRef.current && !enableQueueInputRef.current) {
+      return;
+    }
+
+    const queueLength = queuedInstructionsRef.current.length;
+    const currentComposerText = textBufferRef.current.getText();
+    const selectedQueueIndex = queueSelectionIndexRef.current;
+    const canNavigateQueue =
+      isWorkingRef.current &&
+      enableQueueInputRef.current &&
+      editingQueueIndexRef.current === null &&
+      queueLength > 0 &&
+      currentComposerText.trim().length === 0 &&
+      !slashVisibleRef.current &&
+      !skillVisibleRef.current &&
+      !fileMentionVisibleRef.current;
+
+    if (canNavigateQueue && (key.upArrow || key.downArrow)) {
+      const nextIndex = selectedQueueIndex === null
+        ? (key.upArrow ? queueLength - 1 : 0)
+        : key.upArrow
+          ? (selectedQueueIndex > 0 ? selectedQueueIndex - 1 : queueLength - 1)
+          : (selectedQueueIndex < queueLength - 1 ? selectedQueueIndex + 1 : 0);
+      queueSelectionIndexRef.current = nextIndex;
+      setQueueSelectionIndex(nextIndex);
+      setCtrlCCount(0);
+      return;
+    }
+
+    if (canNavigateQueue && selectedQueueIndex !== null && (key.delete || key.backspace)) {
+      onRemoveQueuedInstructionRef.current?.(selectedQueueIndex);
+      queueSelectionIndexRef.current = null;
+      editingQueueIndexRef.current = null;
+      setQueueSelectionIndex(null);
+      setEditingQueueIndex(null);
+      setCtrlCCount(0);
+      return;
+    }
+
+    if (canNavigateQueue && selectedQueueIndex !== null && key.return) {
+      const selectedInstruction = queuedInstructionsRef.current[selectedQueueIndex];
+      if (selectedInstruction !== undefined) {
+        textBufferRef.current.setText(selectedInstruction);
+        editingQueueIndexRef.current = selectedQueueIndex;
+        setEditingQueueIndex(selectedQueueIndex);
+        syncInputFromBuffer();
+      }
+      setCtrlCCount(0);
       return;
     }
 
@@ -1283,6 +1384,34 @@ export function AgentUI({
       // it back to the actual pasted text only at submit time.
       let text = resolveInkHiddenPastes(buffer.getText(), pasteState);
       text = text.trim();
+      const editingIndex = editingQueueIndexRef.current;
+
+      if (editingIndex !== null) {
+        clearInkComposerInputForSubmit(buffer, pasteState, {
+          setInput,
+          setCursorOffset,
+          onInputChange: onInputChangeRef.current,
+          clearPendingInputSync: () => {
+            pendingInputSyncRef.current = null;
+            if (inputSyncTimerRef.current) {
+              clearTimeout(inputSyncTimerRef.current);
+              inputSyncTimerRef.current = null;
+            }
+          },
+        });
+        dismissAutocompleteState();
+        queueSelectionIndexRef.current = null;
+        editingQueueIndexRef.current = null;
+        setQueueSelectionIndex(null);
+        setEditingQueueIndex(null);
+
+        if (text.length > 0) {
+          onReplaceQueuedInstructionRef.current?.(editingIndex, text);
+        } else {
+          onRemoveQueuedInstructionRef.current?.(editingIndex);
+        }
+        return;
+      }
       
       if (!text) {
         return;
@@ -1605,6 +1734,7 @@ export function AgentUI({
         elapsed={state.elapsed}
         tokens={state.tokens}
         queuedInstructions={state.queuedInstructions}
+        selectedQueueIndex={queueSelectionIndex}
         completionStats={chatIncludesCompletion ? null : state.completionStats}
         enableQueueInput={enableQueueInput}
         input={input}
@@ -1843,6 +1973,7 @@ interface StatusSectionProps {
   elapsed: string;
   tokens: string;
   queuedInstructions: string[];
+  selectedQueueIndex: number | null;
   completionStats: { elapsed: string; tokens: string } | null;
   contextPercent?: number;
   provider?: string;
@@ -1850,12 +1981,64 @@ interface StatusSectionProps {
   lineExtension?: LineExtension;
 }
 
+interface QueuedInstructionsPanelProps {
+  queuedInstructions: string[];
+  selectedQueueIndex: number | null;
+}
+
+function formatQueuedInstructionRow(instruction: string, width: number): string {
+  const singleLine = instruction.replace(/\s+/g, ' ').trim();
+  const maxLength = Math.max(20, width - 8);
+  if (singleLine.length <= maxLength) {
+    return singleLine;
+  }
+  return `${singleLine.slice(0, Math.max(0, maxLength - 1))}…`;
+}
+
+const QueuedInstructionsPanel = memo(function QueuedInstructionsPanel({
+  queuedInstructions,
+  selectedQueueIndex,
+}: QueuedInstructionsPanelProps) {
+  const { colors } = useTheme();
+  const windowSize = useTerminalWindowSize();
+  const width = getPromptBlockWidth(windowSize.columns);
+  const focused = selectedQueueIndex !== null;
+
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Text color={colors.muted} bold>
+        Queue · {queuedInstructions.length} pending
+      </Text>
+      {queuedInstructions.map((instruction, idx) => {
+        const selected = selectedQueueIndex === idx;
+        const prefix = selected ? '›' : ' ';
+        return (
+          <Box key={`${idx}:${instruction}`}>
+            <Text color={selected ? colors.accent : colors.muted} bold={selected}>
+              {prefix} {idx + 1}. {formatQueuedInstructionRow(instruction, width)}
+            </Text>
+          </Box>
+        );
+      })}
+      {focused && (
+        <Text color={colors.muted}>
+          enter edit · delete remove · esc clear selection
+        </Text>
+      )}
+    </Box>
+  );
+}, (prev, next) => (
+  prev.queuedInstructions === next.queuedInstructions &&
+  prev.selectedQueueIndex === next.selectedQueueIndex
+));
+
 const StatusSection = memo(function StatusSection({
   isWorking,
   status,
   elapsed,
   tokens,
   queuedInstructions,
+  selectedQueueIndex,
   completionStats,
   contextPercent,
   provider,
@@ -1885,13 +2068,10 @@ const StatusSection = memo(function StatusSection({
 
       {/* Info section - either queue or completion stats, stable position */}
       {showQueue && (
-        <Box flexDirection="column">
-          {queuedInstructions.map((instruction, idx) => (
-            <UserMessage key={idx} isQueued>
-              {instruction}
-            </UserMessage>
-          ))}
-        </Box>
+        <QueuedInstructionsPanel
+          queuedInstructions={queuedInstructions}
+          selectedQueueIndex={selectedQueueIndex}
+        />
       )}
       {showCompletionStats && (
         <Box marginTop={1}>
@@ -1909,7 +2089,8 @@ const StatusSection = memo(function StatusSection({
          prev.elapsed === next.elapsed &&
          prev.tokens === next.tokens &&
          prev.contextPercent === next.contextPercent &&
-         prev.queuedInstructions.length === next.queuedInstructions.length &&
+         prev.queuedInstructions === next.queuedInstructions &&
+         prev.selectedQueueIndex === next.selectedQueueIndex &&
          prev.completionStats?.elapsed === next.completionStats?.elapsed &&
          prev.completionStats?.tokens === next.completionStats?.tokens &&
          prev.provider === next.provider &&
@@ -2102,6 +2283,7 @@ interface FixedBottomProps {
   elapsed: string;
   tokens: string;
   queuedInstructions: string[];
+  selectedQueueIndex: number | null;
   completionStats: { elapsed: string; tokens: string } | null;
   enableQueueInput: boolean;
   input: string;
@@ -2131,6 +2313,7 @@ const FixedBottom = memo(function FixedBottom({
   elapsed,
   tokens,
   queuedInstructions,
+  selectedQueueIndex,
   completionStats,
   enableQueueInput,
   input,
@@ -2158,6 +2341,7 @@ const FixedBottom = memo(function FixedBottom({
         elapsed={elapsed}
         tokens={tokens}
         queuedInstructions={queuedInstructions}
+        selectedQueueIndex={selectedQueueIndex}
         completionStats={completionStats}
         contextPercent={contextPercent}
         provider={provider}

@@ -8,6 +8,38 @@ import { describe, expect, it } from 'vitest';
 import { InkRenderer } from '../../../src/ui/ink/InkRenderer.js';
 
 describe('InkRenderer live command blocks', () => {
+  it('replaces a queued instruction without changing queue order', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+
+    renderer.addQueuedInstruction('first');
+    renderer.addQueuedInstruction('second');
+    renderer.addQueuedInstruction('third');
+
+    expect(renderer.replaceQueuedInstruction(1, 'updated second')).toBe(true);
+    expect(renderer.getState().queuedInstructions).toEqual(['first', 'updated second', 'third']);
+  });
+
+  it('removes a queued instruction and preserves FIFO order for the rest', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+
+    renderer.addQueuedInstruction('first');
+    renderer.addQueuedInstruction('second');
+    renderer.addQueuedInstruction('third');
+
+    expect(renderer.removeQueuedInstruction(1)).toBe(true);
+    expect(renderer.getState().queuedInstructions).toEqual(['first', 'third']);
+    expect(renderer.dequeueInstruction()).toBe('first');
+    expect(renderer.dequeueInstruction()).toBe('third');
+  });
+
   it('archives a completed final response before the next user turn starts', () => {
     const renderer = new InkRenderer({
       onInstruction: () => {},
