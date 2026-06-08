@@ -66,7 +66,7 @@ export async function about(ctx: { config?: LoadedConfig; terminalColumns?: numb
     lines.push(theme.text(`Hey ${greetingName}, here are a few suggestions for what you could do next:`));
     lines.push(theme.text(`   • Review model, context, and account usage: ${theme.accent('/usage')}`));
     lines.push(theme.text(`   • Check current session and runtime status: ${theme.accent('/status')}`));
-    lines.push(theme.text(`   • Discover feature toggles available to you: ${theme.accent('/features')}`));
+    lines.push(theme.text(`   • Discover experiments available to you: ${theme.accent('/experiments')}`));
     lines.push('');
   }
 

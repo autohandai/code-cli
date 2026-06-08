@@ -283,7 +283,7 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/logout`          | Sign out                             |
 | `/permissions`     | Manage tool permissions              |
 | `/hooks`           | Manage git hooks                     |
-| `/features`        | Toggle feature switches              |
+| `/experiments`     | Toggle experimental feature switches |
 | `/settings`        | View configuration settings          |
 | `/theme`           | Change UI theme                      |
 | `/language`        | Change display language              |
@@ -495,7 +495,7 @@ docker run -it autohand
 ## Documentation
 
 - [Playbook](AUTOHAND_PLAYBOOK.md) - 20 use cases for the software development lifecycle
-- [Features](docs/features.md) - Complete feature list
+- [Features](docs/features.md) - Complete feature and experiment list
 - [Agent Skills](docs/agent-skills.md) - Skills system guide
 - [Extending Autohand Code CLI](docs/extending.md) - Build tools, skills, hooks, MCP servers, and integrations
 - [Configuration Reference](docs/config-reference.md) - All config options

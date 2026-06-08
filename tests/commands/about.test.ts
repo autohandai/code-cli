@@ -28,7 +28,7 @@ describe('/about command', () => {
     expect(output).toContain('here are a few suggestions');
     expect(output).toContain('/usage');
     expect(output).toContain('/status');
-    expect(output).toContain('/features');
+    expect(output).toContain('/experiments');
   });
 
   it('does not show the personalized welcome for anonymous users', async () => {

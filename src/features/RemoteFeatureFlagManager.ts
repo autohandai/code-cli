@@ -17,6 +17,7 @@ export interface RemoteFeatureFlag {
   enabled: boolean;
   reason: string;
   userOverridable: boolean;
+  clientTypes?: string[];
 }
 
 export interface RemoteFeatureFlagSnapshot {
@@ -46,6 +47,7 @@ export interface LoadRemoteFeatureFlagsOptions {
 }
 
 const FEATURE_FLAG_REQUEST_TIMEOUT_MS = 1500;
+const CLI_CLIENT_TYPE = 'cli';
 
 function getApiBaseUrl(config: LoadedConfig): string {
   return (config.api?.baseUrl || config.telemetry?.apiBaseUrl || 'https://api.autohand.ai').replace(/\/+$/, '');
@@ -74,11 +76,14 @@ function parseSnapshot(value: RemoteFeatureFlagResponse): RemoteFeatureFlagSnaps
     if (!flag || typeof flag !== 'object') continue;
     const candidate = flag as Record<string, unknown>;
     if (typeof candidate.key !== 'string' || typeof candidate.enabled !== 'boolean') continue;
+    const clientTypes = parseClientTypes(candidate);
+    if (!isCliFeatureFlag(candidate, clientTypes)) continue;
     flags.push({
       key: candidate.key,
       enabled: candidate.enabled,
       reason: typeof candidate.reason === 'string' ? candidate.reason : 'unknown',
       userOverridable: candidate.userOverridable !== false,
+      ...(clientTypes.length > 0 ? { clientTypes } : {}),
     });
   }
 
@@ -89,6 +94,77 @@ function parseSnapshot(value: RemoteFeatureFlagResponse): RemoteFeatureFlagSnaps
     evaluatedAt: typeof value.evaluatedAt === 'string' ? value.evaluatedAt : new Date().toISOString(),
     ttlSeconds: typeof value.ttlSeconds === 'number' ? value.ttlSeconds : 300,
   };
+}
+
+function parseClientTypes(candidate: Record<string, unknown>): string[] {
+  const values = [
+    candidate.clientType,
+    candidate.clientTypes,
+    candidate.client_type,
+    candidate.client_types,
+    candidate.clients,
+    candidate.targetClients,
+    candidate.target_clients,
+  ];
+  const clientTypes = new Set<string>();
+
+  for (const value of values) {
+    if (typeof value === 'string') {
+      for (const item of value.split(',')) {
+        const clientType = item.trim();
+        if (clientType) clientTypes.add(clientType);
+      }
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (typeof item === 'string') {
+          clientTypes.add(item);
+        }
+      }
+    }
+  }
+
+  return [...clientTypes].map((clientType) => clientType.toLowerCase());
+}
+
+function isCliFeatureFlag(candidate: Record<string, unknown>, clientTypes: string[]): boolean {
+  if (isArchivedFeatureFlag(candidate)) {
+    return false;
+  }
+
+  const reason = typeof candidate.reason === 'string' ? candidate.reason.toLowerCase() : '';
+  if (reason.includes('client_type mismatch') || reason.includes('client type mismatch')) {
+    return false;
+  }
+
+  if (clientTypes.length > 0) {
+    return clientTypes.includes(CLI_CLIENT_TYPE);
+  }
+
+  const platforms = candidate.platforms ?? candidate.targetPlatforms;
+  if (Array.isArray(platforms)) {
+    const platformValues = platforms.filter((platform): platform is string => typeof platform === 'string');
+    return platformValues.length === 0 || platformValues.includes(process.platform);
+  }
+
+  return true;
+}
+
+function isArchivedFeatureFlag(candidate: Record<string, unknown>): boolean {
+  if (candidate.archived === true || candidate.deleted === true) {
+    return true;
+  }
+
+  const archivalFields = [
+    candidate.status,
+    candidate.state,
+    candidate.lifecycle,
+    candidate.reason,
+  ];
+
+  return archivalFields.some((value) => typeof value === 'string' && value.toLowerCase().includes('archived'));
 }
 
 function isSnapshotFresh(snapshot: RemoteFeatureFlagSnapshot): boolean {
@@ -102,7 +178,7 @@ function createEvaluationUrl(config: LoadedConfig, deviceId: string, clientVersi
   const environment = config.features?.environment || 'production';
   const url = new URL(`${getApiBaseUrl(config)}/v1/feature-flags/evaluate`);
   url.searchParams.set('environment', environment);
-  url.searchParams.set('clientType', 'cli');
+  url.searchParams.set('clientType', CLI_CLIENT_TYPE);
   url.searchParams.set('deviceId', deviceId);
   url.searchParams.set('cliVersion', clientVersion);
   url.searchParams.set('platform', process.platform);

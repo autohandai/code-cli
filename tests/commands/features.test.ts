@@ -33,7 +33,7 @@ function makeConfig(overrides: Partial<LoadedConfig> = {}): LoadedConfig {
   };
 }
 
-describe('/features command', () => {
+describe('/experiments command', () => {
   beforeEach(() => {
     mockShowModal.mockReset();
     mockSaveConfig.mockReset();
@@ -71,7 +71,7 @@ describe('/features command', () => {
     const output = await features({ config, interactive: true }, ['list']);
 
     expect(mockShowModal).toHaveBeenCalledWith(expect.objectContaining({
-      title: expect.stringContaining('Features'),
+      title: expect.stringContaining('Experiments'),
       multiSelect: true,
     }));
     expect(config.features?.usageV2).toBe(true);
@@ -205,7 +205,7 @@ describe('/features command', () => {
 
     expect(output).toBeNull();
     expect(mockShowModal).toHaveBeenCalledWith(expect.objectContaining({
-      title: expect.stringContaining('Features'),
+      title: expect.stringContaining('Experiments'),
       multiSelect: true,
     }));
   });

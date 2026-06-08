@@ -128,6 +128,6 @@ describe('/usage command', () => {
       isFeatureEnabled: () => false,
     }));
 
-    expect(output).toBe('The /usage dashboard is behind usage_v2. Run /features enable usage_v2, then /usage again. No restart required.');
+    expect(output).toBe('The /usage dashboard is behind usage_v2. Run /experiments enable usage_v2, then /usage again. No restart required.');
   });
 });
