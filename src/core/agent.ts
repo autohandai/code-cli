@@ -21,6 +21,7 @@ import { ActionExecutor } from './actionExecutor.js';
 import { SlashCommandHandler } from './slashCommandHandler.js';
 import { SessionManager } from '../session/SessionManager.js';
 import { ProjectManager } from '../session/ProjectManager.js';
+import { SessionDiffStatsTracker } from './SessionDiffStatsTracker.js';
 import type { ChatLogMessage } from '../session/chatLog.js';
 import { ToolsRegistry } from './toolsRegistry.js';
 import type {
@@ -81,6 +82,7 @@ import { SystemPromptBuilder } from './agent/SystemPromptBuilder.js';
 import { runAgentReactLoop, type AgentReactLoopHost } from './agent/ReactLoopRunner.js';
 import { initializeAgentDependencies, type AgentDependencyHost } from './agent/AgentDependencyComposer.js';
 import { InstructionRunner, type AgentInstructionHost } from './agent/InstructionRunner.js';
+import { buildStatusLineExtension, getConfigStatusLineSettings } from './agent/StatusLineSettings.js';
 import {
   agentSleep,
   injectAgentContinuationMessage,
@@ -276,6 +278,7 @@ export class AutohandAgent {
   private isStartupSuggestion = false;
   private shellSuggestionProvider!: ShellSuggestionProvider;
   private instructionRunner!: InstructionRunner;
+  private sessionDiffStatsTracker?: SessionDiffStatsTracker;
 
   private taskStartedAt: number | null = null;
   private totalTokensUsed = 0;
@@ -338,6 +341,7 @@ export class AutohandAgent {
     private readonly runtime: AgentRuntime
   ) {
     initializeAgentDependencies(this as unknown as AgentDependencyHost, llm, files, runtime);
+    this.sessionDiffStatsTracker = new SessionDiffStatsTracker(runtime.workspaceRoot);
     this.instructionRunner = new InstructionRunner(this as unknown as AgentInstructionHost);
   }
 
@@ -810,6 +814,10 @@ export class AutohandAgent {
     const providerSettings = getProviderConfig(this.runtime.config, provider);
     const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
     this.ui?.setProviderModel?.(provider, model);
+    this.inkRenderer?.setLineExtensions?.(buildStatusLineExtension({
+      settings: getConfigStatusLineSettings(this.runtime.config),
+      sessionDiffStats: this.sessionDiffStatsTracker?.getStats(),
+    }));
   }
 
   /**

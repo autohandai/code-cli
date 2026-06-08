@@ -13,6 +13,7 @@ import { createImmediateShellCommandBlockWriter, formatImmediateShellCommandHead
 import { SLASH_COMMANDS } from '../slashCommands.js';
 import { formatElapsedTime, formatSessionActualTokens, formatTurnUsage } from './AgentFormatter.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
+import { buildStatusLineExtension, getConfigStatusLineSettings } from './StatusLineSettings.js';
 
 export interface AgentUIRuntimeHost {
   [key: string]: any;
@@ -513,6 +514,10 @@ export function forceRenderAgentSpinner(host: AgentUIRuntimeHost): void {
     const statusLine = `${verb}... (esc to interrupt · ${elapsed} · ${tokens}${queueHint})`;
     const footerLine = host.formatStatusLine();
     host.persistentInput.setStatusLine(footerLine);
+    host.inkRenderer?.setLineExtensions?.(buildStatusLineExtension({
+      settings: getConfigStatusLineSettings(host.runtime.config),
+      sessionDiffStats: host.sessionDiffStatsTracker?.getStats?.(),
+    }));
     const usingTerminalRegions = host.isUsingTerminalRegionsForActiveTurn();
 
     if (host.inkRenderer) {

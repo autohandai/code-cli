@@ -218,6 +218,8 @@
         "activityVerbsEnabledDesc": "Show rotating activity verbs while the agent is working",
         "activitySymbol": "Activity symbol",
         "activitySymbolDesc": "Symbol shown before activity verb",
+        "statusLine": "Status line",
+        "statusLineDesc": "Choose what appears in the composer status line",
         "updateCheckInterval": "Update check interval (hours)",
         "updateCheckIntervalDesc": "Hours between update checks"
       },
@@ -305,6 +307,22 @@
       "disconnected": "Disconnected",
       "sessions": "Sessions",
       "total": "{{count}} total"
+    },
+    "statusline": {
+      "description": "configure status line display",
+      "title": "Status Line",
+      "done": "Done",
+      "saved": "Status line settings saved.",
+      "fields": {
+        "showContext": "Context remaining",
+        "showContextDesc": "Show the current context percentage",
+        "showCommandHint": "Command hints",
+        "showCommandHintDesc": "Show shortcuts for commands, mentions, and terminal input",
+        "showPullRequest": "Pull request",
+        "showPullRequestDesc": "Show the associated PR number, or PR #123 when none is associated",
+        "showSessionLines": "Session line changes",
+        "showSessionLinesDesc": "Show lines added and removed during this session"
+      }
     },
     "sessions": {
       "description": "list saved sessions",

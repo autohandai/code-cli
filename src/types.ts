@@ -167,6 +167,17 @@ export interface NotificationConfig {
   sound?: boolean;
 }
 
+export interface StatusLineSettings {
+  /** Show remaining context percentage in the status line (default: true). */
+  showContext?: boolean;
+  /** Show composer command hints such as ?, /, @, and ! (default: true). */
+  showCommandHint?: boolean;
+  /** Show pull request number, falling back to PR #123 when none is associated (default: true). */
+  showPullRequest?: boolean;
+  /** Show lines added and removed during the current session (default: false). */
+  showSessionLines?: boolean;
+}
+
 export interface UISettings {
   /** Theme name: built-in, config-provided, Ghostty, or custom theme from ~/.autohand/themes/*.json */
   theme?: string;
@@ -203,6 +214,8 @@ export interface UISettings {
   notifications?: boolean | NotificationConfig;
   /** Show LLM-generated next-step suggestions in prompt placeholder (default: true) */
   promptSuggestions?: boolean;
+  /** Fixed composer status-line display preferences. */
+  statusLine?: StatusLineSettings;
 }
 
 export interface AgentSettings {
