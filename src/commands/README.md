@@ -28,6 +28,7 @@ Each command is a separate TypeScript file that exports:
 | `/goal` | `goal.ts` | Manage persistent goals, budgets, templates, and queued goal work. Requires `slash_goal`. |
 | `/squad` | `squad.ts` | Open/manage the standalone Autohand Squad runtime. |
 | `/usage` | `usage.ts` | Show model, provider, context, and usage limits |
+| `/statusline` | `statusline.ts` | Configure composer status-line fields |
 
 ## Adding a New Command
 

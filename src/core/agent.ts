@@ -814,7 +814,7 @@ export class AutohandAgent {
     const providerSettings = getProviderConfig(this.runtime.config, provider);
     const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
     this.ui?.setProviderModel?.(provider, model);
-    this.inkRenderer?.setLineExtensions?.(buildStatusLineExtension({
+    this.inkRenderer?.setConfiguredLineExtensions?.(buildStatusLineExtension({
       settings: getConfigStatusLineSettings(this.runtime.config),
       sessionDiffStats: this.sessionDiffStatsTracker?.getStats(),
     }));

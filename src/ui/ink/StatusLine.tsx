@@ -29,6 +29,7 @@ export interface LineSegment {
 export interface LineExtension {
   segments?: LineSegment[];
   replaceDefault?: boolean;
+  hiddenDefaultSegmentIds?: string[];
   separator?: string;
 }
 
@@ -55,9 +56,11 @@ export function resolveLineSegments(
   extension?: LineExtension
 ): { segments: LineSegment[]; separator: string } {
   const extensionSegments = extension?.segments ?? [];
+  const hiddenDefaultSegmentIds = new Set(extension?.hiddenDefaultSegmentIds ?? []);
+  const visibleDefaults = defaults.filter((segment) => !hiddenDefaultSegmentIds.has(segment.id));
   const segments = extension?.replaceDefault
     ? extensionSegments
-    : [...defaults, ...extensionSegments];
+    : [...visibleDefaults, ...extensionSegments];
 
   return {
     segments: segments.filter((segment) =>
@@ -73,6 +76,23 @@ export function formatLineSegments(
 ): string {
   const { segments, separator } = resolveLineSegments(defaults, extension);
   return segments.map((segment) => segment.text).join(separator);
+}
+
+export function mergeLineExtensions(
+  ...extensions: Array<LineExtension | undefined>
+): LineExtension | undefined {
+  const active = extensions.filter((extension): extension is LineExtension => extension !== undefined);
+  if (active.length === 0) {
+    return undefined;
+  }
+  const separator = [...active].reverse().find((extension) => extension.separator !== undefined)?.separator;
+
+  return {
+    replaceDefault: active.some((extension) => extension.replaceDefault),
+    hiddenDefaultSegmentIds: Array.from(new Set(active.flatMap((extension) => extension.hiddenDefaultSegmentIds ?? []))),
+    segments: active.flatMap((extension) => extension.segments ?? []),
+    separator,
+  };
 }
 
 function getSegmentToken(color?: LineSegmentColor): Parameters<Theme['fg']>[0] {

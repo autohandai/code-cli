@@ -1120,6 +1120,12 @@ export function initializeAgentDependencies(
           }
         }
       },
+      refreshStatusLine: () => {
+        const statusLine = host.formatStatusLine();
+        host.persistentInput?.setStatusLine?.(statusLine);
+        host.syncProviderModelStatusLine?.();
+        host.persistentInput?.render?.();
+      },
       isInteractiveAutomodeEnabled: () => host.interactiveAutomodeEnabled,
       setInteractiveAutomodeEnabled: (enabled: boolean) => host.setInteractiveAutomodeEnabled(enabled),
       // Share command needs current session - use getter for dynamic access

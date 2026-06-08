@@ -440,6 +440,12 @@ See [Workspace Safety](./workspace-safety.md) for full details.
     "activityVerbs": ["Compiling", "Parsing", "Reviewing"],
     "activityVerbsEnabled": true,
     "activitySymbol": "✳",
+    "statusLine": {
+      "showContext": true,
+      "showCommandHint": true,
+      "showPullRequest": true,
+      "showSessionLines": false
+    },
     "showCompletionNotification": true,
     "showThinking": true,
     "terminalBell": true,
@@ -459,6 +465,10 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `activityVerbs`              | string or string[] | built-in pool | Custom activity verb or verb pool for the working indicator, rendered as `Verb...` |
 | `activityVerbsEnabled`       | boolean | `true`  | Show rotating activity verbs like `Compiling...` while the agent is working |
 | `activitySymbol`             | string | `"✳"`   | Symbol shown before the activity verb in activity indicator output |
+| `statusLine.showContext`     | boolean | `true`  | Show the context percentage in the composer status line |
+| `statusLine.showCommandHint` | boolean | `true`  | Show command, mention, skill, and terminal-entry hints in the composer status line |
+| `statusLine.showPullRequest` | boolean | `true`  | Show the associated pull request number, or `PR #123` when no PR is associated |
+| `statusLine.showSessionLines`| boolean | `false` | Show lines added and removed during the current session |
 | `completionReportEnabled`    | boolean | `true`  | Ask the model to include a concise completion report after completed action turns |
 | `showCompletionNotification` | boolean | `true`  | Show system notification when task completes                                                   |
 | `showThinking`               | boolean | `true`  | Display LLM's reasoning/thought process                                                        |
@@ -2037,6 +2047,7 @@ Autohand provides a rich set of slash commands for interactive use. Type `/` in 
 | ------------- | ----------------------------------------------------- |
 | `/memory`     | View and manage stored memories                       |
 | `/settings`   | Configure Autohand settings                           |
+| `/statusline` | Configure composer status-line fields                 |
 | `/features`   | Toggle feature switches                               |
 | `/sync`       | Sync settings across devices                          |
 | `/import`     | Import sessions, settings, MCP, memory, skills, and hooks from supported agents |
