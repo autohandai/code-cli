@@ -3,7 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, useCursor, type DOMElement } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
 import { buildMultiLineRenderState } from '../inputPrompt.js';
@@ -56,6 +56,21 @@ export interface InputLineProps {
   inlineGhostSuffix?: string;
 }
 
+export function resolveInputLineCursorPosition(
+  isActive: boolean,
+  position: { left: number; top: number } | null,
+  cursorData: { cursorRow: number; cursorColumn: number }
+): { x: number; y: number } | undefined {
+  if (!isActive || !position) {
+    return undefined;
+  }
+
+  return {
+    x: position.left + cursorData.cursorColumn,
+    y: position.top + cursorData.cursorRow + 1,
+  };
+}
+
 function InputLineComponent({
   value,
   cursorOffset,
@@ -68,6 +83,7 @@ function InputLineComponent({
 }: InputLineProps) {
   const { theme } = useTheme();
   const rootRef = useRef<DOMElement>(null);
+  const [, setLayoutReadyVersion] = useState(0);
   const { setCursorPosition } = useCursor();
 
   useEffect(() => {
@@ -79,6 +95,12 @@ function InputLineComponent({
     return () => {
       process.stdout.write('\x1b[0 q');
     };
+  }, [isActive]);
+
+  useEffect(() => {
+    if (isActive && rootRef.current) {
+      setLayoutReadyVersion((version) => version + 1);
+    }
   }, [isActive]);
 
   const borderToken = borderStyle === 'plan'
@@ -111,17 +133,11 @@ function InputLineComponent({
     };
   }, [value, cursorOffset, width, borderStyle, placeholderText, nextPromptSuggestion, inlineGhostSuffix]);
 
-  const cursorPosition = (() => {
-    if (!isActive) {
-      return undefined;
-    }
-
-    const position = getAbsoluteInkPosition(rootRef.current);
-    return {
-      x: (position?.left ?? 0) + displayData.cursorColumn,
-      y: (position?.top ?? 0) + displayData.cursorRow + 1,
-    };
-  })();
+  const cursorPosition = resolveInputLineCursorPosition(
+    isActive,
+    getAbsoluteInkPosition(rootRef.current),
+    displayData
+  );
 
   setCursorPosition(cursorPosition);
 
