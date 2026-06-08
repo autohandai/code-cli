@@ -45,7 +45,7 @@ describe('InputLine', () => {
     });
   });
 
-  it('renders explicit newline input as multiple boxed content rows', () => {
+  it('renders explicit newline input as multiple content rows', () => {
     const { lastFrame } = renderInputLine('alpha\nbeta');
     const output = stripAnsi(lastFrame());
 
@@ -65,7 +65,7 @@ describe('InputLine', () => {
   });
 
   it('renders wrapped rows for long single-line input', () => {
-    const { lastFrame } = renderInputLine('alpha beta gamma delta');
+    const { lastFrame } = renderInputLine('alpha beta gamma delta epsilon zeta');
     const output = stripAnsi(lastFrame());
 
     expect(output).toContain('alpha');
@@ -73,14 +73,15 @@ describe('InputLine', () => {
     expect(output.split('\n').length).toBeGreaterThanOrEqual(4);
   });
 
-  it('renders plain box characters without leaking ANSI control brackets', () => {
+  it('renders plain horizontal rules without leaking ANSI control brackets', () => {
     const { lastFrame } = renderInputLine('');
     const output = stripAnsi(lastFrame());
 
-    expect(output).toContain('┌');
-    expect(output).toContain('┐');
-    expect(output).toContain('└');
-    expect(output).toContain('┘');
+    expect(output).toContain('─');
+    expect(output).not.toContain('┌');
+    expect(output).not.toContain('┐');
+    expect(output).not.toContain('└');
+    expect(output).not.toContain('┘');
     expect(output).not.toContain('[K');
   });
 
@@ -88,7 +89,7 @@ describe('InputLine', () => {
     const { lastFrame } = renderInputLine('');
     const output = stripAnsi(lastFrame());
 
-    expect(output.split('\n')[0]).toMatch(/^┌/);
+    expect(output.split('\n')[0]).toMatch(/^─/);
   });
 
   it('renders next-prompt suggestion separately from the static placeholder', () => {
@@ -171,9 +172,8 @@ describe('InputLine themed variants', () => {
       'utf8'
     );
 
-    expect(source).toContain("theme.fgBg(borderToken, 'userMessageBg', borders.top)");
+    expect(source).toContain("theme.fgBg(borderToken, 'userMessageBg', rule)");
     expect(source).toContain("theme.fgBg('userMessageText', 'userMessageBg', line)");
-    expect(source).toContain("theme.fgBg(borderToken, 'userMessageBg', borders.bottom)");
   });
 
   it('uses Ink 7 useCursor (not a local reimplementation) and no rendered cursor glyph', () => {
@@ -201,7 +201,7 @@ describe('InputLine themed variants', () => {
     expect(source).not.toContain('<Text inverse>');
   });
 
-  it('renders default border style with boxed content', () => {
+  it('renders default border style with open ruled content', () => {
     const { lastFrame } = render(
       <ThemeProvider>
         <InputLine value="test" cursorOffset={4} isActive width={40} borderStyle="default" />
@@ -209,12 +209,12 @@ describe('InputLine themed variants', () => {
     );
     const output = stripAnsi(lastFrame());
 
-    expect(output).toContain('┌');
+    expect(output).toContain('─');
     expect(output).toContain('test');
-    expect(output).toContain('└');
+    expect(output).not.toContain('│');
   });
 
-  it('renders plan border style with boxed content', () => {
+  it('renders plan border style with open ruled content', () => {
     const { lastFrame } = render(
       <ThemeProvider>
         <InputLine value="test" cursorOffset={4} isActive width={40} borderStyle="plan" />
@@ -222,12 +222,12 @@ describe('InputLine themed variants', () => {
     );
     const output = stripAnsi(lastFrame());
 
-    expect(output).toContain('┌');
+    expect(output).toContain('─');
     expect(output).toContain('test');
-    expect(output).toContain('└');
+    expect(output).not.toContain('│');
   });
 
-  it('renders shell border style with boxed content', () => {
+  it('renders shell border style with open ruled content', () => {
     const { lastFrame } = render(
       <ThemeProvider>
         <InputLine value="!test" cursorOffset={5} isActive width={40} borderStyle="shell" />
@@ -235,12 +235,12 @@ describe('InputLine themed variants', () => {
     );
     const output = stripAnsi(lastFrame());
 
-    expect(output).toContain('┌');
+    expect(output).toContain('─');
     expect(output).toContain('!test');
-    expect(output).toContain('└');
+    expect(output).not.toContain('│');
   });
 
-  it('renders active composer box with content', () => {
+  it('renders active composer rules with content', () => {
     const { lastFrame } = render(
       <ThemeProvider>
         <InputLine value="content" cursorOffset={7} isActive width={40} />
@@ -248,9 +248,9 @@ describe('InputLine themed variants', () => {
     );
     const output = stripAnsi(lastFrame());
 
-    expect(output).toContain('┌');
+    expect(output).toContain('─');
     expect(output).toContain('content');
-    expect(output).toContain('└');
+    expect(output).not.toContain('│');
   });
 });
 
@@ -341,8 +341,9 @@ describe('InputLine cursor positioning', () => {
       </ThemeProvider>
     );
     const output = stripAnsi(lastFrame());
-    expect(output).toContain('┌');
-    expect(output).toContain('└');
+    expect(output).toContain('─');
+    expect(output).not.toContain('┌');
+    expect(output).not.toContain('└');
   });
 
   it('handles multiline text with correct cursor row', () => {

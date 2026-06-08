@@ -41,13 +41,13 @@ function setStdoutColumns(stdout: { columns: number; rows?: number }, columns: n
   });
 }
 
-function getComposerTopBorderWidth(frame: string | undefined): number {
+function getComposerTopRuleWidth(frame: string | undefined): number {
   const line = stripAnsi(frame ?? '')
     .split('\n')
-    .find((item) => item.startsWith('┌'));
+    .find((item) => /^─+$/.test(item));
 
   if (!line) {
-    throw new Error('composer top border was not rendered');
+    throw new Error('composer top rule was not rendered');
   }
 
   return line.length;
@@ -196,14 +196,14 @@ describe('AgentUI terminal resize rendering', () => {
     );
 
     await new Promise<void>((resolve) => setTimeout(resolve, 50));
-    expect(getComposerTopBorderWidth(instance.lastFrame())).toBe(getPromptBlockWidth(100));
+    expect(getComposerTopRuleWidth(instance.lastFrame())).toBe(getPromptBlockWidth(100));
 
     setStdoutColumns(instance.stdout, 42);
     instance.stdout.emit('resize');
     await new Promise<void>((resolve) => setTimeout(resolve, 50));
     await new Promise<void>((resolve) => setTimeout(resolve, 50));
 
-    expect(getComposerTopBorderWidth(instance.lastFrame())).toBe(getPromptBlockWidth(42));
+    expect(getComposerTopRuleWidth(instance.lastFrame())).toBe(getPromptBlockWidth(42));
   });
 });
 

@@ -204,6 +204,47 @@ function stabilizeBoxAnsi(text: string, bg: string, fg: string): string {
     .replace(/\x1b\[39m/g, fg);
 }
 
+function stabilizeOpenLineAnsi(text: string, fg: string): string {
+  return text
+    .replace(/\x1b\[0m/g, RESET_ALL + fg)
+    .replace(/\x1b\[39m/g, fg);
+}
+
+export function drawOpenInputRule(width: number, style: InputBorderStyle = 'default'): string {
+  const border = '─'.repeat(Math.max(0, width));
+  return resolveBorderFg(style) + border + RESET_ALL + CLEAR_TO_EOL;
+}
+
+export function drawOpenInputLine(left: string, width: number, right?: string, style: InputBorderStyle = 'default'): string {
+  const normalizedLeft = style === 'shell' ? stripAnsiCodes(left) : left;
+  const normalizedRight = style === 'shell' && right ? stripAnsiCodes(right) : right;
+  const fg = resolveBoxFg(style);
+  const base = fg;
+  const lineWidth = Math.max(0, width);
+  const clippedLeft = truncateVisible(normalizedLeft, lineWidth);
+  const visLeft = getVisibleLength(clippedLeft);
+  const END = RESET_ALL + CLEAR_TO_EOL;
+
+  if (!normalizedRight) {
+    const pad = Math.max(0, lineWidth - visLeft);
+    return base + stabilizeOpenLineAnsi(clippedLeft, fg) + ' '.repeat(pad) + END;
+  }
+
+  const clippedRight = truncateVisible(normalizedRight, lineWidth);
+  const visRight = getVisibleLength(clippedRight);
+  const minGap = 2;
+  const available = lineWidth - visRight - minGap;
+
+  if (available <= 0) {
+    return base + stabilizeOpenLineAnsi(truncateVisible(clippedLeft, lineWidth), fg) + END;
+  }
+
+  const finalLeft = truncateVisible(clippedLeft, available);
+  const finalLeftWidth = getVisibleLength(finalLeft);
+  const gap = Math.max(minGap, lineWidth - finalLeftWidth - visRight);
+  return base + stabilizeOpenLineAnsi(finalLeft, fg) + ' '.repeat(gap) + stabilizeOpenLineAnsi(clippedRight, fg) + END;
+}
+
 export function drawInputBox(left: string, width: number, right?: string, style: InputBorderStyle = 'default'): string {
   const normalizedLeft = style === 'shell' ? stripAnsiCodes(left) : left;
   const normalizedRight = style === 'shell' && right ? stripAnsiCodes(right) : right;

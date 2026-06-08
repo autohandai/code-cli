@@ -28,9 +28,8 @@ import {
 } from '../core/ImageManager.js';
 import { getContentDisplay } from './displayUtils.js';
 import {
-  drawInputBottomBorder,
-  drawInputBox,
-  drawInputTopBorder,
+  drawOpenInputLine,
+  drawOpenInputRule,
   invalidateBoxColorCache,
   type InputBorderStyle
 } from './box.js';
@@ -139,9 +138,9 @@ export interface PromptRenderState {
 }
 
 export interface MultiLineRenderState {
-  lines: string[];        // drawInputBox() output per content row
+  lines: string[];        // rendered composer content rows
   cursorRow: number;      // which content line has cursor (0-based)
-  cursorColumn: number;   // screen column on that row (includes border offset)
+  cursorColumn: number;   // screen column on that row
   lineCount: number;      // total content lines
 }
 
@@ -859,7 +858,7 @@ export function getPromptBlockWidth(columns: number | undefined): number {
 
 /**
  * Render a single segment of input text with truncation/scrolling and styling.
- * Returns styled text ready for drawInputBox and a cursor column (without border offset).
+ * Returns styled text ready for drawOpenInputLine and a cursor column.
  */
 interface SegmentRender {
   styledText: string;
@@ -882,7 +881,7 @@ function renderSegment(
   } = normalizePromptRenderOptions(renderOptions, legacyInlineGhostSuffix);
   const sanitizedLine = sanitizeRenderLine(rawSegment);
   const normalizedLine = sanitizedLine.trim().length === 0 ? '' : sanitizedLine;
-  const innerWidth = Math.max(1, width - 2);
+  const innerWidth = Math.max(1, width);
   const effectiveCursor = Math.max(0, Math.min(normalizedLine.length, cursorPos));
   const fullInput = `${prefix}${normalizedLine}`;
   const safeGhostSuffix = sanitizeRenderLine(inlineGhostSuffix ?? '');
@@ -980,7 +979,7 @@ function normalizePromptRenderOptions(
 
 /**
  * Build the visible prompt row and the corresponding cursor column.
- * Returns a boxed line (full terminal width) and a zero-based cursor column.
+ * Returns a composer line (full terminal width) and a zero-based cursor column.
  *
  * @param currentLine - Raw readline buffer content.
  * @param cursorPos - Current readline cursor offset within the line.
@@ -1003,9 +1002,8 @@ export function buildPromptRenderState(
     options,
     inlineGhostSuffix
   );
-  const lineText = drawInputBox(segment.styledText, width);
-  // +1 accounts for the left │ border character in drawInputBox
-  const clampedCursor = Math.max(0, Math.min(width - 1, segment.cursorColumn + 1));
+  const lineText = drawOpenInputLine(segment.styledText, width);
+  const clampedCursor = Math.max(0, Math.min(width - 1, segment.cursorColumn));
   return { lineText, cursorColumn: clampedCursor };
 }
 
@@ -1023,9 +1021,8 @@ export function buildMultiLineRenderState(
 ): MultiLineRenderState {
   const renderOptions = normalizePromptRenderOptions(options, inlineGhostSuffix);
   const { segments, separatorLengths } = splitMultilineSegments(currentLine);
-  const innerWidth = Math.max(1, width - 2);
   const continuationPrefix = '  ';
-  const contentWidth = Math.max(1, innerWidth - continuationPrefix.length);
+  const contentWidth = Math.max(1, width - continuationPrefix.length);
 
   if (segments.length <= 1) {
     const singleSegment = sanitizeRenderLine(segments[0] ?? '');
@@ -1039,8 +1036,8 @@ export function buildMultiLineRenderState(
         true,
         renderOptions
       );
-      const lineText = drawInputBox(seg.styledText, width, undefined, borderStyle);
-      const clampedCursor = Math.max(0, Math.min(width - 1, seg.cursorColumn + 1));
+      const lineText = drawOpenInputLine(seg.styledText, width, undefined, borderStyle);
+      const clampedCursor = Math.max(0, Math.min(width - 1, seg.cursorColumn));
       return { lines: [lineText], cursorRow: 0, cursorColumn: clampedCursor, lineCount: 1 };
     }
   }
@@ -1054,8 +1051,8 @@ export function buildMultiLineRenderState(
       true,
       renderOptions
     );
-    const lineText = drawInputBox(seg.styledText, width, undefined, borderStyle);
-    const clampedCursor = Math.max(0, Math.min(width - 1, seg.cursorColumn + 1));
+    const lineText = drawOpenInputLine(seg.styledText, width, undefined, borderStyle);
+    const clampedCursor = Math.max(0, Math.min(width - 1, seg.cursorColumn));
     return { lines: [lineText], cursorRow: 0, cursorColumn: clampedCursor, lineCount: 1 };
   }
 
@@ -1093,7 +1090,7 @@ export function buildMultiLineRenderState(
       cursorRow = visualRowOffset + wrappedCursorRow;
       finalCursorColumn = Math.max(
         0,
-        Math.min(width - 1, continuationPrefix.length + wrappedCursorCol + 1)
+        Math.min(width - 1, continuationPrefix.length + wrappedCursorCol)
       );
     }
 
@@ -1101,7 +1098,7 @@ export function buildMultiLineRenderState(
       const prefix = !hasPromptPrefix ? PROMPT_INPUT_PREFIX : continuationPrefix;
       const prefixStyled = themedFg('accent', prefix, (value) => chalk.gray(value));
       const styledText = `${prefixStyled}${wrappedLines[j] ?? ''}`;
-      lines.push(drawInputBox(styledText, width, undefined, borderStyle));
+      lines.push(drawOpenInputLine(styledText, width, undefined, borderStyle));
       hasPromptPrefix = true;
       overallVisualRow += 1;
     }
@@ -2070,9 +2067,9 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         clearTimeout(inlineShellSuggestionTimeout);
         inlineShellSuggestionTimeout = undefined;
       }
-      // Disable bracketed paste mode and ensure cursor is visible
+      // Disable bracketed paste mode and restore the terminal cursor shape.
       disableBracketedPaste(stdOutput);
-      stdOutput.write('\x1b[?25h');
+      stdOutput.write('\x1b[0 q\x1b[?25h');
       if (contextualHelpVisible) {
         contextualHelpVisible = false;
       }
@@ -3015,8 +3012,8 @@ function renderPromptLine(
       inlineGhostSuffix,
     }
   );
-  const topBorder = drawInputTopBorder(width, borderStyle);
-  const bottomBorder = drawInputBottomBorder(width, borderStyle);
+  const topBorder = drawOpenInputRule(width, borderStyle);
+  const bottomBorder = drawOpenInputRule(width, borderStyle);
   const statusRow = formatPromptStatusRow(statusLine, width);
 
   // Detect width change even when called from _refreshLine (which passes
@@ -3132,8 +3129,8 @@ function renderPromptLine(
   readline.moveCursor(output, 0, -moveUp);
   readline.cursorTo(output, state.cursorColumn);
 
-  // Show cursor at its final, correct position.
-  output.write('\x1b[?25h');
+  // Show a steady block cursor at its final, correct position.
+  output.write('\x1b[2 q\x1b[?25h');
 
   lastRenderedContentLines = state.lineCount;
   lastRenderedCursorRow = state.cursorRow;
