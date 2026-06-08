@@ -203,6 +203,7 @@ describe('SlashCommandHandler', () => {
   it('pauses the active UI around /statusline', async () => {
     const ctx = {
       ...createContext(),
+      refreshStatusLine: vi.fn(),
       config: {
         configPath: '/tmp/autohand-config.json',
         provider: 'openrouter',
@@ -218,5 +219,6 @@ describe('SlashCommandHandler', () => {
     expect(result).toBeNull();
     expect(ctx.onBeforeModal).toHaveBeenCalledTimes(1);
     expect(ctx.onAfterModal).toHaveBeenCalledTimes(1);
+    expect(ctx.refreshStatusLine).toHaveBeenCalledTimes(1);
   });
 });

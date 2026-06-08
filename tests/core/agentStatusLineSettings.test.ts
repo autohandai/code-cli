@@ -57,17 +57,31 @@ describe('status line settings', () => {
     expect(left).toContain('-3 lines');
   });
 
-  it('builds Ink line extensions from the same configured fields', () => {
+  it('builds Ink help-line extensions from the same configured fields', () => {
     const extension = buildStatusLineExtension({
       settings: resolveStatusLineSettings({ showSessionLines: true }),
       pullRequestNumber: 456,
       sessionDiffStats: { added: 2, removed: 1 },
     });
 
-    expect(extension?.status?.segments?.map((segment) => segment.text)).toEqual([
+    expect(extension?.status).toBeUndefined();
+    expect(extension?.help?.segments?.map((segment) => segment.text)).toEqual([
       'PR #456',
       '+2 lines',
       '-1 lines',
     ]);
+  });
+
+  it('hides Ink help-line defaults for disabled context and command hints', () => {
+    const extension = buildStatusLineExtension({
+      settings: resolveStatusLineSettings({
+        showContext: false,
+        showCommandHint: false,
+        showPullRequest: false,
+      }),
+    });
+
+    expect(extension?.help?.hiddenDefaultSegmentIds).toEqual(['context', 'command-hint']);
+    expect(extension?.help?.segments).toEqual([]);
   });
 });

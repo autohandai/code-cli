@@ -94,7 +94,11 @@ export interface StatusLineExtensionInput {
 }
 
 export function buildStatusLineExtension(input: StatusLineExtensionInput): AgentUILineExtensions | undefined {
-  const statusSegments = [
+  const hiddenDefaultSegmentIds = [
+    input.settings.showContext ? '' : 'context',
+    input.settings.showCommandHint ? '' : 'command-hint',
+  ].filter(Boolean);
+  const helpSegments = [
     input.settings.showPullRequest
       ? { id: 'pull-request', text: formatPullRequestSegment(input.pullRequestNumber), color: 'muted' as const }
       : null,
@@ -114,13 +118,14 @@ export function buildStatusLineExtension(input: StatusLineExtensionInput): Agent
       : []),
   ].filter((segment): segment is NonNullable<typeof segment> => segment !== null);
 
-  if (statusSegments.length === 0) {
+  if (helpSegments.length === 0 && hiddenDefaultSegmentIds.length === 0) {
     return undefined;
   }
 
   return {
-    status: {
-      segments: statusSegments,
+    help: {
+      hiddenDefaultSegmentIds,
+      segments: helpSegments,
     },
   };
 }

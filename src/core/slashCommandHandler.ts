@@ -184,11 +184,14 @@ export class SlashCommandHandler {
             return null;
           }
           await this.ctx.onBeforeModal?.();
+          let result: string | null = null;
           try {
-            return await statusline({ config: this.ctx.config });
+            result = await statusline({ config: this.ctx.config });
           } finally {
             await this.ctx.onAfterModal?.();
           }
+          this.ctx.refreshStatusLine?.();
+          return result;
         }
         case '/memory': {
           const { memory } = await import('../commands/memory.js');

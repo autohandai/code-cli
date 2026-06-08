@@ -8,6 +8,7 @@ import { Box, Static, Text, useInput, useStdout, type Key as InkKey } from 'ink'
 import {
   StatusLine,
   formatLineSegments,
+  mergeLineExtensions,
   type LineExtension,
   type LineSegment,
 } from './StatusLine.js';
@@ -69,6 +70,8 @@ export interface AgentUIState {
   model?: string;
   /** Optional extension points for the fixed status/help lines. */
   lineExtensions?: AgentUILineExtensions;
+  /** Built-in status-line settings rendered separately from extension-provided line extensions. */
+  configuredLineExtensions?: AgentUILineExtensions;
   /** Monotonic refresh signal used when lazy suggestion providers resolve. */
   suggestionRefreshId?: number;
 }
@@ -1691,6 +1694,7 @@ export function AgentUI({
     return 'default';
   })();
   const effectiveLineExtensions = state.lineExtensions ?? lineExtensions;
+  const effectiveConfiguredLineExtensions = state.configuredLineExtensions;
 
   return (
     <Box flexDirection="column">
@@ -1744,6 +1748,7 @@ export function AgentUI({
         provider={state.provider}
         model={state.model}
         lineExtensions={effectiveLineExtensions}
+        configuredLineExtensions={effectiveConfiguredLineExtensions}
         fileMentionDropdown={
           <FileMentionDropdown
             suggestions={fileMentionSuggestions}
@@ -2293,6 +2298,7 @@ interface FixedBottomProps {
   provider?: string;
   model?: string;
   lineExtensions?: AgentUILineExtensions;
+  configuredLineExtensions?: AgentUILineExtensions;
   fileMentionDropdown?: React.ReactNode;
   slashCommandDropdown?: React.ReactNode;
   skillMentionDropdown?: React.ReactNode;
@@ -2323,6 +2329,7 @@ const FixedBottom = memo(function FixedBottom({
   provider,
   model,
   lineExtensions,
+  configuredLineExtensions,
   fileMentionDropdown,
   slashCommandDropdown,
   skillMentionDropdown,
@@ -2346,7 +2353,7 @@ const FixedBottom = memo(function FixedBottom({
         contextPercent={contextPercent}
         provider={provider}
         model={model}
-        lineExtension={lineExtensions?.status}
+        lineExtension={mergeLineExtensions(configuredLineExtensions?.status, lineExtensions?.status)}
       />
       <InputLineWrapper
         isWorking={isWorking}
@@ -2368,7 +2375,7 @@ const FixedBottom = memo(function FixedBottom({
         contextPercent={contextPercent}
         provider={provider}
         model={model}
-        lineExtension={lineExtensions?.help}
+        lineExtension={mergeLineExtensions(configuredLineExtensions?.help, lineExtensions?.help)}
       />
       <CtrlCWarning ctrlCCount={ctrlCCount} />
     </>
@@ -2400,5 +2407,6 @@ export function createInitialUIState(): AgentUIState {
     provider: undefined,
     model: undefined,
     lineExtensions: undefined,
+    configuredLineExtensions: undefined,
   };
 }
