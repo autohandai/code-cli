@@ -49,7 +49,7 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 The `/settings` command opens an interactive settings editor directly in the terminal.
 
 - **Two-level category navigation** across 8 categories: UI, Agent, Permissions, Network, Telemetry, Auto-mode, Teams, and Search
-- **34 configurable settings** editable without leaving the TUI
+- **35 configurable settings** editable without leaving the TUI
 - **Auto-save on change** — values are written to `~/.autohand/config.json` immediately
 - **Type-aware inputs**: booleans toggle on Enter, enums show a pick list, strings and numbers use inline editing, passwords are masked
 - **Smart redirects**: Provider config opens `/model`, theme opens `/theme`, language opens `/language`
@@ -85,6 +85,7 @@ The `/settings` command opens an interactive settings editor directly in the ter
 | `/logout` | Log out |
 | `/status` | Show session status |
 | `/usage` | Show model, provider, context, and usage limits when `usage_v2` is enabled |
+| `/statusline` | Configure composer status-line fields |
 | `/permissions` | Manage tool permissions |
 | `/hooks` | Manage lifecycle hooks |
 | `/features` | Toggle feature switches with an interactive checkbox list |

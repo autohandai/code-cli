@@ -514,7 +514,7 @@ export function forceRenderAgentSpinner(host: AgentUIRuntimeHost): void {
     const statusLine = `${verb}... (esc to interrupt · ${elapsed} · ${tokens}${queueHint})`;
     const footerLine = host.formatStatusLine();
     host.persistentInput.setStatusLine(footerLine);
-    host.inkRenderer?.setLineExtensions?.(buildStatusLineExtension({
+    host.inkRenderer?.setConfiguredLineExtensions?.(buildStatusLineExtension({
       settings: getConfigStatusLineSettings(host.runtime.config),
       sessionDiffStats: host.sessionDiffStatsTracker?.getStats?.(),
     }));

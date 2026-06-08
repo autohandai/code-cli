@@ -57,6 +57,8 @@ export interface SlashCommandContext {
     trackFeatureActivation?: (key: string, metadata?: Record<string, unknown>) => void | Promise<void>;
     /** Refresh feature-gated runtime surfaces after a feature toggle changes config. */
     refreshFeatureGatedTools?: () => void;
+    /** Refresh the active composer status/help line after display settings change. */
+    refreshStatusLine?: () => void;
     /** Skills registry for /skills commands */
     skillsRegistry?: SkillsRegistry;
     /** Meta-tools registry for /tools commands */

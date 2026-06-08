@@ -802,6 +802,14 @@ export class InkRenderer {
   }
 
   /**
+   * Replace built-in configured status/help line fields without overwriting
+   * extension-provided line extensions.
+   */
+  setConfiguredLineExtensions(configuredLineExtensions: AgentUILineExtensions | undefined): void {
+    this.updateState({ configuredLineExtensions });
+  }
+
+  /**
    * Replace only the status-line extension point.
    */
   setStatusLineExtension(status: AgentUILineExtensions['status']): void {

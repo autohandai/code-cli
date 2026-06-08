@@ -9,7 +9,7 @@ import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { StatusLine } from '../../../src/ui/ink/StatusLine.js';
+import { StatusLine, formatLineSegments, mergeLineExtensions } from '../../../src/ui/ink/StatusLine.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 import { I18nProvider } from '../../../src/ui/i18n/index.js';
 
@@ -80,5 +80,41 @@ describe('StatusLine extensions', () => {
     const frame = lastFrame() ?? '';
     expect(frame).toContain('custom status');
     expect(frame).not.toContain('Working');
+  });
+
+  it('can hide selected default line segments while preserving the rest', () => {
+    const line = formatLineSegments(
+      [
+        { id: 'provider', text: 'autohand (Ollama)' },
+        { id: 'context', text: '66% context left' },
+        { id: 'command-hint', text: '/ commands' },
+      ],
+      {
+        hiddenDefaultSegmentIds: ['context'],
+        segments: [{ id: 'pull-request', text: 'PR #123' }],
+      }
+    );
+
+    expect(line).toBe('autohand (Ollama) · / commands · PR #123');
+  });
+
+  it('merges configured and extension-provided line segments', () => {
+    const merged = mergeLineExtensions(
+      {
+        hiddenDefaultSegmentIds: ['context'],
+        segments: [{ id: 'pull-request', text: 'PR #123' }],
+      },
+      {
+        segments: [{ id: 'extension-mode', text: 'team:on' }],
+      }
+    );
+
+    expect(formatLineSegments(
+      [
+        { id: 'provider', text: 'autohand (Ollama)' },
+        { id: 'context', text: '66% context left' },
+      ],
+      merged
+    )).toBe('autohand (Ollama) · PR #123 · team:on');
   });
 });
