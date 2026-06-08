@@ -24,7 +24,7 @@ Each command is a separate TypeScript file that exports:
 | `/feedback` | `feedback.ts` | Submit feedback |
 | `/agents` | `agents.ts` | Manage sub-agents |
 | `/tools` | `tools.ts` | Manage persisted meta-tools |
-| `/features` | `features.ts` | List and toggle feature switches |
+| `/experiments` | `features.ts` | List and toggle experiments |
 | `/goal` | `goal.ts` | Manage persistent goals, budgets, templates, and queued goal work. Requires `slash_goal`. |
 | `/squad` | `squad.ts` | Open/manage the standalone Autohand Squad runtime. |
 | `/usage` | `usage.ts` | Show model, provider, context, and usage limits |

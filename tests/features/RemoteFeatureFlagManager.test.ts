@@ -3,7 +3,7 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
@@ -21,18 +21,29 @@ function makeConfig(overrides: Partial<LoadedConfig> = {}): LoadedConfig {
 describe('remote feature flag loading', () => {
   let tmpHome: string;
   let fetchMock: ReturnType<typeof vi.fn>;
+  let originalAutohandHome: string | undefined;
+  let originalFetch: typeof globalThis.fetch;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-feature-flags-'));
-    vi.stubEnv('AUTOHAND_HOME', tmpHome);
-    vi.resetModules();
-    fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
+    originalAutohandHome = process.env.AUTOHAND_HOME;
+    originalFetch = globalThis.fetch;
+    process.env.AUTOHAND_HOME = tmpHome;
   });
 
-  afterEach(async () => {
-    vi.unstubAllEnvs();
-    vi.unstubAllGlobals();
+  beforeEach(async () => {
+    await fs.emptyDir(tmpHome);
+    fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+  });
+
+  afterAll(async () => {
+    if (originalAutohandHome === undefined) {
+      delete process.env.AUTOHAND_HOME;
+    } else {
+      process.env.AUTOHAND_HOME = originalAutohandHome;
+    }
+    globalThis.fetch = originalFetch;
     await fs.remove(tmpHome);
   });
 
@@ -65,6 +76,96 @@ describe('remote feature flag loading', () => {
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
     expect(await fs.pathExists(AUTOHAND_FILES.featureFlagsCache)).toBe(true);
+  });
+
+  it('drops remote flags scoped to non-CLI clients', async () => {
+    const { loadRemoteFeatureFlags } = await import('../../src/features/RemoteFeatureFlagManager.js');
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        environment: 'production',
+        evaluatedAt: '2026-01-01T00:00:00.000Z',
+        ttlSeconds: 300,
+        flags: [
+          {
+            key: 'cli_only',
+            enabled: true,
+            reason: 'match',
+            userOverridable: true,
+            clientTypes: ['cli'],
+          },
+          {
+            key: 'web_only',
+            enabled: true,
+            reason: 'match',
+            userOverridable: true,
+            clientTypes: ['web'],
+          },
+        ],
+      }),
+    });
+
+    const snapshot = await loadRemoteFeatureFlags(makeConfig(), { forceRefresh: true });
+
+    expect(snapshot?.flags.map((flag) => flag.key)).toEqual(['cli_only']);
+  });
+
+  it('drops archived and client-mismatched remote flags from cached and downloaded snapshots', async () => {
+    const { loadRemoteFeatureFlags } = await import('../../src/features/RemoteFeatureFlagManager.js');
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        environment: 'production',
+        evaluatedAt: '2026-01-01T00:00:00.000Z',
+        ttlSeconds: 300,
+        flags: [
+          {
+            key: 'cli_experiment',
+            enabled: true,
+            reason: 'match',
+            userOverridable: true,
+            client_type: 'cli',
+          },
+          {
+            key: 'site_use_cases',
+            enabled: false,
+            reason: 'client_type mismatch',
+            userOverridable: true,
+            client_type: 'web',
+          },
+          {
+            key: 'website_use_cases',
+            enabled: false,
+            reason: 'archived',
+            userOverridable: true,
+            archived: true,
+          },
+        ],
+      }),
+    });
+
+    const snapshot = await loadRemoteFeatureFlags(makeConfig(), { forceRefresh: true });
+
+    expect(snapshot?.flags.map((flag) => flag.key)).toEqual(['cli_experiment']);
+  });
+
+  it('sends the CLI client type when evaluating remote flags', async () => {
+    const { loadRemoteFeatureFlags } = await import('../../src/features/RemoteFeatureFlagManager.js');
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        flags: [],
+      }),
+    });
+
+    await loadRemoteFeatureFlags(makeConfig(), { forceRefresh: true });
+
+    const [url] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBeInstanceOf(URL);
+    expect((url as URL).searchParams.get('clientType')).toBe('cli');
   });
 
   it('uses a fresh cache without contacting the API', async () => {
