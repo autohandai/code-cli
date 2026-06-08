@@ -749,6 +749,137 @@ describe('AgentUI layout stability', () => {
   });
 });
 
+describe('AgentUI queued instruction panel', () => {
+  function renderWorkingQueue(options: {
+    queuedInstructions?: string[];
+    onInstruction?: (text: string) => void;
+    onEscape?: () => void;
+    onReplaceQueuedInstruction?: (index: number, text: string) => void;
+    onRemoveQueuedInstruction?: (index: number) => void;
+    onInputChange?: (input: string) => void;
+  } = {}) {
+    const state = {
+      ...createInitialUIState(),
+      isWorking: true,
+      status: 'Grokking...',
+      queuedInstructions: options.queuedInstructions ?? [
+        'tell me something you can do here for me',
+        'what can you do in parallel at the same time as online?',
+        'Tell me a good joke about this project',
+      ],
+    };
+
+    return render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: options.onInstruction ?? (() => {}),
+            onEscape: options.onEscape ?? (() => {}),
+            onCtrlC: () => {},
+            onInputChange: options.onInputChange,
+            onReplaceQueuedInstruction: options.onReplaceQueuedInstruction,
+            onRemoveQueuedInstruction: options.onRemoveQueuedInstruction,
+            enableQueueInput: true,
+          })
+        )
+      )
+    );
+  }
+
+  it('renders multiple queued instructions as one grouped panel', async () => {
+    const instance = renderWorkingQueue();
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const output = stripAnsi(instance.lastFrame() ?? '');
+
+    expect(output).toContain('Queue · 3 pending');
+    expect(output).toContain('1. tell me something you can do here for me');
+    expect(output).not.toContain('(queued)');
+  });
+
+  it('selects queued rows with empty-composer arrow navigation', async () => {
+    const instance = renderWorkingQueue();
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    instance.stdin.write('\x1b[B');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    const output = stripAnsi(instance.lastFrame() ?? '');
+    expect(output).toContain('Queue · 3 pending');
+    expect(output).toContain('› 1. tell me something you can do here for me');
+    expect(output).toContain('enter edit · delete remove · esc clear selection');
+  });
+
+  it('loads a selected queued item into the composer for editing', async () => {
+    const onInputChange = vi.fn();
+    const instance = renderWorkingQueue({ onInputChange });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    instance.stdin.write('\x1b[B');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write('\r');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    expect(onInputChange).toHaveBeenLastCalledWith('tell me something you can do here for me');
+  });
+
+  it('submitting edited queued text replaces that queued item', async () => {
+    const onReplaceQueuedInstruction = vi.fn();
+    const instance = renderWorkingQueue({ onReplaceQueuedInstruction });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    instance.stdin.write('\x1b[B');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write('\r');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write(' updated');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write('\r');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    expect(onReplaceQueuedInstruction).toHaveBeenCalledWith(
+      0,
+      'tell me something you can do here for me updated'
+    );
+  });
+
+  it('submitting an empty queued edit removes that queued item', async () => {
+    const onRemoveQueuedInstruction = vi.fn();
+    const instance = renderWorkingQueue({ onRemoveQueuedInstruction });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    instance.stdin.write('\x1b[B');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write('\r');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write('\x03');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write('\r');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    expect(onRemoveQueuedInstruction).toHaveBeenCalledWith(0);
+  });
+
+  it('escape clears queue selection before cancelling active work', async () => {
+    const onEscape = vi.fn();
+    const instance = renderWorkingQueue({ onEscape });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    instance.stdin.write('\x1b[B');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write('\x1b');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    expect(onEscape).not.toHaveBeenCalled();
+    expect(stripAnsi(instance.lastFrame() ?? '')).not.toContain('› 1.');
+  });
+});
+
 describe('AgentUI multiline input regression', () => {
   it('inserts a newline via Shift+Enter', () => {
     const buffer = new TextBuffer(80, 10, 'line1');

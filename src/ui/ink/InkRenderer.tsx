@@ -76,6 +76,8 @@ interface AgentUIWrapperProps {
   suggestionProvider?: () => string | undefined;
   resolveShellSuggestion?: (input: string) => Promise<string | null>;
   lineExtensions?: AgentUILineExtensions;
+  onReplaceQueuedInstruction: (index: number, text: string) => void;
+  onRemoveQueuedInstruction: (index: number) => void;
 }
 
 /**
@@ -100,6 +102,8 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       suggestionProvider,
       resolveShellSuggestion,
       lineExtensions,
+      onReplaceQueuedInstruction,
+      onRemoveQueuedInstruction,
     } = props;
 
     const [state, setState] = useState<AgentUIState>(initialState);
@@ -139,6 +143,8 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         suggestionProvider={suggestionProvider}
         resolveShellSuggestion={resolveShellSuggestion}
         lineExtensions={lineExtensions}
+        onReplaceQueuedInstruction={onReplaceQueuedInstruction}
+        onRemoveQueuedInstruction={onRemoveQueuedInstruction}
       />
     );
   }
@@ -305,6 +311,8 @@ export class InkRenderer {
             suggestionProvider={this.options.suggestionProvider}
             resolveShellSuggestion={this.options.resolveShellSuggestion}
             lineExtensions={this.options.lineExtensions}
+            onReplaceQueuedInstruction={(index, text) => this.replaceQueuedInstruction(index, text)}
+            onRemoveQueuedInstruction={(index) => this.removeQueuedInstruction(index)}
           />
         </I18nProvider>
       </ThemeProvider>,
@@ -951,6 +959,8 @@ export class InkRenderer {
               suggestionProvider={this.options.suggestionProvider}
               resolveShellSuggestion={this.options.resolveShellSuggestion}
               lineExtensions={this.options.lineExtensions}
+              onReplaceQueuedInstruction={(index, text) => this.replaceQueuedInstruction(index, text)}
+              onRemoveQueuedInstruction={(index) => this.removeQueuedInstruction(index)}
             />
           </I18nProvider>
         </ThemeProvider>,
@@ -988,6 +998,33 @@ export class InkRenderer {
       this._instructionWaiter = null;
       waiter();
     }
+  }
+
+  /**
+   * Replace an existing queued instruction while preserving queue order.
+   */
+  replaceQueuedInstruction(index: number, instruction: string): boolean {
+    if (index < 0 || index >= this.state.queuedInstructions.length) {
+      return false;
+    }
+
+    const queuedInstructions = [...this.state.queuedInstructions];
+    queuedInstructions[index] = instruction;
+    this.updateState({ queuedInstructions });
+    return true;
+  }
+
+  /**
+   * Remove an existing queued instruction while preserving FIFO order.
+   */
+  removeQueuedInstruction(index: number): boolean {
+    if (index < 0 || index >= this.state.queuedInstructions.length) {
+      return false;
+    }
+
+    const queuedInstructions = this.state.queuedInstructions.filter((_, idx) => idx !== index);
+    this.updateState({ queuedInstructions });
+    return true;
   }
 
   /**
