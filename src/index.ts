@@ -872,10 +872,10 @@ mcpCmd
     process.exit(0);
   });
 
-// ── Features subcommands ───────────────────────────────────────────────
-const featuresCmd = program
-  .command('features')
-  .description('List and toggle Autohand feature switches')
+// ── Experiments subcommands ─────────────────────────────────────────────
+const experimentsCmd = program
+  .command('experiments')
+  .description('List and toggle Autohand experiments')
   .action(async () => {
     const { features } = await import('./commands/features.js');
     const config = await loadConfig(program.opts<{ config?: string }>().config);
@@ -884,10 +884,10 @@ const featuresCmd = program
     process.exit(0);
   });
 
-featuresCmd
+experimentsCmd
   .command('list')
   .alias('ls')
-  .description('List feature switches and current state')
+  .description('List experiments and current state')
   .action(async () => {
     const { features } = await import('./commands/features.js');
     const config = await loadConfig(program.opts<{ config?: string }>().config);
@@ -896,10 +896,10 @@ featuresCmd
     process.exit(0);
   });
 
-featuresCmd
+experimentsCmd
   .command('status <feature>')
   .alias('show')
-  .description('Show one feature switch')
+  .description('Show one experiment')
   .action(async (featureId: string) => {
     const { features } = await import('./commands/features.js');
     const config = await loadConfig(program.opts<{ config?: string }>().config);
@@ -912,7 +912,7 @@ featuresCmd
     process.exit(0);
   });
 
-featuresCmd
+experimentsCmd
   .command('refresh')
   .description('Download remote feature flags from the Autohand API')
   .action(async () => {
@@ -923,9 +923,9 @@ featuresCmd
     process.exit(0);
   });
 
-featuresCmd
+experimentsCmd
   .command('enable <feature>')
-  .description('Enable a feature switch')
+  .description('Enable an experiment')
   .action(async (featureId: string) => {
     const { setFeatureEnabled } = await import('./commands/features.js');
     const config = await loadConfig(program.opts<{ config?: string }>().config);
@@ -938,9 +938,9 @@ featuresCmd
     process.exit(0);
   });
 
-featuresCmd
+experimentsCmd
   .command('disable <feature>')
-  .description('Disable a feature switch')
+  .description('Disable an experiment')
   .action(async (featureId: string) => {
     const { setFeatureEnabled } = await import('./commands/features.js');
     const config = await loadConfig(program.opts<{ config?: string }>().config);

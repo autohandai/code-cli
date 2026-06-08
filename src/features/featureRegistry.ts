@@ -214,7 +214,7 @@ function getRemoteFeatureStates(config: LoadedConfig, options: FeatureRegistryOp
   const snapshot = options.remoteSnapshot;
   if (!snapshot) return [];
 
-  return snapshot.flags.filter((flag) => !isLocalFeatureId(flag.key)).map((flag) => {
+  return snapshot.flags.filter((flag) => !isLocalFeatureId(flag.key) && isVisibleRemoteExperiment(flag)).map((flag) => {
     const localOverride = remoteOverrides[flag.key] === 'off' ? 'off' : undefined;
     return {
       id: flag.key,
@@ -233,11 +233,20 @@ function getRemoteFeatureStates(config: LoadedConfig, options: FeatureRegistryOp
   });
 }
 
+export function isVisibleRemoteExperiment(flag: RemoteFeatureFlagSnapshot['flags'][number]): boolean {
+  const reason = flag.reason.toLowerCase();
+  if (reason.includes('archived') || reason.includes('client_type mismatch') || reason.includes('client type mismatch')) {
+    return false;
+  }
+
+  return !flag.clientTypes || flag.clientTypes.length === 0 || flag.clientTypes.includes('cli');
+}
+
 export function findFeature(id: string, options: FeatureRegistryOptions = {}): FeatureDefinition | undefined {
   const local = FEATURE_REGISTRY.find((feature) => feature.id === id);
   if (local) return local;
 
-  const remote = options.remoteSnapshot?.flags.find((flag) => flag.key === id);
+  const remote = options.remoteSnapshot?.flags.find((flag) => flag.key === id && isVisibleRemoteExperiment(flag));
   if (!remote) return undefined;
 
   return {

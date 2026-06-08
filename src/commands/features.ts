@@ -22,15 +22,15 @@ export interface FeaturesCommandContext {
 
 function renderUsage(): string {
   return [
-    'Usage: /features [list|status|enable|disable|refresh]',
+    'Usage: /experiments [list|status|enable|disable|refresh]',
     '',
     'Commands:',
-    '  /features',
-    '  /features list',
-    '  /features status <feature>',
-    '  /features enable <feature>',
-    '  /features disable <feature>',
-    '  /features refresh',
+    '  /experiments',
+    '  /experiments list',
+    '  /experiments status <feature>',
+    '  /experiments enable <feature>',
+    '  /experiments disable <feature>',
+    '  /experiments refresh',
   ].join('\n');
 }
 
@@ -85,7 +85,7 @@ async function showInteractiveFeatures(
   }));
 
   await showModal({
-    title: 'Features - space toggles, enter closes',
+    title: 'Experiments - space toggles, enter closes',
     options,
     multiSelect: true,
     maxVisible: 12,
@@ -202,14 +202,14 @@ export async function features(ctx: FeaturesCommandContext, args: string[] = [])
 }
 
 export const metadata = {
-  command: '/features',
-  description: 'list and toggle Autohand feature switches',
+  command: '/experiments',
+  description: 'list and toggle Autohand experiments',
   implemented: true,
   subcommands: [
-    { name: 'list', description: 'List feature switches and current state' },
-    { name: 'status', description: 'Show one feature switch' },
-    { name: 'enable', description: 'Enable a feature switch' },
-    { name: 'disable', description: 'Disable a feature switch' },
+    { name: 'list', description: 'List experiments and current state' },
+    { name: 'status', description: 'Show one experiment' },
+    { name: 'enable', description: 'Enable an experiment' },
+    { name: 'disable', description: 'Disable an experiment' },
     { name: 'refresh', description: 'Download remote feature flags from the Autohand API' },
   ],
 };

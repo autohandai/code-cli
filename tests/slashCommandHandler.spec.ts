@@ -3,18 +3,20 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { SlashCommandHandler } from '../src/core/slashCommandHandler.js';
 import type { SlashCommand } from '../src/core/slashCommands.js';
+import type { ShowModalOptions } from '../src/ui/ink/components/Modal.js';
 
 const mockIde = vi.fn();
 vi.mock('../src/commands/ide.js', () => ({
   ide: mockIde,
 }));
 
-const mockFeatures = vi.fn();
-vi.mock('../src/commands/features.js', () => ({
-  features: mockFeatures,
+const mockShowModal = vi.fn();
+
+vi.mock('../src/ui/ink/components/Modal.js', () => ({
+  showModal: mockShowModal,
 }));
 
 const mockSquad = vi.fn();
@@ -26,6 +28,17 @@ function createContext() {
   return {
     promptModelSelection: vi.fn().mockResolvedValue(undefined),
     createAgentsFile: vi.fn().mockResolvedValue(undefined),
+    config: {
+      configPath: `/tmp/autohand-slash-handler-${Date.now()}-${Math.random().toString(16).slice(2)}.json`,
+      provider: 'openrouter',
+      api: {
+        baseUrl: 'http://127.0.0.1:9',
+      },
+      features: {
+        usageV2: false,
+        slashGoal: false,
+      },
+    },
     workspaceRoot: '/tmp/workspace',
     onBeforeModal: vi.fn(),
     onAfterModal: vi.fn(),
@@ -46,6 +59,10 @@ const DEFAULT_COMMANDS: SlashCommand[] = [
 ];
 
 describe('SlashCommandHandler', () => {
+  beforeEach(() => {
+    mockShowModal.mockReset();
+  });
+
   it('invokes model selection for /model', async () => {
     const ctx = createContext();
     const handler = new SlashCommandHandler(ctx, DEFAULT_COMMANDS);
@@ -110,38 +127,38 @@ describe('SlashCommandHandler', () => {
     }));
   });
 
-  it('pauses the active UI around the interactive /features list modal', async () => {
+  it('pauses the active UI around the interactive /experiments list modal', async () => {
     const ctx = createContext();
-    mockFeatures.mockResolvedValueOnce('Enabled usage_v2.');
+    mockShowModal.mockImplementation(async (options: ShowModalOptions) => {
+      options.onToggle?.({ label: 'Usage v2', value: 'usage_v2' }, true);
+      return { label: 'Usage v2', value: 'usage_v2' };
+    });
     const handler = new SlashCommandHandler(ctx as any, [
       ...DEFAULT_COMMANDS,
-      { command: '/features', description: 'features', implemented: true },
+      { command: '/experiments', description: 'experiments', implemented: true },
     ]);
 
-    const result = await handler.handle('/features', ['list']);
+    const result = await handler.handle('/experiments', ['list']);
 
     expect(result).toBe('Enabled usage_v2.');
     expect(ctx.onBeforeModal).toHaveBeenCalledTimes(1);
     expect(ctx.onAfterModal).toHaveBeenCalledTimes(1);
     expect(ctx.refreshFeatureGatedTools).toHaveBeenCalledTimes(1);
-    expect(mockFeatures).toHaveBeenCalledWith(
-      expect.objectContaining({
-        config: ctx.config,
-        interactive: true,
-      }),
-      ['list'],
-    );
+    expect(mockShowModal).toHaveBeenCalledWith(expect.objectContaining({
+      title: expect.stringContaining('Experiments'),
+      multiSelect: true,
+    }));
+    expect(ctx.config.features.usageV2).toBe(true);
   });
 
-  it('refreshes feature-gated tools after non-modal /features toggles', async () => {
+  it('refreshes feature-gated tools after non-modal /experiments toggles', async () => {
     const ctx = createContext();
-    mockFeatures.mockResolvedValueOnce('Enabled slash_goal.');
     const handler = new SlashCommandHandler(ctx as any, [
       ...DEFAULT_COMMANDS,
-      { command: '/features', description: 'features', implemented: true },
+      { command: '/experiments', description: 'experiments', implemented: true },
     ]);
 
-    const result = await handler.handle('/features', ['enable', 'slash_goal']);
+    const result = await handler.handle('/experiments', ['enable', 'slash_goal']);
 
     expect(result).toBe('Enabled slash_goal.');
     expect(ctx.refreshFeatureGatedTools).toHaveBeenCalledTimes(1);
@@ -195,7 +212,7 @@ describe('SlashCommandHandler', () => {
 
     expect(result).toBe('Autohand Squad is ready.');
     expect(mockSquad).toHaveBeenCalledWith(
-      { workspaceRoot: '/tmp/workspace', config: undefined },
+      { workspaceRoot: '/tmp/workspace', config: ctx.config },
       ['--port', '19999'],
     );
   });

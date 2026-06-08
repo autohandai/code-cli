@@ -9,7 +9,7 @@ import type { LoadedConfig } from '../types.js';
 export const GOAL_FEATURE_ID = 'slash_goal';
 
 export const GOAL_FEATURE_DISABLED_MESSAGE =
-  'The /goal feature is behind slash_goal. Run /features enable slash_goal, then try again.';
+  'The /goal feature is behind slash_goal. Run /experiments enable slash_goal, then try again.';
 
 export function isGoalFeatureEnabled(config?: LoadedConfig | null): boolean {
   if (!config) return false;

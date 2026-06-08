@@ -243,7 +243,7 @@ export function formatUsageDashboard(data: UsageDashboardData): string {
 
 export async function usage(ctx: SlashCommandContext): Promise<string> {
   if (!isUsageV2Enabled(ctx)) {
-    return 'The /usage dashboard is behind usage_v2. Run /features enable usage_v2, then /usage again. No restart required.';
+    return 'The /usage dashboard is behind usage_v2. Run /experiments enable usage_v2, then /usage again. No restart required.';
   }
 
   await ctx.trackFeatureActivation?.(USAGE_V2_FLAG, {
