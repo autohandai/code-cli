@@ -17,6 +17,7 @@ Each command is a separate TypeScript file that exports:
 | `/new` | `new.ts` | Start new conversation |
 | `/init` | `init.ts` | Create AGENTS.md file |
 | `/quit` | `quit.ts` | Exit Autohand |
+| `/exit` | `quit.ts` | Exit Autohand |
 | `/help` | `help.ts` | Show available commands |
 | `/sessions` | `sessions.ts` | List saved sessions |
 | `/resume` | `resume.ts` | Resume a previous session |

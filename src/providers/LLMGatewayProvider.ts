@@ -5,7 +5,7 @@
  */
 
 import { LLMGatewayClient } from './LLMGatewayClient.js';
-import type { LLMProvider } from './LLMProvider.js';
+import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, LLMGatewaySettings, NetworkSettings } from '../types.js';
 
 export class LLMGatewayProvider implements LLMProvider {
@@ -19,6 +19,10 @@ export class LLMGatewayProvider implements LLMProvider {
 
     getName(): string {
         return 'llmgateway';
+    }
+
+    getCapabilities(): LLMProviderCapabilities {
+        return { nativeToolCalling: true };
     }
 
     setModel(model: string): void {

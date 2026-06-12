@@ -13,8 +13,18 @@ export async function quit(): Promise<string | null> {
     return '/quit';
 }
 
+export async function exit(): Promise<string | null> {
+    return '/exit';
+}
+
 export const metadata = {
     command: '/quit',
+    description: t('commands.quit.description'),
+    implemented: true
+};
+
+export const exitMetadata = {
+    command: '/exit',
     description: t('commands.quit.description'),
     implemented: true
 };

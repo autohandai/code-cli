@@ -8,6 +8,7 @@ import chalk from 'chalk';
 import type { ToolDefinition } from '../toolManager.js';
 import type { AgentAction, ToolCallRequest, ExplorationEvent, TurnUsage, TokenUsageStatus } from '../../types.js';
 import { formatToolOutputForDisplay } from '../../ui/toolOutput.js';
+import { isTokenUsageStatusEnabled } from '../../features/featureRegistry.js';
 
 /**
  * AgentFormatter module
@@ -262,4 +263,115 @@ export function formatSessionActualTokens(tokens: number, status?: TokenUsageSta
     return 'unavailable';
   }
   return formatTokens(tokens);
+}
+
+/**
+ * Compact token count for the real-time usage status line.
+ * Uses lowercase `k` for thousands and uppercase `M` for millions, each with a
+ * single decimal (e.g. `15.7k`, `262.1k`, `1.1M`). Negative or non-finite
+ * values render as `0`.
+ */
+export function formatCompactTokens(tokens: number): string {
+  if (!Number.isFinite(tokens) || tokens <= 0) {
+    return '0';
+  }
+  if (tokens >= 1_000_000) {
+    return `${(tokens / 1_000_000).toFixed(1)}M`;
+  }
+  if (tokens >= 1_000) {
+    return `${(tokens / 1_000).toFixed(1)}k`;
+  }
+  return String(Math.round(tokens));
+}
+
+/** Minimal host shape needed to render the real-time token usage status line. */
+export interface TokenUsageStatusHost {
+  runtime?: { config?: Parameters<typeof isTokenUsageStatusEnabled>[0] };
+  contextWindow?: number;
+  sessionPromptTokens?: number;
+  sessionCompletionTokens?: number;
+  lastContextTokens?: number;
+}
+
+/**
+ * Build the real-time token-usage status string for a runtime host when the
+ * experimental `token_usage_status` feature is enabled, otherwise `null` so
+ * callers fall back to their existing total-tokens display.
+ */
+export function buildHostTokenUsageStatus(
+  host: TokenUsageStatusHost,
+  unavailable: boolean
+): string | null {
+  if (!isTokenUsageStatusEnabled(host.runtime?.config)) {
+    return null;
+  }
+  return formatTokenUsageStatus({
+    promptTokens: host.sessionPromptTokens ?? 0,
+    completionTokens: host.sessionCompletionTokens ?? 0,
+    contextTokens: host.lastContextTokens ?? 0,
+    contextWindow: host.contextWindow ?? 0,
+    unavailable,
+  });
+}
+
+export function buildHostTokenUsageContextStatus(
+  host: TokenUsageStatusHost,
+  unavailable: boolean
+): string | null {
+  if (!isTokenUsageStatusEnabled(host.runtime?.config)) {
+    return null;
+  }
+  return formatTokenUsageContextStatus({
+    promptTokens: host.sessionPromptTokens ?? 0,
+    completionTokens: host.sessionCompletionTokens ?? 0,
+    contextTokens: host.lastContextTokens ?? 0,
+    contextWindow: host.contextWindow ?? 0,
+    unavailable,
+  });
+}
+
+export interface TokenUsageStatusInput {
+  /** Cumulative input tokens sent this session (tokens going up). */
+  promptTokens: number;
+  /** Cumulative output tokens received this session (tokens going down). */
+  completionTokens: number;
+  /** Current context occupancy (the most recent request's prompt tokens). */
+  contextTokens: number;
+  /** The active model's context window, or 0/undefined when unknown. */
+  contextWindow: number;
+  /** True when the provider did not report usage for this session. */
+  unavailable?: boolean;
+}
+
+/**
+ * Render the experimental `token_usage_status` line:
+ * `↑15.7k ↓3.2k · context: 6.0% (15.7k/262.1k)`.
+ *
+ * The context segment is omitted when the window is unknown. When usage is
+ * unavailable the function returns `'unavailable'` to match the existing
+ * status-line vocabulary.
+ */
+export function formatTokenUsageStatus(input: TokenUsageStatusInput): string {
+  if (input.unavailable) {
+    return 'unavailable';
+  }
+
+  const up = `↑${formatCompactTokens(input.promptTokens)}`;
+  const down = `↓${formatCompactTokens(input.completionTokens)}`;
+  const base = `${up} ${down}`;
+  const context = formatTokenUsageContextStatus(input);
+
+  return context ? `${base} · ${context}` : base;
+}
+
+export function formatTokenUsageContextStatus(input: TokenUsageStatusInput): string | null {
+  if (input.unavailable || !Number.isFinite(input.contextWindow) || input.contextWindow <= 0) {
+    return null;
+  }
+
+  const ratio = Math.max(0, Math.min(input.contextTokens / input.contextWindow, 1));
+  const percent = (ratio * 100).toFixed(1);
+  const used = formatCompactTokens(input.contextTokens);
+  const total = formatCompactTokens(input.contextWindow);
+  return `context: ${percent}% (${used}/${total})`;
 }

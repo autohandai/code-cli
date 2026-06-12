@@ -40,6 +40,12 @@ import { renderTerminalMarkdown } from '../../core/immediateCommandRouter.js';
 import { buildFileMentionSuggestions } from '../mentionFilter.js';
 import { getContentDisplay } from '../displayUtils.js';
 import type { ChatLogMessage } from '../../session/chatLog.js';
+import { formatCompactTokens } from '../../core/agent/AgentFormatter.js';
+
+export interface ContextTokenDisplay {
+  used: number;
+  total: number;
+}
 
 export interface AgentUIState {
   isWorking: boolean;
@@ -64,6 +70,8 @@ export interface AgentUIState {
   planModeIndicator?: string;
   /** Context percentage remaining (0-100) */
   contextPercent?: number;
+  /** Current context occupancy and active model context window. */
+  contextTokens?: ContextTokenDisplay;
   /** Current LLM provider key (e.g. 'openai', 'openrouter') */
   provider?: string;
   /** Current LLM model name */
@@ -480,17 +488,30 @@ export function handleInkTextBufferInput(
 export function getComposerHelpLine(
   _isWorking: boolean,
   providerDisplay: string,
-  contextDisplay: string,
+  contextDisplay: string | ContextTokenDisplay,
   commandHint: string,
   lineExtension?: LineExtension
 ): string {
+  const contextText = typeof contextDisplay === 'string'
+    ? contextDisplay
+    : formatContextTokenDisplay(contextDisplay);
   const defaultSegments: LineSegment[] = [
     { id: 'provider', text: providerDisplay },
-    { id: 'context', text: contextDisplay },
+    { id: 'context', text: contextText },
     { id: 'command-hint', text: commandHint },
   ];
 
   return formatLineSegments(defaultSegments, lineExtension);
+}
+
+function formatContextTokenDisplay(contextTokens: ContextTokenDisplay): string {
+  if (!Number.isFinite(contextTokens.total) || contextTokens.total <= 0) {
+    return '';
+  }
+
+  const used = Math.max(0, contextTokens.used);
+  const ratio = Math.max(0, Math.min(used / contextTokens.total, 1));
+  return `context: ${(ratio * 100).toFixed(1)}% (${formatCompactTokens(used)}/${formatCompactTokens(contextTokens.total)})`;
 }
 
 /**
@@ -1745,6 +1766,7 @@ export function AgentUI({
         cursorOffset={cursorOffset}
         ctrlCCount={ctrlCCount}
         contextPercent={state.contextPercent}
+        contextTokens={state.contextTokens}
         provider={state.provider}
         model={state.model}
         lineExtensions={effectiveLineExtensions}
@@ -1981,6 +2003,7 @@ interface StatusSectionProps {
   selectedQueueIndex: number | null;
   completionStats: { elapsed: string; tokens: string } | null;
   contextPercent?: number;
+  contextTokens?: ContextTokenDisplay;
   provider?: string;
   model?: string;
   lineExtension?: LineExtension;
@@ -2046,6 +2069,7 @@ const StatusSection = memo(function StatusSection({
   selectedQueueIndex,
   completionStats,
   contextPercent,
+  contextTokens,
   provider,
   model,
   lineExtension,
@@ -2066,6 +2090,7 @@ const StatusSection = memo(function StatusSection({
         tokens={tokens}
         queueCount={queuedInstructions.length}
         contextPercent={contextPercent}
+        contextTokens={contextTokens}
         provider={provider}
         model={model}
         lineExtension={lineExtension}
@@ -2094,6 +2119,8 @@ const StatusSection = memo(function StatusSection({
          prev.elapsed === next.elapsed &&
          prev.tokens === next.tokens &&
          prev.contextPercent === next.contextPercent &&
+         prev.contextTokens?.used === next.contextTokens?.used &&
+         prev.contextTokens?.total === next.contextTokens?.total &&
          prev.queuedInstructions === next.queuedInstructions &&
          prev.selectedQueueIndex === next.selectedQueueIndex &&
          prev.completionStats?.elapsed === next.completionStats?.elapsed &&
@@ -2167,6 +2194,7 @@ const InputLineWrapper = memo(function InputLineWrapper({
 interface HelpLineSectionProps {
   isWorking: boolean;
   contextPercent?: number;
+  contextTokens?: ContextTokenDisplay;
   provider?: string;
   model?: string;
   lineExtension?: LineExtension;
@@ -2175,6 +2203,7 @@ interface HelpLineSectionProps {
 const HelpLineSection = memo(function HelpLineSection({
   isWorking,
   contextPercent,
+  contextTokens,
   provider,
   model,
   lineExtension,
@@ -2182,8 +2211,10 @@ const HelpLineSection = memo(function HelpLineSection({
   const { colors } = useTheme();
   const { t } = useTranslation();
 
-  // Format context percentage
-  const contextDisplay = contextPercent !== undefined
+  // Format context usage.
+  const contextDisplay = contextTokens !== undefined
+    ? contextTokens
+    : contextPercent !== undefined
     ? `${Math.round(contextPercent)}% context left`
     : '';
 
@@ -2202,6 +2233,8 @@ const HelpLineSection = memo(function HelpLineSection({
 }, (prev, next) => {
   return prev.isWorking === next.isWorking &&
          prev.contextPercent === next.contextPercent &&
+         prev.contextTokens?.used === next.contextTokens?.used &&
+         prev.contextTokens?.total === next.contextTokens?.total &&
          prev.provider === next.provider &&
          prev.model === next.model &&
          prev.lineExtension === next.lineExtension;
@@ -2295,6 +2328,7 @@ interface FixedBottomProps {
   cursorOffset: number;
   ctrlCCount: number;
   contextPercent?: number;
+  contextTokens?: ContextTokenDisplay;
   provider?: string;
   model?: string;
   lineExtensions?: AgentUILineExtensions;
@@ -2326,6 +2360,7 @@ const FixedBottom = memo(function FixedBottom({
   cursorOffset,
   ctrlCCount,
   contextPercent,
+  contextTokens,
   provider,
   model,
   lineExtensions,
@@ -2351,6 +2386,7 @@ const FixedBottom = memo(function FixedBottom({
         selectedQueueIndex={selectedQueueIndex}
         completionStats={completionStats}
         contextPercent={contextPercent}
+        contextTokens={contextTokens}
         provider={provider}
         model={model}
         lineExtension={mergeLineExtensions(configuredLineExtensions?.status, lineExtensions?.status)}
@@ -2373,6 +2409,7 @@ const FixedBottom = memo(function FixedBottom({
       <HelpLineSection
         isWorking={isWorking}
         contextPercent={contextPercent}
+        contextTokens={contextTokens}
         provider={provider}
         model={model}
         lineExtension={mergeLineExtensions(configuredLineExtensions?.help, lineExtensions?.help)}
@@ -2404,6 +2441,7 @@ export function createInitialUIState(): AgentUIState {
     // Default to 100% before any tokens are consumed so the welcome helpline
     // shows "100% context left" right after startup, before the first prompt.
     contextPercent: 100,
+    contextTokens: undefined,
     provider: undefined,
     model: undefined,
     lineExtensions: undefined,

@@ -5,7 +5,7 @@
  */
 
 import { NVIDIAClient } from "./NVIDIAClient.js";
-import type { LLMProvider } from "./LLMProvider.js";
+import type { LLMProvider, LLMProviderCapabilities } from "./LLMProvider.js";
 import type {
   LLMRequest,
   LLMResponse,
@@ -55,6 +55,10 @@ export class NVIDIAProvider implements LLMProvider {
 
   getName(): string {
     return "nvidia";
+  }
+
+  getCapabilities(): LLMProviderCapabilities {
+    return { nativeToolCalling: true };
   }
 
   setModel(model: string): void {

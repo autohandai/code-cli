@@ -5,7 +5,7 @@
  */
 
 import { AzureClient } from './AzureClient.js';
-import type { LLMProvider } from './LLMProvider.js';
+import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, AzureSettings, NetworkSettings } from '../types.js';
 
 export class AzureProvider implements LLMProvider {
@@ -33,6 +33,10 @@ export class AzureProvider implements LLMProvider {
 
   getName(): string {
     return 'azure';
+  }
+
+  getCapabilities(): LLMProviderCapabilities {
+    return { nativeToolCalling: true };
   }
 
   setModel(model: string): void {

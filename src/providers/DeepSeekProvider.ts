@@ -5,7 +5,7 @@
  */
 
 import { LLMGatewayClient } from "./LLMGatewayClient.js";
-import type { LLMProvider } from "./LLMProvider.js";
+import type { LLMProvider, LLMProviderCapabilities } from "./LLMProvider.js";
 import type {
   DeepSeekSettings,
   LLMGatewaySettings,
@@ -41,6 +41,10 @@ export class DeepSeekProvider implements LLMProvider {
 
   getName(): string {
     return "deepseek";
+  }
+
+  getCapabilities(): LLMProviderCapabilities {
+    return { nativeToolCalling: true };
   }
 
   setModel(model: string): void {

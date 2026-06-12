@@ -12,7 +12,7 @@ import type {
   FunctionDefinition,
   LLMMessage,
 } from "../types.js";
-import type { LLMProvider } from "./LLMProvider.js";
+import type { LLMProvider, LLMProviderCapabilities } from "./LLMProvider.js";
 import { getGcloudAccessToken, clearGcloudTokenCache } from "../utils/gcloudAuth.js";
 import { ApiError, classifyApiError, type ApiErrorCode } from "./errors.js";
 import { normalizeLLMUsage } from "./usage.js";
@@ -190,6 +190,10 @@ export class VertexAIProvider implements LLMProvider {
 
   getName(): string {
     return "vertexai";
+  }
+
+  getCapabilities(): LLMProviderCapabilities {
+    return { nativeToolCalling: true };
   }
 
   setModel(model: string): void {

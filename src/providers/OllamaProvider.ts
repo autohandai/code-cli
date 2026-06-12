@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { LLMProvider } from './LLMProvider.js';
+import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
 import type {
     LLMRequest,
     LLMResponse,
@@ -83,6 +83,10 @@ export class OllamaProvider implements LLMProvider {
 
     getName(): string {
         return 'ollama';
+    }
+
+    getCapabilities(): LLMProviderCapabilities {
+        return { nativeToolCalling: true };
     }
 
     setModel(model: string): void {

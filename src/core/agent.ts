@@ -287,6 +287,12 @@ export class AutohandAgent {
   private lastTurnActualUsage: TurnUsage = { kind: 'unavailable', reason: 'not_reported' };
   private sessionActualTokensUsed = 0;
   private sessionTokenUsageUnavailable = false;
+  // Real-time token usage status (experimental `token_usage_status` feature).
+  // Cumulative input (up) / output (down) tokens, and the most recent request's
+  // prompt tokens, which approximate current context-window occupancy.
+  private sessionPromptTokens = 0;
+  private sessionCompletionTokens = 0;
+  private lastContextTokens = 0;
   private statusInterval: NodeJS.Timeout | null = null;
   private resizeHandler: (() => void) | null = null;
   private sessionStartedAt: number = Date.now();
@@ -662,6 +668,12 @@ export class AutohandAgent {
       set currentTurnHadUnavailableUsage(value) { agent.currentTurnHadUnavailableUsage = value; },
       get sessionActualTokensUsed() { return agent.sessionActualTokensUsed; },
       get sessionTokenUsageUnavailable() { return agent.sessionTokenUsageUnavailable; },
+      get sessionPromptTokens() { return agent.sessionPromptTokens; },
+      set sessionPromptTokens(value) { agent.sessionPromptTokens = value; },
+      get sessionCompletionTokens() { return agent.sessionCompletionTokens; },
+      set sessionCompletionTokens(value) { agent.sessionCompletionTokens = value; },
+      get lastContextTokens() { return agent.lastContextTokens; },
+      set lastContextTokens(value) { agent.lastContextTokens = value; },
       cleanupModelResponse: (content) => agent.cleanupModelResponse(content),
       emitOutput: (event) => agent.emitOutput(event),
       ensureSpinnerRunning: () => agent.ensureSpinnerRunning(),
@@ -817,6 +829,7 @@ export class AutohandAgent {
     this.inkRenderer?.setConfiguredLineExtensions?.(buildStatusLineExtension({
       settings: getConfigStatusLineSettings(this.runtime.config),
       sessionDiffStats: this.sessionDiffStatsTracker?.getStats(),
+      sessionHasFileChanges: this.filesModifiedThisSession === true,
     }));
   }
 
