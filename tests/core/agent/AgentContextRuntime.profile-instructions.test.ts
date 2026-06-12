@@ -3,12 +3,13 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
 import {
   loadAgentInstructionFiles,
+  updateAgentContextUsage,
   type AgentContextRuntimeHost,
 } from '../../../src/core/agent/AgentContextRuntime.js';
 
@@ -87,5 +88,73 @@ describe('loadAgentInstructionFiles agent profile instructions', () => {
     host.runtime.options.bare = true;
 
     await expect(loadAgentInstructionFiles(host)).resolves.toEqual([]);
+  });
+});
+
+describe('updateAgentContextUsage composer display', () => {
+  function makeUsageHost(): AgentContextRuntimeHost {
+    return {
+      activeProvider: 'ollama',
+      contextPercentLeft: 100,
+      contextWindow: 100,
+      currentTurnHadUnavailableUsage: false,
+      runtime: {
+        options: { model: 'gemma4:12b-mlx' },
+        workspaceRoot: '/tmp/workspace',
+        config: { provider: 'ollama' },
+      },
+      conversation: {
+        addSystemNote: vi.fn(),
+        history: vi.fn(() => []),
+        reset: vi.fn(),
+      },
+      ignoreFilter: { isIgnored: vi.fn(() => false) },
+      inkRenderer: {
+        getQueueCount: vi.fn(() => 0),
+        setContextPercent: vi.fn(),
+      },
+      memoryManager: { getContextMemories: vi.fn(async () => '') },
+      mentionResolver: {
+        clear: vi.fn(),
+        flush: vi.fn(() => null),
+      },
+      persistentInput: { getQueueLength: vi.fn(() => 0) },
+      projectManager: { getKnowledge: vi.fn(async () => null) },
+      skillsRegistry: { getActiveSkills: vi.fn(() => []) },
+      buildSystemPrompt: vi.fn(async () => ''),
+      emitStatus: vi.fn(),
+      generateSessionBootstrap: vi.fn(async () => ''),
+      getParallelismLimit: vi.fn(() => 3),
+      recordExploration: vi.fn(),
+      updateContextUsage: vi.fn(),
+    } as unknown as AgentContextRuntimeHost;
+  }
+
+  it('keeps message-only context estimates out of the idle Ink composer', () => {
+    const host = makeUsageHost();
+
+    updateAgentContextUsage(host, [
+      { role: 'system', content: 'x'.repeat(400) },
+    ]);
+
+    expect(host.contextPercentLeft).toBeLessThan(100);
+    expect(host.inkRenderer?.setContextPercent).not.toHaveBeenCalled();
+    expect(host.emitStatus).toHaveBeenCalled();
+  });
+
+  it('updates the Ink composer for prepared request estimates with tools', () => {
+    const host = makeUsageHost();
+
+    updateAgentContextUsage(
+      host,
+      [{ role: 'user', content: 'hello' }],
+      [{
+        name: 'read_file',
+        description: 'Read a file',
+        parameters: { type: 'object', properties: {} },
+      }] as never
+    );
+
+    expect(host.inkRenderer?.setContextPercent).toHaveBeenCalledWith(host.contextPercentLeft);
   });
 });

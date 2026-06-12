@@ -709,6 +709,19 @@ describe('ReactLoopRunner composer status', () => {
     });
 
     const host = createReactLoopTestHost(llmComplete, parser);
+    const setContextTokens = vi.fn();
+    host.inkRenderer = {
+      setStatus: vi.fn(),
+      addToolCall: vi.fn(),
+      addToolOutputBatch: vi.fn(),
+      addToolOutput: vi.fn(),
+      setThinking: vi.fn(),
+      setElapsed: vi.fn(),
+      setTokens: vi.fn(),
+      setContextTokens,
+      setWorking: vi.fn(),
+      setFinalResponse: vi.fn(),
+    };
 
     try {
       await runAgentReactLoop(host, new AbortController());
@@ -722,6 +735,7 @@ describe('ReactLoopRunner composer status', () => {
       });
       expect(host.currentTurnHadUnavailableUsage).toBe(false);
       expect(host.totalTokensUsed).toBe(15);
+      expect(setContextTokens).toHaveBeenCalledWith({ used: 10, total: 128000 });
     } finally {
       logSpy.mockRestore();
     }

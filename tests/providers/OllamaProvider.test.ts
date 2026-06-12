@@ -31,6 +31,12 @@ describe('OllamaProvider', () => {
         });
     });
 
+    describe('getCapabilities()', () => {
+        it('should advertise native tool calling so the agent sends Ollama tool schemas', () => {
+            expect(provider.getCapabilities()).toEqual({ nativeToolCalling: true });
+        });
+    });
+
     describe('constructor with network settings', () => {
         it('accepts NetworkSettings as second constructor param', () => {
             const networkSettings: NetworkSettings = {

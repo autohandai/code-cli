@@ -188,6 +188,15 @@ describe('slash command dispatch – output vs instruction', () => {
     expect(result).toBe('/quit');
   });
 
+  it('/exit returns "/exit" as a pass-through for the exit handler', async () => {
+    const ctx = createMinimalContext();
+    const handler = new SlashCommandHandler(ctx, SLASH_COMMANDS);
+
+    const result = await handler.handle('/exit');
+
+    expect(result).toBe('/exit');
+  });
+
   it('/quit and /exit bypass slash handler in dispatch logic', () => {
     // Simulates the promptForInstruction() logic:
     // /quit and /exit are returned as-is (pass-through) before

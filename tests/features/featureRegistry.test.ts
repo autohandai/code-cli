@@ -9,6 +9,7 @@ import {
   FEATURE_REGISTRY,
   formatFeatureList,
   getFeatureState,
+  isTokenUsageStatusEnabled,
   listFeatureStates,
   setFeatureState,
 } from '../../src/features/featureRegistry.js';
@@ -124,6 +125,77 @@ describe('feature registry', () => {
     expect(listFeatureStates(config, { remoteSnapshot }).filter((feature) => feature.id === 'usage_v2')).toHaveLength(1);
   });
 
+  it('filters remote flags scoped to other clients out of CLI feature states', () => {
+    const config = makeConfig();
+    const remoteSnapshot = {
+      success: true as const,
+      environment: 'production',
+      evaluatedAt: '2026-01-01T00:00:00.000Z',
+      ttlSeconds: 300,
+      flags: [
+        {
+          key: 'cli_experiment',
+          enabled: true,
+          reason: 'match',
+          userOverridable: true,
+          clientTypes: ['cli'],
+        },
+        {
+          key: 'website_experiment',
+          enabled: true,
+          reason: 'match',
+          userOverridable: true,
+          clientTypes: ['web'],
+        },
+      ],
+    };
+
+    const ids = listFeatureStates(config, { remoteSnapshot }).map((feature) => feature.id);
+
+    expect(ids).toContain('cli_experiment');
+    expect(ids).not.toContain('website_experiment');
+    expect(getFeatureState(config, 'website_experiment', { remoteSnapshot })).toBeUndefined();
+  });
+
+  it('filters archived and client-mismatched remote flags out of experiment states', () => {
+    const config = makeConfig();
+    const remoteSnapshot = {
+      success: true as const,
+      environment: 'production',
+      evaluatedAt: '2026-01-01T00:00:00.000Z',
+      ttlSeconds: 300,
+      flags: [
+        {
+          key: 'cli_experiment',
+          enabled: true,
+          reason: 'match',
+          userOverridable: true,
+          clientTypes: ['cli'],
+        },
+        {
+          key: 'site_use_cases',
+          enabled: false,
+          reason: 'client_type mismatch',
+          userOverridable: true,
+        },
+        {
+          key: 'website_use_cases',
+          enabled: false,
+          reason: 'archived',
+          userOverridable: true,
+        },
+      ],
+    };
+
+    const ids = listFeatureStates(config, { remoteSnapshot }).map((feature) => feature.id);
+
+    expect(ids).toContain('cli_experiment');
+    expect(ids).not.toContain('site_use_cases');
+    expect(ids).not.toContain('website_use_cases');
+    expect(getFeatureState(config, 'site_use_cases', { remoteSnapshot })).toBeUndefined();
+    expect(getFeatureState(config, 'website_use_cases', { remoteSnapshot })).toBeUndefined();
+  });
+
   it('enables slash_goal through the local feature config path', () => {
     const config = makeConfig();
 
@@ -158,5 +230,36 @@ describe('feature registry', () => {
     expect(result.ok).toBe(true);
     expect(config.features?.remoteOverrides?.remote_disabled).toBeUndefined();
     expect(getFeatureState(config, 'remote_disabled', { remoteSnapshot })?.enabled).toBe(false);
+  });
+
+  it('registers token_usage_status as an experimental, default-off flag', () => {
+    const definition = FEATURE_REGISTRY.find((feature) => feature.id === 'token_usage_status');
+    expect(definition).toBeDefined();
+    expect(definition?.stage).toBe('experimental');
+    expect(definition?.defaultEnabled).toBe(false);
+    expect(definition?.configPath).toBe('features.tokenUsageStatus');
+  });
+
+  it('enables token_usage_status through the local feature config path', () => {
+    const config = makeConfig();
+
+    const result = setFeatureState(config, 'token_usage_status', true);
+
+    expect(result.ok).toBe(true);
+    expect(config.features?.tokenUsageStatus).toBe(true);
+    expect(getFeatureState(config, 'token_usage_status')?.enabled).toBe(true);
+  });
+});
+
+describe('isTokenUsageStatusEnabled', () => {
+  it('defaults to off', () => {
+    expect(isTokenUsageStatusEnabled(makeConfig())).toBe(false);
+    expect(isTokenUsageStatusEnabled(null)).toBe(false);
+    expect(isTokenUsageStatusEnabled(undefined)).toBe(false);
+  });
+
+  it('reflects the config flag when set', () => {
+    expect(isTokenUsageStatusEnabled(makeConfig({ features: { tokenUsageStatus: true } }))).toBe(true);
+    expect(isTokenUsageStatusEnabled(makeConfig({ features: { tokenUsageStatus: false } }))).toBe(false);
   });
 });
