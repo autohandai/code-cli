@@ -761,6 +761,7 @@ Or use the slash command:
 | `/resume` | Resume previous session |
 | `/memory` | Manage saved preferences |
 | `/quit` | Exit Autohand |
+| `/exit` | Exit Autohand |
 
 ### File Mentions
 

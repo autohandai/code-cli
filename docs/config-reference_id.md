@@ -975,7 +975,7 @@ Autohand mendukung awalan khusus dalam input prompt:
 
 | Awalan | Deskripsi                           | Contoh                            |
 | ------- | ------------------------------ | ---------------------------------- |
-| `/`     | Perintah slash                 | `/help`, `/model`, `/quit`         |
+| `/`     | Perintah slash                 | `/help`, `/model`, `/quit`, `/exit` |
 | `@`     | Penyebutan file (auto-complete) | `@src/index.ts`                   |
 | `$`     | Penyebutan skill (auto-complete) | `$frontend-design`, `$code-review` |
 | `!`     | Jalankan perintah terminal langsung | `! git status`, `! ls -la`        |

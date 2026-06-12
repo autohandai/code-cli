@@ -441,10 +441,15 @@ See [Workspace Safety](./workspace-safety.md) for full details.
     "activityVerbsEnabled": true,
     "activitySymbol": "✳",
     "statusLine": {
+      "showProviderModel": true,
       "showContext": true,
       "showCommandHint": true,
       "showPullRequest": true,
-      "showSessionLines": false
+      "showSessionLines": false,
+      "showQueue": true,
+      "showActiveStatus": true,
+      "showActiveMetrics": true,
+      "showCancelHint": true
     },
     "showCompletionNotification": true,
     "showThinking": true,
@@ -465,10 +470,15 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `activityVerbs`              | string or string[] | built-in pool | Custom activity verb or verb pool for the working indicator, rendered as `Verb...` |
 | `activityVerbsEnabled`       | boolean | `true`  | Show rotating activity verbs like `Compiling...` while the agent is working |
 | `activitySymbol`             | string | `"✳"`   | Symbol shown before the activity verb in activity indicator output |
-| `statusLine.showContext`     | boolean | `true`  | Show the context percentage in the composer status line |
-| `statusLine.showCommandHint` | boolean | `true`  | Show command, mention, skill, and terminal-entry hints in the composer status line |
-| `statusLine.showPullRequest` | boolean | `true`  | Show the associated pull request number, or `PR #123` when no PR is associated |
-| `statusLine.showSessionLines`| boolean | `false` | Show lines added and removed during the current session |
+| `statusLine.showProviderModel` | boolean | `true`  | Show the active provider and model in the composer status line |
+| `statusLine.showContext`       | boolean | `true`  | Show the context percentage in the composer status line |
+| `statusLine.showCommandHint`   | boolean | `true`  | Show command, mention, skill, and terminal-entry hints in the composer status line |
+| `statusLine.showPullRequest`   | boolean | `true`  | Show the associated pull request number, or `PR #123` when no PR is associated |
+| `statusLine.showSessionLines`  | boolean | `false` | Show lines added and removed during the current session |
+| `statusLine.showQueue`         | boolean | `true`  | Show queued request counts in the status line |
+| `statusLine.showActiveStatus`  | boolean | `true`  | Show active turn status text while the agent is working |
+| `statusLine.showActiveMetrics` | boolean | `true`  | Show elapsed time and token metrics while the agent is working |
+| `statusLine.showCancelHint`    | boolean | `true`  | Show the Esc cancel hint while the agent is working |
 | `completionReportEnabled`    | boolean | `true`  | Ask the model to include a concise completion report after completed action turns |
 | `showCompletionNotification` | boolean | `true`  | Show system notification when task completes                                                   |
 | `showThinking`               | boolean | `true`  | Display LLM's reasoning/thought process                                                        |
@@ -1081,7 +1091,7 @@ Autohand supports special prefixes in the input prompt:
 
 | Prefix | Description                    | Example                            |
 | ------ | ------------------------------ | ---------------------------------- |
-| `/`    | Slash commands                 | `/help`, `/model`, `/quit`         |
+| `/`    | Slash commands                 | `/help`, `/model`, `/quit`, `/exit` |
 | `@`    | File mentions (autocomplete)   | `@src/index.ts`                    |
 | `$`    | Skill mentions (autocomplete)  | `$frontend-design`, `$code-review` |
 | `!`    | Run terminal commands directly | `! git status`, `! ls -la`         |
@@ -1970,19 +1980,21 @@ These flags override config file settings:
 | `--agents <json\|path>`       | Load explicit inline agents JSON or an explicit agents directory                               |
 | `--plugin-dir <path>`         | Load an explicit plugin/meta-tool directory                                                    |
 
-### Feature Switch Commands
+### Experiment Switch Commands
 
 | Command                               | Description                                      |
 | ------------------------------------- | ------------------------------------------------ |
-| `autohand features list`              | List local and remote feature ids, source, lifecycle stage, and state |
-| `autohand features status <feature>`  | Show one feature switch, config path or remote metadata, and state |
-| `autohand features refresh`           | Download remote feature flags from the Autohand API |
-| `autohand features enable <feature>`  | Enable a config-backed feature switch            |
-| `autohand features disable <feature>` | Disable a config-backed feature switch           |
+| `autohand experiments list`              | List local and remote feature ids, source, lifecycle stage, and state |
+| `autohand experiments status <feature>`  | Show one feature switch, config path or remote metadata, and state |
+| `autohand experiments refresh`           | Download remote feature flags from the Autohand API |
+| `autohand experiments enable <feature>`  | Enable a config-backed feature switch            |
+| `autohand experiments disable <feature>` | Disable a config-backed feature switch           |
 
 Remote feature flags are fetched from `/v1/feature-flags/evaluate`, cached at `~/.autohand/feature-flags.json`, and refreshed after the API-provided TTL expires. Use `features.environment` to select a remote flag environment and `features.remoteOverrides` for local opt-outs of user-overridable remote flags.
 
-`usage_v2` is an experimental feature switch for the `/usage` dashboard and the enhanced `/status` Usage tab. Enable it with `autohand features enable usage_v2`.
+`usage_v2` is an experimental feature switch for the `/usage` dashboard and the enhanced `/status` Usage tab. Enable it with `autohand experiments enable usage_v2`.
+
+`token_usage_status` is an experimental feature switch (config path `features.tokenUsageStatus`, default off) that shows real-time token usage in the working status line — cumulative tokens up (`↑`) and down (`↓`) plus context-window occupancy, e.g. `↑15.7k ↓3.2k · context: 6.0% (15.7k/262.1k)`. The context window is resolved per model across all providers. Enable it with `autohand experiments enable token_usage_status`.
 
 ---
 
@@ -1995,6 +2007,7 @@ Autohand provides a rich set of slash commands for interactive use. Type `/` in 
 | Command       | Description                                           |
 | ------------- | ----------------------------------------------------- |
 | `/quit`       | Exit the current session                              |
+| `/exit`       | Exit the current session                              |
 | `/new`        | Start fresh conversation (with memory extraction)     |
 | `/clear`      | Clear conversation with automatic memory extraction   |
 | `/session`    | Show current session details                          |
@@ -2048,7 +2061,7 @@ Autohand provides a rich set of slash commands for interactive use. Type `/` in 
 | `/memory`     | View and manage stored memories                       |
 | `/settings`   | Configure Autohand settings                           |
 | `/statusline` | Configure composer status-line fields                 |
-| `/features`   | Toggle feature switches                               |
+| `/experiments` | Toggle experimental feature switches                  |
 | `/sync`       | Sync settings across devices                          |
 | `/import`     | Import sessions, settings, MCP, memory, skills, and hooks from supported agents |
 

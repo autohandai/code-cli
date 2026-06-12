@@ -1018,7 +1018,7 @@ O Autohand suporta prefixos especiais na entrada do prompt:
 
 | Prefixo | Descrição                    | Exemplo                            |
 | ------- | ------------------------------ | ---------------------------------- |
-| `/`     | Comandos slash                 | `/help`, `/model`, `/quit`         |
+| `/`     | Comandos slash                 | `/help`, `/model`, `/quit`, `/exit` |
 | `@`     | Menções de arquivo (autocomplete)| `@src/index.ts`                    |
 | `$`     | Menções de skill (autocomplete)| `$frontend-design`, `$code-review` |
 | `!`     | Executar comandos terminal diretamente | `! git status`, `! ls -la`   |
