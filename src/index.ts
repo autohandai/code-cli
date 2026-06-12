@@ -2165,7 +2165,11 @@ function isCliEntrypoint(): boolean {
 }
 
 if (isCliEntrypoint()) {
-  void program.parseAsync();
+  void program.parseAsync().catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(chalk.red(message));
+    process.exit(1);
+  });
 }
 
 function launchInTmuxIfRequested(opts: CLIOptions & { mode?: string }): boolean {
