@@ -76,6 +76,11 @@ function getLogPrefix(processRef: ProcessLike): string {
   return detectClientName(processRef) === 'acp' ? '[ACP]' : '[DEBUG]';
 }
 
+function isProcessAutoReportDisabled(processRef: ProcessLike): boolean {
+  return processRef.env.AUTOHAND_DISABLE_AUTO_REPORT === '1' ||
+    processRef.env.AUTOHAND_AUTO_REPORT === '0';
+}
+
 function captureLastError(reason: unknown): void {
   (globalThis as { __autohandLastError?: unknown }).__autohandLastError = reason;
 }
@@ -246,6 +251,10 @@ function describeReasonType(reason: unknown): string {
 export async function reportProcessError(reason: unknown, options: ProcessErrorContext): Promise<void> {
   const processRef = options.processRef ?? process;
 
+  if (isProcessAutoReportDisabled(processRef)) {
+    return;
+  }
+
   if (options.handler === 'unhandledRejection' && isIgnorableUnhandledRejection(reason, processRef)) {
     return;
   }
@@ -293,6 +302,9 @@ export function installProcessErrorHandlers(options: InstallProcessErrorHandlers
   });
 
   processRef.on('uncaughtException', (error) => {
+    if (isProcessAutoReportDisabled(processRef)) {
+      return;
+    }
     if (isIgnorableStdinReadError(error, processRef)) {
       return;
     }
@@ -318,6 +330,9 @@ export function installProcessErrorHandlers(options: InstallProcessErrorHandlers
   });
 
   processRef.on('unhandledRejection', (reason, promise) => {
+    if (isProcessAutoReportDisabled(processRef)) {
+      return;
+    }
     if (isIgnorableUnhandledRejection(reason, processRef)) {
       return;
     }

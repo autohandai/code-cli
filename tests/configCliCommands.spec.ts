@@ -43,6 +43,7 @@ describe('config CLI subcommands', () => {
         ...process.env,
         AUTOHAND_HOME: tmpDir,
         AUTOHAND_CONFIG: configPath,
+        AUTOHAND_DISABLE_AUTO_REPORT: '1',
       },
     });
     return {
