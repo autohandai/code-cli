@@ -58,6 +58,7 @@ The `/settings` command opens an interactive settings editor directly in the ter
 | Command | Description |
 |---------|-------------|
 | `/quit` | Exit the current session |
+| `/exit` | Exit the current session |
 | `/model` | Switch LLM models |
 | `/session` | Show current session details |
 | `/sessions` | List past sessions |
@@ -88,7 +89,7 @@ The `/settings` command opens an interactive settings editor directly in the ter
 | `/statusline` | Configure composer status-line fields |
 | `/permissions` | Manage tool permissions |
 | `/hooks` | Manage lifecycle hooks |
-| `/features` | Toggle feature switches with an interactive checkbox list |
+| `/experiments` | Toggle experiments with an interactive checkbox list |
 | `/skills` | List and manage skills |
 | `/skills use` | Activate a skill |
 | `/skills install` | Install community skills |
@@ -103,13 +104,37 @@ The `/settings` command opens an interactive settings editor directly in the ter
 | `/search` | Search codebase |
 | `/settings` | Interactive settings editor — browse categories, edit values inline |
 
-## Feature Switches
-- [x] `autohand features list` prints a Codex-style table of feature id, lifecycle stage, and enabled state
-- [x] `autohand features status <feature>` shows one feature, its config path, default, and restart note
-- [x] `autohand features enable <feature>` and `autohand features disable <feature>` persist changes to config
-- [x] `autohand features refresh` downloads remote feature flags from the Autohand API
-- [x] `/features` opens an interactive checkbox list for toggling feature switches from the TUI
+## Experiment Switches
+- [x] `autohand experiments list` prints a Codex-style table of feature id, lifecycle stage, and enabled state
+- [x] `autohand experiments status <feature>` shows one feature, its config path, default, and restart note
+- [x] `autohand experiments enable <feature>` and `autohand experiments disable <feature>` persist changes to config
+- [x] `autohand experiments refresh` downloads remote feature flags from the Autohand API
+- [x] `/experiments` opens an interactive checkbox list for toggling experiments from the TUI
+- [x] `/experiments` is the interactive TUI surface for experiment changes
 - [x] Remote feature flags are cached in `~/.autohand/feature-flags.json` and refreshed after their API TTL expires
+
+### Experimental: real-time token usage status
+
+The experimental `token_usage_status` switch (default off) replaces the plain
+total-tokens counter in the working status line with a live breakdown of tokens
+sent up, tokens streamed down, and how full the model's context window is:
+
+```
+↑15.7k ↓3.2k · context: 6.0% (15.7k/262.1k)
+```
+
+- `↑` is the cumulative input (prompt) tokens sent this session.
+- `↓` is the cumulative output (completion) tokens received this session.
+- `context: N% (used/total)` shows the most recent request's prompt tokens
+  against the active model's context window. The window is resolved per model and
+  works across every provider (OpenRouter, OpenAI, Anthropic, Bedrock, Vertex,
+  and the rest). When a provider does not report usage the line reads
+  `unavailable`; when the window is unknown only the `↑`/`↓` counts are shown.
+
+Enable it with `/experiments enable token_usage_status` (or via the `/experiments`
+checkbox list), or set `features.tokenUsageStatus: true` in
+`~/.autohand/config.json`. It updates in real time as the model works and takes
+effect immediately — no restart required.
 
 ## Memory System
 - [x] Project memory in `.autohand/memory/`
