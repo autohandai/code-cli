@@ -141,6 +141,25 @@ function isIgnorableStdinReadError(err: unknown, _processRef: ProcessLike): bool
   return maybeError.code === 'EIO' && maybeError.syscall === 'read';
 }
 
+function isIgnorableTerminalPipeError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') {
+    return false;
+  }
+
+  const maybeError = err as {
+    code?: string;
+    syscall?: string;
+    message?: string;
+  };
+  if (maybeError.code !== 'EPIPE') {
+    return false;
+  }
+
+  return maybeError.syscall === 'read' ||
+    maybeError.syscall === 'write' ||
+    /\b(read|write) EPIPE\b/i.test(maybeError.message ?? '');
+}
+
 /**
  * Filesystem errors that are expected operational conditions:
  * - EACCES on mkdir: user running CLI in a directory they can't write to
@@ -174,6 +193,7 @@ function isIgnorableUnhandledRejection(reason: unknown, processRef: ProcessLike)
   }
 
   if (isIgnorableStdinReadError(reason, processRef)) return true;
+  if (isIgnorableTerminalPipeError(reason)) return true;
   if (isIgnorableFilesystemError(reason)) return true;
   if (isIgnorableTerminalOrRuntimeError(reason)) return true;
 
@@ -230,7 +250,11 @@ export async function reportProcessError(reason: unknown, options: ProcessErrorC
     return;
   }
   if (options.handler === 'uncaughtException' &&
-    (isIgnorableStdinReadError(reason, processRef) || isIgnorableTerminalOrRuntimeError(reason))) {
+    (
+      isIgnorableStdinReadError(reason, processRef) ||
+      isIgnorableTerminalPipeError(reason) ||
+      isIgnorableTerminalOrRuntimeError(reason)
+    )) {
     return;
   }
 
@@ -270,6 +294,9 @@ export function installProcessErrorHandlers(options: InstallProcessErrorHandlers
 
   processRef.on('uncaughtException', (error) => {
     if (isIgnorableStdinReadError(error, processRef)) {
+      return;
+    }
+    if (isIgnorableTerminalPipeError(error)) {
       return;
     }
     if (isIgnorableTerminalOrRuntimeError(error)) {
