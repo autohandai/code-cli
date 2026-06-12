@@ -199,6 +199,59 @@ The `reviewer` is the built-in agent -- there is no need to create a custom vers
 
 ---
 
+## Injecting Custom Agents Inline (`--agents <json>`)
+
+File-based agents (under `~/.autohand/agents/`) are ideal for agents you reuse across sessions. When you need an agent for a single run -- in CI, a shell alias, a script, or a one-off task -- you can inject custom agents non-interactively with the `--agents` flag. It accepts a JSON object in the same format as Claude Code:
+
+```bash
+autohand --agents '{"reviewer":{"description":"Reviews code for security issues","prompt":"You are a security-focused code reviewer. Flag injection, auth, and data-exposure risks."}}'
+```
+
+The JSON is a map of agent name to definition:
+
+| Field         | Required | Description                                                                                 |
+| ------------- | -------- | ------------------------------------------------------------------------------------------- |
+| `description` | yes      | One-line summary shown in `/agents` and used by the orchestrator to pick the right agent.    |
+| `prompt`      | yes      | The agent's system prompt (its role, boundaries, and output contract).                       |
+| `tools`       | no       | Array (`["read_file","apply_patch"]`) or comma-separated string. Defaults to all tools (`*`).|
+| `model`       | no       | Override the model for this agent only.                                                      |
+
+Define multiple agents at once:
+
+```bash
+autohand --prompt "Harden the auth module" --agents '{
+  "security-reviewer": {
+    "description": "Audits code for security vulnerabilities",
+    "prompt": "You audit code for security issues. Report findings with severity and remediation.",
+    "tools": ["read_file", "search", "search_with_context"]
+  },
+  "fixer": {
+    "description": "Applies the security fixes",
+    "prompt": "You implement the remediations identified by the security-reviewer. Run the linter after every change.",
+    "tools": "read_file, apply_patch, run_command",
+    "model": "anthropic/claude-3.5-sonnet"
+  }
+}'
+```
+
+Behavior notes:
+
+- **Session-scoped.** Inline agents live only for the lifetime of the process. Nothing is written to `~/.autohand/agents/`.
+- **Precedence.** An inline agent overrides a file-based or built-in agent with the same name, so you can temporarily swap in a specialized variant without editing files.
+- **Available everywhere.** Injected agents appear in `/agents`, in the system prompt's *Available Agents* list, and can be spawned as teammates (`create_team` + `add_teammate`) just like file-based agents.
+- **Fail fast.** Malformed JSON or a missing `description`/`prompt` produces a clear error and a non-zero exit before the session starts -- safe for CI.
+- **Path or JSON.** If the value is not inline JSON (it does not start with `{`), `--agents` is treated as an external agents directory path instead.
+
+This pairs naturally with command mode for fully non-interactive runs:
+
+```bash
+autohand -p "Review the diff and suggest fixes" \
+  --agents '{"reviewer":{"description":"Strict reviewer","prompt":"Be rigorous and concise."}}' \
+  --yes
+```
+
+---
+
 ## Agent Communication Patterns
 
 Teams coordinate through task dependencies and direct messages. Three common patterns emerge.

@@ -1003,7 +1003,7 @@ Autohand soporta prefijos especiales en la entrada del prompt:
 
 | Prefijo | Descripción                    | Ejemplo                            |
 | ------- | ------------------------------ | ---------------------------------- |
-| `/`     | Comandos slash                 | `/help`, `/model`, `/quit`         |
+| `/`     | Comandos slash                 | `/help`, `/model`, `/quit`, `/exit` |
 | `@`     | Menciones de archivo (autocompletar) | `@src/index.ts`              |
 | `$`     | Menciones de skill (autocompletar) | `$frontend-design`, `$code-review` |
 | `!`     | Ejecutar comandos de terminal directamente | `! git status`, `! ls -la` |
