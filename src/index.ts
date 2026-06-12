@@ -591,13 +591,19 @@ configCmd
   .command('set <parts...>')
   .description('Set a config value, e.g. autohand config set verbs activity false')
   .action(async (parts: string[]) => {
-    const config = await loadConfig(program.opts<{ config?: string }>().config);
-    const { parseConfigSetArgs, setConfigSetting, formatConfigSetResult } = await import('./commands/settings.js');
-    const { key, value } = parseConfigSetArgs(parts);
-    const result = setConfigSetting(config, key, value);
-    await saveConfig(config);
-    console.log(chalk.green(formatConfigSetResult(result)));
-    process.exit(0);
+    try {
+      const config = await loadConfig(program.opts<{ config?: string }>().config);
+      const { parseConfigSetArgs, setConfigSetting, formatConfigSetResult } = await import('./commands/settings.js');
+      const { key, value } = parseConfigSetArgs(parts);
+      const result = setConfigSetting(config, key, value);
+      await saveConfig(config);
+      console.log(chalk.green(formatConfigSetResult(result)));
+      process.exit(0);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(chalk.red(message));
+      process.exit(1);
+    }
   });
 
 // ── MCP subcommand ──────────────────────────────────────────────────────
