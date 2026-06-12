@@ -708,6 +708,17 @@ describe('AgentUI paste placeholder resolution', () => {
 });
 
 describe('AgentUI layout stability', () => {
+  it('formats token-based context usage consistently with completed turn usage', () => {
+    expect(
+      getComposerHelpLine(
+        false,
+        'autohand (OpenRouter, kimi-k2.6:free)',
+        { used: 19_300, total: 262_144 },
+        '? shortcuts · / commands',
+      )
+    ).toBe('autohand (OpenRouter, kimi-k2.6:free) · context: 7.4% (19.3k/262.1k) · ? shortcuts · / commands');
+  });
+
   it('keeps the help row visible while the first prompt is working', () => {
     expect(getComposerHelpLine(false, '', '70% context left', '? shortcuts · / commands')).toBe(
       '70% context left · ? shortcuts · / commands'

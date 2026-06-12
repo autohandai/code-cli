@@ -904,6 +904,60 @@ describe("AutohandAcpAdapter", () => {
       expect(sessionUpdates).toContain("agent_message_chunk");
     });
 
+    it("replays structured assistant thought payloads as thinking updates", async () => {
+      await adapter.initialize(makeInitRequest());
+      mockSessionManager.loadSession.mockResolvedValue({
+        metadata: {
+          model: "your-modelcard-id-here",
+          projectPath: "/workspace",
+        },
+        getMessages: () => [
+          { role: "user", content: "hello", timestamp: "2025-01-01T00:00:01Z" },
+          {
+            role: "assistant",
+            content: JSON.stringify({
+              thought: "The user is asking a casual question about my capabilities.",
+            }),
+            timestamp: "2025-01-01T00:00:02Z",
+          },
+          {
+            role: "assistant",
+            content: JSON.stringify({
+              thought: "I should answer directly.",
+              finalResponse: "I can help with code, debugging, and planning.",
+            }),
+            timestamp: "2025-01-01T00:00:03Z",
+          },
+        ],
+      });
+
+      await adapter.loadSession({
+        sessionId: "session-structured-thought",
+        cwd: "/workspace",
+        mcpServers: [],
+      } as any);
+
+      const emittedContent = connection.sessionUpdate.mock.calls.map(
+        (call) => call[0]?.update?.content,
+      );
+      expect(emittedContent).toContainEqual({
+        type: "thinking",
+        text: "The user is asking a casual question about my capabilities.",
+      });
+      expect(emittedContent).toContainEqual({
+        type: "thinking",
+        text: "I should answer directly.",
+      });
+      expect(emittedContent).toContainEqual({
+        type: "text",
+        text: "I can help with code, debugging, and planning.",
+      });
+      expect(emittedContent).not.toContainEqual({
+        type: "text",
+        text: expect.stringContaining('"thought"'),
+      });
+    });
+
     it("connects ACP-provided MCP servers when loading a session", async () => {
       await adapter.initialize(makeInitRequest());
 

@@ -31,7 +31,7 @@ describe('StatusLine extensions', () => {
     );
 
     expect(source).toContain("theme.fg('muted', separator)");
-    expect(source).toContain('theme.fg(getSegmentToken(segment.color), segment.text)');
+    expect(source).toContain('theme.fg(getSegmentToken(segment.color), normalizeSegmentText(segment))');
   });
 
   it('keeps the rotating activity verb in the active status line', () => {
@@ -116,5 +116,16 @@ describe('StatusLine extensions', () => {
       ],
       merged
     )).toBe('autohand (Ollama) · PR #123 · team:on');
+  });
+
+  it('does not crash when an extension passes a non-string segment at runtime', () => {
+    const line = formatLineSegments(
+      [],
+      {
+        segments: [{ id: 'context', text: { used: 19_300, total: 262_144 } as unknown as string }],
+      }
+    );
+
+    expect(line).toBe('[object Object]');
   });
 });
