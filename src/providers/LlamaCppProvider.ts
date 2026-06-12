@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { LLMProvider } from './LLMProvider.js';
+import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, LLMToolCall, LLMUsage, ProviderSettings, FunctionDefinition } from '../types.js';
 import { ApiError, classifyApiError } from './errors.js';
 
@@ -52,6 +52,10 @@ export class LlamaCppProvider implements LLMProvider {
 
     getName(): string {
         return 'llamacpp';
+    }
+
+    getCapabilities(): LLMProviderCapabilities {
+        return { nativeToolCalling: true };
     }
 
     setModel(model: string): void {

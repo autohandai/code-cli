@@ -69,6 +69,70 @@ import { createPermissionBridge } from './permissions.js';
 
 import packageJson from '../../../package.json' with { type: 'json' };
 
+interface AssistantReplayParts {
+  thought?: string;
+  text?: string;
+}
+
+function stringField(record: Record<string, unknown>, field: string): string | undefined {
+  const value = record[field];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function decodeJsonStringLiteral(value: string): string {
+  try {
+    return JSON.parse(`"${value}"`) as string;
+  } catch {
+    return value;
+  }
+}
+
+function extractJsonStringField(raw: string, field: string): string | undefined {
+  const match = raw.match(new RegExp(`"${field}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`, 's'));
+  return match?.[1] ? decodeJsonStringLiteral(match[1]).trim() || undefined : undefined;
+}
+
+function parseAssistantReplayParts(content: string): AssistantReplayParts {
+  const trimmed = content.trim();
+  if (!trimmed) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { text: trimmed };
+    }
+
+    const record = parsed as Record<string, unknown>;
+    const thought = stringField(record, 'thought');
+    const text =
+      stringField(record, 'finalResponse') ??
+      stringField(record, 'response') ??
+      stringField(record, 'content') ??
+      stringField(record, 'message');
+
+    if (thought || text) {
+      return { thought, text };
+    }
+  } catch {
+    const thought = extractJsonStringField(trimmed, 'thought');
+    const text =
+      extractJsonStringField(trimmed, 'finalResponse') ??
+      extractJsonStringField(trimmed, 'response');
+
+    if (thought || text) {
+      return { thought, text };
+    }
+
+    if (trimmed.startsWith('{') || trimmed.includes('"thought"')) {
+      return {};
+    }
+  }
+
+  return { text: trimmed };
+}
+
 /**
  * AutohandAcpAdapter implements the ACP Agent interface.
  * All agent interaction happens in-process (no subprocess spawning).
@@ -321,13 +385,25 @@ export class AutohandAcpAdapter implements Agent {
       }
 
       if (msg.role === 'assistant') {
-        await this.connection.sessionUpdate({
-          sessionId,
-          update: {
-            sessionUpdate: 'agent_message_chunk',
-            content: { type: 'text', text: msg.content },
-          },
-        });
+        const replayParts = parseAssistantReplayParts(msg.content);
+        if (replayParts.thought) {
+          await this.connection.sessionUpdate({
+            sessionId,
+            update: {
+              sessionUpdate: 'agent_message_chunk',
+              content: { type: 'thinking', text: replayParts.thought },
+            },
+          });
+        }
+        if (replayParts.text) {
+          await this.connection.sessionUpdate({
+            sessionId,
+            update: {
+              sessionUpdate: 'agent_message_chunk',
+              content: { type: 'text', text: replayParts.text },
+            },
+          });
+        }
         continue;
       }
 

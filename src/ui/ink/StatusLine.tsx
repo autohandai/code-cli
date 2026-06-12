@@ -51,6 +51,10 @@ export interface StatusLineProps {
   lineExtension?: LineExtension;
 }
 
+function normalizeSegmentText(segment: LineSegment): string {
+  return typeof segment.text === 'string' ? segment.text : String(segment.text ?? '');
+}
+
 export function resolveLineSegments(
   defaults: LineSegment[],
   extension?: LineExtension
@@ -64,7 +68,7 @@ export function resolveLineSegments(
 
   return {
     segments: segments.filter((segment) =>
-      segment.visible !== false && segment.text.trim().length > 0
+      segment.visible !== false && normalizeSegmentText(segment).trim().length > 0
     ),
     separator: extension?.separator ?? ' · ',
   };
@@ -75,7 +79,7 @@ export function formatLineSegments(
   extension?: LineExtension
 ): string {
   const { segments, separator } = resolveLineSegments(defaults, extension);
-  return segments.map((segment) => segment.text).join(separator);
+  return segments.map((segment) => normalizeSegmentText(segment)).join(separator);
 }
 
 export function mergeLineExtensions(
@@ -126,7 +130,7 @@ function renderLineSegments(
       nodes.push(<Text key={`${segment.id}:sep`}>{theme.fg('muted', separator)}</Text>);
     }
     nodes.push(
-      <Text key={segment.id}>{theme.fg(getSegmentToken(segment.color), segment.text)}</Text>
+      <Text key={segment.id}>{theme.fg(getSegmentToken(segment.color), normalizeSegmentText(segment))}</Text>
     );
     return nodes;
   });

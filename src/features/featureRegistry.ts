@@ -150,6 +150,14 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     defaultEnabled: false,
   },
   {
+    id: 'token_usage_status',
+    label: 'Token usage status',
+    description: 'Show real-time token usage (tokens up/down and context window occupancy) in the status line.',
+    stage: 'experimental',
+    configPath: 'features.tokenUsageStatus',
+    defaultEnabled: false,
+  },
+  {
     id: 'chrome_integration',
     label: 'Chrome integration',
     description: 'Start the browser bridge by default for Chrome extension handoff.',
@@ -171,6 +179,11 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
 export function isAwsBedrockProviderEnabled(config?: Pick<LoadedConfig, 'features'> | null): boolean {
   const definition = FEATURE_REGISTRY.find((feature) => feature.id === AWS_BEDROCK_PROVIDER_FLAG);
   return config?.features?.awsBedrockProvider ?? definition?.defaultEnabled ?? true;
+}
+
+export function isTokenUsageStatusEnabled(config?: Pick<LoadedConfig, 'features'> | null): boolean {
+  const definition = FEATURE_REGISTRY.find((feature) => feature.id === 'token_usage_status');
+  return config?.features?.tokenUsageStatus ?? definition?.defaultEnabled ?? false;
 }
 
 const LOCAL_FEATURE_IDS = new Set(FEATURE_REGISTRY.map((feature) => feature.id));

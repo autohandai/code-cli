@@ -5,7 +5,7 @@
  */
 
 import { CerebrasClient } from './CerebrasClient.js';
-import type { LLMProvider } from './LLMProvider.js';
+import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, CerebrasSettings, NetworkSettings } from '../types.js';
 
 export const CEREBRAS_DEFAULT_BASE_URL = 'https://api.cerebras.ai/v1';
@@ -29,6 +29,10 @@ export class CerebrasProvider implements LLMProvider {
 
   getName(): string {
     return 'cerebras';
+  }
+
+  getCapabilities(): LLMProviderCapabilities {
+    return { nativeToolCalling: true };
   }
 
   setModel(model: string): void {

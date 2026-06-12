@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import os from 'node:os';
 import ora from 'ora';
 import { createInkUIManager } from '../../ui/InkUIManager.js';
 import { createPlainUIManager } from '../../ui/PlainUIManager.js';
@@ -11,9 +12,10 @@ import { getPromptBlockWidth, promptNotify } from '../../ui/inputPrompt.js';
 import { executeShellCommandAsync, executeStreamingShellCommand, isShellCommand, parseShellCommand } from '../../ui/shellCommand.js';
 import { createImmediateShellCommandBlockWriter, formatImmediateShellCommandHeader } from '../immediateCommandRouter.js';
 import { SLASH_COMMANDS } from '../slashCommands.js';
-import { formatElapsedTime, formatSessionActualTokens, formatTurnUsage } from './AgentFormatter.js';
+import { buildHostTokenUsageStatus, formatElapsedTime, formatSessionActualTokens, formatTurnUsage } from './AgentFormatter.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { buildStatusLineExtension, getConfigStatusLineSettings } from './StatusLineSettings.js';
+import { resolveStatusLineGitLabel } from './AgentContextRuntime.js';
 
 export interface AgentUIRuntimeHost {
   [key: string]: any;
@@ -284,7 +286,11 @@ export function setAgentComposerFinalResponse(host: AgentUIRuntimeHost, response
 export function stopAgentUI(host: AgentUIRuntimeHost, failed = false, message?: string): void {
     if (host.inkRenderer) {
       host.inkRenderer.setElapsed(formatElapsedTime(host.taskStartedAt ?? host.sessionStartedAt));
-      host.inkRenderer.setTokens(formatTurnUsage(getDisplayTurnUsage(host)));
+      const stopTokens = buildHostTokenUsageStatus(
+        host,
+        Boolean(host.sessionTokenUsageUnavailable || host.currentTurnHadUnavailableUsage)
+      ) ?? formatTurnUsage(getDisplayTurnUsage(host));
+      host.inkRenderer.setTokens(stopTokens);
       host.inkRenderer.setWorking(false);
       if (message) {
         host.inkRenderer.setFinalResponse(message);
@@ -507,7 +513,8 @@ export function forceRenderAgentSpinner(host: AgentUIRuntimeHost): void {
       ? 'unavailable'
       : 'actual';
     const sessionTotal = (host.sessionActualTokensUsed ?? host.sessionTokensUsed ?? 0) + currentActual;
-    const tokens = formatSessionActualTokens(sessionTotal, sessionStatus);
+    const tokens = buildHostTokenUsageStatus(host, sessionStatus === 'unavailable')
+      ?? formatSessionActualTokens(sessionTotal, sessionStatus);
     const queueCount = host.inkRenderer?.getQueueCount() ?? host.persistentInput.getQueueLength();
     const queueHint = queueCount > 0 ? ` [${queueCount} queued]` : '';
     const verb = host.activityIndicator?.getVerb?.() ?? 'Working';
@@ -516,7 +523,11 @@ export function forceRenderAgentSpinner(host: AgentUIRuntimeHost): void {
     host.persistentInput.setStatusLine(footerLine);
     host.inkRenderer?.setConfiguredLineExtensions?.(buildStatusLineExtension({
       settings: getConfigStatusLineSettings(host.runtime.config),
+      workspaceRoot: host.runtime.workspaceRoot,
+      homeDir: os.homedir(),
+      gitLabel: resolveStatusLineGitLabel(host),
       sessionDiffStats: host.sessionDiffStatsTracker?.getStats?.(),
+      sessionHasFileChanges: host.filesModifiedThisSession === true,
     }));
     const usingTerminalRegions = host.isUsingTerminalRegionsForActiveTurn();
 

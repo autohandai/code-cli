@@ -66,6 +66,7 @@ export type { SlashCommand } from './slashCommandTypes.js';
 
 export const SLASH_COMMANDS: SlashCommand[] = ([
   quit.metadata,
+  quit.exitMetadata,
   model.metadata,
   cc.metadata,
   search.metadata,

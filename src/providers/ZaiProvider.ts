@@ -5,7 +5,7 @@
  */
 
 import { LLMGatewayClient } from './LLMGatewayClient.js';
-import type { LLMProvider } from './LLMProvider.js';
+import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, ZaiSettings, NetworkSettings } from '../types.js';
 
 export const ZAI_DEFAULT_BASE_URL = 'https://api.z.ai/api/paas/v4';
@@ -38,6 +38,10 @@ export class ZaiProvider implements LLMProvider {
 
   getName(): string {
     return 'zai';
+  }
+
+  getCapabilities(): LLMProviderCapabilities {
+    return { nativeToolCalling: true };
   }
 
   setModel(model: string): void {

@@ -23,6 +23,7 @@ const DEFAULT_CONFIG: CompletionConfig = {
   commands: ['autohand'],
   slashCommands: [
     '/quit',
+    '/exit',
     '/model',
     '/session',
     '/sessions',

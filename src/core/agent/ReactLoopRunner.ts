@@ -35,6 +35,7 @@ import { calculateContextUsage } from '../context/tokenizer.js';
 import { filterToolsByRelevance } from '../toolFilter.js';
 import { EXIT_PLAN_MODE_TOOL_DEFINITION, PLAN_TOOL_DEFINITION } from '../toolManager.js';
 import {
+  buildHostTokenUsageStatus,
   formatElapsedTime,
   formatTurnUsage,
   formatToolResultsBatch,
@@ -76,6 +77,7 @@ export interface ReactLoopInkRenderer {
   setThinking(thought: string | null): void;
   setElapsed(elapsed: string): void;
   setTokens(tokens: string): void;
+  setContextTokens?(contextTokens: { used: number; total: number } | undefined): void;
   setWorking(isWorking: boolean): void;
   setFinalResponse(response: string): void;
 }
@@ -113,6 +115,12 @@ export interface AgentReactLoopHost {
   currentTurnHadUnavailableUsage: boolean;
   sessionActualTokensUsed: number;
   sessionTokenUsageUnavailable: boolean;
+  /** Cumulative input tokens this session (tokens going up). */
+  sessionPromptTokens: number;
+  /** Cumulative output tokens this session (tokens going down). */
+  sessionCompletionTokens: number;
+  /** Most recent request's prompt tokens (current context-window occupancy). */
+  lastContextTokens: number;
 
   cleanupModelResponse(content: string): string;
   emitOutput(event: AgentOutputEvent): void;
@@ -308,7 +316,10 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
           host.inkRenderer.setThinking(options.thought);
         }
         host.inkRenderer.setElapsed(formatElapsedTime(host.taskStartedAt ?? host.sessionStartedAt));
-        host.inkRenderer.setTokens(formatTurnUsage(host.currentTurnActualUsage));
+        host.inkRenderer.setTokens(
+          buildHostTokenUsageStatus(host, host.currentTurnActualUsage?.kind !== 'actual')
+            ?? formatTurnUsage(host.currentTurnActualUsage)
+        );
         host.inkRenderer.setWorking(false);
         host.inkRenderer.setFinalResponse(response);
       } else {
@@ -447,6 +458,16 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
           completion.usage,
         );
         host.totalTokensUsed += completion.usage.totalTokens;
+        // Track input/output split and current context occupancy for the
+        // real-time token_usage_status display.
+        host.sessionPromptTokens += completion.usage.promptTokens;
+        host.sessionCompletionTokens += completion.usage.completionTokens;
+        host.lastContextTokens = completion.usage.promptTokens;
+        host.inkRenderer?.setContextTokens?.(
+          host.contextWindow > 0
+            ? { used: completion.usage.promptTokens, total: host.contextWindow }
+            : undefined
+        );
         // Immediately render updated token count
         host.forceRenderSpinner();
       } else {

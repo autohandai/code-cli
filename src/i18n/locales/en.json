@@ -314,14 +314,28 @@
       "done": "Done",
       "saved": "Status line settings saved.",
       "fields": {
+        "showProviderModel": "Provider and model",
+        "showProviderModelDesc": "Show the active provider and model name",
         "showContext": "Context remaining",
         "showContextDesc": "Show the current context percentage",
+        "showWorkspacePath": "Workspace path",
+        "showWorkspacePathDesc": "Show the current project directory with a bounded path",
+        "showGitBranch": "Git branch",
+        "showGitBranchDesc": "Show the active branch, or worktree name when detached",
         "showCommandHint": "Command hints",
         "showCommandHintDesc": "Show shortcuts for commands, mentions, and terminal input",
         "showPullRequest": "Pull request",
         "showPullRequestDesc": "Show the associated PR number, or PR #123 when none is associated",
         "showSessionLines": "Session line changes",
-        "showSessionLinesDesc": "Show lines added and removed during this session"
+        "showSessionLinesDesc": "Show lines added and removed during this session",
+        "showQueue": "Queued requests",
+        "showQueueDesc": "Show how many follow-up requests are queued",
+        "showActiveStatus": "Active turn status",
+        "showActiveStatusDesc": "Show the current working status text while Autohand is running",
+        "showActiveMetrics": "Active turn metrics",
+        "showActiveMetricsDesc": "Show elapsed time and token metrics while Autohand is running",
+        "showCancelHint": "Cancel hint",
+        "showCancelHintDesc": "Show the Esc cancel hint while Autohand is running"
       }
     },
     "sessions": {

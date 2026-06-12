@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import fs from 'fs-extra';
-import { execFile } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -20,6 +20,7 @@ import { runWithConcurrency, type ParallelTaskSpec } from '../../utils/parallel.
 import { calculateContextUsage, estimateMessagesTokens } from '../context/tokenizer.js';
 import type { SessionDiffStatsTracker } from '../SessionDiffStatsTracker.js';
 import { buildSessionBootstrap } from './SessionBootstrapBuilder.js';
+import { buildHostTokenUsageContextStatus } from './AgentFormatter.js';
 import { formatStatusLineLeft, getConfigStatusLineSettings } from './StatusLineSettings.js';
 
 const execFileAsync = promisify(execFile);
@@ -38,11 +39,13 @@ export interface AgentContextRuntimeHost {
   activeProvider: ProviderName;
   contextPercentLeft: number;
   contextWindow: number;
+  currentTurnHadUnavailableUsage?: boolean;
   conversation: {
     addSystemNote(content: string, label?: string): void;
     history(): LLMMessage[];
     reset(systemPrompt: string): void;
   };
+  filesModifiedThisSession?: boolean;
   ignoreFilter: { isIgnored(path: string): boolean };
   inkRenderer: {
     getQueueCount?(): number;
@@ -54,7 +57,16 @@ export interface AgentContextRuntimeHost {
     flush(): MentionContext | null;
   };
   persistentInput: { getQueueLength(): number };
+  sessionCompletionTokens?: number;
   sessionDiffStatsTracker?: Pick<SessionDiffStatsTracker, 'getStats'>;
+  sessionPromptTokens?: number;
+  sessionTokenUsageUnavailable?: boolean;
+  statusLineGitLabelCache?: {
+    workspaceRoot: string;
+    value?: string;
+    checkedAt: number;
+  };
+  lastContextTokens?: number;
   projectManager: {
     getKnowledge(workspaceRoot: string): Promise<ProjectKnowledge | null>;
   };
@@ -67,6 +79,57 @@ export interface AgentContextRuntimeHost {
   getParallelismLimit(): number;
   recordExploration(event: ExplorationEvent): void;
   updateContextUsage(messages: LLMMessage[], tools?: FunctionDefinition[]): void;
+}
+
+const STATUS_LINE_GIT_LABEL_CACHE_MS = 5000;
+
+export interface StatusLineGitLabelHost {
+  runtime?: { workspaceRoot?: string };
+  statusLineGitLabelCache?: {
+    workspaceRoot: string;
+    value?: string;
+    checkedAt: number;
+  };
+}
+
+function runGitStatusLineCommand(workspaceRoot: string, args: string[]): string | undefined {
+  const result = spawnSync('git', args, {
+    cwd: workspaceRoot,
+    encoding: 'utf8',
+    timeout: 200,
+  });
+  if (result.status !== 0) {
+    return undefined;
+  }
+  const value = result.stdout?.trim();
+  return value || undefined;
+}
+
+export function resolveStatusLineGitLabel(host: StatusLineGitLabelHost): string | undefined {
+  const workspaceRoot = host.runtime?.workspaceRoot;
+  if (!workspaceRoot) {
+    return undefined;
+  }
+  const now = Date.now();
+  const cached = host.statusLineGitLabelCache;
+  if (
+    cached &&
+    cached.workspaceRoot === workspaceRoot &&
+    now - cached.checkedAt < STATUS_LINE_GIT_LABEL_CACHE_MS
+  ) {
+    return cached.value;
+  }
+
+  const insideWorktree = runGitStatusLineCommand(workspaceRoot, ['rev-parse', '--is-inside-work-tree']);
+  if (insideWorktree !== 'true') {
+    host.statusLineGitLabelCache = { workspaceRoot, value: undefined, checkedAt: now };
+    return undefined;
+  }
+
+  const branch = runGitStatusLineCommand(workspaceRoot, ['branch', '--show-current']);
+  const value = branch || `worktree:${path.basename(workspaceRoot)}`;
+  host.statusLineGitLabelCache = { workspaceRoot, value, checkedAt: now };
+  return value;
 }
 
 export async function buildAgentUserMessage(
@@ -114,7 +177,7 @@ export async function collectAgentContextSummary(
     .slice(0, 20);
 
   return {
-    workspaceRoot: host.runtime.workspaceRoot,
+    workspaceRoot: host.runtime?.workspaceRoot,
     gitStatus,
     recentFiles,
   };
@@ -235,7 +298,7 @@ export function updateAgentContextUsage(
     host.contextPercentLeft = Math.round(percent * 100);
   }
 
-  if (host.inkRenderer) {
+  if (tools && host.inkRenderer) {
     host.inkRenderer.setContextPercent(host.contextPercentLeft);
   }
 
@@ -257,11 +320,19 @@ export function formatAgentStatusLine(host: AgentContextRuntimeHost): { left: st
 
   const left = formatStatusLineLeft({
     contextPercentLeft: percent,
+    contextStatus: buildHostTokenUsageContextStatus(
+      host,
+      Boolean(host.sessionTokenUsageUnavailable || host.currentTurnHadUnavailableUsage)
+    ) ?? undefined,
     commandHint: t('ui.commandHint'),
     queueCount,
     settings: getConfigStatusLineSettings(host.runtime?.config),
     planIndicator,
+    workspaceRoot: host.runtime?.workspaceRoot,
+    homeDir: os.homedir(),
+    gitLabel: resolveStatusLineGitLabel(host),
     sessionDiffStats: host.sessionDiffStatsTracker?.getStats(),
+    sessionHasFileChanges: host.filesModifiedThisSession === true,
   });
 
   let right = '';

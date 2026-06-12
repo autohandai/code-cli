@@ -66,6 +66,10 @@ export class SlashCommandHandler {
           const { quit } = await import('../commands/quit.js');
           return quit();
         }
+        case '/exit': {
+          const { exit } = await import('../commands/quit.js');
+          return exit();
+        }
         case '/help':
         case '/?': {
           const { help } = await import('../commands/help.js');

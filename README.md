@@ -253,6 +253,7 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/help`            | Display available commands           |
 | `/?`               | Alias for /help                      |
 | `/quit`            | Exit the session                     |
+| `/exit`            | Exit the session                     |
 | `/model`           | Switch LLM models                    |
 | `/new`             | Start fresh conversation             |
 | `/clear`           | Clear conversation history           |
