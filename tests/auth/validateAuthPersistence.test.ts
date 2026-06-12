@@ -28,7 +28,7 @@ describe('AuthClient.validateSession network error handling', () => {
     await expect(client.validateSession('some-token')).rejects.toThrow();
   });
 
-  it('returns authenticated:false only when server responds with non-2xx', async () => {
+  it('returns authenticated:false when server rejects the token', async () => {
     const client = new AuthClient({ baseUrl: 'https://auth.example.com', timeout: 5000 });
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
@@ -37,6 +37,16 @@ describe('AuthClient.validateSession network error handling', () => {
 
     const result = await client.validateSession('bad-token');
     expect(result.authenticated).toBe(false);
+  });
+
+  it('throws on non-auth HTTP failures so callers preserve credentials', async () => {
+    const client = new AuthClient({ baseUrl: 'https://auth.example.com', timeout: 5000 });
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ error: 'server failed' }), { status: 500 })
+    );
+
+    await expect(client.validateSession('some-token')).rejects.toThrow('HTTP 500');
   });
 
   it('returns authenticated:true with user data on success', async () => {

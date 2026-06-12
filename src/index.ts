@@ -17,8 +17,9 @@ import packageJson from '../package.json' with { type: 'json' };
 import { getProviderConfig, loadConfig, resolveWorkspaceRoot, saveConfig } from './config.js';
 import { runStartupChecks, printStartupCheckResults, validateWorkspacePath } from './startup/checks.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from './startup/workspaceSafety.js';
-import { getAuthClient, ensureAuthenticated } from './auth/index.js';
+import { ensureAuthenticated } from './auth/index.js';
 import type { AuthUser, LoadedConfig } from './types.js';
+import { validateAuthOnStartup } from './auth/startupAuth.js';
 import { installProcessErrorHandlers } from './reporting/processErrorReporting.js';
 import { checkForUpdates, getInstallHint, type VersionCheckResult } from './utils/versionCheck.js';
 import { initI18n, detectLocale } from './i18n/index.js';
@@ -123,55 +124,6 @@ import { normalizeMcpCommandForConfig } from './mcp/commandNormalization.js';
 import type { CLIOptions, AgentRuntime } from './types.js';
 import type { AutohandAgent } from './core/agent.js';
 
-/**
- * Validate auth token on startup
- * Returns the authenticated user if valid, undefined otherwise
- */
-async function validateAuthOnStartup(config: LoadedConfig): Promise<AuthUser | undefined> {
-  if (!config.auth?.token) {
-    return undefined;
-  }
-
-  // Check if token is expired locally first
-  if (config.auth.expiresAt) {
-    const expiresAt = new Date(config.auth.expiresAt);
-    if (expiresAt < new Date()) {
-      // Token expired, clear it silently
-      config.auth = undefined;
-      try {
-        await saveConfig(config);
-      } catch {
-        // Ignore save errors during startup
-      }
-      return undefined;
-    }
-  }
-
-  // Validate with server (non-blocking, silent failure).
-  // IMPORTANT: we never wipe the local token here just because the server
-  // returns 401 — that destroys valid sessions when the auth endpoint is
-  // flaky or temporarily down.  Only local expiry (handled above) or an
-  // explicit /logout should remove credentials.
-  try {
-    const authClient = getAuthClient();
-    const result = await authClient.validateSession(config.auth.token);
-
-    if (result.authenticated) {
-      // Update user info if returned from server
-      if (result.user && config.auth) {
-        config.auth.user = result.user;
-      }
-      return config.auth?.user;
-    }
-
-    // Server says invalid — preserve local token and return current user
-    // so the session continues uninterrupted.
-    return config.auth?.user;
-  } catch {
-    // Network error, assume token is still valid locally
-    return config.auth?.user;
-  }
-}
 installProcessErrorHandlers();
 
 const program = new Command();

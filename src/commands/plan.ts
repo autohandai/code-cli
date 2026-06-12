@@ -13,7 +13,7 @@ import { PlanModeManager } from '../modes/planMode/PlanModeManager.js';
 
 export const metadata = {
   command: '/plan',
-  description: 'toggle plan mode for safe code exploration',
+  description: 'plan and break down a complex task',
   implemented: true,
 };
 
