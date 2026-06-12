@@ -10,7 +10,7 @@ import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 
 export const metadata = {
   command: '/review',
-  description: 'staff-level code review with 10 actionable findings',
+  description: 'review your current changes and find issues',
   implemented: true,
 };
 

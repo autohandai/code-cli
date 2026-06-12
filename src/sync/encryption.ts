@@ -166,9 +166,8 @@ export function decryptConfig(config: Record<string, unknown>, authToken: string
       try {
         result[key] = decrypt(value, authToken);
       } catch {
-        // If decryption fails, keep the encrypted value
-        // This can happen if the auth token changed
-        result[key] = value;
+        // Never persist ciphertext as a usable credential after token rotation.
+        continue;
       }
     } else {
       result[key] = value;
