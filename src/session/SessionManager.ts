@@ -192,12 +192,17 @@ export class Session {
         this.metadata = metadata;
     }
 
+    private async ensureSessionDir(): Promise<void> {
+        await fs.ensureDir(this.sessionDir);
+    }
+
     async append(message: SessionMessage): Promise<void> {
         this.messages.push(message);
         this.metadata.messageCount = this.messages.length;
         this.metadata.lastActiveAt = new Date().toISOString();
 
         // Append to JSONL file
+        await this.ensureSessionDir();
         const conversationPath = path.join(this.sessionDir, 'conversation.jsonl');
         await fs.appendFile(conversationPath, JSON.stringify(message) + '\n');
 
@@ -206,17 +211,20 @@ export class Session {
     }
 
     async appendTransient(message: SessionMessage): Promise<void> {
+        await this.ensureSessionDir();
         const conversationPath = path.join(this.sessionDir, 'conversation.jsonl');
         await fs.appendFile(conversationPath, JSON.stringify(message) + '\n');
     }
 
     async updateState(state: WorkspaceState): Promise<void> {
         this.state = state;
+        await this.ensureSessionDir();
         const statePath = path.join(this.sessionDir, 'state.json');
         await fs.writeJson(statePath, state, { spaces: 2 });
     }
 
     async save(): Promise<void> {
+        await this.ensureSessionDir();
         const metadataPath = path.join(this.sessionDir, 'metadata.json');
         await fs.writeJson(metadataPath, this.metadata, { spaces: 2 });
     }
