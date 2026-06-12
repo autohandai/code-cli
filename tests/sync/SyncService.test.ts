@@ -9,6 +9,7 @@ import path from 'path';
 import os from 'os';
 import { SyncService, createSyncService } from '../../src/sync/SyncService.js';
 import { SyncApiClient } from '../../src/sync/SyncApiClient.js';
+import { computeHash, encrypt, isEncrypted } from '../../src/sync/encryption.js';
 import type { SyncManifest } from '../../src/sync/types.js';
 
 // Mock the constants module
@@ -158,6 +159,48 @@ describe('SyncService', () => {
       );
     });
 
+    it('builds config manifest hashes without local auth fields', async () => {
+      await fs.writeJson(path.join(tempDir, 'config.json'), {
+        auth: {
+          token: 'local-token',
+          user: { id: 'user-1', email: 'local@example.com' },
+        },
+        provider: 'openrouter',
+      });
+
+      const service = new SyncService({
+        authToken: 'test-token',
+        userId: 'test-user',
+        config: {
+          enabled: true,
+          interval: 300000,
+        },
+        apiClient: mockApiClient,
+      });
+
+      (service as any).basePath = tempDir;
+
+      (mockApiClient.getRemoteManifest as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+      (mockApiClient.initiateUpload as ReturnType<typeof vi.fn>).mockResolvedValue({
+        uploadUrls: {
+          'config.json': 'https://example.com/upload/config.json',
+        },
+      });
+      (mockApiClient.uploadFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+      (mockApiClient.completeUpload as ReturnType<typeof vi.fn>).mockResolvedValue({
+        success: true,
+        uploaded: 1,
+        downloaded: 0,
+        conflicts: 0,
+      });
+
+      await service.sync();
+
+      const manifest = (mockApiClient.initiateUpload as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as SyncManifest;
+      const configEntry = manifest.files.find((file) => file.path === 'config.json');
+      expect(configEntry?.hash).toBe(computeHash(Buffer.from(JSON.stringify({ provider: 'openrouter' }, null, 2), 'utf8')));
+    });
+
     it('downloads files when remote has newer data', async () => {
       await fs.ensureDir(tempDir);
 
@@ -209,6 +252,135 @@ describe('SyncService', () => {
         'https://example.com/download/config.json',
         'test-token'
       );
+    });
+
+    it('preserves local auth and never writes synced auth from config downloads', async () => {
+      await fs.writeJson(path.join(tempDir, 'config.json'), {
+        auth: {
+          token: 'fresh-local-token',
+          user: { id: 'user-1', email: 'local@example.com' },
+        },
+        provider: 'openrouter',
+      });
+
+      const remoteManifest: SyncManifest = {
+        version: 1,
+        userId: 'test-user',
+        lastModified: new Date().toISOString(),
+        files: [
+          {
+            path: 'config.json',
+            hash: 'remote-hash',
+            size: 100,
+            modifiedAt: new Date(Date.now() + 1000).toISOString(),
+            encrypted: true,
+          },
+        ],
+        checksum: 'test-checksum',
+      };
+
+      const service = new SyncService({
+        authToken: 'test-token',
+        userId: 'test-user',
+        config: {
+          enabled: true,
+          interval: 300000,
+        },
+        apiClient: mockApiClient,
+      });
+
+      (service as any).basePath = tempDir;
+
+      (mockApiClient.getRemoteManifest as ReturnType<typeof vi.fn>).mockResolvedValue(remoteManifest);
+      (mockApiClient.initiateDownload as ReturnType<typeof vi.fn>).mockResolvedValue({
+        downloadUrls: {
+          'config.json': 'https://example.com/download/config.json',
+        },
+      });
+      (mockApiClient.downloadFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Buffer.from(JSON.stringify({
+          auth: {
+            token: encrypt('stale-remote-token', 'old-token-value'),
+            user: { id: 'user-1', email: 'remote@example.com' },
+          },
+          provider: 'ollama',
+        }))
+      );
+
+      const result = await service.sync();
+      const config = await fs.readJson(path.join(tempDir, 'config.json'));
+
+      expect(result.success).toBe(true);
+      expect(config.provider).toBe('ollama');
+      expect(config.auth.token).toBe('fresh-local-token');
+      expect(config.auth.user.email).toBe('local@example.com');
+      expect(isEncrypted(config.auth.token)).toBe(false);
+    });
+
+    it('uploads locally newer config conflicts instead of letting stale cloud config win', async () => {
+      const localModifiedAt = new Date('2026-06-12T12:00:00.000Z');
+      const remoteModifiedAt = new Date('2026-06-12T11:00:00.000Z');
+      const configPath = path.join(tempDir, 'config.json');
+      await fs.writeJson(configPath, {
+        provider: 'openrouter',
+        auth: {
+          token: 'fresh-local-token',
+          user: { id: 'user-1', email: 'local@example.com' },
+        },
+      });
+      await fs.utimes(configPath, localModifiedAt, localModifiedAt);
+
+      const remoteManifest: SyncManifest = {
+        version: 1,
+        userId: 'test-user',
+        lastModified: remoteModifiedAt.toISOString(),
+        files: [
+          {
+            path: 'config.json',
+            hash: 'remote-hash',
+            size: 100,
+            modifiedAt: remoteModifiedAt.toISOString(),
+            encrypted: true,
+          },
+        ],
+        checksum: 'test-checksum',
+      };
+
+      const service = new SyncService({
+        authToken: 'test-token',
+        userId: 'test-user',
+        config: {
+          enabled: true,
+          interval: 300000,
+        },
+        apiClient: mockApiClient,
+      });
+
+      (service as any).basePath = tempDir;
+
+      (mockApiClient.getRemoteManifest as ReturnType<typeof vi.fn>).mockResolvedValue(remoteManifest);
+      (mockApiClient.initiateUpload as ReturnType<typeof vi.fn>).mockResolvedValue({
+        uploadUrls: {
+          'config.json': 'https://example.com/upload/config.json',
+        },
+      });
+      (mockApiClient.uploadFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+      (mockApiClient.completeUpload as ReturnType<typeof vi.fn>).mockResolvedValue({
+        success: true,
+        uploaded: 1,
+        downloaded: 0,
+        conflicts: 0,
+      });
+
+      const result = await service.sync();
+
+      expect(result.success).toBe(true);
+      expect(result.uploaded).toBe(1);
+      expect(result.downloaded).toBe(0);
+      expect(mockApiClient.initiateDownload).not.toHaveBeenCalled();
+      const uploadedContent = (mockApiClient.uploadFile as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as Buffer;
+      const uploadedConfig = JSON.parse(uploadedContent.toString('utf8')) as Record<string, unknown>;
+      expect(uploadedConfig.auth).toBeUndefined();
     });
 
     it('force downloads only requested memory paths', async () => {

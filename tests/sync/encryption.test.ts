@@ -221,20 +221,18 @@ describe("Encryption Utilities", () => {
       expect(decrypted).toEqual(originalConfig);
     });
 
-    it("handles decryption failure gracefully", () => {
+    it("drops sensitive values that cannot be decrypted", () => {
       const config = {
         openrouter: {
           apiKey: encrypt("sk-or-v1-secret", testToken),
         },
       };
 
-      // Try to decrypt with wrong token - should keep encrypted value
       const decrypted = decryptConfig(config, differentToken);
 
-      // Should keep the encrypted value (not throw)
       expect(
-        isEncrypted((decrypted.openrouter as Record<string, string>).apiKey),
-      ).toBe(true);
+        (decrypted.openrouter as Record<string, unknown>).apiKey,
+      ).toBeUndefined();
     });
 
     it("roundtrips complex config", () => {

@@ -50,6 +50,40 @@ interface SyncState {
   lastManifestHash: string;
 }
 
+type JsonObject = Record<string, unknown>;
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function stripUnsyncedConfigFields(config: JsonObject): JsonObject {
+  const rest = { ...config };
+  delete rest.auth;
+  return rest;
+}
+
+function mergeDownloadedConfig(downloaded: JsonObject, local: JsonObject | null): JsonObject {
+  const sanitizedDownloaded = stripUnsyncedConfigFields(downloaded);
+  if (local && Object.prototype.hasOwnProperty.call(local, 'auth')) {
+    return {
+      ...sanitizedDownloaded,
+      auth: local.auth,
+    };
+  }
+  return sanitizedDownloaded;
+}
+
+function isRemoteNewer(localFile: SyncFileEntry, remoteFile: SyncFileEntry): boolean {
+  const localTime = Date.parse(localFile.modifiedAt);
+  const remoteTime = Date.parse(remoteFile.modifiedAt);
+
+  if (Number.isNaN(localTime) || Number.isNaN(remoteTime)) {
+    return true;
+  }
+
+  return remoteTime > localTime;
+}
+
 export class SyncService {
   private readonly authToken: string;
   private readonly userId: string;
@@ -205,10 +239,18 @@ export class SyncService {
 
             // Handle config.json specially - decrypt API keys
             if (file.path === 'config.json') {
-              const config = JSON.parse(content.toString('utf8'));
-              const decrypted = decryptConfig(config, this.authToken);
+              const config = JSON.parse(content.toString('utf8')) as unknown;
+              const localConfig = await fs.readJson(localPath).catch(() => null) as unknown;
+              const decrypted = decryptConfig(
+                isJsonObject(config) ? config : {},
+                this.authToken
+              );
+              const merged = mergeDownloadedConfig(
+                decrypted,
+                isJsonObject(localConfig) ? localConfig : null
+              );
               await fs.ensureDir(path.dirname(localPath));
-              await fs.writeJson(localPath, decrypted, { spaces: 2 });
+              await fs.writeJson(localPath, merged, { spaces: 2 });
             } else {
               await fs.ensureDir(path.dirname(localPath));
               await fs.writeFile(localPath, content);
@@ -258,8 +300,9 @@ export class SyncService {
 
             // Handle config.json specially - encrypt API keys
             if (file.path === 'config.json') {
-              const config = await fs.readJson(localPath);
-              const encrypted = encryptConfig(config, this.authToken);
+              const config = await fs.readJson(localPath) as unknown;
+              const syncedConfig = stripUnsyncedConfigFields(isJsonObject(config) ? config : {});
+              const encrypted = encryptConfig(syncedConfig, this.authToken);
               content = Buffer.from(JSON.stringify(encrypted, null, 2), 'utf8');
             } else {
               content = await fs.readFile(localPath);
@@ -372,11 +415,11 @@ export class SyncService {
         const stat = await fs.stat(fullPath);
 
         if (stat.isFile()) {
-          const content = await fs.readFile(fullPath);
+          const content = await this.readManifestContent(relativePath, fullPath);
           files.push({
             path: relativePath,
             hash: computeHash(content),
-            size: stat.size,
+            size: content.length,
             modifiedAt: stat.mtime.toISOString(),
             encrypted: relativePath === 'config.json',
           });
@@ -454,12 +497,12 @@ export class SyncService {
       if (entry.isFile()) {
         try {
           const stat = await fs.stat(fullPath);
-          const content = await fs.readFile(fullPath);
+          const content = await this.readManifestContent(relativePath, fullPath);
 
           files.push({
             path: relativePath,
             hash: computeHash(content),
-            size: stat.size,
+            size: content.length,
             modifiedAt: stat.mtime.toISOString(),
           });
         } catch {
@@ -474,6 +517,16 @@ export class SyncService {
     }
 
     return files;
+  }
+
+  private async readManifestContent(relativePath: string, fullPath: string): Promise<Buffer> {
+    if (relativePath !== 'config.json') {
+      return fs.readFile(fullPath);
+    }
+
+    const config = await fs.readJson(fullPath).catch(() => null) as unknown;
+    const syncedConfig = stripUnsyncedConfigFields(isJsonObject(config) ? config : {});
+    return Buffer.from(JSON.stringify(syncedConfig, null, 2), 'utf8');
   }
 
   /**
@@ -524,8 +577,11 @@ export class SyncService {
         // File exists locally but not remotely - upload it
         actions.uploads.push(localFile);
       } else if (localFile.hash !== remoteFile.hash) {
-        // File exists in both but different - conflict (cloud wins)
-        actions.conflicts.push(remoteFile);
+        if (isRemoteNewer(localFile, remoteFile)) {
+          actions.conflicts.push(remoteFile);
+        } else {
+          actions.uploads.push(localFile);
+        }
       }
       // If hashes match, no action needed
     }
@@ -652,10 +708,18 @@ export class SyncService {
             const localPath = path.join(this.basePath, file.path);
 
             if (file.path === 'config.json') {
-              const config = JSON.parse(content.toString('utf8'));
-              const decrypted = decryptConfig(config, this.authToken);
+              const config = JSON.parse(content.toString('utf8')) as unknown;
+              const localConfig = await fs.readJson(localPath).catch(() => null) as unknown;
+              const decrypted = decryptConfig(
+                isJsonObject(config) ? config : {},
+                this.authToken
+              );
+              const merged = mergeDownloadedConfig(
+                decrypted,
+                isJsonObject(localConfig) ? localConfig : null
+              );
               await fs.ensureDir(path.dirname(localPath));
-              await fs.writeJson(localPath, decrypted, { spaces: 2 });
+              await fs.writeJson(localPath, merged, { spaces: 2 });
             } else {
               await fs.ensureDir(path.dirname(localPath));
               await fs.writeFile(localPath, content);
@@ -684,8 +748,9 @@ export class SyncService {
             let content: Buffer;
 
             if (file.path === 'config.json') {
-              const config = await fs.readJson(localPath);
-              const encrypted = encryptConfig(config, this.authToken);
+              const config = await fs.readJson(localPath) as unknown;
+              const syncedConfig = stripUnsyncedConfigFields(isJsonObject(config) ? config : {});
+              const encrypted = encryptConfig(syncedConfig, this.authToken);
               content = Buffer.from(JSON.stringify(encrypted, null, 2), 'utf8');
             } else {
               content = await fs.readFile(localPath);

@@ -632,7 +632,7 @@ function handleSkillsFeedback(
 
 export const metadata = {
   command: '/skills',
-  description: t('commands.skills.description'),
+  description: 'discover and install skills for your project',
   implemented: true,
   subcommands: [
     { name: 'use', description: 'Activate a skill' },

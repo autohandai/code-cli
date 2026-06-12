@@ -139,8 +139,11 @@ export class AuthClient {
 
       clearTimeout(timeoutId);
 
-      if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
         return { authenticated: false };
+      }
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
 
       const data = await response.json() as { user?: AuthUser } | AuthUser;
