@@ -220,6 +220,46 @@ describe('processErrorReporting', () => {
     expect(mocks.reportError).not.toHaveBeenCalled();
   });
 
+  it('ignores EPIPE terminal write errors as uncaught exceptions', async () => {
+    const fakeProcess = createFakeProcess();
+    const logError = vi.fn();
+    const exitMock = vi.fn();
+
+    installProcessErrorHandlers({ processRef: fakeProcess, logError, exit: exitMock });
+
+    const epipeError = Object.assign(new Error('write EPIPE'), {
+      code: 'EPIPE',
+      syscall: 'write',
+    });
+    fakeProcess.emit('uncaughtException', epipeError);
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(mocks.reportError).not.toHaveBeenCalled();
+    expect(exitMock).not.toHaveBeenCalled();
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it('ignores EPIPE terminal read errors as uncaught exceptions', async () => {
+    const fakeProcess = createFakeProcess();
+    const logError = vi.fn();
+    const exitMock = vi.fn();
+
+    installProcessErrorHandlers({ processRef: fakeProcess, logError, exit: exitMock });
+
+    const epipeError = Object.assign(new Error('read EPIPE'), {
+      code: 'EPIPE',
+      syscall: 'read',
+    });
+    fakeProcess.emit('uncaughtException', epipeError);
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(mocks.reportError).not.toHaveBeenCalled();
+    expect(exitMock).not.toHaveBeenCalled();
+    expect(logError).not.toHaveBeenCalled();
+  });
+
   it('ignores EACCES mkdir errors as unhandled rejections', async () => {
     const fakeProcess = createFakeProcess();
     installProcessErrorHandlers({ processRef: fakeProcess });
