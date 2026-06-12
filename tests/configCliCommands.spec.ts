@@ -67,4 +67,14 @@ describe('config CLI subcommands', () => {
     expect(result.stdout).not.toContain('sk-openrouter-secret');
     expect(fs.readJsonSync(configPath).openrouter.apiKey).toBe('sk-openrouter-secret');
   });
+
+  it('prints invalid config parse errors without unhandled rejection reporting', async () => {
+    await fs.writeFile(configPath, '{ provider: openrouter');
+
+    const result = runCli('--permissions');
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('Failed to parse config');
+    expect(result.stdout).not.toContain('Unhandled Rejection');
+  });
 });
