@@ -215,6 +215,27 @@ describe('LLMGatewayClient', () => {
       })).rejects.toThrow(/Authentication failed/);
     });
 
+    it('does not classify low-information 400 responses as context overflow', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: () => Promise.resolve({ error: true })
+      });
+
+      const settings: LLMGatewaySettings = {
+        apiKey: 'test-key',
+        model: 'gpt-4o'
+      };
+      const client = new LLMGatewayClient(settings, { maxRetries: 0 });
+
+      await expect(client.complete({
+        messages: [{ role: 'user', content: 'Hello' }]
+      })).rejects.toThrow(/request was malformed/i);
+      await expect(client.complete({
+        messages: [{ role: 'user', content: 'Hello' }]
+      })).rejects.not.toThrow(/context is too long|true/i);
+    });
+
     it('should support provider-specific authentication wording for LLM Gateway-compatible APIs', async () => {
       global.fetch = vi.fn().mockResolvedValue({
         ok: false,

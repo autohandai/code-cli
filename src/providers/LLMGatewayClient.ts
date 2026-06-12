@@ -13,6 +13,7 @@ import type {
   LLMMessage,
   NvidiaChatTemplateKwargs,
 } from "../types.js";
+import { classifyApiError } from "./errors.js";
 import { normalizeLLMUsage } from "./usage.js";
 
 /**
@@ -69,19 +70,28 @@ const DEFAULT_ERROR_LABELS: LLMGatewayCompatibleErrorLabels = {
 };
 
 /** User-friendly error messages that hide raw provider errors */
-function buildFriendlyErrors(labels: LLMGatewayCompatibleErrorLabels): Record<number, string> {
+function buildFriendlyErrors(labels: LLMGatewayCompatibleErrorLabels): Record<string, string> {
   return {
-  400: "The request was malformed. This often happens when the context is too long. Try /undo to remove recent turns or /new to start fresh.",
-  401: `Authentication failed. Please verify your ${labels.credentialName} in ~/.autohand/config.json.`,
-  402: `Payment required. Please check your ${labels.accountName} balance or billing settings.`,
-  403: `Access denied. Your ${labels.credentialName} may not have permission for this model.`,
-  404: "The requested model was not found. Use /model to select a different one.",
-  429: "Rate limit exceeded. Please wait a moment and try again, or choose a different model.",
-  500: `The ${labels.serviceName} service encountered an internal error. Please try again later.`,
-  502: `The ${labels.serviceName} service is temporarily unavailable. Please try again in a few moments.`,
-  503: `The ${labels.serviceName} service is currently overloaded. Please try again later.`,
-  504: `The request timed out. The ${labels.serviceName} service may be experiencing high load.`,
-};
+    invalid_request: "The request was malformed and could not be processed.",
+    context_overflow: "The conversation is too long for this model. Try /undo to remove recent turns or /new to start fresh.",
+    model_not_found: "The requested model was not found. Use /model to select a different one.",
+    auth_failed: `Authentication failed. Please verify your ${labels.credentialName} in ~/.autohand/config.json.`,
+    payment_required: `Payment required. Please check your ${labels.accountName} balance or billing settings.`,
+    access_denied: `Access denied. Your ${labels.credentialName} may not have permission for this model.`,
+    rate_limited: "Rate limit exceeded. Please wait a moment and try again, or choose a different model.",
+    server_error: `The ${labels.serviceName} service is temporarily unavailable. Please try again later.`,
+    timeout: `The request timed out. The ${labels.serviceName} service may be experiencing high load.`,
+  };
+}
+
+function coerceErrorDetail(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value && typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return "";
 }
 
 export class LLMGatewayClient {
@@ -397,10 +407,7 @@ export class LLMGatewayClient {
     let errorDetail = "";
     try {
       const body = (await response.json()) as any;
-      errorDetail = body?.error?.message || body?.error || body?.message || "";
-      if (typeof errorDetail === "object") {
-        errorDetail = JSON.stringify(errorDetail);
-      }
+      errorDetail = coerceErrorDetail(body?.error?.message || body?.error || body?.message);
     } catch {
       // Fallback to raw text if JSON parsing fails
       try {
@@ -410,8 +417,8 @@ export class LLMGatewayClient {
       }
     }
 
-    // Return user-friendly message with details when available
-    const friendlyMessage = buildFriendlyErrors(this.errorLabels)[status];
+    const classified = classifyApiError(status, errorDetail, response.headers);
+    const friendlyMessage = buildFriendlyErrors(this.errorLabels)[classified.code];
     if (friendlyMessage) {
       return errorDetail
         ? `${friendlyMessage}\n${errorDetail}`
