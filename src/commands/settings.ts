@@ -7,7 +7,7 @@ import chalk from 'chalk';
 import { t } from '../i18n/index.js';
 import { showModal, showInput, showConfirm, showPassword, type ModalOption } from '../ui/ink/components/Modal.js';
 import { saveConfig } from '../config.js';
-import type { LoadedConfig } from '../types.js';
+import type { LoadedConfig, ProviderName } from '../types.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -55,6 +55,32 @@ const SETTING_KEY_ALIASES: Record<string, string> = {
   verbs_activity: 'ui.activityVerbsEnabled',
   ui_activity_verbs: 'ui.activityVerbsEnabled',
   ui_verbs_activity: 'ui.activityVerbsEnabled',
+};
+
+const CONFIG_PROVIDER_NAMES: readonly ProviderName[] = [
+  'openrouter',
+  'ollama',
+  'llamacpp',
+  'openai',
+  'mlx',
+  'llmgateway',
+  'azure',
+  'zai',
+  'vertexai',
+  'xai',
+  'cerebras',
+  'nvidia',
+  'deepseek',
+  'bedrock',
+];
+
+const PROVIDER_CONFIG_FIELD_ALIASES: Record<string, 'apiKey' | 'baseUrl' | 'model'> = {
+  apiKey: 'apiKey',
+  api_key: 'apiKey',
+  apikey: 'apiKey',
+  baseUrl: 'baseUrl',
+  base_url: 'baseUrl',
+  model: 'model',
 };
 
 // ── Category Definitions ───────────────────────────────────────────────
@@ -163,6 +189,32 @@ export function normalizeSettingKey(input: string): string {
   return trimmed;
 }
 
+function normalizeProviderName(input: string): ProviderName | null {
+  const normalized = input.trim().toLowerCase();
+  if (normalized === 'vertex') {
+    return 'vertexai';
+  }
+  if (CONFIG_PROVIDER_NAMES.includes(normalized as ProviderName)) {
+    return normalized as ProviderName;
+  }
+  return null;
+}
+
+function normalizeProviderConfigKey(input: string): { provider: ProviderName; field: 'apiKey' | 'baseUrl' | 'model' } | null {
+  const [providerInput, fieldInput, ...extra] = input.trim().replace(/\s+/g, '.').split('.');
+  if (!providerInput || !fieldInput || extra.length > 0) {
+    return null;
+  }
+
+  const provider = normalizeProviderName(providerInput);
+  const field = PROVIDER_CONFIG_FIELD_ALIASES[fieldInput];
+  if (!provider || !field) {
+    return null;
+  }
+
+  return { provider, field };
+}
+
 function parseBooleanSetting(value: string): boolean {
   const normalized = value.trim().toLowerCase();
   if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) {
@@ -200,6 +252,27 @@ export function parseSettingValue(setting: SettingDef, rawValue: string): unknow
 
 export function setConfigSetting(config: LoadedConfig, keyInput: string, rawValue: string): { key: string; value: unknown } {
   const key = normalizeSettingKey(keyInput);
+  if (key === 'provider') {
+    const provider = normalizeProviderName(rawValue);
+    if (!provider) {
+      throw new Error(`Unknown provider "${rawValue}". Use /settings to browse provider setup.`);
+    }
+    config.provider = provider;
+    return { key: 'provider', value: provider };
+  }
+
+  const providerConfigKey = normalizeProviderConfigKey(key);
+  if (providerConfigKey) {
+    const current = config[providerConfigKey.provider];
+    const providerConfig = current && typeof current === 'object' ? current : {};
+    setNestedValue(providerConfig as Record<string, unknown>, providerConfigKey.field, rawValue);
+    setNestedValue(config as unknown as Record<string, unknown>, providerConfigKey.provider, providerConfig);
+    return {
+      key: `${providerConfigKey.provider}.${providerConfigKey.field}`,
+      value: rawValue,
+    };
+  }
+
   const setting = SETTINGS_REGISTRY.find(s => s.key === key);
   if (!setting) {
     throw new Error(`Unknown setting "${keyInput}". Use /settings to browse configurable settings.`);
@@ -220,6 +293,11 @@ export function parseConfigSetArgs(parts: string[]): { key: string; value: strin
   const value = parts[parts.length - 1];
   const key = parts.slice(0, -1).join(' ');
   return { key, value };
+}
+
+export function formatConfigSetResult(result: { key: string; value: unknown }): string {
+  const displayValue = result.key.toLowerCase().endsWith('apikey') ? '****' : String(result.value);
+  return `Set ${result.key} = ${displayValue}`;
 }
 
 export function getSettingsForCategory(category: SettingCategory): SettingDef[] {
