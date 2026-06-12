@@ -10,7 +10,7 @@ describe('slash commands registry', () => {
   it('includes the supported commands and omits legacy ones', () => {
     const commands = SLASH_COMMANDS.map((cmd) => cmd.command);
     const expected = [
-      '/quit', '/model', '/session', '/sessions', '/resume', '/init',
+      '/quit', '/exit', '/model', '/session', '/sessions', '/resume', '/init',
       '/agents', '/agents new', '/feedback', '/help', '/?',
       '/undo', '/new', '/memory', '/chrome', '/review', '/pr-review',
       '/usage', '/go', '/statusline'

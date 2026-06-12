@@ -26,10 +26,17 @@ describe('/statusline', () => {
   it('opens a navigable multi-select list with current status line fields', async () => {
     const { statusline } = await import('../../src/commands/statusline.js');
     const config = createConfig({
+      showProviderModel: true,
       showContext: true,
+      showWorkspacePath: true,
+      showGitBranch: true,
       showCommandHint: false,
       showPullRequest: true,
       showSessionLines: false,
+      showQueue: true,
+      showActiveStatus: true,
+      showActiveMetrics: true,
+      showCancelHint: true,
     });
 
     showModalMock.mockResolvedValueOnce({ value: '__done__' });
@@ -39,11 +46,20 @@ describe('/statusline', () => {
     expect(showModalMock).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Status Line',
       multiSelect: true,
+      maxVisible: 12,
       options: expect.arrayContaining([
+        expect.objectContaining({ value: 'showProviderModel', checked: true }),
         expect.objectContaining({ value: 'showContext', checked: true }),
+        expect.objectContaining({ value: 'showWorkspacePath', checked: true }),
+        expect.objectContaining({ value: 'showGitBranch', checked: true }),
         expect.objectContaining({ value: 'showCommandHint', checked: false }),
         expect.objectContaining({ value: 'showPullRequest', checked: true }),
         expect.objectContaining({ value: 'showSessionLines', checked: false }),
+        expect.objectContaining({ value: 'showQueue', checked: true }),
+        expect.objectContaining({ value: 'showActiveStatus', checked: true }),
+        expect.objectContaining({ value: 'showActiveMetrics', checked: true }),
+        expect.objectContaining({ value: 'showCancelHint', checked: true }),
+        expect.objectContaining({ value: '__done__' }),
       ]),
     }));
   });
