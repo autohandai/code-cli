@@ -592,11 +592,11 @@ configCmd
   .description('Set a config value, e.g. autohand config set verbs activity false')
   .action(async (parts: string[]) => {
     const config = await loadConfig(program.opts<{ config?: string }>().config);
-    const { parseConfigSetArgs, setConfigSetting } = await import('./commands/settings.js');
+    const { parseConfigSetArgs, setConfigSetting, formatConfigSetResult } = await import('./commands/settings.js');
     const { key, value } = parseConfigSetArgs(parts);
     const result = setConfigSetting(config, key, value);
     await saveConfig(config);
-    console.log(chalk.green(`Set ${result.key} = ${String(result.value)}`));
+    console.log(chalk.green(formatConfigSetResult(result)));
     process.exit(0);
   });
 

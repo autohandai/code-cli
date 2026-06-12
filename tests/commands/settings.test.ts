@@ -11,6 +11,7 @@ import {
   setNestedValue,
   setConfigSetting,
   parseConfigSetArgs,
+  formatConfigSetResult,
   getSettingsForCategory,
   formatSettingValue,
   type SettingCategory,
@@ -216,6 +217,42 @@ describe('setConfigSetting', () => {
     });
     expect(config.ui.completionReportEnabled).toBe(false);
   });
+
+  it('sets the top-level provider from config set provider', () => {
+    const config = createMockConfig();
+
+    const result = setConfigSetting(config, 'provider', 'openrouter');
+
+    expect(result).toEqual({
+      key: 'provider',
+      value: 'openrouter',
+    });
+    expect(config.provider).toBe('openrouter');
+  });
+
+  it('sets provider API keys from dotted config keys', () => {
+    const config = createMockConfig();
+
+    const result = setConfigSetting(config, 'openrouter.apiKey', 'sk-openrouter');
+
+    expect(result).toEqual({
+      key: 'openrouter.apiKey',
+      value: 'sk-openrouter',
+    });
+    expect(config.openrouter.apiKey).toBe('sk-openrouter');
+  });
+
+  it('sets provider API keys from space-separated config keys', () => {
+    const config = createMockConfig();
+
+    const result = setConfigSetting(config, 'openrouter apiKey', 'sk-openrouter');
+
+    expect(result).toEqual({
+      key: 'openrouter.apiKey',
+      value: 'sk-openrouter',
+    });
+    expect(config.openrouter.apiKey).toBe('sk-openrouter');
+  });
 });
 
 describe('parseConfigSetArgs', () => {
@@ -231,6 +268,16 @@ describe('parseConfigSetArgs', () => {
       key: 'verbs activity',
       value: 'false',
     });
+  });
+});
+
+describe('formatConfigSetResult', () => {
+  it('redacts API keys in command output', () => {
+    expect(formatConfigSetResult({ key: 'openrouter.apiKey', value: 'sk-openrouter' })).toBe('Set openrouter.apiKey = ****');
+  });
+
+  it('keeps non-secret values visible in command output', () => {
+    expect(formatConfigSetResult({ key: 'provider', value: 'openrouter' })).toBe('Set provider = openrouter');
   });
 });
 
