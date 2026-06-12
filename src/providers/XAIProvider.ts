@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { LLMProvider } from './LLMProvider.js';
+import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, LLMToolCall, LLMUsage, FunctionDefinition } from '../types.js';
 import { ApiError, classifyApiError, type ApiErrorCode } from './errors.js';
 import { normalizeLLMUsage } from './usage.js';
@@ -134,6 +134,10 @@ export class XAIProvider implements LLMProvider {
 
     getName(): string {
         return 'xai';
+    }
+
+    getCapabilities(): LLMProviderCapabilities {
+        return { nativeToolCalling: true };
     }
 
     setModel(model: string): void {

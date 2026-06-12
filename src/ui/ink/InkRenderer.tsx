@@ -17,6 +17,7 @@ import {
   createInitialUIState,
   type AgentUILineExtensions,
   type AgentUIState,
+  type ContextTokenDisplay,
 } from './AgentUI.js';
 import type { LiveCommandEntry, ToolOutputEntry, ToolOutputBatchEntry, ToolOutputItem, BatchToolItem } from './ToolOutput.js';
 import type { SlashCommand } from '../../core/slashCommandTypes.js';
@@ -785,6 +786,13 @@ export class InkRenderer {
    */
   setContextPercent(percent: number): void {
     this.updateState({ contextPercent: percent });
+  }
+
+  /**
+   * Set current context token usage and total context window.
+   */
+  setContextTokens(contextTokens: ContextTokenDisplay | undefined): void {
+    this.updateState({ contextTokens });
   }
 
   /**

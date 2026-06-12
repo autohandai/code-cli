@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { LLMProvider } from './LLMProvider.js';
+import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, LLMToolCall, LLMUsage, ProviderSettings, NetworkSettings, FunctionDefinition } from '../types.js';
 import { isMLXSupported } from '../utils/platform.js';
 import { ApiError, classifyApiError } from './errors.js';
@@ -70,6 +70,10 @@ export class MLXProvider implements LLMProvider {
 
     getName(): string {
         return 'mlx';
+    }
+
+    getCapabilities(): LLMProviderCapabilities {
+        return { nativeToolCalling: true };
     }
 
     setModel(model: string): void {

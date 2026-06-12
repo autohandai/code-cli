@@ -5,7 +5,7 @@
  */
 
 import { OpenRouterClient } from "./OpenRouterClient.js";
-import type { LLMProvider } from "./LLMProvider.js";
+import type { LLMProvider, LLMProviderCapabilities } from "./LLMProvider.js";
 import type {
   LLMRequest,
   LLMResponse,
@@ -25,6 +25,10 @@ export class OpenRouterProvider implements LLMProvider {
 
   getName(): string {
     return "openrouter";
+  }
+
+  getCapabilities(): LLMProviderCapabilities {
+    return { nativeToolCalling: true };
   }
 
   setModel(model: string): void {

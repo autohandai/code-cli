@@ -168,14 +168,28 @@ export interface NotificationConfig {
 }
 
 export interface StatusLineSettings {
+  /** Show provider and model in the composer status line (default: true). */
+  showProviderModel?: boolean;
   /** Show remaining context percentage in the status line (default: true). */
   showContext?: boolean;
+  /** Show the current workspace path in the status line (default: true). */
+  showWorkspacePath?: boolean;
+  /** Show the active git branch or worktree label in the status line (default: true). */
+  showGitBranch?: boolean;
   /** Show composer command hints such as ?, /, @, and ! (default: true). */
   showCommandHint?: boolean;
   /** Show pull request number, falling back to PR #123 when none is associated (default: true). */
   showPullRequest?: boolean;
   /** Show lines added and removed during the current session (default: false). */
   showSessionLines?: boolean;
+  /** Show queued request count in the status line (default: true). */
+  showQueue?: boolean;
+  /** Show active turn status text while the agent is working (default: true). */
+  showActiveStatus?: boolean;
+  /** Show elapsed time and token metrics while the agent is working (default: true). */
+  showActiveMetrics?: boolean;
+  /** Show the cancel hint while the agent is working (default: true). */
+  showCancelHint?: boolean;
 }
 
 export interface UISettings {
@@ -264,6 +278,8 @@ export interface FeatureFlagSettings {
   awsBedrockProvider?: boolean;
   /** Enable the experimental persistent /goal surface across CLI, tools, RPC, and ACP. */
   slashGoal?: boolean;
+  /** Show real-time token usage (tokens up/down + context window occupancy) in the status line. */
+  tokenUsageStatus?: boolean;
 }
 
 export type PermissionMode = 'interactive' | 'unrestricted' | 'restricted' | 'external';
