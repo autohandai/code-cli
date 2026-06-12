@@ -161,6 +161,19 @@ describe('processErrorReporting', () => {
     expect(mocks.loadConfig).not.toHaveBeenCalled();
   });
 
+  it('skips process auto-reporting when disabled by environment', async () => {
+    const fakeProcess = createFakeProcess();
+    fakeProcess.env.AUTOHAND_DISABLE_AUTO_REPORT = '1';
+
+    installProcessErrorHandlers({ processRef: fakeProcess });
+    fakeProcess.emit('unhandledRejection', new Error('test subprocess failure'), Promise.resolve());
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(mocks.reportError).not.toHaveBeenCalled();
+    expect(mocks.loadConfig).not.toHaveBeenCalled();
+  });
+
   it('ignores EIO read errors on stdin (fd 0) as uncaught exceptions', async () => {
     const fakeProcess = createFakeProcess();
     const logError = vi.fn();
