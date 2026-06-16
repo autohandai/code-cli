@@ -10,6 +10,7 @@ import { OllamaProvider } from './OllamaProvider.js';
 import { OpenAIProvider } from './OpenAIProvider.js';
 import { LlamaCppProvider } from './LlamaCppProvider.js';
 import { OpenRouterProvider } from './OpenRouterProvider.js';
+import { OpenPathsProvider } from './OpenPathsProvider.js';
 import { MLXProvider } from './MLXProvider.js';
 import { LLMGatewayProvider } from './LLMGatewayProvider.js';
 import { AzureProvider } from './AzureProvider.js';
@@ -154,6 +155,12 @@ export class ProviderFactory {
                 }
                 return new BedrockProvider(config.bedrock);
 
+            case 'openpaths':
+                if (!config.openpaths) {
+                    return new UnconfiguredProvider('openpaths');
+                }
+                return new OpenPathsProvider(config.openpaths, config.network);
+
             case 'openrouter':
             default:
                 if (!config.openrouter) {
@@ -169,7 +176,7 @@ export class ProviderFactory {
      */
     static getProviderNames(config?: Pick<AutohandConfig, 'features'> | null): ProviderName[] {
         // Sorted DESC by display name: Z.ai, xAI, Vertex AI, NVIDIA, OpenRouter, OpenAI, Ollama, MLX, LLM Gateway, llama.cpp, DeepSeek, Cerebras, Bedrock, Azure
-        const providers: ProviderName[] = ['zai', 'xai', 'vertexai', 'nvidia', 'openrouter', 'openai', 'ollama', 'llmgateway', 'llamacpp', 'deepseek', 'cerebras', 'azure'];
+        const providers: ProviderName[] = ['zai', 'xai', 'vertexai', 'nvidia', 'openrouter', 'openpaths', 'openai', 'ollama', 'llmgateway', 'llamacpp', 'deepseek', 'cerebras', 'azure'];
         if (isAwsBedrockProviderEnabled(config)) {
             providers.splice(providers.indexOf('azure'), 0, 'bedrock');
         }
@@ -189,7 +196,7 @@ export class ProviderFactory {
             return false;
         }
 
-        const allProviders: ProviderName[] = ['openrouter', 'ollama', 'openai', 'llamacpp', 'mlx', 'llmgateway', 'azure', 'zai', 'vertexai', 'xai', 'cerebras', 'nvidia', 'deepseek', 'bedrock'];
+        const allProviders: ProviderName[] = ['openrouter', 'openpaths', 'ollama', 'openai', 'llamacpp', 'mlx', 'llmgateway', 'azure', 'zai', 'vertexai', 'xai', 'cerebras', 'nvidia', 'deepseek', 'bedrock'];
         return allProviders.includes(name as ProviderName);
     }
 }

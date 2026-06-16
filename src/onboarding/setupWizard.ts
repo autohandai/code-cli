@@ -2051,6 +2051,7 @@ export class SetupWizard {
   private getDefaultModel(provider: ProviderName): string {
     const defaults: Record<ProviderName, string> = {
       openrouter: 'nvidia/nemotron-3-super-120b-a12b:free',
+      openpaths: 'openpaths/auto',
       openai: 'gpt-5.4',
       ollama: 'llama3.2:latest',
       llamacpp: 'local',
@@ -2071,6 +2072,7 @@ export class SetupWizard {
   private getDefaultBaseUrl(provider: ProviderName): string {
     const urls: Record<ProviderName, string> = {
       openrouter: 'https://openrouter.ai/api/v1',
+      openpaths: 'https://openpaths.io/v1',
       openai: 'https://api.openai.com/v1',
       ollama: 'http://localhost:11434',
       llamacpp: 'http://localhost:8080',

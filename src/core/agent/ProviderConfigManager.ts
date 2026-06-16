@@ -2810,6 +2810,9 @@ export class ProviderConfigManager {
       openrouter:
         this.runtime.config.openrouter ??
         (this.runtime.config.openrouter = { apiKey: "", model }),
+      openpaths:
+        this.runtime.config.openpaths ??
+        (this.runtime.config.openpaths = { apiKey: "", model }),
       ollama:
         this.runtime.config.ollama ?? (this.runtime.config.ollama = { model }),
       llamacpp:
