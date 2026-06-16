@@ -28,6 +28,7 @@ const TOML_CONFIG_PATH = AUTOHAND_FILES.configToml;
 const YAML_CONFIG_PATH = AUTOHAND_FILES.configYaml;
 const YML_CONFIG_PATH = AUTOHAND_FILES.configYml;
 const DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
+const DEFAULT_OPENPATHS_URL = "https://openpaths.io/v1";
 const DEFAULT_OLLAMA_URL = "http://localhost:11434";
 const DEFAULT_LLAMACPP_URL = "http://localhost:8080";
 const DEFAULT_OPENAI_URL = "https://api.openai.com/v1";
@@ -62,6 +63,7 @@ function normalizeProviderName(provider: unknown): ProviderName | undefined {
 
   const validProviders: readonly ProviderName[] = [
     "openrouter",
+    "openpaths",
     "ollama",
     "llamacpp",
     "openai",
@@ -646,6 +648,7 @@ function isModernConfig(
 ): config is AutohandConfig {
   return (
     typeof (config as AutohandConfig).openrouter === "object" ||
+    typeof (config as AutohandConfig).openpaths === "object" ||
     typeof (config as AutohandConfig).ollama === "object" ||
     typeof (config as AutohandConfig).llamacpp === "object" ||
     typeof (config as AutohandConfig).openai === "object" ||
@@ -829,6 +832,7 @@ export function getProviderConfig(
 
   const configByProvider: Record<ProviderName, ProviderSettings | undefined> = {
     openrouter: config.openrouter,
+    openpaths: config.openpaths,
     ollama: config.ollama,
     llamacpp: config.llamacpp,
     openai: config.openai,
@@ -870,6 +874,7 @@ export function getProviderConfig(
     }
   } else if (
     chosen === "openrouter" ||
+    chosen === "openpaths" ||
     chosen === "llmgateway" ||
     chosen === "zai" ||
     chosen === "nvidia" ||
@@ -912,6 +917,7 @@ function defaultBaseUrlFor(
   port?: number,
 ): string | undefined {
   if (provider === "openrouter") return DEFAULT_BASE_URL;
+  if (provider === "openpaths") return DEFAULT_OPENPATHS_URL;
   if (provider === "llmgateway") return DEFAULT_LLMGATEWAY_URL;
   if (provider === "zai") return DEFAULT_ZAI_URL;
   if (provider === "deepseek") return DEFAULT_DEEPSEEK_URL;

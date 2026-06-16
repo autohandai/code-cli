@@ -52,6 +52,7 @@ describe("ProviderFactory", () => {
         "vertexai",
         "nvidia",
         "openrouter",
+        "openpaths",
         "openai",
         "ollama",
         "llmgateway",
@@ -194,11 +195,39 @@ describe("ProviderFactory", () => {
 
       expect(provider.getName()).toBe("openrouter");
     });
+
+    it("should create OpenPathsProvider when openpaths is configured", () => {
+      const config: AutohandConfig = {
+        provider: "openpaths",
+        openpaths: {
+          apiKey: "test-key",
+          model: "openpaths/auto",
+        },
+      };
+
+      const provider = ProviderFactory.create(config);
+
+      expect(provider.getName()).toBe("openpaths");
+    });
+
+    it("should return UnconfiguredProvider when openpaths config is missing", () => {
+      const config: AutohandConfig = {
+        provider: "openpaths",
+      };
+
+      const provider = ProviderFactory.create(config);
+
+      expect(provider.getName()).toBe("unconfigured");
+    });
   });
 
   describe("isValidProvider()", () => {
     it("should return true for openrouter", () => {
       expect(ProviderFactory.isValidProvider("openrouter")).toBe(true);
+    });
+
+    it("should return true for openpaths", () => {
+      expect(ProviderFactory.isValidProvider("openpaths")).toBe(true);
     });
 
     it("should return true for ollama", () => {
