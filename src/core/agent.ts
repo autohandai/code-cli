@@ -43,6 +43,7 @@ import { ErrorLogger } from './errorLogger.js';
 import { MemoryManager } from '../memory/MemoryManager.js';
 import { FeedbackManager } from '../feedback/FeedbackManager.js';
 import { TelemetryManager } from '../telemetry/TelemetryManager.js';
+import { extractAndSaveSessionMemories, type ExtractedMemory } from '../memory/extractSessionMemories.js';
 import { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import { CommunitySkillsClient } from '../skills/CommunitySkillsClient.js';
 import { McpClientManager } from '../mcp/McpClientManager.js';
@@ -222,6 +223,14 @@ import {
 import { AutoReportManager } from '../reporting/AutoReportManager.js';
 import { SuggestionEngine } from './SuggestionEngine.js';
 
+function formatTurnMemoryUpdate(saved: ExtractedMemory[]): string {
+  const lines = ['[Auto Memory Update] Background reflection saved these memories for future turns:'];
+  for (const memory of saved) {
+    lines.push(`- ${memory.level}: ${memory.content}`);
+  }
+  return lines.join('\n');
+}
+
 export class AutohandAgent {
   private static readonly INTERACTIVE_SLASH_COMMANDS = new Set([
     '/chrome', '/hooks', '/feedback', '/permissions', '/login', '/logout',
@@ -246,6 +255,8 @@ export class AutohandAgent {
   private projectManager!: ProjectManager;
   private toolOutputQueue: Promise<void> = Promise.resolve();
   private memoryManager!: MemoryManager;
+  private turnMemoryReflectionInFlight: Promise<void> | null = null;
+  private turnMemoryReflectionQueued = false;
   private permissionManager!: PermissionManager;
   private hookManager!: HookManager;
   private delegator!: AgentDelegator;
@@ -525,6 +536,75 @@ export class AutohandAgent {
     return handleAgentMemoryStore(this as unknown as AgentProjectOperationsHost, content);
   }
 
+  private scheduleTurnMemoryReflection(success: boolean): void {
+    if (!this.shouldRunTurnMemoryReflection(success)) {
+      return;
+    }
+
+    if (this.turnMemoryReflectionInFlight) {
+      this.turnMemoryReflectionQueued = true;
+      return;
+    }
+
+    this.turnMemoryReflectionInFlight = this.runQueuedTurnMemoryReflection()
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.writeDebugLine(`[memory] turn reflection failed: ${message}`);
+      })
+      .finally(() => {
+        this.turnMemoryReflectionInFlight = null;
+      });
+  }
+
+  private shouldRunTurnMemoryReflection(success: boolean): boolean {
+    if (!success) return false;
+    if (this.runtime.options?.bare) return false;
+    if (this.runtime.isCommandMode || this.runtime.options?.prompt) return false;
+    return this.runtime.config?.agent?.autoMemory !== false;
+  }
+
+  private async runQueuedTurnMemoryReflection(): Promise<void> {
+    do {
+      this.turnMemoryReflectionQueued = false;
+      await this.runTurnMemoryReflectionOnce();
+    } while (this.turnMemoryReflectionQueued);
+  }
+
+  private async runTurnMemoryReflectionOnce(): Promise<void> {
+    const conversationHistory = this.conversation.history().filter((message) =>
+      !(message.role === 'system' && typeof message.content === 'string' && message.content.includes('[Auto Memory Update]'))
+    );
+
+    const saved = await extractAndSaveSessionMemories({
+      llm: this.llm,
+      memoryManager: this.memoryManager,
+      conversationHistory,
+      workspaceRoot: this.runtime.workspaceRoot,
+      options: {
+        minUserMessages: 1,
+        source: 'turn-reflection',
+      },
+    });
+
+    if (saved.length === 0) {
+      return;
+    }
+
+    this.conversation.addSystemNote(formatTurnMemoryUpdate(saved), '[Auto Memory Update]');
+    this.writeDebugLine(`[memory] turn reflection saved ${saved.length} ${saved.length === 1 ? 'memory' : 'memories'}`);
+  }
+
+  private async flushTurnMemoryReflection(timeoutMs = 1500): Promise<void> {
+    if (!this.turnMemoryReflectionInFlight) {
+      return;
+    }
+
+    await Promise.race([
+      this.turnMemoryReflectionInFlight,
+      new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+    ]);
+  }
+
   private printGitDiff(): void {
     return printAgentGitDiff(this as unknown as AgentProjectOperationsHost);
   }
@@ -627,6 +707,7 @@ export class AutohandAgent {
   }
 
   private async closeSession(): Promise<void> {
+    await this.flushTurnMemoryReflection();
     return closeAgentSession(this as unknown as AgentSessionAccountingHost);
   }
 

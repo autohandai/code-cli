@@ -24,6 +24,10 @@ export interface ExtractionDeps {
   memoryManager: MemoryManager;
   conversationHistory: LLMMessage[];
   workspaceRoot: string;
+  options?: {
+    minUserMessages?: number;
+    source?: string;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -38,8 +42,11 @@ const EXTRACTION_PROMPT = `Analyze this conversation and extract patterns, prefe
 
 Rules:
 - Only extract genuinely useful patterns: coding style, tool preferences, workflow habits, project conventions, architectural decisions
+- Look from the user perspective: what did the user reveal about preferences, expectations, workflow, terminology, or project rules?
+- Look from the assistant perspective: what did the assistant learn about how to serve this user or this project more effectively next time?
 - Classify as "user" (personal preferences that apply across all projects) or "project" (specific to this codebase/workspace)
 - Be concise: each memory should be 1-2 sentences max
+- Prefer updating/refining durable memories over restating obvious session facts
 - Skip trivial, one-off, or context-specific observations
 - If nothing is worth saving, return an empty array
 
@@ -96,9 +103,11 @@ export async function extractAndSaveSessionMemories(
   deps: ExtractionDeps,
 ): Promise<ExtractedMemory[]> {
   const { llm, memoryManager, conversationHistory } = deps;
+  const minUserMessages = deps.options?.minUserMessages ?? MIN_USER_MESSAGES;
+  const source = deps.options?.source ?? 'session-extraction';
 
   // Gate: need at least MIN_USER_MESSAGES user messages
-  if (countUserMessages(conversationHistory) < MIN_USER_MESSAGES) {
+  if (countUserMessages(conversationHistory) < minUserMessages) {
     return [];
   }
 
@@ -154,7 +163,7 @@ export async function extractAndSaveSessionMemories(
         memory.content,
         memory.level,
         memory.tags,
-        'session-extraction',
+        source,
       );
       saved.push(memory);
     } catch {

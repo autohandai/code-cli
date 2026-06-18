@@ -132,6 +132,39 @@ describe('extractAndSaveSessionMemories', () => {
     expect(provider.complete).not.toHaveBeenCalled();
   });
 
+  it('can extract turn-level memories from a single completed user turn', async () => {
+    const llmPayload: ExtractedMemory[] = [
+      { content: 'User wants memory updates to happen between turns.', level: 'user', tags: ['workflow'] },
+    ];
+    const provider = createMockProvider(JSON.stringify(llmPayload));
+    const deps: ExtractionDeps = {
+      llm: provider,
+      memoryManager,
+      conversationHistory: [
+        { role: 'user', content: 'please remember between turns' },
+        { role: 'assistant', content: 'done' },
+      ],
+      workspaceRoot: '/workspace',
+      options: {
+        minUserMessages: 1,
+        source: 'turn-reflection',
+      },
+    };
+
+    const result = await extractAndSaveSessionMemories(deps);
+
+    expect(result).toHaveLength(1);
+    expect(memoryManager.store).toHaveBeenCalledWith(
+      'User wants memory updates to happen between turns.',
+      'user',
+      ['workflow'],
+      'turn-reflection',
+    );
+    const [[request]] = (provider.complete as ReturnType<typeof vi.fn>).mock.calls;
+    expect(request.messages[0].content).toContain('user perspective');
+    expect(request.messages[0].content).toContain('assistant perspective');
+  });
+
   // 3. Returns empty array when LLM returns empty array
   it('returns empty array when LLM returns empty array', async () => {
     const provider = createMockProvider('[]');

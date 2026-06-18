@@ -100,6 +100,7 @@ function createHost(): AgentInstructionHost {
     getDisplayErrorMessage: vi.fn(error => String(error)),
     emitOutput: vi.fn(),
     printCompletionSummary: vi.fn(),
+    scheduleTurnMemoryReflection: vi.fn(),
   };
 }
 
@@ -122,5 +123,19 @@ describe('InstructionRunner command mode UI', () => {
     expect(host.initializeUI).toHaveBeenCalledWith(expect.any(AbortController), expect.any(Function), false);
     expect(host.persistentInput.start).not.toHaveBeenCalled();
     expect(host.setupEscListener).toHaveBeenCalledWith(expect.any(AbortController), expect.any(Function), true);
+    expect(host.scheduleTurnMemoryReflection).not.toHaveBeenCalled();
+  });
+
+  it('schedules automatic memory reflection after a successful interactive turn', async () => {
+    const host = createHost();
+    host.runtime = {
+      ...host.runtime,
+      options: {},
+      isCommandMode: false,
+    };
+
+    await new InstructionRunner(host).run('remember what changed');
+
+    expect(host.scheduleTurnMemoryReflection).toHaveBeenCalledWith(true);
   });
 });

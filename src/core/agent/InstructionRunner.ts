@@ -121,6 +121,7 @@ export interface AgentInstructionHost {
   getDisplayErrorMessage(error: unknown): string;
   emitOutput(event: AgentOutputEvent): void;
   printCompletionSummary(regionsStillActive: boolean): void;
+  scheduleTurnMemoryReflection(success: boolean): void;
   writeDebugLine?(message: string): void;
 }
 
@@ -437,6 +438,10 @@ export class InstructionRunner {
         await new GoalManager(host.runtime.workspaceRoot).recordTurnUsage({ tokensUsed: turnTokens });
       } catch {
         // Goal accounting is best-effort and must never mask the turn result.
+      }
+
+      if (!host.runtime.isCommandMode && !host.runtime.options?.prompt) {
+        host.scheduleTurnMemoryReflection(success && !canceledByUser);
       }
 
       host.taskStartedAt = null;
