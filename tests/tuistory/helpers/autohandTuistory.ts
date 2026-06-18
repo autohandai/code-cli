@@ -47,6 +47,11 @@ export interface MockOllamaServer {
   close: () => Promise<void>;
 }
 
+export interface MockOpenRouterServer {
+  baseUrl: string;
+  close: () => Promise<void>;
+}
+
 export interface MockAuthServer {
   baseUrl: string;
   close: () => Promise<void>;
@@ -146,6 +151,64 @@ export async function createMockOllamaServer(models: string[]): Promise<MockOlla
   const address = server.address();
   if (!address || typeof address === 'string') {
     throw new Error('Mock Ollama server did not bind to a TCP port.');
+  }
+
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    close: async () => {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error?: Error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+    },
+  };
+}
+
+export async function createMockOpenRouterServer(responseContent: string, delayMs = 0): Promise<MockOpenRouterServer> {
+  const server = createServer((request, response) => {
+    if (request.url === '/chat/completions' && request.method === 'POST') {
+      request.resume();
+      setTimeout(() => {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({
+          id: 'chatcmpl-tuistory',
+          created: Math.floor(Date.now() / 1000),
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: responseContent,
+              },
+              finish_reason: 'stop',
+            },
+          ],
+          usage: {
+            prompt_tokens: 42,
+            completion_tokens: 12,
+            total_tokens: 54,
+          },
+        }));
+      }, delayMs);
+      return;
+    }
+
+    response.writeHead(404, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Mock OpenRouter server did not bind to a TCP port.');
   }
 
   return {

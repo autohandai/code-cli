@@ -19,6 +19,7 @@ import {
   type AgentUIState,
   type ContextTokenDisplay,
 } from './AgentUI.js';
+import { restoreActiveComposerCursorBaseline } from './InputLine.js';
 import type { LiveCommandEntry, ToolOutputEntry, ToolOutputBatchEntry, ToolOutputItem, BatchToolItem } from './ToolOutput.js';
 import type { SlashCommand } from '../../core/slashCommandTypes.js';
 import type { SkillMentionInfo } from '../mentionFilter.js';
@@ -369,12 +370,50 @@ export class InkRenderer {
    * This is much more efficient than calling instance.rerender()
    */
   private updateState(partial: Partial<AgentUIState>): void {
+    restoreActiveComposerCursorBaseline();
     this.state = { ...this.state, ...partial };
 
     // Use React state update if wrapper is mounted
     if (this.wrapperRef.current) {
       this.wrapperRef.current.updateState(partial);
     }
+  }
+
+  private archiveCompletedTurnMessages(
+    messages: ChatLogMessage[],
+    finalResponse: string | undefined,
+    completionStats: AgentUIState['completionStats']
+  ): ChatLogMessage[] {
+    let nextMessages = messages;
+
+    if (finalResponse) {
+      const alreadyArchived = nextMessages
+        .some((message) =>
+          message.role === 'assistant' && message.content === finalResponse
+        );
+      if (!alreadyArchived) {
+        nextMessages = [
+          ...nextMessages,
+          { role: 'assistant', content: finalResponse },
+        ];
+      }
+    }
+
+    if (completionStats) {
+      const content = `Completed in ${completionStats.elapsed} · ${completionStats.tokens}`;
+      const alreadyArchived = nextMessages
+        .some((message) =>
+          message.role === 'completion' && message.content === content
+        );
+      if (!alreadyArchived) {
+        nextMessages = [
+          ...nextMessages,
+          { role: 'completion', content },
+        ];
+      }
+    }
+
+    return nextMessages;
   }
 
   /**
@@ -393,16 +432,14 @@ export class InkRenderer {
       thinking: isWorking ? null : this.state.thinking,
     };
 
-    if (archivedFinalResponse) {
-      const alreadyArchived = this.state.chatMessages
-        .some((message) =>
-          message.role === 'assistant' && message.content === archivedFinalResponse
-        );
-      if (!alreadyArchived) {
-        updates.chatMessages = [
-          ...this.state.chatMessages,
-          { role: 'assistant', content: archivedFinalResponse },
-        ];
+    if (isWorking) {
+      const archivedMessages = this.archiveCompletedTurnMessages(
+        this.state.chatMessages,
+        archivedFinalResponse,
+        this.state.completionStats
+      );
+      if (archivedMessages !== this.state.chatMessages) {
+        updates.chatMessages = archivedMessages;
       }
     }
 
@@ -417,6 +454,13 @@ export class InkRenderer {
     // When starting new work, clear completion stats
     if (isWorking) {
       updates.completionStats = null;
+    }
+
+    if (!isWorking) {
+      restoreActiveComposerCursorBaseline();
+      if (process.stdout.isTTY === true) {
+        process.stdout.write('\x1b[J');
+      }
     }
 
     this.updateState(updates);
@@ -447,9 +491,17 @@ export class InkRenderer {
    * Add a user message to the conversation display
    */
   addUserMessage(message: string): void {
+    const archivedMessages = this.archiveCompletedTurnMessages(
+      this.state.chatMessages,
+      this.state.finalResponse?.trim() || undefined,
+      this.state.completionStats
+    );
+
     this.updateState({
       userMessages: [...this.state.userMessages, message],
-      chatMessages: [...this.state.chatMessages, { role: 'user', content: message }],
+      chatMessages: [...archivedMessages, { role: 'user', content: message }],
+      finalResponse: this.state.finalResponse ? null : this.state.finalResponse,
+      completionStats: this.state.completionStats ? null : this.state.completionStats,
     });
   }
 
@@ -1096,23 +1148,7 @@ export class InkRenderer {
    * Set the final response (displayed when not working)
    */
   setFinalResponse(response: string): void {
-    const trimmed = response.trim();
-    const chatMessages = [...this.state.chatMessages];
-    if (trimmed) {
-      const lastMessage = chatMessages[chatMessages.length - 1];
-      if (lastMessage?.role !== 'assistant' || lastMessage.content !== trimmed) {
-        chatMessages.push({ role: 'assistant', content: trimmed });
-      }
-    }
-    if (this.state.completionStats) {
-      const completionContent = `Completed in ${this.state.completionStats.elapsed} · ${this.state.completionStats.tokens}`;
-      const lastMessage = chatMessages[chatMessages.length - 1];
-      if (lastMessage?.role !== 'completion' || lastMessage.content !== completionContent) {
-        chatMessages.push({ role: 'completion', content: completionContent });
-      }
-    }
-
-    this.updateState({ finalResponse: response, chatMessages });
+    this.updateState({ finalResponse: response });
   }
 
   /**

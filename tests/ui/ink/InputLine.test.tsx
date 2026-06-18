@@ -247,6 +247,85 @@ describe('InputLine themed variants', () => {
     expect(writes).toContain('\x1b[4A\x1b[6G\x1b[?25h');
   });
 
+  it('restores the hardware cursor baseline before synchronized status repaints', async () => {
+    const originalIsTTY = process.stdout.isTTY;
+    const writes: string[] = [];
+
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      writable: true,
+      configurable: true,
+    });
+
+    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => {
+      writes.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+      return true;
+    }) as typeof process.stdout.write);
+
+    try {
+      const { rerender } = render(
+        <ThemeProvider>
+          <InputLine value="abc" cursorOffset={3} isActive width={40} cursorSyncKey="status:0" />
+        </ThemeProvider>
+      );
+      await new Promise((resolve) => setImmediate(resolve));
+
+      rerender(
+        <ThemeProvider>
+          <InputLine value="abc" cursorOffset={3} isActive width={40} cursorSyncKey="status:1" />
+        </ThemeProvider>
+      );
+      await new Promise((resolve) => setImmediate(resolve));
+    } finally {
+      writeSpy.mockRestore();
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: originalIsTTY,
+        writable: true,
+        configurable: true,
+      });
+    }
+
+    expect(writes).toEqual(expect.arrayContaining([
+      '\x1b[4A\x1b[6G\x1b[?25h',
+      '\x1b[4B',
+    ]));
+  });
+
+  it('does not move the hardware cursor when cursor placement is disabled', async () => {
+    const originalIsTTY = process.stdout.isTTY;
+    const writes: string[] = [];
+
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      writable: true,
+      configurable: true,
+    });
+
+    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => {
+      writes.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+      return true;
+    }) as typeof process.stdout.write);
+
+    try {
+      render(
+        <ThemeProvider>
+          <InputLine value="" cursorOffset={0} isActive width={40} enableHardwareCursor={false} />
+        </ThemeProvider>
+      );
+      await new Promise((resolve) => setImmediate(resolve));
+    } finally {
+      writeSpy.mockRestore();
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: originalIsTTY,
+        writable: true,
+        configurable: true,
+      });
+    }
+
+    expect(writes).not.toContain('\x1b[2 q');
+    expect(writes.some((write) => write.includes('\x1b[?25h'))).toBe(false);
+  });
+
   it('renders plan border style with open ruled content', () => {
     const { lastFrame } = render(
       <ThemeProvider>

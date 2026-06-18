@@ -2146,6 +2146,8 @@ interface InputLineWrapperProps {
   placeholderText?: string;
   nextPromptSuggestion?: string;
   inlineGhostSuffix?: string;
+  cursorSyncKey?: string;
+  enableHardwareCursor?: boolean;
 }
 
 const InputLineWrapper = memo(function InputLineWrapper({
@@ -2158,6 +2160,8 @@ const InputLineWrapper = memo(function InputLineWrapper({
   placeholderText,
   nextPromptSuggestion,
   inlineGhostSuffix,
+  cursorSyncKey,
+  enableHardwareCursor,
 }: InputLineWrapperProps) {
   if (!enableQueueInput) {
     return null;
@@ -2173,6 +2177,8 @@ const InputLineWrapper = memo(function InputLineWrapper({
       placeholderText={placeholderText}
       nextPromptSuggestion={nextPromptSuggestion}
       inlineGhostSuffix={inlineGhostSuffix}
+      cursorSyncKey={cursorSyncKey}
+      enableHardwareCursor={enableHardwareCursor}
     />
   );
 }, (prev, next) => {
@@ -2184,7 +2190,9 @@ const InputLineWrapper = memo(function InputLineWrapper({
          prev.borderStyle === next.borderStyle &&
          prev.placeholderText === next.placeholderText &&
          prev.nextPromptSuggestion === next.nextPromptSuggestion &&
-         prev.inlineGhostSuffix === next.inlineGhostSuffix;
+         prev.inlineGhostSuffix === next.inlineGhostSuffix &&
+         prev.cursorSyncKey === next.cursorSyncKey &&
+         prev.enableHardwareCursor === next.enableHardwareCursor;
 });
 
 /**
@@ -2266,6 +2274,16 @@ const CtrlCWarning = memo(function CtrlCWarning({
   return prev.ctrlCCount === next.ctrlCCount;
 });
 
+const FooterClearance = memo(function FooterClearance() {
+  return (
+    <Box flexDirection="column">
+      <Text> </Text>
+      <Text> </Text>
+      <Text> </Text>
+    </Box>
+  );
+});
+
 /**
  * File mention dropdown wrapper
  */
@@ -2343,6 +2361,7 @@ interface FixedBottomProps {
   placeholderText?: string;
   nextPromptSuggestion?: string;
   inlineGhostSuffix?: string;
+  cursorSyncKey?: string;
   /** Whether the shortcuts help panel is visible */
   showShortcuts: boolean;
 }
@@ -2375,6 +2394,16 @@ const FixedBottom = memo(function FixedBottom({
   inlineGhostSuffix,
   showShortcuts,
 }: FixedBottomProps) {
+  const cursorSyncKey = [
+    isWorking ? 'working' : 'idle',
+    status,
+    elapsed,
+    tokens,
+    completionStats?.elapsed ?? '',
+    completionStats?.tokens ?? '',
+    queuedInstructions.length,
+  ].join('\u001f');
+
   return (
     <>
       <StatusSection
@@ -2401,6 +2430,8 @@ const FixedBottom = memo(function FixedBottom({
         placeholderText={placeholderText}
         nextPromptSuggestion={nextPromptSuggestion}
         inlineGhostSuffix={inlineGhostSuffix}
+        cursorSyncKey={cursorSyncKey}
+        enableHardwareCursor={!isWorking || input.length > 0}
       />
       <FileMentionWrapper fileMentionDropdown={fileMentionDropdown} />
       <SlashCommandWrapper slashCommandDropdown={slashCommandDropdown} />
@@ -2415,6 +2446,7 @@ const FixedBottom = memo(function FixedBottom({
         lineExtension={mergeLineExtensions(configuredLineExtensions?.help, lineExtensions?.help)}
       />
       <CtrlCWarning ctrlCCount={ctrlCCount} />
+      <FooterClearance />
     </>
   );
 });
