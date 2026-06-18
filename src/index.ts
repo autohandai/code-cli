@@ -375,6 +375,21 @@ program
       process.exit(0);
     }
 
+    // Protocol modes reserve stdout for their SDK transports and cannot show
+    // interactive auth/login UI. They perform their own non-interactive config,
+    // workspace, and auth checks after stdout/stderr are prepared for the mode.
+    if (opts.mode === 'rpc') {
+      const { runRpcMode } = await import('./modes/rpc/index.js');
+      await runRpcMode(opts);
+      return;
+    }
+
+    if (opts.mode === 'acp') {
+      const { runAcpMode } = await import('./modes/acp/index.js');
+      await runAcpMode(opts);
+      return;
+    }
+
     // ── Workspace safety gate ──
     // Check workspace is safe BEFORE requiring authentication so users
     // running from home/system directories get the warning first.
@@ -444,20 +459,6 @@ program
         console.error(chalk.red(`Invalid search engine: ${provider}. Valid options: google, brave, duckduckgo, parallel`));
         process.exit(1);
       }
-    }
-
-    // RPC mode takes priority - auto-mode is handled via RPC methods when in RPC mode
-    if (opts.mode === 'rpc') {
-      const { runRpcMode } = await import('./modes/rpc/index.js');
-      await runRpcMode(opts);
-      return;
-    }
-
-    // Native ACP mode - in-process Agent Client Protocol over stdio
-    if (opts.mode === 'acp') {
-      const { runAcpMode } = await import('./modes/acp/index.js');
-      await runAcpMode(opts);
-      return;
     }
 
     // Teammate mode — headless process receiving tasks from lead

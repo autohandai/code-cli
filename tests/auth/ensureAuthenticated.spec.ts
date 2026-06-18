@@ -42,12 +42,15 @@ import { AuthClient } from '../../src/auth/AuthClient.js';
 import { ensureAuthenticated } from '../../src/auth/ensureAuth.js';
 import { loadConfig } from '../../src/config.js';
 import { login } from '../../src/commands/login.js';
+import { checkForUpdates } from '../../src/utils/versionCheck.js';
 import type { LoadedConfig } from '../../src/types.js';
 
 const mockValidateSession = vi.fn();
 const mockLoadConfig = loadConfig as unknown as ReturnType<typeof vi.fn>;
 const mockAuthClient = AuthClient as unknown as ReturnType<typeof vi.fn>;
 const mockLogin = login as unknown as ReturnType<typeof vi.fn>;
+const mockShowModal = showModal as unknown as ReturnType<typeof vi.fn>;
+const mockCheckForUpdates = checkForUpdates as unknown as ReturnType<typeof vi.fn>;
 
 describe('ensureAuthenticated', () => {
   let exitSpy: ReturnType<typeof vi.spyOn>;
@@ -62,6 +65,14 @@ describe('ensureAuthenticated', () => {
       return {
         validateSession: mockValidateSession,
       };
+    });
+    mockShowModal.mockResolvedValue({ value: 'login' });
+    mockCheckForUpdates.mockResolvedValue({
+      currentVersion: '0.0.0',
+      latestVersion: null,
+      isUpToDate: true,
+      updateAvailable: false,
+      channel: 'stable',
     });
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
       throw new Error('PROCESS_EXIT');
@@ -172,7 +183,12 @@ describe('ensureAuthenticated', () => {
 
     const result = await ensureAuthenticated(mockConfig);
 
-    expect(showModal).not.toHaveBeenCalled();
+    expect(showModal).toHaveBeenCalledWith(expect.objectContaining({
+      options: [
+        { label: 'Login', value: 'login' },
+        { label: 'Exit', value: 'exit' },
+      ],
+    }));
     expect(mockLogin).toHaveBeenCalledWith({ config: mockConfig });
     expect(result.auth?.token).toBe('new-token');
     expect(exitSpy).not.toHaveBeenCalled();
@@ -196,7 +212,12 @@ describe('ensureAuthenticated', () => {
 
     const result = await ensureAuthenticated(mockConfig);
 
-    expect(showModal).not.toHaveBeenCalled();
+    expect(showModal).toHaveBeenCalledWith(expect.objectContaining({
+      options: [
+        { label: 'Login', value: 'login' },
+        { label: 'Exit', value: 'exit' },
+      ],
+    }));
     expect(mockLogin).toHaveBeenCalledWith({ config: mockConfig });
     expect(result.auth?.token).toBe('new-token');
     expect(exitSpy).not.toHaveBeenCalled();
@@ -207,17 +228,42 @@ describe('ensureAuthenticated', () => {
       configPath: '/tmp/config.json',
     };
 
-    process.env.AUTOHAND_STARTUP_AUTH_MENU = '1';
     Object.defineProperty(process.stdout, 'columns', { value: 40, writable: true, configurable: true });
     mockLoadConfig.mockResolvedValue({ ...mockConfig });
-    (showModal as ReturnType<typeof vi.fn>).mockResolvedValue({ value: 'exit' });
+    mockShowModal.mockResolvedValue({ value: 'exit' });
 
     await expect(ensureAuthenticated(mockConfig)).rejects.toThrow('PROCESS_EXIT');
 
-    const [{ logo }] = (showModal as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [{ logo }] = mockShowModal.mock.calls[0];
     const logoLines = String(logo).split('\n').filter((line) => line.trim().length > 0);
     expect(logoLines.some((line) => line.includes('()'))).toBe(true);
     expect(logoLines.every((line) => stringWidth(line) <= 40)).toBe(true);
+  });
+
+  it('shows upgrade only when the latest release is newer', async () => {
+    const mockConfig: LoadedConfig = {
+      configPath: '/tmp/config.json',
+    };
+
+    mockCheckForUpdates.mockResolvedValue({
+      currentVersion: '0.8.2',
+      latestVersion: '0.9.0',
+      isUpToDate: false,
+      updateAvailable: true,
+      channel: 'stable',
+    });
+    mockShowModal.mockResolvedValue({ value: 'exit' });
+
+    await expect(ensureAuthenticated(mockConfig)).rejects.toThrow('PROCESS_EXIT');
+
+    expect(mockShowModal).toHaveBeenCalledWith(expect.objectContaining({
+      title: expect.stringContaining('New version available'),
+      options: [
+        { label: 'Login', value: 'login' },
+        { label: 'Upgrade (v0.9.0 available)', value: 'upgrade' },
+        { label: 'Exit', value: 'exit' },
+      ],
+    }));
   });
 
   it('trusts local token on network error during validation', async () => {
