@@ -3,8 +3,8 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Text, useCursor, type DOMElement } from 'ink';
+import React, { useEffect, useLayoutEffect, useMemo } from 'react';
+import { Box, Text } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
 import { buildMultiLineRenderState } from '../inputPrompt.js';
 import { stripAnsiCodes } from '../displayUtils.js';
@@ -14,30 +14,28 @@ function drawInkRule(width: number): string {
   return '─'.repeat(Math.max(0, width));
 }
 
-// Sum yoga layout offsets up to ink-root. The returned coordinates are
-// relative to Ink's output origin, which is exactly what Ink's `useCursor`
-// expects. Ink's renderer moves the hardware cursor relative to the bottom of
-// its own output and calls buildReturnToBottom before every eraseLines, so
-// frame rewrites stay aligned even when the terminal scrolls.
-function getAbsoluteInkPosition(
-  node: DOMElement | null
-): { left: number; top: number } | null {
-  if (!node) {
-    return null;
+function writeComposerCursorPosition(
+  cursorColumn: number,
+  cursorRow: number,
+  lineCount: number
+): number {
+  if (process.stdout.isTTY !== true) {
+    return 0;
   }
 
-  let left = 0;
-  let top = 0;
-  let current: DOMElement | undefined = node;
+  const terminalColumn = cursorColumn + 1;
+  const rowsAfterCursor = Math.max(0, lineCount - 1 - cursorRow + 4);
+  const rowMove = rowsAfterCursor > 0 ? `\x1b[${rowsAfterCursor}A` : '';
+  process.stdout.write(`${rowMove}\x1b[${terminalColumn}G\x1b[?25h`);
+  return rowsAfterCursor;
+}
 
-  while (current && current.nodeName !== 'ink-root') {
-    const layout = current.yogaNode?.getComputedLayout();
-    left += layout?.left ?? 0;
-    top += layout?.top ?? 0;
-    current = current.parentNode;
+function restoreComposerCursorBaseline(rowsAfterCursor: number): void {
+  if (process.stdout.isTTY !== true || rowsAfterCursor <= 0) {
+    return;
   }
 
-  return { left, top };
+  process.stdout.write(`\x1b[${rowsAfterCursor}B`);
 }
 
 export interface InputLineProps {
@@ -82,9 +80,6 @@ function InputLineComponent({
   inlineGhostSuffix,
 }: InputLineProps) {
   const { theme } = useTheme();
-  const rootRef = useRef<DOMElement>(null);
-  const [, setLayoutReadyVersion] = useState(0);
-  const { setCursorPosition } = useCursor();
 
   useEffect(() => {
     if (!isActive || process.stdout.isTTY !== true) {
@@ -95,12 +90,6 @@ function InputLineComponent({
     return () => {
       process.stdout.write('\x1b[0 q');
     };
-  }, [isActive]);
-
-  useEffect(() => {
-    if (isActive && rootRef.current) {
-      setLayoutReadyVersion((version) => version + 1);
-    }
   }, [isActive]);
 
   const borderToken = borderStyle === 'plan'
@@ -133,13 +122,21 @@ function InputLineComponent({
     };
   }, [value, cursorOffset, width, borderStyle, placeholderText, nextPromptSuggestion, inlineGhostSuffix]);
 
-  const cursorPosition = resolveInputLineCursorPosition(
-    isActive,
-    getAbsoluteInkPosition(rootRef.current),
-    displayData
-  );
+  useLayoutEffect(() => {
+    if (!isActive) {
+      return undefined;
+    }
 
-  setCursorPosition(cursorPosition);
+    const rowsAfterCursor = writeComposerCursorPosition(
+      displayData.cursorColumn,
+      displayData.cursorRow,
+      displayData.plainLines.length
+    );
+
+    return () => {
+      restoreComposerCursorBaseline(rowsAfterCursor);
+    };
+  }, [isActive, displayData.cursorColumn, displayData.cursorRow, displayData.plainLines.length]);
 
   const renderContentLine = (line: string, index: number) => {
     return (
@@ -160,7 +157,7 @@ function InputLineComponent({
 
   // Active state mirrors the open prompt style from readline mode.
   return (
-    <Box ref={rootRef} flexDirection="column">
+    <Box flexDirection="column">
       <Text>{theme.fgBg(borderToken, 'userMessageBg', rule)}</Text>
       {displayData.plainLines.map(renderContentLine)}
       <Text>{theme.fgBg(borderToken, 'userMessageBg', rule)}</Text>

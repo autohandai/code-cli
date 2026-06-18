@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import React from 'react';
@@ -176,25 +176,24 @@ describe('InputLine themed variants', () => {
     expect(source).toContain("theme.fgBg('userMessageText', 'userMessageBg', line)");
   });
 
-  it('uses Ink 7 useCursor (not a local reimplementation) and no rendered cursor glyph', () => {
-    // Regression guard: commit 611851c removed `useCursor` from the ink import
-    // and added a local reimplementation that wrote absolute terminal cursor
-    // escapes (`\x1b[y;xH`). That bypassed Ink's log-update coordination
-    // (buildReturnToBottom + buildCursorSuffix) and desynced frame-erase when
-    // output scrolled — producing a duplicate, frozen composer above the
-    // active one in short terminals. Ink 7.0.1 DOES export useCursor; we must
-    // use it so cursor positioning stays scroll-safe.
+  it('does not import unavailable Ink cursor APIs or render a cursor glyph', () => {
+    // Ink 7.0.5 does not export useCursor. Keep the composer on supported Ink
+    // primitives and avoid local absolute cursor writes, which desync frame
+    // erasure when terminal output scrolls.
     const source = readFileSync(
       path.resolve(process.cwd(), 'src/ui/ink/InputLine.tsx'),
       'utf8'
     );
 
-    expect(source).toContain("import { Box, Text, useCursor");
-    expect(source).toContain('setCursorPosition');
+    expect(source).toContain("import { Box, Text } from 'ink'");
+    expect(source).not.toContain('useCursor');
+    expect(source).not.toContain('setCursorPosition');
+    expect(source).toContain('writeComposerCursorPosition');
+    expect(source).toContain('\\x1b[${terminalColumn}G\\x1b[?25h');
     // No local useCursor reimplementation.
     expect(source).not.toMatch(/function\s+useCursor\s*\(/);
-    // No raw absolute cursor escape writes — these are what caused the duplicate.
-    expect(source).not.toMatch(/stdout\.write\(`\\x1b\[\$\{/);
+    // No row/column absolute cursor writes — these are what caused the duplicate.
+    expect(source).not.toMatch(/\\x1b\[\$\{[^}]+\};\$\{[^}]+\}H/);
     // Rendered cursor variants should also not be present (Ink owns the cursor).
     expect(source).not.toContain('renderHardwareCursorFallback');
     expect(source).not.toContain('█');
@@ -212,6 +211,40 @@ describe('InputLine themed variants', () => {
     expect(output).toContain('─');
     expect(output).toContain('test');
     expect(output).not.toContain('│');
+  });
+
+  it('moves the hardware cursor back to the active composer cell after render', async () => {
+    const originalIsTTY = process.stdout.isTTY;
+    const writes: string[] = [];
+
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      writable: true,
+      configurable: true,
+    });
+
+    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => {
+      writes.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+      return true;
+    }) as typeof process.stdout.write);
+
+    try {
+      render(
+        <ThemeProvider>
+          <InputLine value="abc" cursorOffset={3} isActive width={40} />
+        </ThemeProvider>
+      );
+      await new Promise((resolve) => setImmediate(resolve));
+    } finally {
+      writeSpy.mockRestore();
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: originalIsTTY,
+        writable: true,
+        configurable: true,
+      });
+    }
+
+    expect(writes).toContain('\x1b[4A\x1b[6G\x1b[?25h');
   });
 
   it('renders plan border style with open ruled content', () => {

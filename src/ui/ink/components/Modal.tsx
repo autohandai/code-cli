@@ -117,6 +117,66 @@ const OTHER_VALUE = '__other__';
 const ENTER_ALTERNATE_SCREEN = '\x1b[?1049h\x1b[2J\x1b[H';
 const EXIT_ALTERNATE_SCREEN = '\x1b[?1049l';
 
+interface ModalRenderOptions {
+  skipAltScreen?: boolean;
+}
+
+export function resumeModalInput(input: NodeJS.ReadStream = process.stdin): void {
+  if (input.isTTY && typeof input.resume === 'function') {
+    input.resume();
+  }
+  if (input.isTTY && typeof input.setRawMode === 'function') {
+    input.setRawMode(true);
+  }
+}
+
+function createSkipAltScreenSelectFallback(options: {
+  choices: ModalOption[];
+  initialIndex?: number;
+  onSelect: (option: ModalOption) => void;
+  onCancel: () => void;
+}): ((data: Buffer | string) => void) | null {
+  if (options.choices.length === 0) {
+    return null;
+  }
+
+  let cursor = resolveInitialCursor('select', options.choices.length, options.initialIndex);
+  const selectAt = (index: number): void => {
+    const choice = options.choices[index];
+    if (choice && !choice.disabled) {
+      options.onSelect(choice);
+    }
+  };
+
+  return (data) => {
+    const input = data.toString();
+    if (input === '\r' || input === '\n' || input === '\r\n') {
+      selectAt(cursor);
+      return;
+    }
+
+    if (input === '\x1b' || input === '\u001b' || input === '\x03') {
+      options.onCancel();
+      return;
+    }
+
+    if (input === '\x1b[A') {
+      cursor = (cursor - 1 + options.choices.length) % options.choices.length;
+      return;
+    }
+
+    if (input === '\x1b[B') {
+      cursor = (cursor + 1) % options.choices.length;
+      return;
+    }
+
+    if (/^[1-9]$/.test(input)) {
+      const index = Number(input) - 1;
+      selectAt(index);
+    }
+  };
+}
+
 /**
  * Resolve initial cursor index for select/confirm modes.
  */
@@ -156,7 +216,8 @@ export function isModalCancelInput(char: string, key: Pick<InkKey, 'escape' | 'c
 function unmountAndResolve<T>(
   instance: Instance,
   value: T,
-  resolve: (value: T) => void
+  resolve: (value: T) => void,
+  renderOptions: ModalRenderOptions = {}
 ): void {
   void (async () => {
     // Keep cleanup after Ink's unmount flush so final cursor restoration and
@@ -165,24 +226,34 @@ function unmountAndResolve<T>(
     try {
       await instance.waitUntilExit();
     } finally {
-      cleanupModalRender(process.stdout);
+      cleanupModalRender(process.stdout, renderOptions);
       resolve(value);
     }
   })();
 }
 
-export function prepareModalRender(output: NodeJS.WriteStream = process.stdout): void {
+export function prepareModalRender(
+  output: NodeJS.WriteStream = process.stdout,
+  options: ModalRenderOptions = {}
+): void {
   // Bracketed paste is disabled while the modal is active so escape sequences
   // from pasted text don't leak into Ink's useInput.
   disableBracketedPaste(output);
   resetScrollRegion();
-  output.write(ENTER_ALTERNATE_SCREEN);
+  if (!options.skipAltScreen) {
+    output.write(ENTER_ALTERNATE_SCREEN);
+  }
 }
 
-export function cleanupModalRender(output: NodeJS.WriteStream = process.stdout): void {
+export function cleanupModalRender(
+  output: NodeJS.WriteStream = process.stdout,
+  options: ModalRenderOptions = {}
+): void {
   // Ink 7 does not own an alternate-screen lifecycle; restore the primary
   // composer screen explicitly, then re-enable bracketed paste.
-  output.write(EXIT_ALTERNATE_SCREEN);
+  if (!options.skipAltScreen) {
+    output.write(EXIT_ALTERNATE_SCREEN);
+  }
   enableBracketedPaste(output);
 }
 
@@ -706,7 +777,7 @@ export interface ShowModalOptions {
 export async function showModal(
   options: ShowModalOptions
 ): Promise<ModalOption | null> {
-  const { title, logo, options: modalOptions, allowCustomInput, multiSelect, maxVisible, onToggle } = options;
+  const { title, logo, options: modalOptions, allowCustomInput, multiSelect, maxVisible, onToggle, skipAltScreen, initialIndex } = options;
 
   // Non-interactive fallback
   if (!process.stdout.isTTY) {
@@ -714,7 +785,8 @@ export async function showModal(
   }
 
   // Disable bracketed paste so escape sequences don't leak into Ink's useInput.
-  prepareModalRender(process.stdout);
+  prepareModalRender(process.stdout, { skipAltScreen });
+  resumeModalInput(process.stdin);
 
   // Yield a macrotask so React 19's Scheduler flushes any pending passive
   // effect cleanup from a just-unmounted Ink instance (e.g. InkRenderer.pause()).
@@ -727,8 +799,56 @@ export async function showModal(
 
   return new Promise((resolve) => {
     let completed = false;
+    let fallbackInput: ((data: Buffer | string) => void) | null = null;
+    let fallbackReadable: (() => void) | null = null;
+    let instance: Instance | null = null;
+    let hasPendingCompletion = false;
+    let pendingCompletion: ModalOption | null = null;
 
-    const instance = render(
+    const resolveWithInstance = (
+      currentInstance: Instance,
+      value: ModalOption | null
+    ): void => {
+      unmountAndResolve(currentInstance, value, resolve, { skipAltScreen });
+    };
+
+    const complete = (value: ModalOption | null): void => {
+      if (completed) return;
+      completed = true;
+      if (fallbackInput) {
+        process.stdin.removeListener('data', fallbackInput);
+      }
+      if (fallbackReadable) {
+        process.stdin.removeListener('readable', fallbackReadable);
+      }
+      if (!instance) {
+        hasPendingCompletion = true;
+        pendingCompletion = value;
+        return;
+      }
+      resolveWithInstance(instance, value);
+    };
+
+    if (skipAltScreen && !allowCustomInput && !multiSelect) {
+      fallbackInput = createSkipAltScreenSelectFallback({
+        choices: modalOptions,
+        initialIndex,
+        onSelect: complete,
+        onCancel: () => complete(null),
+      });
+      if (fallbackInput) {
+        fallbackReadable = () => {
+          let chunk: string | Buffer | null;
+          while ((chunk = process.stdin.read() as string | Buffer | null) !== null) {
+            fallbackInput?.(chunk);
+          }
+        };
+        process.stdin.on('data', fallbackInput);
+        process.stdin.on('readable', fallbackReadable);
+      }
+    }
+
+    instance = render(
       <I18nProvider>
         <ThemeProvider>
           <Modal
@@ -736,18 +856,15 @@ export async function showModal(
             logo={logo}
             options={modalOptions}
             allowCustomInput={allowCustomInput}
+            initialIndex={initialIndex}
             multiSelect={multiSelect}
             maxVisible={maxVisible}
             onToggle={onToggle}
             onSelect={(option) => {
-              if (completed) return;
-              completed = true;
-              unmountAndResolve(instance, option, resolve);
+              complete(option);
             }}
             onCancel={() => {
-              if (completed) return;
-              completed = true;
-              unmountAndResolve(instance, null, resolve);
+              complete(null);
             }}
           />
         </ThemeProvider>
@@ -759,6 +876,10 @@ export async function showModal(
         exitOnCtrlC: false
       })
     );
+
+    if (hasPendingCompletion) {
+      resolveWithInstance(instance, pendingCompletion);
+    }
   });
 }
 
@@ -791,6 +912,7 @@ export async function showConfirm(options: {
   }
 
   prepareModalRender(process.stdout);
+  resumeModalInput(process.stdin);
 
   await new Promise<void>((resolve) => setImmediate(resolve));
 
@@ -859,6 +981,7 @@ export async function showInput(options: {
   }
 
   prepareModalRender(process.stdout);
+  resumeModalInput(process.stdin);
 
   await new Promise<void>((resolve) => setImmediate(resolve));
 
@@ -924,6 +1047,7 @@ export async function showPassword(options: {
   }
 
   prepareModalRender(process.stdout);
+  resumeModalInput(process.stdin);
 
   await new Promise<void>((resolve) => setImmediate(resolve));
 

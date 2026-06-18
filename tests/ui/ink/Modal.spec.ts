@@ -247,6 +247,46 @@ describe('showModal', () => {
     expect(writes).toEqual(['\x1b[?1049l', '\x1b[?2004h']);
   });
 
+  it('resumes TTY stdin before modal input handling', async () => {
+    const { EventEmitter } = await import('node:events');
+    const input = new EventEmitter() as NodeJS.ReadStream & {
+      isTTY: boolean;
+      resume: () => NodeJS.ReadStream;
+      setRawMode: (mode: boolean) => NodeJS.ReadStream;
+    };
+    input.isTTY = true;
+    input.resume = vi.fn(() => input);
+    input.setRawMode = vi.fn(() => input);
+
+    const { resumeModalInput } = await import('../../../src/ui/ink/components/Modal.js');
+
+    resumeModalInput(input);
+
+    expect(input.resume).toHaveBeenCalledTimes(1);
+    expect(input.setRawMode).toHaveBeenCalledWith(true);
+  });
+
+  it('honors skipAltScreen while preserving modal terminal setup and cleanup', async () => {
+    const writes: string[] = [];
+
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      writable: true,
+    });
+
+    vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => {
+      writes.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+      return true;
+    }) as typeof process.stdout.write);
+
+    const { prepareModalRender, cleanupModalRender } = await import('../../../src/ui/ink/components/Modal.js');
+
+    prepareModalRender(process.stdout, { skipAltScreen: true });
+    cleanupModalRender(process.stdout, { skipAltScreen: true });
+
+    expect(writes).toEqual(['\x1b[?2004l', '\x1B[r', '\x1b[?2004h']);
+  });
+
   it('keeps modal unmount writes inside the alternate screen before cleanup', async () => {
     const fs = await import('node:fs');
     const path = await import('node:path');
@@ -256,7 +296,7 @@ describe('showModal', () => {
     );
 
     expect(src).toMatch(
-      /function unmountAndResolve[\s\S]*?instance\.unmount\(\);[\s\S]*?await instance\.waitUntilExit\(\);[\s\S]*?cleanupModalRender\(process\.stdout\);[\s\S]*?resolve\(value\);/
+      /function unmountAndResolve[\s\S]*?instance\.unmount\(\);[\s\S]*?await instance\.waitUntilExit\(\);[\s\S]*?cleanupModalRender\(process\.stdout, renderOptions\);[\s\S]*?resolve\(value\);/
     );
   });
 });
