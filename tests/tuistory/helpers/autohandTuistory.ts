@@ -47,6 +47,11 @@ export interface MockOllamaServer {
   close: () => Promise<void>;
 }
 
+export interface MockAuthServer {
+  baseUrl: string;
+  close: () => Promise<void>;
+}
+
 export function repoRoot(): string {
   return path.resolve(import.meta.dirname, '../../..');
 }
@@ -141,6 +146,56 @@ export async function createMockOllamaServer(models: string[]): Promise<MockOlla
   const address = server.address();
   if (!address || typeof address === 'string') {
     throw new Error('Mock Ollama server did not bind to a TCP port.');
+  }
+
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    close: async () => {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error?: Error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+    },
+  };
+}
+
+export async function createMockAuthServer(): Promise<MockAuthServer> {
+  const server = createServer((request, response) => {
+    if (request.url === '/api/auth/cli/initiate' && request.method === 'POST') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({
+        deviceCode: 'tuistory-device-code',
+        userCode: 'TUI-123',
+        verificationUri: 'https://auth.example.test/device',
+        verificationUriComplete: 'https://auth.example.test/device?code=TUI-123',
+        expiresIn: 300,
+        interval: 1,
+      }));
+      return;
+    }
+
+    if (request.url === '/api/auth/cli/poll' && request.method === 'POST') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ success: true, status: 'pending' }));
+      return;
+    }
+
+    response.writeHead(404, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Mock auth server did not bind to a TCP port.');
   }
 
   return {

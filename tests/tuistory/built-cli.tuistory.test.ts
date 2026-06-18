@@ -7,12 +7,14 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
 import fs from 'fs-extra';
+import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import packageJson from '../../package.json' with { type: 'json' };
 import { SLASH_COMMANDS } from '../../src/core/slashCommands.js';
 import { getHelpOrderedSlashCommands } from '../../src/ui/inputPrompt.js';
 import {
   clearComposerInput,
+  createMockAuthServer,
   createMockOllamaServer,
   createTempAutohandHome,
   dismissAutocompleteMenu,
@@ -21,12 +23,14 @@ import {
   launchBuiltAutohand,
   waitForExit,
   type CreateTempAutohandHomeOptions,
+  type MockAuthServer,
   type MockOllamaServer,
   type TuistoryTempState,
 } from './helpers/autohandTuistory.js';
 
 const sessions: Session[] = [];
 const tempStates: TuistoryTempState[] = [];
+const mockAuthServers: MockAuthServer[] = [];
 const mockServers: MockOllamaServer[] = [];
 const CURSOR_CHAR = '█';
 
@@ -87,6 +91,9 @@ afterEach(async () => {
     session.close();
   }
   for (const server of mockServers.splice(0)) {
+    await server.close();
+  }
+  for (const server of mockAuthServers.splice(0)) {
     await server.close();
   }
   for (const state of tempStates.splice(0)) {
@@ -163,6 +170,41 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(screen).toContain('model:');
 
     await exitInteractive(session);
+  });
+
+  it('starts device auth from the startup auth gate', async () => {
+    const state = await createTempAutohandHome({
+      config: {
+        auth: {
+          token: '',
+        },
+      },
+    });
+    tempStates.push(state);
+
+    const authServer = await createMockAuthServer();
+    mockAuthServers.push(authServer);
+
+    const fakeBinDir = path.join(state.autohandHome, 'fake-bin');
+    await mkdir(fakeBinDir, { recursive: true });
+    const fakeOpenPath = path.join(fakeBinDir, 'open');
+    await writeFile(fakeOpenPath, '#!/bin/sh\nexit 0\n');
+    await chmod(fakeOpenPath, 0o755);
+
+    const session = await trackSession(
+      launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        env: {
+          AUTOHAND_API_URL: authServer.baseUrl,
+          PATH: `${fakeBinDir}:${process.env.PATH ?? ''}`,
+        },
+        waitForDataTimeout: 15_000,
+      })
+    );
+
+    await session.waitForText('TUI-123', { timeout: 10_000 });
+    await session.waitForText('Waiting for authorization', { timeout: 10_000 });
   });
 
   it('keeps only the real terminal cursor at the typed prompt position while composing', async () => {

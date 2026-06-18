@@ -241,40 +241,52 @@ async function promptLogin(config: LoadedConfig): Promise<LoadedConfig> {
       includeWordmark: true,
     });
     const logoWithVersion = [logo, '', chalk.gray(versionStr)].join('\n');
-    
-    // Build options based on update availability
-    const options = [
-      { label: 'Login', value: 'login' },
-    ];
-    
-    if (updateAvailable && latestVersion) {
-      options.push({ 
-        label: `Upgrade (v${latestVersion} available)`, 
-        value: 'upgrade' 
+
+    if (process.env.AUTOHAND_STARTUP_AUTH_MENU !== '1') {
+      console.log(logoWithVersion);
+      if (updateAvailable && latestVersion) {
+        console.log(chalk.yellow(`New version available: v${latestVersion}`));
+        console.log(chalk.gray('Run `autohand upgrade` after signing in to update.'));
+        console.log();
+      } else {
+        console.log(chalk.white('Sign in to continue.'));
+        console.log();
+      }
+    } else {
+      // Build options based on update availability
+      const options = [
+        { label: 'Login', value: 'login' },
+      ];
+
+      if (updateAvailable && latestVersion) {
+        options.push({
+          label: `Upgrade (v${latestVersion} available)`,
+          value: 'upgrade'
+        });
+      }
+
+      options.push({ label: 'Exit', value: 'exit' });
+
+      const selected = await showModal({
+        logo: logoWithVersion,
+        skipAltScreen: true,
+        title: updateAvailable
+          ? chalk.yellow('New version available!')
+          : chalk.white('Sign in to continue.'),
+        options,
       });
-    }
-    
-    options.push({ label: 'Exit', value: 'exit' });
 
-    const selected = await showModal({
-      logo: logoWithVersion,
-      skipAltScreen: true,
-      title: updateAvailable 
-        ? chalk.yellow('New version available!') 
-        : chalk.white('Sign in to continue.'),
-      options,
-    });
-
-    if (!selected || selected.value === 'exit') {
-      process.exit(0);
-    }
-
-    if (selected.value === 'upgrade') {
-      try {
-        await runUpgrade();
+      if (!selected || selected.value === 'exit') {
         process.exit(0);
-      } catch {
-        process.exit(1);
+      }
+
+      if (selected.value === 'upgrade') {
+        try {
+          await runUpgrade();
+          process.exit(0);
+        } catch {
+          process.exit(1);
+        }
       }
     }
   }

@@ -23,6 +23,10 @@ vi.mock('../../src/auth/index.js', () => ({
   getAuthClient: vi.fn(),
 }));
 
+vi.mock('../../src/commands/login.js', () => ({
+  login: vi.fn(),
+}));
+
 vi.mock('../../src/utils/versionCheck.js', () => ({
   checkForUpdates: vi.fn().mockResolvedValue({
     currentVersion: '0.0.0',
@@ -37,17 +41,20 @@ import { showModal } from '../../src/ui/ink/components/Modal.js';
 import { AuthClient } from '../../src/auth/AuthClient.js';
 import { ensureAuthenticated } from '../../src/auth/ensureAuth.js';
 import { loadConfig } from '../../src/config.js';
+import { login } from '../../src/commands/login.js';
 import type { LoadedConfig } from '../../src/types.js';
 
 const mockValidateSession = vi.fn();
 const mockLoadConfig = loadConfig as unknown as ReturnType<typeof vi.fn>;
 const mockAuthClient = AuthClient as unknown as ReturnType<typeof vi.fn>;
+const mockLogin = login as unknown as ReturnType<typeof vi.fn>;
 
 describe('ensureAuthenticated', () => {
   let exitSpy: ReturnType<typeof vi.spyOn>;
   const originalIsTTY = process.stdout.isTTY;
   const originalColumns = process.stdout.columns;
   const originalApiKey = process.env.AUTOHAND_API_KEY;
+  const originalStartupAuthMenu = process.env.AUTOHAND_STARTUP_AUTH_MENU;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -67,6 +74,11 @@ describe('ensureAuthenticated', () => {
       delete process.env.AUTOHAND_API_KEY;
     } else {
       process.env.AUTOHAND_API_KEY = originalApiKey;
+    }
+    if (originalStartupAuthMenu === undefined) {
+      delete process.env.AUTOHAND_STARTUP_AUTH_MENU;
+    } else {
+      process.env.AUTOHAND_STARTUP_AUTH_MENU = originalStartupAuthMenu;
     }
     exitSpy.mockRestore();
     Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, writable: true });
@@ -137,7 +149,7 @@ describe('ensureAuthenticated', () => {
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
-  it('forces login when token is locally expired', async () => {
+  it('forces device login when token is locally expired', async () => {
     const mockConfig: LoadedConfig = {
       configPath: '/tmp/config.json',
       auth: {
@@ -147,26 +159,47 @@ describe('ensureAuthenticated', () => {
       },
     };
 
-    (showModal as ReturnType<typeof vi.fn>).mockResolvedValue({ value: 'exit' });
+    const refreshedConfig: LoadedConfig = {
+      ...mockConfig,
+      auth: {
+        token: 'new-token',
+        user: { id: 'u1', email: 'test@example.com', name: 'Test' },
+        expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      },
+    };
+    mockLogin.mockResolvedValue(null);
+    mockLoadConfig.mockResolvedValue(refreshedConfig);
 
-    await expect(ensureAuthenticated(mockConfig)).rejects.toThrow('PROCESS_EXIT');
+    const result = await ensureAuthenticated(mockConfig);
 
-    expect(showModal).toHaveBeenCalled();
-    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(showModal).not.toHaveBeenCalled();
+    expect(mockLogin).toHaveBeenCalledWith({ config: mockConfig });
+    expect(result.auth?.token).toBe('new-token');
+    expect(exitSpy).not.toHaveBeenCalled();
   });
 
-  it('forces login when no token exists', async () => {
+  it('starts device login when no token exists', async () => {
     const mockConfig: LoadedConfig = {
       configPath: '/tmp/config.json',
     };
 
-    mockLoadConfig.mockResolvedValue({ ...mockConfig });
-    (showModal as ReturnType<typeof vi.fn>).mockResolvedValue({ value: 'exit' });
+    const refreshedConfig: LoadedConfig = {
+      ...mockConfig,
+      auth: {
+        token: 'new-token',
+        user: { id: 'u1', email: 'test@example.com', name: 'Test' },
+        expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      },
+    };
+    mockLogin.mockResolvedValue(null);
+    mockLoadConfig.mockResolvedValue(refreshedConfig);
 
-    await expect(ensureAuthenticated(mockConfig)).rejects.toThrow('PROCESS_EXIT');
+    const result = await ensureAuthenticated(mockConfig);
 
-    expect(showModal).toHaveBeenCalled();
-    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(showModal).not.toHaveBeenCalled();
+    expect(mockLogin).toHaveBeenCalledWith({ config: mockConfig });
+    expect(result.auth?.token).toBe('new-token');
+    expect(exitSpy).not.toHaveBeenCalled();
   });
 
   it('passes terminal-width-aware logo art to the login modal', async () => {
@@ -174,6 +207,7 @@ describe('ensureAuthenticated', () => {
       configPath: '/tmp/config.json',
     };
 
+    process.env.AUTOHAND_STARTUP_AUTH_MENU = '1';
     Object.defineProperty(process.stdout, 'columns', { value: 40, writable: true, configurable: true });
     mockLoadConfig.mockResolvedValue({ ...mockConfig });
     (showModal as ReturnType<typeof vi.fn>).mockResolvedValue({ value: 'exit' });
