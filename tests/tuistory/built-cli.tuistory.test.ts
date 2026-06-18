@@ -64,29 +64,39 @@ function expectCursorAfterTypedText(screen: string, typedText: string): void {
   expect(cursorColumn, screen).toBeGreaterThanOrEqual(textColumn + typedText.length);
 }
 
-async function waitForInkCursorSequenceAfterTypedText(session: Session, typedText: string): Promise<void> {
+function composerLineIncludes(screen: string, text: string): boolean {
+  return screen.split('\n').some((line) => line.includes('❯') && line.includes(text));
+}
+
+async function waitForCursorAfterTypedText(session: Session, typedText: string): Promise<string> {
+  const visibleText = typedText.trimEnd();
   const deadline = Date.now() + 2_000;
-  const cursorColumn = typedText.length + 3;
-  const expectedCursorPosition = `\u001b[${cursorColumn}G\u001b[?25h`;
-  let rawTail = '';
+  let screen = '';
 
   while (Date.now() < deadline) {
-    await session.waitIdle({ timeout: 15 }).catch(() => undefined);
-    rawTail = session.getRawOutput().slice(-2_000);
+    screen = await session.text({
+      immediate: true,
+      showCursor: true,
+      trimEnd: true,
+    });
 
-    if (rawTail.includes(expectedCursorPosition) && session.getRawOutput().includes('\u001b[2 q')) {
-      return;
+    if (
+      screen.includes(CURSOR_CHAR) &&
+      screen.split('\n').some((line) => (
+        line.includes('❯') &&
+        line.includes(visibleText) &&
+        line.includes(CURSOR_CHAR)
+      ))
+    ) {
+      expectCursorAfterTypedText(screen, visibleText);
+      return screen;
     }
 
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
 
-  expect(session.getRawOutput()).toContain('\u001b[2 q');
-  expect(rawTail).toContain(expectedCursorPosition);
-}
-
-function composerLineIncludes(screen: string, text: string): boolean {
-  return screen.split('\n').some((line) => line.includes('❯') && line.includes(text));
+  expectCursorAfterTypedText(screen, visibleText);
+  return screen;
 }
 
 function linesContaining(screen: string, text: string): string[] {
@@ -242,16 +252,8 @@ describe('interactive built CLI Tuistory tests', () => {
       expect(screen).toContain(visiblePrefix);
       expect(screen).not.toContain(CURSOR_CHAR);
 
-      await waitForInkCursorSequenceAfterTypedText(session, typedPrefix);
-
-      const cursorScreen = await session.text({
-        immediate: true,
-        showCursor: true,
-        trimEnd: true,
-      });
-      if (cursorScreen.includes(CURSOR_CHAR)) {
-        expectCursorAfterTypedText(cursorScreen, visiblePrefix);
-      }
+      const cursorScreen = await waitForCursorAfterTypedText(session, typedPrefix);
+      expect(linesContaining(cursorScreen, CURSOR_CHAR)).toHaveLength(1);
     }
 
     await exitInteractive(session);

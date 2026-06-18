@@ -3,8 +3,8 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { useEffect, useLayoutEffect, useMemo } from 'react';
-import { Box, Text } from 'ink';
+import React, { useMemo, useRef } from 'react';
+import { Box, Text, useBoxMetrics, useCursor, type DOMElement } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
 import { buildMultiLineRenderState } from '../inputPrompt.js';
 import { stripAnsiCodes } from '../displayUtils.js';
@@ -12,42 +12,6 @@ import type { InputBorderStyle } from '../box.js';
 
 function drawInkRule(width: number): string {
   return '─'.repeat(Math.max(0, width));
-}
-
-function writeComposerCursorPosition(
-  cursorColumn: number,
-  cursorRow: number,
-  lineCount: number
-): number {
-  if (process.stdout.isTTY !== true) {
-    return 0;
-  }
-
-  const terminalColumn = cursorColumn + 1;
-  const rowsAfterCursor = Math.max(0, lineCount - 1 - cursorRow + 4);
-  const rowMove = rowsAfterCursor > 0 ? `\x1b[${rowsAfterCursor}A` : '';
-  process.stdout.write(`${rowMove}\x1b[${terminalColumn}G\x1b[?25h`);
-  activeComposerRowsAfterCursor = rowsAfterCursor;
-  return rowsAfterCursor;
-}
-
-let activeComposerRowsAfterCursor = 0;
-
-export function restoreActiveComposerCursorBaseline(): void {
-  if (process.stdout.isTTY !== true || activeComposerRowsAfterCursor <= 0) {
-    return;
-  }
-
-  process.stdout.write(`\x1b[${activeComposerRowsAfterCursor}B`);
-  activeComposerRowsAfterCursor = 0;
-}
-
-function restoreComposerCursorBaseline(rowsAfterCursor: number): void {
-  if (activeComposerRowsAfterCursor !== rowsAfterCursor) {
-    return;
-  }
-
-  restoreActiveComposerCursorBaseline();
 }
 
 export interface InputLineProps {
@@ -64,8 +28,6 @@ export interface InputLineProps {
   nextPromptSuggestion?: string;
   /** Inline completion suffix shown after the current input. */
   inlineGhostSuffix?: string;
-  /** Forces hardware cursor baseline restoration before adjacent UI rows repaint. */
-  cursorSyncKey?: string;
   /** Whether the terminal hardware cursor should be moved into the composer. */
   enableHardwareCursor?: boolean;
 }
@@ -94,21 +56,12 @@ function InputLineComponent({
   placeholderText,
   nextPromptSuggestion,
   inlineGhostSuffix,
-  cursorSyncKey,
   enableHardwareCursor = true,
 }: InputLineProps) {
   const { theme } = useTheme();
-
-  useEffect(() => {
-    if (!isActive || process.stdout.isTTY !== true || !enableHardwareCursor) {
-      return undefined;
-    }
-
-    process.stdout.write('\x1b[2 q');
-    return () => {
-      process.stdout.write('\x1b[0 q');
-    };
-  }, [isActive]);
+  const rootRef = useRef<DOMElement | null>(null);
+  const metrics = useBoxMetrics(rootRef);
+  const { setCursorPosition } = useCursor();
 
   const borderToken = borderStyle === 'plan'
     ? 'warning'
@@ -140,22 +93,13 @@ function InputLineComponent({
     };
   }, [value, cursorOffset, width, borderStyle, placeholderText, nextPromptSuggestion, inlineGhostSuffix]);
 
-  useLayoutEffect(() => {
-    if (!isActive || !enableHardwareCursor) {
-      restoreActiveComposerCursorBaseline();
-      return undefined;
-    }
-
-    const rowsAfterCursor = writeComposerCursorPosition(
-      displayData.cursorColumn,
-      displayData.cursorRow,
-      displayData.plainLines.length
-    );
-
-    return () => {
-      restoreComposerCursorBaseline(rowsAfterCursor);
-    };
-  }, [isActive, enableHardwareCursor, displayData.cursorColumn, displayData.cursorRow, displayData.plainLines.length, cursorSyncKey]);
+  setCursorPosition(
+    resolveInputLineCursorPosition(
+      isActive && enableHardwareCursor && metrics.hasMeasured,
+      metrics,
+      displayData
+    )
+  );
 
   const renderContentLine = (line: string, index: number) => {
     return (
@@ -168,7 +112,7 @@ function InputLineComponent({
   // Keep space stable when queue input is inactive.
   if (!isActive) {
     return (
-      <Box marginTop={1} height={3}>
+      <Box ref={rootRef} marginTop={1} height={3}>
         <Text>{theme.fg('dim', ' ')}</Text>
       </Box>
     );
@@ -176,7 +120,7 @@ function InputLineComponent({
 
   // Active state mirrors the open prompt style from readline mode.
   return (
-    <Box flexDirection="column">
+    <Box ref={rootRef} flexDirection="column">
       <Text>{theme.fgBg(borderToken, 'userMessageBg', rule)}</Text>
       {displayData.plainLines.map(renderContentLine)}
       <Text>{theme.fgBg(borderToken, 'userMessageBg', rule)}</Text>
