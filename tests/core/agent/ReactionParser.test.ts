@@ -36,6 +36,37 @@ describe('ReactionParser', () => {
     });
   });
 
+  it('converts accidental native reflection tool calls into reflection text', () => {
+    const completion: LLMResponse = {
+      id: 'resp-reflection-tool',
+      created: 4,
+      content: '{"thought": "Need to inspect the previous result"}',
+      toolCalls: [
+        {
+          id: 'call-reflection',
+          type: 'function',
+          function: {
+            name: 'reflection',
+            arguments: '{"reflection":"The previous output shows the config is missing."}',
+          },
+        },
+        {
+          id: 'call-read',
+          type: 'function',
+          function: { name: 'read_file', arguments: '{"path":"package.json"}' },
+        },
+      ],
+      raw: {},
+    };
+
+    const result = parser.parseAssistantResponse(completion);
+
+    expect(result.reflection).toBe('The previous output shows the config is missing.');
+    expect(result.toolCalls).toEqual([
+      { id: 'call-read', tool: 'read_file', args: { path: 'package.json' } },
+    ]);
+  });
+
   it('parses XML tool calls and extracts surrounding JSON reflection', () => {
     const completion: LLMResponse = {
       id: 'resp-2',
@@ -53,6 +84,28 @@ describe('ReactionParser', () => {
         id: expect.any(String),
         tool: 'write_file',
         args: { path: 'src/foo.ts', contents: 'ok' },
+      },
+    ]);
+  });
+
+  it('converts accidental XML reflection tool calls into reflection text', () => {
+    const completion: LLMResponse = {
+      id: 'resp-reflection-xml-tool',
+      created: 5,
+      content:
+        '<tool_call>{"name":"reflection","arguments":{"content":"The search result points to ReactLoopRunner."}}</tool_call>' +
+        '<tool_call>{"name":"read_file","arguments":{"path":"src/core/agent/ReactLoopRunner.ts"}}</tool_call>',
+      raw: {},
+    };
+
+    const result = parser.parseAssistantResponse(completion);
+
+    expect(result.reflection).toBe('The search result points to ReactLoopRunner.');
+    expect(result.toolCalls).toEqual([
+      {
+        id: expect.any(String),
+        tool: 'read_file',
+        args: { path: 'src/core/agent/ReactLoopRunner.ts' },
       },
     ]);
   });
@@ -91,6 +144,32 @@ describe('ReactionParser', () => {
         id: expect.any(String),
         tool: 'read_file',
         args: { thought: 'Need to inspect', path: 'src/index.ts' },
+      },
+    ]);
+  });
+
+  it('converts accidental JSON reflection tool calls into reflection text', () => {
+    const result = parser.parseAssistantReactPayload(
+      JSON.stringify({
+        thought: 'Need to continue after seeing the tool result',
+        toolCalls: [
+          {
+            tool: 'reflection',
+            args: { text: 'The failing command shows the missing export.' },
+          },
+          {
+            tool: 'tools_registry',
+          },
+        ],
+      }),
+    );
+
+    expect(result.reflection).toBe('The failing command shows the missing export.');
+    expect(result.toolCalls).toEqual([
+      {
+        id: expect.any(String),
+        tool: 'tools_registry',
+        args: undefined,
       },
     ]);
   });

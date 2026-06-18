@@ -17,6 +17,8 @@ interface ReactionParserOptions {
 }
 
 type ParsedRecord = Record<string, unknown>;
+const REFLECTION_TOOL_NAME = 'reflection';
+const REFLECTION_ARG_FIELDS = ['reflection', 'content', 'text', 'message', 'summary'] as const;
 
 function isRecord(value: unknown): value is ParsedRecord {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -59,12 +61,11 @@ export class ReactionParser {
 
       return {
         thought,
-        reflection,
-        toolCalls: completion.toolCalls.map((toolCall) => ({
+        ...this.normalizeReflectionToolCalls(completion.toolCalls.map((toolCall) => ({
           id: toolCall.id,
           tool: toolCall.function.name as AgentAction['type'],
           args: this.safeParseToolArgs(toolCall.function.arguments),
-        })),
+        })), reflection),
       };
     }
 
@@ -74,9 +75,11 @@ export class ReactionParser {
         .replace(/\[TOOL_CALL\][\s\S]*?\[\/TOOL_CALL\]/gi, '')
         .trim();
 
+      const normalized = this.normalizeReflectionToolCalls(legacyToolCalls);
       return {
         thought: textOutside || undefined,
-        toolCalls: legacyToolCalls,
+        reflection: normalized.reflection,
+        toolCalls: normalized.toolCalls,
       };
     }
 
@@ -96,10 +99,11 @@ export class ReactionParser {
         }
       }
 
+      const normalized = this.normalizeReflectionToolCalls(xmlToolCalls, reflection);
       return {
         thought: textOutside || undefined,
-        reflection,
-        toolCalls: xmlToolCalls,
+        reflection: normalized.reflection,
+        toolCalls: normalized.toolCalls,
       };
     }
 
@@ -331,10 +335,14 @@ export class ReactionParser {
         if (inlineToolCall && !toolCalls.length) {
           toolCalls.push(inlineToolCall);
         }
+        const normalized = this.normalizeReflectionToolCalls(
+          toolCalls,
+          typeof parsed.reflection === 'string' ? parsed.reflection : undefined
+        );
         return {
           thought: typeof parsed.thought === 'string' ? parsed.thought : undefined,
-          reflection: typeof parsed.reflection === 'string' ? parsed.reflection : undefined,
-          toolCalls,
+          reflection: normalized.reflection,
+          toolCalls: normalized.toolCalls,
           finalResponse:
             (typeof parsed.finalResponse === 'string' ? parsed.finalResponse : undefined) ??
             (typeof parsed.response === 'string' ? parsed.response : undefined),
@@ -344,10 +352,14 @@ export class ReactionParser {
 
       const singleToolCall = this.extractSingleToolCall(parsed);
       if (singleToolCall) {
+        const normalized = this.normalizeReflectionToolCalls(
+          [singleToolCall],
+          typeof parsed.reflection === 'string' ? parsed.reflection : undefined
+        );
         return {
           thought: typeof parsed.thought === 'string' ? parsed.thought : undefined,
-          reflection: typeof parsed.reflection === 'string' ? parsed.reflection : undefined,
-          toolCalls: [singleToolCall],
+          reflection: normalized.reflection,
+          toolCalls: normalized.toolCalls,
         };
       }
 
@@ -417,6 +429,43 @@ export class ReactionParser {
     return value
       .map((entry) => this.toToolCall(entry))
       .filter((call): call is ToolCallRequest => Boolean(call));
+  }
+
+  normalizeReflectionToolCalls(
+    toolCalls: ToolCallRequest[],
+    existingReflection?: string
+  ): { reflection?: string; toolCalls: ToolCallRequest[] } {
+    let reflection = existingReflection?.trim() || undefined;
+    const executableToolCalls: ToolCallRequest[] = [];
+
+    for (const toolCall of toolCalls) {
+      if (String(toolCall.tool) !== REFLECTION_TOOL_NAME) {
+        executableToolCalls.push(toolCall);
+        continue;
+      }
+
+      reflection ??= this.extractReflectionToolText(toolCall.args);
+    }
+
+    return {
+      reflection,
+      toolCalls: executableToolCalls,
+    };
+  }
+
+  private extractReflectionToolText(args: ToolCallRequest['args']): string | undefined {
+    if (!isRecord(args)) {
+      return undefined;
+    }
+
+    for (const field of REFLECTION_ARG_FIELDS) {
+      const value = args[field];
+      if (typeof value === 'string' && value.trim()) {
+        return value.trim();
+      }
+    }
+
+    return undefined;
   }
 
   toToolCall(entry: unknown): ToolCallRequest | null {
