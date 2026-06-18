@@ -2146,7 +2146,6 @@ interface InputLineWrapperProps {
   placeholderText?: string;
   nextPromptSuggestion?: string;
   inlineGhostSuffix?: string;
-  cursorSyncKey?: string;
   enableHardwareCursor?: boolean;
 }
 
@@ -2160,7 +2159,6 @@ const InputLineWrapper = memo(function InputLineWrapper({
   placeholderText,
   nextPromptSuggestion,
   inlineGhostSuffix,
-  cursorSyncKey,
   enableHardwareCursor,
 }: InputLineWrapperProps) {
   if (!enableQueueInput) {
@@ -2177,7 +2175,6 @@ const InputLineWrapper = memo(function InputLineWrapper({
       placeholderText={placeholderText}
       nextPromptSuggestion={nextPromptSuggestion}
       inlineGhostSuffix={inlineGhostSuffix}
-      cursorSyncKey={cursorSyncKey}
       enableHardwareCursor={enableHardwareCursor}
     />
   );
@@ -2191,7 +2188,6 @@ const InputLineWrapper = memo(function InputLineWrapper({
          prev.placeholderText === next.placeholderText &&
          prev.nextPromptSuggestion === next.nextPromptSuggestion &&
          prev.inlineGhostSuffix === next.inlineGhostSuffix &&
-         prev.cursorSyncKey === next.cursorSyncKey &&
          prev.enableHardwareCursor === next.enableHardwareCursor;
 });
 
@@ -2361,7 +2357,6 @@ interface FixedBottomProps {
   placeholderText?: string;
   nextPromptSuggestion?: string;
   inlineGhostSuffix?: string;
-  cursorSyncKey?: string;
   /** Whether the shortcuts help panel is visible */
   showShortcuts: boolean;
 }
@@ -2394,16 +2389,6 @@ const FixedBottom = memo(function FixedBottom({
   inlineGhostSuffix,
   showShortcuts,
 }: FixedBottomProps) {
-  const cursorSyncKey = [
-    isWorking ? 'working' : 'idle',
-    status,
-    elapsed,
-    tokens,
-    completionStats?.elapsed ?? '',
-    completionStats?.tokens ?? '',
-    queuedInstructions.length,
-  ].join('\u001f');
-
   return (
     <>
       <StatusSection
@@ -2430,7 +2415,6 @@ const FixedBottom = memo(function FixedBottom({
         placeholderText={placeholderText}
         nextPromptSuggestion={nextPromptSuggestion}
         inlineGhostSuffix={inlineGhostSuffix}
-        cursorSyncKey={cursorSyncKey}
         enableHardwareCursor={!isWorking || input.length > 0}
       />
       <FileMentionWrapper fileMentionDropdown={fileMentionDropdown} />

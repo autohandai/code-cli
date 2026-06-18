@@ -176,25 +176,21 @@ describe('InputLine themed variants', () => {
     expect(source).toContain("theme.fgBg('userMessageText', 'userMessageBg', line)");
   });
 
-  it('does not import unavailable Ink cursor APIs or render a cursor glyph', () => {
-    // Ink 7.0.5 does not export useCursor. Keep the composer on supported Ink
-    // primitives and avoid local absolute cursor writes, which desync frame
-    // erasure when terminal output scrolls.
+  it('uses Ink cursor APIs instead of raw composer cursor writes or glyphs', () => {
     const source = readFileSync(
       path.resolve(process.cwd(), 'src/ui/ink/InputLine.tsx'),
       'utf8'
     );
 
-    expect(source).toContain("import { Box, Text } from 'ink'");
-    expect(source).not.toContain('useCursor');
-    expect(source).not.toContain('setCursorPosition');
-    expect(source).toContain('writeComposerCursorPosition');
-    expect(source).toContain('\\x1b[${terminalColumn}G\\x1b[?25h');
-    // No local useCursor reimplementation.
+    expect(source).toContain('useCursor');
+    expect(source).toContain('useBoxMetrics');
+    expect(source).toContain('setCursorPosition');
     expect(source).not.toMatch(/function\s+useCursor\s*\(/);
-    // No row/column absolute cursor writes — these are what caused the duplicate.
+    expect(source).not.toContain('writeComposerCursorPosition');
+    expect(source).not.toContain('restoreActiveComposerCursorBaseline');
+    expect(source).not.toContain('process.stdout.write');
+    expect(source).not.toContain('\\x1b[${terminalColumn}G\\x1b[?25h');
     expect(source).not.toMatch(/\\x1b\[\$\{[^}]+\};\$\{[^}]+\}H/);
-    // Rendered cursor variants should also not be present (Ink owns the cursor).
     expect(source).not.toContain('renderHardwareCursorFallback');
     expect(source).not.toContain('█');
     expect(source).not.toContain('<Text inverse>');
@@ -211,84 +207,6 @@ describe('InputLine themed variants', () => {
     expect(output).toContain('─');
     expect(output).toContain('test');
     expect(output).not.toContain('│');
-  });
-
-  it('moves the hardware cursor back to the active composer cell after render', async () => {
-    const originalIsTTY = process.stdout.isTTY;
-    const writes: string[] = [];
-
-    Object.defineProperty(process.stdout, 'isTTY', {
-      value: true,
-      writable: true,
-      configurable: true,
-    });
-
-    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => {
-      writes.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
-      return true;
-    }) as typeof process.stdout.write);
-
-    try {
-      render(
-        <ThemeProvider>
-          <InputLine value="abc" cursorOffset={3} isActive width={40} />
-        </ThemeProvider>
-      );
-      await new Promise((resolve) => setImmediate(resolve));
-    } finally {
-      writeSpy.mockRestore();
-      Object.defineProperty(process.stdout, 'isTTY', {
-        value: originalIsTTY,
-        writable: true,
-        configurable: true,
-      });
-    }
-
-    expect(writes).toContain('\x1b[4A\x1b[6G\x1b[?25h');
-  });
-
-  it('restores the hardware cursor baseline before synchronized status repaints', async () => {
-    const originalIsTTY = process.stdout.isTTY;
-    const writes: string[] = [];
-
-    Object.defineProperty(process.stdout, 'isTTY', {
-      value: true,
-      writable: true,
-      configurable: true,
-    });
-
-    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => {
-      writes.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
-      return true;
-    }) as typeof process.stdout.write);
-
-    try {
-      const { rerender } = render(
-        <ThemeProvider>
-          <InputLine value="abc" cursorOffset={3} isActive width={40} cursorSyncKey="status:0" />
-        </ThemeProvider>
-      );
-      await new Promise((resolve) => setImmediate(resolve));
-
-      rerender(
-        <ThemeProvider>
-          <InputLine value="abc" cursorOffset={3} isActive width={40} cursorSyncKey="status:1" />
-        </ThemeProvider>
-      );
-      await new Promise((resolve) => setImmediate(resolve));
-    } finally {
-      writeSpy.mockRestore();
-      Object.defineProperty(process.stdout, 'isTTY', {
-        value: originalIsTTY,
-        writable: true,
-        configurable: true,
-      });
-    }
-
-    expect(writes).toEqual(expect.arrayContaining([
-      '\x1b[4A\x1b[6G\x1b[?25h',
-      '\x1b[4B',
-    ]));
   });
 
   it('does not move the hardware cursor when cursor placement is disabled', async () => {

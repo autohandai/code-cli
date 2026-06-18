@@ -19,7 +19,6 @@ import {
   type AgentUIState,
   type ContextTokenDisplay,
 } from './AgentUI.js';
-import { restoreActiveComposerCursorBaseline } from './InputLine.js';
 import type { LiveCommandEntry, ToolOutputEntry, ToolOutputBatchEntry, ToolOutputItem, BatchToolItem } from './ToolOutput.js';
 import type { SlashCommand } from '../../core/slashCommandTypes.js';
 import type { SkillMentionInfo } from '../mentionFilter.js';
@@ -370,7 +369,6 @@ export class InkRenderer {
    * This is much more efficient than calling instance.rerender()
    */
   private updateState(partial: Partial<AgentUIState>): void {
-    restoreActiveComposerCursorBaseline();
     this.state = { ...this.state, ...partial };
 
     // Use React state update if wrapper is mounted
@@ -457,7 +455,6 @@ export class InkRenderer {
     }
 
     if (!isWorking) {
-      restoreActiveComposerCursorBaseline();
       if (process.stdout.isTTY === true) {
         process.stdout.write('\x1b[J');
       }
