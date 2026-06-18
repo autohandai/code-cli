@@ -249,6 +249,8 @@ export interface AgentSettings {
   parallelToolConcurrency?: number;
   /** Cache local tool schema selection for equivalent turns (default: true) */
   toolSelectionCache?: boolean;
+  /** Extract and save durable memories after successful interactive turns (default: true) */
+  autoMemory?: boolean;
 }
 
 export interface TelemetrySettings {

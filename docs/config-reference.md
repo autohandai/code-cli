@@ -644,6 +644,7 @@ Control agent behavior and iteration limits.
     "maxIterations": 100,
     "enableRequestQueue": true,
     "toolSelectionCache": true,
+    "autoMemory": true,
     "idleLogoutEnabled": true,
     "debug": false
   }
@@ -655,6 +656,7 @@ Control agent behavior and iteration limits.
 | `maxIterations`      | number  | `100`   | Maximum tool iterations per user request before stopping                       |
 | `enableRequestQueue` | boolean | `true`  | Allow users to type and queue requests while agent is working                  |
 | `toolSelectionCache` | boolean | `true`  | Cache local per-turn tool schema selection for equivalent tool-selection input |
+| `autoMemory`         | boolean | `true`  | Extract and save durable user/project memories after successful interactive turns |
 | `idleLogoutEnabled`  | boolean | `true`  | Log out authenticated interactive sessions after the idle timeout              |
 | `debug`              | boolean | `false` | Enable verbose debug output (logs agent internal state to stderr)              |
 
