@@ -3,6 +3,26 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('README branding', () => {
+  const supportedDocsLinks = [
+    '[English](https://docs.autohand.ai/en)',
+    '[日本語](https://docs.autohand.ai/ja)',
+    '[简体中文](https://docs.autohand.ai/zh-cn)',
+    '[繁體中文](https://docs.autohand.ai/zh-tw)',
+    '[한국어](https://docs.autohand.ai/ko)',
+    '[Deutsch](https://docs.autohand.ai/de)',
+    '[Español](https://docs.autohand.ai/es)',
+    '[Français](https://docs.autohand.ai/fr)',
+    '[Italiano](https://docs.autohand.ai/it)',
+    '[Polski](https://docs.autohand.ai/pl)',
+    '[Русский](https://docs.autohand.ai/ru)',
+    '[Português (Brasil)](https://docs.autohand.ai/pt-br)',
+    '[Türkçe](https://docs.autohand.ai/tr)',
+    '[Čeština](https://docs.autohand.ai/cs)',
+    '[Magyar](https://docs.autohand.ai/hu)',
+    '[हिन्दी](https://docs.autohand.ai/hi)',
+    '[Bahasa Indonesia](https://docs.autohand.ai/id)',
+  ];
+
   it('uses Autohand Code CLI in public-facing README and package description copy', async () => {
     const root = process.cwd();
     const readme = await readFile(join(root, 'README.md'), 'utf8');
@@ -35,6 +55,24 @@ describe('README branding', () => {
 
     expect(readme).toContain('[Bahasa Indonesia](docs/config-reference_id.md)');
     expect(indonesianConfigReference).toContain('# Referensi Konfigurasi Autohand');
+  });
+
+  it('uses the current community links', async () => {
+    const readme = await readFile(join(process.cwd(), 'README.md'), 'utf8');
+
+    expect(readme).toContain('[Follow us on X](https://x.com/autohandai)');
+    expect(readme).toContain('[Join Discord](https://discord.gg/ZM3TCtwCwG)');
+    expect(readme).toContain('https://discord.gg/ZM3TCtwCwG');
+    expect(readme).not.toContain('https://discord.com/invite/MWTNudaj8E');
+    expect(readme).not.toContain('https://twitter.com/autohandai');
+  });
+
+  it('links supported README languages to localized docs', async () => {
+    const readme = await readFile(join(process.cwd(), 'README.md'), 'utf8');
+
+    for (const docsLink of supportedDocsLinks) {
+      expect(readme).toContain(docsLink);
+    }
   });
 
   it('invites developers to use the CLI-backed Code Agent SDK packages', async () => {

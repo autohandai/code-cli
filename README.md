@@ -1,7 +1,11 @@
 # Autohand Code CLI
 
 [![Bun](https://img.shields.io/badge/Bun-%23c61f33?style=flat&logo=bun&logoColor=white)](https://bun.sh)
-[![Discord](https://img.shields.io/badge/Discord-Join%20Us-%235865F2?style=flat&logo=discord&logoColor=white)](https://discord.com/invite/MWTNudaj8E)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Us-%235865F2?style=flat&logo=discord&logoColor=white)](https://discord.gg/ZM3TCtwCwG)
+
+[Follow us on X](https://x.com/autohandai) | [Join Discord](https://discord.gg/ZM3TCtwCwG)
+
+Docs: [English](https://docs.autohand.ai/en) | [日本語](https://docs.autohand.ai/ja) | [简体中文](https://docs.autohand.ai/zh-cn) | [繁體中文](https://docs.autohand.ai/zh-tw) | [한국어](https://docs.autohand.ai/ko) | [Deutsch](https://docs.autohand.ai/de) | [Español](https://docs.autohand.ai/es) | [Français](https://docs.autohand.ai/fr) | [Italiano](https://docs.autohand.ai/it) | [Polski](https://docs.autohand.ai/pl) | [Русский](https://docs.autohand.ai/ru) | [Português (Brasil)](https://docs.autohand.ai/pt-br) | [Türkçe](https://docs.autohand.ai/tr) | [Čeština](https://docs.autohand.ai/cs) | [Magyar](https://docs.autohand.ai/hu) | [हिन्दी](https://docs.autohand.ai/hi) | [Bahasa Indonesia](https://docs.autohand.ai/id)
 
 **A fast, terminal-native AI coding agent for planning, editing, testing, and automating work across your codebase.**
 
@@ -519,16 +523,16 @@ We welcome contributions! Please read our [Contributing Guide](CONTRIBUTING.md) 
 
 ### Getting Help
 
-- Join our [Discord community](https://discord.com/invite/MWTNudaj8E)
+- Join our [Discord community](https://discord.gg/ZM3TCtwCwG)
 - Check the [documentation](docs/)
 - Open an issue on [GitHub](https://github.com/autohandai/cli/issues)
 
 ## Community
 
-- **Discord**: https://discord.com/invite/MWTNudaj8E
+- **Discord**: https://discord.gg/ZM3TCtwCwG
 - **GitHub**: https://github.com/autohandai/cli
 - **Website**: https://autohand.ai
-- **Twitter**: [@autohandai](https://twitter.com/autohandai)
+- **X**: [@autohandai](https://x.com/autohandai)
 
 ## Security
 
@@ -549,7 +553,7 @@ Apache License 2.0 - Free for individuals, non-profits, educational institutions
 - CLI Install: https://autohand.ai/cli/
 - GitHub: https://github.com/autohandai/cli
 - API Backend: https://github.com/autohandai/api
-- Discord: https://discord.com/invite/MWTNudaj8E
+- Discord: https://discord.gg/ZM3TCtwCwG
 
 ## Roadmap
 
