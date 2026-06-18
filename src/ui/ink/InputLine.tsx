@@ -27,15 +27,27 @@ function writeComposerCursorPosition(
   const rowsAfterCursor = Math.max(0, lineCount - 1 - cursorRow + 4);
   const rowMove = rowsAfterCursor > 0 ? `\x1b[${rowsAfterCursor}A` : '';
   process.stdout.write(`${rowMove}\x1b[${terminalColumn}G\x1b[?25h`);
+  activeComposerRowsAfterCursor = rowsAfterCursor;
   return rowsAfterCursor;
 }
 
-function restoreComposerCursorBaseline(rowsAfterCursor: number): void {
-  if (process.stdout.isTTY !== true || rowsAfterCursor <= 0) {
+let activeComposerRowsAfterCursor = 0;
+
+export function restoreActiveComposerCursorBaseline(): void {
+  if (process.stdout.isTTY !== true || activeComposerRowsAfterCursor <= 0) {
     return;
   }
 
-  process.stdout.write(`\x1b[${rowsAfterCursor}B`);
+  process.stdout.write(`\x1b[${activeComposerRowsAfterCursor}B`);
+  activeComposerRowsAfterCursor = 0;
+}
+
+function restoreComposerCursorBaseline(rowsAfterCursor: number): void {
+  if (activeComposerRowsAfterCursor !== rowsAfterCursor) {
+    return;
+  }
+
+  restoreActiveComposerCursorBaseline();
 }
 
 export interface InputLineProps {
@@ -52,6 +64,10 @@ export interface InputLineProps {
   nextPromptSuggestion?: string;
   /** Inline completion suffix shown after the current input. */
   inlineGhostSuffix?: string;
+  /** Forces hardware cursor baseline restoration before adjacent UI rows repaint. */
+  cursorSyncKey?: string;
+  /** Whether the terminal hardware cursor should be moved into the composer. */
+  enableHardwareCursor?: boolean;
 }
 
 export function resolveInputLineCursorPosition(
@@ -78,11 +94,13 @@ function InputLineComponent({
   placeholderText,
   nextPromptSuggestion,
   inlineGhostSuffix,
+  cursorSyncKey,
+  enableHardwareCursor = true,
 }: InputLineProps) {
   const { theme } = useTheme();
 
   useEffect(() => {
-    if (!isActive || process.stdout.isTTY !== true) {
+    if (!isActive || process.stdout.isTTY !== true || !enableHardwareCursor) {
       return undefined;
     }
 
@@ -123,7 +141,8 @@ function InputLineComponent({
   }, [value, cursorOffset, width, borderStyle, placeholderText, nextPromptSuggestion, inlineGhostSuffix]);
 
   useLayoutEffect(() => {
-    if (!isActive) {
+    if (!isActive || !enableHardwareCursor) {
+      restoreActiveComposerCursorBaseline();
       return undefined;
     }
 
@@ -136,7 +155,7 @@ function InputLineComponent({
     return () => {
       restoreComposerCursorBaseline(rowsAfterCursor);
     };
-  }, [isActive, displayData.cursorColumn, displayData.cursorRow, displayData.plainLines.length]);
+  }, [isActive, enableHardwareCursor, displayData.cursorColumn, displayData.cursorRow, displayData.plainLines.length, cursorSyncKey]);
 
   const renderContentLine = (line: string, index: number) => {
     return (

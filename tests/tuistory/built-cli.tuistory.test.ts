@@ -16,6 +16,7 @@ import {
   clearComposerInput,
   createMockAuthServer,
   createMockOllamaServer,
+  createMockOpenRouterServer,
   createTempAutohandHome,
   dismissAutocompleteMenu,
   exitInteractive,
@@ -25,6 +26,7 @@ import {
   type CreateTempAutohandHomeOptions,
   type MockAuthServer,
   type MockOllamaServer,
+  type MockOpenRouterServer,
   type TuistoryTempState,
 } from './helpers/autohandTuistory.js';
 
@@ -32,6 +34,7 @@ const sessions: Session[] = [];
 const tempStates: TuistoryTempState[] = [];
 const mockAuthServers: MockAuthServer[] = [];
 const mockServers: MockOllamaServer[] = [];
+const mockOpenRouterServers: MockOpenRouterServer[] = [];
 const CURSOR_CHAR = '█';
 
 async function trackSession(sessionPromise: Promise<Session>): Promise<Session> {
@@ -86,6 +89,10 @@ function composerLineIncludes(screen: string, text: string): boolean {
   return screen.split('\n').some((line) => line.includes('❯') && line.includes(text));
 }
 
+function linesContaining(screen: string, text: string): string[] {
+  return screen.split('\n').filter((line) => line.includes(text));
+}
+
 afterEach(async () => {
   for (const session of sessions.splice(0)) {
     session.close();
@@ -94,6 +101,9 @@ afterEach(async () => {
     await server.close();
   }
   for (const server of mockAuthServers.splice(0)) {
+    await server.close();
+  }
+  for (const server of mockOpenRouterServers.splice(0)) {
     await server.close();
   }
   for (const state of tempStates.splice(0)) {
@@ -382,6 +392,75 @@ describe('interactive built CLI Tuistory tests', () => {
 
     await exitInteractive(session);
   });
+
+  it('keeps only one live composer and help block after an interactive command returns', async () => {
+    const session = await launchInteractive({
+      config: {
+        ui: {
+          promptSuggestions: false,
+        },
+      },
+    });
+
+    await waitForComposer(session);
+    await session.type('/help');
+    await session.press('enter');
+    await session.waitForText(/Available|commands/i, { timeout: 10_000 });
+
+    const screen = await session.text({
+      timeout: 10_000,
+      waitFor: (text) => (
+        text.includes('❯') &&
+        text.includes('autohand (') &&
+        !text.includes('Wandering')
+      ),
+      trimEnd: true,
+    });
+
+    expect(linesContaining(screen, '❯'), screen).toHaveLength(1);
+    expect(linesContaining(screen, 'autohand ('), screen).toHaveLength(1);
+    expect(screen).not.toContain('Wandering');
+
+    await exitInteractive(session);
+  });
+
+  it('keeps only one live composer and help block after an agent turn returns', async () => {
+    const openRouterServer = await createMockOpenRouterServer(
+      'Here is the mocked final answer from Tuistory.',
+      1_300,
+    );
+    mockOpenRouterServers.push(openRouterServer);
+    const session = await launchInteractive({
+      config: {
+        openrouter: {
+          baseUrl: openRouterServer.baseUrl,
+        },
+      },
+    });
+
+    await waitForComposer(session);
+    await session.type('give me the mocked answer');
+    await session.press('enter');
+    await session.waitForText('...', { timeout: 5_000 });
+    await session.waitForText('Here is the mocked final answer from Tuistory.', { timeout: 15_000 });
+
+    const screen = await session.text({
+      timeout: 10_000,
+      waitFor: (text) => (
+        text.includes('❯') &&
+        text.includes('autohand (') &&
+        text.includes('Here is the mocked final answer from Tuistory.') &&
+        !text.includes('Wandering')
+      ),
+      trimEnd: true,
+    });
+
+    expect(linesContaining(screen, '❯'), screen).toHaveLength(1);
+    expect(linesContaining(screen, 'autohand ('), screen).toHaveLength(1);
+    expect(screen).not.toContain('Wandering');
+
+    await exitInteractive(session);
+  }, 60_000);
 
   it('runs the usage_v2 dashboard from the interactive TUI', async () => {
     const session = await launchInteractive({
