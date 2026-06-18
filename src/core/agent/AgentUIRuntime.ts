@@ -379,9 +379,25 @@ export function notifyAgentUser(host: AgentUIRuntimeHost, message: string): void
   }
 
 export async function showAgentFeedbackWithPause(host: AgentUIRuntimeHost, trigger: string, sessionId?: string): Promise<void> {
-    const needsPause = host.persistentInputActiveTurn;
+    const inkQueueCount = typeof host.inkRenderer?.getQueueCount === 'function'
+      ? host.inkRenderer.getQueueCount()
+      : 0;
+    if (inkQueueCount > 0) {
+      return;
+    }
 
-    if (needsPause) {
+    const needsPersistentPause = host.persistentInputActiveTurn;
+    const needsInkPause = typeof host.inkRenderer?.isRunning === 'function'
+      ? host.inkRenderer.isRunning()
+      : Boolean(host.inkRenderer);
+
+    if (needsInkPause) {
+      host.modalActive = true;
+      host.inkRenderer.pause();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+
+    if (needsPersistentPause) {
       host.persistentInput.pause();
     }
 
@@ -394,8 +410,12 @@ export async function showAgentFeedbackWithPause(host: AgentUIRuntimeHost, trigg
     } catch {
       // Feedback should never crash the session
     } finally {
-      if (needsPause) {
+      if (needsPersistentPause) {
         host.persistentInput.resume();
+      }
+      if (needsInkPause) {
+        host.modalActive = false;
+        await host.inkRenderer.resume();
       }
     }
   }
