@@ -152,6 +152,7 @@ Active LLM provider to use.
 | `"mlx"`        | MLX on Apple Silicon (local) |
 | `"llmgateway"` | LLM Gateway unified API      |
 | `"deepseek"`   | DeepSeek API                 |
+| `"zai"`        | Z.ai GLM API                 |
 | `"bedrock"`    | AWS Bedrock                  |
 
 ### `openrouter`
@@ -175,6 +176,28 @@ OpenRouter provider configuration.
 | `baseUrl`       | string | No       | `https://openrouter.ai/api/v1` | API endpoint                                                                |
 | `model`         | string | Yes      | -                              | Model identifier (e.g., `your-modelcard-id-here`)                           |
 | `contextWindow` | number | No       | Auto                           | Exact model context window. Autohand fills this from OpenRouter when known. |
+
+### `zai`
+
+Z.ai provider configuration.
+
+```json
+{
+  "zai": {
+    "apiKey": "your-zai-api-key",
+    "baseUrl": "https://api.z.ai/api/paas/v4",
+    "model": "glm-5.2",
+    "contextWindow": 1000000
+  }
+}
+```
+
+| Field           | Type   | Required | Default                        | Description                                                                      |
+| --------------- | ------ | -------- | ------------------------------ | -------------------------------------------------------------------------------- |
+| `apiKey`        | string | Yes      | -                              | Your Z.ai API key                                                                |
+| `baseUrl`       | string | No       | `https://api.z.ai/api/paas/v4` | API endpoint                                                                     |
+| `model`         | string | Yes      | `glm-5.2`                     | Model identifier, for example `glm-5.2`, `glm-5.1`, or `glm-4.5`                 |
+| `contextWindow` | number | No       | Auto                           | Exact model context window. Autohand infers 1M for GLM-5.2 and 200K for GLM-5.1. |
 
 ### `ollama`
 

@@ -46,7 +46,13 @@ function parseContextWindowOverride(value?: number): number | undefined {
 }
 
 function normalizeModelId(model: string): string {
-  return model.trim().toLowerCase().replace(/^openai\//, '').replace(/^google\//, '').replace(/^deepseek\//, '');
+  return model
+    .trim()
+    .toLowerCase()
+    .replace(/^openai\//, '')
+    .replace(/^google\//, '')
+    .replace(/^deepseek\//, '')
+    .replace(/^zai\//, '');
 }
 
 function inferContextWindow(model: string): number | undefined {
@@ -73,6 +79,8 @@ function inferContextWindow(model: string): number | undefined {
   }
 
   if (normalized.startsWith('deepseek-v4')) return 1_000_000;
+  if (normalized.startsWith('glm-5.2')) return 1_000_000;
+  if (normalized.startsWith('glm-5.1')) return 200_000;
 
   return undefined;
 }

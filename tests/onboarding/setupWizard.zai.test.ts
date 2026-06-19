@@ -120,7 +120,7 @@ describe("SetupWizard Z.ai onboarding", () => {
     mockShowModal
       .mockResolvedValueOnce({ value: "en" })
       .mockResolvedValueOnce({ value: "zai" })
-      .mockResolvedValueOnce({ value: "glm-4.5-air-2504" })
+      .mockResolvedValueOnce({ value: "glm-5.2" })
       .mockResolvedValueOnce({ value: "interactive" });
 
     mockShowPassword.mockResolvedValueOnce("zai-test-key-long-enough");
@@ -142,9 +142,15 @@ describe("SetupWizard Z.ai onboarding", () => {
     expect(result.config.provider).toBe("zai");
     expect(result.config.zai).toEqual({
       apiKey: "zai-test-key-long-enough",
-      model: "glm-4.5-air-2504",
+      model: "glm-5.2",
       baseUrl: "https://api.z.ai/api/paas/v4",
     });
+    const modelModalOptions = mockShowModal.mock.calls[2][0].options;
+    expect(modelModalOptions.slice(0, 2)).toEqual([
+      { label: "glm-5.2", value: "glm-5.2" },
+      { label: "glm-5.1", value: "glm-5.1" },
+    ]);
+    expect(mockShowModal.mock.calls[2][0].initialIndex).toBe(0);
     expect(mockShowInput).not.toHaveBeenCalled();
     expect(mockFetch).toHaveBeenCalledWith(
       "https://api.z.ai/api/paas/v4/models",

@@ -2057,7 +2057,7 @@ export class SetupWizard {
       mlx: 'mlx-community/Llama-3.2-3B-Instruct-4bit',
       llmgateway: 'gpt-4o',
       azure: 'gpt-5.3-codex',
-      zai: 'glm-4.5',
+      zai: 'glm-5.2',
       vertexai: 'zai-org/glm-5-maas',
       xai: 'grok-4.20-reasoning',
       cerebras: 'zai-glm-4.7',

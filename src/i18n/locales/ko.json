@@ -526,7 +526,7 @@
       "mlx": "로컬 - Apple Silicon 최적화",
       "llmgateway": "클라우드 - 여러 LLM 제공자를 위한 통합 API",
       "azure": "클라우드 - Azure OpenAI Service (엔터프라이즈)",
-      "zai": "클라우드 - Z.ai GLM models (glm-4.5, cogview, etc.)",
+      "zai": "클라우드 - Z.ai GLM models (glm-5.2, glm-5.1, GLM-4.5, CogView)",
       "vertexai": "클라우드 - Google Cloud Vertex AI (Gemini, Claude, GLM)",
       "xai": "클라우드 - xAI Grok models with web search, X search, and code execution",
       "cerebras": "Cloud - Cerebras AI with GLM and Qwen models",

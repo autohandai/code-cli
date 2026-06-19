@@ -526,7 +526,7 @@
       "mlx": "本地 - 針對 Apple Silicon Mac 優化",
       "llmgateway": "雲端 - 多個 LLM 提供者的統一 API",
       "azure": "雲端 - Azure OpenAI 服務（企業）",
-      "zai": "雲端 - Z.ai GLM models (glm-4.5, cogview, etc.)",
+      "zai": "雲端 - Z.ai GLM models (glm-5.2, glm-5.1, GLM-4.5, CogView)",
       "vertexai": "雲端 - Google Cloud Vertex AI (Gemini, Claude, GLM)",
       "xai": "雲端 - xAI Grok models with web search, X search, and code execution",
       "cerebras": "Cloud - Cerebras AI with GLM and Qwen models",

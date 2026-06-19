@@ -53,7 +53,7 @@ EOF
 | **LLM Gateway** | Cloud | Pay-per-use | Low     | Unified API for multiple providers              |
 | **DeepSeek**    | Cloud | Pay-per-use | Low     | DeepSeek V4 Flash and V4 Pro models             |
 | **AWS Bedrock** | Cloud | Pay-per-use | Low     | Enterprise AWS credential-chain and Bedrock APIs |
-| **Z.ai**        | Cloud | Pay-per-use | Low     | GLM-4.5 series models, CogView image generation |
+| **Z.ai**        | Cloud | Pay-per-use | Low     | GLM-5.2/5.1 long-context models, CogView image generation |
 | **Ollama**      | Local | Free        | Medium  | Privacy-focused, offline work                   |
 | **llama.cpp**   | Local | Free        | Low     | Performance-focused local inference             |
 | **MLX**         | Local | Free        | Low     | Apple Silicon optimized                         |
@@ -331,22 +331,26 @@ Z.ai (Zhipu AI) provides access to the GLM family of models and CogView for imag
   "provider": "zai",
   "zai": {
     "apiKey": "your-zai-api-key",
-    "model": "glm-4.5"
+    "model": "glm-5.2"
   }
 }
 ```
 
 **Popular Models:**
 
-| Model              | Description                          |
-| ------------------ | ------------------------------------ |
-| `glm-4.5`          | Flagship GLM model, strong reasoning |
-| `glm-4.5v`         | Vision-language model                |
-| `glm-4.5-air`      | Faster, lighter variant              |
-| `glm-4.5-prior`    | Priority access variant              |
-| `glm-4.5-flash`    | Low-latency model                    |
-| `glm-4.5-air-2504` | April 2025 Air variant               |
-| `cogview-4.5`      | Image generation model               |
+| Model              | Description                                                                     |
+| ------------------ | ------------------------------------------------------------------------------- |
+| `glm-5.2`          | Latest flagship GLM model for project-scale coding, 1M context, 128K max output |
+| `glm-5.1`          | Flagship long-horizon model, 200K context, 128K max output                      |
+| `glm-4.5`          | Previous-generation GLM model, strong reasoning                                 |
+| `glm-4.5v`         | Vision-language model                                                           |
+| `glm-4.5-air`      | Faster, lighter variant                                                         |
+| `glm-4.5-prior`    | Priority access variant                                                         |
+| `glm-4.5-flash`    | Low-latency model                                                               |
+| `glm-4.5-air-2504` | April 2025 Air variant                                                          |
+| `cogview-4.5`      | Image generation model                                                          |
+
+GLM-5.2 and GLM-5.1 both support thinking mode, streaming output, function calling, context caching, structured output, and MCP.
 
 **Example Usage:**
 
@@ -356,7 +360,7 @@ curl -X POST "https://api.z.ai/api/paas/v4/chat/completions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $ZAI_API_KEY" \
   -d '{
-    "model": "glm-4.5",
+    "model": "glm-5.2",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```

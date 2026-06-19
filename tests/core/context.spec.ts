@@ -57,6 +57,9 @@ describe('context/tokenizer', () => {
       expect(getContextWindow('gemini-3.1-flash-image-preview')).toBe(128_000);
       expect(getContextWindow('deepseek-v4-pro')).toBe(1_000_000);
       expect(getContextWindow('deepseek/deepseek-v4-flash')).toBe(1_000_000);
+      expect(getContextWindow('glm-5.2')).toBe(1_000_000);
+      expect(getContextWindow('zai/glm-5.2')).toBe(1_000_000);
+      expect(getContextWindow('glm-5.1')).toBe(200_000);
       expect(getContextWindow('tencent/hy3-preview:free')).toBe(262_144);
       expect(getContextWindow('tencent/hy3-preview-20260421:free')).toBe(262_144);
     });

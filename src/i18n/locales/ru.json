@@ -435,7 +435,7 @@
       "mlx": "Локально - Оптимизировано для Apple Silicon Mac",
       "llmgateway": "Облако - Единый API для нескольких LLM провайдеров",
       "azure": "Облако - Служба Azure OpenAI (предприятие)",
-      "zai": "Облако - Z.ai GLM models (glm-4.5, cogview, etc.)",
+      "zai": "Облако - Z.ai GLM models (glm-5.2, glm-5.1, GLM-4.5, CogView)",
       "vertexai": "Облако - Google Cloud Vertex AI (Gemini, Claude, GLM)",
       "xai": "Облако - xAI Grok models with web search, X search, and code execution",
       "cerebras": "Облако - Cerebras AI with GLM and Qwen models",

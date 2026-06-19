@@ -56,6 +56,9 @@ describe("ZaiProvider", () => {
 
     const models = await provider.listModels();
 
+    expect(models.slice(0, 2)).toEqual(["glm-5.2", "glm-5.1"]);
+    expect(models).toContain("glm-5.2");
+    expect(models).toContain("glm-5.1");
     expect(models).toContain("glm-4.5");
     expect(models).toContain("glm-4.5v");
     expect(models).toContain("glm-4.5-flash");

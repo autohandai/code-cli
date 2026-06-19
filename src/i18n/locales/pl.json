@@ -526,7 +526,7 @@
       "mlx": "Lokalnie - Zoptymalizowane dla procesorów Apple Silicon",
       "llmgateway": "Chmura - Ujednolicone API dla wielu dostawców LLM",
       "azure": "Chmura - Usługa Azure OpenAI (przedsiębiorstwa)",
-      "zai": "Chmura - Z.ai GLM models (glm-4.5, cogview, etc.)",
+      "zai": "Chmura - Z.ai GLM models (glm-5.2, glm-5.1, GLM-4.5, CogView)",
       "vertexai": "Chmura - Google Cloud Vertex AI (Gemini, Claude, GLM)",
       "xai": "Chmura - xAI Grok models with web search, X search, and code execution",
       "cerebras": "Cloud - Cerebras AI with GLM and Qwen models",
