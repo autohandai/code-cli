@@ -526,7 +526,7 @@
       "mlx": "Yerel - Apple Silicon için optimize edilmiş",
       "llmgateway": "Bulut - Çoklu LLM sağlayıcı için birleşik API",
       "azure": "Bulut - Azure OpenAI Service (enterprise)",
-      "zai": "Bulut - Z.ai GLM models (glm-4.5, cogview, etc.)",
+      "zai": "Bulut - Z.ai GLM models (glm-5.2, glm-5.1, GLM-4.5, CogView)",
       "vertexai": "Bulut - Google Cloud Vertex AI (Gemini, Claude, GLM)",
       "xai": "Bulut - xAI Grok models with web search, X search, and code execution",
       "cerebras": "Cloud - Cerebras AI with GLM and Qwen models",

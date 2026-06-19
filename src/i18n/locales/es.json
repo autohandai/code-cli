@@ -412,7 +412,7 @@
     "nvidia": "NVIDIA AI Cloud",
     "hints": {
       "openrouter": "Nube - Acceso a más de 100 modelos (Claude, GPT-4, etc.)",
-      "zai": "Nube - Modelos GLM de Z.ai (glm-4.5, cogview, etc.)",
+      "zai": "Nube - Modelos GLM de Z.ai (glm-5.2, glm-5.1, GLM-4.5, CogView)",
       "vertexai": "Nube - Google Cloud Vertex AI (Gemini, Claude, GLM)",
       "xai": "Nube - Modelos xAI Grok con búsqueda web, búsqueda X y ejecución de código",
       "cerebras": "Cloud - Cerebras AI with GLM and Qwen models",

@@ -752,7 +752,7 @@
       "mlx": "Local - Optimized for Apple Silicon Macs",
       "llmgateway": "Cloud - Unified API for multiple LLM providers",
       "azure": "Cloud - Azure OpenAI Service (enterprise)",
-      "zai": "Cloud - Z.ai GLM models (glm-4.5, cogview, etc.)",
+      "zai": "Cloud - Z.ai GLM models (glm-5.2, glm-5.1, GLM-4.5, CogView)",
       "vertexai": "Cloud - Google Cloud Vertex AI (Gemini, Claude, GLM models)",
       "xai": "Cloud - xAI Grok models with web search, X search, and code execution",
       "cerebras": "Cloud - Cerebras AI with GLM and Qwen models",

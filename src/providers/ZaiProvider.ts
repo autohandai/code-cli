@@ -10,6 +10,8 @@ import type { LLMRequest, LLMResponse, ZaiSettings, NetworkSettings } from '../t
 
 export const ZAI_DEFAULT_BASE_URL = 'https://api.z.ai/api/paas/v4';
 export const ZAI_MODELS = [
+  'glm-5.2',
+  'glm-5.1',
   'glm-4.5',
   'glm-4.5v',
   'glm-4.5-air',

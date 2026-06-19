@@ -183,15 +183,20 @@ describe("ProviderConfigManager openai auth mode", () => {
 
   it("configures Z.ai with Z.ai-specific models", async () => {
     mockShowPassword.mockResolvedValueOnce("zai-key-long-enough");
-    mockShowModal.mockResolvedValueOnce({ value: "glm-4.5-air-2504" });
+    mockShowModal.mockResolvedValueOnce({ value: "glm-5.2" });
 
     await (manager as any).configureZai();
 
     expect(runtime.config.zai).toEqual({
       apiKey: "zai-key-long-enough",
       baseUrl: "https://api.z.ai/api/paas/v4",
-      model: "glm-4.5-air-2504",
+      model: "glm-5.2",
     });
+    const modelModalOptions = mockShowModal.mock.calls[0][0].options;
+    expect(modelModalOptions.slice(0, 2)).toEqual([
+      { label: "glm-5.2", value: "glm-5.2" },
+      { label: "glm-5.1", value: "glm-5.1" },
+    ]);
     expect(runtime.config.provider).toBe("zai");
     expect(mockSaveConfig).toHaveBeenCalledOnce();
   });
