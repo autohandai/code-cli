@@ -1843,6 +1843,11 @@ export class AutohandAgent {
       return;
     }
 
+    if (this.inkRenderer?.isRunning?.()) {
+      this.inkRenderer.addNotification(message.trim());
+      return;
+    }
+
     if (
       this.persistentInputActiveTurn &&
       process.env.AUTOHAND_TERMINAL_REGIONS !== '0'

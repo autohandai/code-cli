@@ -413,11 +413,8 @@ describe('AgentUI composer suggestions', () => {
       status: 'Parsing...',
       elapsed: '0m 34s',
       tokens: '40.7k tokens',
-      chatMessages: [
-        {
-          role: 'notification' as const,
-          content: 'Session sync failed. Run /logout and /login if you continue to see this message.',
-        },
+      notifications: [
+        'Session sync failed. Run /logout and /login if you continue to see this message.',
       ],
     };
     const { lastFrame } = render(

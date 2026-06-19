@@ -139,7 +139,7 @@ describe('InkRenderer live command blocks', () => {
     ]);
   });
 
-  it('stores notifications as display events without changing active status', () => {
+  it('stores notifications outside chat history without changing active status', () => {
     const renderer = new InkRenderer({
       onInstruction: () => {},
       onEscape: () => {},
@@ -152,12 +152,10 @@ describe('InkRenderer live command blocks', () => {
     renderer.addNotification('Session sync failed. Run /logout and /login if you continue to see this message.');
 
     expect(renderer.getState().status).toBe('Parsing...');
-    expect(renderer.getState().chatMessages).toEqual([
-      {
-        role: 'notification',
-        content: 'Session sync failed. Run /logout and /login if you continue to see this message.',
-      },
+    expect(renderer.getState().notifications).toEqual([
+      'Session sync failed. Run /logout and /login if you continue to see this message.',
     ]);
+    expect(renderer.getState().chatMessages).toEqual([]);
   });
 
   it('tracks a running command and finalizes it into tool output', () => {
