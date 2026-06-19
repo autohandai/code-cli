@@ -439,7 +439,7 @@ export class ReactionParser {
     const executableToolCalls: ToolCallRequest[] = [];
 
     for (const toolCall of toolCalls) {
-      if (String(toolCall.tool) !== REFLECTION_TOOL_NAME) {
+      if (String(toolCall.tool).trim().toLowerCase() !== REFLECTION_TOOL_NAME) {
         executableToolCalls.push(toolCall);
         continue;
       }
