@@ -60,6 +60,8 @@ export interface AgentUIState {
   userMessages: string[];
   /** Completed user/assistant turns displayed in order. */
   chatMessages: ChatLogMessage[];
+  /** Background notices displayed outside transcript/static chat history. */
+  notifications: string[];
   /** Number of chat messages already committed to terminal scrollback by a previous Ink mount. */
   staticChatMessageOffset: number;
   currentInput: string;
@@ -1676,7 +1678,9 @@ export function AgentUI({
       ? state.chatMessages
       : state.userMessages.map((content): ChatLogMessage => ({ role: 'user', content }));
 
-    return sourceMessages.map((message, index) => ({ index, message }));
+    return sourceMessages
+      .filter((message) => message.role !== 'notification')
+      .map((message, index) => ({ index, message }));
   }, [state.chatMessages, state.userMessages]);
   const staticChatMessageOffset = Math.min(
     Math.max(0, state.staticChatMessageOffset),
@@ -1751,6 +1755,8 @@ export function AgentUI({
         finalResponse={chatIncludesFinalResponse ? null : state.finalResponse}
         isWorking={state.isWorking}
       />
+
+      <NotificationStack notifications={state.notifications} />
 
       {/* Fixed bottom section - always renders for layout stability */}
       <FixedBottom
@@ -1976,6 +1982,25 @@ const NotificationHistoryMessage = memo(function NotificationHistoryMessage({
     </Box>
   );
 });
+
+const NotificationStack = memo(function NotificationStack({
+  notifications,
+}: {
+  notifications: string[];
+}) {
+  const recentNotifications = notifications.slice(-3);
+  if (recentNotifications.length === 0) {
+    return null;
+  }
+
+  return (
+    <Box flexDirection="column">
+      {recentNotifications.map((content, index) => (
+        <NotificationHistoryMessage key={`${index}-${content}`} content={content} />
+      ))}
+    </Box>
+  );
+}, (prev, next) => prev.notifications === next.notifications);
 
 const CompletionHistoryMessage = memo(function CompletionHistoryMessage({
   content,
@@ -2450,6 +2475,7 @@ export function createInitialUIState(): AgentUIState {
     queuedInstructions: [],
     userMessages: [],
     chatMessages: [],
+    notifications: [],
     staticChatMessageOffset: 0,
     currentInput: '',
     finalResponse: null,

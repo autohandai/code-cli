@@ -520,7 +520,7 @@ export class InkRenderer {
     }
 
     this.updateState({
-      chatMessages: [...this.state.chatMessages, { role: 'notification', content }],
+      notifications: [...this.state.notifications, content],
     });
   }
 
@@ -1002,6 +1002,7 @@ export class InkRenderer {
         staticChatMessageOffset: this.state.chatMessages.length,
         userMessages: [],
         toolOutputs: [],
+        notifications: [],
       };
 
       this.instance = render(
