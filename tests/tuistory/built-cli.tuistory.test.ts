@@ -103,6 +103,35 @@ function linesContaining(screen: string, text: string): string[] {
   return screen.split('\n').filter((line) => line.includes(text));
 }
 
+async function sampleImmediateScreens(
+  session: Session,
+  durationMs: number,
+  intervalMs = 50,
+): Promise<string[]> {
+  const deadline = Date.now() + durationMs;
+  const screens: string[] = [];
+
+  while (Date.now() < deadline) {
+    screens.push(await session.text({
+      immediate: true,
+      showCursor: true,
+      trimEnd: true,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  return screens;
+}
+
+function expectStableSingleComposerFrames(screens: string[]): void {
+  expect(screens.length).toBeGreaterThan(0);
+
+  for (const screen of screens) {
+    expect(linesContaining(screen, '❯'), screen).toHaveLength(1);
+    expect(screen, screen).not.toContain('[memory] turn reflection');
+  }
+}
+
 afterEach(async () => {
   for (const session of sessions.splice(0)) {
     session.close();
@@ -444,7 +473,10 @@ describe('interactive built CLI Tuistory tests', () => {
     await session.type('give me the mocked answer');
     await session.press('enter');
     await session.waitForText('...', { timeout: 5_000 });
+    expectStableSingleComposerFrames(await sampleImmediateScreens(session, 500));
+
     await session.waitForText('Here is the mocked final answer from Tuistory.', { timeout: 15_000 });
+    expectStableSingleComposerFrames(await sampleImmediateScreens(session, 500));
 
     const screen = await session.text({
       timeout: 10_000,
