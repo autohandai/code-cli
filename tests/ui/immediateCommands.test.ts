@@ -222,7 +222,7 @@ describe('PersistentInput immediate command handling', () => {
     const render = vi.fn();
 
     (pi as any).isActive = true;
-    (pi as any)._supportsRaw = true;
+    (pi as any).supportsRawMode = true;
     (pi as any).input = {
       isTTY: true,
       setRawMode: vi.fn(),
@@ -280,7 +280,7 @@ describe('PersistentInput immediate command handling', () => {
     (pi as any).input = mockInput;
     (pi as any).isActive = true;
     (pi as any).isPaused = true;
-    (pi as any)._supportsRaw = true;
+    (pi as any).supportsRawMode = true;
     (pi as any).regions = {
       enable,
       renderFixedRegion,

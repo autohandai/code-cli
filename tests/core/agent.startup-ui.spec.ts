@@ -744,6 +744,7 @@ describe('agent startup and active input UI', () => {
     agent.updateInputLine = vi.fn();
     agent.persistentInput = {
       queue,
+      enqueue: (text: string) => queue.push({ text, timestamp: Date.now() }),
       getQueueLength: () => queue.length,
       setStatusLine: vi.fn(),
       setActivityLine: vi.fn(),
@@ -793,6 +794,7 @@ describe('agent startup and active input UI', () => {
     agent.updateInputLine = vi.fn();
     agent.persistentInput = {
       queue,
+      enqueue: (text: string) => queue.push({ text, timestamp: Date.now() }),
       getQueueLength: () => queue.length,
       setStatusLine: vi.fn(),
       setActivityLine: vi.fn(),
@@ -841,6 +843,7 @@ describe('agent startup and active input UI', () => {
     agent.updateInputLine = vi.fn();
     agent.persistentInput = {
       queue,
+      enqueue: (text: string) => queue.push({ text, timestamp: Date.now() }),
       getQueueLength: () => queue.length,
       setStatusLine: vi.fn(),
       setActivityLine: vi.fn(),

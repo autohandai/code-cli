@@ -136,6 +136,24 @@ describe('PersistentInput TextBuffer integration', () => {
     input.stop();
   });
 
+  it('exposes a public enqueue contract that preserves queue limits', async () => {
+    const { PersistentInput } = await import('../../src/ui/persistentInput.js');
+    const input = new PersistentInput({ silentMode: true, maxQueueSize: 1 });
+    const queuedMessages: string[] = [];
+    const queueFullEvents: number[] = [];
+
+    input.on('queued', (text: string) => { queuedMessages.push(text); });
+    input.on('queue-full', (max: number) => { queueFullEvents.push(max); });
+
+    input.enqueue('first');
+    input.enqueue('second');
+
+    expect(input.getQueueLength()).toBe(1);
+    expect(input.dequeue()?.text).toBe('first');
+    expect(queuedMessages).toEqual(['first']);
+    expect(queueFullEvents).toEqual([1]);
+  });
+
   it('backspace deletes one character at a time', async () => {
     const { PersistentInput } = await import('../../src/ui/persistentInput.js');
     const input = new PersistentInput({ silentMode: true });

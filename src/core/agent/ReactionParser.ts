@@ -28,6 +28,23 @@ function asToolArgs(value: unknown): ToolCallRequest['args'] {
   return isRecord(value) ? value as ToolCallRequest['args'] : undefined;
 }
 
+function parseToolArgs(value: unknown): ToolCallRequest['args'] {
+  if (isRecord(value)) {
+    return value as ToolCallRequest['args'];
+  }
+
+  if (typeof value !== 'string' || !value.trim()) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return asToolArgs(parsed);
+  } catch {
+    return undefined;
+  }
+}
+
 export class ReactionParser {
   private readonly cleanupModelResponse: (content: string) => string;
 
@@ -325,6 +342,7 @@ export class ReactionParser {
       const parsed = JSON.parse(jsonBlock) as ParsedRecord;
       const hasExpectedFields =
         'thought' in parsed ||
+        'reflection' in parsed ||
         'toolCalls' in parsed ||
         'finalResponse' in parsed ||
         'response' in parsed;
@@ -469,15 +487,25 @@ export class ReactionParser {
   }
 
   toToolCall(entry: unknown): ToolCallRequest | null {
-    if (!isRecord(entry) || typeof entry.tool !== 'string') {
+    if (!isRecord(entry)) {
       return null;
     }
 
-    let args: unknown = isRecord(entry.args) ? entry.args : undefined;
+    const toolName = typeof entry.tool === 'string'
+      ? entry.tool
+      : typeof entry.name === 'string'
+        ? entry.name
+        : undefined;
+
+    if (!toolName?.trim()) {
+      return null;
+    }
+
+    let args = parseToolArgs(entry.args) ?? parseToolArgs(entry.arguments);
 
     if (!args) {
       const topLevelArgs: ParsedRecord = {};
-      const reservedKeys = ['tool', 'id', 'args'];
+      const reservedKeys = ['tool', 'name', 'id', 'args', 'arguments'];
 
       for (const [key, value] of Object.entries(entry)) {
         if (!reservedKeys.includes(key) && value !== undefined) {
@@ -486,13 +514,13 @@ export class ReactionParser {
       }
 
       if (Object.keys(topLevelArgs).length > 0) {
-        args = topLevelArgs;
+        args = asToolArgs(topLevelArgs);
       }
     }
 
     return {
       id: typeof entry.id === 'string' ? entry.id : randomUUID(),
-      tool: entry.tool as AgentAction['type'],
+      tool: toolName as AgentAction['type'],
       args: asToolArgs(args),
     };
   }

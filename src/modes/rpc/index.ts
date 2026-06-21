@@ -387,26 +387,8 @@ async function handleSingleRequest(
           }
           return null;
         }
-        // Run prompt ASYNCHRONOUSLY so abort can be processed during execution
-        // The prompt will write its own response when done
-        adapter.handlePrompt(id!, promptParams)
-          .then((promptResult) => {
-            if (shouldRespond) {
-              process.stdout.write(JSON.stringify(createResponse(id!, promptResult)) + '\n');
-            }
-          })
-          .catch((error) => {
-            const message = error instanceof Error ? error.message : String(error);
-            if (shouldRespond) {
-              process.stdout.write(JSON.stringify(createErrorResponse(
-                id!,
-                JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
-                message
-              )) + '\n');
-            }
-          });
-        // Return null - response will be sent when prompt completes
-        return null;
+        result = adapter.startPrompt(id ?? null, promptParams);
+        break;
       }
 
       case RPC_METHODS.ABORT: {
