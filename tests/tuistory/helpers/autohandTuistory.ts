@@ -9,6 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { launchTerminal, type Session } from 'tuistory';
 
 type JsonRecord = Record<string, unknown>;
@@ -50,6 +51,11 @@ export interface MockOllamaServer {
 export interface MockOpenRouterServer {
   baseUrl: string;
   close: () => Promise<void>;
+}
+
+export interface MockOpenRouterFetchPreload {
+  importSpecifier: string;
+  cleanup: () => Promise<void>;
 }
 
 export interface MockAuthServer {
@@ -223,6 +229,72 @@ export async function createMockOpenRouterServer(responseContent: string, delayM
           resolve();
         });
       });
+    },
+  };
+}
+
+export async function createMockOpenRouterFetchPreload(
+  responseContent: string,
+  delayMs = 0,
+): Promise<MockOpenRouterFetchPreload> {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'autohand-tuistory-fetch-'));
+  const preloadPath = path.join(tempRoot, 'mock-openrouter-fetch.mjs');
+  const moduleSource = `
+const responseContent = ${JSON.stringify(responseContent)};
+const delayMs = ${JSON.stringify(delayMs)};
+const originalFetch = globalThis.fetch?.bind(globalThis);
+
+globalThis.fetch = async (input, init) => {
+  const url = typeof input === 'string'
+    ? input
+    : input instanceof URL
+      ? input.toString()
+      : input.url;
+  const method = init?.method ?? (typeof input === 'object' && 'method' in input ? input.method : 'GET');
+
+  if (url.endsWith('/chat/completions') && method.toUpperCase() === 'POST') {
+    if (delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+
+    return new Response(JSON.stringify({
+      id: 'chatcmpl-tuistory',
+      created: Math.floor(Date.now() / 1000),
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: responseContent,
+          },
+          finish_reason: 'stop',
+        },
+      ],
+      usage: {
+        prompt_tokens: 42,
+        completion_tokens: 12,
+        total_tokens: 54,
+      },
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  if (!originalFetch) {
+    throw new Error('fetch is not available in this runtime');
+  }
+
+  return originalFetch(input, init);
+};
+`;
+
+  await writeFile(preloadPath, moduleSource);
+
+  return {
+    importSpecifier: pathToFileURL(preloadPath).href,
+    cleanup: async () => {
+      await rm(tempRoot, { recursive: true, force: true });
     },
   };
 }
