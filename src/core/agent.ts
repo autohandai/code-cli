@@ -94,6 +94,7 @@ import {
   setupAgentPersistentInputInterruptHandlers,
   shouldUsePassiveAgentSessionRetry,
   startAgentPreparationStatus,
+  type AgentInputRecoveryHost,
   type AgentInputTurnHost,
 } from './agent/InputTurnCoordinator.js';
 import {
@@ -112,7 +113,7 @@ import {
   runAgentInteractive,
   runAgentInteractiveLoop,
 } from './agent/AgentLifecycleRunner.js';
-import { promptForAgentInstruction } from './agent/PromptInstructionReader.js';
+import { promptForAgentInstruction, type AgentPromptInstructionHost } from './agent/PromptInstructionReader.js';
 import {
   applyAgentAcpConfigOption,
   applyAgentAcpMode,
@@ -513,7 +514,36 @@ export class AutohandAgent {
   }
 
   private async promptForInstruction(): Promise<string | null> {
-    return promptForAgentInstruction(this);
+    return promptForAgentInstruction(this.createPromptInstructionHost());
+  }
+
+  private createPromptInstructionHost(): AgentPromptInstructionHost {
+    const agent = this;
+
+    return {
+      flushDeferredDebugLines: () => agent.flushDeferredDebugLines(),
+      formatStatusLine: () => agent.formatStatusLine(),
+      handleMemoryStore: (content: string) => agent.handleMemoryStore(content),
+      imageManager: agent.imageManager,
+      isSlashCommandSupported: (command: string) => agent.isSlashCommandSupported(command),
+      get isStartupSuggestion() { return agent.isStartupSuggestion; },
+      set isStartupSuggestion(value: boolean) { agent.isStartupSuggestion = value; },
+      mentionResolver: agent.mentionResolver,
+      parseSlashCommand: (input: string) => agent.parseSlashCommand(input),
+      get pendingSuggestion() { return agent.pendingSuggestion; },
+      set pendingSuggestion(value: Promise<void> | null) { agent.pendingSuggestion = value; },
+      get promptSeedInput() { return agent.promptSeedInput; },
+      set promptSeedInput(value: string) { agent.promptSeedInput = value; },
+      get readlinePromptActive() { return agent.readlinePromptActive; },
+      set readlinePromptActive(value: boolean) { agent.readlinePromptActive = value; },
+      resolveLlmShellSuggestion: (input: string) => agent.resolveLlmShellSuggestion(input),
+      runSlashCommandWithInput: (command: string, args: string[]) => agent.runSlashCommandWithInput(command, args),
+      runtime: agent.runtime,
+      skillsRegistry: agent.skillsRegistry,
+      get suggestionEngine() { return agent.suggestionEngine; },
+      workspaceFileCollector: agent.workspaceFileCollector,
+      writeDebugLine: (line: string) => agent.writeDebugLine(line),
+    };
   }
 
   private async resolveLlmShellSuggestion(inputLine: string): Promise<string | null> {
@@ -1114,7 +1144,7 @@ export class AutohandAgent {
    * recover from a failure and continue the task.
    */
   private injectContinuationMessage(error: Error, retryAttempt: number): void {
-    injectAgentContinuationMessage(this as unknown as AgentInputTurnHost, error, retryAttempt);
+    injectAgentContinuationMessage(this as unknown as AgentInputRecoveryHost, error, retryAttempt);
   }
 
 
@@ -1192,7 +1222,7 @@ export class AutohandAgent {
     return saveAgentUserMessage(this as unknown as AgentSessionAccountingHost, content);
   }
 
-  private async saveAssistantMessage(content: string, toolCalls?: any[]): Promise<void> {
+  private async saveAssistantMessage(content: string, toolCalls?: ToolCallRequest[]): Promise<void> {
     return saveAgentAssistantMessage(
       this as unknown as AgentSessionAccountingHost,
       content,

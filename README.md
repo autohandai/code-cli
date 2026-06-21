@@ -7,7 +7,7 @@
 
 Docs: [English](https://docs.autohand.ai/en) | [日本語](https://docs.autohand.ai/ja) | [简体中文](https://docs.autohand.ai/zh-cn) | [繁體中文](https://docs.autohand.ai/zh-tw) | [한국어](https://docs.autohand.ai/ko) | [Deutsch](https://docs.autohand.ai/de) | [Español](https://docs.autohand.ai/es) | [Français](https://docs.autohand.ai/fr) | [Italiano](https://docs.autohand.ai/it) | [Polski](https://docs.autohand.ai/pl) | [Русский](https://docs.autohand.ai/ru) | [Português (Brasil)](https://docs.autohand.ai/pt-br) | [Türkçe](https://docs.autohand.ai/tr) | [Čeština](https://docs.autohand.ai/cs) | [Magyar](https://docs.autohand.ai/hu) | [हिन्दी](https://docs.autohand.ai/hi) | [Bahasa Indonesia](https://docs.autohand.ai/id)
 
-**A fast, terminal-native AI coding agent for planning, editing, testing, and automating work across your codebase.**
+**A fast, self-improving terminal-native AI coding agent for planning, reflecting, remembering, editing, testing, and automating work across your codebase.**
 
 Autohand Code CLI is a fast, terminal-native AI coding agent that lives where you already work. It reads project context, plans changes, edits files, runs tools, and asks for approval before risky operations.
 
@@ -200,9 +200,9 @@ autohand -p "refactor database queries" --dry-run
 | `--yolo [pattern]`              |       | Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete) |
 | `--timeout <seconds>`           |       | Timeout in seconds for auto-approve mode                                         |
 | `--settings`                    |       | Configure Autohand Code CLI settings (same as /settings in interactive mode)     |
-| `--feedback`                    |       | Submit feedback                                                                   |
+| `--feedback`                    |       | Submit feedback                                                                  |
 | `--chrome`                      |       | Enable Chrome browser integration (same as /chrome)                              |
-| `--no-chrome`                   |       | Disable Chrome browser integration                                                |
+| `--no-chrome`                   |       | Disable Chrome browser integration                                               |
 
 ## Agent Skills
 
@@ -252,67 +252,67 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 
 ## Slash Commands
 
-| Command            | Description                          |
-| ------------------ | ------------------------------------ |
-| `/help`            | Display available commands           |
-| `/?`               | Alias for /help                      |
-| `/quit`            | Exit the session                     |
-| `/exit`            | Exit the session                     |
-| `/model`           | Switch LLM models                    |
-| `/new`             | Start fresh conversation             |
-| `/clear`           | Clear conversation history           |
-| `/undo`            | Revert last changes                  |
-| `/session`         | Show current session details         |
-| `/sessions`        | List past sessions                   |
-| `/resume`          | Resume a previous session            |
-| `/memory`          | View/manage stored memories          |
-| `/init`            | Create `AGENTS.md` file              |
-| `/agents`          | List sub-agents                      |
-| `/agents-new`      | Create new agent via wizard          |
-| `/skills`          | List and manage skills               |
-| `/skills new`      | Create a new skill                   |
-| `/skills use`      | Activate a skill                     |
-| `/skills install`  | Install a community skill            |
-| `/skills search`   | Search for skills                    |
-| `/skills trending` | List trending skills                 |
-| `/skills remove`   | Remove an installed skill            |
-| `/learn`           | Get skill recommendations            |
-| `/feedback`        | Send feedback                        |
-| `/formatters`      | List code formatters                 |
-| `/lint`            | List code linters                    |
-| `/completion`      | Generate shell completion scripts    |
-| `/export`          | Export session to markdown/JSON/HTML |
-| `/status`          | Show workspace status                |
-| `/usage`           | Show usage dashboard (usage_v2)      |
-| `/login`           | Authenticate with Autohand Code API  |
-| `/logout`          | Sign out                             |
-| `/permissions`     | Manage tool permissions              |
-| `/hooks`           | Manage git hooks                     |
-| `/experiments`     | Toggle experimental feature switches |
-| `/settings`        | View configuration settings          |
-| `/theme`           | Change UI theme                      |
-| `/language`        | Change display language              |
-| `/cc`              | Toggle context compaction            |
-| `/search`          | Search the web                       |
-| `/automode`        | Manage auto-mode                     |
-| `/goal`            | Set or review the current session goal |
-| `/squad`           | Open/manage the local Autohand Squad runtime       |
-| `/go`              | Pair this session with the Autohand Code iOS app |
-| `/sync`            | Sync settings across devices         |
-| `/add-dir`         | Add additional workspace directory   |
-| `/plan`            | Create a task plan                   |
-| `/about`           | Show information about Autohand Code CLI |
-| `/ide`             | Open in IDE                          |
-| `/history`         | View command history                 |
-| `/mcp`             | Manage MCP servers                   |
-| `/mcp install`     | Install community MCP servers        |
-| `/team`            | Manage team collaboration            |
-| `/tasks`           | List team tasks                      |
-| `/message`         | Send team message                    |
+| Command            | Description                                                                      |
+| ------------------ | -------------------------------------------------------------------------------- |
+| `/help`            | Display available commands                                                       |
+| `/?`               | Alias for /help                                                                  |
+| `/quit`            | Exit the session                                                                 |
+| `/exit`            | Exit the session                                                                 |
+| `/model`           | Switch LLM models                                                                |
+| `/new`             | Start fresh conversation                                                         |
+| `/clear`           | Clear conversation history                                                       |
+| `/undo`            | Revert last changes                                                              |
+| `/session`         | Show current session details                                                     |
+| `/sessions`        | List past sessions                                                               |
+| `/resume`          | Resume a previous session                                                        |
+| `/memory`          | View/manage stored memories                                                      |
+| `/init`            | Create `AGENTS.md` file                                                          |
+| `/agents`          | List sub-agents                                                                  |
+| `/agents-new`      | Create new agent via wizard                                                      |
+| `/skills`          | List and manage skills                                                           |
+| `/skills new`      | Create a new skill                                                               |
+| `/skills use`      | Activate a skill                                                                 |
+| `/skills install`  | Install a community skill                                                        |
+| `/skills search`   | Search for skills                                                                |
+| `/skills trending` | List trending skills                                                             |
+| `/skills remove`   | Remove an installed skill                                                        |
+| `/learn`           | Get skill recommendations                                                        |
+| `/feedback`        | Send feedback                                                                    |
+| `/formatters`      | List code formatters                                                             |
+| `/lint`            | List code linters                                                                |
+| `/completion`      | Generate shell completion scripts                                                |
+| `/export`          | Export session to markdown/JSON/HTML                                             |
+| `/status`          | Show workspace status                                                            |
+| `/usage`           | Show usage dashboard (usage_v2)                                                  |
+| `/login`           | Authenticate with Autohand Code API                                              |
+| `/logout`          | Sign out                                                                         |
+| `/permissions`     | Manage tool permissions                                                          |
+| `/hooks`           | Manage git hooks                                                                 |
+| `/experiments`     | Toggle experimental feature switches                                             |
+| `/settings`        | View configuration settings                                                      |
+| `/theme`           | Change UI theme                                                                  |
+| `/language`        | Change display language                                                          |
+| `/cc`              | Toggle context compaction                                                        |
+| `/search`          | Search the web                                                                   |
+| `/automode`        | Manage auto-mode                                                                 |
+| `/goal`            | Set or review the current session goal                                           |
+| `/squad`           | Open/manage the local Autohand Squad runtime                                     |
+| `/go`              | Pair this session with the Autohand Code iOS app                                 |
+| `/sync`            | Sync settings across devices                                                     |
+| `/add-dir`         | Add additional workspace directory                                               |
+| `/plan`            | Create a task plan                                                               |
+| `/about`           | Show information about Autohand Code CLI                                         |
+| `/ide`             | Open in IDE                                                                      |
+| `/history`         | View command history                                                             |
+| `/mcp`             | Manage MCP servers                                                               |
+| `/mcp install`     | Install community MCP servers                                                    |
+| `/team`            | Manage team collaboration                                                        |
+| `/tasks`           | List team tasks                                                                  |
+| `/message`         | Send team message                                                                |
 | `/import`          | Import data from Claude, Codex, Gemini, Cursor, OpenCode, Kimi, and other agents |
-| `/repeat`          | Repeat previous actions              |
-| `/chrome`          | Chrome browser integration           |
-| `/review`          | Code review                          |
+| `/repeat`          | Repeat previous actions                                                          |
+| `/chrome`          | Chrome browser integration                                                       |
+| `/review`          | Code review                                                                      |
 
 ## Tool System
 
@@ -381,17 +381,17 @@ Create `~/.autohand/config.json` or use `config.toml`, `config.yaml`, or `config
 
 ### Supported Providers
 
-| Provider   | Config Key   | Notes                               |
-| ---------- | ------------ | ----------------------------------- |
-| OpenRouter | `openrouter` | Access to Claude, GPT-4, Grok, etc. |
-| LLMGateway | `llmgateway` | Direct Claude API access            |
-| OpenAI     | `openai`     | GPT-4 and other models              |
-| AWS Bedrock | `bedrock`   | Bedrock Converse and OpenAI-compatible modes |
-| DeepSeek   | `deepseek`   | DeepSeek V4 Flash, V4 Pro, reasoning |
-| Ollama     | `ollama`     | Local models                        |
-| llama.cpp  | `llamacpp`   | Local inference                     |
-| MLX        | `mlx`        | Apple Silicon optimized             |
-| Z.ai       | `zai`        | High-performance inference          |
+| Provider    | Config Key   | Notes                                        |
+| ----------- | ------------ | -------------------------------------------- |
+| OpenRouter  | `openrouter` | Access to Claude, GPT-4, Grok, etc.          |
+| LLMGateway  | `llmgateway` | Direct Claude API access                     |
+| OpenAI      | `openai`     | GPT-4 and other models                       |
+| AWS Bedrock | `bedrock`    | Bedrock Converse and OpenAI-compatible modes |
+| DeepSeek    | `deepseek`   | DeepSeek V4 Flash, V4 Pro, reasoning         |
+| Ollama      | `ollama`     | Local models                                 |
+| llama.cpp   | `llamacpp`   | Local inference                              |
+| MLX         | `mlx`        | Apple Silicon optimized                      |
+| Z.ai        | `zai`        | High-performance inference                   |
 
 ## Session Management
 

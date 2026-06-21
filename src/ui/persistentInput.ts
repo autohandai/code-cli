@@ -42,6 +42,11 @@ export interface PersistentInputOptions {
   suggestionProvider?: () => string | undefined;
 }
 
+type RawModeReadStream = NodeJS.ReadStream & {
+  isRaw?: boolean;
+  setRawMode?: (mode: boolean) => void;
+};
+
 function isCtrlQShortcut(str: string, key: readline.Key | undefined): boolean {
   if (!key?.ctrl) {
     return false;
@@ -68,7 +73,7 @@ export class PersistentInput extends EventEmitter {
   private maxQueueSize: number;
   private statusLine: string | { left: string; right: string };
   private output: NodeJS.WriteStream;
-  private input: NodeJS.ReadStream;
+  private input: RawModeReadStream;
   private isPaused = false;
   private regions: TerminalRegions;
   private silentMode: boolean;
@@ -80,6 +85,8 @@ export class PersistentInput extends EventEmitter {
   private pendingSuggestionId = 0;
   private queueShortcutSelectionIndex: number | null = null;
   private queueOverlayLineCount = 0;
+  private supportsRawMode = false;
+  private wasRawMode = false;
 
   // ── Paste state ──
   private isInPaste = false;
@@ -112,7 +119,7 @@ export class PersistentInput extends EventEmitter {
    * (for example, pipe -> /dev/tty handoff before interactive mode).
    */
   rebindStreams(
-    input: NodeJS.ReadStream = process.stdin,
+    input: RawModeReadStream = process.stdin,
     output: NodeJS.WriteStream = process.stdout
   ): void {
     if (this.isActive) {
@@ -158,12 +165,12 @@ export class PersistentInput extends EventEmitter {
       // Use safe version to prevent duplicate listener registration
       safeEmitKeypressEvents(this.input as NodeJS.ReadStream);
       const supportsRaw = typeof this.input.setRawMode === 'function';
-      const wasRaw = (this.input as any).isRaw;
+      const wasRaw = Boolean(this.input.isRaw);
       if (!wasRaw && supportsRaw) {
         safeSetRawMode(this.input, true);
       }
-      (this as any)._supportsRaw = supportsRaw;
-      (this as any)._wasRaw = wasRaw;
+      this.supportsRawMode = supportsRaw;
+      this.wasRawMode = wasRaw;
       this.input.on('keypress', this.handleKeypress);
     } else {
       // Full mode: use terminal regions
@@ -175,7 +182,8 @@ export class PersistentInput extends EventEmitter {
         safeSetRawMode(this.input, true);
       }
       this.input.on('keypress', this.handleKeypress);
-      (this as any)._supportsRaw = supportsRaw;
+      this.supportsRawMode = supportsRaw;
+      this.wasRawMode = Boolean(this.input.isRaw);
       this.render();
     }
   }
@@ -204,15 +212,15 @@ export class PersistentInput extends EventEmitter {
 
     if (this.silentMode) {
       // Restore terminal state only if we changed it
-      const supportsRaw = (this as any)._supportsRaw;
-      const wasRaw = (this as any)._wasRaw;
+      const supportsRaw = this.supportsRawMode;
+      const wasRaw = this.wasRawMode;
       if (!wasRaw && supportsRaw && this.input.isTTY) {
         safeSetRawMode(this.input, false);
       }
     } else {
       // Disable terminal regions
       this.regions.disable();
-      const supportsRaw = (this as any)._supportsRaw;
+      const supportsRaw = this.supportsRawMode;
       if (supportsRaw && this.input.isTTY) {
         safeSetRawMode(this.input, false);
       }
@@ -247,7 +255,7 @@ export class PersistentInput extends EventEmitter {
     }
 
     // Restore terminal for Modal prompts
-    const supportsRaw = (this as any)._supportsRaw;
+    const supportsRaw = this.supportsRawMode;
     if (supportsRaw && this.input.isTTY) {
       safeSetRawMode(this.input, false);
     }
@@ -282,7 +290,7 @@ export class PersistentInput extends EventEmitter {
       this.input.removeAllListeners('data');
     }
 
-    const supportsRaw = (this as any)._supportsRaw;
+    const supportsRaw = this.supportsRawMode;
     if (supportsRaw && this.input.isTTY) {
       safeSetRawMode(this.input, false);
     }
@@ -307,7 +315,7 @@ export class PersistentInput extends EventEmitter {
     }
 
     // Re-enable raw mode
-    const supportsRaw = (this as any)._supportsRaw;
+    const supportsRaw = this.supportsRawMode;
     if (supportsRaw && this.input.isTTY) {
       safeSetRawMode(this.input, true);
     }
@@ -340,7 +348,7 @@ export class PersistentInput extends EventEmitter {
       this.regions.enable();
     }
 
-    const supportsRaw = (this as any)._supportsRaw;
+    const supportsRaw = this.supportsRawMode;
     if (supportsRaw && this.input.isTTY) {
       safeSetRawMode(this.input, true);
     }
@@ -713,6 +721,10 @@ export class PersistentInput extends EventEmitter {
   /**
    * Add a message to the queue
    */
+  enqueue(text: string): void {
+    this.addToQueue(text);
+  }
+
   private addToQueue(text: string): void {
     if (this.queue.length >= this.maxQueueSize) {
       // Show warning

@@ -379,10 +379,28 @@ export class RPCAdapter {
   }
 
   /**
-   * Handle a prompt request
-   * Returns result for JSON-RPC response
+   * Accept a prompt request and run the turn in the background.
+   * Streaming clients get turn/message notifications and should not wait for
+   * the full agent run before the JSON-RPC request is acknowledged.
    */
-  async handlePrompt(requestId: JsonRpcId, params: PromptParams): Promise<PromptResult> {
+  startPrompt(requestId: JsonRpcId, params: PromptParams): PromptResult {
+    const abortController = this.beginPrompt();
+
+    setImmediate(() => {
+      if (abortController.signal.aborted) {
+        return;
+      }
+
+      void this.runAcceptedPrompt(requestId, params).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`[RPC] Prompt failed after acceptance: ${message}\n`);
+      });
+    });
+
+    return { success: true };
+  }
+
+  private beginPrompt(): AbortController {
     if (!this.agent) {
       throw new Error('Agent not initialized');
     }
@@ -393,6 +411,24 @@ export class RPCAdapter {
 
     this.status = 'processing';
     this.abortController = new AbortController();
+
+    return this.abortController;
+  }
+
+  /**
+   * Handle a prompt request
+   * Returns result for JSON-RPC response
+   */
+  async handlePrompt(requestId: JsonRpcId, params: PromptParams): Promise<PromptResult> {
+    this.beginPrompt();
+    return this.runAcceptedPrompt(requestId, params);
+  }
+
+  private async runAcceptedPrompt(requestId: JsonRpcId, params: PromptParams): Promise<PromptResult> {
+    if (!this.agent) {
+      throw new Error('Agent not initialized');
+    }
+
     this.startKeepalive();
 
     // Start a new turn

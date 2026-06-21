@@ -396,6 +396,48 @@ describe('ReactionParser', () => {
     ]);
   });
 
+  it('keeps reflection-only JSON as metadata instead of a user response', () => {
+    const result = parser.parseAssistantReactPayload(
+      JSON.stringify({
+        reflection: 'The previous tool output already answers the next step.',
+      }),
+    );
+
+    expect(result).toEqual({
+      reflection: 'The previous tool output already answers the next step.',
+      toolCalls: [],
+      finalResponse: undefined,
+      response: undefined,
+      thought: undefined,
+    });
+  });
+
+  it('converts JSON reflection tool calls with name and arguments aliases', () => {
+    const result = parser.parseAssistantReactPayload(
+      JSON.stringify({
+        toolCalls: [
+          {
+            name: 'reflection',
+            arguments: '{"summary":"The alias format should still become reflection metadata."}',
+          },
+          {
+            name: 'read_file',
+            arguments: '{"path":"src/core/agent/ReactionParser.ts"}',
+          },
+        ],
+      }),
+    );
+
+    expect(result.reflection).toBe('The alias format should still become reflection metadata.');
+    expect(result.toolCalls).toEqual([
+      {
+        id: expect.any(String),
+        tool: 'read_file',
+        args: { path: 'src/core/agent/ReactionParser.ts' },
+      },
+    ]);
+  });
+
   it('preserves finalResponse while removing JSON reflection-only tool calls', () => {
     const result = parser.parseAssistantReactPayload(
       JSON.stringify({

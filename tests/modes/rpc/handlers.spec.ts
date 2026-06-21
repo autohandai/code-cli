@@ -106,6 +106,37 @@ describe('RPC Adapter - P2 Handlers', () => {
   });
 
   // -------------------------------------------------------------------------
+  // prompt handling
+  // -------------------------------------------------------------------------
+
+  describe('prompt handling', () => {
+    it('accepts a prompt without waiting for the agent turn to finish', async () => {
+      let resolveRun!: (success: boolean) => void;
+      const runPromise = new Promise<boolean>((resolve) => {
+        resolveRun = resolve;
+      });
+      mockAgent.runInstruction.mockReturnValueOnce(runPromise);
+
+      const result = adapter.startPrompt('req_1', { message: 'hello' });
+
+      expect(result).toEqual({ success: true });
+      expect(adapter.getState().status).toBe('processing');
+      expect(mockAgent.runInstruction).not.toHaveBeenCalled();
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(mockAgent.runInstruction).toHaveBeenCalledWith('hello');
+
+      resolveRun(true);
+      await runPromise;
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(adapter.getState().status).toBe('idle');
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // permission handling
   // -------------------------------------------------------------------------
 
