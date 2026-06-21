@@ -14,20 +14,63 @@ import { routeOutput } from '../immediateCommandRouter.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { describeInstruction, formatElapsedTime } from './AgentFormatter.js';
 import { BARE_SLASH_COMMANDS_DISABLED_MESSAGE } from '../../runtime/bareMode.js';
+import type { PersistentInput } from '../../ui/persistentInput.js';
+import type { AgentRuntime } from '../../types.js';
+
+type RawModeReadStream = NodeJS.ReadStream & {
+  isRaw?: boolean;
+  setRawMode?: (mode: boolean) => void;
+};
+
+interface InputInkRenderer {
+  setElapsed(elapsed: string): void;
+  setStatus(status: string): void;
+}
+
+interface ImmediateShellRouteOptions {
+  persistentInputActiveTurn: boolean;
+  terminalRegionsDisabled: boolean;
+  writeAbove: (text: string) => void;
+}
+
+interface ImmediateShellResult {
+  success: boolean;
+  error?: string;
+}
+
+export interface AgentInputRecoveryHost {
+  conversation: {
+    isInitialized?: () => boolean;
+    addSystemNote(content: string): void;
+  };
+}
 
 export interface AgentInputTurnHost {
-  [key: string]: any;
+  conversation: AgentInputRecoveryHost['conversation'];
+  executeImmediateShellCommandForComposer(command: string, routeOpts: ImmediateShellRouteOptions): Promise<ImmediateShellResult>;
+  handleSlashCommand(command: string, args: string[]): Promise<string | null>;
+  inkRenderer?: InputInkRenderer | null;
+  isUsingTerminalRegionsForActiveTurn(): boolean;
+  parseSlashCommand(input: string): { command: string; args: string[] };
+  persistentConsoleBridgeCleanup: (() => void) | null;
+  persistentInput: PersistentInput;
+  persistentInputActiveTurn: boolean;
+  queueInput: string;
+  runtime: AgentRuntime;
+  setPersistentInputActivityLine(status: string): void;
+  setSpinnerStatus(status: string): void;
+  updateInputLine(): void;
 }
 
 export function setupAgentEscListener(host: AgentInputTurnHost, controller: AbortController, onCancel: () => void, ctrlCInterrupt = false): () => void {
-    const input = process.stdin as NodeJS.ReadStream;
+    const input = process.stdin as RawModeReadStream;
     if (!input.isTTY) {
       return () => { };
     }
     // Use safe version to prevent duplicate listener registration across turns
     safeEmitKeypressEvents(input);
     const supportsRaw = typeof input.setRawMode === 'function';
-    const wasRaw = (input as any).isRaw;
+    const wasRaw = input.isRaw;
     if (!wasRaw && supportsRaw) {
       safeSetRawMode(input, true);
     }
@@ -47,7 +90,7 @@ export function setupAgentEscListener(host: AgentInputTurnHost, controller: Abor
     host.queueInput = '';
     const enableQueue = host.runtime.config.agent?.enableRequestQueue !== false;
     const enableEscQueueInput = enableQueue && !host.persistentInputActiveTurn;
-    const rawEnabled = supportsRaw ? Boolean((input as any).isRaw) : false;
+    const rawEnabled = supportsRaw ? Boolean(input.isRaw) : false;
     const useLineQueueFallback = enableEscQueueInput && !rawEnabled;
     let lastKeypressAt = 0;
     let lineReader: readline.Interface | null = null;
@@ -72,7 +115,7 @@ export function setupAgentEscListener(host: AgentInputTurnHost, controller: Abor
         if (isShellCommand(text)) {
           const cmd = parseShellCommand(text);
           host.executeImmediateShellCommandForComposer(cmd, routeOpts)
-            .then((result: any) => {
+            .then((result) => {
               if (!result.success) {
                 routeOutput(chalk.red(result.error || 'Command failed'), routeOpts);
               }
@@ -89,7 +132,7 @@ export function setupAgentEscListener(host: AgentInputTurnHost, controller: Abor
 
           const { command, args } = host.parseSlashCommand(text);
           host.handleSlashCommand(command, args)
-            .then((handled: any) => {
+            .then((handled) => {
               if (handled !== null) {
                 routeOutput(handled, routeOpts);
               }
@@ -102,12 +145,11 @@ export function setupAgentEscListener(host: AgentInputTurnHost, controller: Abor
         return;
       }
 
-      const queue = (host.persistentInput as any).queue as Array<{ text: string; timestamp: number }>;
-      if (queue.length >= 10) {
+      if (host.persistentInput.getQueueLength() >= 10) {
         host.updateInputLine();
         return;
       }
-      queue.push({ text, timestamp: Date.now() });
+      host.persistentInput.enqueue(text);
 
       const preview = text.length > 30 ? text.slice(0, 27) + '...' : text;
       if (host.runtime.spinner) {
@@ -283,7 +325,7 @@ export function installAgentPersistentConsoleBridge(host: AgentInputTurnHost): (
     const originalWarn = console.warn;
     const originalError = console.error;
 
-    const bridgeWriter = (fallback: (...args: any[]) => void) => (...args: any[]) => {
+    const bridgeWriter = (fallback: (...args: unknown[]) => void) => (...args: unknown[]) => {
       if (!host.persistentInputActiveTurn || process.env.AUTOHAND_TERMINAL_REGIONS === '0') {
         fallback(...args);
         return;
@@ -371,11 +413,8 @@ export function shouldUsePassiveAgentSessionRetry(error: Error): boolean {
     );
   }
 
-export function injectAgentContinuationMessage(host: AgentInputTurnHost, error: Error, retryAttempt: number): void {
-    const conversation = host.conversation as {
-      isInitialized?: () => boolean;
-      addSystemNote(content: string): void;
-    };
+export function injectAgentContinuationMessage(host: AgentInputRecoveryHost, error: Error, retryAttempt: number): void {
+    const conversation = host.conversation;
     if (typeof conversation.isInitialized === 'function' && !conversation.isInitialized()) {
       return;
     }

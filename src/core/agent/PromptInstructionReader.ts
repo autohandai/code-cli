@@ -10,9 +10,39 @@ import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { SLASH_COMMANDS } from '../slashCommands.js';
 import { isAutohandDebugEnabled, writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { BARE_SLASH_COMMANDS_DISABLED_MESSAGE } from '../../runtime/bareMode.js';
+import type { AgentRuntime } from '../../types.js';
+import type { ImageMimeType } from '../ImageManager.js';
 
 export interface AgentPromptInstructionHost {
-  [key: string]: any;
+  flushDeferredDebugLines(): void;
+  formatStatusLine(): { left: string; right: string } | string;
+  handleMemoryStore(content: string): Promise<void>;
+  imageManager: {
+    add(data: Buffer, mimeType: ImageMimeType, filename?: string): number;
+  };
+  isSlashCommandSupported(command: string): boolean;
+  isStartupSuggestion: boolean;
+  mentionResolver: {
+    resolve(input: string): Promise<string>;
+  };
+  parseSlashCommand(input: string): { command: string; args: string[] };
+  pendingSuggestion: Promise<void> | null;
+  promptSeedInput: string;
+  readlinePromptActive: boolean;
+  resolveLlmShellSuggestion(input: string): Promise<string | null>;
+  runSlashCommandWithInput(command: string, args: string[]): Promise<string | null>;
+  runtime: AgentRuntime;
+  skillsRegistry: {
+    listSkills(): PromptSkillSummary[];
+  };
+  suggestionEngine?: {
+    getNextPromptSuggestion(): string | null | undefined;
+  } | null;
+  workspaceFileCollector: {
+    collectWorkspaceFiles(): Promise<unknown>;
+    getCachedFiles(): string[];
+  };
+  writeDebugLine(line: string): void;
 }
 
 interface PromptSkillSummary {
