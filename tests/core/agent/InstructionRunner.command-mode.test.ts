@@ -138,4 +138,31 @@ describe('InstructionRunner command mode UI', () => {
 
     expect(host.scheduleTurnMemoryReflection).toHaveBeenCalledWith(true);
   });
+
+  it('keeps the Ink renderer mounted while running quality checks after an implementation turn', async () => {
+    const host = createHost();
+    const inkRenderer = {
+      pause: vi.fn(),
+      resume: vi.fn(),
+    };
+    host.runtime = {
+      ...host.runtime,
+      options: {},
+      isCommandMode: false,
+    };
+    host.useInkRenderer = true;
+    host.inkRenderer = inkRenderer;
+    host.lastIntent = 'implementation';
+    host.intentDetector.detect = vi.fn(() => ({ intent: 'implementation', confidence: 1, reasons: [] }));
+    host.runReactLoop = vi.fn(async () => {
+      host.filesModifiedThisSession = true;
+    });
+
+    await new InstructionRunner(host).run('change the code');
+
+    expect(host.runQualityPipeline).toHaveBeenCalledTimes(1);
+    expect(inkRenderer.pause).not.toHaveBeenCalled();
+    expect(inkRenderer.resume).not.toHaveBeenCalled();
+    expect(host.cleanupUI).toHaveBeenCalledWith(true);
+  });
 });
