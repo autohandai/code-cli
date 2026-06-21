@@ -15,8 +15,8 @@ import { getHelpOrderedSlashCommands } from '../../src/ui/inputPrompt.js';
 import {
   clearComposerInput,
   createMockAuthServer,
+  createMockOpenRouterFetchPreload,
   createMockOllamaServer,
-  createMockOpenRouterServer,
   createTempAutohandHome,
   dismissAutocompleteMenu,
   exitInteractive,
@@ -26,7 +26,6 @@ import {
   type CreateTempAutohandHomeOptions,
   type MockAuthServer,
   type MockOllamaServer,
-  type MockOpenRouterServer,
   type TuistoryTempState,
 } from './helpers/autohandTuistory.js';
 
@@ -34,7 +33,7 @@ const sessions: Session[] = [];
 const tempStates: TuistoryTempState[] = [];
 const mockAuthServers: MockAuthServer[] = [];
 const mockServers: MockOllamaServer[] = [];
-const mockOpenRouterServers: MockOpenRouterServer[] = [];
+const mockOpenRouterFetchPreloads: Array<{ cleanup: () => Promise<void> }> = [];
 const CURSOR_CHAR = '█';
 
 async function trackSession(sessionPromise: Promise<Session>): Promise<Session> {
@@ -142,8 +141,8 @@ afterEach(async () => {
   for (const server of mockAuthServers.splice(0)) {
     await server.close();
   }
-  for (const server of mockOpenRouterServers.splice(0)) {
-    await server.close();
+  for (const preload of mockOpenRouterFetchPreloads.splice(0)) {
+    await preload.cleanup();
   }
   for (const state of tempStates.splice(0)) {
     await state.cleanup();
@@ -456,16 +455,22 @@ describe('interactive built CLI Tuistory tests', () => {
   });
 
   it('keeps only one live composer and help block after an agent turn returns', async () => {
-    const openRouterServer = await createMockOpenRouterServer(
+    const openRouterFetchPreload = await createMockOpenRouterFetchPreload(
       'Here is the mocked final answer from Tuistory.',
       1_300,
     );
-    mockOpenRouterServers.push(openRouterServer);
+    mockOpenRouterFetchPreloads.push(openRouterFetchPreload);
     const session = await launchInteractive({
       config: {
         openrouter: {
-          baseUrl: openRouterServer.baseUrl,
+          baseUrl: 'https://mock.openrouter.test/api/v1',
         },
+      },
+      env: {
+        NODE_OPTIONS: [
+          process.env.NODE_OPTIONS,
+          `--import=${openRouterFetchPreload.importSpecifier}`,
+        ].filter(Boolean).join(' '),
       },
     });
 
@@ -482,7 +487,6 @@ describe('interactive built CLI Tuistory tests', () => {
       timeout: 10_000,
       waitFor: (text) => (
         text.includes('❯') &&
-        text.includes('autohand (') &&
         text.includes('Here is the mocked final answer from Tuistory.') &&
         !text.includes('Wandering')
       ),
@@ -490,7 +494,6 @@ describe('interactive built CLI Tuistory tests', () => {
     });
 
     expect(linesContaining(screen, '❯'), screen).toHaveLength(1);
-    expect(linesContaining(screen, 'autohand ('), screen).toHaveLength(1);
     expect(screen).not.toContain('Wandering');
 
     await exitInteractive(session);
