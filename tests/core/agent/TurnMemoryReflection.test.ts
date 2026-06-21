@@ -73,6 +73,15 @@ describe('turn memory reflection', () => {
     );
   });
 
+  it('does not write a success notice into the live terminal after background reflection', async () => {
+    const { agent } = createAgentHarness();
+
+    agent.scheduleTurnMemoryReflection(true);
+    await agent.turnMemoryReflectionInFlight;
+
+    expect(agent.writeDebugLine).not.toHaveBeenCalled();
+  });
+
   it('does not run when auto-memory is disabled', () => {
     const { agent, llm } = createAgentHarness();
     agent.runtime.config.agent.autoMemory = false;

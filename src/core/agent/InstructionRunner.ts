@@ -38,10 +38,7 @@ interface InstructionPersistentInput {
   setStatusLine(statusLine: string | { left: string; right?: string }): void;
 }
 
-interface InstructionInkRenderer {
-  pause(): void;
-  resume(): Promise<void> | void;
-}
+type InstructionInkRenderer = object;
 
 interface EnvironmentBootstrapResult {
   success: boolean;
@@ -254,34 +251,23 @@ export class InstructionRunner {
       host.updateContextUsage(host.conversation.history());
       await host.runReactLoop(abortController);
 
-      // Run quality pipeline after file modifications in implementation mode.
-      // Stop PersistentInput FIRST so quality output goes to raw stdout
-      // instead of being routed through writeAbove in scroll regions
-      // (which gets torn down in the finally block, making output invisible).
       if (host.lastIntent === 'implementation' && host.filesModifiedThisSession) {
-        // Set modalActive to suppress hook output during quality checks.
-        // This prevents custom hooks (e.g., quality check hooks) from
-        // interfering with the terminal state while the UI is paused.
         host.modalActive = true;
-        if (host.persistentInputActiveTurn) {
-          host.promptSeedInput = host.persistentInput.getCurrentInput();
-          host.persistentInput.stop();
-          host.persistentInputActiveTurn = false;
+        try {
+          // PersistentInput uses terminal scroll regions that must be torn down
+          // before child-process quality output is printed. Ink owns the live
+          // composer tree, so keep it mounted to avoid per-turn flicker.
+          if (host.persistentInputActiveTurn) {
+            host.promptSeedInput = host.persistentInput.getCurrentInput();
+            host.persistentInput.stop();
+            host.persistentInputActiveTurn = false;
+          }
+          cleanupConsoleBridge();
+          cleanupConsoleBridge = () => {}; // Prevent double-cleanup in finally
+          await host.runQualityPipeline();
+        } finally {
+          host.modalActive = false;
         }
-        // Pause Ink renderer instead of destroying it. This releases stdin/stdout
-        // so spawned child processes (lint, test) work correctly, but preserves
-        // state so the composer reappears immediately after quality checks.
-        if (host.useInkRenderer && host.inkRenderer) {
-          host.inkRenderer.pause();
-        }
-        cleanupConsoleBridge();
-        cleanupConsoleBridge = () => {}; // Prevent double-cleanup in finally
-        await host.runQualityPipeline();
-        // Resume Ink so the composer is restored before runInstruction returns.
-        if (host.useInkRenderer && host.inkRenderer) {
-          await host.inkRenderer.resume();
-        }
-        host.modalActive = false;
       }
     } catch (error) {
       success = false;
