@@ -69,6 +69,15 @@ describe('config CLI subcommands', () => {
     expect(fs.readJsonSync(configPath).openrouter.apiKey).toBe('sk-openrouter-secret');
   });
 
+  it('accepts underscore provider API key aliases without echoing the raw secret', () => {
+    const result = runCli('config set openrouter_api_key sk-openrouter-secret');
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Set openrouter.apiKey = ****');
+    expect(result.stdout).not.toContain('sk-openrouter-secret');
+    expect(fs.readJsonSync(configPath).openrouter.apiKey).toBe('sk-openrouter-secret');
+  });
+
   it('prints invalid config parse errors without unhandled rejection reporting', async () => {
     await fs.writeFile(configPath, '{ provider: openrouter');
 

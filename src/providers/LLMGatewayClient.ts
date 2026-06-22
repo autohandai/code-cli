@@ -26,7 +26,30 @@ import { normalizeLLMUsage } from "./usage.js";
  * Excludes internal fields like priority, metadata.
  */
 function sanitizeMessages(messages: LLMMessage[]): Record<string, unknown>[] {
-  return messages.map((msg) => {
+  const toolOutputIds = new Set(
+    messages
+      .filter((msg) => msg.role === "tool" && msg.tool_call_id)
+      .map((msg) => msg.tool_call_id as string)
+  );
+  const matchedToolCallIds = new Set<string>();
+
+  for (const msg of messages) {
+    if (msg.role !== "assistant" || !msg.tool_calls?.length) {
+      continue;
+    }
+
+    for (const toolCall of msg.tool_calls) {
+      if (toolOutputIds.has(toolCall.id)) {
+        matchedToolCallIds.add(toolCall.id);
+      }
+    }
+  }
+
+  return messages.flatMap((msg) => {
+    if (msg.role === "tool" && (!msg.tool_call_id || !matchedToolCallIds.has(msg.tool_call_id))) {
+      return [];
+    }
+
     const sanitized: Record<string, unknown> = {
       role: msg.role,
       content: msg.content,
@@ -39,7 +62,12 @@ function sanitizeMessages(messages: LLMMessage[]): Record<string, unknown>[] {
 
     // Add tool_calls for assistant messages that invoked tools
     if (msg.role === "assistant" && msg.tool_calls?.length) {
-      sanitized.tool_calls = msg.tool_calls;
+      const matchedToolCalls = msg.tool_calls.filter((toolCall) => matchedToolCallIds.has(toolCall.id));
+      if (matchedToolCalls.length > 0) {
+        sanitized.tool_calls = matchedToolCalls;
+      } else if (!msg.content) {
+        return [];
+      }
     }
 
     // Add name for function/tool context (optional, some providers use it)
@@ -47,7 +75,7 @@ function sanitizeMessages(messages: LLMMessage[]): Record<string, unknown>[] {
       sanitized.name = msg.name;
     }
 
-    return sanitized;
+    return [sanitized];
   });
 }
 

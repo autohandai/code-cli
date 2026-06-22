@@ -202,17 +202,28 @@ function normalizeProviderName(input: string): BuiltInProviderName | null {
 
 function normalizeProviderConfigKey(input: string): { provider: BuiltInProviderName; field: 'apiKey' | 'baseUrl' | 'model' } | null {
   const [providerInput, fieldInput, ...extra] = input.trim().replace(/\s+/g, '.').split('.');
-  if (!providerInput || !fieldInput || extra.length > 0) {
-    return null;
+  if (providerInput && fieldInput && extra.length === 0) {
+    const provider = normalizeProviderName(providerInput);
+    const field = PROVIDER_CONFIG_FIELD_ALIASES[fieldInput];
+    if (provider && field) {
+      return { provider, field };
+    }
   }
 
-  const provider = normalizeProviderName(providerInput);
-  const field = PROVIDER_CONFIG_FIELD_ALIASES[fieldInput];
-  if (!provider || !field) {
-    return null;
+  const underscoreInput = input.trim();
+  for (const providerName of CONFIG_PROVIDER_NAMES) {
+    const prefix = `${providerName}_`;
+    if (!underscoreInput.startsWith(prefix)) {
+      continue;
+    }
+
+    const field = PROVIDER_CONFIG_FIELD_ALIASES[underscoreInput.slice(prefix.length)];
+    if (field) {
+      return { provider: providerName, field };
+    }
   }
 
-  return { provider, field };
+  return null;
 }
 
 function parseBooleanSetting(value: string): boolean {
