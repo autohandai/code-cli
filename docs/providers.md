@@ -13,6 +13,8 @@ Autohand supports multiple LLM providers, giving you flexibility to choose betwe
   - [DeepSeek](#deepseek)
   - [AWS Bedrock](#aws-bedrock)
   - [Z.ai](#zai)
+  - [Sakana.AI](#sakanaai)
+  - [Custom OpenAI-Compatible Providers](#custom-openai-compatible-providers)
 - [Local Providers](#local-providers)
   - [Ollama](#ollama)
   - [llama.cpp](#llamacpp)
@@ -54,6 +56,8 @@ EOF
 | **DeepSeek**    | Cloud | Pay-per-use | Low     | DeepSeek V4 Flash and V4 Pro models             |
 | **AWS Bedrock** | Cloud | Pay-per-use | Low     | Enterprise AWS credential-chain and Bedrock APIs |
 | **Z.ai**        | Cloud | Pay-per-use | Low     | GLM-5.2/5.1 long-context models, CogView image generation |
+| **Sakana.AI**   | Cloud | Pay-per-use | Medium  | Sakana Fugu multi-agent coding and reasoning models |
+| **Custom**      | Cloud/local | Varies | Varies | Any OpenAI-compatible `/chat/completions` endpoint |
 | **Ollama**      | Local | Free        | Medium  | Privacy-focused, offline work                   |
 | **llama.cpp**   | Local | Free        | Low     | Performance-focused local inference             |
 | **MLX**         | Local | Free        | Low     | Apple Silicon optimized                         |
@@ -367,6 +371,51 @@ curl -X POST "https://api.z.ai/api/paas/v4/chat/completions" \
 
 ---
 
+### Sakana.AI
+
+Sakana.AI provides Sakana Fugu through an OpenAI-compatible API. Fugu is a multi-agent system, but Autohand uses it like a standard hosted LLM through the Sakana API.
+
+**Setup:**
+
+1. Create a Sakana API key and store it securely.
+2. Configure Autohand:
+
+```json
+{
+  "provider": "sakana",
+  "sakana": {
+    "apiKey": "your-sakana-api-key",
+    "baseUrl": "https://api.sakana.ai/v1",
+    "model": "fugu"
+  }
+}
+```
+
+**Supported Models:**
+
+| Model        | Description                                       |
+| ------------ | ------------------------------------------------- |
+| `fugu`       | Default Sakana Fugu model with provider routing   |
+| `fugu-ultra` | Stronger Fugu model for complex, long-running work |
+
+For complex `fugu-ultra` tasks, consider increasing the global network timeout in your Autohand config.
+
+**Example Usage:**
+
+```bash
+export SAKANA_API_KEY=your-key
+
+curl -X POST "https://api.sakana.ai/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $SAKANA_API_KEY" \
+  -d '{
+    "model": "fugu",
+    "messages": [{"role": "user", "content": "How many r are in strawberry?"}]
+  }'
+```
+
+---
+
 ## Local Providers
 
 ### Ollama
@@ -587,6 +636,64 @@ Update `~/.autohand/config.json`:
 3. Ensure you have sufficient RAM
 4. For MLX, ensure you're on Apple Silicon
 5. Close other memory-intensive applications
+
+---
+
+### Custom OpenAI-Compatible Providers
+
+Use custom providers when a service exposes an OpenAI-compatible API but is not bundled into Autohand. This keeps the built-in provider list small while still supporting team gateways, private deployments, and new hosted providers.
+
+From the TUI, run `/model`, choose **New provider...**, then enter:
+
+- provider display name
+- OpenAI-compatible base URL
+- whether an API key is required
+- model id
+- optional context window and reasoning effort
+
+The saved config uses `provider: "custom:<id>"` and stores provider details under `customProviders`:
+
+```json
+{
+  "provider": "custom:acme",
+  "customProviders": {
+    "acme": {
+      "id": "acme",
+      "displayName": "Acme AI",
+      "apiFormat": "openai-compatible",
+      "baseUrl": "https://api.acme.example/v1",
+      "apiKey": "acme-api-key",
+      "apiKeyRequired": true,
+      "model": "acme-code-1",
+      "contextWindow": 256000,
+      "reasoningEffort": "high"
+    }
+  }
+}
+```
+
+For local gateways without bearer auth:
+
+```json
+{
+  "provider": "custom:local-openai",
+  "customProviders": {
+    "local-openai": {
+      "id": "local-openai",
+      "displayName": "Local OpenAI Proxy",
+      "apiFormat": "openai-compatible",
+      "baseUrl": "http://localhost:8080/v1",
+      "apiKeyRequired": false,
+      "model": "local-code-model",
+      "contextWindow": 131072
+    }
+  }
+}
+```
+
+Custom provider telemetry and session sync include the provider id, display name, API format, model id, reasoning effort, and context window when available. Secrets such as `apiKey` are not sent.
+
+You can remove a custom provider from `/model` by opening that provider's settings and choosing **Remove custom provider**.
 
 ---
 

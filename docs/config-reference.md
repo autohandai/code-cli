@@ -153,7 +153,9 @@ Active LLM provider to use.
 | `"llmgateway"` | LLM Gateway unified API      |
 | `"deepseek"`   | DeepSeek API                 |
 | `"zai"`        | Z.ai GLM API                 |
+| `"sakana"`     | Sakana.AI Fugu API           |
 | `"bedrock"`    | AWS Bedrock                  |
+| `"custom:<id>"` | User-defined OpenAI-compatible provider from `customProviders` |
 
 ### `openrouter`
 
@@ -198,6 +200,74 @@ Z.ai provider configuration.
 | `baseUrl`       | string | No       | `https://api.z.ai/api/paas/v4` | API endpoint                                                                     |
 | `model`         | string | Yes      | `glm-5.2`                     | Model identifier, for example `glm-5.2`, `glm-5.1`, or `glm-4.5`                 |
 | `contextWindow` | number | No       | Auto                           | Exact model context window. Autohand infers 1M for GLM-5.2 and 200K for GLM-5.1. |
+
+### `sakana`
+
+Sakana.AI provider configuration. The API is OpenAI-compatible and uses `https://api.sakana.ai/v1` as its base URL.
+
+```json
+{
+  "sakana": {
+    "apiKey": "your-sakana-api-key",
+    "baseUrl": "https://api.sakana.ai/v1",
+    "model": "fugu",
+    "contextWindow": 1000000
+  }
+}
+```
+
+| Field           | Type   | Required | Default                       | Description                                                       |
+| --------------- | ------ | -------- | ----------------------------- | ----------------------------------------------------------------- |
+| `apiKey`        | string | Yes      | -                             | Your Sakana API key                                               |
+| `baseUrl`       | string | No       | `https://api.sakana.ai/v1`    | API endpoint                                                      |
+| `model`         | string | Yes      | `fugu`                        | Model identifier, for example `fugu` or `fugu-ultra`              |
+| `contextWindow` | number | No       | Auto                          | Exact model context window. Autohand infers 1M for Fugu models.   |
+
+### `customProviders`
+
+Custom providers let users bring an OpenAI-compatible endpoint without a code change or a new bundled provider. Add the provider under `customProviders`, then select it with `provider: "custom:<id>"`. The same flow is available from `/model` with **New provider...**.
+
+```json
+{
+  "provider": "custom:acme",
+  "customProviders": {
+    "acme": {
+      "id": "acme",
+      "displayName": "Acme AI",
+      "apiFormat": "openai-compatible",
+      "baseUrl": "https://api.acme.example/v1",
+      "apiKey": "acme-api-key",
+      "apiKeyRequired": true,
+      "model": "acme-code-1",
+      "contextWindow": 256000,
+      "reasoningEffort": "high",
+      "models": [
+        {
+          "id": "acme-code-1",
+          "label": "Acme Code 1",
+          "contextWindow": 256000,
+          "reasoningEffort": "high"
+        }
+      ]
+    }
+  }
+}
+```
+
+For local OpenAI-compatible servers that do not require auth, set `apiKeyRequired` to `false` and omit `apiKey`.
+
+| Field             | Type    | Required | Default | Description |
+| ----------------- | ------- | -------- | ------- | ----------- |
+| `id`              | string  | Yes      | -       | Stable provider id. It must match the object key and is selected as `custom:<id>`. |
+| `displayName`     | string  | Yes      | -       | Name shown in `/model` and provider settings. |
+| `apiFormat`       | string  | Yes      | -       | Must be `openai-compatible`. |
+| `baseUrl`         | string  | Yes      | -       | Endpoint root such as `https://api.example.com/v1`. Autohand calls `/chat/completions`. |
+| `apiKey`          | string  | Conditional | -    | Bearer token for hosted endpoints. Required when `apiKeyRequired` is true. |
+| `apiKeyRequired`  | boolean | No       | `true`  | Set false for local or already-authenticated gateways. |
+| `model`           | string  | Yes      | -       | Active model id. |
+| `contextWindow`   | number  | No       | Auto    | Exact context window for token budgeting, status, telemetry, and sync metadata. |
+| `reasoningEffort` | string  | No       | -       | Optional `none`, `low`, `medium`, `high`, or `xhigh` reasoning setting metadata. |
+| `models`          | array   | No       | -       | Optional model picker entries with per-model context and reasoning metadata. |
 
 ### `ollama`
 
@@ -1032,6 +1102,8 @@ Telemetry is **disabled by default** (opt-in). Enable it to help improve Autohan
 | `maxRetries`        | number  | `3`                       | Retry attempts for failed telemetry requests  |
 | `enableSessionSync` | boolean | `true`                    | Sync sessions to cloud for team features when telemetry is enabled |
 | `companySecret`     | string  | `""`                      | Company secret for API authentication         |
+
+Provider/model telemetry includes the active provider id, model id, and available non-secret metadata such as custom provider display name, API format, reasoning effort, and context window. API keys and bearer tokens are never included.
 
 ---
 

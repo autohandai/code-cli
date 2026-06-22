@@ -14,15 +14,18 @@ import { MLXProvider } from './MLXProvider.js';
 import { LLMGatewayProvider } from './LLMGatewayProvider.js';
 import { AzureProvider } from './AzureProvider.js';
 import { ZaiProvider } from './ZaiProvider.js';
+import { SakanaProvider } from './SakanaProvider.js';
 import { VertexAIProvider } from './VertexAIProvider.js';
 import { XAIProvider } from './XAIProvider.js';
 import { CerebrasProvider } from './CerebrasProvider.js';
 import { NVIDIAProvider } from './NVIDIAProvider.js';
 import { DeepSeekProvider } from './DeepSeekProvider.js';
 import { BedrockProvider } from './BedrockProvider.js';
+import { CustomOpenAICompatibleProvider } from './CustomOpenAICompatibleProvider.js';
 import { isAwsBedrockProviderEnabled } from '../features/featureRegistry.js';
 import { isMLXSupported } from '../utils/platform.js';
 import type { AutohandConfig, ProviderName } from '../types.js';
+import { getCustomProviderConfig, isCustomProviderName, toCustomProviderName } from './customProviders.js';
 
 /**
  * Custom error class for unconfigured provider
@@ -71,6 +74,14 @@ export class ProviderFactory {
     static create(config: AutohandConfig): LLMProvider {
         const providerName = config.provider || 'openrouter';
 
+        if (isCustomProviderName(providerName)) {
+            const customProvider = getCustomProviderConfig(config, providerName);
+            if (!customProvider || customProvider.apiFormat !== 'openai-compatible') {
+                return new UnconfiguredProvider(providerName);
+            }
+            return new CustomOpenAICompatibleProvider(customProvider, config.network);
+        }
+
         if (providerName === 'bedrock' && !isAwsBedrockProviderEnabled(config)) {
             return new UnconfiguredProvider('bedrock');
         }
@@ -117,6 +128,12 @@ export class ProviderFactory {
                     return new UnconfiguredProvider('zai');
                 }
                 return new ZaiProvider(config.zai, config.network);
+
+            case 'sakana':
+                if (!config.sakana) {
+                    return new UnconfiguredProvider('sakana');
+                }
+                return new SakanaProvider(config.sakana, config.network);
 
             case 'vertexai':
                 if (!config.vertexai) {
@@ -167,15 +184,20 @@ export class ProviderFactory {
      * Get all available provider names.
      * MLX is only included on Apple Silicon (macOS + arm64).
      */
-    static getProviderNames(config?: Pick<AutohandConfig, 'features'> | null): ProviderName[] {
-        // Sorted DESC by display name: Z.ai, xAI, Vertex AI, NVIDIA, OpenRouter, OpenAI, Ollama, MLX, LLM Gateway, llama.cpp, DeepSeek, Cerebras, Bedrock, Azure
-        const providers: ProviderName[] = ['zai', 'xai', 'vertexai', 'nvidia', 'openrouter', 'openai', 'ollama', 'llmgateway', 'llamacpp', 'deepseek', 'cerebras', 'azure'];
+    static getProviderNames(config?: Pick<AutohandConfig, 'features' | 'customProviders'> | null): ProviderName[] {
+        // Sorted DESC by display name: Z.ai, xAI, Vertex AI, Sakana.AI, NVIDIA, OpenRouter, OpenAI, Ollama, MLX, LLM Gateway, llama.cpp, DeepSeek, Cerebras, Bedrock, Azure
+        const providers: ProviderName[] = ['zai', 'xai', 'vertexai', 'sakana', 'nvidia', 'openrouter', 'openai', 'ollama', 'llmgateway', 'llamacpp', 'deepseek', 'cerebras', 'azure'];
         if (isAwsBedrockProviderEnabled(config)) {
             providers.splice(providers.indexOf('azure'), 0, 'bedrock');
         }
         if (isMLXSupported()) {
             providers.push('mlx');
         }
+        const customProviders = Object.values(config?.customProviders ?? {})
+            .filter((entry) => entry.disabled !== true)
+            .sort((a, b) => a.displayName.localeCompare(b.displayName))
+            .map((entry) => toCustomProviderName(entry.id));
+        providers.push(...customProviders);
         return providers;
     }
 
@@ -184,12 +206,16 @@ export class ProviderFactory {
      * Note: This checks if the name is a valid provider type, not if it's available on this platform.
      * MLX is always a valid provider name, but may not be available on non-Apple Silicon systems.
      */
-    static isValidProvider(name: string, config?: Pick<AutohandConfig, 'features'> | null): name is ProviderName {
+    static isValidProvider(name: string, config?: Pick<AutohandConfig, 'features' | 'customProviders'> | null): name is ProviderName {
+        if (isCustomProviderName(name)) {
+            return getCustomProviderConfig(config, name) !== undefined;
+        }
+
         if (name === 'bedrock' && !isAwsBedrockProviderEnabled(config)) {
             return false;
         }
 
-        const allProviders: ProviderName[] = ['openrouter', 'ollama', 'openai', 'llamacpp', 'mlx', 'llmgateway', 'azure', 'zai', 'vertexai', 'xai', 'cerebras', 'nvidia', 'deepseek', 'bedrock'];
+        const allProviders: ProviderName[] = ['openrouter', 'ollama', 'openai', 'llamacpp', 'mlx', 'llmgateway', 'azure', 'zai', 'sakana', 'vertexai', 'xai', 'cerebras', 'nvidia', 'deepseek', 'bedrock'];
         return allProviders.includes(name as ProviderName);
     }
 }

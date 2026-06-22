@@ -31,7 +31,7 @@ The release also adds $skill autocomplete. Type $ and the CLI can surface instal
 
 0.9.0 expands the provider matrix and wires those providers through setup, configuration, model selection, docs, tests, and integration surfaces.
 
-The release adds or improves support for Azure Foundry and Azure OpenAI, Vertex AI, Z.ai, xAI, Cerebras, NVIDIA AI Cloud, DeepSeek, OpenAI, OpenRouter, Ollama, llama.cpp, and MLX. The DeepSeek work in the current branch is especially complete: provider factory wiring, config parsing, setup wizard support, /model configuration, ACP model list updates, provider docs, config reference docs, i18n strings, tests, and default base URL handling.
+The release adds or improves support for Azure Foundry and Azure OpenAI, Vertex AI, Z.ai, Sakana.AI, xAI, Cerebras, NVIDIA AI Cloud, DeepSeek, OpenAI, OpenRouter, Ollama, llama.cpp, and MLX. The DeepSeek work in the current branch is especially complete: provider factory wiring, config parsing, setup wizard support, /model configuration, ACP model list updates, provider docs, config reference docs, i18n strings, tests, and default base URL handling.
 
 A DeepSeek config can be as small as this:
 

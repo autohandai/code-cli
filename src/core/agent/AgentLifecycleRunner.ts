@@ -7,7 +7,8 @@ import chalk from 'chalk';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getProviderConfig } from '../../config.js';
-import type { LLMToolCall } from '../../types.js';
+import type { LLMToolCall, ProviderSettings } from '../../types.js';
+import type { ProviderModelMetadata } from '../../telemetry/types.js';
 import { renderTerminalMarkdown } from '../immediateCommandRouter.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { isShellCommand, parseShellCommand } from '../../ui/shellCommand.js';
@@ -24,6 +25,36 @@ const execFileAsync = promisify(execFile);
 
 export interface AgentLifecycleHost {
   [key: string]: any;
+}
+
+function buildProviderTelemetryMetadata(
+  providerSettings: ProviderSettings | null,
+): ProviderModelMetadata {
+  if (!providerSettings) {
+    return {};
+  }
+
+  return {
+    ...("displayName" in providerSettings && typeof providerSettings.displayName === "string"
+      ? { providerDisplayName: providerSettings.displayName }
+      : {}),
+    ...("apiFormat" in providerSettings && typeof providerSettings.apiFormat === "string"
+      ? { providerApiFormat: providerSettings.apiFormat }
+      : {}),
+    ...(providerSettings.reasoningEffort
+      ? { reasoningEffort: providerSettings.reasoningEffort }
+      : {}),
+    ...(providerSettings.contextWindow
+      ? { contextWindow: providerSettings.contextWindow }
+      : {}),
+  };
+}
+
+function getHostProviderSettings(host: AgentLifecycleHost): ProviderSettings | null {
+  if (!host.runtime?.config) {
+    return null;
+  }
+  return getProviderConfig(host.runtime.config, host.activeProvider);
 }
 
 export async function runAgentInteractive(host: AgentLifecycleHost, initialInstruction?: string): Promise<void> {
@@ -210,8 +241,9 @@ export async function performAgentBackgroundInit(host: AgentLifecycleHost): Prom
       if (host.runtime?.options?.bare !== true) {
         host.feedbackManager.startSession();
       }
-      const providerSettings = getProviderConfig(host.runtime.config, host.activeProvider);
+      const providerSettings = getHostProviderSettings(host);
       const model = host.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
+      const providerTelemetryMetadata = buildProviderTelemetryMetadata(providerSettings);
       host.sessionStartedAt = Date.now();
       const [, session] = await Promise.all([
         host.resetConversationContext(),
@@ -230,7 +262,8 @@ export async function performAgentBackgroundInit(host: AgentLifecycleHost): Prom
           session.metadata.sessionId,
           model,
           host.activeProvider,
-          host.sessionStartedAt
+          host.sessionStartedAt,
+          providerTelemetryMetadata
         );
       }
 
@@ -276,8 +309,9 @@ export async function initializeAgentForRPC(host: AgentLifecycleHost): Promise<v
     }
     // These must run sequentially after the parallel init
     await host.skillsRegistry.setWorkspace(host.runtime.workspaceRoot);
-    const providerSettings = getProviderConfig(host.runtime.config, host.activeProvider);
+    const providerSettings = getHostProviderSettings(host);
     const model = host.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
+    const providerTelemetryMetadata = buildProviderTelemetryMetadata(providerSettings);
     host.sessionStartedAt = Date.now();
     const [, session] = await Promise.all([
       host.resetConversationContext(),
@@ -292,7 +326,8 @@ export async function initializeAgentForRPC(host: AgentLifecycleHost): Promise<v
         session.metadata.sessionId,
         model,
         host.activeProvider,
-        host.sessionStartedAt
+        host.sessionStartedAt,
+        providerTelemetryMetadata
       );
     }
 
@@ -416,12 +451,14 @@ export async function attachAgentSession(
     await host.initializeManagers();
     const session = await host.restoreSessionState(sessionId);
     host.sessionStartedAt = Date.now();
+    const providerSettings = getHostProviderSettings(host);
 
     await host.telemetryManager.startSession(
       sessionId,
       session.metadata.model,
       host.activeProvider,
-      host.sessionStartedAt
+      host.sessionStartedAt,
+      buildProviderTelemetryMetadata(providerSettings)
     );
 
     return {
@@ -439,6 +476,7 @@ export async function resumeAgentSession(host: AgentLifecycleHost, sessionId: st
     try {
       const session = await host.restoreSessionState(sessionId);
       host.sessionStartedAt = Date.now();
+      const providerSettings = getHostProviderSettings(host);
 
       console.log(chalk.cyan(`\n📂 Resumed session ${sessionId}`));
 
@@ -447,7 +485,8 @@ export async function resumeAgentSession(host: AgentLifecycleHost, sessionId: st
         sessionId,
         session.metadata.model,
         host.activeProvider,
-        host.sessionStartedAt
+        host.sessionStartedAt,
+        buildProviderTelemetryMetadata(providerSettings)
       );
 
       // Start interactive loop
@@ -460,15 +499,17 @@ export async function resumeAgentSession(host: AgentLifecycleHost, sessionId: st
         context: 'resumeSession'
       });
       // Fallback to new session
-      const providerSettings = getProviderConfig(host.runtime.config, host.activeProvider);
-      const model = host.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
+      const providerSettings = getHostProviderSettings(host);
+      const model = host.runtime?.options?.model ?? providerSettings?.model ?? 'unconfigured';
       host.sessionStartedAt = Date.now();
-      const session = await host.sessionManager.createSession(host.runtime.workspaceRoot, model);
+      const workspaceRoot = host.runtime?.workspaceRoot ?? process.cwd();
+      const fallbackSession = await host.sessionManager.createSession(workspaceRoot, model);
       await host.telemetryManager.startSession(
-        session.metadata.sessionId,
+        fallbackSession.metadata.sessionId,
         model,
         host.activeProvider,
-        host.sessionStartedAt
+        host.sessionStartedAt,
+        buildProviderTelemetryMetadata(providerSettings)
       );
       await host.runInteractiveLoop();
     }

@@ -464,6 +464,60 @@ describe("configParser – error handling (Issue #3)", () => {
     expect(providerConfig?.baseUrl).toBe("https://api.deepseek.com");
   });
 
+  it("loads Sakana config and applies the default Sakana base URL", async () => {
+    const configPath = await writeTempConfig(
+      testDir,
+      "config.json",
+      JSON.stringify({
+        provider: "sakana",
+        sakana: {
+          apiKey: "sakana-api-key-12345",
+          model: "fugu",
+        },
+      }),
+    );
+    const { getProviderConfig, loadConfig } = await importConfigModule();
+
+    const result = await loadConfig(configPath);
+    const providerConfig = getProviderConfig(result, "sakana");
+
+    expect(result.provider).toBe("sakana");
+    expect(providerConfig?.baseUrl).toBe("https://api.sakana.ai/v1");
+  });
+
+  it("loads custom OpenAI-compatible providers from config", async () => {
+    const configPath = await writeTempConfig(
+      testDir,
+      "config.json",
+      JSON.stringify({
+        provider: "custom:acme",
+        customProviders: {
+          acme: {
+            id: "acme",
+            displayName: "Acme AI",
+            apiFormat: "openai-compatible",
+            baseUrl: "https://api.acme.example/v1",
+            apiKey: "acme-api-key-12345",
+            apiKeyRequired: true,
+            model: "acme-code-1",
+            contextWindow: 256000,
+            reasoningEffort: "medium",
+          },
+        },
+      }),
+    );
+    const { getProviderConfig, loadConfig } = await importConfigModule();
+
+    const result = await loadConfig(configPath);
+    const providerConfig = getProviderConfig(result);
+
+    expect(result.provider).toBe("custom:acme");
+    expect(providerConfig?.baseUrl).toBe("https://api.acme.example/v1");
+    expect(providerConfig?.model).toBe("acme-code-1");
+    expect(providerConfig?.contextWindow).toBe(256000);
+    expect(providerConfig?.reasoningEffort).toBe("medium");
+  });
+
   it("loads a valid YAML config without errors", async () => {
     const yamlContent = `provider: openrouter\nopenrouter:\n  apiKey: sk-test-key\n  baseUrl: https://openrouter.ai/api/v1\n  model: your-modelcard-id-here\n`;
     const configPath = await writeTempConfig(

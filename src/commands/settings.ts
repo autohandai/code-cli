@@ -7,7 +7,7 @@ import chalk from 'chalk';
 import { t } from '../i18n/index.js';
 import { showModal, showInput, showConfirm, showPassword, type ModalOption } from '../ui/ink/components/Modal.js';
 import { saveConfig } from '../config.js';
-import type { LoadedConfig, ProviderName } from '../types.js';
+import type { BuiltInProviderName, LoadedConfig } from '../types.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -57,7 +57,7 @@ const SETTING_KEY_ALIASES: Record<string, string> = {
   ui_verbs_activity: 'ui.activityVerbsEnabled',
 };
 
-const CONFIG_PROVIDER_NAMES: readonly ProviderName[] = [
+const CONFIG_PROVIDER_NAMES: readonly BuiltInProviderName[] = [
   'openrouter',
   'ollama',
   'llamacpp',
@@ -189,18 +189,18 @@ export function normalizeSettingKey(input: string): string {
   return trimmed;
 }
 
-function normalizeProviderName(input: string): ProviderName | null {
+function normalizeProviderName(input: string): BuiltInProviderName | null {
   const normalized = input.trim().toLowerCase();
   if (normalized === 'vertex') {
     return 'vertexai';
   }
-  if (CONFIG_PROVIDER_NAMES.includes(normalized as ProviderName)) {
-    return normalized as ProviderName;
+  if (CONFIG_PROVIDER_NAMES.includes(normalized as BuiltInProviderName)) {
+    return normalized as BuiltInProviderName;
   }
   return null;
 }
 
-function normalizeProviderConfigKey(input: string): { provider: ProviderName; field: 'apiKey' | 'baseUrl' | 'model' } | null {
+function normalizeProviderConfigKey(input: string): { provider: BuiltInProviderName; field: 'apiKey' | 'baseUrl' | 'model' } | null {
   const [providerInput, fieldInput, ...extra] = input.trim().replace(/\s+/g, '.').split('.');
   if (!providerInput || !fieldInput || extra.length > 0) {
     return null;

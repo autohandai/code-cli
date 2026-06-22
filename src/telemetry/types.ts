@@ -94,7 +94,14 @@ export interface CommandUseData {
   args?: string[];
 }
 
-export interface ModelSwitchData {
+export interface ProviderModelMetadata {
+  providerDisplayName?: string;
+  providerApiFormat?: string;
+  reasoningEffort?: string;
+  contextWindow?: number;
+}
+
+export interface ModelSwitchData extends ProviderModelMetadata {
   fromModel?: string;
   toModel: string;
   provider: string;

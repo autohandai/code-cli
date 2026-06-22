@@ -46,7 +46,10 @@ describe('TelemetryManager', () => {
     const manager = new TelemetryManager({ enabled: true });
     const startedAt = new Date('2026-05-13T10:00:00.000Z');
 
-    await manager.startSession('session-1', 'gpt-5', 'openai', startedAt.getTime());
+    await manager.startSession('session-1', 'gpt-5', 'openai', startedAt.getTime(), {
+      reasoningEffort: 'high',
+      contextWindow: 400000,
+    });
     await manager.endSession('completed');
 
     expect(trackSpy).toHaveBeenCalledWith(expect.objectContaining({
@@ -57,6 +60,8 @@ describe('TelemetryManager', () => {
         duration: 300,
         model: 'gpt-5',
         provider: 'openai',
+        reasoningEffort: 'high',
+        contextWindow: 400000,
       }),
     }));
   });
@@ -79,7 +84,11 @@ describe('TelemetryManager', () => {
       'session-1',
       'gpt-5',
       'openai',
-      new Date('2026-05-13T10:00:00.000Z')
+      new Date('2026-05-13T10:00:00.000Z'),
+      {
+        reasoningEffort: 'medium',
+        contextWindow: 200000,
+      }
     );
 
     trackSpy.mockClear();
@@ -112,7 +121,11 @@ describe('TelemetryManager', () => {
       'session-1',
       'gpt-5',
       'openai',
-      new Date('2026-05-13T10:00:00.000Z')
+      new Date('2026-05-13T10:00:00.000Z'),
+      {
+        reasoningEffort: 'medium',
+        contextWindow: 200000,
+      }
     );
     now = new Date('2026-05-13T10:07:30.000Z').getTime();
 
@@ -130,6 +143,8 @@ describe('TelemetryManager', () => {
         durationSeconds: 450,
         workspaceRoot: '/workspace/project',
         totalTokens: 123,
+        reasoningEffort: 'medium',
+        contextWindow: 200000,
       }),
     }));
     expect(uploadSessionSpy.mock.calls[0][0].metadata).not.toHaveProperty('endTime');
@@ -159,6 +174,37 @@ describe('TelemetryManager', () => {
       metadata: expect.objectContaining({
         endTime: '2026-05-13T10:08:00.000Z',
         durationSeconds: 480,
+      }),
+    }));
+  });
+
+  it('tracks model switch metadata needed for provider usage sync', async () => {
+    const manager = new TelemetryManager({ enabled: true });
+
+    await manager.startSession('session-1', 'old-model', 'openrouter');
+    trackSpy.mockClear();
+
+    await manager.trackModelSwitch({
+      fromModel: 'old-model',
+      toModel: 'acme-code-1',
+      provider: 'custom:acme',
+      providerDisplayName: 'Acme AI',
+      providerApiFormat: 'openai-compatible',
+      reasoningEffort: 'high',
+      contextWindow: 256000,
+    });
+
+    expect(trackSpy).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'model_switch',
+      sessionId: 'session-1',
+      eventData: expect.objectContaining({
+        fromModel: 'old-model',
+        toModel: 'acme-code-1',
+        provider: 'custom:acme',
+        providerDisplayName: 'Acme AI',
+        providerApiFormat: 'openai-compatible',
+        reasoningEffort: 'high',
+        contextWindow: 256000,
       }),
     }));
   });

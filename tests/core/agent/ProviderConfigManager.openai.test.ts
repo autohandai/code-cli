@@ -41,6 +41,7 @@ vi.mock("../../../src/i18n/index.js", () => ({
   t: (key: string, params?: Record<string, string>) => {
     const map: Record<string, string> = {
       "providers.zai": "Z.ai",
+      "providers.sakana": "Sakana.AI",
       "providers.llmgateway": "LLM Gateway",
       "providers.deepseek": "DeepSeek",
       "providers.openrouter": "OpenRouter",
@@ -201,6 +202,26 @@ describe("ProviderConfigManager openai auth mode", () => {
     expect(mockSaveConfig).toHaveBeenCalledOnce();
   });
 
+  it("configures Sakana.AI with Fugu models", async () => {
+    mockShowPassword.mockResolvedValueOnce("sakana-key-long-enough");
+    mockShowModal.mockResolvedValueOnce({ value: "fugu-ultra" });
+
+    await (manager as any).configureSakana();
+
+    expect(runtime.config.sakana).toEqual({
+      apiKey: "sakana-key-long-enough",
+      baseUrl: "https://api.sakana.ai/v1",
+      model: "fugu-ultra",
+    });
+    const modelModalOptions = mockShowModal.mock.calls[0][0].options;
+    expect(modelModalOptions).toEqual([
+      { label: "fugu", value: "fugu" },
+      { label: "fugu-ultra", value: "fugu-ultra" },
+    ]);
+    expect(runtime.config.provider).toBe("sakana");
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
+  });
+
   it("configures DeepSeek with current DeepSeek API models", async () => {
     mockShowPassword.mockResolvedValueOnce("deepseek-key-long-enough");
     mockShowModal.mockResolvedValueOnce({ value: "deepseek-v4-pro" });
@@ -348,6 +369,7 @@ describe("ProviderConfigManager openai auth mode", () => {
 
     const options = mockShowModal.mock.calls[0][0].options;
     expect(options.some((option: { label: string }) => option.label.includes("Z.ai"))).toBe(true);
+    expect(options.some((option: { label: string }) => option.label.includes("Sakana.AI"))).toBe(true);
     expect(options.some((option: { label: string }) => option.label.includes("LLM Gateway"))).toBe(true);
     expect(options.some((option: { label: string }) => option.label.includes("DeepSeek"))).toBe(true);
   });

@@ -57,7 +57,7 @@ const MAX_ALLOWED_RETRIES = 5;
 const DEFAULT_RETRY_DELAY = 1000;
 const DEFAULT_TIMEOUT = 30000;
 
-interface LLMGatewayCompatibleErrorLabels {
+export interface LLMGatewayCompatibleErrorLabels {
   serviceName: string;
   credentialName: string;
   accountName: string;
