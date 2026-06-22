@@ -19,7 +19,7 @@ describe("ProviderFactory", () => {
   });
 
   describe("getProviderNames()", () => {
-    it("should always include openrouter, ollama, openai, llamacpp, llmgateway, azure, zai, deepseek, bedrock", () => {
+    it("should always include openrouter, ollama, openai, llamacpp, llmgateway, azure, zai, sakana, deepseek, bedrock", () => {
       const providers = ProviderFactory.getProviderNames();
 
       expect(providers).toContain("openrouter");
@@ -29,6 +29,7 @@ describe("ProviderFactory", () => {
       expect(providers).toContain("llmgateway");
       expect(providers).toContain("azure");
       expect(providers).toContain("zai");
+      expect(providers).toContain("sakana");
       expect(providers).toContain("deepseek");
       expect(providers).toContain("bedrock");
     });
@@ -50,6 +51,7 @@ describe("ProviderFactory", () => {
         "zai",
         "xai",
         "vertexai",
+        "sakana",
         "nvidia",
         "openrouter",
         "openai",
@@ -172,6 +174,30 @@ describe("ProviderFactory", () => {
       expect(provider.getName()).toBe("deepseek");
     });
 
+    it("should create SakanaProvider when sakana is configured", () => {
+      const config: AutohandConfig = {
+        provider: "sakana",
+        sakana: {
+          apiKey: "test-sakana-key",
+          model: "fugu",
+        },
+      };
+
+      const provider = ProviderFactory.create(config);
+
+      expect(provider.getName()).toBe("sakana");
+    });
+
+    it("should return UnconfiguredProvider when sakana config is missing", () => {
+      const config: AutohandConfig = {
+        provider: "sakana",
+      };
+
+      const provider = ProviderFactory.create(config);
+
+      expect(provider.getName()).toBe("unconfigured");
+    });
+
     it("should return UnconfiguredProvider when deepseek config is missing", () => {
       const config: AutohandConfig = {
         provider: "deepseek",
@@ -227,6 +253,10 @@ describe("ProviderFactory", () => {
 
     it("should return true for deepseek", () => {
       expect(ProviderFactory.isValidProvider("deepseek")).toBe(true);
+    });
+
+    it("should return true for sakana", () => {
+      expect(ProviderFactory.isValidProvider("sakana")).toBe(true);
     });
 
     it("should return false for invalid provider", () => {

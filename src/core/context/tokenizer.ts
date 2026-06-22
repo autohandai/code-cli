@@ -52,7 +52,8 @@ function normalizeModelId(model: string): string {
     .replace(/^openai\//, '')
     .replace(/^google\//, '')
     .replace(/^deepseek\//, '')
-    .replace(/^zai\//, '');
+    .replace(/^zai\//, '')
+    .replace(/^sakana\//, '');
 }
 
 function inferContextWindow(model: string): number | undefined {
@@ -81,6 +82,7 @@ function inferContextWindow(model: string): number | undefined {
   if (normalized.startsWith('deepseek-v4')) return 1_000_000;
   if (normalized.startsWith('glm-5.2')) return 1_000_000;
   if (normalized.startsWith('glm-5.1')) return 200_000;
+  if (normalized === 'fugu' || normalized === 'fugu-ultra') return 1_000_000;
 
   return undefined;
 }

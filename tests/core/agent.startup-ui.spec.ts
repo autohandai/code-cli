@@ -148,6 +148,18 @@ describe('agent startup and active input UI', () => {
     expect(agent.permissionManager.setMode).toHaveBeenCalledWith('restricted');
   });
 
+  it('availableProviders includes configured Sakana provider', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    agent.runtime = {
+      config: {
+        openrouter: { apiKey: 'openrouter-key', model: 'openrouter/auto' },
+        sakana: { apiKey: 'sakana-key', model: 'fugu' },
+      },
+    };
+
+    expect((agent as any).availableProviders()).toEqual(['openrouter', 'sakana']);
+  });
+
   it('resolveWorkspacePath allows absolute paths inside additional directories', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const workspaceRoot = mkdtempSync(join(tmpdir(), 'autohand-agent-workspace-'));

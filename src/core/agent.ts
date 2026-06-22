@@ -1727,6 +1727,7 @@ export class AutohandAgent {
     if (this.runtime.config.mlx) providers.push('mlx');
     if (this.runtime.config.llmgateway) providers.push('llmgateway');
     if (this.runtime.config.zai) providers.push('zai');
+    if (this.runtime.config.sakana) providers.push('sakana');
     if (this.runtime.config.bedrock && isAwsBedrockProviderEnabled(this.runtime.config)) providers.push('bedrock');
     return providers.length ? providers : ['openrouter'];
   }

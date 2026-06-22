@@ -138,10 +138,16 @@ Triggered when user changes the AI model.
   eventData: {
     fromModel: 'gpt-4',
     toModel: 'claude-3.5-sonnet',
-    provider: 'openrouter'
+    provider: 'openrouter',
+    providerDisplayName: 'OpenRouter',
+    providerApiFormat: 'openai-compatible', // custom providers only
+    reasoningEffort: 'high',
+    contextWindow: 262144
   }
 }
 ```
+
+Provider metadata is non-secret. API keys, bearer tokens, and OAuth tokens are not included.
 
 **Frequency**: Per model change
 

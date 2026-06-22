@@ -8,6 +8,7 @@ import path from "node:path";
 import YAML from "yaml";
 import type {
   AutohandConfig,
+  BuiltInProviderName,
   LoadedConfig,
   ProviderName,
   ProviderSettings,
@@ -22,6 +23,7 @@ import { AUTOHAND_FILES } from "./constants.js";
 import { autoInitTheme, configureThemeSources, themeExists } from "./ui/theme/index.js";
 import { loadLocalProjectSettings, type LocalProjectSettings } from "./permissions/localProjectPermissions.js";
 import { isAwsBedrockProviderEnabled } from "./features/featureRegistry.js";
+import { getCustomProviderConfig, isCustomProviderName } from "./providers/customProviders.js";
 
 const DEFAULT_CONFIG_PATH = AUTOHAND_FILES.configJson;
 const TOML_CONFIG_PATH = AUTOHAND_FILES.configToml;
@@ -34,6 +36,7 @@ const DEFAULT_OPENAI_URL = "https://api.openai.com/v1";
 const DEFAULT_MLX_URL = "http://localhost:8080";
 const DEFAULT_LLMGATEWAY_URL = "https://api.llmgateway.io/v1";
 const DEFAULT_ZAI_URL = "https://api.z.ai/api/paas/v4";
+const DEFAULT_SAKANA_URL = "https://api.sakana.ai/v1";
 const DEFAULT_DEEPSEEK_URL = "https://api.deepseek.com";
 const DEFAULT_BEDROCK_REGION = "us-east-1";
 
@@ -60,7 +63,11 @@ function normalizeProviderName(provider: unknown): ProviderName | undefined {
     return "vertexai";
   }
 
-  const validProviders: readonly ProviderName[] = [
+  if (isCustomProviderName(provider)) {
+    return provider;
+  }
+
+  const validProviders: readonly BuiltInProviderName[] = [
     "openrouter",
     "ollama",
     "llamacpp",
@@ -69,6 +76,7 @@ function normalizeProviderName(provider: unknown): ProviderName | undefined {
     "llmgateway",
     "azure",
     "zai",
+    "sakana",
     "vertexai",
     "xai",
     "cerebras",
@@ -77,7 +85,7 @@ function normalizeProviderName(provider: unknown): ProviderName | undefined {
     "bedrock",
   ];
 
-  if (typeof provider === "string" && validProviders.includes(provider as ProviderName)) {
+  if (typeof provider === "string" && validProviders.includes(provider as BuiltInProviderName)) {
     return provider as ProviderName;
   }
 
@@ -493,8 +501,19 @@ function mergeWorkspaceSettings(
   if (workspaceSettings.model !== undefined) {
     // Update the model in the provider-specific config
     const provider = workspaceSettings.provider || merged.provider;
-    if (provider && merged[provider]) {
-      (merged[provider] as ProviderSettings).model = workspaceSettings.model;
+    if (provider && isCustomProviderName(provider)) {
+      const customProvider = getCustomProviderConfig(merged, provider);
+      if (customProvider) {
+        merged.customProviders = {
+          ...merged.customProviders,
+          [customProvider.id]: {
+            ...customProvider,
+            model: workspaceSettings.model,
+          },
+        };
+      }
+    } else if (provider && merged[provider as BuiltInProviderName]) {
+      (merged[provider as BuiltInProviderName] as ProviderSettings).model = workspaceSettings.model;
     }
   }
 
@@ -652,12 +671,14 @@ function isModernConfig(
     typeof (config as AutohandConfig).mlx === "object" ||
     typeof (config as AutohandConfig).azure === "object" ||
     typeof (config as AutohandConfig).zai === "object" ||
+    typeof (config as AutohandConfig).sakana === "object" ||
     typeof (config as AutohandConfig).vertexai === "object" ||
     typeof (config as AutohandConfig).xai === "object" ||
     typeof (config as AutohandConfig).cerebras === "object" ||
     typeof (config as AutohandConfig).nvidia === "object" ||
     typeof (config as AutohandConfig).deepseek === "object" ||
-    typeof (config as AutohandConfig).bedrock === "object"
+    typeof (config as AutohandConfig).bedrock === "object" ||
+    typeof (config as AutohandConfig).customProviders === "object"
   );
 }
 
@@ -810,6 +831,44 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
       }
     }
   }
+
+  if (config.customProviders !== undefined) {
+    if (!isPlainObject(config.customProviders)) {
+      throw new Error(`customProviders must be an object in ${configPath}`);
+    }
+    for (const [key, provider] of Object.entries(config.customProviders)) {
+      if (!isPlainObject(provider)) {
+        throw new Error(`customProviders.${key} must be an object in ${configPath}`);
+      }
+      if (provider.id !== key) {
+        throw new Error(`customProviders.${key}.id must match its config key in ${configPath}`);
+      }
+      if (typeof provider.displayName !== "string" || provider.displayName.trim() === "") {
+        throw new Error(`customProviders.${key}.displayName must be a non-empty string in ${configPath}`);
+      }
+      if (provider.apiFormat !== "openai-compatible") {
+        throw new Error(`customProviders.${key}.apiFormat must be "openai-compatible" in ${configPath}`);
+      }
+      if (typeof provider.baseUrl !== "string" || provider.baseUrl.trim() === "") {
+        throw new Error(`customProviders.${key}.baseUrl must be a non-empty string in ${configPath}`);
+      }
+      if (typeof provider.model !== "string" || provider.model.trim() === "") {
+        throw new Error(`customProviders.${key}.model must be a non-empty string in ${configPath}`);
+      }
+      if (
+        provider.apiKeyRequired !== undefined &&
+        typeof provider.apiKeyRequired !== "boolean"
+      ) {
+        throw new Error(`customProviders.${key}.apiKeyRequired must be boolean in ${configPath}`);
+      }
+      if (
+        provider.contextWindow !== undefined &&
+        (typeof provider.contextWindow !== "number" || provider.contextWindow <= 0)
+      ) {
+        throw new Error(`customProviders.${key}.contextWindow must be a positive number in ${configPath}`);
+      }
+    }
+  }
 }
 
 export function resolveWorkspaceRoot(
@@ -827,11 +886,33 @@ export function getProviderConfig(
   provider?: ProviderName,
 ): ProviderSettings | null {
   const chosen = provider ?? config.provider ?? "openrouter";
+  if (isCustomProviderName(chosen)) {
+    const entry = getCustomProviderConfig(config, chosen);
+    if (!entry || entry.apiFormat !== "openai-compatible") {
+      return null;
+    }
+    const model = entry.model?.trim();
+    const baseUrl = entry.baseUrl?.trim();
+    const requiresApiKey = entry.apiKeyRequired !== false;
+    if (!model || !baseUrl) {
+      return null;
+    }
+    if (requiresApiKey && (!entry.apiKey || entry.apiKey === "replace-me")) {
+      return null;
+    }
+    return {
+      ...entry,
+      model,
+      baseUrl,
+    };
+  }
+
   if (chosen === "bedrock" && !isAwsBedrockProviderEnabled(config)) {
     return null;
   }
 
-  const configByProvider: Record<ProviderName, ProviderSettings | undefined> = {
+  const builtInProvider = chosen as BuiltInProviderName;
+  const configByProvider: Record<BuiltInProviderName, ProviderSettings | undefined> = {
     openrouter: config.openrouter,
     ollama: config.ollama,
     llamacpp: config.llamacpp,
@@ -840,6 +921,7 @@ export function getProviderConfig(
     llmgateway: config.llmgateway,
     azure: config.azure,
     zai: config.zai,
+    sakana: config.sakana,
     vertexai: config.vertexai,
     xai: config.xai,
     cerebras: config.cerebras,
@@ -848,7 +930,7 @@ export function getProviderConfig(
     bedrock: config.bedrock,
   };
 
-  const entry = configByProvider[chosen];
+  const entry = configByProvider[builtInProvider];
   if (!entry) {
     // Return null instead of throwing - let the caller handle unconfigured state
     return null;
@@ -873,29 +955,30 @@ export function getProviderConfig(
       }
     }
   } else if (
-    chosen === "openrouter" ||
-    chosen === "llmgateway" ||
-    chosen === "zai" ||
-    chosen === "nvidia" ||
-    chosen === "deepseek"
+    builtInProvider === "openrouter" ||
+    builtInProvider === "llmgateway" ||
+    builtInProvider === "zai" ||
+    builtInProvider === "sakana" ||
+    builtInProvider === "nvidia" ||
+    builtInProvider === "deepseek"
   ) {
     const { apiKey, model } = entry as ProviderSettings;
     if (!apiKey || apiKey === "replace-me" || !model) {
       return null; // Incomplete config
     }
-  } else if (chosen === "vertexai") {
+  } else if (builtInProvider === "vertexai") {
     const { authToken, projectId, model } = entry as VertexAISettings;
     if (!authToken || !projectId || !model) {
       return null; // Incomplete config
     }
-  } else if (chosen === "bedrock") {
+  } else if (builtInProvider === "bedrock") {
     return normalizeBedrockProviderConfig(entry as BedrockSettings);
   } else {
-    if (chosen === "llamacpp") {
+    if (builtInProvider === "llamacpp") {
       return {
         ...entry,
         model: entry.model ?? "local",
-        baseUrl: entry.baseUrl ?? defaultBaseUrlFor(chosen, entry.port),
+        baseUrl: entry.baseUrl ?? defaultBaseUrlFor(builtInProvider, entry.port),
       };
     }
 
@@ -907,17 +990,18 @@ export function getProviderConfig(
 
   return {
     ...entry,
-    baseUrl: entry.baseUrl ?? defaultBaseUrlFor(chosen, entry.port),
+    baseUrl: entry.baseUrl ?? defaultBaseUrlFor(builtInProvider, entry.port),
   };
 }
 
 function defaultBaseUrlFor(
-  provider: ProviderName,
+  provider: BuiltInProviderName,
   port?: number,
 ): string | undefined {
   if (provider === "openrouter") return DEFAULT_BASE_URL;
   if (provider === "llmgateway") return DEFAULT_LLMGATEWAY_URL;
   if (provider === "zai") return DEFAULT_ZAI_URL;
+  if (provider === "sakana") return DEFAULT_SAKANA_URL;
   if (provider === "deepseek") return DEFAULT_DEEPSEEK_URL;
   const p = port ? port.toString() : undefined;
   switch (provider) {

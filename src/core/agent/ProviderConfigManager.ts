@@ -20,6 +20,7 @@ import {
   probeLlamaCppEnvironment,
 } from "../../providers/llamaCppSetup.js";
 import { ZAI_MODELS, ZAI_DEFAULT_BASE_URL } from "../../providers/ZaiProvider.js";
+import { SAKANA_MODELS, SAKANA_DEFAULT_BASE_URL } from "../../providers/SakanaProvider.js";
 import { NVIDIA_MODELS, NVIDIA_DEFAULT_BASE_URL } from "../../providers/NVIDIAProvider.js";
 import { DEEPSEEK_MODELS, DEEPSEEK_DEFAULT_BASE_URL } from "../../providers/DeepSeekProvider.js";
 import {
@@ -44,12 +45,20 @@ import type {
   VertexAISettings,
   BedrockApiMode,
   BedrockAuthMode,
+  CustomProviderId,
+  CustomProviderSettings,
 } from "../../types.js";
 import type { LLMProvider } from "../../providers/LLMProvider.js";
 import type { TelemetryManager } from "../../telemetry/TelemetryManager.js";
 import { AgentDelegator } from "../agents/AgentDelegator.js";
 import type { ActionExecutor } from "../actionExecutor.js";
 import { authenticateOpenAIChatGPT } from "../../providers/openaiAuth.js";
+import {
+  getCustomProviderConfig,
+  isCustomProviderName,
+  normalizeCustomProviderId,
+  toCustomProviderName,
+} from "../../providers/customProviders.js";
 
 /**
  * ProviderConfigManager module
@@ -66,16 +75,19 @@ type CloudProviderWithSettings =
   | "llmgateway"
   | "azure"
   | "zai"
+  | "sakana"
   | "xai"
   | "nvidia"
-  | "deepseek";
+  | "deepseek"
+  | CustomProviderId;
 
 type CloudProviderSettingsAction =
   | "model"
   | "apiKey"
   | "auth"
   | "both"
-  | "reasoning";
+  | "reasoning"
+  | "remove";
 
 type ProviderSettingsSummary = {
   apiKey?: string;
@@ -137,7 +149,7 @@ export class ProviderConfigManager {
     const providerChoices: ModalOption[] = allProviders.map((name) => {
       const isConfigured = this.isProviderConfigured(name);
       const indicator = isConfigured ? chalk.green("●") : chalk.red("○");
-      const displayName = t(`providers.${name}`);
+      const displayName = this.getProviderDisplayName(name);
       const current =
         name === this.getActiveProvider()
           ? chalk.cyan(" (" + t("providers.config.current") + ")")
@@ -155,6 +167,10 @@ export class ProviderConfigManager {
         value: name,
       };
     });
+    providerChoices.push({
+      label: chalk.cyan("+ " + t("providers.config.newProvider")),
+      value: "new-custom-provider",
+    });
 
     const result = await showModal({
       title: t("providers.config.chooseProvider"),
@@ -163,6 +179,11 @@ export class ProviderConfigManager {
 
     if (!result) {
       console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+      return;
+    }
+
+    if (result.value === "new-custom-provider") {
+      await this.configureCustomProvider();
       return;
     }
 
@@ -212,6 +233,10 @@ export class ProviderConfigManager {
       await this.promptProviderSelection();
       return;
     }
+    if (action === "remove" && isCustomProviderName(provider)) {
+      await this.removeCustomProvider(provider);
+      return;
+    }
 
     if (provider === "vertexai") {
       await this.changeVertexAISettings(
@@ -248,7 +273,7 @@ export class ProviderConfigManager {
     currentModel: string,
     currentSettings: ProviderSettingsSummary | null,
   ): void {
-    const providerName = t(`providers.${provider}`);
+    const providerName = this.getProviderDisplayName(provider);
     console.log(
       chalk.cyan(
         "\n" + t("providers.config.settingsTitle", { provider: providerName }),
@@ -328,7 +353,21 @@ export class ProviderConfigManager {
     return null;
   }
 
+  private getProviderDisplayName(provider: ProviderName): string {
+    return getCustomProviderConfig(this.runtime.config, provider)?.displayName ?? t(`providers.${provider}`);
+  }
+
   private buildConfiguredProviderActions(provider: ProviderName): ModalOption[] {
+    if (isCustomProviderName(provider)) {
+      return [
+        { label: t("providers.config.changeModelOnly"), value: "model" },
+        { label: t("providers.config.changeApiKeyOnly"), value: "apiKey" },
+        { label: t("providers.config.changeBoth"), value: "both" },
+        { label: t("providers.custom.removeProvider"), value: "remove" },
+        { label: t("providers.config.changeProvider"), value: "provider" },
+      ];
+    }
+
     if (provider === "openai") {
       return [
         {
@@ -374,12 +413,17 @@ export class ProviderConfigManager {
   private isCloudSettingsProvider(
     provider: ProviderName,
   ): provider is CloudProviderWithSettings {
+    if (isCustomProviderName(provider)) {
+      return true;
+    }
+
     return [
       "openai",
       "openrouter",
       "llmgateway",
       "azure",
       "zai",
+      "sakana",
       "xai",
       "nvidia",
       "deepseek",
@@ -387,12 +431,17 @@ export class ProviderConfigManager {
   }
 
   private isHostedProvider(provider: ProviderName): boolean {
+    if (isCustomProviderName(provider)) {
+      return true;
+    }
+
     return [
       "openrouter",
       "openai",
       "llmgateway",
       "azure",
       "zai",
+      "sakana",
       "vertexai",
       "xai",
       "cerebras",
@@ -406,7 +455,17 @@ export class ProviderConfigManager {
    * Check if a provider is configured with necessary credentials
    */
   isProviderConfigured(provider: ProviderName): boolean {
-    const config = this.runtime.config[provider];
+    const customConfig = getCustomProviderConfig(this.runtime.config, provider);
+    if (customConfig) {
+      return (
+        Boolean(customConfig.model) &&
+        Boolean(customConfig.baseUrl) &&
+        (customConfig.apiKeyRequired === false ||
+          (!!customConfig.apiKey && customConfig.apiKey !== "replace-me"))
+      );
+    }
+
+    const config = getProviderConfig(this.runtime.config, provider);
     if (!config) return false;
 
     // Azure: check auth method - managed identity needs no key, entra-id needs tenant/client, api-key needs apiKey
@@ -439,6 +498,7 @@ export class ProviderConfigManager {
       provider === "openrouter" ||
       provider === "llmgateway" ||
       provider === "zai" ||
+      provider === "sakana" ||
       provider === "xai" ||
       provider === "nvidia" ||
       provider === "deepseek"
@@ -458,6 +518,11 @@ export class ProviderConfigManager {
    * Configure a specific provider (dispatcher to provider-specific methods)
    */
   private async configureProvider(provider: ProviderName): Promise<void> {
+    if (isCustomProviderName(provider)) {
+      await this.configureCustomProvider(provider);
+      return;
+    }
+
     if (!ProviderFactory.isValidProvider(provider, this.runtime.config)) {
       console.log(chalk.yellow(`\nProvider "${provider}" is not available.`));
       return;
@@ -487,6 +552,9 @@ export class ProviderConfigManager {
         break;
       case "zai":
         await this.configureZai();
+        break;
+      case "sakana":
+        await this.configureSakana();
         break;
       case "vertexai":
         await this.configureVertexAI();
@@ -1288,6 +1356,7 @@ export class ProviderConfigManager {
         provider === "llmgateway" ||
         provider === "azure" ||
         provider === "zai" ||
+        provider === "sakana" ||
         provider === "vertexai" ||
         provider === "xai" ||
         provider === "nvidia" ||
@@ -1702,6 +1771,252 @@ export class ProviderConfigManager {
     } catch (error) {
       throw error;
     }
+  }
+
+  /**
+   * Configure Sakana.AI provider (API key + Fugu model)
+   */
+  private async configureSakana(): Promise<void> {
+    try {
+      console.log(chalk.cyan(t("providers.wizard.sakana.title")));
+      console.log(
+        chalk.gray(
+          t("providers.config.apiKeyUrl", {
+            url: t("providers.wizard.sakana.apiKeyUrl"),
+          }) + "\n",
+        ),
+      );
+
+      const apiKey = await showPassword({
+        title: t("providers.config.enterApiKey", {
+          provider: t("providers.sakana"),
+        }),
+        placeholder: t("ui.apiKeyPlaceholder"),
+      });
+
+      if (!apiKey) {
+        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+        return;
+      }
+
+      const modelChoices: ModalOption[] = SAKANA_MODELS.map((model) => ({
+        label: model,
+        value: model,
+      }));
+
+      const result = await showModal({
+        title: t("providers.config.selectModel"),
+        options: modelChoices,
+      });
+
+      if (!result) {
+        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+        return;
+      }
+
+      const model = result.value as string;
+
+      this.runtime.config.sakana = {
+        apiKey,
+        baseUrl: SAKANA_DEFAULT_BASE_URL,
+        model,
+      };
+
+      this.runtime.config.provider = "sakana";
+      this.runtime.options.model = model;
+      await saveConfig(this.runtime.config);
+      this.resetLlmClient("sakana", model);
+
+      console.log(
+        chalk.green(
+          "\n✓ " +
+            t("providers.config.configuredSuccessfully", {
+              provider: t("providers.sakana"),
+            }),
+        ),
+      );
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Configure a user-defined OpenAI-compatible provider.
+   */
+  private async configureCustomProvider(provider?: CustomProviderId): Promise<void> {
+    const existing = provider
+      ? getCustomProviderConfig(this.runtime.config, provider)
+      : undefined;
+
+    const displayName = await showInput({
+      title: t("providers.custom.enterDisplayName"),
+      defaultValue: existing?.displayName ?? "",
+      validate: (val: string) =>
+        val.trim().length > 0 ? true : t("providers.custom.displayNameRequired"),
+    });
+    if (!displayName) {
+      console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+      return;
+    }
+
+    const id = existing?.id ?? normalizeCustomProviderId(displayName);
+    if (!id) {
+      console.log(chalk.red("\n" + t("providers.custom.invalidId")));
+      return;
+    }
+
+    const providerName = toCustomProviderName(id);
+    const baseUrl = await showInput({
+      title: t("providers.custom.enterBaseUrl"),
+      defaultValue: existing?.baseUrl ?? "https://api.example.com/v1",
+      validate: (val: string) => {
+        const trimmed = val.trim();
+        if (!trimmed) return t("providers.custom.baseUrlRequired");
+        if (!/^https?:\/\//.test(trimmed)) return t("providers.custom.baseUrlInvalid");
+        return true;
+      },
+    });
+    if (!baseUrl) {
+      console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+      return;
+    }
+
+    const apiKeyRequired = await showConfirm({
+      title: t("providers.custom.apiKeyRequired"),
+      defaultValue: existing?.apiKeyRequired ?? true,
+    });
+
+    let apiKey = existing?.apiKey ?? "";
+    const enteredApiKey = await showPassword({
+      title: apiKeyRequired
+        ? t("providers.config.enterApiKey", { provider: displayName.trim() })
+        : t("providers.custom.enterOptionalApiKey", { provider: displayName.trim() }),
+      placeholder: t("ui.apiKeyPlaceholder"),
+      validate: (val: string) => {
+        if (!apiKeyRequired) return true;
+        if (!val?.trim()) return t("providers.config.apiKeyRequired");
+        if (val.length < 10) return t("providers.config.apiKeyTooShort");
+        return true;
+      },
+    });
+    if (enteredApiKey) {
+      apiKey = enteredApiKey.trim();
+    } else if (apiKeyRequired && !apiKey) {
+      console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+      return;
+    }
+
+    const model = await showInput({
+      title: t("providers.config.enterModelId"),
+      defaultValue: existing?.model ?? "gpt-4o",
+      validate: (val: string) =>
+        val.trim().length > 0 ? true : t("providers.custom.modelRequired"),
+    });
+    if (!model) {
+      console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+      return;
+    }
+
+    const contextWindowInput = await showInput({
+      title: t("providers.custom.enterContextWindow"),
+      defaultValue: existing?.contextWindow ? String(existing.contextWindow) : "",
+    });
+    const contextWindow = contextWindowInput?.trim()
+      ? Number(contextWindowInput.trim())
+      : undefined;
+    if (
+      contextWindow !== undefined &&
+      (!Number.isFinite(contextWindow) || contextWindow <= 0)
+    ) {
+      console.log(chalk.red("\n" + t("providers.custom.contextWindowInvalid")));
+      return;
+    }
+
+    const configureReasoning = await showConfirm({
+      title: t("providers.custom.configureReasoningEffort"),
+      defaultValue: existing?.reasoningEffort !== undefined,
+    });
+    const reasoningEffort = configureReasoning
+      ? await this.promptReasoningEffort(existing?.reasoningEffort)
+      : undefined;
+
+    const customProvider: CustomProviderSettings = {
+      id,
+      displayName: displayName.trim(),
+      apiFormat: "openai-compatible",
+      baseUrl: baseUrl.trim().replace(/\/+$/, ""),
+      apiKeyRequired,
+      ...(apiKey && { apiKey }),
+      model: sanitizeModelId(model),
+      ...(contextWindow !== undefined && { contextWindow }),
+      ...(reasoningEffort !== undefined && { reasoningEffort }),
+      models: [
+        {
+          id: sanitizeModelId(model),
+          ...(contextWindow !== undefined && { contextWindow }),
+          ...(reasoningEffort !== undefined && { reasoningEffort }),
+        },
+      ],
+    };
+
+    this.runtime.config.customProviders = {
+      ...this.runtime.config.customProviders,
+      [id]: customProvider,
+    };
+    this.runtime.config.provider = providerName;
+    this.runtime.options.model = customProvider.model;
+    await saveConfig(this.runtime.config);
+    this.resetLlmClient(providerName, customProvider.model);
+    this.updateContextWindow(getContextWindow(customProvider.model, contextWindow));
+    this.resetContextPercent();
+    this.emitStatus();
+
+    console.log(
+      chalk.green(
+        "\n✓ " +
+          t("providers.config.configuredSuccessfully", {
+            provider: customProvider.displayName,
+          }),
+      ),
+    );
+  }
+
+  private async removeCustomProvider(provider: CustomProviderId): Promise<void> {
+    const id = normalizeCustomProviderId(provider);
+    const existing = getCustomProviderConfig(this.runtime.config, provider);
+    if (!existing) {
+      console.log(chalk.gray("\n" + t("providers.custom.removeMissing")));
+      return;
+    }
+
+    const confirmed = await showConfirm({
+      title: t("providers.custom.removeConfirm", { provider: existing.displayName }),
+      defaultValue: false,
+    });
+    if (!confirmed) {
+      console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+      return;
+    }
+
+    const nextCustomProviders = { ...(this.runtime.config.customProviders ?? {}) };
+    delete nextCustomProviders[id];
+    this.runtime.config.customProviders =
+      Object.keys(nextCustomProviders).length > 0 ? nextCustomProviders : undefined;
+
+    this.runtime.config.provider = "openrouter";
+    const fallbackModel = getProviderConfig(this.runtime.config, "openrouter")?.model ?? "openrouter/auto";
+    this.runtime.options.model = fallbackModel;
+
+    await saveConfig(this.runtime.config);
+    this.resetLlmClient("openrouter", fallbackModel);
+    this.resetContextPercent();
+    this.emitStatus();
+
+    console.log(
+      chalk.green(
+        "\n✓ " + t("providers.custom.removed", { provider: existing.displayName }),
+      ),
+    );
   }
 
   /**
@@ -2128,7 +2443,7 @@ export class ProviderConfigManager {
     } | null,
     forcedAction?: CloudProviderSettingsAction,
   ): Promise<void> {
-    const providerName = t(`providers.${provider}`);
+    const providerName = this.getProviderDisplayName(provider);
     const openAISettings =
       provider === "openai" ? this.runtime.config.openai : undefined;
     const maskedKey =
@@ -2163,6 +2478,7 @@ export class ProviderConfigManager {
 
     let newModel = currentModel;
     let newApiKey = currentSettings?.apiKey || "";
+    const customSettings = getCustomProviderConfig(this.runtime.config, provider);
     let authMode: OpenAIAuthMode | undefined =
       provider === "openai"
         ? this.runtime.config.openai?.authMode === "chatgpt"
@@ -2230,28 +2546,31 @@ export class ProviderConfigManager {
         authMode === "api-key" &&
         (action === "auth" || action === "both"))
     ) {
-      const keyUrlMap = {
+      const keyUrlMap: Partial<Record<Exclude<CloudProviderWithSettings, CustomProviderId>, string>> = {
         openai: "https://platform.openai.com/api-keys",
         openrouter: "https://openrouter.ai/keys",
         llmgateway: "https://llmgateway.io/dashboard",
         azure: "https://ai.azure.com",
         zai: "https://z.ai/api-keys",
+        sakana: "https://sakana.ai",
         xai: "https://console.x.ai/keys",
-        cerebras: "https://cloud.cerebras.ai/platform/",
         nvidia: "https://build.nvidia.com/api-key",
         deepseek: "https://platform.deepseek.com/api_keys",
       };
-      const keyUrl = keyUrlMap[provider];
-      console.log(
-        chalk.gray(
-          "\n" + t("providers.config.apiKeyUrl", { url: keyUrl }) + "\n",
-        ),
-      );
+      const keyUrl = isCustomProviderName(provider) ? customSettings?.baseUrl : keyUrlMap[provider];
+      if (keyUrl) {
+        console.log(
+          chalk.gray(
+            "\n" + t("providers.config.apiKeyUrl", { url: keyUrl }) + "\n",
+          ),
+        );
+      }
 
       const apiKey = await showPassword({
         title: t("providers.config.enterApiKey", { provider: providerName }),
         placeholder: t("ui.apiKeyPlaceholder"),
         validate: (val: string) => {
+          if (isCustomProviderName(provider) && customSettings?.apiKeyRequired === false) return true;
           if (!val?.trim()) return t("providers.config.apiKeyRequired");
           if (val.length < 10) return t("providers.config.apiKeyTooShort");
           return true;
@@ -2265,20 +2584,21 @@ export class ProviderConfigManager {
         return;
       }
 
-      // Validate the API key
-      console.log(chalk.gray("\n" + t("providers.config.validatingApiKey")));
-      const validationResult = await this.validateApiKey(
-        provider,
-        apiKey.trim(),
-      );
+      if (!isCustomProviderName(provider)) {
+        console.log(chalk.gray("\n" + t("providers.config.validatingApiKey")));
+        const validationResult = await this.validateApiKey(
+          provider,
+          apiKey.trim(),
+        );
 
-      if (!validationResult.valid) {
-        console.log(chalk.red(`\n✗ ${validationResult.error}`));
-        console.log(chalk.gray(validationResult.hint || ""));
-        return;
+        if (!validationResult.valid) {
+          console.log(chalk.red(`\n✗ ${validationResult.error}`));
+          console.log(chalk.gray(validationResult.hint || ""));
+          return;
+        }
+
+        console.log(chalk.green("✓ " + t("providers.config.apiKeyValid") + "\n"));
       }
-
-      console.log(chalk.green("✓ " + t("providers.config.apiKeyValid") + "\n"));
       newApiKey = apiKey.trim();
     }
 
@@ -2357,6 +2677,81 @@ export class ProviderConfigManager {
         }
 
         newModel = result.value as string;
+      } else if (provider === "sakana") {
+        const modelOptions: ModalOption[] = SAKANA_MODELS.map((name) => ({
+          label: name,
+          value: name,
+        }));
+        const currentIndex = Math.max(
+          0,
+          SAKANA_MODELS.indexOf(currentModel as (typeof SAKANA_MODELS)[number]),
+        );
+        const result = await showModal({
+          title: t("providers.config.selectModel"),
+          options: modelOptions,
+          initialIndex: currentIndex,
+        });
+
+        if (!result) {
+          console.log(
+            chalk.gray("\n" + t("providers.config.settingsChangeCancelled")),
+          );
+          return;
+        }
+
+        newModel = result.value as string;
+      } else if (isCustomProviderName(provider)) {
+        const configuredModels = customSettings?.models?.map((entry) => entry.id) ?? [];
+        if (configuredModels.length > 0) {
+          const modelOptions: ModalOption[] = configuredModels.map((name) => ({
+            label: name,
+            value: name,
+          }));
+          const currentIndex = Math.max(0, configuredModels.indexOf(currentModel));
+          const result = await showModal({
+            title: t("providers.config.selectModel"),
+            options: [
+              ...modelOptions,
+              { label: t("providers.config.customModel"), value: "__custom_model__" },
+            ],
+            initialIndex: currentIndex,
+          });
+
+          if (!result) {
+            console.log(
+              chalk.gray("\n" + t("providers.config.settingsChangeCancelled")),
+            );
+            return;
+          }
+
+          if (result.value === "__custom_model__") {
+            const model = await showInput({
+              title: t("providers.config.enterModelId"),
+              defaultValue: currentModel,
+            });
+            if (!model) {
+              console.log(
+                chalk.gray("\n" + t("providers.config.settingsChangeCancelled")),
+              );
+              return;
+            }
+            newModel = model.trim();
+          } else {
+            newModel = result.value as string;
+          }
+        } else {
+          const model = await showInput({
+            title: t("providers.config.enterModelId"),
+            defaultValue: currentModel,
+          });
+          if (!model) {
+            console.log(
+              chalk.gray("\n" + t("providers.config.settingsChangeCancelled")),
+            );
+            return;
+          }
+          newModel = model.trim();
+        }
       } else if (provider === "nvidia") {
         const modelOptions: ModalOption[] = NVIDIA_MODELS.map((name) => ({
           label: name,
@@ -2483,7 +2878,7 @@ export class ProviderConfigManager {
         ...(newApiKey && { apiKey: newApiKey }),
       };
     } else {
-      const baseUrlMap = {
+      const baseUrlMap: Partial<Record<Exclude<CloudProviderWithSettings, CustomProviderId>, string>> = {
         openai:
           authMode === "chatgpt"
             ? "https://chatgpt.com/backend-api/codex"
@@ -2491,13 +2886,30 @@ export class ProviderConfigManager {
         openrouter: "https://openrouter.ai/api/v1",
         llmgateway: "https://api.llmgateway.io/v1",
         zai: ZAI_DEFAULT_BASE_URL,
+        sakana: SAKANA_DEFAULT_BASE_URL,
         xai: "https://api.x.ai/v1",
         nvidia: NVIDIA_DEFAULT_BASE_URL,
         deepseek: DEEPSEEK_DEFAULT_BASE_URL,
       };
-      const baseUrl = baseUrlMap[provider];
+      const baseUrl = isCustomProviderName(provider) ? customSettings?.baseUrl : baseUrlMap[provider];
 
-      if (provider === "openai") {
+      if (isCustomProviderName(provider) && customSettings) {
+        const model = sanitizeModelId(newModel);
+        this.runtime.config.customProviders = {
+          ...this.runtime.config.customProviders,
+          [customSettings.id]: {
+            ...customSettings,
+            apiKey: newApiKey,
+            baseUrl: baseUrl ?? customSettings.baseUrl,
+            model,
+            contextWindow,
+            models: [
+              ...(customSettings.models?.filter((entry) => entry.id !== model) ?? []),
+              { id: model, contextWindow },
+            ],
+          },
+        };
+      } else if (provider === "openai") {
         this.runtime.config.openai = {
           authMode,
           ...(authMode === "chatgpt" ? { chatgptAuth } : { apiKey: newApiKey }),
@@ -2522,6 +2934,13 @@ export class ProviderConfigManager {
         };
       } else if (provider === "zai") {
         this.runtime.config.zai = {
+          apiKey: newApiKey,
+          baseUrl,
+          model: newModel,
+          contextWindow,
+        };
+      } else if (provider === "sakana") {
+        this.runtime.config.sakana = {
           apiKey: newApiKey,
           baseUrl,
           model: newModel,
@@ -2645,7 +3064,7 @@ export class ProviderConfigManager {
    * Validate API key by making a test request to the provider
    */
   private async validateApiKey(
-    provider: "openai" | "openrouter" | "llmgateway" | "azure" | "zai" | "xai" | "cerebras" | "nvidia" | "deepseek",
+    provider: "openai" | "openrouter" | "llmgateway" | "azure" | "zai" | "sakana" | "xai" | "cerebras" | "nvidia" | "deepseek",
     apiKey: string,
   ): Promise<{ valid: boolean; error?: string; hint?: string }> {
     // Azure keys can't be easily validated without resource/deployment info
@@ -2659,6 +3078,7 @@ export class ProviderConfigManager {
         openrouter: "https://openrouter.ai/api/v1",
         llmgateway: "https://api.llmgateway.io/v1",
         zai: ZAI_DEFAULT_BASE_URL,
+        sakana: SAKANA_DEFAULT_BASE_URL,
         xai: "https://api.x.ai/v1",
         cerebras: "https://api.cerebras.ai/v1",
         nvidia: NVIDIA_DEFAULT_BASE_URL,
@@ -2702,6 +3122,7 @@ export class ProviderConfigManager {
         openrouter: "https://openrouter.ai/keys",
         llmgateway: "https://llmgateway.io/dashboard",
         zai: "https://z.ai/api-keys",
+        sakana: "https://sakana.ai",
         xai: "https://console.x.ai/keys",
         cerebras: "https://cloud.cerebras.ai/platform/",
         nvidia: "https://build.nvidia.com/api-key",
@@ -2793,6 +3214,7 @@ export class ProviderConfigManager {
       fromModel: previousModel,
       toModel: newModel,
       provider,
+      ...this.getProviderTelemetryMetadata(provider, newModel, contextWindow),
     });
 
     console.log(
@@ -2806,7 +3228,27 @@ export class ProviderConfigManager {
    * Set provider and model in runtime config
    */
   private setProviderModel(provider: ProviderName, model: string, contextWindow: number): void {
-    const cfgMap: Record<ProviderName, any> = {
+    if (isCustomProviderName(provider)) {
+      const customSettings = getCustomProviderConfig(this.runtime.config, provider);
+      if (customSettings) {
+        this.runtime.config.customProviders = {
+          ...this.runtime.config.customProviders,
+          [customSettings.id]: {
+            ...customSettings,
+            model,
+            contextWindow,
+            models: [
+              ...(customSettings.models?.filter((entry) => entry.id !== model) ?? []),
+              { id: model, contextWindow },
+            ],
+          },
+        };
+      }
+      this.setActiveProvider(provider);
+      return;
+    }
+
+    const cfgMap = {
       openrouter:
         this.runtime.config.openrouter ??
         (this.runtime.config.openrouter = { apiKey: "", model }),
@@ -2832,6 +3274,9 @@ export class ProviderConfigManager {
       zai:
         this.runtime.config.zai ??
         (this.runtime.config.zai = { apiKey: "", model }),
+      sakana:
+        this.runtime.config.sakana ??
+        (this.runtime.config.sakana = { apiKey: "", model }),
       vertexai:
         this.runtime.config.vertexai ??
         (this.runtime.config.vertexai = {
@@ -2865,6 +3310,35 @@ export class ProviderConfigManager {
     this.setActiveProvider(provider);
   }
 
+  private getProviderTelemetryMetadata(
+    provider: ProviderName,
+    model: string,
+    contextWindow: number,
+  ): {
+    providerDisplayName?: string;
+    providerApiFormat?: string;
+    reasoningEffort?: ReasoningEffort;
+    contextWindow: number;
+  } {
+    const customSettings = getCustomProviderConfig(this.runtime.config, provider);
+    if (customSettings) {
+      const modelMetadata = customSettings.models?.find((entry) => entry.id === model);
+      return {
+        providerDisplayName: customSettings.displayName,
+        providerApiFormat: customSettings.apiFormat,
+        reasoningEffort: modelMetadata?.reasoningEffort ?? customSettings.reasoningEffort,
+        contextWindow,
+      };
+    }
+
+    const providerSettings = getProviderConfig(this.runtime.config, provider);
+    return {
+      providerDisplayName: this.getProviderDisplayName(provider),
+      reasoningEffort: providerSettings?.reasoningEffort,
+      contextWindow,
+    };
+  }
+
   private async promptOpenAIAuthMode(
     currentMode: OpenAIAuthMode = "api-key",
   ): Promise<OpenAIAuthMode | null> {
@@ -2894,8 +3368,8 @@ export class ProviderConfigManager {
   private resetLlmClient(provider: ProviderName, model: string): void {
     // Update config to use the selected provider and model
     this.runtime.config.provider = provider;
-    const providerConfig = this.runtime.config[provider];
-    if (providerConfig) {
+    const providerConfig = getProviderConfig(this.runtime.config, provider);
+    if (providerConfig && !isCustomProviderName(provider)) {
       providerConfig.model = model;
     }
 

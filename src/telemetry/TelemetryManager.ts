@@ -11,6 +11,7 @@ import type {
   ErrorData,
   CommandUseData,
   ModelSwitchData,
+  ProviderModelMetadata,
   SessionSyncData,
   SkillUseData,
   SessionFailureBugData
@@ -27,6 +28,7 @@ export class TelemetryManager {
   private errorsCount = 0;
   private currentModel: string | null = null;
   private currentProvider: string | null = null;
+  private currentProviderMetadata: ProviderModelMetadata = {};
   private telemetryEnabled: boolean;
   private readonly heartbeatIntervalMs: number;
 
@@ -77,7 +79,8 @@ export class TelemetryManager {
     sessionId: string,
     model?: string,
     provider?: string,
-    startedAt?: number | string | Date
+    startedAt?: number | string | Date,
+    providerMetadata: ProviderModelMetadata = {}
   ): Promise<void> {
     this.sessionId = sessionId;
     this.sessionStartTime = this.normalizeSessionStartTime(startedAt);
@@ -86,11 +89,13 @@ export class TelemetryManager {
     this.errorsCount = 0;
     this.currentModel = model || null;
     this.currentProvider = provider || null;
+    this.currentProviderMetadata = providerMetadata;
     this.startHeartbeatTimer();
 
     await this.trackEvent('session_start', {
       model,
-      provider
+      provider,
+      ...providerMetadata,
     });
 
     // Try to sync any queued sessions from previous offline periods
@@ -108,7 +113,8 @@ export class TelemetryManager {
       status,
       duration,
       model: this.currentModel,
-      provider: this.currentProvider
+      provider: this.currentProvider,
+      ...this.currentProviderMetadata,
     });
 
     // Flush all pending events
@@ -225,11 +231,18 @@ export class TelemetryManager {
     const previousModel = this.currentModel;
     this.currentModel = data.toModel;
     this.currentProvider = data.provider;
+    this.currentProviderMetadata = {
+      providerDisplayName: data.providerDisplayName,
+      providerApiFormat: data.providerApiFormat,
+      reasoningEffort: data.reasoningEffort,
+      contextWindow: data.contextWindow,
+    };
 
     await this.trackEvent('model_switch', {
       fromModel: previousModel || data.fromModel,
       toModel: data.toModel,
-      provider: data.provider
+      provider: data.provider,
+      ...this.currentProviderMetadata,
     });
   }
 
@@ -270,6 +283,7 @@ export class TelemetryManager {
       metadata: {
         model: this.currentModel || undefined,
         provider: this.currentProvider || undefined,
+        ...this.currentProviderMetadata,
         totalTokens: data.metadata?.totalTokens,
         startTime,
         ...(data.metadata?.endTime ? { endTime: data.metadata.endTime } : {}),

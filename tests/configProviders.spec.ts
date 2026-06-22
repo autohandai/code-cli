@@ -149,4 +149,96 @@ describe('getProviderConfig', () => {
     const result = getProviderConfig(cfg);
     expect(result).toBeNull();
   });
+
+  it('returns default base url for sakana when missing', () => {
+    const cfg: AutohandConfig = {
+      provider: 'sakana',
+      sakana: { apiKey: 'sakana-test-key', model: 'fugu' }
+    };
+
+    const result = getProviderConfig(cfg);
+    expect(result).not.toBeNull();
+    expect(result!.baseUrl).toBe('https://api.sakana.ai/v1');
+    expect(result!.model).toBe('fugu');
+    expect(result!.apiKey).toBe('sakana-test-key');
+  });
+
+  it('returns null when sakana config has no api key', () => {
+    const cfg: AutohandConfig = {
+      provider: 'sakana',
+      sakana: { apiKey: '', model: 'fugu' }
+    };
+
+    const result = getProviderConfig(cfg);
+    expect(result).toBeNull();
+  });
+
+  it('returns custom OpenAI-compatible provider settings when configured', () => {
+    const cfg: AutohandConfig = {
+      provider: 'custom:acme',
+      customProviders: {
+        acme: {
+          id: 'acme',
+          displayName: 'Acme AI',
+          apiFormat: 'openai-compatible',
+          baseUrl: 'https://api.acme.example/v1',
+          apiKey: 'acme-test-key',
+          apiKeyRequired: true,
+          model: 'acme-code-1',
+          contextWindow: 256000,
+          reasoningEffort: 'high'
+        }
+      }
+    };
+
+    const result = getProviderConfig(cfg);
+    expect(result).toEqual(expect.objectContaining({
+      baseUrl: 'https://api.acme.example/v1',
+      model: 'acme-code-1',
+      apiKey: 'acme-test-key',
+      contextWindow: 256000,
+      reasoningEffort: 'high'
+    }));
+  });
+
+  it('allows custom OpenAI-compatible providers with optional API keys', () => {
+    const cfg: AutohandConfig = {
+      provider: 'custom:local-openai',
+      customProviders: {
+        'local-openai': {
+          id: 'local-openai',
+          displayName: 'Local OpenAI Proxy',
+          apiFormat: 'openai-compatible',
+          baseUrl: 'http://localhost:8080/v1',
+          apiKeyRequired: false,
+          model: 'local-code-model'
+        }
+      }
+    };
+
+    const result = getProviderConfig(cfg);
+    expect(result).toEqual(expect.objectContaining({
+      baseUrl: 'http://localhost:8080/v1',
+      model: 'local-code-model'
+    }));
+  });
+
+  it('returns null for custom providers that require an API key but do not have one', () => {
+    const cfg: AutohandConfig = {
+      provider: 'custom:acme',
+      customProviders: {
+        acme: {
+          id: 'acme',
+          displayName: 'Acme AI',
+          apiFormat: 'openai-compatible',
+          baseUrl: 'https://api.acme.example/v1',
+          apiKeyRequired: true,
+          model: 'acme-code-1'
+        }
+      }
+    };
+
+    const result = getProviderConfig(cfg);
+    expect(result).toBeNull();
+  });
 });

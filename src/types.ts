@@ -32,7 +32,9 @@ type Primitive = string | number | boolean | null;
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
-export type ProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure' | 'zai' | 'vertexai' | 'xai' | 'cerebras' | 'nvidia' | 'deepseek' | 'bedrock';
+export type BuiltInProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure' | 'zai' | 'sakana' | 'vertexai' | 'xai' | 'cerebras' | 'nvidia' | 'deepseek' | 'bedrock';
+export type CustomProviderId = `custom:${string}`;
+export type ProviderName = BuiltInProviderName | CustomProviderId;
 
 export type AzureAuthMethod = 'api-key' | 'entra-id' | 'managed-identity';
 export type OpenAIAuthMode = 'api-key' | 'chatgpt';
@@ -50,6 +52,30 @@ export interface ProviderSettings {
   contextWindow?: number;
   /** Reasoning effort level for reasoning-capable models (e.g., OpenAI) */
   reasoningEffort?: ReasoningEffort;
+}
+
+export type CustomProviderApiFormat = 'openai-compatible';
+
+export interface CustomProviderModel {
+  id: string;
+  label?: string;
+  contextWindow?: number;
+  reasoningEffort?: ReasoningEffort;
+}
+
+export interface CustomProviderSettings extends ProviderSettings {
+  /** Stable config key and telemetry-safe provider identifier. */
+  id: string;
+  /** User-facing provider name shown in /model. */
+  displayName: string;
+  /** API compatibility contract used by the generic provider adapter. */
+  apiFormat: CustomProviderApiFormat;
+  /** Whether this endpoint requires a bearer API key. Defaults to true. */
+  apiKeyRequired?: boolean;
+  /** Optional curated models for this provider. */
+  models?: CustomProviderModel[];
+  /** Hidden from provider selection without deleting saved credentials. */
+  disabled?: boolean;
 }
 
 export interface OpenRouterSettings extends ProviderSettings {
@@ -92,6 +118,10 @@ export interface AzureSettings extends ProviderSettings {
 }
 
 export interface ZaiSettings extends ProviderSettings {
+  apiKey: string;
+}
+
+export interface SakanaSettings extends ProviderSettings {
   apiKey: string;
 }
 
@@ -694,6 +724,8 @@ export interface AutohandConfig {
   azure?: AzureSettings;
   /** Z.ai (Zhipu AI) settings */
   zai?: ZaiSettings;
+  /** Sakana.AI Fugu API settings */
+  sakana?: SakanaSettings;
   /** Google Cloud Vertex AI settings */
   vertexai?: VertexAISettings;
   /** xAI settings (gGrok models via xAI's API) */
@@ -706,6 +738,8 @@ export interface AutohandConfig {
   deepseek?: DeepSeekSettings;
   /** AWS Bedrock settings */
   bedrock?: BedrockSettings;
+  /** User-defined providers that can be selected with provider: "custom:<id>" */
+  customProviders?: Record<string, CustomProviderSettings>;
   workspace?: WorkspaceSettings;
   ui?: UISettings;
   agent?: AgentSettings;

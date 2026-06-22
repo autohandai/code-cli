@@ -18,7 +18,7 @@ import { getProviderConfig, loadConfig, resolveWorkspaceRoot, saveConfig } from 
 import { runStartupChecks, printStartupCheckResults, validateWorkspacePath } from './startup/checks.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from './startup/workspaceSafety.js';
 import { ensureAuthenticated } from './auth/index.js';
-import type { AuthUser, LoadedConfig } from './types.js';
+import type { AuthUser, BuiltInProviderName, LoadedConfig } from './types.js';
 import { validateAuthOnStartup } from './auth/startupAuth.js';
 import { installProcessErrorHandlers } from './reporting/processErrorReporting.js';
 import { checkForUpdates, getInstallHint, type VersionCheckResult } from './utils/versionCheck.js';
@@ -47,6 +47,29 @@ import {
 } from './ui/theme/startup.js';
 import { AgentsGenerator } from './onboarding/agentsGenerator.js';
 import { looksLikeInlineAgents, parseInlineAgents } from './core/agents/AgentRegistry.js';
+import { getCustomProviderConfig, isCustomProviderName } from './providers/customProviders.js';
+
+function applyCliModelOverride(config: LoadedConfig, model: string): void {
+  const providerName = config.provider ?? 'openrouter';
+  if (isCustomProviderName(providerName)) {
+    const customProvider = getCustomProviderConfig(config, providerName);
+    if (customProvider) {
+      config.customProviders = {
+        ...config.customProviders,
+        [customProvider.id]: {
+          ...customProvider,
+          model,
+        },
+      };
+    }
+    return;
+  }
+
+  const providerConfig = config[providerName as BuiltInProviderName];
+  if (providerConfig) {
+    providerConfig.model = model;
+  }
+}
 
 /**
  * Get git commit hash (short)
@@ -1782,10 +1805,7 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
 
   // Override model from CLI if provided
   if (opts.model) {
-    const providerName = config.provider ?? 'openrouter';
-    if (config[providerName]) {
-      (config as any)[providerName].model = opts.model;
-    }
+    applyCliModelOverride(config, opts.model);
   }
 
   const { ProviderFactory } = await import('./providers/ProviderFactory.js');
@@ -1915,10 +1935,7 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
 
   // Override model from CLI if provided
   if (opts.model) {
-    const providerName = config.provider ?? 'openrouter';
-    if (config[providerName]) {
-      (config as any)[providerName].model = opts.model;
-    }
+    applyCliModelOverride(config, opts.model);
   }
 
   // Override debug mode from CLI if provided

@@ -17,6 +17,7 @@ import type { AutohandConfig, LoadedConfig, ProviderName, AzureSettings, AzureAu
 import { getProviderConfig } from '../config.js';
 import { ProviderFactory } from '../providers/ProviderFactory.js';
 import { ZAI_MODELS, ZAI_DEFAULT_BASE_URL } from '../providers/ZaiProvider.js';
+import { SAKANA_MODELS, SAKANA_DEFAULT_BASE_URL } from '../providers/SakanaProvider.js';
 import { VERTEX_AI_CODING_MODELS } from '../providers/VertexAIProvider.js';
 import { CEREBRAS_MODELS, CEREBRAS_DEFAULT_BASE_URL } from '../providers/CerebrasProvider.js';
 import { DEEPSEEK_MODELS, DEEPSEEK_DEFAULT_BASE_URL } from '../providers/DeepSeekProvider.js';
@@ -536,6 +537,26 @@ export class SetupWizard {
         value: modelName,
       }));
       const defaultIndex = Math.max(0, ZAI_MODELS.indexOf(defaultModel as (typeof ZAI_MODELS)[number]));
+      const result = await showModal({
+        title: t('providers.config.selectModel'),
+        options,
+        initialIndex: defaultIndex >= 0 ? defaultIndex : 0,
+      });
+
+      if (!result) {
+        return null;
+      }
+
+      this.state.model = result.value as string;
+      return this.state.model;
+    }
+
+    if (provider === 'sakana') {
+      const options: ModalOption[] = SAKANA_MODELS.map((modelName) => ({
+        label: modelName,
+        value: modelName,
+      }));
+      const defaultIndex = Math.max(0, SAKANA_MODELS.indexOf(defaultModel as (typeof SAKANA_MODELS)[number]));
       const result = await showModal({
         title: t('providers.config.selectModel'),
         options,
@@ -2024,7 +2045,7 @@ export class SetupWizard {
   // Helper methods
 
   private requiresApiKey(provider: ProviderName): boolean {
-    return provider === 'openrouter' || provider === 'llmgateway' || provider === 'zai' || provider === 'vertexai' || provider === 'xai' || provider === 'cerebras' || provider === 'nvidia' || provider === 'deepseek';
+    return provider === 'openrouter' || provider === 'llmgateway' || provider === 'zai' || provider === 'sakana' || provider === 'vertexai' || provider === 'xai' || provider === 'cerebras' || provider === 'nvidia' || provider === 'deepseek';
   }
 
   private getProviderDisplayName(provider: ProviderName): string {
@@ -2041,6 +2062,7 @@ export class SetupWizard {
       openai: t('providers.wizard.openai.apiKeyUrl'),
       llmgateway: t('providers.wizard.llmgateway.apiKeyUrl'),
       zai: t('providers.wizard.zai.apiKeyUrl'),
+      sakana: t('providers.wizard.sakana.apiKeyUrl'),
       nvidia: t('providers.wizard.nvidia.apiKeyUrl'),
       deepseek: t('providers.wizard.deepseek.apiKeyUrl'),
       bedrock: t('providers.wizard.bedrock.apiKeyUrl')
@@ -2058,6 +2080,7 @@ export class SetupWizard {
       llmgateway: 'gpt-4o',
       azure: 'gpt-5.3-codex',
       zai: 'glm-5.2',
+      sakana: 'fugu',
       vertexai: 'zai-org/glm-5-maas',
       xai: 'grok-4.20-reasoning',
       cerebras: 'zai-glm-4.7',
@@ -2078,6 +2101,7 @@ export class SetupWizard {
       llmgateway: 'https://api.llmgateway.io/v1',
       azure: 'https://{resourceName}.openai.azure.com',
       zai: ZAI_DEFAULT_BASE_URL,
+      sakana: SAKANA_DEFAULT_BASE_URL,
       vertexai: 'https://aiplatform.googleapis.com',
       xai: 'https://api.x.ai/v1',
       cerebras: CEREBRAS_DEFAULT_BASE_URL,

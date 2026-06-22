@@ -434,4 +434,55 @@ describe("Vertex AI Configuration Persistence E2E", () => {
       expect(mockShowModal).not.toHaveBeenCalled();
     });
   });
+
+  describe("Sakana.AI (standard API key provider with Fugu model selection)", () => {
+    it("should persist Sakana config with apiKey, model, and baseUrl", async () => {
+      mockShowModal
+        .mockResolvedValueOnce({ value: "en" })
+        .mockResolvedValueOnce({ value: "sakana" })
+        .mockResolvedValueOnce({ value: "fugu-ultra" })
+        .mockResolvedValueOnce({ value: "interactive" });
+
+      mockShowPassword.mockResolvedValueOnce("sakana-api-key-12345");
+
+      mockShowConfirm
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+
+      const wizard = new SetupWizard("/test/workspace");
+      const result = await wizard.run({ skipWelcome: true });
+
+      expect(result.success).toBe(true);
+      expect(result.config.provider).toBe("sakana");
+      expect(result.config.sakana?.apiKey).toBe("sakana-api-key-12345");
+      expect(result.config.sakana?.model).toBe("fugu-ultra");
+      expect(result.config.sakana?.baseUrl).toBe("https://api.sakana.ai/v1");
+    });
+
+    it("should be recognized as configured when Sakana config exists with apiKey", async () => {
+      const existingConfig = {
+        configPath: "/test/.autohand/config.json",
+        provider: "sakana" as const,
+        sakana: {
+          apiKey: "sakana-valid-api-key",
+          model: "fugu",
+          baseUrl: "https://api.sakana.ai/v1",
+        },
+      };
+
+      const wizard = new SetupWizard("/test/workspace", existingConfig);
+      const result = await wizard.run();
+
+      expect(result.success).toBe(true);
+      expect(result.skippedSteps).toContain("provider");
+      expect(result.skippedSteps).toContain("apiKey");
+      expect(mockShowModal).not.toHaveBeenCalled();
+    });
+  });
 });
