@@ -943,7 +943,11 @@ export class AutohandAgent {
   private syncProviderModelStatusLine(provider: ProviderName = this.activeProvider): void {
     const providerSettings = getProviderConfig(this.runtime.config, provider);
     const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
-    this.ui?.setProviderModel?.(provider, model);
+    const providerLabel =
+      providerSettings && 'displayName' in providerSettings && typeof providerSettings.displayName === 'string'
+        ? providerSettings.displayName
+        : provider;
+    this.ui?.setProviderModel?.(providerLabel, model);
     this.inkRenderer?.setConfiguredLineExtensions?.(buildStatusLineExtension({
       settings: getConfigStatusLineSettings(this.runtime.config),
       sessionDiffStats: this.sessionDiffStatsTracker?.getStats(),

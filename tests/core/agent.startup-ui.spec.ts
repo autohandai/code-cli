@@ -1717,6 +1717,34 @@ describe('agent startup and active input UI', () => {
     expect(ui.setProviderModel).toHaveBeenCalledWith('openai', 'gpt-5.1-codex');
   });
 
+  it('syncs the Ink status line with custom provider display name', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const ui = { setProviderModel: vi.fn() };
+
+    agent.ui = ui;
+    agent.activeProvider = 'custom:acme';
+    agent.runtime = {
+      config: {
+        provider: 'custom:acme',
+        customProviders: {
+          acme: {
+            id: 'acme',
+            displayName: 'Acme AI',
+            apiFormat: 'openai-compatible',
+            baseUrl: 'https://api.acme.example/v1',
+            apiKey: 'acme-key',
+            model: 'acme-code-1',
+          },
+        },
+      },
+      options: {},
+    };
+
+    (agent as any).syncProviderModelStatusLine();
+
+    expect(ui.setProviderModel).toHaveBeenCalledWith('Acme AI', 'acme-code-1');
+  });
+
   it('updates the Ink status line when ACP changes the model', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const ui = { setProviderModel: vi.fn() };
