@@ -273,6 +273,26 @@ describe('processErrorReporting', () => {
     expect(logError).not.toHaveBeenCalled();
   });
 
+  it('ignores libuv EPIPE receive errors as uncaught exceptions', async () => {
+    const fakeProcess = createFakeProcess();
+    const logError = vi.fn();
+    const exitMock = vi.fn();
+
+    installProcessErrorHandlers({ processRef: fakeProcess, logError, exit: exitMock });
+
+    const uvEpipeError = Object.assign(new Error('UV_EPIPE: unknown error, recv'), {
+      code: 'UV_EPIPE',
+      syscall: 'recv',
+    });
+    fakeProcess.emit('uncaughtException', uvEpipeError);
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(mocks.reportError).not.toHaveBeenCalled();
+    expect(exitMock).not.toHaveBeenCalled();
+    expect(logError).not.toHaveBeenCalled();
+  });
+
   it('ignores EACCES mkdir errors as unhandled rejections', async () => {
     const fakeProcess = createFakeProcess();
     installProcessErrorHandlers({ processRef: fakeProcess });

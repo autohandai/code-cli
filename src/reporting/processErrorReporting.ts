@@ -156,6 +156,10 @@ function isIgnorableTerminalPipeError(err: unknown): boolean {
     syscall?: string;
     message?: string;
   };
+  if (maybeError.code === 'UV_EPIPE' && maybeError.syscall === 'recv') {
+    return true;
+  }
+
   if (maybeError.code !== 'EPIPE') {
     return false;
   }

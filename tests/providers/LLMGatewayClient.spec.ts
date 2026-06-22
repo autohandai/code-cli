@@ -197,6 +197,42 @@ describe('LLMGatewayClient', () => {
       );
     });
 
+    it('omits orphaned tool messages from OpenAI-compatible chat payloads', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          id: 'test-id',
+          choices: [{
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop'
+          }]
+        })
+      });
+      global.fetch = fetchMock;
+
+      const client = new LLMGatewayClient({
+        apiKey: 'test-key',
+        model: 'deepseek-v4-flash'
+      });
+
+      await client.complete({
+        messages: [
+          { role: 'user', content: 'Continue' },
+          {
+            role: 'tool',
+            content: 'orphan result',
+            name: 'read_file',
+            tool_call_id: 'missing_call'
+          }
+        ]
+      });
+
+      const payload = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
+        messages: Array<{ role: string; tool_call_id?: string }>;
+      };
+      expect(payload.messages).toEqual([{ role: 'user', content: 'Continue' }]);
+    });
+
     it('should throw friendly error on 401 authentication failure', async () => {
       global.fetch = vi.fn().mockResolvedValue({
         ok: false,
