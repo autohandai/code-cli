@@ -225,7 +225,7 @@ Sakana.AI provider configuration. The API is OpenAI-compatible and uses `https:/
 
 ### `customProviders`
 
-Custom providers let users bring an OpenAI-compatible endpoint without a code change or a new bundled provider. Add the provider under `customProviders`, then select it with `provider: "custom:<id>"`. The same flow is available from `/model` with **New provider...**.
+Custom providers let users bring an OpenAI-compatible endpoint without a code change or a new bundled provider. Add the provider under `customProviders`, then select it with `provider: "custom:<id>"`. The same flow is available from `/model` with **New provider...**. During setup, Autohand verifies the base URL, authentication, and selected model through the OpenAI-compatible `/models` endpoint before saving the provider.
 
 ```json
 {
@@ -261,12 +261,12 @@ For local OpenAI-compatible servers that do not require auth, set `apiKeyRequire
 | `id`              | string  | Yes      | -       | Stable provider id. It must match the object key and is selected as `custom:<id>`. |
 | `displayName`     | string  | Yes      | -       | Name shown in `/model` and provider settings. |
 | `apiFormat`       | string  | Yes      | -       | Must be `openai-compatible`. |
-| `baseUrl`         | string  | Yes      | -       | Endpoint root such as `https://api.example.com/v1`. Autohand calls `/chat/completions`. |
+| `baseUrl`         | string  | Yes      | -       | Endpoint root such as `https://api.example.com/v1`. Autohand verifies `/models` and calls `/chat/completions`. |
 | `apiKey`          | string  | Conditional | -    | Bearer token for hosted endpoints. Required when `apiKeyRequired` is true. |
 | `apiKeyRequired`  | boolean | No       | `true`  | Set false for local or already-authenticated gateways. |
 | `model`           | string  | Yes      | -       | Active model id. |
 | `contextWindow`   | number  | No       | Auto    | Exact context window for token budgeting, status, telemetry, and sync metadata. |
-| `reasoningEffort` | string  | No       | -       | Optional `none`, `low`, `medium`, `high`, or `xhigh` reasoning setting metadata. |
+| `reasoningEffort` | string  | No       | -       | Optional `none`, `low`, `medium`, `high`, or `xhigh`. Sent as `reasoning_effort` for custom OpenAI-compatible requests. |
 | `models`          | array   | No       | -       | Optional model picker entries with per-model context and reasoning metadata. |
 
 ### `ollama`

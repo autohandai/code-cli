@@ -17,7 +17,7 @@ export function normalizeCustomProviderId(input: string): string {
   return input
     .trim()
     .toLowerCase()
-    .replace(/^custom:/, "")
+    .replace(/^custom:/i, "")
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "");
 }
@@ -27,7 +27,7 @@ export function toCustomProviderName(id: string): CustomProviderId {
 }
 
 export function parseCustomProviderName(provider: unknown): string | null {
-  if (typeof provider !== "string" || !provider.startsWith(CUSTOM_PROVIDER_PREFIX)) {
+  if (typeof provider !== "string" || !provider.toLowerCase().startsWith(CUSTOM_PROVIDER_PREFIX)) {
     return null;
   }
 
@@ -54,4 +54,3 @@ export function getCustomProviderConfig(
     id,
   };
 }
-
