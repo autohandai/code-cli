@@ -8,13 +8,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 var mockShowModal = vi.fn();
 var mockShowInput = vi.fn();
+var mockShowConfirm = vi.fn();
 var mockShowPassword = vi.fn();
 var mockSaveConfig = vi.fn();
 var mockEnsureOpenAIChatGPTAuth = vi.fn();
 var mockAuthenticateOpenAIChatGPT = vi.fn();
 
 vi.mock("../../../src/ui/ink/components/Modal.js", () => ({
-  showConfirm: vi.fn(),
+  showConfirm: mockShowConfirm,
   showModal: mockShowModal,
   showInput: mockShowInput,
   showPassword: mockShowPassword,
@@ -24,6 +25,14 @@ vi.mock("../../../src/config.js", () => ({
   saveConfig: mockSaveConfig,
   getProviderConfig: (config: Record<string, unknown>, provider?: string) => {
     const chosen = provider ?? (config.provider as string | undefined);
+    if (chosen?.startsWith("custom:")) {
+      const id = chosen.slice("custom:".length);
+      return (
+        ((config.customProviders as Record<string, unknown> | undefined)?.[
+          id
+        ] as Record<string, unknown> | null | undefined) ?? null
+      );
+    }
     return chosen
       ? ((config[chosen] as Record<string, unknown> | null) ?? null)
       : null;
@@ -61,9 +70,18 @@ vi.mock("../../../src/i18n/index.js", () => ({
       "providers.config.changeModelOnly": "Change model",
       "providers.config.changeApiKeyOnly": "Change API key",
       "providers.config.changeProvider": "Change provider",
+      "providers.config.newProvider": "New provider...",
+      "providers.config.chooseProvider": "Choose provider",
+      "providers.config.configuredSuccessfully": `${params?.provider ?? "{{provider}}"} configured successfully`,
       "providers.config.changeReasoningEffort": "Change reasoning effort",
       "providers.config.notSet": "not set",
       "providers.openaiAuth.changeAuthOnly": "Change authentication",
+      "providers.custom.enterDisplayName": "Provider display name",
+      "providers.custom.enterBaseUrl": "OpenAI-compatible base URL",
+      "providers.custom.apiKeyRequired": "Does this provider require an API key?",
+      "providers.custom.enterContextWindow": "Context window tokens",
+      "providers.custom.configureReasoningEffort": "Configure reasoning effort?",
+      "providers.custom.modelRequired": "Model ID is required",
     };
     return map[key] ?? key;
   },
@@ -311,7 +329,7 @@ describe("ProviderConfigManager openai auth mode", () => {
     await manager.promptModelSelection();
 
     expect(mockShowModal.mock.calls[0][0].title).toBe("What would you like to change?");
-    expect(mockShowModal.mock.calls[1][0].title).toBe("providers.config.chooseProvider");
+    expect(mockShowModal.mock.calls[1][0].title).toBe("Choose provider");
     const providerOptions = mockShowModal.mock.calls[1][0].options;
     expect(providerOptions.some((option: { label: string }) => option.label.includes("OpenAI"))).toBe(true);
     expect(providerOptions.some((option: { label: string }) => option.label.includes("Z.ai"))).toBe(true);
@@ -372,5 +390,148 @@ describe("ProviderConfigManager openai auth mode", () => {
     expect(options.some((option: { label: string }) => option.label.includes("Sakana.AI"))).toBe(true);
     expect(options.some((option: { label: string }) => option.label.includes("LLM Gateway"))).toBe(true);
     expect(options.some((option: { label: string }) => option.label.includes("DeepSeek"))).toBe(true);
+  });
+
+  it("shows a configured custom provider as the current provider in the provider list", async () => {
+    runtime.config.provider = "custom:acme";
+    runtime.config.customProviders = {
+      acme: {
+        id: "acme",
+        displayName: "Acme AI",
+        apiFormat: "openai-compatible",
+        baseUrl: "https://api.acme.example/v1",
+        apiKey: "acme-key-long-enough",
+        apiKeyRequired: true,
+        model: "acme-code-1",
+        reasoningEffort: "high",
+        contextWindow: 256000,
+      },
+    };
+    runtime.options.model = "acme-code-1";
+
+    mockShowModal
+      .mockResolvedValueOnce({ value: "provider" })
+      .mockResolvedValueOnce(null);
+
+    await manager.promptModelSelection();
+
+    const providerOptions = mockShowModal.mock.calls[1][0].options;
+    const customOption = providerOptions.find(
+      (option: { value: string }) => option.value === "custom:acme",
+    );
+    expect(customOption?.label).toContain("Acme AI");
+    expect(customOption?.label).toContain("current");
+
+    const logOutput = consoleLogSpy.mock.calls
+      .map((call: unknown[]) => String(call[0] ?? ""))
+      .join("\n");
+    expect(logOutput).toContain("Acme AI Settings");
+    expect(logOutput).toContain("Current model: acme-code-1");
+    expect(logOutput).toContain("Reasoning effort: high");
+  });
+
+  it("verifies a custom OpenAI-compatible provider before saving it", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        data: [{ id: "acme-code-1" }],
+      }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    mockShowInput
+      .mockResolvedValueOnce("Acme AI")
+      .mockResolvedValueOnce("https://api.acme.example/v1/")
+      .mockResolvedValueOnce("acme-code-1")
+      .mockResolvedValueOnce("256000");
+    mockShowConfirm
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true);
+    mockShowPassword.mockResolvedValueOnce("acme-key-long-enough");
+    mockShowModal.mockResolvedValueOnce({ value: "high" });
+
+    await (manager as any).configureCustomProvider();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.acme.example/v1/models",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer acme-key-long-enough",
+        }),
+      }),
+    );
+    expect(runtime.config.provider).toBe("custom:acme-ai");
+    expect(runtime.config.customProviders["acme-ai"]).toEqual(
+      expect.objectContaining({
+        id: "acme-ai",
+        displayName: "Acme AI",
+        baseUrl: "https://api.acme.example/v1",
+        apiKey: "acme-key-long-enough",
+        apiKeyRequired: true,
+        model: "acme-code-1",
+        reasoningEffort: "high",
+        contextWindow: 256000,
+      }),
+    );
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
+  });
+
+  it("does not save a custom provider when verification rejects the model", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        data: [{ id: "other-model" }],
+      }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    mockShowInput
+      .mockResolvedValueOnce("Acme AI")
+      .mockResolvedValueOnce("https://api.acme.example/v1")
+      .mockResolvedValueOnce("acme-code-1")
+      .mockResolvedValueOnce("256000");
+    mockShowConfirm
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true);
+    mockShowPassword.mockResolvedValueOnce("acme-key-long-enough");
+    mockShowModal.mockResolvedValueOnce({ value: "high" });
+
+    await (manager as any).configureCustomProvider();
+
+    expect(runtime.config.customProviders).toBeUndefined();
+    expect(runtime.config.provider).toBe("openrouter");
+    expect(mockSaveConfig).not.toHaveBeenCalled();
+  });
+
+  it("updates reasoning effort from a configured custom provider menu", async () => {
+    runtime.config.provider = "custom:acme";
+    runtime.config.customProviders = {
+      acme: {
+        id: "acme",
+        displayName: "Acme AI",
+        apiFormat: "openai-compatible",
+        baseUrl: "https://api.acme.example/v1",
+        apiKey: "acme-key-long-enough",
+        apiKeyRequired: true,
+        model: "acme-code-1",
+        reasoningEffort: "medium",
+        contextWindow: 256000,
+      },
+    };
+    runtime.options.model = "acme-code-1";
+
+    mockShowModal
+      .mockResolvedValueOnce({ value: "reasoning" })
+      .mockResolvedValueOnce({ value: "xhigh" });
+
+    await manager.promptModelSelection();
+
+    expect(runtime.config.customProviders.acme.reasoningEffort).toBe("xhigh");
+    expect(runtime.config.customProviders.acme.models.at(-1)).toEqual({
+      id: "acme-code-1",
+      contextWindow: 256000,
+      reasoningEffort: "xhigh",
+    });
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
   });
 });

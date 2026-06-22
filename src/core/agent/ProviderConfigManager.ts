@@ -94,6 +94,7 @@ type ProviderSettingsSummary = {
   baseUrl?: string;
   model?: string;
   authToken?: string;
+  reasoningEffort?: ReasoningEffort;
 };
 
 export class ProviderConfigManager {
@@ -113,6 +114,12 @@ export class ProviderConfigManager {
   ) {}
 
   private async resolveContextWindow(provider: ProviderName, model: string): Promise<number> {
+    const customSettings = getCustomProviderConfig(this.runtime.config, provider);
+    if (customSettings) {
+      const modelMetadata = customSettings.models?.find((entry) => entry.id === model);
+      return modelMetadata?.contextWindow ?? customSettings.contextWindow ?? getContextWindow(model);
+    }
+
     if (provider === "openrouter") {
       try {
         const contextWindow = await getOpenRouterModelContextWindow(model);
@@ -287,10 +294,13 @@ export class ProviderConfigManager {
       ),
     );
 
-    if (provider === "openai") {
-      const openAISettings = this.runtime.config.openai;
+    const configuredReasoningEffort =
+      provider === "openai"
+        ? this.runtime.config.openai?.reasoningEffort
+        : currentSettings?.reasoningEffort;
+    if (configuredReasoningEffort !== undefined || isCustomProviderName(provider)) {
       const reasoningEffort =
-        openAISettings?.reasoningEffort ?? t("providers.config.notSet");
+        configuredReasoningEffort ?? t("providers.config.notSet");
       console.log(
         chalk.gray(
           t("providers.config.reasoningEffortLabel", {
@@ -360,6 +370,7 @@ export class ProviderConfigManager {
   private buildConfiguredProviderActions(provider: ProviderName): ModalOption[] {
     if (isCustomProviderName(provider)) {
       return [
+        { label: t("providers.config.changeReasoningEffort"), value: "reasoning" },
         { label: t("providers.config.changeModelOnly"), value: "model" },
         { label: t("providers.config.changeApiKeyOnly"), value: "apiKey" },
         { label: t("providers.config.changeBoth"), value: "both" },
@@ -1939,6 +1950,16 @@ export class ProviderConfigManager {
     const reasoningEffort = configureReasoning
       ? await this.promptReasoningEffort(existing?.reasoningEffort)
       : undefined;
+    if (configureReasoning && !reasoningEffort) {
+      console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+      return;
+    }
+
+    const sanitizedModel = sanitizeModelId(model);
+    if (!sanitizedModel) {
+      console.log(chalk.red("\n" + t("providers.custom.modelRequired")));
+      return;
+    }
 
     const customProvider: CustomProviderSettings = {
       id,
@@ -1947,17 +1968,26 @@ export class ProviderConfigManager {
       baseUrl: baseUrl.trim().replace(/\/+$/, ""),
       apiKeyRequired,
       ...(apiKey && { apiKey }),
-      model: sanitizeModelId(model),
+      model: sanitizedModel,
       ...(contextWindow !== undefined && { contextWindow }),
       ...(reasoningEffort !== undefined && { reasoningEffort }),
       models: [
         {
-          id: sanitizeModelId(model),
+          id: sanitizedModel,
           ...(contextWindow !== undefined && { contextWindow }),
           ...(reasoningEffort !== undefined && { reasoningEffort }),
         },
       ],
     };
+
+    const verification = await this.verifyCustomProvider(customProvider);
+    if (!verification.valid) {
+      console.log(chalk.red(`\n✗ ${verification.error}`));
+      if (verification.hint) {
+        console.log(chalk.gray(verification.hint));
+      }
+      return;
+    }
 
     this.runtime.config.customProviders = {
       ...this.runtime.config.customProviders,
@@ -1979,6 +2009,69 @@ export class ProviderConfigManager {
           }),
       ),
     );
+  }
+
+  private async verifyCustomProvider(
+    provider: CustomProviderSettings,
+  ): Promise<{ valid: boolean; error?: string; hint?: string }> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (provider.apiKey) {
+      headers.Authorization = `Bearer ${provider.apiKey}`;
+    }
+
+    try {
+      const response = await fetch(`${provider.baseUrl}/models`, { headers });
+      if (!response.ok) {
+        return {
+          valid: false,
+          error: t("providers.custom.verificationFailedStatus", {
+            status: String(response.status),
+          }),
+          hint: t("providers.custom.verificationFailedHint"),
+        };
+      }
+
+      const body = (await response.json()) as unknown;
+      const modelIds = this.extractOpenAIModelIds(body);
+      if (modelIds.length > 0 && !modelIds.includes(provider.model)) {
+        return {
+          valid: false,
+          error: t("providers.custom.modelNotFound", {
+            model: provider.model,
+          }),
+          hint: t("providers.custom.modelNotFoundHint", {
+            models: modelIds.slice(0, 8).join(", "),
+          }),
+        };
+      }
+
+      return { valid: true };
+    } catch {
+      return {
+        valid: false,
+        error: t("providers.custom.verificationNetworkError"),
+        hint: t("providers.custom.verificationFailedHint"),
+      };
+    }
+  }
+
+  private extractOpenAIModelIds(body: unknown): string[] {
+    if (!body || typeof body !== "object" || !("data" in body)) {
+      return [];
+    }
+    const data = (body as { data?: unknown }).data;
+    if (!Array.isArray(data)) {
+      return [];
+    }
+    return data
+      .map((entry) =>
+        entry && typeof entry === "object" && "id" in entry
+          ? (entry as { id?: unknown }).id
+          : undefined,
+      )
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
   }
 
   private async removeCustomProvider(provider: CustomProviderId): Promise<void> {
@@ -2491,9 +2584,11 @@ export class ProviderConfigManager {
         : undefined;
 
     let reasoningEffort: ReasoningEffort | undefined;
-    if (provider === "openai" && action === "reasoning") {
+    if ((provider === "openai" || isCustomProviderName(provider)) && action === "reasoning") {
       reasoningEffort = await this.promptReasoningEffort(
-        this.runtime.config.openai?.reasoningEffort,
+        provider === "openai"
+          ? this.runtime.config.openai?.reasoningEffort
+          : customSettings?.reasoningEffort,
       );
       if (!reasoningEffort) {
         console.log(
@@ -2855,9 +2950,11 @@ export class ProviderConfigManager {
     }
 
     // Prompt for reasoning effort when changing OpenAI model
-    if (provider === "openai" && (action === "model" || action === "both")) {
+    if ((provider === "openai" || isCustomProviderName(provider)) && (action === "model" || action === "both")) {
       reasoningEffort = await this.promptReasoningEffort(
-        this.runtime.config.openai?.reasoningEffort,
+        provider === "openai"
+          ? this.runtime.config.openai?.reasoningEffort
+          : customSettings?.reasoningEffort,
       );
     }
 
@@ -2903,9 +3000,14 @@ export class ProviderConfigManager {
             baseUrl: baseUrl ?? customSettings.baseUrl,
             model,
             contextWindow,
+            ...(reasoningEffort !== undefined && { reasoningEffort }),
             models: [
               ...(customSettings.models?.filter((entry) => entry.id !== model) ?? []),
-              { id: model, contextWindow },
+              {
+                id: model,
+                contextWindow,
+                ...(reasoningEffort !== undefined && { reasoningEffort }),
+              },
             ],
           },
         };

@@ -431,6 +431,33 @@ describe('LLMGatewayClient', () => {
       });
     });
 
+    it('should include configured reasoning_effort for OpenAI-compatible providers', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          id: 'test',
+          created: Date.now(),
+          choices: [{ message: { content: 'Test response' }, finish_reason: 'stop' }]
+        })
+      });
+      global.fetch = fetchMock;
+
+      const settings: LLMGatewaySettings = {
+        apiKey: 'test-key',
+        model: 'acme-code-1',
+        baseUrl: 'https://api.acme.example/v1',
+        reasoningEffort: 'high'
+      };
+      const client = new LLMGatewayClient(settings);
+
+      await client.complete({
+        messages: [{ role: 'user', content: 'Hello' }]
+      });
+
+      const callBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(callBody.reasoning_effort).toBe('high');
+    });
+
     it('should support Z.ai GLM chat_template_kwargs', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,

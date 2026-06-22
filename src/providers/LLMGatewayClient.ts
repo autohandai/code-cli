@@ -102,6 +102,7 @@ export class LLMGatewayClient {
   private readonly retryDelay: number;
   private readonly timeout: number;
   private readonly errorLabels: LLMGatewayCompatibleErrorLabels;
+  private readonly reasoningEffort?: LLMGatewaySettings["reasoningEffort"];
 
   constructor(
     settings: LLMGatewaySettings,
@@ -111,6 +112,7 @@ export class LLMGatewayClient {
     this.apiKey = settings.apiKey ?? "";
     this.baseUrl = settings.baseUrl ?? DEFAULT_BASE_URL;
     this.defaultModel = settings.model;
+    this.reasoningEffort = settings.reasoningEffort;
     this.errorLabels = errorLabels;
 
     // Network settings with sensible defaults and max limits
@@ -220,6 +222,9 @@ export class LLMGatewayClient {
       max_tokens: request.maxTokens ?? 16000,
       stream: request.stream ?? false,
     };
+    if (this.reasoningEffort) {
+      payload.reasoning_effort = this.reasoningEffort;
+    }
     return payload;
   }
 

@@ -651,6 +651,8 @@ From the TUI, run `/model`, choose **New provider...**, then enter:
 - model id
 - optional context window and reasoning effort
 
+Autohand verifies the base URL, API key, and selected model through the OpenAI-compatible `/models` endpoint before saving the provider. If `/models` returns model IDs, the selected model must be present in that list.
+
 The saved config uses `provider: "custom:<id>"` and stores provider details under `customProviders`:
 
 ```json
@@ -691,7 +693,7 @@ For local gateways without bearer auth:
 }
 ```
 
-Custom provider telemetry and session sync include the provider id, display name, API format, model id, reasoning effort, and context window when available. Secrets such as `apiKey` are not sent.
+Custom provider telemetry and session sync include the provider id, display name, API format, model id, reasoning effort, and context window when available. Secrets such as `apiKey` are not sent. When `reasoningEffort` is set, Autohand sends it to the provider as `reasoning_effort`.
 
 You can remove a custom provider from `/model` by opening that provider's settings and choosing **Remove custom provider**.
 
