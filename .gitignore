@@ -21,6 +21,9 @@ bun.lock
 .env.*.local
 .claude/
 .autohand/
+.codex/
+improving-jun-2026.md
+tasks/
 prd/
 package-lock.json
 bin/
