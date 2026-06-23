@@ -13,7 +13,7 @@ describe('slash commands registry', () => {
       '/quit', '/exit', '/model', '/session', '/sessions', '/resume', '/init',
       '/agents', '/agents new', '/feedback', '/help', '/?',
       '/undo', '/new', '/memory', '/chrome', '/review', '/pr-review',
-      '/usage', '/go', '/statusline'
+      '/usage', '/go', '/handoff session', '/statusline'
     ];
     expected.forEach((cmd) => expect(commands).toContain(cmd));
     // These commands were documented but never implemented

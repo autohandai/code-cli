@@ -91,6 +91,21 @@ describe('/experiments command', () => {
     expect(mockSaveConfig).toHaveBeenCalledWith(config);
   });
 
+  it('lets users enable experimental_handoff without requiring restart', async () => {
+    const { features } = await import('../../src/commands/features.js');
+    const config = makeConfig({
+      features: {
+        experimentalHandoff: false,
+      },
+    });
+
+    const output = await features({ config }, ['enable', 'experimental_handoff']);
+
+    expect(output).toBe('Enabled experimental_handoff.');
+    expect(config.features?.experimentalHandoff).toBe(true);
+    expect(mockSaveConfig).toHaveBeenCalledWith(config);
+  });
+
   it('enables usage_v2 on the active config without requiring restart', async () => {
     const { features } = await import('../../src/commands/features.js');
     const { usage } = await import('../../src/commands/usage.js');

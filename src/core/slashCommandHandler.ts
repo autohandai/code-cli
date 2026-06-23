@@ -250,6 +250,20 @@ export class SlashCommandHandler {
             enqueueInstruction: this.ctx.enqueueInstruction,
           }, args);
         }
+        case '/handoff session': {
+          const { handoffSession } = await import('../commands/go.js');
+          return handoffSession({
+            sessionManager: this.ctx.sessionManager,
+            currentSession: this.ctx.currentSession,
+            workspaceRoot: this.ctx.workspaceRoot,
+            model: this.ctx.model,
+            provider: this.ctx.provider,
+            config: this.ctx.config,
+            enqueueInstruction: this.ctx.enqueueInstruction,
+            isFeatureEnabled: this.ctx.isFeatureEnabled,
+            trackFeatureActivation: this.ctx.trackFeatureActivation,
+          }, args);
+        }
         case '/chrome': {
           const { chrome } = await import('../commands/chrome.js');
           return chrome(this.ctx, args);

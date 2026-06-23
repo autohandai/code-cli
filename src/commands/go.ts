@@ -26,6 +26,12 @@ export const metadata: SlashCommand = {
   implemented: true,
 };
 
+export const handoffSessionMetadata: SlashCommand = {
+  command: '/handoff session',
+  description: 'handoff this session to the Autohand Code iOS app',
+  implemented: true,
+};
+
 interface GoContext {
   sessionManager: SessionManager;
   currentSession?: Session;
@@ -37,7 +43,13 @@ interface GoContext {
   enqueueInstruction?: (instruction: string) => void;
 }
 
+interface HandoffSessionContext extends GoContext {
+  isFeatureEnabled?: (key: string, localDefault?: boolean) => boolean;
+  trackFeatureActivation?: (key: string, metadata?: Record<string, unknown>) => void | Promise<void>;
+}
+
 const MAX_MOBILE_SNAPSHOT_MESSAGES = 24;
+const HANDOFF_FLAG = 'experimental_handoff';
 
 type GoMode = 'queue' | 'steer';
 
@@ -211,4 +223,15 @@ export async function go(ctx: GoContext, args: string[] = []): Promise<string | 
       chalk.gray((error as Error).message),
     ].join('\n');
   }
+}
+
+export async function handoffSession(ctx: HandoffSessionContext, args: string[] = []): Promise<string | null> {
+  const localDefault = ctx.config?.features?.experimentalHandoff === true;
+  const enabled = ctx.isFeatureEnabled?.(HANDOFF_FLAG, localDefault) ?? localDefault;
+  if (!enabled) {
+    return `The /handoff session command is behind ${HANDOFF_FLAG}. Run /features enable ${HANDOFF_FLAG}, then /handoff session again. No restart required.`;
+  }
+
+  await ctx.trackFeatureActivation?.(HANDOFF_FLAG, { surface: 'slash_command' });
+  return go(ctx, args);
 }

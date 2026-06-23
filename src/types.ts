@@ -316,6 +316,8 @@ export interface FeatureFlagSettings {
   experimentalFork?: boolean;
   /** Enable the experimental /clone session duplication surface. */
   experimentalClone?: boolean;
+  /** Enable the experimental /handoff session surface. */
+  experimentalHandoff?: boolean;
 }
 
 export type PermissionMode = 'interactive' | 'unrestricted' | 'restricted' | 'external';
