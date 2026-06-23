@@ -68,6 +68,11 @@ describe('slash command dispatch – output vs instruction', () => {
     expect(commands).toContain('/go');
   });
 
+  it('/handoff session is registered in SLASH_COMMANDS', () => {
+    const commands = SLASH_COMMANDS.map(c => c.command);
+    expect(commands).toContain('/handoff session');
+  });
+
   it('all SLASH_COMMANDS entries have required fields', () => {
     for (const cmd of SLASH_COMMANDS) {
       expect(cmd.command).toBeTruthy();
@@ -171,6 +176,12 @@ describe('slash command dispatch – output vs instruction', () => {
     const ctx = createMinimalContext();
     const handler = new SlashCommandHandler(ctx, SLASH_COMMANDS);
     expect(handler.isCommandSupported('/skills install')).toBe(true);
+  });
+
+  it('/handoff session is recognized as a two-word command', () => {
+    const ctx = createMinimalContext();
+    const handler = new SlashCommandHandler(ctx, SLASH_COMMANDS);
+    expect(handler.isCommandSupported('/handoff session')).toBe(true);
   });
 
   // ── /quit pass-through ─────────────────────────────────────────────────

@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import stripAnsi from 'strip-ansi';
-import { go } from '../../src/commands/go.js';
+import { go, handoffSession } from '../../src/commands/go.js';
 import { stopMobileRelay } from '../../src/mobile/MobileRelay.js';
 import type { MobileHandoffClientLike } from '../../src/mobile/MobileHandoffClient.js';
 import type { Session, SessionManager } from '../../src/session/SessionManager.js';
@@ -258,5 +258,73 @@ describe('/go command', () => {
     expect(client.claimWork).toHaveBeenCalledWith('token', 'device-1');
     expect(enqueueInstruction).toHaveBeenCalledWith('review the diff from mobile');
     stopMobileRelay();
+  });
+});
+
+describe('/handoff session command', () => {
+  it('stays behind experimental_handoff by default', async () => {
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn(),
+      registerDevice: vi.fn(),
+      sendRelayHeartbeat: vi.fn(),
+      createPairing: vi.fn(),
+      claimWork: vi.fn(),
+    };
+
+    const result = await handoffSession({
+      sessionManager: createSessionManager(createSession()),
+      workspaceRoot: '/Users/test/project',
+      model: 'gpt-5.3-codex',
+      config: {
+        configPath: '/tmp/config.json',
+        auth: { token: 'token', user: { id: 'user-1', email: 'user@example.com', name: 'User' } },
+      },
+      client,
+    });
+
+    expect(stripAnsi(result || '')).toContain('experimental_handoff');
+    expect(client.createPairing).not.toHaveBeenCalled();
+  });
+
+  it('creates a handoff after experimental_handoff is enabled', async () => {
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn().mockResolvedValue({
+        id: 'pairing-1',
+        pairingUrl: 'https://autohand.ai/code/go?pairing=pairing-1&token=secret',
+        expiresAt: '2026-05-13T00:10:00.000Z',
+        pollIntervalMs: 2000,
+        session: {
+          id: 'session-1',
+          deviceId: 'device-1',
+          workspacePath: '/Users/test/project',
+          projectName: 'project',
+          model: 'gpt-5.3-codex',
+          provider: 'openai',
+        },
+      }),
+      claimWork: vi.fn().mockResolvedValue(null),
+    };
+    const trackFeatureActivation = vi.fn();
+
+    const result = await handoffSession({
+      sessionManager: createSessionManager(createSession()),
+      workspaceRoot: '/Users/test/project',
+      model: 'gpt-5.3-codex',
+      provider: 'openai',
+      config: {
+        configPath: '/tmp/config.json',
+        features: { experimentalHandoff: true },
+        auth: { token: 'token', user: { id: 'user-1', email: 'user@example.com', name: 'User' } },
+      },
+      client,
+      trackFeatureActivation,
+    });
+
+    expect(stripAnsi(result || '')).toContain('Autohand Code mobile handoff');
+    expect(client.createPairing).toHaveBeenCalled();
+    expect(trackFeatureActivation).toHaveBeenCalledWith('experimental_handoff', { surface: 'slash_command' });
   });
 });

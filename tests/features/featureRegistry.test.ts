@@ -34,6 +34,7 @@ describe('feature registry', () => {
     expect(ids).toContain('slash_goal');
     expect(ids).toContain('experimental_fork');
     expect(ids).toContain('experimental_clone');
+    expect(ids).toContain('experimental_handoff');
     expect(ids).toContain('chrome_integration');
   });
 
@@ -45,6 +46,7 @@ describe('feature registry', () => {
     expect(getFeatureState(config, 'slash_goal')?.enabled).toBe(false);
     expect(getFeatureState(config, 'experimental_fork')?.enabled).toBe(false);
     expect(getFeatureState(config, 'experimental_clone')?.enabled).toBe(false);
+    expect(getFeatureState(config, 'experimental_handoff')?.enabled).toBe(false);
   });
 
   it('updates nested config paths without disturbing adjacent settings', () => {
@@ -222,6 +224,16 @@ describe('feature registry', () => {
     expect(config.features?.experimentalClone).toBe(true);
     expect(getFeatureState(config, 'experimental_fork')?.enabled).toBe(true);
     expect(getFeatureState(config, 'experimental_clone')?.enabled).toBe(true);
+  });
+
+  it('enables experimental handoff through the local feature config path', () => {
+    const config = makeConfig();
+
+    const result = setFeatureState(config, 'experimental_handoff', true);
+
+    expect(result.ok).toBe(true);
+    expect(config.features?.experimentalHandoff).toBe(true);
+    expect(getFeatureState(config, 'experimental_handoff')?.enabled).toBe(true);
   });
 
   it('does not let users force-enable a remotely disabled flag', () => {

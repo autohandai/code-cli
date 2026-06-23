@@ -174,6 +174,14 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     defaultEnabled: false,
   },
   {
+    id: 'experimental_handoff',
+    label: 'Experimental handoff',
+    description: 'Enable handoff session commands for continuing work from another Autohand surface.',
+    stage: 'experimental',
+    configPath: 'features.experimentalHandoff',
+    defaultEnabled: false,
+  },
+  {
     id: 'chrome_integration',
     label: 'Chrome integration',
     description: 'Start the browser bridge by default for Chrome extension handoff.',

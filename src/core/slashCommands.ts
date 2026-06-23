@@ -108,6 +108,7 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   automode.metadata,
   share.metadata,
   goCmd.metadata,
+  goCmd.handoffSessionMetadata,
   sync.metadata,
   addDir.metadata,
   language.metadata,
