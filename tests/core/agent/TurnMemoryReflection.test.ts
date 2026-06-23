@@ -3,8 +3,18 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AutohandAgent } from '../../../src/core/agent.js';
+
+const originalDebug = process.env.AUTOHAND_DEBUG;
+
+afterEach(() => {
+  if (originalDebug === undefined) {
+    delete process.env.AUTOHAND_DEBUG;
+  } else {
+    process.env.AUTOHAND_DEBUG = originalDebug;
+  }
+});
 
 function createAgentHarness() {
   const agent = Object.create(AutohandAgent.prototype) as any;
@@ -75,11 +85,33 @@ describe('turn memory reflection', () => {
 
   it('does not write a success notice into the live terminal after background reflection', async () => {
     const { agent } = createAgentHarness();
+    delete process.env.AUTOHAND_DEBUG;
 
     agent.scheduleTurnMemoryReflection(true);
     await agent.turnMemoryReflectionInFlight;
 
     expect(agent.writeDebugLine).not.toHaveBeenCalled();
+  });
+
+  it('does not write a failure notice into the live terminal unless debug logging is enabled', async () => {
+    const { agent, llm } = createAgentHarness();
+    llm.complete.mockRejectedValueOnce(new Error('memory unavailable'));
+    delete process.env.AUTOHAND_DEBUG;
+
+    agent.scheduleTurnMemoryReflection(true);
+    await agent.turnMemoryReflectionInFlight;
+
+    expect(agent.writeDebugLine).not.toHaveBeenCalled();
+  });
+
+  it('writes turn memory diagnostics when AUTOHAND_DEBUG is enabled', async () => {
+    const { agent } = createAgentHarness();
+    process.env.AUTOHAND_DEBUG = '1';
+
+    agent.scheduleTurnMemoryReflection(true);
+    await agent.turnMemoryReflectionInFlight;
+
+    expect(agent.writeDebugLine).toHaveBeenCalledWith('[memory] turn reflection saved 1 memory');
   });
 
   it('does not run when auto-memory is disabled', () => {
