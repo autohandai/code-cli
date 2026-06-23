@@ -5,7 +5,7 @@
 
 [Follow us on X](https://x.com/autohandai) | [Join Discord](https://discord.gg/ZM3TCtwCwG)
 
-Docs: [English](https://docs.autohand.ai/en) | [日本語](https://docs.autohand.ai/ja) | [简体中文](https://docs.autohand.ai/zh-cn) | [繁體中文](https://docs.autohand.ai/zh-tw) | [한국어](https://docs.autohand.ai/ko) | [Deutsch](https://docs.autohand.ai/de) | [Español](https://docs.autohand.ai/es) | [Français](https://docs.autohand.ai/fr) | [Italiano](https://docs.autohand.ai/it) | [Polski](https://docs.autohand.ai/pl) | [Русский](https://docs.autohand.ai/ru) | [Português (Brasil)](https://docs.autohand.ai/pt-br) | [Türkçe](https://docs.autohand.ai/tr) | [Čeština](https://docs.autohand.ai/cs) | [Magyar](https://docs.autohand.ai/hu) | [हिन्दी](https://docs.autohand.ai/hi) | [Bahasa Indonesia](https://docs.autohand.ai/id)
+Docs: [English](docs/config-reference.md) | [日本語](docs/config-reference_ja.md) | [简体中文](docs/config-reference_zh.md) | [繁體中文](docs/config-reference_zh-tw.md) | [한국어](docs/config-reference_ko.md) | [Deutsch](docs/config-reference_de.md) | [Español](docs/config-reference_es.md) | [Français](docs/config-reference_fr.md) | [Italiano](docs/config-reference_it.md) | [Polski](docs/config-reference_pl.md) | [Русский](docs/config-reference_ru.md) | [Português (Brasil)](docs/config-reference_ptBR.md) | [Türkçe](docs/config-reference_tr.md) | [Čeština](docs/config-reference_cs.md) | [Magyar](docs/config-reference_hu.md) | [हिन्दी](docs/config-reference_hi.md) | [Bahasa Indonesia](docs/config-reference_id.md)
 
 **A fast, self-improving terminal-native AI coding agent for planning, reflecting, remembering, editing, testing, and automating work across your codebase.**
 
@@ -504,6 +504,22 @@ docker run -it autohand
 - [Agent Skills](docs/agent-skills.md) - Skills system guide
 - [Extending Autohand Code CLI](docs/extending.md) - Build tools, skills, hooks, MCP servers, and integrations
 - [Configuration Reference](docs/config-reference.md) - All config options
+  - [English](docs/config-reference.md)
+  - [日本語](docs/config-reference_ja.md)
+  - [简体中文](docs/config-reference_zh.md)
+  - [繁體中文](docs/config-reference_zh-tw.md)
+  - [한국어](docs/config-reference_ko.md)
+  - [Deutsch](docs/config-reference_de.md)
+  - [Español](docs/config-reference_es.md)
+  - [Français](docs/config-reference_fr.md)
+  - [Italiano](docs/config-reference_it.md)
+  - [Polski](docs/config-reference_pl.md)
+  - [Русский](docs/config-reference_ru.md)
+  - [Português (Brasil)](docs/config-reference_ptBR.md)
+  - [Türkçe](docs/config-reference_tr.md)
+  - [Čeština](docs/config-reference_cs.md)
+  - [Magyar](docs/config-reference_hu.md)
+  - [हिन्दी](docs/config-reference_hi.md)
   - [Bahasa Indonesia](docs/config-reference_id.md)
 - [Entire Integration](docs/entire-integration.md) - Session checkpointing with Entire
 

@@ -2,6 +2,26 @@
 
 Referensi lengkap untuk semua opsi konfigurasi di `~/.autohand/config.json` (atau `.yaml`/`.yml`).
 
+Referensi yang dilokalkan：
+
+- [English](./config-reference.md)
+- [日本語](./config-reference_ja.md)
+- [简体中文](./config-reference_zh.md)
+- [繁體中文](./config-reference_zh-tw.md)
+- [한국어](./config-reference_ko.md)
+- [Deutsch](./config-reference_de.md)
+- [Español](./config-reference_es.md)
+- [Français](./config-reference_fr.md)
+- [Italiano](./config-reference_it.md)
+- [Polski](./config-reference_pl.md)
+- [Русский](./config-reference_ru.md)
+- [Português (Brasil)](./config-reference_ptBR.md)
+- [Türkçe](./config-reference_tr.md)
+- [Čeština](./config-reference_cs.md)
+- [Magyar](./config-reference_hu.md)
+- [हिन्दी](./config-reference_hi.md)
+- [Bahasa Indonesia](./config-reference_id.md)
+
 ## Daftar Isi
 
 - [Lokasi File Konfigurasi](#lokasi-file-konfigurasi)
