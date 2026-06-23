@@ -12,7 +12,7 @@ import type { LLMProvider } from '../providers/LLMProvider.js';
 import { safeEmitKeypressEvents } from '../ui/inputPrompt.js';
 
 import { safeSetRawMode } from '../ui/rawMode.js';
-import { writeAutohandDebugLine } from '../utils/debugLog.js';
+import { isAutohandDebugEnabled } from '../utils/debugLog.js';
 import type { UIManager } from '../ui/UIManager.js';
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
 import { ConversationManager } from './conversationManager.js';
@@ -580,10 +580,7 @@ export class AutohandAgent {
     this.turnMemoryReflectionInFlight = this.runQueuedTurnMemoryReflection()
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
-        writeAutohandDebugLine(
-          `[memory] turn reflection failed: ${message}`,
-          this.writeDebugLine.bind(this),
-        );
+        this.writeTurnMemoryDebugLine(`[memory] turn reflection failed: ${message}`);
       })
       .finally(() => {
         this.turnMemoryReflectionInFlight = null;
@@ -625,10 +622,17 @@ export class AutohandAgent {
     }
 
     this.conversation.addSystemNote(formatTurnMemoryUpdate(saved), '[Auto Memory Update]');
-    writeAutohandDebugLine(
+    this.writeTurnMemoryDebugLine(
       `[memory] turn reflection saved ${saved.length} ${saved.length === 1 ? 'memory' : 'memories'}`,
-      this.writeDebugLine.bind(this),
     );
+  }
+
+  private writeTurnMemoryDebugLine(message: string): void {
+    if (!isAutohandDebugEnabled()) {
+      return;
+    }
+
+    this.writeDebugLine(message);
   }
 
   private async flushTurnMemoryReflection(timeoutMs = 1500): Promise<void> {
