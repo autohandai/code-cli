@@ -85,10 +85,18 @@ jobs:
             NEW_VERSION="${CURRENT_VERSION}"
             echo "🎯 Using existing package.json version: ${NEW_VERSION}"
           elif [ "$CHANNEL" = "alpha" ]; then
-            # Alpha: bump patch from current version and append -alpha.<sha>
-            MAJOR=$(echo $CURRENT_VERSION | cut -d. -f1)
-            MINOR=$(echo $CURRENT_VERSION | cut -d. -f2)
-            PATCH=$(echo $CURRENT_VERSION | cut -d. -f3 | cut -d- -f1)
+            # Alpha: bump patch from the latest stable release tag, falling back to package.json.
+            LATEST_STABLE_TAG=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -Ev -- '-(alpha|beta|rc|pre)' | head -n 1)
+            if [ -n "$LATEST_STABLE_TAG" ]; then
+              ALPHA_BASE_VERSION="${LATEST_STABLE_TAG#v}"
+              echo "🎯 Latest stable tag: ${LATEST_STABLE_TAG}"
+            else
+              ALPHA_BASE_VERSION="${CURRENT_VERSION}"
+              echo "🎯 No stable tag found; using package.json version: ${ALPHA_BASE_VERSION}"
+            fi
+            MAJOR=$(echo $ALPHA_BASE_VERSION | cut -d. -f1)
+            MINOR=$(echo $ALPHA_BASE_VERSION | cut -d. -f2)
+            PATCH=$(echo $ALPHA_BASE_VERSION | cut -d. -f3 | cut -d- -f1)
             PATCH=$((PATCH + 1))
             NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}-alpha.${SHORT_SHA}"
             echo "🎯 Alpha version: ${NEW_VERSION}"
