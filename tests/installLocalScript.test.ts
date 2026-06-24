@@ -82,4 +82,15 @@ describe('dependency install guardrails', () => {
     expect(packageJson.scripts?.['test:ci']).toBe("node --max-old-space-size=8192 ./node_modules/vitest/vitest.mjs run --pool=threads --exclude 'tests/tuistory/**/*.tuistory.test.ts'");
     expect(releaseWorkflow).toContain('run: bun run test:ci');
   });
+
+  it('bases alpha releases on the latest stable release tag before package.json fallback', () => {
+    const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8');
+
+    expect(releaseWorkflow).toContain('LATEST_STABLE_TAG=$(git tag --list');
+    expect(releaseWorkflow).toContain("grep -Ev -- '-(alpha|beta|rc|pre)'");
+    expect(releaseWorkflow).toContain('ALPHA_BASE_VERSION="${LATEST_STABLE_TAG#v}"');
+    expect(releaseWorkflow).toContain('ALPHA_BASE_VERSION="${CURRENT_VERSION}"');
+    expect(releaseWorkflow).toContain('MAJOR=$(echo $ALPHA_BASE_VERSION');
+    expect(releaseWorkflow).not.toContain('Alpha: bump patch from current version');
+  });
 });

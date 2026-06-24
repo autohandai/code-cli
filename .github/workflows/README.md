@@ -7,16 +7,13 @@ This directory contains automated CI/CD workflows for the Autohand CLI project.
 ### 🚀 Release (`release.yml`)
 
 **Triggers:**
-- Push to `main` (stable release)
-- Push to `beta` (beta release)
-- Push to `alpha` (alpha release)
+- Push to `main` (alpha release)
 - Manual workflow dispatch
 
 **What it does:**
-1. **Determines version** based on conventional commits
-   - `feat:` → MINOR bump (0.1.0 → 0.2.0)
-   - `fix:` → PATCH bump (0.1.0 → 0.1.1)
-   - `feat!:` or `BREAKING CHANGE:` → MAJOR bump (0.1.0 → 1.0.0)
+1. **Determines version** based on the selected release channel
+   - Alpha bumps the patch from the latest stable tag and appends the short SHA
+   - Stable releases use the current `package.json` version unless manually overridden
 
 2. **Builds binaries** for all platforms:
    - macOS Apple Silicon (`autohand-macos-arm64`)
@@ -32,9 +29,8 @@ This directory contains automated CI/CD workflows for the Autohand CLI project.
 5. **Publishes to npm** (stable releases only)
 
 **Release Channels:**
-- **main** → `v1.2.3` (stable)
-- **beta** → `v1.2.3-beta.202511221100` (beta with timestamp)
-- **alpha** → `v1.2.3-alpha.20251122110530` (alpha with timestamp)
+- **main push** → `v1.2.4-alpha.abc1234` (next patch from the latest stable tag plus short SHA)
+- **manual release** → `v1.2.3` (stable)
 
 ### ✅ CI (`ci.yml`)
 
@@ -109,9 +105,9 @@ Add these secrets in GitHub Settings → Secrets → Actions:
 
 1. Go to: Actions → Release → Run workflow
 2. Choose:
-   - **Branch**: main/beta/alpha
+   - **Branch**: main or another release source branch
    - **Version**: Leave empty for auto, or specify (e.g., `1.2.3`)
-   - **Channel**: alpha/beta/release
+   - **Channel**: alpha/release
 3. Click "Run workflow"
 
 ## Version Strategy
@@ -120,14 +116,13 @@ Add these secrets in GitHub Settings → Secrets → Actions:
 
 Format: `MAJOR.MINOR.PATCH[-prerelease]`
 
-- **MAJOR**: Breaking changes (`feat!:` or `BREAKING CHANGE:`)
-- **MINOR**: New features (`feat:`)
-- **PATCH**: Bug fixes (`fix:`)
+- **MAJOR**: Breaking changes
+- **MINOR**: New features
+- **PATCH**: Bug fixes and small improvements
 
 ### Prerelease Tags
 
-- **Alpha**: `1.2.3-alpha.20251122110530` (timestamp)
-- **Beta**: `1.2.3-beta.202511221100` (timestamp)
+- **Alpha**: `1.2.4-alpha.abc1234` (next patch from the latest stable tag plus short SHA)
 - **Release**: `1.2.3` (no suffix)
 
 ## Changelog Generation
@@ -151,9 +146,8 @@ Check:
 ### Release Not Created
 
 Check:
-1. Commit message follows conventional commits
-2. Not a version bump commit (contains `chore(release):`)
-3. Repository has write permissions enabled
+1. The last commit is not a version bump commit (contains `chore(release):`)
+2. Repository has write permissions enabled
 
 ### npm Publish Fails
 
