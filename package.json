@@ -100,7 +100,7 @@
     "tsx": "^4.21.0",
     "tuistory": "0.4.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.9"
   },
   "overrides": {
     "ansi-styles": "^6.2.3",
