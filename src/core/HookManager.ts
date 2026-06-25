@@ -452,6 +452,49 @@ export class HookManager {
       case 'subagent-stop':
         value = context.subagentType ?? '';
         break;
+      case 'automode:start':
+      case 'automode:iteration':
+      case 'automode:checkpoint':
+      case 'automode:pause':
+      case 'automode:resume':
+      case 'automode:cancel':
+      case 'automode:complete':
+      case 'automode:error':
+        value = [
+          context.automodePrompt,
+          context.automodeCancelReason,
+          context.automodeCheckpointCommit,
+          context.automodeIteration,
+        ].filter((part) => part !== undefined && part !== null).join(' ');
+        break;
+      case 'review:start':
+      case 'review:end':
+      case 'review:paused':
+      case 'review:failed':
+      case 'review:completed':
+        value = [
+          context.reviewPath,
+          context.reviewScope,
+          context.reviewInstructions,
+          context.reviewError,
+        ].filter((part) => part !== undefined && part !== null).join(' ');
+        break;
+      case 'team-created':
+      case 'team-shutdown':
+        value = context.teamName ?? '';
+        break;
+      case 'teammate-spawned':
+      case 'teammate-idle':
+        value = [context.teamName, context.teammateName, context.teammateAgentName]
+          .filter((part) => part !== undefined && part !== null)
+          .join(' ');
+        break;
+      case 'task-assigned':
+      case 'task-completed':
+        value = [context.teamTaskId, context.teamTaskOwner, context.teamTaskResult]
+          .filter((part) => part !== undefined && part !== null)
+          .join(' ');
+        break;
       default:
         return true; // No matcher for other events
     }
@@ -539,6 +582,18 @@ export class HookManager {
       if (context.reviewInstructions) env.HOOK_REVIEW_INSTRUCTIONS = context.reviewInstructions;
     }
 
+    // Team hooks
+    if (context.teamName) env.HOOK_TEAM_NAME = context.teamName;
+    if (context.teammateName) env.HOOK_TEAMMATE_NAME = context.teammateName;
+    if (context.teammateAgentName) env.HOOK_TEAMMATE_AGENT = context.teammateAgentName;
+    if (context.teammatePid !== undefined) env.HOOK_TEAMMATE_PID = String(context.teammatePid);
+    if (context.teamTaskId) env.HOOK_TEAM_TASK_ID = context.teamTaskId;
+    if (context.teamTaskOwner) env.HOOK_TEAM_TASK_OWNER = context.teamTaskOwner;
+    if (context.teamTaskResult) env.HOOK_TEAM_TASK_RESULT = context.teamTaskResult;
+    if (context.teamMemberCount !== undefined) env.HOOK_TEAM_MEMBER_COUNT = String(context.teamMemberCount);
+    if (context.teamTasksCompleted !== undefined) env.HOOK_TEAM_TASKS_COMPLETED = String(context.teamTasksCompleted);
+    if (context.teamTasksTotal !== undefined) env.HOOK_TEAM_TASKS_TOTAL = String(context.teamTasksTotal);
+
     // Multi-directory support
     if (context.additionalWorkspaces && context.additionalWorkspaces.length > 0) {
       env.HOOK_ADDITIONAL_WORKSPACES = JSON.stringify(context.additionalWorkspaces);
@@ -608,6 +663,17 @@ export class HookManager {
       review_scope: context.reviewScope,
       review_instructions: context.reviewInstructions,
       review_error: context.reviewError,
+      // Team context
+      team_name: context.teamName,
+      teammate_name: context.teammateName,
+      teammate_agent_name: context.teammateAgentName,
+      teammate_pid: context.teammatePid,
+      team_task_id: context.teamTaskId,
+      team_task_owner: context.teamTaskOwner,
+      team_task_result: context.teamTaskResult,
+      team_member_count: context.teamMemberCount,
+      team_tasks_completed: context.teamTasksCompleted,
+      team_tasks_total: context.teamTasksTotal,
       // Multi-directory support
       additional_workspaces: context.additionalWorkspaces,
     });
@@ -844,6 +910,9 @@ export class HookManager {
       'automode:cancel',
       'automode:complete',
       'automode:error',
+      // Learn events
+      'pre-learn',
+      'post-learn',
       // Review events
       'review:start',
       'review:end',
@@ -857,6 +926,13 @@ export class HookManager {
       'task-assigned',
       'task-completed',
       'team-shutdown',
+      // Mode events
+      'mode-change',
+      // Context lifecycle events
+      'context:compact',
+      'context:overflow',
+      'context:warning',
+      'context:critical',
     ];
     const summary: Record<HookEvent, { total: number; enabled: number }> = {} as Record<HookEvent, { total: number; enabled: number }>;
 

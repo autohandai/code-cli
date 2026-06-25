@@ -6,12 +6,15 @@
 
 import { TeammateProcess } from './TeammateProcess.js';
 import { TaskManager } from './TaskManager.js';
+import type { HookContext } from '../HookManager.js';
+import type { HookEvent } from '../../types.js';
 import type { Team } from './types.js';
 
 interface TeamManagerOptions {
   leadSessionId: string;
   workspacePath: string;
   onTeammateMessage?: (from: string, msg: { method: string; params: Record<string, unknown> }) => void;
+  onHookEvent?: (event: HookEvent, context: Omit<HookContext, 'event' | 'workspace'>) => Promise<void> | void;
 }
 
 interface AddTeammateOptions {
@@ -58,6 +61,11 @@ export class TeamManager {
       members: [],
     };
     this._tasks = new TaskManager();
+    void this.emitHookEvent('team-created', {
+      sessionId: this.opts.leadSessionId,
+      teamName: this.team.name,
+      teamMemberCount: 0,
+    });
     return this.team;
   }
 
@@ -96,6 +104,15 @@ export class TeamManager {
       (code) => this.handleTeammateExit(opts.name, code),
     );
 
+    void this.emitHookEvent('teammate-spawned', {
+      sessionId: this.opts.leadSessionId,
+      teamName: this.team.name,
+      teammateName: opts.name,
+      teammateAgentName: opts.agentName,
+      teammatePid: tp.pid,
+      teamMemberCount: this.teammates.size,
+    });
+
     return tp;
   }
 
@@ -115,6 +132,7 @@ export class TeamManager {
     switch (msg.method) {
       case 'team.ready':
         tp?.setStatus('idle');
+        void this.emitTeammateIdleHook(from);
         break;
 
       case 'team.taskUpdate': {
@@ -123,8 +141,18 @@ export class TeamManager {
           this._tasks.setTaskOutput(taskId, result);
         }
         if (status === 'completed') {
+          const task = this._tasks.getTask(taskId);
           this._tasks.completeTask(taskId);
           tp?.setStatus('idle');
+          void this.emitHookEvent('task-completed', {
+            sessionId: this.opts.leadSessionId,
+            teamName: this.team?.name,
+            teammateName: from,
+            teamTaskId: taskId,
+            teamTaskOwner: task?.owner ?? from,
+            teamTaskResult: result,
+          });
+          void this.emitTeammateIdleHook(from);
         } else if (status === 'in_progress') {
           tp?.setStatus('working');
         }
@@ -142,6 +170,7 @@ export class TeamManager {
 
       case 'team.idle':
         tp?.setStatus('idle');
+        void this.emitTeammateIdleHook(from);
         this.tryAssignIdleTeammate();
         break;
 
@@ -182,6 +211,13 @@ export class TeamManager {
       const task = available[0];
       this._tasks.assignTask(task.id, name);
       tp.assignTask(task);
+      void this.emitHookEvent('task-assigned', {
+        sessionId: this.opts.leadSessionId,
+        teamName: this.team?.name,
+        teammateName: name,
+        teamTaskId: task.id,
+        teamTaskOwner: name,
+      });
       return;
     }
   }
@@ -201,6 +237,7 @@ export class TeamManager {
    */
   async shutdown(): Promise<void> {
     if (!this.team) return;
+    const teamName = this.team.name;
     for (const [, tp] of this.teammates) {
       tp.requestShutdown('Team shutting down');
     }
@@ -209,6 +246,14 @@ export class TeamManager {
       tp.kill();
     }
     this.team.status = 'completed';
+    const tasks = this._tasks.listTasks();
+    await this.emitHookEvent('team-shutdown', {
+      sessionId: this.opts.leadSessionId,
+      teamName,
+      teamMemberCount: this.teammates.size,
+      teamTasksCompleted: tasks.filter((task) => task.status === 'completed').length,
+      teamTasksTotal: tasks.length,
+    });
     this.teammates.clear();
   }
 
@@ -223,5 +268,25 @@ export class TeamManager {
       tasksDone: tasks.filter((t) => t.status === 'completed').length,
       tasksTotal: tasks.length,
     };
+  }
+
+  private async emitTeammateIdleHook(teammateName: string): Promise<void> {
+    await this.emitHookEvent('teammate-idle', {
+      sessionId: this.opts.leadSessionId,
+      teamName: this.team?.name,
+      teammateName,
+      teamMemberCount: this.teammates.size,
+    });
+  }
+
+  private async emitHookEvent(
+    event: HookEvent,
+    context: Omit<HookContext, 'event' | 'workspace'>,
+  ): Promise<void> {
+    try {
+      await this.opts.onHookEvent?.(event, context);
+    } catch {
+      // Hook failures are already captured by HookManager; team orchestration should continue.
+    }
   }
 }

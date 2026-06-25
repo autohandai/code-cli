@@ -217,6 +217,9 @@ describe('HookManager', () => {
       expect(summary['pre-tool']).toEqual({ total: 2, enabled: 1 });
       expect(summary['post-tool']).toEqual({ total: 1, enabled: 1 });
       expect(summary['file-modified']).toEqual({ total: 0, enabled: 0 });
+      expect(summary['post-learn']).toEqual({ total: 0, enabled: 0 });
+      expect(summary['mode-change']).toEqual({ total: 0, enabled: 0 });
+      expect(summary['context:critical']).toEqual({ total: 0, enabled: 0 });
     });
   });
 
@@ -282,6 +285,24 @@ describe('HookManager', () => {
       // Should execute for .ts files in src/
       results = await manager.executeHooks('file-modified', { path: 'src/test.ts' });
       expect(results).toHaveLength(1);
+    });
+
+    it('applies matchers to automode, review, and team event context', async () => {
+      await manager.addHook({ event: 'automode:checkpoint', command: 'true', matcher: 'abc123' });
+      await manager.addHook({ event: 'review:failed', command: 'true', matcher: 'src/index.ts' });
+      await manager.addHook({ event: 'teammate-spawned', command: 'true', matcher: 'planner' });
+
+      let results = await manager.executeHooks('automode:checkpoint', { automodeCheckpointCommit: 'abc123' });
+      expect(results).toHaveLength(1);
+
+      results = await manager.executeHooks('review:failed', { reviewPath: 'src/index.ts' });
+      expect(results).toHaveLength(1);
+
+      results = await manager.executeHooks('teammate-spawned', { teammateName: 'planner' });
+      expect(results).toHaveLength(1);
+
+      results = await manager.executeHooks('teammate-spawned', { teammateName: 'builder' });
+      expect(results).toHaveLength(0);
     });
 
     it('executes async hooks in parallel', async () => {

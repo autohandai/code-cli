@@ -99,4 +99,47 @@ describe('TeamManager', () => {
     expect(tasks[0].owner).toBe('worker');
     expect(tasks[0].status).toBe('in_progress');
   });
+
+  it('emits hook events for team lifecycle operations', async () => {
+    const onHookEvent = vi.fn();
+    manager = new TeamManager({ leadSessionId: 'sess-123', workspacePath: '/tmp', onHookEvent });
+
+    manager.createTeam('test');
+    manager.addTeammate({ name: 'worker', agentName: 'code-cleaner' });
+    const teammates = (manager as unknown as { teammates: Map<string, { status: string; setStatus: (s: string) => void }> }).teammates;
+    teammates.get('worker')!.setStatus('idle');
+    manager.tasks.createTask({ subject: 'Fix bug', description: 'Fix it' });
+    manager.tryAssignIdleTeammate();
+    const taskId = manager.tasks.listTasks()[0].id;
+    (manager as unknown as {
+      handleTeammateMessage: (from: string, msg: { method: string; params: Record<string, unknown> }) => void;
+    }).handleTeammateMessage('worker', {
+      method: 'team.taskUpdate',
+      params: { taskId, status: 'completed', result: 'done' },
+    });
+    await manager.shutdown();
+
+    expect(onHookEvent).toHaveBeenCalledWith('team-created', expect.objectContaining({
+      sessionId: 'sess-123',
+      teamName: 'test',
+    }));
+    expect(onHookEvent).toHaveBeenCalledWith('teammate-spawned', expect.objectContaining({
+      teammateName: 'worker',
+      teammateAgentName: 'code-cleaner',
+    }));
+    expect(onHookEvent).toHaveBeenCalledWith('task-assigned', expect.objectContaining({
+      teamTaskOwner: 'worker',
+    }));
+    expect(onHookEvent).toHaveBeenCalledWith('task-completed', expect.objectContaining({
+      teamTaskId: taskId,
+      teamTaskResult: 'done',
+    }));
+    expect(onHookEvent).toHaveBeenCalledWith('teammate-idle', expect.objectContaining({
+      teammateName: 'worker',
+    }));
+    expect(onHookEvent).toHaveBeenCalledWith('team-shutdown', expect.objectContaining({
+      teamName: 'test',
+      teamTasksTotal: 1,
+    }));
+  });
 });

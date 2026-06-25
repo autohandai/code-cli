@@ -32,12 +32,40 @@ When running in RPC mode (VS Code, Zed, etc.), hook events are also emitted as J
 | `file-modified` | When a file is created, modified, or deleted | file path, change type |
 | `pre-prompt` | Before sending instruction to LLM | instruction, mentioned files |
 | `stop` | After agent finishes responding (turn complete) | tokens used, tool calls count, duration |
+| `post-response` | Alias for `stop` for backward compatibility | tokens used, tool calls count, duration |
 | `session-start` | When a session begins | session type (startup/resume/clear) |
 | `session-end` | When a session ends | reason (quit/clear/exit/error), duration |
+| `pre-clear` | Before memory extraction on `/clear` or `/new` | session id, cwd |
 | `session-error` | When an error occurs | error message, code, context |
 | `subagent-stop` | When a subagent finishes execution | subagent id, name, type, success, duration |
 | `permission-request` | Before showing permission dialog | tool, path, permission type |
 | `notification` | When a notification is sent to user | notification type, message |
+| `automode:start` | When auto-mode starts | auto-mode session id, prompt, max iterations |
+| `automode:iteration` | On each auto-mode iteration | iteration, actions, files created/modified, cost |
+| `automode:checkpoint` | When auto-mode creates a checkpoint | iteration, checkpoint commit |
+| `automode:pause` | When auto-mode pauses | auto-mode session id, iteration |
+| `automode:resume` | When auto-mode resumes | auto-mode session id, iteration |
+| `automode:cancel` | When auto-mode is cancelled | cancel reason, iteration, cost |
+| `automode:complete` | When auto-mode completes successfully | iterations, actions, files changed, cost |
+| `automode:error` | When auto-mode encounters an error | error message, iteration |
+| `pre-learn` | Before a learn operation begins | instruction, cwd |
+| `post-learn` | After a learn operation completes | instruction, duration, success |
+| `team-created` | When a team is created | team name, member count |
+| `teammate-spawned` | When a teammate process starts | team name, teammate name, agent name, pid |
+| `teammate-idle` | When a teammate becomes idle | team name, teammate name |
+| `task-assigned` | When a task is assigned to a teammate | task id, owner, teammate name |
+| `task-completed` | When a task is marked complete | task id, owner, result |
+| `team-shutdown` | When team cleanup completes | team name, completed task count, total task count |
+| `review:start` | When a code review begins | review path, scope, instructions |
+| `review:end` | When a code review session ends | review path, scope, duration |
+| `review:paused` | When a code review pauses | review path, scope |
+| `review:failed` | When a code review fails | review path, scope, review error |
+| `review:completed` | When a code review completes successfully | review path, scope, duration |
+| `mode-change` | When permission mode changes | permission mode |
+| `context:compact` | When context is compacted | context lifecycle details |
+| `context:overflow` | When context overflow is detected | context lifecycle details |
+| `context:warning` | When context usage crosses the warning threshold | context lifecycle details |
+| `context:critical` | When context usage crosses the critical threshold | context lifecycle details |
 
 > **Note**: `post-response` is an alias for `stop` for backward compatibility.
 
@@ -115,6 +143,11 @@ What the matcher matches against depends on the event type:
 | `session-start` | Session type (startup/resume/clear) |
 | `session-end` | End reason (quit/clear/exit/error) |
 | `subagent-stop` | Subagent type |
+| `automode:*` | Event-specific auto-mode prompt, iteration, or reason |
+| `review:*` | Event-specific review path, scope, instructions, or error |
+| `team-created`, `team-shutdown` | Team name |
+| `teammate-spawned`, `teammate-idle` | Team name, teammate name, or teammate agent name |
+| `task-assigned`, `task-completed` | Task id, task owner, or task result |
 
 ---
 
@@ -149,6 +182,7 @@ echo "Tool: $TOOL_NAME with args: $TOOL_ARGS"
   "instruction": null,
   "mentioned_files": null,
   "tokens_used": null,
+  "tokens_usage_status": null,
   "tool_calls_count": null,
   "turn_tool_calls": null,
   "turn_duration": null,
@@ -165,7 +199,32 @@ echo "Tool: $TOOL_NAME with args: $TOOL_ARGS"
   "subagent_duration": null,
   "permission_type": null,
   "notification_type": null,
-  "notification_message": null
+  "notification_message": null,
+  "automode_session_id": null,
+  "automode_prompt": null,
+  "automode_iteration": null,
+  "automode_max_iterations": null,
+  "automode_actions": null,
+  "automode_files_created": null,
+  "automode_files_modified": null,
+  "automode_cancel_reason": null,
+  "automode_checkpoint_commit": null,
+  "automode_total_cost": null,
+  "review_path": null,
+  "review_scope": null,
+  "review_instructions": null,
+  "review_error": null,
+  "team_name": null,
+  "teammate_name": null,
+  "teammate_agent_name": null,
+  "teammate_pid": null,
+  "team_task_id": null,
+  "team_task_owner": null,
+  "team_task_result": null,
+  "team_member_count": null,
+  "team_tasks_completed": null,
+  "team_tasks_total": null,
+  "additional_workspaces": null
 }
 ```
 
@@ -295,6 +354,31 @@ When your hook command executes, these environment variables are available:
 | `HOOK_PERMISSION_TYPE` | Permission type being requested | permission-request |
 | `HOOK_NOTIFICATION_TYPE` | Type of notification | notification |
 | `HOOK_NOTIFICATION_MSG` | Notification message | notification |
+| `HOOK_AUTOMODE_SESSION_ID` | Auto-mode session ID | automode:* |
+| `HOOK_AUTOMODE_PROMPT` | Auto-mode prompt/task | automode:start, automode:iteration |
+| `HOOK_AUTOMODE_ITERATION` | Current auto-mode iteration | automode:* |
+| `HOOK_AUTOMODE_MAX_ITERATIONS` | Maximum auto-mode iterations | automode:start, automode:iteration |
+| `HOOK_AUTOMODE_ACTIONS` | JSON array of actions | automode:iteration, automode:complete |
+| `HOOK_AUTOMODE_FILES_CREATED` | Number of files created | automode:* |
+| `HOOK_AUTOMODE_FILES_MODIFIED` | Number of files modified | automode:* |
+| `HOOK_AUTOMODE_CANCEL_REASON` | Cancellation reason | automode:cancel |
+| `HOOK_AUTOMODE_CHECKPOINT` | Checkpoint commit hash | automode:checkpoint |
+| `HOOK_AUTOMODE_COST` | Total auto-mode cost | automode:* |
+| `HOOK_REVIEW_PATH` | Review target path | review:* |
+| `HOOK_REVIEW_SCOPE` | Review scope | review:* |
+| `HOOK_REVIEW_ERROR` | Review error message | review:failed |
+| `HOOK_REVIEW_INSTRUCTIONS` | Review instructions/focus | review:* |
+| `HOOK_TEAM_NAME` | Team name | team-created, teammate-spawned, teammate-idle, task-assigned, task-completed, team-shutdown |
+| `HOOK_TEAMMATE_NAME` | Teammate name | teammate-spawned, teammate-idle, task-assigned, task-completed |
+| `HOOK_TEAMMATE_AGENT` | Teammate agent definition | teammate-spawned |
+| `HOOK_TEAMMATE_PID` | Teammate process ID | teammate-spawned |
+| `HOOK_TEAM_TASK_ID` | Team task ID | task-assigned, task-completed |
+| `HOOK_TEAM_TASK_OWNER` | Team task owner | task-assigned, task-completed |
+| `HOOK_TEAM_TASK_RESULT` | Team task result | task-completed |
+| `HOOK_TEAM_MEMBER_COUNT` | Number of team members | team-created, teammate-spawned, teammate-idle, team-shutdown |
+| `HOOK_TEAM_TASKS_COMPLETED` | Completed task count | team-shutdown |
+| `HOOK_TEAM_TASKS_TOTAL` | Total task count | team-shutdown |
+| `HOOK_ADDITIONAL_WORKSPACES` | JSON array of additional workspaces | All events when configured |
 
 ---
 
