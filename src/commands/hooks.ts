@@ -23,6 +23,7 @@ export const HOOK_EVENTS: HookEvent[] = [
   'post-tool',
   'file-modified',
   'stop',
+  'post-response',
   'subagent-stop',
   'permission-request',
   'notification',
@@ -54,6 +55,11 @@ export const HOOK_EVENTS: HookEvent[] = [
   'review:completed',
   // Mode events
   'mode-change',
+  // Context lifecycle events
+  'context:compact',
+  'context:overflow',
+  'context:warning',
+  'context:critical',
 ];
 
 // Event descriptions for better UX

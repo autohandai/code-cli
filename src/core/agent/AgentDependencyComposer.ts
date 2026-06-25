@@ -266,6 +266,9 @@ export function initializeAgentDependencies(
           host.emitOutput({ type: 'message', content: `${prefix} ${text}` });
         }
       },
+      onHookEvent: async (event, context) => {
+        await host.hookManager.executeHooks(event, context);
+      },
     });
 
     host.actionExecutor = new ActionExecutor({
