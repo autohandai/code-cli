@@ -34,10 +34,21 @@ export interface QueuedGoal {
   createdAt: number;
 }
 
+export interface CompletedGoal {
+  goalId: string;
+  objective: string;
+  status: Extract<GoalStatus, 'complete' | 'budgetLimited'>;
+  tokensUsed: number;
+  timeUsedSeconds: number;
+  createdAt: number;
+  completedAt: number;
+}
+
 export interface GoalSnapshot {
   version: 1;
   goal: GoalState | null;
   queue: QueuedGoal[];
+  completed: CompletedGoal[];
   updatedAt: number;
 }
 
@@ -64,6 +75,8 @@ export interface GoalMutationResult {
   message?: string;
   queued?: QueuedGoal[];
   started?: QueuedGoal;
+  completed?: CompletedGoal;
+  completedRun?: CompletedGoal[];
   dequeued?: QueuedGoal;
   removed?: QueuedGoal;
 }

@@ -402,11 +402,11 @@ describe('ActionExecutor', () => {
       });
 
       try {
-        const result = await executor.execute({ type: 'create_goal', objective: 'ship stable write-goal support' } as any);
+        const result = await executor.execute({ type: 'create_goal', objective: 'ship stable goal-writer support' } as any);
 
         expect(JSON.parse(result)).toMatchObject({ ok: true, message: 'Goal created.' });
         expect(onGoalWrittenCompleted).toHaveBeenCalledWith(expect.objectContaining({
-          goalObjective: 'ship stable write-goal support',
+          goalObjective: 'ship stable goal-writer support',
           goalSource: 'tool',
         }));
       } finally {

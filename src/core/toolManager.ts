@@ -105,7 +105,7 @@ export const GOAL_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'create_goal',
-    description: 'Create a persistent goal only when the user explicitly asks for durable goal tracking or long-running goal pursuit. Do not infer goals from ordinary tasks.',
+    description: 'Create a persistent goal only when the user explicitly asks for durable goal tracking or long-running goal pursuit. If a non-terminal goal is already active, the new goal is queued. Do not infer goals from ordinary tasks.',
     parameters: {
       type: 'object',
       properties: {
@@ -120,7 +120,7 @@ export const GOAL_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'create_goal_from_template',
-    description: 'Resolve a reusable .pi-goals template and create the resulting persistent goal when the user explicitly requests a template/workflow goal.',
+    description: 'Resolve a reusable .pi-goals template and create the resulting persistent goal when the user explicitly requests a template/workflow goal. If a non-terminal goal is already active, the new goal is queued.',
     parameters: {
       type: 'object',
       properties: {

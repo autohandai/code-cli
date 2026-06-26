@@ -51,15 +51,23 @@ describe('RPC goal handlers', () => {
     const snapshot = await adapter.handleGoalGet() as any;
     expect(snapshot.goal.objective).toBe('rpc goal');
 
+    const queuedByCreate = await adapter.handleGoalCreate({ objective: 'second rpc goal' }) as any;
+    expect(queuedByCreate.ok).toBe(true);
+    expect(queuedByCreate.queued[0].objective).toBe('second rpc goal');
+
     const completed = await adapter.handleGoalUpdate({ status: 'complete' }) as any;
-    expect(completed.goal.status).toBe('complete');
+    expect(completed.completed.objective).toBe('rpc goal');
+    expect(completed.goal.objective).toBe('second rpc goal');
+    expect(completed.goal.status).toBe('active');
 
     const queued = await adapter.handleGoalQueue({ objective: 'queued rpc goal' }) as any;
     expect(queued.queued).toHaveLength(1);
 
-    const started = await adapter.handleGoalStartQueued() as any;
-    expect(started.goal.objective).toBe('queued rpc goal');
-    expect(started.queue).toEqual([]);
+    await adapter.handleGoalUpdate({ status: 'complete' });
+
+    const finalSnapshot = await adapter.handleGoalGet() as any;
+    expect(finalSnapshot.goal.objective).toBe('queued rpc goal');
+    expect(finalSnapshot.queue).toEqual([]);
   });
 
   it('returns a disabled result when slash_goal is off', async () => {

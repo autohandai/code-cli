@@ -10,6 +10,7 @@ import { PROJECT_DIR_NAME } from '../constants.js';
 import { parseQueueBlockItems } from './queueBlockParser.js';
 import { listGoalTemplateMetadata, resolveGoalTemplateByName, resolveGoalTemplateInvocation } from './templates.js';
 import type {
+  CompletedGoal,
   GoalCreateInput,
   GoalMutationResult,
   GoalSnapshot,
@@ -78,6 +79,15 @@ export class GoalManager {
     return result(next, true, snapshot.goal?.status === 'complete' ? 'Goal created; replaced completed goal.' : 'Goal created.');
   }
 
+  async createOrQueueGoal(input: GoalCreateInput & { source: QueuedGoal['source'] }): Promise<GoalMutationResult> {
+    const snapshot = await this.readSnapshot();
+    const current = snapshot.goal ? this.withLiveElapsed(snapshot.goal) : null;
+    if (current && current.status !== 'complete' && current.status !== 'budgetLimited') {
+      return this.enqueueGoal(input);
+    }
+    return this.createGoal(input);
+  }
+
   async updateGoal(input: GoalUpdateInput): Promise<GoalMutationResult> {
     const snapshot = await this.readSnapshot();
     const current = snapshot.goal ? this.withLiveElapsed(snapshot.goal) : null;
@@ -132,6 +142,39 @@ export class GoalManager {
       return result(snapshot, false, 'Cannot resume: budget is exhausted. Raise the budget or clear the goal before resuming.');
     }
     if (changes.length === 0) return result(snapshot, false, 'No goal updates were provided.');
+
+    if (next.status === 'complete') {
+      if (current.status === 'complete') return result({ ...snapshot, goal: current }, false, 'Goal is already complete.');
+      const completedGoal = buildCompletedGoal(next, Date.now());
+      const completedRun = appendCompletedGoal(snapshot.completed, completedGoal);
+      const nextQueued = snapshot.queue[0];
+      if (nextQueued) {
+        const started = await this.startQueuedGoalFromSnapshot({
+          ...snapshot,
+          goal: next,
+          completed: completedRun,
+        }, nextQueued);
+        if (!started.ok) return started;
+        return {
+          ...started,
+          message: 'Goal completed. Started next queued goal.',
+          completed: completedGoal,
+          completedRun,
+        };
+      }
+      next = { ...next, updatedAt: Date.now() };
+      const updated = {
+        ...snapshot,
+        goal: next,
+        completed: completedRun,
+        updatedAt: next.updatedAt,
+      };
+      await this.writeSnapshot(updated);
+      return result(updated, true, formatAllCompleteMessage(completedRun), {
+        completed: completedGoal,
+        completedRun,
+      });
+    }
 
     next = { ...next, updatedAt: Date.now() };
     const updated = { ...snapshot, goal: next, updatedAt: next.updatedAt };
@@ -204,6 +247,17 @@ export class GoalManager {
     const nextQueued = snapshot.queue[0];
     if (!nextQueued) return result({ ...snapshot, goal: current }, false, 'No queued goals.');
 
+    const snapshotWithTerminalHistory = current && (current.status === 'complete' || current.status === 'budgetLimited')
+      ? {
+        ...snapshot,
+        goal: current,
+        completed: appendCompletedGoal(snapshot.completed, buildCompletedGoal(current, Date.now())),
+      }
+      : { ...snapshot, goal: current };
+    return this.startQueuedGoalFromSnapshot(snapshotWithTerminalHistory, nextQueued);
+  }
+
+  private async startQueuedGoalFromSnapshot(snapshot: GoalSnapshot, nextQueued: QueuedGoal): Promise<GoalMutationResult> {
     let objective = nextQueued.objective;
     if (nextQueued.template) {
       const resolved = await resolveGoalTemplateByName(this.workspaceRoot, nextQueued.template, nextQueued.templateFlags ?? {}, nextQueued.templateArgs ?? '');
@@ -291,6 +345,10 @@ export class GoalManager {
         lines.push(`${index + 1}. [${item.queueId}] ${truncate(item.objective, 120)}`);
       });
     }
+    if (snapshot.completed.length > 0) {
+      lines.push('');
+      lines.push(formatCompletedSummary(snapshot.completed));
+    }
     return lines.join('\n');
   }
 
@@ -324,7 +382,7 @@ export class GoalManager {
 }
 
 function emptySnapshot(): GoalSnapshot {
-  return { version: 1, goal: null, queue: [], updatedAt: Date.now() };
+  return { version: 1, goal: null, queue: [], completed: [], updatedAt: Date.now() };
 }
 
 function normalizeSnapshot(raw: Partial<GoalSnapshot>): GoalSnapshot {
@@ -332,6 +390,7 @@ function normalizeSnapshot(raw: Partial<GoalSnapshot>): GoalSnapshot {
     version: 1,
     goal: normalizeGoal(raw.goal),
     queue: Array.isArray(raw.queue) ? raw.queue.map(normalizeQueuedGoal).filter((item): item is QueuedGoal => Boolean(item)) : [],
+    completed: Array.isArray(raw.completed) ? raw.completed.map(normalizeCompletedGoal).filter((item): item is CompletedGoal => Boolean(item)) : [],
     updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : Date.now(),
   };
 }
@@ -374,6 +433,22 @@ function normalizeQueuedGoal(value: unknown): QueuedGoal | null {
   };
 }
 
+function normalizeCompletedGoal(value: unknown): CompletedGoal | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.goalId !== 'string' || typeof raw.objective !== 'string') return null;
+  if (raw.status !== 'complete' && raw.status !== 'budgetLimited') return null;
+  return {
+    goalId: raw.goalId,
+    objective: raw.objective,
+    status: raw.status,
+    tokensUsed: positiveInteger(raw.tokensUsed) ?? 0,
+    timeUsedSeconds: positiveInteger(raw.timeUsedSeconds) ?? 0,
+    createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : Date.now(),
+    completedAt: typeof raw.completedAt === 'number' ? raw.completedAt : Date.now(),
+  };
+}
+
 function buildQueuedGoal(input: GoalCreateInput & { source: QueuedGoal['source']; template?: string; templateFlags?: Record<string, string>; templateArgs?: string }): QueuedGoal {
   return {
     queueId: `q-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
@@ -388,6 +463,23 @@ function buildQueuedGoal(input: GoalCreateInput & { source: QueuedGoal['source']
     templateArgs: input.templateArgs,
     createdAt: Date.now(),
   };
+}
+
+function buildCompletedGoal(goal: GoalState, completedAt: number): CompletedGoal {
+  return {
+    goalId: goal.goalId,
+    objective: goal.objective,
+    status: goal.status === 'budgetLimited' ? 'budgetLimited' : 'complete',
+    tokensUsed: goal.tokensUsed,
+    timeUsedSeconds: goal.timeUsedSeconds,
+    createdAt: goal.createdAt,
+    completedAt,
+  };
+}
+
+function appendCompletedGoal(completed: CompletedGoal[], goal: CompletedGoal): CompletedGoal[] {
+  if (completed.some((item) => item.goalId === goal.goalId)) return completed;
+  return [...completed, goal];
 }
 
 function validateGoalInput(input: GoalCreateInput): string | null {
@@ -444,7 +536,7 @@ function applyOptionalPositiveInteger(value: number | null | undefined, apply: (
   return null;
 }
 
-function result(snapshot: GoalSnapshot, ok: boolean, message: string): GoalMutationResult {
+function result(snapshot: GoalSnapshot, ok: boolean, message: string, extras: Partial<GoalMutationResult> = {}): GoalMutationResult {
   const goal = snapshot.goal;
   return {
     ok,
@@ -456,6 +548,7 @@ function result(snapshot: GoalSnapshot, ok: boolean, message: string): GoalMutat
       tokensRemaining: goal.tokenBudget !== undefined ? Math.max(0, goal.tokenBudget - goal.tokensUsed) : undefined,
       completionFloorMet: floorMet(goal),
     } : undefined,
+    ...extras,
   };
 }
 
@@ -480,6 +573,21 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 
 function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 3)}...` : value;
+}
+
+function formatAllCompleteMessage(completedRun: CompletedGoal[]): string {
+  return [
+    'All queued goals are complete.',
+    '',
+    formatCompletedSummary(completedRun),
+  ].join('\n');
+}
+
+function formatCompletedSummary(completedRun: CompletedGoal[]): string {
+  return [
+    `Completed goals this session (${completedRun.length}):`,
+    ...completedRun.map((item, index) => `${index + 1}. ${truncate(item.objective, 120)}`),
+  ].join('\n');
 }
 
 function formatDuration(seconds: number): string {

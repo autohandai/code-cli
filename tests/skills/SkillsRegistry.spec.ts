@@ -78,11 +78,11 @@ ${body}
       const registry = new SkillsRegistry(testDir);
       await registry.initialize();
 
-      const writeGoal = registry.getSkill('write-goal');
-      expect(writeGoal).not.toBeNull();
-      expect(writeGoal?.source).toBe('builtin');
-      expect(writeGoal?.path).toContain('src/skills/builtin/write-goal/SKILL.md');
-      expect(writeGoal?.body).toContain('completion contract');
+      const goalWriter = registry.getSkill('goal-writer');
+      expect(goalWriter).not.toBeNull();
+      expect(goalWriter?.source).toBe('builtin');
+      expect(goalWriter?.path).toContain('src/skills/builtin/goal-writer/SKILL.md');
+      expect(goalWriter?.body).toContain('completion contract');
     });
 
     it('loads skills recursively when configured', async () => {

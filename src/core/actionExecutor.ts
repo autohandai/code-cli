@@ -695,14 +695,17 @@ export class ActionExecutor {
       }
       case 'create_goal': {
         const manager = new GoalManager(this.runtime.workspaceRoot);
-        const created = await manager.createGoal({
+        const created = await manager.createOrQueueGoal({
           objective: action.objective,
+          source: 'tool',
           tokenBudget: action.token_budget,
           timeBudgetSeconds: action.time_budget_seconds,
           minTokensBeforeWrapUp: action.min_tokens_before_wrap_up,
           minTimeSecondsBeforeWrapUp: action.min_time_seconds_before_wrap_up,
         });
-        await this.emitGoalWrittenCompleted(created, 'tool');
+        if (!created.queued?.length) {
+          await this.emitGoalWrittenCompleted(created, 'tool');
+        }
         return formatGoalToolResult(created);
       }
       case 'create_goal_from_template': {
@@ -716,14 +719,17 @@ export class ActionExecutor {
         if (!resolution.ok) {
           return `Error: ${'notTemplate' in resolution ? `Unknown goal template '${action.template}'.` : resolution.error}`;
         }
-        const created = await manager.createGoal({
+        const created = await manager.createOrQueueGoal({
           objective: resolution.template.objective,
+          source: 'tool',
           tokenBudget: action.token_budget,
           timeBudgetSeconds: action.time_budget_seconds,
           minTokensBeforeWrapUp: action.min_tokens_before_wrap_up,
           minTimeSecondsBeforeWrapUp: action.min_time_seconds_before_wrap_up,
-        }, { replace: true });
-        await this.emitGoalWrittenCompleted(created, 'tool-template');
+        });
+        if (!created.queued?.length) {
+          await this.emitGoalWrittenCompleted(created, 'tool-template');
+        }
         return formatGoalToolResult(created);
       }
       case 'update_goal': {
@@ -756,7 +762,7 @@ export class ActionExecutor {
       case 'list_goal_queue': {
         const manager = new GoalManager(this.runtime.workspaceRoot);
         const snapshot = await manager.getSnapshot();
-        return JSON.stringify({ goal: snapshot.goal, queue: snapshot.queue }, null, 2);
+        return JSON.stringify({ goal: snapshot.goal, queue: snapshot.queue, completed: snapshot.completed }, null, 2);
       }
       case 'start_queued_goal': {
         const manager = new GoalManager(this.runtime.workspaceRoot);
@@ -3081,6 +3087,8 @@ function formatGoalToolResult(result: {
   queue: unknown[];
   queued?: unknown[];
   started?: unknown;
+  completed?: unknown;
+  completedRun?: unknown[];
   dequeued?: unknown;
   removed?: unknown;
   telemetry?: unknown;
@@ -3092,6 +3100,8 @@ function formatGoalToolResult(result: {
     queue: result.queue,
     queued: result.queued,
     started: result.started,
+    completed: result.completed,
+    completedRun: result.completedRun,
     dequeued: result.dequeued,
     removed: result.removed,
     telemetry: result.telemetry,

@@ -88,4 +88,40 @@ describe('GoalManager', () => {
     expect(complete.ok).toBe(true);
     expect(complete.goal?.status).toBe('complete');
   });
+
+  it('automatically starts the next queued goal when the active goal completes', async () => {
+    const manager = new GoalManager(workspaceRoot);
+    await manager.createGoal({ objective: 'first goal' });
+    await manager.enqueueGoal({ objective: 'second goal', source: 'tool' });
+    await manager.enqueueGoal({ objective: 'third goal', source: 'tool' });
+
+    const completed = await manager.updateGoal({ status: 'complete' });
+
+    expect(completed.ok).toBe(true);
+    expect(completed.message).toContain('Goal completed. Started next queued goal.');
+    expect(completed.completed?.objective).toBe('first goal');
+    expect(completed.started?.objective).toBe('second goal');
+    expect(completed.goal?.objective).toBe('second goal');
+    expect(completed.goal?.status).toBe('active');
+    expect(completed.queue.map((item) => item.objective)).toEqual(['third goal']);
+  });
+
+  it('keeps a completed-goal summary for the current session', async () => {
+    const manager = new GoalManager(workspaceRoot);
+    await manager.createGoal({ objective: 'first goal' });
+    await manager.enqueueGoal({ objective: 'second goal', source: 'tool' });
+
+    await manager.updateGoal({ status: 'complete' });
+    const final = await manager.updateGoal({ status: 'complete' });
+
+    expect(final.ok).toBe(true);
+    expect(final.completedRun?.map((item) => item.objective)).toEqual(['first goal', 'second goal']);
+    expect(final.message).toContain('All queued goals are complete.');
+
+    const snapshot = await manager.getSnapshot();
+    const formatted = manager.formatSnapshot(snapshot);
+    expect(formatted).toContain('Completed goals this session (2):');
+    expect(formatted).toContain('first goal');
+    expect(formatted).toContain('second goal');
+  });
 });

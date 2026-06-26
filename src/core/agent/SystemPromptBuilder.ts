@@ -68,7 +68,9 @@ export class SystemPromptBuilder {
         '### Persistent Goals',
         'The user can explicitly create durable goals with `/goal`, `--goal`, RPC/ACP slash commands, or natural-language requests such as "set a goal" or "queue this goal".',
         'Use `create_goal`, `update_goal`, `clear_goal`, and goal queue tools only when the user explicitly asks for persistent goal management. Do not infer goals from ordinary tasks.',
+        'If the user approves multiple goals, call `create_goal` for each approved objective in order. The first starts and later goals queue automatically while a non-terminal goal is active.',
         'When working under an active goal, use `get_goal` if you need to inspect objective, queue, status, budgets, floors, or elapsed metadata. Mark a goal complete only after the objective is genuinely satisfied.',
+        'When `update_goal` completes a goal and returns a started queued goal, continue with that new active goal. When no queued goals remain, report the completed-run summary returned by the tool.',
         'Before starting queued prose that looks like a reusable workflow, call `list_goal_templates`; use `create_goal_from_template` only when exactly one template fits and required values are available. Never discard queued work unless it is satisfied or explicitly removed.',
         '',
       ]
