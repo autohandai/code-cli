@@ -13,6 +13,7 @@
  * Later sources win on collision.
  */
 export type SkillSource =
+  | 'builtin'          // Packaged skills shipped with the CLI
   | 'codex-user'       // ~/.codex/skills/**/SKILL.md (recursive)
   | 'codex-project'    // <cwd>/.codex/skills/**/SKILL.md (recursive)
   | 'claude-user'      // ~/.claude/skills/*/SKILL.md (one level)

@@ -316,6 +316,13 @@ export function initializeAgentDependencies(
           reviewError: context.reviewError,
         });
       },
+      onGoalWrittenCompleted: async (context) => {
+        await host.hookManager.executeHooks('goal-written:completed', {
+          goalId: context.goalId,
+          goalObjective: context.goalObjective,
+          goalSource: context.goalSource,
+        });
+      },
       onModalPause: async <T>(fn: () => Promise<T>) => host.withModalPause(fn),
       onLiveCommandStart: (command) => host.inkRenderer?.startLiveCommand(command) ?? '',
       onLiveCommandOutput: (id, stream, chunk) => host.inkRenderer?.appendLiveCommandOutput(id, stream, chunk),
