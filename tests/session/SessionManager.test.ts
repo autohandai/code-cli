@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'fs-extra';
 import path from 'node:path';
 import os from 'node:os';
-import { Session } from '../../src/session/SessionManager.js';
+import { Session, SessionManager } from '../../src/session/SessionManager.js';
 import type { SessionMetadata } from '../../src/session/types.js';
 
 describe('Session', () => {
@@ -48,5 +48,47 @@ describe('Session', () => {
     expect(await fs.pathExists(path.join(sessionDir, 'conversation.jsonl'))).toBe(true);
     expect(await fs.pathExists(path.join(sessionDir, 'metadata.json'))).toBe(true);
     expect(session.metadata.messageCount).toBe(1);
+  });
+});
+
+describe('SessionManager', () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-session-manager-test-'));
+  });
+
+  afterEach(async () => {
+    await fs.remove(tmpDir);
+  });
+
+  it('recovers from a corrupt session index and initializes empty', async () => {
+    const indexPath = path.join(tmpDir, 'index.json');
+    const corruptContent = '{ "sessions": [\n  { "id": "broken\x00"';
+    await fs.writeFile(indexPath, corruptContent);
+
+    const manager = new SessionManager(tmpDir);
+    await expect(manager.initialize()).resolves.toBeUndefined();
+
+    const sessions = await manager.listSessions();
+    expect(sessions).toEqual([]);
+
+    const backupFiles = (await fs.readdir(tmpDir)).filter((f) => f.startsWith('index.json.corrupt-'));
+    expect(backupFiles).toHaveLength(1);
+    expect(await fs.readFile(path.join(tmpDir, backupFiles[0]), 'utf-8')).toBe(corruptContent);
+  });
+
+  it('recovers from an empty session index file', async () => {
+    const indexPath = path.join(tmpDir, 'index.json');
+    await fs.writeFile(indexPath, '');
+
+    const manager = new SessionManager(tmpDir);
+    await expect(manager.initialize()).resolves.toBeUndefined();
+
+    const sessions = await manager.listSessions();
+    expect(sessions).toEqual([]);
+
+    const backupFiles = (await fs.readdir(tmpDir)).filter((f) => f.startsWith('index.json.corrupt-'));
+    expect(backupFiles).toHaveLength(1);
   });
 });
