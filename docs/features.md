@@ -100,7 +100,7 @@ The `/settings` command opens an interactive settings editor directly in the ter
 | `/sync` | Sync settings |
 | `/add-dir` | Add directories to workspace |
 | `/goal` | Set, review, or refine a persistent session goal |
-| `/write-goal` | Draft a well-specified goal with follow-up questions |
+| `/goal writer` | Draft one or more well-specified goals with the built-in `$goal-writer` skill |
 | `/automode` | Start autonomous coding mode |
 | `/cc` | Context compaction |
 | `/search` | Search codebase |

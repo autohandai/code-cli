@@ -24,12 +24,6 @@ export const metadata: SlashCommand = {
   ],
 };
 
-export const writeGoalMetadata: SlashCommand = {
-  command: '/write-goal',
-  description: 'Interview the user and draft a well-specified goal objective',
-  implemented: true,
-};
-
 export async function goal(ctx: SlashCommandContext, args: string[] = []): Promise<string> {
   if (!resolveGoalFeatureEnabled(ctx.config, ctx.isFeatureEnabled)) {
     return GOAL_FEATURE_DISABLED_MESSAGE;
@@ -73,8 +67,13 @@ export async function goal(ctx: SlashCommandContext, args: string[] = []): Promi
       }
       return formatMutation(resumed);
     }
-    case 'complete':
-      return formatMutation(await manager.updateGoal({ status: 'complete' }));
+    case 'complete': {
+      const completed = await manager.updateGoal({ status: 'complete' });
+      if (completed.ok && completed.started && completed.goal?.status === 'active') {
+        queueGoalContinuation(ctx, completed.goal.objective);
+      }
+      return formatMutation(completed);
+    }
     case 'clear':
       return formatMutation(await manager.clearGoal());
     case 'templates': {
@@ -101,14 +100,6 @@ export async function goal(ctx: SlashCommandContext, args: string[] = []): Promi
   }
 }
 
-export async function writeGoal(ctx: SlashCommandContext, args: string[] = []): Promise<string> {
-  if (!resolveGoalFeatureEnabled(ctx.config, ctx.isFeatureEnabled)) {
-    return GOAL_FEATURE_DISABLED_MESSAGE;
-  }
-  await ctx.trackFeatureActivation?.('slash_write_goal', { surface: 'slash_command' });
-  return startGoalWriter(ctx, args.join(' ').trim());
-}
-
 export async function runGoalCli(workspaceRoot: string, rawInput?: string, config?: SlashCommandContext['config']): Promise<string> {
   if (!resolveGoalFeatureEnabled(config)) {
     return GOAL_FEATURE_DISABLED_MESSAGE;
@@ -123,20 +114,20 @@ export async function runGoalCli(workspaceRoot: string, rawInput?: string, confi
 }
 
 function startGoalWriter(ctx: SlashCommandContext, roughGoal?: string): string {
-  const activated = ctx.skillsRegistry?.activateSkill('write-goal') ?? false;
+  const activated = ctx.skillsRegistry?.activateSkill('goal-writer') ?? false;
   const roughGoalText = roughGoal?.trim() || 'No rough goal was provided yet.';
   ctx.queueInstruction?.([
-    'Activate the built-in write-goal skill and use it to help the user draft a stronger /goal objective.',
+    'Activate the built-in goal-writer skill and use it to help the user draft one or more stronger /goal objectives.',
     'Interview the user with follow-up questions when the finish line, proof, boundaries, loop, or stop rule is unclear.',
-    'Show the full drafted objective and get explicit user approval before calling create_goal.',
+    'Show every full drafted objective and get explicit user approval before calling create_goal. If more than one goal is approved, call create_goal for each one in order so later goals are queued.',
     `Rough goal request: ${roughGoalText}`,
   ].join('\n'));
 
   return [
-    'Write-goal started.',
+    'Goal writer started.',
     activated
-      ? 'The built-in write-goal skill is active for the next turn.'
-      : 'The next turn will use the built-in write-goal skill instructions if available.',
+      ? 'The built-in $goal-writer skill is active for the next turn.'
+      : 'The next turn will use the built-in $goal-writer skill instructions if available.',
     'Answer the follow-up questions to create a completion contract with proof, boundaries, and a stop rule.',
   ].join('\n');
 }
@@ -186,6 +177,10 @@ function formatMutation(result: GoalMutationResult): string {
   if (result.started) {
     lines.push(`Started queue item: ${result.started.queueId}`);
   }
+  if (result.completedRun?.length && result.queue.length === 0) {
+    lines.push('');
+    lines.push(formatCompletedRun(result.completedRun));
+  }
   if (result.queue.length > 0 && !result.queued?.length) {
     lines.push('');
     lines.push(formatQueue({ queue: result.queue }));
@@ -194,7 +189,7 @@ function formatMutation(result: GoalMutationResult): string {
 }
 
 function formatSnapshot(snapshot: GoalSnapshot): string {
-  if (!snapshot.goal && snapshot.queue.length === 0) {
+  if (!snapshot.goal && snapshot.queue.length === 0 && snapshot.completed.length === 0) {
     return [
       'No goal is currently set.',
       'Use /goal <objective> to create one, or /goal queue <objective> to queue later work.',
@@ -206,6 +201,10 @@ function formatSnapshot(snapshot: GoalSnapshot): string {
   if (snapshot.queue.length > 0) {
     parts.push('');
     parts.push(formatQueue(snapshot));
+  }
+  if (snapshot.completed.length > 0) {
+    parts.push('');
+    parts.push(formatCompletedRun(snapshot.completed));
   }
   return parts.join('\n');
 }
@@ -229,6 +228,13 @@ function formatQueue(snapshot: Pick<GoalSnapshot, 'queue'>): string {
   return [
     `Queued goals (${snapshot.queue.length}):`,
     ...snapshot.queue.map((item, index) => `${index + 1}. [${item.queueId}] ${item.objective}`),
+  ].join('\n');
+}
+
+function formatCompletedRun(completed: NonNullable<GoalMutationResult['completedRun']>): string {
+  return [
+    `Completed goals this session (${completed.length}):`,
+    ...completed.map((item, index) => `${index + 1}. ${item.objective}`),
   ].join('\n');
 }
 

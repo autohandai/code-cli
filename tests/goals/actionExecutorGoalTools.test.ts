@@ -60,6 +60,25 @@ describe('goal tools', () => {
     expect(started).toContain('queued via tool');
   });
 
+  it('queues additional create_goal calls and advances through the queue on completion', async () => {
+    const first = JSON.parse(await executor.execute({ type: 'create_goal', objective: 'first approved goal' }));
+    const second = JSON.parse(await executor.execute({ type: 'create_goal', objective: 'second approved goal' }));
+
+    expect(first).toMatchObject({ ok: true, message: 'Goal created.' });
+    expect(second).toMatchObject({ ok: true, message: 'Queued goal.' });
+    expect(second.queued[0].objective).toBe('second approved goal');
+
+    const completed = JSON.parse(await executor.execute({ type: 'update_goal', status: 'complete' }));
+
+    expect(completed).toMatchObject({
+      ok: true,
+      message: 'Goal completed. Started next queued goal.',
+      completed: { objective: 'first approved goal' },
+      started: { objective: 'second approved goal' },
+      goal: { objective: 'second approved goal', status: 'active' },
+    });
+  });
+
   it('blocks goal tools when slash_goal is disabled', async () => {
     const disabledExecutor = new ActionExecutor({
       runtime: {

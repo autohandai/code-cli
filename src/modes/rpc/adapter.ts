@@ -292,8 +292,9 @@ export class RPCAdapter {
     min_time_seconds_before_wrap_up?: number;
   }): Promise<unknown> {
     if (!this.isGoalFeatureEnabled()) return this.goalFeatureDisabledResult();
-    return new GoalManager(this.workspace).createGoal({
+    return new GoalManager(this.workspace).createOrQueueGoal({
       objective: params.objective,
+      source: 'rpc',
       tokenBudget: params.token_budget,
       timeBudgetSeconds: params.time_budget_seconds,
       minTokensBeforeWrapUp: params.min_tokens_before_wrap_up,

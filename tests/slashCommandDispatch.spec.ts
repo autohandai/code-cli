@@ -73,9 +73,9 @@ describe('slash command dispatch – output vs instruction', () => {
     expect(commands).toContain('/handoff session');
   });
 
-  it('/write-goal is registered in SLASH_COMMANDS', () => {
+  it('/write-goal is not registered in SLASH_COMMANDS', () => {
     const commands = SLASH_COMMANDS.map(c => c.command);
-    expect(commands).toContain('/write-goal');
+    expect(commands).not.toContain('/write-goal');
   });
 
   it('all SLASH_COMMANDS entries have required fields', () => {
@@ -110,7 +110,7 @@ describe('slash command dispatch – output vs instruction', () => {
     expect(result).toContain('/login');
   });
 
-  it('/write-goal returns display output and queues writer guidance', async () => {
+  it('/goal writer returns display output and queues goal-writer guidance', async () => {
     const ctx = {
       ...createMinimalContext(),
       config: { features: { slashGoal: true } },
@@ -118,10 +118,10 @@ describe('slash command dispatch – output vs instruction', () => {
     };
     const handler = new SlashCommandHandler(ctx as any, SLASH_COMMANDS);
 
-    const result = await handler.handle('/write-goal', ['fix', 'flaky', 'tests']);
+    const result = await handler.handle('/goal', ['writer', 'fix', 'flaky', 'tests']);
 
     expect(result).toEqual(expect.any(String));
-    expect(result).toContain('Write-goal started');
+    expect(result).toContain('Goal writer started');
     expect(ctx.queueInstruction).toHaveBeenCalledWith(expect.stringContaining('fix flaky tests'));
   });
 

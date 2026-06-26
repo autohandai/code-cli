@@ -1,17 +1,20 @@
 ---
-name: write-goal
-description: Help the user craft a well-specified `/goal` objective for goal mode. Use when the user asks for help writing, refining, or improving a goal, goal-mode objective, completion contract, autonomous run objective, proof, boundaries, or stop rule.
+name: goal-writer
+description: Help the user craft one or more well-specified `/goal` objectives for goal mode. Use when the user asks for help writing, refining, or improving goals, goal-mode objectives, completion contracts, autonomous run objectives, proof, boundaries, or stop rules.
 ---
 
 # Write a good goal
 
-Help the user turn a rough intention into a `/goal` objective that goal mode can
-pursue across many turns without supervision. A goal is not a task description;
-it is a completion contract. It says what must become true, how that truth is
-proven, where the work may and may not reach, and when to stop and report.
+Help the user turn a rough intention into one or more `/goal` objectives that
+goal mode can pursue across many turns without supervision. A goal is not a task
+description; it is a completion contract. It says what must become true, how
+that truth is proven, where the work may and may not reach, and when to stop and
+report.
 
 Drafting and starting are separate steps. Settle the wording first. Only once
-the user has approved the exact objective should you call `create_goal`.
+the user has approved the exact objective should you call `create_goal`. When
+the user approves more than one objective, call `create_goal` for each approved
+goal in the intended order; the first starts and the rest are queued.
 
 ## Ask, do not narrate choices
 
@@ -67,13 +70,13 @@ lint, evals, browser checks, or zero-match searches.
    prove it is done.
 2. Resolve missing finish lines or checks. When options are concrete, use the
    user-question tool.
-3. Draft a concrete objective. Keep simple work to one or two sentences; use a
+3. Draft concrete objectives. Keep simple work to one or two sentences; use a
    short structured block for larger work.
 4. Present the full draft and explain the finish line, proof, boundaries, and
-   stop rule.
-5. Revise until the user approves the exact text.
-6. Start the goal with `create_goal` only after approval. Include a token budget
-   only if one was agreed.
+   stop rule for each goal.
+5. Revise until the user approves the exact text and order.
+6. Start approved goals with `create_goal` only after approval. Include a token
+   budget only if one was agreed.
 
 ## Reusable shape
 

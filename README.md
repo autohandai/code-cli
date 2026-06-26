@@ -296,7 +296,7 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/search`          | Search the web                                                                   |
 | `/automode`        | Manage auto-mode                                                                 |
 | `/goal`            | Set, review, or refine the current session goal                                  |
-| `/write-goal`      | Draft a well-specified goal with follow-up questions                             |
+| `/goal writer`     | Draft one or more well-specified goals with the built-in `$goal-writer` skill    |
 | `/squad`           | Open/manage the local Autohand Squad runtime                                     |
 | `/go`              | Pair this session with the Autohand Code iOS app                                 |
 | `/sync`            | Sync settings across devices                                                     |

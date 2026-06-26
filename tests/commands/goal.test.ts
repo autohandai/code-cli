@@ -7,7 +7,7 @@ import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { goal, metadata, writeGoal, writeGoalMetadata } from '../../src/commands/goal.js';
+import { goal, metadata } from '../../src/commands/goal.js';
 import type { SlashCommandContext } from '../../src/core/slashCommandTypes.js';
 import type { HookEvent } from '../../src/types.js';
 
@@ -47,17 +47,15 @@ describe('/goal command', () => {
     expect(metadata.implemented).toBe(true);
     expect(metadata.subcommands?.map((item) => item.name)).toContain('queue');
     expect(metadata.subcommands?.map((item) => item.name)).toContain('writer');
-    expect(writeGoalMetadata.command).toBe('/write-goal');
-    expect(writeGoalMetadata.implemented).toBe(true);
   });
 
   it('starts the writer when /goal has no active goal or arguments', async () => {
     const result = await goal(ctx, []);
 
-    expect(result).toContain('Write-goal started');
+    expect(result).toContain('Goal writer started');
     expect(result).toContain('create a completion contract');
     expect(queued).toHaveLength(1);
-    expect(queued[0]).toContain('Activate the built-in write-goal skill');
+    expect(queued[0]).toContain('Activate the built-in goal-writer skill');
     expect(queued[0]).toContain('Rough goal request:');
     expect(hookEvents).toEqual([]);
   });
@@ -65,15 +63,8 @@ describe('/goal command', () => {
   it('starts the writer with /goal writer and rough text', async () => {
     const result = await goal(ctx, ['writer', 'fix flaky auth tests']);
 
-    expect(result).toContain('Write-goal started');
+    expect(result).toContain('Goal writer started');
     expect(queued[0]).toContain('fix flaky auth tests');
-  });
-
-  it('starts the writer with /write-goal', async () => {
-    const result = await writeGoal(ctx, ['make onboarding reliable']);
-
-    expect(result).toContain('Write-goal started');
-    expect(queued[0]).toContain('make onboarding reliable');
   });
 
   it('creates a goal, queues continuation guidance, and emits completed hook', async () => {
@@ -121,6 +112,20 @@ describe('/goal command', () => {
 
     expect(result).toContain('Queued goal');
     expect(result).toContain('next goal');
+  });
+
+  it('completes the active goal, starts the next queued goal, and queues continuation guidance', async () => {
+    await goal(ctx, ['first goal']);
+    await goal(ctx, ['queue', 'second goal']);
+    queued = [];
+
+    const result = await goal(ctx, ['complete']);
+
+    expect(result).toContain('Goal completed. Started next queued goal.');
+    expect(result).toContain('Started queue item:');
+    expect(result).toContain('Goal: second goal');
+    expect(queued).toHaveLength(1);
+    expect(queued[0]).toContain('Active goal: second goal');
   });
 
   it('supports template invocation from bounded .pi-goals directories', async () => {
