@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { beforeEach, describe, it, expect, vi } from 'vitest';
+import os from 'node:os';
+import path from 'node:path';
 import { SlashCommandHandler } from '../src/core/slashCommandHandler.js';
 import type { SlashCommand } from '../src/core/slashCommands.js';
 import type { ShowModalOptions } from '../src/ui/ink/components/Modal.js';
@@ -29,7 +31,7 @@ function createContext() {
     promptModelSelection: vi.fn().mockResolvedValue(undefined),
     createAgentsFile: vi.fn().mockResolvedValue(undefined),
     config: {
-      configPath: `/tmp/autohand-slash-handler-${Date.now()}-${Math.random().toString(16).slice(2)}.json`,
+      configPath: path.join(os.tmpdir(), `autohand-slash-handler-${Date.now()}-${Math.random().toString(16).slice(2)}.json`),
       provider: 'openrouter',
       api: {
         baseUrl: 'http://127.0.0.1:9',

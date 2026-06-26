@@ -73,6 +73,11 @@ describe('slash command dispatch – output vs instruction', () => {
     expect(commands).toContain('/handoff session');
   });
 
+  it('/write-goal is registered in SLASH_COMMANDS', () => {
+    const commands = SLASH_COMMANDS.map(c => c.command);
+    expect(commands).toContain('/write-goal');
+  });
+
   it('all SLASH_COMMANDS entries have required fields', () => {
     for (const cmd of SLASH_COMMANDS) {
       expect(cmd.command).toBeTruthy();
@@ -103,6 +108,21 @@ describe('slash command dispatch – output vs instruction', () => {
 
     expect(result).toEqual(expect.any(String));
     expect(result).toContain('/login');
+  });
+
+  it('/write-goal returns display output and queues writer guidance', async () => {
+    const ctx = {
+      ...createMinimalContext(),
+      config: { features: { slashGoal: true } },
+      queueInstruction: vi.fn(),
+    };
+    const handler = new SlashCommandHandler(ctx as any, SLASH_COMMANDS);
+
+    const result = await handler.handle('/write-goal', ['fix', 'flaky', 'tests']);
+
+    expect(result).toEqual(expect.any(String));
+    expect(result).toContain('Write-goal started');
+    expect(ctx.queueInstruction).toHaveBeenCalledWith(expect.stringContaining('fix flaky tests'));
   });
 
   // ── Core contract: promptForInstruction should print string results ───

@@ -132,6 +132,12 @@ export interface ActionExecutorOptions {
     reviewInstructions?: string;
     reviewError?: string;
   }) => Promise<void>;
+  /** Callback to fire after a goal objective has been created. */
+  onGoalWrittenCompleted?: (context: {
+    goalId?: string;
+    goalObjective: string;
+    goalSource: string;
+  }) => Promise<void>;
   /** Callback to wrap modal operations with proper inkRenderer pause/resume */
   onModalPause?: <T>(fn: () => Promise<T>) => Promise<T>;
   /** Callback to request directory access outside workspace - returns resolved path if granted, undefined if denied */
@@ -177,6 +183,7 @@ export class ActionExecutor {
   private readonly onPlanCreated?: AgentExecutorDeps['onPlanCreated'];
   private readonly onPermissionRequest?: AgentExecutorDeps['onPermissionRequest'];
   private readonly onReviewHook?: AgentExecutorDeps['onReviewHook'];
+  private readonly onGoalWrittenCompleted?: AgentExecutorDeps['onGoalWrittenCompleted'];
   private readonly onModalPause?: AgentExecutorDeps['onModalPause'];
   private readonly onRequestDirectoryAccess?: AgentExecutorDeps['onRequestDirectoryAccess'];
   private readonly onLiveCommandStart?: AgentExecutorDeps['onLiveCommandStart'];
@@ -209,6 +216,7 @@ export class ActionExecutor {
     this.onPlanCreated = deps.onPlanCreated;
     this.onPermissionRequest = deps.onPermissionRequest;
     this.onReviewHook = deps.onReviewHook;
+    this.onGoalWrittenCompleted = deps.onGoalWrittenCompleted;
     this.onModalPause = deps.onModalPause;
     this.onRequestDirectoryAccess = deps.onRequestDirectoryAccess;
     this.onLiveCommandStart = deps.onLiveCommandStart;
@@ -694,6 +702,7 @@ export class ActionExecutor {
           minTokensBeforeWrapUp: action.min_tokens_before_wrap_up,
           minTimeSecondsBeforeWrapUp: action.min_time_seconds_before_wrap_up,
         });
+        await this.emitGoalWrittenCompleted(created, 'tool');
         return formatGoalToolResult(created);
       }
       case 'create_goal_from_template': {
@@ -714,6 +723,7 @@ export class ActionExecutor {
           minTokensBeforeWrapUp: action.min_tokens_before_wrap_up,
           minTimeSecondsBeforeWrapUp: action.min_time_seconds_before_wrap_up,
         }, { replace: true });
+        await this.emitGoalWrittenCompleted(created, 'tool-template');
         return formatGoalToolResult(created);
       }
       case 'update_goal': {
@@ -3037,6 +3047,22 @@ export class ActionExecutor {
     }
 
     return outputLines.join('\n');
+  }
+
+  private async emitGoalWrittenCompleted(result: {
+    ok: boolean;
+    goal?: { goalId?: string; objective?: string } | null;
+  }, source: string): Promise<void> {
+    const objective = result.goal?.objective;
+    if (!result.ok || !objective) {
+      return;
+    }
+
+    await this.onGoalWrittenCompleted?.({
+      goalId: result.goal?.goalId,
+      goalObjective: objective,
+      goalSource: source,
+    });
   }
 }
 

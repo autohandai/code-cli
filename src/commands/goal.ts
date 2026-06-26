@@ -11,9 +11,10 @@ import { GOAL_FEATURE_DISABLED_MESSAGE, resolveGoalFeatureEnabled } from '../goa
 
 export const metadata: SlashCommand = {
   command: '/goal',
-  description: 'Create, inspect, pause, resume, complete, clear, and queue persistent goals',
+  description: 'Create, inspect, refine, pause, resume, complete, clear, and queue persistent goals',
   implemented: true,
   subcommands: [
+    { name: 'writer', description: 'Interview the user and draft a stronger goal before creating it' },
     { name: 'queue', description: 'List queued goals or enqueue a goal' },
     { name: 'pause', description: 'Pause the current goal' },
     { name: 'resume', description: 'Resume a paused or queued goal' },
@@ -21,6 +22,12 @@ export const metadata: SlashCommand = {
     { name: 'clear', description: 'Clear the current goal' },
     { name: 'templates', description: 'List reusable .pi-goals templates' },
   ],
+};
+
+export const writeGoalMetadata: SlashCommand = {
+  command: '/write-goal',
+  description: 'Interview the user and draft a well-specified goal objective',
+  implemented: true,
 };
 
 export async function goal(ctx: SlashCommandContext, args: string[] = []): Promise<string> {
@@ -32,13 +39,21 @@ export async function goal(ctx: SlashCommandContext, args: string[] = []): Promi
   const manager = new GoalManager(ctx.workspaceRoot);
   const input = args.join(' ').trim();
   if (!input) {
-    return formatSnapshot(await manager.getSnapshot());
+    const snapshot = await manager.getSnapshot();
+    if (!snapshot.goal && snapshot.queue.length === 0) {
+      return startGoalWriter(ctx);
+    }
+    return formatSnapshot(snapshot);
   }
 
   const [subcommand, ...restArgs] = args;
   const rest = restArgs.join(' ').trim();
 
   switch (subcommand?.toLowerCase()) {
+    case 'writer':
+    case 'write':
+    case 'refine':
+      return startGoalWriter(ctx, rest);
     case 'queue':
       return handleQueue(manager, rest);
     case 'pause':
@@ -78,11 +93,20 @@ export async function goal(ctx: SlashCommandContext, args: string[] = []): Promi
       if (!resolved.ok) return chalk.yellow(resolved.message);
       const created = await manager.createGoal(resolved.input, { replace: false });
       if (created.ok && created.goal) {
+        await emitGoalWrittenCompleted(ctx, created.goal, 'slash');
         queueGoalContinuation(ctx, created.goal.objective);
       }
       return formatMutation(created);
     }
   }
+}
+
+export async function writeGoal(ctx: SlashCommandContext, args: string[] = []): Promise<string> {
+  if (!resolveGoalFeatureEnabled(ctx.config, ctx.isFeatureEnabled)) {
+    return GOAL_FEATURE_DISABLED_MESSAGE;
+  }
+  await ctx.trackFeatureActivation?.('slash_write_goal', { surface: 'slash_command' });
+  return startGoalWriter(ctx, args.join(' ').trim());
 }
 
 export async function runGoalCli(workspaceRoot: string, rawInput?: string, config?: SlashCommandContext['config']): Promise<string> {
@@ -96,6 +120,37 @@ export async function runGoalCli(workspaceRoot: string, rawInput?: string, confi
 
   const args = input.match(/"[^"]*"|'[^']*'|\S+/g)?.map(unquote) ?? [];
   return goal({ workspaceRoot } as SlashCommandContext, args);
+}
+
+function startGoalWriter(ctx: SlashCommandContext, roughGoal?: string): string {
+  const activated = ctx.skillsRegistry?.activateSkill('write-goal') ?? false;
+  const roughGoalText = roughGoal?.trim() || 'No rough goal was provided yet.';
+  ctx.queueInstruction?.([
+    'Activate the built-in write-goal skill and use it to help the user draft a stronger /goal objective.',
+    'Interview the user with follow-up questions when the finish line, proof, boundaries, loop, or stop rule is unclear.',
+    'Show the full drafted objective and get explicit user approval before calling create_goal.',
+    `Rough goal request: ${roughGoalText}`,
+  ].join('\n'));
+
+  return [
+    'Write-goal started.',
+    activated
+      ? 'The built-in write-goal skill is active for the next turn.'
+      : 'The next turn will use the built-in write-goal skill instructions if available.',
+    'Answer the follow-up questions to create a completion contract with proof, boundaries, and a stop rule.',
+  ].join('\n');
+}
+
+async function emitGoalWrittenCompleted(
+  ctx: SlashCommandContext,
+  goalState: NonNullable<GoalSnapshot['goal']>,
+  source: string
+): Promise<void> {
+  await ctx.hookManager?.executeHooks('goal-written:completed', {
+    goalId: goalState.goalId,
+    goalObjective: goalState.objective,
+    goalSource: source,
+  });
 }
 
 async function handleQueue(manager: GoalManager, rest: string): Promise<string> {

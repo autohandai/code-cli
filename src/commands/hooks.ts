@@ -40,6 +40,8 @@ export const HOOK_EVENTS: HookEvent[] = [
   // Learn events
   'pre-learn',
   'post-learn',
+  // Goal authoring events
+  'goal-written:completed',
   // Team events
   'team-created',
   'teammate-spawned',
@@ -89,6 +91,8 @@ const EVENT_DESCRIPTIONS: Record<HookEvent, string> = {
   // Learn events
   'pre-learn': 'Before a learn operation begins',
   'post-learn': 'After a learn operation completes',
+  // Goal authoring events
+  'goal-written:completed': 'After a goal objective is created',
   // Team events
   'team-created': 'When a team is created',
   'teammate-spawned': 'When a teammate process starts',
@@ -169,6 +173,7 @@ function getHookIcon(hook: HookDefinition): string {
     'notification': '🔔',
     'subagent-stop': '🤖',
     'pre-prompt': '💭',
+    'goal-written:completed': '🏁',
   };
 
   return eventIcons[hook.event] || '•';
