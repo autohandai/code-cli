@@ -147,6 +147,8 @@ function generateSkillSuggestion(skillName: string, description: string): string
 
 function getSkillSourceLabel(source: SkillDefinition['source']): string {
   switch (source) {
+    case 'builtin':
+      return 'Built-in';
     case 'autohand-user':
       return 'Autohand User';
     case 'autohand-project':
@@ -266,6 +268,7 @@ function listSkills(registry: SkillsRegistry): string {
 
   // Display by source
   const sourceLabels: Record<string, string> = {
+    'builtin': 'Built-in Skills',
     'codex-user': '📁 Codex User Skills',
     'claude-user': '📁 Claude User Skills',
     'claude-project': '📁 Project Skills',

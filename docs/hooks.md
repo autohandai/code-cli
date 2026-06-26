@@ -50,6 +50,7 @@ When running in RPC mode (VS Code, Zed, etc.), hook events are also emitted as J
 | `automode:error` | When auto-mode encounters an error | error message, iteration |
 | `pre-learn` | Before a learn operation begins | instruction, cwd |
 | `post-learn` | After a learn operation completes | instruction, duration, success |
+| `goal-written:completed` | After a goal objective is created | goal id, objective, source |
 | `team-created` | When a team is created | team name, member count |
 | `teammate-spawned` | When a teammate process starts | team name, teammate name, agent name, pid |
 | `teammate-idle` | When a teammate becomes idle | team name, teammate name |
@@ -368,6 +369,9 @@ When your hook command executes, these environment variables are available:
 | `HOOK_REVIEW_SCOPE` | Review scope | review:* |
 | `HOOK_REVIEW_ERROR` | Review error message | review:failed |
 | `HOOK_REVIEW_INSTRUCTIONS` | Review instructions/focus | review:* |
+| `HOOK_GOAL_ID` | Goal ID | goal-written:completed |
+| `HOOK_GOAL_OBJECTIVE` | Goal objective text | goal-written:completed |
+| `HOOK_GOAL_SOURCE` | Source that created the goal | goal-written:completed |
 | `HOOK_TEAM_NAME` | Team name | team-created, teammate-spawned, teammate-idle, task-assigned, task-completed, team-shutdown |
 | `HOOK_TEAMMATE_NAME` | Teammate name | teammate-spawned, teammate-idle, task-assigned, task-completed |
 | `HOOK_TEAMMATE_AGENT` | Teammate agent definition | teammate-spawned |

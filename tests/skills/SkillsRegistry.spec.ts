@@ -51,7 +51,7 @@ ${body}
       await registry.initialize();
 
       const skills = registry.listSkills();
-      expect(skills).toEqual([]);
+      expect(skills.filter(s => s.source !== 'builtin')).toEqual([]);
     });
 
     it('loads skills from user directory', async () => {
@@ -65,9 +65,24 @@ ${body}
       await registry.initialize();
 
       const skills = registry.listSkills();
-      expect(skills.length).toBe(2);
+      const userSkills = skills.filter(s => s.source !== 'builtin');
+      expect(userSkills.length).toBe(2);
       expect(skills.map(s => s.name)).toContain('user-skill-1');
       expect(skills.map(s => s.name)).toContain('user-skill-2');
+    });
+
+    it('loads built-in skills before user locations', async () => {
+      const testDir = path.join(tempRoot, 'test-builtin-skills');
+      await fs.ensureDir(testDir);
+
+      const registry = new SkillsRegistry(testDir);
+      await registry.initialize();
+
+      const writeGoal = registry.getSkill('write-goal');
+      expect(writeGoal).not.toBeNull();
+      expect(writeGoal?.source).toBe('builtin');
+      expect(writeGoal?.path).toContain('src/skills/builtin/write-goal/SKILL.md');
+      expect(writeGoal?.body).toContain('completion contract');
     });
 
     it('loads skills recursively when configured', async () => {
@@ -83,7 +98,8 @@ ${body}
       await registry.initialize();
 
       const skills = registry.listSkills();
-      expect(skills.length).toBe(2);
+      const userSkills = skills.filter(s => s.source !== 'builtin');
+      expect(userSkills.length).toBe(2);
       expect(skills.map(s => s.name)).toContain('top-level-skill');
       expect(skills.map(s => s.name)).toContain('nested-skill');
     });

@@ -25,6 +25,7 @@ import type { SkillUseData } from '../telemetry/types.js';
 import type { CommunitySkillsClient, CommunitySkillPackage, BackupPayload } from './CommunitySkillsClient.js';
 
 const SIMILARITY_THRESHOLD = 0.3;
+const BUILTIN_SKILLS_DIR = 'builtin';
 
 export interface SkillSearchLocation {
   basePath: string;
@@ -254,9 +255,29 @@ export class SkillsRegistry {
    * Initialize the registry by loading skills from the user directory
    */
   async initialize(): Promise<void> {
+    await this.loadBuiltins();
+
     for (const location of this.getUserSkillLocations()) {
       await this.loadFromDirectory(location.basePath, location.source, location.recursive);
     }
+  }
+
+  private async loadBuiltins(): Promise<void> {
+    for (const directory of this.getBuiltinSkillDirectories()) {
+      if (await fs.pathExists(directory)) {
+        await this.loadFromDirectory(directory, 'builtin', true);
+        return;
+      }
+    }
+  }
+
+  private getBuiltinSkillDirectories(): string[] {
+    const moduleDir = path.dirname(new URL(import.meta.url).pathname);
+    return [
+      path.join(moduleDir, BUILTIN_SKILLS_DIR),
+      path.join(moduleDir, 'skills', BUILTIN_SKILLS_DIR),
+      path.join(moduleDir, '..', 'skills', BUILTIN_SKILLS_DIR),
+    ];
   }
 
   private getUserSkillLocations(): SkillSearchLocation[] {

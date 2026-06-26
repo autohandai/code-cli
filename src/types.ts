@@ -620,6 +620,8 @@ export type HookEvent =
   // Learn events
   | 'pre-learn'          // Fires before a learn operation begins
   | 'post-learn'         // Fires after a learn operation completes
+  // Goal authoring events
+  | 'goal-written:completed' // Fires after a goal objective is created
   // Team events
   | 'team-created'       // Lead creates a team
   | 'teammate-spawned'   // Teammate process started

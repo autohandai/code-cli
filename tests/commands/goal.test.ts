@@ -7,17 +7,20 @@ import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { goal, metadata } from '../../src/commands/goal.js';
+import { goal, metadata, writeGoal, writeGoalMetadata } from '../../src/commands/goal.js';
 import type { SlashCommandContext } from '../../src/core/slashCommandTypes.js';
+import type { HookEvent } from '../../src/types.js';
 
 describe('/goal command', () => {
   let workspaceRoot: string;
   let queued: string[];
+  let hookEvents: Array<{ event: HookEvent; context: Record<string, unknown> }>;
   let ctx: SlashCommandContext;
 
   beforeEach(async () => {
     workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-goal-command-'));
     queued = [];
+    hookEvents = [];
     ctx = {
       workspaceRoot,
       config: {
@@ -25,6 +28,12 @@ describe('/goal command', () => {
         features: { slashGoal: true },
       },
       queueInstruction: (instruction) => queued.push(instruction),
+      hookManager: {
+        executeHooks: vi.fn(async (event: HookEvent, context: Record<string, unknown>) => {
+          hookEvents.push({ event, context });
+          return [];
+        }),
+      } as unknown as SlashCommandContext['hookManager'],
     } as SlashCommandContext;
   });
 
@@ -37,14 +46,51 @@ describe('/goal command', () => {
     expect(metadata.command).toBe('/goal');
     expect(metadata.implemented).toBe(true);
     expect(metadata.subcommands?.map((item) => item.name)).toContain('queue');
+    expect(metadata.subcommands?.map((item) => item.name)).toContain('writer');
+    expect(writeGoalMetadata.command).toBe('/write-goal');
+    expect(writeGoalMetadata.implemented).toBe(true);
   });
 
-  it('creates a goal and queues continuation guidance', async () => {
+  it('starts the writer when /goal has no active goal or arguments', async () => {
+    const result = await goal(ctx, []);
+
+    expect(result).toContain('Write-goal started');
+    expect(result).toContain('create a completion contract');
+    expect(queued).toHaveLength(1);
+    expect(queued[0]).toContain('Activate the built-in write-goal skill');
+    expect(queued[0]).toContain('Rough goal request:');
+    expect(hookEvents).toEqual([]);
+  });
+
+  it('starts the writer with /goal writer and rough text', async () => {
+    const result = await goal(ctx, ['writer', 'fix flaky auth tests']);
+
+    expect(result).toContain('Write-goal started');
+    expect(queued[0]).toContain('fix flaky auth tests');
+  });
+
+  it('starts the writer with /write-goal', async () => {
+    const result = await writeGoal(ctx, ['make onboarding reliable']);
+
+    expect(result).toContain('Write-goal started');
+    expect(queued[0]).toContain('make onboarding reliable');
+  });
+
+  it('creates a goal, queues continuation guidance, and emits completed hook', async () => {
     const result = await goal(ctx, ['finish release prep']);
 
     expect(result).toContain('Goal created');
     expect(result).toContain('finish release prep');
     expect(queued[0]).toContain('Active goal');
+    expect(hookEvents).toEqual([
+      {
+        event: 'goal-written:completed',
+        context: expect.objectContaining({
+          goalObjective: 'finish release prep',
+          goalSource: 'slash',
+        }),
+      },
+    ]);
   });
 
   it('stays behind slash_goal when the feature is disabled', async () => {

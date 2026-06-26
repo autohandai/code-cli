@@ -117,6 +117,14 @@ export interface HookContext {
   /** Review error message (for review:failed) */
   reviewError?: string;
 
+  // Goal hooks
+  /** Goal ID (for goal-written:completed) */
+  goalId?: string;
+  /** Goal objective text (for goal-written:completed) */
+  goalObjective?: string;
+  /** Source that created the goal (for goal-written:completed) */
+  goalSource?: string;
+
   // Team hooks
   /** Team name (for team events) */
   teamName?: string;
@@ -479,6 +487,11 @@ export class HookManager {
           context.reviewError,
         ].filter((part) => part !== undefined && part !== null).join(' ');
         break;
+      case 'goal-written:completed':
+        value = [context.goalObjective, context.goalSource]
+          .filter((part) => part !== undefined && part !== null)
+          .join(' ');
+        break;
       case 'team-created':
       case 'team-shutdown':
         value = context.teamName ?? '';
@@ -582,6 +595,11 @@ export class HookManager {
       if (context.reviewInstructions) env.HOOK_REVIEW_INSTRUCTIONS = context.reviewInstructions;
     }
 
+    // Goal hooks
+    if (context.goalId) env.HOOK_GOAL_ID = context.goalId;
+    if (context.goalObjective) env.HOOK_GOAL_OBJECTIVE = context.goalObjective;
+    if (context.goalSource) env.HOOK_GOAL_SOURCE = context.goalSource;
+
     // Team hooks
     if (context.teamName) env.HOOK_TEAM_NAME = context.teamName;
     if (context.teammateName) env.HOOK_TEAMMATE_NAME = context.teammateName;
@@ -663,6 +681,10 @@ export class HookManager {
       review_scope: context.reviewScope,
       review_instructions: context.reviewInstructions,
       review_error: context.reviewError,
+      // Goal context
+      goal_id: context.goalId,
+      goal_objective: context.goalObjective,
+      goal_source: context.goalSource,
       // Team context
       team_name: context.teamName,
       teammate_name: context.teammateName,
@@ -913,6 +935,8 @@ export class HookManager {
       // Learn events
       'pre-learn',
       'post-learn',
+      // Goal authoring events
+      'goal-written:completed',
       // Review events
       'review:start',
       'review:end',

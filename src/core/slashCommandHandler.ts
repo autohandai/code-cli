@@ -579,6 +579,10 @@ export class SlashCommandHandler {
           const { goal } = await import('../commands/goal.js');
           return goal(this.ctx, args);
         }
+        case '/write-goal': {
+          const { writeGoal } = await import('../commands/goal.js');
+          return writeGoal(this.ctx, args);
+        }
         case '/squad': {
           const { squad } = await import('../commands/squad.js');
           return squad({ workspaceRoot: this.ctx.workspaceRoot, config: this.ctx.config }, args);

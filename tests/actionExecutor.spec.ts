@@ -5,6 +5,9 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import stripAnsi from 'strip-ansi';
+import fs from 'fs-extra';
+import os from 'node:os';
+import path from 'node:path';
 import type { AgentRuntime } from '../src/types.js';
 import type { FileActionManager } from '../src/actions/filesystem.js';
 import { ActionExecutor } from '../src/core/actionExecutor.js';
@@ -81,6 +84,11 @@ function createExecutor(
     onFileModified?: (filePath?: string, changeType?: 'create' | 'modify' | 'delete') => void;
     onExploration?: (entry: { kind: string; target: string }) => void;
     confirmDangerousAction?: () => Promise<boolean>;
+    onGoalWrittenCompleted?: (context: {
+      goalId?: string;
+      goalObjective: string;
+      goalSource: string;
+    }) => Promise<void>;
   } = {}
 ): ActionExecutor {
   return new ActionExecutor({
@@ -89,7 +97,8 @@ function createExecutor(
     resolveWorkspacePath: (rel) => `/repo/${rel}`,
     confirmDangerousAction: options.confirmDangerousAction ?? vi.fn().mockResolvedValue(true),
     onFileModified: options.onFileModified,
-    onExploration: options.onExploration
+    onExploration: options.onExploration,
+    onGoalWrittenCompleted: options.onGoalWrittenCompleted,
   });
 }
 
@@ -380,6 +389,29 @@ describe('ActionExecutor', () => {
       expect(deletePath).toHaveBeenCalledWith('dist');
       expect(onFileModified).toHaveBeenCalledWith('dist', 'delete');
       expect(result).toContain('Deleted directory');
+    });
+  });
+
+  describe('Goal Tools', () => {
+    it('emits goal-written completion hook when create_goal succeeds', async () => {
+      const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-action-goal-'));
+      const onGoalWrittenCompleted = vi.fn().mockResolvedValue(undefined);
+      const executor = createExecutor({}, {
+        runtime: { workspaceRoot, config: { features: { slashGoal: true } } },
+        onGoalWrittenCompleted,
+      });
+
+      try {
+        const result = await executor.execute({ type: 'create_goal', objective: 'ship stable write-goal support' } as any);
+
+        expect(JSON.parse(result)).toMatchObject({ ok: true, message: 'Goal created.' });
+        expect(onGoalWrittenCompleted).toHaveBeenCalledWith(expect.objectContaining({
+          goalObjective: 'ship stable write-goal support',
+          goalSource: 'tool',
+        }));
+      } finally {
+        await fs.remove(workspaceRoot);
+      }
     });
   });
 
