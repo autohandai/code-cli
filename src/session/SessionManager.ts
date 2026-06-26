@@ -222,7 +222,16 @@ export class SessionManager {
     private async loadIndex(): Promise<void> {
         const indexPath = path.join(this.sessionsDir, 'index.json');
         if (await fs.pathExists(indexPath)) {
-            this.index = await fs.readJson(indexPath) as SessionIndex;
+            try {
+                this.index = await fs.readJson(indexPath) as SessionIndex;
+            } catch (error) {
+                const backupPath = `${indexPath}.corrupt-${Date.now()}`;
+                await fs.move(indexPath, backupPath, { overwrite: true });
+                const reason = error instanceof Error ? error.message : String(error);
+                console.warn(`Session index was corrupt and has been reset: ${reason}. Backup saved to ${backupPath}`);
+                this.index = { sessions: [], byProject: {} };
+                await this.saveIndex();
+            }
         } else {
             this.index = { sessions: [], byProject: {} };
         }
