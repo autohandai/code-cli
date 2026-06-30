@@ -1475,6 +1475,12 @@ export interface GitHubCommunitySkill {
   license?: string;
   /** Author or maintainer */
   author?: string;
+  /** Source repository in owner/repo format when imported from a broader catalog */
+  source?: string;
+  /** Source URL for external catalog entries */
+  sourceUrl?: string;
+  /** Human-readable catalog URL for the skill */
+  url?: string;
   /** Allowed tools for this skill */
   allowedTools?: string;
   /** Security score for the skill (0-100, higher is safer) */

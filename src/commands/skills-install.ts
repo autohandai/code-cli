@@ -33,6 +33,7 @@ export interface SkillsInstallContext {
 const MAX_BROWSER_CHOICES = 50;
 const SEARCH_OPTION_VALUE = '__skills_search__';
 const CANCEL_OPTION_VALUE = '__skills_cancel__';
+const SKILLED_CATALOG_REGISTRY_URL = 'https://skilled.autohand.ai/skills-index.json';
 
 /**
  * Main entry point for /skills install command
@@ -51,7 +52,7 @@ export async function skillsInstall(
   const fetcher = new GitHubRegistryFetcher();
 
   // Fetch registry (with cache)
-  let registry: CommunitySkillsRegistry;
+  let registry: CommunitySkillsRegistry | null;
   try {
     const cached = await cache.getRegistry();
     if (cached) {
@@ -66,17 +67,23 @@ export async function skillsInstall(
     if (stale) {
       registry = stale;
     } else {
-      return chalk.red('Failed to fetch community skills. Please check your internet connection.');
+      registry = null;
     }
   }
 
+  if (!registry && !skillName) {
+    return chalk.red('Failed to fetch community skills. Please check your internet connection.');
+  }
+
+  const installRegistry = registry ?? createEmptyRegistry();
+
   // If skill name provided, do direct install
   if (skillName) {
-    return directInstall(ctx, registry, fetcher, cache, skillName);
+    return directInstall(ctx, installRegistry, fetcher, cache, skillName);
   }
 
   // Otherwise, open interactive browser
-  return interactiveBrowser(ctx, registry, fetcher, cache);
+  return interactiveBrowser(ctx, installRegistry, fetcher, cache);
 }
 
 /**
@@ -90,12 +97,16 @@ async function directInstall(
   skillName: string
 ): Promise<string | null> {
   // Find the skill
-  const skill = fetcher.findSkill(registry.skills, skillName);
+  const { skill, installFetcher, suggestionSkills } = await findDirectInstallSkill(
+    registry,
+    fetcher,
+    skillName
+  );
   if (!skill) {
     const lines = [chalk.red(`Skill not found: ${skillName}`)];
 
     // Suggest similar skills
-    const similar = fetcher.findSimilarSkills(registry.skills, skillName, 3);
+    const similar = fetcher.findSimilarSkills(suggestionSkills, skillName, 3);
     if (similar.length > 0) {
       lines.push(chalk.gray('Did you mean:'));
       for (const s of similar) {
@@ -112,7 +123,72 @@ async function directInstall(
     return chalk.gray('Installation cancelled.');
   }
 
-  return installSkill(ctx, fetcher, cache, skill, scope);
+  return installSkill(ctx, installFetcher, cache, skill, scope);
+}
+
+async function findDirectInstallSkill(
+  registry: CommunitySkillsRegistry,
+  fetcher: GitHubRegistryFetcher,
+  skillName: string
+): Promise<{
+  skill: GitHubCommunitySkill | null;
+  installFetcher: GitHubRegistryFetcher;
+  suggestionSkills: GitHubCommunitySkill[];
+}> {
+  const registrySkill = fetcher.findSkill(registry.skills, skillName);
+  if (registrySkill) {
+    return {
+      skill: registrySkill,
+      installFetcher: fetcher,
+      suggestionSkills: registry.skills,
+    };
+  }
+
+  try {
+    const skilledFetcher = new GitHubRegistryFetcher({
+      registryUrl: SKILLED_CATALOG_REGISTRY_URL,
+    });
+    const skilledRegistry = await skilledFetcher.fetchRegistry();
+    const skilledSkill = skilledFetcher.findSkill(skilledRegistry.skills, skillName);
+    return {
+      skill: skilledSkill,
+      installFetcher: skilledSkill ? skilledFetcher : fetcher,
+      suggestionSkills: mergeSuggestionSkills(registry.skills, skilledRegistry.skills),
+    };
+  } catch {
+    return {
+      skill: null,
+      installFetcher: fetcher,
+      suggestionSkills: registry.skills,
+    };
+  }
+}
+
+function mergeSuggestionSkills(
+  primarySkills: GitHubCommunitySkill[],
+  fallbackSkills: GitHubCommunitySkill[]
+): GitHubCommunitySkill[] {
+  const seen = new Set(primarySkills.map((skill) => skill.id.toLowerCase()));
+  const merged = [...primarySkills];
+
+  for (const skill of fallbackSkills) {
+    const id = skill.id.toLowerCase();
+    if (!seen.has(id)) {
+      seen.add(id);
+      merged.push(skill);
+    }
+  }
+
+  return merged;
+}
+
+function createEmptyRegistry(): CommunitySkillsRegistry {
+  return {
+    version: '1.0.0',
+    updatedAt: '1970-01-01T00:00:00.000Z',
+    skills: [],
+    categories: [],
+  };
 }
 
 /**
