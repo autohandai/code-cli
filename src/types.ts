@@ -1481,6 +1481,8 @@ export interface GitHubCommunitySkill {
   sourceUrl?: string;
   /** Human-readable catalog URL for the skill */
   url?: string;
+  /** Full SKILL.md content when provided by a catalog detail endpoint */
+  content?: string;
   /** Allowed tools for this skill */
   allowedTools?: string;
   /** Security score for the skill (0-100, higher is safer) */

@@ -40,4 +40,42 @@ describe('GitHubRegistryFetcher', () => {
       })
     );
   });
+
+  it('uses Skilled detail content before GitHub sourceUrl fallback', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === 'https://skilled.autohand.ai/skills/dotnet-aspnetcore.json') {
+        return new Response(JSON.stringify({
+          content: '---\nname: dotnet-aspnetcore\ndescription: ASP.NET Core web development skills.\n---\n\nSkilled detail body.\n',
+        }), { status: 200 });
+      }
+
+      return new Response('', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const fetcher = new GitHubRegistryFetcher({ timeout: 1000 });
+    const skill: GitHubCommunitySkill = {
+      id: 'dotnet-aspnetcore',
+      name: 'dotnet-aspnetcore',
+      description: 'ASP.NET Core web development skills.',
+      category: 'dotnet',
+      directory: 'dotnet-aspnetcore',
+      files: ['SKILL.md'],
+      sourceUrl: 'https://github.com/dotnet/skills/tree/main/plugins/dotnet-aspnetcore',
+      url: 'https://skilled.autohand.ai/skill/dotnet-aspnetcore',
+    };
+
+    const files = await fetcher.fetchSkillDirectory(skill);
+
+    expect(files.get('SKILL.md')).toContain('Skilled detail body.');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://skilled.autohand.ai/skills/dotnet-aspnetcore.json',
+      expect.any(Object)
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      'https://raw.githubusercontent.com/dotnet/skills/main/plugins/dotnet-aspnetcore/SKILL.md',
+      expect.any(Object)
+    );
+  });
 });

@@ -214,6 +214,8 @@ describe('built CLI Tuistory smoke tests', () => {
 
     await session.waitForText('Install location', { timeout: 10_000 });
     await session.press('enter');
+    await session.waitForText('Validating source files', { timeout: 10_000 });
+    await session.waitForText('Installing validated files', { timeout: 10_000 });
     await session.waitForText('Installed dotnet-aspnetcore', { timeout: 10_000 });
 
     await waitForExit(session);
