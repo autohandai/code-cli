@@ -16,6 +16,7 @@ import {
   clearComposerInput,
   createMockAuthServer,
   createMockOpenRouterFetchPreload,
+  createMockSkillInstallFetchPreload,
   createMockOllamaServer,
   createTempAutohandHome,
   dismissAutocompleteMenu,
@@ -181,6 +182,51 @@ describe('built CLI Tuistory smoke tests', () => {
 
     await waitForExit(session);
     expectCleanExit(session);
+  });
+
+  it('installs a direct skill from Skilled when the primary CLI registry misses', async () => {
+    const state = await createTempAutohandHome();
+    tempStates.push(state);
+    const preload = await createMockSkillInstallFetchPreload();
+    mockOpenRouterFetchPreloads.push(preload);
+
+    const nodeOptions = [
+      process.env.NODE_OPTIONS,
+      `--import ${preload.importSpecifier}`,
+    ].filter(Boolean).join(' ');
+    const session = await trackSession(
+      launchBuiltAutohand([
+        '--path',
+        state.workspaceRoot,
+        '--config',
+        state.configPath,
+        '--skill-install',
+        'dotnet-aspnetcore',
+      ], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        env: {
+          NODE_OPTIONS: nodeOptions,
+        },
+        waitForDataTimeout: 15_000,
+      })
+    );
+
+    await session.waitForText('Install location', { timeout: 10_000 });
+    await session.press('enter');
+    await session.waitForText('Installed dotnet-aspnetcore', { timeout: 10_000 });
+
+    await waitForExit(session);
+    expectCleanExit(session);
+
+    const installedSkillPath = path.join(
+      state.autohandHome,
+      'skills',
+      'dotnet-aspnetcore',
+      'SKILL.md'
+    );
+    expect(await fs.pathExists(installedSkillPath)).toBe(true);
+    expect(await fs.readFile(installedSkillPath, 'utf8')).toContain('Tuistory skill body.');
   });
 });
 
