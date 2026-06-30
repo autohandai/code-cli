@@ -106,6 +106,19 @@ interface XAIResponsesResponse {
     incomplete_details?: {
         reason?: string;
     };
+    error?: XAIResponsesStreamErrorPayload | string;
+}
+
+interface XAIResponsesStreamEvent {
+    type?: 'response.completed' | 'response.incomplete';
+    response?: XAIResponsesResponse;
+}
+
+interface XAIResponsesStreamErrorPayload {
+    message?: string;
+    code?: string;
+    type?: string;
+    param?: string;
 }
 
 /**
@@ -255,7 +268,7 @@ export class XAIProvider implements LLMProvider {
             toolCalls,
             finishReason: toolCalls.length > 0
                 ? 'tool_calls'
-                : (data.incomplete_details?.reason === 'max_output_tokens' ? 'length' : 'stop'),
+                : (data.incomplete_details?.reason ? 'length' : 'stop'),
             usage,
             raw: data,
         };
@@ -391,19 +404,129 @@ export class XAIProvider implements LLMProvider {
                 currentEvent = line.slice(7).trim();
                 continue;
             }
-            if (line.startsWith('data: ') && currentEvent === 'response.completed') {
-                completedData = JSON.parse(line.slice(6)) as XAIResponsesResponse;
+            if (!line.startsWith('data: ')) {
+                continue;
+            }
+
+            const eventData = this.parseXAIStreamEventData(line.slice(6));
+            if (!eventData) {
+                continue;
+            }
+
+            const eventType = this.getXAIStreamEventType(currentEvent, eventData);
+            if (eventType === 'response.completed' || eventType === 'response.incomplete') {
+                completedData = this.extractXAIStreamResponse(eventData);
                 break;
+            }
+
+            if (eventType === 'response.failed' || eventType === 'response.error') {
+                throw this.buildXAIStreamTerminalError(eventType, eventData);
             }
         }
 
         if (!completedData) {
-            throw new ApiError(
-                'No response.completed event found in stream. The API response may be malformed.',
-                'invalid_request', 0, false,
-            );
+            throw this.buildMissingXAIStreamCompletionError();
         }
         return completedData;
+    }
+
+    private getXAIStreamEventType(currentEvent: string, eventData: unknown): string {
+        if (currentEvent) {
+            return currentEvent;
+        }
+        if (eventData && typeof eventData === 'object' && 'type' in eventData) {
+            const type = (eventData as { type?: unknown }).type;
+            return typeof type === 'string' ? type : '';
+        }
+        return '';
+    }
+
+    private parseXAIStreamEventData(dataLine: string): unknown | null {
+        const trimmedData = dataLine.trim();
+        if (!trimmedData || trimmedData === '[DONE]') {
+            return null;
+        }
+
+        try {
+            return JSON.parse(trimmedData) as unknown;
+        } catch (error) {
+            const rawDetail = `Failed to parse xAI stream event: ${(error as Error).message}`;
+            throw withXAIMessage(new ApiError(rawDetail, 'server_error', 0, true, undefined, rawDetail));
+        }
+    }
+
+    private extractXAIStreamResponse(eventData: unknown): XAIResponsesResponse {
+        if (
+            eventData &&
+            typeof eventData === 'object' &&
+            'response' in eventData &&
+            (eventData as XAIResponsesStreamEvent).response
+        ) {
+            return (eventData as XAIResponsesStreamEvent).response as XAIResponsesResponse;
+        }
+
+        return eventData as XAIResponsesResponse;
+    }
+
+    private buildXAIStreamTerminalError(eventType: string, eventData: unknown): ApiError {
+        const rawDetail = this.extractXAIStreamErrorMessage(eventData)
+            ?? `xAI stream ended with ${eventType}.`;
+        const classified = classifyApiError(0, rawDetail);
+
+        if (classified.code !== 'unknown') {
+            return withXAIMessage(classified);
+        }
+
+        return withXAIMessage(new ApiError(rawDetail, 'server_error', 0, true, undefined, rawDetail));
+    }
+
+    private buildMissingXAIStreamCompletionError(): ApiError {
+        const rawDetail = 'xAI stream ended before a terminal response event and did not include recoverable output.';
+        return withXAIMessage(new ApiError(rawDetail, 'server_error', 0, true, undefined, rawDetail));
+    }
+
+    private extractXAIStreamErrorMessage(eventData: unknown): string | undefined {
+        if (!eventData || typeof eventData !== 'object') {
+            return undefined;
+        }
+
+        const eventRecord = eventData as Record<string, unknown>;
+        const topLevelError = this.extractXAIErrorMessage(eventRecord.error);
+        if (topLevelError) {
+            return topLevelError;
+        }
+
+        if (eventRecord.response && typeof eventRecord.response === 'object') {
+            const responseRecord = eventRecord.response as Record<string, unknown>;
+            return this.extractXAIErrorMessage(responseRecord.error);
+        }
+
+        return undefined;
+    }
+
+    private extractXAIErrorMessage(errorPayload: unknown): string | undefined {
+        if (typeof errorPayload === 'string' && errorPayload.trim()) {
+            return errorPayload;
+        }
+
+        if (!errorPayload || typeof errorPayload !== 'object') {
+            return undefined;
+        }
+
+        const errorRecord = errorPayload as Record<string, unknown>;
+        if (typeof errorRecord.message === 'string' && errorRecord.message.trim()) {
+            return errorRecord.message;
+        }
+
+        if (typeof errorRecord.code === 'string' && errorRecord.code.trim()) {
+            return errorRecord.code;
+        }
+
+        if (typeof errorRecord.type === 'string' && errorRecord.type.trim()) {
+            return errorRecord.type;
+        }
+
+        return undefined;
     }
 
     private async buildApiError(response: Response): Promise<ApiError> {
