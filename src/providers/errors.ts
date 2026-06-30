@@ -125,10 +125,14 @@ const CONTEXT_OVERFLOW_PATTERNS = [
   'prompt is too long',
   'reduce the length',
   'payload too large',
+  'request too large',
+  'requested too many tokens',
   'context window',
   'token limit',
   'tokens exceeds',
   'too many tokens',
+  'tokens per minute',
+  '(tpm)',
 ] as const;
 
 /** Patterns that indicate cancellation in status-0 / unknown errors. */
@@ -199,6 +203,10 @@ export function classifyApiError(
   }
 
   if (httpStatus === 429) {
+    if (matchesAny(lower, CONTEXT_OVERFLOW_PATTERNS)) {
+      return makeError('context_overflow', httpStatus, false, errorBody, headers);
+    }
+
     return makeError('rate_limited', httpStatus, true, errorBody, headers);
   }
 
@@ -222,7 +230,7 @@ export function classifyApiError(
 
     // 2. Context overflow
     if (matchesAny(lower, CONTEXT_OVERFLOW_PATTERNS)) {
-      return makeError('context_overflow', httpStatus, true, errorBody, headers);
+      return makeError('context_overflow', httpStatus, false, errorBody, headers);
     }
 
     // 3. Fallback: generic invalid request
@@ -254,7 +262,7 @@ export function classifyApiError(
     }
     // Check for context-overflow patterns even without a status code
     if (matchesAny(lower, CONTEXT_OVERFLOW_PATTERNS)) {
-      return makeError('context_overflow', httpStatus, true, errorBody, headers);
+      return makeError('context_overflow', httpStatus, false, errorBody, headers);
     }
   }
 

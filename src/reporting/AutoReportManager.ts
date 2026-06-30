@@ -39,6 +39,7 @@ export class AutoReportManager {
    * These should never be auto-reported as GitHub issues.
    */
   private static readonly OPERATIONAL_API_ERROR_CODES: ReadonlySet<ApiErrorCode> = new Set([
+    'context_overflow', // Conversation/request too large for selected model
     'rate_limited',     // User hit rate limits — expected, handled by retry
     'cancelled',        // User cancelled the request
     'timeout',          // Provider too slow — expected for local inference

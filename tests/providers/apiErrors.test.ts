@@ -52,13 +52,13 @@ describe("classifyApiError", () => {
     it('classifies "maximum context length exceeded" as context_overflow', () => {
       const err = classifyApiError(400, "maximum context length exceeded");
       expect(err.code).toBe("context_overflow");
-      expect(err.retryable).toBe(true);
+      expect(err.retryable).toBe(false);
     });
 
     it('classifies "prompt is too long" as context_overflow', () => {
       const err = classifyApiError(400, "prompt is too long");
       expect(err.code).toBe("context_overflow");
-      expect(err.retryable).toBe(true);
+      expect(err.retryable).toBe(false);
     });
 
     it('classifies "reduce the length of the messages" as context_overflow', () => {
@@ -67,7 +67,7 @@ describe("classifyApiError", () => {
         "Please reduce the length of the messages",
       );
       expect(err.code).toBe("context_overflow");
-      expect(err.retryable).toBe(true);
+      expect(err.retryable).toBe(false);
     });
 
     it('classifies "context window" overflow message as context_overflow', () => {
@@ -76,13 +76,13 @@ describe("classifyApiError", () => {
         "This request exceeds the context window for this model",
       );
       expect(err.code).toBe("context_overflow");
-      expect(err.retryable).toBe(true);
+      expect(err.retryable).toBe(false);
     });
 
     it('classifies "payload too large" as context_overflow', () => {
       const err = classifyApiError(400, "Request payload too large (3.5MB)");
       expect(err.code).toBe("context_overflow");
-      expect(err.retryable).toBe(true);
+      expect(err.retryable).toBe(false);
     });
   });
 
@@ -250,13 +250,13 @@ describe("classifyApiError", () => {
         "The context is too long for this model",
       );
       expect(err.code).toBe("context_overflow");
-      expect(err.retryable).toBe(true);
+      expect(err.retryable).toBe(false);
     });
 
     it('classifies "context is too long" case-insensitively', () => {
       const err = classifyApiError(400, "ERROR: Context Is Too Long");
       expect(err.code).toBe("context_overflow");
-      expect(err.retryable).toBe(true);
+      expect(err.retryable).toBe(false);
     });
   });
 
@@ -398,6 +398,16 @@ describe("classifyApiError", () => {
       );
       expect(err.code).toBe("rate_limited");
       expect(err.retryAfterMs).toBe(7500);
+    });
+
+    it("classifies provider TPM request-size failures as non-retryable context overflow", () => {
+      const err = classifyApiError(
+        429,
+        "Request too large for model `llama-3.1-8b-instant` in organization `org_123` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Requested 36114, please reduce your message size and try again.",
+      );
+
+      expect(err.code).toBe("context_overflow");
+      expect(err.retryable).toBe(false);
     });
   });
 
