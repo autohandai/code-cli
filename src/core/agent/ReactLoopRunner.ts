@@ -582,10 +582,11 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
       // Reflection loop guard: after tool results, the model MUST reflect before
       // calling more tools. If it jumps straight to tool calls without a reflection
       // (or a substantive thought that implicitly reflects), inject a system note.
+      const hasMeaningfulReflection = typeof payload.reflection === 'string' && payload.reflection.trim().length > 0;
+
       if (needsReflection && payload.toolCalls && payload.toolCalls.length > 0) {
-        const hasReflection = Boolean(payload.reflection);
         const thoughtIsSubstantive = (payload.thought?.length ?? 0) > 50;
-        if (!hasReflection && !thoughtIsSubstantive) {
+        if (!hasMeaningfulReflection && !thoughtIsSubstantive) {
           reflectionViolationCount++;
           if (reflectionViolationCount < reflectionViolationLimit) {
             host.conversation.addSystemNote(
@@ -605,7 +606,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
         }
       }
       // Reflection satisfied (or not required)
-      if (needsReflection && (payload.reflection || (payload.thought?.length ?? 0) > 50 || !payload.toolCalls?.length)) {
+      if (needsReflection && (hasMeaningfulReflection || (payload.thought?.length ?? 0) > 50 || !payload.toolCalls?.length)) {
         needsReflection = false;
         reflectionViolationCount = 0;
       }
