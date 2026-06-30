@@ -185,7 +185,7 @@ describe('browser/chrome', () => {
       'utf8',
     );
 
-    const hostScriptPath = path.join(tempRoot, 'host.js');
+    const hostScriptPath = path.join(tempRoot, 'host.cjs');
     await writeFile(
       hostScriptPath,
       buildNativeHostScript({
