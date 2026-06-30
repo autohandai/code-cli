@@ -299,6 +299,87 @@ globalThis.fetch = async (input, init) => {
   };
 }
 
+export async function createMockSkillInstallFetchPreload(): Promise<MockOpenRouterFetchPreload> {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'autohand-tuistory-fetch-'));
+  const preloadPath = path.join(tempRoot, 'mock-skill-install-fetch.mjs');
+  const primaryRegistry = {
+    version: '1.0.0',
+    updatedAt: '2026-06-30T00:00:00.000Z',
+    skills: [],
+    categories: [],
+  };
+  const skilledRegistry = {
+    version: '1.0.0',
+    updatedAt: '2026-06-30T00:00:00.000Z',
+    skills: [
+      {
+        id: 'dotnet-aspnetcore',
+        name: 'dotnet-aspnetcore',
+        description: 'ASP.NET Core web development skills.',
+        category: 'dotnet',
+        tags: ['dotnet', 'aspnetcore'],
+        languages: ['csharp'],
+        frameworks: ['.net', 'asp.net-core'],
+        directory: 'dotnet-aspnetcore',
+        files: ['SKILL.md'],
+        author: 'dotnet',
+        sourceUrl: 'https://github.com/dotnet/skills/tree/main/plugins/dotnet-aspnetcore',
+      },
+    ],
+    categories: [{ id: 'dotnet', name: '.NET', count: 1 }],
+  };
+
+  const moduleSource = `
+const originalFetch = globalThis.fetch?.bind(globalThis);
+const primaryRegistry = ${JSON.stringify(primaryRegistry)};
+const skilledRegistry = ${JSON.stringify(skilledRegistry)};
+
+globalThis.fetch = async (input, init) => {
+  const url = typeof input === 'string'
+    ? input
+    : input instanceof URL
+      ? input.toString()
+      : input.url;
+
+  if (url === 'https://raw.githubusercontent.com/autohandai/community-skills/main/registry.json') {
+    return new Response(JSON.stringify(primaryRegistry), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  if (url === 'https://skilled.autohand.ai/skills-index.json') {
+    return new Response(JSON.stringify(skilledRegistry), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  if (url === 'https://raw.githubusercontent.com/dotnet/skills/main/plugins/dotnet-aspnetcore/SKILL.md') {
+    return new Response('---\\nname: dotnet-aspnetcore\\ndescription: ASP.NET Core web development skills.\\n---\\n\\nTuistory skill body.\\n', {
+      status: 200,
+      headers: { 'content-type': 'text/markdown' },
+    });
+  }
+
+  if (!originalFetch) {
+    throw new Error('fetch is not available in this runtime');
+  }
+
+  return originalFetch(input, init);
+};
+`;
+
+  await writeFile(preloadPath, moduleSource);
+
+  return {
+    importSpecifier: pathToFileURL(preloadPath).href,
+    cleanup: async () => {
+      await rm(tempRoot, { recursive: true, force: true });
+    },
+  };
+}
+
 export async function createMockAuthServer(): Promise<MockAuthServer> {
   const server = createServer((request, response) => {
     if (request.url === '/api/auth/cli/initiate' && request.method === 'POST') {

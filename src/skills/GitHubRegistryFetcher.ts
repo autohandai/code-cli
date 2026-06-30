@@ -18,6 +18,8 @@ export interface GitHubFetcherConfig {
   repo?: string;
   /** Branch to fetch from */
   branch?: string;
+  /** Full registry URL, used for non-default catalogs */
+  registryUrl?: string;
   /** Request timeout in milliseconds */
   timeout?: number;
 }
@@ -27,12 +29,14 @@ export interface GitHubFetcherConfig {
  */
 export class GitHubRegistryFetcher {
   private readonly baseUrl: string;
+  private readonly registryUrl: string;
   private readonly timeout: number;
 
   constructor(config: GitHubFetcherConfig = {}) {
     const repo = config.repo || DEFAULT_REPO;
     const branch = config.branch || DEFAULT_BRANCH;
     this.baseUrl = `https://raw.githubusercontent.com/${repo}/${branch}`;
+    this.registryUrl = config.registryUrl || `${this.baseUrl}/registry.json`;
     this.timeout = config.timeout || 15000;
   }
 
@@ -40,37 +44,23 @@ export class GitHubRegistryFetcher {
    * Fetch the registry.json index file
    */
   async fetchRegistry(): Promise<CommunitySkillsRegistry> {
-    const url = `${this.baseUrl}/registry.json`;
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
-
-    try {
-      const response = await fetch(url, {
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': 'autohand-cli',
-        },
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch registry: HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      return this.validateRegistry(data);
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    const data = await this.fetchJson(this.registryUrl, 'registry', {
+      Accept: 'application/json',
+      'User-Agent': 'autohand-cli',
+    });
+    return this.validateRegistry(data);
   }
 
   /**
    * Fetch a single file from a skill directory
    */
   async fetchSkillFile(skillDirectory: string, filePath: string): Promise<string> {
-    const url = `${this.baseUrl}/${skillDirectory}/${filePath}`;
+    const url = `${this.baseUrl}/${trimSlashes(skillDirectory)}/${normalizeRegistryFilePath(filePath)}`;
 
+    return this.fetchText(url, filePath);
+  }
+
+  private async fetchText(url: string, errorLabel: string): Promise<string> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
@@ -83,13 +73,53 @@ export class GitHubRegistryFetcher {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch ${filePath}: HTTP ${response.status}`);
+        throw new Error(`Failed to fetch ${errorLabel}: HTTP ${response.status}`);
       }
 
       return response.text();
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  private async fetchJson(
+    url: string,
+    errorLabel: string,
+    headers: Record<string, string>
+  ): Promise<unknown> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+
+    try {
+      const response = await fetch(url, {
+        headers,
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch ${errorLabel}: HTTP ${response.status}`);
+      }
+
+      return response.json();
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  private async fetchSkillFileForSkill(
+    skill: GitHubCommunitySkill,
+    filePath: string
+  ): Promise<string> {
+    return this.fetchText(this.resolveSkillFileUrl(skill, filePath), filePath);
+  }
+
+  private resolveSkillFileUrl(skill: GitHubCommunitySkill, filePath: string): string {
+    const file = normalizeRegistryFilePath(filePath);
+    const sourceBaseUrl = resolveGitHubSourceUrlBase(skill.sourceUrl)
+      ?? resolveGitHubSourceBase(skill.source, skill.directory)
+      ?? `${this.baseUrl}/${trimSlashes(skill.directory)}`;
+
+    return `${sourceBaseUrl}/${file}`;
   }
 
   /**
@@ -110,7 +140,7 @@ export class GitHubRegistryFetcher {
       const batch = files.slice(i, i + concurrencyLimit);
       const results = await Promise.allSettled(
         batch.map(async (file) => {
-          const content = await this.fetchSkillFile(skill.directory, file);
+          const content = await this.fetchSkillFileForSkill(skill, file);
           return { file, content };
         })
       );
@@ -282,4 +312,67 @@ export class GitHubRegistryFetcher {
       .slice(0, limit)
       .map((s) => s.skill);
   }
+}
+
+function trimSlashes(value: string): string {
+  const trimmed = value.replace(/^\/+|\/+$/g, '');
+  if (!trimmed) {
+    throw new Error('Invalid empty registry path');
+  }
+  return trimmed;
+}
+
+function normalizeRegistryFilePath(filePath: string): string {
+  const normalized = trimSlashes(filePath);
+  const segments = normalized.split('/');
+  if (segments.some((segment) => segment === '.' || segment === '..' || segment === '')) {
+    throw new Error(`Invalid file path in registry: ${filePath}`);
+  }
+  return segments.join('/');
+}
+
+function resolveGitHubSourceUrlBase(sourceUrl?: string): string | null {
+  if (!sourceUrl) {
+    return null;
+  }
+
+  try {
+    const url = new URL(sourceUrl);
+    if (url.hostname !== 'github.com' && url.hostname !== 'www.github.com') {
+      return null;
+    }
+
+    const [owner, repo, marker, branch, ...sourcePathParts] = url.pathname
+      .split('/')
+      .filter(Boolean);
+
+    if (
+      !owner ||
+      !repo ||
+      !branch ||
+      (marker !== 'tree' && marker !== 'blob') ||
+      sourcePathParts.length === 0
+    ) {
+      return null;
+    }
+
+    const sourcePath = marker === 'blob'
+      ? sourcePathParts.slice(0, -1)
+      : sourcePathParts;
+    if (sourcePath.length === 0) {
+      return null;
+    }
+
+    return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${sourcePath.join('/')}`;
+  } catch {
+    return null;
+  }
+}
+
+function resolveGitHubSourceBase(source: string | undefined, directory: string): string | null {
+  if (!source || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(source)) {
+    return null;
+  }
+
+  return `https://raw.githubusercontent.com/${source}/main/${trimSlashes(directory)}`;
 }
