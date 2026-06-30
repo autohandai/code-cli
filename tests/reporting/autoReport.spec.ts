@@ -642,18 +642,18 @@ describe("AutoReportManager", () => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
-    it("still reports ApiError with context_overflow code", async () => {
+    it("skips ApiError with context_overflow code", async () => {
       mockFetch.mockResolvedValue(okResponse({ success: true }));
       const mgr = new AutoReportManager(makeConfig(), "0.7.14");
       const err = new ApiError(
         "Context overflow",
         "context_overflow",
         400,
-        true,
+        false,
       );
 
       await mgr.reportError(err);
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch).not.toHaveBeenCalled();
     });
   });
 });

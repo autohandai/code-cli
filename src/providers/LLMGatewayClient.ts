@@ -13,7 +13,7 @@ import type {
   LLMMessage,
   NvidiaChatTemplateKwargs,
 } from "../types.js";
-import { classifyApiError } from "./errors.js";
+import { ApiError, classifyApiError } from "./errors.js";
 import { normalizeLLMUsage } from "./usage.js";
 
 /**
@@ -302,24 +302,30 @@ export class LLMGatewayClient {
 
       // User cancelled
       if (err.name === "AbortError" && signal?.aborted) {
-        throw new Error("Request cancelled.");
+        throw new ApiError("Request cancelled.", "cancelled", 0, false);
       }
 
       // Timeout
       if (err.name === "AbortError") {
-        throw new Error(
-          `Request timed out. The ${this.errorLabels.serviceName} service may be experiencing high load.`
+        throw new ApiError(
+          `Request timed out. The ${this.errorLabels.serviceName} service may be experiencing high load.`,
+          "timeout",
+          0,
+          true,
         );
       }
 
       // Network error - friendly message
-      throw new Error(
-        `Unable to connect to ${this.errorLabels.serviceName}. Please check your internet connection.`
+      throw new ApiError(
+        `Unable to connect to ${this.errorLabels.serviceName}. Please check your internet connection.`,
+        "network_error",
+        0,
+        true,
       );
     }
 
     if (!response.ok) {
-      throw new Error(await this.buildFriendlyError(response));
+      throw await this.buildFriendlyError(response);
     }
 
     // Handle streaming responses
@@ -433,7 +439,7 @@ export class LLMGatewayClient {
     };
   }
 
-  private async buildFriendlyError(response: Response): Promise<string> {
+  private async buildFriendlyError(response: Response): Promise<ApiError> {
     const status = response.status;
 
     // Try to get the actual error message from the response
@@ -453,31 +459,32 @@ export class LLMGatewayClient {
     const classified = classifyApiError(status, errorDetail, response.headers);
     const friendlyMessage = buildFriendlyErrors(this.errorLabels)[classified.code];
     if (friendlyMessage) {
-      return errorDetail
-        ? `${friendlyMessage}\n${errorDetail}`
-        : friendlyMessage;
+      return new ApiError(
+        errorDetail ? `${friendlyMessage}\n${errorDetail}` : friendlyMessage,
+        classified.code,
+        classified.httpStatus,
+        classified.retryable,
+        classified.retryAfterMs,
+        classified.rawDetail,
+      );
     }
 
-    // For unknown errors, include status and details
     if (status >= 500) {
-      const base =
-        `The ${this.errorLabels.serviceName} service is temporarily unavailable. Please try again later.`;
-      return errorDetail ? `${base}\n(${status}: ${errorDetail})` : base;
+      return classifyApiError(status, errorDetail, response.headers);
     }
 
     if (status >= 400) {
-      const base = "The request could not be processed.";
-      return errorDetail
-        ? `${base} (${status}: ${errorDetail})`
-        : `${base} (HTTP ${status}) Please try again or adjust your prompt.`;
+      return classifyApiError(status, errorDetail, response.headers);
     }
 
-    return errorDetail
-      ? `An unexpected error occurred: ${errorDetail}`
-      : "An unexpected error occurred. Please try again.";
+    return classifyApiError(status, errorDetail, response.headers);
   }
 
   private isNonRetryableError(error: Error): boolean {
+    if (error instanceof ApiError) {
+      return !error.retryable;
+    }
+
     const message = error.message.toLowerCase();
 
     // Don't retry on user cancellation
