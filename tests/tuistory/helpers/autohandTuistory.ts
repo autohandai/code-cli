@@ -324,6 +324,7 @@ export async function createMockSkillInstallFetchPreload(): Promise<MockOpenRout
         files: ['SKILL.md'],
         author: 'dotnet',
         sourceUrl: 'https://github.com/dotnet/skills/tree/main/plugins/dotnet-aspnetcore',
+        url: 'https://skilled.autohand.ai/skill/dotnet-aspnetcore',
       },
     ],
     categories: [{ id: 'dotnet', name: '.NET', count: 1 }],
@@ -355,11 +356,18 @@ globalThis.fetch = async (input, init) => {
     });
   }
 
-  if (url === 'https://raw.githubusercontent.com/dotnet/skills/main/plugins/dotnet-aspnetcore/SKILL.md') {
-    return new Response('---\\nname: dotnet-aspnetcore\\ndescription: ASP.NET Core web development skills.\\n---\\n\\nTuistory skill body.\\n', {
+  if (url === 'https://skilled.autohand.ai/skills/dotnet-aspnetcore.json') {
+    return new Response(JSON.stringify({
+      ...skilledRegistry.skills[0],
+      content: '---\\nname: dotnet-aspnetcore\\ndescription: ASP.NET Core web development skills.\\n---\\n\\nTuistory skill body.\\n',
+    }), {
       status: 200,
-      headers: { 'content-type': 'text/markdown' },
+      headers: { 'content-type': 'application/json' },
     });
+  }
+
+  if (url === 'https://raw.githubusercontent.com/dotnet/skills/main/plugins/dotnet-aspnetcore/SKILL.md') {
+    return new Response('', { status: 404 });
   }
 
   if (!originalFetch) {

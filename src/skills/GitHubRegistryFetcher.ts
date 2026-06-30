@@ -12,6 +12,7 @@ import type {
 
 const DEFAULT_REPO = 'autohandai/community-skills';
 const DEFAULT_BRANCH = 'main';
+const SKILLED_HOST = 'skilled.autohand.ai';
 
 export interface GitHubFetcherConfig {
   /** GitHub repository in format "owner/repo" */
@@ -73,7 +74,7 @@ export class GitHubRegistryFetcher {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch ${errorLabel}: HTTP ${response.status}`);
+        throw new Error(`Failed to fetch ${errorLabel}: HTTP ${response.status} at ${url}`);
       }
 
       return response.text();
@@ -97,7 +98,7 @@ export class GitHubRegistryFetcher {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch ${errorLabel}: HTTP ${response.status}`);
+        throw new Error(`Failed to fetch ${errorLabel}: HTTP ${response.status} at ${url}`);
       }
 
       return response.json();
@@ -129,6 +130,11 @@ export class GitHubRegistryFetcher {
   async fetchSkillDirectory(
     skill: GitHubCommunitySkill
   ): Promise<Map<string, string>> {
+    const catalogFiles = await this.fetchCatalogSkillDirectory(skill);
+    if (catalogFiles) {
+      return catalogFiles;
+    }
+
     const contents = new Map<string, string>();
     const errors: string[] = [];
 
@@ -162,6 +168,40 @@ export class GitHubRegistryFetcher {
     }
 
     return contents;
+  }
+
+  private async fetchCatalogSkillDirectory(
+    skill: GitHubCommunitySkill
+  ): Promise<Map<string, string> | null> {
+    if (typeof skill.content === 'string' && skill.content.trim()) {
+      return new Map([['SKILL.md', skill.content]]);
+    }
+
+    const detailUrl = resolveSkilledDetailUrl(skill);
+    if (!detailUrl) {
+      return null;
+    }
+
+    const data = await this.fetchJson(detailUrl, `Skilled skill detail for ${skill.name}`, {
+      Accept: 'application/json',
+      'User-Agent': 'autohand-cli',
+    });
+    if (!data || typeof data !== 'object') {
+      throw new Error(`Invalid Skilled skill detail for ${skill.name} at ${detailUrl}`);
+    }
+
+    const detail = data as Record<string, unknown>;
+    const content = typeof detail.content === 'string'
+      ? detail.content
+      : typeof detail.body === 'string'
+        ? detail.body
+        : null;
+
+    if (!content?.trim()) {
+      throw new Error(`Skilled skill detail for ${skill.name} did not include SKILL.md content at ${detailUrl}`);
+    }
+
+    return new Map([['SKILL.md', content]]);
   }
 
   /**
@@ -375,4 +415,26 @@ function resolveGitHubSourceBase(source: string | undefined, directory: string):
   }
 
   return `https://raw.githubusercontent.com/${source}/main/${trimSlashes(directory)}`;
+}
+
+function resolveSkilledDetailUrl(skill: GitHubCommunitySkill): string | null {
+  if (!skill.url) {
+    return null;
+  }
+
+  try {
+    const url = new URL(skill.url);
+    if (url.hostname !== SKILLED_HOST) {
+      return null;
+    }
+
+    const [route, id] = url.pathname.split('/').filter(Boolean);
+    if (route !== 'skill' || !id) {
+      return null;
+    }
+
+    return `https://${SKILLED_HOST}/skills/${encodeURIComponent(id)}.json`;
+  } catch {
+    return null;
+  }
 }

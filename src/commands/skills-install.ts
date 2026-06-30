@@ -10,6 +10,8 @@ import chalk from 'chalk';
 import { safePrompt } from '../utils/prompt.js';
 import { showInput, showModal } from '../ui/ink/components/Modal.js';
 import type { SkillsRegistry } from '../skills/SkillsRegistry.js';
+import { SkillParser } from '../skills/SkillParser.js';
+import { isValidSkillName } from '../skills/types.js';
 import { GitHubRegistryFetcher } from '../skills/GitHubRegistryFetcher.js';
 import { CommunitySkillsCache } from '../skills/CommunitySkillsCache.js';
 import { AUTOHAND_PATHS, PROJECT_DIR_NAME } from '../constants.js';
@@ -34,6 +36,12 @@ const MAX_BROWSER_CHOICES = 50;
 const SEARCH_OPTION_VALUE = '__skills_search__';
 const CANCEL_OPTION_VALUE = '__skills_cancel__';
 const SKILLED_CATALOG_REGISTRY_URL = 'https://skilled.autohand.ai/skills-index.json';
+const INSTALL_PROGRESS_STEPS = 6;
+
+interface SkillFileLoadResult {
+  files: Map<string, string>;
+  cacheAfterValidation: boolean;
+}
 
 /**
  * Main entry point for /skills install command
@@ -346,13 +354,26 @@ async function installSkill(
 ): Promise<string | null> {
   const { skillsRegistry, workspaceRoot } = ctx;
 
+  logInstallProgress(1, 'Validating skill metadata');
+  const metadataError = validateInstallSkillMetadata(skill);
+  if (metadataError) {
+    return failPreflight(metadataError);
+  }
+
   // Determine target directory
   const targetDir =
     scope === 'project'
       ? path.join(workspaceRoot, PROJECT_DIR_NAME, 'skills')
       : AUTOHAND_PATHS.skills;
 
+  logInstallProgress(2, 'Checking target folder');
+  const targetError = validateInstallTarget(targetDir, skill.name);
+  if (targetError) {
+    return failPreflight(targetError);
+  }
+
   // Check if already installed
+  logInstallProgress(3, 'Checking existing installation');
   const isInstalled = await skillsRegistry.isSkillInstalled(skill.name, targetDir);
   if (isInstalled) {
     const confirm = await safePrompt<{ overwrite: boolean }>([
@@ -370,25 +391,32 @@ async function installSkill(
     }
   }
 
-  console.log(chalk.cyan(`Installing ${skill.name}...`));
+  let loadedFiles: SkillFileLoadResult;
+  try {
+    logInstallProgress(4, 'Validating source files');
+    loadedFiles = await loadSkillFilesForInstall(cache, fetcher, skill);
+
+    logInstallProgress(5, 'Validating SKILL.md content');
+    const filesError = validateInstallFiles(skill, loadedFiles.files);
+    if (filesError) {
+      return failPreflight(filesError);
+    }
+
+    if (loadedFiles.cacheAfterValidation) {
+      await cache.setSkillDirectory(skill.id, loadedFiles.files);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return failPreflight(`Unable to validate source files for ${skill.name}: ${message}`);
+  }
 
   try {
-    // Try to get from cache first
-    let files = await cache.getSkillDirectory(skill.id);
-
-    if (!files) {
-      // Fetch from GitHub
-      console.log(chalk.gray(`Fetching ${skill.files.length} files...`));
-      files = await fetcher.fetchSkillDirectory(skill);
-
-      // Cache for next time
-      await cache.setSkillDirectory(skill.id, files);
-    }
+    logInstallProgress(6, 'Installing validated files');
 
     // Import using the registry
     const result = await skillsRegistry.importCommunitySkillDirectory(
       skill.name,
-      files,
+      loadedFiles.files,
       targetDir,
       isInstalled // force if overwriting
     );
@@ -412,6 +440,104 @@ async function installSkill(
     console.log(chalk.gray(error instanceof Error ? error.message : 'Unknown error'));
     return null;
   }
+}
+
+async function loadSkillFilesForInstall(
+  cache: CommunitySkillsCache,
+  fetcher: GitHubRegistryFetcher,
+  skill: GitHubCommunitySkill
+): Promise<SkillFileLoadResult> {
+  const cachedFiles = await cache.getSkillDirectory(skill.id);
+  if (cachedFiles) {
+    return {
+      files: cachedFiles,
+      cacheAfterValidation: false,
+    };
+  }
+
+  const files = await fetcher.fetchSkillDirectory(skill);
+  return {
+    files,
+    cacheAfterValidation: true,
+  };
+}
+
+function validateInstallSkillMetadata(skill: GitHubCommunitySkill): string | null {
+  if (!isValidSkillName(skill.name)) {
+    return `Invalid skill name "${skill.name}".`;
+  }
+
+  if (!skill.id.trim()) {
+    return 'Invalid skill registry entry: missing skill id.';
+  }
+
+  if (!skill.directory.trim()) {
+    return `Invalid skill registry entry for ${skill.name}: missing directory.`;
+  }
+
+  if (!Array.isArray(skill.files) || skill.files.length === 0) {
+    return `Invalid skill registry entry for ${skill.name}: no files listed.`;
+  }
+
+  if (!skill.files.includes('SKILL.md')) {
+    return `Invalid skill registry entry for ${skill.name}: missing required SKILL.md.`;
+  }
+
+  return null;
+}
+
+function validateInstallTarget(targetDir: string, skillName: string): string | null {
+  const resolvedTargetDir = path.resolve(targetDir);
+  const resolvedSkillDir = path.resolve(resolvedTargetDir, skillName);
+  const relative = path.relative(resolvedTargetDir, resolvedSkillDir);
+
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    return `Invalid install target for ${skillName}: ${resolvedSkillDir}`;
+  }
+
+  return null;
+}
+
+function validateInstallFiles(
+  skill: GitHubCommunitySkill,
+  files: Map<string, string>
+): string | null {
+  const missingFiles = skill.files.filter((file) => !files.has(file));
+  if (missingFiles.length > 0) {
+    return `Validated source is missing required files for ${skill.name}: ${missingFiles.join(', ')}`;
+  }
+
+  const skillMd = files.get('SKILL.md');
+  if (!skillMd?.trim()) {
+    return `Validated source returned an empty SKILL.md for ${skill.name}.`;
+  }
+
+  const parseResult = new SkillParser().parseContent(
+    skillMd,
+    path.join(skill.name, 'SKILL.md'),
+    'community'
+  );
+  if (!parseResult.success) {
+    return `Invalid SKILL.md for ${skill.name}: ${parseResult.error ?? 'parse failed'}`;
+  }
+
+  return null;
+}
+
+function logInstallProgress(step: number, message: string): void {
+  console.log(chalk.gray(`${formatBrailleProgress(step, INSTALL_PROGRESS_STEPS)} [${step}/${INSTALL_PROGRESS_STEPS}] ${message}`));
+}
+
+function formatBrailleProgress(step: number, total: number, width = 10): string {
+  const filled = Math.max(1, Math.min(width, Math.ceil((step / total) * width)));
+  return `${'⣿'.repeat(filled)}${'⣀'.repeat(width - filled)}`;
+}
+
+function failPreflight(message: string): null {
+  console.log(chalk.red('Validation failed before installation.'));
+  console.log(chalk.gray(message));
+  console.log(chalk.gray('No files were written.'));
+  return null;
 }
 
 /**

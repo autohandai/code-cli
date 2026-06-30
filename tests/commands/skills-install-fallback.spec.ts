@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SkillsRegistry } from '../../src/skills/SkillsRegistry.js';
 import type { CommunitySkillsRegistry, GitHubCommunitySkill } from '../../src/types.js';
 
@@ -58,6 +58,7 @@ function makeSkill(overrides: Partial<GitHubCommunitySkill> = {}): GitHubCommuni
     directory: 'dotnet-aspnetcore',
     files: ['SKILL.md'],
     author: 'dotnet',
+    url: 'https://skilled.autohand.ai/skill/dotnet-aspnetcore',
     ...overrides,
   };
 }
@@ -75,7 +76,10 @@ describe('skillsInstall direct install Skilled catalog fallback', () => {
     mocks.cache.getRegistry.mockResolvedValue(makeRegistry());
     mocks.cache.getRegistryIgnoreTTL.mockResolvedValue(null);
     mocks.cache.setRegistry.mockResolvedValue(undefined);
-    mocks.cache.getSkillDirectory.mockResolvedValue(new Map([['SKILL.md', '# ASP.NET Core\n']]));
+    mocks.cache.getSkillDirectory.mockResolvedValue(new Map([[
+      'SKILL.md',
+      '---\nname: dotnet-aspnetcore\ndescription: ASP.NET Core web development skills.\n---\n\n# ASP.NET Core\n',
+    ]]));
     mocks.cache.setSkillDirectory.mockResolvedValue(undefined);
 
     skillsRegistry.isSkillInstalled.mockResolvedValue(false);
@@ -85,6 +89,11 @@ describe('skillsInstall direct install Skilled catalog fallback', () => {
     });
 
     mocks.safePrompt.mockResolvedValue({ scope: 'user' });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('installs a direct skill from Skilled when the CLI registry does not contain it', async () => {
@@ -116,5 +125,108 @@ describe('skillsInstall direct install Skilled catalog fallback', () => {
       expect.any(String),
       false
     );
+  });
+
+  it('validates Skilled detail content before printing install status or importing files', async () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const skilledSkill = makeSkill({
+      sourceUrl: 'https://github.com/dotnet/skills/tree/main/plugins/dotnet-aspnetcore',
+    });
+    mocks.cache.getSkillDirectory.mockResolvedValue(null);
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === 'https://skilled.autohand.ai/skills-index.json') {
+        return new Response(JSON.stringify(makeRegistry([skilledSkill])), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+
+      if (url === 'https://skilled.autohand.ai/skills/dotnet-aspnetcore.json') {
+        return new Response(JSON.stringify({
+          ...skilledSkill,
+          content: [
+            '---',
+            'name: dotnet-aspnetcore',
+            'description: ASP.NET Core web development skills.',
+            '---',
+            '',
+            'Skilled detail body.',
+          ].join('\n'),
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+
+      return new Response('', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await skillsInstall(
+      {
+        skillsRegistry: skillsRegistry as unknown as SkillsRegistry,
+        workspaceRoot: '/workspace',
+      },
+      'dotnet-aspnetcore'
+    );
+
+    expect(result).toBe('Skill "dotnet-aspnetcore" installed successfully.');
+    const importedFiles = skillsRegistry.importCommunitySkillDirectory.mock.calls[0]?.[1] as Map<string, string>;
+    expect(importedFiles.get('SKILL.md')).toContain('Skilled detail body.');
+
+    const logs = consoleSpy.mock.calls.map((call) => String(call[0]));
+    const sourceValidationIndex = logs.findIndex((line) => line.includes('Validating source files'));
+    const installingIndex = logs.findIndex((line) => line.includes('Installing validated files'));
+    expect(sourceValidationIndex).toBeGreaterThanOrEqual(0);
+    expect(installingIndex).toBeGreaterThan(sourceValidationIndex);
+    expect(logs.some((line) => line.includes('⣿'))).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      'https://raw.githubusercontent.com/dotnet/skills/main/plugins/dotnet-aspnetcore/SKILL.md',
+      expect.any(Object)
+    );
+  });
+
+  it('stops during preflight when required Skilled files return HTTP errors', async () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const skilledSkill = makeSkill({
+      sourceUrl: 'https://github.com/dotnet/skills/tree/main/plugins/dotnet-aspnetcore',
+    });
+    mocks.cache.getSkillDirectory.mockResolvedValue(null);
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === 'https://skilled.autohand.ai/skills-index.json') {
+        return new Response(JSON.stringify(makeRegistry([skilledSkill])), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+
+      if (url === 'https://skilled.autohand.ai/skills/dotnet-aspnetcore.json') {
+        return new Response('service unavailable', { status: 500 });
+      }
+
+      return new Response('', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await skillsInstall(
+      {
+        skillsRegistry: skillsRegistry as unknown as SkillsRegistry,
+        workspaceRoot: '/workspace',
+      },
+      'dotnet-aspnetcore'
+    );
+
+    expect(result).toBeNull();
+    expect(skillsRegistry.importCommunitySkillDirectory).not.toHaveBeenCalled();
+
+    const logs = consoleSpy.mock.calls.map((call) => String(call[0]));
+    expect(logs.some((line) => line.includes('Validation failed before installation.'))).toBe(true);
+    expect(logs.some((line) => line.includes('HTTP 500'))).toBe(true);
+    expect(logs.some((line) => line.includes('No files were written.'))).toBe(true);
+    expect(logs.some((line) => line.includes('Installing validated files'))).toBe(false);
   });
 });
