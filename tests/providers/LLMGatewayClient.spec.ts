@@ -300,10 +300,11 @@ describe('LLMGatewayClient', () => {
       }
     });
 
-    it('should throw friendly error on 429 rate limit', async () => {
+    it('should throw ApiError on 429 rate limit', async () => {
       global.fetch = vi.fn().mockResolvedValue({
         ok: false,
         status: 429,
+        headers: new Headers(),
         json: () => Promise.resolve({ error: { message: 'Rate limit exceeded' } })
       });
 
@@ -316,7 +317,31 @@ describe('LLMGatewayClient', () => {
 
       await expect(client.complete({
         messages: [{ role: 'user', content: 'Hello' }]
-      })).rejects.toThrow(/Rate limit exceeded/);
+      })).rejects.toMatchObject({ code: 'rate_limited' });
+    });
+
+    it('classifies provider token-per-minute request-size failures as non-retryable context overflow', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        headers: new Headers(),
+        json: () => Promise.resolve({
+          error: {
+            message: 'Request too large for model `llama-3.1-8b-instant` on tokens per minute (TPM): Limit 6000, Requested 36114, please reduce your message size and try again.'
+          }
+        })
+      });
+
+      const settings: LLMGatewaySettings = {
+        apiKey: 'test-key',
+        model: 'llama-3.1-8b-instant'
+      };
+      const client = new LLMGatewayClient(settings, { maxRetries: 3, retryDelay: 1 });
+
+      await expect(client.complete({
+        messages: [{ role: 'user', content: 'Hello' }]
+      })).rejects.toMatchObject({ code: 'context_overflow', retryable: false });
+      expect(global.fetch).toHaveBeenCalledTimes(1);
     });
 
     it('should throw error for payload too large', async () => {

@@ -141,7 +141,7 @@ describe("VertexAIProvider", () => {
         expect(error).toBeInstanceOf(ApiError);
         expect((error as ApiError).code).toBe("context_overflow");
         expect((error as ApiError).httpStatus).toBe(400);
-        expect((error as ApiError).retryable).toBe(true);
+        expect((error as ApiError).retryable).toBe(false);
       }
     });
 
