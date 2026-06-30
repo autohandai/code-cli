@@ -755,7 +755,12 @@ export class OpenAIProvider implements LLMProvider {
             }
 
             if (isChatGPTAuthExpired(this.chatgptAuth)) {
-                this.chatgptAuth = await refreshChatGPTAuth(this.chatgptAuth);
+                try {
+                    this.chatgptAuth = await refreshChatGPTAuth(this.chatgptAuth);
+                } catch (error) {
+                    const message = (error as Error).message || 'ChatGPT token refresh failed. Please sign in again.';
+                    throw new ApiError(message, 'auth_failed', 401, false);
+                }
             }
 
             return {

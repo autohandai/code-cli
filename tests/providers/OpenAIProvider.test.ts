@@ -129,6 +129,29 @@ describe('OpenAIProvider', () => {
         .rejects.toMatchObject({ code: 'rate_limited' });
     });
 
+    it('classifies ChatGPT refresh 401 failures as non-retryable auth_failed ApiError', async () => {
+      const chatgptProvider = new OpenAIProvider({
+        authMode: 'chatgpt',
+        model: 'gpt-5.5',
+        chatgptAuth: {
+          accessToken: 'expired-token',
+          refreshToken: 'stale-refresh-token',
+          accountId: 'account-id',
+          expiresAt: new Date(Date.now() - 60_000).toISOString(),
+        },
+      });
+
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: 'Could not validate your token. Please try signing in again.' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+
+      await expect(chatgptProvider.complete({ messages: [{ role: 'user', content: 'hi' }] }))
+        .rejects.toMatchObject({ code: 'auth_failed', retryable: false });
+    });
+
     it('throws network_error ApiError on fetch failure (GH #20)', async () => {
       vi.spyOn(globalThis, 'fetch').mockRejectedValue(
         new TypeError('fetch failed'),
