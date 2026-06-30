@@ -911,7 +911,7 @@ describe('OpenAIProvider', () => {
       expect(result.content).toBe('Partial');
     });
 
-    it('throws ApiError when SSE stream has no response.completed event', async () => {
+    it('throws retryable ApiError when SSE stream has no terminal event or recoverable output', async () => {
       const chatgptProvider = new OpenAIProvider({
         authMode: 'chatgpt',
         model: 'gpt-5.4',
@@ -932,8 +932,137 @@ describe('OpenAIProvider', () => {
       await expect(chatgptProvider.complete({
         messages: [{ role: 'user', content: 'hi' }],
       })).rejects.toMatchObject({
-        code: 'invalid_request',
-        message: expect.stringContaining('No response.completed event'),
+        code: 'server_error',
+        retryable: true,
+        message: expect.stringContaining('stream ended before a terminal response event'),
+      });
+    });
+
+    it('uses streamed text when SSE stream ends after deltas without response.completed', async () => {
+      const chatgptProvider = new OpenAIProvider({
+        authMode: 'chatgpt',
+        model: 'gpt-5.4',
+        chatgptAuth: {
+          accessToken: 'chatgpt-access-token',
+          accountId: 'chatgpt-account-123',
+        },
+      });
+
+      const sseBody = [
+        'event: response.created',
+        'data: {"id":"resp-delta-no-completed","object":"response"}',
+        '',
+        'event: response.output_text.delta',
+        'data: {"type":"response.output_text.delta","delta":"Partial"}',
+        '',
+        'event: response.output_text.delta',
+        'data: {"type":"response.output_text.delta","delta":" answer."}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n');
+
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(sseBody, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      );
+
+      const result = await chatgptProvider.complete({
+        messages: [{ role: 'user', content: 'hi' }],
+      });
+
+      expect(result.id).toBe('resp-delta-no-completed');
+      expect(result.content).toBe('Partial answer.');
+      expect(result.finishReason).toBe('length');
+    });
+
+    it('uses response.incomplete terminal payloads as partial completions', async () => {
+      const chatgptProvider = new OpenAIProvider({
+        authMode: 'chatgpt',
+        model: 'gpt-5.4',
+        chatgptAuth: {
+          accessToken: 'chatgpt-access-token',
+          accountId: 'chatgpt-account-123',
+        },
+      });
+
+      const sseBody = [
+        'event: response.created',
+        'data: {"id":"resp-incomplete","object":"response"}',
+        '',
+        'event: response.incomplete',
+        `data: ${JSON.stringify({
+          type: 'response.incomplete',
+          response: {
+            id: 'resp-incomplete',
+            created_at: 1234567890,
+            output_text: 'Partial completion',
+            output: [],
+            incomplete_details: {
+              reason: 'max_output_tokens',
+            },
+          },
+        })}`,
+        '',
+      ].join('\n');
+
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(sseBody, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      );
+
+      const result = await chatgptProvider.complete({
+        messages: [{ role: 'user', content: 'hi' }],
+      });
+
+      expect(result.content).toBe('Partial completion');
+      expect(result.finishReason).toBe('length');
+    });
+
+    it('surfaces response.failed terminal errors from SSE streams', async () => {
+      const chatgptProvider = new OpenAIProvider({
+        authMode: 'chatgpt',
+        model: 'gpt-5.4',
+        chatgptAuth: {
+          accessToken: 'chatgpt-access-token',
+          accountId: 'chatgpt-account-123',
+        },
+      });
+
+      const sseBody = [
+        'event: response.created',
+        'data: {"id":"resp-failed","object":"response"}',
+        '',
+        'event: response.failed',
+        `data: ${JSON.stringify({
+          type: 'response.failed',
+          response: {
+            id: 'resp-failed',
+            error: {
+              message: 'The upstream model stream terminated early.',
+            },
+          },
+        })}`,
+        '',
+      ].join('\n');
+
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(sseBody, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      );
+
+      await expect(chatgptProvider.complete({
+        messages: [{ role: 'user', content: 'hi' }],
+      })).rejects.toMatchObject({
+        code: 'server_error',
+        retryable: true,
+        message: expect.stringContaining('The upstream model stream terminated early.'),
       });
     });
 
