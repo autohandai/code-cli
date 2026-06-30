@@ -12,7 +12,15 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AutohandAgent } from '../../src/core/agent.js';
 import { ReactionParser } from '../../src/core/agent/ReactionParser.js';
-import type { AssistantReactPayload } from '../../src/types.js';
+import { runAgentReactLoop } from '../../src/core/agent/ReactLoopRunner.js';
+import type {
+  AgentRuntime,
+  AssistantReactPayload,
+  LLMMessage,
+  LLMResponse,
+  ToolCallRequest,
+  ToolExecutionResult,
+} from '../../src/types.js';
 
 /* ── Helpers ──────────────────────────────────────────────── */
 
@@ -24,6 +32,125 @@ function createMinimalAgent(): any {
   const agent = Object.create(AutohandAgent.prototype);
   agent.cleanupModelResponse = (text: string) => text;
   return agent;
+}
+
+function createNativeToolCall(id: string, name = 'read_file', args: Record<string, unknown> = { path: 'a.ts' }) {
+  return {
+    id,
+    function: {
+      name,
+      arguments: JSON.stringify(args),
+    },
+  };
+}
+
+function createReactLoopHarness(completions: LLMResponse[]) {
+  const parser = createParser();
+  const messages: LLMMessage[] = [{ role: 'user', content: 'check reflection' }];
+  const systemNotes: string[] = [];
+  const executedCalls: ToolCallRequest[] = [];
+  const emittedMessages: string[] = [];
+  const runtime: AgentRuntime = {
+    workspaceRoot: process.cwd(),
+    options: {},
+    config: {
+      agent: { maxIterations: 8 },
+      ui: { silentToolOutput: true },
+    },
+  };
+
+  const host = {
+    activeProvider: 'openai' as const,
+    autoReportManager: { reportError: vi.fn(async () => {}) },
+    consecutiveCancellations: 0,
+    contextOrchestrator: {
+      setModel: vi.fn(),
+      setContextWindow: vi.fn(),
+      prepareRequest: vi.fn(async () => ({ messages, wasCropped: false, croppedCount: 0 })),
+      handleOverflow: vi.fn(async () => ({ croppedCount: 0 })),
+      checkMidTurnCompaction: vi.fn(async () => false),
+    },
+    contextPercentLeft: 100,
+    conversation: {
+      addMessage: vi.fn((message: LLMMessage) => messages.push(message)),
+      addSystemNote: vi.fn((note: string) => {
+        systemNotes.push(note);
+        messages.push({ role: 'system', content: note });
+      }),
+      history: vi.fn(() => messages),
+    },
+    inkRenderer: null,
+    lastAssistantResponseForNotification: '',
+    llm: {
+      getCapabilities: vi.fn(() => ({ nativeToolCalling: true })),
+      complete: vi.fn(async () => {
+        const completion = completions.shift();
+        if (!completion) {
+          throw new Error('No queued completion');
+        }
+        return completion;
+      }),
+    },
+    projectManager: {
+      recordFailure: vi.fn(async () => {}),
+      recordSuccess: vi.fn(async () => {}),
+    },
+    runtime,
+    searchQueries: [],
+    sessionManager: { getCurrentSession: vi.fn(() => ({ metadata: { sessionId: 'test-session' } })) },
+    sessionStartedAt: Date.now(),
+    sessionTokensUsed: 0,
+    taskStartedAt: null,
+    toolManager: {
+      execute: vi.fn(async (calls: ToolCallRequest[]): Promise<ToolExecutionResult[]> => {
+        executedCalls.push(...calls);
+        return calls.map((call) => ({
+          tool: call.tool,
+          success: true,
+          output: `output for ${call.tool}`,
+        }));
+      }),
+      listToolNames: vi.fn(() => ['read_file']),
+      register: vi.fn(),
+      registerMetaTools: vi.fn(),
+      toFunctionDefinitions: vi.fn(() => [{
+        name: 'read_file',
+        description: 'Read a file',
+        parameters: { type: 'object', properties: { path: { type: 'string' } } },
+      }]),
+      unregister: vi.fn(),
+    },
+    contextWindow: 128000,
+    totalTokensUsed: 0,
+    currentTurnActualUsage: { kind: 'unavailable' as const, provider: 'openai' as const, reason: 'not_reported' as const },
+    currentTurnHadUnavailableUsage: false,
+    sessionActualTokensUsed: 0,
+    sessionTokenUsageUnavailable: false,
+    sessionPromptTokens: 0,
+    sessionCompletionTokens: 0,
+    lastContextTokens: 0,
+    cleanupModelResponse: (content: string) => content,
+    emitOutput: vi.fn((event: { type: string; content?: string }) => {
+      if (event.type === 'message' && event.content) emittedMessages.push(event.content);
+    }),
+    ensureSpinnerRunning: vi.fn(),
+    forceRenderSpinner: vi.fn(),
+    getMessagesWithImages: vi.fn(async () => messages),
+    getReactionParser: vi.fn(() => parser),
+    handleSmartContextCrop: vi.fn(async () => 'cropped'),
+    isContextOverflowError: vi.fn(() => false),
+    saveAssistantMessage: vi.fn(async () => {}),
+    saveToolMessage: vi.fn(async () => {}),
+    setComposerFinalResponse: vi.fn(),
+    setComposerIdle: vi.fn(),
+    setSpinnerStatus: vi.fn(),
+    startStatusUpdates: vi.fn(),
+    stopStatusUpdates: vi.fn(),
+    updateContextUsage: vi.fn(),
+    writeDebugLine: vi.fn(),
+  };
+
+  return { host, systemNotes, executedCalls, emittedMessages };
 }
 
 /* ── Tests ────────────────────────────────────────────────── */
@@ -302,6 +429,57 @@ describe('Reflection loop guard logic', () => {
     }
 
     expect(guardTriggered).toBe(false);
+  });
+});
+
+describe('Reflection guard integration', () => {
+  it('blocks a follow-up native tool call until the assistant reflects on tool results', async () => {
+    const { host, systemNotes, executedCalls, emittedMessages } = createReactLoopHarness([
+      {
+        content: 'Initial lookup',
+        toolCalls: [createNativeToolCall('call_1', 'read_file', { path: 'first.ts' })],
+      },
+      {
+        content: 'short',
+        toolCalls: [createNativeToolCall('call_2', 'read_file', { path: 'blocked.ts' })],
+      },
+      {
+        content: '{"reflection":"The first tool output confirms the next file to inspect.","thought":"Proceeding after reflection"}',
+        toolCalls: [createNativeToolCall('call_3', 'read_file', { path: 'allowed.ts' })],
+      },
+      {
+        content: '{"finalResponse":"Reflection flow completed."}',
+      },
+    ]);
+
+    await runAgentReactLoop(host, new AbortController());
+
+    expect(systemNotes.some((note) => note.startsWith('[Reflection Required]'))).toBe(true);
+    expect(executedCalls.map((call) => call.args?.path)).toEqual(['first.ts', 'allowed.ts']);
+    expect(executedCalls.map((call) => call.args?.path)).not.toContain('blocked.ts');
+    expect(emittedMessages).toContain('Reflection flow completed.');
+  });
+
+  it('treats whitespace-only reflection as missing before follow-up tool calls', async () => {
+    const { host, systemNotes, executedCalls, emittedMessages } = createReactLoopHarness([
+      {
+        content: 'Initial lookup',
+        toolCalls: [createNativeToolCall('call_1', 'read_file', { path: 'first.ts' })],
+      },
+      {
+        content: '{"reflection":"   ","thought":"short"}',
+        toolCalls: [createNativeToolCall('call_2', 'read_file', { path: 'blocked.ts' })],
+      },
+      {
+        content: '{"finalResponse":"Stopped after reminder."}',
+      },
+    ]);
+
+    await runAgentReactLoop(host, new AbortController());
+
+    expect(systemNotes.some((note) => note.startsWith('[Reflection Required]'))).toBe(true);
+    expect(executedCalls.map((call) => call.args?.path)).toEqual(['first.ts']);
+    expect(emittedMessages).toContain('Stopped after reminder.');
   });
 });
 
