@@ -91,6 +91,7 @@ interface OpenAIResponsesResponse {
     incomplete_details?: {
         reason?: string;
     };
+    error?: OpenAIResponsesStreamErrorPayload | string;
 }
 
 type OpenAIResponsesOutputItem =
@@ -99,8 +100,15 @@ type OpenAIResponsesOutputItem =
     | { type: string; [key: string]: unknown };
 
 interface OpenAIResponsesCompletedEvent {
-    type?: 'response.completed';
+    type?: 'response.completed' | 'response.incomplete';
     response?: OpenAIResponsesResponse;
+}
+
+interface OpenAIResponsesStreamErrorPayload {
+    message?: string;
+    code?: string;
+    type?: string;
+    param?: string;
 }
 
 interface OpenAIResponsesOutputItemEvent {
@@ -430,7 +438,7 @@ export class OpenAIProvider implements LLMProvider {
             toolCalls,
             finishReason: toolCalls.length > 0
                 ? 'tool_calls'
-                : (data.incomplete_details?.reason === 'max_output_tokens' ? 'length' : 'stop'),
+                : (data.incomplete_details?.reason ? 'length' : 'stop'),
             usage,
             raw: data,
         };
@@ -482,6 +490,7 @@ export class OpenAIProvider implements LLMProvider {
     private async parseCodexStream(response: Response): Promise<OpenAIResponsesResponse> {
         const text = await response.text();
         let currentEvent = '';
+        let streamedResponseId: string | undefined;
         let completedData: OpenAIResponsesResponse | null = null;
         let streamedOutputText = '';
         const streamedOutputItems = new Map<number, OpenAIResponsesOutputItem>();
@@ -496,11 +505,16 @@ export class OpenAIProvider implements LLMProvider {
             }
 
             const dataLine = line.slice(6);
-            const eventData = JSON.parse(dataLine) as unknown;
+            const eventData = this.parseCodexStreamEventData(dataLine);
+            if (!eventData) {
+                continue;
+            }
+
             const eventType = this.getCodexStreamEventType(currentEvent, eventData);
             const eventRecord = eventData && typeof eventData === 'object'
                 ? eventData as Record<string, unknown>
                 : {};
+            streamedResponseId = streamedResponseId ?? this.extractCodexStreamResponseId(eventData);
 
             if (eventType === 'response.output_text.delta') {
                 if (typeof eventRecord.delta === 'string') {
@@ -527,22 +541,37 @@ export class OpenAIProvider implements LLMProvider {
             }
 
             if (eventType === 'response.completed') {
-                completedData = this.extractCompletedResponse(eventData);
+                completedData = this.extractCodexStreamResponse(eventData);
                 break;
+            }
+
+            if (eventType === 'response.incomplete') {
+                completedData = this.extractCodexStreamResponse(eventData);
+                break;
+            }
+
+            if (eventType === 'response.failed' || eventType === 'response.error') {
+                throw this.buildCodexStreamTerminalError(eventType, eventData);
             }
         }
 
+        if (!completedData && (streamedOutputText.trim() || streamedOutputItems.size > 0)) {
+            completedData = {
+                id: streamedResponseId ?? 'streamed-response',
+                output: this.sortedStreamedOutputItems(streamedOutputItems),
+                output_text: streamedOutputText.trim() ? streamedOutputText : undefined,
+                incomplete_details: {
+                    reason: 'stream_ended_without_completed',
+                },
+            };
+        }
+
         if (!completedData) {
-            throw new ApiError(
-                'No response.completed event found in stream. The API response may be malformed.',
-                'invalid_request', 0, false,
-            );
+            throw this.buildMissingCodexStreamCompletionError();
         }
 
         if ((!Array.isArray(completedData.output) || completedData.output.length === 0) && streamedOutputItems.size > 0) {
-            completedData.output = [...streamedOutputItems.entries()]
-                .sort(([a], [b]) => a - b)
-                .map(([, item]) => item);
+            completedData.output = this.sortedStreamedOutputItems(streamedOutputItems);
         }
 
         if (!this.extractResponsesContent(completedData) && streamedOutputText.trim()) {
@@ -561,6 +590,94 @@ export class OpenAIProvider implements LLMProvider {
             return typeof type === 'string' ? type : '';
         }
         return '';
+    }
+
+    private parseCodexStreamEventData(dataLine: string): unknown | null {
+        const trimmedData = dataLine.trim();
+        if (!trimmedData || trimmedData === '[DONE]') {
+            return null;
+        }
+
+        try {
+            return JSON.parse(trimmedData) as unknown;
+        } catch (error) {
+            const rawDetail = `Failed to parse ChatGPT Codex stream event: ${(error as Error).message}`;
+            throw this.withOpenAIMessage(new ApiError(rawDetail, 'server_error', 0, true, undefined, rawDetail));
+        }
+    }
+
+    private extractCodexStreamResponseId(eventData: unknown): string | undefined {
+        const response = this.extractCodexStreamResponse(eventData);
+        return typeof response.id === 'string' ? response.id : undefined;
+    }
+
+    private sortedStreamedOutputItems(
+        streamedOutputItems: Map<number, OpenAIResponsesOutputItem>,
+    ): OpenAIResponsesOutputItem[] {
+        return [...streamedOutputItems.entries()]
+            .sort(([a], [b]) => a - b)
+            .map(([, item]) => item);
+    }
+
+    private buildCodexStreamTerminalError(eventType: string, eventData: unknown): ApiError {
+        const rawDetail = this.extractCodexStreamErrorMessage(eventData)
+            ?? `ChatGPT Codex stream ended with ${eventType}.`;
+        const classified = classifyApiError(0, rawDetail);
+
+        if (classified.code !== 'unknown') {
+            return this.withOpenAIMessage(classified);
+        }
+
+        return this.withOpenAIMessage(new ApiError(rawDetail, 'server_error', 0, true, undefined, rawDetail));
+    }
+
+    private buildMissingCodexStreamCompletionError(): ApiError {
+        const rawDetail = 'ChatGPT Codex stream ended before a terminal response event and did not include recoverable output.';
+        return this.withOpenAIMessage(new ApiError(rawDetail, 'server_error', 0, true, undefined, rawDetail));
+    }
+
+    private extractCodexStreamErrorMessage(eventData: unknown): string | undefined {
+        if (!eventData || typeof eventData !== 'object') {
+            return undefined;
+        }
+
+        const eventRecord = eventData as Record<string, unknown>;
+        const topLevelError = this.extractCodexErrorMessage(eventRecord.error);
+        if (topLevelError) {
+            return topLevelError;
+        }
+
+        if (eventRecord.response && typeof eventRecord.response === 'object') {
+            const responseRecord = eventRecord.response as Record<string, unknown>;
+            return this.extractCodexErrorMessage(responseRecord.error);
+        }
+
+        return undefined;
+    }
+
+    private extractCodexErrorMessage(errorPayload: unknown): string | undefined {
+        if (typeof errorPayload === 'string' && errorPayload.trim()) {
+            return errorPayload;
+        }
+
+        if (!errorPayload || typeof errorPayload !== 'object') {
+            return undefined;
+        }
+
+        const errorRecord = errorPayload as Record<string, unknown>;
+        if (typeof errorRecord.message === 'string' && errorRecord.message.trim()) {
+            return errorRecord.message;
+        }
+
+        if (typeof errorRecord.code === 'string' && errorRecord.code.trim()) {
+            return errorRecord.code;
+        }
+
+        if (typeof errorRecord.type === 'string' && errorRecord.type.trim()) {
+            return errorRecord.type;
+        }
+
+        return undefined;
     }
 
     private captureStreamedOutputItem(eventData: unknown, outputItems: Map<number, OpenAIResponsesOutputItem>): void {
@@ -618,7 +735,7 @@ export class OpenAIProvider implements LLMProvider {
         });
     }
 
-    private extractCompletedResponse(eventData: unknown): OpenAIResponsesResponse {
+    private extractCodexStreamResponse(eventData: unknown): OpenAIResponsesResponse {
         if (
             eventData &&
             typeof eventData === 'object' &&
