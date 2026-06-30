@@ -21,10 +21,12 @@ export const NVIDIA_DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1";
  * Source: https://build.nvidia.com/models
  */
 export const NVIDIA_MODELS = [
+  "minimaxai/minimax-m3",
   "deepseek-ai/deepseek-v4-pro",
   "z-ai/glm-5.1",
   "z-ai/glm-4.7",
   "qwen/qwen3.5-122b-a10b",
+  "stepfun-ai/step-3.7-flash",
   "nvidia/usdcode",
   "moonshotai/kimi-k2.5",
   "minimaxai/minimax-m2.7",
