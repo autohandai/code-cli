@@ -454,12 +454,6 @@ export class InkRenderer {
       updates.completionStats = null;
     }
 
-    if (!isWorking) {
-      if (process.stdout.isTTY === true) {
-        process.stdout.write('\x1b[J');
-      }
-    }
-
     this.updateState(updates);
   }
 

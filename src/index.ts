@@ -18,7 +18,7 @@ import { getProviderConfig, loadConfig, resolveWorkspaceRoot, saveConfig } from 
 import { runStartupChecks, printStartupCheckResults, validateWorkspacePath } from './startup/checks.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from './startup/workspaceSafety.js';
 import { ensureAuthenticated } from './auth/index.js';
-import type { AuthUser, BuiltInProviderName, LoadedConfig } from './types.js';
+import type { AuthUser, BuiltInProviderName, LoadedConfig, SkillInstallScope } from './types.js';
 import { validateAuthOnStartup } from './auth/startupAuth.js';
 import { installProcessErrorHandlers } from './reporting/processErrorReporting.js';
 import { checkForUpdates, getInstallHint, type VersionCheckResult } from './utils/versionCheck.js';
@@ -162,6 +162,7 @@ program
   .option('--bare', 'Minimal mode: skip hooks, LSP, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and AGENTS.md auto-discovery', false)
   .option('--path <path>', 'Workspace path to operate in')
   .option('-y, --yes', 'Auto-confirm risky actions', false)
+  .option('--y', 'Alias for --yes', false)
   .option('--dry-run', 'Preview actions without applying mutations', false)
   .option('-d, --debug', 'Enable debug output (verbose logging)', false)
   .option('--model <model>', 'Override the configured LLM model')
@@ -221,7 +222,7 @@ program
   .option('--chrome', 'Enable Chrome browser integration (same as /chrome)')
   .option('--no-chrome', 'Disable Chrome browser integration')
   .option('--fork <pathOrId>', 'Create and resume a new session branch from an existing session reference')
-  .action(async (positionalPrompt: string | undefined, opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean | string; tmux?: boolean; setup?: boolean; about?: boolean; syncSettings?: string | boolean; cc?: boolean; searchEngine?: string; learn?: boolean; learnUpdate?: boolean; fork?: string }) => {
+  .action(async (positionalPrompt: string | undefined, opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean | string; tmux?: boolean; setup?: boolean; about?: boolean; syncSettings?: string | boolean; cc?: boolean; searchEngine?: string; learn?: boolean; learnUpdate?: boolean; fork?: string; y?: boolean }) => {
     // Clear screen immediately for Cursor-like behavior (before any output)
     if (process.stdout.isTTY && process.env.AUTOHAND_NO_BANNER !== '1') {
       process.stdout.write('\x1b[3J\x1b[2J\x1b[H');
@@ -231,6 +232,9 @@ program
     // Normalize to undefined so downstream code can detect "flag present, no text".
     if ((opts as Record<string, unknown>).prompt === true) {
       opts.prompt = undefined;
+    }
+    if (opts.y === true) {
+      opts.yes = true;
     }
     if ((opts as Record<string, unknown>).autoMode === true) {
       opts.autoMode = undefined;
@@ -299,8 +303,10 @@ program
 
     // Handle --skill-install flag
     if (opts.skillInstall !== undefined) {
-      await runSkillInstall(opts);
-      return;
+      const continueInteractive = await runSkillInstall(opts);
+      if (!continueInteractive) {
+        return;
+      }
     }
 
     // Handle --learn flag (non-interactive /learn)
@@ -1562,7 +1568,7 @@ function printWelcome(runtime: AgentRuntime, authUser?: AuthUser, versionCheck?:
 /**
  * Handle --skill-install flag for installing community skills
  */
-async function runSkillInstall(opts: CLIOptions & { skillInstall?: string | boolean; project?: boolean }): Promise<void> {
+async function runSkillInstall(opts: CLIOptions & { skillInstall?: string | boolean; project?: boolean }): Promise<boolean> {
   const config = await loadConfig(opts.config);
   const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
 
@@ -1585,12 +1591,101 @@ async function runSkillInstall(opts: CLIOptions & { skillInstall?: string | bool
 
   // Determine skill name (if provided)
   const skillName = typeof opts.skillInstall === 'string' ? opts.skillInstall : undefined;
+  const installScope = resolveSkillInstallScope(opts, skillName);
+  let installedSkillName: string | null = null;
 
   // Run the install command
-  await skillsInstall({
+  const installResult = await skillsInstall({
     skillsRegistry,
     workspaceRoot,
+    installScope,
+    showActivationHint: false,
+    onSkillInstalled: (name) => {
+      installedSkillName = name;
+    },
   }, skillName);
+
+  if (!installResult || !installedSkillName) {
+    return false;
+  }
+
+  const useSkill = opts.yes && skillName
+    ? true
+    : await promptUseInstalledSkill(installedSkillName);
+  if (!useSkill) {
+    return false;
+  }
+
+  if (!skillsRegistry.activateSkill(installedSkillName)) {
+    console.log(chalk.yellow(`Installed ${installedSkillName}, but it could not be activated automatically.`));
+    return false;
+  }
+
+  opts.activateSkillOnStartup = installedSkillName;
+  return true;
+}
+
+function resolveSkillInstallScope(
+  opts: CLIOptions & { project?: boolean },
+  skillName?: string
+): SkillInstallScope | undefined {
+  if (opts.project) {
+    return 'project';
+  }
+
+  if (opts.yes && skillName) {
+    return 'user';
+  }
+
+  return undefined;
+}
+
+async function promptUseInstalledSkill(skillName: string): Promise<boolean> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    return false;
+  }
+
+  process.stdout.write(`Would you like to use the skill "${skillName}" now? (yes/no) `);
+
+  return new Promise<boolean>((resolve) => {
+    let answer = '';
+    const stdin = process.stdin;
+    const wasRaw = Boolean(stdin.isRaw);
+    const keepAlive = setInterval(() => {}, 1000);
+
+    const cleanup = (): void => {
+      clearInterval(keepAlive);
+      stdin.off('data', onData);
+      if (typeof stdin.setRawMode === 'function') {
+        stdin.setRawMode(wasRaw);
+      }
+    };
+
+    const finish = (accepted: boolean): void => {
+      cleanup();
+      resolve(accepted);
+    };
+
+    const onData = (chunk: Buffer | string): void => {
+      answer += chunk.toString('utf8');
+      if (answer.includes('\u0003')) {
+        process.stdout.write('\n');
+        finish(false);
+        return;
+      }
+      if (!answer.includes('\n') && !answer.includes('\r')) {
+        return;
+      }
+
+      finish(/^(?:y|yes)$/i.test(answer.trim()));
+    };
+
+    if (typeof stdin.setRawMode === 'function') {
+      stdin.setRawMode(false);
+    }
+    stdin.resume();
+    stdin.on('data', onData);
+  });
 }
 
 /**

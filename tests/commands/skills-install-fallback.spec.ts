@@ -179,9 +179,21 @@ describe('skillsInstall direct install Skilled catalog fallback', () => {
     const logs = consoleSpy.mock.calls.map((call) => String(call[0]));
     const sourceValidationIndex = logs.findIndex((line) => line.includes('Validating source files'));
     const installingIndex = logs.findIndex((line) => line.includes('Installing validated files'));
+    const progressBarLogs = logs.filter((line) => /^[⣿⣀]+ /u.test(line));
+    const progressDetailLogs = logs.filter((line) => /^\s+\[\d\/6\] /u.test(line));
+
     expect(sourceValidationIndex).toBeGreaterThanOrEqual(0);
     expect(installingIndex).toBeGreaterThan(sourceValidationIndex);
-    expect(logs.some((line) => line.includes('⣿'))).toBe(true);
+    expect(progressBarLogs).toHaveLength(1);
+    expect(progressBarLogs[0]).toContain('Installing dotnet-aspnetcore');
+    expect(progressDetailLogs).toEqual([
+      '  [1/6] Validating skill metadata',
+      '  [2/6] Checking target folder',
+      '  [3/6] Checking existing installation',
+      '  [4/6] Validating source files',
+      '  [5/6] Validating SKILL.md content',
+      '  [6/6] Installing validated files',
+    ]);
     expect(fetchMock).not.toHaveBeenCalledWith(
       'https://raw.githubusercontent.com/dotnet/skills/main/plugins/dotnet-aspnetcore/SKILL.md',
       expect.any(Object)
