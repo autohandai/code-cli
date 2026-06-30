@@ -848,6 +848,8 @@ export interface CLIOptions {
   clientContext?: ClientContext;
   /** Auto-commit with LLM-generated message (runs lint & test first) */
   autoCommit?: boolean;
+  /** Activate this skill after a preceding --skill-install flow continues into interactive mode. */
+  activateSkillOnStartup?: string;
   /** Auto-generate skills based on project analysis */
   autoSkill?: boolean;
   /** Display current permission settings and exit */

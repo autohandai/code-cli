@@ -217,6 +217,8 @@ describe('built CLI Tuistory smoke tests', () => {
     await session.waitForText('Validating source files', { timeout: 10_000 });
     await session.waitForText('Installing validated files', { timeout: 10_000 });
     await session.waitForText('Installed dotnet-aspnetcore', { timeout: 10_000 });
+    await session.waitForText('Would you like to use the skill "dotnet-aspnetcore" now?', { timeout: 10_000 });
+    await session.press('enter');
 
     await waitForExit(session);
     expectCleanExit(session);
@@ -229,6 +231,56 @@ describe('built CLI Tuistory smoke tests', () => {
     );
     expect(await fs.pathExists(installedSkillPath)).toBe(true);
     expect(await fs.readFile(installedSkillPath, 'utf8')).toContain('Tuistory skill body.');
+  });
+
+  it('installs a direct skill with --y and opens the interactive TUI with the skill active', async () => {
+    const state = await createTempAutohandHome();
+    tempStates.push(state);
+    const preload = await createMockSkillInstallFetchPreload();
+    mockOpenRouterFetchPreloads.push(preload);
+
+    const nodeOptions = [
+      process.env.NODE_OPTIONS,
+      `--import ${preload.importSpecifier}`,
+    ].filter(Boolean).join(' ');
+    const session = await trackSession(
+      launchBuiltAutohand([
+        '--path',
+        state.workspaceRoot,
+        '--config',
+        state.configPath,
+        '--skill-install',
+        'dotnet-aspnetcore',
+        '--y',
+      ], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        env: {
+          NODE_OPTIONS: nodeOptions,
+        },
+        waitForDataTimeout: 15_000,
+      })
+    );
+
+    await session.waitForText('Installed dotnet-aspnetcore', { timeout: 10_000 });
+    await session.waitForText('❯', { timeout: 20_000 });
+    const initialInteractiveScreen = await session.text({ immediate: true, trimEnd: true });
+    expect(initialInteractiveScreen).not.toContain('Would you like to use the skill');
+
+    await session.type('/skills info dotnet-aspnetcore');
+    await session.press('enter');
+    await session.waitForText('Status:', { timeout: 10_000 });
+    await session.waitForText('Active', { timeout: 10_000 });
+
+    await exitInteractive(session);
+
+    const installedSkillPath = path.join(
+      state.autohandHome,
+      'skills',
+      'dotnet-aspnetcore',
+      'SKILL.md'
+    );
+    expect(await fs.pathExists(installedSkillPath)).toBe(true);
   });
 });
 
@@ -529,7 +581,7 @@ describe('interactive built CLI Tuistory tests', () => {
     expectStableSingleComposerFrames(await sampleImmediateScreens(session, 500));
 
     await session.waitForText('Here is the mocked final answer from Tuistory.', { timeout: 15_000 });
-    expectStableSingleComposerFrames(await sampleImmediateScreens(session, 500));
+    expectStableSingleComposerFrames(await sampleImmediateScreens(session, 2_000));
 
     const screen = await session.text({
       timeout: 10_000,
@@ -543,6 +595,9 @@ describe('interactive built CLI Tuistory tests', () => {
 
     expect(linesContaining(screen, '❯'), screen).toHaveLength(1);
     expect(screen).not.toContain('Wandering');
+
+    await session.type('Review the current git diff');
+    await waitForCursorAfterTypedText(session, 'Review the current git diff');
 
     await exitInteractive(session);
   }, 60_000);

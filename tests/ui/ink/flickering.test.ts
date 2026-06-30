@@ -8,10 +8,14 @@
  * preventing unnecessary re-renders that cause terminal flickering.
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { InkRenderer } from '../../../src/ui/ink/InkRenderer.js';
 
 describe('InkRenderer flickering prevention', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   describe('appendLiveCommandOutput batching', () => {
     it('should buffer output and flush on finishLiveCommand', () => {
       const renderer = new InkRenderer({
@@ -184,6 +188,34 @@ describe('InkRenderer flickering prevention', () => {
         elapsed: '5s',
         tokens: '1000 tokens'
       });
+    });
+
+    it('should not erase the terminal while transitioning back to the idle composer', () => {
+      const renderer = new InkRenderer({
+        onInstruction: () => {},
+        onEscape: () => {},
+        onCtrlC: () => {},
+      });
+      const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+      const stdoutDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+
+      Object.defineProperty(process.stdout, 'isTTY', {
+        configurable: true,
+        value: true,
+      });
+
+      try {
+        renderer.setWorking(true, 'Working...');
+        renderer.setWorking(false, 'Done');
+      } finally {
+        if (stdoutDescriptor) {
+          Object.defineProperty(process.stdout, 'isTTY', stdoutDescriptor);
+        } else {
+          delete (process.stdout as typeof process.stdout & { isTTY?: boolean }).isTTY;
+        }
+      }
+
+      expect(writeSpy).not.toHaveBeenCalledWith('\x1b[J');
     });
 
     it('should clear completion stats when starting new work', () => {

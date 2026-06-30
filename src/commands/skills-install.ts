@@ -30,6 +30,9 @@ export const metadata = {
 export interface SkillsInstallContext {
   skillsRegistry: SkillsRegistry;
   workspaceRoot: string;
+  installScope?: SkillInstallScope;
+  showActivationHint?: boolean;
+  onSkillInstalled?: (skillName: string) => void;
 }
 
 const MAX_BROWSER_CHOICES = 50;
@@ -125,8 +128,7 @@ async function directInstall(
     return lines.join('\n');
   }
 
-  // Prompt for install scope
-  const scope = await promptInstallScope();
+  const scope = ctx.installScope ?? await promptInstallScope();
   if (!scope) {
     return chalk.gray('Installation cancelled.');
   }
@@ -213,8 +215,7 @@ async function interactiveBrowser(
     return chalk.gray('No skill selected.');
   }
 
-  // Prompt for install scope
-  const scope = await promptInstallScope();
+  const scope = ctx.installScope ?? await promptInstallScope();
   if (!scope) {
     return chalk.gray('Installation cancelled.');
   }
@@ -353,8 +354,9 @@ async function installSkill(
   scope: SkillInstallScope
 ): Promise<string | null> {
   const { skillsRegistry, workspaceRoot } = ctx;
+  const progress = createInstallProgress(skill.name);
 
-  logInstallProgress(1, 'Validating skill metadata');
+  progress.step(1, 'Validating skill metadata');
   const metadataError = validateInstallSkillMetadata(skill);
   if (metadataError) {
     return failPreflight(metadataError);
@@ -366,14 +368,14 @@ async function installSkill(
       ? path.join(workspaceRoot, PROJECT_DIR_NAME, 'skills')
       : AUTOHAND_PATHS.skills;
 
-  logInstallProgress(2, 'Checking target folder');
+  progress.step(2, 'Checking target folder');
   const targetError = validateInstallTarget(targetDir, skill.name);
   if (targetError) {
     return failPreflight(targetError);
   }
 
   // Check if already installed
-  logInstallProgress(3, 'Checking existing installation');
+  progress.step(3, 'Checking existing installation');
   const isInstalled = await skillsRegistry.isSkillInstalled(skill.name, targetDir);
   if (isInstalled) {
     const confirm = await safePrompt<{ overwrite: boolean }>([
@@ -393,10 +395,10 @@ async function installSkill(
 
   let loadedFiles: SkillFileLoadResult;
   try {
-    logInstallProgress(4, 'Validating source files');
+    progress.step(4, 'Validating source files');
     loadedFiles = await loadSkillFilesForInstall(cache, fetcher, skill);
 
-    logInstallProgress(5, 'Validating SKILL.md content');
+    progress.step(5, 'Validating SKILL.md content');
     const filesError = validateInstallFiles(skill, loadedFiles.files);
     if (filesError) {
       return failPreflight(filesError);
@@ -411,7 +413,7 @@ async function installSkill(
   }
 
   try {
-    logInstallProgress(6, 'Installing validated files');
+    progress.step(6, 'Installing validated files');
 
     // Import using the registry
     const result = await skillsRegistry.importCommunitySkillDirectory(
@@ -424,11 +426,13 @@ async function installSkill(
     if (result.success) {
       console.log(chalk.green(`✓ Installed ${skill.name} to ${scope} skills`));
       console.log(chalk.gray(`  Path: ${result.path}`));
+      ctx.onSkillInstalled?.(skill.name);
 
-      // Show usage hint
-      console.log();
-      console.log(chalk.gray('To activate this skill, run:'));
-      console.log(chalk.gray(`  /skills use ${skill.name}`));
+      if (ctx.showActivationHint !== false) {
+        console.log();
+        console.log(chalk.gray('To activate this skill, run:'));
+        console.log(chalk.gray(`  /skills use ${skill.name}`));
+      }
 
       return `Skill "${skill.name}" installed successfully.`;
     } else {
@@ -524,8 +528,22 @@ function validateInstallFiles(
   return null;
 }
 
-function logInstallProgress(step: number, message: string): void {
-  console.log(chalk.gray(`${formatBrailleProgress(step, INSTALL_PROGRESS_STEPS)} [${step}/${INSTALL_PROGRESS_STEPS}] ${message}`));
+interface SkillInstallProgress {
+  step(step: number, message: string): void;
+}
+
+function createInstallProgress(skillName: string): SkillInstallProgress {
+  let headerPrinted = false;
+
+  return {
+    step(step: number, message: string): void {
+      if (!headerPrinted) {
+        console.log(chalk.gray(`${formatBrailleProgress(INSTALL_PROGRESS_STEPS, INSTALL_PROGRESS_STEPS)} Installing ${skillName}`));
+        headerPrinted = true;
+      }
+      console.log(chalk.gray(`  [${step}/${INSTALL_PROGRESS_STEPS}] ${message}`));
+    },
+  };
 }
 
 function formatBrailleProgress(step: number, total: number, width = 10): string {

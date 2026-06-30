@@ -57,6 +57,18 @@ function getHostProviderSettings(host: AgentLifecycleHost): ProviderSettings | n
   return getProviderConfig(host.runtime.config, host.activeProvider);
 }
 
+function activateStartupSkill(host: AgentLifecycleHost): void {
+  const skillName = host.runtime?.options?.activateSkillOnStartup;
+  if (typeof skillName !== 'string' || !skillName.trim()) {
+    return;
+  }
+
+  const activated = host.skillsRegistry.activateSkill(skillName);
+  if (!activated) {
+    host.notifyUser?.(`Installed skill "${skillName}" could not be activated for this session.`);
+  }
+}
+
 export async function runAgentInteractive(host: AgentLifecycleHost, initialInstruction?: string): Promise<void> {
     // Bail out early if stdin is not a TTY - interactive mode requires a terminal
     if (!process.stdin.isTTY) {
@@ -238,6 +250,7 @@ export async function performAgentBackgroundInit(host: AgentLifecycleHost): Prom
       // Phase 2: Sequential setup that depends on phase 1
 
       await host.skillsRegistry.setWorkspace(host.runtime.workspaceRoot);
+      activateStartupSkill(host);
       if (host.runtime?.options?.bare !== true) {
         host.feedbackManager.startSession();
       }
@@ -659,6 +672,12 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
           continue;
         }
 
+        // Ensure background init is complete before processing user input.
+        // Slash commands depend on initialized managers too; for example,
+        // /skills reads the registry populated during startup.
+        await host.ensureInitComplete();
+        host.flushMcpStartupSummaryIfPending();
+
         // Handle slash commands locally (never send to LLM).
         // The readline path (promptForInstruction) handles slash commands
         // before runInstruction, but instructions from the Ink queue bypass
@@ -772,11 +791,6 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
           }
           continue;
         }
-
-        // Ensure background init is complete before processing any instruction.
-        // This runs while the user was typing, so it's usually already done.
-        await host.ensureInitComplete();
-        host.flushMcpStartupSummaryIfPending();
 
         // Check idle timeout — force logout if session has been idle too long.
         // Must check BEFORE updating lastActivityAt so the idle duration is accurate.
