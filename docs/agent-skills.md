@@ -88,6 +88,14 @@ Skills discovered from Codex or Claude locations are automatically copied to the
 Existing skills in Autohand locations are never overwritten.
 Shared agent and third-party project skill directories are loaded in place; they are not automatically copied.
 
+### Codex Skill Compatibility
+
+Autohand can activate skills discovered from `~/.codex/skills/`. When those skills include Codex-specific installer instructions, Autohand treats user-skill installs as Autohand installs by default:
+
+- child shell commands launched by Autohand map `CODEX_HOME` to `AUTOHAND_HOME` unless the command explicitly overrides `CODEX_HOME`
+- skill installs should target `$AUTOHAND_HOME/skills` (default `~/.autohand/skills`), not `~/.codex/skills`
+- "Restart Codex" follow-up text in imported installer skills means restart Autohand
+
 ---
 
 ## SKILL.md Format

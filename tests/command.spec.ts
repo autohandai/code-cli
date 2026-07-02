@@ -66,6 +66,31 @@ describe('runCommand', () => {
     expect(result.stdout.trim()).toBe('1');
   });
 
+  it('maps CODEX_HOME to AUTOHAND_HOME for Autohand-launched commands', async () => {
+    const autohandHome = join(testDir, 'autohand-home');
+    const result = await runCommand(
+      'node',
+      ['-e', 'console.log(`${process.env.AUTOHAND_HOME}\\n${process.env.CODEX_HOME}`)'],
+      testDir,
+      { env: { AUTOHAND_HOME: autohandHome } }
+    );
+
+    expect(result.stdout.trim().split('\n')).toEqual([autohandHome, autohandHome]);
+  });
+
+  it('preserves an explicit CODEX_HOME command environment override', async () => {
+    const autohandHome = join(testDir, 'autohand-home-explicit');
+    const codexHome = join(testDir, 'codex-home-explicit');
+    const result = await runCommand(
+      'node',
+      ['-e', 'console.log(`${process.env.AUTOHAND_HOME}\\n${process.env.CODEX_HOME}`)'],
+      testDir,
+      { env: { AUTOHAND_HOME: autohandHome, CODEX_HOME: codexHome } }
+    );
+
+    expect(result.stdout.trim().split('\n')).toEqual([autohandHome, codexHome]);
+  });
+
   it('supports additional environment variables', async () => {
     const result = await runCommand(
       'node',

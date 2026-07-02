@@ -6,6 +6,7 @@
 import { spawn } from 'node:child_process';
 import type { SpawnOptions } from 'node:child_process';
 import { isAbsolute, join } from 'node:path';
+import { buildAutohandChildProcessEnv } from '../utils/childProcessEnv.js';
 
 export interface CommandResult {
   stdout: string;
@@ -64,11 +65,7 @@ export function runCommand(
     const spawnOptions: SpawnOptions = {
       cwd: workDir,
       shell: options.shell ?? false,
-      env: {
-        ...process.env,
-        AUTOHAND_CLI: '1',
-        ...options.env,
-      },
+      env: buildAutohandChildProcessEnv(options.env),
     };
 
     // Handle background process
