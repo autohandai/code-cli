@@ -173,4 +173,41 @@ describe('SystemPromptBuilder', () => {
     expect(prompt).not.toContain('Project rules');
     expect(prompt).not.toContain('## Available Agents');
   });
+
+  it('adds an Autohand override before Codex skill installer instructions', async () => {
+    const codexInstallerBody = [
+      'Install skills with the helper scripts.',
+      'Installs into `$CODEX_HOME/skills/<skill-name>` (defaults to `~/.codex/skills`).',
+      'After installing a skill, tell the user: "Restart Codex to pick up new skills."',
+    ].join('\n');
+
+    const prompt = await createBuilder({
+      listSkills: vi.fn(() => [
+        {
+          name: 'skill-installer',
+          description: 'Install Codex skills',
+          source: 'codex-user',
+        },
+      ]),
+      getActiveSkills: vi.fn(() => [
+        {
+          name: 'skill-installer',
+          description: 'Install Codex skills',
+          source: 'codex-user',
+          body: codexInstallerBody,
+        },
+      ]),
+    }).build();
+
+    const overrideIndex = prompt.indexOf('### Autohand Skill Compatibility Override');
+    const originalBodyIndex = prompt.indexOf('Installs into `$CODEX_HOME/skills/<skill-name>`');
+
+    expect(overrideIndex).toBeGreaterThan(-1);
+    expect(originalBodyIndex).toBeGreaterThan(-1);
+    expect(overrideIndex).toBeLessThan(originalBodyIndex);
+    expect(prompt).toContain('set `CODEX_HOME` to `$AUTOHAND_HOME`');
+    expect(prompt).toContain('install user skills into `$AUTOHAND_HOME/skills`');
+    expect(prompt).toContain('not `~/.codex/skills`');
+    expect(prompt).toContain('Restart Autohand');
+  });
 });

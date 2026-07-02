@@ -4,8 +4,32 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect } from 'vitest';
-import { isImmediateCommand, isShellCommand, parseShellCommand } from '../../src/ui/shellCommand.js';
+import { afterEach, describe, it, expect } from 'vitest';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import {
+  executeStreamingShellCommand,
+  isImmediateCommand,
+  isShellCommand,
+  parseShellCommand,
+} from '../../src/ui/shellCommand.js';
+
+const originalAutohandHome = process.env.AUTOHAND_HOME;
+const originalCodexHome = process.env.CODEX_HOME;
+
+afterEach(() => {
+  if (originalAutohandHome === undefined) {
+    delete process.env.AUTOHAND_HOME;
+  } else {
+    process.env.AUTOHAND_HOME = originalAutohandHome;
+  }
+
+  if (originalCodexHome === undefined) {
+    delete process.env.CODEX_HOME;
+  } else {
+    process.env.CODEX_HOME = originalCodexHome;
+  }
+});
 
 describe('isImmediateCommand', () => {
   describe('shell commands', () => {
@@ -97,5 +121,23 @@ describe('parseShellCommand', () => {
   it('should return empty string for non-shell commands', () => {
     expect(parseShellCommand('ls')).toBe('');
     expect(parseShellCommand('/help')).toBe('');
+  });
+});
+
+describe('executeStreamingShellCommand', () => {
+  it('maps CODEX_HOME to AUTOHAND_HOME for live shell commands', async () => {
+    const autohandHome = join(tmpdir(), `autohand-shell-home-${Date.now()}`);
+    process.env.AUTOHAND_HOME = autohandHome;
+    process.env.CODEX_HOME = join(tmpdir(), 'inherited-codex-home');
+
+    const script = 'console.log((process.env.AUTOHAND_HOME ?? "") + "\\n" + (process.env.CODEX_HOME ?? ""))';
+    const result = await executeStreamingShellCommand(
+      `${process.execPath} -e ${JSON.stringify(script)}`,
+      tmpdir(),
+      { preferPty: false }
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.output?.trim().split('\n')).toEqual([autohandHome, autohandHome]);
   });
 });

@@ -12,6 +12,7 @@
 import { execSync, spawn } from 'node:child_process';
 import { readdirSync, type Dirent } from 'node:fs';
 import path from 'node:path';
+import { buildAutohandChildProcessEnv } from '../utils/childProcessEnv.js';
 
 /**
  * Default timeout for shell commands (30 seconds)
@@ -415,6 +416,7 @@ export function executeShellCommand(
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: cwd ?? process.cwd(),
+      env: buildAutohandChildProcessEnv(),
       timeout
     });
 
@@ -471,6 +473,7 @@ export async function executeShellCommandAsync(
         cwd: cwd ?? process.cwd(),
         shell: true,
         stdio: ['ignore', 'pipe', 'pipe'],
+        env: buildAutohandChildProcessEnv(),
       });
     } catch (error) {
       const execError = error as ExecAsyncError;
@@ -541,6 +544,7 @@ export async function executeInteractiveShellCommand(
         cwd: cwd ?? process.cwd(),
         shell: true,
         stdio: 'inherit',
+        env: buildAutohandChildProcessEnv(),
       });
     } catch (error) {
       const execError = error as ExecAsyncError;
@@ -613,6 +617,7 @@ export async function executeStreamingShellCommand(
           shell: true,
           detached: true,
           stdio: ['ignore', 'pipe', 'pipe'],
+          env: buildAutohandChildProcessEnv(),
         });
       } catch (error) {
         const execError = error as Error;
@@ -653,10 +658,7 @@ export async function executeStreamingShellCommand(
       cols: Math.max(20, options.columns ?? process.stdout.columns ?? 80),
       rows: Math.max(10, options.rows ?? process.stdout.rows ?? 24),
       cwd: cwd ?? process.cwd(),
-      env: {
-        ...process.env,
-        AUTOHAND_CLI: '1',
-      },
+      env: buildAutohandChildProcessEnv(),
     });
 
     let output = '';

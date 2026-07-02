@@ -12,12 +12,14 @@ import type { ToolDefinition } from '../toolManager.js';
 import { formatToolCapabilityCatalog } from '../toolFilter.js';
 import { configureAgentRegistry } from './dynamicRuntimeExtensions.js';
 import { isGoalFeatureEnabled } from '../../goals/feature.js';
+import type { SkillSource } from '../../skills/types.js';
 
 interface PromptSkillSummary {
   name: string;
   description: string;
   isActive?: boolean;
   body?: string;
+  source?: SkillSource;
 }
 
 interface PromptTeam {
@@ -38,6 +40,43 @@ export interface SystemPromptBuilderOptions {
   listSkills: () => PromptSkillSummary[];
   getActiveSkills: () => PromptSkillSummary[];
   getTeam: () => PromptTeam | null;
+}
+
+const VENDOR_SKILL_SOURCES: readonly SkillSource[] = [
+  'codex-user',
+  'codex-project',
+  'claude-user',
+  'claude-project',
+  'agent-user',
+  'agent-project',
+];
+
+function hasCodexSkillInstallerMarkers(skill: PromptSkillSummary): boolean {
+  const body = skill.body ?? '';
+  return skill.name === 'skill-installer'
+    && /\bCODEX_HOME\b|~\/\.codex\/skills|Restart Codex/i.test(body);
+}
+
+function shouldAddAutohandSkillCompatibilityOverride(skill: PromptSkillSummary): boolean {
+  return Boolean(skill.source && VENDOR_SKILL_SOURCES.includes(skill.source))
+    || hasCodexSkillInstallerMarkers(skill);
+}
+
+function formatActiveSkillBody(skill: PromptSkillSummary): string {
+  const body = skill.body ?? '';
+  if (!shouldAddAutohandSkillCompatibilityOverride(skill)) {
+    return body;
+  }
+
+  return [
+    '### Autohand Skill Compatibility Override',
+    'This skill may contain upstream Codex or third-party agent wording. In Autohand, reinterpret those instructions as follows:',
+    '- Use Autohand user skill storage by default: install user skills into `$AUTOHAND_HOME/skills` (default `~/.autohand/skills`), not `~/.codex/skills`.',
+    '- When running helper scripts that read `$CODEX_HOME`, set `CODEX_HOME` to `$AUTOHAND_HOME` or pass `--dest "$AUTOHAND_HOME/skills"` unless the user explicitly asks to install into Codex.',
+    '- Any "Restart Codex" follow-up means "Restart Autohand".',
+    '',
+    body,
+  ].join('\n');
 }
 
 export class SystemPromptBuilder {
@@ -384,7 +423,7 @@ export class SystemPromptBuilder {
       parts.push('', '## Active Skills');
       parts.push('The following skills are active and provide specialized instructions:');
       for (const skill of activeSkills) {
-        parts.push('', `### Skill: ${skill.name}`, skill.body ?? '');
+        parts.push('', `### Skill: ${skill.name}`, formatActiveSkillBody(skill));
       }
     }
 
