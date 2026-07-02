@@ -84,4 +84,17 @@ describe('Ink/React installed version consistency', () => {
         `Reinstall dependencies with "bun install".`
     ).toBe(true);
   });
+
+  it('installed ink exports cursor layout hooks used by the composer', async () => {
+    const inkRuntime = (await import('ink')) as Record<string, unknown>;
+
+    expect(
+      typeof inkRuntime.useBoxMetrics,
+      'Installed ink must export useBoxMetrics for composer cursor placement. Reinstall dependencies with "bun install".'
+    ).toBe('function');
+    expect(
+      typeof inkRuntime.useCursor,
+      'Installed ink must export useCursor for composer cursor placement. Reinstall dependencies with "bun install".'
+    ).toBe('function');
+  });
 });
