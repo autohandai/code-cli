@@ -7,7 +7,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
 import fs from 'fs-extra';
-import { chmod, mkdir, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import path from 'node:path';
 import packageJson from '../../package.json' with { type: 'json' };
 import { SLASH_COMMANDS } from '../../src/core/slashCommands.js';
@@ -16,6 +18,7 @@ import {
   clearComposerInput,
   createMockAuthServer,
   createMockOpenRouterFetchPreload,
+  createMockOpenRouterSequenceServer,
   createMockSkillInstallFetchPreload,
   createMockOllamaServer,
   createTempAutohandHome,
@@ -35,6 +38,7 @@ const tempStates: TuistoryTempState[] = [];
 const mockAuthServers: MockAuthServer[] = [];
 const mockServers: MockOllamaServer[] = [];
 const mockOpenRouterFetchPreloads: Array<{ cleanup: () => Promise<void> }> = [];
+const mockResearchEvidenceServers: Array<{ close: () => Promise<void> }> = [];
 const CURSOR_CHAR = '█';
 
 async function trackSession(sessionPromise: Promise<Session>): Promise<Session> {
@@ -132,6 +136,49 @@ function expectStableSingleComposerFrames(screens: string[]): void {
   }
 }
 
+async function createMockResearchEvidenceServer(): Promise<{ baseUrl: string; close: () => Promise<void> }> {
+  const server = createServer((request, response) => {
+    if (request.url === '/hermes') {
+      response.writeHead(200, { 'content-type': 'text/markdown' });
+      response.end('# Hermes self evolving\n\nHermes self-evolving research uses iterative critique and improvement loops.\n');
+      return;
+    }
+
+    if (request.url === '/dspy') {
+      response.writeHead(200, { 'content-type': 'text/markdown' });
+      response.end('# DSPy\n\nDSPy provides declarative modules and optimizers for language model programs.\n');
+      return;
+    }
+
+    response.writeHead(404, { 'content-type': 'text/plain' });
+    response.end('not found');
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Mock research evidence server did not bind to a TCP port.');
+  }
+
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    close: async () => {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error?: Error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+    },
+  };
+}
+
 afterEach(async () => {
   for (const session of sessions.splice(0)) {
     session.close();
@@ -140,6 +187,9 @@ afterEach(async () => {
     await server.close();
   }
   for (const server of mockAuthServers.splice(0)) {
+    await server.close();
+  }
+  for (const server of mockResearchEvidenceServers.splice(0)) {
     await server.close();
   }
   for (const preload of mockOpenRouterFetchPreloads.splice(0)) {
@@ -601,6 +651,103 @@ describe('interactive built CLI Tuistory tests', () => {
 
     await exitInteractive(session);
   }, 60_000);
+
+  it('runs /deep-research for Hermes self evolving and DSPy with mocked evidence and saves the report', async () => {
+    const evidenceServer = await createMockResearchEvidenceServer();
+    mockResearchEvidenceServers.push(evidenceServer);
+
+    const reportPath = '.autohand/research/topic-hermes-self-evolving-and-dspy.md';
+    const report = [
+      '# Hermes self evolving and DSPy',
+      '',
+      '## Summary',
+      'Hermes self-evolving work uses iterative critique loops; DSPy provides declarative modules and optimizers.',
+      '',
+      '## Findings',
+      '- Hermes self evolving: mocked fetch evidence shows iterative improvement loops [1].',
+      '- DSPy: mocked fetch evidence shows declarative language model programs [2].',
+      '',
+      '## Open questions',
+      '- This Tuistory fixture uses mocked sources only.',
+      '',
+      '## Sources',
+      `1. Hermes fixture - fetched from ${evidenceServer.baseUrl}/hermes`,
+      `2. DSPy fixture - fetched from ${evidenceServer.baseUrl}/dspy`,
+      '',
+    ].join('\n');
+    const openRouterServer = await createMockOpenRouterSequenceServer([
+      JSON.stringify({
+        thought: 'Gather mocked fetch_url evidence and save the reusable research report.',
+        toolCalls: [
+          { tool: 'fetch_url', args: { url: `${evidenceServer.baseUrl}/hermes`, max_length: 2000 } },
+          { tool: 'fetch_url', args: { url: `${evidenceServer.baseUrl}/dspy`, max_length: 2000 } },
+          { tool: 'write_file', args: { path: reportPath, contents: report } },
+        ],
+      }),
+      JSON.stringify({
+        reflection: 'The mocked fetch_url results and write_file output show the research report was saved.',
+        toolCalls: [],
+        finalResponse: `Research saved: ${reportPath}\n\nHermes self evolving and DSPy research is ready for the next prompt.`,
+      }),
+    ]);
+    mockServers.push(openRouterServer);
+
+    const state = await createTempAutohandHome({
+      config: {
+        openrouter: {
+          baseUrl: openRouterServer.baseUrl,
+        },
+        ui: {
+          promptSuggestions: false,
+        },
+        agent: {
+          maxIterations: 4,
+        },
+      },
+    });
+    tempStates.push(state);
+
+    const session = await trackSession(
+      launchBuiltAutohand([
+        '--path',
+        state.workspaceRoot,
+        '--config',
+        state.configPath,
+        '--y',
+      ], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        waitForDataTimeout: 15_000,
+      })
+    );
+
+    await waitForComposer(session);
+    await session.type('/deep-research Hermes self evolving and DSPy');
+    await session.press('enter');
+    await session.waitForText('Deep research started', { timeout: 10_000 });
+    const permissionOrSaved = await session.text({
+      timeout: 30_000,
+      waitFor: (text) => (
+        text.includes(`Create new file ${reportPath}?`) ||
+        text.includes(`Research saved: ${reportPath}`)
+      ),
+    });
+    if (permissionOrSaved.includes(`Create new file ${reportPath}?`)) {
+      await session.press('enter');
+    }
+    await session.waitForText(`Research saved: ${reportPath}`, { timeout: 30_000 });
+
+    const savedReportPath = path.join(state.workspaceRoot, reportPath);
+    expect(existsSync(savedReportPath)).toBe(true);
+    const savedReport = await readFile(savedReportPath, 'utf8');
+    expect(savedReport).toContain('Hermes self-evolving');
+    expect(savedReport).toContain('DSPy');
+
+    await session.type('Use the previous deep research');
+    await waitForCursorAfterTypedText(session, 'Use the previous deep research');
+
+    await exitInteractive(session);
+  }, 90_000);
 
   it('runs the usage_v2 dashboard from the interactive TUI', async () => {
     const session = await launchInteractive({

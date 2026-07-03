@@ -294,6 +294,7 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/language`        | Change display language                                                          |
 | `/cc`              | Toggle context compaction                                                        |
 | `/search`          | Search the web                                                                   |
+| `/deep-research`   | Research a topic and save a cited report to `.autohand/research/topic-*.md`      |
 | `/automode`        | Manage auto-mode                                                                 |
 | `/goal`            | Set, review, or refine the current session goal                                  |
 | `/goal writer`     | Draft one or more well-specified goals with the built-in `$goal-writer` skill    |

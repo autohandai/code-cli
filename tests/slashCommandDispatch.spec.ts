@@ -8,6 +8,9 @@
  * where status messages like "MCP manager not available." were sent as prompts.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import fs from 'fs-extra';
+import os from 'node:os';
+import path from 'node:path';
 import { SlashCommandHandler } from '../src/core/slashCommandHandler.js';
 import { SLASH_COMMANDS } from '../src/core/slashCommands.js';
 
@@ -68,6 +71,11 @@ describe('slash command dispatch – output vs instruction', () => {
     expect(commands).toContain('/go');
   });
 
+  it('/deep-research is registered in SLASH_COMMANDS', () => {
+    const commands = SLASH_COMMANDS.map(c => c.command);
+    expect(commands).toContain('/deep-research');
+  });
+
   it('/handoff session is registered in SLASH_COMMANDS', () => {
     const commands = SLASH_COMMANDS.map(c => c.command);
     expect(commands).toContain('/handoff session');
@@ -123,6 +131,31 @@ describe('slash command dispatch – output vs instruction', () => {
     expect(result).toEqual(expect.any(String));
     expect(result).toContain('Goal writer started');
     expect(ctx.queueInstruction).toHaveBeenCalledWith(expect.stringContaining('fix flaky tests'));
+  });
+
+  it('/deep-research returns display output and queues deep research guidance', async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-dispatch-deep-research-'));
+    const ctx = {
+      ...createMinimalContext(),
+      workspaceRoot,
+      queueInstruction: vi.fn(),
+      skillsRegistry: {
+        activateSkill: vi.fn(() => true),
+      },
+    };
+
+    try {
+      const handler = new SlashCommandHandler(ctx as any, SLASH_COMMANDS);
+
+      const result = await handler.handle('/deep-research', ['Hermes', 'self', 'evolving']);
+
+      expect(result).toEqual(expect.any(String));
+      expect(result).toContain('Deep research started');
+      expect(ctx.queueInstruction).toHaveBeenCalledWith(expect.stringContaining('Hermes self evolving'));
+      expect(ctx.queueInstruction).toHaveBeenCalledWith(expect.stringContaining('.autohand/research/topic-hermes-self-evolving.md'));
+    } finally {
+      await fs.remove(workspaceRoot);
+    }
   });
 
   // ── Core contract: promptForInstruction should print string results ───

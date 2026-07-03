@@ -53,6 +53,7 @@ import * as importCmd from '../commands/import.js';
 import * as repeatCmd from '../commands/repeat.js';
 import * as chromeCmd from '../commands/chrome.js';
 import * as reviewCmd from '../commands/review.js';
+import * as deepResearchCmd from '../commands/deep-research.js';
 import * as prReviewCmd from '../commands/pr-review.js';
 import * as setupCmd from '../commands/setup.js';
 import * as yoloCmd from '../commands/yolo.js';
@@ -125,6 +126,7 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   repeatCmd.metadata,
   chromeCmd.metadata,
   reviewCmd.metadata,
+  deepResearchCmd.metadata,
   prReviewCmd.metadata,
   setupCmd.metadata,
   yoloCmd.metadata,
