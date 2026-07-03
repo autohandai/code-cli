@@ -272,6 +272,10 @@ export class SlashCommandHandler {
           const { review } = await import('../commands/review.js');
           return review(this.ctx, args);
         }
+        case '/deep-research': {
+          const { deepResearch } = await import('../commands/deep-research.js');
+          return deepResearch(this.ctx, args);
+        }
         case '/pr-review': {
           const { prReview } = await import('../commands/pr-review.js');
           return prReview(this.ctx, args);

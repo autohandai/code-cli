@@ -22,6 +22,11 @@ import type { SessionDiffStatsTracker } from '../SessionDiffStatsTracker.js';
 import { buildSessionBootstrap } from './SessionBootstrapBuilder.js';
 import { buildHostTokenUsageContextStatus } from './AgentFormatter.js';
 import { formatStatusLineLeft, getConfigStatusLineSettings } from './StatusLineSettings.js';
+import {
+  formatSavedResearchReports,
+  listSavedResearchReports,
+  type SavedResearchReport,
+} from './SavedResearchContext.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -142,6 +147,12 @@ export async function buildAgentUserMessage(
     `Workspace: ${context.workspaceRoot}`,
     context.gitStatus ? `Git status:\n${context.gitStatus}` : 'Git status: clean or unavailable.',
     `Recent files: ${context.recentFiles.join(', ') || 'none'}`,
+    context.savedResearch.length
+      ? [
+        'Saved research reports available for follow-up prompts:',
+        ...formatSavedResearchReports(context.savedResearch),
+      ].join('\n')
+      : undefined,
     host.runtime.options.path ? `Target path: ${host.runtime.options.path}` : undefined,
     `Options: dryRun=${host.runtime.options.dryRun ?? false}, yes=${host.runtime.options.yes ?? false}`,
     `Instruction: ${instruction}`,
@@ -162,8 +173,8 @@ export async function buildAgentUserMessage(
 
 export async function collectAgentContextSummary(
   host: AgentContextRuntimeHost
-): Promise<{ workspaceRoot: string; gitStatus?: string; recentFiles: string[] }> {
-  const [gitStatus, entries] = await Promise.all([
+): Promise<{ workspaceRoot: string; gitStatus?: string; recentFiles: string[]; savedResearch: SavedResearchReport[] }> {
+  const [gitStatus, entries, savedResearch] = await Promise.all([
     execFileAsync('git', ['status', '-sb'], {
       cwd: host.runtime.workspaceRoot,
       encoding: 'utf8',
@@ -171,6 +182,7 @@ export async function collectAgentContextSummary(
       .then(({ stdout }) => String(stdout || '').trim() || undefined)
       .catch(() => undefined),
     fs.readdir(host.runtime.workspaceRoot),
+    listSavedResearchReports(host.runtime.workspaceRoot),
   ]);
   const recentFiles = entries
     .filter((entry) => !host.ignoreFilter.isIgnored(entry))
@@ -180,6 +192,7 @@ export async function collectAgentContextSummary(
     workspaceRoot: host.runtime?.workspaceRoot,
     gitStatus,
     recentFiles,
+    savedResearch,
   };
 }
 

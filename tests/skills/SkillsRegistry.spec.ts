@@ -83,6 +83,12 @@ ${body}
       expect(goalWriter?.source).toBe('builtin');
       expect(goalWriter?.path).toContain('src/skills/builtin/goal-writer/SKILL.md');
       expect(goalWriter?.body).toContain('completion contract');
+
+      const deepResearch = registry.getSkill('deep-research');
+      expect(deepResearch).not.toBeNull();
+      expect(deepResearch?.source).toBe('builtin');
+      expect(deepResearch?.path).toContain('src/skills/builtin/deep-research/SKILL.md');
+      expect(deepResearch?.body).toContain('cited research report');
     });
 
     it('loads skills recursively when configured', async () => {

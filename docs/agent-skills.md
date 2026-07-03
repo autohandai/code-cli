@@ -56,6 +56,14 @@ When activated, skills inject their instructions into the agent's context, provi
 autohand --auto-skill
 ```
 
+### Built-In Deep Research
+
+```bash
+/deep-research Hermes self evolving and DSPy
+```
+
+`/deep-research <topic>` activates the bundled `deep-research` skill, uses Autohand's web search, fetch, task, and file tools, and saves a cited markdown report under `<project>/.autohand/research/topic-<slug>.md`. Saved reports are surfaced in later prompts so the next turn can reuse the research context.
+
 ---
 
 ## Skill Discovery

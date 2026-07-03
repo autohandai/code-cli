@@ -5,6 +5,10 @@
  */
 import fs from 'fs-extra';
 import path from 'node:path';
+import {
+  formatSavedResearchReports,
+  listSavedResearchReports,
+} from './SavedResearchContext.js';
 
 interface BootstrapSkill {
   name: string;
@@ -40,6 +44,16 @@ export async function buildSessionBootstrap(options: SessionBootstrapBuilderOpti
     for (const skill of activeSkills) {
       parts.push(`- **${skill.name}**: ${skill.description}`);
     }
+  }
+
+  const savedResearch = await listSavedResearchReports(options.workspaceRoot);
+  if (savedResearch.length > 0) {
+    parts.push(
+      '',
+      '## Saved Research',
+      'Recent project research reports available for follow-up prompts:',
+      ...formatSavedResearchReports(savedResearch)
+    );
   }
 
   const keyFiles = ['package.json', 'README.md', 'tsconfig.json', ' Cargo.toml', 'pyproject.toml', 'go.mod'];
