@@ -233,6 +233,70 @@ export async function createMockOpenRouterServer(responseContent: string, delayM
   };
 }
 
+export async function createMockOpenRouterSequenceServer(
+  responseContents: string[],
+  delayMs = 0
+): Promise<MockOpenRouterServer> {
+  let completionCalls = 0;
+  const server = createServer((request, response) => {
+    if (request.url === '/chat/completions' && request.method === 'POST') {
+      request.resume();
+      setTimeout(() => {
+        const index = Math.min(completionCalls, responseContents.length - 1);
+        completionCalls += 1;
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({
+          id: `chatcmpl-tuistory-${completionCalls}`,
+          created: Math.floor(Date.now() / 1000),
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: responseContents[index] ?? '',
+              },
+              finish_reason: 'stop',
+            },
+          ],
+          usage: {
+            prompt_tokens: 42,
+            completion_tokens: 12,
+            total_tokens: 54,
+          },
+        }));
+      }, delayMs);
+      return;
+    }
+
+    response.writeHead(404, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Mock OpenRouter sequence server did not bind to a TCP port.');
+  }
+
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    close: async () => {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error?: Error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+    },
+  };
+}
+
 export async function createMockOpenRouterFetchPreload(
   responseContent: string,
   delayMs = 0,
@@ -266,6 +330,75 @@ globalThis.fetch = async (input, init) => {
           message: {
             role: 'assistant',
             content: responseContent,
+          },
+          finish_reason: 'stop',
+        },
+      ],
+      usage: {
+        prompt_tokens: 42,
+        completion_tokens: 12,
+        total_tokens: 54,
+      },
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  if (!originalFetch) {
+    throw new Error('fetch is not available in this runtime');
+  }
+
+  return originalFetch(input, init);
+};
+`;
+
+  await writeFile(preloadPath, moduleSource);
+
+  return {
+    importSpecifier: pathToFileURL(preloadPath).href,
+    cleanup: async () => {
+      await rm(tempRoot, { recursive: true, force: true });
+    },
+  };
+}
+
+export async function createMockOpenRouterFetchSequencePreload(
+  responseContents: string[],
+  delayMs = 0,
+): Promise<MockOpenRouterFetchPreload> {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'autohand-tuistory-fetch-sequence-'));
+  const preloadPath = path.join(tempRoot, 'mock-openrouter-fetch-sequence.mjs');
+  const moduleSource = `
+const responseContents = ${JSON.stringify(responseContents)};
+const delayMs = ${JSON.stringify(delayMs)};
+const originalFetch = globalThis.fetch?.bind(globalThis);
+let completionCalls = 0;
+
+globalThis.fetch = async (input, init) => {
+  const url = typeof input === 'string'
+    ? input
+    : input instanceof URL
+      ? input.toString()
+      : input.url;
+  const method = init?.method ?? (typeof input === 'object' && 'method' in input ? input.method : 'GET');
+
+  if (url.endsWith('/chat/completions') && method.toUpperCase() === 'POST') {
+    if (delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+
+    const index = Math.min(completionCalls, responseContents.length - 1);
+    completionCalls += 1;
+    return new Response(JSON.stringify({
+      id: 'chatcmpl-tuistory-' + completionCalls,
+      created: Math.floor(Date.now() / 1000),
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: responseContents[index] ?? '',
           },
           finish_reason: 'stop',
         },

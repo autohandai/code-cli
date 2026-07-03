@@ -20,6 +20,7 @@ export * as session from './session.js';
 export * as undo from './undo.js';
 export * as memory from './memory.js';
 export * as plan from './plan.js';
+export * as deepResearch from './deep-research.js';
 export * as squad from './squad.js';
 
 // Command registry type
@@ -56,6 +57,7 @@ export function getAllCommands(): Array<{ command: string; description: string; 
         modules.undo,
         modules.memory,
         modules.plan,
+        modules.deepResearch,
         modules.squad
     ];
 
