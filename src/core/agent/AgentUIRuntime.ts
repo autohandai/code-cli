@@ -291,7 +291,7 @@ export function stopAgentUI(host: AgentUIRuntimeHost, failed = false, message?: 
         Boolean(host.sessionTokenUsageUnavailable || host.currentTurnHadUnavailableUsage)
       ) ?? formatTurnUsage(getDisplayTurnUsage(host));
       host.inkRenderer.setTokens(stopTokens);
-      host.inkRenderer.setWorking(false);
+      host.inkRenderer.setWorking(false, message ?? '', { succeeded: !failed });
       if (message) {
         host.inkRenderer.setFinalResponse(message);
       }
@@ -339,7 +339,7 @@ export function cleanupAgentUI(host: AgentUIRuntimeHost, keepInkAlive = false): 
     }
   }
 
-export function printAgentCompletionSummary(host: AgentUIRuntimeHost, regionsStillActive: boolean): void {
+export function printAgentCompletionSummary(host: AgentUIRuntimeHost, regionsStillActive: boolean, succeeded = true): void {
     if (!host.taskStartedAt) return;
     const elapsed = formatElapsedTime(host.taskStartedAt);
     const tokens = formatTurnUsage(getDisplayTurnUsage(host));
@@ -347,7 +347,8 @@ export function printAgentCompletionSummary(host: AgentUIRuntimeHost, regionsSti
       (host.inkRenderer?.getQueueCount() ?? 0) +
       host.persistentInput.getQueueLength();
     const queueStatus = queueCount > 0 ? ` · ${queueCount} queued` : '';
-    const message = chalk.gray(`Completed in ${elapsed} · ${tokens} used${queueStatus}`);
+    const statusLabel = succeeded ? 'Completed' : 'Failed';
+    const message = chalk.gray(`${statusLabel} in ${elapsed} · ${tokens} used${queueStatus}`);
 
     if (regionsStillActive) {
       host.persistentInput.writeAbove(message + '\n');

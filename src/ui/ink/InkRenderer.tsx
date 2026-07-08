@@ -18,6 +18,7 @@ import {
   type AgentUILineExtensions,
   type AgentUIState,
   type ContextTokenDisplay,
+  type TurnCompletionStatus,
 } from './AgentUI.js';
 import type { LiveCommandEntry, ToolOutputEntry, ToolOutputBatchEntry, ToolOutputItem, BatchToolItem } from './ToolOutput.js';
 import type { SlashCommand } from '../../core/slashCommandTypes.js';
@@ -51,6 +52,14 @@ export interface InkRendererOptions {
   resolveShellSuggestion?: (input: string) => Promise<string | null>;
   /** Optional extension points for status/help lines. */
   lineExtensions?: AgentUILineExtensions;
+}
+
+export interface SetWorkingOptions {
+  succeeded?: boolean;
+}
+
+function completionLabel(status?: TurnCompletionStatus): string {
+  return status === 'failed' ? 'Failed' : 'Completed';
 }
 
 /**
@@ -398,7 +407,7 @@ export class InkRenderer {
     }
 
     if (completionStats) {
-      const content = `Completed in ${completionStats.elapsed} · ${completionStats.tokens}`;
+      const content = `${completionLabel(completionStats.status)} in ${completionStats.elapsed} · ${completionStats.tokens}`;
       const alreadyArchived = nextMessages
         .some((message) =>
           message.role === 'completion' && message.content === content
@@ -418,7 +427,7 @@ export class InkRenderer {
    * Set working state (starts/stops the spinner)
    * When stopping work, captures elapsed/tokens as completion stats
    */
-  setWorking(isWorking: boolean, status = ''): void {
+  setWorking(isWorking: boolean, status = '', options: SetWorkingOptions = {}): void {
     const archivedFinalResponse = isWorking
       ? this.state.finalResponse?.trim()
       : undefined;
@@ -443,9 +452,13 @@ export class InkRenderer {
 
     // When stopping work, save completion stats from current elapsed/tokens
     if (!isWorking && (this.state.elapsed || this.state.tokens)) {
+      const completionStatus = options.succeeded === false
+        ? 'failed'
+        : this.state.completionStats?.status;
       updates.completionStats = {
         elapsed: this.state.elapsed || '0s',
-        tokens: this.state.tokens || '0 tokens'
+        tokens: this.state.tokens || '0 tokens',
+        ...(completionStatus ? { status: completionStatus } : {})
       };
     }
 

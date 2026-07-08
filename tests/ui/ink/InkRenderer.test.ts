@@ -92,6 +92,26 @@ describe('InkRenderer live command blocks', () => {
     ]);
   });
 
+  it('archives failed turn stats without labeling the turn completed', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+
+    renderer.addUserMessage('research competitors');
+    renderer.setElapsed('6m 43s');
+    renderer.setTokens('543.4k tokens');
+    renderer.setWorking(false, 'Session failed', { succeeded: false });
+    renderer.setWorking(true, 'Reasoning...');
+    renderer.addUserMessage('continue');
+
+    expect(renderer.getState().chatMessages).toContainEqual({
+      role: 'completion',
+      content: 'Failed in 6m 43s · 543.4k tokens',
+    });
+  });
+
   it('records tool-call starts in chat history before completed output', () => {
     const renderer = new InkRenderer({
       onInstruction: () => {},
