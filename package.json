@@ -53,7 +53,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.19.1",
-    "@aws-sdk/client-bedrock": "^3.1045.0",
+    "@aws-sdk/client-bedrock": "^3.1081.0",
     "@aws-sdk/client-bedrock-runtime": "^3.1045.0",
     "@aws-sdk/credential-providers": "^3.1045.0",
     "@ff-labs/fff-bun": "0.9.6",
