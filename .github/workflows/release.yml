@@ -323,158 +323,21 @@ jobs:
 
           ls -lh *.tar.gz *.tar.gz.sha256 *.zip *.zip.sha256 2>/dev/null || true
 
-      - name: Generate changelog
-        id: changelog
-        uses: actions/github-script@v9
-        env:
-          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
-          RELEASE_CHANNEL: ${{ needs.prepare.outputs.channel }}
-        with:
-          script: |
-            const { execSync } = require('child_process');
-            const version = process.env.RELEASE_VERSION;
-            const channel = process.env.RELEASE_CHANNEL;
-
-            // Get commits since last tag
-            let commits;
-            let lastTag = null;
-            try {
-              lastTag = execSync('git describe --tags --abbrev=0', { encoding: 'utf8' }).trim();
-              commits = execSync(`git log ${lastTag}..HEAD --pretty=format:"%s"`, { encoding: 'utf8' });
-            } catch {
-              commits = execSync('git log --pretty=format:"%s" -n 20', { encoding: 'utf8' });
-            }
-
-            const lines = commits.split('\n').filter(line => line.trim() && !line.includes('chore(release)'));
-
-            // Helper to humanize commit messages
-            const humanize = (msg) => {
-              return msg
-                .replace(/^feat(\([^)]+\))?:\s*/i, '')
-                .replace(/^fix(\([^)]+\))?:\s*/i, '')
-                .replace(/^chore(\([^)]+\))?:\s*/i, '')
-                .replace(/^docs(\([^)]+\))?:\s*/i, '')
-                .replace(/^refactor(\([^)]+\))?:\s*/i, '')
-                .replace(/^test(\([^)]+\))?:\s*/i, '')
-                .replace(/^ci(\([^)]+\))?:\s*/i, '')
-                .replace(/^perf(\([^)]+\))?:\s*/i, '')
-                .trim();
-            };
-
-            // Capitalize first letter
-            const capitalize = (str) => str.charAt(0).toUpperCase() + str.slice(1);
-
-            // Categorize commits
-            const features = [];
-            const fixes = [];
-            const improvements = [];
-            const breaking = [];
-
-            for (const msg of lines) {
-              const clean = humanize(msg);
-              if (!clean) continue;
-
-              if (msg.includes('BREAKING CHANGE') || msg.includes('!:')) {
-                breaking.push(capitalize(clean));
-              } else if (msg.match(/^feat(\(|:)/i)) {
-                features.push(capitalize(clean));
-              } else if (msg.match(/^fix(\(|:)/i)) {
-                fixes.push(capitalize(clean));
-              } else if (msg.match(/^(refactor|perf|chore|docs|test|ci)(\(|:)/i)) {
-                improvements.push(capitalize(clean));
-              }
-            }
-
-            // Build a friendly changelog
-            let changelog = '';
-
-            // Channel badge for alpha
-            if (channel === 'alpha') {
-              changelog += '> **Alpha Release** — This is a pre-release build from the latest `main` branch. It may contain bugs or incomplete features.\n\n';
-            }
-
-            // Intro
-            if (lastTag) {
-              changelog += `Hey there! We've been busy making Autohand better. Here's what's new since ${lastTag}:\n\n`;
-            } else {
-              changelog += `Hey there! Here's what's new in this release:\n\n`;
-            }
-
-            // Breaking changes (serious tone)
-            if (breaking.length > 0) {
-              changelog += '### Heads up! Breaking Changes\n\n';
-              changelog += 'These changes might require updates to your setup:\n\n';
-              breaking.forEach(item => { changelog += `- ${item}\n`; });
-              changelog += '\n';
-            }
-
-            // Features (excited tone)
-            if (features.length > 0) {
-              changelog += '### New Stuff\n\n';
-              features.forEach(item => { changelog += `- ${item}\n`; });
-              changelog += '\n';
-            }
-
-            // Fixes (helpful tone)
-            if (fixes.length > 0) {
-              changelog += '### Bug Fixes\n\n';
-              if (fixes.length === 1) {
-                changelog += `We squashed a bug:\n\n`;
-              } else {
-                changelog += `We squashed ${fixes.length} bugs:\n\n`;
-              }
-              fixes.forEach(item => { changelog += `- ${item}\n`; });
-              changelog += '\n';
-            }
-
-            // Improvements (casual tone)
-            if (improvements.length > 0 && improvements.length <= 8) {
-              changelog += '### Under the Hood\n\n';
-              changelog += 'Some housekeeping and improvements:\n\n';
-              improvements.forEach(item => { changelog += `- ${item}\n`; });
-              changelog += '\n';
-            }
-
-            // If nothing categorized, add a generic message
-            if (features.length === 0 && fixes.length === 0 && improvements.length === 0 && breaking.length === 0) {
-              changelog += 'Minor updates and improvements to keep things running smoothly.\n\n';
-            }
-
-            // Installation section
-            const cb = '`' + '`' + '`';
-            changelog += '---\n\n';
-            changelog += '### Get it\n\n';
-
-            if (channel === 'alpha') {
-              changelog += '**Install this alpha build:**\n';
-              changelog += cb + 'bash\ncurl -fsSL https://autohand.ai/install.sh | sh -s -- --alpha\n' + cb + '\n\n';
-              changelog += '**Or install the latest stable release:**\n';
-              changelog += cb + 'bash\ncurl -fsSL https://autohand.ai/install.sh | sh\n' + cb + '\n\n';
-            } else {
-              changelog += '**Quickest way:**\n';
-              changelog += cb + 'bash\ncurl -fsSL https://autohand.ai/install.sh | sh\n' + cb + '\n\n';
-              changelog += '**Via npm or bun:**\n';
-              changelog += cb + 'bash\nnpm install -g autohand-cli\n' + cb + '\n\n';
-            }
-
-            changelog += '**Or grab a binary below** for your platform.\n\n';
-            changelog += '| Platform | Architecture | Binary |\n';
-            changelog += '|----------|--------------|--------|\n';
-            changelog += '| macOS | Apple Silicon | `autohand-macos-arm64` |\n';
-            changelog += '| macOS | Intel | `autohand-macos-x64` |\n';
-            changelog += '| Linux | x64 | `autohand-linux-x64` |\n';
-            changelog += '| Linux | ARM64 | `autohand-linux-arm64` |\n';
-            changelog += '| Windows | x64 | `autohand-windows-x64.exe` |\n';
-
-            core.setOutput('changelog', changelog);
-            return changelog;
+      - name: Generate release notes
+        run: |
+          node .github/generate-release-notes.mjs \
+            --version "${{ needs.prepare.outputs.version }}" \
+            --channel "${{ needs.prepare.outputs.channel }}" \
+            --repo "${{ github.repository }}" \
+            --output release-notes.md
+          cat release-notes.md
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ needs.prepare.outputs.version }}
           name: ${{ needs.prepare.outputs.channel == 'release' && format('Release v{0}', needs.prepare.outputs.version) || format('Alpha v{0}', needs.prepare.outputs.version) }}
-          body: ${{ steps.changelog.outputs.changelog }}
+          body_path: release-notes.md
           files: |
             release-binaries/*
             install.sh

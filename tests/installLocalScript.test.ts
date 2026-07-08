@@ -93,4 +93,14 @@ describe('dependency install guardrails', () => {
     expect(releaseWorkflow).toContain('MAJOR=$(echo $ALPHA_BASE_VERSION');
     expect(releaseWorkflow).not.toContain('Alpha: bump patch from current version');
   });
+
+  it('generates GitHub release notes with the repository script and body_path', () => {
+    const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8');
+
+    expect(releaseWorkflow).toContain('node .github/generate-release-notes.mjs');
+    expect(releaseWorkflow).toContain('--channel "${{ needs.prepare.outputs.channel }}"');
+    expect(releaseWorkflow).toContain('body_path: release-notes.md');
+    expect(releaseWorkflow).not.toContain('actions/github-script');
+    expect(releaseWorkflow).not.toContain('body: ${{ steps.changelog.outputs.changelog }}');
+  });
 });
