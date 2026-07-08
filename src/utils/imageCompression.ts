@@ -5,17 +5,23 @@
  */
 
 import type { ImageMimeType } from '../core/ImageManager.js';
+import type sharpDefault from 'sharp';
 
-type SharpMetadata = Awaited<ReturnType<ReturnType<typeof import('sharp')>['metadata']>>;
+type SharpConstructor = typeof sharpDefault;
+type SharpMetadata = Awaited<ReturnType<ReturnType<SharpConstructor>['metadata']>>;
 
-let sharpConstructor: typeof import('sharp') | undefined;
+let sharpConstructor: SharpConstructor | undefined;
 
-async function getSharp(): Promise<typeof import('sharp')> {
+async function getSharp(): Promise<SharpConstructor> {
   if (!sharpConstructor) {
     const mod = await import('sharp');
-    sharpConstructor = (mod as unknown as { default: typeof import('sharp') }).default;
+    sharpConstructor = mod.default;
   }
   return sharpConstructor;
+}
+
+function normalizeImageFormat(format: string): string {
+  return format === 'jpg' ? 'jpeg' : format;
 }
 
 /**
@@ -260,15 +266,15 @@ export async function compressImageBuffer(
 
   const sharp = await getSharp();
 
-  const fallbackFormat = (originalMediaType?.split('/')[1] || 'jpeg').replace('jpg', 'jpeg');
+  const fallbackFormat = normalizeImageFormat(originalMediaType?.split('/')[1] || 'jpeg');
   const metadata = await sharp(imageBuffer).metadata();
-  const format = metadata.format || fallbackFormat;
+  const format = metadata.format ? normalizeImageFormat(metadata.format) : fallbackFormat;
 
   // Already under limit
   if (imageBuffer.length <= maxBytes) {
     return {
       base64: imageBuffer.toString('base64'),
-      mediaType: `image/${format === 'jpg' ? 'jpeg' : format}` as ImageMimeType,
+      mediaType: `image/${format}` as ImageMimeType,
       originalSize: imageBuffer.length,
     };
   }
@@ -313,7 +319,7 @@ export async function compressImageBuffer(
 
     if (format === 'png') {
       resized.png({ compressionLevel: 9, palette: true });
-    } else if (format === 'jpeg' || format === 'jpg') {
+    } else if (format === 'jpeg') {
       resized.jpeg({ quality: 80 });
     } else if (format === 'webp') {
       resized.webp({ quality: 80 });
@@ -323,7 +329,7 @@ export async function compressImageBuffer(
     if (buf.length <= maxBytes) {
       return {
         base64: buf.toString('base64'),
-        mediaType: `image/${format === 'jpg' ? 'jpeg' : format}` as ImageMimeType,
+        mediaType: `image/${format}` as ImageMimeType,
         originalSize: imageBuffer.length,
       };
     }
