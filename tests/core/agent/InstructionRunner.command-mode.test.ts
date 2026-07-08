@@ -165,4 +165,61 @@ describe('InstructionRunner command mode UI', () => {
     expect(inkRenderer.resume).not.toHaveBeenCalled();
     expect(host.cleanupUI).toHaveBeenCalledWith(true);
   });
+
+  it('marks the turn summary as failed when the provider run errors after retries', async () => {
+    const host = createHost();
+    host.runReactLoop = vi.fn(async () => {
+      throw new Error('Request timed out. The NVIDIA service may be experiencing high load.');
+    });
+    host.getDisplayErrorMessage = vi.fn(() => 'Request timed out. The NVIDIA service may be experiencing high load.');
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const result = await new InstructionRunner(host).run('run a deep research job');
+
+      expect(result).toBe(false);
+      expect(host.stopUI).toHaveBeenCalledWith(true, 'Session failed');
+      expect(host.printCompletionSummary).toHaveBeenCalledWith(false, false);
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
+  it('continues retrying provider outages until a later retry succeeds', async () => {
+    const host = createHost();
+    host.runtime = {
+      ...host.runtime,
+      config: {
+        ...host.runtime.config,
+        agent: {
+          enableRequestQueue: true,
+          sessionRetryLimit: 3,
+          sessionRetryDelay: 0,
+        },
+      },
+    };
+    host.isRetryableSessionError = vi.fn(() => true);
+    host.shouldUsePassiveSessionRetry = vi.fn(() => true);
+    host.runReactLoop = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('provider timeout'))
+      .mockRejectedValueOnce(new Error('provider timeout'))
+      .mockResolvedValueOnce(undefined);
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    try {
+      const result = await new InstructionRunner(host).run('continue the research job');
+
+      expect(result).toBe(true);
+      expect(host.runReactLoop).toHaveBeenCalledTimes(3);
+      expect(host.submitSessionFailureBugReport).toHaveBeenCalledTimes(2);
+      expect(host.sleep).toHaveBeenCalledTimes(2);
+      expect(host.injectContinuationMessage).not.toHaveBeenCalled();
+      expect(host.sessionRetryCount).toBe(0);
+      expect(host.stopUI).not.toHaveBeenCalledWith(true, 'Session failed');
+      expect(host.printCompletionSummary).toHaveBeenCalledWith(false, true);
+    } finally {
+      consoleLogSpy.mockRestore();
+    }
+  });
 });

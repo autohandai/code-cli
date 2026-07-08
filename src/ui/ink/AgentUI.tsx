@@ -47,6 +47,8 @@ export interface ContextTokenDisplay {
   total: number;
 }
 
+export type TurnCompletionStatus = 'completed' | 'failed';
+
 export interface AgentUIState {
   isWorking: boolean;
   status: string;
@@ -67,7 +69,7 @@ export interface AgentUIState {
   currentInput: string;
   finalResponse: string | null;
   /** Completion stats shown after work finishes */
-  completionStats: { elapsed: string; tokens: string } | null;
+  completionStats: { elapsed: string; tokens: string; status?: TurnCompletionStatus } | null;
   /** Plan mode indicator (e.g., '[PLAN]' or '[EXEC]') */
   planModeIndicator?: string;
   /** Context percentage remaining (0-100) */
@@ -2026,7 +2028,7 @@ interface StatusSectionProps {
   tokens: string;
   queuedInstructions: string[];
   selectedQueueIndex: number | null;
-  completionStats: { elapsed: string; tokens: string } | null;
+  completionStats: { elapsed: string; tokens: string; status?: TurnCompletionStatus } | null;
   contextPercent?: number;
   contextTokens?: ContextTokenDisplay;
   provider?: string;
@@ -2131,7 +2133,7 @@ const StatusSection = memo(function StatusSection({
       {showCompletionStats && (
         <Box marginTop={1}>
           <Text color={colors.muted}>
-            Completed in {completionStats.elapsed} · {completionStats.tokens}
+            {completionStats.status === 'failed' ? 'Failed' : 'Completed'} in {completionStats.elapsed} · {completionStats.tokens}
           </Text>
         </Box>
       )}
@@ -2150,6 +2152,7 @@ const StatusSection = memo(function StatusSection({
          prev.selectedQueueIndex === next.selectedQueueIndex &&
          prev.completionStats?.elapsed === next.completionStats?.elapsed &&
          prev.completionStats?.tokens === next.completionStats?.tokens &&
+         prev.completionStats?.status === next.completionStats?.status &&
          prev.provider === next.provider &&
          prev.model === next.model &&
          prev.lineExtension === next.lineExtension;
@@ -2361,7 +2364,7 @@ interface FixedBottomProps {
   tokens: string;
   queuedInstructions: string[];
   selectedQueueIndex: number | null;
-  completionStats: { elapsed: string; tokens: string } | null;
+  completionStats: { elapsed: string; tokens: string; status?: TurnCompletionStatus } | null;
   enableQueueInput: boolean;
   input: string;
   cursorOffset: number;
