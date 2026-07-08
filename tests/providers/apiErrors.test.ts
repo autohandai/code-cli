@@ -233,6 +233,24 @@ describe("classifyApiError", () => {
       expect(err.retryable).toBe(false);
     });
 
+    it("classifies status 0 with rate-limit message as rate_limited", () => {
+      const err = classifyApiError(0, "Rate limit exceeded: too many requests");
+      expect(err.code).toBe("rate_limited");
+      expect(err.retryable).toBe(true);
+    });
+
+    it("classifies status 0 with auth message as auth_failed", () => {
+      const err = classifyApiError(0, "Authentication failed: invalid API key");
+      expect(err.code).toBe("auth_failed");
+      expect(err.retryable).toBe(false);
+    });
+
+    it("classifies status 0 with provider 5xx message as server_error", () => {
+      const err = classifyApiError(0, "Provider returned 503 Service Unavailable");
+      expect(err.code).toBe("server_error");
+      expect(err.retryable).toBe(true);
+    });
+
     it("classifies status 0 with unknown message as unknown", () => {
       const err = classifyApiError(0, "something weird happened");
       expect(err.code).toBe("unknown");
@@ -286,11 +304,8 @@ describe("classifyApiError", () => {
     });
 
     it("classifies auth-like messages via body pattern when status is 0", () => {
-      // When there's no HTTP status, the body alone can't identify auth errors
-      // since there's no 401 status — this should fall through to unknown
       const classified = classifyApiError(0, "authentication failed");
-      // Without 401 status, the classifier should treat this as unknown
-      expect(classified.code).toBe("unknown");
+      expect(classified.code).toBe("auth_failed");
     });
   });
 

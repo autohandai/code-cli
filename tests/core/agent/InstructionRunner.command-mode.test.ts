@@ -213,6 +213,20 @@ describe('InstructionRunner command mode UI', () => {
       expect(result).toBe(true);
       expect(host.runReactLoop).toHaveBeenCalledTimes(3);
       expect(host.submitSessionFailureBugReport).toHaveBeenCalledTimes(2);
+      expect(host.submitSessionFailureBugReport).toHaveBeenNthCalledWith(
+        1,
+        expect.any(Error),
+        1,
+        3,
+        { autoReport: false },
+      );
+      expect(host.submitSessionFailureBugReport).toHaveBeenNthCalledWith(
+        2,
+        expect.any(Error),
+        2,
+        3,
+        { autoReport: false },
+      );
       expect(host.sleep).toHaveBeenCalledTimes(2);
       expect(host.injectContinuationMessage).not.toHaveBeenCalled();
       expect(host.sessionRetryCount).toBe(0);
@@ -220,6 +234,80 @@ describe('InstructionRunner command mode UI', () => {
       expect(host.printCompletionSummary).toHaveBeenCalledWith(false, true);
     } finally {
       consoleLogSpy.mockRestore();
+    }
+  });
+
+  it('submits final unrecovered provider failures only after retries are exhausted', async () => {
+    const host = createHost();
+    host.runtime = {
+      ...host.runtime,
+      config: {
+        ...host.runtime.config,
+        agent: {
+          enableRequestQueue: true,
+          sessionRetryLimit: 1,
+          sessionRetryDelay: 0,
+        },
+      },
+    };
+    host.isRetryableSessionError = vi.fn(() => true);
+    host.shouldUsePassiveSessionRetry = vi.fn(() => true);
+    host.runReactLoop = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Request timed out. The NVIDIA service may be experiencing high load.'))
+      .mockRejectedValueOnce(new Error('Request timed out. The NVIDIA service may be experiencing high load.'));
+    host.getDisplayErrorMessage = vi.fn(() => 'Request timed out. The NVIDIA service may be experiencing high load.');
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const result = await new InstructionRunner(host).run('continue the research job');
+
+      expect(result).toBe(false);
+      expect(host.runReactLoop).toHaveBeenCalledTimes(2);
+      expect(host.submitSessionFailureBugReport).toHaveBeenCalledTimes(2);
+      expect(host.submitSessionFailureBugReport).toHaveBeenNthCalledWith(
+        1,
+        expect.any(Error),
+        1,
+        1,
+        { autoReport: false },
+      );
+      expect(host.submitSessionFailureBugReport).toHaveBeenNthCalledWith(
+        2,
+        expect.any(Error),
+        1,
+        1,
+        { autoReport: true },
+      );
+    } finally {
+      consoleLogSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
+  it('submits final unrecovered product errors for auto-reporting', async () => {
+    const host = createHost();
+    const error = new TypeError('Cannot read properties of undefined');
+    host.runReactLoop = vi.fn(async () => {
+      throw error;
+    });
+    host.getDisplayErrorMessage = vi.fn(() => error.message);
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const result = await new InstructionRunner(host).run('run a command');
+
+      expect(result).toBe(false);
+      expect(host.submitSessionFailureBugReport).toHaveBeenCalledTimes(1);
+      expect(host.submitSessionFailureBugReport).toHaveBeenCalledWith(
+        error,
+        0,
+        3,
+        { autoReport: true },
+      );
+    } finally {
+      consoleErrorSpy.mockRestore();
     }
   });
 });

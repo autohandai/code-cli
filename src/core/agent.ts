@@ -12,7 +12,7 @@ import type { LLMProvider } from '../providers/LLMProvider.js';
 import { safeEmitKeypressEvents } from '../ui/inputPrompt.js';
 
 import { safeSetRawMode } from '../ui/rawMode.js';
-import { isAutohandDebugEnabled } from '../utils/debugLog.js';
+import { isAutohandDebugEnabled, writeAutohandDebugLine } from '../utils/debugLog.js';
 import type { UIManager } from '../ui/UIManager.js';
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
 import { ConversationManager } from './conversationManager.js';
@@ -83,7 +83,11 @@ import { MentionResolver } from './agent/MentionResolver.js';
 import { SystemPromptBuilder } from './agent/SystemPromptBuilder.js';
 import { runAgentReactLoop, type AgentReactLoopHost } from './agent/ReactLoopRunner.js';
 import { initializeAgentDependencies, type AgentDependencyHost } from './agent/AgentDependencyComposer.js';
-import { InstructionRunner, type AgentInstructionHost } from './agent/InstructionRunner.js';
+import {
+  InstructionRunner,
+  type AgentInstructionHost,
+  type SessionFailureBugReportOptions,
+} from './agent/InstructionRunner.js';
 import { buildStatusLineExtension, getConfigStatusLineSettings } from './agent/StatusLineSettings.js';
 import {
   agentSleep,
@@ -1171,7 +1175,8 @@ export class AutohandAgent {
   private async submitSessionFailureBugReport(
     error: Error,
     retryAttempt: number,
-    maxRetries: number
+    maxRetries: number,
+    options: SessionFailureBugReportOptions = {}
   ): Promise<void> {
     try {
       // Gather context for the bug report
@@ -1202,6 +1207,14 @@ export class AutohandAgent {
         context: `Session failure (retry ${retryAttempt + 1}/${maxRetries})`,
         workspace: this.runtime.workspaceRoot
       });
+
+      if (options.autoReport === false) {
+        writeAutohandDebugLine(
+          `[DEBUG] Skipping session failure auto-report during retry attempt ${retryAttempt}/${maxRetries}`,
+          this.writeDebugLine.bind(this)
+        );
+        return;
+      }
 
       // Auto-report to GitHub (fire-and-forget, non-blocking)
       this.autoReportManager.reportError(error, {
