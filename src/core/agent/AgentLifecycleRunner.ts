@@ -57,6 +57,14 @@ function getHostProviderSettings(host: AgentLifecycleHost): ProviderSettings | n
   return getProviderConfig(host.runtime.config, host.activeProvider);
 }
 
+async function startHostActiveAgentHeartbeat(host: AgentLifecycleHost): Promise<void> {
+  try {
+    await host.startActiveAgentHeartbeat?.();
+  } catch {
+    // Local dashboard heartbeats are best-effort and must never change session flow.
+  }
+}
+
 function activateStartupSkill(host: AgentLifecycleHost): void {
   const skillName = host.runtime?.options?.activateSkillOnStartup;
   if (typeof skillName !== 'string' || !skillName.trim()) {
@@ -262,6 +270,7 @@ export async function performAgentBackgroundInit(host: AgentLifecycleHost): Prom
         host.resetConversationContext(),
         host.sessionManager.createSession(host.runtime.workspaceRoot, model),
       ]);
+      await startHostActiveAgentHeartbeat(host);
 
       // Inject explicit session bootstrap so the LLM is consciously aware of
       // memories, AGENTS.md, skills, and project context from the first turn.
@@ -330,6 +339,7 @@ export async function initializeAgentForRPC(host: AgentLifecycleHost): Promise<v
       host.resetConversationContext(),
       host.sessionManager.createSession(host.runtime.workspaceRoot, model),
     ]);
+    await startHostActiveAgentHeartbeat(host);
 
     await host.injectSessionBootstrap();
 
@@ -465,6 +475,7 @@ export async function attachAgentSession(
     const session = await host.restoreSessionState(sessionId);
     host.sessionStartedAt = Date.now();
     const providerSettings = getHostProviderSettings(host);
+    await startHostActiveAgentHeartbeat(host);
 
     await host.telemetryManager.startSession(
       sessionId,
@@ -490,6 +501,7 @@ export async function resumeAgentSession(host: AgentLifecycleHost, sessionId: st
       const session = await host.restoreSessionState(sessionId);
       host.sessionStartedAt = Date.now();
       const providerSettings = getHostProviderSettings(host);
+      await startHostActiveAgentHeartbeat(host);
 
       console.log(chalk.cyan(`\n📂 Resumed session ${sessionId}`));
 
@@ -517,6 +529,7 @@ export async function resumeAgentSession(host: AgentLifecycleHost, sessionId: st
       host.sessionStartedAt = Date.now();
       const workspaceRoot = host.runtime?.workspaceRoot ?? process.cwd();
       const fallbackSession = await host.sessionManager.createSession(workspaceRoot, model);
+      await startHostActiveAgentHeartbeat(host);
       await host.telemetryManager.startSession(
         fallbackSession.metadata.sessionId,
         model,

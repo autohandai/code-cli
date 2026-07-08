@@ -25,6 +25,9 @@ export const AUTOHAND_PATHS = {
   /** Session data storage */
   sessions: path.join(AUTOHAND_HOME, 'sessions'),
 
+  /** Active local CLI session heartbeat files */
+  activeAgents: path.join(AUTOHAND_HOME, 'active-agents'),
+
   /** Project knowledge base */
   projects: path.join(AUTOHAND_HOME, 'projects'),
 

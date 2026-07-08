@@ -23,7 +23,8 @@ Each command is a separate TypeScript file that exports:
 | `/resume` | `resume.ts` | Resume a previous session |
 | `/memory` | `memory.ts` | Manage project/user memory |
 | `/feedback` | `feedback.ts` | Submit feedback |
-| `/agents` | `agents.ts` | Manage sub-agents |
+| `/agents` | `agents.ts` | Show active Autohand CLI instances |
+| `/agents definitions` | `agents.ts` | List configured sub-agents |
 | `/tools` | `tools.ts` | Manage persisted meta-tools |
 | `/experiments` | `features.ts` | List and toggle experiments |
 | `/goal` | `goal.ts` | Manage persistent goals, budgets, templates, and queued goal work. Requires `slash_goal`. |

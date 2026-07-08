@@ -90,7 +90,7 @@ _autohand_completions() {
     opts="${opts}"
 
     # Subcommands
-    subcommands="resume login logout mcp sessions init completion"
+    subcommands="resume login logout mcp sessions agents init completion"
 
     # MCP subcommands
     mcp_subcommands="add remove list install"

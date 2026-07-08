@@ -234,6 +234,22 @@ describe('built CLI Tuistory smoke tests', () => {
     expectCleanExit(session);
   });
 
+  it('opens the active agents dashboard and exits with Escape', async () => {
+    const state = await createTempAutohandHome({ initializeGit: false });
+    tempStates.push(state);
+    const session = await trackSession(launchBuiltAutohand(['agents'], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      waitForDataTimeout: 15_000,
+    }));
+
+    await session.waitForText('No active Autohand agents found.', { timeout: 10_000 });
+    await session.press('escape');
+
+    await waitForExit(session);
+    expectCleanExit(session);
+  });
+
   it('installs a direct skill from Skilled when the primary CLI registry misses', async () => {
     const state = await createTempAutohandHome();
     tempStates.push(state);

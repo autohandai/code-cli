@@ -267,7 +267,8 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/resume`          | Resume a previous session                                                        |
 | `/memory`          | View/manage stored memories                                                      |
 | `/init`            | Create `AGENTS.md` file                                                          |
-| `/agents`          | List sub-agents                                                                  |
+| `/agents`          | Show active Autohand CLI instances                                               |
+| `/agents definitions` | List configured sub-agents                                                    |
 | `/agents-new`      | Create new agent via wizard                                                      |
 | `/skills`          | List and manage skills                                                           |
 | `/skills new`      | Create a new skill                                                               |

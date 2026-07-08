@@ -480,8 +480,9 @@
       "failed": "Export failed: {{error}}"
     },
     "agents": {
-      "description": "manage sub-agents",
-      "title": "Sub-Agents",
+      "description": "show active Autohand CLI agents",
+      "title": "Active Autohand Agents",
+      "definitionsTitle": "Sub-Agent Definitions",
       "noAgents": "No sub-agents configured."
     },
     "automode": {
