@@ -117,7 +117,7 @@ export interface AgentInstructionHost {
   injectContinuationMessage(error: Error, attempt: number): void;
   getDisplayErrorMessage(error: unknown): string;
   emitOutput(event: AgentOutputEvent): void;
-  printCompletionSummary(regionsStillActive: boolean): void;
+  printCompletionSummary(regionsStillActive: boolean, succeeded?: boolean): void;
   scheduleTurnMemoryReflection(success: boolean): void;
   writeDebugLine?(message: string): void;
 }
@@ -291,11 +291,11 @@ export class InstructionRunner {
         // Fall through to finally with success = false
       } else {
         // Session failure retry logic
-        const err = error instanceof Error ? error : new Error(String(error));
+        let err = error instanceof Error ? error : new Error(String(error));
         const maxRetries = host.runtime.config.agent?.sessionRetryLimit ?? 3;
         const baseDelay = host.runtime.config.agent?.sessionRetryDelay ?? 1000;
 
-        if (host.isRetryableSessionError(err) && host.sessionRetryCount < maxRetries) {
+        while (host.isRetryableSessionError(err) && host.sessionRetryCount < maxRetries) {
           host.sessionRetryCount++;
 
           // Submit bug report to telemetry
@@ -330,15 +330,7 @@ export class InstructionRunner {
             success = true;
             return success;
           } catch (retryError) {
-            // Retry failed, will be caught by outer logic on next iteration
-            // or fall through to final failure if max retries exceeded
-            if (host.sessionRetryCount >= maxRetries) {
-              // Max retries exceeded, fall through to failure
-              host.sessionRetryCount = 0;
-            } else {
-              // Re-throw to trigger another retry attempt
-              throw retryError;
-            }
+            err = retryError instanceof Error ? retryError : new Error(String(retryError));
           }
         }
 
@@ -347,9 +339,9 @@ export class InstructionRunner {
 
         host.stopUI(true, 'Session failed');
         // Emit error for RPC mode
-        const errorMessage = host.getDisplayErrorMessage(error);
+        const errorMessage = host.getDisplayErrorMessage(err);
         host.emitOutput({ type: 'error', content: errorMessage });
-        if (error instanceof Error) {
+        if (err instanceof Error) {
           console.error(chalk.red(errorMessage));
         } else {
           console.error(errorMessage);
@@ -404,7 +396,7 @@ export class InstructionRunner {
 
       // Show completion summary (skip if using Ink - it handles this via completionStats)
       if (host.taskStartedAt && !canceledByUser && !host.useInkRenderer) {
-        host.printCompletionSummary(keepPersistentInputForNextTurn);
+        host.printCompletionSummary(keepPersistentInputForNextTurn, success && !canceledByUser);
       }
 
       // Accumulate exact provider-reported session usage only when the whole turn reported usage.

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import fs from 'fs-extra';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { applyPatch as applyUnifiedPatch } from 'diff';
@@ -534,7 +535,12 @@ export class FileActionManager {
   }
 
   private resolvePath(target: string): string {
-    const normalized = path.isAbsolute(target) ? target : path.join(this.workspaceRoot, target);
+    const expandedTarget = target === '~'
+      ? os.homedir()
+      : target.startsWith(`~${path.sep}`) || target.startsWith('~/')
+        ? path.join(os.homedir(), target.slice(2))
+        : target;
+    const normalized = path.isAbsolute(expandedTarget) ? expandedTarget : path.join(this.workspaceRoot, expandedTarget);
     const resolved = path.resolve(normalized);
 
     const realPath = this.resolveRealPathOrAncestor(resolved);

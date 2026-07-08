@@ -1023,8 +1023,8 @@ export class AutohandAgent {
    * writeAbove so the message lands in the scroll region instead of on top of
    * the composer.
    */
-  private printCompletionSummary(regionsStillActive: boolean): void {
-    return printAgentCompletionSummary(this, regionsStillActive);
+  private printCompletionSummary(regionsStillActive: boolean, succeeded = true): void {
+    return printAgentCompletionSummary(this, regionsStillActive, succeeded);
   }
 
   notifyUser(message: string): void {
