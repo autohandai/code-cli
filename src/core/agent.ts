@@ -224,6 +224,7 @@ import {
 } from './agent/AgentSessionAccounting.js';
 import { AutoReportManager } from '../reporting/AutoReportManager.js';
 import { SuggestionEngine } from './SuggestionEngine.js';
+import { ActiveAgentHeartbeat, ActiveAgentRegistry } from '../session/ActiveAgentRegistry.js';
 
 function formatTurnMemoryUpdate(saved: ExtractedMemory[]): string {
   const lines = ['[Auto Memory Update] Background reflection saved these memories for future turns:'];
@@ -292,6 +293,7 @@ export class AutohandAgent {
   private shellSuggestionProvider!: ShellSuggestionProvider;
   private instructionRunner!: InstructionRunner;
   private sessionDiffStatsTracker?: SessionDiffStatsTracker;
+  private activeAgentHeartbeat: ActiveAgentHeartbeat | null = null;
 
   private taskStartedAt: number | null = null;
   private totalTokensUsed = 0;
@@ -1923,10 +1925,35 @@ export class AutohandAgent {
   }
 
   private emitStatus(): void {
-    return emitAgentStatus(this as unknown as AgentSessionAccountingHost);
+    emitAgentStatus(this as unknown as AgentSessionAccountingHost);
+    this.activeAgentHeartbeat?.update(this.isInstructionActive ? 'working' : 'idle').catch(() => {});
   }
 
   getStatusSnapshot(): AgentStatusSnapshot {
     return getAgentStatusSnapshot(this as unknown as AgentSessionAccountingHost);
+  }
+
+  private async startActiveAgentHeartbeat(): Promise<void> {
+    await this.activeAgentHeartbeat?.stop().catch(() => {});
+    this.activeAgentHeartbeat = new ActiveAgentHeartbeat(
+      new ActiveAgentRegistry(),
+      {
+        runtime: this.runtime,
+        getProvider: () => this.activeProvider,
+        getSession: () => this.sessionManager.getCurrentSession(),
+        getStatusSnapshot: () => this.getStatusSnapshot(),
+      },
+    );
+    await this.activeAgentHeartbeat.start();
+  }
+
+  private async stopActiveAgentHeartbeat(): Promise<void> {
+    const heartbeat = this.activeAgentHeartbeat;
+    this.activeAgentHeartbeat = null;
+    await heartbeat?.stop().catch(() => {});
+  }
+
+  private async updateActiveAgentHeartbeat(status?: 'idle' | 'working'): Promise<void> {
+    await this.activeAgentHeartbeat?.update(status ?? (this.isInstructionActive ? 'working' : 'idle'));
   }
 }

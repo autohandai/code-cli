@@ -86,9 +86,14 @@ export class SlashCommandHandler {
         }
         case '/agents': {
           const { handler } = await import('../commands/agents.js');
-          const output = await handler();
-          if (output) {
-            console.log(output);
+          await this.ctx.onBeforeModal?.();
+          try {
+            const output = await handler(args);
+            if (output) {
+              console.log(output);
+            }
+          } finally {
+            await this.ctx.onAfterModal?.();
           }
           return null;
         }

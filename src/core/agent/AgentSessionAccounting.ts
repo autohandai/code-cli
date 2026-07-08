@@ -77,6 +77,8 @@ export interface AgentSessionAccountingHost {
   emitOutput(event: AgentOutputEvent): void;
   emitStatus(): void;
   getStatusSnapshot(): AgentStatusSnapshot;
+  stopActiveAgentHeartbeat?(): Promise<void>;
+  updateActiveAgentHeartbeat?(status?: 'idle' | 'working'): Promise<void>;
 }
 
 const CLEANUP_TIMEOUT_MS = 2500;
@@ -231,6 +233,7 @@ export async function forceAgentIdleLogout(host: AgentSessionAccountingHost): Pr
 }
 
 export async function closeAgentSession(host: AgentSessionAccountingHost): Promise<void> {
+  await host.stopActiveAgentHeartbeat?.();
   host.cleanupUI?.(false);
   host.persistentInput.dispose();
 
@@ -297,6 +300,7 @@ export async function saveAgentUserMessage(
     timestamp: new Date().toISOString(),
   };
   await session.append(message);
+  await host.updateActiveAgentHeartbeat?.().catch(() => {});
   scheduleAgentSessionSnapshotSync(host);
 }
 
@@ -315,6 +319,7 @@ export async function saveAgentAssistantMessage(
     toolCalls,
   };
   await session.append(message);
+  await host.updateActiveAgentHeartbeat?.().catch(() => {});
   scheduleAgentSessionSnapshotSync(host);
 }
 

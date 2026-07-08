@@ -11,17 +11,38 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { SessionDiffStatsTracker } from '../../src/core/SessionDiffStatsTracker.js';
 
 const tmpDirs: string[] = [];
+const GIT_ENV = {
+  ...process.env,
+  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_CONFIG_NOSYSTEM: '1',
+  GIT_TERMINAL_PROMPT: '0',
+};
+const GIT_EXEC_OPTIONS = {
+  env: GIT_ENV,
+  stdio: 'ignore',
+  timeout: 10_000,
+} as const;
 
 async function createRepo(): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-session-diff-'));
   tmpDirs.push(dir);
-  execFileSync('git', ['init'], { cwd: dir, stdio: 'ignore' });
+  execFileSync('git', ['init'], { cwd: dir, ...GIT_EXEC_OPTIONS });
   await fs.writeFile(path.join(dir, 'tracked.txt'), 'one\ntwo\nthree\n');
-  execFileSync('git', ['add', 'tracked.txt'], { cwd: dir, stdio: 'ignore' });
+  execFileSync('git', ['add', 'tracked.txt'], { cwd: dir, ...GIT_EXEC_OPTIONS });
   execFileSync(
     'git',
-    ['-c', 'user.email=test@example.com', '-c', 'user.name=Test User', 'commit', '-m', 'init'],
-    { cwd: dir, stdio: 'ignore' }
+    [
+      '-c', 'user.email=test@example.com',
+      '-c', 'user.name=Test User',
+      '-c', 'commit.gpgsign=false',
+      '-c', 'core.hooksPath=/dev/null',
+      'commit',
+      '--no-gpg-sign',
+      '--no-verify',
+      '-m',
+      'init',
+    ],
+    { cwd: dir, ...GIT_EXEC_OPTIONS }
   );
   return dir;
 }

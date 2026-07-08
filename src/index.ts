@@ -945,6 +945,20 @@ experimentsCmd
 
 // ── Sessions subcommand ─────────────────────────────────────────────────
 program
+  .command('agents [args...]')
+  .description('Show active Autohand CLI agents')
+  .option('--once', 'Print one snapshot and exit')
+  .action(async (args: string[] = [], opts: { once?: boolean }) => {
+    const { handler } = await import('./commands/agents.js');
+    const commandArgs = opts.once ? [...args, '--once'] : args;
+    const output = await handler(commandArgs);
+    if (output) {
+      console.log(output);
+    }
+    process.exit(0);
+  });
+
+program
   .command('sessions')
   .description('List saved sessions')
   .option('--project <name>', 'Filter sessions by project name')
