@@ -22,7 +22,7 @@ This directory contains automated CI/CD workflows for the Autohand CLI project.
    - Linux ARM64 (`autohand-linux-arm64`)
    - Windows x64 (`autohand-windows-x64.exe`)
 
-3. **Generates changelog** from commit history
+3. **Generates release notes** from the correct previous release tag
 
 4. **Creates GitHub Release** with binaries attached
 
@@ -98,7 +98,7 @@ Add these secrets in GitHub Settings → Secrets → Actions:
 3. GitHub Actions automatically:
    - Determines version
    - Builds binaries
-   - Generates changelog
+   - Generates release notes
    - Creates release
 
 ### Manual Release
@@ -125,13 +125,20 @@ Format: `MAJOR.MINOR.PATCH[-prerelease]`
 - **Alpha**: `1.2.4-alpha.abc1234` (next patch from the latest stable tag plus short SHA)
 - **Release**: `1.2.3` (no suffix)
 
-## Changelog Generation
+## Release Notes Generation
 
-The workflow automatically generates changelogs from commits, categorizing them:
+The workflow automatically generates release notes from commits and attaches them
+to the GitHub Release. Stable releases compare against the previous stable tag, so
+a release like `v0.9.2` compares against `v0.9.1` even if there was a same-commit
+alpha tag such as `v0.9.2-alpha.<sha>`. Alpha releases compare against the
+previous reachable release tag.
+
+Commits are categorized as:
 
 - ⚠️ **BREAKING CHANGES**: Breaking changes
 - ✨ **Features**: New features
 - 🐛 **Bug Fixes**: Bug fixes
+- **Updates**: User-visible non-conventional commit subjects
 - 🔧 **Maintenance**: Chores and maintenance
 
 ## Troubleshooting
