@@ -62,7 +62,7 @@ describe('dependency install guardrails', () => {
       devDependencies?: Record<string, string>;
     };
 
-    expect(packageJson.devDependencies?.tuistory).toBe('0.4.0');
+    expect(packageJson.devDependencies?.tuistory).toBe('0.10.1');
   });
 
   it('uses the committed Bun lockfile in GitHub workflows', () => {
