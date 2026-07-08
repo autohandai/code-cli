@@ -522,6 +522,46 @@ describe("AutoReportManager", () => {
   });
 
   describe("operational error filtering (should NOT report)", () => {
+    it.each([
+      [
+        "timeout",
+        "Request timed out. The NVIDIA service may be experiencing high load.",
+      ],
+      ["rate limit", "Rate limit exceeded: too many requests for this model."],
+      ["network", "fetch failed: ECONNRESET"],
+      ["provider 5xx", "Provider returned 503 Service Unavailable"],
+      ["auth", "Authentication failed: invalid API key provided"],
+      ["payment", "Payment required: please check your billing settings"],
+      ["access denied", "Access denied: API key lacks permission for this model"],
+      ["model not found", "The model 'nvidia/llama-4' was not found"],
+      [
+        "context overflow",
+        "This request exceeds the context window for the selected model",
+      ],
+      ["cancellation", "Request cancelled by user"],
+    ])("skips plain operational Error messages: %s", async (_name, message) => {
+      mockFetch.mockResolvedValue(okResponse({ success: true }));
+      const mgr = new AutoReportManager(makeConfig(), "0.7.14");
+
+      await mgr.reportError(new Error(message));
+
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("still reports genuine internal errors once and deduplicates them", async () => {
+      mockFetch.mockResolvedValue(okResponse({ success: true }));
+      const mgr = new AutoReportManager(makeConfig(), "0.7.14");
+      const err = new TypeError("Cannot read properties of undefined");
+
+      await mgr.reportError(err);
+      await mgr.reportError(err);
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.errorType).toBe("TypeError");
+      expect(body.errorMessage).toBe("Cannot read properties of undefined");
+    });
+
     it("skips ApiError with rate_limited code", async () => {
       mockFetch.mockResolvedValue(okResponse({ success: true }));
       const mgr = new AutoReportManager(makeConfig(), "0.7.14");

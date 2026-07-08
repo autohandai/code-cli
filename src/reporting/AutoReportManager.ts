@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
 import type { AutohandConfig } from '../types.js';
 import type { ErrorReport } from './types.js';
 import { AutoReportClient } from './AutoReportClient.js';
-import { ApiError } from '../providers/errors.js';
+import { ApiError, classifyApiError } from '../providers/errors.js';
 import type { ApiErrorCode } from '../providers/errors.js';
 import { isAutohandDebugEnabled } from '../utils/debugLog.js';
 
@@ -56,10 +56,20 @@ export class AutoReportManager {
    * that should NOT be auto-reported as a bug.
    */
   isOperationalError(error: Error): boolean {
+    return this.getOperationalErrorCode(error) !== null;
+  }
+
+  private getOperationalErrorCode(error: Error): ApiErrorCode | null {
     if (error instanceof ApiError) {
-      return AutoReportManager.OPERATIONAL_API_ERROR_CODES.has(error.code);
+      return AutoReportManager.OPERATIONAL_API_ERROR_CODES.has(error.code)
+        ? error.code
+        : null;
     }
-    return false;
+
+    const classified = classifyApiError(0, error.message);
+    return AutoReportManager.OPERATIONAL_API_ERROR_CODES.has(classified.code)
+      ? classified.code
+      : null;
   }
 
   /**
@@ -79,9 +89,10 @@ export class AutoReportManager {
       if (!this.enabled) return;
 
       // Skip expected operational errors — they are not bugs
-      if (this.isOperationalError(error)) {
+      const operationalCode = this.getOperationalErrorCode(error);
+      if (operationalCode) {
         if (isDebug()) {
-          process.stderr.write(`[autohand:report] Skipping operational error: ${(error as ApiError).code}\n`);
+          process.stderr.write(`[autohand:report] Skipping operational error: ${operationalCode}\n`);
         }
         return;
       }

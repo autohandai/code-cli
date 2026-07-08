@@ -29,6 +29,10 @@ interface InstructionProviderConfigManager {
   promptModelSelection(): Promise<void>;
 }
 
+export interface SessionFailureBugReportOptions {
+  autoReport?: boolean;
+}
+
 interface InstructionPersistentInput {
   start(): void;
   stop(): void;
@@ -111,7 +115,12 @@ export interface AgentInstructionHost {
   cleanupUI(keepInkAlive?: boolean): void;
   runInstruction(instruction: string): Promise<boolean>;
   isRetryableSessionError(error: Error): boolean;
-  submitSessionFailureBugReport(error: Error, attempt: number, maxRetries: number): Promise<void>;
+  submitSessionFailureBugReport(
+    error: Error,
+    attempt: number,
+    maxRetries: number,
+    options?: SessionFailureBugReportOptions
+  ): Promise<void>;
   sleep(ms: number): Promise<void>;
   shouldUsePassiveSessionRetry(error: Error): boolean;
   injectContinuationMessage(error: Error, attempt: number): void;
@@ -298,8 +307,9 @@ export class InstructionRunner {
         while (host.isRetryableSessionError(err) && host.sessionRetryCount < maxRetries) {
           host.sessionRetryCount++;
 
-          // Submit bug report to telemetry
-          await host.submitSessionFailureBugReport(err, host.sessionRetryCount, maxRetries);
+          await host.submitSessionFailureBugReport(err, host.sessionRetryCount, maxRetries, {
+            autoReport: false,
+          });
 
           // Show retry message to user
           console.log(chalk.yellow(`\n⚠ Session encountered an error: ${err.message}`));
@@ -335,6 +345,9 @@ export class InstructionRunner {
         }
 
         // Reset retry counter on non-retryable errors or max retries exceeded
+        await host.submitSessionFailureBugReport(err, host.sessionRetryCount, maxRetries, {
+          autoReport: true,
+        });
         host.sessionRetryCount = 0;
 
         host.stopUI(true, 'Session failed');

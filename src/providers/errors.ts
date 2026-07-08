@@ -111,6 +111,8 @@ const MODEL_NOT_FOUND_PATTERNS = [
   // Catch "model 'xyz' not found" where 'not found' is separate from 'model'
   "' not found",
   "\" not found",
+  "' was not found",
+  "\" was not found",
 ] as const;
 
 /**
@@ -154,10 +156,56 @@ const NETWORK_PATTERNS = [
   'unable to connect',
 ] as const;
 
+/** Patterns that indicate rate limiting in status-0 / unknown errors. */
+const RATE_LIMIT_PATTERNS = [
+  'rate limit',
+  'rate limited',
+  'too many requests',
+  '429',
+] as const;
+
 /** Patterns that indicate a timeout in status-0 / unknown errors. */
 const TIMEOUT_PATTERNS = [
   'timed out',
   'timeout',
+] as const;
+
+/** Patterns that indicate authentication or authorization setup failures. */
+const AUTH_FAILED_PATTERNS = [
+  'authentication failed',
+  'unauthorized',
+  'invalid api key',
+  'bad api key',
+  '401',
+] as const;
+
+const PAYMENT_REQUIRED_PATTERNS = [
+  'payment required',
+  'billing',
+  'insufficient credits',
+  'insufficient balance',
+  '402',
+] as const;
+
+const ACCESS_DENIED_PATTERNS = [
+  'access denied',
+  'permission denied',
+  'forbidden',
+  'lacks permission',
+  '403',
+] as const;
+
+const SERVER_ERROR_PATTERNS = [
+  'internal server error',
+  'bad gateway',
+  'service unavailable',
+  'provider error',
+  'upstream error',
+  'server error',
+  '500',
+  '502',
+  '503',
+  '599',
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -259,6 +307,21 @@ export function classifyApiError(
     // stale or generic friendly text ahead of the real "invalid model ID" body.
     if (matchesAny(lower, MODEL_NOT_FOUND_PATTERNS)) {
       return makeError('model_not_found', httpStatus, false, errorBody, headers);
+    }
+    if (matchesAny(lower, RATE_LIMIT_PATTERNS)) {
+      return makeError('rate_limited', httpStatus, true, errorBody, headers);
+    }
+    if (matchesAny(lower, AUTH_FAILED_PATTERNS)) {
+      return makeError('auth_failed', httpStatus, false, errorBody, headers);
+    }
+    if (matchesAny(lower, PAYMENT_REQUIRED_PATTERNS)) {
+      return makeError('payment_required', httpStatus, false, errorBody, headers);
+    }
+    if (matchesAny(lower, ACCESS_DENIED_PATTERNS)) {
+      return makeError('access_denied', httpStatus, false, errorBody, headers);
+    }
+    if (matchesAny(lower, SERVER_ERROR_PATTERNS)) {
+      return makeError('server_error', httpStatus, true, errorBody, headers);
     }
     // Check for context-overflow patterns even without a status code
     if (matchesAny(lower, CONTEXT_OVERFLOW_PATTERNS)) {
