@@ -4,7 +4,12 @@
  */
 
 import type { ToolKind, SessionConfigOption } from "@agentclientprotocol/sdk";
-import type { LoadedConfig } from "../../types.js";
+import type { BuiltInProviderName, LoadedConfig } from "../../types.js";
+import {
+  getProviderDefaultModel,
+  getProviderModelIds,
+  mergeModelIds,
+} from "../../providers/modelCatalog.js";
 
 // ============================================================================
 // Hook Lifecycle Notification Constants
@@ -431,35 +436,46 @@ export function buildConfigOptions(
 /**
  * Parse available models from config, returning a list of model IDs.
  */
+function hasProviderModel(value: unknown): value is { model: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "model" in value &&
+    typeof (value as { model?: unknown }).model === "string"
+  );
+}
+
+function isBuiltInProviderName(value: string): value is BuiltInProviderName {
+  return [
+    "openrouter",
+    "ollama",
+    "llamacpp",
+    "openai",
+    "mlx",
+    "llmgateway",
+    "azure",
+    "zai",
+    "sakana",
+    "vertexai",
+    "xai",
+    "cerebras",
+    "nvidia",
+    "deepseek",
+    "bedrock",
+  ].includes(value);
+}
+
 export function parseAvailableModels(config: LoadedConfig): string[] {
   const models: string[] = [];
 
   // Add current model
   const providerName = config.provider ?? "openrouter";
-  const providerConfig = (config as Record<string, any>)[providerName];
-  if (providerConfig?.model) {
+  const providerConfig = (config as unknown as Record<string, unknown>)[providerName];
+  if (hasProviderModel(providerConfig)) {
     models.push(providerConfig.model);
   }
 
-  // Popular models that work with OpenRouter
-  const popularModels = [
-    "openrouter/auto",
-    "anthropic/claude-sonnet-4-20250514",
-    "openai/gpt-4o",
-    "openai/gpt-5",
-    "google/gemini-3.0-pro",
-    "deepseek/deepseek-v4",
-    "anthropic/claude-5-sonnet",
-    "anthropic/claude-5-opus",
-  ];
-
-  for (const m of popularModels) {
-    if (!models.includes(m)) {
-      models.push(m);
-    }
-  }
-
-  return models;
+  return mergeModelIds(models, getProviderModelIds("openrouter"));
 }
 
 /**
@@ -476,6 +492,11 @@ export function resolveDefaultMode(config?: LoadedConfig): string {
  */
 export function resolveDefaultModel(config: LoadedConfig): string {
   const providerName = config.provider ?? "openrouter";
-  const providerConfig = (config as Record<string, any>)[providerName];
-  return providerConfig?.model ?? "anthropic/claude-5-sonnet";
+  const providerConfig = (config as unknown as Record<string, unknown>)[providerName];
+  if (hasProviderModel(providerConfig)) {
+    return providerConfig.model;
+  }
+  return isBuiltInProviderName(providerName)
+    ? getProviderDefaultModel(providerName, getProviderDefaultModel("openrouter"))
+    : getProviderDefaultModel("openrouter");
 }

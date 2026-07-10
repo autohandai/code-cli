@@ -7,12 +7,10 @@
 import { LLMGatewayClient } from './LLMGatewayClient.js';
 import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, NetworkSettings, SakanaSettings } from '../types.js';
+import { getProviderModelIds } from './modelCatalog.js';
 
 export const SAKANA_DEFAULT_BASE_URL = 'https://api.sakana.ai/v1';
-export const SAKANA_MODELS = [
-  'fugu',
-  'fugu-ultra',
-] as const;
+export const SAKANA_MODELS = getProviderModelIds('sakana');
 
 export class SakanaProvider implements LLMProvider {
   private client: LLMGatewayClient;
@@ -45,7 +43,7 @@ export class SakanaProvider implements LLMProvider {
   }
 
   async listModels(): Promise<string[]> {
-    return [...SAKANA_MODELS];
+    return getProviderModelIds('sakana');
   }
 
   async isAvailable(): Promise<boolean> {

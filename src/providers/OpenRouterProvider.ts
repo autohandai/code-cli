@@ -13,6 +13,7 @@ import type {
   NetworkSettings,
 } from "../types.js";
 import { fetchOpenRouterModelCapabilities } from "./modelCapabilities.js";
+import { getProviderModelIds, mergeModelIds } from "./modelCatalog.js";
 
 export class OpenRouterProvider implements LLMProvider {
   private client: OpenRouterClient;
@@ -44,20 +45,13 @@ export class OpenRouterProvider implements LLMProvider {
         .filter((id): id is string => Boolean(id));
 
       if (ids.length > 0) {
-        return ids;
+        return mergeModelIds(ids, getProviderModelIds("openrouter"));
       }
     } catch {
-      // Fall through to the static fallback list below.
+      // Fall through to the catalog fallback list below.
     }
 
-    return [
-      "anthropic/claude-4-sonnet",
-      "anthropic/claude-3-opus",
-      "google/gemini-pro-1.5",
-      "openai/gpt-4o",
-      "x-ai/grok-2-latest",
-      "meta-llama/llama-3.1-70b-instruct",
-    ];
+    return getProviderModelIds("openrouter");
   }
 
   async isAvailable(): Promise<boolean> {

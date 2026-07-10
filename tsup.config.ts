@@ -39,5 +39,7 @@ export default defineConfig({
     cpSync('src/agents/builtin', 'dist/agents/builtin', { recursive: true });
     mkdirSync('dist/skills/builtin', { recursive: true });
     cpSync('src/skills/builtin', 'dist/skills/builtin', { recursive: true });
+    mkdirSync('dist/providers', { recursive: true });
+    cpSync('src/providers/models.json', 'dist/providers/models.json');
   },
 });

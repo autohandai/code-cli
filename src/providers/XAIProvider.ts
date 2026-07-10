@@ -8,16 +8,17 @@ import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, LLMToolCall, LLMUsage, FunctionDefinition } from '../types.js';
 import { ApiError, classifyApiError, type ApiErrorCode } from './errors.js';
 import { normalizeLLMUsage } from './usage.js';
+import {
+    getProviderDefaultModel,
+    getProviderModelIds,
+    mergeModelIds,
+} from './modelCatalog.js';
 
-/** Canonical list of supported xAI models — single source of truth. */
-export const XAI_MODELS = [
-    'grok-4.20-reasoning',
-    'grok-4-1-fast-reasoning-latest',
-    'grok-4.20-0309-reasoning',
-] as const;
+/** Canonical list of supported xAI models from the JSON model catalog. */
+export const XAI_MODELS = getProviderModelIds('xai');
 
 /** Default model when none is specified. */
-export const XAI_DEFAULT_MODEL = 'grok-4.20-reasoning';
+export const XAI_DEFAULT_MODEL = getProviderDefaultModel('xai', 'grok-4.20-reasoning');
 
 /** xAI API base URL. */
 const XAI_API_BASE_URL = 'https://api.x.ai/v1';
@@ -178,7 +179,7 @@ export class XAIProvider implements LLMProvider {
                         }
                     }
                     if (ids.size > 0) {
-                        return [...ids];
+                        return mergeModelIds([...ids], getProviderModelIds('xai'));
                     }
                 }
             }
@@ -186,8 +187,7 @@ export class XAIProvider implements LLMProvider {
             // Fall through to static list
         }
 
-        // Fall back to canonical list
-        return [...XAI_MODELS];
+        return getProviderModelIds('xai');
     }
 
     async isAvailable(): Promise<boolean> {

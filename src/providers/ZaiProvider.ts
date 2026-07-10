@@ -7,19 +7,10 @@
 import { LLMGatewayClient } from './LLMGatewayClient.js';
 import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, ZaiSettings, NetworkSettings } from '../types.js';
+import { getProviderModelIds } from './modelCatalog.js';
 
 export const ZAI_DEFAULT_BASE_URL = 'https://api.z.ai/api/paas/v4';
-export const ZAI_MODELS = [
-  'glm-5.2',
-  'glm-5.1',
-  'glm-4.5',
-  'glm-4.5v',
-  'glm-4.5-air',
-  'glm-4.5-prior',
-  'glm-4.5-flash',
-  'glm-4.5-air-2504',
-  'cogview-4.5',
-] as const;
+export const ZAI_MODELS = getProviderModelIds('zai');
 
 export class ZaiProvider implements LLMProvider {
   private client: LLMGatewayClient;
@@ -52,7 +43,7 @@ export class ZaiProvider implements LLMProvider {
   }
 
   async listModels(): Promise<string[]> {
-    return [...ZAI_MODELS];
+    return getProviderModelIds('zai');
   }
 
   async isAvailable(): Promise<boolean> {

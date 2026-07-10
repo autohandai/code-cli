@@ -44,6 +44,8 @@ cat > ~/.autohand/config.json << 'EOF'
 EOF
 ```
 
+Bundled provider model choices live in `src/providers/models.json` and packaged builds include the same catalog at `dist/providers/models.json`. To add a newly released model without changing TypeScript, update the relevant provider entry in that JSON file. For local-only overrides, use `~/.autohand/models.json` or set `AUTOHAND_MODELS_CATALOG=/path/to/models.json`; those entries are merged ahead of the bundled catalog.
+
 ---
 
 ## Provider Comparison

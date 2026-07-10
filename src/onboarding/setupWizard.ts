@@ -13,7 +13,7 @@ import { ASCII_FRIEND } from '../utils/asciiArt.js';
 import fse from 'fs-extra';
 import { join } from 'path';
 
-import type { AutohandConfig, LoadedConfig, ProviderName, AzureSettings, AzureAuthMethod, PermissionMode, SearchProvider, ReasoningEffort, OpenAIAuthMode, OpenAIChatGPTAuth, OpenAISettings, VertexAISettings, BedrockSettings, BedrockApiMode, BedrockAuthMode } from '../types.js';
+import type { AutohandConfig, LoadedConfig, ProviderName, BuiltInProviderName, AzureSettings, AzureAuthMethod, PermissionMode, SearchProvider, ReasoningEffort, OpenAIAuthMode, OpenAIChatGPTAuth, OpenAISettings, VertexAISettings, BedrockSettings, BedrockApiMode, BedrockAuthMode } from '../types.js';
 import { getProviderConfig } from '../config.js';
 import { ProviderFactory } from '../providers/ProviderFactory.js';
 import { ZAI_MODELS, ZAI_DEFAULT_BASE_URL } from '../providers/ZaiProvider.js';
@@ -22,6 +22,7 @@ import { VERTEX_AI_CODING_MODELS } from '../providers/VertexAIProvider.js';
 import { CEREBRAS_MODELS, CEREBRAS_DEFAULT_BASE_URL } from '../providers/CerebrasProvider.js';
 import { DEEPSEEK_MODELS, DEEPSEEK_DEFAULT_BASE_URL } from '../providers/DeepSeekProvider.js';
 import { BEDROCK_DEFAULT_MODEL, BEDROCK_DEFAULT_REGION, BEDROCK_MODELS, resolveBedrockAuthMode, resolveBedrockEndpoint } from '../providers/BedrockProvider.js';
+import { getProviderDefaultModel } from '../providers/modelCatalog.js';
 import { authenticateOpenAIChatGPT, isChatGPTAuthExpired } from '../providers/openaiAuth.js';
 import { installLlamaCpp, probeLlamaCppEnvironment } from '../providers/llamaCppSetup.js';
 import { ProjectAnalyzer } from './projectAnalyzer.js';
@@ -2071,24 +2072,10 @@ export class SetupWizard {
   }
 
   private getDefaultModel(provider: ProviderName): string {
-    const defaults: Record<ProviderName, string> = {
-      openrouter: 'nvidia/nemotron-3-super-120b-a12b:free',
-      openai: 'gpt-5.4',
-      ollama: 'llama3.2:latest',
-      llamacpp: 'local',
-      mlx: 'mlx-community/Llama-3.2-3B-Instruct-4bit',
-      llmgateway: 'gpt-4o',
-      azure: 'gpt-5.3-codex',
-      zai: 'glm-5.2',
-      sakana: 'fugu',
-      vertexai: 'zai-org/glm-5-maas',
-      xai: 'grok-4.20-reasoning',
-      cerebras: 'zai-glm-4.7',
-      nvidia: 'mistralai/mixtral-8x7b-instruct-v0.1',
-      deepseek: 'deepseek-v4-flash',
-      bedrock: BEDROCK_DEFAULT_MODEL
-    };
-    return defaults[provider] || '';
+    if (provider.startsWith('custom:')) {
+      return '';
+    }
+    return getProviderDefaultModel(provider as BuiltInProviderName);
   }
 
   private getDefaultBaseUrl(provider: ProviderName): string {
