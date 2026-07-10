@@ -140,24 +140,26 @@ export const SOUND_ALERT_SCRIPT = `#!/bin/bash
 # Determine success/failure from environment or default to success
 SUCCESS=true
 
+play_detached() {
+  "$@" >/dev/null 2>&1 &
+}
+
 play_sound() {
   case "$(uname -s)" in
     Darwin)
       # macOS: Use afplay with system sounds
       if [ "$SUCCESS" = true ]; then
-        afplay /System/Library/Sounds/Glass.aiff 2>/dev/null || \\
-        osascript -e 'beep' 2>/dev/null
+        play_detached afplay -t 1 /System/Library/Sounds/Glass.aiff
       else
-        afplay /System/Library/Sounds/Basso.aiff 2>/dev/null || \\
-        osascript -e 'beep 2' 2>/dev/null
+        play_detached afplay -t 1 /System/Library/Sounds/Basso.aiff
       fi
       ;;
     Linux)
       # Linux: Try various sound players
       if command -v paplay &>/dev/null; then
-        paplay /usr/share/sounds/freedesktop/stereo/complete.oga 2>/dev/null
+        play_detached paplay /usr/share/sounds/freedesktop/stereo/complete.oga
       elif command -v aplay &>/dev/null; then
-        aplay /usr/share/sounds/sound-icons/glass-water.wav 2>/dev/null
+        play_detached aplay /usr/share/sounds/sound-icons/glass-water.wav
       elif command -v speaker-test &>/dev/null; then
         speaker-test -t sine -f 1000 -l 1 &>/dev/null &
         sleep 0.2
@@ -166,7 +168,7 @@ play_sound() {
       ;;
     MINGW*|MSYS*|CYGWIN*)
       # Windows: Use PowerShell
-      powershell.exe -c "[console]::beep(1000,200)" 2>/dev/null
+      play_detached powershell.exe -c "[console]::beep(1000,200)"
       ;;
   esac
 }
