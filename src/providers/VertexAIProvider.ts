@@ -16,6 +16,7 @@ import type { LLMProvider, LLMProviderCapabilities } from "./LLMProvider.js";
 import { getGcloudAccessToken, clearGcloudTokenCache } from "../utils/gcloudAuth.js";
 import { ApiError, classifyApiError, type ApiErrorCode } from "./errors.js";
 import { normalizeLLMUsage } from "./usage.js";
+import { getProviderModelIds } from "./modelCatalog.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -108,27 +109,8 @@ const ANTHROPIC_MODELS = [
   'claude-opus-4.6',
 ];
 
-/**
- * Recommended coding-capable models available on Vertex AI.
- */
-export const VERTEX_AI_CODING_MODELS = [
-  // Anthropic Claude (coding-optimized)
-  "anthropic/claude-opus-4-7",
-  "anthropic/claude-opus-4-6",
-  "anthropic/claude-opus-4",
-  "anthropic/claude-sonnet-4",
-  "anthropic/claude-3-5-sonnet",
-  "anthropic/claude-3-opus",
-  "anthropic/claude-3-haiku",
-  // Google Gemini (coding-capable)
-  "google/gemini-3.1-pro",
-  "google/gemini-3.1-flash",
-  "google/gemini-1.5-pro",
-  "google/gemini-1.5-flash",
-  "google/gemini-1.0-pro",
-  // Z.ai models
-  "zai-org/glm-5-maas",
-];
+/** Recommended coding-capable Vertex AI models from the JSON model catalog. */
+export const VERTEX_AI_CODING_MODELS = getProviderModelIds("vertexai");
 
 /**
  * Check if a model is an Anthropic model
@@ -201,8 +183,7 @@ export class VertexAIProvider implements LLMProvider {
   }
 
   async listModels(): Promise<string[]> {
-    // Return recommended Vertex AI coding models
-    return [...VERTEX_AI_CODING_MODELS];
+    return getProviderModelIds("vertexai");
   }
 
   async isAvailable(): Promise<boolean> {

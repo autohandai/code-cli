@@ -13,14 +13,10 @@ import type {
   LLMResponse,
   NetworkSettings,
 } from "../types.js";
+import { getProviderModelIds } from "./modelCatalog.js";
 
 export const DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com";
-export const DEEPSEEK_MODELS = [
-  "deepseek-v4-flash",
-  "deepseek-v4-pro",
-  "deepseek-chat",
-  "deepseek-reasoner",
-] as const;
+export const DEEPSEEK_MODELS = getProviderModelIds("deepseek");
 
 export class DeepSeekProvider implements LLMProvider {
   private client: LLMGatewayClient;
@@ -53,7 +49,7 @@ export class DeepSeekProvider implements LLMProvider {
   }
 
   async listModels(): Promise<string[]> {
-    return [...DEEPSEEK_MODELS];
+    return getProviderModelIds("deepseek");
   }
 
   async isAvailable(): Promise<boolean> {

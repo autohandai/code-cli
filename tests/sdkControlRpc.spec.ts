@@ -128,6 +128,14 @@ describe('SDK Control RPC Methods', () => {
       const claudeModels = result.models.filter(m => m.id.includes('claude'));
       expect(claudeModels.length).toBeGreaterThan(0);
     });
+
+    it('should include catalog-backed provider models', async () => {
+      const result = await adapter.handleGetSupportedModels();
+
+      const modelIds = result.models.map(m => m.id);
+      expect(modelIds).toContain('z-ai/glm-5.1');
+      expect(modelIds).toContain('gpt-5.4');
+    });
   });
 
   describe('getSupportedCommands', () => {

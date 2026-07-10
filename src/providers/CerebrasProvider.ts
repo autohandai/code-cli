@@ -7,12 +7,10 @@
 import { CerebrasClient } from './CerebrasClient.js';
 import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, CerebrasSettings, NetworkSettings } from '../types.js';
+import { getProviderModelIds } from './modelCatalog.js';
 
 export const CEREBRAS_DEFAULT_BASE_URL = 'https://api.cerebras.ai/v1';
-export const CEREBRAS_MODELS = [
-  'zai-glm-4.7',
-  'qwen-3-235b-a22b-instruct-2507',
-] as const;
+export const CEREBRAS_MODELS = getProviderModelIds('cerebras');
 
 export class CerebrasProvider implements LLMProvider {
   private client: CerebrasClient;
@@ -41,7 +39,7 @@ export class CerebrasProvider implements LLMProvider {
   }
 
   async listModels(): Promise<string[]> {
-    return [...CEREBRAS_MODELS];
+    return getProviderModelIds('cerebras');
   }
 
   async isAvailable(): Promise<boolean> {

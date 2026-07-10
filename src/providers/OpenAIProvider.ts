@@ -9,6 +9,10 @@ import type { ContentPart, LLMRequest, LLMResponse, LLMToolCall, FunctionDefinit
 import { ApiError, classifyApiError, type ApiErrorCode } from './errors.js';
 import { isChatGPTAuthExpired, refreshChatGPTAuth } from './openaiAuth.js';
 import { normalizeLLMUsage } from './usage.js';
+import {
+    getProviderDefaultModel,
+    getProviderModelIds,
+} from './modelCatalog.js';
 
 interface OpenAIToolCall {
     id: string;
@@ -125,17 +129,9 @@ interface OpenAIResponsesFunctionCallArgumentsDoneEvent {
     arguments?: string;
 }
 
-/** Canonical list of supported OpenAI models — single source of truth. */
-export const OPENAI_MODELS = [
-    'gpt-5.5',
-    'gpt-5.5-pro',
-    'gpt-5.4',
-    'gpt-5.4-pro',
-    'gpt-5.4-mini',
-    'gpt-5.4-nano',
-    'gpt-5.3-codex',
-    'gpt-5.1-codex-max',
-] as const;
+/** Canonical list of supported OpenAI models from the JSON model catalog. */
+export const OPENAI_MODELS = getProviderModelIds('openai');
+export const OPENAI_DEFAULT_MODEL = getProviderDefaultModel('openai', 'gpt-5.4');
 
 /** Valid reasoning effort levels for runtime validation. */
 const VALID_REASONING_EFFORTS = new Set<string>(['none', 'low', 'medium', 'high', 'xhigh']);
@@ -183,7 +179,7 @@ export class OpenAIProvider implements LLMProvider {
         this.authMode = config.authMode === 'chatgpt' ? 'chatgpt' : 'api-key';
         this.baseUrl = this.resolveBaseUrl(config.baseUrl);
         this.apiKey = config.apiKey || '';
-        this.model = config.model || 'gpt-5.4';
+        this.model = config.model || OPENAI_DEFAULT_MODEL;
         this.reasoningEffort = config.reasoningEffort;
         this.chatgptAuth = config.chatgptAuth;
     }
@@ -203,7 +199,7 @@ export class OpenAIProvider implements LLMProvider {
     }
 
     async listModels(): Promise<string[]> {
-        return [...OPENAI_MODELS];
+        return getProviderModelIds('openai');
     }
 
     async isAvailable(): Promise<boolean> {

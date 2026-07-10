@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import type { AutohandAgent } from '../../core/agent.js';
 import { McpClientManager } from '../../mcp/McpClientManager.js';
 import { classifyApiError, type ApiErrorCode } from '../../providers/errors.js';
+import { getAllCatalogModelOptions } from '../../providers/modelCatalog.js';
 import type { ConversationManager } from '../../core/conversationManager.js';
 import type {
   LLMMessage,
@@ -2884,13 +2885,10 @@ export class RPCAdapter {
    */
   async handleGetSupportedModels(): Promise<GetSupportedModelsResult> {
     try {
-      // Return a list of supported models
-      const models = [
-        { id: 'anthropic/claude-sonnet-4', displayName: 'Claude Sonnet 4' },
-        { id: 'anthropic/claude-3-5-sonnet-20241022', displayName: 'Claude 3.5 Sonnet' },
-        { id: 'openai/gpt-4o', displayName: 'GPT-4o' },
-        { id: 'openai/gpt-4o-mini', displayName: 'GPT-4o Mini' },
-      ];
+      const models = getAllCatalogModelOptions().map((model) => ({
+        id: model.id,
+        displayName: model.displayName ?? model.id,
+      }));
       return {
         models,
       };

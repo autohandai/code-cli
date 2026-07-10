@@ -75,6 +75,7 @@ export AUTOHAND_HOME=/custom/path  # Changes ~/.autohand to /custom/path
 | -------------------------------------- | ------------------------------------------------ | -------------------------------- |
 | `AUTOHAND_HOME`                        | Base directory for all Autohand data             | `/custom/path`                   |
 | `AUTOHAND_CONFIG`                      | Custom config file path                          | `/path/to/config.toml`           |
+| `AUTOHAND_MODELS_CATALOG`              | Custom provider model catalog path               | `/path/to/models.json`           |
 | `AUTOHAND_API_URL`                     | API endpoint (overrides config)                  | `https://api.autohand.ai`        |
 | `AUTOHAND_SECRET`                      | Company/team secret key                          | `sk-xxx`                         |
 | `AUTOHAND_PERMISSION_CALLBACK_URL`     | URL for permission callback (experimental)       | `http://localhost:3000/callback` |
@@ -172,6 +173,28 @@ Active LLM provider to use.
 | `"sakana"`     | Sakana.AI Fugu API           |
 | `"bedrock"`    | AWS Bedrock                  |
 | `"custom:<id>"` | User-defined OpenAI-compatible provider from `customProviders` |
+
+### Provider model catalog
+
+Autohand stores bundled provider model lists in `src/providers/models.json` and copies that file to `dist/providers/models.json` in packaged builds. Provider pickers, ACP/RPC model discovery, and static provider fallbacks read from this catalog instead of hardcoded TypeScript arrays.
+
+To add or update bundled model choices, edit the relevant provider entry in `models.json`:
+
+```json
+{
+  "providers": {
+    "nvidia": {
+      "defaultModel": "z-ai/glm-5.1",
+      "models": [
+        "z-ai/glm-5.1",
+        { "id": "nvidia/new-model", "displayName": "New Model" }
+      ]
+    }
+  }
+}
+```
+
+For a local override without changing the installed package, create `~/.autohand/models.json` or set `AUTOHAND_MODELS_CATALOG=/path/to/models.json`. Override entries are merged ahead of bundled entries and deduplicated by model id. OpenRouter and other providers with live model APIs still try live discovery first, then merge or fall back to catalog entries.
 
 ### `openrouter`
 

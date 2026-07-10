@@ -13,34 +13,17 @@ import type {
   NetworkSettings,
   NvidiaChatTemplateKwargs,
 } from "../types.js";
+import {
+  getProviderDefaultModel,
+  getProviderModelIds,
+} from "./modelCatalog.js";
 
 export const NVIDIA_DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1";
 
-/**
- * NVIDIA AI Cloud models sorted by name in descending order.
- * Source: https://build.nvidia.com/models
- */
-export const NVIDIA_MODELS = [
-  "minimaxai/minimax-m3",
-  "deepseek-ai/deepseek-v4-pro",
-  "z-ai/glm-5.1",
-  "z-ai/glm-4.7",
-  "qwen/qwen3.5-122b-a10b",
-  "stepfun-ai/step-3.7-flash",
-  "nvidia/usdcode",
-  "moonshotai/kimi-k2.5",
-  "minimaxai/minimax-m2.7",
-  "microsoft/phi-4-mini-instruct",
-  "mistralai/mistral-small-4-119b-2603",
-  "mistralai/mixtral-8x7b-instruct-v0.1",
-  "mistralai/mixtral-8x22b-instruct-v0.1",
-  "mistralai/mamba-codestral-7b-v0.1",
-  "nvidia/mistral-nemo-minitron-8b-base",
-  "google/gemma-4-31b-it",
-  "bigcode/starcoder2-7b",
-] as const;
+/** NVIDIA AI Cloud models from the JSON model catalog. */
+export const NVIDIA_MODELS = getProviderModelIds("nvidia");
 
-export const NVIDIA_DEFAULT_MODEL = "z-ai/glm-5.1";
+export const NVIDIA_DEFAULT_MODEL = getProviderDefaultModel("nvidia", "z-ai/glm-5.1");
 
 export class NVIDIAProvider implements LLMProvider {
   private client: NVIDIAClient;
@@ -69,7 +52,7 @@ export class NVIDIAProvider implements LLMProvider {
   }
 
   async listModels(): Promise<string[]> {
-    return [...NVIDIA_MODELS];
+    return getProviderModelIds("nvidia");
   }
 
   async isAvailable(): Promise<boolean> {

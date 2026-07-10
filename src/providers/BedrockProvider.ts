@@ -31,19 +31,18 @@ import type {
   LLMResponse,
   LLMToolCall,
 } from "../types.js";
+import {
+  getProviderDefaultModel,
+  getProviderModelIds,
+  mergeModelIds,
+} from "./modelCatalog.js";
 
 export const BEDROCK_DEFAULT_REGION = "us-east-1";
-export const BEDROCK_DEFAULT_MODEL =
-  "anthropic.claude-3-5-sonnet-20241022-v2:0";
-export const BEDROCK_MODELS = [
-  BEDROCK_DEFAULT_MODEL,
-  "anthropic.claude-3-7-sonnet-20250219-v1:0",
-  "anthropic.claude-sonnet-4-20250514-v1:0",
-  "amazon.nova-pro-v1:0",
-  "amazon.nova-lite-v1:0",
-  "meta.llama3-1-70b-instruct-v1:0",
-  "openai.gpt-oss-120b-1:0",
-] as const;
+export const BEDROCK_DEFAULT_MODEL = getProviderDefaultModel(
+  "bedrock",
+  "anthropic.claude-3-5-sonnet-20241022-v2:0",
+);
+export const BEDROCK_MODELS = getProviderModelIds("bedrock");
 
 type ConverseRole = "user" | "assistant";
 type ConverseContentBlock =
@@ -479,7 +478,7 @@ export class BedrockProvider implements LLMProvider {
 
   async listModels(): Promise<string[]> {
     if (this.apiMode !== "converse") {
-      return [...BEDROCK_MODELS];
+      return getProviderModelIds("bedrock");
     }
 
     try {
@@ -490,9 +489,11 @@ export class BedrockProvider implements LLMProvider {
       const modelIds = summaries
         .map((summary) => summary.modelId)
         .filter((modelId): modelId is string => Boolean(modelId));
-      return modelIds.length > 0 ? modelIds : [...BEDROCK_MODELS];
+      return modelIds.length > 0
+        ? mergeModelIds(modelIds, getProviderModelIds("bedrock"))
+        : getProviderModelIds("bedrock");
     } catch {
-      return [...BEDROCK_MODELS];
+      return getProviderModelIds("bedrock");
     }
   }
 
