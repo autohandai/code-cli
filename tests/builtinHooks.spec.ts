@@ -220,6 +220,7 @@ describe('Built-in Hooks', () => {
       expect(SOUND_ALERT_SCRIPT).toContain('play_sound');
       expect(SOUND_ALERT_SCRIPT).toContain('Darwin'); // macOS support
       expect(SOUND_ALERT_SCRIPT).toContain('Linux'); // Linux support
+      expect(SOUND_ALERT_SCRIPT).toContain('afplay -t 1');
       expect(SOUND_ALERT_SCRIPT).toContain('exit 0');
     });
   });
