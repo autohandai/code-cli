@@ -40,11 +40,23 @@ function declaredRange(name: 'ink' | 'react'): string {
   return range as string;
 }
 
+function packageScript(name: string): string | undefined {
+  const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  return pkg.scripts?.[name] as string | undefined;
+}
+
 function installedVersion(name: 'ink' | 'react'): string {
   return readInstalledManifest(name).version;
 }
 
 describe('Ink/React installed version consistency', () => {
+  it('reconciles the frozen dependency graph before development startup', () => {
+    expect(
+      packageScript('predev'),
+      'The development startup must repair stale node_modules before Ink is imported.'
+    ).toBe('bun install --frozen-lockfile');
+  });
+
   it('installed ink satisfies the range declared in package.json', () => {
     const range = declaredRange('ink');
     const installed = installedVersion('ink');

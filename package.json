@@ -23,6 +23,7 @@
   "scripts": {
     "go": "./install-local.sh && echo \"COMPLETED\"",
     "build": "tsup",
+    "predev": "bun install --frozen-lockfile",
     "dev": "env -i PATH=\"/Users/igorcosta/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin\" HOME=\"$HOME\" AUTOHAND_DEBUG=\"$AUTOHAND_DEBUG\" bun src/index.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
