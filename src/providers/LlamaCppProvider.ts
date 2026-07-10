@@ -7,6 +7,11 @@
 import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, LLMToolCall, LLMUsage, ProviderSettings, FunctionDefinition } from '../types.js';
 import { ApiError, classifyApiError } from './errors.js';
+import {
+    getProviderModelIds,
+    getProviderRuntimeDefaultModel,
+    mergeModelIds,
+} from './modelCatalog.js';
 
 interface LlamaCppToolCall {
     id: string;
@@ -42,7 +47,7 @@ export class LlamaCppProvider implements LLMProvider {
     private baseUrl: string;
     private model: string;
 
-    private static readonly DEFAULT_MODEL = 'local';
+    private static readonly DEFAULT_MODEL = getProviderRuntimeDefaultModel('llamacpp', 'local');
 
     constructor(config: ProviderSettings) {
         const port = config.port || 8080;
@@ -66,12 +71,15 @@ export class LlamaCppProvider implements LLMProvider {
         try {
             const response = await fetch(`${this.baseUrl}/v1/models`);
             if (!response.ok) {
-                return this.model ? [this.model] : [];
+                return mergeModelIds(this.model ? [this.model] : [], getProviderModelIds('llamacpp'));
             }
             const data = await response.json() as { data?: { id: string }[] };
-            return data.data?.map((m: { id: string }) => m.id) ?? [this.model];
+            return mergeModelIds(
+                data.data?.map((m: { id: string }) => m.id) ?? [],
+                mergeModelIds(this.model ? [this.model] : [], getProviderModelIds('llamacpp')),
+            );
         } catch {
-            return this.model ? [this.model] : [];
+            return mergeModelIds(this.model ? [this.model] : [], getProviderModelIds('llamacpp'));
         }
     }
 

@@ -8,6 +8,11 @@ import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, LLMToolCall, LLMUsage, ProviderSettings, NetworkSettings, FunctionDefinition } from '../types.js';
 import { isMLXSupported } from '../utils/platform.js';
 import { ApiError, classifyApiError } from './errors.js';
+import {
+    getProviderModelIds,
+    getProviderRuntimeDefaultModel,
+    mergeModelIds,
+} from './modelCatalog.js';
 
 interface MLXToolCall {
     id: string;
@@ -44,6 +49,7 @@ const DEFAULT_MAX_RETRIES = 2;
 const MAX_ALLOWED_RETRIES = 5;
 const DEFAULT_RETRY_DELAY = 1_000;
 const AVAILABILITY_TIMEOUT = 5_000; // 5 s for listModels / isAvailable
+const DEFAULT_MLX_MODEL = getProviderRuntimeDefaultModel('mlx', 'mlx-model');
 
 /**
  * MLX Provider for Apple Silicon optimized local inference.
@@ -60,7 +66,7 @@ export class MLXProvider implements LLMProvider {
     constructor(config: ProviderSettings, networkSettings?: NetworkSettings) {
         const port = config.port || 8080;
         this.baseUrl = config.baseUrl || `http://localhost:${port}`;
-        this.model = config.model || 'mlx-model';
+        this.model = config.model || DEFAULT_MLX_MODEL;
 
         const configuredRetries = networkSettings?.maxRetries ?? DEFAULT_MAX_RETRIES;
         this.maxRetries = Math.min(Math.max(0, configuredRetries), MAX_ALLOWED_RETRIES);
@@ -93,15 +99,18 @@ export class MLXProvider implements LLMProvider {
                     signal: controller.signal,
                 });
                 if (!response.ok) {
-                    return this.model ? [this.model] : [];
+                    return mergeModelIds(this.model ? [this.model] : [], getProviderModelIds('mlx'));
                 }
                 const data = await response.json() as { data?: { id: string }[] };
-                return data.data?.map((m: { id: string }) => m.id) ?? (this.model ? [this.model] : []);
+                return mergeModelIds(
+                    data.data?.map((m: { id: string }) => m.id) ?? [],
+                    mergeModelIds(this.model ? [this.model] : [], getProviderModelIds('mlx')),
+                );
             } finally {
                 clearTimeout(timerId);
             }
         } catch {
-            return this.model ? [this.model] : [];
+            return mergeModelIds(this.model ? [this.model] : [], getProviderModelIds('mlx'));
         }
     }
 

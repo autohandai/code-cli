@@ -35,6 +35,39 @@ describe("modelCatalog", () => {
     expect(getProviderModelIds("openai")).toContain("gpt-5.4");
   });
 
+  it("keeps runtime defaults separate from user-facing defaults when needed", async () => {
+    const { getProviderDefaultModel, getProviderRuntimeDefaultModel } = await importCatalog();
+
+    expect(getProviderDefaultModel("mlx")).toBe("mlx-community/Llama-3.2-3B-Instruct-4bit");
+    expect(getProviderRuntimeDefaultModel("mlx")).toBe("mlx-model");
+  });
+
+  it("keeps bundled catalog entries for every built-in provider", async () => {
+    const { getProviderDefaultModel, getProviderModelIds } = await importCatalog();
+    const providers = [
+      "openrouter",
+      "ollama",
+      "llamacpp",
+      "openai",
+      "mlx",
+      "llmgateway",
+      "azure",
+      "zai",
+      "sakana",
+      "vertexai",
+      "xai",
+      "cerebras",
+      "nvidia",
+      "deepseek",
+      "bedrock",
+    ] as const;
+
+    for (const provider of providers) {
+      expect(getProviderDefaultModel(provider), provider).not.toBe("");
+      expect(getProviderModelIds(provider).length, provider).toBeGreaterThan(0);
+    }
+  });
+
   it("merges AUTOHAND_MODELS_CATALOG overrides ahead of bundled models", async () => {
     const dir = mkdtempSync(join(tmpdir(), "autohand-models-"));
     const overridePath = join(dir, "models.json");

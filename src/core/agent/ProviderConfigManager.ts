@@ -34,6 +34,12 @@ import { sanitizeModelId } from "../../providers/errors.js";
 import { getOpenRouterModelContextWindow } from "../../providers/modelCapabilities.js";
 import { saveConfig, getProviderConfig } from "../../config.js";
 import { getContextWindow } from "../../utils/context.js";
+import {
+  getProviderDefaultModel,
+  getProviderModelIds,
+  getProviderRuntimeDefaultModel,
+  mergeModelIds,
+} from "../../providers/modelCatalog.js";
 import type {
   AgentRuntime,
   ProviderName,
@@ -673,10 +679,13 @@ export class ProviderConfigManager {
         if (response.ok) {
           const data = await response.json() as { models?: Array<{ name: string }> };
           availableModels =
-            data.models
-              ?.map((model) => model.name)
-              .filter((name): name is string => typeof name === "string" && name.length > 0) ??
-            [];
+            mergeModelIds(
+              data.models
+                ?.map((model) => model.name)
+                .filter((name): name is string => typeof name === "string" && name.length > 0) ??
+                [],
+              getProviderModelIds("ollama"),
+            );
         }
       } catch {
         console.log(
@@ -684,6 +693,9 @@ export class ProviderConfigManager {
             "⚠ " + t("providers.wizard.ollama.cannotConnect") + "\n",
           ),
         );
+      }
+      if (availableModels.length === 0) {
+        availableModels = getProviderModelIds("ollama");
       }
 
       let model: string | null;
@@ -707,7 +719,7 @@ export class ProviderConfigManager {
       } else {
         model = await showInput({
           title: t("providers.wizard.ollama.enterModelName"),
-          defaultValue: "llama3.2:latest",
+          defaultValue: getProviderDefaultModel("ollama", "llama3.2:latest"),
         });
       }
 
@@ -806,7 +818,7 @@ export class ProviderConfigManager {
         return;
       }
 
-      const model = "local";
+      const model = getProviderRuntimeDefaultModel("llamacpp", "local");
 
       this.runtime.config.llamacpp = {
         baseUrl: `http://localhost:${port}`,
@@ -968,12 +980,21 @@ export class ProviderConfigManager {
         const response = await fetch(`${mlxUrl}/v1/models`);
         if (response.ok) {
           const data = await response.json() as { data?: Array<{ id: string }> };
-          availableModels = data.data?.map((m: any) => m.id) || [];
+          availableModels = mergeModelIds(
+            data.data
+              ?.map((model) => model.id)
+              .filter((name): name is string => typeof name === "string" && name.length > 0) ??
+              [],
+            getProviderModelIds("mlx"),
+          );
         }
       } catch {
         console.log(
           chalk.yellow("⚠ " + t("providers.wizard.mlx.cannotConnect") + "\n"),
         );
+      }
+      if (availableModels.length === 0) {
+        availableModels = getProviderModelIds("mlx");
       }
 
       let model: string | null;
@@ -990,7 +1011,10 @@ export class ProviderConfigManager {
       } else {
         model = await showInput({
           title: t("providers.wizard.mlx.enterModelName"),
-          defaultValue: "mlx-community/Llama-3.2-3B-Instruct-4bit",
+          defaultValue: getProviderDefaultModel(
+            "mlx",
+            "mlx-community/Llama-3.2-3B-Instruct-4bit",
+          ),
         });
       }
 
@@ -2097,7 +2121,9 @@ export class ProviderConfigManager {
       Object.keys(nextCustomProviders).length > 0 ? nextCustomProviders : undefined;
 
     this.runtime.config.provider = "openrouter";
-    const fallbackModel = getProviderConfig(this.runtime.config, "openrouter")?.model ?? "openrouter/auto";
+    const fallbackModel =
+      getProviderConfig(this.runtime.config, "openrouter")?.model ??
+      getProviderDefaultModel("openrouter", "openrouter/auto");
     this.runtime.options.model = fallbackModel;
 
     await saveConfig(this.runtime.config);
@@ -2423,7 +2449,7 @@ export class ProviderConfigManager {
       const model =
         (await showInput({
           title: t("providers.wizard.xai.enterModel"),
-          defaultValue: "grok-4.20-reasoning",
+          defaultValue: getProviderDefaultModel("xai", "grok-4.20-reasoning"),
         })) ?? undefined;
       if (!model) {
         console.log(chalk.gray("\n" + t("providers.config.cancelled")));

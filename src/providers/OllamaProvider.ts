@@ -16,6 +16,11 @@ import type {
 } from '../types.js';
 import { ApiError, classifyApiError } from './errors.js';
 import { normalizeLLMUsage } from './usage.js';
+import {
+    getProviderRuntimeDefaultModel,
+    getProviderModelIds,
+    mergeModelIds,
+} from './modelCatalog.js';
 
 interface OllamaModel {
     name: string;
@@ -60,6 +65,7 @@ const DEFAULT_MAX_RETRIES = 2;
 const MAX_ALLOWED_RETRIES = 5;
 const DEFAULT_RETRY_DELAY = 1_000;
 const AVAILABILITY_TIMEOUT = 5_000;    // 5 s for listModels / isAvailable
+const DEFAULT_OLLAMA_MODEL = getProviderRuntimeDefaultModel('ollama', 'llama3.2:latest');
 
 export class OllamaProvider implements LLMProvider {
     private readonly baseUrl: string;
@@ -72,7 +78,7 @@ export class OllamaProvider implements LLMProvider {
 
     constructor(config: ProviderSettings, networkSettings?: NetworkSettings) {
         this.baseUrl = config.baseUrl || 'http://localhost:11434';
-        this.model = config.model || 'llama3.2:latest';
+        this.model = config.model || DEFAULT_OLLAMA_MODEL;
 
         const configuredRetries = networkSettings?.maxRetries ?? DEFAULT_MAX_RETRIES;
         this.maxRetries = Math.min(Math.max(0, configuredRetries), MAX_ALLOWED_RETRIES);
@@ -102,16 +108,19 @@ export class OllamaProvider implements LLMProvider {
                     signal: controller.signal,
                 });
                 if (!response.ok) {
-                    return [];
+                    return getProviderModelIds('ollama');
                 }
                 const data = await response.json() as OllamaTagsResponse;
-                return data.models.map(m => m.name);
+                return mergeModelIds(
+                    data.models.map(m => m.name),
+                    getProviderModelIds('ollama'),
+                );
             } finally {
                 clearTimeout(timerId);
             }
         } catch {
             // Ollama not running or network error
-            return [];
+            return getProviderModelIds('ollama');
         }
     }
 
