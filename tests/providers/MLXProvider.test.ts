@@ -102,7 +102,8 @@ describe('MLXProvider', () => {
 
             const models = await provider.listModels();
 
-            expect(models).toEqual(['model-1', 'model-2']);
+            expect(models.slice(0, 2)).toEqual(['model-1', 'model-2']);
+            expect(models).toContain('mlx-community/Llama-3.2-3B-Instruct-4bit');
             // listModels now passes an AbortSignal (5s timeout) — check URL only
             expect(fetch).toHaveBeenCalledWith(
                 'http://localhost:8080/v1/models',
@@ -139,8 +140,8 @@ describe('MLXProvider', () => {
 
             const models = await emptyProvider.listModels();
 
-            // Falls back to default model from constructor
-            expect(models).toEqual(['mlx-model']);
+            expect(models).toContain('mlx-model');
+            expect(models).toContain('mlx-community/Llama-3.2-3B-Instruct-4bit');
         });
     });
 

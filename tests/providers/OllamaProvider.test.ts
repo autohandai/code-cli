@@ -68,7 +68,8 @@ describe('OllamaProvider', () => {
 
             const models = await provider.listModels();
 
-            expect(models).toEqual(['llama3.2:latest', 'mistral:7b']);
+            expect(models.slice(0, 2)).toEqual(['llama3.2:latest', 'mistral:7b']);
+            expect(models).toContain('codellama:latest');
             // Now uses a timeout signal
             expect(fetch).toHaveBeenCalledWith(
                 'http://localhost:11434/api/tags',
@@ -76,15 +77,16 @@ describe('OllamaProvider', () => {
             );
         });
 
-        it('should return empty array if Ollama is not running', async () => {
+        it('should return catalog fallbacks if Ollama is not running', async () => {
             global.fetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
 
             const models = await provider.listModels();
 
-            expect(models).toEqual([]);
+            expect(models).toContain('llama3.2:latest');
+            expect(models).toContain('codellama:latest');
         });
 
-        it('should handle non-ok response', async () => {
+        it('should return catalog fallbacks for non-ok responses', async () => {
             global.fetch = vi.fn().mockResolvedValue({
                 ok: false,
                 status: 500
@@ -92,7 +94,8 @@ describe('OllamaProvider', () => {
 
             const models = await provider.listModels();
 
-            expect(models).toEqual([]);
+            expect(models).toContain('llama3.2:latest');
+            expect(models).toContain('codellama:latest');
         });
     });
 
