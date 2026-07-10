@@ -24,6 +24,7 @@ import { autoInitTheme, configureThemeSources, themeExists } from "./ui/theme/in
 import { loadLocalProjectSettings, type LocalProjectSettings } from "./permissions/localProjectPermissions.js";
 import { isAwsBedrockProviderEnabled } from "./features/featureRegistry.js";
 import { getCustomProviderConfig, isCustomProviderName } from "./providers/customProviders.js";
+import { getProviderDefaultModel, getProviderRuntimeDefaultModel } from "./providers/modelCatalog.js";
 
 const DEFAULT_CONFIG_PATH = AUTOHAND_FILES.configJson;
 const TOML_CONFIG_PATH = AUTOHAND_FILES.configToml;
@@ -407,7 +408,7 @@ export async function loadConfig(customPath?: string, workspaceRoot?: string): P
       openrouter: {
         apiKey: "",
         baseUrl: "https://openrouter.ai/api/v1",
-        model: "openrouter/auto",
+        model: getProviderDefaultModel("openrouter", "openrouter/auto"),
       },
       workspace: {
         defaultRoot: process.cwd(),
@@ -640,7 +641,7 @@ function normalizeConfig(
       openrouter: {
         apiKey: config.api_key ?? "replace-me",
         baseUrl: config.base_url ?? DEFAULT_BASE_URL,
-        model: "anthropic/claude-4-sonnet",
+        model: getProviderDefaultModel("openrouter", "anthropic/claude-4-sonnet"),
       },
       workspace: {
         defaultRoot: process.cwd(),
@@ -977,7 +978,7 @@ export function getProviderConfig(
     if (builtInProvider === "llamacpp") {
       return {
         ...entry,
-        model: entry.model ?? "local",
+        model: entry.model ?? getProviderRuntimeDefaultModel("llamacpp", "local"),
         baseUrl: entry.baseUrl ?? defaultBaseUrlFor(builtInProvider, entry.port),
       };
     }
