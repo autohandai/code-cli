@@ -21,6 +21,7 @@ import {
   createMockOpenRouterSequenceServer,
   createMockSkillInstallFetchPreload,
   createMockOllamaServer,
+  createStalledSyncFetchPreload,
   createTempAutohandHome,
   dismissAutocompleteMenu,
   exitInteractive,
@@ -417,8 +418,69 @@ describe('interactive built CLI Tuistory tests', () => {
       })
     );
 
+    await session.waitForText('Sign in to continue.', { timeout: 10_000 });
+    await session.press('enter');
     await session.waitForText('TUI-123', { timeout: 10_000 });
     await session.waitForText('Waiting for authorization', { timeout: 10_000 });
+  });
+
+  it('loads an interactive composer after successful startup device auth', async () => {
+    const state = await createTempAutohandHome({
+      config: {
+        auth: {
+          token: '',
+        },
+      },
+    });
+    tempStates.push(state);
+
+    const authServer = await createMockAuthServer({ authorizeAfterPolls: 1 });
+    mockAuthServers.push(authServer);
+    const stalledSyncPreload = await createStalledSyncFetchPreload();
+    mockOpenRouterFetchPreloads.push(stalledSyncPreload);
+
+    const fakeBinDir = path.join(state.autohandHome, 'fake-bin');
+    await mkdir(fakeBinDir, { recursive: true });
+    const fakeOpenPath = path.join(fakeBinDir, 'open');
+    await writeFile(fakeOpenPath, '#!/bin/sh\nexit 0\n');
+    await chmod(fakeOpenPath, 0o755);
+
+    const session = await trackSession(
+      launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        env: {
+          AUTOHAND_API_URL: authServer.baseUrl,
+          NODE_OPTIONS: [
+            process.env.NODE_OPTIONS,
+            `--import ${stalledSyncPreload.importSpecifier}`,
+          ].filter(Boolean).join(' '),
+          PATH: `${fakeBinDir}:${process.env.PATH ?? ''}`,
+        },
+        waitForDataTimeout: 15_000,
+      })
+    );
+
+    await session.waitForText('Sign in to continue.', { timeout: 10_000 });
+    await session.press('enter');
+    await session.waitForText('Successfully logged in as Authorized Tuistory User', { timeout: 10_000 });
+    await session.text({
+      timeout: 5_000,
+      waitFor: (text) => text.includes('❯'),
+    });
+
+    const prompt = 'post login input';
+    await typeLikeUser(session, prompt);
+    const screen = await session.text({
+      timeout: 5_000,
+      waitFor: (text) => composerLineIncludes(text, prompt),
+      trimEnd: true,
+    });
+
+    expect(screen).toContain('❯');
+    expect(screen).toContain(prompt);
+
+    await exitInteractive(session);
   });
 
   it('keeps only the real terminal cursor at the typed prompt position while composing', async () => {

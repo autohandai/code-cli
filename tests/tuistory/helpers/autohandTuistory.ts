@@ -63,6 +63,10 @@ export interface MockAuthServer {
   close: () => Promise<void>;
 }
 
+export interface MockAuthServerOptions {
+  authorizeAfterPolls?: number;
+}
+
 export function repoRoot(): string {
   return path.resolve(import.meta.dirname, '../../..');
 }
@@ -521,7 +525,10 @@ globalThis.fetch = async (input, init) => {
   };
 }
 
-export async function createMockAuthServer(): Promise<MockAuthServer> {
+export async function createMockAuthServer(
+  options: MockAuthServerOptions = {},
+): Promise<MockAuthServer> {
+  let pollCount = 0;
   const server = createServer((request, response) => {
     if (request.url === '/api/auth/cli/initiate' && request.method === 'POST') {
       response.writeHead(200, { 'content-type': 'application/json' });
@@ -537,7 +544,24 @@ export async function createMockAuthServer(): Promise<MockAuthServer> {
     }
 
     if (request.url === '/api/auth/cli/poll' && request.method === 'POST') {
+      pollCount += 1;
       response.writeHead(200, { 'content-type': 'application/json' });
+      if (
+        options.authorizeAfterPolls !== undefined
+        && pollCount >= options.authorizeAfterPolls
+      ) {
+        response.end(JSON.stringify({
+          success: true,
+          status: 'authorized',
+          token: 'tuistory-authorized-token',
+          user: {
+            id: 'tuistory-authorized-user',
+            email: 'authorized@example.test',
+            name: 'Authorized Tuistory User',
+          },
+        }));
+        return;
+      }
       response.end(JSON.stringify({ success: true, status: 'pending' }));
       return;
     }
@@ -567,6 +591,49 @@ export async function createMockAuthServer(): Promise<MockAuthServer> {
           resolve();
         });
       });
+    },
+  };
+}
+
+export async function createStalledSyncFetchPreload(): Promise<MockOpenRouterFetchPreload> {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'autohand-stalled-sync-fetch-'));
+  const preloadPath = path.join(tempRoot, 'preload.mjs');
+  const moduleSource = `
+const originalFetch = globalThis.fetch.bind(globalThis);
+
+globalThis.fetch = async (input, init) => {
+  const url = typeof input === 'string'
+    ? input
+    : input instanceof URL
+      ? input.href
+      : input.url;
+
+  if (url.endsWith('/v1/sync/manifest')) {
+    return await new Promise((_, reject) => {
+      const rejectAbort = () => {
+        const error = new Error('Request aborted');
+        error.name = 'AbortError';
+        reject(error);
+      };
+
+      if (init?.signal?.aborted) {
+        rejectAbort();
+        return;
+      }
+      init?.signal?.addEventListener('abort', rejectAbort, { once: true });
+    });
+  }
+
+  return originalFetch(input, init);
+};
+`;
+
+  await writeFile(preloadPath, moduleSource);
+
+  return {
+    importSpecifier: pathToFileURL(preloadPath).href,
+    cleanup: async () => {
+      await rm(tempRoot, { recursive: true, force: true });
     },
   };
 }

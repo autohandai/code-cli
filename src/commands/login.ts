@@ -20,7 +20,9 @@ export const metadata = {
   implemented: true,
 };
 
-type LoginContext = Pick<SlashCommandContext, 'config'>;
+type LoginContext = Pick<SlashCommandContext, 'config'> & {
+  restoreSync?: boolean;
+};
 
 /**
  * Open URL in the default browser
@@ -167,7 +169,7 @@ export async function login(ctx: LoginContext): Promise<string | null> {
       console.log();
 
       // Only prompt for sync restore in interactive terminal sessions.
-      if (process.stdin.isTTY && process.stdout.isTTY) {
+      if (ctx.restoreSync !== false && process.stdin.isTTY && process.stdout.isTTY) {
         await checkAndRestoreSyncData(pollResult.token, pollResult.user.id, updatedConfig);
       }
 
