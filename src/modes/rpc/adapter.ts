@@ -96,6 +96,7 @@ import { GoalManager } from '../../goals/GoalManager.js';
 import type { GoalStatus } from '../../goals/types.js';
 import { GOAL_FEATURE_DISABLED_MESSAGE, isGoalFeatureEnabled } from '../../goals/feature.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
+import { SLASH_COMMANDS } from '../../core/slashCommands.js';
 
 // ---------------------------------------------------------------------------
 // ApiErrorCode → RPC-specific error shape mapping
@@ -3169,25 +3170,9 @@ export class RPCAdapter {
    * Get supported commands
    */
   async handleGetSupportedCommands(): Promise<GetSupportedCommandsResult> {
-    try {
-      const commands = [
-        'help',
-        'model',
-        'auto',
-        'plan',
-        'skills',
-        'learn',
-        'mcp',
-        'chrome',
-      ];
-      return {
-        commands,
-      };
-    } catch {
-      return {
-        commands: [],
-      };
-    }
+    return {
+      commands: SLASH_COMMANDS.map(({ command }) => command),
+    };
   }
 
   /**
