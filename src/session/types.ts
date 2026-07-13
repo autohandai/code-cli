@@ -6,6 +6,25 @@
 
 export type SessionType = 'interactive' | 'automode';
 
+export interface SessionUsageMetadata {
+    totalTokens: number;
+    promptTokens?: number;
+    completionTokens?: number;
+    turnCount: number;
+    tokenUsageStatus: 'actual' | 'unavailable';
+    longestTurnDurationMs?: number;
+    updatedAt: string;
+}
+
+export interface SessionTurnUsageInput {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+    tokenUsageStatus: 'actual' | 'unavailable';
+    durationMs?: number;
+    occurredAt?: string;
+}
+
 export interface SessionMetadata {
     sessionId: string;
     createdAt: string;
@@ -20,6 +39,8 @@ export interface SessionMetadata {
     exitCode?: number;
     /** Session type: 'interactive' (default) or 'automode' for autonomous loops */
     type?: SessionType;
+    /** Aggregated provider token usage captured during the session. */
+    usage?: SessionUsageMetadata;
     /** For automode sessions: the task prompt */
     automodePrompt?: string;
     /** For automode sessions: final iteration count */

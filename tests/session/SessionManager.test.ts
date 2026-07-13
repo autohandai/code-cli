@@ -86,6 +86,42 @@ describe('Session', () => {
     expect(await fs.pathExists(path.join(sessionDir, 'metadata.json'))).toBe(true);
     expect(session.metadata.messageCount).toBe(1);
   });
+
+  it('records cumulative turn usage metadata without changing message storage', async () => {
+    const sessionDir = path.join(tmpDir, 'usage-session');
+    const session = new Session(sessionDir, createMetadata());
+
+    await session.recordTurnUsage({
+      promptTokens: 100,
+      completionTokens: 40,
+      totalTokens: 140,
+      tokenUsageStatus: 'actual',
+      durationMs: 1_500,
+      occurredAt: '2026-01-01T00:10:00.000Z',
+    });
+    await session.recordTurnUsage({
+      promptTokens: 300,
+      completionTokens: 200,
+      totalTokens: 500,
+      tokenUsageStatus: 'actual',
+      durationMs: 4_000,
+      occurredAt: '2026-01-01T00:20:00.000Z',
+    });
+
+    expect(session.metadata.usage).toEqual({
+      promptTokens: 400,
+      completionTokens: 240,
+      totalTokens: 640,
+      turnCount: 2,
+      tokenUsageStatus: 'actual',
+      longestTurnDurationMs: 4_000,
+      updatedAt: '2026-01-01T00:20:00.000Z',
+    });
+    expect(session.metadata.messageCount).toBe(0);
+
+    const saved = await fs.readJson(path.join(sessionDir, 'metadata.json')) as SessionMetadata;
+    expect(saved.usage?.totalTokens).toBe(640);
+  });
 });
 
 describe('SessionManager', () => {

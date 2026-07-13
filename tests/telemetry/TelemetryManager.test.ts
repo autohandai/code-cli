@@ -134,7 +134,21 @@ describe('TelemetryManager', () => {
 
     await manager.syncSession({
       messages: [{ role: 'user', content: 'hello', timestamp: '2026-05-13T10:00:10.000Z' }],
-      metadata: { workspaceRoot: '/workspace/project', totalTokens: 123 },
+      metadata: {
+        workspaceRoot: '/workspace/project',
+        totalTokens: 123,
+        projectName: 'project',
+        status: 'active',
+        summary: 'hello',
+        usage: {
+          promptTokens: 50,
+          completionTokens: 73,
+          totalTokens: 123,
+          turnCount: 1,
+          tokenUsageStatus: 'actual',
+          updatedAt: '2026-05-13T10:07:00.000Z',
+        },
+      },
     });
 
     expect(uploadSessionSpy).toHaveBeenCalledWith(expect.objectContaining({
@@ -148,6 +162,16 @@ describe('TelemetryManager', () => {
         totalTokens: 123,
         reasoningEffort: 'medium',
         contextWindow: 200000,
+        projectName: 'project',
+        status: 'active',
+        summary: 'hello',
+        usage: expect.objectContaining({
+          promptTokens: 50,
+          completionTokens: 73,
+          totalTokens: 123,
+          turnCount: 1,
+          tokenUsageStatus: 'actual',
+        }),
       }),
     }));
     expect(uploadSessionSpy.mock.calls[0][0].metadata).not.toHaveProperty('endTime');
