@@ -37,6 +37,16 @@ export const HOOK_EVENTS: HookEvent[] = [
   'automode:cancel',
   'automode:complete',
   'automode:error',
+  // Auto-research events
+  'autoresearch:start',
+  'autoresearch:pause',
+  'autoresearch:init',
+  'autoresearch:before',
+  'autoresearch:run',
+  'autoresearch:after',
+  'autoresearch:log',
+  'autoresearch:complete',
+  'autoresearch:error',
   // Learn events
   'pre-learn',
   'post-learn',
@@ -88,6 +98,16 @@ const EVENT_DESCRIPTIONS: Record<HookEvent, string> = {
   'automode:cancel': 'When auto-mode is cancelled',
   'automode:complete': 'When auto-mode completes',
   'automode:error': 'When auto-mode encounters an error',
+  // Auto-research events
+  'autoresearch:start': 'When an auto-research session starts or resumes',
+  'autoresearch:pause': 'When an auto-research session is paused',
+  'autoresearch:init': 'When init_experiment configures the session',
+  'autoresearch:before': 'Before run_experiment starts an iteration',
+  'autoresearch:run': 'When run_experiment executes the benchmark',
+  'autoresearch:after': 'After run_experiment finishes an iteration',
+  'autoresearch:log': 'When log_experiment records a result',
+  'autoresearch:complete': 'When the auto-research loop completes',
+  'autoresearch:error': 'When auto-research encounters an error',
   // Learn events
   'pre-learn': 'Before a learn operation begins',
   'post-learn': 'After a learn operation completes',

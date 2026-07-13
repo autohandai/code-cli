@@ -305,6 +305,7 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/search`          | Search the web                                                                   |
 | `/deep-research`   | Research a topic and save a cited report to `.autohand/research/topic-*.md`      |
 | `/automode`        | Manage auto-mode                                                                 |
+| `/autoresearch`    | Run persisted benchmark loops under `.auto/`                                    |
 | `/goal`            | Set, review, or refine the current session goal                                  |
 | `/goal writer`     | Draft one or more well-specified goals with the built-in `$goal-writer` skill    |
 | `/squad`           | Open/manage the local Autohand Squad runtime                                     |

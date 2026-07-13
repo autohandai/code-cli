@@ -81,6 +81,8 @@ export function runCommand(
     const workDir = options.directory
       ? (isAbsolute(options.directory) ? options.directory : join(cwd, options.directory))
       : cwd;
+    const hasTimeout = options.timeout !== undefined && options.timeout > 0;
+    const isolateProcessGroup = hasTimeout && process.platform !== 'win32' && !options.background && !options.interactive;
 
     // Build spawn options
     const spawnOptions: SpawnOptions = {
@@ -96,6 +98,8 @@ export function runCommand(
     } else if (options.interactive) {
       // Interactive mode: inherit stdio for password prompts, TUI apps, etc.
       spawnOptions.stdio = 'inherit';
+    } else if (isolateProcessGroup) {
+      spawnOptions.detached = true;
     }
 
     // Bun may throw synchronously from spawn() when the command is not found (ENOENT),
@@ -161,13 +165,25 @@ export function runCommand(
       resolve(result);
     };
 
+    const signalChild = (signal: NodeJS.Signals): void => {
+      if (isolateProcessGroup && child.pid) {
+        try {
+          process.kill(-child.pid, signal);
+          return;
+        } catch {
+          // The process group may already be gone; fall back to the direct child.
+        }
+      }
+      child.kill(signal);
+    };
+
     const terminate = (reason: 'abort' | 'timeout'): void => {
       if (settled || terminationReason) return;
       terminationReason = reason;
-      child.kill('SIGTERM');
+      signalChild('SIGTERM');
       forceKillId = setTimeout(() => {
         if (!settled) {
-          child.kill('SIGKILL');
+          signalChild('SIGKILL');
         }
       }, killGracePeriodMs);
       forceKillId.unref?.();
@@ -185,7 +201,7 @@ export function runCommand(
     }
 
     // Set up timeout if specified
-    if (options.timeout && options.timeout > 0) {
+    if (hasTimeout) {
       timeoutId = setTimeout(() => {
         terminate('timeout');
       }, options.timeout);

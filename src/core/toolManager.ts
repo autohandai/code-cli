@@ -67,6 +67,8 @@ export interface ToolParameter {
   type: string;
   description: string;
   enum?: string[];
+  properties?: Record<string, ToolParameter>;
+  required?: string[];
   /** Optional schema for array items */
   items?: ToolParameter | {
     type: string;
@@ -1364,7 +1366,7 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
 - 'list': List directory contents (files and folders at a path)
 - 'fetch': Get raw file content (defaults to README.md)
 
-Repo formats: Full URL (https://github.com/owner/repo), or shorthand (github:owner/repo, gitlab:group/project).
+Repo formats: HTTPS or schemeless URLs, .git clone URLs, SSH clone URLs, GitHub tree/blob URLs, or shorthand (owner/repo, github:owner/repo, gitlab:group/project).
 
 Examples:
   { repo: "github:openai/codex", operation: "info" }
@@ -1673,6 +1675,67 @@ Actions:
         level: { type: 'string', description: 'Filter by level', enum: ['error', 'warn', 'log', 'info', 'debug'] },
         limit: { type: 'number', description: 'Max messages to return (default: 50)' },
       },
+    },
+  },
+  {
+    name: 'init_experiment',
+    description: 'Create or reset an auto-research session in the .auto/ directory. Defines the benchmark metric and optimization direction.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Short session name' },
+        metricName: { type: 'string', description: 'Metric key printed by the benchmark, e.g. total_ms' },
+        metricUnit: { type: 'string', description: 'Display unit, e.g. ms or KB' },
+        direction: { type: 'string', description: 'Whether lower or higher metric values are better', enum: ['lower', 'higher'] },
+        measureScript: { type: 'string', description: 'Shell script that prints METRIC <metricName>=<number> to stdout' },
+        maxIterations: { type: 'number', description: 'Maximum number of experiment iterations (default: 30)' },
+        timeoutMs: { type: 'number', description: 'Benchmark, checks, and local hook timeout in milliseconds (default: 600000)' },
+        filesInScope: {
+          type: 'array',
+          description: 'Optional workspace paths or globs that the experiment may edit',
+          items: { type: 'string', description: 'Path or glob in scope for edits' },
+        },
+        checksScript: { type: 'string', description: 'Optional shell script written to .auto/checks.sh for correctness checks after a passing benchmark' },
+        subagents: {
+          type: 'object',
+          description: 'Optional phases that should use existing delegate_task or delegate_parallel subagent tools',
+          properties: {
+            ideaGeneration: { type: 'boolean', description: 'Delegate experiment idea generation before selecting changes' },
+            measurementAnalysis: { type: 'boolean', description: 'Delegate analysis of noisy or surprising benchmark results' },
+            finalization: { type: 'boolean', description: 'Delegate final review of kept runs and changeset grouping recommendations' },
+          },
+        },
+      },
+      required: ['name', 'metricName', 'metricUnit', 'direction', 'measureScript'],
+    },
+  },
+  {
+    name: 'run_experiment',
+    description: 'Run the auto-research benchmark script and extract the current metric value.',
+    parameters: {
+      type: 'object',
+      properties: {
+        description: { type: 'string', description: 'Short description of the change being measured' },
+      },
+      required: ['description'],
+    },
+  },
+  {
+    name: 'log_experiment',
+    description: 'Record the result of an experiment in .auto/log.jsonl and decide whether to keep or discard the change.',
+    parameters: {
+      type: 'object',
+      properties: {
+        metric: { type: 'number', description: 'Measured metric value' },
+        status: { type: 'string', description: 'Outcome of the run', enum: ['kept', 'discarded', 'checks_failed', 'crashed'] },
+        description: { type: 'string', description: 'What was tried' },
+        commit: { type: 'string', description: 'Git commit hash that preserves this run, when status is kept' },
+        output: { type: 'string', description: 'Benchmark/check output to store as a bounded excerpt in .auto/log.jsonl' },
+        hypothesis: { type: 'string', description: 'Hypothesis that led to the change' },
+        learned: { type: 'string', description: 'What the result teaches us' },
+        nextFocus: { type: 'string', description: 'Suggested next focus area' },
+      },
+      required: ['metric', 'status', 'description'],
     },
   },
 ];

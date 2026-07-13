@@ -5,6 +5,7 @@
  */
 import type { PermissionPromptDecision, PermissionPromptResult } from '../../permissions/types.js';
 import type { McpServerConfigEntry, ToolRegistryEntry } from '../../types.js';
+import type { OptimizationDirection, SubagentDelegationConfig } from '../../autoresearch/session.js';
 
 // ============================================================================
 // JSON-RPC 2.0 Base Types
@@ -113,6 +114,10 @@ export const RPC_METHODS = {
   AUTOMODE_RESUME: 'autohand.automode.resume',
   AUTOMODE_CANCEL: 'autohand.automode.cancel',
   AUTOMODE_GET_LOG: 'autohand.automode.getLog',
+  // Auto-research control
+  AUTORESEARCH_START: 'autohand.autoresearch.start',
+  AUTORESEARCH_STATUS: 'autohand.autoresearch.status',
+  AUTORESEARCH_STOP: 'autohand.autoresearch.stop',
   // Plan mode control
   PLAN_MODE_SET: 'autohand.planModeSet',
   // Session history
@@ -206,6 +211,10 @@ export const RPC_NOTIFICATIONS = {
   AUTOMODE_CANCEL: 'autohand.automode.cancel',
   AUTOMODE_COMPLETE: 'autohand.automode.complete',
   AUTOMODE_ERROR: 'autohand.automode.error',
+  // Auto-research lifecycle notifications
+  AUTORESEARCH_START: 'autohand.autoresearch.start',
+  AUTORESEARCH_STATUS: 'autohand.autoresearch.status',
+  AUTORESEARCH_PAUSE: 'autohand.autoresearch.pause',
   // Mode change notifications
   MODE_CHANGE: 'autohand.modeChange',
   // Pipe mode notifications
@@ -1058,6 +1067,62 @@ export interface AutomodeLogEntry {
 export interface AutomodeGetLogResult {
   success: boolean;
   iterations: AutomodeLogEntry[];
+  error?: string;
+}
+
+// ============================================================================
+// Auto-Research RPC Types
+// ============================================================================
+
+export interface AutoresearchRpcState {
+  active: boolean;
+  goal: string;
+  iteration: number;
+  maxIterations: number;
+}
+
+export interface AutoresearchStartParams {
+  objective: string;
+  maxIterations?: number;
+  timeoutMs?: number;
+  metricName?: string;
+  metricUnit?: string;
+  direction?: OptimizationDirection;
+  measureCommand?: string;
+  measureScript?: string;
+  checksCommand?: string;
+  checksScript?: string;
+  filesInScope?: string[];
+  subagents?: SubagentDelegationConfig;
+}
+
+export interface AutoresearchStartResult {
+  success: boolean;
+  message?: string;
+  instruction?: string;
+  active?: boolean;
+  state?: AutoresearchRpcState;
+  statusText?: string;
+  runsLogged?: number;
+  error?: string;
+}
+
+export interface AutoresearchStatusResult {
+  success: boolean;
+  active: boolean;
+  state?: AutoresearchRpcState;
+  statusText: string;
+  runsLogged: number;
+  error?: string;
+}
+
+export interface AutoresearchStopResult {
+  success: boolean;
+  message?: string;
+  active?: boolean;
+  state?: AutoresearchRpcState;
+  statusText?: string;
+  runsLogged?: number;
   error?: string;
 }
 

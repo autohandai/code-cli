@@ -617,6 +617,16 @@ export type HookEvent =
   | 'automode:cancel'   // Auto-mode loop cancelled (trigger to cancel)
   | 'automode:complete' // Auto-mode loop completed successfully
   | 'automode:error'    // Auto-mode error occurred
+  // Auto-research events
+  | 'autoresearch:start'    // Auto-research session started or resumed
+  | 'autoresearch:pause'    // Auto-research session paused
+  | 'autoresearch:init'     // init_experiment configured the session
+  | 'autoresearch:before'   // Before an auto-research experiment iteration runs
+  | 'autoresearch:run'      // run_experiment executed the benchmark
+  | 'autoresearch:after'    // After an auto-research experiment iteration runs
+  | 'autoresearch:log'      // log_experiment recorded a result
+  | 'autoresearch:complete' // Auto-research loop completed
+  | 'autoresearch:error'    // Auto-research error occurred
   // Learn events
   | 'pre-learn'          // Fires before a learn operation begins
   | 'post-learn'         // Fires after a learn operation completes
@@ -1356,7 +1366,36 @@ export type AgentAction =
   | { type: 'browser_get_tab_groups' }
   | { type: 'browser_execute_js'; code: string }
   | { type: 'request_directory_access'; path: string; reason?: string }
-  | { type: 'code_review'; path?: string; scope?: 'full' | 'diff' | 'file'; instructions?: string };
+  | { type: 'code_review'; path?: string; scope?: 'full' | 'diff' | 'file'; instructions?: string }
+  | {
+      type: 'init_experiment';
+      name: string;
+      metricName: string;
+      metricUnit: string;
+      direction: 'lower' | 'higher';
+      measureScript: string;
+      maxIterations?: number;
+      timeoutMs?: number;
+      filesInScope?: string[];
+      checksScript?: string;
+      subagents?: {
+        ideaGeneration?: boolean;
+        measurementAnalysis?: boolean;
+        finalization?: boolean;
+      };
+    }
+  | { type: 'run_experiment'; description: string }
+  | {
+      type: 'log_experiment';
+      metric: number;
+      status: 'kept' | 'discarded' | 'checks_failed' | 'crashed';
+      description: string;
+      commit?: string;
+      output?: string;
+      hypothesis?: string;
+      learned?: string;
+      nextFocus?: string;
+    };
 
 export type ExplorationEvent = { kind: 'read' | 'list' | 'search'; target: string };
 

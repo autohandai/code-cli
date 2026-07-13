@@ -102,6 +102,7 @@ The `/settings` command opens an interactive settings editor directly in the ter
 | `/goal` | Set, review, or refine a persistent session goal |
 | `/goal writer` | Draft one or more well-specified goals with the built-in `$goal-writer` skill |
 | `/automode` | Start autonomous coding mode |
+| `/autoresearch` | Run persisted benchmark and optimization loops |
 | `/cc` | Context compaction |
 | `/search` | Search codebase |
 | `/settings` | Interactive settings editor — browse categories, edit values inline |
