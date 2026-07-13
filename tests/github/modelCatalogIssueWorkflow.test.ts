@@ -149,10 +149,10 @@ describe("model catalog issue automation", () => {
     expect(source).toContain("OWNER");
     expect(source).toContain("MEMBER");
     expect(source).toContain("COLLABORATOR");
-    expect(source).toContain("qualify-model-request:");
+    expect(source).toContain("qualify_model_request:");
     expect(source).toContain("permissions: {}");
-    expect(source).toContain("needs: qualify-model-request");
-    expect(source).toContain("needs.qualify-model-request.outputs.accepted == 'true'");
+    expect(source).toContain("needs: qualify_model_request");
+    expect(source).toContain("needs.qualify_model_request.outputs.accepted == 'true'");
     expect(source).toContain("accepted=${accepted}");
     expect(source).toContain(".github/scripts/update-model-catalog.mjs");
     expect(source).toContain("git add -- src/providers/models.json");
