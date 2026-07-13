@@ -44,6 +44,21 @@ This directory contains automated CI/CD workflows for the Autohand CLI project.
 3. Test execution
 4. Multi-platform build test
 
+### 🤖 Model catalog pull requests (`model-catalog-pr.yml`)
+
+**Trigger:**
+- A repository owner, member, or collaborator opens the **Add model catalog entry** issue form
+
+**What it does:**
+1. Reads the provider and model ID from the structured issue form
+2. Validates the provider against `src/providers/models.json`
+3. Rejects malformed IDs and reports duplicate models without changing the catalog
+4. Appends the model while preserving provider defaults and existing model order
+5. Pushes an issue-specific automation branch and opens a pull request against the default branch
+6. Links the pull request from the issue for normal maintainer review
+
+Optional display name, context-window, and reasoning-effort values produce a structured model entry. Requests without metadata preserve the provider's existing string/object entry style. The workflow never approves or merges its own pull request.
+
 ## Setup Requirements
 
 ### Repository Secrets
@@ -56,6 +71,11 @@ Add these secrets in GitHub Settings → Secrets → Actions:
    # Type: Automation token
    ```
 
+2. **`MODEL_CATALOG_PR_TOKEN`** (optional for model catalog pull requests)
+   - Fine-grained token with repository Contents, Issues, and Pull requests read/write access
+   - When omitted, the workflow uses the repository `GITHUB_TOKEN`
+   - Configure this token when automated pull requests must trigger other GitHub Actions workflows
+
 ### Repository Settings
 
 1. **Enable Actions**
@@ -66,6 +86,17 @@ Add these secrets in GitHub Settings → Secrets → Actions:
    - Settings → Actions → General → Workflow permissions
    - ✅ Read and write permissions
    - ✅ Allow GitHub Actions to create pull requests
+
+## Adding a provider model through an issue
+
+1. Open **Issues → New issue → Add model catalog entry**.
+2. Select one of the providers currently defined in `src/providers/models.json`.
+3. Enter the provider's exact model card or API model ID.
+4. Optionally add a display name, context window, and reasoning effort.
+5. Submit the issue from an account associated with the repository as an owner, member, or collaborator.
+6. Review and manually merge the pull request linked by the workflow.
+
+The provider dropdown is covered by a repository test so catalog/provider drift fails CI. If the model already exists, the workflow comments on the issue and does not open an empty pull request.
 
 ## Usage
 
