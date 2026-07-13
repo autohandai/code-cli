@@ -148,6 +148,162 @@ function buildEntry(request, models) {
   };
 }
 
+function skipWhitespace(source, start) {
+  let cursor = start;
+  while (cursor < source.length && /\s/.test(source[cursor])) {
+    cursor += 1;
+  }
+  return cursor;
+}
+
+function scanStringEnd(source, start) {
+  if (source[start] !== '"') {
+    throw new Error(`Expected JSON string at offset ${start}`);
+  }
+
+  for (let cursor = start + 1; cursor < source.length; cursor += 1) {
+    if (source[cursor] === "\\") {
+      cursor += 1;
+    } else if (source[cursor] === '"') {
+      return cursor + 1;
+    }
+  }
+
+  throw new Error(`Unterminated JSON string at offset ${start}`);
+}
+
+function scanCompositeEnd(source, start) {
+  const closingTokens = { "{": "}", "[": "]" };
+  const stack = [closingTokens[source[start]]];
+
+  if (!stack[0]) {
+    throw new Error(`Expected JSON object or array at offset ${start}`);
+  }
+
+  for (let cursor = start + 1; cursor < source.length; cursor += 1) {
+    const token = source[cursor];
+    if (token === '"') {
+      cursor = scanStringEnd(source, cursor) - 1;
+    } else if (closingTokens[token]) {
+      stack.push(closingTokens[token]);
+    } else if (token === stack.at(-1)) {
+      stack.pop();
+      if (stack.length === 0) {
+        return cursor + 1;
+      }
+    }
+  }
+
+  throw new Error(`Unterminated JSON value at offset ${start}`);
+}
+
+function scanValueEnd(source, start) {
+  const cursor = skipWhitespace(source, start);
+  if (source[cursor] === '"') {
+    return scanStringEnd(source, cursor);
+  }
+  if (source[cursor] === "{" || source[cursor] === "[") {
+    return scanCompositeEnd(source, cursor);
+  }
+
+  let end = cursor;
+  while (end < source.length && !/[\s,\]}]/.test(source[end])) {
+    end += 1;
+  }
+  if (end === cursor) {
+    throw new Error(`Expected JSON value at offset ${cursor}`);
+  }
+  return end;
+}
+
+function findObjectProperty(source, objectStart, propertyName) {
+  if (source[objectStart] !== "{") {
+    throw new Error(`Expected JSON object at offset ${objectStart}`);
+  }
+
+  let cursor = skipWhitespace(source, objectStart + 1);
+  while (source[cursor] !== "}") {
+    const keyStart = cursor;
+    const keyEnd = scanStringEnd(source, keyStart);
+    const key = JSON.parse(source.slice(keyStart, keyEnd));
+    cursor = skipWhitespace(source, keyEnd);
+    if (source[cursor] !== ":") {
+      throw new Error(`Expected property separator at offset ${cursor}`);
+    }
+
+    const valueStart = skipWhitespace(source, cursor + 1);
+    const valueEnd = scanValueEnd(source, valueStart);
+    if (key === propertyName) {
+      return { start: valueStart, end: valueEnd };
+    }
+
+    cursor = skipWhitespace(source, valueEnd);
+    if (source[cursor] === ",") {
+      cursor = skipWhitespace(source, cursor + 1);
+    } else if (source[cursor] !== "}") {
+      throw new Error(`Expected property delimiter at offset ${cursor}`);
+    }
+  }
+
+  throw new Error(`Property not found in catalog source: ${propertyName}`);
+}
+
+function formatModelEntry(entry) {
+  if (typeof entry === "string") {
+    return JSON.stringify(entry);
+  }
+
+  const fields = Object.entries(entry)
+    .map(([name, value]) => `${JSON.stringify(name)}: ${JSON.stringify(value)}`);
+  return `{ ${fields.join(", ")} }`;
+}
+
+function appendArrayEntry(source, range, entry) {
+  const openIndex = range.start;
+  const closeIndex = range.end - 1;
+  if (source[openIndex] !== "[" || source[closeIndex] !== "]") {
+    throw new Error("Catalog models value must be a JSON array");
+  }
+
+  const formattedEntry = formatModelEntry(entry);
+  const content = source.slice(openIndex + 1, closeIndex);
+  const newline = source.includes("\r\n") ? "\r\n" : "\n";
+  const closingNewline = source.lastIndexOf("\n", closeIndex - 1);
+  const hasMultilineLayout = closingNewline > openIndex;
+
+  if (content.trim() === "") {
+    if (!hasMultilineLayout) {
+      return `${source.slice(0, openIndex + 1)}${formattedEntry}${source.slice(closeIndex)}`;
+    }
+
+    const closingIndent = source.slice(closingNewline + 1, closeIndex);
+    const insertionStart = newline === "\r\n" ? closingNewline - 1 : closingNewline;
+    const replacement = `${newline}${closingIndent}  ${formattedEntry}`;
+    return `${source.slice(0, insertionStart)}${replacement}${source.slice(insertionStart)}`;
+  }
+
+  if (!hasMultilineLayout) {
+    return `${source.slice(0, closeIndex)}, ${formattedEntry}${source.slice(closeIndex)}`;
+  }
+
+  const insertionStart = newline === "\r\n" ? closingNewline - 1 : closingNewline;
+  const previousLineStart = source.lastIndexOf("\n", insertionStart - 1) + 1;
+  const previousLine = source.slice(previousLineStart, insertionStart);
+  const itemIndent = previousLine.match(/^[ \t]*/)?.[0] ?? "";
+  const insertion = `,${newline}${itemIndent}${formattedEntry}`;
+  return `${source.slice(0, insertionStart)}${insertion}${source.slice(insertionStart)}`;
+}
+
+function appendModelEntry(source, provider, entry) {
+  const rootStart = skipWhitespace(source, 0);
+  const providers = findObjectProperty(source, rootStart, "providers");
+  const providerCatalog = findObjectProperty(source, providers.start, provider);
+  const models = findObjectProperty(source, providerCatalog.start, "models");
+  const updatedSource = appendArrayEntry(source, models, entry);
+  JSON.parse(updatedSource);
+  return updatedSource;
+}
+
 function buildPullRequestBody(result, issueNumber) {
   const lines = [
     "## Automated model catalog update",
@@ -214,8 +370,11 @@ function main() {
         message: `Model ${request.modelId} already exists for ${request.provider}`,
       };
     } else {
-      providerCatalog.models.push(buildEntry(request, providerCatalog.models));
-      writeFileSync(options.catalog, `${JSON.stringify(catalog, null, 2)}\n`);
+      const entry = buildEntry(request, providerCatalog.models);
+      writeFileSync(
+        options.catalog,
+        appendModelEntry(originalCatalog, request.provider, entry),
+      );
       result = {
         status: "added",
         provider: request.provider,
