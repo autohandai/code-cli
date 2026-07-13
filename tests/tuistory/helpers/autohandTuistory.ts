@@ -569,6 +569,79 @@ globalThis.fetch = async (input, init) => {
   };
 }
 
+export async function createMockSubAgentCatalogFetchPreload(): Promise<MockOpenRouterFetchPreload> {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'autohand-tuistory-fetch-'));
+  const preloadPath = path.join(tempRoot, 'mock-sub-agent-catalog-fetch.mjs');
+  const registryUrl = 'https://raw.githubusercontent.com/autohandai/awesome-sub-agents/main/registry.json';
+  const agentUrl = 'https://raw.githubusercontent.com/autohandai/awesome-sub-agents/main/categories/03-design-experience/ui-designer.md';
+  const registry = {
+    schemaVersion: 1,
+    repository: 'https://github.com/autohandai/awesome-sub-agents',
+    agents: [
+      {
+        name: 'ui-designer',
+        description: 'Designs accessible production user interfaces',
+        category: '03-design-experience',
+        path: 'categories/03-design-experience/ui-designer.md',
+        tools: ['read_file'],
+      },
+    ],
+  };
+  const agentMarkdown = [
+    '---',
+    'description: Designs accessible production user interfaces',
+    'tools: read_file',
+    '---',
+    '',
+    'Own UI implementation and accessibility validation.',
+    '',
+  ].join('\n');
+  const moduleSource = `
+const originalFetch = globalThis.fetch?.bind(globalThis);
+const registryUrl = ${JSON.stringify(registryUrl)};
+const agentUrl = ${JSON.stringify(agentUrl)};
+const registry = ${JSON.stringify(registry)};
+const agentMarkdown = ${JSON.stringify(agentMarkdown)};
+
+globalThis.fetch = async (input, init) => {
+  const url = typeof input === 'string'
+    ? input
+    : input instanceof URL
+      ? input.toString()
+      : input.url;
+
+  if (url === registryUrl) {
+    return new Response(JSON.stringify(registry), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  if (url === agentUrl) {
+    return new Response(agentMarkdown, {
+      status: 200,
+      headers: { 'content-type': 'text/markdown' },
+    });
+  }
+
+  if (!originalFetch) {
+    throw new Error('fetch is not available in this runtime');
+  }
+
+  return originalFetch(input, init);
+};
+`;
+
+  await writeFile(preloadPath, moduleSource);
+
+  return {
+    importSpecifier: pathToFileURL(preloadPath).href,
+    cleanup: async () => {
+      await rm(tempRoot, { recursive: true, force: true });
+    },
+  };
+}
+
 export async function createMockAuthServer(
   options: MockAuthServerOptions = {},
 ): Promise<MockAuthServer> {

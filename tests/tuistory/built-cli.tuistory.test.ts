@@ -21,6 +21,7 @@ import {
   createMockOpenRouterFetchPreload,
   createMockOpenRouterSequenceServer,
   createMockSkillInstallFetchPreload,
+  createMockSubAgentCatalogFetchPreload,
   createMockOllamaServer,
   createStalledSyncFetchPreload,
   createTempAutohandHome,
@@ -348,6 +349,74 @@ describe('built CLI Tuistory smoke tests', () => {
     expect(session.exitInfo?.exitCode).toBe(1);
     expect(session.readAll()).not.toMatch(/^diff --git /m);
   });
+
+  it('installs a catalog sub-agent and delegates to it in the same built prompt turn', async () => {
+    const openRouterServer = await createMockOpenRouterSequenceServer([
+      JSON.stringify({
+        thought: 'Find a catalog UI specialist first.',
+        toolCalls: [{ tool: 'find_sub_agents', args: { query: 'accessible UI' } }],
+      }),
+      JSON.stringify({
+        reflection: 'The catalog result identifies ui-designer as the exact accessible UI match.',
+        thought: 'Install the exact matching specialist.',
+        toolCalls: [{ tool: 'install_sub_agent', args: { name: 'ui-designer' } }],
+      }),
+      JSON.stringify({
+        reflection: 'The install result confirms ui-designer is available in the current registry.',
+        thought: 'Delegate the UI review to the newly installed specialist.',
+        toolCalls: [{
+          tool: 'delegate_task',
+          args: { agent_name: 'ui-designer', task: 'Review the UI accessibility approach.' },
+        }],
+      }),
+      JSON.stringify({
+        finalResponse: 'UI_AGENT_OK',
+        toolCalls: [],
+      }),
+      JSON.stringify({
+        finalResponse: 'Catalog delegation verified: UI_AGENT_OK',
+        toolCalls: [],
+      }),
+    ]);
+    mockServers.push(openRouterServer);
+    const catalogPreload = await createMockSubAgentCatalogFetchPreload();
+    mockOpenRouterFetchPreloads.push(catalogPreload);
+    const state = await createTempAutohandHome({
+      config: {
+        openrouter: { baseUrl: openRouterServer.baseUrl },
+        agent: { maxIterations: 8, sessionRetryLimit: 0 },
+      },
+    });
+    tempStates.push(state);
+    const nodeOptions = [
+      process.env.NODE_OPTIONS,
+      `--import ${catalogPreload.importSpecifier}`,
+    ].filter(Boolean).join(' ');
+    const session = await trackSession(launchBuiltAutohand([
+      '--path', state.workspaceRoot,
+      '--config', state.configPath,
+      '-p', 'bring in an accessible UI specialist and delegate a review',
+    ], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      env: { NODE_OPTIONS: nodeOptions },
+      waitForDataTimeout: 15_000,
+    }));
+
+    await session.waitForText('Install sub-agent from the default Autohand catalog?', { timeout: 20_000 });
+    await session.press('enter');
+    await waitForExit(session, 60_000);
+
+    const output = session.readAll();
+    expect(session.exitInfo?.exitCode, output).toBe(0);
+    expect(output).toContain('Installing sub-agent: ui-designer');
+    expect(output).toContain('Installed sub-agent ui-designer');
+    expect(output).toContain("Sub-agent 'ui-designer' starting task");
+    expect(output).toContain('Catalog delegation verified: UI_AGENT_OK');
+
+    const installedAgentPath = path.join(state.autohandHome, 'agents', 'ui-designer.md');
+    expect(await readFile(installedAgentPath, 'utf8')).toContain('Own UI implementation');
+  }, 90_000);
 
   it('opens the active agents dashboard and exits with Escape', async () => {
     const state = await createTempAutohandHome({ initializeGit: false });
