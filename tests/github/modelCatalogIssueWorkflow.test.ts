@@ -80,8 +80,13 @@ function requestBody(fields: {
   ].join("\n\n");
 }
 
-function runUpdater(catalog: CatalogFixture, body: string): {
+function runUpdater(
+  catalog: CatalogFixture,
+  body: string,
+  catalogSource = `${JSON.stringify(catalog, null, 2)}\n`,
+): {
   catalog: CatalogFixture;
+  catalogSource: string;
   result: UpdateResult;
   pullRequestBody: string;
 } {
@@ -91,7 +96,7 @@ function runUpdater(catalog: CatalogFixture, body: string): {
   const resultPath = join(directory, "result.json");
   const pullRequestBodyPath = join(directory, "pull-request.md");
 
-  writeFileSync(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
+  writeFileSync(catalogPath, catalogSource);
   writeFileSync(issueBodyPath, body);
 
   try {
@@ -111,6 +116,7 @@ function runUpdater(catalog: CatalogFixture, body: string): {
 
     return {
       catalog: JSON.parse(readFileSync(catalogPath, "utf8")) as CatalogFixture,
+      catalogSource: readFileSync(catalogPath, "utf8"),
       result: JSON.parse(readFileSync(resultPath, "utf8")) as UpdateResult,
       pullRequestBody: readFileSync(pullRequestBodyPath, "utf8"),
     };
@@ -189,6 +195,40 @@ describe("model catalog issue automation", () => {
       models: ["nvidia/existing", "nvidia/new-model"],
     });
     expect(updated.pullRequestBody).toContain("Closes #42");
+  });
+
+  it("preserves unrelated catalog formatting when appending a model", () => {
+    const originalCatalog = `{
+  "providers": {
+    "openrouter": {
+      "defaultModel": "vendor/existing",
+      "runtimeDefaultModel": "vendor/existing",
+      "models": [
+        { "id": "vendor/existing", "displayName": "Existing" }
+      ]
+    },
+    "openai": {
+      "defaultModel": "gpt-existing",
+      "runtimeDefaultModel": "gpt-existing",
+      "models": [
+        "gpt-existing"
+      ]
+    }
+  }
+}
+`;
+    const expectedCatalog = originalCatalog.replace(
+      '        "gpt-existing"\n',
+      '        "gpt-existing",\n        "gpt-new"\n',
+    );
+
+    const updated = runUpdater(
+      JSON.parse(originalCatalog) as CatalogFixture,
+      requestBody({ provider: "openai", modelId: "gpt-new" }),
+      originalCatalog,
+    );
+
+    expect(updated.catalogSource).toBe(expectedCatalog);
   });
 
   it("writes a structured entry when optional model metadata is provided", () => {
