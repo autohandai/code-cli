@@ -85,7 +85,7 @@ The `/settings` command opens an interactive settings editor directly in the ter
 | `/login` | Authenticate with Autohand API |
 | `/logout` | Log out |
 | `/status` | Show session status |
-| `/usage` | Show model, provider, context, and usage limits when `usage_v2` is enabled |
+| `/usage` | Show project token activity by day, week, or month when `cli_usage_v2` is enabled |
 | `/statusline` | Configure composer status-line fields |
 | `/permissions` | Manage tool permissions |
 | `/hooks` | Manage lifecycle hooks |
@@ -115,6 +115,7 @@ The `/settings` command opens an interactive settings editor directly in the ter
 - [x] `/experiments` opens an interactive checkbox list for toggling experiments from the TUI
 - [x] `/experiments` is the interactive TUI surface for experiment changes
 - [x] Remote feature flags are cached in `~/.autohand/feature-flags.json` and refreshed after their API TTL expires
+- [x] `cli_usage_v2` is enabled by default and powers `/usage`, `/usage weekly`, and `/usage monthly`
 
 ### Experimental: real-time token usage status
 

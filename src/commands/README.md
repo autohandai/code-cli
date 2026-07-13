@@ -29,7 +29,7 @@ Each command is a separate TypeScript file that exports:
 | `/experiments` | `features.ts` | List and toggle experiments |
 | `/goal` | `goal.ts` | Manage persistent goals, budgets, templates, and queued goal work. Requires `slash_goal`. |
 | `/squad` | `squad.ts` | Open/manage the standalone Autohand Squad runtime. |
-| `/usage` | `usage.ts` | Show model, provider, context, and usage limits |
+| `/usage` | `usage.ts` | Show project token activity by day, week, or month |
 | `/statusline` | `statusline.ts` | Configure composer status-line fields |
 
 ## Adding a New Command

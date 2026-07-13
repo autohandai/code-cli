@@ -292,7 +292,7 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/completion`      | Generate shell completion scripts                                                |
 | `/export`          | Export session to markdown/JSON/HTML                                             |
 | `/status`          | Show workspace status                                                            |
-| `/usage`           | Show usage dashboard (usage_v2)                                                  |
+| `/usage`           | Show token activity by day, week, or month                                       |
 | `/login`           | Authenticate with Autohand Code API                                              |
 | `/logout`          | Sign out                                                                         |
 | `/permissions`     | Manage tool permissions                                                          |

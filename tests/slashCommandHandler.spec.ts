@@ -26,6 +26,11 @@ vi.mock('../src/commands/squad.js', () => ({
   squad: mockSquad,
 }));
 
+const mockUsage = vi.fn();
+vi.mock('../src/commands/usage.js', () => ({
+  usage: mockUsage,
+}));
+
 function createContext() {
   return {
     promptModelSelection: vi.fn().mockResolvedValue(undefined),
@@ -58,6 +63,7 @@ const DEFAULT_COMMANDS: SlashCommand[] = [
   { command: '/about', description: 'about', implemented: true },
   { command: '/ide', description: 'connect ide', implemented: true },
   { command: '/squad', description: 'open squad', implemented: true },
+  { command: '/usage', description: 'show usage', implemented: true },
 ];
 
 describe('SlashCommandHandler', () => {
@@ -217,6 +223,17 @@ describe('SlashCommandHandler', () => {
       { workspaceRoot: '/tmp/workspace', config: ctx.config },
       ['--port', '19999'],
     );
+  });
+
+  it('passes args through to /usage', async () => {
+    const ctx = createContext();
+    mockUsage.mockResolvedValueOnce('usage weekly');
+    const handler = new SlashCommandHandler(ctx as any, DEFAULT_COMMANDS);
+
+    const result = await handler.handle('/usage', ['weekly']);
+
+    expect(result).toBe('usage weekly');
+    expect(mockUsage).toHaveBeenCalledWith(ctx, ['weekly']);
   });
 
   it('pauses the active UI around /statusline', async () => {

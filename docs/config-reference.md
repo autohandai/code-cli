@@ -2128,7 +2128,9 @@ These flags override config file settings:
 
 Remote feature flags are fetched from `/v1/feature-flags/evaluate`, cached at `~/.autohand/feature-flags.json`, and refreshed after the API-provided TTL expires. Use `features.environment` to select a remote flag environment and `features.remoteOverrides` for local opt-outs of user-overridable remote flags.
 
-`usage_v2` is an experimental feature switch for the `/usage` dashboard and the enhanced `/status` Usage tab. Enable it with `autohand experiments enable usage_v2`.
+`cli_usage_v2` is an experimental feature switch for the project token activity dashboard shown by `/usage`, `/usage weekly`, and `/usage monthly` (config path `features.cliUsageV2`, default on). Disable it with `autohand experiments disable cli_usage_v2`.
+
+`usage_v2` is the legacy model, provider, context, and usage-limits dashboard plus the enhanced `/status` Usage tab. Enable it with `autohand experiments enable usage_v2`.
 
 `token_usage_status` is an experimental feature switch (config path `features.tokenUsageStatus`, default off) that shows real-time token usage in the working status line — cumulative tokens up (`↑`) and down (`↓`) plus context-window occupancy, e.g. `↑15.7k ↓3.2k · context: 6.0% (15.7k/262.1k)`. The context window is resolved per model across all providers. Enable it with `autohand experiments enable token_usage_status`.
 
@@ -2154,7 +2156,7 @@ Autohand provides a rich set of slash commands for interactive use. Type `/` in 
 | `/export`     | Export session to markdown/JSON/HTML                  |
 | `/share`      | Share current session                                 |
 | `/status`     | Show session status                                   |
-| `/usage`      | Show model, provider, context, and usage limits       |
+| `/usage`      | Show project token activity by day, week, or month    |
 
 ### Model & Provider
 

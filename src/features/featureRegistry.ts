@@ -133,6 +133,14 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     defaultEnabled: false,
   },
   {
+    id: 'cli_usage_v2',
+    label: 'CLI usage v2',
+    description: 'Show the token activity dashboard for /usage daily, weekly, and monthly.',
+    stage: 'experimental',
+    configPath: 'features.cliUsageV2',
+    defaultEnabled: true,
+  },
+  {
     id: AWS_BEDROCK_PROVIDER_FLAG,
     label: 'AWS Bedrock provider',
     description: 'Enable AWS Bedrock as a first-class model provider.',

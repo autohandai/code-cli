@@ -31,6 +31,7 @@ describe('feature registry', () => {
     expect(ids).toContain('prompt_suggestions');
     expect(ids).toContain('request_queue');
     expect(ids).toContain('usage_v2');
+    expect(ids).toContain('cli_usage_v2');
     expect(ids).toContain('slash_goal');
     expect(ids).toContain('experimental_fork');
     expect(ids).toContain('experimental_clone');
@@ -43,6 +44,7 @@ describe('feature registry', () => {
 
     expect(getFeatureState(config, 'mcp')?.enabled).toBe(true);
     expect(getFeatureState(config, 'chrome_integration')?.enabled).toBe(false);
+    expect(getFeatureState(config, 'cli_usage_v2')?.enabled).toBe(true);
     expect(getFeatureState(config, 'slash_goal')?.enabled).toBe(false);
     expect(getFeatureState(config, 'experimental_fork')?.enabled).toBe(false);
     expect(getFeatureState(config, 'experimental_clone')?.enabled).toBe(false);
@@ -129,6 +131,21 @@ describe('feature registry', () => {
       configPath: 'features.usageV2',
     }));
     expect(listFeatureStates(config, { remoteSnapshot }).filter((feature) => feature.id === 'usage_v2')).toHaveLength(1);
+  });
+
+  it('stores cli usage v2 under features.cliUsageV2', () => {
+    const config = makeConfig();
+
+    const state = getFeatureState(config, 'cli_usage_v2');
+    expect(state).toEqual(expect.objectContaining({
+      enabled: true,
+      configPath: 'features.cliUsageV2',
+    }));
+
+    const result = setFeatureState(config, 'cli_usage_v2', false);
+    expect(result.ok).toBe(true);
+    expect(config.features?.cliUsageV2).toBe(false);
+    expect(getFeatureState(config, 'cli_usage_v2')?.enabled).toBe(false);
   });
 
   it('filters remote flags scoped to other clients out of CLI feature states', () => {
