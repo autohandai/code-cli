@@ -15,6 +15,12 @@ import type { AgentOutputEvent, AgentRuntime, TurnUsage } from '../../types.js';
 import type { Intent, IntentResult } from '../IntentDetector.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { GoalManager } from '../../goals/GoalManager.js';
+import type { SessionMessage } from '../../session/types.js';
+import {
+  extractDeepResearchRunId,
+  finalizeDeepResearchRun,
+  markDeepResearchRunStarted,
+} from '../../deepResearch/session.js';
 
 interface InstructionConversation {
   addMessage(message: { role: 'user'; content: string }): void;
@@ -27,6 +33,12 @@ interface InstructionIntentDetector {
 
 interface InstructionProviderConfigManager {
   promptModelSelection(): Promise<void>;
+}
+
+interface InstructionSessionManager {
+  getCurrentSession(): {
+    getMessages?: () => SessionMessage[];
+  } | null;
 }
 
 export interface SessionFailureBugReportOptions {
@@ -77,6 +89,7 @@ export interface AgentInstructionHost {
   sessionRetryCount: number;
   sessionTokensUsed: number;
   runtime: AgentRuntime;
+  sessionManager?: InstructionSessionManager;
   permissionManager?: PermissionManager;
   intentDetector: InstructionIntentDetector;
   persistentInput: InstructionPersistentInput;
@@ -111,7 +124,7 @@ export interface AgentInstructionHost {
   saveUserMessage(instruction: string): Promise<void>;
   updateContextUsage(history: unknown[]): void;
   runReactLoop(abortController: AbortController): Promise<void>;
-  runQualityPipeline(): Promise<void>;
+  runQualityPipeline(): Promise<boolean>;
   cleanupUI(keepInkAlive?: boolean): void;
   runInstruction(instruction: string, options?: RunInstructionOptions): Promise<boolean>;
   isRetryableSessionError(error: Error): boolean;
@@ -135,6 +148,15 @@ export interface RunInstructionOptions {
   signal?: AbortSignal;
 }
 
+interface DeepResearchInstructionState {
+  runId: string | null;
+  finalized: boolean;
+  deferFinalization: boolean;
+  qualityPassed: boolean;
+}
+
+type FinalizeResearch = (turnSucceeded: boolean) => Promise<boolean>;
+
 export class InstructionRunner {
   constructor(private readonly host: AgentInstructionHost) {}
 
@@ -142,6 +164,39 @@ export class InstructionRunner {
     if (options.signal?.aborted) {
       return false;
     }
+
+    const host = this.host;
+    const deepResearch: DeepResearchInstructionState = {
+      runId: extractDeepResearchRunId(instruction),
+      finalized: false,
+      deferFinalization: false,
+      qualityPassed: true,
+    };
+    const finalizeResearch = async (turnSucceeded: boolean): Promise<boolean> => {
+      if (!deepResearch.runId || deepResearch.finalized) {
+        return turnSucceeded;
+      }
+
+      try {
+        const result = await finalizeDeepResearchRun({
+          workspaceRoot: host.runtime.workspaceRoot,
+          runId: deepResearch.runId,
+          turnSucceeded,
+          qualityPassed: deepResearch.qualityPassed,
+          finalResponse: host.lastAssistantResponseForNotification,
+          messages: host.sessionManager?.getCurrentSession()?.getMessages?.() ?? [],
+        });
+        deepResearch.finalized = true;
+        if (!result.completed) {
+          host.stopUI(true, 'Deep research incomplete');
+        }
+        return turnSucceeded && result.completed;
+      } catch {
+        deepResearch.finalized = true;
+        host.stopUI(true, 'Deep research status could not be verified');
+        return false;
+      }
+    };
 
     const abortController = new AbortController();
     const forwardExternalAbort = (): void => abortController.abort();
@@ -151,9 +206,18 @@ export class InstructionRunner {
     }
 
     try {
-      return await this.runWithController(instruction, abortController, options);
+      return await this.runWithController(
+        instruction,
+        abortController,
+        options,
+        deepResearch,
+        finalizeResearch,
+      );
     } finally {
       options.signal?.removeEventListener('abort', forwardExternalAbort);
+      if (deepResearch.runId && !deepResearch.finalized && !deepResearch.deferFinalization) {
+        await finalizeResearch(false);
+      }
     }
   }
 
@@ -161,11 +225,17 @@ export class InstructionRunner {
     instruction: string,
     abortController: AbortController,
     options: RunInstructionOptions,
+    deepResearch: DeepResearchInstructionState,
+    finalizeResearch: FinalizeResearch,
   ): Promise<boolean> {
     const host = this.host;
 
     if (abortController.signal.aborted) {
       return false;
+    }
+
+    if (deepResearch.runId) {
+      await markDeepResearchRunStarted(host.runtime.workspaceRoot, deepResearch.runId);
     }
 
     host.isInstructionActive = true;
@@ -316,11 +386,16 @@ export class InstructionRunner {
           }
           cleanupConsoleBridge();
           cleanupConsoleBridge = () => {}; // Prevent double-cleanup in finally
-          await host.runQualityPipeline();
+          deepResearch.qualityPassed = await host.runQualityPipeline();
+          if (!deepResearch.qualityPassed) {
+            success = false;
+            host.stopUI(true, 'Quality checks failed');
+          }
         } finally {
           host.modalActive = false;
         }
       }
+      success = await finalizeResearch(success);
     } catch (error) {
       success = false;
       if (abortController.signal.aborted) {
@@ -333,6 +408,7 @@ export class InstructionRunner {
         console.log(chalk.yellow(`\nNo provider is configured yet. Let's set one up!\n`));
         await host.providerConfigManager.promptModelSelection();
         // After configuration, retry the instruction
+        deepResearch.deferFinalization = true;
         return host.runInstruction(instruction, options);
       }
 
@@ -387,6 +463,7 @@ export class InstructionRunner {
             // If we get here, retry succeeded - reset counter
             host.sessionRetryCount = 0;
             success = true;
+            success = await finalizeResearch(success);
             return success;
           } catch (retryError) {
             err = retryError instanceof Error ? retryError : new Error(String(retryError));
@@ -409,6 +486,7 @@ export class InstructionRunner {
           console.error(errorMessage);
         }
       }
+      success = await finalizeResearch(success);
     } finally {
       // IMPORTANT: Keep the console bridge active until AFTER terminal regions
       // are disabled. Otherwise, in-flight streaming output bypasses writeAbove
@@ -479,6 +557,7 @@ export class InstructionRunner {
       } catch {
         // Goal accounting is best-effort and must never mask the turn result.
       }
+
 
       if (!host.runtime.isCommandMode && !host.runtime.options?.prompt) {
         host.scheduleTurnMemoryReflection(success && !canceledByUser);

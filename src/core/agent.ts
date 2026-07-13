@@ -1315,7 +1315,7 @@ export class AutohandAgent {
   /**
    * Run code quality pipeline after file modifications
    */
-  private async runQualityPipeline(): Promise<void> {
+  private async runQualityPipeline(): Promise<boolean> {
     return runAgentQualityPipeline(this as unknown as AgentProjectOperationsHost);
   }
 

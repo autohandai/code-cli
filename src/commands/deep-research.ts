@@ -7,11 +7,27 @@ import fse from 'fs-extra';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { SlashCommand, SlashCommandContext } from '../core/slashCommandTypes.js';
+import {
+  DEEP_RESEARCH_RUN_MARKER,
+  formatDeepResearchStatus,
+  readDeepResearchRun,
+  startDeepResearchRun,
+} from '../deepResearch/session.js';
 
 export const metadata: SlashCommand = {
   command: '/deep-research',
   description: 'research a topic deeply and save a cited project report',
   implemented: true,
+  subcommands: [
+    { name: 'status', description: 'show vital progress for the active deep research run' },
+  ],
+};
+
+export const aliasMetadata: SlashCommand = {
+  command: '/deep-search',
+  description: 'alias for /deep-research',
+  implemented: true,
+  subcommands: metadata.subcommands,
 };
 
 const MAX_COLLISION_ATTEMPTS = 1000;
@@ -51,10 +67,14 @@ export async function deepResearch(
   ctx: SlashCommandContext,
   args: string[] = []
 ): Promise<string | null> {
+  if (args[0]?.toLowerCase() === 'status') {
+    return getDeepResearchStatus(ctx);
+  }
+
   const topic = args.join(' ').trim();
   if (!topic) {
     return [
-      'Usage: /deep-research <topic>',
+      'Usage: /deep-research <topic> | /deep-research status',
       '',
       'Example: /deep-research Hermes self evolving and DSPy',
       '',
@@ -62,13 +82,29 @@ export async function deepResearch(
     ].join('\n');
   }
 
+  const existingRun = await readDeepResearchRun(ctx.workspaceRoot);
+  if (existingRun?.status === 'queued' || existingRun?.status === 'running') {
+    return [
+      `Deep research is already ${existingRun.status}: ${existingRun.topic}`,
+      'Use /deep-research status to inspect its progress.',
+    ].join('\n');
+  }
+
   const reportPath = await resolveAvailableResearchReportPath(ctx.workspaceRoot, topic);
   const projectRelativeReportPath = toProjectRelativePath(ctx.workspaceRoot, reportPath);
+  const currentSession = ctx.currentSession ?? ctx.sessionManager?.getCurrentSession() ?? undefined;
+  const run = await startDeepResearchRun({
+    workspaceRoot: ctx.workspaceRoot,
+    topic,
+    reportPath: projectRelativeReportPath,
+    sessionId: currentSession?.metadata.sessionId,
+  });
   const skillBody = await loadDeepResearchSkillBody();
   const prompt = buildDeepResearchPrompt({
     topic,
     projectRelativeReportPath,
     skillBody,
+    runId: run.id,
   });
 
   if (ctx.isNonInteractive || !ctx.queueInstruction) {
@@ -84,6 +120,7 @@ export async function deepResearch(
       ? 'The built-in $deep-research skill is active for this run.'
       : 'The bundled deep-research instructions were queued for this run.',
     `Report target: ${projectRelativeReportPath}`,
+    'Status: /deep-research status (alias: /deep-search status)',
   ].join('\n');
 }
 
@@ -91,9 +128,14 @@ function buildDeepResearchPrompt(options: {
   topic: string;
   projectRelativeReportPath: string;
   skillBody: string;
+  runId: string;
 }): string {
   return [
     options.skillBody,
+    '',
+    '## Runtime Identity',
+    `${DEEP_RESEARCH_RUN_MARKER}: ${options.runId}`,
+    '- Keep this run identifier unchanged so the CLI can audit progress and completion.',
     '',
     '## Research Topic',
     options.topic,
@@ -117,6 +159,24 @@ function buildDeepResearchPrompt(options: {
     `- In the final answer, include the exact line: Research saved: ${options.projectRelativeReportPath}`,
     '- Make the saved report useful for the next user prompt by including a clear title, Summary, Findings, Open questions/uncertainty, and Sources.',
   ].join('\n');
+}
+
+async function getDeepResearchStatus(ctx: SlashCommandContext): Promise<string> {
+  const run = await readDeepResearchRun(ctx.workspaceRoot);
+  const currentSession = ctx.currentSession ?? ctx.sessionManager?.getCurrentSession() ?? undefined;
+  const messages = run
+    && currentSession
+    && (!run.sessionId || run.sessionId === currentSession.metadata.sessionId)
+    ? currentSession.getMessages()
+    : [];
+
+  return formatDeepResearchStatus({
+    workspaceRoot: ctx.workspaceRoot,
+    messages,
+    totalTokensUsed: ctx.getTotalTokensUsed?.(),
+    tokenUsageStatus: ctx.getTokenUsageStatus?.(),
+    contextPercentLeft: ctx.getContextPercentLeft?.(),
+  });
 }
 
 async function loadDeepResearchSkillBody(): Promise<string> {

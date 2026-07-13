@@ -255,7 +255,7 @@ export async function runAgentEnvironmentBootstrap(
   return result;
 }
 
-export async function runAgentQualityPipeline(host: AgentProjectOperationsHost): Promise<void> {
+export async function runAgentQualityPipeline(host: AgentProjectOperationsHost): Promise<boolean> {
   console.log(chalk.cyan('\n[QUALITY] Running quality checks...'));
 
   const result = await host.codeQualityPipeline.run(host.runtime.workspaceRoot);
@@ -285,4 +285,6 @@ export async function runAgentQualityPipeline(host: AgentProjectOperationsHost):
   } else {
     console.log(chalk.red(`\n[FAIL] ${result.summary}`));
   }
+
+  return result.passed;
 }
