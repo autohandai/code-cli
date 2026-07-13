@@ -18,6 +18,8 @@ import type { RepeatManager } from './RepeatManager.js';
 import type { LoadedConfig, ProviderName } from '../types.js';
 import type { ToolsRegistry } from './toolsRegistry.js';
 import type { UsageLimitRow } from '../commands/usage.js';
+import type { MobileImageAttachment } from '../mobile/MobileHandoffClient.js';
+import type { MobileRelayController } from '../mobile/MobileRelay.js';
 
 export interface SlashCommandContext {
     listWorkspaceFiles?: () => Promise<void>;
@@ -97,6 +99,14 @@ export interface SlashCommandContext {
     queueInstruction?: (instruction: string) => void;
     /** Queue a visible user instruction, matching a typed prompt in the interactive UI */
     enqueueInstruction?: (instruction: string) => void;
+    /** Queue an instruction received from the mobile relay. */
+    enqueueMobileInstruction?: (instruction: string) => void;
+    /** Queue a visible mobile instruction and hydrate its image attachments */
+    enqueueInstructionWithImages?: (instruction: string, images: MobileImageAttachment[]) => void;
+    /** Queue a mobile instruction and hydrate its image attachments. */
+    enqueueMobileInstructionWithImages?: (instruction: string, images: MobileImageAttachment[]) => void;
+    /** Called after /go starts the live mobile relay. */
+    onMobileRelayReady?: (controller: MobileRelayController) => void;
     /** Event emitter for RPC/ACP mode notifications */
     eventEmitter?: {
         emit: (event: string, data?: unknown) => void;

@@ -230,12 +230,19 @@ describe('/go command', () => {
         status: 'running',
         agentId: null,
         deviceId: 'device-1',
-        payload: null,
+        payload: {
+          images: [{
+            data: 'iVBORw0KGgo=',
+            mimeType: 'image/png',
+            filename: 'screen.png',
+          }],
+        },
         createdAt: '2026-05-13T00:00:00.000Z',
         updatedAt: '2026-05-13T00:00:01.000Z',
       }),
     };
     const enqueueInstruction = vi.fn();
+    const enqueueInstructionWithImages = vi.fn();
 
     const result = await go({
       sessionManager: createSessionManager(createSession()),
@@ -248,6 +255,7 @@ describe('/go command', () => {
       },
       client,
       enqueueInstruction,
+      enqueueInstructionWithImages,
     });
 
     await Promise.resolve();
@@ -256,7 +264,12 @@ describe('/go command', () => {
     expect(stripAnsi(result || '')).toContain('Relay: listening for mobile prompts');
     expect(client.sendRelayHeartbeat).toHaveBeenCalled();
     expect(client.claimWork).toHaveBeenCalledWith('token', 'device-1');
-    expect(enqueueInstruction).toHaveBeenCalledWith('review the diff from mobile');
+    expect(enqueueInstructionWithImages).toHaveBeenCalledWith('review the diff from mobile', [{
+      data: 'iVBORw0KGgo=',
+      mimeType: 'image/png',
+      filename: 'screen.png',
+    }]);
+    expect(enqueueInstruction).not.toHaveBeenCalled();
     stopMobileRelay();
   });
 });

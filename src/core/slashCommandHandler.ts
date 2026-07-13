@@ -253,6 +253,10 @@ export class SlashCommandHandler {
             provider: this.ctx.provider,
             config: this.ctx.config,
             enqueueInstruction: this.ctx.enqueueInstruction,
+            enqueueMobileInstruction: this.ctx.enqueueMobileInstruction,
+            enqueueInstructionWithImages: this.ctx.enqueueInstructionWithImages,
+            enqueueMobileInstructionWithImages: this.ctx.enqueueMobileInstructionWithImages,
+            onMobileRelayReady: this.ctx.onMobileRelayReady,
           }, args);
         }
         case '/handoff session': {
@@ -265,6 +269,10 @@ export class SlashCommandHandler {
             provider: this.ctx.provider,
             config: this.ctx.config,
             enqueueInstruction: this.ctx.enqueueInstruction,
+            enqueueMobileInstruction: this.ctx.enqueueMobileInstruction,
+            enqueueInstructionWithImages: this.ctx.enqueueInstructionWithImages,
+            enqueueMobileInstructionWithImages: this.ctx.enqueueMobileInstructionWithImages,
+            onMobileRelayReady: this.ctx.onMobileRelayReady,
             isFeatureEnabled: this.ctx.isFeatureEnabled,
             trackFeatureActivation: this.ctx.trackFeatureActivation,
           }, args);

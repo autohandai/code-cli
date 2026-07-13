@@ -52,6 +52,142 @@ export interface MobileRelayHeartbeatPayload {
   mode: 'queue' | 'steer';
 }
 
+export type MobileEventType =
+  | 'permission_request'
+  | 'directory_access_request'
+  | 'changes_batch'
+  | 'pull_request_status'
+  | 'deployment_status'
+  | 'pull_request_merge_result'
+  | 'session_artifacts'
+  | 'keep_awake_status';
+
+export interface MobileKeepAwakeStatus {
+  supported: boolean;
+  enabled: boolean;
+  reason?: string;
+}
+
+export interface MobilePullRequestMergeResult {
+  pullRequestNumber: number;
+  status: 'merged' | 'rejected' | 'failed';
+  message: string;
+}
+
+export type MobileArtifactKind = 'image' | 'video' | 'log';
+export type MobileArtifactMimeType = 'image/png' | 'image/jpeg' | 'video/mp4' | 'text/plain' | 'application/json';
+
+export interface MobileArtifact {
+  id: string;
+  name: string;
+  kind: MobileArtifactKind;
+  mimeType: MobileArtifactMimeType;
+  byteSize: number;
+  downloadPath: string;
+}
+
+export interface MobileArtifactUpload {
+  deviceId: string;
+  name: string;
+  kind: MobileArtifactKind;
+  mimeType: MobileArtifactMimeType;
+  data: string;
+}
+
+export interface MobilePullRequestCheck {
+  id: string;
+  name: string;
+  status: string;
+  detail?: string;
+  url?: string;
+}
+
+export interface MobilePullRequestReview {
+  id: string;
+  number?: number;
+  title: string;
+  url?: string;
+  headBranch: string;
+  baseBranch: string;
+  status: string;
+  mergeable?: boolean;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+  checks: MobilePullRequestCheck[];
+  updatedAt?: string;
+}
+
+export interface MobileDeploymentStatus {
+  id: string;
+  name: string;
+  environment?: string;
+  status: string;
+  detail?: string;
+  previewURL?: string;
+  logsURL?: string;
+  updatedAt?: string;
+}
+
+export interface MobileDeliveryStatusSnapshot {
+  pullRequest: MobilePullRequestReview | null;
+  deployments: MobileDeploymentStatus[];
+}
+
+export interface MobileEventPayloadMap {
+  permission_request: Record<string, unknown>;
+  directory_access_request: Record<string, unknown>;
+  changes_batch: Record<string, unknown>;
+  pull_request_status: { pullRequest: MobilePullRequestReview };
+  deployment_status: { deployments: MobileDeploymentStatus[] };
+  pull_request_merge_result: MobilePullRequestMergeResult;
+  session_artifacts: { artifacts: MobileArtifact[] };
+  keep_awake_status: MobileKeepAwakeStatus;
+}
+
+interface MobileEventEnvelope {
+  sessionId: string;
+  deviceId: string;
+  pairingId?: string;
+  requestId?: string;
+}
+
+export type PublishMobileEventPayload<EventType extends MobileEventType = MobileEventType> =
+  MobileEventEnvelope & {
+    eventType: EventType;
+    payload: MobileEventPayloadMap[EventType];
+  };
+
+export type MobileActionType =
+  | 'permission_response'
+  | 'directory_access_response'
+  | 'changes_decision'
+  | 'session_control'
+  | 'pull_request_merge'
+  | 'keep_awake_control';
+
+export interface MobileAction {
+  id: string;
+  sequence: number;
+  actionType: MobileActionType;
+  requestId: string | null;
+  payload: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface MobileActionPollResponse {
+  actions: MobileAction[];
+  nextCursor: number;
+}
+
+export type MobileImageMimeType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+
+export interface MobileImageAttachment {
+  data: string;
+  mimeType: MobileImageMimeType;
+  filename?: string;
+}
+
 export interface MobilePairing {
   id: string;
   pairingUrl: string;
@@ -104,6 +240,12 @@ export interface MobileHandoffClientLike {
   createPairing(token: string, payload: CreateMobilePairingPayload): Promise<MobilePairing>;
   sendRelayHeartbeat(token: string, payload: MobileRelayHeartbeatPayload): Promise<void>;
   claimWork(token: string, deviceId: string): Promise<ClaimedWorkItem | null>;
+  publishMobileEvent?<EventType extends MobileEventType>(
+    token: string,
+    payload: PublishMobileEventPayload<EventType>
+  ): Promise<void>;
+  pollMobileActions?(token: string, sessionId: string, deviceId: string, after: number): Promise<MobileActionPollResponse>;
+  uploadMobileArtifact?(token: string, sessionId: string, artifact: MobileArtifactUpload): Promise<MobileArtifact>;
 }
 
 export function getMobileApiBaseUrl(config?: LoadedConfig): string {
@@ -212,6 +354,62 @@ export class MobileHandoffClient implements MobileHandoffClientLike {
     }
 
     return data.work;
+  }
+
+  async publishMobileEvent<EventType extends MobileEventType>(
+    token: string,
+    payload: PublishMobileEventPayload<EventType>
+  ): Promise<void> {
+    await this.request(`/v1/mobile/sessions/${encodeURIComponent(payload.sessionId)}/events`, token, {
+      method: 'POST',
+      body: JSON.stringify({
+        deviceId: payload.deviceId,
+        pairingId: payload.pairingId,
+        eventType: payload.eventType,
+        requestId: payload.requestId,
+        payload: payload.payload,
+      }),
+      headers: {
+        'X-Device-ID': payload.deviceId,
+      },
+    });
+  }
+
+  async pollMobileActions(
+    token: string,
+    sessionId: string,
+    deviceId: string,
+    after: number
+  ): Promise<MobileActionPollResponse> {
+    const data = await this.request<MobileActionPollResponse>(
+      `/v1/mobile/sessions/${encodeURIComponent(sessionId)}/actions?after=${Math.max(after, 0)}`,
+      token,
+      {
+        method: 'GET',
+        headers: {
+          'X-Device-ID': deviceId,
+        },
+      }
+    );
+    return data;
+  }
+
+  async uploadMobileArtifact(
+    token: string,
+    sessionId: string,
+    artifact: MobileArtifactUpload
+  ): Promise<MobileArtifact> {
+    const data = await this.request<{ success: boolean; artifact?: MobileArtifact; error?: string }>(
+      `/v1/mobile/sessions/${encodeURIComponent(sessionId)}/artifacts`,
+      token,
+      {
+        method: 'POST',
+        body: JSON.stringify(artifact),
+        headers: { 'X-Device-ID': artifact.deviceId },
+      }
+    );
+    if (!data.success || !data.artifact) throw new Error(data.error || 'Invalid artifact upload response');
+    return data.artifact;
   }
 
   private async request<T = unknown>(

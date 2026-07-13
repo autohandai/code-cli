@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { randomUUID } from 'node:crypto';
 import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import { FileActionManager } from '../actions/filesystem.js';
 import { getProviderConfig } from '../config.js';
@@ -234,6 +235,7 @@ import {
 import { AutoReportManager } from '../reporting/AutoReportManager.js';
 import { SuggestionEngine } from './SuggestionEngine.js';
 import { ActiveAgentHeartbeat, ActiveAgentRegistry } from '../session/ActiveAgentRegistry.js';
+import type { MobileRelayController } from '../mobile/MobileRelay.js';
 
 function formatTurnMemoryUpdate(saved: ExtractedMemory[]): string {
   const lines = ['[Auto Memory Update] Background reflection saved these memories for future turns:'];
@@ -258,6 +260,8 @@ export class AutohandAgent {
   private statusListener?: (snapshot: AgentStatusSnapshot) => void;
   private outputListener?: (event: AgentOutputEvent) => void;
   private confirmationCallback?: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<PermissionPromptResponse>;
+  private mobileRelayController?: MobileRelayController;
+  private mobileRemoteInstructionsQueued = 0;
   private conversation!: ConversationManager;
   private toolManager!: ToolManager;
   private actionExecutor!: ActionExecutor;
@@ -761,7 +765,44 @@ export class AutohandAgent {
 
   async runInstruction(instruction: string, options?: RunInstructionOptions): Promise<boolean> {
     this.instructionRunner ??= new InstructionRunner(this as unknown as AgentInstructionHost);
-    return this.instructionRunner.run(instruction, options);
+    const relay = this.mobileRelayController;
+    const useMobilePreview = Boolean(relay && this.mobileRemoteInstructionsQueued > 0);
+    if (!useMobilePreview || !relay) {
+      return this.instructionRunner.run(instruction, options);
+    }
+
+    this.mobileRemoteInstructionsQueued -= 1;
+    const batchId = `mobile-batch-${randomUUID()}`;
+    this.files.enterPreviewMode(batchId);
+    try {
+      const succeeded = await this.instructionRunner.run(instruction, options);
+      const changes = this.files.getPendingChanges();
+      if (!succeeded || changes.length === 0) {
+        this.files.clearPendingChanges();
+        this.files.exitPreviewMode();
+        return succeeded;
+      }
+
+      const decision = await relay.requestChangesDecision(batchId, changes);
+      const result = decision.action === 'reject_all'
+        ? { applied: [], errors: [] }
+        : await this.files.applyPendingChanges(decision.selectedChangeIds);
+      this.files.clearPendingChanges();
+      this.files.exitPreviewMode();
+      return succeeded && result.errors.length === 0;
+    } catch (error) {
+      this.files.clearPendingChanges();
+      this.files.exitPreviewMode();
+      throw error;
+    } finally {
+      void relay.refreshDeliveryStatus();
+      const latestAssistant = [...this.conversation.history()]
+        .reverse()
+        .find((message) => message.role === 'assistant' && typeof message.content === 'string');
+      if (typeof latestAssistant?.content === 'string') {
+        await relay.publishArtifactsFromText(latestAssistant.content);
+      }
+    }
   }
 
   private handleToolOutput(chunk: ToolOutputChunk): void {
@@ -1442,6 +1483,14 @@ export class AutohandAgent {
    */
   cancelCurrentInstruction(): void {
     this.activeAbortController?.abort();
+  }
+
+  setMobileRelayController(controller: MobileRelayController): void {
+    this.mobileRelayController = controller;
+  }
+
+  markMobileInstructionQueued(): void {
+    this.mobileRemoteInstructionsQueued += 1;
   }
 
   /**
