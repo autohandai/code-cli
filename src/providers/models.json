@@ -4,20 +4,62 @@
       "defaultModel": "anthropic/claude-5-sonnet",
       "runtimeDefaultModel": "anthropic/claude-5-sonnet",
       "models": [
-        { "id": "openrouter/auto", "displayName": "OpenRouter Auto" },
-        { "id": "anthropic/claude-sonnet-4-20250514", "displayName": "Claude Sonnet 4" },
-        { "id": "anthropic/claude-4-sonnet", "displayName": "Claude 4 Sonnet" },
-        { "id": "anthropic/claude-3-opus", "displayName": "Claude 3 Opus" },
-        { "id": "anthropic/claude-3-5-sonnet-20241022", "displayName": "Claude 3.5 Sonnet" },
-        { "id": "openai/gpt-4o", "displayName": "GPT-4o" },
-        { "id": "openai/gpt-5", "displayName": "GPT-5" },
-        { "id": "google/gemini-3.0-pro", "displayName": "Gemini 3.0 Pro" },
-        { "id": "google/gemini-pro-1.5", "displayName": "Gemini Pro 1.5" },
-        { "id": "deepseek/deepseek-v4", "displayName": "DeepSeek V4" },
-        { "id": "anthropic/claude-5-sonnet", "displayName": "Claude 5 Sonnet" },
-        { "id": "anthropic/claude-5-opus", "displayName": "Claude 5 Opus" },
-        { "id": "x-ai/grok-2-latest", "displayName": "Grok 2 Latest" },
-        { "id": "meta-llama/llama-3.1-70b-instruct", "displayName": "Llama 3.1 70B Instruct" }
+        {
+          "id": "openrouter/auto",
+          "displayName": "OpenRouter Auto"
+        },
+        {
+          "id": "anthropic/claude-sonnet-4-20250514",
+          "displayName": "Claude Sonnet 4"
+        },
+        {
+          "id": "anthropic/claude-4-sonnet",
+          "displayName": "Claude 4 Sonnet"
+        },
+        {
+          "id": "anthropic/claude-3-opus",
+          "displayName": "Claude 3 Opus"
+        },
+        {
+          "id": "anthropic/claude-3-5-sonnet-20241022",
+          "displayName": "Claude 3.5 Sonnet"
+        },
+        {
+          "id": "openai/gpt-4o",
+          "displayName": "GPT-4o"
+        },
+        {
+          "id": "openai/gpt-5",
+          "displayName": "GPT-5"
+        },
+        {
+          "id": "google/gemini-3.0-pro",
+          "displayName": "Gemini 3.0 Pro"
+        },
+        {
+          "id": "google/gemini-pro-1.5",
+          "displayName": "Gemini Pro 1.5"
+        },
+        {
+          "id": "deepseek/deepseek-v4",
+          "displayName": "DeepSeek V4"
+        },
+        {
+          "id": "anthropic/claude-5-sonnet",
+          "displayName": "Claude 5 Sonnet"
+        },
+        {
+          "id": "anthropic/claude-5-opus",
+          "displayName": "Claude 5 Opus"
+        },
+        {
+          "id": "x-ai/grok-2-latest",
+          "displayName": "Grok 2 Latest"
+        },
+        {
+          "id": "meta-llama/llama-3.1-70b-instruct",
+          "displayName": "Llama 3.1 70B Instruct"
+        }
       ]
     },
     "ollama": {
@@ -40,7 +82,8 @@
         "gpt-5.4-mini",
         "gpt-5.4-nano",
         "gpt-5.3-codex",
-        "gpt-5.1-codex-max"
+        "gpt-5.1-codex-max",
+        "autohand/workflow-smoke-test-20260713131453"
       ]
     },
     "llmgateway": {
