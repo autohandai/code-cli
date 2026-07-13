@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  qualify-model-request:
+  qualify_model_request:
     name: Qualify model catalog request
     permissions: {}
     runs-on: ubuntu-latest
@@ -46,8 +46,8 @@ jobs:
 
   create-model-pr:
     name: Create model catalog pull request
-    needs: qualify-model-request
-    if: needs.qualify-model-request.outputs.accepted == 'true'
+    needs: qualify_model_request
+    if: needs.qualify_model_request.outputs.accepted == 'true'
     runs-on: ubuntu-latest
     env:
       BRANCH_NAME: automation/model-catalog-issue-${{ github.event.issue.number }}
