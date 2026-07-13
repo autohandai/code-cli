@@ -1342,6 +1342,9 @@ export type AgentAction =
   // Skills Discovery
   | { type: 'find_agent_skills'; query: string; category?: string; limit?: number }
   | { type: 'install_agent_skill'; name: string; scope?: 'project' | 'user'; activate?: boolean }
+  // Sub-agent catalog
+  | { type: 'find_sub_agents'; query: string; category?: string; limit?: number }
+  | { type: 'install_sub_agent'; name: string; overwrite?: boolean }
   // User interaction
   | { type: 'ask_followup_question'; question: string; suggested_answers?: string[] }
   // Schedule management

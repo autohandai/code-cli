@@ -64,6 +64,7 @@ import { loadCustomCommand, saveCustomCommand } from './customCommands.js';
 import { webSearch, fetchUrl, getPackageInfo, formatSearchResults, formatPackageInfo } from '../actions/web.js';
 import { webRepo, formatRepoInfo, formatRepoDir } from '../actions/webRepo.js';
 import { projectTracker } from '../actions/projectTracker.js';
+import { installSubAgentFromCatalog, searchSubAgentsCatalog } from '../actions/subAgentsCatalog.js';
 import { PermissionManager } from '../permissions/PermissionManager.js';
 import {
   getPermissionPolicyDisposition,
@@ -106,6 +107,7 @@ import { GoalManager } from '../goals/GoalManager.js';
 import type { GoalStatus } from '../goals/types.js';
 import { GOAL_FEATURE_DISABLED_MESSAGE, isGoalFeatureEnabled } from '../goals/feature.js';
 import { initExperiment, runExperiment, logExperiment } from '../autoresearch/tools.js';
+import { AgentRegistry } from './agents/AgentRegistry.js';
 
 /** Response from permission-request hook */
 export interface PermissionHookResponse {
@@ -2398,6 +2400,30 @@ export class ActionExecutor {
           limit: action.limit,
         });
         console.log(chalk.gray(result.split('\n').slice(0, 15).join('\n')));
+        return result;
+      }
+      case 'find_sub_agents': {
+        const query = action.query ?? '';
+        console.log(chalk.cyan(`\nSearching sub-agent catalog: "${query}"${action.category ? ` [${action.category}]` : ''}...`));
+        const result = await searchSubAgentsCatalog(query, {
+          category: action.category,
+          limit: action.limit,
+        });
+        console.log(chalk.gray(result.split('\n').slice(0, 15).join('\n')));
+        return result;
+      }
+      case 'install_sub_agent': {
+        if (!action.name) {
+          throw new Error('install_sub_agent requires a "name" argument.');
+        }
+        console.log(chalk.cyan(`\nInstalling sub-agent: ${action.name}...`));
+        const result = await installSubAgentFromCatalog(action.name, {
+          overwrite: action.overwrite,
+        });
+        const registry = AgentRegistry.getInstance();
+        registry.configureExternalAgents(this.runtime.config.externalAgents);
+        await registry.loadAgents();
+        console.log(chalk.gray(result.split('\n').slice(0, 8).join('\n')));
         return result;
       }
 

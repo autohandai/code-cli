@@ -38,6 +38,26 @@ The lead does not execute tasks directly. It creates the task list, assigns work
 
 ## Choosing Agents for Your Team
 
+### Discovering Agents from the Default Catalog
+
+When the built-in definitions do not cover a role, Autohand can search the
+[awesome-sub-agents catalog](https://github.com/autohandai/awesome-sub-agents),
+install an exact match into `~/.autohand/agents/`, and use it immediately in the
+same session. Catalog installation requires approval before the definition is
+written.
+
+For example:
+
+```bash
+autohand -p "Bring a team of UI, security, and API design specialists. Find and install missing agents, then delegate the work."
+```
+
+The agent uses `find_sub_agents` to search by role, category, tools, or use case,
+then `install_sub_agent` with an exact result name. Installed definitions are
+available to `delegate_task`, `delegate_parallel`, and `add_teammate` without
+restarting Autohand. Run `/agents definitions` to inspect the configured
+definitions.
+
 ### Read-Only vs Read-Write Agents
 
 Some agents only have read tools -- they can analyze but not modify. Others have write tools -- they can make changes. Understanding this distinction is critical for team design.

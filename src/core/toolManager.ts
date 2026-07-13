@@ -1443,6 +1443,34 @@ Actions:
       required: ['name'],
     },
   },
+  // Sub-agent Catalog
+  {
+    name: 'find_sub_agents',
+    description: 'Search the default Autohand sub-agent catalog (autohandai/awesome-sub-agents) for installable specialized agents. Use this when the current task would benefit from a missing specialist before delegating or creating a team.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search terms - agent name, role, category, tools, language, or use-case (e.g. "backend api", "security review", "react")' },
+        category: { type: 'string', description: 'Optional exact category filter (e.g. "01-core-development", "04-quality-security")' },
+        limit: { type: 'number', description: 'Maximum results to return (default: 10, max: 20)' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'install_sub_agent',
+    description: 'Install an exact sub-agent from the default Autohand catalog into the user agents directory so it can be used by delegate_task, delegate_parallel, or team tools in this session.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Exact sub-agent name from find_sub_agents, such as "backend-developer" or "reviewer"' },
+        overwrite: { type: 'boolean', description: 'Replace an existing installed agent with the same name (default: false)' },
+      },
+      required: ['name'],
+    },
+    requiresApproval: true,
+    approvalMessage: 'Install sub-agent from the default Autohand catalog?',
+  },
   // Schedule Management
   {
     name: 'cron_create',
