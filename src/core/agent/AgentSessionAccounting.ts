@@ -16,6 +16,8 @@ import type { PermissionPromptResponse } from '../../permissions/types.js';
 import { isExternalCallbackEnabled } from '../../ui/promptCallback.js';
 import { formatResumeHint, formatSessionEnding, formatSessionSaved } from '../../ui/theme/startup.js';
 import type { ReactionParser } from './ReactionParser.js';
+import type { SessionUsageMetadata } from '../../session/types.js';
+import type { SessionSyncData } from '../../telemetry/types.js';
 
 export interface AgentSessionAccountingHost {
   activeProvider: ProviderName;
@@ -43,7 +45,15 @@ export interface AgentSessionAccountingHost {
     getCurrentSession(): {
       append(message: SessionMessage): Promise<void>;
       getMessages(): SessionMessage[];
-      metadata: { sessionId: string };
+      metadata: {
+        sessionId: string;
+        projectName?: string;
+        status?: string;
+        summary?: string;
+        client?: string;
+        clientVersion?: string;
+        usage?: SessionUsageMetadata;
+      };
     } | null;
     closeSession(summary: string): Promise<void>;
   };
@@ -57,13 +67,7 @@ export interface AgentSessionAccountingHost {
     shutdown(): Promise<unknown>;
     syncSession(payload: {
       messages: Array<{ role: string; content: string; timestamp: string }>;
-      metadata: {
-        workspaceRoot: string;
-        startTime?: string;
-        endTime?: string;
-        durationSeconds?: number;
-        totalTokens?: number;
-      };
+      metadata: Omit<SessionSyncData, 'messageCount'> & { workspaceRoot: string };
     }): Promise<unknown>;
     endSession(reason: string): Promise<unknown>;
   };
@@ -116,11 +120,20 @@ export function shouldForceAgentIdleLogout(
 
 type SyncableSession = {
   getMessages(): SessionMessage[];
-  metadata: { sessionId: string };
+  metadata: {
+    sessionId: string;
+    projectName?: string;
+    status?: string;
+    summary?: string;
+    client?: string;
+    clientVersion?: string;
+    usage?: SessionUsageMetadata;
+  };
 };
 
-function sessionTotalTokens(host: AgentSessionAccountingHost): number | undefined {
+function sessionTotalTokens(host: AgentSessionAccountingHost, session: SyncableSession): number | undefined {
   const candidates = [
+    session.metadata.usage?.totalTokens,
     host.sessionActualTokensUsed,
     host.totalTokensUsed,
     host.sessionTokensUsed,
@@ -142,14 +155,21 @@ function toSyncMessages(messages: SessionMessage[]): Array<{ role: string; conte
 function buildSessionSyncMetadata(
   host: AgentSessionAccountingHost,
   endTimeMs: number,
+  session: SyncableSession,
   options: { final?: boolean } = {}
 ) {
   const sessionDuration = Math.max(0, endTimeMs - host.sessionStartedAt);
   const metadata = {
     workspaceRoot: host.runtime.workspaceRoot,
+    projectName: session.metadata.projectName,
+    status: session.metadata.status,
+    summary: session.metadata.summary,
+    client: session.metadata.client,
+    clientVersion: session.metadata.clientVersion,
+    usage: session.metadata.usage,
     startTime: new Date(host.sessionStartedAt).toISOString(),
     durationSeconds: Math.round(sessionDuration / 1000),
-    totalTokens: sessionTotalTokens(host),
+    totalTokens: sessionTotalTokens(host, session),
   };
   return options.final
     ? { ...metadata, endTime: new Date(endTimeMs).toISOString() }
@@ -173,7 +193,7 @@ export function syncAgentSessionSnapshot(
     try {
       await host.telemetryManager.syncSession({
         messages: toSyncMessages(session.getMessages()),
-        metadata: buildSessionSyncMetadata(host, endTimeMs, { final: options.force }),
+        metadata: buildSessionSyncMetadata(host, endTimeMs, session, { final: options.force }),
       });
     } finally {
       host.sessionSyncInFlight = false;

@@ -15,7 +15,7 @@ import type { AgentOutputEvent, AgentRuntime, TurnUsage } from '../../types.js';
 import type { Intent, IntentResult } from '../IntentDetector.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { GoalManager } from '../../goals/GoalManager.js';
-import type { SessionMessage } from '../../session/types.js';
+import type { SessionMessage, SessionTurnUsageInput } from '../../session/types.js';
 import {
   extractDeepResearchRunId,
   finalizeDeepResearchRun,
@@ -37,6 +37,7 @@ interface InstructionProviderConfigManager {
 
 interface InstructionSessionManager {
   getCurrentSession(): {
+    recordTurnUsage?: (input: SessionTurnUsageInput) => Promise<void>;
     getMessages?: () => SessionMessage[];
   } | null;
 }
@@ -540,6 +541,7 @@ export class InstructionRunner {
       }
 
       // Accumulate exact provider-reported session usage only when the whole turn reported usage.
+      const turnCompletedAt = Date.now();
       const completedTurnUsage = readCompletedTurnUsage(host);
       if (isActualTurnUsage(completedTurnUsage) && !host.currentTurnHadUnavailableUsage) {
         host.sessionActualTokensUsed += completedTurnUsage.totalTokens;
@@ -558,6 +560,25 @@ export class InstructionRunner {
         // Goal accounting is best-effort and must never mask the turn result.
       }
 
+      try {
+        const usageInput: SessionTurnUsageInput = isActualTurnUsage(completedTurnUsage) && !host.currentTurnHadUnavailableUsage
+          ? {
+              promptTokens: completedTurnUsage.promptTokens,
+              completionTokens: completedTurnUsage.completionTokens,
+              totalTokens: completedTurnUsage.totalTokens,
+              tokenUsageStatus: 'actual',
+              durationMs: host.taskStartedAt ? turnCompletedAt - host.taskStartedAt : undefined,
+              occurredAt: new Date(turnCompletedAt).toISOString(),
+            }
+          : {
+              tokenUsageStatus: 'unavailable',
+              durationMs: host.taskStartedAt ? turnCompletedAt - host.taskStartedAt : undefined,
+              occurredAt: new Date(turnCompletedAt).toISOString(),
+            };
+        await host.sessionManager?.getCurrentSession()?.recordTurnUsage?.(usageInput);
+      } catch {
+        // Local usage capture is best-effort and must never mask the turn result.
+      }
 
       if (!host.runtime.isCommandMode && !host.runtime.options?.prompt) {
         host.scheduleTurnMemoryReflection(success && !canceledByUser);
