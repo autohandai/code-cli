@@ -1,0 +1,77 @@
+name: Add model catalog entry
+description: Add a supported provider model ID to the bundled Autohand catalog through an automated pull request
+title: "[Model]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this maintainer form to add one model to `src/providers/models.json`.
+        Requests opened by repository owners, members, or collaborators create a pull request for manual review. The workflow never merges or approves its own pull request.
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      description: Select the built-in provider whose catalog should receive the model.
+      options:
+        - openrouter
+        - ollama
+        - openai
+        - llmgateway
+        - azure
+        - zai
+        - sakana
+        - vertexai
+        - xai
+        - cerebras
+        - nvidia
+        - deepseek
+        - bedrock
+        - llamacpp
+        - mlx
+    validations:
+      required: true
+
+  - type: input
+    id: model_id
+    attributes:
+      label: Model ID
+      description: Enter the exact provider model card or API model identifier.
+      placeholder: vendor/model-name
+    validations:
+      required: true
+
+  - type: input
+    id: display_name
+    attributes:
+      label: Display name
+      description: Optional human-readable label for model pickers.
+      placeholder: Model Name
+
+  - type: input
+    id: context_window
+    attributes:
+      label: Context window
+      description: Optional positive integer context-window size in tokens.
+      placeholder: "131072"
+
+  - type: dropdown
+    id: reasoning_effort
+    attributes:
+      label: Reasoning effort
+      description: Optional reasoning-effort metadata for the model.
+      options:
+        - Not specified
+        - none
+        - low
+        - medium
+        - high
+        - xhigh
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Confirmation
+      options:
+        - label: I verified this exact model ID with the selected provider and did not include credentials or other secrets.
+          required: true
