@@ -147,7 +147,8 @@
         "mistralai/mamba-codestral-7b-v0.1",
         "nvidia/mistral-nemo-minitron-8b-base",
         "google/gemma-4-31b-it",
-        "bigcode/starcoder2-7b"
+        "bigcode/starcoder2-7b",
+        { "id": "z-ai/glm-5.2", "displayName": "GLM 5.2", "reasoningEffort": "high" }
       ]
     },
     "deepseek": {
