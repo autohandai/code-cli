@@ -2485,6 +2485,7 @@ describe('agent startup and active input UI', () => {
     let resolveHooks!: () => void;
     let resolveSync!: () => void;
     let resolveEnd!: () => void;
+    let resolveTeamShutdown!: () => void;
 
     const disconnectAll = vi.fn(
       () => new Promise<void>((resolve) => { resolveDisconnect = resolve; })
@@ -2499,6 +2500,10 @@ describe('agent startup and active input UI', () => {
       () => new Promise<void>((resolve) => { resolveEnd = resolve; })
     );
     const shutdown = vi.fn(async () => {});
+    const shutdownTeam = vi.fn(
+      () => new Promise<void>((resolve) => { resolveTeamShutdown = resolve; })
+    );
+    const shutdownRepeats = vi.fn();
     const startedAt = new Date('2026-05-13T10:00:00.000Z').getTime();
     const endedAt = new Date('2026-05-13T10:01:30.000Z').getTime();
     const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(endedAt);
@@ -2507,6 +2512,8 @@ describe('agent startup and active input UI', () => {
     agent.runtime = { workspaceRoot: process.cwd() };
     agent.persistentInput = { dispose: vi.fn() };
     agent.mcpManager = { disconnectAll };
+    agent.teamManager = { shutdown: shutdownTeam };
+    agent.repeatManager = { shutdown: shutdownRepeats };
     agent.hookManager = { executeHooks };
     agent.telemetryManager = { syncSession, endSession, shutdown };
     agent.sessionManager = {
@@ -2519,12 +2526,17 @@ describe('agent startup and active input UI', () => {
       closeSession: vi.fn(async () => {}),
     };
 
-    const closePromise = (agent as any).closeSession();
+    const closePromise = Promise.all([
+      agent.shutdown(),
+      agent.shutdown(),
+    ]);
     await waitForAssertion(() => {
       expect(disconnectAll).toHaveBeenCalledTimes(1);
       expect(executeHooks).toHaveBeenCalledTimes(1);
       expect(syncSession).toHaveBeenCalledTimes(1);
       expect(endSession).toHaveBeenCalledTimes(1);
+      expect(shutdownTeam).toHaveBeenCalledTimes(1);
+      expect(shutdownRepeats).toHaveBeenCalledTimes(1);
     });
     expect(syncSession).toHaveBeenCalledWith(expect.objectContaining({
       metadata: expect.objectContaining({
@@ -2540,12 +2552,46 @@ describe('agent startup and active input UI', () => {
     resolveHooks();
     resolveSync();
     resolveEnd();
+    resolveTeamShutdown();
     await closePromise;
 
     expect(shutdown).toHaveBeenCalledTimes(1);
+    expect(agent.sessionManager.closeSession).toHaveBeenCalledTimes(1);
     expect(syncSession.mock.invocationCallOrder[0]).toBeLessThan(shutdown.mock.invocationCallOrder[0]);
     expect(endSession.mock.invocationCallOrder[0]).toBeLessThan(shutdown.mock.invocationCallOrder[0]);
     dateNowSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+
+  it('continues resource teardown when persisting the session fails', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    agent.runtime = { workspaceRoot: process.cwd() };
+    agent.persistentInput = { dispose: vi.fn() };
+    agent.repeatManager = { shutdown: vi.fn() };
+    agent.teamManager = { shutdown: vi.fn(async () => {}) };
+    agent.mcpManager = { disconnectAll: vi.fn(async () => {}) };
+    agent.hookManager = { executeHooks: vi.fn(async () => {}) };
+    agent.telemetryManager = {
+      syncSession: vi.fn(async () => {}),
+      endSession: vi.fn(async () => {}),
+      shutdown: vi.fn(async () => {}),
+    };
+    agent.sessionStartedAt = Date.now() - 1000;
+    agent.sessionManager = {
+      getCurrentSession: vi.fn(() => ({
+        metadata: { sessionId: 'session-save-failure' },
+        getMessages: () => [],
+      })),
+      closeSession: vi.fn().mockRejectedValue(new Error('disk unavailable')),
+    };
+
+    await expect(agent.shutdown()).rejects.toThrow('disk unavailable');
+
+    expect(agent.repeatManager.shutdown).toHaveBeenCalledTimes(1);
+    expect(agent.teamManager.shutdown).toHaveBeenCalledTimes(1);
+    expect(agent.mcpManager.disconnectAll).toHaveBeenCalledTimes(1);
+    expect(agent.telemetryManager.shutdown).toHaveBeenCalledTimes(1);
     logSpy.mockRestore();
   });
 

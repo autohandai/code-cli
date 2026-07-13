@@ -121,12 +121,6 @@ async function flushRpcOutput(): Promise<void> {
   });
 }
 
-class RpcModeExit extends Error {
-  constructor(readonly exitCode: number) {
-    super(`RPC mode requested exit ${exitCode}`);
-  }
-}
-
 function createRpcLifecycleAbortError(): Error {
   const error = new Error('RPC lifecycle aborted');
   error.name = 'AbortError';
@@ -148,10 +142,34 @@ function awaitRpcLifecycleStep<T>(task: Promise<T>, signal: AbortSignal): Promis
   });
 }
 
+type RpcShutdownReason = 'disconnected' | 'error';
+
+export async function shutdownRpcRuntime(
+  adapter: Pick<RPCAdapter, 'shutdown'> | null,
+  agent: Partial<Pick<AutohandAgent, 'shutdown' | 'shutdownRuntimeResources'>> | null,
+  reason: RpcShutdownReason,
+): Promise<void> {
+  try {
+    await adapter?.shutdown(reason);
+  } catch {
+    // The transport may already be closed; agent resources still need teardown.
+  }
+
+  try {
+    await agent?.shutdown?.({
+      sessionEndReason: reason,
+      telemetryReason: reason === 'error' ? 'crashed' : 'completed',
+      showSessionSummary: false,
+    });
+  } finally {
+    await agent?.shutdownRuntimeResources?.().catch(() => {});
+  }
+}
+
 /**
  * Run the CLI in JSON-RPC 2.0 mode
  */
-export async function runRpcMode(options: CLIOptions): Promise<void> {
+export async function runRpcMode(options: CLIOptions): Promise<0 | 1> {
   // Suppress console output - all communication via JSON-RPC
   suppressConsole();
 
@@ -169,7 +187,7 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
   let agent: AutohandAgent | null = null;
   let reader: LineReader | null = null;
   let exitCode = 0;
-  let shutdownReason: 'error' | 'disconnected' = 'disconnected';
+  let shutdownReason: RpcShutdownReason = 'error';
   let terminationRequested = false;
   const terminationController = new AbortController();
   const handleTerminationSignal = (): void => {
@@ -212,7 +230,7 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         writeErrorResponse(null, JSON_RPC_ERROR_CODES.INTERNAL_ERROR, message);
-        throw new RpcModeExit(1);
+        return 1;
       }
     }
 
@@ -228,7 +246,7 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
         JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
         workspacePathValidation.error || 'Invalid workspace path'
       );
-      throw new RpcModeExit(1);
+      return 1;
     }
     const safetyCheck = checkWorkspaceSafety(originalWorkspaceRoot);
     if (!safetyCheck.safe) {
@@ -237,7 +255,7 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
         JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
         `Unsafe workspace: ${safetyCheck.reason || originalWorkspaceRoot}`
       );
-      throw new RpcModeExit(1);
+      return 1;
     }
 
     // Non-interactive auth check — RPC mode cannot prompt for login
@@ -248,7 +266,7 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
         JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
         'Authentication required. Run `autohand login` first.'
       );
-      throw new RpcModeExit(1);
+      return 1;
     }
 
 
@@ -398,6 +416,7 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
       }
     }
 
+    shutdownReason = 'disconnected';
   } catch (error) {
     const terminatedDuringLifecycle = terminationRequested
       && error instanceof Error
@@ -405,10 +424,8 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
     shutdownReason = terminatedDuringLifecycle ? 'disconnected' : 'error';
     exitCode = terminatedDuringLifecycle
       ? 0
-      : error instanceof RpcModeExit
-        ? error.exitCode
-        : 1;
-    if (!terminatedDuringLifecycle && !(error instanceof RpcModeExit)) {
+      : 1;
+    if (!terminatedDuringLifecycle) {
       const message = error instanceof Error ? error.message : String(error);
       writeErrorResponse(null, JSON_RPC_ERROR_CODES.INTERNAL_ERROR, `Initialization error: ${message}`);
     }
@@ -419,17 +436,14 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
     process.off('SIGINT', handleTerminationSignal);
     process.off('SIGTERM', handleTerminationSignal);
 
-    await Promise.resolve()
-      .then(() => shutdownBrowserToolBridge())
-      .catch(() => {});
-    await adapter?.shutdown(shutdownReason).catch(() => {});
-    await agent?.shutdownRuntimeResources().catch(() => {});
+    await Promise.resolve().then(() => shutdownBrowserToolBridge()).catch(() => {});
+    await shutdownRpcRuntime(adapter, agent, shutdownReason).catch(() => {});
     await flushRpcOutput();
     process.stdout.off('error', handleStdoutError);
     restoreConsole();
   }
 
-  process.exitCode = exitCode;
+  return exitCode === 0 ? 0 : 1;
 }
 
 /**

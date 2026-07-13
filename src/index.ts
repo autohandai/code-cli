@@ -430,7 +430,7 @@ program
     // workspace, and auth checks after stdout/stderr are prepared for the mode.
     if (opts.mode === 'rpc') {
       const { runRpcMode } = await import('./modes/rpc/index.js');
-      await runRpcMode(opts);
+      process.exitCode = await runRpcMode(opts);
       return;
     }
 
@@ -2362,7 +2362,7 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
 
       const success = await activeAgent.runCommandMode(
         iterationPrompt,
-        abortSignal,
+        { signal: abortSignal, keepAlive: true },
       ).catch((err: unknown) => {
         error = err instanceof Error ? err.message : String(err);
         console.error(chalk.red(`Iteration error: ${error}`));
@@ -2416,7 +2416,16 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
     }
 
     if (!shouldHandoffToInteractive) {
-      await sessionManager.closeSession(`Auto-mode ${statusText} after ${finalState?.currentIteration ?? 0} iterations: ${opts.autoMode?.slice(0, 50)}...`);
+      await Promise.all([
+        activeAgent.shutdown({
+          sessionEndReason: finalState?.status === 'completed' ? 'exit' : 'error',
+          telemetryReason: finalState?.status === 'completed' ? 'completed' : 'crashed',
+          showSessionSummary: false,
+        }),
+        sessionManager.closeSession(
+          `Auto-mode ${statusText} after ${finalState?.currentIteration ?? 0} iterations: ${opts.autoMode?.slice(0, 50)}...`,
+        ),
+      ]);
       console.log(chalk.gray(`\n📁 Session saved: ${session.metadata.sessionId}`));
     } else {
       console.log(chalk.cyan('\n▶️ Auto-mode finished. Handing off to interactive mode (--interactive-on-complete).\n'));
@@ -2430,8 +2439,14 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
       safeSetRawMode(process.stdin, false);
     }
 
-    // Close session on error
-    await sessionManager.closeSession(`Auto-mode failed: ${(error as Error).message}`);
+    await Promise.allSettled([
+      agent?.shutdown({
+        sessionEndReason: 'error',
+        telemetryReason: 'crashed',
+        showSessionSummary: false,
+      }),
+      sessionManager.closeSession(`Auto-mode failed: ${(error as Error).message}`),
+    ]);
 
     console.error(chalk.red(`\nAuto-mode error: ${(error as Error).message}`));
     exitCode = 1;
