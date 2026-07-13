@@ -14,12 +14,40 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  qualify-model-request:
+    name: Qualify model catalog request
+    permissions: {}
+    runs-on: ubuntu-latest
+    outputs:
+      accepted: ${{ steps.qualify.outputs.accepted }}
+
+    steps:
+      - name: Check request shape and author trust
+        id: qualify
+        env:
+          AUTHOR_ASSOCIATION: ${{ github.event.issue.author_association }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from "node:fs";
+
+          const trustedAssociations = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+          const association = process.env.AUTHOR_ASSOCIATION ?? "";
+          const body = process.env.ISSUE_BODY ?? "";
+          const hasRequestFields = body.includes("### Provider") && body.includes("### Model ID");
+          const accepted = trustedAssociations.has(association) && hasRequestFields;
+
+          appendFileSync(process.env.GITHUB_OUTPUT, `accepted=${accepted}\n`);
+          appendFileSync(
+            process.env.GITHUB_STEP_SUMMARY,
+            `Model catalog request: ${accepted ? "accepted" : "ignored"}. Author association: ${association || "unknown"}.\n`,
+          );
+          NODE
+
   create-model-pr:
     name: Create model catalog pull request
-    if: >-
-      contains(github.event.issue.body, '### Provider') &&
-      contains(github.event.issue.body, '### Model ID') &&
-      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association)
+    needs: qualify-model-request
+    if: needs.qualify-model-request.outputs.accepted == 'true'
     runs-on: ubuntu-latest
     env:
       BRANCH_NAME: automation/model-catalog-issue-${{ github.event.issue.number }}
@@ -38,14 +66,9 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.MODEL_CATALOG_PR_TOKEN || github.token }}
 
-      - name: Save the issue body without shell interpolation
-        env:
-          ISSUE_BODY: ${{ github.event.issue.body }}
+      - name: Load the issue body without shell interpolation
         run: |
-          node --input-type=module <<'NODE'
-          import { writeFileSync } from "node:fs";
-          writeFileSync(process.env.ISSUE_BODY_PATH, process.env.ISSUE_BODY ?? "", "utf8");
-          NODE
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}" --jq '.body // ""' > "$ISSUE_BODY_PATH"
 
       - name: Validate the request and update the catalog
         id: update

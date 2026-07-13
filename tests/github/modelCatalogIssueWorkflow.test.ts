@@ -143,12 +143,17 @@ describe("model catalog issue automation", () => {
       issues: "write",
       "pull-requests": "write",
     });
-    expect(source).toContain("contains(github.event.issue.body, '### Provider')");
-    expect(source).toContain("contains(github.event.issue.body, '### Model ID')");
+    expect(source).toContain('body.includes("### Provider")');
+    expect(source).toContain('body.includes("### Model ID")');
     expect(source).toContain("github.event.issue.author_association");
     expect(source).toContain("OWNER");
     expect(source).toContain("MEMBER");
     expect(source).toContain("COLLABORATOR");
+    expect(source).toContain("qualify-model-request:");
+    expect(source).toContain("permissions: {}");
+    expect(source).toContain("needs: qualify-model-request");
+    expect(source).toContain("needs.qualify-model-request.outputs.accepted == 'true'");
+    expect(source).toContain("accepted=${accepted}");
     expect(source).toContain(".github/scripts/update-model-catalog.mjs");
     expect(source).toContain("git add -- src/providers/models.json");
     expect(source).toContain("gh pr create");
