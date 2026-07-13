@@ -34,7 +34,7 @@ import { parseYoloPattern, buildPermissionSettingsFromYolo } from '../../permiss
 import { SessionManager } from '../../session/SessionManager.js';
 import { ProjectManager } from '../../session/ProjectManager.js';
 import { createToolsRegistry } from '../toolsRegistry.js';
-import type { AgentRuntime, ToolActionOutcome } from '../../types.js';
+import type { AgentRuntime, HookEvent, ToolActionOutcome } from '../../types.js';
 import { AgentDelegator } from '../agents/AgentDelegator.js';
 import { ErrorLogger } from '../errorLogger.js';
 import { MemoryManager } from '../../memory/MemoryManager.js';
@@ -352,6 +352,9 @@ export function initializeAgentDependencies(
           reviewInstructions: context.reviewInstructions,
           reviewError: context.reviewError,
         });
+      },
+      onAutoresearchHook: async (event, context) => {
+        await host.hookManager.executeHooks(event as HookEvent, context);
       },
       onGoalWrittenCompleted: async (context) => {
         await host.hookManager.executeHooks('goal-written:completed', {

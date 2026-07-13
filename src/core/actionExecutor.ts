@@ -105,6 +105,7 @@ import { randomUUID } from 'node:crypto';
 import { GoalManager } from '../goals/GoalManager.js';
 import type { GoalStatus } from '../goals/types.js';
 import { GOAL_FEATURE_DISABLED_MESSAGE, isGoalFeatureEnabled } from '../goals/feature.js';
+import { initExperiment, runExperiment, logExperiment } from '../autoresearch/tools.js';
 
 /** Response from permission-request hook */
 export interface PermissionHookResponse {
@@ -148,6 +149,14 @@ export interface ActionExecutorOptions {
     reviewScope?: string;
     reviewInstructions?: string;
     reviewError?: string;
+  }) => Promise<void>;
+  /** Callback to fire auto-research lifecycle hook events. */
+  onAutoresearchHook?: (event: string, context: {
+    tool?: string;
+    args?: Record<string, unknown>;
+    output?: string;
+    success?: boolean;
+    error?: string;
   }) => Promise<void>;
   /** Callback to fire after a goal objective has been created. */
   onGoalWrittenCompleted?: (context: {
@@ -206,6 +215,7 @@ export class ActionExecutor {
   private readonly onPlanCreated?: AgentExecutorDeps['onPlanCreated'];
   private readonly onPermissionRequest?: AgentExecutorDeps['onPermissionRequest'];
   private readonly onReviewHook?: AgentExecutorDeps['onReviewHook'];
+  private readonly onAutoresearchHook?: AgentExecutorDeps['onAutoresearchHook'];
   private readonly onGoalWrittenCompleted?: AgentExecutorDeps['onGoalWrittenCompleted'];
   private readonly onModalPause?: AgentExecutorDeps['onModalPause'];
   private readonly onRequestDirectoryAccess?: AgentExecutorDeps['onRequestDirectoryAccess'];
@@ -239,6 +249,7 @@ export class ActionExecutor {
     this.onPlanCreated = deps.onPlanCreated;
     this.onPermissionRequest = deps.onPermissionRequest;
     this.onReviewHook = deps.onReviewHook;
+    this.onAutoresearchHook = deps.onAutoresearchHook;
     this.onGoalWrittenCompleted = deps.onGoalWrittenCompleted;
     this.onModalPause = deps.onModalPause;
     this.onRequestDirectoryAccess = deps.onRequestDirectoryAccess;
@@ -2286,9 +2297,11 @@ export class ActionExecutor {
           throw new Error('web_search requires a "query" argument.');
         }
         console.log(chalk.cyan(`\n🔍 Searching web: "${action.query}"...`));
+        const { hasBrowserBridgeOutput, invokeBrowserTool } = await import('../browser/browserToolBridge.js');
         const results = await webSearch(action.query, {
           maxResults: action.max_results,
           searchType: action.search_type,
+          browserToolInvoker: hasBrowserBridgeOutput() ? invokeBrowserTool : undefined,
           signal: context?.signal,
         });
         const formatted = formatSearchResults(results);
@@ -2303,8 +2316,10 @@ export class ActionExecutor {
           throw new Error('fetch_url requires a "url" argument.');
         }
         console.log(chalk.cyan(`\n🌐 Fetching: ${action.url}...`));
+        const { hasBrowserBridgeOutput, invokeBrowserTool } = await import('../browser/browserToolBridge.js');
         const content = await fetchUrl(action.url, {
           maxLength: action.max_length,
+          browserToolInvoker: hasBrowserBridgeOutput() ? invokeBrowserTool : undefined,
           signal: context?.signal,
         });
         // Show preview
@@ -2485,6 +2500,15 @@ export class ActionExecutor {
       case 'browser_get_tab_groups':
       case 'browser_execute_js': {
         return this.executeBrowserTool(action);
+      }
+      case 'init_experiment': {
+        return this.executeInitExperiment(action);
+      }
+      case 'run_experiment': {
+        return this.executeRunExperiment(action);
+      }
+      case 'log_experiment': {
+        return this.executeLogExperiment(action);
       }
       default: {
         // Check if this is a dynamic meta-tool
@@ -2681,6 +2705,57 @@ export class ActionExecutor {
       const output = `Review failed: ${message}`;
       return this.recordToolFailure(capture, 'operational', message, output);
     }
+  }
+
+  private async executeInitExperiment(action: { type: 'init_experiment'; name: string; metricName: string; metricUnit: string; direction: 'lower' | 'higher'; measureScript: string; maxIterations?: number; timeoutMs?: number; filesInScope?: string[]; checksScript?: string; subagents?: { ideaGeneration?: boolean; measurementAnalysis?: boolean; finalization?: boolean } }): Promise<string> {
+    const result = await initExperiment(this.runtime.workspaceRoot, {
+      name: action.name,
+      metricName: action.metricName,
+      metricUnit: action.metricUnit,
+      direction: action.direction,
+      measureScript: action.measureScript,
+      maxIterations: action.maxIterations,
+      timeoutMs: action.timeoutMs,
+      filesInScope: action.filesInScope,
+      checksScript: action.checksScript,
+      subagents: action.subagents,
+    });
+    await this.onAutoresearchHook?.('autoresearch:init', {
+      tool: 'init_experiment',
+      args: action as unknown as Record<string, unknown>,
+      output: result.message,
+      success: result.success,
+    });
+    return result.message;
+  }
+
+  private async executeRunExperiment(action: { type: 'run_experiment'; description: string }): Promise<string> {
+    const args = action as unknown as Record<string, unknown>;
+    await this.onAutoresearchHook?.('autoresearch:before', { tool: 'run_experiment', args });
+    const result = await runExperiment(this.runtime.workspaceRoot, action.description);
+    await this.onAutoresearchHook?.('autoresearch:run', {
+      tool: 'run_experiment', args, output: result.output,
+      success: result.success && !result.checksFailed, error: result.error,
+    });
+    await this.onAutoresearchHook?.('autoresearch:after', {
+      tool: 'run_experiment', args, output: result.output,
+      success: result.success && !result.checksFailed, error: result.error,
+    });
+    if (!result.success) throw new Error(result.error ?? 'run_experiment failed');
+    if (result.checksFailed) {
+      return `Metric: ${result.metric}\n\n${result.output}\n\nUse log_experiment with status 'checks_failed' to record this run.`;
+    }
+    return `Metric: ${result.metric}\n\n${result.output}`;
+  }
+
+  private async executeLogExperiment(action: { type: 'log_experiment'; metric: number; status: 'kept' | 'discarded' | 'checks_failed' | 'crashed'; description: string; commit?: string; output?: string; hypothesis?: string; learned?: string; nextFocus?: string }): Promise<string> {
+    const result = await logExperiment(this.runtime.workspaceRoot, action);
+    await this.onAutoresearchHook?.('autoresearch:log', {
+      tool: 'log_experiment', args: action as unknown as Record<string, unknown>,
+      output: result.summary, success: result.success, error: result.error,
+    });
+    if (!result.success) throw new Error(result.error ?? 'log_experiment failed');
+    return result.summary ?? 'Experiment logged.';
   }
 
   private pickText(...values: Array<unknown>): string | undefined {

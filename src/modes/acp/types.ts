@@ -287,6 +287,7 @@ export const DEFAULT_ACP_COMMANDS: AcpCommand[] = [
   { name: "agents", description: "List available agents" },
   { name: "hooks", description: "Manage lifecycle hooks" },
   { name: "automode", description: "Toggle autonomous agent loop" },
+  { name: "autoresearch", description: "Manage autonomous experiment loops" },
   { name: "add-dir", description: "Add additional working directory" },
   { name: "share", description: "Share session transcript" },
   { name: "formatters", description: "Manage code formatters" },
