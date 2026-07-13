@@ -927,6 +927,17 @@ describe('interactive built CLI Tuistory tests', () => {
     await session.type('/deep-research Hermes self evolving and DSPy');
     await session.press('enter');
     await session.waitForText('Deep research started', { timeout: 10_000 });
+    const permissionOrSaved = await session.text({
+      timeout: 30_000,
+      waitFor: (text) => (
+        (text.includes('Allow tool write_file?') && text.includes(reportPath)) ||
+        text.includes(`Research saved: ${reportPath}`)
+      ),
+    });
+    if (permissionOrSaved.includes('Allow tool write_file?')) {
+      await session.press('enter');
+    }
+    await session.waitForText(`Added ${reportPath}`, { timeout: 30_000 });
     await session.waitForText(`Research saved: ${reportPath}`, { timeout: 30_000 });
 
     const output = session.readAll();
@@ -944,6 +955,69 @@ describe('interactive built CLI Tuistory tests', () => {
 
     await exitInteractive(session);
   }, 90_000);
+
+  it('renders files created by shell tools through the workspace change view', async () => {
+    const outputPath = 'shell-created.txt';
+    const openRouterServer = await createMockOpenRouterSequenceServer([
+      JSON.stringify({
+        thought: 'Create the requested file through the shell tool.',
+        toolCalls: [{
+          tool: 'shell',
+          args: {
+            command: `printf 'created by shell\\n' > ${outputPath}`,
+          },
+        }],
+      }),
+      JSON.stringify({
+        reflection: 'The shell command created the requested file.',
+        toolCalls: [],
+        finalResponse: `Created ${outputPath}.`,
+      }),
+    ]);
+    mockServers.push(openRouterServer);
+
+    const state = await createTempAutohandHome({
+      config: {
+        openrouter: { baseUrl: openRouterServer.baseUrl },
+        ui: { promptSuggestions: false },
+        agent: { maxIterations: 3 },
+      },
+    });
+    tempStates.push(state);
+
+    const session = await trackSession(
+      launchBuiltAutohand([
+        '--path',
+        state.workspaceRoot,
+        '--config',
+        state.configPath,
+        '--y',
+      ], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        waitForDataTimeout: 15_000,
+      })
+    );
+
+    await waitForComposer(session);
+    await session.type('Create a file using the shell tool');
+    await session.press('enter');
+    const permissionOrAdded = await session.text({
+      timeout: 30_000,
+      waitFor: (text) => (
+        text.includes('Allow the agent to run a shell command with live output?')
+        || text.includes(`Added ${outputPath}`)
+      ),
+    });
+    if (permissionOrAdded.includes('Allow the agent to run a shell command with live output?')) {
+      await session.press('enter');
+    }
+    await session.waitForText(`Added ${outputPath}`, { timeout: 30_000 });
+    await session.waitForText(`Created ${outputPath}.`, { timeout: 30_000 });
+
+    expect(await readFile(path.join(state.workspaceRoot, outputPath), 'utf8')).toBe('created by shell\n');
+    await exitInteractive(session);
+  }, 60_000);
 
   it('keeps premature deep research incomplete and exposes the blockers through status', async () => {
     const openRouterServer = await createMockOpenRouterSequenceServer([

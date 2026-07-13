@@ -30,6 +30,10 @@ import { stripAnsiCodes } from '../displayUtils.js';
 import { safeSetRawMode } from '../rawMode.js';
 import type { ChatLogMessage } from '../../session/chatLog.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
+import {
+  serializeWorkspaceChangeSet,
+  type WorkspaceChangeSet,
+} from '../../core/agent/WorkspaceChangeCapture.js';
 
 export interface InkRendererOptions {
   onInstruction: (text: string) => void;
@@ -569,6 +573,10 @@ export class InkRenderer {
         { role: 'tool', tool, success, content: output },
       ],
     });
+  }
+
+  addWorkspaceChanges(changeSet: WorkspaceChangeSet): void {
+    this.addToolOutput('workspace_changes', true, serializeWorkspaceChangeSet(changeSet));
   }
 
   /**

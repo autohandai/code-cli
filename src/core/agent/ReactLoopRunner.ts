@@ -53,6 +53,11 @@ import {
 } from './ResponseCompletionClassifier.js';
 import type { ResponseCompletionHook } from './ResponseCompletionClassifier.js';
 import { evaluateAssistantTurn } from './TurnOutcomeEvaluator.js';
+import {
+  WorkspaceChangeCapture,
+  type WorkspaceChangeSet,
+} from './WorkspaceChangeCapture.js';
+import { stripAnsiCodes } from '../../ui/displayUtils.js';
 
 class LoopAbortedError extends Error {
   constructor(message: string) {
@@ -74,6 +79,7 @@ export interface ReactLoopInkRenderer {
     output: string,
     thought?: string,
   ): void;
+  addWorkspaceChanges?(changeSet: WorkspaceChangeSet): void;
   setThinking(thought: string | null): void;
   setElapsed(elapsed: string): void;
   setTokens(tokens: string): void;
@@ -215,6 +221,23 @@ export function formatToolCallLogDetail(call: ToolCallRequest): string {
   return truncateToolCallDetail(JSON.stringify(args));
 }
 
+function isFileDiffPreview(result: ToolExecutionResult): boolean {
+  if (!result.success || !result.output) return false;
+  if (result.tool === 'git_diff' || result.tool === 'git_diff_range') return false;
+  return /^\s*Added .+, removed .+/m.test(stripAnsiCodes(result.output));
+}
+
+function normalizeWorkspaceChangePath(value: string): string {
+  return value.replaceAll('\\', '/').replace(/^\.\//, '');
+}
+
+function getToolCallFilePath(call: ToolCallRequest | undefined): string | null {
+  const pathValue = getStringArg(call?.args, 'path') ?? getStringArg(call?.args, 'file_path');
+  if (pathValue) return normalizeWorkspaceChangePath(pathValue);
+  if (call?.tool === 'add_dependency' || call?.tool === 'remove_dependency') return 'package.json';
+  return null;
+}
+
 export { isDeferredFinalResponse, classifyResponseCompletion };
 
 export async function runAgentReactLoop(host: AgentReactLoopHost, abortController: AbortController): Promise<void> {
@@ -277,6 +300,14 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
     // Check if thinking should be shown
     const showThinking = host.runtime.config.ui?.showThinking !== false;
     const displayToolOutput = shouldDisplayToolOutput(host.runtime.config);
+    const workspaceChangeCapture = host.inkRenderer && displayToolOutput
+      ? await WorkspaceChangeCapture.create(host.runtime.workspaceRoot).catch((error: unknown) => {
+          host.writeDebugLine(`[DEBUG] Workspace change capture unavailable: ${error instanceof Error ? error.message : String(error)}`);
+          return null;
+        })
+      : null;
+
+    try {
     const identicalCallHardLimit = 6;
     const identicalCallAndResultLimit = 3;
     const forceNoToolsViolationLimit = 2;
@@ -700,14 +731,24 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
           let completedCount = 0;
           const totalTools = otherCalls.length;
           const charLimit = host.runtime.config.ui?.readFileCharLimit ?? 300;
+          const deferredDiffResults: Array<{
+            result: ToolExecutionResult;
+            call: ToolCallRequest | undefined;
+            thought?: string;
+          }> = [];
 
           // Execute all tools with progress callback
           const renderToolResult = (
             result: ToolExecutionResult,
             call: ToolCallRequest | undefined,
             resultThought?: string,
+            deferDiffPreview = true,
           ): void => {
             if (!host.inkRenderer || !displayToolOutput) {
+              return;
+            }
+            if (deferDiffPreview && workspaceChangeCapture && isFileDiffPreview(result)) {
+              deferredDiffResults.push({ result, call, thought: resultThought });
               return;
             }
             const filePath = call?.args?.path as string | undefined;
@@ -723,19 +764,51 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
             );
           };
 
-          results = await host.toolManager.execute(otherCalls, (index: number, result: ToolExecutionResult) => {
-            completedCount++;
-            // Update spinner with progress count for parallel execution
-            if (totalTools > 1 && !host.inkRenderer) {
-              host.setSpinnerStatus(`Running tools (${completedCount}/${totalTools})...`);
+          const checkpoint = workspaceChangeCapture
+            ? await workspaceChangeCapture.begin().catch((error: unknown) => {
+                host.writeDebugLine(`[DEBUG] Workspace change checkpoint failed: ${error instanceof Error ? error.message : String(error)}`);
+                return null;
+              })
+            : null;
+          let workspaceChanges: WorkspaceChangeSet | null = null;
+
+          try {
+            results = await host.toolManager.execute(otherCalls, (index: number, result: ToolExecutionResult) => {
+              completedCount++;
+              // Update spinner with progress count for parallel execution
+              if (totalTools > 1 && !host.inkRenderer) {
+                host.setSpinnerStatus(`Running tools (${completedCount}/${totalTools})...`);
+              }
+              renderToolResult(result, otherCalls[index], completedCount === 1 ? thought : undefined);
+            }, { signal: abortController.signal });
+          } finally {
+            if (workspaceChangeCapture && checkpoint) {
+              workspaceChanges = await workspaceChangeCapture.finish(checkpoint).catch((error: unknown) => {
+                host.writeDebugLine(`[DEBUG] Workspace change comparison failed: ${error instanceof Error ? error.message : String(error)}`);
+                return null;
+              });
             }
-            renderToolResult(result, otherCalls[index], completedCount === 1 ? thought : undefined);
-          }, { signal: abortController.signal });
+          }
 
           if (abortController.signal.aborted) {
             host.stopStatusUpdates();
             host.runtime.spinner?.stop();
             return;
+          }
+
+          if (host.inkRenderer && displayToolOutput) {
+            const changedPaths = new Set(
+              workspaceChanges?.files.map((file) => normalizeWorkspaceChangePath(file.path)) ?? []
+            );
+            for (const deferred of deferredDiffResults) {
+              const filePath = getToolCallFilePath(deferred.call);
+              if (!filePath || !changedPaths.has(filePath)) {
+                renderToolResult(deferred.result, deferred.call, deferred.thought, false);
+              }
+            }
+            if (workspaceChanges && workspaceChanges.files.length > 0) {
+              host.inkRenderer.addWorkspaceChanges?.(workspaceChanges);
+            }
           }
 
           if (!host.inkRenderer && displayToolOutput) {
@@ -983,4 +1056,9 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
     host.setComposerIdle();
     host.setComposerFinalResponse(fallbackMsg);
     host.emitOutput({ type: 'message', content: fallbackMsg });
+    } finally {
+      await workspaceChangeCapture?.dispose().catch((error: unknown) => {
+        host.writeDebugLine(`[DEBUG] Workspace change capture cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
   }

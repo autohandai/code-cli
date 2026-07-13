@@ -3,13 +3,15 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { memo } from 'react';
-import { Box, Text } from 'ink';
+import React, { memo, useMemo } from 'react';
+import { Box, Text, useStdout } from 'ink';
+import { parsePatch } from 'diff';
 import { useTheme } from '../theme/ThemeContext.js';
 import type { ResolvedColors } from '../theme/types.js';
 import { hexToRgb } from '../theme/Theme.js';
 import { renderTerminalMarkdown } from '../../core/immediateCommandRouter.js';
 import { stripAnsiCodes } from '../displayUtils.js';
+import { parseWorkspaceChangeSet } from '../../core/agent/WorkspaceChangeCapture.js';
 
 export interface ToolOutputEntry {
   id: string;
@@ -101,9 +103,36 @@ function foregroundAnsi(color: string): string {
   return '';
 }
 
+function backgroundAnsi(color: string): string {
+  if (!color) return '';
+  const rgb = color.startsWith('#') ? hexToRgb(color) : null;
+  if (rgb) {
+    return `\x1b[48;2;${rgb.r};${rgb.g};${rgb.b}m`;
+  }
+  const index = Number(color);
+  return Number.isInteger(index) && index >= 0 && index <= 255
+    ? `\x1b[48;5;${index}m`
+    : '';
+}
+
 function applyForeground(color: string, text: string): string {
   const ansi = foregroundAnsi(color);
   return ansi ? `${ansi}${text}\x1b[39m` : text;
+}
+
+function applyDiffBackground(
+  background: string,
+  text: string,
+  foreground?: 'black' | 'white'
+): string {
+  const backgroundCode = backgroundAnsi(background);
+  if (!backgroundCode) return text;
+  const foregroundCode = foreground === 'black'
+    ? '\x1b[30m'
+    : foreground === 'white'
+      ? '\x1b[37m'
+      : '';
+  return `${backgroundCode}${foregroundCode}${text}\x1b[39m\x1b[49m`;
 }
 
 function renderDiffStatsLine(line: string, colors: ResolvedColors): string | null {
@@ -170,6 +199,157 @@ export function ThemedDiffOutput({ output }: { output: string }) {
       {plainLines.map((line, index) => (
         <Text key={`${index}-${line}`}>{renderThemedDiffLine(line, colors)}</Text>
       ))}
+    </Box>
+  );
+}
+
+function workspaceChangeLabel(kind: 'added' | 'modified' | 'deleted'): string {
+  switch (kind) {
+    case 'added':
+      return 'Added';
+    case 'deleted':
+      return 'Deleted';
+    case 'modified':
+      return 'Edited';
+  }
+}
+
+interface NumberedDiffRow {
+  type: 'add' | 'remove' | 'context' | 'separator';
+  content: string;
+  lineNumber?: number;
+}
+
+function parseNumberedDiffRows(patch: string): NumberedDiffRow[] | null {
+  try {
+    const parsed = parsePatch(patch);
+    const rows: NumberedDiffRow[] = [];
+    let renderedHunks = 0;
+
+    for (const file of parsed) {
+      for (const hunk of file.hunks) {
+        if (renderedHunks > 0) {
+          rows.push({ type: 'separator', content: '' });
+        }
+        renderedHunks += 1;
+        let oldLine = hunk.oldStart;
+        let newLine = hunk.newStart;
+
+        for (const line of hunk.lines) {
+          const marker = line[0];
+          const content = line.slice(1);
+          if (marker === '+') {
+            rows.push({ type: 'add', content, lineNumber: newLine });
+            newLine += 1;
+          } else if (marker === '-') {
+            rows.push({ type: 'remove', content, lineNumber: oldLine });
+            oldLine += 1;
+          } else if (marker === ' ') {
+            rows.push({ type: 'context', content, lineNumber: newLine });
+            oldLine += 1;
+            newLine += 1;
+          }
+        }
+      }
+    }
+
+    return rows.length > 0 ? rows : null;
+  } catch {
+    return null;
+  }
+}
+
+function dimDiffBackground(color: string, type: 'add' | 'remove'): string {
+  const rgb = color.startsWith('#') ? hexToRgb(color) : null;
+  if (!rgb) return type === 'add' ? '#1e321e' : '#3c1e1e';
+  const factors = type === 'add'
+    ? { red: 0.15, green: 0.2, blue: 0.15 }
+    : { red: 0.25, green: 0.15, blue: 0.15 };
+  const toHex = (value: number) => Math.floor(value).toString(16).padStart(2, '0');
+  return `#${toHex(rgb.r * factors.red)}${toHex(rgb.g * factors.green)}${toHex(rgb.b * factors.blue)}`;
+}
+
+function NumberedWorkspaceDiff({ patch }: { patch: string }) {
+  const { colors } = useTheme();
+  const { stdout } = useStdout();
+  const rows = useMemo(() => parseNumberedDiffRows(patch), [patch]);
+
+  if (!rows) {
+    return <ThemedDiffOutput output={patch} />;
+  }
+
+  const lineNumberWidth = Math.max(
+    3,
+    ...rows.map((row) => String(row.lineNumber ?? '').length)
+  );
+  const columns = stdout?.columns ?? process.stdout.columns ?? 100;
+  const contentWidth = Math.max(20, columns - lineNumberWidth - 6);
+  const addedBackground = dimDiffBackground(colors.diffAdded, 'add');
+  const removedBackground = dimDiffBackground(colors.diffRemoved, 'remove');
+
+  return (
+    <Box flexDirection="column">
+      {rows.map((row, index) => {
+        if (row.type === 'separator') {
+          return <Text key={`separator-${index}`} color={colors.muted}>  {'⋮'.padStart(lineNumberWidth)}</Text>;
+        }
+
+        const lineNumber = String(row.lineNumber ?? '').padStart(lineNumberWidth);
+        if (row.type === 'context') {
+          return (
+            <Box key={`context-${index}`}>
+              <Text color={colors.diffContext}>{` ${lineNumber}   `}</Text>
+              <Text wrap="truncate"> {row.content}</Text>
+            </Box>
+          );
+        }
+
+        const isAdded = row.type === 'add';
+        const marker = isAdded ? '+' : '-';
+        const markerBackground = isAdded ? colors.diffAdded : colors.diffRemoved;
+        const contentBackground = isAdded ? addedBackground : removedBackground;
+        const content = ` ${row.content} `.padEnd(contentWidth);
+        return (
+          <Box key={`${row.type}-${index}`}>
+            <Text>{applyDiffBackground(markerBackground, ` ${lineNumber} ${marker} `, isAdded ? 'black' : 'white')}</Text>
+            <Text wrap="truncate">{applyDiffBackground(contentBackground, content)}</Text>
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
+export function WorkspaceChangesOutput({ output }: { output: string }) {
+  const { colors } = useTheme();
+  const changeSet = parseWorkspaceChangeSet(output);
+
+  if (!changeSet) {
+    return <Text color={colors.toolOutput}>{renderTerminalMarkdown(output)}</Text>;
+  }
+
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      {changeSet.files.map((file) => (
+        <Box key={`${file.kind}-${file.path}`} flexDirection="column" marginBottom={1}>
+          <Box>
+            <Text color={colors.muted}>• </Text>
+            <Text bold>{workspaceChangeLabel(file.kind)} {file.path}</Text>
+            {file.binary ? (
+              <Text color={colors.muted}> (binary)</Text>
+            ) : (
+              <>
+                <Text color={colors.diffAdded}> (+{file.additions ?? 0}</Text>
+                <Text color={colors.diffRemoved}> -{file.deletions ?? 0})</Text>
+              </>
+            )}
+          </Box>
+          {file.patch ? <NumberedWorkspaceDiff patch={file.patch} /> : null}
+        </Box>
+      ))}
+      {changeSet.omittedFiles > 0 ? (
+        <Text color={colors.muted}>  +{changeSet.omittedFiles} more changed files</Text>
+      ) : null}
     </Box>
   );
 }
@@ -247,6 +427,10 @@ function ToolOutputComponent({ entry }: ToolOutputProps) {
 
   const renderedOutput = output ? renderTerminalMarkdown(output) : '';
 
+  if (tool === 'workspace_changes') {
+    return <WorkspaceChangesOutput output={output} />;
+  }
+
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Box>
@@ -291,6 +475,10 @@ function ToolOutputStaticComponent({ entry }: ToolOutputProps) {
   const { tool, success, output } = entry;
 
   const renderedOutput = output ? renderTerminalMarkdown(output) : '';
+
+  if (tool === 'workspace_changes') {
+    return <WorkspaceChangesOutput output={output} />;
+  }
 
   return (
     <Box flexDirection="column" marginBottom={1}>

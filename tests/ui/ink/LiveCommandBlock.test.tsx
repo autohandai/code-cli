@@ -10,7 +10,7 @@ import { render } from 'ink-testing-library';
 import { PassThrough } from 'node:stream';
 import chalk from 'chalk';
 import { AgentUI, createInitialUIState } from '../../../src/ui/ink/AgentUI.js';
-import { LiveCommandBlock, ToolOutputBatchStatic, ToolOutputStatic } from '../../../src/ui/ink/ToolOutput.js';
+import { LiveCommandBlock, ToolOutputBatchStatic, ToolOutputStatic, WorkspaceChangesOutput } from '../../../src/ui/ink/ToolOutput.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 import { I18nProvider } from '../../../src/ui/i18n/index.js';
 
@@ -46,6 +46,41 @@ function renderAgentUI(state: ReturnType<typeof createInitialUIState>) {
 }
 
 describe('AgentUI live command block', () => {
+  it('renders normalized workspace changes with file status and themed diffs', () => {
+    const { lastFrame } = render(
+      <I18nProvider>
+        <ThemeProvider>
+          <WorkspaceChangesOutput
+            output={JSON.stringify({
+              version: 1,
+              files: [{
+                path: 'src/types.rs',
+                kind: 'modified',
+                additions: 1,
+                deletions: 1,
+                binary: false,
+                patch: [
+                  'diff --git a/src/types.rs b/src/types.rs',
+                  '@@ -1 +1 @@',
+                  '-pub struct Old;',
+                  '+pub struct New;',
+                ].join('\n'),
+              }],
+              omittedFiles: 0,
+            })}
+          />
+        </ThemeProvider>
+      </I18nProvider>
+    );
+
+    const output = lastFrame() ?? '';
+    const plainOutput = stripAnsi(output);
+    expect(plainOutput).toContain('• Edited src/types.rs (+1 -1)');
+    expect(plainOutput).toContain('1 -  pub struct Old;');
+    expect(plainOutput).toContain('1 +  pub struct New;');
+    expect(output).toContain('\u001b[48;2;');
+  });
+
   it('does not keep completed thinking text in the chat transcript', () => {
     const state = createInitialUIState();
     state.isWorking = false;
