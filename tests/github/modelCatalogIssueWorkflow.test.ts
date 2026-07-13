@@ -145,10 +145,10 @@ describe("model catalog issue automation", () => {
     });
     expect(source).toContain('body.includes("### Provider")');
     expect(source).toContain('body.includes("### Model ID")');
-    expect(source).toContain("github.event.issue.author_association");
-    expect(source).toContain("OWNER");
-    expect(source).toContain("MEMBER");
-    expect(source).toContain("COLLABORATOR");
+    expect(source).toContain("github.event.issue.user.login");
+    expect(source).toContain("/collaborators/${process.env.ISSUE_AUTHOR}/permission");
+    expect(source).toContain('["admin", "maintain", "write"]');
+    expect(source).not.toContain("CONTRIBUTOR");
     expect(source).toContain("qualify_model_request:");
     expect(source).toContain("permissions: {}");
     expect(source).toContain("needs: qualify_model_request");

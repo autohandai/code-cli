@@ -22,25 +22,43 @@ jobs:
       accepted: ${{ steps.qualify.outputs.accepted }}
 
     steps:
-      - name: Check request shape and author trust
+      - name: Check request shape and current repository permission
         id: qualify
         env:
-          AUTHOR_ASSOCIATION: ${{ github.event.issue.author_association }}
+          GH_TOKEN: ${{ secrets.MODEL_CATALOG_PR_TOKEN || github.token }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
           node --input-type=module <<'NODE'
+          import { execFileSync } from "node:child_process";
           import { appendFileSync } from "node:fs";
 
-          const trustedAssociations = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
-          const association = process.env.AUTHOR_ASSOCIATION ?? "";
+          const trustedPermissions = new Set(["admin", "maintain", "write"]);
           const body = process.env.ISSUE_BODY ?? "";
           const hasRequestFields = body.includes("### Provider") && body.includes("### Model ID");
-          const accepted = trustedAssociations.has(association) && hasRequestFields;
+          let permission = "";
+
+          try {
+            permission = execFileSync(
+              "gh",
+              [
+                "api",
+                `repos/${process.env.GITHUB_REPOSITORY}/collaborators/${process.env.ISSUE_AUTHOR}/permission`,
+                "--jq",
+                ".permission",
+              ],
+              { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+            ).trim();
+          } catch {
+            permission = "";
+          }
+
+          const accepted = trustedPermissions.has(permission) && hasRequestFields;
 
           appendFileSync(process.env.GITHUB_OUTPUT, `accepted=${accepted}\n`);
           appendFileSync(
             process.env.GITHUB_STEP_SUMMARY,
-            `Model catalog request: ${accepted ? "accepted" : "ignored"}. Author association: ${association || "unknown"}.\n`,
+            `Model catalog request: ${accepted ? "accepted" : "ignored"}. Repository permission: ${permission || "none"}.\n`,
           );
           NODE
 
