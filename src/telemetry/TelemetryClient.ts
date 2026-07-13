@@ -5,7 +5,7 @@
 import fs from 'fs-extra';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import type { TelemetryEvent, TelemetryConfig } from './types.js';
+import type { SessionSyncData, TelemetryEvent, TelemetryConfig } from './types.js';
 import { AUTOHAND_PATHS, AUTOHAND_FILES } from '../constants.js';
 import { atomicWriteJson } from '../utils/atomicFile.js';
 
@@ -49,6 +49,21 @@ function isOptionalString(value: unknown): boolean {
 
 function isOptionalFiniteNumber(value: unknown): boolean {
   return value === undefined || (typeof value === 'number' && Number.isFinite(value));
+}
+
+function isOptionalSessionUsageMetadata(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!isRecord(value)) return false;
+  return typeof value.totalTokens === 'number'
+    && Number.isFinite(value.totalTokens)
+    && typeof value.turnCount === 'number'
+    && Number.isSafeInteger(value.turnCount)
+    && value.turnCount >= 0
+    && (value.tokenUsageStatus === 'actual' || value.tokenUsageStatus === 'unavailable')
+    && typeof value.updatedAt === 'string'
+    && isOptionalFiniteNumber(value.promptTokens)
+    && isOptionalFiniteNumber(value.completionTokens)
+    && isOptionalFiniteNumber(value.longestTurnDurationMs);
 }
 
 function isTelemetryEvent(value: unknown): value is TelemetryEvent {
@@ -100,14 +115,9 @@ function isTelemetryEvent(value: unknown): value is TelemetryEvent {
 interface SessionSyncQueueEntry {
   sessionId: string;
   messages: Array<{ role: string; content: string; timestamp?: string }>;
-  metadata?: {
+  metadata?: Omit<SessionSyncData, 'messageCount'> & {
     model?: string;
     provider?: string;
-    totalTokens?: number;
-    startTime?: string;
-    endTime?: string;
-    durationSeconds?: number;
-    workspaceRoot?: string;
   };
 }
 
@@ -134,7 +144,13 @@ function isSessionSyncQueueEntry(value: unknown): value is SessionSyncQueueEntry
     && isOptionalString(value.metadata.startTime)
     && isOptionalString(value.metadata.endTime)
     && isOptionalFiniteNumber(value.metadata.durationSeconds)
-    && isOptionalString(value.metadata.workspaceRoot);
+    && isOptionalString(value.metadata.workspaceRoot)
+    && isOptionalString(value.metadata.projectName)
+    && isOptionalString(value.metadata.status)
+    && isOptionalString(value.metadata.summary)
+    && isOptionalString(value.metadata.client)
+    && isOptionalString(value.metadata.clientVersion)
+    && isOptionalSessionUsageMetadata(value.metadata.usage);
 }
 
 interface TelemetryFlushOptions {

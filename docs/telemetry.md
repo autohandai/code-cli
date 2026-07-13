@@ -26,6 +26,7 @@ Autohand CLI includes an optional telemetry system designed to help improve the 
 | Category        | Data Points                                 | Purpose                        |
 | --------------- | ------------------------------------------- | ------------------------------ |
 | **Session**     | Start/end time, duration, status            | Understand usage patterns      |
+| **Session sync** | Authenticated session snapshots and usage metadata | Resume sessions and power account-scoped session views |
 | **Tools**       | Which tools used, success/failure, duration | Improve tool reliability       |
 | **Errors**      | Error type, sanitized message               | Fix bugs faster                |
 | **Commands**    | Slash commands used                         | Prioritize feature development |
@@ -34,7 +35,7 @@ Autohand CLI includes an optional telemetry system designed to help improve the 
 ### What We Do NOT Collect
 
 - File contents or names
-- User prompts or conversations
+- User prompts or conversations through anonymous telemetry. Authenticated session sync is a separate opt-in path described below.
 - API keys or credentials
 - IP addresses (hashed on server)
 - Usernames, emails, or any PII
@@ -195,7 +196,15 @@ Session data uploaded for cloud sync feature.
 }
 ```
 
-**Frequency**: On session end (if enabled)
+**Frequency**: Debounced during active sessions and once on session end (if enabled)
+
+Session sync is separate from anonymous telemetry and requires both an authenticated
+account and `telemetry.enableSessionSync`. It uploads the existing session snapshot
+through `/v1/history`, including model/provider, project metadata, timing, status, and
+aggregated token usage (`promptTokens`, `completionTokens`, `totalTokens`, `turnCount`,
+usage availability, and the longest turn duration). Snapshots are queued locally when
+offline and retried later. The API must treat these fields as additive so older CLI
+versions and older servers continue to work.
 
 ---
 

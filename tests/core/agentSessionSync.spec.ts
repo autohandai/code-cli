@@ -21,7 +21,23 @@ function createHost() {
     sessionActualTokensUsed: 42,
     sessionManager: {
       getCurrentSession: vi.fn(() => ({
-        metadata: { sessionId: 'session-1' },
+        metadata: {
+          sessionId: 'session-1',
+          projectName: 'project',
+          status: 'active',
+          summary: 'Ship usage metrics',
+          client: 'terminal',
+          clientVersion: '0.8.2',
+          usage: {
+            promptTokens: 18,
+            completionTokens: 24,
+            totalTokens: 42,
+            turnCount: 1,
+            tokenUsageStatus: 'actual',
+            longestTurnDurationMs: 1200,
+            updatedAt: '2026-05-13T10:00:09.000Z',
+          },
+        },
         append,
         getMessages: () => messages,
       })),
@@ -70,6 +86,18 @@ describe('agent near-real-time session sync', () => {
         startTime: '2026-05-13T10:00:00.000Z',
         durationSeconds: 18,
         totalTokens: 42,
+        projectName: 'project',
+        status: 'active',
+        summary: 'Ship usage metrics',
+        client: 'terminal',
+        clientVersion: '0.8.2',
+        usage: expect.objectContaining({
+          promptTokens: 18,
+          completionTokens: 24,
+          totalTokens: 42,
+          turnCount: 1,
+          tokenUsageStatus: 'actual',
+        }),
       }),
     });
     expect(syncSession.mock.calls[0][0].metadata).not.toHaveProperty('endTime');

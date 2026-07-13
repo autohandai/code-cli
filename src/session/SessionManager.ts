@@ -10,7 +10,8 @@ import type {
     SessionMetadata,
     SessionMessage,
     WorkspaceState,
-    SessionIndex
+    SessionIndex,
+    SessionTurnUsageInput,
 } from './types.js';
 import { AUTOHAND_PATHS } from '../constants.js';
 import { atomicWriteJson, withFileLock } from '../utils/atomicFile.js';
@@ -451,6 +452,31 @@ export class Session {
         await fs.writeJson(statePath, state, { spaces: 2 });
     }
 
+    async recordTurnUsage(input: SessionTurnUsageInput): Promise<void> {
+        const current = this.metadata.usage;
+        const promptTokens = normalizeUsageCount(input.promptTokens);
+        const completionTokens = normalizeUsageCount(input.completionTokens);
+        const totalTokens = normalizeUsageCount(input.totalTokens);
+        const durationMs = normalizeUsageCount(input.durationMs);
+        const updatedAt = input.occurredAt ?? new Date().toISOString();
+
+        this.metadata.usage = {
+            promptTokens: (current?.promptTokens ?? 0) + promptTokens,
+            completionTokens: (current?.completionTokens ?? 0) + completionTokens,
+            totalTokens: (current?.totalTokens ?? 0) + totalTokens,
+            turnCount: (current?.turnCount ?? 0) + 1,
+            tokenUsageStatus:
+                current?.tokenUsageStatus === 'unavailable' || input.tokenUsageStatus === 'unavailable'
+                    ? 'unavailable'
+                    : 'actual',
+            longestTurnDurationMs: Math.max(current?.longestTurnDurationMs ?? 0, durationMs) || undefined,
+            updatedAt,
+        };
+        this.metadata.lastActiveAt = updatedAt;
+
+        await this.save();
+    }
+
     async save(): Promise<void> {
         await this.ensureSessionDir();
         const metadataPath = path.join(this.sessionDir, 'metadata.json');
@@ -492,4 +518,10 @@ export class Session {
         }
         await this.save();
     }
+}
+
+function normalizeUsageCount(value: number | undefined): number {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0
+        ? Math.round(value)
+        : 0;
 }

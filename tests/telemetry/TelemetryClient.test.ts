@@ -124,6 +124,43 @@ describe('TelemetryClient session sync', () => {
     );
   });
 
+  it('preserves enriched usage metadata in the history payload', async () => {
+    const client = createClient({
+      enabled: false,
+      enableSessionSync: true,
+      apiBaseUrl: 'https://api.example.test',
+      authToken: 'auth-token-123',
+    });
+
+    await client.uploadSession({
+      sessionId: 'session-1',
+      messages: [{ role: 'user', content: 'hello' }],
+      metadata: {
+        workspaceRoot: '/workspace/project',
+        projectName: 'project',
+        status: 'completed',
+        usage: {
+          totalTokens: 123,
+          promptTokens: 50,
+          completionTokens: 73,
+          turnCount: 1,
+          tokenUsageStatus: 'actual',
+          updatedAt: '2026-05-13T10:00:00.000Z',
+        },
+      },
+    });
+
+    const request = vi.mocked(fetch).mock.calls.at(-1)?.[1];
+    const body = JSON.parse(String(request?.body)) as {
+      metadata?: { projectName?: string; status?: string; usage?: { totalTokens?: number } };
+    };
+    expect(body.metadata).toMatchObject({
+      projectName: 'project',
+      status: 'completed',
+      usage: { totalTokens: 123 },
+    });
+  });
+
   describe('durable session sync queue', () => {
     function createOfflineClient(): TelemetryClient {
       vi.stubGlobal('fetch', vi.fn(async () => new Response('offline', { status: 503 })));
@@ -142,6 +179,20 @@ describe('TelemetryClient session sync', () => {
       [
         'an incomplete snapshot',
         JSON.stringify([{ sessionId: 'incomplete', messages: [{ role: 'user' }] }]),
+      ],
+      [
+        'invalid usage metadata',
+        JSON.stringify([{
+          ...sessionSnapshot('invalid-usage'),
+          metadata: {
+            usage: {
+              totalTokens: 'unknown',
+              turnCount: 1,
+              tokenUsageStatus: 'actual',
+              updatedAt: '2026-07-14T00:00:00.000Z',
+            },
+          },
+        }]),
       ],
     ])('fails closed and backs up a session queue containing %s', async (_label, queueContent) => {
       const queuePath = `${tempRoot}/telemetry/session-sync-queue.json`;
@@ -183,6 +234,42 @@ describe('TelemetryClient session sync', () => {
       expect(historyRequests.map(([, init]) => (
         JSON.parse(String(init?.body)).sessionId
       ))).toEqual(Array.from({ length: 10 }, (_, index) => `session-${index + 3}`));
+      expect(await fs.pathExists(queuePath)).toBe(false);
+    });
+
+    it('drains persisted snapshots with enriched usage metadata intact', async () => {
+      const queuePath = `${tempRoot}/telemetry/session-sync-queue.json`;
+      const snapshot = {
+        ...sessionSnapshot('enriched-session'),
+        metadata: {
+          ...sessionSnapshot('enriched-session').metadata,
+          projectName: 'project',
+          status: 'completed',
+          usage: {
+            totalTokens: 42,
+            promptTokens: 30,
+            completionTokens: 12,
+            turnCount: 1,
+            tokenUsageStatus: 'actual' as const,
+            updatedAt: '2026-07-14T00:00:00.000Z',
+          },
+        },
+      };
+      await fs.outputJson(queuePath, [snapshot]);
+      const client = createClient({
+        enabled: false,
+        enableSessionSync: true,
+        apiBaseUrl: 'https://api.example.test',
+        authToken: 'auth-token-123',
+      });
+
+      await expect(client.syncQueuedSessions()).resolves.toEqual({ synced: 1, failed: 0 });
+
+      const historyRequest = vi.mocked(fetch).mock.calls.find(
+        ([input]) => String(input).endsWith('/v1/history')
+      );
+      const requestBody = JSON.parse(String(historyRequest?.[1]?.body)) as typeof snapshot;
+      expect(requestBody.metadata.usage).toEqual(snapshot.metadata.usage);
       expect(await fs.pathExists(queuePath)).toBe(false);
     });
 

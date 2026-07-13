@@ -3,6 +3,8 @@
  * @license Apache-2.0
  */
 
+import type { SessionUsageMetadata } from '../session/types.js';
+
 /** Client type identifier for telemetry events */
 export type ClientType = 'cli' | 'vscode' | 'zed' | 'unknown';
 
@@ -111,6 +113,12 @@ export interface SessionSyncData {
   messageCount: number;
   totalTokens?: number;
   workspaceRoot?: string;
+  projectName?: string;
+  status?: string;
+  summary?: string;
+  client?: string;
+  clientVersion?: string;
+  usage?: SessionUsageMetadata;
   startTime?: string;
   endTime?: string;
   durationSeconds?: number;

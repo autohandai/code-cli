@@ -309,11 +309,11 @@ export class TelemetryManager {
         model: this.currentModel || undefined,
         provider: this.currentProvider || undefined,
         ...this.currentProviderMetadata,
-        totalTokens: data.metadata?.totalTokens,
+        ...data.metadata,
         startTime,
         ...(data.metadata?.endTime ? { endTime: data.metadata.endTime } : {}),
         durationSeconds,
-        workspaceRoot: data.metadata?.workspaceRoot
+        workspaceRoot: data.metadata?.workspaceRoot,
       }
     });
   }
