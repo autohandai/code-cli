@@ -49,6 +49,7 @@ function createHost(instructionSucceeded: boolean) {
       endSession: vi.fn().mockResolvedValue(undefined),
     },
     sessionStartedAt: Date.now() - 100,
+    shutdown: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -77,16 +78,20 @@ describe('runAgentCommandMode', () => {
       sessionId: 'session-1',
       tokensUsed: 42,
     }), lifecycleHookOptions());
-    expect(host.hookManager.executeHooks).toHaveBeenCalledWith('session-end', expect.objectContaining({
-      sessionId: 'session-1',
-      sessionEndReason: 'error',
-    }), lifecycleHookOptions());
     expect(host.notificationService.notify).not.toHaveBeenCalled();
     expect(host.performAutoCommit).not.toHaveBeenCalled();
     expect(stdoutWrite).not.toHaveBeenCalledWith('\x07');
-    expect(host.telemetryManager.endSession).toHaveBeenCalledWith('crashed');
-    expect(host.telemetryManager.endSession).toHaveBeenCalledOnce();
-    expect(host.hookManager.executeHooks).toHaveBeenCalledTimes(2);
+    expect(host.hookManager.executeHooks).not.toHaveBeenCalledWith(
+      'session-end',
+      expect.anything(),
+    );
+    expect(host.telemetryManager.endSession).not.toHaveBeenCalled();
+    expect(host.shutdown).toHaveBeenCalledWith({
+      sessionEndReason: 'error',
+      telemetryReason: 'crashed',
+      showSessionSummary: false,
+    });
+    expect(host.hookManager.executeHooks).toHaveBeenCalledOnce();
     expect(host.runtime.isCommandMode).toBe(false);
     expect(host.useInkRenderer).toBe(true);
   });
@@ -112,12 +117,17 @@ describe('runAgentCommandMode', () => {
       {},
     );
     expect(host.performAutoCommit).toHaveBeenCalledOnce();
-    expect(host.hookManager.executeHooks).toHaveBeenCalledWith('session-end', expect.objectContaining({
+    expect(host.hookManager.executeHooks).not.toHaveBeenCalledWith(
+      'session-end',
+      expect.anything(),
+    );
+    expect(host.telemetryManager.endSession).not.toHaveBeenCalled();
+    expect(host.shutdown).toHaveBeenCalledWith({
       sessionEndReason: 'exit',
-    }));
-    expect(host.telemetryManager.endSession).toHaveBeenCalledWith('completed');
-    expect(host.telemetryManager.endSession).toHaveBeenCalledOnce();
-    expect(host.hookManager.executeHooks).toHaveBeenCalledTimes(2);
+      telemetryReason: 'completed',
+      showSessionSummary: false,
+    });
+    expect(host.hookManager.executeHooks).toHaveBeenCalledOnce();
     expect(host.runtime.isCommandMode).toBe(false);
     expect(host.useInkRenderer).toBe(true);
   });
@@ -128,24 +138,22 @@ describe('runAgentCommandMode', () => {
 
     await expect(runAgentCommandMode(host, 'throwing instruction')).rejects.toThrow('provider failed');
 
-    expect(host.hookManager.executeHooks).toHaveBeenCalledTimes(2);
-    expect(host.hookManager.executeHooks).toHaveBeenNthCalledWith(
-      1,
+    expect(host.hookManager.executeHooks).toHaveBeenCalledOnce();
+    expect(host.hookManager.executeHooks).toHaveBeenCalledWith(
       'stop',
       expect.objectContaining({ sessionId: 'session-1' }),
       lifecycleHookOptions(),
     );
-    expect(host.hookManager.executeHooks).toHaveBeenNthCalledWith(
-      2,
+    expect(host.hookManager.executeHooks).not.toHaveBeenCalledWith(
       'session-end',
-      expect.objectContaining({
-        sessionId: 'session-1',
-        sessionEndReason: 'error',
-      }),
-      lifecycleHookOptions(),
+      expect.anything(),
     );
-    expect(host.telemetryManager.endSession).toHaveBeenCalledOnce();
-    expect(host.telemetryManager.endSession).toHaveBeenCalledWith('crashed');
+    expect(host.telemetryManager.endSession).not.toHaveBeenCalled();
+    expect(host.shutdown).toHaveBeenCalledWith({
+      sessionEndReason: 'error',
+      telemetryReason: 'crashed',
+      showSessionSummary: false,
+    });
     expect(host.runtime.isCommandMode).toBe(false);
     expect(host.useInkRenderer).toBe(true);
   });
@@ -158,15 +166,16 @@ describe('runAgentCommandMode', () => {
     await expect(runAgentCommandMode(host, 'throwing commit')).rejects.toThrow('commit failed');
 
     expect(host.hookManager.executeHooks).toHaveBeenCalledWith('stop', expect.any(Object));
-    expect(host.hookManager.executeHooks).toHaveBeenCalledWith('session-end', expect.objectContaining({
+    expect(host.hookManager.executeHooks).toHaveBeenCalledOnce();
+    expect(host.telemetryManager.endSession).not.toHaveBeenCalled();
+    expect(host.shutdown).toHaveBeenCalledWith({
       sessionEndReason: 'error',
-    }), lifecycleHookOptions());
-    expect(host.hookManager.executeHooks).toHaveBeenCalledTimes(2);
-    expect(host.telemetryManager.endSession).toHaveBeenCalledOnce();
-    expect(host.telemetryManager.endSession).toHaveBeenCalledWith('crashed');
+      telemetryReason: 'crashed',
+      showSessionSummary: false,
+    });
   });
 
-  it('still finalizes telemetry when command session lookup throws', async () => {
+  it('still shuts down when command session lookup throws', async () => {
     const host = createHost(true);
     host.sessionManager.getCurrentSession.mockImplementation(() => {
       throw new Error('session unavailable');
@@ -174,21 +183,16 @@ describe('runAgentCommandMode', () => {
 
     await expect(runAgentCommandMode(host, 'throwing session')).rejects.toThrow('session unavailable');
 
-    expect(host.hookManager.executeHooks).toHaveBeenCalledTimes(2);
-    expect(host.hookManager.executeHooks).toHaveBeenNthCalledWith(1, 'stop', expect.objectContaining({
+    expect(host.hookManager.executeHooks).toHaveBeenCalledOnce();
+    expect(host.hookManager.executeHooks).toHaveBeenCalledWith('stop', expect.objectContaining({
       sessionId: undefined,
     }));
-    expect(host.hookManager.executeHooks).toHaveBeenNthCalledWith(
-      2,
-      'session-end',
-      expect.objectContaining({
-        sessionId: undefined,
-        sessionEndReason: 'error',
-      }),
-      lifecycleHookOptions(),
-    );
-    expect(host.telemetryManager.endSession).toHaveBeenCalledOnce();
-    expect(host.telemetryManager.endSession).toHaveBeenCalledWith('crashed');
+    expect(host.telemetryManager.endSession).not.toHaveBeenCalled();
+    expect(host.shutdown).toHaveBeenCalledWith({
+      sessionEndReason: 'error',
+      telemetryReason: 'crashed',
+      showSessionSummary: false,
+    });
   });
 
   it('finalizes the failed command session before terminal resource shutdown after a signal', async () => {
@@ -203,8 +207,8 @@ describe('runAgentCommandMode', () => {
       order.push(event);
       return [];
     });
-    host.telemetryManager.endSession.mockImplementation(async () => {
-      order.push('telemetry-end');
+    host.shutdown.mockImplementation(async () => {
+      order.push('shutdown');
     });
     const signalHost = {
       shouldExit: false,
@@ -226,8 +230,7 @@ describe('runAgentCommandMode', () => {
     expect(order).toEqual([
       'abort',
       'stop',
-      'session-end',
-      'telemetry-end',
+      'shutdown',
       'resource-shutdown',
     ]);
   });
@@ -245,19 +248,18 @@ describe('runAgentCommandMode', () => {
     expect(host.runInstruction).toHaveBeenCalledWith('held instruction', {
       signal: controller.signal,
     });
-    expect(host.hookManager.executeHooks).toHaveBeenCalledTimes(2);
+    expect(host.hookManager.executeHooks).toHaveBeenCalledOnce();
     expect(host.hookManager.executeHooks).toHaveBeenCalledWith(
       'stop',
       expect.objectContaining({ sessionId: 'session-1' }),
       lifecycleHookOptions(),
     );
-    expect(host.hookManager.executeHooks).toHaveBeenCalledWith(
-      'session-end',
-      expect.objectContaining({ sessionEndReason: 'error' }),
-      lifecycleHookOptions(),
-    );
-    expect(host.telemetryManager.endSession).toHaveBeenCalledOnce();
-    expect(host.telemetryManager.endSession).toHaveBeenCalledWith('crashed');
+    expect(host.telemetryManager.endSession).not.toHaveBeenCalled();
+    expect(host.shutdown).toHaveBeenCalledWith({
+      sessionEndReason: 'error',
+      telemetryReason: 'crashed',
+      showSessionSummary: false,
+    });
   });
 
   it('uses the runtime shutdown signal through the public agent boundary', async () => {
@@ -279,12 +281,12 @@ describe('runAgentCommandMode', () => {
       expect.objectContaining({ sessionId: 'session-1' }),
       lifecycleHookOptions(),
     );
-    expect(agent.hookManager.executeHooks).toHaveBeenCalledWith(
-      'session-end',
-      expect.objectContaining({ sessionEndReason: 'error' }),
-      lifecycleHookOptions(),
-    );
-    expect(agent.telemetryManager.endSession).toHaveBeenCalledWith('crashed');
+    expect(agent.telemetryManager.endSession).not.toHaveBeenCalled();
+    expect(agent.shutdown).toHaveBeenCalledWith({
+      sessionEndReason: 'error',
+      telemetryReason: 'crashed',
+      showSessionSummary: false,
+    });
   });
 
   it('threads command cancellation through held auto-commit work before finalization', async () => {
@@ -305,8 +307,8 @@ describe('runAgentCommandMode', () => {
       order.push(event);
       return [];
     });
-    host.telemetryManager.endSession.mockImplementation(async () => {
-      order.push('telemetry-end');
+    host.shutdown.mockImplementation(async () => {
+      order.push('shutdown');
     });
 
     const command = runAgentCommandMode(host, 'successful turn', controller.signal);
@@ -319,8 +321,7 @@ describe('runAgentCommandMode', () => {
       'stop',
       'auto-commit-start',
       'auto-commit-abort',
-      'session-end',
-      'telemetry-end',
+      'shutdown',
     ]);
   });
 
@@ -333,8 +334,8 @@ describe('runAgentCommandMode', () => {
       order.push(event);
       return event === 'stop' ? new Promise(() => {}) : Promise.resolve([]);
     });
-    host.telemetryManager.endSession.mockImplementation(async () => {
-      order.push('telemetry-end');
+    host.shutdown.mockImplementation(async () => {
+      order.push('shutdown');
     });
 
     let settled = false;
@@ -354,9 +355,40 @@ describe('runAgentCommandMode', () => {
 
     await vi.advanceTimersByTimeAsync(1);
     await expect(command).resolves.toBe(false);
-    expect(order).toEqual(['stop', 'session-end', 'telemetry-end']);
-    expect(host.hookManager.executeHooks).toHaveBeenCalledTimes(2);
-    expect(host.telemetryManager.endSession).toHaveBeenCalledOnce();
+    expect(order).toEqual(['stop', 'shutdown']);
+    expect(host.hookManager.executeHooks).toHaveBeenCalledOnce();
+    expect(host.telemetryManager.endSession).not.toHaveBeenCalled();
+  });
+
+  it('does not resolve until orderly shutdown has closed command-mode resources', async () => {
+    const host = createHost(true);
+    vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    let resolveShutdown!: () => void;
+    host.shutdown = vi.fn(() => new Promise<void>((resolve) => {
+      resolveShutdown = resolve;
+    }));
+
+    let settled = false;
+    const runPromise = runAgentCommandMode(host, 'finish then close').then(() => {
+      settled = true;
+    });
+    await vi.waitFor(() => expect(host.shutdown).toHaveBeenCalledTimes(1));
+
+    expect(settled).toBe(false);
+    resolveShutdown();
+    await runPromise;
+    expect(settled).toBe(true);
+  });
+
+  it('keeps managers alive between explicit multi-turn command iterations', async () => {
+    const host = createHost(true);
+    vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+    await expect(runAgentCommandMode(host, 'iteration', { keepAlive: true })).resolves.toBe(true);
+
+    expect(host.shutdown).not.toHaveBeenCalled();
+    expect(host.runtime.isCommandMode).toBe(false);
+    expect(host.useInkRenderer).toBe(true);
   });
 });
 

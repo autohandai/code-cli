@@ -487,6 +487,31 @@ describe('McpClientManager', () => {
         await rm(tempDirectory, { recursive: true, force: true });
       }
     });
+
+    it('stops stdio child processes that are still initializing', async () => {
+      const hangingConfig: McpServerConfig = {
+        name: 'hanging-server',
+        transport: 'stdio',
+        command: 'node',
+        args: ['-e', 'process.stdin.resume(); setInterval(() => {}, 1000)'],
+      };
+      const connecting = manager.connectAll([hangingConfig]);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      await expect(manager.disconnectAll()).resolves.toBeUndefined();
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await expect(Promise.race([
+          connecting,
+          new Promise((_, reject) => {
+            timeout = setTimeout(() => reject(new Error('connect still pending')), 1000);
+          }),
+        ])).resolves.toBeUndefined();
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
+      expect(manager.listServers()).toEqual([]);
+    });
   });
 
   it('waits for stdio close after exit before stop settles', async () => {

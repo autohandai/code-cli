@@ -21,7 +21,7 @@ describe('standalone automode command outcomes', () => {
     expect(runIterationStart).toBeGreaterThanOrEqual(0);
     expect(runIterationEnd).toBeGreaterThan(runIterationStart);
     expect(runIterationSource).toMatch(
-      /activeAgent\.runCommandMode\(\s*iterationPrompt,\s*abortSignal,?\s*\)/,
+      /activeAgent\.runCommandMode\(\s*iterationPrompt,\s*\{ signal: abortSignal, keepAlive: true \},?\s*\)/,
     );
   });
 

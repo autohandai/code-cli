@@ -230,6 +230,7 @@ import {
   saveAgentUserMessage,
   setAgentOutputListener,
   setAgentStatusListener,
+  type AgentShutdownOptions,
   type AgentSessionAccountingHost,
 } from './agent/AgentSessionAccounting.js';
 import { AutoReportManager } from '../reporting/AutoReportManager.js';
@@ -300,6 +301,8 @@ export class AutohandAgent {
   private versionCheckResult?: VersionCheckResult;
   private teamManager!: TeamManager;
   private repeatManager!: RepeatManager;
+  private shutdownPromise: Promise<void> | null = null;
+  private teamShutdownPromise: Promise<void> | null = null;
   private sessionWorktreeState: (SessionWorktreeInfo & { originalWorkspaceRoot: string }) | null = null;
   private suggestionEngine: SuggestionEngine | null = null;
   private pendingSuggestion: Promise<void> | null = null;
@@ -509,11 +512,19 @@ export class AutohandAgent {
     return initializeAgentForRPC(this, signal);
   }
 
-  async runCommandMode(instruction: string, signal?: AbortSignal): Promise<boolean> {
+  async runCommandMode(
+    instruction: string,
+    options: AbortSignal | { signal?: AbortSignal; keepAlive?: boolean } = {},
+  ): Promise<boolean> {
     return runAgentCommandMode(
       this,
       instruction,
-      signal ?? this.runtimeResourceShutdownController?.signal,
+      'aborted' in options
+        ? options
+        : {
+            ...options,
+            signal: options.signal ?? this.runtimeResourceShutdownController?.signal,
+          },
     );
   }
 
@@ -841,9 +852,16 @@ export class AutohandAgent {
     return forceAgentIdleLogout(this as unknown as AgentSessionAccountingHost);
   }
 
+  async shutdown(options: AgentShutdownOptions = {}): Promise<void> {
+    this.shutdownPromise ??= (async () => {
+      await this.flushTurnMemoryReflection();
+      await closeAgentSession(this as unknown as AgentSessionAccountingHost, options);
+    })();
+    return this.shutdownPromise;
+  }
+
   private async closeSession(): Promise<void> {
-    await this.flushTurnMemoryReflection();
-    return closeAgentSession(this as unknown as AgentSessionAccountingHost);
+    return this.shutdown();
   }
 
   private flushScheduledSessionSnapshot(): Promise<void> {

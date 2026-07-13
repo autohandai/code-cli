@@ -36,6 +36,9 @@ export interface AgentSessionAccountingHost {
   lastActivityAt: number;
   lastAssistantResponseForNotification: string;
   mcpManager: { disconnectAll(): Promise<unknown> };
+  repeatManager?: { shutdown(): void };
+  teamManager?: { shutdown(): Promise<void> };
+  teamShutdownPromise?: Promise<void> | null;
   modifiedFilePaths: Set<string>;
   outputListener?: (event: AgentOutputEvent) => void;
   getReactionParser(): ReactionParser;
@@ -86,8 +89,24 @@ export interface AgentSessionAccountingHost {
   updateActiveAgentHeartbeat?(status?: 'idle' | 'working'): Promise<void>;
 }
 
-const CLEANUP_TIMEOUT_MS = 2500;
+const CLEANUP_TIMEOUT_MS = 5000;
 const SESSION_SYNC_DEBOUNCE_MS = 5000;
+
+export interface AgentShutdownOptions {
+  sessionEndReason?: string;
+  telemetryReason?: string;
+  showSessionSummary?: boolean;
+}
+
+async function settleCleanupTasks(tasks: Promise<unknown>[]): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<void>((resolve) => {
+    timeout = setTimeout(resolve, CLEANUP_TIMEOUT_MS);
+    timeout.unref?.();
+  });
+  await Promise.race([Promise.allSettled(tasks), timeoutPromise]);
+  if (timeout) clearTimeout(timeout);
+}
 
 type IdleLogoutEnv = {
   AUTOHAND_NO_IDLE_LOGOUT?: string;
@@ -275,20 +294,29 @@ export async function forceAgentIdleLogout(host: AgentSessionAccountingHost): Pr
   await host.closeSession();
 }
 
-export async function closeAgentSession(host: AgentSessionAccountingHost): Promise<void> {
-  await host.stopActiveAgentHeartbeat?.();
-  host.cleanupUI?.(false);
-  host.persistentInput.dispose();
+export async function closeAgentSession(
+  host: AgentSessionAccountingHost,
+  options: AgentShutdownOptions = {},
+): Promise<void> {
+  await host.stopActiveAgentHeartbeat?.().catch(() => {});
+  try { host.cleanupUI?.(false); } catch {}
+  try { host.persistentInput.dispose(); } catch {}
+  try { host.repeatManager?.shutdown(); } catch {}
+
+  const teamShutdown = host.teamShutdownPromise
+    ?? (host.teamManager
+      ? Promise.resolve().then(() => host.teamManager?.shutdown())
+      : undefined)
+    ?? Promise.resolve();
+  host.teamShutdownPromise = teamShutdown;
 
   const session = host.sessionManager.getCurrentSession();
 
   if (!session) {
-    console.log(formatSessionEnding());
-    await Promise.race([
-      Promise.allSettled([
-        host.mcpManager.disconnectAll(),
-      ]),
-      new Promise((resolve) => setTimeout(resolve, CLEANUP_TIMEOUT_MS)),
+    if (options.showSessionSummary !== false) console.log(formatSessionEnding());
+    await settleCleanupTasks([
+      host.mcpManager.disconnectAll(),
+      teamShutdown,
     ]);
     await host.telemetryManager.shutdown().catch(() => {});
     return;
@@ -297,11 +325,18 @@ export async function closeAgentSession(host: AgentSessionAccountingHost): Promi
   const messages = session.getMessages();
   const lastUserMsg = messages.filter((message) => message.role === 'user').slice(-1)[0];
   const summary = lastUserMsg?.content.slice(0, 60) || 'Session complete';
-  await host.sessionManager.closeSession(summary);
+  let sessionCloseError: unknown;
+  try {
+    await host.sessionManager.closeSession(summary);
+  } catch (error) {
+    sessionCloseError = error;
+  }
 
-  console.log(`\n${formatSessionEnding()}\n`);
-  console.log(formatSessionSaved(session.metadata.sessionId));
-  console.log(`${formatResumeHint(session.metadata.sessionId)}\n`);
+  if (options.showSessionSummary !== false) {
+    console.log(`\n${formatSessionEnding()}\n`);
+    console.log(formatSessionSaved(session.metadata.sessionId));
+    console.log(`${formatResumeHint(session.metadata.sessionId)}\n`);
+  }
 
   const sessionEndedAt = Date.now();
   const sessionDuration = Math.max(0, sessionEndedAt - host.sessionStartedAt);
@@ -309,9 +344,10 @@ export async function closeAgentSession(host: AgentSessionAccountingHost): Promi
 
   const cleanupTasks = [
     host.mcpManager.disconnectAll(),
+    teamShutdown,
     host.hookManager.executeHooks('session-end', {
       sessionId: session.metadata.sessionId,
-      sessionEndReason: 'quit',
+      sessionEndReason: options.sessionEndReason ?? 'quit',
       duration: sessionDuration,
     }),
     syncAgentSessionSnapshot(host, {
@@ -319,15 +355,13 @@ export async function closeAgentSession(host: AgentSessionAccountingHost): Promi
       session,
       endTimeMs: sessionEndedAt,
     }),
-    host.telemetryManager.endSession('completed'),
+    host.telemetryManager.endSession(options.telemetryReason ?? 'completed'),
   ];
 
-  await Promise.race([
-    Promise.allSettled(cleanupTasks),
-    new Promise((resolve) => setTimeout(resolve, CLEANUP_TIMEOUT_MS)),
-  ]);
+  await settleCleanupTasks(cleanupTasks);
 
   await host.telemetryManager.shutdown().catch(() => {});
+  if (sessionCloseError) throw sessionCloseError;
 }
 
 export async function saveAgentUserMessage(
