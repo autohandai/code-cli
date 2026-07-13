@@ -641,7 +641,7 @@ Custom themes can override any semantic color token. Missing tokens are inherite
 }
 ```
 
-Note: `readFileCharLimit` and `silentToolOutput` only affect terminal display. Full content is still sent to the model and stored in tool messages.
+Note: `readFileCharLimit` and `silentToolOutput` only affect terminal display. Full content is still sent to the model and stored in tool messages. When tool output is visible in the interactive Ink UI, non-ignored file changes inside the active workspace are captured around every LLM tool batch and rendered as Added, Edited, or Deleted diffs, including changes made by shell, meta, and MCP tools.
 
 You can toggle silent tool output without editing the file:
 
